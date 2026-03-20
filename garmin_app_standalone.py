@@ -160,6 +160,7 @@ ACCENT2   = "#533483"
 TEXT      = "#eaeaea"
 TEXT2     = "#a0a0b0"
 GREEN     = "#4ecca3"
+YELLOW    = "#f5a623"
 FONT_HEAD = ("Segoe UI", 11, "bold")
 FONT_BODY = ("Segoe UI", 9)
 FONT_BTN  = ("Segoe UI", 9, "bold")
@@ -176,11 +177,12 @@ class GarminApp(tk.Tk):
         self.resizable(True, True)
         self.minsize(920, 950)
         self.geometry("1100x980")
-        self._stop_event = threading.Event()  # signals running module to stop
-        self._running    = False              # True while a module is running
-        self._stop_btn   = None
-        self._last_html  = None
-        self._log_queue  = queue.Queue()
+        self._stop_event          = threading.Event()
+        self._running             = False
+        self._stop_btn            = None
+        self._last_html           = None
+        self._log_queue           = queue.Queue()
+        self._connection_verified = False  # skips test after first successful check
         self._build_ui()
         self._load_settings_to_ui()
         self.v_sync_mode.set("recent")
@@ -206,7 +208,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.0",
+        tk.Label(header, text="v1.0.1",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -249,7 +251,9 @@ class GarminApp(tk.Tk):
                       insertbackground=TEXT, relief="flat", bd=4, width=width)
         if show:
             kwargs["show"] = show
-        tk.Entry(row, **kwargs).pack(side="left", padx=(2, 0))
+        e = tk.Entry(row, **kwargs)
+        e.pack(side="left", padx=(2, 0))
+        return e
 
     def _build_settings_panel(self, parent):
         tk.Label(parent, text="Settings", font=FONT_HEAD,
@@ -280,18 +284,20 @@ class GarminApp(tk.Tk):
         row2.pack(fill="x", padx=4, pady=2)
         tk.Label(row2, text="Mode", font=FONT_BODY, bg=BG2, fg=TEXT2,
                  width=14, anchor="w").pack(side="left")
-        ttk.Combobox(row2, textvariable=self.v_sync_mode,
+        cb = ttk.Combobox(row2, textvariable=self.v_sync_mode,
                      values=["recent", "range", "auto"],
                      state="readonly", width=10,
-                     font=FONT_BODY).pack(side="left", padx=2)
+                     font=FONT_BODY)
+        cb.pack(side="left", padx=2)
+        cb.bind("<<ComboboxSelected>>", lambda e: self._on_sync_mode_change())
         self.v_sync_days     = tk.StringVar()
         self.v_sync_from     = tk.StringVar()
         self.v_sync_to       = tk.StringVar()
         self.v_sync_fallback = tk.StringVar()
-        self._field(s3, "Days (recent)",   self.v_sync_days,     width=8)
-        self._field(s3, "From (range)",    self.v_sync_from,     width=12)
-        self._field(s3, "To (range)",      self.v_sync_to,       width=12)
-        self._field(s3, "Fallback (auto)", self.v_sync_fallback, width=12)
+        self._e_sync_days     = self._field(s3, "Days (recent)",   self.v_sync_days,     width=8)
+        self._e_sync_from     = self._field(s3, "From (range)",    self.v_sync_from,     width=12)
+        self._e_sync_to       = self._field(s3, "To (range)",      self.v_sync_to,       width=12)
+        self._e_sync_fallback = self._field(s3, "Fallback (auto)", self.v_sync_fallback, width=12)
 
         s4 = self._section(parent, "Export Date Range")
         self.v_date_from = tk.StringVar()
@@ -321,10 +327,41 @@ class GarminApp(tk.Tk):
         tk.Button(parent, text="💾  Save Settings", font=FONT_BTN,
                   bg=ACCENT2, fg=TEXT, relief="flat", bd=0, pady=8, padx=12,
                   cursor="hand2", command=self._save).pack(fill="x", padx=12, pady=8)
+        self._log_level = "INFO"
+        self._log_level_btn = tk.Button(
+            parent, text="📋  Log: Simple", font=FONT_BTN,
+            bg=BG3, fg=TEXT2, relief="flat", bd=0, pady=6, padx=12,
+            cursor="hand2", command=self._toggle_log_level)
+        self._log_level_btn.pack(fill="x", padx=12, pady=(0, 8))
 
     def _build_actions_panel(self, parent):
         tk.Label(parent, text="Actions", font=FONT_HEAD,
                  bg=BG, fg=TEXT).pack(anchor="w", padx=20, pady=(14, 0))
+
+        # ── Connection test ────────────────────────────────────────────────────
+        fc = tk.Frame(parent, bg=BG, pady=4)
+        fc.pack(fill="x", padx=20, pady=2)
+        tk.Label(fc, text="CONNECTION", font=("Segoe UI", 7, "bold"),
+                 bg=BG, fg=ACCENT).pack(anchor="w")
+        tk.Frame(fc, bg=ACCENT, height=1).pack(fill="x", pady=(2, 6))
+        conn_row = tk.Frame(fc, bg=BG)
+        conn_row.pack(fill="x", pady=2)
+        self._test_btn = tk.Button(conn_row, text="🔌  Test Connection", font=FONT_BTN,
+                                   bg=BG3, fg=TEXT, relief="flat", bd=0,
+                                   pady=7, padx=14, cursor="hand2",
+                                   command=self._run_connection_test)
+        self._test_btn.pack(side="left")
+        status_row = tk.Frame(fc, bg=BG)
+        status_row.pack(fill="x", pady=(4, 2))
+        self._conn_indicators = {}
+        for key, label in [("login", "Login"), ("api", "API Access"), ("data", "Data")]:
+            cell = tk.Frame(status_row, bg=BG)
+            cell.pack(side="left", padx=(0, 16))
+            dot = tk.Label(cell, text="●", font=("Segoe UI", 10), bg=BG, fg=TEXT2)
+            dot.pack(side="left")
+            tk.Label(cell, text=label, font=FONT_BODY,
+                     bg=BG, fg=TEXT2).pack(side="left", padx=(3, 0))
+            self._conn_indicators[key] = dot
 
         f = tk.Frame(parent, bg=BG, pady=4)
         f.pack(fill="x", padx=20, pady=2)
@@ -411,6 +448,37 @@ class GarminApp(tk.Tk):
         self.v_age.set(s.get("age", "35"))
         self.v_sex.set(s.get("sex", "male"))
         self.v_delay.set(s.get("request_delay", "1.5"))
+        self._on_sync_mode_change()
+
+    def _on_sync_mode_change(self):
+        """Dim/enable sync fields based on selected mode."""
+        mode = self.v_sync_mode.get()
+        cfg = {
+            "recent": {
+                self._e_sync_days:     "normal",
+                self._e_sync_from:     "disabled",
+                self._e_sync_to:       "disabled",
+                self._e_sync_fallback: "disabled",
+            },
+            "range": {
+                self._e_sync_days:     "disabled",
+                self._e_sync_from:     "normal",
+                self._e_sync_to:       "normal",
+                self._e_sync_fallback: "disabled",
+            },
+            "auto": {
+                self._e_sync_days:     "disabled",
+                self._e_sync_from:     "disabled",
+                self._e_sync_to:       "disabled",
+                self._e_sync_fallback: "normal",
+            },
+        }
+        for widget, state in cfg.get(mode, {}).items():
+            widget.config(
+                state=state,
+                bg=BG3 if state == "normal" else BG2,
+                fg=TEXT if state == "normal" else TEXT2,
+            )
 
     def _collect_settings(self) -> dict:
         return {
@@ -428,6 +496,20 @@ class GarminApp(tk.Tk):
             "sex":                self.v_sex.get(),
             "request_delay":      self.v_delay.get().strip(),
         }
+
+    def _toggle_log_level(self):
+        if self._log_level == "INFO":
+            self._log_level = "DEBUG"
+            self._log_level_btn.config(text="📋  Log: Detailed", fg=YELLOW)
+        else:
+            self._log_level = "INFO"
+            self._log_level_btn.config(text="📋  Log: Simple", fg=TEXT2)
+
+        # If sync is running: stop and restart with new log level
+        if self._running:
+            self._log_queue.put("📋  Log level changed — restarting sync ...")
+            self._stop_event.set()
+            self.after(1000, self._run_collector)
 
     def _save(self):
         self.settings = self._collect_settings()
@@ -492,6 +574,7 @@ class GarminApp(tk.Tk):
         os.environ["GARMIN_DATE_TO"]         = _d_to   or _today.isoformat()
         os.environ["GARMIN_PROFILE_AGE"]     = s.get("age", "35")
         os.environ["GARMIN_PROFILE_SEX"]     = s.get("sex", "male")
+        os.environ["GARMIN_LOG_LEVEL"]       = getattr(self, "_log_level", "INFO")
 
     def _run_module(self, script_name: str, enable_stop: bool = False,
                     on_success: callable = None):
@@ -545,7 +628,7 @@ class GarminApp(tk.Tk):
             sys.stdout = q_writer
             sys.stderr = q_writer
             root_logger.handlers = [q_handler]
-            root_logger.setLevel(logging.DEBUG)
+            root_logger.setLevel(getattr(logging, self._log_level, logging.INFO))
 
             success = False
             try:
@@ -597,8 +680,142 @@ class GarminApp(tk.Tk):
 
     # ── Actions ────────────────────────────────────────────────────────────────
 
+    def _set_indicator(self, key: str, state: str):
+        """Set a connection indicator: 'pending' | 'ok' | 'fail' | 'reset'."""
+        colors = {"pending": "#f5a623", "ok": "#4ecca3", "fail": "#e94560", "reset": TEXT2}
+        self._conn_indicators[key].config(fg=colors.get(state, TEXT2))
+
+    def _run_connection_test(self):
+        """Test Login → API Access → Data in a background thread."""
+        s = self._collect_settings()
+        if not s["email"] or not s["password"]:
+            self._log("✗ Connection test: email or password missing.")
+            return
+
+        for key in self._conn_indicators:
+            self._set_indicator(key, "reset")
+        self._test_btn.config(state="disabled", bg=BG3, fg=TEXT2)
+        self._log("\n🔌  Testing connection ...")
+
+        def worker():
+            try:
+                from garminconnect import Garmin
+            except ImportError:
+                self._log_queue.put("✗ garminconnect not installed.")
+                self.after(0, lambda: self._test_btn.config(state="normal", bg=BG3, fg=TEXT))
+                return
+
+            # 1 — Login
+            self.after(0, self._set_indicator, "login", "pending")
+            try:
+                client = Garmin(s["email"], s["password"])
+                client.login()
+                self.after(0, self._set_indicator, "login", "ok")
+                self._log_queue.put("  ✓ Login successful")
+            except Exception as e:
+                self.after(0, self._set_indicator, "login", "fail")
+                self._log_queue.put(f"  ✗ Login failed: {e}")
+                self.after(0, lambda: self._test_btn.config(
+                    state="normal", bg="#e94560", fg=TEXT))
+                return
+
+            # 2 — API Access
+            self.after(0, self._set_indicator, "api", "pending")
+            try:
+                client.get_user_profile()
+                self.after(0, self._set_indicator, "api", "ok")
+                self._log_queue.put("  ✓ API access OK")
+            except Exception as e:
+                self.after(0, self._set_indicator, "api", "fail")
+                self._log_queue.put(f"  ✗ API access failed: {e}")
+                self.after(0, lambda: self._test_btn.config(
+                    state="normal", bg="#e94560", fg=TEXT))
+                return
+
+            # 3 — Data
+            self.after(0, self._set_indicator, "data", "pending")
+            try:
+                from datetime import date, timedelta
+                yesterday = (date.today() - timedelta(days=1)).isoformat()
+                client.get_stats(yesterday)
+                self.after(0, self._set_indicator, "data", "ok")
+                self._log_queue.put("  ✓ Data access OK")
+                self.after(0, lambda: self._test_btn.config(
+                    state="normal", bg="#4ecca3", fg="#0a0a1a"))
+            except Exception as e:
+                self.after(0, self._set_indicator, "data", "fail")
+                self._log_queue.put(f"  ✗ Data access failed: {e}")
+                self.after(0, lambda: self._test_btn.config(
+                    state="normal", bg="#e94560", fg=TEXT))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _run_collector(self):
-        self._run_module("garmin_collector.py", enable_stop=True)
+        """Run connection test first (once per session), then start sync."""
+        s = self._collect_settings()
+        if not s["email"] or not s["password"]:
+            self._log("✗ Email or password missing.")
+            return
+
+        if self._connection_verified:
+            self._run_module("garmin_collector.py", enable_stop=True)
+            return
+
+        for key in self._conn_indicators:
+            self._set_indicator(key, "reset")
+        self._test_btn.config(state="disabled", bg=BG3, fg=TEXT2)
+        self._log_queue.put("\n🔌  Testing connection ...")
+
+        def test_then_sync():
+            try:
+                from garminconnect import Garmin
+            except ImportError:
+                self._log_queue.put("✗ garminconnect not installed.")
+                self.after(0, lambda: self._test_btn.config(state="normal", bg=BG3, fg=TEXT))
+                return
+
+            # 1 — Login
+            self.after(0, self._set_indicator, "login", "pending")
+            try:
+                client = Garmin(s["email"], s["password"])
+                client.login()
+                self.after(0, self._set_indicator, "login", "ok")
+                self._log_queue.put("  ✓ Login successful")
+            except Exception as e:
+                self.after(0, self._set_indicator, "login", "fail")
+                self._log_queue.put(f"  ✗ Login failed: {e}")
+                self.after(0, lambda: self._test_btn.config(state="normal", bg="#e94560", fg=TEXT))
+                return
+
+            # 2 — API Access
+            self.after(0, self._set_indicator, "api", "pending")
+            try:
+                client.get_user_profile()
+                self.after(0, self._set_indicator, "api", "ok")
+                self._log_queue.put("  ✓ API access OK")
+            except Exception as e:
+                self.after(0, self._set_indicator, "api", "fail")
+                self._log_queue.put(f"  ✗ API access failed: {e}")
+                self.after(0, lambda: self._test_btn.config(state="normal", bg="#e94560", fg=TEXT))
+                return
+
+            # 3 — Data
+            self.after(0, self._set_indicator, "data", "pending")
+            try:
+                from datetime import date, timedelta
+                yesterday = (date.today() - timedelta(days=1)).isoformat()
+                client.get_stats(yesterday)
+                self.after(0, self._set_indicator, "data", "ok")
+                self._log_queue.put("  ✓ Data access OK — starting sync ...")
+                self.after(0, lambda: self._test_btn.config(state="normal", bg="#4ecca3", fg="#0a0a1a"))
+                self._connection_verified = True
+                self.after(0, lambda: self._run_module("garmin_collector.py", enable_stop=True))
+            except Exception as e:
+                self.after(0, self._set_indicator, "data", "fail")
+                self._log_queue.put(f"  ✗ Data access failed: {e}")
+                self.after(0, lambda: self._test_btn.config(state="normal", bg="#e94560", fg=TEXT))
+
+        threading.Thread(target=test_then_sync, daemon=True).start()
 
     def _run_excel_overview(self):
         self._run_module("garmin_to_excel.py")

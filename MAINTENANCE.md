@@ -70,7 +70,15 @@ Desktop GUI built with tkinter. Wraps all scripts so the user never needs a term
 
 **script_dir()** — returns `exe_folder/scripts/` when frozen (PyInstaller), `Path(__file__).parent` in dev mode.
 
-**`_stopped_by_user` flag** — suppresses the ENV snapshot log on deliberate stop. ENV snapshot is only logged on unexpected non-zero exit codes.
+**`_on_sync_mode_change()`** — callback bound to the Sync Mode combobox. Dims/enables the four sync fields (Days, From, To, Fallback) based on the selected mode. Called on every combobox change and once at startup via `_load_settings_to_ui()` to set the correct initial state.
+
+**`_toggle_log_level()`** — toggles between `INFO` (Simple) and `DEBUG` (Detailed) log output. Updates the button label and colour. Current level is passed to subprocesses via `GARMIN_LOG_LEVEL` ENV variable in `_build_env()`. If a sync is running when toggled, the subprocess is terminated and `_run_collector()` is called again after 500ms — already saved days are skipped automatically.
+
+**`_connection_verified`** — session flag, starts `False`. Set to `True` after the first successful connection test. `_run_collector()` skips the test on subsequent calls and starts the sync directly. Resets to `False` on app restart.
+
+**`_set_indicator(key, state)`** — updates a connection status dot. States: `"pending"` (orange), `"ok"` (green), `"fail"` (red), `"reset"` (grey).
+
+**`_run_connection_test()`** — runs three sequential checks in a background thread: Login → API Access (`get_user_profile`) → Data (`get_stats` for yesterday). Each indicator updates live as checks complete. Button turns green on full success, red on first failure. Stops immediately on failure — no point testing further if login fails.
 
 ### Settings file
 
@@ -96,7 +104,13 @@ Identical to `garmin_app.py` with two differences that make it work without a lo
 
 **Stop mechanism** — `self._stop_event` is a `threading.Event`. `_stop_collector()` sets it. `garmin_collector.py` checks `_is_stopped()` at the top of each day loop and inside `api_call()`.
 
-**`_apply_env()`** — writes directly into `os.environ` (instead of building a subprocess env dict). Must run before the module is imported because scripts read `os.environ.get()` at module level.
+**`_on_sync_mode_change()`** — identical to `garmin_app.py`. Dims/enables sync fields based on selected mode.
+
+**`_toggle_log_level()`** — identical to `garmin_app.py`. In standalone mode the level is applied directly to the root logger in `_run_module()` via `getattr(logging, self._log_level)`. Also written to `os.environ["GARMIN_LOG_LEVEL"]` via `_apply_env()`. If a sync is running, `_stop_event` is set and `_run_collector()` is called after 1000ms.
+
+**`_connection_verified`** — identical behaviour to `garmin_app.py`. Session flag, skips connection test on subsequent sync starts.
+
+**`_set_indicator()` / `_run_connection_test()`** — identical logic to `garmin_app.py`. In standalone mode log output goes via `self._log_queue` instead of `self.after(0, self._log, ...)` to stay thread-safe with the queue pump.
 
 ---
 
@@ -152,6 +166,7 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 | `SYNC_TO` | str | End date for `"range"` mode (`"YYYY-MM-DD"`) |
 | `SYNC_AUTO_FALLBACK` | str/None | Manual start date fallback for `"auto"` mode |
 | `REQUEST_DELAY` | float | Seconds between API calls (default 1.5) |
+| `GARMIN_LOG_LEVEL` | str | `"INFO"` (default) or `"DEBUG"` — set by app log toggle |
 
 ### Known Garmin API quirks
 
