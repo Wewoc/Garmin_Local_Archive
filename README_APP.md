@@ -57,6 +57,17 @@ Click **Save Settings** — settings are remembered between sessions.
 
 ## Buttons
 
+### Test Connection
+Tests the connection to Garmin Connect. Shows three indicators:
+
+- **Login** — credentials valid, session established
+- **API Access** — Garmin API is reachable and responding
+- **Data** — data endpoint returns results
+
+Each indicator turns green on success or red on failure. The button itself turns green if all three pass, red if any fail.
+
+The test also runs automatically the first time you click Sync Data. After a successful test the result is remembered for the session — subsequent syncs start immediately without re-testing. The test resets when you restart the app.
+
 ### Sync Data / Stop
 Downloads missing days from Garmin Connect. Watch the log at the bottom for progress.
 First run may take a while depending on how far back you go.
@@ -78,6 +89,11 @@ Reads from `raw/`. Uses the Export Date Range from settings.
 Generates `garmin_analysis.html` + `garmin_analysis.json`.
 Shows daily values vs your 90-day baseline vs age/fitness reference ranges.
 Reads from `summary/`. The JSON file can be uploaded to Ollama / Open WebUI for AI-assisted interpretation.
+
+### Log: Simple / Log: Detailed
+Toggles the log output level. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.
+
+If a sync is running when you toggle, it stops automatically and restarts with the new log level. Already downloaded days are not re-fetched.
 
 ### Open Data Folder
 Opens your data folder in Windows Explorer.

@@ -61,8 +61,9 @@ REQUEST_DELAY = float(os.environ.get("GARMIN_REQUEST_DELAY", "1.5"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 
+_log_level = getattr(logging, os.environ.get("GARMIN_LOG_LEVEL", "INFO"), logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format="%(asctime)s %(levelname)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )

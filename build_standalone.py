@@ -62,7 +62,7 @@ ALL_SCRIPTS = [
     "regenerate_summaries.py",
 ]
 
-DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
+DOCS = ["README.md", "README_APP.md", "README_APP_Standalone.md", "MAINTENANCE.md", "SETUP.md"]
 
 
 def migrate_layout(root: Path, scripts_dir: Path, info_dir: Path):
