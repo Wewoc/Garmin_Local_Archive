@@ -6,6 +6,24 @@ Archive and analyse your Garmin Connect data locally — no cloud, no third part
 
 ---
 
+## Why this exists
+
+I'm not a developer. I can't write Python.
+
+But I wanted what everyone else wanted — to ask an AI questions about my Garmin health data. Sleep, HRV, stress, recovery.
+
+The tools that exist send your data to OpenAI or Claude. Your heart rate, sleep patterns, and fitness data land on a US company's servers.
+
+I didn't want that.
+
+So I built this instead — with Claude as my coding partner, from zero, over many iterations. Everything runs locally. Nothing leaves your machine. The AI that analyses your data runs on your own hardware.
+
+It works. And if I could build it, you can use it.
+
+*Built with Claude · If this saved you time — [☕ buy me a coffee](https://ko-fi.com/wewoc)*
+
+---
+
 ## What is this?
 
 Five Python scripts and an optional desktop app that work together:
