@@ -5,10 +5,15 @@ garmin_to_excel.py
 Reads garmin_YYYY-MM-DD.json files from the summary folder and exports
 selected fields as a formatted Excel spreadsheet.
 
-Configuration: only edit the CONFIG block below, leave the rest untouched.
+Configuration via environment variables (all optional — hardcoded fallbacks below):
+  GARMIN_OUTPUT_DIR    Root data folder (summary/ lives here)
+  GARMIN_EXPORT_FILE   Full path for the output .xlsx file
+  GARMIN_DATE_FROM     Start date filter (YYYY-MM-DD), empty = all
+  GARMIN_DATE_TO       End date filter (YYYY-MM-DD), empty = all
 """
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 from openpyxl import Workbook
@@ -16,18 +21,21 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  CONFIG  –  edit here, do not touch anything below
+#  CONFIG — edit fallback values here, or set environment variables.
+#  Environment variables always take priority over the values below.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Path to the summary folder (same as in garmin_collector.py)
-SUMMARY_DIR = Path("~/garmin_data/summary").expanduser()
+_BASE = Path(os.environ.get("GARMIN_OUTPUT_DIR", "~/garmin_data")).expanduser()
 
-# Output file
-OUTPUT_FILE = Path("~/garmin_export.xlsx").expanduser()
+SUMMARY_DIR = _BASE / "summary"
+OUTPUT_FILE = Path(os.environ.get("GARMIN_EXPORT_FILE",
+                   str(_BASE / "garmin_export.xlsx")))
 
-# Date range (None = export everything available)
-DATE_FROM = None   # e.g. "2024-01-01"
-DATE_TO   = None   # e.g. "2024-12-31"
+# Date range (empty string or unset = export everything available)
+DATE_FROM = os.environ.get("GARMIN_DATE_FROM", "") or None   # e.g. "2024-01-01"
+DATE_TO   = os.environ.get("GARMIN_DATE_TO",   "") or None   # e.g. "2024-12-31"
+
+# ══════════════════════════════════════════════════════════════════════════════
 
 # ── Toggle columns on/off ──────────────────────────────────────────────────────
 # True  = column appears in the spreadsheet
