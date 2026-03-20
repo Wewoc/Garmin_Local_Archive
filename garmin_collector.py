@@ -79,8 +79,16 @@ def safe_get(d, *keys, default=None):
     return d
 
 
+def _is_stopped() -> bool:
+    """Returns True if the standalone GUI has requested a stop."""
+    ev = globals().get("_STOP_EVENT")
+    return ev is not None and ev.is_set()
+
+
 def api_call(client, method: str, *args, label: str = ""):
     """Single API call with delay and error handling. Returns (data, success)."""
+    if _is_stopped():
+        return None, False
     try:
         data = getattr(client, method)(*args)
         time.sleep(REQUEST_DELAY)
@@ -425,6 +433,9 @@ def main():
 
     ok, failed = 0, 0
     for i, day in enumerate(missing, 1):
+        if _is_stopped():
+            log.info(f"  Stopped after {ok} days saved.")
+            break
         log.info(f"  [{i}/{len(missing)}] {day}")
         date_str = day.isoformat()
         try:

@@ -26,7 +26,7 @@ It works. And if I could build it, you can use it.
 
 ## What is this?
 
-Five Python scripts and an optional desktop app that work together:
+Six Python scripts and an optional desktop app that work together:
 
 | Script                       | What it does                                                           | Reads from  |
 |------------------------------|------------------------------------------------------------------------|-------------|
@@ -47,29 +47,49 @@ garmin_data/
 
 ---
 
-## Quickstart — Desktop App (recommended)
+## Quickstart — which version should I download?
 
-Download `GarminArchive.zip` from the releases page, extract it, and double-click `GarminArchive.exe`.
+There are three ways to run Garmin Local Archive:
+
+| | Who it's for | Requirements |
+|---|---|---|
+| **Standalone EXE** | Anyone — no setup needed | Nothing |
+| **Standard EXE** | Users comfortable with Python | Python + libraries installed |
+| **Scripts only** | Developers | Python + libraries installed |
+
+### Option 1 — Standalone EXE (recommended for most users)
+
+Download `Garmin_Local_Archive_Standalone.zip` from the releases page, extract it, and double-click `Garmin_Local_Archive_Standalone.exe`.
 
 ```
-GarminArchive.exe     ← double-click to launch
-scripts/              ← required, must stay next to the .exe
-info/                 ← documentation (optional)
+Garmin_Local_Archive_Standalone.exe     ← double-click to launch — nothing else needed
+info/                                   ← documentation (optional)
 ```
 
-The app handles everything without a terminal. See `info/README_APP.md` for details.
+No Python, no terminal, no dependencies. Everything is built in.
+See `info/README_APP_Standalone.md` for full details.
 
----
+### Option 2 — Standard EXE (Python required)
 
-## Quickstart — Scripts only
+Download `Garmin_Local_Archive.zip` from the releases page, extract it, and double-click `Garmin_Local_Archive.exe`.
+
+```
+Garmin_Local_Archive.exe     ← double-click to launch
+scripts/                     ← required, must stay next to the .exe
+info/                        ← documentation (optional)
+```
+
+Python and the required libraries must be installed on your machine.
+See `info/README_APP.md` for full details.
+
+### Option 3 — Scripts only
 
 ```bash
 pip install garminconnect openpyxl keyring
+python garmin_collector.py
 ```
 
-Python 3.10 or newer required. If not installed: https://www.python.org/downloads/
-
-Each script reads its configuration from environment variables first, falling back to hardcoded values in the CONFIG block at the top of the file. To configure for terminal use: either edit the CONFIG block directly, or set the relevant `GARMIN_*` environment variables before running. See `MAINTENANCE.md` for the full variable reference.
+Python 3.10 or newer required. See the step-by-step setup below.
 
 ---
 
@@ -98,8 +118,6 @@ In the terminal, run:
 pip install garminconnect openpyxl keyring
 ```
 
-Wait for all to finish installing.
-
 ---
 
 ### Step 3 — Configure the collector
@@ -112,20 +130,12 @@ GARMIN_PASSWORD = os.environ.get("GARMIN_PASSWORD", "yourpassword")
 BASE_DIR        = Path(os.environ.get("GARMIN_OUTPUT_DIR", "~/garmin_data")).expanduser()
 ```
 
-Replace `"your@email.com"`, `"yourpassword"`, and `"~/garmin_data"` with your actual values. Alternatively, set the environment variables `GARMIN_EMAIL`, `GARMIN_PASSWORD`, and `GARMIN_OUTPUT_DIR` — they always take priority over the hardcoded values.
-
 **Sync mode** — choose how far back to go:
 
 ```python
 SYNC_MODE = "recent"    # default: last 90 days
 SYNC_MODE = "range"     # specific period: set SYNC_FROM and SYNC_TO below
 SYNC_MODE = "auto"      # everything since your oldest device (can take hours)
-```
-
-For a full historical backfill set `SYNC_MODE = "auto"` and optionally:
-
-```python
-SYNC_AUTO_FALLBACK = "2018-01-01"   # safety net if device detection fails
 ```
 
 ---
@@ -136,13 +146,7 @@ SYNC_AUTO_FALLBACK = "2018-01-01"   # safety net if device detection fails
 python garmin_collector.py
 ```
 
-On first run the script will:
-- Connect to Garmin Connect
-- Detect your registered devices and their first-use dates
-- Download all missing days (this can take a while for large backlogs)
-- Save one raw file and one summary file per day
-
-On subsequent runs it only fetches what's new.
+On first run the script will connect to Garmin Connect, detect your registered devices, and download all missing days. Subsequent runs only fetch what's new.
 
 **First run may ask for browser verification** — if Garmin requires a captcha, follow the prompt in the terminal. This only happens once.
 
@@ -150,45 +154,21 @@ On subsequent runs it only fetches what's new.
 
 ### Step 5 — Export to Excel (daily overview)
 
-Open `garmin_to_excel.py` and set the fallback paths in the CONFIG block — or set `GARMIN_OUTPUT_DIR` as an environment variable (the script derives all paths from it automatically):
-
-```python
-_BASE       = Path(os.environ.get("GARMIN_OUTPUT_DIR", "~/garmin_data")).expanduser()
-SUMMARY_DIR = _BASE / "summary"
-OUTPUT_FILE = Path(os.environ.get("GARMIN_EXPORT_FILE", str(_BASE / "garmin_export.xlsx")))
-```
-
-Optionally set a date range:
-
-```python
-DATE_FROM = os.environ.get("GARMIN_DATE_FROM", "") or None   # e.g. "2025-01-01"
-DATE_TO   = os.environ.get("GARMIN_DATE_TO",   "") or None   # e.g. "2025-12-31"
-```
-
-Toggle any columns on or off in the `FIELDS` block, then run:
-
 ```bash
 python garmin_to_excel.py
 ```
+
+Produces `garmin_export.xlsx` — one row per day, colour-coded by category. Toggle columns on/off in the `FIELDS` block at the top of the script.
 
 ---
 
 ### Step 6 — Export intraday timeseries (Excel + charts)
 
-Open `garmin_timeseries_excel.py` and set the fallback date range in the CONFIG block:
-
-```python
-DATE_FROM = os.environ.get("GARMIN_DATE_FROM", "2026-03-01")
-DATE_TO   = os.environ.get("GARMIN_DATE_TO",   "2026-03-16")
-```
-
-Then run:
-
 ```bash
 python garmin_timeseries_excel.py
 ```
 
-Produces one data sheet + one chart sheet per metric (Heart Rate, Stress, SpO2, Body Battery, Respiration).
+Produces one data sheet + one chart sheet per metric. Set the date range in the CONFIG block first.
 
 > For ranges longer than ~30 days the HTML dashboard (Step 7) is faster and more usable.
 
@@ -196,52 +176,23 @@ Produces one data sheet + one chart sheet per metric (Heart Rate, Stress, SpO2, 
 
 ### Step 7 — Interactive HTML dashboard
 
-Open `garmin_timeseries_html.py` and set the fallback date range in the CONFIG block:
-
-```python
-DATE_FROM = os.environ.get("GARMIN_DATE_FROM", "2026-03-01")
-DATE_TO   = os.environ.get("GARMIN_DATE_TO",   "2026-03-16")
-```
-
-Then run:
-
 ```bash
 python garmin_timeseries_html.py
 ```
 
-Open the resulting `.html` file in any browser. Features:
-- One tab per metric
-- Zoom by dragging, or use the range buttons (1d / 7d / 1m / All)
-- Hover for exact values
-- Works fully offline after first load (Plotly is cached)
+Generates `garmin_dashboard.html` — open in any browser. One tab per metric, fully zoomable, works offline.
 
 ---
 
 ### Step 8 — Analysis dashboard
 
-Open `garmin_analysis_html.py` and set the fallback date range and profile in the CONFIG block:
-
-```python
-DATE_FROM = os.environ.get("GARMIN_DATE_FROM", "2026-01-01")
-DATE_TO   = os.environ.get("GARMIN_DATE_TO",   "2026-03-17")
-
-PROFILE = {
-    "age": int(os.environ.get("GARMIN_PROFILE_AGE", "35")),
-    "sex": os.environ.get("GARMIN_PROFILE_SEX", "male"),
-}
-```
-
-Replace the fallback values with your age and sex. Fitness level is detected automatically from your VO2max data — no manual entry needed.
-
-Then run:
-
 ```bash
 python garmin_analysis_html.py
 ```
 
-Produces two files:
+Set your age and sex in the CONFIG block first. Produces:
 
-- `garmin_analysis.html` — browser dashboard showing daily values, your 90-day personal baseline (dashed), and age/fitness-adjusted reference range (green band) per metric
+- `garmin_analysis.html` — daily values vs your 90-day personal baseline vs age/fitness reference ranges
 - `garmin_analysis.json` — compact summary for AI tools with flagged days highlighted
 
 > Reference ranges are based on published guidelines (AHA, ACSM, Garmin/Firstbeat) and are informational only — not medical advice.
@@ -250,19 +201,23 @@ Produces two files:
 
 ### Step 9 — Desktop app (optional)
 
-If you prefer a GUI over editing scripts and running terminals, build the desktop app:
+**Standard EXE (Python required on target machine):**
 
 ```bash
 python build.py
 ```
 
-`build.py` automatically:
-- Installs PyInstaller and keyring if needed
-- Moves scripts to `scripts/` and docs to `info/` if still in root
-- Builds `GarminArchive.exe`
-- Creates `GarminArchive.zip` ready for distribution
+Produces `Garmin_Local_Archive.exe` + `Garmin_Local_Archive.zip`.
 
-See `info/README_APP.md` for full app documentation.
+**Standalone EXE (no Python required on target machine):**
+
+```bash
+python build_standalone.py
+```
+
+Produces `Garmin_Local_Archive_Standalone.exe` + `Garmin_Local_Archive_Standalone.zip`. All scripts and dependencies are embedded — the target machine needs nothing installed.
+
+Both build scripts auto-migrate scripts to `scripts/` and docs to `info/` if they are still in the root folder. Safe to run from any starting layout.
 
 ---
 
@@ -291,15 +246,9 @@ crontab -e
 
 ### Step 11 — AI-assisted analysis (optional)
 
-If you want to go beyond Excel and dashboards, connect a local AI model to your health data. Two tools work equally well — choose whichever suits you. Both run entirely on your machine. Your data never leaves your PC.
-
----
+Connect a local AI model to your health data. Both options run entirely on your machine — your data never leaves your PC.
 
 #### Option A — Open WebUI
-
-A full-featured chat interface for local AI models. Good all-round choice, widely used.
-
-**Setup:**
 
 1. Install Ollama: https://ollama.com/download
 2. Pull a model: `ollama pull qwen2.5:14b`
@@ -313,23 +262,14 @@ docker run -d -p 3000:8080 --gpus all \
   ghcr.io/open-webui/open-webui:cuda
 ```
 
-4. Open http://localhost:3000 in your browser
-5. Workspace → **Knowledge** → **+ New** → point to `garmin_data/summary`
-6. In chat: type `#` → select the knowledge base
-
----
+4. Open http://localhost:3000 → Workspace → **Knowledge** → **+ New** → point to `garmin_data/summary`
+5. In chat: type `#` → select the knowledge base
 
 #### Option B — AnythingLLM
 
-Purpose-built for document and knowledge base workflows. Stronger RAG than Open WebUI — better at finding specific days or metrics across large date ranges.
-
-**Setup:**
-
 1. Download AnythingLLM Desktop: https://anythingllm.com
-2. Connect Ollama as LLM provider (Settings → LLM → Ollama)
+2. Connect Ollama (Settings → LLM → Ollama)
 3. New Workspace → Upload documents → point to `garmin_data/summary`
-
----
 
 #### Which one to choose?
 
@@ -340,14 +280,11 @@ Purpose-built for document and knowledge base workflows. Stronger RAG than Open 
 | Document/RAG quality | Good | Very good |
 | Best for | General AI assistant + health data | Primarily health data Q&A |
 
-**Using the analysis JSON with either tool:**
-
-Upload `garmin_analysis.json` directly into a chat for targeted analysis — it contains pre-processed comparisons against your personal baseline and reference ranges, much better context than raw numbers.
+**Tip:** upload `garmin_analysis.json` directly into a chat for targeted analysis — it contains pre-processed comparisons against your personal baseline and reference ranges.
 
 Example questions:
 - *"How was my sleep and HRV last week?"*
 - *"Which days had Body Battery below 30?"*
-- *"When did I have the highest training load?"*
 - *"Compare my resting heart rate this month vs last month."*
 - *"Based on the analysis file, which metrics need attention and why?"*
 

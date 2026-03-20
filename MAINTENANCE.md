@@ -7,69 +7,96 @@ This document is intended for anyone maintaining, extending, or debugging this p
 ## Project structure
 
 ```
-/garmin_collector/              – repo root
-|-- GarminArchive.exe           – desktop app (built by build.py)
-|-- GarminArchive.zip           – release package (built by build.py)
-|-- build.py                    – builds the .exe and .zip
+/garmin-local-archive/              – repo root
+|-- Garmin_Local_Archive.exe        – standard desktop app (built by build.py)
+|-- Garmin_Local_Archive.zip        – standard release package (built by build.py)
+|-- Garmin_Local_Archive_Standalone.exe   – standalone desktop app (built by build_standalone.py)
+|-- Garmin_Local_Archive_Standalone.zip   – standalone release package
+|-- build.py                        – builds Target 2 (Python required on target)
+|-- build_standalone.py             – builds Target 3 (no Python required on target)
 |
-+-- scripts/                    – all Python scripts
-|       garmin_app.py           – desktop GUI (tkinter)
-|       garmin_collector.py     – fetches + archives data from Garmin Connect
-|       garmin_to_excel.py      – exports summary/ to daily overview Excel
++-- scripts/                        – all Python scripts
+|       garmin_app.py               – desktop GUI entry point (Target 1 dev + Target 2 EXE)
+|       garmin_app_standalone.py    – desktop GUI entry point (Target 3 standalone)
+|       garmin_collector.py         – fetches + archives data from Garmin Connect
+|       garmin_to_excel.py          – exports summary/ to daily overview Excel
 |       garmin_timeseries_excel.py  – exports raw/ intraday data to Excel + charts
 |       garmin_timeseries_html.py   – exports raw/ intraday data to interactive HTML
 |       garmin_analysis_html.py     – analysis dashboard + JSON for Ollama
 |       regenerate_summaries.py     – rebuilds summaries from raw without API call
 |
-+-- info/                       – documentation
++-- info/                           – documentation
 |       README.md
-|       README_APP.md
-|       MAINTENANCE.md          – this file
-|       SETUP.md
+|       README_APP.md               – Standard EXE docs (Python required)
+|       README_APP_Standalone.md    – Standalone EXE docs (no Python required)
+|       MAINTENANCE.md              – this file
 |
-+-- raw/                        – one file per day, full API dump
++-- raw/                            – one file per day, full API dump
 |       garmin_raw_YYYY-MM-DD.json
 |
-\-- summary/                    – one file per day, compact summary
+\-- summary/                        – one file per day, compact summary
         garmin_YYYY-MM-DD.json
 ```
 
-`build.py` auto-migrates scripts and docs from root to their subfolders if they're still there — safe to run repeatedly.
+Both `build.py` and `build_standalone.py` auto-migrate scripts and docs from root to their subfolders if they're still there — safe to run from any starting layout.
 
 ---
 
-## garmin_app.py
+## Three build targets
+
+| Target | Entry point | Build script | Output | Python on target |
+|--------|-------------|--------------|--------|-----------------|
+| 1 — Dev | `garmin_app.py` | — (run directly) | — | Required |
+| 2 — Standard EXE | `garmin_app.py` | `build.py` | `Garmin_Local_Archive.exe` | Required |
+| 3 — Standalone EXE | `garmin_app_standalone.py` | `build_standalone.py` | `Garmin_Local_Archive_Standalone.exe` | Not required |
+
+---
+
+## garmin_app.py (Target 1 + 2)
 
 ### Purpose
 
-Desktop GUI built with tkinter. Wraps all scripts so the user never needs a terminal. Distributed as a PyInstaller `.exe`.
+Desktop GUI built with tkinter. Wraps all scripts so the user never needs a terminal. Target 2 is distributed as a PyInstaller `.exe` — `scripts/` must stay next to it at runtime.
 
 ### Key design decisions
 
-**Script execution** — the app does not import scripts as modules. Instead it patches config values directly into a temp copy (`_tmp_garmin_*.py`) and runs it as a subprocess via `python.exe`. This avoids import conflicts and makes each script independently runnable.
+**Script execution** — scripts are run as subprocesses via a locally installed `python.exe`. `_find_python()` searches PATH and common Windows install locations. `_build_env()` sets all 18 `GARMIN_*` environment variables before launching the subprocess.
 
-**Password security** — the password is stored in the Windows Credential Manager via the `keyring` library. It is never written to the settings JSON file or any temp file — it is passed exclusively via the `GARMIN_PASSWORD` environment variable, which is only visible to the child process.
+**Configuration** — all config is passed via `os.environ` — no source patching, no temp files. `_build_env()` in `garmin_app.py` builds the full env dict from UI settings.
 
-**Stop button** — only the collector has a stop button (it's the only long-running process). `self._active_proc` holds the current subprocess reference. `_stop_collector()` calls `proc.terminate()`, waits 5 seconds, then `proc.kill()` as fallback.
+**Password security** — stored in Windows Credential Manager via `keyring`. Never written to the settings JSON or any temp file. Passed to subprocesses via `GARMIN_PASSWORD` env var only.
 
-**script_dir()** — returns `exe_folder/scripts/` when frozen, `Path(__file__).parent` in dev mode.
+**Stop button** — only the collector has one. `self._active_proc` holds the subprocess reference. `_stop_collector()` calls `proc.terminate()`, waits 5 s, then `proc.kill()`.
 
-### Keyring helpers
+**script_dir()** — returns `exe_folder/scripts/` when frozen (PyInstaller), `Path(__file__).parent` in dev mode.
 
-```python
-KEYRING_SERVICE = "GarminLocalArchive"
-KEYRING_USER    = "garmin_password"
-```
-
-`load_password()` / `save_password()` / `delete_password()` — all wrapped in try/except so the app works even if keyring is unavailable (falls back to empty string).
+**`_stopped_by_user` flag** — suppresses the ENV snapshot log on deliberate stop. ENV snapshot is only logged on unexpected non-zero exit codes.
 
 ### Settings file
 
 `~/.garmin_archive_settings.json` — all settings except password. Password field is stripped on save and removed on load (migration from older versions that stored it in plaintext).
 
-### _patch_and_run(script_name, patches, enable_stop=False)
+---
 
-Reads the script, applies string replacements from `patches` dict, writes `_tmp_{script_name}` to `scripts/`, runs it as a subprocess. `enable_stop=True` activates the stop button and stores `proc` in `self._active_proc`. Temp file is deleted on success, kept on failure for inspection.
+## garmin_app_standalone.py (Target 3)
+
+### Purpose
+
+Identical to `garmin_app.py` with two differences that make it work without a local Python installation.
+
+### Key differences from garmin_app.py
+
+**`_find_python()`** — always returns `sys.executable`. In a PyInstaller standalone EXE, `sys.executable` is the EXE itself, which contains the embedded Python interpreter.
+
+**`script_dir()`** — returns `Path(sys._MEIPASS) / "scripts"`. PyInstaller unpacks `--add-data` files to `sys._MEIPASS` at runtime. Scripts land in `sys._MEIPASS/scripts/`.
+
+**`_run_module()` instead of `_run_script()`** — does not use subprocesses. Scripts are loaded with `importlib.util.spec_from_file_location()` and `main()` is called directly in a background thread. This avoids the problem where `sys.executable` would re-launch the GUI EXE instead of a Python interpreter.
+
+**Output capture** — `sys.stdout`, `sys.stderr`, and the root logger are redirected to a `queue.Queue` via `_QueueWriter` and `_QueueHandler`. A 50ms poll (`_poll_log_queue`) drains the queue and writes lines to the GUI log.
+
+**Stop mechanism** — `self._stop_event` is a `threading.Event`. `_stop_collector()` sets it. `garmin_collector.py` checks `_is_stopped()` at the top of each day loop and inside `api_call()`.
+
+**`_apply_env()`** — writes directly into `os.environ` (instead of building a subprocess env dict). Must run before the module is imported because scripts read `os.environ.get()` at module level.
 
 ---
 
@@ -86,13 +113,19 @@ Every day produces two files:
 - `raw/garmin_raw_YYYY-MM-DD.json` — complete API response for all endpoints (~500 KB). Never modified after creation. Serves as the permanent source of truth.
 - `summary/garmin_YYYY-MM-DD.json` — compact distillation (~2 KB). Used by Open WebUI / Ollama as a Knowledge Base. Can always be regenerated from raw without hitting the API again.
 
+### Stop support (standalone mode)
+
+`_is_stopped()` checks `globals().get("_STOP_EVENT")`. In standalone mode, `garmin_app_standalone.py` injects a `threading.Event` into the module dict before calling `main()`. In all other modes the key is absent and `_is_stopped()` always returns `False` — no effect on Target 1 or 2.
+
+Stop is checked in two places: at the top of the day loop, and at the start of each `api_call()`.
+
 ### Sync modes
 
-| Mode       | Behaviour                                                             |
-|------------|-----------------------------------------------------------------------|
+| Mode | Behaviour |
+|------|-----------|
 | `"recent"` | Checks last `SYNC_DAYS` days (default 90). Good for daily automation. |
-| `"range"`  | Checks `SYNC_FROM` to `SYNC_TO` only. Good for targeted backfills.   |
-| `"auto"`   | Checks from oldest registered device to today. Full historical sync.  |
+| `"range"` | Checks `SYNC_FROM` to `SYNC_TO` only. Good for targeted backfills. |
+| `"auto"` | Checks from oldest registered device to today. Full historical sync. |
 
 ### Key functions
 
@@ -108,17 +141,17 @@ Every day produces two files:
 
 ### Configuration variables
 
-| Variable             | Type      | Description                                                      |
-|----------------------|-----------|------------------------------------------------------------------|
-| `GARMIN_EMAIL`       | str       | Garmin Connect login email                                       |
-| `GARMIN_PASSWORD`    | str       | Garmin Connect password (env var `GARMIN_PASSWORD` when via GUI) |
-| `BASE_DIR`           | Path      | Root folder; `raw/` and `summary/` live here                     |
-| `SYNC_MODE`          | str       | `"recent"`, `"range"`, or `"auto"`                               |
-| `SYNC_DAYS`          | int       | Days to check in `"recent"` mode (default 90)                    |
-| `SYNC_FROM`          | str       | Start date for `"range"` mode (`"YYYY-MM-DD"`)                   |
-| `SYNC_TO`            | str       | End date for `"range"` mode (`"YYYY-MM-DD"`)                     |
-| `SYNC_AUTO_FALLBACK` | str/None  | Manual start date fallback for `"auto"` mode                     |
-| `REQUEST_DELAY`      | float     | Seconds between API calls (default 1.5)                          |
+| Variable | Type | Description |
+|----------|------|-------------|
+| `GARMIN_EMAIL` | str | Garmin Connect login email |
+| `GARMIN_PASSWORD` | str | Garmin Connect password |
+| `BASE_DIR` | Path | Root folder; `raw/` and `summary/` live here |
+| `SYNC_MODE` | str | `"recent"`, `"range"`, or `"auto"` |
+| `SYNC_DAYS` | int | Days to check in `"recent"` mode (default 90) |
+| `SYNC_FROM` | str | Start date for `"range"` mode (`"YYYY-MM-DD"`) |
+| `SYNC_TO` | str | End date for `"range"` mode (`"YYYY-MM-DD"`) |
+| `SYNC_AUTO_FALLBACK` | str/None | Manual start date fallback for `"auto"` mode |
+| `REQUEST_DELAY` | float | Seconds between API calls (default 1.5) |
 
 ### Known Garmin API quirks
 
@@ -149,13 +182,13 @@ Reads all `summary/garmin_YYYY-MM-DD.json` files and produces a formatted daily 
 
 ### Configuration variables
 
-| Variable                  | Description                                    |
-|---------------------------|------------------------------------------------|
-| `SUMMARY_DIR`             | Path to `summary/` folder                      |
-| `OUTPUT_FILE`             | Output `.xlsx` path                            |
-| `DATE_FROM` / `DATE_TO`   | Date filter; `None` exports everything         |
-| `FIELDS`                  | Dict of `"section.field": True/False`          |
-| `EXPORT_ACTIVITIES_SHEET` | Whether to include the activities sheet        |
+| Variable | Description |
+|----------|-------------|
+| `SUMMARY_DIR` | Path to `summary/` folder |
+| `OUTPUT_FILE` | Output `.xlsx` path |
+| `DATE_FROM` / `DATE_TO` | Date filter; `None` exports everything |
+| `FIELDS` | Dict of `"section.field": True/False` |
+| `EXPORT_ACTIVITIES_SHEET` | Whether to include the activities sheet |
 
 ---
 
@@ -167,13 +200,13 @@ Reads `raw/garmin_raw_YYYY-MM-DD.json` files and exports full intraday measureme
 
 ### Metrics and extractors
 
-| Metric key     | Extractor function       | Source field in raw JSON                              |
-|----------------|--------------------------|-------------------------------------------------------|
-| `heart_rate`   | `extract_heart_rate()`   | `heart_rates.heartRateValues`                         |
-| `stress`       | `extract_stress()`       | `stress.stressValuesArray`                            |
-| `spo2`         | `extract_spo2()`         | `spo2.spO2HourlyAverages` or `continuousReadingDTOList` |
-| `body_battery` | `extract_body_battery()` | `stress.bodyBatteryValuesArray`                       |
-| `respiration`  | `extract_respiration()`  | `respiration.respirationValuesArray`                  |
+| Metric key | Extractor function | Source field in raw JSON |
+|---|---|---|
+| `heart_rate` | `extract_heart_rate()` | `heart_rates.heartRateValues` |
+| `stress` | `extract_stress()` | `stress.stressValuesArray` |
+| `spo2` | `extract_spo2()` | `spo2.spO2HourlyAverages` or `continuousReadingDTOList` |
+| `body_battery` | `extract_body_battery()` | `stress.bodyBatteryValuesArray` |
+| `respiration` | `extract_respiration()` | `respiration.respirationValuesArray` |
 
 ### Adding a new metric
 
@@ -182,16 +215,6 @@ Reads `raw/garmin_raw_YYYY-MM-DD.json` files and exports full intraday measureme
 3. Add display name and unit to `METRIC_LABELS`.
 4. Add fill colour to `METRIC_COLORS`, chart colour to `CHART_COLORS`.
 5. Add `True` entry to `METRICS` config block.
-
-### Configuration variables
-
-| Variable      | Description                              |
-|---------------|------------------------------------------|
-| `RAW_DIR`     | Path to `raw/` folder                    |
-| `OUTPUT_FILE` | Output `.xlsx` path                      |
-| `DATE_FROM`   | Start date (required, `"YYYY-MM-DD"`)    |
-| `DATE_TO`     | End date (required, `"YYYY-MM-DD"`)      |
-| `METRICS`     | Dict of metric keys to `True`/`False`    |
 
 > Excel becomes slow with many data points. For ranges longer than ~30 days, use the HTML dashboard instead.
 
@@ -216,16 +239,6 @@ raw JSON files
 ### Adding a new metric
 
 Same steps as for the Excel script. Additionally update `METRIC_META` with label, unit, and hex colour for the chart line.
-
-### Configuration variables
-
-| Variable      | Description                              |
-|---------------|------------------------------------------|
-| `RAW_DIR`     | Path to `raw/` folder                    |
-| `OUTPUT_FILE` | Output `.html` path                      |
-| `DATE_FROM`   | Start date (required, `"YYYY-MM-DD"`)    |
-| `DATE_TO`     | End date (required, `"YYYY-MM-DD"`)      |
-| `METRICS`     | Dict of metric keys to `True`/`False`    |
 
 ---
 
@@ -252,14 +265,14 @@ summary JSONs
 
 ### Reference range sources
 
-| Metric       | Source                                     | Notes                            |
-|--------------|--------------------------------------------|----------------------------------|
-| HRV          | Shaffer & Ginsberg 2017, Garmin whitepaper | Age + sex + fitness adjusted     |
-| Resting HR   | AHA guidelines                             | Fitness adjusted                 |
-| SpO2         | WHO, AHA                                   | Fixed range 95–100%              |
-| Sleep        | National Sleep Foundation 2023             | Age adjusted                     |
-| Body Battery | Garmin guidance                            | No external norm; >50 = adequate |
-| Stress       | Garmin scale                               | 0–50 = low/rest; >50 = elevated  |
+| Metric | Source | Notes |
+|--------|--------|-------|
+| HRV | Shaffer & Ginsberg 2017, Garmin whitepaper | Age + sex + fitness adjusted |
+| Resting HR | AHA guidelines | Fitness adjusted |
+| SpO2 | WHO, AHA | Fixed range 95–100% |
+| Sleep | National Sleep Foundation 2023 | Age adjusted |
+| Body Battery | Garmin guidance | No external norm; >50 = adequate |
+| Stress | Garmin scale | 0–50 = low/rest; >50 = elevated |
 
 ### Adding a new metric
 
@@ -270,15 +283,15 @@ summary JSONs
 
 ### Configuration variables
 
-| Variable        | Description                                            |
-|-----------------|--------------------------------------------------------|
-| `SUMMARY_DIR`   | Path to `summary/` folder                             |
-| `OUTPUT_HTML`   | Output `.html` path                                   |
-| `OUTPUT_JSON`   | Output `.json` path for Ollama                        |
-| `DATE_FROM`     | Start date (`"YYYY-MM-DD"`)                           |
-| `DATE_TO`       | End date (`"YYYY-MM-DD"`)                             |
-| `PROFILE`       | Dict with `age` (int) and `sex` (`"male"`/`"female"`) |
-| `BASELINE_DAYS` | Rolling average window (default 90)                   |
+| Variable | Description |
+|----------|-------------|
+| `SUMMARY_DIR` | Path to `summary/` folder |
+| `OUTPUT_HTML` | Output `.html` path |
+| `OUTPUT_JSON` | Output `.json` path for Ollama |
+| `DATE_FROM` | Start date (`"YYYY-MM-DD"`) |
+| `DATE_TO` | End date (`"YYYY-MM-DD"`) |
+| `PROFILE` | Dict with `age` (int) and `sex` (`"male"`/`"female"`) |
+| `BASELINE_DAYS` | Rolling average window (default 90) |
 
 ---
 
@@ -290,7 +303,7 @@ summary JSONs
 python regenerate_summaries.py
 ```
 
-Set `BASE_DIR` at the top of the script to match your data folder. Run this whenever `summarize()` in `garmin_collector.py` is updated.
+Run this whenever `summarize()` in `garmin_collector.py` is updated.
 
 ### Re-fetching a specific day
 
@@ -302,7 +315,7 @@ If Garmin throttles requests: increase `REQUEST_DELAY` from `1.5` to `3.0`.
 
 ### Login / captcha issues
 
-Garmin may require browser-based MFA on first run or after long inactivity. Run `garmin_collector.py` manually in a terminal and follow any prompts.
+Garmin may require browser-based MFA on first run or after long inactivity. Run `garmin_collector.py` manually in a terminal and follow any prompts. After that the GUI versions work normally.
 
 ### Older devices (Vivosmart 3, Fenix 5)
 
@@ -318,8 +331,24 @@ The `garminconnect` import warning is cosmetic. Click the interpreter selector (
 
 ### Building a new release
 
+**Target 2 — Standard EXE (Python required):**
+
 ```bash
 python build.py
 ```
 
-Produces `GarminArchive.exe` and `GarminArchive.zip` in the root folder. Upload the ZIP to the GitHub release page.
+Produces `Garmin_Local_Archive.exe` and `Garmin_Local_Archive.zip`.
+
+**Target 3 — Standalone EXE (no Python required):**
+
+```bash
+python build_standalone.py
+```
+
+Produces `Garmin_Local_Archive_Standalone.exe` and `Garmin_Local_Archive_Standalone.zip`.
+
+Both scripts auto-migrate files to the correct subfolders if still in root. Safe to run from any starting layout. Upload both ZIPs to the GitHub release page.
+
+### Adding a missing hidden import to the standalone build
+
+If the standalone EXE fails with an `ImportError` or `ModuleNotFoundError`, add the missing module name to the `hidden` list in `build_exe()` inside `build_standalone.py`, then rebuild.
