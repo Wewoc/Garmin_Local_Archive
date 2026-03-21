@@ -374,6 +374,7 @@ def build_html(analysis: dict, refs: dict, vo2max: float | None) -> str:
   .tab-btn.active {{background:#fff;border-bottom:3px solid #1F3864;font-weight:600}}
   .chart-container {{background:#fff;padding:16px 24px 24px}}
   .disclaimer {{font-size:11px;color:#aaa;padding:8px 24px;background:#fff;border-top:1px solid #eee}}
+  .disclaimer-banner {{font-size:12px;color:#7a5c00;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 20px;margin:12px 24px;}}
   footer {{text-align:center;padding:12px;font-size:11px;color:#999}}
 </style>
 </head>
@@ -382,6 +383,7 @@ def build_html(analysis: dict, refs: dict, vo2max: float | None) -> str:
   <h1>Garmin Health Analysis</h1>
   <p>{DATE_FROM} &nbsp;→&nbsp; {DATE_TO} &nbsp;·&nbsp; 90-day rolling baseline &nbsp;·&nbsp; Age/fitness-adjusted reference ranges</p>
 </header>
+<div class="disclaimer-banner">⚠️ <b>Informational only — not medical advice.</b> Reference ranges are general health guidelines based on published research (AHA, ACSM, Garmin/Firstbeat). Individual variation is normal. Consult a healthcare professional for medical decisions.</div>
 <div class="profile-bar">
   <span>Age: <b>{PROFILE["age"]}</b></span>
   <span>Sex: <b>{PROFILE["sex"]}</b></span>
@@ -397,7 +399,7 @@ def build_html(analysis: dict, refs: dict, vo2max: float | None) -> str:
 {tab_btns}</div>
 {chart_divs}
 <div class="disclaimer">Reference ranges are general health guidelines based on published research (AHA, ACSM, Garmin/Firstbeat). They are not medical advice. Individual variation is normal.</div>
-<footer>Generated locally · No data sent externally · <a href="https://github.com/Wewoc/garmin-local-archive" style="color:#6ab0f5;text-decoration:none;">github.com/Wewoc/garmin-local-archive</a> · GNU GPL v3</footer>
+<footer>Generated locally · No data sent externally · <a href="https://github.com/Wewoc/Garmin_Local_Archive" style="color:#6ab0f5;text-decoration:none;">github.com/Wewoc/Garmin_Local_Archive</a> · GNU GPL v3</footer>
 <script>
 function showTab(m) {{
   document.querySelectorAll('.chart-container').forEach(d => d.style.display='none');

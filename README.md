@@ -37,6 +37,8 @@ Six Python scripts and an optional desktop app that work together:
 | `garmin_analysis_html.py`    | Analysis dashboard: daily values vs personal baseline vs norm ranges   | `summary/`  |
 | `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | —           |
 
+Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
+
 Data is stored in two layers:
 
 ```
