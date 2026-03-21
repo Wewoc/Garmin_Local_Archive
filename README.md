@@ -59,7 +59,9 @@ There are three ways to run Garmin Local Archive:
 
 ### Option 1 — Standalone EXE (recommended for most users)
 
-Download `Garmin_Local_Archive_Standalone.zip` from the releases page, extract it, and double-click `Garmin_Local_Archive_Standalone.exe`.
+**[⬇ Download Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest/download/Garmin_Local_Archive_Standalone.zip)**
+
+Extract and double-click `Garmin_Local_Archive_Standalone.exe`.
 
 ```
 Garmin_Local_Archive_Standalone.exe     ← double-click to launch — nothing else needed
@@ -71,7 +73,9 @@ See `info/README_APP_Standalone.md` for full details.
 
 ### Option 2 — Standard EXE (Python required)
 
-Download `Garmin_Local_Archive.zip` from the releases page, extract it, and double-click `Garmin_Local_Archive.exe`.
+**[⬇ Download Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest/download/Garmin_Local_Archive.zip)**
+
+Extract and double-click `Garmin_Local_Archive.exe`.
 
 ```
 Garmin_Local_Archive.exe     ← double-click to launch
