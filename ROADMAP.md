@@ -23,6 +23,8 @@
 
 ### 1. Failed Days Tracking
 
+> *"An archive without integrity checking is not an archive — it's a pile of notes."* — Gemini peer review
+
 A `failed_days.json` file that logs days where the download was incomplete or failed entirely. Currently the collector saves partial files silently — this makes it impossible to know which days need re-fetching without manually checking file sizes.
 
 Two categories:
@@ -82,6 +84,10 @@ A `schema_version` field in `summary/garmin_YYYY-MM-DD.json`. Makes it possible 
 ### 5. Include-today Flag
 
 An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Currently today is always excluded because the data is partial — this flag makes it opt-in.
+
+### 6. Analysis Dashboard — Flagged Day Tooltips
+
+Small UX improvement: hovering over a flagged day marker in the Analysis Dashboard shows the exact value and why it was flagged (above/below reference range, distance from baseline). Currently the information is only visible by reading the chart carefully.
 
 ---
 
