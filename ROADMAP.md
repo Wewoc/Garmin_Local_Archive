@@ -125,6 +125,10 @@ Local overview of archive health built from session logs — days synced vs fail
 - Support for non-Windows platforms (currently Windows only)
 - Code signing or automatic updates
 
+## No timeline — maybe someday
+
+- SHA-256 checksums in release notes — low effort, signals integrity to security-conscious users. Not a priority as long as build-from-source is available.
+
 ---
 
 *Built with Claude · [☕ buy me a coffee](https://ko-fi.com/wewoc)*
