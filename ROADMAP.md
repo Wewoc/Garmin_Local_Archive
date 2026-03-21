@@ -95,6 +95,9 @@ Small UX improvement: hovering over a flagged day marker in the Analysis Dashboa
 
 These are ideas, not commitments. Some may never get built.
 
+**Multiple Garmin accounts**
+Currently one account per Windows user. Switching between accounts requires manually changing credentials in Settings. Multi-account support would allow profiles per user.
+
 **External factors & correlations**
 Import external data (weather, activity logs, custom notes) and correlate with health metrics. Did poor sleep correlate with high stress? Did training load predict HRV drops?
 
@@ -125,9 +128,8 @@ Local overview of archive health built from session logs — days synced vs fail
 - Support for non-Windows platforms (currently Windows only)
 - Code signing or automatic updates
 
-## No timeline — maybe someday
-
-- SHA-256 checksums in release notes — low effort, signals integrity to security-conscious users. Not a priority as long as build-from-source is available.
+**SHA-256 checksums in release notes**
+Low effort, signals integrity to security-conscious users. Not a priority as long as build-from-source is available.
 
 ---
 
