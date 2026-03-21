@@ -297,3 +297,9 @@ Example questions:
 ---
 
 See `info/MAINTENANCE.md` for full technical documentation, how to add new fields, troubleshooting, and developer notes.
+
+---
+
+## Testing
+
+No dedicated test suite. The effort-to-benefit ratio doesn't justify it for a single-person hobby project — the core scripts are stable and tested in daily use. GUI changes are verified manually before release.
