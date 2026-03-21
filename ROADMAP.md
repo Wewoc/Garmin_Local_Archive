@@ -92,6 +92,9 @@ These are ideas, not commitments. Some may never get built.
 **External factors & correlations**
 Import external data (weather, activity logs, custom notes) and correlate with health metrics. Did poor sleep correlate with high stress? Did training load predict HRV drops?
 
+**AI training recommendations**
+Context-aware training suggestions based on your own data — HRV trends, Body Battery recovery, sleep quality, training load. Uses published guidelines (AHA, ACSM, Firstbeat whitepapers, Jack Daniels VDOT) as the knowledge base, fed to a local AI model alongside your `garmin_analysis.json`. No proprietary algorithms, no cloud — just your data + open science + local AI. Example output: "Your HRV is 15% below your 7-day baseline and Body Battery recovery is slow — an easy day would be appropriate."
+
 **AI health report PDF**
 Generate a formatted PDF health summary using the local AI model — personal baseline, flagged days, trends. Fully local, no cloud.
 
