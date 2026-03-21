@@ -91,6 +91,28 @@ Small UX improvement: hovering over a flagged day marker in the Analysis Dashboa
 
 ---
 
+## Planned — v1.2
+
+### Dashboard Architecture Refactoring
+
+Transition from individual scripts to a master/specialist model:
+
+- `garmin_dashboard_base.py` — shared frame: CSS, Dark Mode, Header, Disclaimer, Footer, Plotly integration, tab navigation
+- `garmin_content_timeseries.py` — intraday metrics (HR, Stress, SpO2, Body Battery, Respiration) from `raw/`
+- `garmin_content_health.py` — HRV, Resting HR, Stress, Body Battery with baseline + reference ranges from `summary/`
+- `garmin_content_sleep.py` — Sleep total, Deep, REM, Sleep score, HRV night from `summary/`
+- `garmin_content_activity.py` — Steps, Distance, Training load, Readiness, VO2max from `summary/`
+
+**Why this order matters:** V1.1 first — a beautiful modular dashboard on top of incomplete data is still incomplete data. V1.2 refactors the architecture, V1.3 adds the new dashboards on the clean base.
+
+**Benefits:**
+- Design changes in one place — applies to all dashboards
+- Disclaimer updated once — everywhere
+- New dashboard = new specialist script, base untouched
+- Claude-efficient: future sessions only need to read/write the relevant specialist, not the full HTML
+
+---
+
 ## Under consideration — v2.0
 
 These are ideas, not commitments. Some may never get built.
@@ -128,7 +150,8 @@ Local overview of archive health built from session logs — days synced vs fail
 - Support for non-Windows platforms (currently Windows only)
 - Code signing or automatic updates
 
-**SHA-256 checksums in release notes**
+**Activities dashboard**
+Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected by the collector — it just isn't used beyond the summary. Would provide additional context for AI training recommendations.
 Low effort, signals integrity to security-conscious users. Not a priority as long as build-from-source is available.
 
 ---
