@@ -214,11 +214,11 @@ class GarminApp(tk.Tk):
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
         tk.Label(header, text="standalone · GNU GPL v3",
                  font=("Segoe UI", 8), bg=BG3, fg=TEXT2).pack(side="right", padx=8)
-        link = tk.Label(header, text="www.github.com/Wewoc/garmin-local-archive",
+        link = tk.Label(header, text="www.github.com/Wewoc/Garmin_Local_Archive",
                  font=("Segoe UI", 8, "underline"), bg=BG3, fg="#6ab0f5", cursor="hand2")
         link.pack(side="right", padx=4)
         link.bind("<Button-1>",
-                  lambda e: _open_url("https://www.github.com/Wewoc/garmin-local-archive"))
+                  lambda e: _open_url("https://www.github.com/Wewoc/Garmin_Local_Archive"))
 
         main = tk.Frame(self, bg=BG)
         main.pack(fill="both", expand=True)
