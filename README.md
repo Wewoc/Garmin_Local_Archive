@@ -24,6 +24,19 @@ It works. And if I could build it, you can use it.
 
 ---
 
+## Security & Trust
+
+The full source code is open. If you don't trust the pre-built EXE:
+
+- Read the scripts — or paste them into any AI and ask *"explain what this code does"*
+- Build your own EXE: `python build_standalone.py`
+
+Credentials are stored in the **Windows Credential Manager** (keyring) — encrypted by Windows, never written to disk as plain text. This is more secure than typical hobby scripts that ask you to hardcode your password directly into a config file.
+
+The pre-built EXE is unsigned because code-signing certificates cost ~$500/year — money I'd rather spend on coffee. If the Windows security warning concerns you, the scripts are the primary way to run this and always will be.
+
+---
+
 ## What is this?
 
 Six Python scripts and an optional desktop app that work together:
