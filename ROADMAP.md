@@ -81,6 +81,10 @@ No dependency on #1 or #2 — can be implemented independently.
 
 A `schema_version` field in `summary/garmin_YYYY-MM-DD.json`. Makes it possible to detect when summaries were generated with an older version of `summarize()` and flag them for regeneration.
 
+`CURRENT_SCHEMA_VERSION` in `garmin_collector.py` is the single source of truth. When the `summarize()` function changes in a way that affects output fields, the version is incremented. Smart Regeneration (v1.2) then picks up any summary where `schema_version < CURRENT_SCHEMA_VERSION`.
+
+**Coupling with Failed Days Tracking:** days logged in `failed_days.json` are written with `schema_version: 0` — permanently below any real version. This means Smart Regeneration will always include them in its regeneration queue once their raw file is complete, without needing a separate code path.
+
 ### 5. Include-today Flag
 
 An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Currently today is always excluded because the data is partial — this flag makes it opt-in.
@@ -109,7 +113,13 @@ Transition from individual scripts to a master/specialist model:
 - Design changes in one place — applies to all dashboards
 - Disclaimer updated once — everywhere
 - New dashboard = new specialist script, base untouched
-- Claude-efficient: future sessions only need to read/write the relevant specialist, not the full HTML
+- Claude-efficient: a specialist script is ~300 lines vs. a 2000-line monolith — future sessions only load the relevant file, which reduces token usage and keeps the full context window available for actual work
+
+### Smart Regeneration
+
+Automatic detection of summaries that were generated with an older `schema_version` and re-running `summarize()` on the corresponding raw files — without hitting the Garmin API again.
+
+Builds directly on Schema Versioning (v1.1 #4) and extends the existing `regenerate_summaries.py`. The logic: scan all `summary/` files, compare `schema_version` against the current version, collect outdated entries, regenerate in batch. Clean runs produce no output.
 
 ---
 
@@ -122,6 +132,9 @@ Currently one account per Windows user. Switching between accounts requires manu
 
 **External factors & correlations**
 Import external data (weather, activity logs, custom notes) and correlate with health metrics. Did poor sleep correlate with high stress? Did training load predict HRV drops?
+
+**Adaptive Baselines**
+Extend the Analysis Dashboard beyond fixed 90-day baselines. Rolling windows (7-day, 30-day), seasonal patterns, and load vs. recovery phase detection. The raw data is already there — this is purely an analytical layer on top of `garmin_analysis_html.py`.
 
 **AI training recommendations**
 Context-aware training suggestions based on your own data — HRV trends, Body Battery recovery, sleep quality, training load. Uses published guidelines (AHA, ACSM, Firstbeat whitepapers, Jack Daniels VDOT) as the knowledge base, fed to a local AI model alongside your `garmin_analysis.json`. No proprietary algorithms, no cloud — just your data + open science + local AI. Example output: "Your HRV is 15% below your 7-day baseline and Body Battery recovery is slow — an easy day would be appropriate."
@@ -138,7 +151,7 @@ Generate a local heatmap of GPS routes from activity data. No third-party mappin
 Toast notifications for sync completion, failed days, or significant metric changes.
 
 **Stats dashboard & session log analysis**
-Local overview of archive health built from session logs — days synced vs failed over time, which API endpoints fail most often, average time per day, Garmin API response patterns by time of day. Session logs written by TODO #1 are the data source. No extra API calls needed.
+Local overview of archive health built from session logs written by TODO #1 — days synced vs failed over time, which API endpoints fail most often, average file size trends (useful for catching incomplete days before they accumulate), Garmin API response patterns by time of day. No extra API calls needed.
 
 ---
 
