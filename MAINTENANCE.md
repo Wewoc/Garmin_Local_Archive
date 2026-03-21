@@ -340,6 +340,15 @@ Many fields return `null` — expected behaviour. Use `SYNC_AUTO_FALLBACK = "201
 
 Open **Windows Credential Manager** → **Windows Credentials** → find `GarminLocalArchive` → delete.
 
+### Clean uninstall
+
+Deleting the app folder is not enough — two items remain on your system:
+
+1. **Stored password** — Windows Credential Manager → Windows Credentials → find `GarminLocalArchive` → delete
+2. **Settings file** — delete `C:\Users\YourName\.garmin_archive_settings.json`
+
+Your data folder (`garmin_data/` or wherever you configured it) is never touched automatically — delete it manually if you no longer want the archived data.
+
 ### Pylance / VS Code import warning
 
 The `garminconnect` import warning is cosmetic. Click the interpreter selector (bottom right in VS Code) and match it to `where python` in the terminal.

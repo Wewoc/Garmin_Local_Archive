@@ -73,6 +73,8 @@ Downloads missing days from Garmin Connect. Watch the log at the bottom for prog
 First run may take a while depending on how far back you go.
 Click **Stop** to cancel a running sync at any time.
 
+> **Large archives:** If you have years of Garmin history, start with `range` mode for the last 1–2 years before using `auto`. Downloading everything at once can trigger Garmin rate limiting.
+
 ### Daily Overview
 Exports `garmin_export.xlsx` — one row per day, colour-coded by category.
 Reads from `summary/`.
