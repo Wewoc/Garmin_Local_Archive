@@ -23,6 +23,8 @@
 
 ### 1. Failed Days Tracking
 
+> *"An archive without integrity checking is not an archive — it's a pile of notes."* — Gemini peer review
+
 A `failed_days.json` file that logs days where the download was incomplete or failed entirely. Currently the collector saves partial files silently — this makes it impossible to know which days need re-fetching without manually checking file sizes.
 
 Two categories:
@@ -83,6 +85,10 @@ A `schema_version` field in `summary/garmin_YYYY-MM-DD.json`. Makes it possible 
 
 An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Currently today is always excluded because the data is partial — this flag makes it opt-in.
 
+### 6. Analysis Dashboard — Flagged Day Tooltips
+
+Small UX improvement: hovering over a flagged day marker in the Analysis Dashboard shows the exact value and why it was flagged (above/below reference range, distance from baseline). Currently the information is only visible by reading the chart carefully.
+
 ---
 
 ## Under consideration — v2.0
@@ -94,6 +100,8 @@ Import external data (weather, activity logs, custom notes) and correlate with h
 
 **AI training recommendations**
 Context-aware training suggestions based on your own data — HRV trends, Body Battery recovery, sleep quality, training load. Uses published guidelines (AHA, ACSM, Firstbeat whitepapers, Jack Daniels VDOT) as the knowledge base, fed to a local AI model alongside your `garmin_analysis.json`. No proprietary algorithms, no cloud — just your data + open science + local AI. Example output: "Your HRV is 15% below your 7-day baseline and Body Battery recovery is slow — an easy day would be appropriate."
+
+> ⚠️ **Known risk:** Local LLMs can hallucinate when interpreting medical or health data. A coach that draws wrong conclusions from HRV trends could mislead users. Mitigation strategy to be defined before implementation — likely strict output templates, explicit uncertainty markers, and a prominent disclaimer that suggestions are informational only and not medical advice.
 
 **AI health report PDF**
 Generate a formatted PDF health summary using the local AI model — personal baseline, flagged days, trends. Fully local, no cloud.
