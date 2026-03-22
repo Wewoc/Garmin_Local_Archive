@@ -52,6 +52,8 @@ Six Python scripts and an optional desktop app that work together:
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
+The desktop app (v1.1.1) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+
 Data is stored in three folders:
 
 ```
