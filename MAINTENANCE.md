@@ -2,6 +2,8 @@
 
 This document is intended for anyone maintaining, extending, or debugging this project — including AI assistants picking up where a previous session left off.
 
+For a complete reference of all environment variables, constants, file paths, and data structures, see `REFERENCE.md`.
+
 ---
 
 ## Project structure
@@ -30,12 +32,18 @@ This document is intended for anyone maintaining, extending, or debugging this p
 |       README_APP.md               – Standard EXE docs (Python required)
 |       README_APP_Standalone.md    – Standalone EXE docs (no Python required)
 |       MAINTENANCE.md              – this file
+|       REFERENCE.md                – all ENV variables, constants, paths, data structures
 |
 +-- raw/                            – one file per day, full API dump
 |       garmin_raw_YYYY-MM-DD.json
 |
-\-- summary/                        – one file per day, compact summary
-        garmin_YYYY-MM-DD.json
++-- summary/                        – one file per day, compact summary
+|       garmin_YYYY-MM-DD.json
+|
+\-- log/                            – session logs and failed days registry
+        failed_days.json
+        recent/garmin_YYYY-MM-DD_HHMMSS.log
+        fail/garmin_YYYY-MM-DD_HHMMSS.log
 ```
 
 Both `build.py` and `build_standalone.py` auto-migrate scripts and docs from root to their subfolders if they're still there — safe to run from any starting layout.
@@ -60,7 +68,7 @@ Desktop GUI built with tkinter. Wraps all scripts so the user never needs a term
 
 ### Key design decisions
 
-**Script execution** — scripts are run as subprocesses via a locally installed `python.exe`. `_find_python()` searches PATH and common Windows install locations. `_build_env()` sets all 18 `GARMIN_*` environment variables before launching the subprocess.
+**Script execution** — scripts are run as subprocesses via a locally installed `python.exe`. `_find_python()` searches PATH and common Windows install locations. `_build_env()` sets all `GARMIN_*` environment variables before launching the subprocess.
 
 **Configuration** — all config is passed via `os.environ` — no source patching, no temp files. `_build_env()` in `garmin_app.py` builds the full env dict from UI settings.
 
@@ -72,7 +80,9 @@ Desktop GUI built with tkinter. Wraps all scripts so the user never needs a term
 
 **`_on_sync_mode_change()`** — callback bound to the Sync Mode combobox. Dims/enables the four sync fields (Days, From, To, Fallback) based on the selected mode. Called on every combobox change and once at startup via `_load_settings_to_ui()` to set the correct initial state.
 
-**`_toggle_log_level()`** — toggles between `INFO` (Simple) and `DEBUG` (Detailed) log output. Updates the button label and colour. Current level is passed to subprocesses via `GARMIN_LOG_LEVEL` ENV variable in `_build_env()`. If a sync is running when toggled, the subprocess is terminated and `_run_collector()` is called again after 500ms — already saved days are skipped automatically.
+**`_toggle_log_level()`** — toggles between `INFO` (Simple) and `DEBUG` (Detailed) GUI log display. Updates the button label and colour. If a sync is running when toggled, a yellow hint label appears above the button reading "Takes effect on next sync" — no restart occurs. The hint disappears automatically when the next sync starts. The current level is passed to subprocesses via `GARMIN_LOG_LEVEL` in `_build_env()`. Session log files always run at DEBUG regardless of this toggle.
+
+**`_check_failed_days_popup()`** — called at the start of every `_run_collector()` call. Reads `log/failed_days.json` and counts entries within the current sync date range. If any are found, shows a German-language popup: "Es gibt fehlerhafte Datensätze: X Tage im gewählten Zeitraum — Aktualisieren?" If the user clicks Ja, `GARMIN_REFRESH_FAILED=1` is set in the ENV and the collector re-fetches those days.
 
 **`_connection_verified`** — session flag, starts `False`. Set to `True` after the first successful connection test. `_run_collector()` skips the test on subsequent calls and starts the sync directly. Resets to `False` on app restart.
 
@@ -104,9 +114,11 @@ Identical to `garmin_app.py` with two differences that make it work without a lo
 
 **Stop mechanism** — `self._stop_event` is a `threading.Event`. `_stop_collector()` sets it. `garmin_collector.py` checks `_is_stopped()` at the top of each day loop and inside `api_call()`.
 
-**`_on_sync_mode_change()`** — identical to `garmin_app.py`. Dims/enables sync fields based on selected mode.
+**`_apply_env()`** — writes directly to `os.environ` instead of building a dict. Must run before the module is imported since scripts read `os.environ.get()` at module level.
 
-**`_toggle_log_level()`** — identical to `garmin_app.py`. In standalone mode the level is applied directly to the root logger in `_run_module()` via `getattr(logging, self._log_level)`. Also written to `os.environ["GARMIN_LOG_LEVEL"]` via `_apply_env()`. If a sync is running, `_stop_event` is set and `_run_collector()` is called after 1000ms.
+**`_toggle_log_level()`** — identical to `garmin_app.py`. Hint label shown above button if sync is running. No restart. Session logs unaffected.
+
+**`_check_failed_days_popup()`** — identical to `garmin_app.py`. `refresh_failed` is passed to `_run_module()` which passes it to `_apply_env()`.
 
 **`_connection_verified`** — identical behaviour to `garmin_app.py`. Session flag, skips connection test on subsequent sync starts.
 
@@ -126,6 +138,24 @@ Every day produces two files:
 
 - `raw/garmin_raw_YYYY-MM-DD.json` — complete API response for all endpoints (~500 KB). Never modified after creation. Serves as the permanent source of truth.
 - `summary/garmin_YYYY-MM-DD.json` — compact distillation (~2 KB). Used by Open WebUI / Ollama as a Knowledge Base. Can always be regenerated from raw without hitting the API again.
+
+### Failed days tracking
+
+Every sync run loads `log/failed_days.json` before connecting to Garmin. Two things happen immediately:
+
+1. `get_incomplete_dates()` scans `raw/` for files below `INCOMPLETE_FILE_KB` (default 100 KB) and registers them as `"incomplete"` entries.
+2. If `GARMIN_REFRESH_FAILED=1` (user clicked Ja in the popup), `get_local_dates()` filters out incomplete days so they appear as missing and get re-fetched.
+
+After each day in the sync loop: successful downloads remove the entry from `failed_days.json`. API exceptions add or update an `"error"` entry. At the end of every run, `failed_days.json` is saved atomically.
+
+Stop-aborted days are never added to `failed_days.json` — only real failures and incomplete files.
+
+### Session logging
+
+Every sync run opens a new log file at `log/recent/garmin_YYYY-MM-DD_HHMMSS.log`. The file handler always runs at `DEBUG` level, regardless of the `GARMIN_LOG_LEVEL` ENV variable. After the run:
+- If the session had errors or incomplete days: the log is additionally copied to `log/fail/`
+- `log/recent/` is capped at 30 files — oldest are deleted automatically
+- `log/fail/` has no automatic limit
 
 ### Stop support (standalone mode)
 
@@ -151,7 +181,21 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 
 `resolve_date_range(client)` — returns `(start, end)` based on `SYNC_MODE`. Auto mode: tries devices → account profile → `SYNC_AUTO_FALLBACK` → 90-day fallback.
 
-`get_local_dates(folder)` — scans across three locations and naming schemes (raw schema, summary schema, legacy flat schema) for robustness.
+`get_local_dates(folder)` — scans across three locations and naming schemes (raw schema, summary schema, legacy flat schema) for robustness. If `REFRESH_FAILED=True`, filters out incomplete dates.
+
+`get_incomplete_dates(folder)` — scans `raw/` for files below `INCOMPLETE_FILE_KB`. Returns `{date: size_kb}`.
+
+`_load_failed_days()` — loads `log/failed_days.json`. Applies one-time migration: resets `attempts` and `last_attempt` to `0`/`null` for any `"incomplete"` entries that were incorrectly incremented by earlier versions.
+
+`_save_failed_days(data)` — writes atomically via `.tmp` file.
+
+`_upsert_failed(data, day, category, reason)` — adds or updates entry. `"error"` increments `attempts`. `"incomplete"` only updates `reason`.
+
+`_remove_failed(data, day)` — removes day after successful download.
+
+`_start_session_log()` — opens `log/recent/garmin_YYYY-MM-DD_HHMMSS.log` at DEBUG. Returns `(handler, path)`.
+
+`_close_session_log(fh, path, had_errors, had_incomplete)` — closes handler, copies to `log/fail/` if needed, enforces rolling limit on `log/recent/`.
 
 ### Configuration variables
 
@@ -159,14 +203,16 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 |----------|------|-------------|
 | `GARMIN_EMAIL` | str | Garmin Connect login email |
 | `GARMIN_PASSWORD` | str | Garmin Connect password |
-| `BASE_DIR` | Path | Root folder; `raw/` and `summary/` live here |
+| `BASE_DIR` | Path | Root folder; `raw/`, `summary/`, and `log/` live here |
 | `SYNC_MODE` | str | `"recent"`, `"range"`, or `"auto"` |
 | `SYNC_DAYS` | int | Days to check in `"recent"` mode (default 90) |
 | `SYNC_FROM` | str | Start date for `"range"` mode (`"YYYY-MM-DD"`) |
 | `SYNC_TO` | str | End date for `"range"` mode (`"YYYY-MM-DD"`) |
 | `SYNC_AUTO_FALLBACK` | str/None | Manual start date fallback for `"auto"` mode |
 | `REQUEST_DELAY` | float | Seconds between API calls (default 1.5) |
-| `GARMIN_LOG_LEVEL` | str | `"INFO"` (default) or `"DEBUG"` — set by app log toggle |
+| `INCOMPLETE_FILE_KB` | int | Raw file size threshold in KB (default 100) |
+| `REFRESH_FAILED` | bool | If True, incomplete days are re-fetched in this run |
+| `GARMIN_LOG_LEVEL` | str | GUI display level only — session logs always run at DEBUG |
 
 ### Known Garmin API quirks
 
@@ -323,6 +369,14 @@ Run this whenever `summarize()` in `garmin_collector.py` is updated.
 ### Re-fetching a specific day
 
 Delete `raw/garmin_raw_YYYY-MM-DD.json` (and `summary/garmin_YYYY-MM-DD.json` if it exists), then run the collector — it re-fetches automatically.
+
+### Inspecting failed days
+
+Open `log/failed_days.json` in any text editor or JSON viewer. The file lists all days with download errors or incomplete raw files. To force a re-fetch, start a sync and click "Ja" in the popup, or manually delete the raw file for that day.
+
+### Inspecting session logs
+
+`log/recent/` contains the last 30 sync sessions at full DEBUG detail. `log/fail/` contains all sessions that had errors or incomplete days — these are never deleted automatically.
 
 ### Rate limiting
 

@@ -18,6 +18,7 @@ Configuration via environment variables (all optional — hardcoded fallbacks be
   GARMIN_SYNC_END         End date for range mode (YYYY-MM-DD)
   GARMIN_SYNC_FALLBACK    Manual start date fallback for auto mode
   GARMIN_REQUEST_DELAY    Seconds between API calls
+  GARMIN_INCOMPLETE_KB    Raw file size threshold in KB (default 100)
 """
 
 import json
@@ -25,7 +26,7 @@ import os
 import sys
 import logging
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -58,6 +59,12 @@ SYNC_AUTO_FALLBACK = os.environ.get("GARMIN_SYNC_FALLBACK") or None
 # ── Advanced ───────────────────────────────────────────────────────────────────
 # Delay between API requests in seconds — prevents rate limiting
 REQUEST_DELAY = float(os.environ.get("GARMIN_REQUEST_DELAY", "1.5"))
+
+# Raw files below this size (KB) are considered incomplete and queued for re-fetch
+INCOMPLETE_FILE_KB = int(os.environ.get("GARMIN_INCOMPLETE_KB", "100"))
+
+# If "1": incomplete days are excluded from get_local_dates() → treated as missing → re-fetched
+REFRESH_FAILED = os.environ.get("GARMIN_REFRESH_FAILED", "0") == "1"
 
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -388,9 +395,38 @@ def get_local_dates(folder: Path) -> set:
                 dates.add(date.fromisoformat(f.stem.replace(prefix, "")))
             except ValueError:
                 pass
+    if REFRESH_FAILED:
+        # Remove incomplete days so they appear as missing and get re-fetched
+        incomplete = get_incomplete_dates(folder)
+        before = len(dates)
+        dates -= set(incomplete.keys())
+        if incomplete:
+            log.info(f"  Refresh mode: excluding {before - len(dates)} incomplete days for re-fetch")
+
     if dates:
         log.info(f"  Local days found: {len(dates)} (earliest: {min(dates)}, latest: {max(dates)})")
     return dates
+
+
+def get_incomplete_dates(folder: Path) -> dict:
+    """
+    Scans raw/ for files below INCOMPLETE_FILE_KB threshold.
+    Returns {date: size_kb} for all incomplete files.
+    """
+    incomplete = {}
+    if not folder.exists():
+        return incomplete
+    for f in folder.glob("garmin_raw_*.json"):
+        try:
+            day     = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
+            size_kb = f.stat().st_size // 1024
+            if size_kb < INCOMPLETE_FILE_KB:
+                incomplete[day] = size_kb
+        except (ValueError, OSError):
+            pass
+    if incomplete:
+        log.info(f"  Incomplete raw files: {len(incomplete)} (below {INCOMPLETE_FILE_KB} KB)")
+    return incomplete
 
 
 def date_range(start: date, end: date):
@@ -398,6 +434,126 @@ def date_range(start: date, end: date):
     while current <= end:
         yield current
         current += timedelta(days=1)
+
+
+# ── Failed days helpers ────────────────────────────────────────────────────────
+
+LOG_DIR          = BASE_DIR / "log"
+FAILED_DAYS_FILE = LOG_DIR / "failed_days.json"
+
+
+def _load_failed_days() -> dict:
+    """Loads failed_days.json. Returns empty structure if missing or corrupt."""
+    if not FAILED_DAYS_FILE.exists():
+        return {"failed": []}
+    try:
+        with open(FAILED_DAYS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if "failed" not in data or not isinstance(data["failed"], list):
+            return {"failed": []}
+        # Migration: reset attempts/last_attempt for incomplete entries
+        # (attempts was incorrectly incremented in earlier versions)
+        for entry in data["failed"]:
+            if entry.get("category") == "incomplete":
+                entry["attempts"]     = 0
+                entry["last_attempt"] = None
+        return data
+    except Exception as e:
+        log.warning(f"  Could not read failed_days.json: {e} — starting fresh.")
+        return {"failed": []}
+
+
+def _save_failed_days(data: dict) -> None:
+    """Writes failed_days.json atomically via temp file."""
+    tmp = FAILED_DAYS_FILE.with_suffix(".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        tmp.replace(FAILED_DAYS_FILE)
+    except Exception as e:
+        log.warning(f"  Could not write failed_days.json: {e}")
+
+
+def _upsert_failed(data: dict, day: date, category: str, reason: str) -> None:
+    """Adds or updates a failed day entry in-place."""
+    day_str = day.isoformat()
+    for entry in data["failed"]:
+        if entry.get("date") == day_str:
+            if category == "error":
+                # Real download attempt — increment counter
+                entry["attempts"]     = entry.get("attempts", 0) + 1
+                entry["last_attempt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            # For incomplete: just refresh reason, don't touch attempts/last_attempt
+            entry["reason"] = reason
+            return
+    data["failed"].append({
+        "date":         day_str,
+        "reason":       reason,
+        "category":     category,
+        "attempts":     1 if category == "error" else 0,
+        "last_attempt": datetime.now().strftime("%Y-%m-%dT%H:%M:%S") if category == "error" else None,
+    })
+
+
+def _remove_failed(data: dict, day: date) -> None:
+    """Removes a day from the failed list after successful download."""
+    day_str = day.isoformat()
+    data["failed"] = [e for e in data["failed"] if e.get("date") != day_str]
+
+
+# ── Session logging ────────────────────────────────────────────────────────────
+
+LOG_RECENT_DIR = LOG_DIR / "recent"
+LOG_FAIL_DIR   = LOG_DIR / "fail"
+LOG_RECENT_MAX = 30
+
+
+def _start_session_log() -> tuple:
+    """
+    Creates a new session log file in log/recent/ at DEBUG level.
+    Returns (file_handler, log_path) so main() can close and evaluate it.
+    """
+    LOG_RECENT_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_FAIL_DIR.mkdir(parents=True, exist_ok=True)
+
+    ts       = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    log_path = LOG_RECENT_DIR / f"garmin_{ts}.log"
+
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    logging.getLogger().addHandler(fh)
+    return fh, log_path
+
+
+def _close_session_log(fh: logging.FileHandler, log_path: Path,
+                        had_errors: bool, had_incomplete: bool) -> None:
+    """
+    Closes the session log file handler.
+    Copies to log/fail/ if the session had errors or incomplete days.
+    Enforces LOG_RECENT_MAX rolling limit on log/recent/.
+    """
+    logging.getLogger().removeHandler(fh)
+    fh.close()
+
+    # Copy to fail/ if session had issues
+    if had_errors or had_incomplete:
+        import shutil
+        try:
+            shutil.copy2(log_path, LOG_FAIL_DIR / log_path.name)
+        except Exception as e:
+            log.warning(f"  Could not copy to log/fail/: {e}")
+
+    # Rolling: remove oldest logs in recent/ beyond limit
+    try:
+        logs = sorted(LOG_RECENT_DIR.glob("garmin_*.log"), key=lambda f: f.stat().st_mtime)
+        for old in logs[:-LOG_RECENT_MAX]:
+            old.unlink(missing_ok=True)
+    except Exception as e:
+        log.warning(f"  Could not rotate session logs: {e}")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -411,7 +567,28 @@ def main():
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+    # ── Session log ───────────────────────────────────────────────────────────
+    _session_fh, _session_path = _start_session_log()
+    _session_had_errors     = False
+    _session_had_incomplete = False
+
+    # ── Load + update failed_days.json ────────────────────────────────────────
+    failed_data = _load_failed_days()
+
+    # Scan raw/ for incomplete files and register them
+    incomplete = get_incomplete_dates(RAW_DIR)
+    for day, size_kb in incomplete.items():
+        _upsert_failed(failed_data, day, "incomplete", f"File too small: {size_kb} KB (threshold: {INCOMPLETE_FILE_KB} KB)")
+
+    if incomplete:
+        _session_had_incomplete = True
+
+    _save_failed_days(failed_data)
+    log.info(f"  Failed days on record: {len(failed_data['failed'])} (errors + incomplete)")
+
+    # ── Login ─────────────────────────────────────────────────────────────────
     log.info("Connecting to Garmin Connect ...")
     try:
         client = Garmin(GARMIN_EMAIL, GARMIN_PASSWORD)
@@ -447,14 +624,23 @@ def main():
                 json.dump(raw,     f, ensure_ascii=False, indent=2)
             with open(SUMMARY_DIR / f"garmin_{date_str}.json",     "w", encoding="utf-8") as f:
                 json.dump(summary, f, ensure_ascii=False, indent=2)
+
+            _remove_failed(failed_data, day)
             ok += 1
         except Exception as e:
             log.error(f"    Error on {day}: {e}")
+            _upsert_failed(failed_data, day, "error", str(e))
             failed += 1
+            _session_had_errors = True
 
+    _save_failed_days(failed_data)
     log.info(f"Done. {ok} saved, {failed} errors.")
+    log.info(f"Failed days on record: {len(failed_data['failed'])} total")
     log.info(f"Raw data:    {RAW_DIR}")
     log.info(f"Summaries:   {SUMMARY_DIR}  ← point Open WebUI Knowledge Base here")
+
+    _close_session_log(_session_fh, _session_path,
+                       _session_had_errors, _session_had_incomplete)
 
 
 if __name__ == "__main__":

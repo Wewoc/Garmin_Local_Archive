@@ -52,12 +52,13 @@ Six Python scripts and an optional desktop app that work together:
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
-Data is stored in two layers:
+Data is stored in three folders:
 
 ```
 garmin_data/
 ├── raw/        – complete API dumps (~500 KB/day) — permanent archive
-└── summary/    – compact daily JSONs (~2 KB/day)  — for Ollama / Open WebUI / AnythingLLM
+├── summary/    – compact daily JSONs (~2 KB/day)  — for Ollama / Open WebUI / AnythingLLM
+└── log/        – session logs and failed days registry
 ```
 
 ---
@@ -258,7 +259,7 @@ Register-ScheduledTask -TaskName "GarminCollector" `
 ```bash
 crontab -e
 # add this line:
-0 7 * * * python3 /path/to/garmin_collector.py >> /path/to/garmin_data/collector.log 2>&1
+0 7 * * * python3 /path/to/garmin_collector.py >> /path/to/garmin_data/log/collector.log 2>&1
 ```
 
 ---
