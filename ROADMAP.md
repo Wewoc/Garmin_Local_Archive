@@ -6,7 +6,7 @@
 
 ---
 
-## Currently stable — v1.0.1
+## Currently stable — v1.1.0
 
 - Local archiving of Garmin Connect health data
 - Three sync modes: recent, range, auto
@@ -16,40 +16,12 @@
 - JSON export for local AI tools (Ollama / AnythingLLM / Open WebUI)
 - Desktop GUI with connection test, log toggle, sync mode field dimming
 - Three targets: scripts only, standard EXE (Python required), standalone EXE (no Python required)
+- **Failed days tracking** — incomplete and failed raw files detected automatically, logged to `log/failed_days.json`, re-fetchable via popup on sync start
+- **Session logging** — every sync writes a full DEBUG log to `log/recent/`; sessions with errors or incomplete days are additionally copied to `log/fail/`
 
 ---
 
-## Planned — v1.1
-
-### 1. Failed Days Tracking
-
-> *"An archive without integrity checking is not an archive — it's a pile of notes."* — Gemini peer review
-
-A `failed_days.json` file that logs days where the download was incomplete or failed entirely. Currently the collector saves partial files silently — this makes it impossible to know which days need re-fetching without manually checking file sizes.
-
-Two categories:
-- `"error"` — API exception during download
-- `"incomplete"` — raw file exists but is below threshold (default `INCOMPLETE_FILE_KB = 100`)
-
-JSON structure:
-```json
-{
-  "failed": [
-    { "date": "2024-11-03", "reason": "Timeout: ...", "category": "error", "attempts": 2, "last_attempt": "2025-03-20T14:32:11" },
-    { "date": "2025-01-15", "reason": "File too small: 18 KB", "category": "incomplete", "attempts": 0, "last_attempt": null }
-  ]
-}
-```
-
-Changes only in `garmin_collector.py`:
-- `get_incomplete_dates()` — scans `raw/`, filters files below threshold
-- `main()` — loads `failed_days.json` at start, writes at end and on stop
-- `except` block — logs failed day or increments `attempts`
-- After successful download — removes day from `failed_days.json`
-- Stop-aborted days are NOT marked as failed
-- Incomplete days stay in `get_local_dates()` — no auto-redownload on normal sync, only via Background Timer
-
-**Session logging** — each sync session writes a log file to `log/garmin_YYYY-MM-DD_HHMMSS.log`. Only written when the session produces errors or incomplete days — clean runs produce no log file. Older logs are kept up to a configurable limit (default: last 30 sessions). Provides a persistent record for debugging failed days without manual copy-paste from the GUI log.
+## Planned — v1.1 (remaining)
 
 ### 2. Background Timer
 
@@ -63,8 +35,6 @@ Background sync that runs while the app is open. Picks up failed and missing day
 - Does not run while manual sync is active
 - Stops cleanly on app close
 
-Requires TODO #1.
-
 ### 3. Version Check on Startup
 
 Checks GitHub for a newer release on app start and notifies the user if one is available.
@@ -75,7 +45,7 @@ Checks GitHub for a newer release on app start and notifies the user if one is a
 - Notification: popup or log entry (not yet decided)
 - Version definition: constant in app files or external `version.txt` (not yet decided)
 
-No dependency on #1 or #2 — can be implemented independently.
+No dependency on #2 — can be implemented independently.
 
 ### 4. Schema Versioning
 
@@ -107,7 +77,7 @@ Transition from individual scripts to a master/specialist model:
 - `garmin_content_sleep.py` — Sleep total, Deep, REM, Sleep score, HRV night from `summary/`
 - `garmin_content_activity.py` — Steps, Distance, Training load, Readiness, VO2max from `summary/`
 
-**Why this order matters:** V1.1 first — a beautiful modular dashboard on top of incomplete data is still incomplete data. V1.2 refactors the architecture, V1.3 adds the new dashboards on the clean base.
+**Why this order matters:** Remaining v1.1 items first — a beautiful modular dashboard on top of incomplete data is still incomplete data. v1.2 refactors the architecture, v1.3 adds the new dashboards on the clean base.
 
 **Benefits:**
 - Design changes in one place — applies to all dashboards
@@ -151,7 +121,7 @@ Generate a local heatmap of GPS routes from activity data. No third-party mappin
 Toast notifications for sync completion, failed days, or significant metric changes.
 
 **Stats dashboard & session log analysis**
-Local overview of archive health built from session logs written by TODO #1 — days synced vs failed over time, which API endpoints fail most often, average file size trends (useful for catching incomplete days before they accumulate), Garmin API response patterns by time of day. No extra API calls needed.
+Local overview of archive health built from session logs written by v1.1 — days synced vs failed over time, which API endpoints fail most often, average file size trends (useful for catching incomplete days before they accumulate), Garmin API response patterns by time of day. No extra API calls needed.
 
 ---
 
@@ -165,7 +135,6 @@ Local overview of archive health built from session logs written by TODO #1 — 
 
 **Activities dashboard**
 Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected by the collector — it just isn't used beyond the summary. Would provide additional context for AI training recommendations.
-Low effort, signals integrity to security-conscious users. Not a priority as long as build-from-source is available.
 
 ---
 

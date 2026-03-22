@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from datetime import date, timedelta
 import tkinter as tk
-from tkinter import ttk, filedialog, scrolledtext
+from tkinter import ttk, filedialog, scrolledtext, messagebox
 
 # ── Settings file ──────────────────────────────────────────────────────────────
 SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
@@ -179,7 +179,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.0.1",
+        tk.Label(header, text="v1.1.0",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -306,11 +306,17 @@ class GarminApp(tk.Tk):
                   bg=ACCENT2, fg=TEXT, relief="flat", bd=0, pady=8, padx=12,
                   cursor="hand2", command=self._save).pack(fill="x", padx=12, pady=8)
         self._log_level = "INFO"
+        log_frame = tk.Frame(parent, bg=BG2)
+        log_frame.pack(fill="x", padx=12, pady=(0, 8))
+        self._log_level_hint = tk.Label(
+            log_frame, text="⚠  Takes effect on next sync",
+            font=("Segoe UI", 7), bg=BG2, fg=YELLOW, anchor="w")
+        # Note: not packed initially — shown via pack/pack_forget in _toggle_log_level
         self._log_level_btn = tk.Button(
-            parent, text="📋  Log: Simple", font=FONT_BTN,
+            log_frame, text="📋  Log: Simple", font=FONT_BTN,
             bg=BG3, fg=TEXT2, relief="flat", bd=0, pady=6, padx=12,
             cursor="hand2", command=self._toggle_log_level)
-        self._log_level_btn.pack(fill="x", padx=12, pady=(0, 8))
+        self._log_level_btn.pack(fill="x")
 
     def _build_actions_panel(self, parent):
         tk.Label(parent, text="Actions", font=FONT_HEAD,
@@ -494,17 +500,12 @@ class GarminApp(tk.Tk):
             self._log_level = "INFO"
             self._log_level_btn.config(text="📋  Log: Simple", fg=TEXT2)
 
-        # If sync is running: stop and restart with new log level
+        # Show hint if sync is currently running
         if self._active_proc and self._active_proc.poll() is None:
-            self._log("📋  Log level changed — restarting sync ...")
-            self._stopped_by_user = True
-            self._active_proc.terminate()
-            try:
-                self._active_proc.wait(timeout=5)
-            except Exception:
-                self._active_proc.kill()
-            self._active_proc = None
-            self.after(500, self._run_collector)
+            self._log("📋  Log level changed — takes effect on next sync.")
+            self._log_level_hint.pack(fill="x", before=self._log_level_btn)
+        else:
+            self._log_level_hint.pack_forget()
 
     def _save(self):
         self.settings = self._collect_settings()
@@ -546,9 +547,67 @@ class GarminApp(tk.Tk):
         if self._stop_btn:
             self._stop_btn.config(state="disabled", bg=BG3, fg=TEXT2)
 
+    # ── Failed days popup ──────────────────────────────────────────────────────
+
+    def _check_failed_days_popup(self, base_dir: str, sync_mode: str,
+                                  sync_days: str, sync_from: str, sync_to: str) -> bool:
+        """
+        Reads log/failed_days.json and counts entries within the current sync range.
+        If any found: shows a popup asking whether to re-fetch them.
+        Returns True if sync should treat incomplete days as missing (re-fetch),
+        Returns False if sync should skip them (normal behaviour).
+        If no failed days in range: returns False silently.
+        """
+        failed_file = Path(base_dir) / "log" / "failed_days.json"
+        if not failed_file.exists():
+            return False
+
+        try:
+            data    = json.loads(failed_file.read_text(encoding="utf-8"))
+            entries = data.get("failed", [])
+            if not entries:
+                return False
+
+            # Determine sync date range for counting
+            today     = date.today()
+            yesterday = today - timedelta(days=1)
+            try:
+                if sync_mode == "recent":
+                    start = today - timedelta(days=int(sync_days or 90))
+                    end   = yesterday
+                elif sync_mode == "range":
+                    start = date.fromisoformat(sync_from) if sync_from else today - timedelta(days=90)
+                    end   = date.fromisoformat(sync_to)   if sync_to   else yesterday
+                else:  # auto
+                    start = date.fromisoformat(entries[0]["date"]) if entries else today - timedelta(days=90)
+                    end   = yesterday
+            except (ValueError, KeyError):
+                return False
+
+            # Count failed days within range
+            count = sum(
+                1 for e in entries
+                if start <= date.fromisoformat(e["date"]) <= end
+            )
+
+            if count == 0:
+                return False
+
+            answer = messagebox.askyesno(
+                "Fehlerhafte Datensätze gefunden",
+                f"Es gibt fehlerhafte Datensätze:\n\n"
+                f"  {count} Tage im gewählten Zeitraum\n\n"
+                f"Aktualisieren?",
+                icon="warning",
+            )
+            return answer
+
+        except Exception:
+            return False
+
     # ── Script runner ──────────────────────────────────────────────────────────
 
-    def _build_env(self, s: dict) -> dict:
+    def _build_env(self, s: dict, refresh_failed: bool = False) -> dict:
         """
         Build the environment dict for a subprocess.
         All configuration is passed via environment variables — no source patching.
@@ -577,6 +636,7 @@ class GarminApp(tk.Tk):
         env["GARMIN_SYNC_END"]      = s.get("sync_to", "")
         env["GARMIN_SYNC_FALLBACK"] = s.get("sync_auto_fallback", "")
         env["GARMIN_REQUEST_DELAY"] = s["request_delay"]
+        env["GARMIN_REFRESH_FAILED"] = "1" if refresh_failed else "0"
 
         # ── Date range (for export scripts) ──
         _today  = date.today()
@@ -595,7 +655,7 @@ class GarminApp(tk.Tk):
         return env
 
     def _run_script(self, script_name: str, enable_stop: bool = False,
-                    on_success: callable = None):
+                    on_success: callable = None, refresh_failed: bool = False):
         """
         Run a script in a background thread, stream stdout+stderr to the log.
 
@@ -611,12 +671,13 @@ class GarminApp(tk.Tk):
             return
 
         s   = self._collect_settings()
-        env = self._build_env(s)
+        env = self._build_env(s, refresh_failed=refresh_failed)
 
         python_exe = _find_python()
         self._log(f"\n▶  Running {script_name} ...")
         self._log(f"   Python:  {python_exe}")
         self._log(f"   Data:    {s['base_dir']}")
+        self._log_level_hint.pack_forget()
 
         def worker():
             proc = None
@@ -751,8 +812,18 @@ class GarminApp(tk.Tk):
             self._log("✗ Email or password missing.")
             return
 
+        # ── Failed days popup ──
+        refresh_failed = self._check_failed_days_popup(
+            base_dir    = s["base_dir"],
+            sync_mode   = s["sync_mode"],
+            sync_days   = s["sync_days"],
+            sync_from   = s.get("sync_from", ""),
+            sync_to     = s.get("sync_to", ""),
+        )
+
         if self._connection_verified:
-            self._run_script("garmin_collector.py", enable_stop=True)
+            self._run_script("garmin_collector.py", enable_stop=True,
+                             refresh_failed=refresh_failed)
             return
 
         for key in self._conn_indicators:
@@ -803,7 +874,9 @@ class GarminApp(tk.Tk):
                 self.after(0, self._log, "  ✓ Data access OK — starting sync ...")
                 self.after(0, lambda: self._test_btn.config(state="normal", bg="#4ecca3", fg="#0a0a1a"))
                 self._connection_verified = True
-                self.after(0, lambda: self._run_script("garmin_collector.py", enable_stop=True))
+                self.after(0, lambda: self._run_script(
+                    "garmin_collector.py", enable_stop=True,
+                    refresh_failed=refresh_failed))
             except Exception as e:
                 self.after(0, self._set_indicator, "data", "fail")
                 self.after(0, self._log, f"  ✗ Data access failed: {e}")

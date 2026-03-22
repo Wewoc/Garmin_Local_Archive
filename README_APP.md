@@ -73,6 +73,8 @@ Downloads missing days from Garmin Connect. Watch the log at the bottom for prog
 First run may take a while depending on how far back you go.
 Click **Stop** to cancel a running sync at any time.
 
+If there are days with failed or incomplete downloads in the selected sync range, a popup will appear before the sync starts: **"Es gibt fehlerhafte Datensätze: X Tage im gewählten Zeitraum — Aktualisieren?"** Click **Ja** to re-fetch those days, or **Nein** to skip them and sync normally.
+
 > **Large archives:** If you have years of Garmin history, start with `range` mode for the last 1–2 years before using `auto`. Downloading everything at once can trigger Garmin rate limiting.
 
 ### Daily Overview
@@ -93,15 +95,32 @@ Shows daily values vs your 90-day baseline vs age/fitness reference ranges.
 Reads from `summary/`. The JSON file can be uploaded to Ollama / Open WebUI for AI-assisted interpretation.
 
 ### Log: Simple / Log: Detailed
-Toggles the log output level. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.
+Toggles the log output level in the GUI. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.
 
-If a sync is running when you toggle, it stops automatically and restarts with the new log level. Already downloaded days are not re-fetched.
+If you toggle while a sync is running, a yellow notice appears above the button: **"Takes effect on next sync"**. The current sync continues unchanged and the notice disappears automatically when the next sync starts.
+
+Session log files (in `log/recent/` and `log/fail/`) always record at full detail regardless of this toggle.
 
 ### Open Data Folder
 Opens your data folder in Windows Explorer.
 
 ### Open Last HTML
 Opens the most recently generated HTML file in your default browser.
+
+---
+
+## Session logs
+
+Every sync automatically writes a detailed log to your data folder:
+
+```
+garmin_data/
+└── log/
+    ├── recent/    – last 30 sync sessions (always full detail)
+    └── fail/      – sessions with errors or incomplete days (kept permanently)
+```
+
+These are plain text files — open them in any text editor if you need to diagnose a problem.
 
 ---
 
