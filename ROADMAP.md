@@ -6,7 +6,7 @@
 
 ---
 
-## Currently stable — v1.1.0
+## Currently stable — v1.1.1
 
 - Local archiving of Garmin Connect health data
 - Three sync modes: recent, range, auto
@@ -16,24 +16,13 @@
 - JSON export for local AI tools (Ollama / AnythingLLM / Open WebUI)
 - Desktop GUI with connection test, log toggle, sync mode field dimming
 - Three targets: scripts only, standard EXE (Python required), standalone EXE (no Python required)
-- **Failed days tracking** — incomplete and failed raw files detected automatically, logged to `log/failed_days.json`, re-fetchable via popup on sync start
-- **Session logging** — every sync writes a full DEBUG log to `log/recent/`; sessions with errors or incomplete days are additionally copied to `log/fail/`
+- **Quality tracking** — every downloaded raw file is assessed for content quality (`high/med/low/failed`) and registered in `log/quality_log.json`. Content-based assessment replaces the old file-size heuristic, correctly handling the Garmin data retention limit (~1–2 years of intraday detail). Days with `recheck=true` are re-downloaded by the background timer; after `LOW_QUALITY_MAX_ATTEMPTS` (default 3) failed attempts a `low` day is left alone permanently.
+- **Background Timer** — automatic background sync that cycles through three modes: Repair (API failures → `failed`), Quality (low-content days → `low`), Fill (true gaps never downloaded). Configurable interval and days-per-run. Live countdown and progress in the button. Connection test before first run. Stops cleanly on app close or when archive is complete. Background sessions logged with `garmin_background_` prefix.
+- **Session logging** — every sync writes a full DEBUG log to `log/recent/`; sessions with errors or low-quality downloads are additionally copied to `log/fail/`
 
 ---
 
 ## Planned — v1.1 (remaining)
-
-### 2. Background Timer
-
-Background sync that runs while the app is open. Picks up failed and missing days automatically without manual intervention.
-
-- Start/Stop button (green when active)
-- Interval: random 5–30 min between runs
-- Days per Run: random 3–10 days
-- Live countdown to next run (MM:SS)
-- Queue display: open days (missing + failed, from `failed_days.json`)
-- Does not run while manual sync is active
-- Stops cleanly on app close
 
 ### 3. Version Check on Startup
 
@@ -45,15 +34,13 @@ Checks GitHub for a newer release on app start and notifies the user if one is a
 - Notification: popup or log entry (not yet decided)
 - Version definition: constant in app files or external `version.txt` (not yet decided)
 
-No dependency on #2 — can be implemented independently.
-
 ### 4. Schema Versioning
 
 A `schema_version` field in `summary/garmin_YYYY-MM-DD.json`. Makes it possible to detect when summaries were generated with an older version of `summarize()` and flag them for regeneration.
 
 `CURRENT_SCHEMA_VERSION` in `garmin_collector.py` is the single source of truth. When the `summarize()` function changes in a way that affects output fields, the version is incremented. Smart Regeneration (v1.2) then picks up any summary where `schema_version < CURRENT_SCHEMA_VERSION`.
 
-**Coupling with Failed Days Tracking:** days logged in `failed_days.json` are written with `schema_version: 0` — permanently below any real version. This means Smart Regeneration will always include them in its regeneration queue once their raw file is complete, without needing a separate code path.
+**Coupling with Quality Tracking:** days with `quality=low` or `quality=failed` in `quality_log.json` can be treated as `schema_version: 0` — permanently below any real version. Smart Regeneration will always include them once their raw file is complete.
 
 ### 5. Include-today Flag
 
@@ -61,7 +48,31 @@ An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Cu
 
 ### 6. Analysis Dashboard — Flagged Day Tooltips
 
-Small UX improvement: hovering over a flagged day marker in the Analysis Dashboard shows the exact value and why it was flagged (above/below reference range, distance from baseline). Currently the information is only visible by reading the chart carefully.
+Small UX improvement: hovering over a flagged day marker in the Analysis Dashboard shows the exact value and why it was flagged (above/below reference range, distance from baseline).
+
+### 6b. MFA / Captcha Hint in GUI
+
+When login fails with an authentication error (401/403 or MFA challenge), the GUI shows a specific, actionable hint in the log instead of just the raw error — especially important for the Standalone version where no terminal is available.
+
+Target output in the log:
+```
+✗ Login failed — Garmin may require browser verification.
+  → Download the Standard version, run garmin_collector.py once
+    in a terminal to complete MFA, then use Standalone normally.
+```
+
+### 7. Archive Info Panel
+
+A compact read-only info panel in the GUI (right panel) showing the current state of the local archive at a glance:
+
+- Total days tracked in `quality_log.json`
+- Breakdown by quality: `high / med / low / failed`
+- Days with `recheck=true` (pending background timer work)
+- Earliest and latest date in `raw/`
+- Archive completeness: days present vs. possible days in range (%)
+- Last sync timestamp
+
+Reads directly from `quality_log.json` and `raw/` — no API call needed. Updates after every sync. Gives the user full transparency over what the background timer is doing and how complete the archive is.
 
 ---
 
@@ -121,7 +132,13 @@ Generate a local heatmap of GPS routes from activity data. No third-party mappin
 Toast notifications for sync completion, failed days, or significant metric changes.
 
 **Stats dashboard & session log analysis**
-Local overview of archive health built from session logs written by v1.1 — days synced vs failed over time, which API endpoints fail most often, average file size trends (useful for catching incomplete days before they accumulate), Garmin API response patterns by time of day. No extra API calls needed.
+Local overview of archive health built from session logs — days synced vs failed over time, which API endpoints fail most often, Garmin API response patterns by time of day. Builds on the Archive Info Panel (v1.1 #7) and the quality data in `quality_log.json`. No extra API calls needed.
+
+---
+
+## Post-release tasks
+
+- **Screenshots** — 2–3 GUI screenshots + Dashboard screenshots in README.md einbauen sobald v1.1.1 stabil im Repo ist
 
 ---
 

@@ -6,6 +6,7 @@ Garmin Local Archive — Desktop GUI
 
 import json
 import os
+import re
 import sys
 import threading
 import subprocess
@@ -18,17 +19,21 @@ from tkinter import ttk, filedialog, scrolledtext, messagebox
 SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
 
 DEFAULT_SETTINGS = {
-    "email":       "",
-    "base_dir":    "C:\\garmin",
-    "sync_mode":   "recent",
-    "sync_days":   "90",
-    "sync_from":   "",
-    "sync_to":     "",
-    "date_from":   "",
-    "date_to":     "",
-    "age":         "35",
-    "sex":         "male",
-    "request_delay": "1.5",
+    "email":            "",
+    "base_dir":         "C:\\garmin",
+    "sync_mode":        "recent",
+    "sync_days":        "90",
+    "sync_from":        "",
+    "sync_to":          "",
+    "date_from":        "",
+    "date_to":          "",
+    "age":              "35",
+    "sex":              "male",
+    "request_delay":    "1.5",
+    "timer_min_interval": "5",
+    "timer_max_interval": "30",
+    "timer_min_days":     "3",
+    "timer_max_days":     "10",
 }
 
 def load_settings() -> dict:
@@ -166,6 +171,12 @@ class GarminApp(tk.Tk):
         self._last_html           = None
         self._stopped_by_user     = False
         self._connection_verified = False  # skips test after first successful check
+        self._timer_conn_verified = False  # same but for background timer
+        self._timer_active        = False
+        self._timer_stop          = threading.Event()
+        self._timer_btn           = None
+        self._timer_next_mode     = "repair"  # cycles: "repair" | "quality" | "fill"
+        self._timer_generation    = 0         # incremented on each start; threads exit if stale
         self._build_ui()
         self._load_settings_to_ui()
         self.v_sync_mode.set("recent")   # always start with recent — range requires explicit setup
@@ -179,7 +190,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.1.0",
+        tk.Label(header, text="v1.1.1",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -372,6 +383,45 @@ class GarminApp(tk.Tk):
         tk.Label(row, text="Fetch missing days from Garmin Connect",
                  font=("Segoe UI", 8), bg=BG, fg=TEXT2).pack(side="left", padx=10)
 
+        # ── Background Timer ───────────────────────────────────────────────────
+        ft = tk.Frame(parent, bg=BG, pady=4)
+        ft.pack(fill="x", padx=20, pady=2)
+        tk.Label(ft, text="BACKGROUND TIMER", font=("Segoe UI", 7, "bold"),
+                 bg=BG, fg=ACCENT).pack(anchor="w")
+        tk.Frame(ft, bg=ACCENT, height=1).pack(fill="x", pady=(2, 6))
+        timer_row = tk.Frame(ft, bg=BG)
+        timer_row.pack(fill="x", pady=2)
+
+        # Toggle button
+        self._timer_btn = tk.Button(
+            timer_row, text="⏱  Timer: Off", font=FONT_BTN,
+            bg=BG3, fg=TEXT2, relief="flat", bd=0,
+            pady=7, padx=14, width=16, cursor="hand2",
+            command=self._toggle_timer)
+        self._timer_btn.pack(side="left")
+
+        # Settings fields — 2x2 grid
+        fields_frame = tk.Frame(timer_row, bg=BG)
+        fields_frame.pack(side="left", padx=(12, 0))
+
+        self.v_timer_min_interval = tk.StringVar()
+        self.v_timer_max_interval = tk.StringVar()
+        self.v_timer_min_days     = tk.StringVar()
+        self.v_timer_max_days     = tk.StringVar()
+
+        def _timer_field(parent, label, var, row, col):
+            tk.Label(parent, text=label, font=("Segoe UI", 8), bg=BG, fg=TEXT2
+                     ).grid(row=row, column=col*2, sticky="e", padx=(8, 2), pady=1)
+            tk.Entry(parent, textvariable=var, font=FONT_BODY,
+                     bg=BG3, fg=TEXT, insertbackground=TEXT,
+                     relief="flat", bd=4, width=4
+                     ).grid(row=row, column=col*2+1, sticky="w", padx=(0, 4), pady=1)
+
+        _timer_field(fields_frame, "Min. Interval (min)", self.v_timer_min_interval, 0, 0)
+        _timer_field(fields_frame, "Max. Interval (min)", self.v_timer_max_interval, 1, 0)
+        _timer_field(fields_frame, "Min. Tage pro Run",   self.v_timer_min_days,     0, 1)
+        _timer_field(fields_frame, "Max. Tage pro Run",   self.v_timer_max_days,     1, 1)
+
         # Exports
         self._action_section(parent, "Export", [
             ("📊  Daily Overview",       BG3,    self._run_excel_overview,
@@ -443,6 +493,10 @@ class GarminApp(tk.Tk):
         self.v_age.set(s.get("age", "35"))
         self.v_sex.set(s.get("sex", "male"))
         self.v_delay.set(s.get("request_delay", "1.5"))
+        self.v_timer_min_interval.set(s.get("timer_min_interval", "5"))
+        self.v_timer_max_interval.set(s.get("timer_max_interval", "30"))
+        self.v_timer_min_days.set(s.get("timer_min_days", "3"))
+        self.v_timer_max_days.set(s.get("timer_max_days", "10"))
         self._on_sync_mode_change()
 
     def _on_sync_mode_change(self):
@@ -490,6 +544,10 @@ class GarminApp(tk.Tk):
             "age":                self.v_age.get().strip(),
             "sex":                self.v_sex.get(),
             "request_delay":      self.v_delay.get().strip(),
+            "timer_min_interval": self.v_timer_min_interval.get().strip(),
+            "timer_max_interval": self.v_timer_max_interval.get().strip(),
+            "timer_min_days":     self.v_timer_min_days.get().strip(),
+            "timer_max_days":     self.v_timer_max_days.get().strip(),
         }
 
     def _toggle_log_level(self):
@@ -552,19 +610,19 @@ class GarminApp(tk.Tk):
     def _check_failed_days_popup(self, base_dir: str, sync_mode: str,
                                   sync_days: str, sync_from: str, sync_to: str) -> bool:
         """
-        Reads log/failed_days.json and counts entries within the current sync range.
+        Reads log/quality_log.json and counts entries within the current sync range.
         If any found: shows a popup asking whether to re-fetch them.
         Returns True if sync should treat incomplete days as missing (re-fetch),
         Returns False if sync should skip them (normal behaviour).
         If no failed days in range: returns False silently.
         """
-        failed_file = Path(base_dir) / "log" / "failed_days.json"
+        failed_file = Path(base_dir) / "log" / "quality_log.json"
         if not failed_file.exists():
             return False
 
         try:
             data    = json.loads(failed_file.read_text(encoding="utf-8"))
-            entries = data.get("failed", [])
+            entries = data.get("days", [])
             if not entries:
                 return False
 
@@ -584,10 +642,11 @@ class GarminApp(tk.Tk):
             except (ValueError, KeyError):
                 return False
 
-            # Count failed days within range
+            # Count failed/low quality days within range
             count = sum(
                 1 for e in entries
-                if start <= date.fromisoformat(e["date"]) <= end
+                if e.get("quality", e.get("category", "")) in ("failed", "low")
+                and start <= date.fromisoformat(e["date"]) <= end
             )
 
             if count == 0:
@@ -650,12 +709,16 @@ class GarminApp(tk.Tk):
         env["GARMIN_PROFILE_SEX"]   = s.get("sex", "male")
 
         # ── Log level ──
-        env["GARMIN_LOG_LEVEL"]     = getattr(self, "_log_level", "INFO")
+        env["GARMIN_LOG_LEVEL"]            = getattr(self, "_log_level", "INFO")
+        env["GARMIN_SESSION_LOG_PREFIX"]   = "garmin"
 
         return env
 
     def _run_script(self, script_name: str, enable_stop: bool = False,
-                    on_success: callable = None, refresh_failed: bool = False):
+                    on_success: callable = None, refresh_failed: bool = False,
+                    on_done: callable = None, log_prefix: str = "garmin",
+                    env_overrides: dict = None, stop_event: threading.Event = None,
+                    days_left: int = None):
         """
         Run a script in a background thread, stream stdout+stderr to the log.
 
@@ -663,7 +726,12 @@ class GarminApp(tk.Tk):
         No source-code patching, no tmp files.
 
         On non-zero exit: logs exit code + which ENV vars were set (excluding password).
-        on_success: optional callable executed on the main thread after a clean exit.
+        on_success:    optional callable executed on the main thread after a clean exit.
+        on_done:       optional callable executed on the main thread after any exit (success or fail).
+        log_prefix:    passed as GARMIN_SESSION_LOG_PREFIX — default "garmin".
+        env_overrides: optional dict of ENV vars to apply on top of _build_env() output.
+        stop_event:    optional threading.Event — if set mid-run, terminates the subprocess.
+        days_left:     shown in timer button while sync runs (e.g. "Syncing · 47 offen").
         """
         path = script_path(script_name)
         if not path.exists():
@@ -672,6 +740,9 @@ class GarminApp(tk.Tk):
 
         s   = self._collect_settings()
         env = self._build_env(s, refresh_failed=refresh_failed)
+        env["GARMIN_SESSION_LOG_PREFIX"] = log_prefix
+        if env_overrides:
+            env.update(env_overrides)
 
         python_exe = _find_python()
         self._log(f"\n▶  Running {script_name} ...")
@@ -701,8 +772,33 @@ class GarminApp(tk.Tk):
                     self.after(0, lambda: self._stop_btn.config(
                         state="normal", bg=ACCENT, fg=TEXT))
 
+                # Show "Syncing · N/T" in timer button while download runs
+                if days_left is not None and self._timer_btn:
+                    self.after(0, lambda dl=days_left: self._timer_btn and
+                        self._timer_btn.config(text=f"⏱  Syncing · {dl}/{dl}"))
+
+                _day_pattern = re.compile(r"\[(\d+)/(\d+)\]")
+
                 for line in proc.stdout:
                     self.after(0, self._log, line.rstrip())
+                    # Update timer button countdown from [X/Y] log lines
+                    if days_left is not None and self._timer_btn:
+                        m = _day_pattern.search(line)
+                        if m:
+                            current = int(m.group(1))
+                            total   = int(m.group(2))
+                            remaining = total - current + 1
+                            self.after(0, lambda r=remaining, t=total: self._timer_btn and
+                                self._timer_btn.config(text=f"⏱  Syncing · {r}/{t}"))
+                    # Check external stop_event (e.g. timer Stop button)
+                    if stop_event is not None and stop_event.is_set():
+                        self._stopped_by_user = True
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except Exception:
+                            proc.kill()
+                        break
 
                 proc.wait()
 
@@ -730,6 +826,8 @@ class GarminApp(tk.Tk):
                 if enable_stop and self._stop_btn:
                     self.after(0, lambda: self._stop_btn.config(
                         state="disabled", bg=BG3, fg=TEXT2))
+                if on_done:
+                    self.after(0, on_done)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -812,6 +910,14 @@ class GarminApp(tk.Tk):
             self._log("✗ Email or password missing.")
             return
 
+        # ── Pause background timer if active ──
+        timer_was_active = self._timer_active
+        if self._timer_active:
+            self._log("⏱  Background timer paused for manual sync.")
+            self._timer_stop.set()
+            self._timer_active = False
+            self.after(0, self._timer_update_btn)
+
         # ── Failed days popup ──
         refresh_failed = self._check_failed_days_popup(
             base_dir    = s["base_dir"],
@@ -823,7 +929,8 @@ class GarminApp(tk.Tk):
 
         if self._connection_verified:
             self._run_script("garmin_collector.py", enable_stop=True,
-                             refresh_failed=refresh_failed)
+                             refresh_failed=refresh_failed,
+                             on_done=lambda: self._timer_resume_after_sync(timer_was_active))
             return
 
         for key in self._conn_indicators:
@@ -876,7 +983,8 @@ class GarminApp(tk.Tk):
                 self._connection_verified = True
                 self.after(0, lambda: self._run_script(
                     "garmin_collector.py", enable_stop=True,
-                    refresh_failed=refresh_failed))
+                    refresh_failed=refresh_failed,
+                    on_done=lambda: self._timer_resume_after_sync(timer_was_active)))
             except Exception as e:
                 self.after(0, self._set_indicator, "data", "fail")
                 self.after(0, self._log, f"  ✗ Data access failed: {e}")
@@ -923,7 +1031,331 @@ class GarminApp(tk.Tk):
             html = str(max(files, key=lambda f: f.stat().st_mtime))
         os.startfile(html)
 
+    # ── Background Timer ───────────────────────────────────────────────────────
+
+    def _timer_update_btn(self):
+        """Update timer button appearance based on current state."""
+        if not self._timer_btn:
+            return
+        if self._timer_active:
+            self._timer_btn.config(bg=GREEN, fg="#0a0a1a")
+        else:
+            self._timer_btn.config(text="⏱  Timer: Off", bg=BG3, fg=TEXT2)
+
+    def _toggle_timer(self):
+        """Start or stop the background timer."""
+        if self._timer_active:
+            self._timer_generation += 1   # invalidate any running thread
+            self._timer_stop.set()
+            self._timer_active = False
+            self._timer_update_btn()
+            self._log("⏱  Background timer stopped.")
+        else:
+            s = self._collect_settings()
+            if not s["email"] or not s["password"]:
+                self._log("⏱  Background timer: email or password missing.")
+                return
+            self._timer_generation += 1
+            self._timer_stop.clear()
+            self._timer_active = True
+            self._timer_next_mode = "repair"
+            self._timer_update_btn()
+            self._log("⏱  Background timer started.")
+            threading.Thread(
+                target=self._timer_loop,
+                args=(self._timer_generation,),
+                daemon=True
+            ).start()
+
+    def _timer_resume_after_sync(self, was_active: bool):
+        """Restart timer after a manual sync if it was active before."""
+        if was_active and not self._timer_active:
+            self._timer_generation += 1
+            self._timer_stop.clear()
+            self._timer_active = True
+            self._timer_next_mode = "repair"
+            self._timer_update_btn()
+            self._log("⏱  Background timer resumed.")
+            threading.Thread(
+                target=self._timer_loop,
+                args=(self._timer_generation,),
+                daemon=True
+            ).start()
+
+    def _timer_loop(self, generation: int):
+        """
+        Main timer loop — runs in a background thread.
+        Alternates between "repair" (re-fetch failed/incomplete days)
+        and "fill" (fetch completely missing days).
+        Stops automatically when both queues are empty.
+        Each loop instance carries a generation ID — if a newer timer was started,
+        this thread exits immediately without touching state.
+        """
+        import random
+
+        def _stale():
+            """Returns True if this thread has been superseded by a newer timer."""
+            return generation != self._timer_generation or self._timer_stop.is_set()
+
+        # ── Connection test (once per session, shared with manual sync) ──────
+        if not self._connection_verified and not self._timer_conn_verified:
+            self.after(0, self._log, "⏱  Background timer: testing connection ...")
+            conn_result = threading.Event()
+            conn_ok     = [False]
+
+            def _test_conn():
+                try:
+                    from garminconnect import Garmin
+                    s2 = self._collect_settings()
+                    client = Garmin(s2["email"], s2["password"])
+                    client.login()
+                    client.get_user_profile()
+                    yesterday = (date.today() - timedelta(days=1)).isoformat()
+                    client.get_stats(yesterday)
+                    conn_ok[0] = True
+                except Exception as e:
+                    self.after(0, self._log, f"⏱  Connection failed: {e}")
+                finally:
+                    conn_result.set()
+
+            threading.Thread(target=_test_conn, daemon=True).start()
+            conn_result.wait()
+
+            if _stale():
+                return
+            if not conn_ok[0]:
+                self.after(0, self._log,
+                    "⏱  Background timer stopped — connection test failed.")
+                self._timer_active = False
+                self.after(0, self._timer_update_btn)
+                return
+            self._timer_conn_verified = True
+            self._connection_verified = True
+            self.after(0, lambda: [
+                self._set_indicator("login", "ok"),
+                self._set_indicator("api",   "ok"),
+                self._set_indicator("data",  "ok"),
+                self._test_btn.config(bg="#4ecca3", fg="#0a0a1a"),
+            ])
+            self.after(0, self._log, "⏱  Connection OK — background timer running.")
+
+        while not _stale():
+            # ── Read current settings fresh each run ──
+            s = self._collect_settings()
+            try:
+                min_interval = max(1, int(s.get("timer_min_interval", "5")))
+                max_interval = max(min_interval, int(s.get("timer_max_interval", "30")))
+                min_days     = max(1, int(s.get("timer_min_days", "3")))
+                max_days     = max(min_days, int(s.get("timer_max_days", "10")))
+            except ValueError:
+                min_interval, max_interval = 5, 30
+                min_days,     max_days     = 3, 10
+
+            # ── Determine what to do this run ──
+            _mode_cycle = ["repair", "quality", "fill"]
+            mode = self._timer_next_mode
+            if mode == "repair":
+                days = self._timer_run_repair(s)
+            elif mode == "quality":
+                days = self._timer_run_quality(s)
+            else:
+                days = self._timer_run_fill(s)
+
+            skipped = days is None
+
+            if not skipped:
+                # Advance to next mode
+                idx = _mode_cycle.index(mode)
+                self._timer_next_mode = _mode_cycle[(idx + 1) % 3]
+            else:
+                # Try remaining modes in order
+                remaining = [m for m in _mode_cycle if m != mode]
+                days = None
+                for other_mode in remaining:
+                    if other_mode == "repair":
+                        candidate = self._timer_run_repair(s)
+                    elif other_mode == "quality":
+                        candidate = self._timer_run_quality(s)
+                    else:
+                        candidate = self._timer_run_fill(s)
+                    if candidate is not None:
+                        days = candidate
+                        mode = other_mode
+                        idx  = _mode_cycle.index(mode)
+                        self._timer_next_mode = _mode_cycle[(idx + 1) % 3]
+                        break
+
+                if days is None:
+                    # All queues empty — archive complete
+                    if not _stale():
+                        self.after(0, self._log, "⏱  Archive complete — background timer stopped.")
+                        self._timer_active = False
+                        self.after(0, self._timer_update_btn)
+                    return
+
+            # ── Pick random subset of days ──
+            n_days    = random.randint(min_days, max_days)
+            days_pick = sorted(random.sample(days, min(n_days, len(days))))
+            sync_dates_str = ",".join(d.isoformat() for d in days_pick)
+            days_left      = len(days_pick)
+            queue_total    = len(days)
+
+            label = {"repair": "Repair", "quality": "Quality", "fill": "Fill"}.get(mode, mode)
+            self.after(0, self._log,
+                f"⏱  [{label}] Syncing {days_left} days"
+                f" ({queue_total} in queue)")
+
+            # Wait for any running sync to finish
+            while self._active_proc is not None:
+                if _stale():
+                    return
+                self._timer_stop.wait(timeout=0.5)
+
+            # ── Run the sync ──
+            refresh = (mode in ("repair", "quality"))
+            env_overrides = {
+                "GARMIN_SYNC_DATES":         sync_dates_str,
+                "GARMIN_REFRESH_FAILED":     "1" if refresh else "0",
+                "GARMIN_SESSION_LOG_PREFIX": "garmin_background",
+            }
+            sync_done = threading.Event()
+
+            def _on_done():
+                sync_done.set()
+
+            self.after(0, lambda eo=env_overrides, d=_on_done, dl=days_left: self._run_script(
+                "garmin_collector.py",
+                enable_stop=False,
+                refresh_failed=refresh,
+                log_prefix="garmin_background",
+                env_overrides=eo,
+                on_done=d,
+                stop_event=self._timer_stop,
+                days_left=dl,
+            ))
+
+            # Wait for sync to complete — yield to main thread via wait(timeout)
+            while not sync_done.is_set():
+                if _stale():
+                    return
+                self._timer_stop.wait(timeout=0.5)
+
+            if _stale():
+                return
+
+            # ── Countdown to next run ──
+            wait_secs = random.randint(min_interval * 60, max_interval * 60)
+            for remaining in range(wait_secs, 0, -1):
+                if _stale():
+                    return
+                mins, secs = divmod(remaining, 60)
+                self.after(0, lambda t=f"{mins:02d}:{secs:02d}": (
+                    self._timer_btn and self._timer_btn.config(text=f"⏱  {t}")
+                ) if self._timer_active else None)
+                self._timer_stop.wait(timeout=1)
+
+    def _timer_run_repair(self, s: dict):
+        """
+        Returns list of date objects with quality='failed' from quality_log.json.
+        These are days where the API call itself failed — no file was created.
+        Returns None if queue is empty.
+        """
+        try:
+            failed_file = Path(s["base_dir"]) / "log" / "quality_log.json"
+            if not failed_file.exists():
+                return None
+            data    = json.loads(failed_file.read_text(encoding="utf-8"))
+            entries = data.get("days", [])
+            days = []
+            for e in entries:
+                q = e.get("quality", e.get("category", ""))
+                if q == "failed" and e.get("recheck", True):
+                    try:
+                        days.append(date.fromisoformat(e["date"]))
+                    except (ValueError, KeyError):
+                        pass
+            return days if days else None
+        except Exception:
+            return None
+
+    def _timer_run_quality(self, s: dict):
+        """
+        Returns list of date objects with quality='low' and recheck=True.
+        These are days where a file exists but content is poor (Garmin archived data).
+        Returns None if queue is empty.
+        """
+        try:
+            failed_file = Path(s["base_dir"]) / "log" / "quality_log.json"
+            if not failed_file.exists():
+                return None
+            data    = json.loads(failed_file.read_text(encoding="utf-8"))
+            entries = data.get("days", [])
+            days = []
+            for e in entries:
+                q = e.get("quality", e.get("category", ""))
+                if q == "low" and e.get("recheck", True):
+                    try:
+                        days.append(date.fromisoformat(e["date"]))
+                    except (ValueError, KeyError):
+                        pass
+            return days if days else None
+        except Exception:
+            return None
+
+    def _timer_run_fill(self, s: dict):
+        """
+        Returns list of date objects that are completely absent from raw/
+        (no file at all, not even incomplete). Compares all dates from
+        earliest quality_log.json entry (or earliest local file) to yesterday.
+        Returns None if no truly missing days exist.
+        """
+        try:
+            raw_dir = Path(s["base_dir"]) / "raw"
+
+            # Collect all dates that have any raw file (complete or incomplete)
+            existing = set()
+            if raw_dir.exists():
+                for f in raw_dir.glob("garmin_raw_*.json"):
+                    try:
+                        existing.add(date.fromisoformat(f.stem.replace("garmin_raw_", "")))
+                    except ValueError:
+                        pass
+
+            # Also collect dates in quality_log.json to find the earliest known date
+            failed_file = Path(s["base_dir"]) / "log" / "quality_log.json"
+            failed_dates = set()
+            if failed_file.exists():
+                try:
+                    data = json.loads(failed_file.read_text(encoding="utf-8"))
+                    for e in data.get("days", []):
+                        try:
+                            failed_dates.add(date.fromisoformat(e["date"]))
+                        except (ValueError, KeyError):
+                            pass
+                except Exception:
+                    pass
+
+            all_known = existing | failed_dates
+            if not all_known:
+                return None
+
+            # Find truly missing: no raw file AND not in quality_log.json
+            yesterday = date.today() - timedelta(days=1)
+            earliest  = min(all_known)
+            missing = []
+            current = earliest
+            while current <= yesterday:
+                if current not in existing and current not in failed_dates:
+                    missing.append(current)
+                current += timedelta(days=1)
+
+            return missing if missing else None
+        except Exception:
+            return None
+
     def _on_close(self):
+        self._timer_generation += 1   # invalidate any running timer thread
+        self._timer_stop.set()
         self.settings = self._collect_settings()
         save_password(self.settings.get("password", ""))
         save_settings(self.settings)

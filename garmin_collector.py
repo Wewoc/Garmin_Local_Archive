@@ -19,6 +19,9 @@ Configuration via environment variables (all optional — hardcoded fallbacks be
   GARMIN_SYNC_FALLBACK    Manual start date fallback for auto mode
   GARMIN_REQUEST_DELAY    Seconds between API calls
   GARMIN_INCOMPLETE_KB    Raw file size threshold in KB (default 100)
+  GARMIN_SESSION_LOG_PREFIX    Prefix for session log filenames (default "garmin")
+  GARMIN_SYNC_DATES            Comma-separated list of dates (YYYY-MM-DD) to fetch.
+                               If set, overrides GARMIN_SYNC_MODE entirely.
 """
 
 import json
@@ -60,11 +63,19 @@ SYNC_AUTO_FALLBACK = os.environ.get("GARMIN_SYNC_FALLBACK") or None
 # Delay between API requests in seconds — prevents rate limiting
 REQUEST_DELAY = float(os.environ.get("GARMIN_REQUEST_DELAY", "1.5"))
 
-# Raw files below this size (KB) are considered incomplete and queued for re-fetch
-INCOMPLETE_FILE_KB = int(os.environ.get("GARMIN_INCOMPLETE_KB", "100"))
-
-# If "1": incomplete days are excluded from get_local_dates() → treated as missing → re-fetched
+# If "1": low/failed quality days are excluded from get_local_dates() → treated as missing → re-fetched
 REFRESH_FAILED = os.environ.get("GARMIN_REFRESH_FAILED", "0") == "1"
+
+# Max re-download attempts for 'low' quality days before giving up (recheck → false)
+LOW_QUALITY_MAX_ATTEMPTS = int(os.environ.get("GARMIN_LOW_QUALITY_MAX_ATTEMPTS", "3"))
+
+# Prefix for session log filenames — default "garmin", background timer sets "garmin_background"
+SESSION_LOG_PREFIX = os.environ.get("GARMIN_SESSION_LOG_PREFIX", "garmin")
+
+# Comma-separated list of specific dates to fetch (YYYY-MM-DD).
+# If set, overrides GARMIN_SYNC_MODE — only these exact dates are fetched.
+_sync_dates_raw = os.environ.get("GARMIN_SYNC_DATES", "").strip()
+SYNC_DATES = None  # resolved after imports below
 
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -75,6 +86,16 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+# Resolve SYNC_DATES now that date is imported
+if _sync_dates_raw:
+    _parsed = []
+    for _d in _sync_dates_raw.split(","):
+        try:
+            _parsed.append(date.fromisoformat(_d.strip()))
+        except ValueError:
+            pass
+    SYNC_DATES = sorted(_parsed) if _parsed else None
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -396,37 +417,107 @@ def get_local_dates(folder: Path) -> set:
             except ValueError:
                 pass
     if REFRESH_FAILED:
-        # Remove incomplete days so they appear as missing and get re-fetched
-        incomplete = get_incomplete_dates(folder)
-        before = len(dates)
-        dates -= set(incomplete.keys())
-        if incomplete:
-            log.info(f"  Refresh mode: excluding {before - len(dates)} incomplete days for re-fetch")
+        # Remove days with recheck=True so they appear as missing and get re-fetched
+        recheck_file = LOG_DIR / "quality_log.json"
+        if recheck_file.exists():
+            try:
+                import json as _json
+                qdata = _json.loads(recheck_file.read_text(encoding="utf-8"))
+                recheck_dates = {
+                    date.fromisoformat(e["date"])
+                    for e in qdata.get("days", [])
+                    if e.get("recheck", False)
+                }
+                before = len(dates)
+                dates -= recheck_dates
+                removed = before - len(dates)
+                if removed:
+                    log.info(f"  Refresh mode: excluding {removed} recheck days for re-fetch")
+            except Exception:
+                pass
 
     if dates:
         log.info(f"  Local days found: {len(dates)} (earliest: {min(dates)}, latest: {max(dates)})")
     return dates
 
 
-def get_incomplete_dates(folder: Path) -> dict:
+def assess_quality(raw: dict) -> str:
     """
-    Scans raw/ for files below INCOMPLETE_FILE_KB threshold.
-    Returns {date: size_kb} for all incomplete files.
+    Assesses the quality of a raw data dict based on content.
+
+    Returns one of:
+      "high"   — intraday data present (HR values, stress values, etc.)
+      "med"    — daily aggregates present but no intraday (typical for older Garmin data)
+      "low"    — only summary-level data, minimum usable (stats or user_summary present)
+      "failed" — nothing usable, not even basic stats
     """
-    incomplete = {}
+    # Check for intraday data
+    hr = raw.get("heart_rates") or {}
+    hr_values = hr.get("heartRateValues") if isinstance(hr, dict) else None
+    has_intraday_hr = isinstance(hr_values, list) and len(hr_values) > 0
+
+    stress = raw.get("stress") or {}
+    stress_values = stress.get("stressValuesArray") if isinstance(stress, dict) else None
+    has_intraday_stress = isinstance(stress_values, list) and len(stress_values) > 0
+
+    if has_intraday_hr or has_intraday_stress:
+        return "high"
+
+    # Check for daily aggregates
+    stats = raw.get("stats") or {}
+    user_summary = raw.get("user_summary") or {}
+
+    has_steps = (
+        safe_get(stats, "totalSteps") is not None or
+        safe_get(user_summary, "totalSteps") is not None
+    )
+    has_hr_resting = (
+        safe_get(stats, "restingHeartRate") is not None or
+        safe_get(user_summary, "restingHeartRate") is not None
+    )
+
+    if has_steps or has_hr_resting:
+        # Has daily aggregates — check if meaningful
+        sleep = raw.get("sleep") or {}
+        has_sleep = safe_get(sleep, "dailySleepDTO", "sleepTimeSeconds") is not None
+
+        if has_sleep or has_steps:
+            return "med"
+        return "low"
+
+    # Check bare minimum — any stats at all
+    if isinstance(stats, dict) and stats:
+        return "low"
+    if isinstance(user_summary, dict) and user_summary:
+        return "low"
+
+    return "failed"
+
+
+def get_low_quality_dates(folder: Path, known_dates: set = None) -> dict:
+    """
+    Scans raw/ for files with quality 'low' or 'failed' based on content.
+    Skips dates already in the quality log (known_dates set).
+    Returns {date: quality} for newly discovered problematic files.
+    """
+    result = {}
     if not folder.exists():
-        return incomplete
+        return result
     for f in folder.glob("garmin_raw_*.json"):
         try:
-            day     = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
-            size_kb = f.stat().st_size // 1024
-            if size_kb < INCOMPLETE_FILE_KB:
-                incomplete[day] = size_kb
-        except (ValueError, OSError):
+            day = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
+            if known_dates and day in known_dates:
+                continue  # already in quality log — skip OneDrive download
+            with open(f, encoding="utf-8") as fh:
+                raw = json.load(fh)
+            q = assess_quality(raw)
+            if q in ("low", "failed"):
+                result[day] = q
+        except (ValueError, OSError, json.JSONDecodeError):
             pass
-    if incomplete:
-        log.info(f"  Incomplete raw files: {len(incomplete)} (below {INCOMPLETE_FILE_KB} KB)")
-    return incomplete
+    if result:
+        log.info(f"  Newly discovered low/failed quality files: {len(result)}")
+    return result
 
 
 def date_range(start: date, end: date):
@@ -436,69 +527,164 @@ def date_range(start: date, end: date):
         current += timedelta(days=1)
 
 
-# ── Failed days helpers ────────────────────────────────────────────────────────
+# ── Quality log helpers ───────────────────────────────────────────────────────
 
 LOG_DIR          = BASE_DIR / "log"
-FAILED_DAYS_FILE = LOG_DIR / "failed_days.json"
+QUALITY_LOG_FILE = LOG_DIR / "quality_log.json"
+FAILED_DAYS_FILE = QUALITY_LOG_FILE  # backwards-compat alias
 
 
-def _load_failed_days() -> dict:
-    """Loads failed_days.json. Returns empty structure if missing or corrupt."""
-    if not FAILED_DAYS_FILE.exists():
-        return {"failed": []}
+def _load_quality_log() -> dict:
+    """
+    Loads quality_log.json. Returns empty structure if missing or corrupt.
+    Applies migrations:
+      - From failed_days.json (old name) → quality_log.json
+      - From 'failed' list schema → 'days' list schema
+      - 'category' field → 'quality' field
+      - old 'error' → 'failed', old 'incomplete' → 'low'
+      - Adds missing fields: recheck, last_checked
+    """
+    old_file = LOG_DIR / "failed_days.json"
+
+    # Try quality_log.json first, fall back to failed_days.json migration
+    source = None
+    if QUALITY_LOG_FILE.exists():
+        source = QUALITY_LOG_FILE
+    elif old_file.exists():
+        source = old_file
+        log.info("  Migrating failed_days.json → quality_log.json ...")
+
+    if source is None:
+        return {"days": []}
+
     try:
-        with open(FAILED_DAYS_FILE, encoding="utf-8") as f:
+        with open(source, encoding="utf-8") as f:
             data = json.load(f)
-        if "failed" not in data or not isinstance(data["failed"], list):
-            return {"failed": []}
-        # Migration: reset attempts/last_attempt for incomplete entries
-        # (attempts was incorrectly incremented in earlier versions)
-        for entry in data["failed"]:
-            if entry.get("category") == "incomplete":
-                entry["attempts"]     = 0
+
+        # Migrate old 'failed' key → 'days'
+        if "failed" in data and "days" not in data:
+            data["days"] = data.pop("failed")
+
+        if "days" not in data or not isinstance(data["days"], list):
+            return {"days": []}
+
+        today_str = date.today().isoformat()
+        for entry in data["days"]:
+            # Migrate 'category' → 'quality'
+            if "category" in entry and "quality" not in entry:
+                old = entry.pop("category")
+                entry["quality"] = "failed" if old == "error" else "low"
+
+            # Ensure all new fields exist
+            if "recheck" not in entry:
+                q = entry.get("quality", "failed")
+                entry["recheck"] = q in ("failed", "low")
+            if "last_checked" not in entry:
+                entry["last_checked"] = entry.get("last_attempt", today_str) or today_str
+            if "attempts" not in entry:
+                entry["attempts"] = 0
+            if "last_attempt" not in entry:
                 entry["last_attempt"] = None
+
+            # Reset attempts for low entries (Garmin archived data, not real failures)
+            if entry.get("quality") == "low":
+                entry["attempts"] = 0
+
+        # Save to new location if migrated from old file
+        if source == old_file:
+            _save_quality_log(data)
+            try:
+                old_file.unlink()
+                log.info("  Migration complete — failed_days.json removed.")
+            except Exception:
+                pass
+
         return data
+
     except Exception as e:
-        log.warning(f"  Could not read failed_days.json: {e} — starting fresh.")
-        return {"failed": []}
+        log.warning(f"  Could not read quality log: {e} — starting fresh.")
+        return {"days": []}
 
 
-def _save_failed_days(data: dict) -> None:
-    """Writes failed_days.json atomically via temp file."""
-    tmp = FAILED_DAYS_FILE.with_suffix(".tmp")
+# Keep old name as alias for compatibility with any external callers
+_load_failed_days = _load_quality_log
+
+
+def _save_quality_log(data: dict) -> None:
+    """Writes quality_log.json atomically via temp file."""
+    tmp = QUALITY_LOG_FILE.with_suffix(".tmp")
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp.replace(FAILED_DAYS_FILE)
+        tmp.replace(QUALITY_LOG_FILE)
     except Exception as e:
-        log.warning(f"  Could not write failed_days.json: {e}")
+        log.warning(f"  Could not write quality_log.json: {e}")
 
 
-def _upsert_failed(data: dict, day: date, category: str, reason: str) -> None:
-    """Adds or updates a failed day entry in-place."""
-    day_str = day.isoformat()
-    for entry in data["failed"]:
+# Keep old name as alias
+_save_failed_days = _save_quality_log
+
+
+def _upsert_quality(data: dict, day: date, quality: str, reason: str) -> None:
+    """
+    Adds or updates a day entry in the quality log.
+    - 'failed': increments attempts, sets recheck=True
+    - 'low': increments attempts, sets recheck=False if attempts >= LOW_QUALITY_MAX_ATTEMPTS
+    - 'med'/'high': sets recheck=False (data is good)
+    """
+    day_str   = day.isoformat()
+    today_str = date.today().isoformat()
+    now_str   = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    for entry in data["days"]:
         if entry.get("date") == day_str:
-            if category == "error":
-                # Real download attempt — increment counter
+            entry["quality"]       = quality
+            entry["reason"]        = reason
+            entry["last_checked"]  = today_str
+            if quality == "failed":
                 entry["attempts"]     = entry.get("attempts", 0) + 1
-                entry["last_attempt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            # For incomplete: just refresh reason, don't touch attempts/last_attempt
-            entry["reason"] = reason
+                entry["last_attempt"] = now_str
+                entry["recheck"]      = True
+            elif quality == "low":
+                entry["attempts"]     = entry.get("attempts", 0) + 1
+                entry["last_attempt"] = now_str
+                entry["recheck"]      = entry["attempts"] < LOW_QUALITY_MAX_ATTEMPTS
+                if not entry["recheck"]:
+                    log.info(f"    ℹ {day}: low quality after {entry['attempts']} attempts — recheck disabled")
+            else:
+                entry["recheck"]      = False
+                entry["last_attempt"] = now_str
             return
-    data["failed"].append({
+
+    # New entry
+    attempts = 1 if quality in ("failed", "low") else 0
+    data["days"].append({
         "date":         day_str,
+        "quality":      quality,
         "reason":       reason,
-        "category":     category,
-        "attempts":     1 if category == "error" else 0,
-        "last_attempt": datetime.now().strftime("%Y-%m-%dT%H:%M:%S") if category == "error" else None,
+        "recheck":      quality in ("failed", "low"),
+        "attempts":     attempts,
+        "last_checked": today_str,
+        "last_attempt": now_str if quality in ("failed", "low") else None,
     })
 
 
+# Keep old name as alias
+_upsert_failed = _upsert_quality
+
+
+def _mark_quality_ok(data: dict, day: date, quality: str) -> None:
+    """
+    Marks a day as good quality (high/med) — sets recheck=False.
+    Updates existing entry or adds new one. Does NOT remove — keeps full history.
+    """
+    _upsert_quality(data, day, quality, f"Quality: {quality}")
+
+
+# Keep old name as alias (will update quality to high/med instead of removing)
 def _remove_failed(data: dict, day: date) -> None:
-    """Removes a day from the failed list after successful download."""
-    day_str = day.isoformat()
-    data["failed"] = [e for e in data["failed"] if e.get("date") != day_str]
+    """Legacy alias — marks day as high quality instead of removing."""
+    _mark_quality_ok(data, day, "high")
 
 
 # ── Session logging ────────────────────────────────────────────────────────────
@@ -517,7 +703,7 @@ def _start_session_log() -> tuple:
     LOG_FAIL_DIR.mkdir(parents=True, exist_ok=True)
 
     ts       = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    log_path = LOG_RECENT_DIR / f"garmin_{ts}.log"
+    log_path = LOG_RECENT_DIR / f"{SESSION_LOG_PREFIX}_{ts}.log"
 
     fh = logging.FileHandler(log_path, encoding="utf-8")
     fh.setLevel(logging.DEBUG)
@@ -574,19 +760,24 @@ def main():
     _session_had_errors     = False
     _session_had_incomplete = False
 
-    # ── Load + update failed_days.json ────────────────────────────────────────
-    failed_data = _load_failed_days()
+    # ── Load + update quality_log.json ───────────────────────────────────────
+    quality_data = _load_quality_log()
 
-    # Scan raw/ for incomplete files and register them
-    incomplete = get_incomplete_dates(RAW_DIR)
-    for day, size_kb in incomplete.items():
-        _upsert_failed(failed_data, day, "incomplete", f"File too small: {size_kb} KB (threshold: {INCOMPLETE_FILE_KB} KB)")
+    # Collect already-known dates to skip in scan (avoids OneDrive downloads)
+    known_dates = {
+        date.fromisoformat(e["date"])
+        for e in quality_data.get("days", [])
+        if "date" in e
+    }
 
-    if incomplete:
-        _session_had_incomplete = True
+    # Scan raw/ for new files not yet in quality log
+    new_low = get_low_quality_dates(RAW_DIR, known_dates=known_dates)
+    for day, q in new_low.items():
+        _upsert_quality(quality_data, day, q, f"Quality: {q} — insufficient data from Garmin API")
 
-    _save_failed_days(failed_data)
-    log.info(f"  Failed days on record: {len(failed_data['failed'])} (errors + incomplete)")
+    _save_quality_log(quality_data)
+    recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
+    log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
 
     # ── Login ─────────────────────────────────────────────────────────────────
     log.info("Connecting to Garmin Connect ...")
@@ -598,16 +789,26 @@ def main():
         log.error(f"Login failed: {e}")
         sys.exit(1)
 
-    start, end = resolve_date_range(client)
-    local      = get_local_dates(RAW_DIR)
-    missing    = sorted(set(date_range(start, end)) - local)
+    # ── Resolve date list ─────────────────────────────────────────────────────
+    if SYNC_DATES:
+        # Background timer mode: fetch exactly these dates, ignore SYNC_MODE
+        local   = get_local_dates(RAW_DIR)
+        missing = sorted(d for d in SYNC_DATES if d not in local or REFRESH_FAILED)
+        log.info(f"  SYNC_DATES mode: {len(SYNC_DATES)} requested, {len(missing)} to fetch")
+    else:
+        start, end = resolve_date_range(client)
+        local      = get_local_dates(RAW_DIR)
+        missing    = sorted(set(date_range(start, end)) - local)
 
     if not missing:
         log.info("All days already present — nothing to do.")
         return
 
     log.info(f"Local: {len(local)} days  |  Missing: {len(missing)} days")
-    log.info(f"Fetching {missing[0]} to {missing[-1]} ...")
+    if SYNC_DATES:
+        log.info(f"Fetching {len(missing)} specific days ...")
+    else:
+        log.info(f"Fetching {missing[0]} to {missing[-1]} ...")
 
     ok, failed = 0, 0
     for i, day in enumerate(missing, 1):
@@ -620,22 +821,33 @@ def main():
             raw     = fetch_raw(client, date_str)
             summary = summarize(raw)
 
-            with open(RAW_DIR     / f"garmin_raw_{date_str}.json", "w", encoding="utf-8") as f:
+            raw_path = RAW_DIR / f"garmin_raw_{date_str}.json"
+            with open(raw_path, "w", encoding="utf-8") as f:
                 json.dump(raw,     f, ensure_ascii=False, indent=2)
             with open(SUMMARY_DIR / f"garmin_{date_str}.json",     "w", encoding="utf-8") as f:
                 json.dump(summary, f, ensure_ascii=False, indent=2)
 
-            _remove_failed(failed_data, day)
+            # Assess quality and update log
+            q = assess_quality(raw)
+            _upsert_quality(quality_data, day, q,
+                            f"Quality: {q}" if q in ("high", "med") else
+                            f"Quality: {q} — insufficient data from Garmin API")
+            if q in ("low", "failed"):
+                _session_had_incomplete = True
+                log.warning(f"    ⚠ Low data quality ({q}) — flagged for recheck")
+            else:
+                log.info(f"    ✓ Quality: {q}")
             ok += 1
         except Exception as e:
             log.error(f"    Error on {day}: {e}")
-            _upsert_failed(failed_data, day, "error", str(e))
+            _upsert_quality(quality_data, day, "failed", str(e))
             failed += 1
             _session_had_errors = True
 
-    _save_failed_days(failed_data)
+    _save_quality_log(quality_data)
     log.info(f"Done. {ok} saved, {failed} errors.")
-    log.info(f"Failed days on record: {len(failed_data['failed'])} total")
+    recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
+    log.info(f"Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
     log.info(f"Raw data:    {RAW_DIR}")
     log.info(f"Summaries:   {SUMMARY_DIR}  ← point Open WebUI Knowledge Base here")
 

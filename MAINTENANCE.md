@@ -86,6 +86,32 @@ Desktop GUI built with tkinter. Wraps all scripts so the user never needs a term
 
 **`_connection_verified`** — session flag, starts `False`. Set to `True` after the first successful connection test. `_run_collector()` skips the test on subsequent calls and starts the sync directly. Resets to `False` on app restart.
 
+**Background Timer** — runs in a daemon thread started by `_toggle_timer()`. Cycles through three modes per run:
+- **Repair:** reads `quality_log.json`, draws a random subset (min–max days, configurable) of `failed` days with `recheck=true`, fetches them with `GARMIN_REFRESH_FAILED=1` and `GARMIN_SYNC_DATES`.
+- **Quality:** reads `quality_log.json`, draws a random subset of `low` days with `recheck=true`, re-downloads them to check if Garmin now returns better data. After `LOW_QUALITY_MAX_ATTEMPTS` attempts without improvement, the day's `recheck` is set to `false` — Garmin no longer has the detailed data and the day leaves the queue permanently.
+- **Fill:** scans `raw/` for dates completely absent from both the filesystem and the quality log — true gaps never downloaded. Fetches them normally.
+
+Cycle order: Repair → Quality → Fill → Repair → ... If a mode's queue is empty it is skipped. If all three queues are empty the timer stops automatically.
+
+**Timer settings** — four fields in the GUI (BACKGROUND TIMER section, right panel), stored in `~/.garmin_archive_settings.json`:
+
+| Setting | Key | Default | Description |
+|---|---|---|---|
+| Min. Interval (min) | `timer_min_interval` | `5` | Shortest wait between runs |
+| Max. Interval (min) | `timer_max_interval` | `30` | Longest wait between runs |
+| Min. Tage pro Run | `timer_min_days` | `3` | Fewest days fetched per run |
+| Max. Tage pro Run | `timer_max_days` | `10` | Most days fetched per run |
+
+Values are read fresh at the start of each run — changing them while the timer is running takes effect immediately on the next run without restarting.
+
+**Thread safety** — each timer thread carries a `generation` integer. `_timer_generation` is incremented on every Start/Stop. A thread exits immediately if its generation no longer matches (`_stale()` check). This prevents ghost threads from multiple rapid Start/Stop clicks.
+
+**`_timer_conn_verified`** — session flag for the timer's own connection test. On success, also sets `_connection_verified = True` and updates all three GUI indicators to green — so a subsequent manual sync also skips its test.
+
+**Timer + manual sync interaction** — `_run_collector()` detects `_timer_active`, pauses the timer (increments generation, sets stop event), runs the manual sync, then resumes via `_timer_resume_after_sync()` in `on_done`. Timer Stop during an active timer sync sets `_stopped_by_user = True` — no false error log.
+
+**Session logs** — background timer syncs write to `log/recent/garmin_background_YYYY-MM-DD_HHMMSS.log`. The `garmin_background_` prefix makes the source immediately identifiable in `log/fail/`.
+
 **`_set_indicator(key, state)`** — updates a connection status dot. States: `"pending"` (orange), `"ok"` (green), `"fail"` (red), `"reset"` (grey).
 
 **`_run_connection_test()`** — runs three sequential checks in a background thread: Login → API Access (`get_user_profile`) → Data (`get_stats` for yesterday). Each indicator updates live as checks complete. Button turns green on full success, red on first failure. Stops immediately on failure — no point testing further if login fails.
@@ -139,21 +165,43 @@ Every day produces two files:
 - `raw/garmin_raw_YYYY-MM-DD.json` — complete API response for all endpoints (~500 KB). Never modified after creation. Serves as the permanent source of truth.
 - `summary/garmin_YYYY-MM-DD.json` — compact distillation (~2 KB). Used by Open WebUI / Ollama as a Knowledge Base. Can always be regenerated from raw without hitting the API again.
 
-### Failed days tracking
+### Quality tracking and the quality log
 
-Every sync run loads `log/failed_days.json` before connecting to Garmin. Two things happen immediately:
+Every raw file downloaded from Garmin is assessed for content quality immediately after writing. The result is stored in `log/quality_log.json` — a persistent register of every day the collector has ever seen.
 
-1. `get_incomplete_dates()` scans `raw/` for files below `INCOMPLETE_FILE_KB` (default 100 KB) and registers them as `"incomplete"` entries.
-2. If `GARMIN_REFRESH_FAILED=1` (user clicked Ja in the popup), `get_local_dates()` filters out incomplete days so they appear as missing and get re-fetched.
+**Why content-based quality instead of file size:**
+Garmin Connect stores intraday detail data (per-second heart rate, per-minute stress values, sleep stage details) for approximately 1–2 years. Older data returns only daily aggregates — the API responds successfully, the JSON is valid, but it contains far less than a recent day. A file size threshold cannot reliably distinguish between a genuinely incomplete download and a legitimately sparse historical record. Content inspection can.
 
-After each day in the sync loop: successful downloads remove the entry from `failed_days.json`. API exceptions add or update an `"error"` entry. At the end of every run, `failed_days.json` is saved atomically.
+**Quality levels** (`assess_quality(raw)` in `garmin_collector.py`):
 
-Stop-aborted days are never added to `failed_days.json` — only real failures and incomplete files.
+| Level | Condition | Background Timer |
+|---|---|---|
+| `high` | Intraday data present — `heart_rates.heartRateValues` or `stress.stressValuesArray` has entries | Never re-downloaded |
+| `med` | Daily aggregates present (`stats.totalSteps` etc.) but no intraday — typical for data > ~1 year old | Never re-downloaded — this is as good as it gets |
+| `low` | Only minimal stats present — summary-level minimum | Re-tried up to `LOW_QUALITY_MAX_ATTEMPTS` (default 3) times, then left alone |
+| `failed` | API error — no usable data returned | Re-tried indefinitely until successful |
+
+**The `recheck` flag** controls whether the background timer will attempt to re-download a day:
+- `high` and `med` → always `recheck=false`
+- `low` → `recheck=true` until `attempts >= LOW_QUALITY_MAX_ATTEMPTS`, then `recheck=false`
+- `failed` → always `recheck=true`
+
+This prevents the timer from endlessly retrying days where Garmin simply no longer has the detailed data.
+
+**Startup scan:** On each run, `main()` loads the quality log and collects all already-known dates. Only raw files **not** in the log are read for quality assessment — this avoids triggering cloud downloads (OneDrive, etc.) for files that have already been assessed. The first run after installation scans everything; subsequent runs only scan new files.
+
+**Migration:** On the first run after upgrading from an older version, `_load_quality_log()` automatically reads the old `failed_days.json`, converts it to the new schema, writes `quality_log.json`, and deletes the old file.
+
+Stop-aborted days are never added to the quality log — only real failures and completed (even if low-quality) downloads.
 
 ### Session logging
 
-Every sync run opens a new log file at `log/recent/garmin_YYYY-MM-DD_HHMMSS.log`. The file handler always runs at `DEBUG` level, regardless of the `GARMIN_LOG_LEVEL` ENV variable. After the run:
-- If the session had errors or incomplete days: the log is additionally copied to `log/fail/`
+Every sync run opens a new log file at `log/recent/`. The filename prefix is controlled by `GARMIN_SESSION_LOG_PREFIX`:
+- Manual syncs: `garmin_YYYY-MM-DD_HHMMSS.log`
+- Background timer syncs: `garmin_background_YYYY-MM-DD_HHMMSS.log`
+
+The file handler always runs at `DEBUG` level. After the run:
+- If the session had errors or low-quality downloads: the log is additionally copied to `log/fail/` — the prefix immediately identifies the source
 - `log/recent/` is capped at 30 files — oldest are deleted automatically
 - `log/fail/` has no automatic limit
 
@@ -175,27 +223,29 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 
 `fetch_raw(client, date_str)` — calls all Garmin API endpoints for a given date. To add a new endpoint, append a tuple `("method_name", (args,), "key_name")` to the `endpoints` list.
 
+`assess_quality(raw)` — inspects raw data content and returns `"high"`, `"med"`, `"low"`, or `"failed"`. Called after every download.
+
 `summarize(raw)` — extracts fields from raw into compact summary. To expose a new field in Open WebUI, add it here.
 
 `get_devices(client)` — fetches registered devices, logs first/last use dates. Used by `resolve_date_range()` in auto mode.
 
 `resolve_date_range(client)` — returns `(start, end)` based on `SYNC_MODE`. Auto mode: tries devices → account profile → `SYNC_AUTO_FALLBACK` → 90-day fallback.
 
-`get_local_dates(folder)` — scans across three locations and naming schemes (raw schema, summary schema, legacy flat schema) for robustness. If `REFRESH_FAILED=True`, filters out incomplete dates.
+`get_local_dates(folder)` — scans across three locations and naming schemes for robustness. If `REFRESH_FAILED=True`, excludes days with `recheck=true` from the quality log.
 
-`get_incomplete_dates(folder)` — scans `raw/` for files below `INCOMPLETE_FILE_KB`. Returns `{date: size_kb}`.
+`get_low_quality_dates(folder, known_dates)` — scans `raw/` for files not yet in the quality log. Skips `known_dates` to avoid triggering cloud downloads.
 
-`_load_failed_days()` — loads `log/failed_days.json`. Applies one-time migration: resets `attempts` and `last_attempt` to `0`/`null` for any `"incomplete"` entries that were incorrectly incremented by earlier versions.
+`_load_quality_log()` — loads `quality_log.json`. Migrates old `failed_days.json` on first run.
 
-`_save_failed_days(data)` — writes atomically via `.tmp` file.
+`_save_quality_log(data)` — writes atomically via `.tmp` file.
 
-`_upsert_failed(data, day, category, reason)` — adds or updates entry. `"error"` increments `attempts`. `"incomplete"` only updates `reason`.
+`_upsert_quality(data, day, quality, reason)` — adds or updates entry. Increments `attempts` for `failed` and `low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS`.
 
-`_remove_failed(data, day)` — removes day after successful download.
+`_mark_quality_ok(data, day, quality)` — marks day as `high` or `med`, sets `recheck=false`.
 
-`_start_session_log()` — opens `log/recent/garmin_YYYY-MM-DD_HHMMSS.log` at DEBUG. Returns `(handler, path)`.
+`_start_session_log()` — opens session log at DEBUG. Returns `(handler, path)`.
 
-`_close_session_log(fh, path, had_errors, had_incomplete)` — closes handler, copies to `log/fail/` if needed, enforces rolling limit on `log/recent/`.
+`_close_session_log(fh, path, had_errors, had_incomplete)` — closes handler, copies to `log/fail/` if needed, enforces rolling limit.
 
 ### Configuration variables
 
