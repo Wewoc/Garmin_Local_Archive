@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App (Standalone)
+# Garmin Local Archive — Desktop App (Standalone) v1.1.1
 
 ## What this is
 
@@ -66,6 +66,28 @@ If there are days with failed or incomplete downloads in the selected sync range
 
 > **Large archives:** If you have years of Garmin history, start with `range` mode for the last 1–2 years before using `auto`. Downloading everything at once can trigger Garmin rate limiting.
 
+### Background Timer
+Automatically repairs and fills your archive in the background while the app is open — no manual intervention needed.
+
+Click the **⏱ Timer: Off** button to start. The button turns green and shows a live countdown to the next run. While a sync is running it shows **"Syncing · N offen"**.
+
+The timer alternates between two modes each run:
+- **Repair** — re-fetches days listed in `log/failed_days.json` (API errors and incomplete files)
+- **Fill** — fetches completely missing days between your earliest local file and yesterday
+
+When both queues are empty the timer stops automatically and logs "Archive complete".
+
+**Settings** (shown next to the button):
+
+| Field | Default | Description |
+|---|---|---|
+| Min. Interval (min) | 5 | Shortest wait between runs |
+| Max. Interval (min) | 30 | Longest wait between runs |
+| Min. Tage pro Run | 3 | Fewest days fetched per run |
+| Max. Tage pro Run | 10 | Most days fetched per run |
+
+The timer runs its own connection test before the first sync. If successful, the Test Connection indicators also turn green. Clicking the timer button while a sync is running stops the current download immediately.
+
 ### Daily Overview
 Exports `garmin_export.xlsx` — one row per day, colour-coded by category.
 Reads from `summary/`.
@@ -108,6 +130,8 @@ garmin_data/
     ├── recent/    – last 30 sync sessions (always full detail)
     └── fail/      – sessions with errors or incomplete days (kept permanently)
 ```
+
+Manual sync sessions are named `garmin_YYYY-MM-DD_HHMMSS.log`. Background timer sessions are named `garmin_background_YYYY-MM-DD_HHMMSS.log` — the prefix makes the source immediately identifiable in `log/fail/`.
 
 These are plain text files — open them in any text editor if you need to diagnose a problem.
 
