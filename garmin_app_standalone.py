@@ -228,7 +228,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.1.1",
+        tk.Label(header, text="v1.1.2",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -377,6 +377,10 @@ class GarminApp(tk.Tk):
                                    pady=7, padx=14, cursor="hand2",
                                    command=self._run_connection_test)
         self._test_btn.pack(side="left")
+        tk.Button(conn_row, text="🗑  Clean Archive", font=FONT_BTN,
+                  bg=BG3, fg=TEXT2, relief="flat", bd=0,
+                  pady=7, padx=14, cursor="hand2",
+                  command=self._clean_archive).pack(side="right")
         status_row = tk.Frame(fc, bg=BG)
         status_row.pack(fill="x", pady=(4, 2))
         self._conn_indicators = {}
@@ -916,14 +920,152 @@ class GarminApp(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _run_collector(self):
-        """Run connection test first (once per session), then start sync."""
+    def _clean_archive(self):
+        """Opens Clean Archive popup — shows preview, then deletes on confirm."""
+        import json as _json
+        from pathlib import Path as _Path
+        from datetime import date as _date
+
         s = self._collect_settings()
-        if not s["email"] or not s["password"]:
-            self._log("✗ Email or password missing.")
+        base_dir = _Path(s["base_dir"]).expanduser() if s["base_dir"] else None
+        if not base_dir:
+            self._log("✗ Clean Archive: no data folder set.")
             return
 
-        # ── Pause background timer if active ──
+        quality_log = base_dir / "log" / "quality_log.json"
+        if not quality_log.exists():
+            self._log("✗ Clean Archive: quality_log.json not found.")
+            return
+
+        try:
+            data = _json.loads(quality_log.read_text(encoding="utf-8"))
+        except Exception as e:
+            self._log(f"✗ Clean Archive: could not read quality_log.json: {e}")
+            return
+
+        first_day_str = data.get("first_day")
+        if not first_day_str:
+            self._log("✗ Clean Archive: first_day not set in quality_log.json.")
+            return
+
+        try:
+            cutoff = _date.fromisoformat(first_day_str)
+        except ValueError:
+            self._log(f"✗ Clean Archive: invalid first_day value '{first_day_str}'.")
+            return
+
+        # Collect files to delete
+        to_delete = []
+        raw_dir     = base_dir / "raw"
+        summary_dir = base_dir / "summary"
+        for folder, pattern, prefix in [
+            (raw_dir,     "garmin_raw_*.json", "garmin_raw_"),
+            (summary_dir, "garmin_*.json",     "garmin_"),
+        ]:
+            if not folder.exists():
+                continue
+            for f in sorted(folder.glob(pattern)):
+                try:
+                    d = _date.fromisoformat(f.stem.replace(prefix, ""))
+                    if d < cutoff:
+                        to_delete.append(f)
+                except ValueError:
+                    pass
+
+        entries_to_remove = [
+            e for e in data.get("days", [])
+            if e.get("date", "9999") < first_day_str
+        ]
+
+        if not to_delete and not entries_to_remove:
+            self._log(f"✓ Clean Archive: nothing to clean before {first_day_str}.")
+            return
+
+        # ── Build popup ────────────────────────────────────────────────────────
+        popup = tk.Toplevel(self)
+        popup.title("Clean Archive")
+        popup.configure(bg=BG)
+        popup.resizable(False, False)
+        popup.grab_set()
+
+        # Header
+        tk.Label(popup, text="🗑  Clean Archive",
+                 font=("Segoe UI", 12, "bold"), bg=BG, fg=TEXT,
+                 padx=20, pady=14).pack(anchor="w")
+        tk.Frame(popup, bg=ACCENT, height=1).pack(fill="x", padx=20)
+
+        # Info
+        info_frame = tk.Frame(popup, bg=BG, padx=20, pady=10)
+        info_frame.pack(fill="x")
+        tk.Label(info_frame,
+                 text=f"first_day:  {first_day_str}",
+                 font=("Segoe UI", 9, "bold"), bg=BG, fg=ACCENT).pack(anchor="w")
+        tk.Label(info_frame,
+                 text="The following files will be permanently deleted:",
+                 font=FONT_BODY, bg=BG, fg=TEXT2, pady=6).pack(anchor="w")
+
+        # Scrollable file list
+        list_frame = tk.Frame(popup, bg=BG, padx=20)
+        list_frame.pack(fill="both", expand=True)
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+        listbox = tk.Listbox(list_frame,
+                             yscrollcommand=scrollbar.set,
+                             bg=BG3, fg=TEXT2, font=("Consolas", 8),
+                             relief="flat", bd=0, height=12,
+                             selectbackground=BG3, activestyle="none")
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        for f in to_delete:
+            listbox.insert("end", f"  {f.relative_to(base_dir)}")
+
+        # Summary line
+        summary_frame = tk.Frame(popup, bg=BG, padx=20, pady=8)
+        summary_frame.pack(fill="x")
+        tk.Label(summary_frame,
+                 text=f"{len(to_delete)} file(s)  ·  {len(entries_to_remove)} quality log entry/entries",
+                 font=("Segoe UI", 8), bg=BG, fg=TEXT2).pack(anchor="w")
+
+        tk.Frame(popup, bg=ACCENT, height=1).pack(fill="x", padx=20)
+
+        # Buttons
+        btn_frame = tk.Frame(popup, bg=BG, padx=20, pady=14)
+        btn_frame.pack(fill="x")
+
+        def do_delete():
+            deleted = 0
+            for f in to_delete:
+                try:
+                    f.unlink(missing_ok=True)
+                    deleted += 1
+                except Exception as e:
+                    self._log(f"  ✗ Could not delete {f.name}: {e}")
+            # Remove entries from quality log
+            data["days"] = [
+                e for e in data.get("days", [])
+                if e.get("date", "9999") >= first_day_str
+            ]
+            try:
+                tmp = quality_log.with_suffix(".tmp")
+                tmp.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                tmp.replace(quality_log)
+            except Exception as e:
+                self._log(f"  ✗ Could not update quality_log.json: {e}")
+            popup.destroy()
+            self._log(f"✓ Clean Archive: {deleted} file(s) deleted, "
+                      f"{len(entries_to_remove)} log entry/entries removed.")
+
+        tk.Button(btn_frame, text="Abbrechen", font=FONT_BTN,
+                  bg=BG3, fg=TEXT2, relief="flat", bd=0,
+                  pady=6, padx=18, cursor="hand2",
+                  command=popup.destroy).pack(side="left")
+        tk.Button(btn_frame, text="🗑  Löschen", font=FONT_BTN,
+                  bg="#e94560", fg=TEXT, relief="flat", bd=0,
+                  pady=6, padx=18, cursor="hand2",
+                  command=do_delete).pack(side="right")
+
+    def _run_collector(self):
         timer_was_active = self._timer_active
         if self._timer_active:
             self._log("⏱  Background timer paused for manual sync.")

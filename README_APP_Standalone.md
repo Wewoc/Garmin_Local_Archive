@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App (Standalone) v1.1.1
+# Garmin Local Archive — Desktop App (Standalone) v1.1.2
 
 ## What this is
 
@@ -56,6 +56,13 @@ Tests the connection to Garmin Connect. Shows three indicators:
 Each indicator turns green on success or red on failure. The button itself turns green if all three pass, red if any fail.
 
 The test also runs automatically the first time you click Sync Data. After a successful test the result is remembered for the session — subsequent syncs start immediately without re-testing. The test resets when you restart the app.
+
+### Clean Archive
+Removes all data files that predate your `first_day` — the earliest valid day detected in your Garmin account.
+
+Click the button to open a preview popup showing exactly which files will be deleted and how many quality log entries will be removed. Nothing is deleted until you confirm with **Löschen**. Click **Abbrechen** to close without changes.
+
+Use this to clean up files created accidentally by entering a date that is too early in range mode. The `first_day` anchor is detected automatically on first run and stored in `log/quality_log.json`. If the popup reports "nothing to clean", your archive is already consistent.
 
 ### Sync Data / Stop
 Downloads missing days from Garmin Connect. Watch the log at the bottom for progress.

@@ -302,6 +302,25 @@ def summarize(raw: dict) -> dict:
 
 # ── Sync logic ─────────────────────────────────────────────────────────────────
 
+def _parse_device_date(val) -> str | None:
+    """Converts a device date value to YYYY-MM-DD.
+    Handles ISO strings, millisecond timestamps, and second timestamps."""
+    if not val:
+        return None
+    s = str(val).strip()
+    # Already ISO date (YYYY-MM-DD...)
+    if len(s) >= 10 and s[4:5] == "-":
+        return s[:10]
+    # Unix timestamp (seconds ~10 digits, milliseconds ~13 digits)
+    try:
+        ts = int(s)
+        if ts > 1e11:   # milliseconds → convert to seconds
+            ts //= 1000
+        return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+    except (ValueError, OSError):
+        return None
+
+
 def get_devices(client) -> list:
     """Fetches all registered devices, logs them, returns sorted list."""
     devices = []
@@ -314,12 +333,11 @@ def get_devices(client) -> list:
                 continue
             name       = d.get("productDisplayName") or d.get("deviceTypeName") or "Unknown"
             device_id  = d.get("deviceId") or d.get("unitId")
-            last_used  = (d.get("lastUsed") or "")[:10] or "unknown"
+            last_used  = _parse_device_date(d.get("lastUsed")) or "unknown"
             first_used = None
             for field in ("registeredDate", "activationDate", "firstSyncTime"):
-                val = d.get(field) or ""
-                if val:
-                    first_used = str(val)[:10]
+                first_used = _parse_device_date(d.get(field))
+                if first_used:
                     break
             devices.append({
                 "name":       name,
@@ -360,6 +378,13 @@ def resolve_date_range(client) -> tuple[date, date]:
 
     if SYNC_MODE == "auto":
         log.info("  Mode: auto — detecting earliest available date ...")
+
+        # Use first_day from quality log if already set (avoids repeated device API calls)
+        quality_data = _load_quality_log()
+        if quality_data.get("first_day"):
+            first_day = date.fromisoformat(quality_data["first_day"])
+            log.info(f"  first_day from quality log: {first_day}")
+            return first_day, yesterday
 
         # Try devices first
         devices     = get_devices(client)
@@ -555,7 +580,7 @@ def _load_quality_log() -> dict:
         log.info("  Migrating failed_days.json → quality_log.json ...")
 
     if source is None:
-        return {"days": []}
+        return {"first_day": None, "devices": [], "days": []}
 
     try:
         with open(source, encoding="utf-8") as f:
@@ -566,7 +591,29 @@ def _load_quality_log() -> dict:
             data["days"] = data.pop("failed")
 
         if "days" not in data or not isinstance(data["days"], list):
-            return {"days": []}
+            return {"first_day": None, "devices": [], "days": []}
+
+        # Ensure new root fields exist (migration from older schema)
+        if "first_day" not in data:
+            data["first_day"] = None
+        if "devices" not in data:
+            data["devices"] = []
+
+        # Migrate first_day if stored as Unix timestamp instead of YYYY-MM-DD
+        if data.get("first_day"):
+            fixed = _parse_device_date(data["first_day"])
+            if fixed and fixed != data["first_day"]:
+                log.info(f"  Migrating first_day: {data['first_day']} -> {fixed}")
+                data["first_day"] = fixed
+
+        # Migrate devices.first_used / last_used if stored as Unix timestamps
+        for dev in data.get("devices", []):
+            for field in ("first_used", "last_used"):
+                val = dev.get(field)
+                if val and val != "unknown":
+                    fixed = _parse_device_date(val)
+                    if fixed and fixed != val:
+                        dev[field] = fixed
 
         today_str = date.today().isoformat()
         for entry in data["days"]:
@@ -603,7 +650,7 @@ def _load_quality_log() -> dict:
 
     except Exception as e:
         log.warning(f"  Could not read quality log: {e} — starting fresh.")
-        return {"days": []}
+        return {"first_day": None, "devices": [], "days": []}
 
 
 # Keep old name as alias for compatibility with any external callers
@@ -623,6 +670,147 @@ def _save_quality_log(data: dict) -> None:
 
 # Keep old name as alias
 _save_failed_days = _save_quality_log
+
+
+def _backfill_quality_log(data: dict) -> int:
+    """
+    One-time backfill: scans all raw/ files and adds any days not yet in the
+    quality log — including high and med quality days that were never recorded.
+    Only runs when first_day is not yet set.
+    Returns the number of newly added entries.
+    """
+    if not RAW_DIR.exists():
+        return 0
+
+    known = {e["date"] for e in data.get("days", []) if "date" in e}
+    added = 0
+
+    for f in sorted(RAW_DIR.glob("garmin_raw_*.json")):
+        try:
+            day = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
+        except ValueError:
+            continue
+        if day.isoformat() in known:
+            continue
+        try:
+            with open(f, encoding="utf-8") as fh:
+                raw = json.load(fh)
+            q = assess_quality(raw)
+            _upsert_quality(data, day, q, f"Quality: {q} — backfill on first_day init")
+            added += 1
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    if added:
+        log.info(f"  Backfill: {added} existing days added to quality log")
+    return added
+
+
+def _set_first_day(data: dict, client) -> None:
+    """
+    Determines and persists first_day in quality_log.json.
+    Only runs when first_day is not yet set.
+    Resolution order: devices → account profile → SYNC_AUTO_FALLBACK → oldest local file.
+    Does not overwrite an existing first_day value.
+    """
+    if data.get("first_day"):
+        return  # Already set — never overwrite
+
+    log.info("  first_day not set — detecting from account ...")
+    first_day = None
+
+    # 1. Try devices
+    devices = data.get("devices") or []
+    first_dates = [d["first_used"] for d in devices if d.get("first_used") and d["first_used"] != "unknown"]
+    if first_dates:
+        first_day = min(first_dates)
+        log.info(f"  first_day from devices: {first_day}")
+
+    # 2. Try account profile
+    if not first_day and client:
+        try:
+            profile = client.get_user_profile()
+            reg = safe_get(profile, "userInfo", "registrationDate")
+            if reg:
+                first_day = str(reg)[:10]
+                log.info(f"  first_day from account profile: {first_day}")
+        except Exception:
+            pass
+
+    # 3. Manual fallback from ENV
+    if not first_day and SYNC_AUTO_FALLBACK:
+        first_day = SYNC_AUTO_FALLBACK
+        log.info(f"  first_day from SYNC_AUTO_FALLBACK: {first_day}")
+
+    # 4. Oldest local file in raw/
+    if not first_day and data.get("days"):
+        known_dates = sorted(e["date"] for e in data["days"] if "date" in e)
+        if known_dates:
+            first_day = known_dates[0]
+            log.info(f"  first_day from oldest local file: {first_day}")
+
+    if first_day:
+        data["first_day"] = first_day
+        log.info(f"  ✓ first_day set to {first_day}")
+    else:
+        log.warning("  Could not determine first_day — will retry on next run.")
+
+
+def cleanup_before_first_day(data: dict, dry_run: bool = False) -> dict:
+    """
+    Removes all raw/ and summary/ files before first_day, and removes
+    corresponding entries from quality_log.json.
+
+    dry_run=True: only counts and returns stats, does not delete anything.
+    Returns {"files_deleted": int, "entries_removed": int, "first_day": str}.
+    """
+    first_day_str = data.get("first_day")
+    if not first_day_str:
+        log.warning("  cleanup_before_first_day: first_day not set — nothing to clean.")
+        return {"files_deleted": 0, "entries_removed": 0, "first_day": None}
+
+    try:
+        cutoff = date.fromisoformat(first_day_str)
+    except ValueError:
+        log.warning(f"  cleanup_before_first_day: invalid first_day '{first_day_str}'.")
+        return {"files_deleted": 0, "entries_removed": 0, "first_day": first_day_str}
+
+    files_deleted = 0
+
+    # Delete raw files before cutoff
+    for f in RAW_DIR.glob("garmin_raw_*.json"):
+        try:
+            d = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
+            if d < cutoff:
+                if not dry_run:
+                    f.unlink(missing_ok=True)
+                files_deleted += 1
+        except ValueError:
+            pass
+
+    # Delete summary files before cutoff
+    summary_dir = BASE_DIR / "summary"
+    for f in summary_dir.glob("garmin_*.json"):
+        try:
+            d = date.fromisoformat(f.stem.replace("garmin_", ""))
+            if d < cutoff:
+                if not dry_run:
+                    f.unlink(missing_ok=True)
+                files_deleted += 1
+        except ValueError:
+            pass
+
+    # Remove entries from quality log
+    before = len(data["days"])
+    data["days"] = [e for e in data["days"] if e.get("date", "9999") >= first_day_str]
+    entries_removed = before - len(data["days"])
+
+    if dry_run:
+        log.info(f"  cleanup_before_first_day (dry run): {files_deleted} files, {entries_removed} log entries would be removed")
+    else:
+        log.info(f"  cleanup_before_first_day: {files_deleted} files deleted, {entries_removed} log entries removed")
+
+    return {"files_deleted": files_deleted, "entries_removed": entries_removed, "first_day": first_day_str}
 
 
 def _upsert_quality(data: dict, day: date, quality: str, reason: str) -> None:
@@ -763,6 +951,13 @@ def main():
     # ── Load + update quality_log.json ───────────────────────────────────────
     quality_data = _load_quality_log()
 
+    # One-time backfill: add all existing raw/ files not yet in quality log
+    # (runs only when first_day is not yet set — i.e. on first run after patch)
+    if not quality_data.get("first_day"):
+        log.info("  Running one-time quality log backfill ...")
+        _backfill_quality_log(quality_data)
+        _save_quality_log(quality_data)
+
     # Collect already-known dates to skip in scan (avoids OneDrive downloads)
     known_dates = {
         date.fromisoformat(e["date"])
@@ -788,6 +983,21 @@ def main():
     except Exception as e:
         log.error(f"Login failed: {e}")
         sys.exit(1)
+
+    # ── Update device history (every run after successful login) ──────────────
+    try:
+        devices = get_devices(client)
+        if devices:
+            quality_data["devices"] = devices
+            log.info(f"  Device history updated ({len(devices)} devices)")
+    except Exception as e:
+        log.warning(f"  Could not update device history: {e}")
+
+    # ── Set first_day if not yet determined ───────────────────────────────────
+    if not quality_data.get("first_day"):
+        _set_first_day(quality_data, client)
+
+    _save_quality_log(quality_data)
 
     # ── Resolve date list ─────────────────────────────────────────────────────
     if SYNC_DATES:
