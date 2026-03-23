@@ -40,8 +40,8 @@ For a complete reference of all environment variables, constants, file paths, an
 +-- summary/                        – one file per day, compact summary
 |       garmin_YYYY-MM-DD.json
 |
-\-- log/                            – session logs and failed days registry
-        failed_days.json
+\-- log/                            – session logs and quality register
+        quality_log.json
         recent/garmin_YYYY-MM-DD_HHMMSS.log
         fail/garmin_YYYY-MM-DD_HHMMSS.log
 ```
@@ -82,7 +82,9 @@ Desktop GUI built with tkinter. Wraps all scripts so the user never needs a term
 
 **`_toggle_log_level()`** — toggles between `INFO` (Simple) and `DEBUG` (Detailed) GUI log display. Updates the button label and colour. If a sync is running when toggled, a yellow hint label appears above the button reading "Takes effect on next sync" — no restart occurs. The hint disappears automatically when the next sync starts. The current level is passed to subprocesses via `GARMIN_LOG_LEVEL` in `_build_env()`. Session log files always run at DEBUG regardless of this toggle.
 
-**`_check_failed_days_popup()`** — called at the start of every `_run_collector()` call. Reads `log/failed_days.json` and counts entries within the current sync date range. If any are found, shows a German-language popup: "Es gibt fehlerhafte Datensätze: X Tage im gewählten Zeitraum — Aktualisieren?" If the user clicks Ja, `GARMIN_REFRESH_FAILED=1` is set in the ENV and the collector re-fetches those days.
+**`_check_failed_days_popup()`** — called at the start of every `_run_collector()` call. Reads `log/quality_log.json` and counts `failed`+`low` entries with `recheck=true` within the current sync date range. If any are found, shows a German-language popup: "Es gibt fehlerhafte Datensätze: X Tage im gewählten Zeitraum — Aktualisieren?" If the user clicks Ja, `GARMIN_REFRESH_FAILED=1` is set in the ENV and the collector re-fetches those days.
+
+**`_clean_archive()`** — reads `first_day` from `log/quality_log.json` and builds a list of all `raw/` and `summary/` files before that date. Opens a popup with a scrollable file list and a summary count. Deletes files and removes corresponding quality log entries only after the user confirms with "Löschen". Aborts silently on "Abbrechen". If `first_day` is not yet set or nothing is found before it, logs an informational message and returns without opening the popup.
 
 **`_connection_verified`** — session flag, starts `False`. Set to `True` after the first successful connection test. `_run_collector()` skips the test on subsequent calls and starts the sync directly. Resets to `False` on app restart.
 
@@ -217,7 +219,7 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 |------|-----------|
 | `"recent"` | Checks last `SYNC_DAYS` days (default 90). Good for daily automation. |
 | `"range"` | Checks `SYNC_FROM` to `SYNC_TO` only. Good for targeted backfills. |
-| `"auto"` | Checks from oldest registered device to today. Full historical sync. |
+| `"auto"` | Checks from `first_day` (stored in `quality_log.json`) to today. On first run, `first_day` is detected from registered devices → account profile → `SYNC_AUTO_FALLBACK`. After that, reads directly from the log — no API call needed. |
 
 ### Key functions
 
@@ -227,21 +229,29 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 
 `summarize(raw)` — extracts fields from raw into compact summary. To expose a new field in Open WebUI, add it here.
 
-`get_devices(client)` — fetches registered devices, logs first/last use dates. Used by `resolve_date_range()` in auto mode.
+`_parse_device_date(val)` — converts a device date value to `YYYY-MM-DD`. Handles ISO strings, Unix second timestamps (~10 digits), and Unix millisecond timestamps (~13 digits). Used by `get_devices()` and the migration in `_load_quality_log()`.
 
-`resolve_date_range(client)` — returns `(start, end)` based on `SYNC_MODE`. Auto mode: tries devices → account profile → `SYNC_AUTO_FALLBACK` → 90-day fallback.
+`get_devices(client)` — fetches registered devices, logs first/last use dates. Uses `_parse_device_date()` to normalise all date values. Called on every successful login to keep the `devices` list in `quality_log.json` current.
+
+`resolve_date_range(client)` — returns `(start, end)` based on `SYNC_MODE`. Auto mode: reads `first_day` from `quality_log.json` first — if set, returns it directly without calling the API. Falls back to devices → account profile → `SYNC_AUTO_FALLBACK` → 90-day fallback.
 
 `get_local_dates(folder)` — scans across three locations and naming schemes for robustness. If `REFRESH_FAILED=True`, excludes days with `recheck=true` from the quality log.
 
 `get_low_quality_dates(folder, known_dates)` — scans `raw/` for files not yet in the quality log. Skips `known_dates` to avoid triggering cloud downloads.
 
-`_load_quality_log()` — loads `quality_log.json`. Migrates old `failed_days.json` on first run.
+`_load_quality_log()` — loads `quality_log.json`. Migrates old `failed_days.json` on first run. Adds missing root fields (`first_day`, `devices`) if absent. Converts any timestamp-format `first_day` or device dates to ISO via `_parse_device_date()`.
 
 `_save_quality_log(data)` — writes atomically via `.tmp` file.
 
 `_upsert_quality(data, day, quality, reason)` — adds or updates entry. Increments `attempts` for `failed` and `low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS`.
 
 `_mark_quality_ok(data, day, quality)` — marks day as `high` or `med`, sets `recheck=false`.
+
+`_backfill_quality_log(data)` — one-time backfill run when `first_day` is not yet set. Scans all existing `raw/` files (including `high` and `med` quality) and adds any not yet in the quality log. Ensures the log is complete before `first_day` is determined.
+
+`_set_first_day(data, client)` — determines and persists `first_day` in `quality_log.json`. Resolution order: `devices` list already in `data` → account profile → `SYNC_AUTO_FALLBACK` → oldest entry in `data["days"]`. Never overwrites an existing `first_day` value.
+
+`cleanup_before_first_day(data, dry_run)` — deletes all `raw/` and `summary/` files before `first_day` and removes corresponding quality log entries. `dry_run=True` returns counts without deleting. Called by the GUI's Clean Archive button.
 
 `_start_session_log()` — opens session log at DEBUG. Returns `(handler, path)`.
 
@@ -422,7 +432,9 @@ Delete `raw/garmin_raw_YYYY-MM-DD.json` (and `summary/garmin_YYYY-MM-DD.json` if
 
 ### Inspecting failed days
 
-Open `log/failed_days.json` in any text editor or JSON viewer. The file lists all days with download errors or incomplete raw files. To force a re-fetch, start a sync and click "Ja" in the popup, or manually delete the raw file for that day.
+Open `log/quality_log.json` in any text editor or JSON viewer. The file lists all known days with their quality level, recheck flag, and attempt count. To force a re-fetch, start a sync and click "Ja" in the popup, or manually delete the raw file for that day.
+
+`first_day` and `devices` are stored as root fields at the top of the file.
 
 ### Inspecting session logs
 

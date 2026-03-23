@@ -102,6 +102,15 @@ Located at `BASE_DIR/log/quality_log.json`.
 
 ```json
 {
+  "first_day": "2021-05-10",
+  "devices": [
+    {
+      "name": "fenix 7X Sapphire Solar",
+      "id": 3425438179,
+      "first_used": "2025-03-01",
+      "last_used": "unknown"
+    }
+  ],
   "days": [
     {
       "date": "2025-11-15",
@@ -133,6 +142,16 @@ Located at `BASE_DIR/log/quality_log.json`.
   ]
 }
 ```
+
+**Root fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `first_day` | str/null | ISO date of the earliest valid day in this Garmin account. Set once on first run, never overwritten. Used by auto mode and background timer as the lower bound. `null` until determined |
+| `devices` | list | Registered Garmin devices. Updated on every successful login. Each entry has `name`, `id`, `first_used`, `last_used` (ISO dates, or `"unknown"` if not provided by the API) |
+| `days` | list | Quality register — one entry per known day |
+
+**Day entry fields:**
 
 | Field | Type | Description |
 |---|---|---|
@@ -207,10 +226,14 @@ Compact daily summary (~2 KB). Key top-level fields:
 | `assess_quality(raw)` | Inspects raw data content and returns `"high"`, `"med"`, `"low"`, or `"failed"` |
 | `get_low_quality_dates(folder, known_dates)` | Scans `raw/` for files not yet in the quality log and assesses their quality. Skips `known_dates` to avoid cloud downloads |
 | `get_local_dates(folder)` | Returns set of dates with local data. If `REFRESH_FAILED=True`, excludes days with `recheck=true` so they appear as missing |
-| `_load_quality_log()` | Loads `quality_log.json`. Migrates old `failed_days.json` on first run. Returns empty structure if missing or corrupt |
+| `_parse_device_date(val)` | Converts a device date value to `YYYY-MM-DD`. Handles ISO strings, second timestamps, and millisecond timestamps |
+| `_load_quality_log()` | Loads `quality_log.json`. Migrates old `failed_days.json` on first run. Migrates timestamp-format `first_day` and device dates to ISO. Returns empty structure if missing or corrupt |
 | `_save_quality_log(data)` | Writes `quality_log.json` atomically via `.tmp` file |
 | `_upsert_quality(data, day, quality, reason)` | Adds or updates a day entry. Increments `attempts` for `failed` and `low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS` |
 | `_mark_quality_ok(data, day, quality)` | Marks a day as `high` or `med` — sets `recheck=false` |
+| `_backfill_quality_log(data)` | One-time backfill on first run: scans all existing `raw/` files and adds any days (including `high`/`med`) not yet in the quality log. Only runs when `first_day` is not yet set |
+| `_set_first_day(data, client)` | Determines and persists `first_day` in `quality_log.json`. Resolution order: devices → account profile → `SYNC_AUTO_FALLBACK` → oldest local file. Never overwrites an existing value |
+| `cleanup_before_first_day(data, dry_run)` | Deletes all `raw/` and `summary/` files before `first_day` and removes corresponding quality log entries. `dry_run=True` returns counts without deleting |
 | `_start_session_log()` | Opens `log/recent/{SESSION_LOG_PREFIX}_YYYY-MM-DD_HHMMSS.log` at DEBUG level. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if session had errors or low-quality downloads, enforces rolling limit |
 
@@ -222,6 +245,7 @@ Compact daily summary (~2 KB). Key top-level fields:
 | `_apply_env(s, refresh_failed)` | Same as `_build_env` but writes directly to `os.environ` (standalone only) |
 | `_apply_env_overrides(overrides)` | Applies a dict of ENV overrides on top of `_apply_env()` output (standalone only). Used by background timer to set `GARMIN_SYNC_DATES` etc. |
 | `_check_failed_days_popup(...)` | Reads `quality_log.json`, counts `failed`+`low` entries with `recheck=true` in current sync range, shows Ja/Nein popup |
+| `_clean_archive()` | Reads `first_day` from `quality_log.json`, shows popup with scrollable list of all files before `first_day`, deletes them and removes their quality log entries on confirm |
 | `_toggle_log_level()` | Switches GUI display between INFO and DEBUG. Shows hint label if sync is running. Does NOT restart sync |
 | `_connection_verified` | Session flag — `True` after first successful connection test. Skips test on subsequent syncs |
 | `_timer_conn_verified` | Session flag — `True` after background timer runs its own connection test. On success also sets `_connection_verified` |
