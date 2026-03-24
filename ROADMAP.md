@@ -118,11 +118,6 @@ Import external data (weather, activity logs, custom notes) and correlate with h
 **Adaptive Baselines**
 Extend the Analysis Dashboard beyond fixed 90-day baselines. Rolling windows (7-day, 30-day), seasonal patterns, and load vs. recovery phase detection. The raw data is already there — this is purely an analytical layer on top of `garmin_analysis_html.py`.
 
-**AI training recommendations**
-Context-aware training suggestions based on your own data — HRV trends, Body Battery recovery, sleep quality, training load. Uses published guidelines (AHA, ACSM, Firstbeat whitepapers, Jack Daniels VDOT) as the knowledge base, fed to a local AI model alongside your `garmin_analysis.json`. No proprietary algorithms, no cloud — just your data + open science + local AI. Example output: "Your HRV is 15% below your 7-day baseline and Body Battery recovery is slow — an easy day would be appropriate."
-
-> ⚠️ **Known risk:** Local LLMs can hallucinate when interpreting medical or health data. A coach that draws wrong conclusions from HRV trends could mislead users. Mitigation strategy to be defined before implementation — likely strict output templates, explicit uncertainty markers, and a prominent disclaimer that suggestions are informational only and not medical advice.
-
 **AI health report PDF**
 Generate a formatted PDF health summary using the local AI model — personal baseline, flagged days, trends. Fully local, no cloud.
 

@@ -380,3 +380,12 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 ## Testing
 
 No dedicated test suite. The effort-to-benefit ratio doesn't justify it for a single-person hobby project — the core scripts are stable and tested in daily use. GUI changes are verified manually before release.
+
+---
+
+> ⚠️ **API Usage Notice:** This project uses an unofficial interface. Large-scale data retrieval (e.g., syncing long time ranges in a single run) may trigger rate limiting or temporary IP blocks by Garmin (HTTP 429).
+>
+> It is recommended to:
+> - fetch data in smaller increments
+> - include delays between requests
+> - allow cool-down periods between sync sessions
