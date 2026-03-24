@@ -1,8 +1,9 @@
 # Garmin Local Archive
 
 > This project is provided as-is under the GNU General Public License v3.0, without warranty of any kind. Use at your own risk. No support, maintenance, or liability is implied or offered.
+> ⚠️ Early-stage project. While core functionality is stable, APIs and internal structure may change.
 
-Archive and analyse your Garmin Connect data locally — no cloud, no third parties. Everything runs on your own machine.
+Archive and analyze your Garmin Connect data locally — no cloud, no third parties. Everything runs on your own machine.
 
 ---
 
@@ -12,13 +13,47 @@ I'm not a software developer. I can't write Python.
 
 But I wanted what everyone else wanted — to ask an AI questions about my Garmin health data. Sleep, HRV, stress, recovery.
 
-The tools that exist send your data to OpenAI or Claude. Your heart rate, sleep patterns, and fitness data land on a US company's servers.
+Existing tools send your data to OpenAI, Claude, or other cloud services. Your heart rate, sleep patterns, and fitness data land on additional US company's servers (one is more than enough).
 
 I didn't want that.
 
-So I built this instead — with Claude as my coding partner, from zero, over many iterations. Everything runs locally. Nothing leaves your machine. The AI that analyses your data runs on your own hardware.
+So I built this instead — with Claude as my coding partner, from zero, over many iterations. I didn’t write a single line of code myself; my role was guiding the project, defining the structure, creating logical patterns, and testing the results. **Everything runs locally. Nothing leaves your machine.** All data is stored and processed on your own computer. The scripts only fetch data from Garmin Connect, and once downloaded, nothing is transmitted elsewhere. Any AI you choose to use for analysis **can** also run entirely on your hardware. Even without a local AI setup, the built-in dashboards already provide roughly 90% of the insights most users are looking for.
 
-It works. And if I could build it, you can use it.
+**Note:** the AI itself is not included in this project — the scripts prepare your data in a format suitable for any local AI you choose to use. How to install and use a local AI with your data is explained in the setup guide at the end of this README.
+
+So this project focuses on:
+- **local-first data storage**
+- **simple usage (EXE, no setup)**
+- **structured data for later analysis (including local AI)**
+
+
+### What makes this different
+
+This is not just a data export script.
+
+It is designed to solve a specific problem:
+
+> **Get a complete, consistent local copy of your Garmin data — and keep it that way.**
+
+## Design Philosophy
+
+This project intentionally prioritizes:
+- Privacy (local-first, no cloud)
+- Robust heuristics over fragile assumptions
+- Practical reliability over theoretical completeness
+
+Trade-offs:
+- No full automated test suite (yet)
+- Relies on Garmin's unofficial API
+- Designed for personal use, not enterprise environments
+
+## Limitations
+
+- Garmin API may change without notice
+- Historical data quality depends on Garmin servers
+- Large sync operations are not checkpointed yet
+
+It works. And if I could build it, you are free to use it.
 
 *Built with Claude · If this saved you time — [☕ buy me a coffee](https://ko-fi.com/wewoc)*
 
@@ -31,13 +66,39 @@ The full source code is open. If you don't trust the pre-built EXE:
 - Read the scripts — or paste them into any AI and ask *"explain what this code does"*
 - Build your own EXE: `python build_standalone.py`
 
-Credentials are stored in the **Windows Credential Manager** (keyring) — encrypted by Windows, never written to disk as plain text. This is more secure than typical hobby scripts that ask you to hardcode your password directly into a config file.
+Credentials are stored in the **Windows Credential Manager** (keyring):
+- encrypted by Windows
+- never written as plain text
 
 The pre-built EXE is unsigned because code-signing certificates cost ~$500/year — money I'd rather spend on coffee. If the Windows security warning concerns you, the scripts are the primary way to run this and always will be.
 
 ---
 
-## What is this?
+## How it works (simplified)
+```
+[ Garmin API ]
+             │
+             ▼
+       [ Collector ]
+             │
+             ▼
+       [ Sync Logic ]
+             │
+             ▼
+     [ Quality Tracking ]
+             │
+             ▼
+      [ Local Archive ]
+             │
+      ┌──────┴──────┐
+      ▼             ▼
+ [ Exports ]   [ Dashboards ]
+ (AI / JSON)   (HTML / Excel)
+```
+
+---
+
+## What is included
 
 Six Python scripts and an optional desktop app that work together:
 
