@@ -9,7 +9,8 @@ Archive and analyze your Garmin Connect data locally — no cloud, no third part
 
 ## Why this exists
 
-I'm not a software developer. I can't write Python.
+I’m not a software developer — my background is in mechanical system design.
+I approach this project as an architect: defining structure, logic, modules and quality rules, while Claude implements the code according to these specifications.
 
 But I wanted what everyone else wanted — to ask an AI questions about my Garmin health data. Sleep, HRV, stress, recovery.
 
