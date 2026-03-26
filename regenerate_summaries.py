@@ -21,7 +21,7 @@ from pathlib import Path
 # ══════════════════════════════════════════════════════════════════════════════
 
 BASE_DIR    = Path(os.environ.get("GARMIN_OUTPUT_DIR",
-                   r"C:\Users\timos\OneDrive\Desktop\Pen-and-Paper\Garmin\garmin_data"))
+                   r"...\garmin_data"))
 RAW_DIR     = BASE_DIR / "raw"
 SUMMARY_DIR = BASE_DIR / "summary"
 
