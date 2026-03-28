@@ -38,6 +38,12 @@ It is designed to solve a specific problem:
 
 > **Get a complete, consistent local copy of your Garmin data — and keep it that way.**
 
+![Garmin Local Archive — Desktop App](screenshots/gui.jpg)
+*Desktop app — settings, sync, export and background timer in one place.*
+
+![Garmin Health Analysis Dashboard](screenshots/dashboard.jpg)
+*Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
+
 ## Design Philosophy
 
 This project intentionally prioritizes:
