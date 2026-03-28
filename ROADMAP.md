@@ -6,58 +6,11 @@
 
 ---
 
-## Currently stable — v1.2.1b
+## Currently stable — v1.2.2
 
 - **Bug Fixes + Security + Polish (v1.2.1)** — `GarminLoginError` exception, per-endpoint failure tracking, input validation in normalizer, preventive `QUALITY_LOCK`, random salt in token encryption, GUI labels fully in English, random request delay, export date range auto-fill, default data folder fix. See CHANGELOG for details.
-- **Code Hygiene (v1.2.1b)** — `build_manifest.py` as single source of truth for build lists, `build_all.py` added, `garmin_utils.py` added with shared helpers, `garmin_config.py` logic extracted to utils, `test_local.py` extended to 112 checks. See CHANGELOG for details.
-
----
-
-### v1.2.2 — Schema Versioning
-
-**Dual tracking system** for both data format evolution and import origin:
-
-1) A `schema_version` field in `summary/garmin_YYYY-MM-DD.json`. Makes it possible to detect when summaries were generated with an older version of `summarize()` and flag them for regeneration.
-
-`CURRENT_SCHEMA_VERSION` in `garmin_quality.py` is the single source of truth after refactoring. When `summarize()` changes in a way that affects output fields, the version is incremented. Smart Regeneration (v1.3) picks up any summary where `schema_version < CURRENT_SCHEMA_VERSION`.
-
-Days with `quality=low` or `quality=failed` can be treated as `schema_version: 0` — permanently below any real version. Smart Regeneration will always include them once their raw file is complete.
-
-2) **`source` flag** in `quality_log.json` — tracks the origin of each day's raw data:
-
-"source": "api" // Live Garmin Connect API pull
-"source": "bulk" // Garmin bulk export ZIP
-"source": "csv" // Manual CSV import
-"source": "manual" // User-provided JSON
-
-**Benefits:**
-- **Smart Regeneration** skips `bulk`/`csv` (no API), only re-processes `api`
-- **Quality expectations** by source (`api` → full intraday, `csv` → daily only)
-- **Archive transparency** — Archive Info Panel shows source breakdown (v1.2.4)
-- **Debugging** — low quality on `bulk` expected, on `api` → investigate
-
-**Example `quality_log.json` entry:**
-```json
-{
-  "2026-03-24": {
-    "quality": "high",
-    "source": "api",
-    "schema_version": 2,
-    "source_metadata": {
-      "api_version": "1.2.0"
-    }
-  }
-}
-```
-
-`garmin_normalizer.py` sets `source` based on calling module (v1.2.0 refactoring).
-  - Only data with `source` API will have the option for `"recheck": true`
-  - Data older than 6 months gets max. `"attempts": 1` before `"recheck": false`
-
-**Legacy Migration:**
-- Existing `quality_log.json` entries → add `"source": "legacy"` on first write
-- **Legacy CAN be Smart-Regenerated** (raw files exist, quality already assessed)
-- `quality_log.json` schema extended non-breaking: `source`, `source_metadata` added
+- **Code Hygiene (v1.2.1b)** — `build_manifest.py` as single source of truth for build lists, `build_all.py` added, `garmin_utils.py` added with shared helpers, `garmin_config.py` logic extracted to utils, `test_local.py` extended to 116 checks. See CHANGELOG for details.
+- **Schema Versioning (v1.2.2)** — `schema_version` field in summary files, `CURRENT_SCHEMA_VERSION` in `garmin_normalizer.py`, `source` origin tracking in `quality_log.json`. See CHANGELOG for details.
 
 ---
 
@@ -241,7 +194,7 @@ Local overview of archive health built from session logs — days synced vs fail
 Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected — it just isn't used beyond the summary.
 
 **Test suite & CI/CD**
-Core modules are covered by test_local.py (112 checks, extended in v1.2.1/v1.2.1b). Build integrity is covered by validate_scripts() in both build scripts — verifies all required scripts are present and contain expected signatures before PyInstaller runs (added in v1.2.0). Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.3 is complete. No timeline, no commitment, but the intention is there.
+Core modules are covered by test_local.py (116 checks, extended in v1.2.1/v1.2.1b/v1.2.2). Build integrity is covered by validate_scripts() in both build scripts — verifies all required scripts are present and contain expected signatures before PyInstaller runs (added in v1.2.0). Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.3 is complete. No timeline, no commitment, but the intention is there.
 
 ---
 

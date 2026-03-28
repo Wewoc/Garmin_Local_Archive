@@ -168,6 +168,7 @@ check("_parse_list_values: ts,val pairs", normalizer._parse_list_values([[0, 55]
 s = normalizer.summarize({"date": "2024-03-15"})
 check("summarize: returns dict",            isinstance(s, dict))
 check("summarize: date correct",            s["date"] == "2024-03-15")
+check("summarize: schema_version = 1",      s["schema_version"] == 1)
 check("summarize: generated_by normalizer", s["generated_by"] == "garmin_normalizer.py")
 check("summarize: has sleep",               "sleep" in s)
 check("summarize: has heartrate",           "heartrate" in s)
@@ -218,10 +219,12 @@ quality._upsert_quality(data, date(2024, 3, 15), "high", "Quality: high", writte
 check("upsert high: write=True",    data["days"][0]["write"] == True)
 check("upsert high: recheck=False", data["days"][0]["recheck"] == False)
 check("upsert high: attempts=0",    data["days"][0]["attempts"] == 0)
+check("upsert high: source=legacy", data["days"][0]["source"] == "legacy")
 
-quality._upsert_quality(data, date(2024, 3, 16), "low", "Quality: low", written=True)
+quality._upsert_quality(data, date(2024, 3, 16), "low", "Quality: low", written=True, source="api")
 check("upsert low: recheck=True",   data["days"][1]["recheck"] == True)
 check("upsert low: attempts=1",     data["days"][1]["attempts"] == 1)
+check("upsert low: source=api",     data["days"][1]["source"] == "api")
 
 quality._upsert_quality(data, date(2024, 3, 17), "failed", "API error", written=False)
 check("upsert failed: write=False", data["days"][2]["write"] == False)
@@ -267,6 +270,15 @@ data_nowrite = {"first_day": "2024-01-01", "devices": [], "days": [
 quality._save_quality_log(data_nowrite)
 data_nw = quality._load_quality_log()
 check("migration: write=null added", data_nw["days"][0].get("write") is None)
+
+# Migration: source=legacy for old entries
+data_nosource = {"first_day": "2024-01-01", "devices": [], "days": [
+    {"date": "2023-08-01", "quality": "high", "reason": "old", "write": True,
+     "recheck": False, "attempts": 0, "last_checked": "2023-08-01", "last_attempt": None}
+]}
+quality._save_quality_log(data_nosource)
+data_ns = quality._load_quality_log()
+check("migration: source=legacy added", data_ns["days"][0].get("source") == "legacy")
 
 # QUALITY_LOCK — exists and blocks concurrent access
 check("QUALITY_LOCK: exists",         hasattr(quality, "QUALITY_LOCK"))

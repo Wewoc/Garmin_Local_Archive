@@ -38,7 +38,7 @@ wie API-Daten: garmin_normalizer → garmin_quality → garmin_collector.
 
 ---
 
-## Geplante source-Flags (ab v1.2.2)
+## source-Flags (seit v1.2.2 in quality_log.json)
 
     "source": "bulk"   — Garmin ZIP Export
     "source": "csv"    — manueller CSV Import
