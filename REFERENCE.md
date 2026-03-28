@@ -131,7 +131,7 @@ Located at `BASE_DIR/log/quality_log.json`.
 
 `quality_log.json` is a persistent register of every day the collector has ever downloaded. It tracks the quality of the raw data so the background timer knows which days are worth re-trying and which have reached their ceiling.
 
-**On first run**, the collector migrates the old `failed_days.json` automatically — reads it, writes `quality_log.json`, and deletes the old file. Existing `"med"` quality entries are automatically upgraded to `"medium"`. Entries without a `write` field receive `"write": null`.
+**On first run**, the collector migrates the old `failed_days.json` automatically — reads it, writes `quality_log.json`, and deletes the old file. Existing `"med"` quality entries are automatically upgraded to `"medium"`. Entries without a `write` field receive `"write": null`. Entries without a `source` field receive `"source": "legacy"`.
 
 ```json
 {
@@ -150,6 +150,7 @@ Located at `BASE_DIR/log/quality_log.json`.
       "quality": "high",
       "reason": "Quality: high",
       "write": true,
+      "source": "api",
       "recheck": false,
       "attempts": 0,
       "last_checked": "2026-03-22",
@@ -160,6 +161,7 @@ Located at `BASE_DIR/log/quality_log.json`.
       "quality": "low",
       "reason": "Quality: low — insufficient data from Garmin API",
       "write": true,
+      "source": "api",
       "recheck": true,
       "attempts": 1,
       "last_checked": "2026-03-22",
@@ -170,6 +172,7 @@ Located at `BASE_DIR/log/quality_log.json`.
       "quality": "failed",
       "reason": "Timeout: connection reset",
       "write": false,
+      "source": "legacy",
       "recheck": true,
       "attempts": 2,
       "last_checked": "2026-03-22",
@@ -195,6 +198,7 @@ Located at `BASE_DIR/log/quality_log.json`.
 | `quality` | str | See quality levels below |
 | `reason` | str | Human-readable description of the last assessment |
 | `write` | bool/null | `true` = files written successfully, `false` = write skipped or failed, `null` = pre-v1.2.0 entry (unknown) |
+| `source` | str | Origin of the data: `"api"` = live Garmin API pull, `"bulk"` = Garmin export ZIP, `"csv"` = manual CSV import, `"manual"` = user-provided JSON, `"legacy"` = pre-v1.2.2 entry (origin unknown). Most recent write always wins |
 | `recheck` | bool | `true` = background timer will re-download this day. `false` = leave it as-is |
 | `attempts` | int | Number of re-download attempts for this day |
 | `last_checked` | str | ISO date of last quality assessment |
@@ -291,10 +295,11 @@ Pure constants module — no functions. All other modules import via `import gar
 
 ### `garmin_normalizer.py`
 
-| Function | Purpose |
+| Function / Constant | Purpose |
 |---|---|
+| `CURRENT_SCHEMA_VERSION` | Module constant (int). Version of the summary schema produced by `summarize()`. Increment when fields are added, removed, or renamed |
 | `normalize(raw, source)` | Entry point — delegates to source-specific normaliser. `source`: `"api"` or `"bulk"` |
-| `summarize(raw)` | Distils a normalised raw dict into a compact daily summary (~2 KB). Sole owner of summary structure |
+| `summarize(raw)` | Distils a normalised raw dict into a compact daily summary (~2 KB). Writes `schema_version: CURRENT_SCHEMA_VERSION` into every summary. Sole owner of summary structure |
 | `_normalize_api(raw)` | Normalises Garmin API raw dict. Validates types of all known structured keys — removes keys with unexpected types and logs a warning. Guarantees `"date"` key present |
 | `_normalize_import(raw)` | Placeholder for bulk import normalisation — not implemented in v1.2.0 |
 | `safe_get(d, *keys, default)` | Safely traverses nested dicts — returns `default` if any key is missing. Used internally by `summarize()` |
@@ -315,10 +320,10 @@ Pure constants module — no functions. All other modules import via `import gar
 | Function | Purpose |
 |---|---|
 | `QUALITY_LOCK` | `threading.Lock()` at module level. Acquire around all load-modify-save sequences to prevent concurrent access. Used by `garmin_collector.py` |
-| `_load_quality_log()` | Loads `quality_log.json`. Migrates `failed_days.json`, timestamp dates, `"med"` → `"medium"`, missing `write` field (→ `null`), and old schema on first run. Returns empty structure if missing or corrupt |
+| `_load_quality_log()` | Loads `quality_log.json`. Migrates `failed_days.json`, timestamp dates, `"med"` → `"medium"`, missing `write` field (→ `null`), missing `source` field (→ `"legacy"`), and old schema on first run. Returns empty structure if missing or corrupt |
 | `_save_quality_log(data)` | Writes `quality_log.json` atomically via `.tmp` file |
 | `assess_quality(raw)` | Inspects raw data content and returns `"high"`, `"medium"`, `"low"`, or `"failed"`. Pure function — no file IO |
-| `_upsert_quality(data, day, quality, reason, written)` | Adds or updates a day entry. Increments `attempts` for `failed`/`low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS`. `written`: `True`/`False`/`None` — stored as `write` field |
+| `_upsert_quality(data, day, quality, reason, written, source)` | Adds or updates a day entry. Increments `attempts` for `failed`/`low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS`. `written`: `True`/`False`/`None` — stored as `write` field. `source`: origin of data, default `"legacy"` — most recent write always wins |
 | `get_low_quality_dates(folder, known_dates)` | Scans `raw/` for files not yet in the quality log and assesses their quality. Skips `known_dates` to avoid cloud downloads |
 | `_backfill_quality_log(data)` | One-time backfill: scans all existing `raw/` files and adds any days not yet in the log. Only runs when `first_day` is not yet set |
 | `_set_first_day(data, client)` | Determines and persists `first_day`. Resolution order: devices → account profile → `SYNC_AUTO_FALLBACK` → oldest local file. Never overwrites existing value |

@@ -204,7 +204,7 @@ main()
   │     summarize()                            → summary dict
   │     write raw/ and summary/
   │     garmin_quality.assess_quality()        → quality string
-  │     garmin_quality._upsert_quality()       → quality_data updated
+  │     garmin_quality._upsert_quality(..., source="api") → quality_data updated
   └── garmin_quality._save_quality_log()       → quality_log.json written
 ```
 
@@ -315,16 +315,17 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 
 **4. `garmin_quality`** — quality assessment, upsert logic, persistence, migrations, thread safety
 - `assess_quality()`: all four levels — `high` (intraday HR), `medium` (daily aggregate), `low` (bare stats), `failed` (empty)
-- `_upsert_quality()`: new entry, update existing, `write` field stored correctly, `recheck` and `attempts` logic for each quality level
+- `_upsert_quality()`: new entry, update existing, `write` field stored correctly, `recheck` and `attempts` logic for each quality level, `source` field stored and overwritten on update
 - `LOW_QUALITY_MAX_ATTEMPTS` exhaustion: `recheck` disabled after 3 attempts
 - Save + load round-trip: `first_day`, entries, `write` field all preserved
 - Migration `"med"` → `"medium"`: old entries upgraded on load
 - Migration `write=null`: pre-v1.2.0 entries without `write` field get `null` on load
+- Migration `source=legacy`: pre-v1.2.2 entries without `source` field get `"legacy"` on load
 - `QUALITY_LOCK`: exists, correct type, blocks a second thread while held
 
 **5. `garmin_writer`** — file output
 - `write_day()` creates both `raw/garmin_raw_YYYY-MM-DD.json` and `summary/garmin_YYYY-MM-DD.json`
-- Raw file content correct, summary `generated_by` field = `"garmin_normalizer.py"`
+- Raw file content correct, summary `generated_by` field = `"garmin_normalizer.py"`, `schema_version` = `1`
 
 **6. `garmin_collector` internals** — decision layer and module boundaries
 - `_should_write()`: `True` for `high`/`medium`/`low`, `False` for `failed` and unknown labels
@@ -344,7 +345,7 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - `parse_device_date()`: ISO string, ISO date, millisecond timestamp, second timestamp, `None`, empty string
 - `parse_sync_dates()`: valid dates, sorted output, invalid entries skipped, empty → `None`, all invalid → `None`
 
-### Total: 112 checks
+### Total: 116 checks
 
 ### What is not tested
 

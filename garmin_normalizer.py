@@ -9,17 +9,16 @@ is present, and returns a normalised dict for the rest of the pipeline.
 Extensibility is the core principle: a new data source is plugged in here
 without touching collector, quality, or sync.
 
-Current sources (v1.2.1):
+Current sources (v1.2.2):
   "api"  — live Garmin Connect API pull via garmin_api.py
   "bulk" — Garmin bulk export (placeholder, implemented in a later version)
-
-Planned (v1.2.2):
-  Sets "source" and "source_metadata" fields in the normalised dict.
-  Until then the dict passes through unchanged — only "date" is guaranteed.
 
 Public functions:
   normalize(raw, source) → dict   — normalise raw dict from any source
   summarize(raw)         → dict   — distill normalised dict into compact summary (~2 KB)
+
+Module constants:
+  CURRENT_SCHEMA_VERSION — version of the summary schema produced by summarize()
 
 No file IO, no quality log access, no API calls, no ENV reads.
 """
@@ -27,6 +26,10 @@ No file IO, no quality log access, no API calls, no ENV reads.
 import logging
 
 log = logging.getLogger(__name__)
+
+# Version of the summary schema produced by summarize().
+# Increment when fields are added, removed, or renamed in the summary dict.
+CURRENT_SCHEMA_VERSION = 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -70,7 +73,7 @@ def _normalize_api(raw: dict) -> dict:
     this function passes the dict through unchanged and guarantees
     the "date" key is present.
 
-    From v1.2.2: will set "source": "api" and "source_metadata".
+    Source tracking ("source", "source_metadata") is planned for a later version.
     """
     if not isinstance(raw, dict):
         log.warning("  _normalize_api: received non-dict — returning empty day")
@@ -111,7 +114,7 @@ def _normalize_import(raw: dict) -> dict:
     Placeholder — not implemented in v1.2.0.
     Returns the dict unchanged until bulk import is implemented.
 
-    From v1.2.2: will set "source": "bulk" and "source_metadata".
+    Source tracking ("source", "source_metadata") is planned for a later version.
     """
     if not isinstance(raw, dict):
         log.warning("  _normalize_import: received non-dict — returning empty day")
@@ -126,7 +129,11 @@ def _normalize_import(raw: dict) -> dict:
 
 def summarize(raw: dict) -> dict:
     """Distills a normalised raw dict into a compact daily summary (~2 KB)."""
-    s = {"date": raw.get("date"), "generated_by": "garmin_normalizer.py"}
+    s = {
+        "date":           raw.get("date"),
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "generated_by":   "garmin_normalizer.py",
+    }
 
     # ── Sleep & HRV ──
     sleep_raw = raw.get("sleep", {}) or {}

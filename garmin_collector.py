@@ -259,7 +259,7 @@ def main():
                 label, written = _process_day(client, date_str)
                 reason = (f"Quality: {label}" if label in ("high", "medium")
                           else f"Quality: {label} — insufficient data from Garmin API")
-                quality._upsert_quality(quality_data, day, label, reason, written=written)
+                quality._upsert_quality(quality_data, day, label, reason, written=written, source="api")
                 if label in ("low", "failed"):
                     _session_had_incomplete = True
                     log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
@@ -268,7 +268,7 @@ def main():
                 ok += 1
             except Exception as e:
                 log.error(f"    Error on {day}: {e}")
-                quality._upsert_quality(quality_data, day, "failed", str(e), written=False)
+                quality._upsert_quality(quality_data, day, "failed", str(e), written=False, source="api")
                 failed += 1
                 _session_had_errors = True
 

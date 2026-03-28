@@ -2,6 +2,25 @@
 
 ---
 
+## v1.2.2 — Schema Versioning
+
+Introduces schema versioning for summary files and origin tracking for quality log entries. No architectural changes.
+
+**Schema versioning:**
+- `garmin_normalizer.py`: `CURRENT_SCHEMA_VERSION = 1` added as module constant. Increment when fields in `summarize()` are added, removed, or renamed.
+- `garmin_normalizer.py`: `summarize()` now writes `"schema_version": CURRENT_SCHEMA_VERSION` into every summary dict. Basis for Smart Regeneration in v1.3.x — summaries where `schema_version < CURRENT_SCHEMA_VERSION` can be detected and regenerated without hitting the Garmin API.
+
+**Origin tracking:**
+- `garmin_quality.py`: `_upsert_quality()` extended with `source` parameter (`"api"` | `"bulk"` | `"csv"` | `"manual"` | `"legacy"`). Default: `"legacy"`. Stored in every quality log entry. Most recent write always wins.
+- `garmin_quality.py`: `_load_quality_log()` migration — existing entries without `source` field receive `"source": "legacy"` on first load.
+- `garmin_quality.py`: `_backfill_quality_log()` passes `source="legacy"` explicitly.
+- `garmin_collector.py`: active API pull passes `source="api"` to `_upsert_quality()`. Scan for newly discovered low/failed files retains default `"legacy"`.
+
+**Tests:**
+- `test_local.py`: 4 new checks — `schema_version=1` in summary output, `source=legacy` (default), `source=api` (explicit), migration `source=legacy` for existing entries. Total: 116 checks.
+
+---
+
 ## v1.2.1 — Bug Fixes + Security + Polish
 
 Bug fixes, security improvements, and GUI polish. No architectural changes.
