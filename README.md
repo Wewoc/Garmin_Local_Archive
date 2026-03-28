@@ -79,6 +79,8 @@ The full source code is open. If you don't trust the pre-built EXE:
 
 The pre-built EXE is unsigned because code-signing certificates cost ~$500/year — money I'd rather spend on coffee. If the Windows security warning concerns you, the scripts are the primary way to run this and always will be.
 
+The pre-built EXE cannot currently be independently verified against the source code without building it yourself. Reproducible CI builds may come in a future version.
+
 ---
 
 ### Why the token exists — and why it needs protecting
