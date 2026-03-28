@@ -1,11 +1,11 @@
-# Garmin Local Archive — v2.0 Architecture Concept
+# Garmin Local Archive — v2.0 Vision
 
-> This is a planning document. All module names, structures, and implementation details
-> are placeholders — they describe responsibilities and boundaries, not final
-> implementations. Concrete decisions will be made at the time of actual development.
+> ⚠️ **Read the README and the current codebase first.**
+> This is a vision document — it describes where the project could go, not where it is.
 >
-> Nothing here is committed or scheduled. This document describes a possible future
-> direction, not a roadmap with dates or guarantees.
+> Nothing here is implemented. Nothing is committed or scheduled.
+> All module names, interfaces, and structures are placeholders.
+> Concrete decisions will be made when actual development begins.
 
 ---
 
