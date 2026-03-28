@@ -228,7 +228,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.1.2",
+        tk.Label(header, text="v1.2.0",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -374,17 +374,20 @@ class GarminApp(tk.Tk):
         conn_row.pack(fill="x", pady=2)
         self._test_btn = tk.Button(conn_row, text="🔌  Test Connection", font=FONT_BTN,
                                    bg=BG3, fg=TEXT, relief="flat", bd=0,
-                                   pady=7, padx=14, cursor="hand2",
-                                   command=self._run_connection_test)
+                                   pady=7, padx=14)
         self._test_btn.pack(side="left")
         tk.Button(conn_row, text="🗑  Clean Archive", font=FONT_BTN,
                   bg=BG3, fg=TEXT2, relief="flat", bd=0,
                   pady=7, padx=14, cursor="hand2",
                   command=self._clean_archive).pack(side="right")
+        tk.Button(conn_row, text="🔑  Reset Token", font=FONT_BTN,
+                  bg=BG3, fg=TEXT2, relief="flat", bd=0,
+                  pady=7, padx=14, cursor="hand2",
+                  command=self._reset_token).pack(side="right", padx=(0, 4))
         status_row = tk.Frame(fc, bg=BG)
         status_row.pack(fill="x", pady=(4, 2))
         self._conn_indicators = {}
-        for key, label in [("login", "Login"), ("api", "API Access"), ("data", "Data")]:
+        for key, label in [("token", "Token"), ("login", "Login"), ("api", "API Access"), ("data", "Data")]:
             cell = tk.Frame(status_row, bg=BG)
             cell.pack(side="left", padx=(0, 16))
             dot = tk.Label(cell, text="●", font=("Segoe UI", 10), bg=BG, fg=TEXT2)
@@ -804,13 +807,18 @@ class GarminApp(tk.Tk):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
 
-                # Expose stop event to collector so it can exit cleanly.
+                # Expose stop event to collector and api module so they can exit cleanly.
                 # Timer sync uses _timer_stop via stop_event parameter.
                 effective_stop = stop_event if stop_event is not None else (
                     self._stop_event if enable_stop else None
                 )
                 if effective_stop is not None:
                     module.__dict__["_STOP_EVENT"] = effective_stop
+                    # Also inject into garmin_api if it was imported by the module
+                    _garmin_api = module.__dict__.get("garmin_api") or \
+                        sys.modules.get("garmin_api")
+                    if _garmin_api is not None:
+                        _garmin_api.__dict__["_STOP_EVENT"] = effective_stop
 
                 module.main()
                 success = not (effective_stop is not None and effective_stop.is_set())
@@ -855,8 +863,12 @@ class GarminApp(tk.Tk):
         colors = {"pending": "#f5a623", "ok": "#4ecca3", "fail": "#e94560", "reset": TEXT2}
         self._conn_indicators[key].config(fg=colors.get(state, TEXT2))
 
-    def _run_connection_test(self):
-        """Test Login → API Access → Data in a background thread."""
+    def _run_connection_test(self, on_success=None):
+        """Test Token → Login → API Access → Data in a background thread.
+        Token check runs first — if token is valid, Login lamp turns green without SSO.
+        Only called internally (Sync / Background Timer), not triggered by button click.
+        on_success: optional callable, invoked on the main thread when all checks pass.
+        """
         s = self._collect_settings()
         if not s["email"] or not s["password"]:
             self._log("✗ Connection test: email or password missing.")
@@ -864,29 +876,50 @@ class GarminApp(tk.Tk):
 
         for key in self._conn_indicators:
             self._set_indicator(key, "reset")
-        self._test_btn.config(state="disabled", bg=BG3, fg=TEXT2)
         self._log("\n🔌  Testing connection ...")
 
         def worker():
+            import garmin_security
+            import garmin_config as cfg
+
             try:
                 from garminconnect import Garmin
             except ImportError:
                 self._log_queue.put("✗ garminconnect not installed.")
-                self.after(0, lambda: self._test_btn.config(state="normal", bg=BG3, fg=TEXT))
                 return
 
-            # 1 — Login
+            # 0 — Token check
+            token_file_exists = cfg.GARMIN_TOKEN_FILE.exists()
+            enc_key_present   = garmin_security.get_enc_key() is not None
+
+            if not token_file_exists:
+                self.after(0, self._set_indicator, "token", "reset")
+            elif token_file_exists and not enc_key_present:
+                self.after(0, self._set_indicator, "token", "fail")
+                self._log_queue.put("  ⚠ Encryption key missing — re-entry required")
+            else:
+                self.after(0, self._set_indicator, "token", "pending")
+
+            # 1 — Login (via garmin_api, which handles token internally)
             self.after(0, self._set_indicator, "login", "pending")
             try:
-                client = Garmin(s["email"], s["password"])
-                client.login()
+                import garmin_api
+                client = garmin_api.login(
+                    on_key_required  = self._prompt_enc_key,
+                    on_token_expired = self._prompt_token_expired,
+                )
+                token_used = token_file_exists and enc_key_present
+                self.after(0, self._set_indicator, "token", "ok" if token_used else "reset")
                 self.after(0, self._set_indicator, "login", "ok")
                 self._log_queue.put("  ✓ Login successful")
+            except SystemExit:
+                self.after(0, self._set_indicator, "login", "fail")
+                self.after(0, self._set_indicator, "token", "fail")
+                self._log_queue.put("  ✗ Login failed or cancelled")
+                return
             except Exception as e:
                 self.after(0, self._set_indicator, "login", "fail")
                 self._log_queue.put(f"  ✗ Login failed: {e}")
-                self.after(0, lambda: self._test_btn.config(
-                    state="normal", bg="#e94560", fg=TEXT))
                 return
 
             # 2 — API Access
@@ -898,8 +931,6 @@ class GarminApp(tk.Tk):
             except Exception as e:
                 self.after(0, self._set_indicator, "api", "fail")
                 self._log_queue.put(f"  ✗ API access failed: {e}")
-                self.after(0, lambda: self._test_btn.config(
-                    state="normal", bg="#e94560", fg=TEXT))
                 return
 
             # 3 — Data
@@ -910,15 +941,150 @@ class GarminApp(tk.Tk):
                 client.get_stats(yesterday)
                 self.after(0, self._set_indicator, "data", "ok")
                 self._log_queue.put("  ✓ Data access OK")
-                self.after(0, lambda: self._test_btn.config(
-                    state="normal", bg="#4ecca3", fg="#0a0a1a"))
+                self._connection_verified = True
+                if on_success:
+                    self.after(0, on_success)
             except Exception as e:
                 self.after(0, self._set_indicator, "data", "fail")
                 self._log_queue.put(f"  ✗ Data access failed: {e}")
-                self.after(0, lambda: self._test_btn.config(
-                    state="normal", bg="#e94560", fg=TEXT))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _prompt_enc_key(self, mode="setup") -> str | None:
+        """Popup to collect the encryption key from the user.
+        mode='setup'    — first time setup: two fields (key + confirm) + hint text.
+        mode='recovery' — WCM lost after Windows update: single field + explanation.
+        Returns the entered key string, or None if cancelled.
+        Blocks the calling thread until the user responds (uses threading.Event).
+        """
+        import threading as _threading
+
+        result   = [None]
+        done_evt = _threading.Event()
+
+        def _show():
+            popup = tk.Toplevel(self)
+            popup.title("Encryption Key")
+            popup.resizable(False, False)
+            popup.grab_set()
+            popup.configure(bg=BG)
+
+            pad = {"padx": 20, "pady": 8}
+
+            if mode == "setup":
+                tk.Label(popup, text="Set Encryption Key",
+                         font=("Segoe UI", 11, "bold"), bg=BG, fg=TEXT).pack(**pad)
+                tk.Label(popup,
+                         text="This key protects your saved login.\nStore it somewhere safe — e.g. your password manager.",
+                         font=FONT_BODY, bg=BG, fg=TEXT2, justify="left").pack(**pad)
+            else:
+                tk.Label(popup, text="Encryption Key Required",
+                         font=("Segoe UI", 11, "bold"), bg=BG, fg=TEXT).pack(**pad)
+                tk.Label(popup,
+                         text="Your encryption key was not found in Windows Credential Manager.\nPlease re-enter it to restore your saved login.",
+                         font=FONT_BODY, bg=BG, fg=TEXT2, justify="left").pack(**pad)
+
+            tk.Label(popup, text="Key:", font=FONT_BODY, bg=BG, fg=TEXT2).pack(anchor="w", padx=20)
+            v_key = tk.StringVar()
+            tk.Entry(popup, textvariable=v_key, show="*", font=FONT_BODY,
+                     bg=BG3, fg=TEXT, insertbackground=TEXT, width=36).pack(padx=20, pady=(0, 8))
+
+            v_confirm = None
+            if mode == "setup":
+                tk.Label(popup, text="Confirm Key:", font=FONT_BODY, bg=BG, fg=TEXT2).pack(anchor="w", padx=20)
+                v_confirm = tk.StringVar()
+                tk.Entry(popup, textvariable=v_confirm, show="*", font=FONT_BODY,
+                         bg=BG3, fg=TEXT, insertbackground=TEXT, width=36).pack(padx=20, pady=(0, 8))
+
+            err_label = tk.Label(popup, text="", font=FONT_BODY, bg=BG, fg="#e94560")
+            err_label.pack(padx=20)
+
+            def _ok():
+                key = v_key.get().strip()
+                if not key:
+                    err_label.config(text="Key cannot be empty.")
+                    return
+                if mode == "setup" and v_confirm is not None:
+                    if key != v_confirm.get().strip():
+                        err_label.config(text="Keys do not match.")
+                        return
+                result[0] = key
+                popup.destroy()
+                done_evt.set()
+
+            def _cancel():
+                popup.destroy()
+                done_evt.set()
+
+            btn_row = tk.Frame(popup, bg=BG)
+            btn_row.pack(pady=12)
+            tk.Button(btn_row, text="OK", font=FONT_BTN, bg=ACCENT, fg=TEXT,
+                      relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                      command=_ok).pack(side="left", padx=4)
+            tk.Button(btn_row, text="Cancel", font=FONT_BTN, bg=BG3, fg=TEXT2,
+                      relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                      command=_cancel).pack(side="left", padx=4)
+
+            popup.protocol("WM_DELETE_WINDOW", _cancel)
+
+        self.after(0, _show)
+        done_evt.wait()
+        return result[0]
+
+    def _prompt_token_expired(self) -> bool:
+        """Popup warning about 429 risk when token has expired.
+        Returns True if user clicks Proceed, False if Cancel.
+        Blocks the calling thread until the user responds.
+        """
+        import threading as _threading
+
+        result   = [False]
+        done_evt = _threading.Event()
+
+        def _show():
+            popup = tk.Toplevel(self)
+            popup.title("Token Expired")
+            popup.resizable(False, False)
+            popup.grab_set()
+            popup.configure(bg=BG)
+
+            tk.Label(popup, text="Saved Token Expired",
+                     font=("Segoe UI", 11, "bold"), bg=BG, fg=TEXT).pack(padx=20, pady=(16, 8))
+            tk.Label(popup,
+                     text="A full SSO login is required to generate a new token.\nThis may trigger rate limiting or MFA on Garmin's side.\nProceed?",
+                     font=FONT_BODY, bg=BG, fg=TEXT2, justify="left").pack(padx=20, pady=(0, 12))
+
+            def _proceed():
+                result[0] = True
+                popup.destroy()
+                done_evt.set()
+
+            def _cancel():
+                popup.destroy()
+                done_evt.set()
+
+            btn_row = tk.Frame(popup, bg=BG)
+            btn_row.pack(pady=12)
+            tk.Button(btn_row, text="Proceed", font=FONT_BTN, bg=ACCENT, fg=TEXT,
+                      relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                      command=_proceed).pack(side="left", padx=4)
+            tk.Button(btn_row, text="Cancel", font=FONT_BTN, bg=BG3, fg=TEXT2,
+                      relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                      command=_cancel).pack(side="left", padx=4)
+
+            popup.protocol("WM_DELETE_WINDOW", _cancel)
+
+        self.after(0, _show)
+        done_evt.wait()
+        return result[0]
+
+    def _reset_token(self):
+        """Clear encrypted token file and WCM enc_key entry."""
+        import garmin_security
+        garmin_security.clear_token()
+        self._set_indicator("token", "reset")
+        self._connection_verified = False
+        self._log("🔑  Token reset — next sync will require a new login.")
 
     def _clean_archive(self):
         """Opens Clean Archive popup — shows preview, then deletes on confirm."""
@@ -1089,64 +1255,11 @@ class GarminApp(tk.Tk):
                              on_done=lambda: self._timer_resume_after_sync(timer_was_active))
             return
 
-        for key in self._conn_indicators:
-            self._set_indicator(key, "reset")
-        self._test_btn.config(state="disabled", bg=BG3, fg=TEXT2)
-        self._log_queue.put("\n🔌  Testing connection ...")
-
-        def test_then_sync():
-            try:
-                from garminconnect import Garmin
-            except ImportError:
-                self._log_queue.put("✗ garminconnect not installed.")
-                self.after(0, lambda: self._test_btn.config(state="normal", bg=BG3, fg=TEXT))
-                return
-
-            # 1 — Login
-            self.after(0, self._set_indicator, "login", "pending")
-            try:
-                client = Garmin(s["email"], s["password"])
-                client.login()
-                self.after(0, self._set_indicator, "login", "ok")
-                self._log_queue.put("  ✓ Login successful")
-            except Exception as e:
-                self.after(0, self._set_indicator, "login", "fail")
-                self._log_queue.put(f"  ✗ Login failed: {e}")
-                self.after(0, lambda: self._test_btn.config(state="normal", bg="#e94560", fg=TEXT))
-                return
-
-            # 2 — API Access
-            self.after(0, self._set_indicator, "api", "pending")
-            try:
-                client.get_user_profile()
-                self.after(0, self._set_indicator, "api", "ok")
-                self._log_queue.put("  ✓ API access OK")
-            except Exception as e:
-                self.after(0, self._set_indicator, "api", "fail")
-                self._log_queue.put(f"  ✗ API access failed: {e}")
-                self.after(0, lambda: self._test_btn.config(state="normal", bg="#e94560", fg=TEXT))
-                return
-
-            # 3 — Data
-            self.after(0, self._set_indicator, "data", "pending")
-            try:
-                from datetime import date, timedelta
-                yesterday = (date.today() - timedelta(days=1)).isoformat()
-                client.get_stats(yesterday)
-                self.after(0, self._set_indicator, "data", "ok")
-                self._log_queue.put("  ✓ Data access OK — starting sync ...")
-                self.after(0, lambda: self._test_btn.config(state="normal", bg="#4ecca3", fg="#0a0a1a"))
-                self._connection_verified = True
-                self.after(0, lambda: self._run_module(
-                    "garmin_collector.py", enable_stop=True,
-                    refresh_failed=refresh_failed,
-                    on_done=lambda: self._timer_resume_after_sync(timer_was_active)))
-            except Exception as e:
-                self.after(0, self._set_indicator, "data", "fail")
-                self._log_queue.put(f"  ✗ Data access failed: {e}")
-                self.after(0, lambda: self._test_btn.config(state="normal", bg="#e94560", fg=TEXT))
-
-        threading.Thread(target=test_then_sync, daemon=True).start()
+        self._run_connection_test(
+            on_success=lambda: self._run_module(
+                "garmin_collector.py", enable_stop=True,
+                refresh_failed=refresh_failed,
+                on_done=lambda: self._timer_resume_after_sync(timer_was_active)))
 
     def _run_excel_overview(self):
         self._run_module("garmin_to_excel.py")
@@ -1276,10 +1389,10 @@ class GarminApp(tk.Tk):
             self._timer_conn_verified = True
             self._connection_verified = True
             self.after(0, lambda: [
+                self._set_indicator("token", "ok"),
                 self._set_indicator("login", "ok"),
                 self._set_indicator("api",   "ok"),
                 self._set_indicator("data",  "ok"),
-                self._test_btn.config(bg="#4ecca3", fg="#0a0a1a"),
             ])
             self.after(0, self._log, "⏱  Connection OK — background timer running.")
 

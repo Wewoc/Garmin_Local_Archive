@@ -20,7 +20,13 @@ For a complete reference of all environment variables, constants, file paths, an
 +-- scripts/                        – all Python scripts
 |       garmin_app.py               – desktop GUI entry point (Target 1 dev + Target 2 EXE)
 |       garmin_app_standalone.py    – desktop GUI entry point (Target 3 standalone)
-|       garmin_collector.py         – fetches + archives data from Garmin Connect
+|       garmin_config.py            – all ENV variables, constants, and derived paths (v1.2.0)
+|       garmin_api.py               – Garmin Connect login, API calls, device list (v1.2.0)
+|       garmin_normalizer.py        – normalises raw data from any source (v1.2.0)
+|       garmin_quality.py           – sole owner of quality_log.json (v1.2.0)
+|       garmin_sync.py              – date range resolution, local date scan (v1.2.0)
+|       garmin_import.py            – bulk import placeholder (v1.2.0, not yet implemented)
+|       garmin_collector.py         – thin orchestrator, writes raw/ and summary/ (v1.2.0)
 |       garmin_to_excel.py          – exports summary/ to daily overview Excel
 |       garmin_timeseries_excel.py  – exports raw/ intraday data to Excel + charts
 |       garmin_timeseries_html.py   – exports raw/ intraday data to interactive HTML
@@ -42,6 +48,7 @@ For a complete reference of all environment variables, constants, file paths, an
 |
 \-- log/                            – session logs and quality register
         quality_log.json
+        garmin_token.enc
         recent/garmin_YYYY-MM-DD_HHMMSS.log
         fail/garmin_YYYY-MM-DD_HHMMSS.log
 ```
@@ -73,6 +80,8 @@ Desktop GUI built with tkinter. Wraps all scripts so the user never needs a term
 **Configuration** — all config is passed via `os.environ` — no source patching, no temp files. `_build_env()` in `garmin_app.py` builds the full env dict from UI settings.
 
 **Password security** — stored in Windows Credential Manager via `keyring`. Never written to the settings JSON or any temp file. Passed to subprocesses via `GARMIN_PASSWORD` env var only.
+
+**Token persistence** — after the first successful SSO login, `garmin_api.login()` calls `garmin_security.save_token()` to encrypt the Garmin OAuth token with AES-256-GCM and store it at `LOG_DIR/garmin_token.enc`. The encryption key is user-defined (set once via popup on first setup) and stored in Windows Credential Manager under `GarminLocalArchive / token_enc_key`. On all subsequent runs, `login()` loads and decrypts the token — no SSO required (~1 year validity). If the token is rejected by Garmin, `clear_token()` removes it and a warning popup asks the user before triggering a new SSO login. If the WCM key is lost (e.g. after a Windows update), the user re-enters it via popup and the token file is decrypted again. Plaintext token never written to disk.
 
 **Stop button** — only the collector has one. `self._active_proc` holds the subprocess reference. `_stop_collector()` calls `proc.terminate()`, waits 5 s, then `proc.kill()`.
 
@@ -108,7 +117,7 @@ Values are read fresh at the start of each run — changing them while the timer
 
 **Thread safety** — each timer thread carries a `generation` integer. `_timer_generation` is incremented on every Start/Stop. A thread exits immediately if its generation no longer matches (`_stale()` check). This prevents ghost threads from multiple rapid Start/Stop clicks.
 
-**`_timer_conn_verified`** — session flag for the timer's own connection test. On success, also sets `_connection_verified = True` and updates all three GUI indicators to green — so a subsequent manual sync also skips its test.
+**`_timer_conn_verified`** — session flag for the timer's own connection test. On success, also sets `_connection_verified = True` and updates all four GUI indicators (Token, Login, API Access, Data) to green — so a subsequent manual sync also skips its test.
 
 **Timer + manual sync interaction** — `_run_collector()` detects `_timer_active`, pauses the timer (increments generation, sets stop event), runs the manual sync, then resumes via `_timer_resume_after_sync()` in `on_done`. Timer Stop during an active timer sync sets `_stopped_by_user = True` — no false error log.
 
@@ -116,7 +125,7 @@ Values are read fresh at the start of each run — changing them while the timer
 
 **`_set_indicator(key, state)`** — updates a connection status dot. States: `"pending"` (orange), `"ok"` (green), `"fail"` (red), `"reset"` (grey).
 
-**`_run_connection_test()`** — runs three sequential checks in a background thread: Login → API Access (`get_user_profile`) → Data (`get_stats` for yesterday). Each indicator updates live as checks complete. Button turns green on full success, red on first failure. Stops immediately on failure — no point testing further if login fails.
+**`_run_connection_test(on_success=None)`** — runs four sequential checks in a background thread: Token → Login → API Access (`get_user_profile`) → Data (`get_stats` for yesterday). Token check runs first — if the saved token is valid, Login lamp turns green without SSO. `on_success` callback is invoked on the main thread when all checks pass (used by `_run_collector()` to chain directly into the sync). No longer triggered by button click — called automatically on Sync / Background Timer start. The Test Connection button remains visible as a status label but is not clickable.
 
 ### Settings file
 
@@ -154,47 +163,72 @@ Identical to `garmin_app.py` with two differences that make it work without a lo
 
 ---
 
-## garmin_collector.py
+## Collector pipeline (v1.2.0+)
 
-### Purpose
+As of v1.2.0, `garmin_collector.py` is a thin orchestrator. The logic that was previously monolithic is now split across six focused modules. This section covers the full pipeline.
 
-Connects to Garmin Connect, determines which days are missing locally, and downloads them. Runs unattended via Task Scheduler / cron after initial setup.
+### Module overview
 
-### Two-layer design
+| Module | Role | Writes |
+|---|---|---|
+| `garmin_config.py` | All ENV variables, constants, derived paths | Nothing |
+| `garmin_api.py` | Login, API calls, device list | Nothing |
+| `garmin_normalizer.py` | Normalises raw dict from any source | Nothing |
+| `garmin_quality.py` | Sole owner of `quality_log.json` | `quality_log.json` only |
+| `garmin_sync.py` | Date range resolution, local date scan | Nothing |
+| `garmin_import.py` | Bulk import placeholder (not implemented) | Nothing |
+| `garmin_collector.py` | Orchestrator | `raw/` and `summary/` only |
+
+**Communication model:** all modules communicate via function calls — parameters in, return value out. No module writes intermediate files for another to read. `main()` is the sole orchestration point; no module calls another directly.
+
+**Central data carrier:** `quality_data` dict — loaded once at startup from `quality_log.json` by `garmin_quality`, passed as parameter through all calls, saved at the end. No other module reads or writes the file directly.
+
+### Pipeline flow
+
+```
+main()
+  ├── garmin_quality._load_quality_log()       → quality_data dict
+  ├── garmin_quality._backfill_quality_log()   → quality_data updated (first run only)
+  ├── garmin_quality.get_low_quality_dates()   → new low/failed entries
+  ├── garmin_api.login()                       → client
+  ├── garmin_api.get_devices()                 → devices list → quality_data["devices"]
+  ├── garmin_quality._set_first_day()          → quality_data["first_day"]
+  ├── garmin_sync.get_local_dates()            → set of present dates
+  ├── garmin_sync.resolve_date_range()         → (start, end)
+  ├── for each missing day:
+  │     garmin_api.fetch_raw()                 → raw dict
+  │     garmin_normalizer.normalize()          → normalised dict
+  │     summarize()                            → summary dict
+  │     write raw/ and summary/
+  │     garmin_quality.assess_quality()        → quality string
+  │     garmin_quality._upsert_quality()       → quality_data updated
+  └── garmin_quality._save_quality_log()       → quality_log.json written
+```
+
+### Two-layer data output
 
 Every day produces two files:
 
-- `raw/garmin_raw_YYYY-MM-DD.json` — complete API response for all endpoints (~500 KB). Never modified after creation. Serves as the permanent source of truth.
+- `raw/garmin_raw_YYYY-MM-DD.json` — complete normalised API response (~500 KB). Never modified after creation. Serves as the permanent source of truth.
 - `summary/garmin_YYYY-MM-DD.json` — compact distillation (~2 KB). Used by Open WebUI / Ollama as a Knowledge Base. Can always be regenerated from raw without hitting the API again.
 
 ### Quality tracking and the quality log
 
-Every raw file downloaded from Garmin is assessed for content quality immediately after writing. The result is stored in `log/quality_log.json` — a persistent register of every day the collector has ever seen.
+Every raw file downloaded is assessed for content quality immediately after writing. The result is stored in `log/quality_log.json` — a persistent register of every day the collector has ever seen. Sole owner: `garmin_quality.py`.
 
 **Why content-based quality instead of file size:**
-Garmin Connect stores intraday detail data (per-second heart rate, per-minute stress values, sleep stage details) for approximately 1–2 years. Older data returns only daily aggregates — the API responds successfully, the JSON is valid, but it contains far less than a recent day. A file size threshold cannot reliably distinguish between a genuinely incomplete download and a legitimately sparse historical record. Content inspection can.
+Garmin Connect stores intraday detail data for approximately 1–2 years. Older data returns only daily aggregates — valid JSON but far less content than a recent day. File size cannot reliably distinguish between an incomplete download and a legitimately sparse historical record. Content inspection can.
 
-**Quality levels** (`assess_quality(raw)` in `garmin_collector.py`):
+**Quality levels** (`garmin_quality.assess_quality(raw)`):
 
 | Level | Condition | Background Timer |
 |---|---|---|
 | `high` | Intraday data present — `heart_rates.heartRateValues` or `stress.stressValuesArray` has entries | Never re-downloaded |
-| `med` | Daily aggregates present (`stats.totalSteps` etc.) but no intraday — typical for data > ~1 year old | Never re-downloaded — this is as good as it gets |
-| `low` | Only minimal stats present — summary-level minimum | Re-tried up to `LOW_QUALITY_MAX_ATTEMPTS` (default 3) times, then left alone |
+| `med` | Daily aggregates present but no intraday — typical for data > ~1 year old | Never re-downloaded |
+| `low` | Only minimal stats present — summary-level minimum | Re-tried up to `LOW_QUALITY_MAX_ATTEMPTS` times, then left alone |
 | `failed` | API error — no usable data returned | Re-tried indefinitely until successful |
 
-**The `recheck` flag** controls whether the background timer will attempt to re-download a day:
-- `high` and `med` → always `recheck=false`
-- `low` → `recheck=true` until `attempts >= LOW_QUALITY_MAX_ATTEMPTS`, then `recheck=false`
-- `failed` → always `recheck=true`
-
-This prevents the timer from endlessly retrying days where Garmin simply no longer has the detailed data.
-
-**Startup scan:** On each run, `main()` loads the quality log and collects all already-known dates. Only raw files **not** in the log are read for quality assessment — this avoids triggering cloud downloads (OneDrive, etc.) for files that have already been assessed. The first run after installation scans everything; subsequent runs only scan new files.
-
-**Migration:** On the first run after upgrading from an older version, `_load_quality_log()` automatically reads the old `failed_days.json`, converts it to the new schema, writes `quality_log.json`, and deletes the old file.
-
-Stop-aborted days are never added to the quality log — only real failures and completed (even if low-quality) downloads.
+**Migration:** On the first run after upgrading from an older version, `garmin_quality._load_quality_log()` automatically reads the old `failed_days.json`, converts it to the new schema, writes `quality_log.json`, and deletes the old file.
 
 ### Session logging
 
@@ -203,15 +237,15 @@ Every sync run opens a new log file at `log/recent/`. The filename prefix is con
 - Background timer syncs: `garmin_background_YYYY-MM-DD_HHMMSS.log`
 
 The file handler always runs at `DEBUG` level. After the run:
-- If the session had errors or low-quality downloads: the log is additionally copied to `log/fail/` — the prefix immediately identifies the source
-- `log/recent/` is capped at 30 files — oldest are deleted automatically
+- If the session had errors or low-quality downloads: the log is additionally copied to `log/fail/`
+- `log/recent/` is capped at `LOG_RECENT_MAX` (30) files — oldest are deleted automatically
 - `log/fail/` has no automatic limit
 
 ### Stop support (standalone mode)
 
-`_is_stopped()` checks `globals().get("_STOP_EVENT")`. In standalone mode, `garmin_app_standalone.py` injects a `threading.Event` into the module dict before calling `main()`. In all other modes the key is absent and `_is_stopped()` always returns `False` — no effect on Target 1 or 2.
+`_is_stopped()` in both `garmin_collector.py` and `garmin_api.py` checks `globals().get("_STOP_EVENT")`. In standalone mode, `garmin_app_standalone.py` injects a `threading.Event` into both module dicts before calling `main()`. In all other modes the key is absent and `_is_stopped()` always returns `False`.
 
-Stop is checked in two places: at the top of the day loop, and at the start of each `api_call()`.
+Stop is checked in two places: at the top of the day loop (collector), and at the start of each `api_call()` (api).
 
 ### Sync modes
 
@@ -219,60 +253,22 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 |------|-----------|
 | `"recent"` | Checks last `SYNC_DAYS` days (default 90). Good for daily automation. |
 | `"range"` | Checks `SYNC_FROM` to `SYNC_TO` only. Good for targeted backfills. |
-| `"auto"` | Checks from `first_day` (stored in `quality_log.json`) to today. On first run, `first_day` is detected from registered devices → account profile → `SYNC_AUTO_FALLBACK`. After that, reads directly from the log — no API call needed. |
+| `"auto"` | Checks from `first_day` (stored in `quality_log.json`) to today. `first_day` is detected on first run from devices → account profile → `SYNC_AUTO_FALLBACK`. After that, passed directly from `quality_data` — no repeated API calls. |
 
-### Key functions
+### Session limit
 
-`fetch_raw(client, date_str)` — calls all Garmin API endpoints for a given date. To add a new endpoint, append a tuple `("method_name", (args,), "key_name")` to the `endpoints` list.
+`MAX_DAYS_PER_SESSION` (default 30, ENV: `GARMIN_MAX_DAYS_PER_SESSION`) caps the number of days fetched per run. Set to `0` for unlimited. Prevents account throttling on large backlogs. GUI field planned for v1.2.1.
 
-`assess_quality(raw)` — inspects raw data content and returns `"high"`, `"med"`, `"low"`, or `"failed"`. Called after every download.
+### Adding a new API endpoint
 
-`summarize(raw)` — extracts fields from raw into compact summary. To expose a new field in Open WebUI, add it here.
+In `garmin_api.py`, append a tuple to the `endpoints` list in `fetch_raw()`:
+```python
+("get_method_name", (date_str,), "key_name"),
+```
 
-`_parse_device_date(val)` — converts a device date value to `YYYY-MM-DD`. Handles ISO strings, Unix second timestamps (~10 digits), and Unix millisecond timestamps (~13 digits). Used by `get_devices()` and the migration in `_load_quality_log()`.
+### Adding a new summary field
 
-`get_devices(client)` — fetches registered devices, logs first/last use dates. Uses `_parse_device_date()` to normalise all date values. Called on every successful login to keep the `devices` list in `quality_log.json` current.
-
-`resolve_date_range(client)` — returns `(start, end)` based on `SYNC_MODE`. Auto mode: reads `first_day` from `quality_log.json` first — if set, returns it directly without calling the API. Falls back to devices → account profile → `SYNC_AUTO_FALLBACK` → 90-day fallback.
-
-`get_local_dates(folder)` — scans across three locations and naming schemes for robustness. If `REFRESH_FAILED=True`, excludes days with `recheck=true` from the quality log.
-
-`get_low_quality_dates(folder, known_dates)` — scans `raw/` for files not yet in the quality log. Skips `known_dates` to avoid triggering cloud downloads.
-
-`_load_quality_log()` — loads `quality_log.json`. Migrates old `failed_days.json` on first run. Adds missing root fields (`first_day`, `devices`) if absent. Converts any timestamp-format `first_day` or device dates to ISO via `_parse_device_date()`.
-
-`_save_quality_log(data)` — writes atomically via `.tmp` file.
-
-`_upsert_quality(data, day, quality, reason)` — adds or updates entry. Increments `attempts` for `failed` and `low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS`.
-
-`_mark_quality_ok(data, day, quality)` — marks day as `high` or `med`, sets `recheck=false`.
-
-`_backfill_quality_log(data)` — one-time backfill run when `first_day` is not yet set. Scans all existing `raw/` files (including `high` and `med` quality) and adds any not yet in the quality log. Ensures the log is complete before `first_day` is determined.
-
-`_set_first_day(data, client)` — determines and persists `first_day` in `quality_log.json`. Resolution order: `devices` list already in `data` → account profile → `SYNC_AUTO_FALLBACK` → oldest entry in `data["days"]`. Never overwrites an existing `first_day` value.
-
-`cleanup_before_first_day(data, dry_run)` — deletes all `raw/` and `summary/` files before `first_day` and removes corresponding quality log entries. `dry_run=True` returns counts without deleting. Called by the GUI's Clean Archive button.
-
-`_start_session_log()` — opens session log at DEBUG. Returns `(handler, path)`.
-
-`_close_session_log(fh, path, had_errors, had_incomplete)` — closes handler, copies to `log/fail/` if needed, enforces rolling limit.
-
-### Configuration variables
-
-| Variable | Type | Description |
-|----------|------|-------------|
-| `GARMIN_EMAIL` | str | Garmin Connect login email |
-| `GARMIN_PASSWORD` | str | Garmin Connect password |
-| `BASE_DIR` | Path | Root folder; `raw/`, `summary/`, and `log/` live here |
-| `SYNC_MODE` | str | `"recent"`, `"range"`, or `"auto"` |
-| `SYNC_DAYS` | int | Days to check in `"recent"` mode (default 90) |
-| `SYNC_FROM` | str | Start date for `"range"` mode (`"YYYY-MM-DD"`) |
-| `SYNC_TO` | str | End date for `"range"` mode (`"YYYY-MM-DD"`) |
-| `SYNC_AUTO_FALLBACK` | str/None | Manual start date fallback for `"auto"` mode |
-| `REQUEST_DELAY` | float | Seconds between API calls (default 1.5) |
-| `INCOMPLETE_FILE_KB` | int | Raw file size threshold in KB (default 100) |
-| `REFRESH_FAILED` | bool | If True, incomplete days are re-fetched in this run |
-| `GARMIN_LOG_LEVEL` | str | GUI display level only — session logs always run at DEBUG |
+In `garmin_collector.py`, add the extraction logic to `summarize()`. The field will appear in all new `summary/garmin_YYYY-MM-DD.json` files. Run `regenerate_summaries.py` to backfill existing files.
 
 ### Known Garmin API quirks
 
@@ -281,6 +277,79 @@ Stop is checked in two places: at the top of the day loop, and at the start of e
 - **Stress data** lives in `stress.stressValuesArray` as `[timestamp_ms, value]` pairs. `stressChartValueOffset` may be present — subtract it. Negative results = unmeasured, filtered out.
 - **Body Battery** lives in `stress.bodyBatteryValuesArray` as `[timestamp_ms, "MEASURED", level, version]`. Level is at index 2.
 - Login may require browser captcha on first run or after long inactivity — run manually in terminal to complete.
+
+---
+
+## test_local.py
+
+### Purpose
+
+Local test script for the core pipeline modules. Runs without network, Garmin API, or GUI. Use it after making changes to any core module to verify nothing is broken before testing with a real sync.
+
+```bash
+python test_local.py
+```
+
+Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary files after every run — leaves nothing behind.
+
+### What is tested
+
+**1. `garmin_config`** — ENV variable parsing and path derivation
+- All derived paths (`RAW_DIR`, `SUMMARY_DIR`, `LOG_DIR`, `QUALITY_LOG_FILE`, `GARMIN_TOKEN_FILE`)
+- Default constants (`MAX_DAYS_PER_SESSION`, `LOW_QUALITY_MAX_ATTEMPTS`, `REFRESH_FAILED`)
+- `GARMIN_SYNC_DATES` parsing: valid dates accepted, invalid entries skipped, `None` when empty
+
+**2. `garmin_sync`** — date range logic and local file scanning
+- All three sync modes: `recent`, `range`, `auto` — correct start/end dates
+- `date_range()` generator: correct count, first and last date
+- `get_local_dates()`: finds files, excludes recheck dates when `REFRESH_FAILED=1`
+
+**3. `garmin_normalizer`** — data normalisation and summary extraction
+- `normalize()`: API source passes through with date guaranteed, non-dict returns `{"date": "unknown"}`, bulk and unknown sources handled
+- `safe_get()`: nested hit, missing key, default value, non-dict mid-path
+- `_parse_list_values()`: dict list and `[timestamp, value]` pair formats
+- `summarize()`: all top-level keys present, `generated_by = "garmin_normalizer.py"`, correct values from dummy data (sleep hours, resting HR, steps, activity type)
+
+**4. `garmin_quality`** — quality assessment, upsert logic, persistence, migrations
+- `assess_quality()`: all four levels — `high` (intraday HR), `medium` (daily aggregate), `low` (bare stats), `failed` (empty)
+- `_upsert_quality()`: new entry, update existing, `write` field stored correctly, `recheck` and `attempts` logic for each quality level
+- `LOW_QUALITY_MAX_ATTEMPTS` exhaustion: `recheck` disabled after 3 attempts
+- Save + load round-trip: `first_day`, entries, `write` field all preserved
+- Migration `"med"` → `"medium"`: old entries upgraded on load
+- Migration `write=null`: pre-v1.2.0 entries without `write` field get `null` on load
+
+**5. `garmin_writer`** — file output
+- `write_day()` creates both `raw/garmin_raw_YYYY-MM-DD.json` and `summary/garmin_YYYY-MM-DD.json`
+- Raw file content correct, summary `generated_by` field = `"garmin_normalizer.py"`
+
+**6. `garmin_collector` internals** — decision layer and module boundaries
+- `_should_write()`: `True` for `high`/`medium`/`low`, `False` for `failed` and unknown labels
+- `_is_stopped()`: `False` without injected event, `True` when `_STOP_EVENT` is set
+- `summarize` and `safe_get` no longer present in collector (moved to normalizer)
+- `_process_day()` via mocked API: correct label returned, `write_day` called on success, not called when label is `failed`
+
+**7. `garmin_security`** — crypto layer (no keyring required)
+- `_derive_aes_key()`: 32-byte output, deterministic for same input, unique per different input
+- `save_token()` + `load_token()` round-trip: correct plaintext recovered
+- `load_token()` with wrong key: returns `None`
+- `load_token()` with no enc_key: returns `None`
+- `clear_token()`: token file removed from disk
+- `load_token()` after clear: returns `None`
+
+### What is not tested
+
+- GUI (tkinter) — verified manually before release
+- `garmin_api` — requires live Garmin Connect credentials
+- `garmin_import` — placeholder, not yet implemented
+- `garmin_app.py` / `garmin_app_standalone.py` — GUI entry points
+- Export scripts (`garmin_to_excel.py`, `garmin_timeseries_*.py`, `garmin_analysis_html.py`)
+- Full end-to-end pipeline with real API data
+
+### When to run
+
+- After any change to `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, or `garmin_security`
+- After upgrading Python or dependencies
+- Before building a release EXE
 
 ---
 
@@ -489,6 +558,180 @@ Produces `Garmin_Local_Archive_Standalone.exe` and `Garmin_Local_Archive_Standal
 
 Both scripts auto-migrate files to the correct subfolders if still in root. Safe to run from any starting layout. Upload both ZIPs to the GitHub release page.
 
+**Pre-build validation (`validate_scripts()`):**
+
+Both build scripts run a validation block before PyInstaller starts. It checks:
+
+1. Every required script is present in `scripts/`
+2. Key scripts contain their expected function or class signatures
+
+| Script | Required signatures |
+|---|---|
+| `garmin_app.py` | `class GarminApp` |
+| `garmin_app_standalone.py` | `class GarminApp` |
+| `garmin_api.py` | `def login`, `def fetch_raw` |
+| `garmin_collector.py` | `def main`, `def _process_day` |
+| `garmin_quality.py` | `def _upsert_quality` |
+| `garmin_config.py` | `GARMIN_EMAIL` |
+| `garmin_security.py` | `def load_token`, `def save_token` |
+| `garmin_normalizer.py` | `def normalize`, `def summarize` |
+| `garmin_writer.py` | `def write_day` |
+| `garmin_sync.py` | `def get_local_dates`, `def resolve_date_range` |
+
+If any check fails, the build aborts immediately with a clear message identifying which file is missing or has wrong content. This catches cases where a file was accidentally replaced with the wrong content or never copied into the folder.
+
+The signature list is defined as `SCRIPT_SIGNATURES` at the top of each build script — update it whenever a module's public interface changes.
+
 ### Adding a missing hidden import to the standalone build
 
 If the standalone EXE fails with an `ImportError` or `ModuleNotFoundError`, add the missing module name to the `hidden` list in `build_exe()` inside `build_standalone.py`, then rebuild.
+
+---
+
+## Session Continuity — Start Prompt Template
+
+At the end of each version cycle, fill this template and save it as
+`START_PROMPT_vX_Y_Z.md`. Paste it at the start of a new Claude session
+to restore full project context. Manually review and correct before use.
+
+Placeholders in `[SQUARE_BRACKETS]` must be replaced.
+Sections with a source comment are intentionally not duplicated here —
+copy the current content from the referenced document when filling the template.
+
+---
+
+### Template
+
+~~~markdown
+# Start Prompt — Garmin Local Archive [VERSION]
+
+Paste this at the start of a new Claude session to restore project context.
+
+---
+
+You are working on **Garmin Local Archive** — a local Python tool for archiving
+and analysing Garmin Connect health data. No cloud, no third parties.
+
+**GitHub:** [REPOSITORY_URL]
+**Stable version:** [LAST_STABLE_VERSION] (complete) — current work: [TARGET_VERSION]
+
+**Developer profile:**
+<!-- Describe the developer's technical background and working style so Claude
+     calibrates explanation depth and understands how decisions are made.
+     Examples:
+       "Non-programmer. Provides logic and architecture direction, not implementation.
+        Needs plain-language explanations alongside technical ones."
+       "Experienced developer. Skip basics, focus on implementation details." -->
+[DEVELOPER_PROFILE]
+
+---
+
+## Core Rule
+
+**Never implement code or changes without explicit instruction.**
+Always explain and evaluate first → ask for confirmation → then implement.
+Deliver complete files only — no snippets. Working code is never touched
+unless strictly necessary. One change at a time so the impact stays traceable.
+
+---
+
+## Stack
+
+Python 3.10+, tkinter, PyInstaller, garminconnect API, openpyxl, Plotly,
+keyring (Windows Credential Manager), cryptography (AES-256-GCM)
+
+---
+
+## Build Targets
+
+<!-- → MAINTENANCE.md § "Three build targets" — copy current table -->
+[PASTE CURRENT BUILD TARGETS TABLE]
+
+---
+
+## Configuration Flow
+
+<!-- → MAINTENANCE.md § "garmin_app.py — Key design decisions"
+     Copy the ENV flow paragraph: GUI → _build_env → GARMIN_* → garmin_config -->
+[PASTE CURRENT CONFIG FLOW]
+
+---
+
+## Module Architecture
+
+<!-- → MAINTENANCE.md § module descriptions — copy role-annotated module list -->
+[PASTE CURRENT MODULE LIST]
+
+### Pipeline Flow
+
+<!-- → MAINTENANCE.md § Pipeline-Flow — copy current flow diagram -->
+[PASTE CURRENT PIPELINE DIAGRAM]
+
+### Principles
+
+<!-- → MAINTENANCE.md § Principles — copy current principle list -->
+[PASTE CURRENT PRINCIPLES]
+
+---
+
+## Data Structure
+
+<!-- → MAINTENANCE.md § Data layout — copy current directory tree -->
+[PASTE CURRENT DATA STRUCTURE]
+
+---
+
+## Quality Tracking
+
+<!-- → MAINTENANCE.md § garmin_quality.py — copy quality level table and constants -->
+[PASTE CURRENT QUALITY TABLE AND CONSTANTS]
+
+---
+
+## Background Timer
+
+<!-- → MAINTENANCE.md § Background Timer — copy current timer mode description -->
+[PASTE CURRENT TIMER DESCRIPTION]
+
+---
+
+## Completed in This Session
+
+<!-- What was changed in the session that produced this prompt?
+     One line per change, short and precise. -->
+- [CHANGE 1]
+- [CHANGE 2]
+
+---
+
+## Open Items / Next Work — [TARGET_VERSION]
+
+<!-- Priority bugs and planned changes for the next version.
+     → Source: ROADMAP.md § [TARGET_VERSION]
+     ⚠️ for bugs and risks, - for planned features -->
+- ⚠️ [PRIORITY BUG 1]
+- ⚠️ [PRIORITY BUG 2]
+- [PLANNED FEATURE 1]
+
+---
+
+## Version Plan
+
+<!-- → ROADMAP.md — list stable versions with one-line description,
+     then planned versions from the roadmap -->
+
+**Stable:**
+[STABLE VERSION LIST]
+
+**Planned:**
+[PLANNED VERSION LIST]
+
+---
+
+## Reference Documents
+
+- `REFERENCE.md` — all ENV variables, constants, file paths, functions per module
+- `MAINTENANCE.md` — full technical documentation including pipeline flow
+- `ROADMAP.md` — planned features
+- `CHANGELOG.md` — version history
+~~~
