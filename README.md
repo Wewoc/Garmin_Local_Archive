@@ -5,6 +5,8 @@
 
 Archive and analyze your Garmin Connect data locally — no cloud, no third parties. Everything runs on your own machine.
 
+Tools like Garmin Chat Connector or Whoop's built-in AI give you convenient access to your health data — by sending it to cloud AI services. That's a valid choice for many people. This project exists because of exactly these tools — and makes the opposite choice. Your data stays on your machine, in open formats you can read, export, and analyse with any tool you choose — a local AI, a cloud AI, or no AI at all. **Your data, your call.**
+
 ---
 
 ## Why this exists
