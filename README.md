@@ -174,7 +174,7 @@ The encryption is not security theatre — it solves the problem it was designed
 
 ## What is included
 
-The collector pipeline (v1.2.1b) consists of eight focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
+The collector pipeline (v1.2.2) consists of eight focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
 
 | Script | What it does | Reads from |
 |---|---|---|
@@ -196,7 +196,7 @@ The collector pipeline (v1.2.1b) consists of eight focused modules plus a thin o
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
-The desktop app (v1.2.1b) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+The desktop app (v1.2.2) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
 
 Data is stored in three folders:
 

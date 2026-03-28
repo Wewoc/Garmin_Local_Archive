@@ -119,6 +119,10 @@ def _load_quality_log() -> dict:
             if "write" not in entry:
                 entry["write"] = None  # unknown — written before this field existed
 
+            # Migrate: add 'source' field if missing (entries before v1.2.2)
+            if "source" not in entry:
+                entry["source"] = "legacy"
+
             # Reset attempts for low entries (Garmin archived data, not real failures)
             if entry.get("quality") == "low":
                 entry["attempts"] = 0
@@ -211,7 +215,7 @@ def assess_quality(raw: dict) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _upsert_quality(data: dict, day: date, quality: str, reason: str,
-                    written: bool = None) -> None:
+                    written: bool = None, source: str = "legacy") -> None:
     """
     Adds or updates a day entry in the quality log.
       - 'failed': increments attempts, sets recheck=True
@@ -222,6 +226,10 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
       True  — writer wrote both files successfully
       False — label was 'failed', writer failed, or write was skipped
       None  — unknown (backfill, scan, or pre-v1.2.1 entry)
+
+    source : str
+      Origin of the data: "api" | "bulk" | "csv" | "manual" | "legacy"
+      Always overwrites the existing value — the most recent write wins.
     """
     day_str   = day.isoformat()
     today_str = date.today().isoformat()
@@ -232,6 +240,7 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
             entry["quality"]      = quality
             entry["reason"]       = reason
             entry["write"]        = written
+            entry["source"]       = source
             entry["last_checked"] = today_str
             if quality == "failed":
                 entry["attempts"]     = entry.get("attempts", 0) + 1
@@ -255,6 +264,7 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
         "quality":      quality,
         "reason":       reason,
         "write":        written,
+        "source":       source,
         "recheck":      quality in ("failed", "low"),
         "attempts":     attempts,
         "last_checked": today_str,
@@ -346,7 +356,7 @@ def _backfill_quality_log(data: dict) -> int:
                 raw = json.load(fh)
             q = assess_quality(raw)
             _upsert_quality(data, day, q, f"Quality: {q} — backfill on first_day init",
-                            written=True)
+                            written=True, source="legacy")
             added += 1
         except (OSError, json.JSONDecodeError):
             pass
