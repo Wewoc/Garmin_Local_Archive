@@ -6,45 +6,10 @@
 
 ---
 
-## Currently stable — v1.2.0
+## Currently stable — v1.2.1b
 
-- **Collector Refactoring + Architecture Extension** — `garmin_collector.py` split into focused modules. Decision layer isolated (`_should_write`, `_process_day`). `garmin_writer.py` added as sole owner of `raw/` and `summary/`. `summarize()` moved to `garmin_normalizer.py`. Quality level `"med"` renamed to `"medium"`. No new end-user features — existing behaviour preserved exactly. See CHANGELOG for details.
-
----
-
-## Planned — v1.2
-
----
-
-### v1.2.1 — GUI Cleanup + Polish
-
-Housekeeping pass after the refactoring. No new functionality.
-
-- ⚠️ **Priority:** `api.login()` currently calls `sys.exit(1)` on failure — a library function should not terminate the process directly. Replace with a raised exception (`RuntimeError` or custom `GarminLoginError`); let the caller (collector, GUI, background timer) decide how to handle it. Latent risk: background timer could be silently killed on a transient login failure.
-- ⚠️ **Priority:** Race condition in `garmin_quality.py` — GUI and background timer can read-modify-write `quality_log.json` simultaneously. The atomic tmp-file write protects against corruption on write, but not against two processes interleaving their read-modify-write cycles. Add a file lock (e.g. `filelock` or `fcntl`) around all quality log access.
-- ⚠️ **Priority:** Silent failures in `garmin_api.py` — when an endpoint call fails, the exception is logged as `warning` and the flow continues. This results in incomplete raw dicts that may be assessed as `medium` instead of `high` quality without any visible indication of which endpoint failed. Add per-endpoint failure tracking so missing keys are explicitly flagged in the quality log.
-- ⚠️ **Priority:** No validation of incoming Garmin API data before writing to `raw/` — if Garmin changes their JSON structure, malformed data is silently archived. Add basic schema validation (required keys, expected types) at the `garmin_normalizer.py` entry point before data reaches the pipeline.
-- All GUI labels and field names in English (currently mixed German/English)
-- Request delay changed from fixed `1.5s` to a random value between configurable min/max (e.g. 1.0–3.0s) — breaks the fixed request pattern to reduce Garmin rate-limit risk
-- Export date range: leaving **To** empty defaults to the most recent available file
-- Export date range: leaving **From** empty defaults to the oldest available file
-- Session limit: max days per run configurable via `GARMIN_MAX_DAYS_PER_SESSION` (default: 30) — prevents account throttling on large backlogs
-- **`build_all.py`** — single script that runs both `build.py` and `build_standalone.py` sequentially, producing both ZIPs in one step. No logic changes — calls both existing `main()` functions. Note: Standalone build embeds all dependencies and takes significantly longer.
-
----
-
-### v1.2.1b — Code Hygiene
-
-Technical debt cleanup. No functional changes.
-
-- **Build script consolidation** — `build.py` becomes the shared base containing all common logic: `SCRIPT_SIGNATURES`, `validate_scripts()`, `migrate_layout()`, `check_dependencies()`. `build_standalone.py` imports from `build.py` and only defines what differs: `APP_NAME`, `EMBEDDED_SCRIPTS`, `RUNTIME_DEPS`, standalone-specific `build_exe()` and `build_zip()`. Eliminates the current near-identical duplication — a signature change only needs to be made in one place.
-- **`garmin_app_standalone.py` consolidation** — `garmin_app.py` becomes the single source of GUI logic. `garmin_app_standalone.py` imports `GarminApp` from `garmin_app.py` and only overrides what differs: `script_dir()`, `_find_python()`, and the `_run_module()` thread mechanism. Eliminates full duplication of all GUI code — bug fixes and UI changes only need to be made once. Note: requires careful handling of PyInstaller dependency detection and the `_STOP_EVENT` injection mechanism.
-- **`garmin_utils.py`** — new shared module for helpers duplicated across modules:
-  - `_parse_device_date` (currently in `garmin_api.py` and `garmin_quality.py`)
-- **`garmin_config.py`** — move SYNC_DATES parsing loop into `garmin_utils.py`; config module should contain no logic per its own docstring
-- **`DEFAULT_SETTINGS`** — replace hardcoded `"C:\\garmin"` with `str(Path.home() / "garmin_data")` to avoid broken first-run behaviour on systems without `C:\`
-
-> `safe_get` consolidation and `summarize()` move already completed in v1.2.0.
+- **Bug Fixes + Security + Polish (v1.2.1)** — `GarminLoginError` exception, per-endpoint failure tracking, input validation in normalizer, preventive `QUALITY_LOCK`, random salt in token encryption, GUI labels fully in English, random request delay, export date range auto-fill, default data folder fix. See CHANGELOG for details.
+- **Code Hygiene (v1.2.1b)** — `build_manifest.py` as single source of truth for build lists, `build_all.py` added, `garmin_utils.py` added with shared helpers, `garmin_config.py` logic extracted to utils, `test_local.py` extended to 112 checks. See CHANGELOG for details.
 
 ---
 
@@ -184,7 +149,7 @@ Focus on making the project easier to use, understand, and safer when used with 
   - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
   - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
 - **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
-- **Script-level tests (non-GUI)** — ✅ done in v1.2.0: `test_local.py` covers all core modules with 98 checks (config, sync, normalizer, quality incl. migrations, writer, collector internals, security crypto layer). Run with `python test_local.py`.
+- **Script-level tests (non-GUI)** — ✅ done in v1.2.0, extended in v1.2.1/v1.2.1b: `test_local.py` covers all core modules with 112 checks (config, sync, normalizer, quality incl. migrations + QUALITY_LOCK, writer, collector internals, security crypto layer, utils). Run with `python test_local.py`.
 - **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
 - **Integrity notes** — mention that **no checksums or signatures are currently applied**, so modifications or corruption of `quality_log.json` are not automatically detected; users should handle backups carefully.
 
@@ -227,6 +192,18 @@ New functionality built on the clean v1.3.0 base:
 
 These are ideas, not commitments. Some may never get built.
 
+**`GarminAppBase` — GUI Consolidation (Pre-v2.0 Preparation)**
+
+`garmin_app.py` and `garmin_app_standalone.py` currently share identical GUI code but differ fundamentally in their execution model: Target 2 spawns subprocesses (`_run_script`), Target 3 imports modules directly in threads with queue-based output (`_run_module`). This means every GUI fix currently requires changes in two places.
+
+The clean solution is a base class `GarminAppBase` in a shared `garmin_app_base.py` containing all GUI logic. Each target file then only defines what differs: `script_dir()`, `_find_python()`, and the run mechanism. This is a significant refactor — not a simple extraction — and requires careful handling of PyInstaller dependency detection and the `_STOP_EVENT` injection mechanism.
+
+Intentionally deferred until v2.0 architecture is stable: the multi-source architecture will likely require further GUI changes, making it more efficient to consolidate once rather than twice.
+
+**`build_manifest.py`** — already done in v1.2.1b as a simpler analogue: shared script lists and signatures extracted into a single file, both build scripts import from it. Adding a new module now only requires one edit.
+
+---
+
 **Multi-Source Architecture**
 
 Extension to support multiple data sources (Strava, Komoot, ...) alongside Garmin. Full concept in `CONCEPT_V2-0.md`.
@@ -264,7 +241,7 @@ Local overview of archive health built from session logs — days synced vs fail
 Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected — it just isn't used beyond the summary.
 
 **Test suite & CI/CD**
-Core modules are covered by test_local.py (98 checks, added in v1.2.0). Build integrity is covered by validate_scripts() in both build scripts — verifies all required scripts are present and contain expected signatures before PyInstaller runs (added in v1.2.0). Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.3 is complete. No timeline, no commitment, but the intention is there.
+Core modules are covered by test_local.py (112 checks, extended in v1.2.1/v1.2.1b). Build integrity is covered by validate_scripts() in both build scripts — verifies all required scripts are present and contain expected signatures before PyInstaller runs (added in v1.2.0). Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.3 is complete. No timeline, no commitment, but the intention is there.
 
 ---
 

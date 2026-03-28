@@ -35,7 +35,7 @@ SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
 
 DEFAULT_SETTINGS = {
     "email":              "",
-    "base_dir":           "C:\\garmin",
+    "base_dir":           str(Path.home() / "garmin_data"),
     "sync_mode":          "recent",
     "sync_days":          "90",
     "sync_from":          "",
@@ -44,7 +44,8 @@ DEFAULT_SETTINGS = {
     "date_to":            "",
     "age":                "35",
     "sex":                "male",
-    "request_delay":      "1.5",
+    "request_delay_min": "1.0",
+    "request_delay_max": "3.0",
     "timer_min_interval": "5",
     "timer_max_interval": "30",
     "timer_min_days":     "3",
@@ -228,7 +229,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.2.0",
+        tk.Label(header, text="v1.2.1",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -340,8 +341,10 @@ class GarminApp(tk.Tk):
                      width=10, font=FONT_BODY).pack(side="left", padx=2)
 
         s6 = self._section(parent, "Advanced")
-        self.v_delay = tk.StringVar()
-        self._field(s6, "Request delay (s)", self.v_delay, width=6)
+        self.v_delay_min = tk.StringVar()
+        self.v_delay_max = tk.StringVar()
+        self._field(s6, "Delay min (s)", self.v_delay_min, width=6)
+        self._field(s6, "Delay max (s)", self.v_delay_max, width=6)
 
         tk.Frame(parent, bg=BG2, height=10).pack()
         tk.Button(parent, text="💾  Save Settings", font=FONT_BTN,
@@ -450,8 +453,8 @@ class GarminApp(tk.Tk):
 
         _timer_field(fields_frame, "Min. Interval (min)", self.v_timer_min_interval, 0, 0)
         _timer_field(fields_frame, "Max. Interval (min)", self.v_timer_max_interval, 1, 0)
-        _timer_field(fields_frame, "Min. Tage pro Run",   self.v_timer_min_days,     0, 1)
-        _timer_field(fields_frame, "Max. Tage pro Run",   self.v_timer_max_days,     1, 1)
+        _timer_field(fields_frame, "Min. Days per Run",   self.v_timer_min_days,     0, 1)
+        _timer_field(fields_frame, "Max. Days per Run",   self.v_timer_max_days,     1, 1)
 
         self._action_section(parent, "Export", [
             ("📊  Daily Overview",       BG3,     self._run_excel_overview,
@@ -517,7 +520,8 @@ class GarminApp(tk.Tk):
         self.v_date_to.set(s.get("date_to", ""))
         self.v_age.set(s.get("age", "35"))
         self.v_sex.set(s.get("sex", "male"))
-        self.v_delay.set(s.get("request_delay", "1.5"))
+        self.v_delay_min.set(s.get("request_delay_min", "1.0"))
+        self.v_delay_max.set(s.get("request_delay_max", "3.0"))
         self.v_timer_min_interval.set(s.get("timer_min_interval", "5"))
         self.v_timer_max_interval.set(s.get("timer_max_interval", "30"))
         self.v_timer_min_days.set(s.get("timer_min_days", "3"))
@@ -568,7 +572,8 @@ class GarminApp(tk.Tk):
             "date_to":            self.v_date_to.get().strip(),
             "age":                self.v_age.get().strip(),
             "sex":                self.v_sex.get(),
-            "request_delay":      self.v_delay.get().strip(),
+            "request_delay_min":  self.v_delay_min.get().strip(),
+            "request_delay_max":  self.v_delay_max.get().strip(),
             "timer_min_interval": self.v_timer_min_interval.get().strip(),
             "timer_max_interval": self.v_timer_max_interval.get().strip(),
             "timer_min_days":     self.v_timer_min_days.get().strip(),
@@ -670,10 +675,10 @@ class GarminApp(tk.Tk):
                 return False
 
             answer = messagebox.askyesno(
-                "Fehlerhafte Datensätze gefunden",
-                f"Es gibt fehlerhafte Datensätze:\n\n"
-                f"  {count} Tage im gewählten Zeitraum\n\n"
-                f"Aktualisieren?",
+                "Incomplete records found",
+                f"There are incomplete records:\n\n"
+                f"  {count} days in the selected range\n\n"
+                f"Refresh now?",
                 icon="warning",
             )
             return answer
@@ -704,13 +709,26 @@ class GarminApp(tk.Tk):
         os.environ["GARMIN_SYNC_START"]      = s.get("sync_from", "")
         os.environ["GARMIN_SYNC_END"]        = s.get("sync_to", "")
         os.environ["GARMIN_SYNC_FALLBACK"]   = s.get("sync_auto_fallback", "")
-        os.environ["GARMIN_REQUEST_DELAY"]   = s["request_delay"]
+        os.environ["GARMIN_REQUEST_DELAY_MIN"] = s["request_delay_min"]
+        os.environ["GARMIN_REQUEST_DELAY_MAX"] = s["request_delay_max"]
         os.environ["GARMIN_REFRESH_FAILED"]  = "1" if refresh_failed else "0"
         _today  = date.today()
         _d_from = s.get("date_from", "").strip()
         _d_to   = s.get("date_to",   "").strip()
-        os.environ["GARMIN_DATE_FROM"]       = _d_from or (_today - timedelta(days=90)).isoformat()
-        os.environ["GARMIN_DATE_TO"]         = _d_to   or _today.isoformat()
+
+        if not _d_from or not _d_to:
+            _summary_dir = Path(s.get("base_dir", "")) / "summary"
+            _dates = sorted(
+                f.stem.replace("garmin_", "")
+                for f in _summary_dir.glob("garmin_???-??-??.json")
+            ) if _summary_dir.exists() else []
+
+        os.environ["GARMIN_DATE_FROM"] = _d_from or (
+            _dates[0] if _dates else (_today - timedelta(days=90)).isoformat()
+        )
+        os.environ["GARMIN_DATE_TO"] = _d_to or (
+            _dates[-1] if _dates else _today.isoformat()
+        )
         os.environ["GARMIN_PROFILE_AGE"]          = s.get("age", "35")
         os.environ["GARMIN_PROFILE_SEX"]          = s.get("sex", "male")
         os.environ["GARMIN_LOG_LEVEL"]            = getattr(self, "_log_level", "INFO")
@@ -981,7 +999,7 @@ class GarminApp(tk.Tk):
                 tk.Label(popup, text="Encryption Key Required",
                          font=("Segoe UI", 11, "bold"), bg=BG, fg=TEXT).pack(**pad)
                 tk.Label(popup,
-                         text="Your encryption key was not found in Windows Credential Manager.\nPlease re-enter it to restore your saved login.",
+                         text="Your encryption key was not found in Windows Credential Manager.\nPlease re-enter it — you will then be prompted to log in again.",
                          font=FONT_BODY, bg=BG, fg=TEXT2, justify="left").pack(**pad)
 
             tk.Label(popup, text="Key:", font=FONT_BODY, bg=BG, fg=TEXT2).pack(anchor="w", padx=20)

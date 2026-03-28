@@ -16,6 +16,7 @@ import sys
 import shutil
 import tempfile
 import logging
+import threading
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -267,6 +268,22 @@ quality._save_quality_log(data_nowrite)
 data_nw = quality._load_quality_log()
 check("migration: write=null added", data_nw["days"][0].get("write") is None)
 
+# QUALITY_LOCK — exists and blocks concurrent access
+check("QUALITY_LOCK: exists",         hasattr(quality, "QUALITY_LOCK"))
+check("QUALITY_LOCK: is Lock",        isinstance(quality.QUALITY_LOCK, type(threading.Lock())))
+
+_lock_held_during = []
+def _lock_tester():
+    acquired = quality.QUALITY_LOCK.acquire(blocking=False)
+    _lock_held_during.append(acquired)
+    if acquired:
+        quality.QUALITY_LOCK.release()
+
+with quality.QUALITY_LOCK:
+    t = threading.Thread(target=_lock_tester)
+    t.start(); t.join()
+check("QUALITY_LOCK: blocks second thread", _lock_held_during == [False])
+
 # restore
 quality._save_quality_log(data)
 
@@ -306,7 +323,6 @@ check("_should_write unknown=False",collector._should_write("xyz")     == False)
 # _is_stopped
 check("_is_stopped: False by default", collector._is_stopped() == False)
 
-import threading
 ev = threading.Event(); ev.set()
 collector._STOP_EVENT = ev
 check("_is_stopped: True when set",    collector._is_stopped() == True)
@@ -318,13 +334,13 @@ check("safe_get not in collector",  not hasattr(collector, "safe_get"))
 
 # _process_day — mocked
 mock_client = MagicMock()
-with patch("garmin_collector.api.fetch_raw", return_value=raw_full), \
+with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])), \
      patch("garmin_collector.writer.write_day", return_value=True):
     label, written = collector._process_day(mock_client, "2024-03-15")
     check("_process_day: label = high",   label   == "high")
     check("_process_day: written = True", written == True)
 
-with patch("garmin_collector.api.fetch_raw", return_value={"date": "2024-03-20"}), \
+with patch("garmin_collector.api.fetch_raw", return_value=({"date": "2024-03-20"}, [])), \
      patch("garmin_collector.writer.write_day", return_value=False) as mock_w:
     label2, written2 = collector._process_day(mock_client, "2024-03-20")
     check("_process_day failed: label=failed",        label2   == "failed")
@@ -337,9 +353,10 @@ section("7. garmin_security (crypto layer)")
 import garmin_security as security
 
 # _derive_aes_key
-k1 = security._derive_aes_key("test_key")
-k2 = security._derive_aes_key("test_key")
-k3 = security._derive_aes_key("other_key")
+_test_salt = b"\x00" * 16
+k1 = security._derive_aes_key("test_key",   _test_salt)
+k2 = security._derive_aes_key("test_key",   _test_salt)
+k3 = security._derive_aes_key("other_key",  _test_salt)
 check("_derive_aes_key: 32 bytes",       len(k1) == 32)
 check("_derive_aes_key: deterministic",  k1 == k2)
 check("_derive_aes_key: unique per key", k1 != k3)
@@ -370,6 +387,30 @@ check("clear_token: file removed",          not cfg.GARMIN_TOKEN_FILE.exists())
 
 with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
     check("load_token: no file → None",      security.load_token() is None)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  8. garmin_utils
+# ══════════════════════════════════════════════════════════════════════════════
+section("8. garmin_utils")
+import garmin_utils as utils
+
+# parse_device_date
+check("parse_device_date: ISO string",      utils.parse_device_date("2024-03-15T10:00:00") == "2024-03-15")
+check("parse_device_date: ISO date only",   utils.parse_device_date("2024-03-15") == "2024-03-15")
+check("parse_device_date: ms timestamp",    utils.parse_device_date(1710489600000) == "2024-03-15")
+check("parse_device_date: s timestamp",     utils.parse_device_date(1710489600) == "2024-03-15")
+check("parse_device_date: None → None",     utils.parse_device_date(None) is None)
+check("parse_device_date: empty → None",    utils.parse_device_date("") is None)
+
+# parse_sync_dates
+r1 = utils.parse_sync_dates("2024-01-01,2024-03-15")
+check("parse_sync_dates: 2 valid",          r1 is not None and len(r1) == 2)
+check("parse_sync_dates: sorted",           r1[0].isoformat() == "2024-01-01")
+r2 = utils.parse_sync_dates("2024-01-01,invalid,2024-03-15")
+check("parse_sync_dates: invalid skipped",  r2 is not None and len(r2) == 2)
+check("parse_sync_dates: empty → None",     utils.parse_sync_dates("") is None)
+check("parse_sync_dates: all invalid → None", utils.parse_sync_dates("bad,worse") is None)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results

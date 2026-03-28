@@ -77,7 +77,9 @@ def _process_day(client, date_str: str) -> tuple:
       label   — quality label: "high" | "medium" | "low" | "failed"
       written — True if writer wrote both files successfully
     """
-    raw_data   = api.fetch_raw(client, date_str)
+    raw_data, failed_endpoints = api.fetch_raw(client, date_str)
+    if failed_endpoints:
+        log.warning(f"    ⚠ {len(failed_endpoints)} endpoint(s) failed: {', '.join(failed_endpoints)}")
     normalized = normalizer.normalize(raw_data, source="api")
     summary    = normalizer.summarize(normalized)
     label      = quality.assess_quality(normalized)
@@ -156,31 +158,42 @@ def main():
     _session_had_incomplete = False
 
     # ── 3. Load quality log + backfill ────────────────────────────────────────
-    quality_data = quality._load_quality_log()
+    with quality.QUALITY_LOCK:
+        quality_data = quality._load_quality_log()
 
-    if not quality_data.get("first_day"):
-        log.info("  Running one-time quality log backfill ...")
-        quality._backfill_quality_log(quality_data)
+        if not quality_data.get("first_day"):
+            log.info("  Running one-time quality log backfill ...")
+            quality._backfill_quality_log(quality_data)
+            quality._save_quality_log(quality_data)
+
+        known_dates = {
+            date.fromisoformat(e["date"])
+            for e in quality_data.get("days", [])
+            if "date" in e
+        }
+
+        new_low = quality.get_low_quality_dates(cfg.RAW_DIR, known_dates=known_dates)
+        for day, q in new_low.items():
+            quality._upsert_quality(quality_data, day, q,
+                                    f"Quality: {q} — insufficient data from Garmin API",
+                                    written=True)
+
         quality._save_quality_log(quality_data)
-
-    known_dates = {
-        date.fromisoformat(e["date"])
-        for e in quality_data.get("days", [])
-        if "date" in e
-    }
-
-    new_low = quality.get_low_quality_dates(cfg.RAW_DIR, known_dates=known_dates)
-    for day, q in new_low.items():
-        quality._upsert_quality(quality_data, day, q,
-                                f"Quality: {q} — insufficient data from Garmin API",
-                                written=True)
-
-    quality._save_quality_log(quality_data)
-    recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
-    log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
+        recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
+        log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
-    client = api.login()
+    try:
+        client = api.login()
+    except api.GarminLoginError as e:
+        log.error(f"Login failed — aborting session: {e}")
+        _close_session_log(_session_fh, _session_path, True, False)
+        return
+
+    if client is None:
+        log.info("Login cancelled by user — aborting session.")
+        _close_session_log(_session_fh, _session_path, False, False)
+        return
 
     # ── 5. Update device history ──────────────────────────────────────────────
     try:
@@ -192,10 +205,11 @@ def main():
         log.warning(f"  Could not update device history: {e}")
 
     # ── 6. Set first_day ──────────────────────────────────────────────────────
-    if not quality_data.get("first_day"):
-        quality._set_first_day(quality_data, client)
+    with quality.QUALITY_LOCK:
+        if not quality_data.get("first_day"):
+            quality._set_first_day(quality_data, client)
 
-    quality._save_quality_log(quality_data)
+        quality._save_quality_log(quality_data)
 
     # ── 7. Resolve date list ──────────────────────────────────────────────────
     recheck_dates = {
@@ -234,31 +248,33 @@ def main():
                  f"(MAX_DAYS_PER_SESSION={cfg.MAX_DAYS_PER_SESSION})")
 
     ok, failed = 0, 0
-    for i, day in enumerate(batch, 1):
-        if _is_stopped():
-            log.info(f"  Stopped after {ok} days saved.")
-            break
-        log.info(f"  [{i}/{len(batch)}] {day}")
-        date_str = day.isoformat()
-        try:
-            label, written = _process_day(client, date_str)
-            reason = (f"Quality: {label}" if label in ("high", "medium")
-                      else f"Quality: {label} — insufficient data from Garmin API")
-            quality._upsert_quality(quality_data, day, label, reason, written=written)
-            if label in ("low", "failed"):
-                _session_had_incomplete = True
-                log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
-            else:
-                log.info(f"    ✓ Quality: {label}")
-            ok += 1
-        except Exception as e:
-            log.error(f"    Error on {day}: {e}")
-            quality._upsert_quality(quality_data, day, "failed", str(e), written=False)
-            failed += 1
-            _session_had_errors = True
+    with quality.QUALITY_LOCK:
+        for i, day in enumerate(batch, 1):
+            if _is_stopped():
+                log.info(f"  Stopped after {ok} days saved.")
+                break
+            log.info(f"  [{i}/{len(batch)}] {day}")
+            date_str = day.isoformat()
+            try:
+                label, written = _process_day(client, date_str)
+                reason = (f"Quality: {label}" if label in ("high", "medium")
+                          else f"Quality: {label} — insufficient data from Garmin API")
+                quality._upsert_quality(quality_data, day, label, reason, written=written)
+                if label in ("low", "failed"):
+                    _session_had_incomplete = True
+                    log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
+                else:
+                    log.info(f"    ✓ Quality: {label}")
+                ok += 1
+            except Exception as e:
+                log.error(f"    Error on {day}: {e}")
+                quality._upsert_quality(quality_data, day, "failed", str(e), written=False)
+                failed += 1
+                _session_had_errors = True
 
-    # ── 9. Save + close ───────────────────────────────────────────────────────
-    quality._save_quality_log(quality_data)
+        # ── 9. Save + close ───────────────────────────────────────────────────
+        quality._save_quality_log(quality_data)
+
     log.info(f"Done. {ok} saved, {failed} errors.")
     recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
     log.info(f"Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")

@@ -80,6 +80,27 @@ def _normalize_api(raw: dict) -> dict:
     if "date" not in raw:
         log.warning("  _normalize_api: 'date' key missing in raw dict")
 
+    # Type validation: remove keys whose values have unexpected types.
+    # Downstream functions (summarize, assess_quality) expect dicts or lists —
+    # a wrong type (e.g. a string or number) would silently produce wrong output.
+    _EXPECTED_DICT = ("sleep", "stress", "body_battery", "heart_rates",
+                      "respiration", "spo2", "stats", "user_summary",
+                      "training_status", "training_readiness", "hrv",
+                      "race_predictions", "max_metrics")
+    _EXPECTED_LIST = ("activities",)
+
+    for key in _EXPECTED_DICT:
+        if key in raw and not isinstance(raw[key], dict):
+            log.warning(f"  _normalize_api: '{key}' has unexpected type "
+                        f"({type(raw[key]).__name__}) — removed")
+            del raw[key]
+
+    for key in _EXPECTED_LIST:
+        if key in raw and not isinstance(raw[key], list):
+            log.warning(f"  _normalize_api: '{key}' has unexpected type "
+                        f"({type(raw[key]).__name__}) — removed")
+            del raw[key]
+
     return raw
 
 

@@ -21,12 +21,21 @@ Stop-event note:
 """
 
 import logging
-import sys
+import random
 import time
 
 import garmin_config as cfg
+import garmin_utils as utils
 
 log = logging.getLogger(__name__)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Exceptions
+# ══════════════════════════════════════════════════════════════════════════════
+
+class GarminLoginError(Exception):
+    """Raised when login fails unrecoverably (missing dependency, SSO failure)."""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -69,14 +78,14 @@ def login(on_key_required=None, on_token_expired=None):
                              T3: queue signal + threading.Event.
       If no callbacks provided: skips popups, falls through to SSO login.
 
-    Returns the authenticated client object.
-    Calls sys.exit(1) on unrecoverable failure.
+    Returns the authenticated client object, or None if cancelled by user.
+    Raises GarminLoginError on unrecoverable failure.
     """
     try:
         from garminconnect import Garmin
     except ImportError:
         log.error("garminconnect not installed: pip install garminconnect")
-        sys.exit(1)
+        raise GarminLoginError("garminconnect not installed")
 
     import garmin_security
     from datetime import date
@@ -111,7 +120,7 @@ def login(on_key_required=None, on_token_expired=None):
                 proceed = on_token_expired()
                 if not proceed:
                     log.info("  Login cancelled by user")
-                    sys.exit(0)
+                    return None
 
     # ── Path 3 — SSO login (first setup or after expired token) ───────────────
     # Prompt for enc_key if not already stored (first setup)
@@ -132,7 +141,7 @@ def login(on_key_required=None, on_token_expired=None):
         return client
     except Exception as e:
         log.error(f"Login failed: {e}")
-        sys.exit(1)
+        raise GarminLoginError(f"Login failed: {e}") from e
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -145,11 +154,11 @@ def api_call(client, method: str, *args, label: str = ""):
         return None, False
     try:
         data = getattr(client, method)(*args)
-        time.sleep(cfg.REQUEST_DELAY)
+        time.sleep(random.uniform(cfg.REQUEST_DELAY_MIN, cfg.REQUEST_DELAY_MAX))
         return data, True
     except Exception as e:
         log.warning(f"    ✗ {label or method}: {e}")
-        time.sleep(cfg.REQUEST_DELAY)
+        time.sleep(random.uniform(cfg.REQUEST_DELAY_MIN, cfg.REQUEST_DELAY_MAX))
         return None, False
 
 
@@ -157,9 +166,18 @@ def api_call(client, method: str, *args, label: str = ""):
 #  Raw data fetch
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fetch_raw(client, date_str: str) -> dict:
-    """Fetches all available Garmin API endpoints and returns raw data."""
+def fetch_raw(client, date_str: str) -> tuple:
+    """
+    Fetches all available Garmin API endpoints and returns raw data.
+
+    Returns
+    -------
+    tuple (raw: dict, failed_endpoints: list[str])
+      raw              — collected data keyed by endpoint label
+      failed_endpoints — labels of endpoints that returned no data
+    """
     raw = {"date": date_str}
+    failed_endpoints = []
 
     endpoints = [
         ("get_sleep_data",           (date_str,), "sleep"),
@@ -179,11 +197,13 @@ def fetch_raw(client, date_str: str) -> dict:
     ]
 
     for method, args, key in endpoints:
-        data, _ = api_call(client, method, *args, label=key)
+        data, success = api_call(client, method, *args, label=key)
         if data is not None:
             raw[key] = data
+        elif not success:
+            failed_endpoints.append(key)
 
-    return raw
+    return raw, failed_endpoints
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -227,19 +247,5 @@ def get_devices(client) -> list:
 #  Internal helper
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _parse_device_date(val) -> str | None:
-    """Converts a device date value to YYYY-MM-DD.
-    Handles ISO strings, millisecond timestamps, and second timestamps."""
-    from datetime import datetime
-    if not val:
-        return None
-    s = str(val).strip()
-    if len(s) >= 10 and s[4:5] == "-":
-        return s[:10]
-    try:
-        ts = int(s)
-        if ts > 1e11:
-            ts //= 1000
-        return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
-    except (ValueError, OSError):
-        return None
+# _parse_device_date moved to garmin_utils.py
+_parse_device_date = utils.parse_device_date

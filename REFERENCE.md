@@ -18,7 +18,8 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_SYNC_START` | str | `"2024-01-01"` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_sync` | Start date for `"range"` mode (`YYYY-MM-DD`) |
 | `GARMIN_SYNC_END` | str | `"2024-12-31"` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_sync` | End date for `"range"` mode (`YYYY-MM-DD`) |
 | `GARMIN_SYNC_FALLBACK` | str/None | `None` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_sync` | Manual start date fallback for `"auto"` mode |
-| `GARMIN_REQUEST_DELAY` | float | `1.5` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_api` | Seconds between API calls — increase to `3.0` if rate-limited |
+| `GARMIN_REQUEST_DELAY_MIN` | float | `1.0` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_api` | Minimum seconds between API calls (random delay lower bound) |
+| `GARMIN_REQUEST_DELAY_MAX` | float | `3.0` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_api` | Maximum seconds between API calls (random delay upper bound) |
 | `GARMIN_REFRESH_FAILED` | str | `"0"` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_collector` | `"1"` = exclude days with `recheck=true` from local dates → re-fetch them. Set when user answers "Ja" to the failed days popup, or by background timer for Repair/Quality runs |
 | `GARMIN_LOW_QUALITY_MAX_ATTEMPTS` | int | `3` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_quality` | Max re-download attempts for `low` quality days before `recheck` is set to `false`. Configurable because older Garmin data may never improve — this prevents endless retries |
 | `GARMIN_SESSION_LOG_PREFIX` | str | `"garmin"` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_collector` | Prefix for session log filenames. Background timer sets `"garmin_background"` → produces `garmin_background_YYYY-MM-DD_HHMMSS.log` |
@@ -30,8 +31,8 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_DASHBOARD_FILE` | str | `BASE_DIR/garmin_dashboard.html` | `_build_env()` / `_apply_env()` | `garmin_timeseries_html.py` | Output path for timeseries HTML dashboard |
 | `GARMIN_ANALYSIS_HTML` | str | `BASE_DIR/garmin_analysis.html` | `_build_env()` / `_apply_env()` | `garmin_analysis_html.py` | Output path for analysis HTML dashboard |
 | `GARMIN_ANALYSIS_JSON` | str | `BASE_DIR/garmin_analysis.json` | `_build_env()` / `_apply_env()` | `garmin_analysis_html.py` | Output path for Ollama/Open WebUI JSON |
-| `GARMIN_DATE_FROM` | str | 90 days ago | `_build_env()` / `_apply_env()` | export scripts | Start date for export scripts (`YYYY-MM-DD`) |
-| `GARMIN_DATE_TO` | str | today | `_build_env()` / `_apply_env()` | export scripts | End date for export scripts (`YYYY-MM-DD`) |
+| `GARMIN_DATE_FROM` | str | oldest file in `summary/` | `_build_env()` / `_apply_env()` | export scripts | Start date for export scripts (`YYYY-MM-DD`). Falls back to 90 days ago if `summary/` is empty |
+| `GARMIN_DATE_TO` | str | newest file in `summary/` | `_build_env()` / `_apply_env()` | export scripts | End date for export scripts (`YYYY-MM-DD`). Falls back to today if `summary/` is empty |
 | `GARMIN_PROFILE_AGE` | str | `"35"` | `_build_env()` / `_apply_env()` | `garmin_analysis_html.py` | User age for reference range calculation |
 | `GARMIN_PROFILE_SEX` | str | `"male"` | `_build_env()` / `_apply_env()` | `garmin_analysis_html.py` | User sex for reference range calculation (`"male"` / `"female"`) |
 | `PYTHONUTF8` | str | `"1"` | `_build_env()` / `_apply_env()` | Python runtime | Forces UTF-8 mode — prevents encoding issues on Windows |
@@ -60,7 +61,8 @@ Constants defined in `garmin_config.py` (v1.2.0+). All modules import via `impor
 | `SYNC_TO` | `"2024-12-31"` | `GARMIN_SYNC_END` | End date for range mode |
 | `SYNC_AUTO_FALLBACK` | `None` | `GARMIN_SYNC_FALLBACK` | Manual fallback date for auto mode |
 | `SYNC_DATES` | `None` | `GARMIN_SYNC_DATES` | Parsed list of `date` objects — overrides sync mode if set |
-| `REQUEST_DELAY` | `1.5` | `GARMIN_REQUEST_DELAY` | Seconds between API calls |
+| `REQUEST_DELAY_MIN` | `1.0` | `GARMIN_REQUEST_DELAY_MIN` | Minimum seconds between API calls |
+| `REQUEST_DELAY_MAX` | `3.0` | `GARMIN_REQUEST_DELAY_MAX` | Maximum seconds between API calls — actual delay is `random.uniform(min, max)` |
 | `REFRESH_FAILED` | `False` | `GARMIN_REFRESH_FAILED` | If `True`, days with `recheck=true` are excluded from local dates |
 | `LOW_QUALITY_MAX_ATTEMPTS` | `3` | `GARMIN_LOW_QUALITY_MAX_ATTEMPTS` | Max re-download attempts for `low` quality days |
 | `SESSION_LOG_PREFIX` | `"garmin"` | `GARMIN_SESSION_LOG_PREFIX` | Prefix for session log filenames |
@@ -262,14 +264,15 @@ Pure constants module — no functions. All other modules import via `import gar
 
 ### `garmin_api.py`
 
-| Function | Purpose |
+| Function / Symbol | Purpose |
 |---|---|
-| `login(on_key_required, on_token_expired)` | Logs in to Garmin Connect. Tries saved token first (Path 1), falls back to SSO on expiry (Path 2) or first setup (Path 3). Both callbacks optional — called via direct dialog (T1/T2) or threading.Event/queue (T3). Returns authenticated client. Calls `sys.exit(1)` on unrecoverable failure |
-| `api_call(client, method, *args, label)` | Single API call with `cfg.REQUEST_DELAY` and stop-check. Returns `(data, success)` |
-| `fetch_raw(client, date_str)` | Calls all 14 Garmin API endpoints for a given date. Returns raw dict with `{"date": ..., "sleep": ..., ...}` |
+| `GarminLoginError` | Exception raised on unrecoverable login failure (missing dependency or SSO failure). Replaces `sys.exit(1)` — caller decides how to handle |
+| `login(on_key_required, on_token_expired)` | Logs in to Garmin Connect. Returns authenticated client, or `None` if cancelled by user. Raises `GarminLoginError` on failure |
+| `api_call(client, method, *args, label)` | Single API call with random delay (`random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)`) and stop-check. Returns `(data, success)` |
+| `fetch_raw(client, date_str)` | Calls all 14 Garmin API endpoints. Returns `(raw: dict, failed_endpoints: list[str])`. Failed endpoints explicitly tracked — collector logs them as warnings |
 | `get_devices(client)` | Fetches registered device list, logs names and dates, returns sorted list |
 | `_is_stopped()` | Returns `True` if standalone GUI has injected `_STOP_EVENT` and set it. Safe to call without injection |
-| `_parse_device_date(val)` | Converts device date value to `YYYY-MM-DD`. Handles ISO strings, second and millisecond timestamps |
+| `_parse_device_date` | Alias for `garmin_utils.parse_device_date` |
 
 ---
 
@@ -282,7 +285,7 @@ Pure constants module — no functions. All other modules import via `import gar
 | `save_token(token_string)` | Derives AES key via PBKDF2, encrypts token with AES-256-GCM, writes `garmin_token.enc` to `LOG_DIR`. Reads enc_key from WCM internally |
 | `load_token()` | Reads enc_key from WCM, decrypts `garmin_token.enc`, returns plaintext token string. Plaintext never written to disk. Returns `None` if file missing, WCM empty, or decryption failed |
 | `clear_token()` | Removes `garmin_token.enc` from disk and enc_key from WCM |
-| `_derive_aes_key(enc_key)` | Private. Derives 32-byte AES key from enc_key string via PBKDF2-HMAC-SHA256 (600k iterations, fixed salt) |
+| `_derive_aes_key(enc_key, salt)` | Private. Derives 32-byte AES key from enc_key string via PBKDF2-HMAC-SHA256 (600k iterations, random salt). Salt is generated on save and stored in the token file |
 
 ---
 
@@ -292,7 +295,7 @@ Pure constants module — no functions. All other modules import via `import gar
 |---|---|
 | `normalize(raw, source)` | Entry point — delegates to source-specific normaliser. `source`: `"api"` or `"bulk"` |
 | `summarize(raw)` | Distils a normalised raw dict into a compact daily summary (~2 KB). Sole owner of summary structure |
-| `_normalize_api(raw)` | Normalises Garmin API raw dict. Passes through unchanged, guarantees `"date"` key present |
+| `_normalize_api(raw)` | Normalises Garmin API raw dict. Validates types of all known structured keys — removes keys with unexpected types and logs a warning. Guarantees `"date"` key present |
 | `_normalize_import(raw)` | Placeholder for bulk import normalisation — not implemented in v1.2.0 |
 | `safe_get(d, *keys, default)` | Safely traverses nested dicts — returns `default` if any key is missing. Used internally by `summarize()` |
 | `_parse_list_values(lst, dict_key)` | Extracts numeric values from a list of dicts or `[timestamp, value]` pairs. Used internally by `summarize()` |
@@ -311,6 +314,7 @@ Pure constants module — no functions. All other modules import via `import gar
 
 | Function | Purpose |
 |---|---|
+| `QUALITY_LOCK` | `threading.Lock()` at module level. Acquire around all load-modify-save sequences to prevent concurrent access. Used by `garmin_collector.py` |
 | `_load_quality_log()` | Loads `quality_log.json`. Migrates `failed_days.json`, timestamp dates, `"med"` → `"medium"`, missing `write` field (→ `null`), and old schema on first run. Returns empty structure if missing or corrupt |
 | `_save_quality_log(data)` | Writes `quality_log.json` atomically via `.tmp` file |
 | `assess_quality(raw)` | Inspects raw data content and returns `"high"`, `"medium"`, `"low"`, or `"failed"`. Pure function — no file IO |
@@ -319,7 +323,18 @@ Pure constants module — no functions. All other modules import via `import gar
 | `_backfill_quality_log(data)` | One-time backfill: scans all existing `raw/` files and adds any days not yet in the log. Only runs when `first_day` is not yet set |
 | `_set_first_day(data, client)` | Determines and persists `first_day`. Resolution order: devices → account profile → `SYNC_AUTO_FALLBACK` → oldest local file. Never overwrites existing value |
 | `cleanup_before_first_day(data, dry_run)` | Deletes all `raw/` and `summary/` files before `first_day` and removes corresponding log entries. Saves `quality_log.json` unless `dry_run=True` |
-| `_parse_device_date(val)` | Converts device date value to `YYYY-MM-DD`. Handles ISO strings, second and millisecond timestamps |
+| `_parse_device_date` | Alias for `garmin_utils.parse_device_date` |
+
+---
+
+### `garmin_utils.py`
+
+Shared utilities. No project-module dependencies — safe leaf node import.
+
+| Function | Purpose |
+|---|---|
+| `parse_device_date(val)` | Converts device date value to `YYYY-MM-DD`. Handles ISO strings, second and millisecond Unix timestamps. Returns `None` for empty/invalid input |
+| `parse_sync_dates(raw)` | Parses comma-separated `YYYY-MM-DD` string into sorted list of `date` objects. Returns `None` if input is empty or all entries are invalid |
 
 ---
 
@@ -347,7 +362,7 @@ Pure constants module — no functions. All other modules import via `import gar
 | Function | Purpose |
 |---|---|
 | `_should_write(label)` | Decision function — returns `True` if quality label is acceptable for writing (`high`, `medium`, `low`). Returns `False` for `failed` |
-| `_process_day(client, date_str)` | Isolated processing function: fetch → normalize → summarize → assess → write. Returns `(label, written)` tuple |
+| `_process_day(client, date_str)` | Isolated processing function: fetch → normalize → summarize → assess → write. Logs failed endpoints as warnings. Returns `(label, written)` tuple |
 | `_is_stopped()` | Returns `True` if standalone GUI has injected `_STOP_EVENT` and set it |
 | `_start_session_log()` | Opens `log/recent/{SESSION_LOG_PREFIX}_YYYY-MM-DD_HHMMSS.log` at DEBUG level. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if session had errors or low-quality downloads, enforces rolling limit |

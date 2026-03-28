@@ -19,12 +19,18 @@ never read or write quality_log.json directly.
 
 import json
 import logging
+import threading
 from datetime import date, datetime
 from pathlib import Path
 
 import garmin_config as cfg
+import garmin_utils as utils
 
 log = logging.getLogger(__name__)
+
+# Lock for quality_log.json access — acquire in any context where
+# load → modify → save must not be interrupted by another thread.
+QUALITY_LOCK = threading.Lock()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -447,23 +453,8 @@ def cleanup_before_first_day(data: dict, dry_run: bool = False) -> dict:
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _parse_device_date(val) -> str | None:
-    """Converts a device date value to YYYY-MM-DD.
-    Handles ISO strings, millisecond timestamps, and second timestamps."""
-    if not val:
-        return None
-    s = str(val).strip()
-    # Already ISO date (YYYY-MM-DD...)
-    if len(s) >= 10 and s[4:5] == "-":
-        return s[:10]
-    # Unix timestamp (seconds ~10 digits, milliseconds ~13 digits)
-    try:
-        ts = int(s)
-        if ts > 1e11:   # milliseconds → convert to seconds
-            ts //= 1000
-        return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
-    except (ValueError, OSError):
-        return None
+# _parse_device_date moved to garmin_utils.py
+_parse_device_date = utils.parse_device_date
 
 
 def _safe_get(d, *keys, default=None):

@@ -27,44 +27,15 @@ import sys
 import zipfile
 from pathlib import Path
 
+import build_manifest as manifest
+
 APP_NAME = "Garmin_Local_Archive"
 
-# Scripts included in the Target 2 ZIP (standalone has its own entry point)
-SCRIPTS = [
-    "garmin_app.py",
-    "garmin_config.py",
-    "garmin_api.py",
-    "garmin_security.py",
-    "garmin_normalizer.py",
-    "garmin_quality.py",
-    "garmin_sync.py",
-    "garmin_import.py",
-    "garmin_writer.py",
-    "garmin_collector.py",
-    "garmin_to_excel.py",
-    "garmin_timeseries_excel.py",
-    "garmin_timeseries_html.py",
-    "garmin_analysis_html.py",
-    "regenerate_summaries.py",
-]
-
-# Docs shown to end users — MAINTENANCE.md and SETUP.md excluded
-INFO_INCLUDE = {"README.md", "README_APP.md"}
-
-
-# Required signatures per script — used by validate_scripts()
-# Key: filename, Value: list of strings that must appear in the file
+SCRIPTS         = manifest.SCRIPTS
+INFO_INCLUDE    = manifest.INFO_INCLUDE_T2
 SCRIPT_SIGNATURES = {
-    "garmin_app.py":            ["class GarminApp"],
-    "garmin_api.py":            ["def login", "def fetch_raw"],
-    "garmin_collector.py":      ["def main", "def _process_day"],
-    "garmin_quality.py":        ["def _upsert_quality"],
-    "garmin_config.py":         ["GARMIN_EMAIL"],
-    "garmin_security.py":       ["def load_token", "def save_token"],
-    "garmin_normalizer.py":     ["def normalize", "def summarize"],
-    "garmin_writer.py":         ["def write_day"],
-    "garmin_sync.py":           ["def get_local_dates", "def resolve_date_range"],
-    # garmin_import.py — placeholder, no signatures required yet
+    **manifest.SCRIPT_SIGNATURES_BASE,
+    "garmin_app.py": ["class GarminApp"],
 }
 
 
@@ -98,7 +69,7 @@ def validate_scripts(scripts_dir: Path):
 
 
 def check_dependencies():
-    print("\n[2/4] Checking dependencies ...")
+    print("\n[1/3] Checking dependencies ...")
     for pkg in ("pyinstaller", "keyring", "cryptography"):
         try:
             __import__(pkg if pkg != "pyinstaller" else "PyInstaller")
@@ -184,7 +155,7 @@ def main():
 
     check_dependencies()
 
-    print("\n  Preparing layout ...")
+    print("\n[2/4] Preparing layout ...")
     if not entry_point.exists():
         migrate_layout(root, scripts_dir, info_dir)
 
