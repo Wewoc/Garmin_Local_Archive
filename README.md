@@ -38,6 +38,8 @@ It is designed to solve a specific problem:
 
 > **Get a complete, consistent local copy of your Garmin data — and keep it that way.**
 
+Garmin erodes your historical data over time. This tool stops it.
+
 ![Garmin Local Archive — Desktop App](screenshots/GUI.jpg)
 *Desktop app — settings, sync, export and background timer in one place.*
 
