@@ -1,0 +1,4 @@
+garminconnect
+openpyxl
+keyring
+cryptography
