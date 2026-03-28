@@ -271,6 +271,10 @@ Particularly open:
 - **`field_map.py`** — may grow into its own subsystem (see above)
 - **`master_collector.py`** — may require threading or async for parallel sources
 - **`master/log/`** — content and format not yet defined
+- **Standalone build** — the impact of a multi-source plugin architecture on the
+  Standalone build target (single EXE, no Python required) has not yet been evaluated.
+  Each source plugin brings its own dependencies — the current single-EXE approach
+  may not be viable for v2.0 and may require a fundamentally different distribution model.
 
 This concept defines **what** each layer is responsible for. **How** it is implemented
 remains open until actual development begins.
