@@ -12,13 +12,13 @@ Archive and analyze your Garmin Connect data locally — no cloud, no third part
 I’m not a software developer — my background is in mechanical system design.
 I approach this project as an architect: defining structure, logic, modules and quality rules, while Claude implements the code according to these specifications.
 
-I wanted what everyone else wanted — to ask an AI questions about my Garmin health data. Sleep, HRV, stress, recovery.
+But I wanted what everyone else wanted — to ask an AI questions about my Garmin health data. Sleep, HRV, stress, recovery.
 
 Existing tools send your data to OpenAI, Claude, or other cloud services. Your heart rate, sleep patterns, and fitness data land on additional US company's servers (one is more than enough).
 
 I didn't want that.
 
-So I built this instead — with Claude as my coding partner, from zero, over many iterations. I didn’t write a single line of code myself; my role was guiding the project, defining the structure, creating logical patterns, and testing the results. **Everything runs locally. Nothing leaves your machine.** All data is stored and processed on your own computer. The scripts only fetch data from Garmin Connect, and once downloaded, nothing is transmitted elsewhere. Any AI you choose to use for analysis **can** also run entirely on your hardware. Even without a local AI setup, the built-in dashboards already provide roughly 90% of the insights most users are looking for.
+So I built this instead — with Claude as my coding partner, from zero, over many iterations. The architecture, module boundaries, data flow, and quality rules are mine — I designed the logic behind every part of this system. I understand what every part does and why — just not every line of how. **Everything runs locally. Nothing leaves your machine.** All data is stored and processed on your own computer. The scripts only fetch data from Garmin Connect, and once downloaded, nothing is transmitted elsewhere. Any AI you choose to use for analysis **can** also run entirely on your hardware. Even without a local AI setup, the built-in dashboards already provide roughly 90% of the insights most users are looking for.
 
 **Note:** the AI itself is not included in this project — the scripts prepare your data in a format suitable for any local AI you choose to use. How to install and use a local AI with your data is explained in the setup guide at the end of this README.
 
@@ -44,7 +44,7 @@ This project intentionally prioritizes:
 - Practical reliability over theoretical completeness
 
 Trade-offs:
-- No full automated test suite (yet)
+- No full automated test suite — core modules covered by local test script (`test_local.py`)
 - Relies on Garmin's unofficial API
 - Designed for personal use, not enterprise environments
 
@@ -67,9 +67,10 @@ The full source code is open. If you don't trust the pre-built EXE:
 - Read the scripts — or paste them into any AI and ask *"explain what this code does"*
 - Build your own EXE: `python build_standalone.py`
 
-Credentials are stored in the **Windows Credential Manager** (keyring):
+Credentials and login tokens are stored in the **Windows Credential Manager** (keyring):
 - encrypted by Windows
 - never written as plain text
+- the saved login token (~1 year validity) avoids repeated SSO logins that can trigger Captcha or MFA
 
 The pre-built EXE is unsigned because code-signing certificates cost ~$500/year — money I'd rather spend on coffee. If the Windows security warning concerns you, the scripts are the primary way to run this and always will be.
 
@@ -78,43 +79,63 @@ The pre-built EXE is unsigned because code-signing certificates cost ~$500/year 
 ## How it works (simplified)
 ```
 [ Garmin API ]
-             │
-             ▼
-       [ Collector ]
-             │
-             ▼
-       [ Sync Logic ]
-             │
-             ▼
-     [ Quality Tracking ]
-             │
-             ▼
-      [ Local Archive ]
-             │
-      ┌──────┴──────┐
-      ▼             ▼
- [ Exports ]   [ Dashboards ]
- (AI / JSON)   (HTML / Excel)
+      │
+      ▼
+[ garmin_api ]         – token check → SSO login → fetch all endpoints
+      │
+      ▼
+[ garmin_security ]    – encrypt/decrypt OAuth token (AES-256-GCM + WCM key)
+      │
+      ▼
+[ garmin_normalizer ]  – unified schema for any source + summary extraction
+      │
+      ▼
+[ garmin_quality ]     – assess + register in quality_log.json
+      │
+      ▼
+[ garmin_sync ]        – which days are missing?
+      │
+      ▼
+[ garmin_collector ]   – orchestrator → decides → delegates
+      │
+      ▼
+[ garmin_writer ]      – sole owner of raw/ + summary/
+      │
+      ▼
+ [ Local Archive ]
+      │
+ ┌────┴────┐
+ ▼         ▼
+[ Exports ] [ Dashboards ]
+(AI / JSON) (HTML / Excel)
 ```
 
 ---
 
 ## What is included
 
-Six Python scripts and an optional desktop app that work together:
+The collector pipeline (v1.2.0) consists of seven focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
 
-| Script                       | What it does                                                           | Reads from  |
-|------------------------------|------------------------------------------------------------------------|-------------|
-| `garmin_collector.py`        | Downloads your Garmin data and keeps it up to date                     | Garmin API  |
-| `garmin_to_excel.py`         | Daily summary spreadsheet — one row per day                            | `summary/`  |
-| `garmin_timeseries_excel.py` | Full intraday data per metric as Excel with charts                     | `raw/`      |
-| `garmin_timeseries_html.py`  | Interactive browser dashboard — zoomable, tabbed, offline              | `raw/`      |
-| `garmin_analysis_html.py`    | Analysis dashboard: daily values vs personal baseline vs norm ranges   | `summary/`  |
-| `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | —           |
+| Script | What it does | Reads from |
+|---|---|---|
+| `garmin_collector.py` | Orchestrates the pipeline — decides, delegates, coordinates | — |
+| `garmin_config.py` | All configuration — ENV variables, paths, constants | — |
+| `garmin_api.py` | Login and all Garmin Connect API calls | Garmin API |
+| `garmin_security.py` | Token encryption/decryption — AES-256-GCM, key stored in Windows Credential Manager | `log/` |
+| `garmin_quality.py` | Quality assessment and sole owner of `quality_log.json` | `raw/`, `log/` |
+| `garmin_sync.py` | Determines which days are missing | `raw/` |
+| `garmin_normalizer.py` | Unified data schema across sources + summary extraction | — |
+| `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here | — |
+| `garmin_import.py` | Bulk import placeholder (not yet implemented) | — |
+| `garmin_to_excel.py` | Daily summary spreadsheet — one row per day | `summary/` |
+| `garmin_timeseries_excel.py` | Full intraday data per metric as Excel with charts | `raw/` |
+| `garmin_timeseries_html.py` | Interactive browser dashboard — zoomable, tabbed, offline | `raw/` |
+| `garmin_analysis_html.py` | Analysis dashboard: daily values vs personal baseline vs norm ranges | `summary/` |
+| `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | — |
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
-The desktop app (v1.1.1) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+The desktop app (v1.2.0) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
 
 Data is stored in three folders:
 
@@ -169,7 +190,7 @@ See `info/README_APP.md` for full details.
 ### Option 3 — Scripts only
 
 ```bash
-pip install garminconnect openpyxl keyring
+pip install garminconnect openpyxl keyring cryptography
 python garmin_collector.py
 ```
 
@@ -199,19 +220,21 @@ You should see something like `Python 3.13.0`.
 In the terminal, run:
 
 ```bash
-pip install garminconnect openpyxl keyring
+pip install garminconnect openpyxl keyring cryptography
 ```
 
 ---
 
 ### Step 3 — Configure the collector
 
-Open `garmin_collector.py` in any text editor and fill in the fallback values at the top of the CONFIG block:
+All configuration is handled via environment variables, read centrally by `garmin_config.py`. The easiest way is to use the desktop GUI (Step 9) — it sets all values automatically.
+
+For script-only use, set the values directly in `garmin_config.py`:
 
 ```python
 GARMIN_EMAIL    = os.environ.get("GARMIN_EMAIL",    "your@email.com")
 GARMIN_PASSWORD = os.environ.get("GARMIN_PASSWORD", "yourpassword")
-BASE_DIR        = Path(os.environ.get("GARMIN_OUTPUT_DIR", "~/garmin_data")).expanduser()
+BASE_DIR        = Path(os.environ.get("GARMIN_OUTPUT_DIR") or "~/garmin_data").expanduser()
 ```
 
 **Sync mode** — choose how far back to go:
@@ -320,6 +343,8 @@ Register-ScheduledTask -TaskName "GarminCollector" `
 
 **Linux / macOS** (daily at 07:00):
 
+> ⚠️ **Linux / macOS note:** The collector scripts should work on any system with Python 3.10+. The GUI and EXE are Windows-only. Credential storage via `keyring` works on most desktop systems but may need an additional backend on Linux (e.g. `pip install secretstorage`). Headless environments (no desktop session) do not support keyring — store credentials via environment variables instead (`GARMIN_EMAIL`, `GARMIN_PASSWORD`).
+
 ```bash
 crontab -e
 # add this line:
@@ -380,7 +405,13 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-No dedicated test suite. The effort-to-benefit ratio doesn't justify it for a single-person hobby project — the core scripts are stable and tested in daily use. GUI changes are verified manually before release.
+`test_local.py` covers the core pipeline modules with 98 checks — config, sync, normalizer, quality (including all migrations), writer, collector internals, and the security crypto layer. No network, no API, no GUI required. Run from the project folder:
+
+```bash
+python test_local.py
+```
+
+GUI changes are verified manually before release. Full CI/CD with automated builds and release packaging is planned for a later version.
 
 ---
 

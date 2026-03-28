@@ -32,6 +32,14 @@ APP_NAME = "Garmin_Local_Archive_Standalone"
 # All scripts to embed — garmin_app_standalone.py is the entry point,
 # the rest are embedded as data and extracted at runtime.
 EMBEDDED_SCRIPTS = [
+    "garmin_config.py",
+    "garmin_api.py",
+    "garmin_security.py",
+    "garmin_normalizer.py",
+    "garmin_quality.py",
+    "garmin_sync.py",
+    "garmin_import.py",
+    "garmin_writer.py",
     "garmin_collector.py",
     "garmin_to_excel.py",
     "garmin_timeseries_excel.py",
@@ -45,6 +53,7 @@ RUNTIME_DEPS = [
     "garminconnect",
     "openpyxl",
     "keyring",
+    "cryptography",
     "requests",
 ]
 
@@ -54,6 +63,14 @@ INFO_INCLUDE = {"README.md", "README_APP_Standalone.md"}
 ALL_SCRIPTS = [
     "garmin_app.py",
     "garmin_app_standalone.py",
+    "garmin_config.py",
+    "garmin_api.py",
+    "garmin_security.py",
+    "garmin_normalizer.py",
+    "garmin_quality.py",
+    "garmin_sync.py",
+    "garmin_import.py",
+    "garmin_writer.py",
     "garmin_collector.py",
     "garmin_to_excel.py",
     "garmin_timeseries_excel.py",
@@ -63,6 +80,53 @@ ALL_SCRIPTS = [
 ]
 
 DOCS = ["README.md", "README_APP.md", "README_APP_Standalone.md", "MAINTENANCE.md", "SETUP.md"]
+
+
+# Required signatures per script — used by validate_scripts()
+SCRIPT_SIGNATURES = {
+    "garmin_app_standalone.py": ["class GarminApp"],
+    "garmin_api.py":            ["def login", "def fetch_raw"],
+    "garmin_collector.py":      ["def main", "def _process_day"],
+    "garmin_quality.py":        ["def _upsert_quality"],
+    "garmin_config.py":         ["GARMIN_EMAIL"],
+    "garmin_security.py":       ["def load_token", "def save_token"],
+    "garmin_normalizer.py":     ["def normalize", "def summarize"],
+    "garmin_writer.py":         ["def write_day"],
+    "garmin_sync.py":           ["def get_local_dates", "def resolve_date_range"],
+    # garmin_import.py — placeholder, no signatures required yet
+}
+
+# All scripts checked by validate_scripts (entry point + embedded)
+_ALL_VALIDATED = ["garmin_app_standalone.py"] + EMBEDDED_SCRIPTS
+
+
+def validate_scripts(scripts_dir: Path):
+    """
+    Pre-build validation — checks all required scripts exist and contain
+    expected function/class signatures. Aborts with a clear message on failure.
+    """
+    print("\n  Validating scripts ...")
+    errors = []
+
+    for name in _ALL_VALIDATED:
+        path = scripts_dir / name
+        if not path.exists():
+            errors.append(f"  ✗ Missing:         {name}")
+            continue
+
+        content = path.read_text(encoding="utf-8", errors="replace")
+        required = SCRIPT_SIGNATURES.get(name, [])
+        for sig in required:
+            if sig not in content:
+                errors.append(f"  ✗ Wrong content:   {name}  (expected: '{sig}')")
+
+    if errors:
+        print("  Build aborted — script validation failed:")
+        for e in errors:
+            print(e)
+        sys.exit(1)
+
+    print(f"  ✓ All {len(_ALL_VALIDATED)} scripts present and valid.")
 
 
 def migrate_layout(root: Path, scripts_dir: Path, info_dir: Path):
@@ -154,6 +218,10 @@ def build_exe(root: Path, scripts_dir: Path, entry_point: Path):
         "keyring",
         "keyring.backends",
         "keyring.backends.Windows",
+        "cryptography",
+        "cryptography.hazmat.primitives.kdf.pbkdf2",
+        "cryptography.hazmat.primitives.ciphers.aead",
+        "cryptography.hazmat.primitives.hashes",
         "requests",
         "cloudscraper",
         "lxml",
@@ -216,7 +284,7 @@ def main():
 
     print("\n  Checking scripts ...")
     entry_point = check_entry_point(scripts_dir)
-    check_embedded_scripts(scripts_dir)
+    validate_scripts(scripts_dir)
     print(f"  ✓ Entry point:  garmin_app_standalone.py")
     for s in EMBEDDED_SCRIPTS:
         print(f"  ✓ Embed:        {s}")

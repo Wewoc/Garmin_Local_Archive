@@ -32,6 +32,14 @@ APP_NAME = "Garmin_Local_Archive"
 # Scripts included in the Target 2 ZIP (standalone has its own entry point)
 SCRIPTS = [
     "garmin_app.py",
+    "garmin_config.py",
+    "garmin_api.py",
+    "garmin_security.py",
+    "garmin_normalizer.py",
+    "garmin_quality.py",
+    "garmin_sync.py",
+    "garmin_import.py",
+    "garmin_writer.py",
     "garmin_collector.py",
     "garmin_to_excel.py",
     "garmin_timeseries_excel.py",
@@ -44,9 +52,54 @@ SCRIPTS = [
 INFO_INCLUDE = {"README.md", "README_APP.md"}
 
 
+# Required signatures per script — used by validate_scripts()
+# Key: filename, Value: list of strings that must appear in the file
+SCRIPT_SIGNATURES = {
+    "garmin_app.py":            ["class GarminApp"],
+    "garmin_api.py":            ["def login", "def fetch_raw"],
+    "garmin_collector.py":      ["def main", "def _process_day"],
+    "garmin_quality.py":        ["def _upsert_quality"],
+    "garmin_config.py":         ["GARMIN_EMAIL"],
+    "garmin_security.py":       ["def load_token", "def save_token"],
+    "garmin_normalizer.py":     ["def normalize", "def summarize"],
+    "garmin_writer.py":         ["def write_day"],
+    "garmin_sync.py":           ["def get_local_dates", "def resolve_date_range"],
+    # garmin_import.py — placeholder, no signatures required yet
+}
+
+
+def validate_scripts(scripts_dir: Path):
+    """
+    Pre-build validation — checks all required scripts exist and contain
+    expected function/class signatures. Aborts with a clear message on failure.
+    """
+    print("\n[1/4] Validating scripts ...")
+    errors = []
+
+    for name in SCRIPTS:
+        path = scripts_dir / name
+        if not path.exists():
+            errors.append(f"  ✗ Missing:         {name}")
+            continue
+
+        content = path.read_text(encoding="utf-8", errors="replace")
+        required = SCRIPT_SIGNATURES.get(name, [])
+        for sig in required:
+            if sig not in content:
+                errors.append(f"  ✗ Wrong content:   {name}  (expected: '{sig}')")
+
+    if errors:
+        print("  Build aborted — script validation failed:")
+        for e in errors:
+            print(e)
+        sys.exit(1)
+
+    print(f"  ✓ All {len(SCRIPTS)} scripts present and valid.")
+
+
 def check_dependencies():
-    print("\n[1/3] Checking dependencies ...")
-    for pkg in ("pyinstaller", "keyring"):
+    print("\n[2/4] Checking dependencies ...")
+    for pkg in ("pyinstaller", "keyring", "cryptography"):
         try:
             __import__(pkg if pkg != "pyinstaller" else "PyInstaller")
             import importlib.metadata
@@ -81,7 +134,7 @@ def migrate_layout(root: Path, scripts_dir: Path, info_dir: Path):
 
 
 def build_exe(root: Path, scripts_dir: Path, entry_point: Path):
-    print(f"\n[2/3] Building {APP_NAME}.exe (Target 2 — Python required) ...")
+    print(f"\n[3/4] Building {APP_NAME}.exe (Target 2 — Python required) ...")
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -103,7 +156,7 @@ def build_zip(root: Path, scripts_dir: Path, info_dir: Path):
     exe      = root / f"{APP_NAME}.exe"
     zip_path = root / f"{APP_NAME}.zip"
 
-    print(f"\n[3/3] Creating release ZIP ...")
+    print(f"\n[4/4] Creating release ZIP ...")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(exe, f"{APP_NAME}.exe")
         for name in SCRIPTS:
@@ -131,7 +184,7 @@ def main():
 
     check_dependencies()
 
-    print("\n[2/3] Preparing layout ...")
+    print("\n  Preparing layout ...")
     if not entry_point.exists():
         migrate_layout(root, scripts_dir, info_dir)
 
@@ -139,6 +192,8 @@ def main():
         print(f"  ✗ Entry point not found: {entry_point}")
         print(f"    Make sure garmin_app.py is in the scripts/ subfolder.")
         sys.exit(1)
+
+    validate_scripts(scripts_dir)
 
     build_exe(root, scripts_dir, entry_point)
 

@@ -6,50 +6,13 @@
 
 ---
 
-## Currently stable — v1.1.2
+## Currently stable — v1.2.0
 
-- Local archiving of Garmin Connect health data
-- Three sync modes: recent, range, auto
-- Excel exports (daily overview + intraday timeseries)
-- Interactive HTML dashboards (timeseries + analysis)
-- Analysis dashboard with personal baseline and age/fitness reference ranges
-- JSON export for local AI tools (Ollama / AnythingLLM / Open WebUI)
-- Desktop GUI with connection test, log toggle, sync mode field dimming
-- Three targets: scripts only, standard EXE (Python required), standalone EXE (no Python required)
-- **Quality tracking** — every downloaded raw file is assessed for content quality (`high/med/low/failed`) and registered in `log/quality_log.json`. Content-based assessment replaces the old file-size heuristic, correctly handling the Garmin data retention limit (~1–2 years of intraday detail). Days with `recheck=true` are re-downloaded by the background timer; after `LOW_QUALITY_MAX_ATTEMPTS` (default 3) failed attempts a `low` day is left alone permanently.
-- **Background Timer** — automatic background sync that cycles through three modes per run: Repair (API failures → `failed`), Quality (low-content days → `low`), Fill (true gaps never downloaded). Configurable interval and days-per-run. Live countdown and progress in the button. Connection test before first run. Stops cleanly on app close or when archive is complete. Background sessions logged with `garmin_background_` prefix.
-- **Session logging** — every sync writes a full DEBUG log to `log/recent/`; sessions with errors or low-quality downloads are additionally copied to `log/fail/`
-- **First Day Patch** — `first_day` anchor stored in `quality_log.json`. Detected once on first run (devices → account profile → fallback → oldest local file), never overwritten. Auto mode and background timer use it directly as the lower bound — no repeated API calls. Device history (`name`, `id`, `first_used`, `last_used`) stored alongside and refreshed on every login. One-time backfill on upgrade populates all existing `high`/`med` days that were previously missing from the quality log. **Clean Archive** button in the GUI opens a preview popup and removes all files and log entries before `first_day` on confirm.
+- **Collector Refactoring + Architecture Extension** — `garmin_collector.py` split into focused modules. Decision layer isolated (`_should_write`, `_process_day`). `garmin_writer.py` added as sole owner of `raw/` and `summary/`. `summarize()` moved to `garmin_normalizer.py`. Quality level `"med"` renamed to `"medium"`. No new end-user features — existing behaviour preserved exactly. See CHANGELOG for details.
 
 ---
 
 ## Planned — v1.2
-
-### v1.2.0 — Collector Refactoring
-
-The core architectural overhaul. `garmin_collector.py` is split into focused modules with clear single responsibilities. No new features — existing behaviour is preserved exactly.
-
-**Target architecture:**
-
-| Module | Role |
-|---|---|
-| `garmin_config.py` | All environment variables, defaults, are loaded first. |
-| `garmin_api.py` | Login, session management, all API calls (`fetch_raw`, `api_call`, `get_devices`). No logic, no file writes. |
-| `garmin_import.py` | Loads and parses Garmin bulk export data into raw input format (no normalization). |
-| `garmin_normalizer.py` | Converts data from different sources into a unified schema and attaches minimal source metadata. |
-| `garmin_quality.py` | Sole owner of `quality_log.json`. Loads, saves, assesses, upserts. Only module allowed to write the quality log. |
-| `garmin_sync.py` | Determines what needs downloading. `resolve_date_range`, `get_local_dates`, missing-day calculation. Returns data only — no side effects. |
-| `garmin_collector.py` | Thin orchestrator. Coordinates modules and is responsible for writing normalized data to `/raw`. |
-
-**Also included:**
-- `pending_jobs.json` — persistent job queue. If the app closes mid-sync, remaining dates are preserved and picked up on next start (resilience against crashes and power loss).
-- Phase-by-phase extraction: Quality → API → Sync → Collector. One module at a time, behaviour verified identical after each step before proceeding.
-
-**Refactoring rules (non-negotiable):**
-- No logic changes during extraction — only move code, never modify it
-- Only one module writes `quality_log.json`
-- One step at a time, test after each step
-- AI partner loads only the relevant module per session — keeps context window free for actual work
 
 ---
 
@@ -57,12 +20,31 @@ The core architectural overhaul. `garmin_collector.py` is split into focused mod
 
 Housekeeping pass after the refactoring. No new functionality.
 
+- ⚠️ **Priority:** `api.login()` currently calls `sys.exit(1)` on failure — a library function should not terminate the process directly. Replace with a raised exception (`RuntimeError` or custom `GarminLoginError`); let the caller (collector, GUI, background timer) decide how to handle it. Latent risk: background timer could be silently killed on a transient login failure.
+- ⚠️ **Priority:** Race condition in `garmin_quality.py` — GUI and background timer can read-modify-write `quality_log.json` simultaneously. The atomic tmp-file write protects against corruption on write, but not against two processes interleaving their read-modify-write cycles. Add a file lock (e.g. `filelock` or `fcntl`) around all quality log access.
+- ⚠️ **Priority:** Silent failures in `garmin_api.py` — when an endpoint call fails, the exception is logged as `warning` and the flow continues. This results in incomplete raw dicts that may be assessed as `medium` instead of `high` quality without any visible indication of which endpoint failed. Add per-endpoint failure tracking so missing keys are explicitly flagged in the quality log.
+- ⚠️ **Priority:** No validation of incoming Garmin API data before writing to `raw/` — if Garmin changes their JSON structure, malformed data is silently archived. Add basic schema validation (required keys, expected types) at the `garmin_normalizer.py` entry point before data reaches the pipeline.
 - All GUI labels and field names in English (currently mixed German/English)
 - Request delay changed from fixed `1.5s` to a random value between configurable min/max (e.g. 1.0–3.0s) — breaks the fixed request pattern to reduce Garmin rate-limit risk
 - Export date range: leaving **To** empty defaults to the most recent available file
 - Export date range: leaving **From** empty defaults to the oldest available file
-- Quality log: rename `"med"` → `"medium"` throughout (`quality_log.json`, `assess_quality`, all references)
 - Session limit: max days per run configurable via `GARMIN_MAX_DAYS_PER_SESSION` (default: 30) — prevents account throttling on large backlogs
+- **`build_all.py`** — single script that runs both `build.py` and `build_standalone.py` sequentially, producing both ZIPs in one step. No logic changes — calls both existing `main()` functions. Note: Standalone build embeds all dependencies and takes significantly longer.
+
+---
+
+### v1.2.1b — Code Hygiene
+
+Technical debt cleanup. No functional changes.
+
+- **Build script consolidation** — `build.py` becomes the shared base containing all common logic: `SCRIPT_SIGNATURES`, `validate_scripts()`, `migrate_layout()`, `check_dependencies()`. `build_standalone.py` imports from `build.py` and only defines what differs: `APP_NAME`, `EMBEDDED_SCRIPTS`, `RUNTIME_DEPS`, standalone-specific `build_exe()` and `build_zip()`. Eliminates the current near-identical duplication — a signature change only needs to be made in one place.
+- **`garmin_app_standalone.py` consolidation** — `garmin_app.py` becomes the single source of GUI logic. `garmin_app_standalone.py` imports `GarminApp` from `garmin_app.py` and only overrides what differs: `script_dir()`, `_find_python()`, and the `_run_module()` thread mechanism. Eliminates full duplication of all GUI code — bug fixes and UI changes only need to be made once. Note: requires careful handling of PyInstaller dependency detection and the `_STOP_EVENT` injection mechanism.
+- **`garmin_utils.py`** — new shared module for helpers duplicated across modules:
+  - `_parse_device_date` (currently in `garmin_api.py` and `garmin_quality.py`)
+- **`garmin_config.py`** — move SYNC_DATES parsing loop into `garmin_utils.py`; config module should contain no logic per its own docstring
+- **`DEFAULT_SETTINGS`** — replace hardcoded `"C:\\garmin"` with `str(Path.home() / "garmin_data")` to avoid broken first-run behaviour on systems without `C:\`
+
+> `safe_get` consolidation and `summarize()` move already completed in v1.2.0.
 
 ---
 
@@ -101,17 +83,16 @@ Days with `quality=low` or `quality=failed` can be treated as `schema_version: 0
     }
   }
 }
-
 ```
 
 `garmin_normalizer.py` sets `source` based on calling module (v1.2.0 refactoring).
-    - only Data with `source` API will have the option for "recheck": true,
-      - data older than 6 month get "max. "attempts": 1" befor "recheck": false,
+  - Only data with `source` API will have the option for `"recheck": true`
+  - Data older than 6 months gets max. `"attempts": 1` before `"recheck": false`
 
-**Legacy Migration:** 
+**Legacy Migration:**
 - Existing `quality_log.json` entries → add `"source": "legacy"` on first write
 - **Legacy CAN be Smart-Regenerated** (raw files exist, quality already assessed)
-- quality_log.json schema extended non-breaking: `source`, `source_metadata` added
+- `quality_log.json` schema extended non-breaking: `source`, `source_metadata` added
 
 ---
 
@@ -159,6 +140,8 @@ Checks GitHub for a newer release on app start and notifies the user if one is a
     in a terminal to complete MFA, then use Standalone normally.
 ```
 
+**Error log access for Standalone users** — when something goes wrong, Standalone users (no terminal available) should never need a command prompt to diagnose the issue. Add a "Copy last error log" button to the GUI that reads the most recent file from `log/fail/` and copies it to the clipboard — ready to paste into a GitHub issue or chat. Complements the existing session logging infrastructure.
+
 ### v1.2.7 — Dashboard Rework Preparation
 
 `quality_log.json` - extended
@@ -177,7 +160,17 @@ Downstream scripts (dashboards & AI summaries) no longer need their own validati
 
 🔴 **Low Quality:** Daily data exists, but specific metrics (e.g., HRV or sleep stages) are missing. Dashboards display clean "N/A" values instead of errors.
 
-⚪ **Failed / Pending:** Marks days with download errors or timeouts for automatic retry attempts (retry logic to be defined).
+⚪ **Failed / Pending:** Marks days with download errors or timeouts for automatic retry attempts.
+
+**Recheck Backoff Logic** — adds a `next_attempt` field to `quality_log.json` entries where `recheck=true`. The collector skips a day until `today >= next_attempt`, preventing repeated API queries on every session.
+
+Backoff interval: `attempts × 5 days` (attempt 1 → 5 days, attempt 2 → 10 days, attempt 3 → 15 days).
+
+- `failed`: 3 attempts, then `recheck=false`
+- `low`, day younger than 1 year: 3 attempts, then `recheck=false`
+- `low`, day older than 1 year: `recheck=false` immediately — Garmin does not retroactively improve historical intraday data
+
+Replaces the placeholder note in v1.2.7 ("retry logic to be defined").
 
 ---
 
@@ -185,14 +178,15 @@ Downstream scripts (dashboards & AI summaries) no longer need their own validati
 
 Focus on making the project easier to use, understand, and safer when used with local AI tools.
 
-- **AI prompts** — provide ready-to-use system prompts for local AI tools (Ollama / AnythingLLM) to correctly interpret `garmin_analysis.json` (quality flags, HRV meaning, stress direction, etc.)  
-- **Documentation reorganization** — split into clear user, developer, and AI‑focused sections (`USER_GUIDE.md`, `ARCHITECTURE.md`, `AI_CONTEXT.md`) with improved navigation, reduced redundancy, and a unified structure that makes the project easier to understand, maintain, and safely extend.  
-- **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards  
-- **Script-level tests (non-GUI)** — basic validation tests for core parsing and transformation logic (e.g. date parsing, quality assessment)  
-- **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.  
+- **AI prompts** — provide ready-to-use system prompts for local AI tools (Ollama / AnythingLLM) to correctly interpret `garmin_analysis.json` (quality flags, HRV meaning, stress direction, etc.)
+- **Documentation reorganization** — split into clear user, developer, and AI-focused sections (`USER_GUIDE.md`, `ARCHITECTURE.md`, `AI_CONTEXT.md`) with improved navigation, reduced redundancy, and a unified structure that makes the project easier to understand, maintain, and safely extend.
+  - README structure: move AI-assisted analysis (Step 11) up directly after the philosophy section — the end result (asking an AI about your health data) should be visible before the technical pipeline details
+  - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
+  - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
+- **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
+- **Script-level tests (non-GUI)** — ✅ done in v1.2.0: `test_local.py` covers all core modules with 98 checks (config, sync, normalizer, quality incl. migrations, writer, collector internals, security crypto layer). Run with `python test_local.py`.
+- **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
 - **Integrity notes** — mention that **no checksums or signatures are currently applied**, so modifications or corruption of `quality_log.json` are not automatically detected; users should handle backups carefully.
-
-
 
 ---
 
@@ -233,7 +227,19 @@ New functionality built on the clean v1.3.0 base:
 
 These are ideas, not commitments. Some may never get built.
 
-**Multiple Garmin accounts**
+**Multi-Source Architecture**
+
+Extension to support multiple data sources (Strava, Komoot, ...) alongside Garmin. Full concept in `CONCEPT_V2-0.md`.
+
+**Directory structure:** Each source gets its own isolated folder (`garmin_data/`, `strava_data/`, ...) with its own `raw/`, `summary/`, `log/`. A central `master/master_index.json` serves as a pure routing layer — which sources have data for a given day, and where. No logic, no decisions.
+
+**Architecture principle — plugin modules:** Global actors (`writer`, `normalizer`, `sync`, `security`) remain source-agnostic. Each source provides a `*_master.py` plugin that delivers source-specific details on demand — paths, formats, validation rules, token location. Adding a new source means writing a new plugin and its source-specific actors (`*_api.py`, `*_quality.py`). All global actors work without modification.
+
+**Translation layer:** `field_map.py` is the single point of truth for mapping fields between sources and the common schema. Dashboard and export scripts have no knowledge of source details — they only query `field_map`. Adding a new source means extending `field_map` — all scripts work automatically.
+
+---
+
+**Multiple User accounts**
 Currently one account per Windows user. Switching between accounts requires manually changing credentials in Settings. Multi-account support would allow profiles per user.
 
 **External factors & correlations**
@@ -243,7 +249,7 @@ Import external data (weather, activity logs, custom notes) and correlate with h
 Extend the Analysis Dashboard beyond fixed 90-day baselines. Rolling windows (7-day, 30-day), seasonal patterns, and load vs. recovery phase detection. The raw data is already there — this is purely an analytical layer on top of `garmin_analysis_html.py`.
 
 **AI health report PDF**
-Generate a formatted PDF health summary using the local AI model **only summarie no analythis** — personal baseline, flagged days, trends. Fully local, no cloud.
+Generate a formatted PDF health summary using the local AI model — personal baseline, flagged days, trends. Fully local, no cloud.
 
 **Route heatmap**
 Generate a local heatmap of GPS routes from activity data. No third-party mapping services.
@@ -257,6 +263,9 @@ Local overview of archive health built from session logs — days synced vs fail
 **Activities dashboard**
 Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected — it just isn't used beyond the summary.
 
+**Test suite & CI/CD**
+Core modules are covered by test_local.py (98 checks, added in v1.2.0). Build integrity is covered by validate_scripts() in both build scripts — verifies all required scripts are present and contain expected signatures before PyInstaller runs (added in v1.2.0). Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.3 is complete. No timeline, no commitment, but the intention is there.
+
 ---
 
 ## Post-release tasks
@@ -267,10 +276,12 @@ Training load, activity volume and sport-specific metrics (swim/bike/run) visual
 
 ## Not planned
 
+> These items are explicitly out of scope for v1.x but may be revisited for v2.0. No timeline, no commitment — but the intention is there.
+
 - Cloud sync or remote access
 - Mobile app
 - Automatic data sharing, cloud sync, or social comparison features
-- Support for non-Windows platforms (currently Windows only)
+- GUI and EXE are Windows-only and will remain so. The collector scripts work on Linux and macOS but are untested and unsupported — use at your own risk.
 - Code signing or automatic updates
 
 ---
