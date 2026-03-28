@@ -67,12 +67,72 @@ The full source code is open. If you don't trust the pre-built EXE:
 - Read the scripts — or paste them into any AI and ask *"explain what this code does"*
 - Build your own EXE: `python build_standalone.py`
 
-Credentials and login tokens are stored in the **Windows Credential Manager** (keyring):
-- encrypted by Windows
-- never written as plain text
-- the saved login token (~1 year validity) avoids repeated SSO logins that can trigger Captcha or MFA
-
 The pre-built EXE is unsigned because code-signing certificates cost ~$500/year — money I'd rather spend on coffee. If the Windows security warning concerns you, the scripts are the primary way to run this and always will be.
+
+---
+
+### Why the token exists — and why it needs protecting
+
+Garmin login works via SSO (Single Sign-On). Every time the collector runs, it needs to authenticate with Garmin Connect. If it does this with email and password on every run, Garmin detects the automated pattern and triggers Captcha or MFA — at which point the collector hangs silently or fails, with no way to recover automatically in the Standalone version.
+
+The solution is token persistence: log in once manually, complete any Captcha or MFA challenge, and Garmin returns an OAuth token. The collector stores this token and uses it for all subsequent runs — no SSO required for approximately one year.
+
+This token is functionally equivalent to a logged-in session. Anyone who obtains it can make Garmin API requests on your behalf. It must not sit unprotected on disk.
+
+---
+
+### How the token is protected
+
+**What the encryption is designed to prevent:**
+
+The primary threat this system is designed against is *accidental exposure* — for example, if your `garmin_data/` folder ends up in a cloud sync (OneDrive, Google Drive, Dropbox), is included in a backup that gets shared, or is accidentally uploaded somewhere. In that scenario, an unencrypted token file would give anyone who finds it direct access to your Garmin account.
+
+**What it is not designed to prevent:**
+
+This system does not protect against an attacker who has already gained full access to your Windows user account. No local desktop application can guarantee that — if your system is compromised, your running sessions, browser cookies, and keyring entries are all potentially accessible regardless of what any individual tool does. This is a system-level boundary, not a flaw specific to this project.
+
+---
+
+### The encryption design
+
+The token is encrypted with **AES-256-GCM** before being written to disk. This provides authenticated encryption: not only is the token unreadable without the key, but any tampering with the file is detected on decryption.
+
+The encryption key is derived from a user-defined string (set once on first setup) using **PBKDF2-HMAC-SHA256 with 600,000 iterations** — the current OWASP recommendation for password-based key derivation. This makes brute-force attacks computationally expensive. The derived key is stored in the **Windows Credential Manager**, which encrypts it using your Windows login credentials. It is never written to disk in plaintext.
+
+**On the salt:**
+
+Each time the token is saved, a fresh 16-byte random salt is generated and stored as the first 16 bytes of the token file. This means the same encryption key produces a different derived AES key on every save — eliminating the fixed-salt weakness present in older versions. If the token file leaks, an attacker cannot pre-compute keys even knowing the encryption scheme.
+
+The trade-off: if the Windows Credential Manager entry is lost (e.g. after a Windows reinstall), re-entering your encryption key is not enough to decrypt an existing token file — the salt that was used is gone with it. This is handled gracefully: the old token is discarded and you log in once manually to generate a new one. No health data is lost — only the cached login session.
+
+**What this achieves in practice:**
+
+- The token file on disk is unreadable without the encryption key
+- The encryption key in the WCM is protected by your Windows login
+- Plaintext token never exists on disk at any point
+- Each save produces a unique ciphertext — no repeated patterns
+- If the token file leaks, it is useless without both the key and the WCM entry
+- If the WCM entry is lost, a clean re-login restores full access
+
+**What this does not achieve:**
+
+- Protection against malware or an attacker already operating under your Windows account
+- This is the same limitation that applies to every password manager, browser, and credential store on the same system
+
+---
+
+### Summary
+
+| Threat | Protected? |
+|---|---|
+| Token file in cloud backup / accidental upload | ✅ Yes |
+| Token file copied from disk without WCM access | ✅ Yes |
+| Tampered token file (detected on load) | ✅ Yes |
+| Pre-computed key attack (rainbow tables) | ✅ Yes |
+| Attacker with full access to your Windows account | ❌ No — system-level boundary |
+| Compromised system (malware, remote access) | ❌ No — same for all local tools |
+
+The encryption is not security theatre — it solves the problem it was designed to solve. It just does not solve every possible problem, and it does not claim to.
 
 ---
 
@@ -114,11 +174,12 @@ The pre-built EXE is unsigned because code-signing certificates cost ~$500/year 
 
 ## What is included
 
-The collector pipeline (v1.2.0) consists of seven focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
+The collector pipeline (v1.2.1b) consists of eight focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
 
 | Script | What it does | Reads from |
 |---|---|---|
 | `garmin_collector.py` | Orchestrates the pipeline — decides, delegates, coordinates | — |
+| `garmin_utils.py` | Shared utilities — date parsing, sync date parsing (no project-module dependencies) | — |
 | `garmin_config.py` | All configuration — ENV variables, paths, constants | — |
 | `garmin_api.py` | Login and all Garmin Connect API calls | Garmin API |
 | `garmin_security.py` | Token encryption/decryption — AES-256-GCM, key stored in Windows Credential Manager | `log/` |
@@ -135,7 +196,7 @@ The collector pipeline (v1.2.0) consists of seven focused modules plus a thin or
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
-The desktop app (v1.2.0) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+The desktop app (v1.2.1b) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
 
 Data is stored in three folders:
 

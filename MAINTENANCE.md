@@ -16,10 +16,13 @@ For a complete reference of all environment variables, constants, file paths, an
 |-- Garmin_Local_Archive_Standalone.zip   – standalone release package
 |-- build.py                        – builds Target 2 (Python required on target)
 |-- build_standalone.py             – builds Target 3 (no Python required on target)
+|-- build_all.py                    – runs both build targets sequentially
+|-- build_manifest.py               – single source of truth for all build lists and signatures
 |
 +-- scripts/                        – all Python scripts
 |       garmin_app.py               – desktop GUI entry point (Target 1 dev + Target 2 EXE)
 |       garmin_app_standalone.py    – desktop GUI entry point (Target 3 standalone)
+|       garmin_utils.py             – shared utilities, no project-module dependencies (v1.2.1b)
 |       garmin_config.py            – all ENV variables, constants, and derived paths (v1.2.0)
 |       garmin_api.py               – Garmin Connect login, API calls, device list (v1.2.0)
 |       garmin_normalizer.py        – normalises raw data from any source (v1.2.0)
@@ -257,7 +260,7 @@ Stop is checked in two places: at the top of the day loop (collector), and at th
 
 ### Session limit
 
-`MAX_DAYS_PER_SESSION` (default 30, ENV: `GARMIN_MAX_DAYS_PER_SESSION`) caps the number of days fetched per run. Set to `0` for unlimited. Prevents account throttling on large backlogs. GUI field planned for v1.2.1.
+`MAX_DAYS_PER_SESSION` (default 30, ENV: `GARMIN_MAX_DAYS_PER_SESSION`) caps the number of days fetched per run. Set to `0` for unlimited. Prevents account throttling on large backlogs. Configurable via GUI (Settings → Advanced → Session limit).
 
 ### Adding a new API endpoint
 
@@ -310,13 +313,14 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - `_parse_list_values()`: dict list and `[timestamp, value]` pair formats
 - `summarize()`: all top-level keys present, `generated_by = "garmin_normalizer.py"`, correct values from dummy data (sleep hours, resting HR, steps, activity type)
 
-**4. `garmin_quality`** — quality assessment, upsert logic, persistence, migrations
+**4. `garmin_quality`** — quality assessment, upsert logic, persistence, migrations, thread safety
 - `assess_quality()`: all four levels — `high` (intraday HR), `medium` (daily aggregate), `low` (bare stats), `failed` (empty)
 - `_upsert_quality()`: new entry, update existing, `write` field stored correctly, `recheck` and `attempts` logic for each quality level
 - `LOW_QUALITY_MAX_ATTEMPTS` exhaustion: `recheck` disabled after 3 attempts
 - Save + load round-trip: `first_day`, entries, `write` field all preserved
 - Migration `"med"` → `"medium"`: old entries upgraded on load
 - Migration `write=null`: pre-v1.2.0 entries without `write` field get `null` on load
+- `QUALITY_LOCK`: exists, correct type, blocks a second thread while held
 
 **5. `garmin_writer`** — file output
 - `write_day()` creates both `raw/garmin_raw_YYYY-MM-DD.json` and `summary/garmin_YYYY-MM-DD.json`
@@ -329,12 +333,18 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - `_process_day()` via mocked API: correct label returned, `write_day` called on success, not called when label is `failed`
 
 **7. `garmin_security`** — crypto layer (no keyring required)
-- `_derive_aes_key()`: 32-byte output, deterministic for same input, unique per different input
-- `save_token()` + `load_token()` round-trip: correct plaintext recovered
+- `_derive_aes_key()`: 32-byte output, deterministic for same salt+key, unique per different key
+- `save_token()` + `load_token()` round-trip: correct plaintext recovered with random salt
 - `load_token()` with wrong key: returns `None`
 - `load_token()` with no enc_key: returns `None`
 - `clear_token()`: token file removed from disk
 - `load_token()` after clear: returns `None`
+
+**8. `garmin_utils`** — shared utilities
+- `parse_device_date()`: ISO string, ISO date, millisecond timestamp, second timestamp, `None`, empty string
+- `parse_sync_dates()`: valid dates, sorted output, invalid entries skipped, empty → `None`, all invalid → `None`
+
+### Total: 112 checks
 
 ### What is not tested
 
@@ -347,7 +357,7 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 
 ### When to run
 
-- After any change to `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, or `garmin_security`
+- After any change to `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, or `garmin_utils`
 - After upgrading Python or dependencies
 - Before building a release EXE
 
@@ -511,7 +521,7 @@ Open `log/quality_log.json` in any text editor or JSON viewer. The file lists al
 
 ### Rate limiting
 
-If Garmin throttles requests: increase `REQUEST_DELAY` from `1.5` to `3.0`.
+If Garmin throttles requests: increase `REQUEST_DELAY_MIN` and `REQUEST_DELAY_MAX` in Settings (GUI fields "Delay min (s)" / "Delay max (s)"). Default is `1.0`–`3.0s` random per call.
 
 ### Login / captcha issues
 
@@ -580,7 +590,11 @@ Both build scripts run a validation block before PyInstaller starts. It checks:
 
 If any check fails, the build aborts immediately with a clear message identifying which file is missing or has wrong content. This catches cases where a file was accidentally replaced with the wrong content or never copied into the folder.
 
-The signature list is defined as `SCRIPT_SIGNATURES` at the top of each build script — update it whenever a module's public interface changes.
+The signature list is defined in `build_manifest.py` as `SCRIPT_SIGNATURES_BASE` — update it there whenever a module's public interface changes. Both build scripts import from it automatically.
+
+**Adding a new module:**
+
+Add the filename to `SHARED_SCRIPTS` in `build_manifest.py`. Both builds pick it up automatically. No changes needed in `build.py` or `build_standalone.py`.
 
 ### Adding a missing hidden import to the standalone build
 
@@ -588,150 +602,75 @@ If the standalone EXE fails with an `ImportError` or `ModuleNotFoundError`, add 
 
 ---
 
-## Session Continuity — Start Prompt Template
+## Session workflow
 
-At the end of each version cycle, fill this template and save it as
-`START_PROMPT_vX_Y_Z.md`. Paste it at the start of a new Claude session
-to restore full project context. Manually review and correct before use.
+This project is built collaboratively with AI assistants (Claude as primary coding partner). The following workflow is established practice — document it here so any future session can pick it up immediately.
 
-Placeholders in `[SQUARE_BRACKETS]` must be replaced.
-Sections with a source comment are intentionally not duplicated here —
-copy the current content from the referenced document when filling the template.
+### Notes file
 
----
+At the start of every version session, create a `NOTES_vX_Y_Z.md` file. Write to it after every delivered change — not at the end. This file is the working log for the session and the primary input for documentation closure.
 
-### Template
+**Minimum structure:**
 
-~~~markdown
-# Start Prompt — Garmin Local Archive [VERSION]
+```markdown
+# Session Notes — vX.Y.Z
 
-Paste this at the start of a new Claude session to restore project context.
+## Bugs / Priority — erledigt
+- [x] Short description
+      - What changed, which files, why
 
----
+## Features — erledigt
+- [x] Short description
+      - What changed, which files
 
-You are working on **Garmin Local Archive** — a local Python tool for archiving
-and analysing Garmin Connect health data. No cloud, no third parties.
+## Entscheidungen (nicht umgesetzt)
+- [→] What was considered
+      - Why it was NOT done — reasoning preserved for future sessions
 
-**GitHub:** [REPOSITORY_URL]
-**Stable version:** [LAST_STABLE_VERSION] (complete) — current work: [TARGET_VERSION]
+## Testergebnisse
+| Stand | Ergebnis |
+|---|---|
+| Nach Änderung X | N/N ✅ |
 
-**Developer profile:**
-<!-- Describe the developer's technical background and working style so Claude
-     calibrates explanation depth and understands how decisions are made.
-     Examples:
-       "Non-programmer. Provides logic and architecture direction, not implementation.
-        Needs plain-language explanations alongside technical ones."
-       "Experienced developer. Skip basics, focus on implementation details." -->
-[DEVELOPER_PROFILE]
+## Änderungen an test_local.py
+- What was added/changed and why
+```
 
----
+**Rules:**
+- Write every entry immediately after delivering the change — not from memory at the end
+- Document *why something was NOT done* — this is the part that gets lost without notes
+- Notes are the input for CHANGELOG, ROADMAP, REFERENCE, MAINTENANCE updates at session end
+- Notes are the input for the next `START_PROMPT_vX_Y_Z.md`
 
-## Core Rule
+### Before every implementation — cross-dependency check
 
-**Never implement code or changes without explicit instruction.**
-Always explain and evaluate first → ask for confirmation → then implement.
-Deliver complete files only — no snippets. Working code is never touched
-unless strictly necessary. One change at a time so the impact stays traceable.
+For every planned change, explicitly ask:
 
----
+> **"Which modules, dialogs, or documentation sections implicitly assume the old behaviour — and which will be affected by the new behaviour?"**
 
-## Stack
+- What assumes the *old* behaviour? → breaks silently after the change
+- What is affected by the *new* behaviour? → must be explicitly updated
 
-Python 3.10+, tkinter, PyInstaller, garminconnect API, openpyxl, Plotly,
-keyring (Windows Credential Manager), cryptography (AES-256-GCM)
+Examples from practice:
+- Random salt introduced → recovery dialog still implied "re-enter key = restore token" → had to be corrected
+- `fetch_raw()` returns tuple → `test_local.py` mocks still returned a single dict → tests failed
 
----
+### Closing checklist — before documentation closure
 
-## Build Targets
+**Code:**
+- [ ] All new modules in `build_manifest.py` (`SHARED_SCRIPTS`)?
+- [ ] All new modules in README script table?
+- [ ] All new modules in REFERENCE (own section)?
+- [ ] All new modules in MAINTENANCE (project structure + "When to run")?
 
-<!-- → MAINTENANCE.md § "Three build targets" — copy current table -->
-[PASTE CURRENT BUILD TARGETS TABLE]
+**Documentation:**
+- [ ] All new ENV variables in REFERENCE?
+- [ ] All changed function signatures in REFERENCE?
+- [ ] Test count updated in MAINTENANCE + ROADMAP?
+- [ ] Stale "planned for vX.Y.Z" references removed?
+- [ ] GUI text in README_APP + README_APP_Standalone current?
+- [ ] Version number in README updated?
 
----
+### Documentation closure order
 
-## Configuration Flow
-
-<!-- → MAINTENANCE.md § "garmin_app.py — Key design decisions"
-     Copy the ENV flow paragraph: GUI → _build_env → GARMIN_* → garmin_config -->
-[PASTE CURRENT CONFIG FLOW]
-
----
-
-## Module Architecture
-
-<!-- → MAINTENANCE.md § module descriptions — copy role-annotated module list -->
-[PASTE CURRENT MODULE LIST]
-
-### Pipeline Flow
-
-<!-- → MAINTENANCE.md § Pipeline-Flow — copy current flow diagram -->
-[PASTE CURRENT PIPELINE DIAGRAM]
-
-### Principles
-
-<!-- → MAINTENANCE.md § Principles — copy current principle list -->
-[PASTE CURRENT PRINCIPLES]
-
----
-
-## Data Structure
-
-<!-- → MAINTENANCE.md § Data layout — copy current directory tree -->
-[PASTE CURRENT DATA STRUCTURE]
-
----
-
-## Quality Tracking
-
-<!-- → MAINTENANCE.md § garmin_quality.py — copy quality level table and constants -->
-[PASTE CURRENT QUALITY TABLE AND CONSTANTS]
-
----
-
-## Background Timer
-
-<!-- → MAINTENANCE.md § Background Timer — copy current timer mode description -->
-[PASTE CURRENT TIMER DESCRIPTION]
-
----
-
-## Completed in This Session
-
-<!-- What was changed in the session that produced this prompt?
-     One line per change, short and precise. -->
-- [CHANGE 1]
-- [CHANGE 2]
-
----
-
-## Open Items / Next Work — [TARGET_VERSION]
-
-<!-- Priority bugs and planned changes for the next version.
-     → Source: ROADMAP.md § [TARGET_VERSION]
-     ⚠️ for bugs and risks, - for planned features -->
-- ⚠️ [PRIORITY BUG 1]
-- ⚠️ [PRIORITY BUG 2]
-- [PLANNED FEATURE 1]
-
----
-
-## Version Plan
-
-<!-- → ROADMAP.md — list stable versions with one-line description,
-     then planned versions from the roadmap -->
-
-**Stable:**
-[STABLE VERSION LIST]
-
-**Planned:**
-[PLANNED VERSION LIST]
-
----
-
-## Reference Documents
-
-- `REFERENCE.md` — all ENV variables, constants, file paths, functions per module
-- `MAINTENANCE.md` — full technical documentation including pipeline flow
-- `ROADMAP.md` — planned features
-- `CHANGELOG.md` — version history
-~~~
+CHANGELOG → ROADMAP → REFERENCE → MAINTENANCE → README → README_APP → README_APP_Standalone → PATCHNOTES → START_PROMPT for next session

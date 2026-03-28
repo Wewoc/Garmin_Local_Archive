@@ -37,7 +37,7 @@ Left panel:
 - **Password** — your Garmin Connect password (stored securely in the Windows Credential Manager, never written to disk as plain text)
 - **Data folder** — where to store data (e.g. `C:\Users\YourName\garmin_data`)
 - **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history
-- **Export date range** — used by all export scripts (leave empty for all available data)
+- **Export date range** — used by all export scripts. Leave empty to use the oldest/newest file in your archive automatically
 - **Age / Sex** — used by the Analysis Dashboard for reference ranges
 
 Click **Save Settings** — settings are remembered between sessions.
@@ -60,7 +60,7 @@ The test also runs automatically the first time you click Sync Data. After a suc
 ### Clean Archive
 Removes all data files that predate your `first_day` — the earliest valid day detected in your Garmin account.
 
-Click the button to open a preview popup showing exactly which files will be deleted and how many quality log entries will be removed. Nothing is deleted until you confirm with **Löschen**. Click **Abbrechen** to close without changes.
+Click the button to open a preview popup showing exactly which files will be deleted and how many quality log entries will be removed. Nothing is deleted until you confirm with **Delete**. Click **Cancel** to close without changes.
 
 Use this to clean up files created accidentally by entering a date that is too early in range mode. The `first_day` anchor is detected automatically on first run and stored in `log/quality_log.json`. If the popup reports "nothing to clean", your archive is already consistent.
 
@@ -69,7 +69,7 @@ Downloads missing days from Garmin Connect. Watch the log at the bottom for prog
 First run may take a while depending on how far back you go.
 Click **Stop** to cancel a running sync — the current day finishes saving before stopping.
 
-If there are days with failed or incomplete downloads in the selected sync range, a popup will appear before the sync starts: **"Es gibt fehlerhafte Datensätze: X Tage im gewählten Zeitraum — Aktualisieren?"** Click **Ja** to re-fetch those days, or **Nein** to skip them and sync normally.
+If there are days with failed or incomplete downloads in the selected sync range, a popup will appear before the sync starts: **"Incomplete records found: X days in the selected range — Refresh now?"** Click **Yes** to re-fetch those days, or **No** to skip them and sync normally.
 
 > **Large archives:** If you have years of Garmin history, start with `range` mode for the last 1–2 years before using `auto`. Downloading everything at once can trigger Garmin rate limiting.
 
@@ -90,8 +90,8 @@ When both queues are empty the timer stops automatically and logs "Archive compl
 |---|---|---|
 | Min. Interval (min) | 5 | Shortest wait between runs |
 | Max. Interval (min) | 30 | Longest wait between runs |
-| Min. Tage pro Run | 3 | Fewest days fetched per run |
-| Max. Tage pro Run | 10 | Most days fetched per run |
+| Min. Days per Run | 3 | Fewest days fetched per run |
+| Max. Days per Run | 10 | Most days fetched per run |
 
 The timer runs its own connection test before the first sync. If successful, the Test Connection indicators also turn green. Clicking the timer button while a sync is running stops the current download immediately.
 
