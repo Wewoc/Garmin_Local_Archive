@@ -205,6 +205,7 @@ The collector pipeline (v1.2.2) consists of eight focused modules plus a thin or
 | `garmin_timeseries_html.py` | Interactive browser dashboard — zoomable, tabbed, offline | `raw/` |
 | `garmin_analysis_html.py` | Analysis dashboard: daily values vs personal baseline vs norm ranges | `summary/` |
 | `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | — |
+| `correlation_concept.md` | Designed by curiosity | — |
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
