@@ -1,7 +1,11 @@
 # Garmin Local Archive
 
-> This project is provided as-is under the GNU General Public License v3.0, without warranty of any kind. Use at your own risk. No support, maintenance, or liability is implied or offered.
+> This project is provided as-is under the GNU General Public License v3.0.  
 > ⚠️ Early-stage project. While core functionality is stable, APIs and internal structure may change.
+
+* **No Guaranteed Support:** No support, maintenance, or liability is offered. Development happens when time and interest allow.
+* **Feedback is Welcome:** If something feels off — logic, structure, or results — open an issue. That kind of feedback is the most useful.
+* **Use at Your Own Risk:** Use with caution. I am not responsible for data loss or issues with your Garmin account.
 
 Archive and analyze your Garmin Connect data locally — no cloud, no third parties. Everything runs on your own machine.
 
