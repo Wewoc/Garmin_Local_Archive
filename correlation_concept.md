@@ -1,3 +1,5 @@
+![Garmin Local Archive](screenshots/Banner.png)
+
 # Garmin Local Archive — Correlation Engine ✨
 
 > *Module name: `correlation_engine.py`*
