@@ -38,6 +38,14 @@ It is designed to solve a specific problem:
 
 > **Get a complete, consistent local copy of your Garmin data — and keep it that way.**
 
+Garmin erodes your historical data over time. This tool stops it.
+
+![Garmin Local Archive — Desktop App](screenshots/GUI.jpg)
+*Desktop app — settings, sync, export and background timer in one place.*
+
+![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
+*Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
+
 ## Design Philosophy
 
 This project intentionally prioritizes:
@@ -70,6 +78,8 @@ The full source code is open. If you don't trust the pre-built EXE:
 - Build your own EXE: `python build_standalone.py`
 
 The pre-built EXE is unsigned because code-signing certificates cost ~$500/year — money I'd rather spend on coffee. If the Windows security warning concerns you, the scripts are the primary way to run this and always will be.
+
+The pre-built EXE cannot currently be independently verified against the source code without building it yourself. Reproducible CI builds may come in a future version.
 
 ---
 
@@ -195,6 +205,7 @@ The collector pipeline (v1.2.2) consists of eight focused modules plus a thin or
 | `garmin_timeseries_html.py` | Interactive browser dashboard — zoomable, tabbed, offline | `raw/` |
 | `garmin_analysis_html.py` | Analysis dashboard: daily values vs personal baseline vs norm ranges | `summary/` |
 | `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | — |
+| `correlation_concept.md` | Designed by curiosity | — |
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
