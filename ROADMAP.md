@@ -90,6 +90,11 @@ Backoff interval: `attempts × 5 days` (attempt 1 → 5 days, attempt 2 → 10 d
 
 Replaces the placeholder note in v1.2.7 ("retry logic to be defined").
 
+**`quality_log.json` — Integrity & Backup System**
+
+- **Monthly backup** — `_save_quality_log()` creates a snapshot once per month as `quality_log_YYYY-MM.zip` in `log/backup/`. On the first save of a new year, the previous year is consolidated into `quality_log_YYYY.zip` and all monthly zips for that year are removed. Each zip contains the complete `quality_log.json` at the time of the snapshot. Restore is manual.
+- **Per-year checksums** — on every save, a SHA-256 hash is computed over all `days` entries for each calendar year and stored in a `checksums` block inside `quality_log.json`. On load, all completed years are verified — a mismatch triggers a warning in the log and GUI indicating which year is affected and where the backup is located. The current year is recomputed on every save; completed years are immutable.
+
 ---
 
 ### v1.2.8 — Documentation & AI Usability
@@ -105,6 +110,20 @@ Focus on making the project easier to use, understand, and safer when used with 
 - **Script-level tests (non-GUI)** — ✅ done in v1.2.0, extended in v1.2.1/v1.2.1b: `test_local.py` covers all core modules with 112 checks (config, sync, normalizer, quality incl. migrations + QUALITY_LOCK, writer, collector internals, security crypto layer, utils). Run with `python test_local.py`.
 - **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
 - **Integrity notes** — mention that **no checksums or signatures are currently applied**, so modifications or corruption of `quality_log.json` are not automatically detected; users should handle backups carefully.
+
+---
+
+### v1.2.9 — Chunked Sync
+
+Automatic batching of long sync operations into fixed-size chunks, processed sequentially with a full write cycle between each chunk.
+
+**Problem:** long syncs (especially `auto` mode over years of history) run as a single uninterrupted loop. A 429 error, network interruption, or manual stop mid-way leaves no clean resume point — the next run re-evaluates everything from scratch.
+
+**Solution:** the collector processes days in chunks of N (e.g. 10 days), writes all results to `raw/`, `summary/`, and `quality_log.json` after each chunk, then continues with the next. If a sync is interrupted after chunk 3, the next run starts at chunk 4 automatically — because the first 30 days are already marked as written in the quality log.
+
+No separate checkpoint state needed. The existing `quality_log.json` already tracks what has been written — the chunk boundary just ensures it is flushed regularly rather than only at session end.
+
+`MAX_DAYS_PER_SESSION` remains available for manual session caps. Chunked sync operates within a session, not across sessions.
 
 ---
 
@@ -138,6 +157,22 @@ New functionality built on the clean v1.3.0 base:
 - **Outlier / measurement error cleanup** — detect and visually mark obvious outliers and likely sensor errors (e.g. HR spike during sleep).
 - **Responsive output** — dynamic resolution and layout adapting to the display device (PC monitor vs. mobile).
 - **Measurement accuracy disclaimer** — note on each dashboard indicating the typical accuracy range of consumer wearables under ideal conditions (e.g. HR ±X%).
+
+---
+
+## Planned — v1.4
+
+### v1.4 — Archive Integrity & Backup
+
+Protection of the local archive against software errors and silent data loss — independent of OS-level backup.
+
+**`quality_log.json`** — designed in v1.2.7: monthly snapshots in `log/backup/` and per-year SHA-256 checksums embedded in the file.
+
+**`raw/`** — incremental backup of newly written files. Motivation: Garmin degrades intraday data after ~1–2 years — the local raw copy is then the only source. A software bug in the writer that overwrites or corrupts a raw file is not recoverable without a backup. This is a direct extension of the data erosion protection that is a core promise of this project.
+
+- Ownership: writer or a dedicated backup module — to be evaluated
+- Strategy: incremental, newly written files only
+- Scope and implementation to be defined after v1.3 is stable
 
 ---
 
