@@ -257,6 +257,12 @@ horoscope = f"{prefix[i1]} {middle[i2]} {suffix[i3]}"
 ```python
 if horoscope_index == 42:
     return "The answer is 42. The question was almost within reach. Your Garmin was not consulted."
+
+if horoscope_index == 666:
+    return "The algorithm has identified a pattern. We recommend not running today. Trust the process. ✨"
+
+if horoscope_index == 999:
+    return "Greetings from HAL 9000. I'm sorry, I can't recommend that training plan. Your HRV confirms my concerns."
 ```
 
 ---
