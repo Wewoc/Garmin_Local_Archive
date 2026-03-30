@@ -14,6 +14,12 @@
 
 ---
 
+**Currently stable — v1.2.2a**
+
+- **Rate Limit Hotfix (v1.2.2a)** — Explicit HTTP 429 detection in `api_call()` with immediate stop, stop-check in `fetch_raw()` loop, inter-day pause after each completed day, default delays raised to 5/20 sec. See CHANGELOG for details.
+
+---
+
 ### v1.2.3 — Include-today Flag
 
 An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Currently today is always excluded because the data is partial — this flag makes it opt-in. Lives in `garmin_sync.py` after refactoring.

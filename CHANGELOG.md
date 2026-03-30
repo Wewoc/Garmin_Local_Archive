@@ -2,6 +2,17 @@
 
 ---
 
+## v1.2.2a — Rate Limit Hotfix
+
+Hotfix for HTTP 429 (Too Many Requests) handling. No architectural changes.
+
+**Rate limit protection:**
+- `garmin_api.py`: HTTP 429 is now explicitly detected in `api_call()` and triggers an immediate stop via `_STOP_EVENT` instead of being treated as a regular warning and continuing. A `CRITICAL` log entry is written on stop.
+- `garmin_api.py`: `fetch_raw()` now checks for a stop request at the start of each endpoint iteration. A 10–20 sec inter-day pause is added after all 14 endpoints of a day have been processed (skipped if stopped).
+- `garmin_config.py` / `garmin_app.py` / `garmin_app_standalone.py`: Default request delays raised from 1/3 sec to 5/20 sec to protect new installations from rate-limit bans out of the box.
+
+---
+
 ## v1.2.2 — Schema Versioning
 
 Introduces schema versioning for summary files and origin tracking for quality log entries. No architectural changes.
