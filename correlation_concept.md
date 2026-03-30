@@ -212,18 +212,6 @@ The project doesn't judge — it shows. If someone wants to see whether their HR
 
 The crystal energy index is the only truly made-up number. Everything else has a real data source. Whether those data sources mean anything is the user's problem.
 
-And honestly: if the Reddit critic writes "this project correlates HRV with star signs and crystal energy" — forty people will clone it because of that.
-
-Best organic marketing ever. ✨
-
----
-
-## What the critic will say
-
-> "They added astrology and made-up crystal energy to a health data tool. This is what happens when AI writes your code."
-
-What he won't say: he checked if the Schumann resonance data source was real. It is.
-
 ---
 
 *Created 2026-03-28 · 23:00 · "Just because the topic is serious doesn't mean you can't have fun."*
