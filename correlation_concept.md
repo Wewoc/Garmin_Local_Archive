@@ -460,3 +460,93 @@ Dr. Edward Bach identified 38 flower essences by holding flowers over water and 
 
 *Dosage: by intuition. ✨*
 
+---
+
+## Appendix C — Oneiric Equilibrium Coefficient (OEC)
+
+*Module: `correlation_engine.py` v2.1 · Status: Concept · Freud would not object.*
+
+---
+
+### Core Philosophy
+
+Traditional dream interpretation relies on narrative content.
+This module considers narrative content irrelevant.
+
+> "We do not need to know what you dreamed. When and how long is sufficient."
+
+The dream is treated as a purely mathematical result of biometric noise (REM phase)
+and esoteric-energetic parameters. The unconscious mind is, at its core, a time series.
+
+---
+
+### The Algorithm
+
+**Variables:**
+
+- `rem_duration` — the only real biometric input (from Garmin sleep data)
+- `crystal_energy` — pseudo-deterministic hash-based index (see main document)
+- `acupuncture_index` — school selector output (0–3)
+- `feng_shui_degrees` — sleep direction in degrees (0.0–359.9)
+- `ayurveda_dosha` — dominant dosha index (0=Vata, 1=Pitta, 2=Kapha)
+- `phi_libido` — the Freud Constant: `abs(step_goal - actual_steps)`
+
+**Formula:**
+
+$$OEC = \frac{(\text{acupuncture} \times \text{feng\_shui} \times \text{ayurveda})}{(\frac{\text{rem\_duration}}{\text{crystal\_energy}}) + \pi} \times \Phi_{libido}$$
+
+`Φ_libido` is derived from the deficit between intended and actual daily steps.
+Freud would recognise this as sublimated locomotion anxiety. The algorithm does not
+require this interpretation to function.
+
+---
+
+### Über-Ich Censorship (Iterative Digit Sum Reduction)
+
+The raw OEC often produces values in the thousands — magnitudes that would
+overwhelm conscious interpretation. A recursive reduction is applied:
+```python
+def ueber_ich(n):
+    n = abs(int(n))
+    while n > 100:
+        n = sum(int(d) for d in str(n))
+    return n
+
+oec_final = ueber_ich(oec)
+```
+
+This simulates the Freudian censorship process: the Über-Ich filters the raw
+libidinous output of the Id until a socially acceptable value (≤ 100) is achieved.
+The mathematical mechanism is digit sum reduction.
+The psychological mechanism is repression.
+These are equivalent for the purposes of this module.
+
+---
+
+### Freudian Interpretation Table
+
+| OEC (final) | Category | Interpretation |
+|---|---|---|
+| 0 – 10 | Day residue | Processing of banal data. The unconscious is understimulated. |
+| 11 – 42 | Wish fulfilment | Symbolic satisfaction — usually technical in nature (e.g. new hardware). |
+| 43 – 69 | Libidinal stasis | The Über-Ich is blocked by excessive Excel spreadsheets. |
+| 70 – 99 | Anxiety neurosis | Warning from the inner child. Cross-reference birth time with maternal records. |
+| 100 | Id dominance | Consciousness has lost control. Bed rest prescribed. |
+
+---
+
+### Integration
+
+- Trigger: optional flag in `build.py` or Mystical Toggle in GUI
+- Input: REM duration from `garmin_raw_YYYY-MM-DD.json` · all other values from `correlation_engine.py`
+- Output: OEC final value + category + interpretation text
+
+---
+
+*This module is a digital placebo. Its purpose is to motivate the user — through*
+*algorithmic meaning-making — to take their REM phases more seriously.*
+*The reasoning involves pink unicorns and digit sums.*
+*The outcome may nonetheless be valid.*
+*Scientifically: no. Practically: possibly. ✨*
+
+
