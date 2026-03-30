@@ -73,8 +73,8 @@ SYNC_DATES = _utils.parse_sync_dates(os.environ.get("GARMIN_SYNC_DATES", ""))
 
 # Delay between API requests — random float between min and max (seconds)
 # Breaks the fixed request pattern to reduce Garmin rate-limit risk
-REQUEST_DELAY_MIN = float(os.environ.get("GARMIN_REQUEST_DELAY_MIN", "1.0"))
-REQUEST_DELAY_MAX = float(os.environ.get("GARMIN_REQUEST_DELAY_MAX", "3.0"))
+REQUEST_DELAY_MIN = float(os.environ.get("GARMIN_REQUEST_DELAY_MIN", "5.0"))
+REQUEST_DELAY_MAX = float(os.environ.get("GARMIN_REQUEST_DELAY_MAX", "20.0"))
 
 # If True: days with recheck=True are excluded from get_local_dates() → re-fetched
 REFRESH_FAILED = os.environ.get("GARMIN_REFRESH_FAILED", "0") == "1"

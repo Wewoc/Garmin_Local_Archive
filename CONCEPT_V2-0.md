@@ -7,20 +7,7 @@
 > All module names, interfaces, and structures are placeholders.
 > Concrete decisions will be made when actual development begins.
 
----
 
-## Motivation
-
-v1.x is designed for a single data source — Garmin Connect. In practice, health and
-fitness data comes from multiple sources in parallel: Garmin provides HRV, sleep,
-stress and Body Battery; a bike computer (e.g. Wahoo Elemnt) provides cadence, power
-and GPS tracks via Strava; Komoot provides routes and elevation data. These data sets
-complement each other — meaningful analysis requires all of them.
-
-v2.0 extends the architecture to support any number of data sources without touching
-the existing Garmin logic.
-
----
 
 ## Directory Structure
 
