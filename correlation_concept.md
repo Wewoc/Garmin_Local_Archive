@@ -1,6 +1,6 @@
 ![Garmin Local Archive](screenshots/Banner.png)
 
-# Garmin Local Archive — Correlation Engine ✨
+ Garmin Local Archive — Correlation Engine ✨
 
 > *Module name: `correlation_engine.py`*
 >
@@ -549,4 +549,541 @@ These are equivalent for the purposes of this module.
 *The outcome may nonetheless be valid.*
 *Scientifically: no. Practically: possibly. ✨*
 
+# Appendix D — Extended Recommendation Pools
+
+*Companion to `correlation_concept.md` · Same rules apply: deterministic, plausible, unproven.*
+
+---
+
+## D.1 — Chakra Recommendations
+
+Each chakra has three possible states: `blocked ⚠`, `open ✓`, `overstimulated ⚡`.
+Each state draws from a pool of 10 recommendations. Index formula:
+
+```python
+rec_index = (hrv_delta + steps_delta + crystal_energy) % 10
+```
+
+Where `hrv_delta` and `steps_delta` are the deviation of today's value from the
+90-day personal baseline, discretised to 0–9. The result sounds personal. It is modulo arithmetic.
+
+---
+
+### Root — Muladhara (Steps)
+
+**Blocked ⚠** — *"Your grounding is insufficient. The earth cannot support what stands on it."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Walk barefoot on grass for 10 minutes. If unavailable, visualise grass. The effect is comparable. |
+| 1 | Place both feet flat on the floor. Remain there. This is already more than you did yesterday. |
+| 2 | Eat root vegetables. The symbolism is self-evident. |
+| 3 | Your step count suggests a sedentary bioenergetic profile. Stand up. The algorithm will notice. |
+| 4 | Avoid upper-floor living today if possible. Descend. |
+| 5 | Red is the colour of Muladhara. Wear something red. This is optional but statistically correlated. |
+| 6 | Physical activity is recommended. The type is irrelevant. The direction is down. |
+| 7 | Your baseline deviation indicates locomotion deficiency. The prescription is locomotion. |
+| 8 | Stomp lightly on the floor three times. Nobody needs to know. |
+| 9 | The root chakra responds to rhythm. Walk with intention. Or at all. |
+
+**Open ✓** — *"Muladhara is stable. Your physical foundation is adequate. This may change tomorrow."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Maintain current step pattern. The algorithm has no further instructions. |
+| 1 | Your grounding is functional. Do not overthink this. |
+| 2 | Root energy is flowing. Continue walking in the direction you are already walking. |
+| 3 | No intervention required. The earth approves. |
+| 4 | Physical baseline is within acceptable range. Proceed. |
+| 5 | Muladhara is satisfied. Redirect your attention upward — the other chakras may require it. |
+| 6 | Stability detected. Enjoy it. These windows are finite. |
+| 7 | Your step data indicates adequate terrestrial engagement. Well done. |
+| 8 | The root is open. This is the correct state. Maintain it through continued ambulation. |
+| 9 | Nothing to report. The algorithm considers this a success. |
+
+**Overstimulated ⚡** — *"Muladhara is overactive. You have walked too much, or thought about walking too much. Both are equivalent."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Rest. The earth is not going anywhere. |
+| 1 | Your step count exceeds baseline by a significant margin. Sit down. |
+| 2 | Excess root energy may manifest as restlessness, hoarding, or excessive shoe purchases. Monitor accordingly. |
+| 3 | Reduce physical intensity. The algorithm is not impressed by step count alone. |
+| 4 | Channel surplus energy upward through the chakra column. The method is unspecified. |
+| 5 | You are too grounded. This is rarer than it sounds. Take a moment to be ungrounded. |
+| 6 | Consider a rest day. The algorithm has considered it for you. The answer is yes. |
+| 7 | Overactivity detected at the base. Stillness is recommended. The stars will still be there. |
+| 8 | Your physical output is noted. Noted, and considered excessive. Rest. |
+| 9 | The root chakra does not benefit from maximalism. Moderate. |
+
+---
+
+### Sacral — Svadhisthana (Body Battery)
+
+**Blocked ⚠** — *"Creative energy is depleted. The well is dry. Do not attempt to draw from it today."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Your Body Battery indicates energetic poverty. Conserve. |
+| 1 | Creativity requires fuel. You are running on reserve. Schedule restoration. |
+| 2 | Water is the element of Svadhisthana. Drink some. It will not fix everything. It will fix hydration. |
+| 3 | Orange is the colour of the sacral chakra. This information is provided without further comment. |
+| 4 | Rest near water if possible. A glass counts. The algorithm is not demanding. |
+| 5 | Do not begin new projects today. Your energetic budget does not support them. |
+| 6 | Body Battery below threshold. Creative output should be deferred to a better-rested version of yourself. |
+| 7 | Pleasure is medicinal for Svadhisthana. The algorithm recommends something you enjoy. It does not specify what. |
+| 8 | Low sacral energy correlates with creative resistance. Do not fight it. Rest instead. |
+| 9 | Your energy reserves are below baseline. Sleep is the recommended intervention. The algorithm endorses sleep. |
+
+**Open ✓** — *"Svadhisthana is flowing. Creative energy is available. Whether you use it is your concern."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Energy is available. The algorithm suggests using it on something that matters to you. |
+| 1 | Body Battery is adequate. Sacral flow is unobstructed. Proceed with creative endeavours. |
+| 2 | This is a good day for output. The data suggests it. The algorithm concurs. |
+| 3 | Svadhisthana is open. Consider what you have been postponing. |
+| 4 | Your energetic profile supports engagement. Do not waste it on low-value tasks. |
+| 5 | Creative potential is available today. The algorithm cannot force you to use it. |
+| 6 | Body Battery in optimal range. Sacral chakra: operational. Status: good. |
+| 7 | No blockages detected. Enjoy the rare alignment of available energy and acceptable HRV. |
+| 8 | The sacral chakra is satisfied. This is the correct state. |
+| 9 | Energy flow: adequate. Creative access: open. Further instruction: unnecessary. |
+
+**Overstimulated ⚡** — *"Svadhisthana is overcharged. You may be starting too many things. The algorithm has noticed."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Excess creative energy may lead to scattered output. Focus. |
+| 1 | You have more energy than you have direction. Choose one direction. |
+| 2 | Body Battery is high. This is technically positive. Overstimulation is the exception. You are the exception. |
+| 3 | Channel surplus sacral energy into completion rather than initiation. Finish something. |
+| 4 | Overcharge detected. Ground excess energy through physical activity. See Muladhara. |
+| 5 | The algorithm notes high Body Battery with mild concern. Moderate your output velocity. |
+| 6 | Too much sacral energy can manifest as impulsivity. Pause before committing to anything. |
+| 7 | Creative overload detected. Schedule a deliberate pause. The ideas will survive it. |
+| 8 | High energy, high risk of overcommitment. The algorithm recommends completing yesterday's tasks first. |
+| 9 | Svadhisthana is running hot. This is rare. Do not squander it on social media. |
+
+---
+
+### Solar Plexus — Manipura (Stress, inverted)
+
+**Blocked ⚠** — *"Your will is under pressure. Manipura is compressed. Expansion is recommended."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Stress level exceeds threshold. The algorithm recommends fewer commitments. It cannot enforce this. |
+| 1 | Yellow is the colour of Manipura. Sunlight is the medium. Go outside. |
+| 2 | High stress indicates solar plexus compression. Breathe into the abdomen. Count to four. |
+| 3 | Your autonomic nervous system is not your enemy. Today it is just confused. |
+| 4 | Avoid confrontation today. Your energetic resources are allocated elsewhere. |
+| 5 | Diaphragmatic breathing is recommended. The algorithm cannot demonstrate this. You know how. |
+| 6 | Manipura blockage correlates with decision fatigue. Make fewer decisions today. |
+| 7 | Your stress index suggests the inner warrior is tired. Rest the warrior. |
+| 8 | The solar plexus governs digestion and willpower. Both are compromised. Eat something simple. |
+| 9 | Stress above baseline. The algorithm recommends not adding to it. This includes this recommendation. |
+
+**Open ✓** — *"Manipura is active and balanced. Will and digestion are functioning within acceptable parameters."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Stress is within normal range. Willpower reserves are available. Use them wisely. |
+| 1 | Solar plexus: clear. You may proceed with confidence. Not overconfidence. |
+| 2 | Your stress profile is acceptable today. The algorithm is not worried. You should not be either. |
+| 3 | Manipura is open. Decision-making is supported. Proceed. |
+| 4 | Inner fire is balanced. This is the target state. Acknowledge it and move on. |
+| 5 | Stress levels nominal. No intervention recommended. Enjoy this while it lasts. |
+| 6 | Solar plexus energy is flowing. Your sense of personal power is intact. Use it responsibly. |
+| 7 | Willpower available. Stress manageable. Conditions are favourable. |
+| 8 | Manipura status: open. This correlates with productive days. Historically. For others. Probably also you. |
+| 9 | Your stress index does not require intervention. The algorithm considers this a win. |
+
+**Overstimulated ⚡** — *"Manipura is overactive. The inner fire is consuming more than it should."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Very low stress can indicate disconnection rather than calm. Examine this. |
+| 1 | Solar plexus overstimulation may present as excessive control-seeking. Loosen your grip. |
+| 2 | Your willpower reserves are high. So is the risk of overextension. Pace yourself. |
+| 3 | Overstimulated Manipura can lead to dominance behaviour in group settings. Be aware. |
+| 4 | Inner fire is running hot. Find something to cool it. Water. Shade. A boring meeting. |
+| 5 | High personal power detected. Use it for construction, not for winning arguments. |
+| 6 | Manipura overstimulation correlates with impatience. The algorithm is patient. Try to be also. |
+| 7 | Your energy output is high. Channel it toward completion of existing commitments first. |
+| 8 | Excessive solar plexus energy can be grounded through physical exertion. Recommended. |
+| 9 | The inner warrior is overzealous today. Assign it a task before it assigns itself one. |
+
+---
+
+### Heart — Anahata (Resting HR, inverted)
+
+**Blocked ⚠** — *"Anahata is constricted. Cardiovascular and emotional circulation are both affected."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Resting HR above baseline. The heart is working harder than it should. Rest. |
+| 1 | Green is the colour of Anahata. Spend time near plants. Or look at a picture of plants. The chakra does not verify. |
+| 2 | Heart chakra blockage may manifest as difficulty receiving kindness. Accept help today if offered. |
+| 3 | Elevated resting HR indicates cardiovascular load. Reduce inputs: caffeine, stress, obligations. |
+| 4 | Anahata is compressed. Love flows poorly under compression. Open a window. |
+| 5 | Your heart is beating faster than your baseline. The algorithm does not know why. Rest anyway. |
+| 6 | Heart chakra blockage correlates with social withdrawal. The algorithm recommends one human interaction today. |
+| 7 | Resting HR is elevated. Recovery is incomplete. Sleep more. The heart will thank you. |
+| 8 | Anahata blockage may appear as criticism of others. Notice this. Do not act on it. |
+| 9 | Your cardiovascular system is under load. This is not the day for additional burdens. |
+
+**Open ✓** — *"Anahata is open. The heart is beating at an appropriate rate. Emotional circulation: adequate."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Resting HR within optimal range. Heart chakra is unobstructed. Status: good. |
+| 1 | Anahata is open. This is the correct state for a functioning human. Well done. |
+| 2 | Your heart rate baseline indicates adequate recovery. The algorithm is pleased. |
+| 3 | Heart chakra: open. Love, empathy, and cardiovascular function are all within parameters. |
+| 4 | Resting HR is appropriate. No cardiac or energetic intervention recommended. |
+| 5 | Anahata is clear. The algorithm recommends expressing this through action rather than analysis. |
+| 6 | Heart chakra status: nominal. You may proceed with connection, creativity, and other heart-adjacent activities. |
+| 7 | Your resting HR supports this assessment: recovery is adequate, heart is cooperating. |
+| 8 | Open heart chakra detected. This correlates with good days. The correlation is not proven. The day may still be good. |
+| 9 | Anahata is satisfied. No further input required from this dimension. |
+
+**Overstimulated ⚡** — *"Anahata is overactive. The heart may be giving more than it is receiving."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Very low resting HR with high readiness: elite adaptation, or the algorithm is confused. Both are possible. |
+| 1 | Heart chakra overstimulation may present as emotional over-investment. Set a boundary somewhere today. |
+| 2 | Anahata is running beyond baseline. Generous, but unsustainable. Receive something today. |
+| 3 | Overstimulated heart energy can lead to over-empathy and under-self-care. Correct the ratio. |
+| 4 | Your resting HR is unusually low. This is often good. Sometimes it means your Garmin needs charging. |
+| 5 | Heart chakra overstimulation: give less, receive more. The algorithm is not usually this direct. |
+| 6 | Anahata overactivity correlates with people-pleasing. The algorithm recommends one refusal today. |
+| 7 | Your cardiovascular efficiency is high. So is the risk of overcommitting emotionally. Be cautious. |
+| 8 | Too much heart energy directed outward. Reserve some. The algorithm will monitor tomorrow. |
+| 9 | Open and overstimulated Anahata: the kindest people often have the most blocked-by-excess hearts. Rest yours. |
+
+---
+
+### Throat — Vishuddha (HRV)
+
+**Blocked ⚠** — *"Vishuddha is constricted. Expression is suppressed. Your HRV agrees."*
+
+| # | Recommendation |
+|---|---|
+| 0 | HRV below baseline. The nervous system is tense. Expression under tension is rarely optimal. Wait. |
+| 1 | Throat chakra blockage correlates with unsaid things. This is not medical advice. It is pattern recognition. |
+| 2 | Blue is the colour of Vishuddha. Look at the sky. Say something true. Order is unimportant. |
+| 3 | Your HRV suggests autonomic tension. The throat chakra governs communication. Connect these dots yourself. |
+| 4 | Low HRV indicates sympathetic dominance. This is not the day for difficult conversations. |
+| 5 | Vishuddha is compressed. Humming is the classical intervention. The algorithm does not endorse humming. But it helps. |
+| 6 | Suppressed expression accumulates. Today is not the day to release it. Tomorrow, possibly. |
+| 7 | HRV below personal baseline. Recovery is incomplete. Do not make important decisions or statements. |
+| 8 | Throat chakra blockage may manifest as over-explanation. Notice if you are over-explaining right now. |
+| 9 | Your HRV indicates the nervous system needs quiet. Give it quiet. |
+
+**Open ✓** — *"Vishuddha is clear. Expression and autonomic regulation are both functional."*
+
+| # | Recommendation |
+|---|---|
+| 0 | HRV within normal range. Throat chakra is unobstructed. Speak freely. |
+| 1 | Vishuddha is open. This is a good day for difficult conversations. HRV supports this assessment. |
+| 2 | Autonomic balance is adequate. Expression is supported. The algorithm endorses clarity. |
+| 3 | HRV is within baseline. Your nervous system is cooperative today. Use it. |
+| 4 | Throat chakra: clear. Say what you mean. The data is in your favour. |
+| 5 | Vishuddha is functioning. The algorithm has nothing to add. That is itself a good sign. |
+| 6 | HRV nominal. Communication energy is available. Choose your words well — not because of the chakra, but generally. |
+| 7 | Open Vishuddha detected. This is the correct state. Maintain autonomic regulation through continued recovery. |
+| 8 | Your HRV supports clear expression today. The algorithm agrees with whatever you were planning to say. |
+| 9 | Throat chakra open. Nervous system regulated. Conditions are favourable for honest communication. |
+
+**Overstimulated ⚡** — *"Vishuddha is overactive. You may be saying more than necessary."*
+
+| # | Recommendation |
+|---|---|
+| 0 | High HRV with overstimulated throat: paradoxical. The algorithm is also confused. Rest. |
+| 1 | Vishuddha overstimulation correlates with talking before thinking. Today: think first. |
+| 2 | You may be communicating at a rate that exceeds your signal-to-noise ratio. Reduce output. |
+| 3 | Throat chakra overactivity may manifest as unsolicited advice. The algorithm recognises the irony. |
+| 4 | Too much expression, not enough listening. The algorithm recommends a conversation where you ask questions. |
+| 5 | Vishuddha is running loud. Silence has an energetic value. Consider it. |
+| 6 | Overstimulated throat chakra: you know what you have been doing. The algorithm is not judging. Just noting. |
+| 7 | Reduce communication load today. Not because you have nothing to say. Because quality exceeds quantity. |
+| 8 | High Vishuddha energy can be channelled into writing rather than speaking. Words on paper scatter less. |
+| 9 | The throat chakra does not require constant activity to be open. Rest it. |
+
+---
+
+### Third Eye — Ajna (Sleep Score)
+
+**Blocked ⚠** — *"Ajna is clouded. Sleep quality was insufficient. Clarity should not be expected."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Sleep score below threshold. The third eye cannot see clearly through fatigue. Postpone insight. |
+| 1 | Indigo is the colour of Ajna. It is also the colour of the sky before dawn, which you may have seen too much of last night. |
+| 2 | Poor sleep quality impairs intuition, decision-making, and the algorithm's confidence in your data. |
+| 3 | The third eye requires adequate REM input. You did not provide this last night. |
+| 4 | Ajna blockage correlates with foggy thinking. This is not a metaphor. It is sleep deprivation. |
+| 5 | Avoid major decisions today. Your Ajna is operating below specification. |
+| 6 | Sleep score is insufficient for clear pattern recognition. Trust your instincts less than usual today. |
+| 7 | Third eye clouded by insufficient sleep. The algorithm recommends going to bed earlier. Tonight. |
+| 8 | Intuition runs on sleep. Your sleep ran short. Adjust expectations accordingly. |
+| 9 | Ajna is blocked. The most spiritual intervention available is a nap. |
+
+**Open ✓** — *"Ajna is clear. Sleep was adequate. Pattern recognition is supported."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Sleep score adequate. Third eye is operational. Trust your instincts today — they have been rested. |
+| 1 | Ajna is clear. This is the correct state. Proceed with decisions that require clarity. |
+| 2 | Your sleep quality supports cognitive function. The algorithm endorses today's thinking. |
+| 3 | Third eye: open. Pattern recognition: available. Use it on something worth recognising. |
+| 4 | Sleep score within range. Intuition is adequately fuelled. Proceed. |
+| 5 | Ajna is unobstructed. This is a good day for analysis, insight, and reading long documents. |
+| 6 | Your sleep architecture produced an acceptable score. The algorithm considers this evidence of good habits. |
+| 7 | Third eye clear. No further enhancement recommended. You are already operating at specification. |
+| 8 | Sleep quality: adequate. Cognitive clarity: available. Mystical insight: unverified but technically possible. |
+| 9 | Ajna is open. The algorithm has confidence in your perceptions today. This is rare. Note it. |
+
+**Overstimulated ⚡** — *"Ajna is overactive. You may be seeing patterns that are not there."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Excellent sleep score. Third eye overstimulation is the least common chakra problem. You have it today. |
+| 1 | Ajna overstimulation correlates with overthinking. You are currently overthinking something. Stop. |
+| 2 | Too much pattern recognition can produce false positives. Not everything is significant. Including this. |
+| 3 | Third eye overactivity may manifest as analysis paralysis. Make one decision without analysing it. |
+| 4 | You have slept very well. The clarity this produces can feel like revelation. It is usually just clarity. |
+| 5 | Ajna is running at high sensitivity. Filter your insights before acting on them. |
+| 6 | Overstimulated third eye: trust your analysis, but verify it with data. The algorithm sets an example. |
+| 7 | High sleep quality has sharpened your perception. Do not use this to notice things that were better unnoticed. |
+| 8 | Third eye overstimulation may produce intrusive insights. They are probably correct. That does not mean they are useful. |
+| 9 | Ajna is highly active. This is a good day for research. A bad day for existential questions. |
+
+---
+
+### Crown — Sahasrara (Readiness Score)
+
+**Blocked ⚠** — *"Sahasrara is closed. Connection to higher awareness is limited. This is fine. Most things still work."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Readiness score is low. The crown chakra governs consciousness. Yours is requesting a rest day. |
+| 1 | Violet is the colour of Sahasrara. Look at something violet. The algorithm does not guarantee results. |
+| 2 | Crown chakra blockage correlates with feeling disconnected. This may be your body requesting recovery. |
+| 3 | Your readiness score indicates systemic fatigue. Today is not the day for transcendence. |
+| 4 | Sahasrara blocked: training load likely exceeds recovery capacity. The crown notices first. |
+| 5 | Low readiness indicates the organism needs restoration before it can operate at full consciousness. Rest. |
+| 6 | Crown chakra blocked. The algorithm recommends lowering your ambitions for today specifically. |
+| 7 | Your readiness score does not support high-intensity activity or high-intensity thinking. Both are affected. |
+| 8 | Sahasrara blockage is the body's most direct message. It says: not today. The algorithm translates: not today. |
+| 9 | Crown chakra closed. Training is not recommended. Neither is solving complex problems. Rest, instead. |
+
+**Open ✓** — *"Sahasrara is open. Consciousness is operating within normal parameters. Well done."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Readiness score adequate. Crown chakra is unobstructed. You are ready. For what, the algorithm does not specify. |
+| 1 | Sahasrara is open. This correlates with productive days. Historically. For some users. Probably you. |
+| 2 | Your readiness score supports training, thinking, and other crown-adjacent activities. Proceed. |
+| 3 | Crown chakra: open. Consciousness: available. The algorithm endorses using both today. |
+| 4 | Readiness within range. Sahasrara is satisfied. The universe has no further notes. |
+| 5 | Crown is open. You are operating at full specification. Do not waste this on administrative tasks. |
+| 6 | Sahasrara status: nominal. Readiness status: nominal. Status of algorithm: quietly pleased. |
+| 7 | Your readiness score is good. The crown chakra agrees. This is a convergent data point. Note it. |
+| 8 | Crown open, readiness adequate. Today is a good day for effort. The algorithm recommends applying it. |
+| 9 | Sahasrara is unobstructed. You have been taking care of yourself. The algorithm has noticed. |
+
+**Overstimulated ⚡** — *"Sahasrara is overactive. High readiness is good. Excess is a different problem."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Very high readiness. Crown chakra overstimulation. The algorithm suggests not setting any personal records today. |
+| 1 | Sahasrara overstimulation correlates with overreach. You feel ready for everything. You are ready for most things. |
+| 2 | High readiness score: use it, but do not exhaust it in one session. |
+| 3 | Crown chakra overactive. Consciousness is sharp. Ambition may outpace capacity today. Calibrate. |
+| 4 | Overstimulated Sahasrara can produce overconfidence. The algorithm has seen this before. It ends in DOMS. |
+| 5 | Your readiness is high. High readiness is the correct condition for high effort, not maximum effort. |
+| 6 | Crown overstimulation may manifest as taking on too much. Choose one thing. Do it very well. |
+| 7 | Sahasrara is running at peak. This is sustainable for one day. Plan accordingly. |
+| 8 | High readiness detected. The algorithm recommends moderate application of this resource. Think marathon, not sprint. |
+| 9 | Crown chakra overstimulated. You are at your best. Try not to prove it to anyone. |
+
+---
+
+## D.2 — Dosha Recommendation Pools
+
+Each dominant Dosha draws from a pool of 10 recommendations. Index formula:
+
+```python
+rec_index = (stress_delta + sleep_delta + acupuncture_index) % 10
+```
+
+Where `stress_delta` and `sleep_delta` are deviations from the 90-day baseline, discretised to 0–9.
+The Dosha is real Ayurvedic theory. The index is modulo arithmetic. These facts coexist comfortably.
+
+---
+
+### Vata — Air + Space (Low HRV signature)
+
+*"Movement, creativity, anxiety. The Vata type moves constantly and rests reluctantly."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Warm, cooked foods are recommended. Salads are contraindicated. The wind already has your attention. |
+| 1 | Establish a fixed routine today. Vata disrupts routines. Routines disrupt Vata. One of you should win. |
+| 2 | Avoid cold, raw, and dry foods. Your nervous system is already dry enough. |
+| 3 | Sesame oil is the classical Vata remedy. Application method: massage. Timing: before shower. The algorithm does not follow up. |
+| 4 | Reduce screen time. Vata amplifies stimulation. You do not need more stimulation. You need grounding. |
+| 5 | Your HRV indicates low parasympathetic activity. Vata agrees. Both recommend rest. |
+| 6 | Stay warm. Avoid wind. This is literal, not metaphorical. The wind is bad for Vata. |
+| 7 | Vata dominance calls for stillness. Schedule one hour of deliberate non-movement today. |
+| 8 | Avoid multitasking. Vata already does this without permission. One task. Complete it. Then the next. |
+| 9 | Your biometric signature indicates Vata excess. The prescription is regularity. Same wake time. Same meal time. Begin today. |
+
+---
+
+### Pitta — Fire + Water (High stress signature)
+
+*"Intensity, focus, inflammation. The Pitta type achieves much and recovers reluctantly."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Cool foods are recommended. Spicy, oily, and fermented foods will add to what is already too much. |
+| 1 | Avoid competition today. Pitta finds competition energising. That is the problem. |
+| 2 | Your stress index indicates Pitta aggravation. The intervention is cooling: cold water, shade, silence. |
+| 3 | Midday sun is contraindicated for Pitta. If you must be outside, wear something. The algorithm recommends a hat. |
+| 4 | Surrender one argument today. Not because you are wrong. Because winning it costs more than it pays. |
+| 5 | Pitta is aggravated. Reduce inputs: caffeine, urgency, meetings that could have been emails. |
+| 6 | Coconut oil is the classical Pitta remedy. Application and context: your responsibility. |
+| 7 | Your stress signature indicates internal combustion. The most Pitta-appropriate response is counter-intuitive: do less. |
+| 8 | Pitta excess drives overwork. The algorithm recommends stopping before you feel finished. This is very difficult for Pitta. That is why it is the recommendation. |
+| 9 | High stress, high drive, high standards: all Pitta. Today, apply these to your recovery plan instead of your task list. |
+
+---
+
+### Kapha — Earth + Water (Low Body Battery signature)
+
+*"Stability, endurance, lethargy. The Kapha type persists long and starts reluctantly."*
+
+| # | Recommendation |
+|---|---|
+| 0 | Movement is the primary Kapha intervention. The type and intensity are secondary. Start moving. |
+| 1 | Stimulation is recommended. Kapha accumulates in stillness. Disruption is medicine. |
+| 2 | Bitter and pungent tastes are recommended. Coffee qualifies. The algorithm endorses coffee for Kapha specifically. |
+| 3 | Your Body Battery is low, but Kapha low-battery differs from depletion. The body has reserves. Access them through movement. |
+| 4 | Avoid sleeping after meals. Kapha already gravitates toward horizontal. Resist it. |
+| 5 | Light, dry, and warm foods are recommended. Heavy meals will make the day heavier. |
+| 6 | Kapha dominance today. The correct response is to do the thing you are most inclined to postpone. |
+| 7 | Ginger is the classical Kapha remedy. In tea. In food. In the algorithm's best wishes. |
+| 8 | Low Body Battery with Kapha dominance: the system is slow, not broken. Apply gentle force. It will respond. |
+| 9 | Kapha asks for rest. Give it movement instead. It will not like this. It will benefit from this. These are not mutually exclusive. |
+
+---
+
+## D.3 — Feng Shui Extended Recommendations
+
+Each direction has a pool of 5 directional notes beyond the standard meaning.
+Index formula:
+
+```python
+note_index = (body_battery_delta + ascendant_id + crystal_energy) % 5
+```
+
+The direction is already calculated to one decimal place. The note is calculated to zero decimal places of meaningfulness.
+
+---
+
+### North — Career, wisdom, rest
+
+| # | Note |
+|---|---|
+| 0 | The North governs career flow. Sleep facing North to consolidate professional insights accumulated today. |
+| 1 | North alignment supports deep rest. Your Head points toward wisdom. The wisdom does not flow backward. |
+| 2 | Career energy accumulates during northward sleep. The algorithm cannot confirm this. The tradition can. |
+| 3 | Rest facing North. If you wake with clarity about work problems, the algorithm accepts partial credit. |
+| 4 | North is the direction of stillness. Your HRV will be measured in the morning. The direction may be a factor. |
+
+### Northeast — Knowledge, stillness
+
+| # | Note |
+|---|---|
+| 0 | Northeast optimises for knowledge integration. Sleep here after learning something. |
+| 1 | Stillness energy accumulates in the Northeast. Your nervous system will appreciate the alignment. |
+| 2 | Northeast supports study and retention. If you read before bed, this direction amplifies it. Probably. |
+| 3 | The Northeast vector intersects with your ascendant's secondary axis tonight. This is either significant or coincidental. |
+| 4 | Knowledge flows Northeast. Orient accordingly and review what you learned today before sleeping. |
+
+### East — Health, family, growth
+
+| # | Note |
+|---|---|
+| 0 | East is the direction of sunrise and health. Facing East during sleep aligns recovery with solar rhythm. |
+| 1 | Family energy concentrates in the East. Sleep facing East to consolidate social bonds. The mechanism is unverified. |
+| 2 | Growth energy flows from the East. Your biometric trends will be assessed tomorrow. The direction may contribute. |
+| 3 | Eastern alignment supports physical recovery. Your resting HR tomorrow may reflect this. Or other factors. Probably other factors. |
+| 4 | East governs new beginnings. Appropriate for any night following a difficult day. |
+
+### Southeast — Wealth, abundance
+
+| # | Note |
+|---|---|
+| 0 | Southeast governs material flow. The algorithm makes no promises about your finances. It notes the direction. |
+| 1 | Abundance energy concentrates in the Southeast. Sleep quality here is associated with resource clarity. By tradition. |
+| 2 | Southeast alignment is considered auspicious. Your Body Battery tomorrow will serve as partial evidence. |
+| 3 | Wealth energy flows Southeast. The algorithm does not define wealth. It notes that sleep quality is one form of it. |
+| 4 | Southeast is the direction of abundance. Rest well. The morning will have its own opinion. |
+
+### South — Fame, recognition, energy
+
+| # | Note |
+|---|---|
+| 0 | South governs visibility and energy. Sleep facing South on high-output days to consolidate the day's momentum. |
+| 1 | Fame energy accumulates in the South. This is irrelevant unless you are seeking recognition. If you are: South. |
+| 2 | Southern alignment amplifies recovery energy. Your readiness score tomorrow is the algorithm's primary metric for this claim. |
+| 3 | South is the direction of fire and vitality. Appropriate on recovery nights before planned exertion. |
+| 4 | Recognition energy flows South. Whether you want recognition is your concern. The direction remains South. |
+
+### Southwest — Relationships, stability
+
+| # | Note |
+|---|---|
+| 0 | Southwest governs partnerships and stability. Sleep here when relationships require attention. |
+| 1 | Stability energy concentrates in the Southwest. Your HRV coherence may reflect this by morning. |
+| 2 | Relationship energy flows Southwest. If you share a bed, both occupants benefit. The algorithm assumes cooperation. |
+| 3 | Southwest alignment supports long-term thinking. Appropriate before decisions that affect others. |
+| 4 | Stability and partnership: Southwest. The algorithm does not require you to believe this. Only to try it. |
+
+### West — Creativity, completion, children
+
+| # | Note |
+|---|---|
+| 0 | West governs completion energy. Sleep facing West after leaving things unfinished. The direction encourages closure. |
+| 1 | Creative energy flows West. Sleep here before days that require creative output. |
+| 2 | Western alignment supports the completion of cycles. Appropriate at the end of projects, phases, or difficult weeks. |
+| 3 | West is the direction of the setting sun. Facing West acknowledges endings. Endings make room for beginnings. |
+| 4 | Creativity and completion concentrate in the West. Your dream content tonight is the algorithm's control variable for this claim. |
+
+### Northwest — Helpful people, travel, authority
+
+| # | Note |
+|---|---|
+| 0 | Northwest governs mentors and helpful forces. Sleep here when you need assistance that has not arrived yet. |
+| 1 | Travel energy flows Northwest. Appropriate before journeys, transitions, or significant changes. |
+| 2 | Authority energy concentrates in the Northwest. Sleep here before situations requiring leadership. |
+| 3 | Northwest alignment attracts support. The mechanism is not documented. The tradition is 3000 years old. |
+| 4 | Helpful people energy flows Northwest. If you need help tomorrow, point your head in the right direction tonight. |
+
+---
+
+*Appendix D is a companion document to `correlation_concept.md`.*
+*All recommendation pools follow the same deterministic index principle as Appendix A.*
+*All recommendations are plausible. None are evidence-based.*
+*The distinction between "plausible" and "evidence-based" is left as an exercise for the reader.*
+*✨*
+
+---
+
+*Created 2026-03-30 · "The algorithm does not judge. It only recommends."*
 

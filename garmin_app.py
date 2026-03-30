@@ -29,8 +29,8 @@ DEFAULT_SETTINGS = {
     "date_to":          "",
     "age":              "35",
     "sex":              "male",
-    "request_delay_min": "1.0",
-    "request_delay_max": "3.0",
+    "request_delay_min": "5.0",
+    "request_delay_max": "20.0",
     "timer_min_interval": "5",
     "timer_max_interval": "30",
     "timer_min_days":     "3",
@@ -191,7 +191,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.2.2",
+        tk.Label(header, text="v1.2.2a",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -313,6 +313,9 @@ class GarminApp(tk.Tk):
         self.v_delay_max = tk.StringVar()
         self._field(s6, "Delay min (s)", self.v_delay_min, width=6)
         self._field(s6, "Delay max (s)", self.v_delay_max, width=6)
+        tk.Label(s6, text="⚠  Low delay values (< 5s) increase the risk of IP bans (HTTP 429). Recommended: min 5.0 / max 20.0",
+                 font=("Segoe UI", 7), bg=BG2, fg=YELLOW, anchor="w", wraplength=240, justify="left"
+                 ).pack(anchor="w", padx=16, pady=(2, 4))
 
         # Save button
         tk.Frame(parent, bg=BG2, height=10).pack()

@@ -157,6 +157,13 @@ def api_call(client, method: str, *args, label: str = ""):
         time.sleep(random.uniform(cfg.REQUEST_DELAY_MIN, cfg.REQUEST_DELAY_MAX))
         return data, True
     except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg:
+            log.critical(f"  ✗ RATE LIMIT (429) — stopping immediately to protect IP.")
+            ev = globals().get("_STOP_EVENT")
+            if ev:
+                ev.set()
+            return None, False
         log.warning(f"    ✗ {label or method}: {e}")
         time.sleep(random.uniform(cfg.REQUEST_DELAY_MIN, cfg.REQUEST_DELAY_MAX))
         return None, False
@@ -197,11 +204,16 @@ def fetch_raw(client, date_str: str) -> tuple:
     ]
 
     for method, args, key in endpoints:
+        if _is_stopped():
+            break
         data, success = api_call(client, method, *args, label=key)
         if data is not None:
             raw[key] = data
         elif not success:
             failed_endpoints.append(key)
+
+    if not _is_stopped():
+        time.sleep(random.uniform(10, 20))
 
     return raw, failed_endpoints
 
