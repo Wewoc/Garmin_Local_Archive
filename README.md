@@ -70,7 +70,7 @@ Trade-offs:
 
 It works. And if I could build it, you are free to use it.
 
-*Built with Claude · If this saved you time — [☕ buy me a coffee](https://ko-fi.com/wewoc)*
+*Built with Claude · If this saved you time — [☕ buy me a coffee](https://ko-fi.com/wewoc) · or leave a [⭐ on GitHub](https://github.com/Wewoc/Garmin_Local_Archive)*
 
 ---
 
