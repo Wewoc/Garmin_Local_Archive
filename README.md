@@ -15,6 +15,8 @@ Tools like Garmin Chat Connector or Whoop's built-in AI send your data to cloud 
 
 ## Why this exists
 
+This project started as a proof of concept — exploring what is possible today without a traditional software development background, using AI as a coding partner.
+
 I’m not a software developer — my background is in mechanical system design.
 I approach this project as an architect: defining structure, logic, modules and quality rules, while Claude implements the code according to these specifications.
 
