@@ -8,7 +8,6 @@
 * **Use at Your Own Risk:** Use with caution. I am not responsible for data loss or issues with your Garmin account.
 * **Personal Project:** This is a personal project, not a commercial product.
 
-
 Archive and analyze your Garmin Connect data **locally on your machine — no cloud, no third parties, no US-based AI servers by default**. Everything runs under your control, designed with **privacy in mind, inspired by European principles**.  
 
 Tools like Garmin Chat Connector or Whoop's built-in AI send your data to cloud AI services. This project exists **to give the opposite choice**: your data stays on your machine in open formats you can read, export, and analyze with any tool you choose — local AI, cloud AI, or no AI at all. **Your data, your call.**  
