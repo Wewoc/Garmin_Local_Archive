@@ -54,6 +54,17 @@ Garmin erodes your historical data over time. This tool stops it.
 | **Privacy Risk** | Medium (Corporate) | High (Data used for Training) | **Minimal (Private)** |
 | **Access** | Online Only | Requires Internet/Subscription | **100% Offline** |
 
+## Download
+
+| Version | Description | Requires |
+|---|---|---|
+| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
+| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
+
+No install, no terminal. Download, unzip, run.
+
+---
+
 ### Recovering your history — Bulk Import
 
 Garmin keeps intraday data (heart rate by second, stress curve, sleep stages) for approximately 1–2 years. After that, only daily aggregates remain. Once it's gone from Garmin's servers, the API can't retrieve it.
