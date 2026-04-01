@@ -219,6 +219,27 @@ The encryption is not security theatre — it solves the problem it was designed
 [ Exports ] [ Dashboards ]
 (AI / JSON) (HTML / Excel)
 ```
+```
+[ Garmin GDPR Export ZIP ]
+      │
+      ▼
+[ garmin_import ]      – reads ZIP or folder, maps export fields to canonical schema
+      │
+      ▼
+[ garmin_normalizer ]  – type validation, unified schema
+      │
+      ▼
+[ garmin_quality ]     – assess + register (source: bulk, recheck: false)
+      │
+      ▼
+[ garmin_collector ]   – skip if API high/medium already present
+      │
+      ▼
+[ garmin_writer ]      – sole owner of raw/ + summary/
+      │
+      ▼
+ [ Local Archive ]     – same format as API data, fully compatible
+```
 
 ---
 
