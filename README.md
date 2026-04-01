@@ -7,9 +7,9 @@
 * **Feedback is Welcome:** If something feels off — logic, structure, or results — open an issue. That kind of feedback is the most useful.
 * **Use at Your Own Risk:** Use with caution. I am not responsible for data loss or issues with your Garmin account.
 
-Archive and analyze your Garmin Connect data locally — no cloud, no third parties. Everything runs on your own machine.
+Archive and analyze your Garmin Connect data **locally on your machine — no cloud, no third parties, no US-based AI servers by default**. Everything runs under your control, designed with **privacy in mind, inspired by European principles**.  
 
-Tools like Garmin Chat Connector or Whoop's built-in AI give you convenient access to your health data — by sending it to cloud AI services. That's a valid choice for many people. This project exists because of exactly these tools — and makes the opposite choice. Your data stays on your machine, in open formats you can read, export, and analyse with any tool you choose — a local AI, a cloud AI, or no AI at all. **Your data, your call.**
+Tools like Garmin Chat Connector or Whoop's built-in AI send your data to cloud AI services. This project exists **to give the opposite choice**: your data stays on your machine in open formats you can read, export, and analyze with any tool you choose — local AI, cloud AI, or no AI at all. **Your data, your call.**  
 
 ---
 
@@ -29,12 +29,13 @@ So I built this instead — with Claude as my coding partner, from zero, over ma
 **Note:** the AI itself is not included in this project — the scripts prepare your data in a format suitable for any local AI you choose to use. How to install and use a local AI with your data is explained in the setup guide at the end of this README.
 
 So this project focuses on:
-- **local-first data storage**
+- **local-first data storage** 
+- **Privacy & The "Double Cloud" Trap (Privacy first — inspired by European principles)**
 - **simple usage (EXE, no setup)**
 - **structured data for later analysis (including local AI)**
+- **Offline First:** Once the data are on your disk, no further transmission occurs.
 
-
-### What makes this different
+## What makes this different
 
 This is not just a data export script.
 
@@ -43,6 +44,12 @@ It is designed to solve a specific problem:
 > **Get a complete, consistent local copy of your Garmin data — and keep it that way.**
 
 Garmin erodes your historical data over time. This tool stops it.
+
+| Feature | Garmin Connect | Cloud-AI Bridges (MCP) | **Garmin Local Archive** |
+| :--- | :--- | :--- | :--- |
+| **Data Storage** | Garmin Servers (USA) | US AI Servers (Anthropic/OpenAI) | **Your Local Machine** |
+| **Privacy Risk** | Medium (Corporate) | High (Data used for Training) | **Minimal (Private)** |
+| **Access** | Online Only | Requires Internet/Subscription | **100% Offline** |
 
 ![Garmin Local Archive — Desktop App](screenshots/GUI.jpg)
 *Desktop app — settings, sync, export and background timer in one place.*
