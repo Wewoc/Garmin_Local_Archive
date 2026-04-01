@@ -6,6 +6,8 @@
 * **No Guaranteed Support:** No support, maintenance, or liability is offered. Development happens when time and interest allow.
 * **Feedback is Welcome:** If something feels off — logic, structure, or results — open an issue. That kind of feedback is the most useful.
 * **Use at Your Own Risk:** Use with caution. I am not responsible for data loss or issues with your Garmin account.
+* **Personal Project:** This is a personal project, not a commercial product.
+
 
 Archive and analyze your Garmin Connect data **locally on your machine — no cloud, no third parties, no US-based AI servers by default**. Everything runs under your control, designed with **privacy in mind, inspired by European principles**.  
 
