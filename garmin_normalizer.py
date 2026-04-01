@@ -109,16 +109,36 @@ def _normalize_api(raw: dict) -> dict:
 
 def _normalize_import(raw: dict) -> dict:
     """
-    Normalises a raw dict from garmin_import.load_bulk().
+    Normalises a raw dict from garmin_import.parse_day().
 
-    Placeholder — not implemented in v1.2.0.
-    Returns the dict unchanged until bulk import is implemented.
-
-    Source tracking ("source", "source_metadata") is planned for a later version.
+    garmin_import.parse_day() already delivers the canonical schema —
+    this function applies the same type validation as _normalize_api()
+    and guarantees the "date" key is present.
     """
     if not isinstance(raw, dict):
         log.warning("  _normalize_import: received non-dict — returning empty day")
         return {"date": "unknown"}
+
+    if "date" not in raw:
+        log.warning("  _normalize_import: 'date' key missing in raw dict")
+
+    _EXPECTED_DICT = ("sleep", "stress", "body_battery", "heart_rates",
+                      "respiration", "spo2", "stats", "user_summary",
+                      "training_status", "training_readiness", "hrv",
+                      "race_predictions", "max_metrics")
+    _EXPECTED_LIST = ("activities",)
+
+    for key in _EXPECTED_DICT:
+        if key in raw and not isinstance(raw[key], dict):
+            log.warning(f"  _normalize_import: '{key}' has unexpected type "
+                        f"({type(raw[key]).__name__}) — removed")
+            del raw[key]
+
+    for key in _EXPECTED_LIST:
+        if key in raw and not isinstance(raw[key], list):
+            log.warning(f"  _normalize_import: '{key}' has unexpected type "
+                        f"({type(raw[key]).__name__}) — removed")
+            del raw[key]
 
     return raw
 

@@ -6,27 +6,22 @@
 
 ---
 
-## Currently stable — v1.2.2
-
-- **Bug Fixes + Security + Polish (v1.2.1)** — `GarminLoginError` exception, per-endpoint failure tracking, input validation in normalizer, preventive `QUALITY_LOCK`, random salt in token encryption, GUI labels fully in English, random request delay, export date range auto-fill, default data folder fix. See CHANGELOG for details.
-- **Code Hygiene (v1.2.1b)** — `build_manifest.py` as single source of truth for build lists, `build_all.py` added, `garmin_utils.py` added with shared helpers, `garmin_config.py` logic extracted to utils, `test_local.py` extended to 116 checks. See CHANGELOG for details.
-- **Schema Versioning (v1.2.2)** — `schema_version` field in summary files, `CURRENT_SCHEMA_VERSION` in `garmin_normalizer.py`, `source` origin tracking in `quality_log.json`. See CHANGELOG for details.
-
----
-
-**Currently stable — v1.2.2a**
+**Currently stable — v1.3.0**
 
 - **Rate Limit Hotfix (v1.2.2a)** — Explicit HTTP 429 detection in `api_call()` with immediate stop, stop-check in `fetch_raw()` loop, inter-day pause after each completed day, default delays raised to 5/20 sec. See CHANGELOG for details.
+- **Bulk Import + Field-Level Quality (v1.3.0)** — `garmin_import.py` fully implemented, `run_import()` in collector, `assess_quality_fields()`, per-endpoint scores in `quality_log.json`, Import button in GUI. See CHANGELOG for details.
 
 ---
 
-### v1.2.3 — Include-today Flag
+## Planned — v1.3
 
-An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Currently today is always excluded because the data is partial — this flag makes it opt-in. Lives in `garmin_sync.py` after refactoring.
+### ✅ v1.3.0 — Bulk Import + Field-Level Quality Assessment — done
+
+See CHANGELOG for details.
 
 ---
 
-### v1.2.4 — Archive Info Panel
+### v1.3.1 — Archive Info Panel
 
 A compact read-only info panel in the GUI showing the current state of the local archive at a glance:
 
@@ -37,11 +32,11 @@ A compact read-only info panel in the GUI showing the current state of the local
 - Archive completeness: days present vs. possible days in range (%)
 - Last sync timestamp
 
-Reads directly from `garmin_quality.py` after refactoring — no API call needed. Updates after every sync.
+Reads directly from `garmin_quality.py` — no API call needed. Updates after every sync.
 
 ---
 
-### v1.2.5 — Version Check on Startup
+### v1.3.2 — Version Check on Startup
 
 Checks GitHub for a newer release on app start and notifies the user if one is available.
 
@@ -52,7 +47,7 @@ Checks GitHub for a newer release on app start and notifies the user if one is a
 
 ---
 
-### v1.2.6 — Flagged Day Tooltips + MFA Hint
+### v1.3.3 — Flagged Day Tooltips + MFA Hint + Error Log Access
 
 **Flagged Day Tooltips** — hovering over a flagged day marker in the Analysis Dashboard shows the exact value and why it was flagged (above/below reference range, distance from baseline).
 
@@ -66,44 +61,9 @@ Checks GitHub for a newer release on app start and notifies the user if one is a
 
 **Error log access for Standalone users** — when something goes wrong, Standalone users (no terminal available) should never need a command prompt to diagnose the issue. Add a "Copy last error log" button to the GUI that reads the most recent file from `log/fail/` and copies it to the clipboard — ready to paste into a GitHub issue or chat. Complements the existing session logging infrastructure.
 
-### v1.2.7 — Dashboard Rework Preparation
-
-`quality_log.json` - extended
-
-The overall status `failed/low/medium/high` remains as before; individual records are now evaluated in detail.
-
-**Goal:**
-
-Downstream scripts (dashboards & AI summaries) no longer need their own validation logic. They query the "State Owner" (`garmin_quality.py`) and immediately know which data can be visualized and which cannot.
-
-**Introduction of granular status flags per data type:**
-
-🟢 **High Quality:** Complete intraday dataset available. Enables high-resolution graphs (e.g., 2-minute heart rate intervals).
-
-🟡 **Medium Quality (Erosion Protection):** Only daily summaries available. The system automatically detects when Garmin has "smoothed" older data and adjusts the dashboard display accordingly.
-
-🔴 **Low Quality:** Daily data exists, but specific metrics (e.g., HRV or sleep stages) are missing. Dashboards display clean "N/A" values instead of errors.
-
-⚪ **Failed / Pending:** Marks days with download errors or timeouts for automatic retry attempts.
-
-**Recheck Backoff Logic** — adds a `next_attempt` field to `quality_log.json` entries where `recheck=true`. The collector skips a day until `today >= next_attempt`, preventing repeated API queries on every session.
-
-Backoff interval: `attempts × 5 days` (attempt 1 → 5 days, attempt 2 → 10 days, attempt 3 → 15 days).
-
-- `failed`: 3 attempts, then `recheck=false`
-- `low`, day younger than 1 year: 3 attempts, then `recheck=false`
-- `low`, day older than 1 year: `recheck=false` immediately — Garmin does not retroactively improve historical intraday data
-
-Replaces the placeholder note in v1.2.7 ("retry logic to be defined").
-
-**`quality_log.json` — Integrity & Backup System**
-
-- **Monthly backup** — `_save_quality_log()` creates a snapshot once per month as `quality_log_YYYY-MM.zip` in `log/backup/`. On the first save of a new year, the previous year is consolidated into `quality_log_YYYY.zip` and all monthly zips for that year are removed. Each zip contains the complete `quality_log.json` at the time of the snapshot. Restore is manual.
-- **Per-year checksums** — on every save, a SHA-256 hash is computed over all `days` entries for each calendar year and stored in a `checksums` block inside `quality_log.json`. On load, all completed years are verified — a mismatch triggers a warning in the log and GUI indicating which year is affected and where the backup is located. The current year is recomputed on every save; completed years are immutable.
-
 ---
 
-### v1.2.8 — Documentation & AI Usability
+### v1.3.4 — Documentation & AI Usability
 
 Focus on making the project easier to use, understand, and safer when used with local AI tools.
 
@@ -113,13 +73,12 @@ Focus on making the project easier to use, understand, and safer when used with 
   - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
   - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
 - **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
-- **Script-level tests (non-GUI)** — ✅ done in v1.2.0, extended in v1.2.1/v1.2.1b: `test_local.py` covers all core modules with 112 checks (config, sync, normalizer, quality incl. migrations + QUALITY_LOCK, writer, collector internals, security crypto layer, utils). Run with `python test_local.py`.
 - **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
-- **Integrity notes** — mention that **no checksums or signatures are currently applied**, so modifications or corruption of `quality_log.json` are not automatically detected; users should handle backups carefully.
+- **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
 
 ---
 
-### v1.2.9 — Chunked Sync
+### v1.3.5 — Chunked Sync
 
 Automatic batching of long sync operations into fixed-size chunks, processed sequentially with a full write cycle between each chunk.
 
@@ -133,9 +92,9 @@ No separate checkpoint state needed. The existing `quality_log.json` already tra
 
 ---
 
-## Planned — v1.3
+## Planned — v1.4
 
-### v1.3.0 — Dashboard Architecture Refactoring
+### v1.4.0 — Dashboard Architecture Refactoring
 
 Transition from individual monolithic scripts to a master/specialist model. No new dashboard content — pure architectural cleanup.
 
@@ -153,9 +112,9 @@ Transition from individual monolithic scripts to a master/specialist model. No n
 
 ---
 
-### v1.3.x — Dashboard Features
+### v1.4.x — Dashboard Features
 
-New functionality built on the clean v1.3.0 base:
+New functionality built on the clean v1.4.0 base:
 
 - **Smart Regeneration** — auto-detect summaries generated with an older `schema_version` and re-run `summarize()` on the corresponding raw files without hitting the Garmin API. Extends `regenerate_summaries.py`.
 - **Auto-size dashboards** — if requested date range exceeds available data, dashboard adjusts to actual data range with a note explaining the reason.
@@ -166,19 +125,32 @@ New functionality built on the clean v1.3.0 base:
 
 ---
 
-## Planned — v1.4
+## Planned — v1.5
 
-### v1.4 — Archive Integrity & Backup
+### v1.5 — Archive Integrity & Backup
 
 Protection of the local archive against software errors and silent data loss — independent of OS-level backup.
 
-**`quality_log.json`** — designed in v1.2.7: monthly snapshots in `log/backup/` and per-year SHA-256 checksums embedded in the file.
+**`quality_log.json`**
+
+- **Monthly backup** — `_save_quality_log()` creates a snapshot once per month as `quality_log_YYYY-MM.zip` in `log/backup/`. On the first save of a new year, the previous year is consolidated into `quality_log_YYYY.zip` and all monthly zips for that year are removed.
+- **Per-year checksums** — on every save, a SHA-256 hash is computed over all `days` entries for each calendar year and stored in a `checksums` block inside `quality_log.json`. On load, all completed years are verified — a mismatch triggers a warning in the log and GUI indicating which year is affected and where the backup is located.
 
 **`raw/`** — incremental backup of newly written files. Motivation: Garmin degrades intraday data after ~1–2 years — the local raw copy is then the only source. A software bug in the writer that overwrites or corrupts a raw file is not recoverable without a backup. This is a direct extension of the data erosion protection that is a core promise of this project.
 
 - Ownership: writer or a dedicated backup module — to be evaluated
 - Strategy: incremental, newly written files only
-- Scope and implementation to be defined after v1.3 is stable
+- Scope and implementation to be defined after v1.4 is stable
+
+---
+
+## Deferred — end of v1.x
+
+### v1.x — Include-today Flag
+
+An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Currently today is always excluded because the data is partial — this flag makes it opt-in. Lives in `garmin_sync.py`.
+
+Low priority — only relevant once API access is stable and the bulk import backlog is resolved.
 
 ---
 
@@ -193,8 +165,6 @@ These are ideas, not commitments. Some may never get built.
 The clean solution is a base class `GarminAppBase` in a shared `garmin_app_base.py` containing all GUI logic. Each target file then only defines what differs: `script_dir()`, `_find_python()`, and the run mechanism. This is a significant refactor — not a simple extraction — and requires careful handling of PyInstaller dependency detection and the `_STOP_EVENT` injection mechanism.
 
 Intentionally deferred until v2.0 architecture is stable: the multi-source architecture will likely require further GUI changes, making it more efficient to consolidate once rather than twice.
-
-**`build_manifest.py`** — already done in v1.2.1b as a simpler analogue: shared script lists and signatures extracted into a single file, both build scripts import from it. Adding a new module now only requires one edit.
 
 ---
 
@@ -229,13 +199,13 @@ Generate a local heatmap of GPS routes from activity data. No third-party mappin
 Toast notifications for sync completion, failed days, or significant metric changes.
 
 **Stats dashboard & session log analysis**
-Local overview of archive health built from session logs — days synced vs failed over time, which API endpoints fail most often, Garmin API response patterns by time of day. Builds on the Archive Info Panel (v1.2.4) and the quality data in `quality_log.json`. No extra API calls needed.
+Local overview of archive health built from session logs — days synced vs failed over time, which API endpoints fail most often, Garmin API response patterns by time of day. Builds on the Archive Info Panel (v1.3.1) and the quality data in `quality_log.json`. No extra API calls needed.
 
 **Activities dashboard**
 Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected — it just isn't used beyond the summary.
 
 **Test suite & CI/CD**
-Core modules are covered by test_local.py (116 checks, extended in v1.2.1/v1.2.1b/v1.2.2). Build integrity is covered by validate_scripts() in both build scripts — verifies all required scripts are present and contain expected signatures before PyInstaller runs (added in v1.2.0). Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.3 is complete. No timeline, no commitment, but the intention is there.
+Core modules are covered by `test_local.py` (136 checks, extended in v1.2.1/v1.2.1b/v1.2.2/v1.3.0). Build integrity is covered by `validate_scripts()` in both build scripts. Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.4 is complete. No timeline, no commitment, but the intention is there.
 
 ---
 

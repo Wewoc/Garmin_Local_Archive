@@ -229,7 +229,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.2.2a",
+        tk.Label(header, text="v1.3.0",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -420,6 +420,16 @@ class GarminApp(tk.Tk):
                                    command=self._stop_collector)
         self._stop_btn.pack(side="left", padx=(4, 0))
         tk.Label(row, text="Fetch missing days from Garmin Connect",
+                 font=("Segoe UI", 8), bg=BG, fg=TEXT2).pack(side="left", padx=10)
+
+        # Import row
+        imp_row = tk.Frame(f, bg=BG)
+        imp_row.pack(fill="x", pady=2)
+        tk.Button(imp_row, text="📥  Import Bulk Export", font=FONT_BTN,
+                  bg=BG3, fg=TEXT, relief="flat", bd=0,
+                  pady=7, padx=14, anchor="w", cursor="hand2",
+                  command=self._run_import).pack(side="left", fill="x", expand=True)
+        tk.Label(imp_row, text="Import Garmin GDPR export ZIP or folder (recommended for history)",
                  font=("Segoe UI", 8), bg=BG, fg=TEXT2).pack(side="left", padx=10)
 
         # ── Background Timer ───────────────────────────────────────────────────
@@ -1281,6 +1291,41 @@ class GarminApp(tk.Tk):
                 "garmin_collector.py", enable_stop=True,
                 refresh_failed=refresh_failed,
                 on_done=lambda: self._timer_resume_after_sync(timer_was_active)))
+
+    def _run_import(self):
+        """Open file dialog and run bulk import in a background thread."""
+        choice = messagebox.askquestion(
+            "Import Bulk Export",
+            "Select ZIP file?\n\nYes = ZIP file\nNo = unpacked folder",
+            icon="question",
+        )
+        if choice == "yes":
+            path = filedialog.askopenfilename(
+                title="Select Garmin Export ZIP",
+                filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")],
+            )
+        else:
+            path = filedialog.askdirectory(title="Select unpacked Garmin Export folder")
+        if not path:
+            return
+
+        s = self._collect_settings()
+        self._log(f"\n▶  Import Bulk Export ...")
+        self._log(f"   Source: {path}")
+
+        def worker():
+            try:
+                import garmin_collector as col
+                self._apply_env(s)
+                result = col.run_import(path)
+                self.after(0, lambda: self._log(
+                    f"✓  Import done — {result['ok']} written, "
+                    f"{result['skipped']} skipped, {result['failed']} failed"
+                ))
+            except Exception as e:
+                self.after(0, lambda: self._log(f"✗  Import error: {e}"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _run_excel_overview(self):
         self._run_module("garmin_to_excel.py")

@@ -83,13 +83,97 @@ def _process_day(client, date_str: str) -> tuple:
     normalized = normalizer.normalize(raw_data, source="api")
     summary    = normalizer.summarize(normalized)
     label      = quality.assess_quality(normalized)
+    fields     = quality.assess_quality_fields(normalized)
 
     if _should_write(label):
         written = writer.write_day(normalized, summary, date_str)
     else:
         written = False
 
-    return label, written
+    return label, written, fields
+
+
+def run_import(path, progress_callback=None) -> dict:
+    """
+    Imports a Garmin export ZIP or folder into the local archive.
+
+    Iterates load_bulk() day by day — each day is normalised, assessed,
+    and written before the next day is loaded (Option 2: read → build → write → repeat).
+
+    Parameters
+    ----------
+    path              : str | Path — path to Garmin export ZIP or unpacked folder
+    progress_callback : callable(current, total, date_str) | None
+                        Called after each day. total is None (unknown upfront).
+
+    Returns
+    -------
+    dict — {"ok": int, "skipped": int, "failed": int}
+    """
+    import garmin_import as importer
+
+    ok, skipped, failed = 0, 0, 0
+
+    with quality.QUALITY_LOCK:
+        quality_data = quality._load_quality_log()
+        known_dates  = {e["date"] for e in quality_data.get("days", []) if "date" in e}
+
+        for i, raw_data in enumerate(importer.load_bulk(path), 1):
+            date_str = raw_data.get("date")
+            if not date_str:
+                log.warning(f"  import [{i}]: missing date — skipped")
+                failed += 1
+                continue
+
+            # Skip days already present with high/medium quality from API
+            existing = next(
+                (e for e in quality_data.get("days", []) if e.get("date") == date_str),
+                None
+            )
+            if existing and existing.get("quality") in ("high", "medium") and existing.get("source") == "api":
+                log.debug(f"  import [{i}]: {date_str} — already high/medium from API, skipped")
+                skipped += 1
+                if progress_callback:
+                    progress_callback(i, None, date_str)
+                continue
+
+            try:
+                normalized = normalizer.normalize(raw_data, source="bulk")
+                summary    = normalizer.summarize(normalized)
+                label      = quality.assess_quality(normalized)
+                fields     = quality.assess_quality_fields(normalized)
+
+                if _should_write(label):
+                    written = writer.write_day(normalized, summary, date_str)
+                else:
+                    written = False
+
+                reason = (f"Quality: {label} — bulk import" if label in ("high", "medium")
+                          else f"Quality: {label} — insufficient data in bulk export")
+
+                try:
+                    day = date.fromisoformat(date_str)
+                except ValueError:
+                    log.warning(f"  import [{i}]: invalid date '{date_str}' — skipped")
+                    failed += 1
+                    continue
+
+                quality._upsert_quality(quality_data, day, label, reason,
+                                        written=written, source="bulk", fields=fields)
+                ok += 1
+                log.info(f"  import [{i}]: {date_str} — {label}")
+
+            except Exception as e:
+                log.error(f"  import [{i}]: {date_str} — error: {e}")
+                failed += 1
+
+            if progress_callback:
+                progress_callback(i, None, date_str)
+
+        quality._save_quality_log(quality_data)
+
+    log.info(f"  Import done: {ok} written, {skipped} skipped, {failed} failed")
+    return {"ok": ok, "skipped": skipped, "failed": failed}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -256,10 +340,11 @@ def main():
             log.info(f"  [{i}/{len(batch)}] {day}")
             date_str = day.isoformat()
             try:
-                label, written = _process_day(client, date_str)
+                label, written, fields = _process_day(client, date_str)
                 reason = (f"Quality: {label}" if label in ("high", "medium")
                           else f"Quality: {label} — insufficient data from Garmin API")
-                quality._upsert_quality(quality_data, day, label, reason, written=written, source="api")
+                quality._upsert_quality(quality_data, day, label, reason,
+                                        written=written, source="api", fields=fields)
                 if label in ("low", "failed"):
                     _session_had_incomplete = True
                     log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
