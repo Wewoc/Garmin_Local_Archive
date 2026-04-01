@@ -77,7 +77,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
 
-![Garmin Local Archive — Desktop App](screenshots/GUI.jpg)
+![Garmin Local Archive — Desktop App](screenshots/GUI-V130.jpg)
 *Desktop app — settings, sync, export and background timer in one place.*
 
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
