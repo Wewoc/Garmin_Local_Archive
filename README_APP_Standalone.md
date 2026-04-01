@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App (Standalone) v1.2.2
+# Garmin Local Archive — Desktop App (Standalone) v1.3.0
 
 ## What this is
 
@@ -72,6 +72,16 @@ Click **Stop** to cancel a running sync — the current day finishes saving befo
 If there are days with failed or incomplete downloads in the selected sync range, a popup will appear before the sync starts: **"Incomplete records found: X days in the selected range — Refresh now?"** Click **Yes** to re-fetch those days, or **No** to skip them and sync normally.
 
 > **Large archives:** If you have years of Garmin history, start with `range` mode for the last 1–2 years before using `auto`. Downloading everything at once can trigger Garmin rate limiting.
+
+### Import Bulk Export
+Imports a Garmin GDPR data export into your local archive — useful for historical data that is no longer available via the API (Garmin degrades intraday data after ~1–2 years).
+
+1. Go to [garmin.com](https://www.garmin.com/en-US/account/datamanagement/exportdata/) → Request Data Export
+2. Wait for the email (typically 20–30 minutes), download the ZIP
+3. Click **📥 Import Bulk Export** — choose ZIP file or unpacked folder
+4. Progress is shown in the log window
+
+Imported days land in `raw/` and `summary/` alongside API data. Days already present with `high` or `medium` quality from the API are skipped — the better source wins. Imported data is marked `source: bulk` in the quality log and never re-fetched automatically.
 
 ### Background Timer
 Automatically repairs and fills your archive in the background while the app is open — no manual intervention needed.

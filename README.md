@@ -54,6 +54,18 @@ Garmin erodes your historical data over time. This tool stops it.
 | **Privacy Risk** | Medium (Corporate) | High (Data used for Training) | **Minimal (Private)** |
 | **Access** | Online Only | Requires Internet/Subscription | **100% Offline** |
 
+### Recovering your history — Bulk Import
+
+Garmin keeps intraday data (heart rate by second, stress curve, sleep stages) for approximately 1–2 years. After that, only daily aggregates remain. Once it's gone from Garmin's servers, the API can't retrieve it.
+
+The **Bulk Import** feature closes this gap: request your full GDPR data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
+
+> Garmin Connect → Settings → Data Management → Export Data
+
+This is what makes the archive genuinely complete, not just a rolling window.
+
+---
+
 ![Garmin Local Archive — Desktop App](screenshots/GUI.jpg)
 *Desktop app — settings, sync, export and background timer in one place.*
 
@@ -70,6 +82,7 @@ This project intentionally prioritizes:
 Trade-offs:
 - No full automated test suite — core modules covered by local test script (`test_local.py`)
 - Relies on Garmin's unofficial API
+- Garmin data export / bulk import (manual but recommended)
 - Designed for personal use, not enterprise environments
 
 ## Limitations
@@ -200,7 +213,7 @@ The encryption is not security theatre — it solves the problem it was designed
 
 ## What is included
 
-The collector pipeline (v1.2.2) consists of eight focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
+The collector pipeline (v1.3.0) consists of eight focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
 
 | Script | What it does | Reads from |
 |---|---|---|
@@ -213,7 +226,7 @@ The collector pipeline (v1.2.2) consists of eight focused modules plus a thin or
 | `garmin_sync.py` | Determines which days are missing | `raw/` |
 | `garmin_normalizer.py` | Unified data schema across sources + summary extraction | — |
 | `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here | — |
-| `garmin_import.py` | Bulk import placeholder (not yet implemented) | — |
+| `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline | ZIP / folder |
 | `garmin_to_excel.py` | Daily summary spreadsheet — one row per day | `summary/` |
 | `garmin_timeseries_excel.py` | Full intraday data per metric as Excel with charts | `raw/` |
 | `garmin_timeseries_html.py` | Interactive browser dashboard — zoomable, tabbed, offline | `raw/` |
@@ -223,7 +236,7 @@ The collector pipeline (v1.2.2) consists of eight focused modules plus a thin or
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
-The desktop app (v1.2.2) also includes a **Background Timer** — a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+The desktop app (v1.3.0) also includes a **Background Timer**— a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
 
 Data is stored in three folders:
 

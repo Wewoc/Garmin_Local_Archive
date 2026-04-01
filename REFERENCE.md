@@ -320,10 +320,11 @@ Pure constants module — no functions. All other modules import via `import gar
 | Function | Purpose |
 |---|---|
 | `QUALITY_LOCK` | `threading.Lock()` at module level. Acquire around all load-modify-save sequences to prevent concurrent access. Used by `garmin_collector.py` |
-| `_load_quality_log()` | Loads `quality_log.json`. Migrates `failed_days.json`, timestamp dates, `"med"` → `"medium"`, missing `write` field (→ `null`), missing `source` field (→ `"legacy"`), and old schema on first run. Returns empty structure if missing or corrupt |
+| `_load_quality_log()` | Loads `quality_log.json`. Migrates `failed_days.json`, timestamp dates, `"med"` → `"medium"`, missing `write` field (→ `null`), missing `source` field (→ `"legacy"`), missing `fields` field (→ `{}`), and old schema on first run. Returns empty structure if missing or corrupt |
 | `_save_quality_log(data)` | Writes `quality_log.json` atomically via `.tmp` file |
 | `assess_quality(raw)` | Inspects raw data content and returns `"high"`, `"medium"`, `"low"`, or `"failed"`. Pure function — no file IO |
-| `_upsert_quality(data, day, quality, reason, written, source)` | Adds or updates a day entry. Increments `attempts` for `failed`/`low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS`. `written`: `True`/`False`/`None` — stored as `write` field. `source`: origin of data, default `"legacy"` — most recent write always wins |
+| `assess_quality_fields(raw)` | Returns a dict with one quality label per endpoint: `heart_rates`, `stress`, `sleep`, `hrv`, `spo2`, `stats`, `body_battery`, `respiration`, `activities`, `training_status`, `training_readiness`, `race_predictions`, `max_metrics`. Pure function — no file IO |
+| `_upsert_quality(data, day, quality, reason, written, source, fields)` | Adds or updates a day entry. Increments `attempts` for `failed`/`low`. Sets `recheck=false` for `low` after `LOW_QUALITY_MAX_ATTEMPTS`. `written`: `True`/`False`/`None`. `source`: origin of data, default `"legacy"`. `fields`: optional per-endpoint quality dict — stored as `fields` key if provided |
 | `get_low_quality_dates(folder, known_dates)` | Scans `raw/` for files not yet in the quality log and assesses their quality. Skips `known_dates` to avoid cloud downloads |
 | `_backfill_quality_log(data)` | One-time backfill: scans all existing `raw/` files and adds any days not yet in the log. Only runs when `first_day` is not yet set |
 | `_set_first_day(data, client)` | Determines and persists `first_day`. Resolution order: devices → account profile → `SYNC_AUTO_FALLBACK` → oldest local file. Never overwrites existing value |
@@ -357,8 +358,56 @@ Shared utilities. No project-module dependencies — safe leaf node import.
 
 | Function | Purpose |
 |---|---|
-| `load_bulk(path)` | Placeholder — not implemented in v1.2.0. Will load Garmin ZIP export and yield raw dicts per day |
-| `parse_day(data, date_str)` | Placeholder — not implemented in v1.2.0. Will extract one day from bulk data |
+| `load_bulk(path)` | Opens a Garmin GDPR export ZIP or unpacked folder. Yields one raw dict per day — iterator design (read → build → write → repeat). Combines UDSFile, sleepData, TrainingReadinessDTO, and summarizedActivities into the canonical raw schema |
+| `parse_day(entries, date_str)` | Assembles a single day dict from the collected per-type entries. Maps export field names to the canonical API schema. Returns a dict compatible with `garmin_normalizer.normalize(source="bulk")` |
+
+#### Bulk Export — supported files and field mapping
+
+Files read from the Garmin GDPR export (`garmin.com → Settings → Data Management → Export`):
+
+| Export file | Located in | Content |
+|---|---|---|
+| `UDSFile_*.json` | `DI-Connect-Aggregator/` | Daily aggregates: steps, HR, calories, stress, body metrics |
+| `*_sleepData.json` | `DI-Connect-Wellness/` | Sleep stage durations per night |
+| `TrainingReadinessDTO_*.json` | `DI-Connect-Metrics/` | Training readiness level and feedback |
+| `*_summarizedActivities.json` | `DI-Connect-Fitness/` | Activity summaries |
+
+Field mapping — export field → canonical raw schema (as produced by `garmin_api.fetch_raw()`):
+
+| Export field | Source file | Raw schema field |
+|---|---|---|
+| `calendarDate` | all | `date` |
+| `totalSteps` | UDSFile | `user_summary.totalSteps` |
+| `dailyStepGoal` | UDSFile | `user_summary.dailyStepGoal` |
+| `totalKilocalories` | UDSFile | `user_summary.totalKilocalories` |
+| `activeKilocalories` | UDSFile | `user_summary.activeKilocalories` |
+| `totalDistanceMeters` | UDSFile | `user_summary.totalDistanceMeters` |
+| `moderateIntensityMinutes` | UDSFile | `user_summary.moderateIntensityMinutes` |
+| `vigorousIntensityMinutes` | UDSFile | `user_summary.vigorousIntensityMinutes` |
+| `floorsAscendedInMeters` | UDSFile | `user_summary.floorsAscended` (converted: meters ÷ 3) |
+| `restingHeartRate` | UDSFile | `user_summary.restingHeartRate` |
+| `minHeartRate` | UDSFile | `user_summary.minHeartRate` |
+| `maxHeartRate` | UDSFile | `user_summary.maxHeartRate` |
+| `allDayStress.aggregatorList[0]` | UDSFile | `stress.averageStressLevel`, `stress.maxStressLevel`, `stress.stressDuration`, `stress.lowDuration`, `stress.mediumDuration`, `stress.highDuration` |
+| `deepSleepSeconds` | sleepData | `sleep.dailySleepDTO.deepSleepSeconds` |
+| `lightSleepSeconds` | sleepData | `sleep.dailySleepDTO.lightSleepSeconds` |
+| `remSleepSeconds` | sleepData | `sleep.dailySleepDTO.remSleepSeconds` |
+| `awakeSleepSeconds` | sleepData | `sleep.dailySleepDTO.awakeSleepSeconds` |
+| `deepSleepSeconds + lightSleepSeconds + remSleepSeconds` | sleepData | `sleep.dailySleepDTO.sleepTimeSeconds` (computed) |
+| `level` | TrainingReadinessDTO | `training_readiness.level` |
+| `feedbackLong` | TrainingReadinessDTO | `training_readiness.feedbackLong` |
+| `feedbackShort` | TrainingReadinessDTO | `training_readiness.feedbackShort` |
+| `name` | summarizedActivities | `activities[].activityName` |
+| `activityType` | summarizedActivities | `activities[].activityType` |
+| `duration` | summarizedActivities | `activities[].duration` |
+| `distance` | summarizedActivities | `activities[].distance` |
+| `avgHr` | summarizedActivities | `activities[].averageHR` |
+| `maxHr` | summarizedActivities | `activities[].maxHR` |
+| `calories` | summarizedActivities | `activities[].calories` |
+| `aerobicTrainingEffect` | summarizedActivities | `activities[].aerobicTrainingEffect` |
+| `anaerobicTrainingEffect` | summarizedActivities | `activities[].anaerobicTrainingEffect` |
+
+**Not available in bulk export (API only):** intraday heart rate (`heartRateValues`), stress curve (`stressValuesArray`), body battery curve, SpO2 series, respiration series, HRV details, training status, race predictions, max metrics. Bulk data therefore always results in `medium` or `low` quality — never `high`.
 
 ---
 
@@ -367,7 +416,8 @@ Shared utilities. No project-module dependencies — safe leaf node import.
 | Function | Purpose |
 |---|---|
 | `_should_write(label)` | Decision function — returns `True` if quality label is acceptable for writing (`high`, `medium`, `low`). Returns `False` for `failed` |
-| `_process_day(client, date_str)` | Isolated processing function: fetch → normalize → summarize → assess → write. Logs failed endpoints as warnings. Returns `(label, written)` tuple |
+| `_process_day(client, date_str)` | Isolated processing function: fetch → normalize → summarize → assess → write. Logs failed endpoints as warnings. Returns `(label, written, fields)` tuple |
+| `run_import(path, progress_callback)` | Bulk import orchestration. Iterates `garmin_import.load_bulk()`, runs each day through the full pipeline. Skips days already present with `high`/`medium` quality from API. Returns `{"ok", "skipped", "failed"}` |
 | `_is_stopped()` | Returns `True` if standalone GUI has injected `_STOP_EVENT` and set it |
 | `_start_session_log()` | Opens `log/recent/{SESSION_LOG_PREFIX}_YYYY-MM-DD_HHMMSS.log` at DEBUG level. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if session had errors or low-quality downloads, enforces rolling limit |

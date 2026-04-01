@@ -28,7 +28,7 @@ For a complete reference of all environment variables, constants, file paths, an
 |       garmin_normalizer.py        – normalises raw data from any source (v1.2.0)
 |       garmin_quality.py           – sole owner of quality_log.json (v1.2.0)
 |       garmin_sync.py              – date range resolution, local date scan (v1.2.0)
-|       garmin_import.py            – bulk import placeholder (v1.2.0, not yet implemented)
+|       garmin_import.py            – Garmin GDPR export importer — ZIP or folder (v1.3.0)
 |       garmin_collector.py         – thin orchestrator, writes raw/ and summary/ (v1.2.0)
 |       garmin_to_excel.py          – exports summary/ to daily overview Excel
 |       garmin_timeseries_excel.py  – exports raw/ intraday data to Excel + charts
@@ -179,7 +179,7 @@ As of v1.2.0, `garmin_collector.py` is a thin orchestrator. The logic that was p
 | `garmin_normalizer.py` | Normalises raw dict from any source | Nothing |
 | `garmin_quality.py` | Sole owner of `quality_log.json` | `quality_log.json` only |
 | `garmin_sync.py` | Date range resolution, local date scan | Nothing |
-| `garmin_import.py` | Bulk import placeholder (not implemented) | Nothing |
+| `garmin_import.py` | Garmin GDPR export importer — ZIP or folder | Nothing |
 | `garmin_collector.py` | Orchestrator | `raw/` and `summary/` only |
 
 **Communication model:** all modules communicate via function calls — parameters in, return value out. No module writes intermediate files for another to read. `main()` is the sole orchestration point; no module calls another directly.
@@ -321,6 +321,8 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - Migration `"med"` → `"medium"`: old entries upgraded on load
 - Migration `write=null`: pre-v1.2.0 entries without `write` field get `null` on load
 - Migration `source=legacy`: pre-v1.2.2 entries without `source` field get `"legacy"` on load
+- Migration `fields={}`: pre-v1.3.0 entries without `fields` dict get `{}` on load
+- `assess_quality_fields()`: high/medium/failed per endpoint, `fields` stored via `_upsert_quality(fields=...)`
 - `QUALITY_LOCK`: exists, correct type, blocks a second thread while held
 
 **5. `garmin_writer`** — file output
@@ -331,7 +333,7 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - `_should_write()`: `True` for `high`/`medium`/`low`, `False` for `failed` and unknown labels
 - `_is_stopped()`: `False` without injected event, `True` when `_STOP_EVENT` is set
 - `summarize` and `safe_get` no longer present in collector (moved to normalizer)
-- `_process_day()` via mocked API: correct label returned, `write_day` called on success, not called when label is `failed`
+- `_process_day()` via mocked API: correct label returned, `write_day` called on success, not called when label is `failed`, `fields` dict returned as third element
 
 **7. `garmin_security`** — crypto layer (no keyring required)
 - `_derive_aes_key()`: 32-byte output, deterministic for same salt+key, unique per different key
@@ -345,13 +347,13 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - `parse_device_date()`: ISO string, ISO date, millisecond timestamp, second timestamp, `None`, empty string
 - `parse_sync_dates()`: valid dates, sorted output, invalid entries skipped, empty → `None`, all invalid → `None`
 
-### Total: 116 checks
+### Total: 136 checks
 
 ### What is not tested
 
 - GUI (tkinter) — verified manually before release
 - `garmin_api` — requires live Garmin Connect credentials
-- `garmin_import` — placeholder, not yet implemented
+- `garmin_import` — `load_bulk()` / `parse_day()` with real ZIP data (requires actual Garmin export)
 - `garmin_app.py` / `garmin_app_standalone.py` — GUI entry points
 - Export scripts (`garmin_to_excel.py`, `garmin_timeseries_*.py`, `garmin_analysis_html.py`)
 - Full end-to-end pipeline with real API data
@@ -581,7 +583,8 @@ Both build scripts run a validation block before PyInstaller starts. It checks:
 | `garmin_app.py` | `class GarminApp` |
 | `garmin_app_standalone.py` | `class GarminApp` |
 | `garmin_api.py` | `def login`, `def fetch_raw` |
-| `garmin_collector.py` | `def main`, `def _process_day` |
+| `garmin_collector.py` | `def main`, `def _process_day`, `def run_import` |
+| `garmin_import.py` | `def load_bulk`, `def parse_day` |
 | `garmin_quality.py` | `def _upsert_quality` |
 | `garmin_config.py` | `GARMIN_EMAIL` |
 | `garmin_security.py` | `def load_token`, `def save_token` |

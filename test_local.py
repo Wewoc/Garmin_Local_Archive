@@ -296,6 +296,68 @@ with quality.QUALITY_LOCK:
     t.start(); t.join()
 check("QUALITY_LOCK: blocks second thread", _lock_held_during == [False])
 
+# assess_quality_fields
+raw_fields_high = {
+    "date": "2024-01-01",
+    "heart_rates": {"heartRateValues": [[0, 60]], "restingHeartRate": 55},
+    "stress":      {"stressValuesArray": [[0, 30]], "bodyBatteryValuesArray": [[0, 0, 80]]},
+    "sleep":       {"sleepLevels": [{"level": "deep"}],
+                    "dailySleepDTO": {"sleepTimeSeconds": 28800}},
+    "activities":  [{"activityName": "Run"}],
+}
+f_high = quality.assess_quality_fields(raw_fields_high)
+check("fields high: heart_rates=high",  f_high.get("heart_rates") == "high")
+check("fields high: stress=high",       f_high.get("stress") == "high")
+check("fields high: sleep=high",        f_high.get("sleep") == "high")
+check("fields high: body_battery=high", f_high.get("body_battery") == "high")
+check("fields high: activities=high",   f_high.get("activities") == "high")
+
+raw_fields_medium = {
+    "date": "2022-01-01",
+    "heart_rates":        {"restingHeartRate": 55},
+    "sleep":              {"dailySleepDTO": {"sleepTimeSeconds": 25200}},
+    "training_readiness": {"score": 72},
+    "training_status":    {"latestTrainingStatus": "productive"},
+    "race_predictions":   {"marathon": 14400},
+    "max_metrics":        {"vo2MaxPreciseValue": 52.3},
+    "user_summary":       {"totalSteps": 8000},
+}
+f_med = quality.assess_quality_fields(raw_fields_medium)
+check("fields medium: heart_rates=medium",        f_med.get("heart_rates") == "medium")
+check("fields medium: sleep=medium",              f_med.get("sleep") == "medium")
+check("fields medium: training_readiness=medium", f_med.get("training_readiness") == "medium")
+check("fields medium: training_status=medium",    f_med.get("training_status") == "medium")
+check("fields medium: stats=medium",              f_med.get("stats") == "medium")
+check("fields medium: max_metrics=medium",        f_med.get("max_metrics") == "medium")
+
+raw_fields_failed = {"date": "2019-01-01"}
+f_fail = quality.assess_quality_fields(raw_fields_failed)
+check("fields failed: heart_rates=failed",        f_fail.get("heart_rates") == "failed")
+check("fields failed: stress=failed",             f_fail.get("stress") == "failed")
+check("fields failed: activities=failed",         f_fail.get("activities") == "failed")
+
+# _upsert_quality with fields parameter
+data_f = {"first_day": None, "devices": [], "days": []}
+quality._upsert_quality(data_f, date(2024, 5, 1), "high", "Quality: high",
+                        written=True, source="api", fields=f_high)
+check("upsert fields: stored on new entry",   data_f["days"][0].get("fields") == f_high)
+quality._upsert_quality(data_f, date(2024, 5, 1), "high", "Quality: high",
+                        written=True, source="api", fields=f_med)
+check("upsert fields: updated on existing",   data_f["days"][0].get("fields") == f_med)
+quality._upsert_quality(data_f, date(2024, 5, 2), "medium", "Quality: medium",
+                        written=True, source="api")
+check("upsert fields: None → no fields key",  "fields" not in data_f["days"][1])
+
+# Migration: fields={} for old entries
+data_nofields = {"first_day": "2024-01-01", "devices": [], "days": [
+    {"date": "2023-09-01", "quality": "high", "reason": "old", "write": True,
+     "source": "legacy", "recheck": False, "attempts": 0,
+     "last_checked": "2023-09-01", "last_attempt": None}
+]}
+quality._save_quality_log(data_nofields)
+data_nf = quality._load_quality_log()
+check("migration: fields={} added", data_nf["days"][0].get("fields") == {})
+
 # restore
 quality._save_quality_log(data)
 
@@ -348,15 +410,17 @@ check("safe_get not in collector",  not hasattr(collector, "safe_get"))
 mock_client = MagicMock()
 with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])), \
      patch("garmin_collector.writer.write_day", return_value=True):
-    label, written = collector._process_day(mock_client, "2024-03-15")
+    label, written, fields = collector._process_day(mock_client, "2024-03-15")
     check("_process_day: label = high",   label   == "high")
     check("_process_day: written = True", written == True)
+    check("_process_day: fields is dict", isinstance(fields, dict))
 
 with patch("garmin_collector.api.fetch_raw", return_value=({"date": "2024-03-20"}, [])), \
      patch("garmin_collector.writer.write_day", return_value=False) as mock_w:
-    label2, written2 = collector._process_day(mock_client, "2024-03-20")
-    check("_process_day failed: label=failed",        label2   == "failed")
+    label2, written2, fields2 = collector._process_day(mock_client, "2024-03-20")
+    check("_process_day failed: label=failed",         label2   == "failed")
     check("_process_day failed: write_day not called", not mock_w.called)
+    check("_process_day failed: fields is dict",       isinstance(fields2, dict))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. garmin_security (crypto layer only)
