@@ -124,6 +124,8 @@ Values are read fresh at the start of each run — changing them while the timer
 
 **Timer + manual sync interaction** — `_run_collector()` detects `_timer_active`, pauses the timer (increments generation, sets stop event), runs the manual sync, then resumes via `_timer_resume_after_sync()` in `on_done`. Timer Stop during an active timer sync sets `_stopped_by_user = True` — no false error log.
 
+**Timer + bulk import interaction** — `_run_import()` applies the same pause/resume pattern as `_run_collector()`. The timer is stopped before the import thread starts and resumed via `_timer_resume_after_sync()` in the `finally` block — guaranteed even if the import fails. Without this, the timer and import would write to `raw/` and `summary/` concurrently — the Writer has no own lock, only `QUALITY_LOCK` protects `quality_log.json`.
+
 **Session logs** — background timer syncs write to `log/recent/garmin_background_YYYY-MM-DD_HHMMSS.log`. The `garmin_background_` prefix makes the source immediately identifiable in `log/fail/`.
 
 **`_set_indicator(key, state)`** — updates a connection status dot. States: `"pending"` (orange), `"ok"` (green), `"fail"` (red), `"reset"` (grey).
@@ -617,26 +619,34 @@ At the start of every version session, create a `NOTES_vX_Y_Z.md` file. Write to
 **Minimum structure:**
 
 ```markdown
+
 # Session Notes — vX.Y.Z
 
-## Bugs / Priority — erledigt
+## Bugs / Priority — done
 - [x] Short description
-      - What changed, which files, why
 
-## Features — erledigt
+- What changed, which files, why
+
+## Features — done
 - [x] Short description
-      - What changed, which files
 
-## Entscheidungen (nicht umgesetzt)
+- What changed, which files
+
+## Decisions (not implemented)
+
 - [→] What was considered
-      - Why it was NOT done — reasoning preserved for future sessions
 
-## Testergebnisse
-| Stand | Ergebnis |
+- Why it was NOT done — reasoning preserved for future sessions
+
+## Test results
+| Status | Result |
+
 |---|---|
-| Nach Änderung X | N/N ✅ |
 
-## Änderungen an test_local.py
+| After change X | N/N ✅ |
+
+## Changes to test_local.py
+
 - What was added/changed and why
 ```
 
@@ -654,6 +664,7 @@ For every planned change, explicitly ask:
 
 - What assumes the *old* behaviour? → breaks silently after the change
 - What is affected by the *new* behaviour? → must be explicitly updated
+- For every new behaviour explicitly ask: **"Which other threads access the same resource?"**
 
 Examples from practice:
 - Random salt introduced → recovery dialog still implied "re-enter key = restore token" → had to be corrected

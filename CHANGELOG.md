@@ -2,6 +2,37 @@
 
 ---
 
+## v1.3.0b — Bulk Import Subprocess Fix
+
+**Bug fix:**
+- `garmin_app.py` + `garmin_app_standalone.py`: `_run_import()` ran the bulk import in-process via `importlib.reload()`. `garmin_config` was already cached in memory — `cfg.RAW_DIR` pointed to the default path (`~/garmin_data/raw/`) instead of the configured folder. Files were written there silently; the configured archive received nothing.
+- Fix: `garmin_collector.main()` now checks `GARMIN_IMPORT_PATH` at startup (before login, before sync). If set, it calls `run_import()` and exits. `_run_import()` in both GUIs now delegates to `_run_script()` (Target 1+2) and `_run_module()` (Target 3) with `env_overrides={"GARMIN_IMPORT_PATH": path}` — identical pattern to the normal API sync. `garmin_config` is always loaded fresh in the new process/module context.
+- Stop button is now active during bulk import (consistent with API sync).
+- Log prefix `garmin_bulk` — import sessions produce `garmin_bulk_YYYY-MM-DD_HHMMSS.log`, separate from API sync logs.
+
+**Architecture:**
+- `garmin_collector.main()` now supports delegated entry points via ENV flags. Pattern is extensible for v2.0 (`STRAVA_IMPORT_PATH`, `KOMOOT_IMPORT_PATH` etc.) — one entry point, multiple source modes.
+
+**Docs:**
+- `REFERENCE.md`: `GARMIN_IMPORT_PATH` added to ENV variable table.
+
+---
+
+## v1.3.0a — Hotfix + Polish
+
+**Bug fix:**
+- `garmin_app.py` + `garmin_app_standalone.py`: `_run_import()` now pauses the background timer before starting the import thread and resumes it in a `finally` block after completion. Previously the timer and import could write to `raw/` and `summary/` concurrently — the Writer has no own lock, only `QUALITY_LOCK` protects `quality_log.json`.
+
+**GUI:**
+- Import button: link to Garmin export page added below the button (`→ Request export at garmin.com`)
+- Import button description updated to include "recommended for history"
+
+**Docs:**
+- README: test count corrected (98 → 136), Bulk Import section added prominently, Download table added, second pipeline flow diagram for bulk import added, Garmin export link added
+- MAINTENANCE: Timer + bulk import interaction documented
+
+---
+
 ## v1.3.0 — Bulk Import + Field-Level Quality
 
 Garmin GDPR export import and per-endpoint quality tracking. Two independent features delivered together.
