@@ -1,74 +1,84 @@
 # Garmin Local Archive
 
-> This project is provided as-is under the GNU General Public License v3.0.  
-> ⚠️ Early-stage project. While core functionality is stable, APIs and internal structure may change.
-
-* **No Guaranteed Support:** No support, maintenance, or liability is offered. Development happens when time and interest allow.
-* **Feedback is Welcome:** If something feels off — logic, structure, or results — open an issue. That kind of feedback is the most useful.
-* **Use at Your Own Risk:** Use with caution. I am not responsible for data loss or issues with your Garmin account.
-* **Personal Project:** This is a personal project, not a commercial product.
-
-Archive and analyze your Garmin Connect data **locally on your machine — no cloud, no third parties, no US-based AI servers by default**. Everything runs under your control, designed with **privacy in mind, inspired by European principles**.  
-
-Tools like Garmin Chat Connector or Whoop's built-in AI send your data to cloud AI services. This project exists **to give the opposite choice**: your data stays on your machine in open formats you can read, export, and analyze with any tool you choose — local AI, cloud AI, or no AI at all. **Your data, your call.**  
-
----
-
-## How this is possible
-
-### About the AI-assisted development approach
-
-This project is developed with the help of AI coding assistants.
-AI is used to translate ideas, logic, and structure into working code. I do not perform traditional implementation-level code reviews due to a non-Python background — this is the trade-off that comes with this approach.
-Control happens at a different layer:
-
-- defining the overall architecture and module boundaries
-- guiding the logic and intended behavior
-- validating outputs through system-level testing and behavioral observation
-
-Due to the session-based nature of AI tools, documentation in this project is intentionally detailed and acts as a persistent reference layer to maintain continuity across iterations.
+Archive and analyze your Garmin Connect data **locally on your machine** — no cloud, no third parties, no subscriptions. Everything runs under your control.
 
 ---
 
 ## Why this exists
 
-This project started as a proof of concept — exploring what is possible today without a traditional software development background, using AI as a coding partner.
+I wanted what most Garmin users want: ask an AI questions about my health data. Sleep, HRV, stress, recovery.
 
-I’m not a software developer — my background is in mechanical system design.
-I approach this project as an architect: defining structure, logic, modules and quality rules, while Claude implements the code according to these specifications.
+The problem: every existing tool sends your data somewhere else. Garmin Chat Connector, Whoop's built-in AI — your heart rate, sleep patterns, and fitness metrics land on additional US company servers. One cloud is already enough.
 
-But I wanted what everyone else wanted — to ask an AI questions about my Garmin health data. Sleep, HRV, stress, recovery.
+I didn't want that. So I built this instead.
 
-Existing tools send your data to OpenAI, Claude, or other cloud services. Your heart rate, sleep patterns, and fitness data land on additional US company's servers (one is more than enough).
+My background is mechanical system design, not software development. I approached this the way I'd approach any engineering problem: define the structure, the module boundaries, the data flow, the quality rules — and use the right tool for implementation. In this case, Claude as coding partner. The architecture and logic are mine. The Python is his.
 
-I didn't want that.
+This project is as much a statement as it is a tool:
 
-So I built this instead — with Claude as my coding partner, from zero, over many iterations. The architecture, module boundaries, data flow, and quality rules are mine — I designed the logic behind every part of this system. I understand what every part does and why — just not every line of how. **Everything runs locally. Nothing leaves your machine.** All data is stored and processed on your own computer. The scripts only fetch data from Garmin Connect, and once downloaded, nothing is transmitted elsewhere. Any AI you choose to use for analysis **can** also run entirely on your hardware. Even without a local AI setup, the built-in dashboards already provide roughly 90% of the insights most users are looking for.
+- **Local-first data storage** — your data never leaves your machine
+- **The "Double Cloud" Trap** — one cloud (Garmin) is already enough; this project doesn't add a second
+- **Simple usage** — EXE, no setup, no terminal
+- **Structured data** — ready for analysis with any tool, including local AI
+- **Offline first** — once the data is on your disk, no further transmission occurs
 
-**Note:** the AI itself is not included in this project — the scripts prepare your data in a format suitable for any local AI you choose to use. How to install and use a local AI with your data is explained in the setup guide at the end of this README.
+*Privacy first — inspired by European principles.*
 
-So this project focuses on:
-- **local-first data storage** 
-- **Privacy & The "Double Cloud" Trap (Privacy first — inspired by European principles)**
-- **simple usage (EXE, no setup)**
-- **structured data for later analysis (including local AI)**
-- **Offline First:** Once the data are on your disk, no further transmission occurs.
+---
 
 ## What makes this different
 
-This is not just a data export script.
-
-It is designed to solve a specific problem:
+This is not a data export script. It solves a specific problem:
 
 > **Get a complete, consistent local copy of your Garmin data — and keep it that way.**
 
-Garmin erodes your historical data over time. This tool stops it.
+Garmin erodes your historical data over time. Intraday data disappears after roughly 1–2 years. Once it's gone from their servers, it's gone. This tool stops that.
 
-| Feature | Garmin Connect | Cloud-AI Bridges (MCP) | **Garmin Local Archive** |
+| Feature | Garmin Connect | Cloud-AI Bridges | **Garmin Local Archive** |
 | :--- | :--- | :--- | :--- |
-| **Data Storage** | Garmin Servers (USA) | US AI Servers (Anthropic/OpenAI) | **Your Local Machine** |
-| **Privacy Risk** | Medium (Corporate) | High (Data used for Training) | **Minimal (Private)** |
-| **Access** | Online Only | Requires Internet/Subscription | **100% Offline** |
+| **Data Storage** | Garmin Servers (USA) | US AI Servers | **Your Machine** |
+| **Privacy Risk** | Medium | High (training data) | **Minimal** |
+| **Access** | Online only | Requires subscription | **100% Offline** |
+| **History** | Erodes over time | Depends on source | **Permanent local copy** |
+
+Your data stays on your machine in open formats — readable, exportable, analyzable with any tool you choose. Local AI, cloud AI, or no AI at all. **Your data, your call.**
+
+---
+
+## How it works
+
+The app fetches your data from Garmin Connect and stores it locally in structured formats (JSON, Excel, HTML dashboards). Once downloaded, nothing is transmitted anywhere.
+
+The built-in dashboards cover roughly 90% of what most users are looking for — without any AI at all. For deeper analysis, your data is prepared in a format any local AI can work with directly.
+
+The AI itself is not included. How to set one up is explained in the local AI guide at the end of this README.
+
+---
+
+## AI-assisted development
+
+This project started as a proof of concept — exploring what's possible without a traditional software background, using AI as a coding partner.
+
+The honest version: I can't write Python. My options were learn it from scratch, pay someone, or find a different way. This is the different way — and it turned out to work surprisingly well.
+
+Claude translates architecture decisions into working code. I don't perform traditional line-level code reviews, and I won't pretend otherwise. Control happens at a different layer: module boundaries, data flow logic, quality rules, and behavioral validation through real-world testing.
+
+Documentation in this project is intentionally detailed — it serves as the persistent reference layer that keeps context consistent across AI sessions.
+
+---
+
+## Project status & disclaimer
+
+> GNU General Public License v3.0 — provided as-is.
+
+- **Early stage:** Core functionality is stable. APIs and internal structure may still change.
+- **No guaranteed support:** Development happens when time and interest allow.
+- **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
+- **Feedback welcome:** If something feels off — logic, structure, results — open an issue.
+
+**Note:** the AI itself is not included in this project — the scripts prepare your data in a format suitable for any local AI you choose to use. How to install and use a local AI with your data is explained in the setup guide at the end of this README.
+
+---
 
 ## Download
 
