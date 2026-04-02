@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App (Standard) v1.3.0a
+# Garmin Local Archive — Desktop App (Standard) v1.3.0b
 
 ## What this is
 

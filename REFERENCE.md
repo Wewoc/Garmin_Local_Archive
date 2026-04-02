@@ -36,6 +36,7 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_PROFILE_AGE` | str | `"35"` | `_build_env()` / `_apply_env()` | `garmin_analysis_html.py` | User age for reference range calculation |
 | `GARMIN_PROFILE_SEX` | str | `"male"` | `_build_env()` / `_apply_env()` | `garmin_analysis_html.py` | User sex for reference range calculation (`"male"` / `"female"`) |
 | `PYTHONUTF8` | str | `"1"` | `_build_env()` / `_apply_env()` | Python runtime | Forces UTF-8 mode — prevents encoding issues on Windows |
+| `GARMIN_IMPORT_PATH` | str | `""` | `_run_import()` via `env_overrides` | `garmin_collector.main()` | Absolute path to Garmin export ZIP or unpacked folder. If set, `garmin_collector.main()` runs `run_import()` instead of the normal API sync — then exits. Not part of `_build_env()`. Extensible pattern: v2.0 will add `STRAVA_IMPORT_PATH` etc. |
 
 ---
 

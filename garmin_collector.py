@@ -19,6 +19,7 @@ Configuration via environment variables — see garmin_config.py for full list.
 """
 
 import logging
+import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -231,6 +232,17 @@ def _close_session_log(fh: logging.FileHandler, log_path: Path,
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    # ── 0. Import mode — delegated entry points ───────────────────────────────
+    import_path = os.environ.get("GARMIN_IMPORT_PATH")
+    if import_path:
+        result = run_import(import_path)
+        sys.exit(0 if result["failed"] == 0 else 1)
+
+    # (v2.0) strava_path = os.environ.get("STRAVA_IMPORT_PATH")
+    # (v2.0) if strava_path:
+    # (v2.0)     result = run_strava_import(strava_path)
+    # (v2.0)     sys.exit(0 if result["failed"] == 0 else 1)
+
     # ── 1. Dirs ───────────────────────────────────────────────────────────────
     cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
     cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
