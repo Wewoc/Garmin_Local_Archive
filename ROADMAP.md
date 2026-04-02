@@ -24,6 +24,10 @@ See CHANGELOG for details.
 
 See CHANGELOG for details.
 
+## v1.3.0c — Bulk Import Summary Fix— done
+
+See CHANGELOG for details.
+
 ---
 
 ### v1.3.1 — Archive Info Panel
