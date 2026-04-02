@@ -619,26 +619,34 @@ At the start of every version session, create a `NOTES_vX_Y_Z.md` file. Write to
 **Minimum structure:**
 
 ```markdown
+
 # Session Notes — vX.Y.Z
 
-## Bugs / Priority — erledigt
+## Bugs / Priority — done
 - [x] Short description
-      - What changed, which files, why
 
-## Features — erledigt
+- What changed, which files, why
+
+## Features — done
 - [x] Short description
-      - What changed, which files
 
-## Entscheidungen (nicht umgesetzt)
+- What changed, which files
+
+## Decisions (not implemented)
+
 - [→] What was considered
-      - Why it was NOT done — reasoning preserved for future sessions
 
-## Testergebnisse
-| Stand | Ergebnis |
+- Why it was NOT done — reasoning preserved for future sessions
+
+## Test results
+| Status | Result |
+
 |---|---|
-| Nach Änderung X | N/N ✅ |
 
-## Änderungen an test_local.py
+| After change X | N/N ✅ |
+
+## Changes to test_local.py
+
 - What was added/changed and why
 ```
 
@@ -656,6 +664,7 @@ For every planned change, explicitly ask:
 
 - What assumes the *old* behaviour? → breaks silently after the change
 - What is affected by the *new* behaviour? → must be explicitly updated
+- For every new behaviour explicitly ask: **"Which other threads access the same resource?"**
 
 Examples from practice:
 - Random salt introduced → recovery dialog still implied "re-enter key = restore token" → had to be corrected

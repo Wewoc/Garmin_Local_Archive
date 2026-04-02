@@ -191,7 +191,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.3.0a",
+        tk.Label(header, text="v1.3.0b",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -1266,8 +1266,7 @@ class GarminApp(tk.Tk):
                 on_done=lambda: self._timer_resume_after_sync(timer_was_active)))
 
     def _run_import(self):
-        """Open file dialog and run bulk import in a background thread."""
-        # Ask user whether to select a ZIP or a folder
+        """Open file dialog and run bulk import as subprocess — same pattern as _run_collector."""
         choice = messagebox.askquestion(
             "Import Bulk Export",
             "Select ZIP file?\n\nYes = ZIP file\nNo = unpacked folder",
@@ -1283,7 +1282,7 @@ class GarminApp(tk.Tk):
         if not path:
             return
 
-        # Pause background timer if active — same pattern as _run_collector
+        # Pause background timer if active
         timer_was_active = self._timer_active
         if self._timer_active:
             self._log("⏱  Background timer paused for import.")
@@ -1291,28 +1290,14 @@ class GarminApp(tk.Tk):
             self._timer_active = False
             self.after(0, self._timer_update_btn)
 
-        s = self._collect_settings()
-        self._log(f"\n▶  Import Bulk Export ...")
         self._log(f"   Source: {path}")
-
-        def worker():
-            try:
-                import sys
-                sys.path.insert(0, str(script_dir()))
-                os.environ.update(self._build_env(s))
-                import importlib, garmin_collector as col
-                importlib.reload(col)
-                result = col.run_import(path)
-                self.after(0, lambda: self._log(
-                    f"✓  Import done — {result['ok']} written, "
-                    f"{result['skipped']} skipped, {result['failed']} failed"
-                ))
-            except Exception as e:
-                self.after(0, lambda: self._log(f"✗  Import error: {e}"))
-            finally:
-                self.after(0, lambda: self._timer_resume_after_sync(timer_was_active))
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._run_script(
+            "garmin_collector.py",
+            enable_stop=True,
+            log_prefix="garmin_bulk",
+            env_overrides={"GARMIN_IMPORT_PATH": path},
+            on_done=lambda: self._timer_resume_after_sync(timer_was_active),
+        )
 
     def _run_excel_overview(self):
         self._run_script("garmin_to_excel.py")
