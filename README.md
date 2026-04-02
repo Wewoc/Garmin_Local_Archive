@@ -14,6 +14,22 @@ Tools like Garmin Chat Connector or Whoop's built-in AI send your data to cloud 
 
 ---
 
+## How this is possible
+
+### About the AI-assisted development approach
+
+This project is developed with the help of AI coding assistants.
+AI is used to translate ideas, logic, and structure into working code. I do not perform traditional implementation-level code reviews due to a non-Python background — this is the trade-off that comes with this approach.
+Control happens at a different layer:
+
+- defining the overall architecture and module boundaries
+- guiding the logic and intended behavior
+- validating outputs through system-level testing and behavioral observation
+
+Due to the session-based nature of AI tools, documentation in this project is intentionally detailed and acts as a persistent reference layer to maintain continuity across iterations.
+
+---
+
 ## Why this exists
 
 This project started as a proof of concept — exploring what is possible today without a traditional software development background, using AI as a coding partner.
@@ -78,7 +94,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 ---
 
 ![Garmin Local Archive — Desktop App](screenshots/GUI-V130.jpg)
-*Desktop app — settings, sync, export and background timer in one place.*
+*Desktop app — settings, sync, export, bulk import and background timer in one place.*
 
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
 *Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
@@ -538,7 +554,7 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-`test_local.py` covers the core pipeline modules with 98 checks — config, sync, normalizer, quality (including all migrations), writer, collector internals, and the security crypto layer. No network, no API, no GUI required. Run from the project folder:
+`test_local.py` covers the core pipeline modules with 136 checks — config, sync, normalizer, quality (including all migrations), writer, collector internals, and the security crypto layer. No network, no API, no GUI required. Run from the project folder:
 
 ```bash
 python test_local.py

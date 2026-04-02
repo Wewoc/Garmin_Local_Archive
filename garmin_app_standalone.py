@@ -229,7 +229,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.3.0",
+        tk.Label(header, text="v1.3.0a",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -1309,6 +1309,14 @@ class GarminApp(tk.Tk):
         if not path:
             return
 
+        # Pause background timer if active — same pattern as _run_collector
+        timer_was_active = self._timer_active
+        if self._timer_active:
+            self._log("⏱  Background timer paused for import.")
+            self._timer_stop.set()
+            self._timer_active = False
+            self.after(0, self._timer_update_btn)
+
         s = self._collect_settings()
         self._log(f"\n▶  Import Bulk Export ...")
         self._log(f"   Source: {path}")
@@ -1324,6 +1332,8 @@ class GarminApp(tk.Tk):
                 ))
             except Exception as e:
                 self.after(0, lambda: self._log(f"✗  Import error: {e}"))
+            finally:
+                self.after(0, lambda: self._timer_resume_after_sync(timer_was_active))
 
         threading.Thread(target=worker, daemon=True).start()
 

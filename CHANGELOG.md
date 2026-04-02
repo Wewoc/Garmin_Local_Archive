@@ -2,6 +2,21 @@
 
 ---
 
+## v1.3.0a — Hotfix + Polish
+
+**Bug fix:**
+- `garmin_app.py` + `garmin_app_standalone.py`: `_run_import()` now pauses the background timer before starting the import thread and resumes it in a `finally` block after completion. Previously the timer and import could write to `raw/` and `summary/` concurrently — the Writer has no own lock, only `QUALITY_LOCK` protects `quality_log.json`.
+
+**GUI:**
+- Import button: link to Garmin export page added below the button (`→ Request export at garmin.com`)
+- Import button description updated to include "recommended for history"
+
+**Docs:**
+- README: test count corrected (98 → 136), Bulk Import section added prominently, Download table added, second pipeline flow diagram for bulk import added, Garmin export link added
+- MAINTENANCE: Timer + bulk import interaction documented
+
+---
+
 ## v1.3.0 — Bulk Import + Field-Level Quality
 
 Garmin GDPR export import and per-endpoint quality tracking. Two independent features delivered together.

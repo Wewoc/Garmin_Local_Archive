@@ -124,6 +124,8 @@ Values are read fresh at the start of each run — changing them while the timer
 
 **Timer + manual sync interaction** — `_run_collector()` detects `_timer_active`, pauses the timer (increments generation, sets stop event), runs the manual sync, then resumes via `_timer_resume_after_sync()` in `on_done`. Timer Stop during an active timer sync sets `_stopped_by_user = True` — no false error log.
 
+**Timer + bulk import interaction** — `_run_import()` applies the same pause/resume pattern as `_run_collector()`. The timer is stopped before the import thread starts and resumed via `_timer_resume_after_sync()` in the `finally` block — guaranteed even if the import fails. Without this, the timer and import would write to `raw/` and `summary/` concurrently — the Writer has no own lock, only `QUALITY_LOCK` protects `quality_log.json`.
+
 **Session logs** — background timer syncs write to `log/recent/garmin_background_YYYY-MM-DD_HHMMSS.log`. The `garmin_background_` prefix makes the source immediately identifiable in `log/fail/`.
 
 **`_set_indicator(key, state)`** — updates a connection status dot. States: `"pending"` (orange), `"ok"` (green), `"fail"` (red), `"reset"` (grey).
