@@ -6,11 +6,7 @@
 
 ---
 
-**Currently stable — v1.3.0b**
-
-- **Rate Limit Hotfix (v1.2.2a)** — Explicit HTTP 429 detection in `api_call()` with immediate stop, stop-check in `fetch_raw()` loop, inter-day pause after each completed day, default delays raised to 5/20 sec. See CHANGELOG for details.
-- **Bulk Import + Field-Level Quality (v1.3.0)** — `garmin_import.py` fully implemented, `run_import()` in collector, `assess_quality_fields()`, per-endpoint scores in `quality_log.json`, Import button in GUI. See CHANGELOG for details.
-- **Bulk Import Subprocess Fix (v1.3.0b)** — `_run_import()` now runs as subprocess/module (identical to API sync) instead of in-process. Fixes `cfg.RAW_DIR` pointing to wrong directory due to module caching. `GARMIN_IMPORT_PATH` ENV flag added as extensible entry point pattern for v2.0. See CHANGELOG for details.
+**Currently stable — v1.3.1**
 
 ---
 
@@ -24,24 +20,13 @@ See CHANGELOG for details.
 
 See CHANGELOG for details.
 
-### ✅ v1.3.0c — Bulk Import Summary Fix— done
+## v1.3.0c — Bulk Import Summary Fix— done
 
 See CHANGELOG for details.
 
----
+### ✅ v1.3.1 — Archive Info Panel — done
 
-### v1.3.1 — Archive Info Panel
-
-A compact read-only info panel in the GUI showing the current state of the local archive at a glance:
-
-- Total days tracked in `quality_log.json`
-- Breakdown by quality: `high / medium / low / failed`
-- Days with `recheck=true` (pending background timer work)
-- Earliest and latest date in `raw/`
-- Archive completeness: days present vs. possible days in range (%)
-- Last sync timestamp
-
-Reads directly from `garmin_quality.py` — no API call needed. Updates after every sync.
+See CHANGELOG for details.
 
 ---
 

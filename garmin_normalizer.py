@@ -140,6 +140,18 @@ def _normalize_import(raw: dict) -> dict:
                         f"({type(raw[key]).__name__}) — removed")
             del raw[key]
 
+    # Bulk HR remap: user_summary → heart_rates
+    # summarize() reads from heart_rates — not present in bulk raw.
+    # Copy aggregate values so summarize() can find them.
+    us = raw.get("user_summary") or {}
+    if us and "heart_rates" not in raw:
+        hr = {}
+        for field in ("restingHeartRate", "minHeartRate", "maxHeartRate"):
+            if us.get(field) is not None:
+                hr[field] = us[field]
+        if hr:
+            raw["heart_rates"] = hr
+
     return raw
 
 
@@ -212,9 +224,15 @@ def summarize(raw: dict) -> dict:
         bb_list = safe_get(bb_raw, "bodyBatteryValuesArray", default=[]) if isinstance(bb_raw, dict) else (bb_raw if isinstance(bb_raw, list) else [])
         bb_vals = _parse_list_values(bb_list, "value")
 
+    # Bulk fallback: if no intraday array, use precomputed aggregate fields
+    stress_avg = round(sum(stress_vals) / len(stress_vals), 1) if stress_vals else \
+                 stress_src.get("averageStressLevel") if isinstance(stress_src, dict) else None
+    stress_max = max(stress_vals, default=None) if stress_vals else \
+                 stress_src.get("maxStressLevel") if isinstance(stress_src, dict) else None
+
     s["stress"] = {
-        "stress_avg":       round(sum(stress_vals) / len(stress_vals), 1) if stress_vals else None,
-        "stress_max":       max(stress_vals, default=None),
+        "stress_avg":       stress_avg,
+        "stress_max":       stress_max,
         "body_battery_max": max(bb_vals, default=None),
         "body_battery_min": min(bb_vals, default=None),
         "body_battery_end": bb_vals[-1] if bb_vals else None,

@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App (Standard) v1.3.0b
+# Garmin Local Archive — Desktop App (Standard) v1.3.1
 
 ## What this is
 
@@ -57,16 +57,22 @@ Click **Save Settings** — settings are remembered between sessions.
 
 ## Buttons
 
-### Test Connection
-Tests the connection to Garmin Connect. Shows three indicators:
+### Connection & Archive Status
 
-- **Login** — credentials valid, session established
-- **API Access** — Garmin API is reachable and responding
-- **Data** — data endpoint returns results
+The top section shows two things at once:
 
-Each indicator turns green on success or red on failure. The button itself turns green if all three pass, red if any fail.
+**Connection indicators** (Token / Login / API Access / Data) — updated automatically when Sync Data runs. Green = OK, red = failed, grey = not yet tested. No manual test button — the connection is verified automatically before every sync.
 
-The test also runs automatically the first time you click Sync Data. After a successful test the result is remembered for the session — subsequent syncs start immediately without re-testing. The test resets when you restart the app.
+**Archive info panel** — populated on startup from your local data, no sync required:
+
+- **Days** — total days tracked in the quality log
+- **high / med / low / fail** — breakdown by quality level (colour-coded)
+- **Recheck** — days flagged for re-download by the background timer
+- **Range** — earliest and latest date in your archive
+- **Coverage** — percentage of days present vs. possible days in the date range
+- **Last API / Last Bulk** — most recent date imported via live sync or bulk import
+
+The panel refreshes automatically after every Sync and Bulk Import.
 
 ### Clean Archive
 Removes all data files that predate your `first_day` — the earliest valid day detected in your Garmin account.
@@ -114,7 +120,7 @@ When both queues are empty the timer stops automatically and logs "Archive compl
 | Min. Days per Run | 3 | Fewest days fetched per run |
 | Max. Days per Run | 10 | Most days fetched per run |
 
-The timer runs its own connection test before the first sync. If successful, the Test Connection indicators also turn green. Clicking the timer button while a sync is running stops the current download immediately.
+The timer runs its own connection test before the first sync. If successful, the connection indicators in the top panel turn green. Clicking the timer button while a sync is running stops the current download immediately.
 
 ### Daily Overview
 Exports `garmin_export.xlsx` — one row per day, colour-coded by category.

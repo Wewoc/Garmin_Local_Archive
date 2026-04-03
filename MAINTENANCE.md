@@ -130,7 +130,9 @@ Values are read fresh at the start of each run — changing them while the timer
 
 **`_set_indicator(key, state)`** — updates a connection status dot. States: `"pending"` (orange), `"ok"` (green), `"fail"` (red), `"reset"` (grey).
 
-**`_run_connection_test(on_success=None)`** — runs four sequential checks in a background thread: Token → Login → API Access (`get_user_profile`) → Data (`get_stats` for yesterday). Token check runs first — if the saved token is valid, Login lamp turns green without SSO. `on_success` callback is invoked on the main thread when all checks pass (used by `_run_collector()` to chain directly into the sync). No longer triggered by button click — called automatically on Sync / Background Timer start. The Test Connection button remains visible as a status label but is not clickable.
+**`_run_connection_test(on_success=None)`** — runs four sequential checks in a background thread: Token → Login → API Access (`get_user_profile`) → Data (`get_stats` for yesterday). Token check runs first — if the saved token is valid, Login lamp turns green without SSO. `on_success` callback is invoked on the main thread when all checks pass (used by `_run_collector()` to chain directly into the sync). Called automatically on Sync / Background Timer start — not triggered by a button.
+
+**`_refresh_archive_info()`** — reads `quality_log.json` via `garmin_quality.get_archive_stats()` using the path from current Settings (no ENV required). Updates all Archive Info Panel labels on the main thread via `after()`. Called once on startup (`after(200, ...)`) and after every Sync and Bulk Import via `on_done`. Safe to call at any time — silently no-ops on error.
 
 ### Settings file
 
