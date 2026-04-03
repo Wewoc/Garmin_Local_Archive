@@ -13,10 +13,7 @@
 
 ```
 base_dir/
-├── master/
-│   ├── master_index.json        — routing index: date → sources → paths
-│   └── log/                     — master log (format TBD)
-│
+├── source_registry.json             — which sources exist + active/inactive status
 ├── garmin_data/
 │   ├── raw/
 │   ├── summary/
@@ -38,24 +35,32 @@ log. No source writes into another source's directory.
 
 ---
 
-## Master Index
+## Source Registry
+
+`source_registry.json` is the single place that knows which sources exist and whether
+they are currently active.
 
 ```json
 {
-  "2026-03-22": {
-    "garmin": "garmin_data/summary/garmin_2026-03-22.json",
-    "strava": "strava_data/summary/strava_2026-03-22.json",
-    "komoot": "komoot_data/summary/komoot_2026-03-22.json"
+  "sources": {
+    "garmin": "active",
+    "strava": "inactive",
+    "komoot": "inactive"
   }
 }
 ```
 
-The Master Index is a pure **routing layer** — it contains no data, makes no decisions,
-and holds no logic. It answers exactly one question:
-"Which sources have data for this day, and where are the files?"
+**Three separate responsibilities — three separate actors:**
 
-What a script does with this information is entirely the script's own concern —
-the Master Index anticipates nothing.
+| Who | Does what | When |
+|---|---|---|
+| Developer / user | adds a new source to the registry | once, when a new pipeline is created |
+| `master_collector.py` | checks each source against `config` — writes `active`/`inactive` | on every sync |
+| `field_map.py` | loads registry, contacts only active `*_map.py` modules | on demand, per dashboard request |
+
+`source_registry.json` is never written by `field_map.py` and never read by the
+individual `*_map.py` modules — it is purely the handshake layer between pipeline
+setup and runtime use.
 
 ---
 
@@ -149,54 +154,83 @@ writer.py      + *_master  → knows where to write
 **Adding a new source:**
 1. Write `komoot_master.py` — implement the plugin interface
 2. Write `komoot_api.py` + `komoot_quality.py`
-3. Extend `field_map.py` with Komoot fields
-4. All global actors work without modification
+3. Write `komoot_map.py` — register with `field_map.py`
+4. All global actors work without modification — `field_map.py` itself is never touched
 
 ---
 
 ## Global Translator
 
-`field_map.py` is the **single place** in the entire project that knows how fields
-map between sources and the common schema. Dashboard and export scripts only import
-`field_map` — they have no knowledge of source-specific details.
+`field_map.py` is the **stable request broker** between dashboard/export scripts and
+the source-specific map modules. Dashboard and export scripts only call `field_map` —
+they have no knowledge of any source-specific field names or data structures.
 
-Conceptual representation (placeholder — actual implementation may be significantly
-more complex, see note below):
+`field_map.py` knows which common names exist (e.g. `heart_rate_series`) and which
+`*_map.py` modules are registered. It does **not** know how any source stores its data
+internally. That knowledge lives exclusively in the source map modules.
 
-```python
-FIELD_MAP = {
-    "heart_rate_series": {
-        "garmin": "heartRateValues",
-        "strava": "streams.heartrate.data",
-        "komoot": "hr_data"
-    },
-    "timestamp": {
-        "garmin": "time",
-        "strava": "time_offset",
-        "komoot": "timestamp"
-    }
-}
-
-def get(field: str, source: str) -> str:
-    """Returns the source-specific field name."""
-    return FIELD_MAP[field][source]
+```
+Dashboard:       "give me heart_rate_series"
+    ↓
+field_map.py:    asks all registered *_map.py: "give me heart_rate_series"
+    ↓
+garmin_map.py:   checks garmin_quality.json → has data → returns value
+strava_map.py:   checks strava_quality.json → no data  → returns None
+    ↓
+field_map.py:    aggregates only what is available
+    ↓
+Dashboard:       receives values from all sources that have data
 ```
 
-Adding a new source means only extending `field_map` — all scripts work automatically.
+Source filtering is carried in the request — a Strava-only dashboard simply passes
+a filter and `field_map.py` asks only `strava_map.py`:
 
-> **Note:** `field_map` is shown here as a simple dict. In practice it could grow into
-> its own subsystem — with validation logic, source-specific mapping files, version
-> tracking (if API fields change), or a schema registry. The responsibility stays the
-> same; the implementation complexity will be evaluated at the time of development.
+```
+Dashboard:       "give me heart_rate_series [strava only]"
+    ↓
+field_map.py:    asks only strava_map.py
+```
+
+Each `*_map.py` checks its own `quality_log.json` for availability — this is its own
+house, not a foreign responsibility. No central index is needed: availability
+information already exists in each source's quality log and is never duplicated.
+
+Conceptual representation (placeholder — actual implementation may be significantly
+more complex):
+
+```python
+# field_map.py — knows common names and registered modules, not field names
+_SOURCES = [garmin_map, strava_map]  # registered at startup
+
+def get(field: str):
+    """Ask all registered sources for the value of a common field."""
+    return {source.NAME: source.get(field) for source in _SOURCES}
+
+
+# garmin_map.py — knows Garmin internals, nothing else
+NAME = "garmin"
+
+def get(field: str):
+    """Return the Garmin value for a common field name."""
+    _MAP = {
+        "heart_rate_series": "heartRateValues",
+        "timestamp": "time",
+    }
+    return _read_garmin_data(_MAP[field])
+```
+
+**Adding a new source** means writing a new `xxx_map.py` and registering it —
+`field_map.py` itself is never modified. All dashboard and export scripts work
+automatically.
 
 ---
 
 ## Three Layers, Three Responsibilities
 
 ```
-field_map            — where each field lives per source      (translation)
-master_index.json    — which sources have data on day X       (routing)
-*_master.py          — how source X behaves                   (plugin)
+*_map.py             — where each field lives, and whether data exists  (field knowledge + availability)
+field_map.py         — stable request broker to all *_map.py            (aggregation)
+*_master.py          — how source X behaves                             (plugin)
 ```
 
 Each layer has exactly one responsibility. No layer takes on the task of another.
@@ -213,16 +247,14 @@ master_collector
    │       garmin_quality  → assess quality
    │       normalizer      → garmin_master provides schema
    │       writer          → garmin_master provides paths
-   │       master_index    → add entry
    │
    ├── "Strava strand" → strava_master as plugin
    │       strava_api      → fetch raw data
    │       strava_quality  → assess quality
    │       normalizer      → strava_master provides schema
    │       writer          → strava_master provides paths
-   │       master_index    → add entry
    │
-   └── master_index complete → dashboard/export readable
+   └── each source's quality_log updated → dashboard/export readable via field_map
 ```
 
 ---
@@ -236,12 +268,30 @@ normalizer.py          — normalises for all sources
 sync.py                — date logic for all sources
 security.py            — token management for all APIs
 config.py              — global configuration
-field_map.py           — global field translator
+field_map.py           — global field broker
+source_registry.json   — which sources exist + active/inactive status
 
-HTML/Excel scripts     — read master index + summaries via field_map
+HTML/Excel scripts     — read summaries via field_map
 build.py               — stays global
 build_standalone.py    — stays global
 ```
+
+---
+
+## Migration Principle
+
+When rebuilding from v1.x to v2.0, no module is assumed to be source-agnostic or
+plugin-based by default. Each component is evaluated individually at the point of
+migration:
+
+- Is the logic truly identical across sources → extract into a global actor
+- Does the logic differ meaningfully per source → keep in the plugin
+- Would a plugin interface add real value here → build one; otherwise don't
+
+This avoids both premature abstraction (building structure before the need is proven)
+and unnecessary duplication (copying code that is structurally identical across all
+sources). The decision is made at migration time, with real code in front of us —
+not in advance.
 
 ---
 
@@ -257,7 +307,6 @@ Particularly open:
   functions if multiple sources are implemented
 - **`field_map.py`** — may grow into its own subsystem (see above)
 - **`master_collector.py`** — may require threading or async for parallel sources
-- **`master/log/`** — content and format not yet defined
 - **Standalone build** — the impact of a multi-source plugin architecture on the
   Standalone build target (single EXE, no Python required) has not yet been evaluated.
   Each source plugin brings its own dependencies — the current single-EXE approach

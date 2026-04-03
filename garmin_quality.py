@@ -649,3 +649,96 @@ def _safe_get(d, *keys, default=None):
             return default
         d = d.get(k, default)
     return d
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Archive stats (read-only, for GUI info panel)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_archive_stats(quality_log_path=None) -> dict:
+    """
+    Returns a summary of the local archive state for display in the GUI.
+    Reads quality_log.json — no API call, no side effects.
+
+    quality_log_path: optional Path override — if None, uses cfg.QUALITY_LOG_FILE.
+
+    Returns dict with keys:
+      total        int   — total days tracked
+      high         int   — days with quality 'high'
+      medium       int   — days with quality 'medium'
+      low          int   — days with quality 'low'
+      failed       int   — days with quality 'failed'
+      recheck      int   — days with recheck=True
+      date_min     str   — earliest date tracked (YYYY-MM-DD) or None
+      date_max     str   — latest date tracked (YYYY-MM-DD) or None
+      coverage_pct int   — days present vs. possible days in range (0–100) or None
+      last_api     str   — latest date with source='api' (YYYY-MM-DD) or None
+      last_bulk    str   — latest date with source='bulk' (YYYY-MM-DD) or None
+    """
+    try:
+        if quality_log_path is not None:
+            p = Path(quality_log_path)
+            if p.exists():
+                with open(p, encoding="utf-8") as f:
+                    import json as _json
+                    data = _json.load(f)
+                if "days" not in data:
+                    data = {"days": []}
+            else:
+                data = {"days": []}
+        else:
+            data = _load_quality_log()
+    except Exception:
+        data = {"days": []}
+
+    days = data.get("days", [])
+
+    counts = {"high": 0, "medium": 0, "low": 0, "failed": 0}
+    recheck = 0
+    dates = []
+    api_dates = []
+    bulk_dates = []
+
+    for entry in days:
+        q = entry.get("quality", "failed")
+        if q in counts:
+            counts[q] += 1
+        if entry.get("recheck"):
+            recheck += 1
+        d = entry.get("date")
+        if d:
+            dates.append(d)
+            src = entry.get("source", "")
+            if src == "api":
+                api_dates.append(d)
+            elif src == "bulk":
+                bulk_dates.append(d)
+
+    date_min = min(dates) if dates else None
+    date_max = max(dates) if dates else None
+
+    coverage_pct = None
+    if date_min and date_max:
+        try:
+            from datetime import date as _date
+            d0 = _date.fromisoformat(date_min)
+            d1 = _date.fromisoformat(date_max)
+            possible = (d1 - d0).days + 1
+            present  = len(dates)
+            coverage_pct = round(present / possible * 100) if possible > 0 else 100
+        except Exception:
+            pass
+
+    return {
+        "total":        len(days),
+        "high":         counts["high"],
+        "medium":       counts["medium"],
+        "low":          counts["low"],
+        "failed":       counts["failed"],
+        "recheck":      recheck,
+        "date_min":     date_min,
+        "date_max":     date_max,
+        "coverage_pct": coverage_pct,
+        "last_api":     max(api_dates)  if api_dates  else None,
+        "last_bulk":    max(bulk_dates) if bulk_dates else None,
+    }
