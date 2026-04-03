@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Human–AI Collaboration — How it works</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #F7F6F2;
+    --surface: #FFFFFF;
+    --border: #E2E0D8;
+    --text: #1A1917;
+    --muted: #6B6860;
+    --hint: #A09E98;
+
+    --teal-light: #E1F5EE;
+    --teal-mid:   #1D9E75;
+    --teal-dark:  #085041;
+
+    --green-light: #EAF3DE;
+    --green-mid:   #639922;
+    --green-dark:  #173404;
+
+    --blue-light:  #E6F1FB;
+    --blue-mid:    #185FA5;
+    --blue-dark:   #042C53;
+
+    --amber-light: #FAEEDA;
+    --amber-mid:   #BA7517;
+    --amber-dark:  #412402;
+
+    --coral-light: #FAECE7;
+    --coral-mid:   #993C1D;
+    --coral-dark:  #4A1B0C;
+
+    --pink-light:  #FBEAF0;
+    --pink-mid:    #993556;
+    --pink-dark:   #4B1528;
+
+    --gray-light:  #F1EFE8;
+    --gray-mid:    #5F5E5A;
+    --gray-dark:   #2C2C2A;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 48px 24px 80px;
+  }
+
+  header {
+    max-width: 760px;
+    margin: 0 auto 48px;
+  }
+
+  header h1 {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+
+  header p {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  header .sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--hint);
+    margin-top: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    max-width: 760px;
+    margin: 0 auto 36px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  /* Chart wrapper */
+  .chart-wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    position: relative;
+  }
+
+  /* SVG nodes — hover states */
+  .node {
+    cursor: pointer;
+    transition: filter 0.15s ease, opacity 0.15s ease;
+  }
+  .node:hover { filter: brightness(0.93); }
+  .node:hover rect { stroke-width: 1.5px; }
+
+  /* Tooltip */
+  #tooltip {
+    position: fixed;
+    max-width: 280px;
+    background: var(--text);
+    color: #F7F6F2;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    z-index: 100;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+  }
+
+  #tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  #tooltip .tt-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    margin-bottom: 6px;
+  }
+
+  #tooltip .tt-text {
+    font-weight: 400;
+  }
+
+  footer {
+    max-width: 760px;
+    margin: 36px auto 0;
+    font-size: 12px;
+    color: var(--hint);
+    text-align: center;
+    line-height: 1.7;
+  }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Human–AI Collaboration</h1>
+  <p>How a working session between a non-programmer and an AI coding partner actually flows — from first impulse to committed change.</p>
+  <p class="sub">GARMIN LOCAL ARCHIVE · github.com/Wewoc/Garmin_Local_Archive · Hover over any node for details</p>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#1D9E75"></div> User decides</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#185FA5"></div> AI implements</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1D9E75;opacity:.5"></div> Shared / dialogue</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#BA7517"></div> Mechanism active</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#993556"></div> Correction / brake</div>
+</div>
+
+<div class="chart-wrap">
+<svg width="100%" viewBox="0 0 680 1010" font-family="'DM Sans', sans-serif">
+<defs>
+  <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+
+<!-- ── Phase label: Impuls ── -->
+<text x="340" y="30" text-anchor="middle" font-size="11" fill="#A09E98" font-family="'DM Mono',monospace" letter-spacing="0.08em">IMPULSE</text>
+
+<!-- Impuls node (teal) -->
+<g class="node" data-label="Source of change" data-text="Something prompts a new working cycle: a bug report, a failed API call, a feature idea, a finding from an independent AI review, or a casual observation during use. The origin can be either side — but the decision to act always rests with the user.">
+  <rect x="160" y="40" width="360" height="56" rx="9" fill="#E1F5EE" stroke="#1D9E75" stroke-width="0.8"/>
+  <text x="340" y="63" text-anchor="middle" font-size="14" font-weight="500" fill="#085041">Problem or idea</text>
+  <text x="340" y="82" text-anchor="middle" font-size="12" fill="#0F6E56">API error · feature wish · review finding · observation</text>
+</g>
+
+<line x1="340" y1="96" x2="340" y2="122" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- ── Phase label ── -->
+<text x="340" y="144" text-anchor="middle" font-size="11" fill="#A09E98" font-family="'DM Mono',monospace" letter-spacing="0.08em">THE «ASSESS FIRST» PRINCIPLE</text>
+
+<!-- User: assess first -->
+<g class="node" data-label="User: «Assess first»" data-text="Before any code is written, the user explicitly requests an evaluation. Typical phrases: 'just assess', 'concept first — nothing yet', 'rate and classify, no action'. This prevents the AI from implementing something that wasn't actually requested. It's a deliberate control structure, not a workaround.">
+  <rect x="100" y="154" width="230" height="56" rx="9" fill="#EAF3DE" stroke="#639922" stroke-width="0.8"/>
+  <text x="215" y="177" text-anchor="middle" font-size="14" font-weight="500" fill="#173404">User: «Assess first»</text>
+  <text x="215" y="196" text-anchor="middle" font-size="12" fill="#3B6D11">Concept · nothing yet</text>
+</g>
+
+<!-- Arrow between the two -->
+<line x1="330" y1="182" x2="350" y2="182" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- AI: analysis -->
+<g class="node" data-label="AI: analysis" data-text="The AI evaluates options, risks, and scope — without implementing anything. It explains trade-offs, flags cross-dependencies, and proposes alternatives. The key constraint: explain and evaluate first, then wait. Implementing without explicit instruction is a documented failure mode that was corrected and stored as a standing rule.">
+  <rect x="350" y="154" width="230" height="56" rx="9" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.8"/>
+  <text x="465" y="177" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53">AI: analysis</text>
+  <text x="465" y="196" text-anchor="middle" font-size="12" fill="#0C447C">Options · risks · scope</text>
+</g>
+
+<!-- Arrow from AI analysis down-left to decision -->
+<path d="M465 210 Q465 240 340 240" fill="none" stroke="#A09E98" stroke-width="0.8" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+
+<!-- Multi-KI callout -->
+<g class="node" data-label="Multi-AI review" data-text="Major decisions are cross-checked with multiple independent AI systems (Claude, Gemini, ChatGPT, Copilot) — none of them aware of the others' findings. The intersection of their findings is used as a signal-to-noise filter. If only one reviewer flags something, it may be noise. If three flag it, it's a real issue.">
+  <rect x="530" y="148" width="136" height="68" rx="7" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.8"/>
+  <text x="598" y="170" text-anchor="middle" font-size="13" font-weight="500" fill="#412402">Multi-AI review</text>
+  <text x="598" y="188" text-anchor="middle" font-size="11" fill="#854F0B">Claude · Gemini</text>
+  <text x="598" y="204" text-anchor="middle" font-size="11" fill="#854F0B">ChatGPT · Copilot</text>
+</g>
+<line x1="530" y1="182" x2="480" y2="182" stroke="#BA7517" stroke-width="0.6" stroke-dasharray="3 3" fill="none"/>
+
+<line x1="340" y1="240" x2="340" y2="262" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- ── Phase label ── -->
+<text x="340" y="282" text-anchor="middle" font-size="11" fill="#A09E98" font-family="'DM Mono',monospace" letter-spacing="0.08em">DECISION</text>
+
+<!-- Decision node (green = user) -->
+<g class="node" data-label="User decides" data-text="The user makes the call — always. Using the F/A format (Question: ... / Answer: ...) to lock in decisions before work begins. This covers scope, architecture principles, which option to take, and what to defer. The AI does not proceed without explicit instruction. This is enforced, not assumed.">
+  <rect x="160" y="292" width="360" height="56" rx="9" fill="#EAF3DE" stroke="#639922" stroke-width="0.8"/>
+  <text x="340" y="315" text-anchor="middle" font-size="14" font-weight="500" fill="#173404">User decides</text>
+  <text x="340" y="334" text-anchor="middle" font-size="12" fill="#3B6D11">F/A format · scope boundary · architecture principle</text>
+</g>
+
+<line x1="340" y1="348" x2="340" y2="374" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- ── Phase label ── -->
+<text x="340" y="394" text-anchor="middle" font-size="11" fill="#A09E98" font-family="'DM Mono',monospace" letter-spacing="0.08em">IMPLEMENTATION</text>
+
+<!-- Implementation (blue = AI) -->
+<g class="node" data-label="AI implements" data-text="The AI writes complete files — never snippets. The user cannot safely insert code manually, so partial files are not delivered. The AI runs internal checks first, then delivers. One change per step so the impact remains traceable. Working code is treated as sacred: never touched unless strictly necessary.">
+  <rect x="160" y="404" width="360" height="56" rx="9" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.8"/>
+  <text x="340" y="427" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53">AI implements</text>
+  <text x="340" y="446" text-anchor="middle" font-size="12" fill="#0C447C">Complete files · internal test · then deliver</text>
+</g>
+
+<line x1="340" y1="460" x2="340" y2="486" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- ── Phase label ── -->
+<text x="340" y="506" text-anchor="middle" font-size="11" fill="#A09E98" font-family="'DM Mono',monospace" letter-spacing="0.08em">REAL-WORLD TEST</text>
+
+<!-- Test node (teal) -->
+<g class="node" data-label="User tests with real data" data-text="The user runs the code against actual Garmin data on their machine. This catches bugs that code review alone misses — GIL starvation, race conditions, false exit codes, API quirks. Feedback is concrete: error message, screenshot, terminal output. Real-data testing is the primary QA method.">
+  <rect x="160" y="516" width="360" height="56" rx="9" fill="#E1F5EE" stroke="#1D9E75" stroke-width="0.8"/>
+  <text x="340" y="539" text-anchor="middle" font-size="14" font-weight="500" fill="#085041">User tests with real data</text>
+  <text x="340" y="558" text-anchor="middle" font-size="12" fill="#0F6E56">Error message · screenshot · terminal output</text>
+</g>
+
+<!-- Two branches -->
+<line x1="252" y1="572" x2="175" y2="602" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+<line x1="428" y1="572" x2="505" y2="602" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- Branch left: problem (coral) -->
+<g class="node" data-label="Problem found" data-text="Something is wrong: a bug, a misunderstanding, or scope that drifted too far. The session doesn't collapse — the problem is diagnosed by following the data through the pipeline step by step, before any fix is written. 'Collect findings first, assess, then act' is the documented approach.">
+  <rect x="44" y="602" width="262" height="72" rx="9" fill="#FAECE7" stroke="#993C1D" stroke-width="0.8"/>
+  <text x="175" y="628" text-anchor="middle" font-size="14" font-weight="500" fill="#4A1B0C">Problem found</text>
+  <text x="175" y="647" text-anchor="middle" font-size="12" fill="#712B13">Bug · misunderstanding</text>
+  <text x="175" y="662" text-anchor="middle" font-size="12" fill="#712B13">Scope too wide</text>
+</g>
+
+<!-- Branch right: ok (green) -->
+<g class="node" data-label="Result confirmed" data-text="Tests pass, data looks correct, the change does what was asked. The user confirms explicitly — 'looks good', 'numbers are through', '136/136 passed'. Only then does the session move to documentation. No step is skipped even if the outcome seems obvious.">
+  <rect x="374" y="602" width="262" height="72" rx="9" fill="#EAF3DE" stroke="#639922" stroke-width="0.8"/>
+  <text x="505" y="628" text-anchor="middle" font-size="14" font-weight="500" fill="#173404">Result confirmed</text>
+  <text x="505" y="647" text-anchor="middle" font-size="12" fill="#3B6D11">Tests pass · data correct</text>
+  <text x="505" y="662" text-anchor="middle" font-size="12" fill="#3B6D11">Change confirmed</text>
+</g>
+
+<!-- Correction mechanisms (pink) -->
+<g class="node" data-label="User corrects AI" data-text="When the AI misunderstands the system — its boundaries, its concepts, its real-world behaviour — the user corrects it immediately with context. Example: the AI confused the export date range with the sync date range in the UI. The user: 'The range in the interface is only for sync, not for the scripts.' The AI: 'I now see it. Two separate concepts I had conflated.'">
+  <rect x="10" y="720" width="210" height="60" rx="8" fill="#FBEAF0" stroke="#993556" stroke-width="0.8"/>
+  <text x="115" y="745" text-anchor="middle" font-size="13" font-weight="500" fill="#4B1528">User corrects AI</text>
+  <text x="115" y="762" text-anchor="middle" font-size="11" fill="#721C24">Context · principle · boundary</text>
+</g>
+
+<g class="node" data-label="AI brakes scope" data-text="When scope drifts beyond what the application should own, the AI says so explicitly. Example: the user asked whether backups of raw files should also be built into the application. The AI: 'That's OS responsibility, not application responsibility.' User: 'Ok, I was thinking too far.' The scope brake runs in both directions — the user also self-corrects.">
+  <rect x="244" y="720" width="210" height="60" rx="8" fill="#FBEAF0" stroke="#993556" stroke-width="0.8"/>
+  <text x="349" y="745" text-anchor="middle" font-size="13" font-weight="500" fill="#4B1528">AI brakes scope</text>
+  <text x="349" y="762" text-anchor="middle" font-size="11" fill="#721C24">«OS task, not application»</text>
+</g>
+
+<!-- Problem → corrections -->
+<line x1="115" y1="674" x2="115" y2="720" stroke="#993556" stroke-width="0.7" stroke-dasharray="3 3" fill="none" marker-end="url(#arr)"/>
+<line x1="230" y1="674" x2="349" y2="720" stroke="#993556" stroke-width="0.7" stroke-dasharray="3 3" fill="none" marker-end="url(#arr)"/>
+
+<!-- Loop back from corrections to start -->
+<path d="M10 750 Q-20 750 -20 182 Q-20 154 100 166" fill="none" stroke="#C09090" stroke-width="0.7" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+<path d="M349 720 Q349 800 340 820" fill="none" stroke="#C09090" stroke-width="0.7" stroke-dasharray="5 4" fill="none" marker-end="url(#arr)"/>
+
+<!-- Result confirmed → docs -->
+<line x1="505" y1="674" x2="505" y2="832" stroke="#A09E98" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- ── Phase label ── -->
+<text x="340" y="852" text-anchor="middle" font-size="11" fill="#A09E98" font-family="'DM Mono',monospace" letter-spacing="0.08em">DOCUMENTATION &amp; HANDOFF</text>
+
+<!-- Docs node (gray) -->
+<g class="node" data-label="Documentation" data-text="Every completed change is documented before the session ends: NOTES file (decisions taken and not taken, with reasoning), CHANGELOG entry, REFERENCE update if the module interface changed, and a versioned START_PROMPT for the next session. The start prompt is manually reviewed before the next session begins. This is how context survives across sessions without relying on memory.">
+  <rect x="330" y="862" width="310" height="72" rx="9" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.8"/>
+  <text x="485" y="888" text-anchor="middle" font-size="14" font-weight="500" fill="#2C2C2A">Documentation</text>
+  <text x="485" y="907" text-anchor="middle" font-size="12" fill="#5F5E5A">NOTES · CHANGELOG · REFERENCE</text>
+  <text x="485" y="922" text-anchor="middle" font-size="12" fill="#5F5E5A">START_PROMPT for next session</text>
+</g>
+
+<!-- Loop from docs back to impulse -->
+<path d="M485 934 Q485 975 340 975 Q200 975 200 934 Q200 920 200 862" fill="none" stroke="#C8C4B8" stroke-width="0.8" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+<text x="340" y="990" text-anchor="middle" font-size="11" fill="#A09E98" font-family="'DM Mono',monospace" letter-spacing="0.05em">next session →</text>
+
+</svg>
+</div>
+
+<!-- Tooltip element -->
+<div id="tooltip">
+  <div class="tt-label" id="tt-label"></div>
+  <div class="tt-text" id="tt-text"></div>
+</div>
+
+<footer>
+  Garmin Local Archive · <a href="https://github.com/Wewoc/Garmin_Local_Archive" target="_blank">github.com/Wewoc/Garmin_Local_Archive</a><br>
+  Hover any node to learn what happens at that step.
+</footer>
+
+<script>
+const tooltip = document.getElementById('tooltip');
+const ttLabel = document.getElementById('tt-label');
+const ttText  = document.getElementById('tt-text');
+
+let hideTimer = null;
+
+document.querySelectorAll('.node').forEach(node => {
+  const label = node.dataset.label || '';
+  const text  = node.dataset.text  || '';
+
+  node.addEventListener('mouseenter', e => {
+    clearTimeout(hideTimer);
+    ttLabel.textContent = label;
+    ttText.textContent  = text;
+    tooltip.classList.add('visible');
+    positionTooltip(e);
+  });
+
+  node.addEventListener('mousemove', e => {
+    positionTooltip(e);
+  });
+
+  node.addEventListener('mouseleave', () => {
+    hideTimer = setTimeout(() => tooltip.classList.remove('visible'), 120);
+  });
+});
+
+function positionTooltip(e) {
+  const tw = 280;
+  const th = tooltip.offsetHeight || 140;
+  const margin = 14;
+  let x = e.clientX + margin;
+  let y = e.clientY - th / 2;
+
+  if (x + tw > window.innerWidth - 12) x = e.clientX - tw - margin;
+  if (y < 8) y = 8;
+  if (y + th > window.innerHeight - 8) y = window.innerHeight - th - 8;
+
+  tooltip.style.left = x + 'px';
+  tooltip.style.top  = y + 'px';
+}
+</script>
+</body>
+</html>
