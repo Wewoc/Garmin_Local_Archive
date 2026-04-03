@@ -691,3 +691,12 @@ Examples from practice:
 ### Documentation closure order
 
 CHANGELOG → ROADMAP → REFERENCE → MAINTENANCE → README → README_APP → README_APP_Standalone → PATCHNOTES → START_PROMPT for next session
+
+## Development Process (Human-AI Collaboration)
+
+This project follows a rigorous, engineering-inspired collaboration process between the author and various AI models to ensure architectural stability and data integrity.
+
+![Human-AI Collaboration Flowchart](screenshots/flowchart.png)
+
+> [!TIP]
+> **Interactive Version:** For a deep dive including detailed tooltips for every step, open the local [flowchart.html](info/flowchart.html) in your browser.
