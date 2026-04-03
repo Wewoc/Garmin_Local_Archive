@@ -65,6 +65,11 @@ Claude translates architecture decisions into working code. I don't perform trad
 
 Documentation in this project is intentionally detailed — it serves as the persistent reference layer that keeps context consistent across AI sessions.
 
+![Human-AI Collaboration Flowchart](screenshots/flowchart.png)
+
+> [!TIP]
+> **Interactive Version:** For a deep dive including detailed tooltips for every step of the development cycle, open the local [flowchart.html](info/flowchart.html) in your browser.
+
 ---
 
 ## Project status & disclaimer
