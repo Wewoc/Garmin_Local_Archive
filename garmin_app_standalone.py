@@ -229,7 +229,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.3.0b",
+        tk.Label(header, text="v1.3.1",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -250,6 +250,7 @@ class GarminApp(tk.Tk):
         right = tk.Frame(main, bg=BG)
         right.pack(side="left", fill="both", expand=True)
         self._build_actions_panel(right)
+        self.after(200, self._refresh_archive_info)
 
         log_frame = tk.Frame(self, bg=BG)
         log_frame.pack(fill="both", expand=False)
@@ -373,15 +374,25 @@ class GarminApp(tk.Tk):
         # ── Connection test ────────────────────────────────────────────────────
         fc = tk.Frame(parent, bg=BG, pady=4)
         fc.pack(fill="x", padx=20, pady=2)
-        tk.Label(fc, text="CONNECTION", font=("Segoe UI", 7, "bold"),
+        tk.Label(fc, text="CONNECTION & ARCHIVE STATUS", font=("Segoe UI", 7, "bold"),
                  bg=BG, fg=ACCENT).pack(anchor="w")
         tk.Frame(fc, bg=ACCENT, height=1).pack(fill="x", pady=(2, 6))
         conn_row = tk.Frame(fc, bg=BG)
         conn_row.pack(fill="x", pady=2)
-        self._test_btn = tk.Button(conn_row, text="🔌  Test Connection", font=FONT_BTN,
-                                   bg=BG3, fg=TEXT, relief="flat", bd=0,
-                                   pady=7, padx=14)
-        self._test_btn.pack(side="left")
+
+        # Status indicators
+        self._conn_indicators = {}
+        ind_frame = tk.Frame(conn_row, bg=BG)
+        ind_frame.pack(side="left", padx=(0, 0))
+        for key, label in [("token", "Token"), ("login", "Login"), ("api", "API Access"), ("data", "Data")]:
+            cell = tk.Frame(ind_frame, bg=BG)
+            cell.pack(side="left", padx=(0, 14))
+            dot = tk.Label(cell, text="●", font=("Segoe UI", 10), bg=BG, fg=TEXT2)
+            dot.pack(side="left")
+            tk.Label(cell, text=label, font=FONT_BODY,
+                     bg=BG, fg=TEXT2).pack(side="left", padx=(3, 0))
+            self._conn_indicators[key] = dot
+
         tk.Button(conn_row, text="🗑  Clean Archive", font=FONT_BTN,
                   bg=BG3, fg=TEXT2, relief="flat", bd=0,
                   pady=7, padx=14, cursor="hand2",
@@ -390,17 +401,53 @@ class GarminApp(tk.Tk):
                   bg=BG3, fg=TEXT2, relief="flat", bd=0,
                   pady=7, padx=14, cursor="hand2",
                   command=self._reset_token).pack(side="right", padx=(0, 4))
-        status_row = tk.Frame(fc, bg=BG)
-        status_row.pack(fill="x", pady=(4, 2))
-        self._conn_indicators = {}
-        for key, label in [("token", "Token"), ("login", "Login"), ("api", "API Access"), ("data", "Data")]:
-            cell = tk.Frame(status_row, bg=BG)
-            cell.pack(side="left", padx=(0, 16))
-            dot = tk.Label(cell, text="●", font=("Segoe UI", 10), bg=BG, fg=TEXT2)
+
+        # ── Archive Info Panel ─────────────────────────────────────────────────
+        info_frame = tk.Frame(fc, bg=BG)
+        info_frame.pack(fill="x", pady=(6, 2))
+
+        _QCOLORS = {"high": GREEN, "medium": YELLOW, "low": TEXT2, "failed": ACCENT}
+
+        row1 = tk.Frame(info_frame, bg=BG)
+        row1.pack(fill="x")
+
+        self._info_total = tk.Label(row1, text="Days: —", font=FONT_BODY, bg=BG, fg=TEXT2)
+        self._info_total.pack(side="left", padx=(0, 14))
+
+        self._info_qdots = {}
+        for q, label in [("high", "high"), ("medium", "med"), ("low", "low"), ("failed", "fail")]:
+            cell = tk.Frame(row1, bg=BG)
+            cell.pack(side="left", padx=(0, 10))
+            dot = tk.Label(cell, text="●", font=("Segoe UI", 9),
+                           bg=BG, fg=_QCOLORS[q])
             dot.pack(side="left")
-            tk.Label(cell, text=label, font=FONT_BODY,
-                     bg=BG, fg=TEXT2).pack(side="left", padx=(3, 0))
-            self._conn_indicators[key] = dot
+            lbl = tk.Label(cell, text=f"{label} —", font=("Segoe UI", 8),
+                           bg=BG, fg=TEXT2)
+            lbl.pack(side="left", padx=(2, 0))
+            self._info_qdots[q] = lbl
+
+        self._info_recheck = tk.Label(row1, text="Recheck: —", font=("Segoe UI", 8),
+                                      bg=BG, fg=TEXT2)
+        self._info_recheck.pack(side="left", padx=(10, 0))
+
+        row2 = tk.Frame(info_frame, bg=BG)
+        row2.pack(fill="x", pady=(3, 0))
+
+        self._info_range = tk.Label(row2, text="Range: —", font=("Segoe UI", 8),
+                                    bg=BG, fg=TEXT2)
+        self._info_range.pack(side="left", padx=(0, 14))
+
+        self._info_coverage = tk.Label(row2, text="Coverage: —", font=("Segoe UI", 8),
+                                       bg=BG, fg=TEXT2)
+        self._info_coverage.pack(side="left", padx=(0, 14))
+
+        self._info_last_api = tk.Label(row2, text="Last API: —", font=("Segoe UI", 8),
+                                       bg=BG, fg=TEXT2)
+        self._info_last_api.pack(side="left", padx=(0, 14))
+
+        self._info_last_bulk = tk.Label(row2, text="Last Bulk: —", font=("Segoe UI", 8),
+                                        bg=BG, fg=TEXT2)
+        self._info_last_bulk.pack(side="left")
 
         f = tk.Frame(parent, bg=BG, pady=4)
         f.pack(fill="x", padx=20, pady=2)
@@ -431,6 +478,15 @@ class GarminApp(tk.Tk):
                   command=self._run_import).pack(side="left", fill="x", expand=True)
         tk.Label(imp_row, text="Import Garmin GDPR export ZIP or folder (recommended for history)",
                  font=("Segoe UI", 8), bg=BG, fg=TEXT2).pack(side="left", padx=10)
+
+        # Export link row
+        _EXPORT_URL = "https://www.garmin.com/en-US/account/datamanagement/exportdata/"
+        imp_link_row = tk.Frame(f, bg=BG)
+        imp_link_row.pack(fill="x", pady=(0, 2))
+        imp_link = tk.Label(imp_link_row, text="→ Request export at garmin.com",
+                            font=("Segoe UI", 8), bg=BG, fg=ACCENT, cursor="hand2")
+        imp_link.pack(side="left", padx=14)
+        imp_link.bind("<Button-1>", lambda e: _open_url(_EXPORT_URL))
 
         # ── Background Timer ───────────────────────────────────────────────────
         ft = tk.Frame(parent, bg=BG, pady=4)
@@ -894,6 +950,44 @@ class GarminApp(tk.Tk):
         colors = {"pending": "#f5a623", "ok": "#4ecca3", "fail": "#e94560", "reset": TEXT2}
         self._conn_indicators[key].config(fg=colors.get(state, TEXT2))
 
+    def _refresh_archive_info(self):
+        """Reads quality_log.json and updates the Archive Info Panel labels."""
+        try:
+            import garmin_quality as quality
+            from pathlib import Path
+            s = self._collect_settings()
+            base_dir = Path(s.get("base_dir") or "~/garmin_data").expanduser()
+            quality_log = base_dir / "log" / "quality_log.json"
+            stats = quality.get_archive_stats(quality_log)
+        except Exception:
+            return
+        def _apply():
+            try:
+                self._info_total.config(text=f"Days: {stats['total']}")
+                for q, lbl_text in [("high", "high"), ("medium", "med"),
+                                     ("low", "low"), ("failed", "fail")]:
+                    self._info_qdots[q].config(text=f"{lbl_text} {stats[q]}")
+                self._info_recheck.config(text=f"Recheck: {stats['recheck']}")
+
+                if stats["date_min"] and stats["date_max"]:
+                    self._info_range.config(
+                        text=f"Range: {stats['date_min']} → {stats['date_max']}")
+                else:
+                    self._info_range.config(text="Range: —")
+
+                cov = stats["coverage_pct"]
+                self._info_coverage.config(
+                    text=f"Coverage: {cov}%" if cov is not None else "Coverage: —")
+
+                self._info_last_api.config(
+                    text=f"Last API: {stats['last_api']}" if stats["last_api"] else "Last API: —")
+                self._info_last_bulk.config(
+                    text=f"Last Bulk: {stats['last_bulk']}" if stats["last_bulk"] else "Last Bulk: —")
+            except Exception:
+                pass
+
+        self.after(0, _apply)
+
     def _run_connection_test(self, on_success=None):
         """Test Token → Login → API Access → Data in a background thread.
         Token check runs first — if token is valid, Login lamp turns green without SSO.
@@ -1283,14 +1377,20 @@ class GarminApp(tk.Tk):
         if self._connection_verified:
             self._run_module("garmin_collector.py", enable_stop=True,
                              refresh_failed=refresh_failed,
-                             on_done=lambda: self._timer_resume_after_sync(timer_was_active))
+                             on_done=lambda: (
+                                 self._timer_resume_after_sync(timer_was_active),
+                                 self._refresh_archive_info(),
+                             ))
             return
 
         self._run_connection_test(
             on_success=lambda: self._run_module(
                 "garmin_collector.py", enable_stop=True,
                 refresh_failed=refresh_failed,
-                on_done=lambda: self._timer_resume_after_sync(timer_was_active)))
+                on_done=lambda: (
+                    self._timer_resume_after_sync(timer_was_active),
+                    self._refresh_archive_info(),
+                )))
 
     def _run_import(self):
         """Open file dialog and run bulk import via _run_module — same pattern as _run_collector."""
@@ -1323,7 +1423,10 @@ class GarminApp(tk.Tk):
             enable_stop=True,
             log_prefix="garmin_bulk",
             env_overrides={"GARMIN_IMPORT_PATH": path},
-            on_done=lambda: self._timer_resume_after_sync(timer_was_active),
+            on_done=lambda: (
+                self._timer_resume_after_sync(timer_was_active),
+                self._refresh_archive_info(),
+            ),
         )
 
     def _run_excel_overview(self):

@@ -2,6 +2,43 @@
 
 ---
 
+## v1.3.1 — Archive Info Panel
+
+**New feature:**
+- `garmin_quality.py` — new `get_archive_stats(quality_log_path=None)` function: reads `quality_log.json` directly from a given path (no ENV required) and returns a plain dict with total days, quality breakdown, recheck count, date range, coverage %, last API date, last bulk date. No API call, no side effects.
+- `garmin_app.py` / `garmin_app_standalone.py` — CONNECTION section replaced with **CONNECTION & ARCHIVE STATUS** panel. Status indicators (Token / Login / API Access / Data) moved inline into the button row. Archive info panel added below: two compact rows showing Days, quality breakdown with colour-coded dots, Recheck count, date range, coverage %, Last API, Last Bulk. Populated on startup from Settings path — no sync required. Refreshes automatically after every Sync and Bulk Import.
+- Test Connection button removed — it had no assigned command and was never clickable.
+
+---
+
+## v1.3.0c — Bulk Import Summary Fix
+
+**Bug fix:**
+- `garmin_normalizer.py` — `_normalize_import()`: HR aggregate values (`restingHeartRate`, `minHeartRate`, `maxHeartRate`) were present in `user_summary` after bulk import but not accessible to `summarize()`, which reads from `heart_rates`. Fix: `_normalize_import()` now copies these fields into `heart_rates` when the key is absent.
+- `garmin_normalizer.py` — `summarize()`: stress fields (`stress_avg`, `stress_max`) were always `None` after bulk import because `summarize()` computed them from `stressValuesArray` — an intraday array not present in GDPR exports. Fix: fallback to precomputed aggregate fields `averageStressLevel` / `maxStressLevel` when no array is available. API path unaffected.
+
+**Notes:**
+- Body Battery, HRV, SpO2, Respiration remain `null` after bulk import — these fields are not included in the Garmin GDPR export.
+- Users who ran bulk import before this fix and have a `quality_log.json` without `source` fields can use the one-time migration script `fix_quality_source.py` (sets `source="api"` for all entries without a source field) to restore correct skip behaviour before re-importing.
+
+---
+```
+
+---
+
+**REFERENCE** — Zeile 305, `_normalize_import` Beschreibung:
+
+Alt:
+```
+| `_normalize_import(raw)` | Placeholder for bulk import normalisation — not implemented in v1.2.0 |
+```
+
+Neu:
+```
+| `_normalize_import(raw)` | Normalises a raw dict from `garmin_import.parse_day()`. Applies type validation (same as `_normalize_api()`) and remaps HR aggregate fields from `user_summary` into `heart_rates` so `summarize()` can read them — `heart_rates` key is not present in bulk raw dicts |
+
+---
+
 ## v1.3.0b — Bulk Import Subprocess Fix
 
 **Bug fix:**
