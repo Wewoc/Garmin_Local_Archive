@@ -16,11 +16,19 @@ Encryption key design:
   - If lost: re-entry triggers re-derivation of the same AES key from the same enc_key
   - AES-256-GCM: authenticated encryption — detects file manipulation
 
+Token format (garminconnect >= 0.2.40):
+  - Library writes garmin_tokens.json to GARMIN_TOKEN_DIR during login
+  - save_token() reads that file, encrypts its contents, writes garmin_token.enc
+  - load_token() decrypts garmin_token.enc, writes garmin_tokens.json back so
+    the library can read it directly — plaintext file removed after library login
+  - Plaintext never persists on disk outside of the library login window
+
 No GUI logic. No direct calls to garmin_api or other project modules.
 """
 
 import logging
 import os
+import shutil
 
 import garmin_config as cfg
 
@@ -28,6 +36,9 @@ log = logging.getLogger(__name__)
 
 KEYRING_SERVICE  = "GarminLocalArchive"
 KEYRING_ENC_USER = "token_enc_key"
+
+# garmin_tokens.json — filename written by the garminconnect library
+_TOKEN_JSON = "garmin_tokens.json"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -78,13 +89,25 @@ def _derive_aes_key(enc_key: str, salt: bytes) -> bytes:
     return kdf.derive(enc_key.encode("utf-8"))
 
 
+def _clear_token_dir() -> None:
+    """Removes GARMIN_TOKEN_DIR and all contents (plaintext cleanup)."""
+    try:
+        if cfg.GARMIN_TOKEN_DIR.exists():
+            shutil.rmtree(cfg.GARMIN_TOKEN_DIR)
+            log.debug("  Token working dir removed")
+    except Exception as e:
+        log.warning(f"  Could not remove token working dir: {e}")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Public API
 # ══════════════════════════════════════════════════════════════════════════════
 
-def save_token(token_string: str) -> bool:
+def save_token() -> bool:
     """
-    Encrypts token_string with AES-256-GCM and writes garmin_token.enc to LOG_DIR.
+    Reads garmin_tokens.json from GARMIN_TOKEN_DIR (written by the library after
+    SSO login), encrypts its contents with AES-256-GCM, writes garmin_token.enc.
+    Removes GARMIN_TOKEN_DIR afterwards — no plaintext remains on disk.
     Reads enc_key from WCM — must already be stored before calling this.
     Returns True on success.
     """
@@ -93,18 +116,23 @@ def save_token(token_string: str) -> bool:
         log.error("  Cannot save token — encryption key not found in WCM")
         return False
 
+    token_json = cfg.GARMIN_TOKEN_DIR / _TOKEN_JSON
+    if not token_json.exists():
+        log.error(f"  Cannot save token — {_TOKEN_JSON} not found in token dir")
+        return False
+
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-        salt       = os.urandom(16)  # 128-bit random salt, unique per save
+        plaintext  = token_json.read_bytes()
+        salt       = os.urandom(16)   # 128-bit random salt, unique per save
         aes_key    = _derive_aes_key(enc_key, salt)
-        nonce      = os.urandom(12)  # 96-bit nonce, standard for AES-GCM
+        nonce      = os.urandom(12)   # 96-bit nonce, standard for AES-GCM
         aesgcm     = AESGCM(aes_key)
-        ciphertext = aesgcm.encrypt(nonce, token_string.encode("utf-8"), None)
+        ciphertext = aesgcm.encrypt(nonce, plaintext, None)
 
         cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
         cfg.GARMIN_TOKEN_FILE.write_bytes(salt + nonce + ciphertext)
-
         log.info("  ✓ Token encrypted and saved")
         return True
 
@@ -112,21 +140,26 @@ def save_token(token_string: str) -> bool:
         log.error(f"  Token save failed: {e}")
         return False
 
+    finally:
+        _clear_token_dir()
 
-def load_token() -> str | None:
+
+def load_token() -> bool:
     """
-    Reads enc_key from WCM, decrypts garmin_token.enc, returns plaintext token string.
-    Plaintext never written to disk.
-    Returns None if: file missing, WCM empty, decryption failed.
+    Decrypts garmin_token.enc and writes garmin_tokens.json into GARMIN_TOKEN_DIR
+    so the library can read it directly via garmin.login(token_dir).
+    Plaintext file is removed by _clear_token_dir() after the library has consumed it
+    (called from garmin_api.py after login completes or fails).
+    Returns True on success, False if: file missing, WCM empty, decryption failed.
     """
     if not cfg.GARMIN_TOKEN_FILE.exists():
         log.info("  No saved token found")
-        return None
+        return False
 
     enc_key = get_enc_key()
     if enc_key is None:
         log.warning("  Encryption key not found in WCM — re-entry required")
-        return None
+        return False
 
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -137,24 +170,29 @@ def load_token() -> str | None:
         ciphertext = data[28:]
         aes_key    = _derive_aes_key(enc_key, salt)
         aesgcm     = AESGCM(aes_key)
+        plaintext  = aesgcm.decrypt(nonce, ciphertext, None)
 
-        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+        cfg.GARMIN_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+        (cfg.GARMIN_TOKEN_DIR / _TOKEN_JSON).write_bytes(plaintext)
         log.info("  ✓ Token decrypted successfully")
-        return plaintext.decode("utf-8")
+        return True
 
     except Exception as e:
         log.error(f"  Token decryption failed: {e}")
-        return None
+        _clear_token_dir()
+        return False
 
 
 def clear_token() -> None:
-    """Removes garmin_token.enc from disk and the enc_key from WCM."""
+    """Removes garmin_token.enc, GARMIN_TOKEN_DIR, and the enc_key from WCM."""
     try:
         if cfg.GARMIN_TOKEN_FILE.exists():
             cfg.GARMIN_TOKEN_FILE.unlink()
             log.info("  Token file removed")
     except Exception as e:
         log.warning(f"  Could not remove token file: {e}")
+
+    _clear_token_dir()
 
     try:
         import keyring

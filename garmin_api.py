@@ -12,7 +12,7 @@ Responsibilities:
 
 No file IO, no quality log access, no date strategy logic.
 
-Stop-event note:
+Stop-event note:def login(on_key_required=None, on_token_expired=None):
   In Standalone mode (Target 3), garmin_app_standalone.py injects a
   threading.Event into this module via module.__dict__["_STOP_EVENT"].
   api_call() checks this event before each request via _is_stopped().
@@ -52,34 +52,28 @@ def _is_stopped() -> bool:
 #  Login
 # ══════════════════════════════════════════════════════════════════════════════
 
-def login(on_key_required=None, on_token_expired=None):
+def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
     """
     Logs in to Garmin Connect. Tries saved token first, falls back to SSO.
 
     Token flow:
       Path 1 — Token valid:
-        load_token() -> garth.loads() -> probe call -> return client (no SSO)
+        load_token() → garmin.login(token_dir) → probe call → return client
       Path 2 — Token expired (probe fails):
-        on_token_expired() -> Proceed? -> SSO -> save new token -> return client
+        clear_token() → on_token_expired() → Proceed? → SSO (Path 3)
       Path 3 — No token (first setup or after clear):
-        SSO login -> save token -> return client
+        Garmin(email, pw, return_on_mfa=True) → login()
+        → MFA required: on_mfa_required() → resume_login()
+        → save_token() → return client
       Path 3b — Enc-key missing (WCM empty after Windows update):
-        on_key_required() -> re-enter key -> retry load_token()
-        -> success: Path 1 | failure: Path 3
+        on_key_required() → re-enter key → retry load_token()
+        → success: Path 1 | failure: Path 3
 
     Callbacks (optional):
       on_key_required()   -- callable: () -> str | None
-                             Returns enc_key entered by user, or None on cancel.
-                             T1/T2: direct tkinter dialog.
-                             T3: queue signal + threading.Event.
       on_token_expired()  -- callable: () -> bool
-                             Returns True = Proceed, False = Cancel.
-                             T1/T2: direct tkinter dialog.
-                             T3: queue signal + threading.Event.
-      If no callbacks provided: skips popups, falls through to SSO login.
-
-    Returns the authenticated client object, or None if cancelled by user.
-    Raises GarminLoginError on unrecoverable failure.
+      on_mfa_required()   -- callable: () -> str | None
+                             Returns MFA code entered by user, or None on cancel.
     """
     try:
         from garminconnect import Garmin
@@ -88,7 +82,6 @@ def login(on_key_required=None, on_token_expired=None):
         raise GarminLoginError("garminconnect not installed")
 
     import garmin_security
-    from datetime import date
 
     log.info("Connecting to Garmin Connect ...")
 
@@ -99,20 +92,21 @@ def login(on_key_required=None, on_token_expired=None):
             enc_key = on_key_required()
             if enc_key:
                 garmin_security.store_enc_key(enc_key)
-            # load_token() will now either succeed (Path 1) or return None (Path 3)
 
     # ── Path 1 — Try saved token ───────────────────────────────────────────────
-    token_string = garmin_security.load_token()
-    if token_string:
+    if garmin_security.load_token():
         try:
-            client = Garmin(cfg.GARMIN_EMAIL, cfg.GARMIN_PASSWORD)
-            client.garth.loads(token_string)
+            client = Garmin()
+            client.login(str(cfg.GARMIN_TOKEN_DIR))
+            garmin_security._clear_token_dir()
             # Probe call — verify token is still accepted by Garmin
+            from datetime import date
             client.get_user_summary(date.today().isoformat())
             log.info("  ✓ Login via saved token")
             return client
         except Exception:
             log.warning("  Saved token rejected by Garmin — token expired")
+            garmin_security._clear_token_dir()
             garmin_security.clear_token()
 
             # ── Path 2 — Token expired: warn about 429 risk ───────────────────
@@ -123,22 +117,31 @@ def login(on_key_required=None, on_token_expired=None):
                     return None
 
     # ── Path 3 — SSO login (first setup or after expired token) ───────────────
-    # Prompt for enc_key if not already stored (first setup)
     if garmin_security.get_enc_key() is None and on_key_required:
         enc_key = on_key_required()
         if enc_key:
             garmin_security.store_enc_key(enc_key)
 
     try:
-        client = Garmin(cfg.GARMIN_EMAIL, cfg.GARMIN_PASSWORD)
-        client.login()
+        client = Garmin(cfg.GARMIN_EMAIL, cfg.GARMIN_PASSWORD, return_on_mfa=True)
+        result = client.login()
+
+        if result == "needs_mfa":
+            log.info("  MFA required")
+            if not on_mfa_required:
+                raise GarminLoginError("MFA required but no handler provided")
+            mfa_code = on_mfa_required()
+            if not mfa_code:
+                log.info("  MFA cancelled by user")
+                return None
+            client.resume_login(result, mfa_code)
+
         log.info("  ✓ Login successful (SSO)")
-
-        # Save new token
-        token_string = client.garth.dumps()
-        garmin_security.save_token(token_string)
-
+        garmin_security.save_token()
         return client
+
+    except GarminLoginError:
+        raise
     except Exception as e:
         log.error(f"Login failed: {e}")
         raise GarminLoginError(f"Login failed: {e}") from e
