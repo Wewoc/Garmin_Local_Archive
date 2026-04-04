@@ -226,7 +226,7 @@ python build_standalone.py
 
 **Script not found error** — a `garmin_*.py` file is missing from `scripts/`. Check all files are present.
 
-**Login fails** — run `garmin_collector.py` directly in a terminal once to complete any captcha or MFA verification, then use the app normally.
+**Login fails** — if Garmin requires MFA, the app will show a code input popup automatically. Enter the code from your Garmin app or authenticator. If login still fails, run `garmin_collector.py` directly in a terminal once to complete any captcha verification, then use the app normally.
 
 **Log shows errors but no data** — check your email/password in Settings and make sure the data folder path is valid.
 

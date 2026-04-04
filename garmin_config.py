@@ -42,8 +42,9 @@ LOG_FAIL_DIR   = LOG_DIR / "fail"
 # Quality log
 QUALITY_LOG_FILE = LOG_DIR / "quality_log.json"
 
-# Token file (AES-256-GCM encrypted — managed exclusively by garmin_security.py)
-GARMIN_TOKEN_FILE = LOG_DIR / "garmin_token.enc"
+# Token (AES-256-GCM encrypted — managed exclusively by garmin_security.py)
+GARMIN_TOKEN_DIR  = LOG_DIR / "garmin_token"        # temp working dir for library
+GARMIN_TOKEN_FILE = LOG_DIR / "garmin_token.enc"    # encrypted token — permanent
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Sync mode
