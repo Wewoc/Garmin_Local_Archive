@@ -55,6 +55,7 @@ Constants defined in `garmin_config.py` (v1.2.0+). All modules import via `impor
 | `LOG_RECENT_DIR` | `BASE_DIR/log/recent` | — | Derived from `LOG_DIR` |
 | `LOG_FAIL_DIR` | `BASE_DIR/log/fail` | — | Derived from `LOG_DIR` |
 | `QUALITY_LOG_FILE` | `BASE_DIR/log/quality_log.json` | — | Derived from `LOG_DIR` |
+| `GARMIN_TOKEN_DIR`  | `BASE_DIR/log/garmin_token` | — | Temporary working dir for garminconnect library — created and removed by `garmin_security.py` |
 | `GARMIN_TOKEN_FILE` | `BASE_DIR/log/garmin_token.enc` | — | Encrypted OAuth token — managed exclusively by `garmin_security.py` |
 | `SYNC_MODE` | `"recent"` | `GARMIN_SYNC_MODE` | Sync mode: `"recent"`, `"range"`, `"auto"` |
 | `SYNC_DAYS` | `90` | `GARMIN_DAYS_BACK` | Days back in recent mode |
@@ -272,7 +273,7 @@ Pure constants module — no functions. All other modules import via `import gar
 | Function / Symbol | Purpose |
 |---|---|
 | `GarminLoginError` | Exception raised on unrecoverable login failure (missing dependency or SSO failure). Replaces `sys.exit(1)` — caller decides how to handle |
-| `login(on_key_required, on_token_expired)` | Logs in to Garmin Connect. Returns authenticated client, or `None` if cancelled by user. Raises `GarminLoginError` on failure |
+| `login(on_key_required, on_token_expired, on_mfa_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA supported via `on_mfa_required` callback. Returns authenticated client, or `None` if cancelled. Raises `GarminLoginError` on failure |
 | `api_call(client, method, *args, label)` | Single API call with random delay (`random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)`) and stop-check. Returns `(data, success)` |
 | `fetch_raw(client, date_str)` | Calls all 14 Garmin API endpoints. Returns `(raw: dict, failed_endpoints: list[str])`. Failed endpoints explicitly tracked — collector logs them as warnings |
 | `get_devices(client)` | Fetches registered device list, logs names and dates, returns sorted list |
@@ -287,9 +288,10 @@ Pure constants module — no functions. All other modules import via `import gar
 |---|---|
 | `get_enc_key()` | Reads encryption key from WCM. Returns `None` if not found |
 | `store_enc_key(enc_key)` | Writes encryption key to WCM. Returns `True` on success |
-| `save_token(token_string)` | Derives AES key via PBKDF2, encrypts token with AES-256-GCM, writes `garmin_token.enc` to `LOG_DIR`. Reads enc_key from WCM internally |
-| `load_token()` | Reads enc_key from WCM, decrypts `garmin_token.enc`, returns plaintext token string. Plaintext never written to disk. Returns `None` if file missing, WCM empty, or decryption failed |
-| `clear_token()` | Removes `garmin_token.enc` from disk and enc_key from WCM |
+| `save_token()` | Reads `garmin_tokens.json` from `GARMIN_TOKEN_DIR` (written by library after SSO), encrypts contents with AES-256-GCM, writes `garmin_token.enc`. Removes `GARMIN_TOKEN_DIR` afterwards. Returns `bool` |
+| `load_token()` | Decrypts `garmin_token.enc`, writes `garmin_tokens.json` into `GARMIN_TOKEN_DIR` for the library to read. Returns `bool`. Caller must call `_clear_token_dir()` after library login |
+| `clear_token()` | Removes `garmin_token.enc`, `GARMIN_TOKEN_DIR`, and enc_key from WCM |
+| `_clear_token_dir()` | Private. Removes `GARMIN_TOKEN_DIR` and all contents. Called after token login and on decryption failure |
 | `_derive_aes_key(enc_key, salt)` | Private. Derives 32-byte AES key from enc_key string via PBKDF2-HMAC-SHA256 (600k iterations, random salt). Salt is generated on save and stored in the token file |
 
 ---

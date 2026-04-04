@@ -193,7 +193,7 @@ cd C:\path\to\folder
 Garmin_Local_Archive_Standalone.exe
 ```
 
-**Login fails** — Garmin sometimes requires browser-based MFA on first login or after long inactivity. If this happens, download the Standard version (`Garmin_Local_Archive.zip`), install Python, and run `garmin_collector.py` once in a terminal to complete verification. After that the Standalone version will work normally using the saved session.
+**Login fails** — if Garmin requires MFA, the app will show a code input popup automatically. Enter the code from your Garmin app or authenticator. If login still fails due to captcha or browser verification, download the Standard version (`Garmin_Local_Archive.zip`), install Python, and run `garmin_collector.py` once in a terminal to complete verification. After that the Standalone version will work normally using the saved session.
 
 **Log shows errors but no data** — check your email/password in Settings and make sure the data folder path is valid and writable.
 

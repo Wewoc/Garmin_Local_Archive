@@ -158,6 +158,8 @@ class _QueueHandler(logging.Handler):
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
+APP_VERSION = "v1.3.2"
+
 BG        = "#1a1a2e"
 BG2       = "#16213e"
 BG3       = "#0f3460"
@@ -199,6 +201,7 @@ class GarminApp(tk.Tk):
         self._load_settings_to_ui()
         self.v_sync_mode.set("recent")
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        threading.Thread(target=self._check_version, daemon=True).start()
         self._poll_log_queue()                # start queue → log pump
 
     # ── Queue → log pump ───────────────────────────────────────────────────────
@@ -229,7 +232,7 @@ class GarminApp(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
-        tk.Label(header, text="v1.3.1",
+        tk.Label(header, text=APP_VERSION,
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT).pack(side="left", padx=4)
@@ -487,6 +490,16 @@ class GarminApp(tk.Tk):
                             font=("Segoe UI", 8), bg=BG, fg=ACCENT, cursor="hand2")
         imp_link.pack(side="left", padx=14)
         imp_link.bind("<Button-1>", lambda e: _open_url(_EXPORT_URL))
+        _exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+        _readme_candidates = [
+            _exe_dir / "info" / "README_APP_Standalone.md",
+            Path(__file__).parent / "README_APP_Standalone.md",
+        ]
+        _readme = next((p for p in _readme_candidates if p.exists()), None)
+        readme_link = tk.Label(imp_link_row, text="→ Open README",
+                               font=("Segoe UI", 8), bg=BG, fg=ACCENT, cursor="hand2")
+        readme_link.pack(side="left", padx=14)
+        readme_link.bind("<Button-1>", lambda e: os.startfile(_readme) if _readme else None)
 
         # ── Background Timer ───────────────────────────────────────────────────
         ft = tk.Frame(parent, bg=BG, pady=4)
@@ -572,6 +585,53 @@ class GarminApp(tk.Tk):
             relief="flat", bd=0, wrap="word", state="disabled",
         )
         self.log.pack(fill="both", expand=True)
+
+    # ── Version check ──────────────────────────────────────────────────────────
+
+    def _check_version(self):
+        """Background thread: compares APP_VERSION against latest GitHub release.
+        Shows update popup if a newer version is available. Silent on error or no update.
+        """
+        import urllib.request
+        import json
+        url = "https://api.github.com/repos/Wewoc/Garmin_Local_Archive/releases/latest"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "GarminLocalArchive"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+            latest = data.get("tag_name", "").strip()
+            if latest and latest != APP_VERSION:
+                self.after(0, self._show_update_popup, latest)
+        except Exception:
+            pass  # no internet, timeout, API error — all silent
+
+    def _show_update_popup(self, latest: str):
+        """Non-blocking popup informing the user that a new version is available."""
+        import webbrowser
+        popup = tk.Toplevel(self)
+        popup.title("Update Available")
+        popup.resizable(False, False)
+        popup.configure(bg=BG)
+
+        pad = {"padx": 20, "pady": 8}
+        tk.Label(popup, text="Update Available",
+                 font=("Segoe UI", 11, "bold"), bg=BG, fg=TEXT).pack(**pad)
+        tk.Label(popup,
+                 text=f"A new version is available: {latest}\nYou are running: {APP_VERSION}",
+                 font=FONT_BODY, bg=BG, fg=TEXT2, justify="left").pack(**pad)
+
+        def _open():
+            webbrowser.open("https://github.com/Wewoc/Garmin_Local_Archive/releases/latest")
+            popup.destroy()
+
+        btn_row = tk.Frame(popup, bg=BG)
+        btn_row.pack(pady=12)
+        tk.Button(btn_row, text="Open GitHub", font=FONT_BTN, bg=ACCENT, fg=TEXT,
+                  relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                  command=_open).pack(side="left", padx=4)
+        tk.Button(btn_row, text="Dismiss", font=FONT_BTN, bg=BG3, fg=TEXT2,
+                  relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                  command=popup.destroy).pack(side="left", padx=4)
 
     # ── Settings ───────────────────────────────────────────────────────────────
 
@@ -1032,6 +1092,7 @@ class GarminApp(tk.Tk):
                 client = garmin_api.login(
                     on_key_required  = self._prompt_enc_key,
                     on_token_expired = self._prompt_token_expired,
+                    on_mfa_required  = self._prompt_mfa,
                 )
                 token_used = token_file_exists and enc_key_present
                 self.after(0, self._set_indicator, "token", "ok" if token_used else "reset")
@@ -1193,6 +1254,67 @@ class GarminApp(tk.Tk):
             tk.Button(btn_row, text="Proceed", font=FONT_BTN, bg=ACCENT, fg=TEXT,
                       relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
                       command=_proceed).pack(side="left", padx=4)
+            tk.Button(btn_row, text="Cancel", font=FONT_BTN, bg=BG3, fg=TEXT2,
+                      relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                      command=_cancel).pack(side="left", padx=4)
+
+            popup.protocol("WM_DELETE_WINDOW", _cancel)
+
+        self.after(0, _show)
+        done_evt.wait()
+        return result[0]
+
+    def _prompt_mfa(self) -> str | None:
+        """Popup to collect the MFA code from the user.
+        Returns the entered code string, or None if cancelled.
+        Blocks the calling thread until the user responds.
+        """
+        import threading as _threading
+
+        result   = [None]
+        done_evt = _threading.Event()
+
+        def _show():
+            popup = tk.Toplevel(self)
+            popup.title("Two-Factor Authentication")
+            popup.resizable(False, False)
+            popup.grab_set()
+            popup.configure(bg=BG)
+
+            pad = {"padx": 20, "pady": 8}
+
+            tk.Label(popup, text="MFA Code Required",
+                     font=("Segoe UI", 11, "bold"), bg=BG, fg=TEXT).pack(**pad)
+            tk.Label(popup,
+                     text="Garmin requires a verification code.\nCheck your Garmin app or authenticator.",
+                     font=FONT_BODY, bg=BG, fg=TEXT2, justify="left").pack(**pad)
+
+            tk.Label(popup, text="Code:", font=FONT_BODY, bg=BG, fg=TEXT2).pack(anchor="w", padx=20)
+            v_code = tk.StringVar()
+            tk.Entry(popup, textvariable=v_code, font=FONT_BODY,
+                     bg=BG3, fg=TEXT, insertbackground=TEXT, width=20).pack(padx=20, pady=(0, 8))
+
+            err_label = tk.Label(popup, text="", font=FONT_BODY, bg=BG, fg="#e94560")
+            err_label.pack(padx=20)
+
+            def _ok():
+                code = v_code.get().strip()
+                if not code:
+                    err_label.config(text="Code cannot be empty.")
+                    return
+                result[0] = code
+                popup.destroy()
+                done_evt.set()
+
+            def _cancel():
+                popup.destroy()
+                done_evt.set()
+
+            btn_row = tk.Frame(popup, bg=BG)
+            btn_row.pack(pady=12)
+            tk.Button(btn_row, text="OK", font=FONT_BTN, bg=ACCENT, fg=TEXT,
+                      relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
+                      command=_ok).pack(side="left", padx=4)
             tk.Button(btn_row, text="Cancel", font=FONT_BTN, bg=BG3, fg=TEXT2,
                       relief="flat", bd=0, pady=6, padx=18, cursor="hand2",
                       command=_cancel).pack(side="left", padx=4)

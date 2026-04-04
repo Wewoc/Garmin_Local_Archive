@@ -68,6 +68,7 @@ check("RAW_DIR derived",                cfg.RAW_DIR == _TMPDIR / "raw")
 check("SUMMARY_DIR derived",            cfg.SUMMARY_DIR == _TMPDIR / "summary")
 check("LOG_DIR derived",                cfg.LOG_DIR == _TMPDIR / "log")
 check("QUALITY_LOG_FILE derived",       cfg.QUALITY_LOG_FILE == _TMPDIR / "log" / "quality_log.json")
+check("GARMIN_TOKEN_DIR derived",       cfg.GARMIN_TOKEN_DIR  == _TMPDIR / "log" / "garmin_token")
 check("GARMIN_TOKEN_FILE derived",      cfg.GARMIN_TOKEN_FILE == _TMPDIR / "log" / "garmin_token.enc")
 check("SYNC_MODE = recent",             cfg.SYNC_MODE == "recent")
 check("MAX_DAYS_PER_SESSION = 30",      cfg.MAX_DAYS_PER_SESSION == 30)
@@ -440,29 +441,40 @@ check("_derive_aes_key: unique per key", k1 != k3)
 # save_token + load_token round-trip
 cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
 TEST_KEY = "local_test_enc_key"
-with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
-    ok_save = security.save_token("test_token_payload")
-    check("save_token: returns True",        ok_save == True)
-    check("save_token: file created",        cfg.GARMIN_TOKEN_FILE.exists())
+TEST_PAYLOAD = b'{"oauth1_token": "test", "oauth2_token": "test"}'
+
+# Prepare: write garmin_tokens.json as the library would
+cfg.GARMIN_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+(cfg.GARMIN_TOKEN_DIR / "garmin_tokens.json").write_bytes(TEST_PAYLOAD)
 
 with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
-    loaded = security.load_token()
-    check("load_token: correct content",     loaded == "test_token_payload")
+    ok_save = security.save_token()
+    check("save_token: returns True",        ok_save == True)
+    check("save_token: enc file created",    cfg.GARMIN_TOKEN_FILE.exists())
+    check("save_token: token dir cleaned",   not cfg.GARMIN_TOKEN_DIR.exists())
+
+with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
+    ok_load = security.load_token()
+    check("load_token: returns True",        ok_load == True)
+    check("load_token: json written",        (cfg.GARMIN_TOKEN_DIR / "garmin_tokens.json").exists())
+    check("load_token: correct content",     (cfg.GARMIN_TOKEN_DIR / "garmin_tokens.json").read_bytes() == TEST_PAYLOAD)
+    security._clear_token_dir()
 
 with patch("garmin_security.get_enc_key", return_value="wrong_key"):
-    check("load_token: wrong key → None",    security.load_token() is None)
+    check("load_token: wrong key → False",   security.load_token() == False)
 
 with patch("garmin_security.get_enc_key", return_value=None):
-    check("load_token: no key → None",       security.load_token() is None)
+    check("load_token: no key → False",      security.load_token() == False)
 
 # clear_token
 mock_kr = MagicMock()
 with patch.dict("sys.modules", {"keyring": mock_kr}):
     security.clear_token()
-check("clear_token: file removed",          not cfg.GARMIN_TOKEN_FILE.exists())
+check("clear_token: enc file removed",      not cfg.GARMIN_TOKEN_FILE.exists())
+check("clear_token: token dir removed",     not cfg.GARMIN_TOKEN_DIR.exists())
 
 with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
-    check("load_token: no file → None",      security.load_token() is None)
+    check("load_token: no file → False",     security.load_token() == False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.3.1**
+**Currently stable — v1.3.2**
 
 ---
 
@@ -28,16 +28,9 @@ See CHANGELOG for details.
 
 See CHANGELOG for details.
 
----
+### ✅ v1.3.2 — Auth Stack Rebuild + Version Check + QoL — done
 
-### v1.3.2 — Version Check on Startup
-
-Checks GitHub for a newer release on app start and notifies the user if one is available.
-
-- GitHub API: `GET /repos/Wewoc/Garmin_Local_Archive/releases/latest` → compare `tag_name` with embedded `APP_VERSION` constant
-- Runs in a background thread — non-blocking
-- No internet: silently ignored
-- Notification: popup or log entry (not yet decided)
+See CHANGELOG for details.
 
 ---
 
@@ -57,22 +50,7 @@ Checks GitHub for a newer release on app start and notifies the user if one is a
 
 ---
 
-### v1.3.4 — Documentation & AI Usability
-
-Focus on making the project easier to use, understand, and safer when used with local AI tools.
-
-- **AI prompts** — provide ready-to-use system prompts for local AI tools (Ollama / AnythingLLM) to correctly interpret `garmin_analysis.json` (quality flags, HRV meaning, stress direction, etc.)
-- **Documentation reorganization** — split into clear user, developer, and AI-focused sections (`USER_GUIDE.md`, `ARCHITECTURE.md`, `AI_CONTEXT.md`) with improved navigation, reduced redundancy, and a unified structure that makes the project easier to understand, maintain, and safely extend.
-  - README structure: move AI-assisted analysis (Step 11) up directly after the philosophy section — the end result (asking an AI about your health data) should be visible before the technical pipeline details
-  - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
-  - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
-- **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
-- **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
-- **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
-
----
-
-### v1.3.5 — Chunked Sync
+### v1.3.4 — Chunked Sync
 
 Automatic batching of long sync operations into fixed-size chunks, processed sequentially with a full write cycle between each chunk.
 
@@ -106,16 +84,79 @@ Transition from individual monolithic scripts to a master/specialist model. No n
 
 ---
 
+## Planned — v1.4
+
+### v1.4.0 — Dashboard Architecture Refactoring + v2.0 Interface Validation
+
+Transition from individual monolithic scripts to a master/specialist model.
+No new dashboard content — pure architectural work.
+
+This version serves a dual purpose: cleaning up the dashboard architecture
+**and** validating the data broker concept planned for v2.0 — with real
+Garmin data, before a second source makes a redesign expensive.
+
+**Target structure:**
+
+| Module | Role |
+|---|---|
+| `garmin_dashboard_base.py` | Shared frame: CSS, Dark Mode, Header, Disclaimer, Footer, Plotly integration, tab navigation |
+| `garmin_map.py` | Garmin-specific data access — translates common field names to Garmin internals, reads `raw/` and `summary/` |
+| `field_map.py` | Source-agnostic broker — registered sources only, single entry point for all dashboard and export scripts |
+| `garmin_content_timeseries.py` | Intraday metrics (HR, Stress, SpO2, Body Battery, Respiration) |
+| `garmin_content_health.py` | HRV, Resting HR, Stress, Body Battery with baseline + reference ranges |
+| `garmin_content_sleep.py` | Sleep total, Deep, REM, Sleep score, HRV night |
+| `garmin_content_activity.py` | Steps, Distance, Training load, Readiness, VO2max |
+
+Content specialists call `field_map` only — no direct file access, no knowledge
+of source-specific field names or directory structure.
+
+**v2.0 validation goals:**
+
+- Does `field_map.get(field, date_from, date_to)` hold as a stable interface,
+  or does intraday (`raw/`) vs. daily (`summary/`) data require a split?
+- Does `garmin_map.py` stay manageable, or does Garmin's data variety force
+  a further split between raw and summary access?
+- Does the broker add real value with a single source, or does friction appear
+  before Strava is ever involved?
+
+Findings feed directly into `CONCEPT_V2-0.md` — while it is still a document,
+not running code.
+
+---
+
 ### v1.4.x — Dashboard Features
 
 New functionality built on the clean v1.4.0 base:
 
-- **Smart Regeneration** — auto-detect summaries generated with an older `schema_version` and re-run `summarize()` on the corresponding raw files without hitting the Garmin API. Extends `regenerate_summaries.py`.
-- **Auto-size dashboards** — if requested date range exceeds available data, dashboard adjusts to actual data range with a note explaining the reason.
-- **Flag guard** — suppress flagged day markers when underlying data is absent or zero.
-- **Outlier / measurement error cleanup** — detect and visually mark obvious outliers and likely sensor errors (e.g. HR spike during sleep).
-- **Responsive output** — dynamic resolution and layout adapting to the display device (PC monitor vs. mobile).
-- **Measurement accuracy disclaimer** — note on each dashboard indicating the typical accuracy range of consumer wearables under ideal conditions (e.g. HR ±X%).
+- **Smart Regeneration** — auto-detect summaries generated with an older
+  `schema_version` and re-run `summarize()` on the corresponding raw files
+  without hitting the Garmin API. Extends `regenerate_summaries.py`.
+- **Auto-size dashboards** — if the requested date range exceeds available
+  data, the dashboard adjusts to the actual range with a note explaining why.
+- **Flag guard** — suppress flagged day markers when underlying data is
+  absent or zero.
+- **Outlier / measurement error cleanup** — detect and visually mark obvious
+  outliers and likely sensor errors (e.g. HR spike during sleep).
+- **Responsive output** — dynamic resolution and layout adapting to the
+  display device (PC monitor vs. mobile).
+- **Measurement accuracy disclaimer** — note on each dashboard indicating
+  the typical accuracy range of consumer wearables under ideal conditions
+  (e.g. HR ±X%).
+
+---
+
+### v1.4.x — Documentation & AI Usability
+
+Focus on making the project easier to use, understand, and safer when used with local AI tools.
+
+- **AI prompts** — provide ready-to-use system prompts for local AI tools (Ollama / AnythingLLM) to correctly interpret `garmin_analysis.json` (quality flags, HRV meaning, stress direction, etc.)
+- **Documentation reorganization** — split into clear user, developer, and AI-focused sections (`USER_GUIDE.md`, `ARCHITECTURE.md`, `AI_CONTEXT.md`) with improved navigation, reduced redundancy, and a unified structure that makes the project easier to understand, maintain, and safely extend.
+  - README structure: move AI-assisted analysis (Step 11) up directly after the philosophy section — the end result (asking an AI about your health data) should be visible before the technical pipeline details
+  - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
+  - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
+- **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
+- **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
+- **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
 
 ---
 
@@ -147,6 +188,7 @@ An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Cu
 Low priority — only relevant once API access is stable and the bulk import backlog is resolved.
 
 ---
+
 
 ## Under consideration — v2.0
 
