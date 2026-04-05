@@ -276,6 +276,9 @@ The encryption is not security theatre — it solves the problem it was designed
  [ Local Archive ]     – same format as API data, fully compatible
 ```
 
+> [!TIP]
+> **Pipeline Architecture:** For a detailed view of the v1.3.4 data flow including the validation layer and self-healing loop, open [screenshots/flowchart_v134.html](screenshots/flowchart_v134.html) in your browser.
+
 ---
 
 ## What is included
