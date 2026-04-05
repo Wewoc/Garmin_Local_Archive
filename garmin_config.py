@@ -102,3 +102,7 @@ LOG_LEVEL = os.environ.get("GARMIN_LOG_LEVEL", "INFO")
 
 # Maximum days fetched per session (placeholder — used from v1.2.1 onwards)
 MAX_DAYS_PER_SESSION = int(os.environ.get("GARMIN_MAX_DAYS_PER_SESSION", "30"))
+
+# Days processed per chunk before quality_log.json is flushed to disk
+# 0 = no chunking (single pass). Default: 10
+SYNC_CHUNK_SIZE = int(os.environ.get("GARMIN_SYNC_CHUNK_SIZE", "10"))

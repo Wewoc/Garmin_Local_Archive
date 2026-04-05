@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App (Standalone) v1.3.1
+# Garmin Local Archive — Desktop App (Standalone) v1.3.3
 
 ## What this is
 
@@ -140,6 +140,9 @@ Opens your data folder in Windows Explorer.
 
 ### Open Last HTML
 Opens the most recently generated HTML file in your default browser.
+
+### Copy Last Error Log
+Copies the contents of the most recent error log from `log/fail/` to your clipboard — ready to paste into a GitHub issue or support chat. Since the Standalone version has no terminal, this is the easiest way to retrieve diagnostic information when something goes wrong. If no error logs exist, a message appears in the log area instead.
 
 ---
 
