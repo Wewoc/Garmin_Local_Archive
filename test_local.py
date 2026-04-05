@@ -53,6 +53,7 @@ os.environ["GARMIN_DAYS_BACK"]           = "7"
 os.environ["GARMIN_SYNC_DATES"]          = ""
 os.environ["GARMIN_REFRESH_FAILED"]      = "0"
 os.environ["GARMIN_MAX_DAYS_PER_SESSION"] = "30"
+os.environ["GARMIN_SYNC_CHUNK_SIZE"]      = "10"
 
 import importlib
 
@@ -72,6 +73,7 @@ check("GARMIN_TOKEN_DIR derived",       cfg.GARMIN_TOKEN_DIR  == _TMPDIR / "log"
 check("GARMIN_TOKEN_FILE derived",      cfg.GARMIN_TOKEN_FILE == _TMPDIR / "log" / "garmin_token.enc")
 check("SYNC_MODE = recent",             cfg.SYNC_MODE == "recent")
 check("MAX_DAYS_PER_SESSION = 30",      cfg.MAX_DAYS_PER_SESSION == 30)
+check("SYNC_CHUNK_SIZE = 10",           cfg.SYNC_CHUNK_SIZE == 10)
 check("LOW_QUALITY_MAX_ATTEMPTS = 3",   cfg.LOW_QUALITY_MAX_ATTEMPTS == 3)
 check("REFRESH_FAILED = False",         cfg.REFRESH_FAILED == False)
 check("SYNC_DATES = None",              cfg.SYNC_DATES is None)

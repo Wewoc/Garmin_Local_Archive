@@ -141,7 +141,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.3.2"
+APP_VERSION = "v1.3.3"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -533,6 +533,8 @@ class GarminApp(tk.Tk):
              "Open garmin_data/ in Explorer"),
             ("📄  Open Last HTML",     BG3, self._open_last_html,
              "Open the last generated HTML file in browser"),
+            ("📋  Copy Last Error Log", BG3, self._copy_last_error_log,
+             "Copy most recent error log to clipboard"),
         ])
 
     def _action_section(self, parent, title, buttons):
@@ -1564,6 +1566,25 @@ class GarminApp(tk.Tk):
                 return
             html = str(max(files, key=lambda f: f.stat().st_mtime))
         os.startfile(html)
+
+    def _copy_last_error_log(self):
+        fail_dir = Path(self._collect_settings()["base_dir"]) / "log" / "fail"
+        if not fail_dir.exists():
+            self._log("✗ No error logs found (log/fail/ does not exist).")
+            return
+        logs = sorted(fail_dir.glob("garmin_*.log"), key=lambda f: f.stat().st_mtime)
+        if not logs:
+            self._log("✓ No error logs — no failed sessions recorded.")
+            return
+        latest = logs[-1]
+        try:
+            content = latest.read_text(encoding="utf-8")
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            self.update()
+            self._log(f"✓ Error log copied to clipboard ({latest.name})")
+        except Exception as e:
+            self._log(f"✗ Could not read error log: {e}")
 
     # ── Background Timer ───────────────────────────────────────────────────────
 

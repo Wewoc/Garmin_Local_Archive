@@ -276,7 +276,7 @@ The encryption is not security theatre — it solves the problem it was designed
 
 ## What is included
 
-The collector pipeline (v1.3.0) consists of eight focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
+The collector pipeline (v1.3.3) consists of eight focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
 
 | Script | What it does | Reads from |
 |---|---|---|
@@ -299,7 +299,7 @@ The collector pipeline (v1.3.0) consists of eight focused modules plus a thin or
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
-The desktop app (v1.3.0) also includes a **Background Timer**— a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+The desktop app (v1.3.3) also includes a **Background Timer**— a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
 
 Data is stored in three folders:
 
@@ -569,7 +569,7 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-`test_local.py` covers the core pipeline modules with 136 checks — config, sync, normalizer, quality (including all migrations), writer, collector internals, and the security crypto layer. No network, no API, no GUI required. Run from the project folder:
+`test_local.py` covers the core pipeline modules with 142 checks — config, sync, normalizer, quality (including all migrations), writer, collector internals, and the security crypto layer. No network, no API, no GUI required. Run from the project folder:
 
 ```bash
 python test_local.py
