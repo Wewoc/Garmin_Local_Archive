@@ -312,5 +312,28 @@ Particularly open:
   Each source plugin brings its own dependencies — the current single-EXE approach
   may not be viable for v2.0 and may require a fundamentally different distribution model.
 
+  The plugin system operates dynamically at runtime — global actors load `*_master.py`
+  modules on demand via the source registry. PyInstaller cannot detect dynamic imports
+  statically, which means the standard single-EXE build process breaks by design.
+
+  Target 2 (standard EXE, Python required) is unaffected — all files sit openly in the
+  filesystem and are loaded at runtime as-is.
+
+  For Target 3 (Standalone EXE), `build_standalone.py` acts as the translation layer
+  between the dynamic plugin world and the static EXE world: it scans all registered
+  `*_master.py` modules at build time, resolves their dependencies explicitly, and
+  passes a complete static import list to PyInstaller. The EXE itself contains only
+  source-agnostic global actors — all plugin compositions are resolved before the build,
+  not at runtime.
+
+  > 💡 **Thought fragment — not a decision**
+  > A further idea: `build_standalone.py` does not just declare plugins statically but
+  > generates pre-composed script variants — each global actor merged with its plugin
+  > into a single self-contained module (`writer_garmin.py`, `writer_strava.py`, ...).
+  > The Standalone EXE would then contain no plugin system at runtime whatsoever — only
+  > flat, fully resolved modules. Conceptually clean. Whether the implementation effort
+  > is justified over the simpler static-import approach is an open question.
+  > Evaluate at build time, with real plugins in front of us — not in advance.
+
 This concept defines **what** each layer is responsible for. **How** it is implemented
 remains open until actual development begins.
