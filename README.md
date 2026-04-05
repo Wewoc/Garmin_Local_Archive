@@ -47,7 +47,9 @@ Your data stays on your machine in open formats — readable, exportable, analyz
 
 ## How it works
 
-The app fetches your data from Garmin Connect and stores it locally in structured formats (JSON, Excel, HTML dashboards). Once downloaded, nothing is transmitted anywhere.
+The app works in two modes: **live sync** pulls recent data directly from Garmin Connect via API; **Bulk Import** loads your complete history from a Garmin GDPR export ZIP — this is the primary path for recovering years of data that the API no longer serves.
+
+Everything is stored locally in structured formats (JSON, Excel, HTML dashboards). Once downloaded, nothing is transmitted anywhere.
 
 The built-in dashboards cover roughly 90% of what most users are looking for — without any AI at all. For deeper analysis, your data is prepared in a format any local AI can work with directly.
 
