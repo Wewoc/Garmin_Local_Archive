@@ -344,30 +344,45 @@ def main():
                  f"(MAX_DAYS_PER_SESSION={cfg.MAX_DAYS_PER_SESSION})")
 
     ok, failed = 0, 0
+    chunk_size = cfg.SYNC_CHUNK_SIZE if cfg.SYNC_CHUNK_SIZE > 0 else len(batch)
+    chunks = [batch[i:i + chunk_size] for i in range(0, len(batch), chunk_size)]
+    if cfg.SYNC_CHUNK_SIZE > 0:
+        log.info(f"  Chunked sync: {len(chunks)} chunk(s) of up to {chunk_size} days")
+
     with quality.QUALITY_LOCK:
-        for i, day in enumerate(batch, 1):
-            if _is_stopped():
-                log.info(f"  Stopped after {ok} days saved.")
-                break
-            log.info(f"  [{i}/{len(batch)}] {day}")
-            date_str = day.isoformat()
-            try:
-                label, written, fields = _process_day(client, date_str)
-                reason = (f"Quality: {label}" if label in ("high", "medium")
-                          else f"Quality: {label} — insufficient data from Garmin API")
-                quality._upsert_quality(quality_data, day, label, reason,
-                                        written=written, source="api", fields=fields)
-                if label in ("low", "failed"):
-                    _session_had_incomplete = True
-                    log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
-                else:
-                    log.info(f"    ✓ Quality: {label}")
-                ok += 1
-            except Exception as e:
-                log.error(f"    Error on {day}: {e}")
-                quality._upsert_quality(quality_data, day, "failed", str(e), written=False, source="api")
-                failed += 1
-                _session_had_errors = True
+        for chunk_idx, chunk in enumerate(chunks, 1):
+            for i, day in enumerate(chunk, 1):
+                if _is_stopped():
+                    log.info(f"  Stopped after {ok} days saved.")
+                    quality._save_quality_log(quality_data)
+                    break
+                global_i = (chunk_idx - 1) * chunk_size + i
+                log.info(f"  [{global_i}/{len(batch)}] {day}")
+                date_str = day.isoformat()
+                try:
+                    label, written, fields = _process_day(client, date_str)
+                    reason = (f"Quality: {label}" if label in ("high", "medium")
+                              else f"Quality: {label} — insufficient data from Garmin API")
+                    quality._upsert_quality(quality_data, day, label, reason,
+                                            written=written, source="api", fields=fields)
+                    if label in ("low", "failed"):
+                        _session_had_incomplete = True
+                        log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
+                    else:
+                        log.info(f"    ✓ Quality: {label}")
+                    ok += 1
+                except Exception as e:
+                    log.error(f"    Error on {day}: {e}")
+                    quality._upsert_quality(quality_data, day, "failed", str(e), written=False, source="api")
+                    failed += 1
+                    _session_had_errors = True
+            else:
+                # ── flush after each chunk ────────────────────────────────────
+                quality._save_quality_log(quality_data)
+                if cfg.SYNC_CHUNK_SIZE > 0 and len(chunks) > 1:
+                    log.info(f"  Chunk {chunk_idx}/{len(chunks)} done — quality log flushed")
+                continue
+            break  # inner loop was broken (stop event) — exit chunk loop too
 
         # ── 9. Save + close ───────────────────────────────────────────────────
         quality._save_quality_log(quality_data)

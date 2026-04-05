@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.3.2**
+**Currently stable — v1.3.3**
 
 ---
 
@@ -32,35 +32,9 @@ See CHANGELOG for details.
 
 See CHANGELOG for details.
 
----
+### ✅ v1.3.3 — Error Log Access + Chunked Sync + QoL — done
 
-### v1.3.3 — Flagged Day Tooltips + MFA Hint + Error Log Access
-
-**Flagged Day Tooltips** — hovering over a flagged day marker in the Analysis Dashboard shows the exact value and why it was flagged (above/below reference range, distance from baseline).
-
-**MFA / Captcha Hint** — when login fails with an authentication error (401/403 or MFA challenge), the GUI shows a specific actionable hint instead of just the raw error — especially important for the Standalone version where no terminal is available:
-
-```
-✗ Login failed — Garmin may require browser verification.
-  → Download the Standard version, run garmin_collector.py once
-    in a terminal to complete MFA, then use Standalone normally.
-```
-
-**Error log access for Standalone users** — when something goes wrong, Standalone users (no terminal available) should never need a command prompt to diagnose the issue. Add a "Copy last error log" button to the GUI that reads the most recent file from `log/fail/` and copies it to the clipboard — ready to paste into a GitHub issue or chat. Complements the existing session logging infrastructure.
-
----
-
-### v1.3.4 — Chunked Sync
-
-Automatic batching of long sync operations into fixed-size chunks, processed sequentially with a full write cycle between each chunk.
-
-**Problem:** long syncs (especially `auto` mode over years of history) run as a single uninterrupted loop. A 429 error, network interruption, or manual stop mid-way leaves no clean resume point — the next run re-evaluates everything from scratch.
-
-**Solution:** the collector processes days in chunks of N (e.g. 10 days), writes all results to `raw/`, `summary/`, and `quality_log.json` after each chunk, then continues with the next. If a sync is interrupted after chunk 3, the next run starts at chunk 4 automatically — because the first 30 days are already marked as written in the quality log.
-
-No separate checkpoint state needed. The existing `quality_log.json` already tracks what has been written — the chunk boundary just ensures it is flushed regularly rather than only at session end.
-
-`MAX_DAYS_PER_SESSION` remains available for manual session caps. Chunked sync operates within a session, not across sessions.
+See CHANGELOG for details.
 
 ---
 
@@ -83,8 +57,6 @@ Transition from individual monolithic scripts to a master/specialist model. No n
 **Benefits:** design changes in one place, disclaimer updated once everywhere, new dashboard = new specialist script with base untouched, Claude-efficient (300-line specialists vs. 2000-line monolith).
 
 ---
-
-## Planned — v1.4
 
 ### v1.4.0 — Dashboard Architecture Refactoring + v2.0 Interface Validation
 
@@ -133,6 +105,7 @@ New functionality built on the clean v1.4.0 base:
   without hitting the Garmin API. Extends `regenerate_summaries.py`.
 - **Auto-size dashboards** — if the requested date range exceeds available
   data, the dashboard adjusts to the actual range with a note explaining why.
+- **Flagged Day Tooltips** — hovering over a flagged day marker shows the exact value and why it was flagged (above/below reference range, distance from baseline). Deferred from v1.3.3 — belongs in the dashboard refactor context.
 - **Flag guard** — suppress flagged day markers when underlying data is
   absent or zero.
 - **Outlier / measurement error cleanup** — detect and visually mark obvious

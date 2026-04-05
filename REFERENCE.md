@@ -26,6 +26,7 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_SYNC_DATES` | str | `""` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_collector` | Comma-separated list of specific dates to fetch (`YYYY-MM-DD,YYYY-MM-DD,...`). If set, overrides `GARMIN_SYNC_MODE` entirely. Used by the background timer to fetch exactly the drawn days |
 | `GARMIN_LOG_LEVEL` | str | `"INFO"` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_collector` | GUI log display level: `"INFO"` (Simple) or `"DEBUG"` (Detailed). Does NOT affect session log files — those always run at DEBUG |
 | `GARMIN_MAX_DAYS_PER_SESSION` | int | `30` | `_build_env()` / `_apply_env()` | `garmin_config` → `garmin_collector` | Maximum days fetched per sync run. `0` = unlimited. Prevents account throttling on large backlogs. |
+| `GARMIN_SYNC_CHUNK_SIZE` | int | `10` | — | `garmin_config` → `garmin_collector` | Days processed per chunk before `quality_log.json` is flushed. `0` = no chunking (single pass). Not exposed in GUI — set via ENV if needed. |
 | `GARMIN_EXPORT_FILE` | str | `BASE_DIR/garmin_export.xlsx` | `_build_env()` / `_apply_env()` | `garmin_to_excel.py` | Output path for daily overview Excel |
 | `GARMIN_TIMESERIES_FILE` | str | `BASE_DIR/garmin_timeseries.xlsx` | `_build_env()` / `_apply_env()` | `garmin_timeseries_excel.py` | Output path for timeseries Excel |
 | `GARMIN_DASHBOARD_FILE` | str | `BASE_DIR/garmin_dashboard.html` | `_build_env()` / `_apply_env()` | `garmin_timeseries_html.py` | Output path for timeseries HTML dashboard |
@@ -71,6 +72,7 @@ Constants defined in `garmin_config.py` (v1.2.0+). All modules import via `impor
 | `LOG_RECENT_MAX` | `30` | — | Max session logs kept in `log/recent/` |
 | `LOG_LEVEL` | `"INFO"` | `GARMIN_LOG_LEVEL` | Root logger level |
 | `MAX_DAYS_PER_SESSION` | `30` | `GARMIN_MAX_DAYS_PER_SESSION` | Max days fetched per run. `0` = unlimited. |
+| `SYNC_CHUNK_SIZE` | `10` | `GARMIN_SYNC_CHUNK_SIZE` | Days per chunk before quality log is flushed. `0` = no chunking. |
 
 **App constants** (defined in `garmin_app.py` / `garmin_app_standalone.py`):
 
@@ -451,3 +453,4 @@ Field mapping — export field → canonical raw schema (as produced by `garmin_
 | `_timer_run_fill(s)` | Returns dates completely absent from `raw/` and not in the quality log |
 | `_timer_update_btn()` | Updates timer button: green + countdown when active, grey when stopped |
 | `_timer_resume_after_sync(was_active)` | Restarts timer after a manual sync if it was active before |
+| `_copy_last_error_log()` | Reads most recent file from `log/fail/`, copies contents to clipboard. Calls `self.update()` to retain clipboard after focus change. Logs filename on success, or a clear message if `log/fail/` is absent or empty |

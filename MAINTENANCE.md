@@ -266,6 +266,10 @@ Stop is checked in two places: at the top of the day loop (collector), and at th
 
 `MAX_DAYS_PER_SESSION` (default 30, ENV: `GARMIN_MAX_DAYS_PER_SESSION`) caps the number of days fetched per run. Set to `0` for unlimited. Prevents account throttling on large backlogs. Configurable via GUI (Settings → Advanced → Session limit).
 
+### Chunked sync
+
+`SYNC_CHUNK_SIZE` (default 10, ENV: `GARMIN_SYNC_CHUNK_SIZE`) controls how many days are processed before `quality_log.json` is flushed to disk. After each chunk, the quality log is saved within the existing `QUALITY_LOCK` — no new state, no additional lock. If a sync is interrupted mid-run, the next run resumes automatically from the first unwritten day — the quality log already marks what was saved. Set to `0` to disable chunking (single pass, quality log saved only at session end). Not exposed in the GUI — configure via ENV if needed. `run_import()` is unaffected — chunking applies to API sync only.
+
 ### Adding a new API endpoint
 
 In `garmin_api.py`, append a tuple to the `endpoints` list in `fetch_raw()`:
@@ -303,7 +307,7 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 
 **1. `garmin_config`** — ENV variable parsing and path derivation
 - All derived paths (`RAW_DIR`, `SUMMARY_DIR`, `LOG_DIR`, `QUALITY_LOG_FILE`, `GARMIN_TOKEN_FILE`)
-- Default constants (`MAX_DAYS_PER_SESSION`, `LOW_QUALITY_MAX_ATTEMPTS`, `REFRESH_FAILED`)
+- Default constants (`MAX_DAYS_PER_SESSION`, `SYNC_CHUNK_SIZE`, `LOW_QUALITY_MAX_ATTEMPTS`, `REFRESH_FAILED`)
 - `GARMIN_SYNC_DATES` parsing: valid dates accepted, invalid entries skipped, `None` when empty
 
 **2. `garmin_sync`** — date range logic and local file scanning
@@ -351,7 +355,7 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - `parse_device_date()`: ISO string, ISO date, millisecond timestamp, second timestamp, `None`, empty string
 - `parse_sync_dates()`: valid dates, sorted output, invalid entries skipped, empty → `None`, all invalid → `None`
 
-### Total: 136 checks
+### Total: 142 checks
 
 ### What is not tested
 

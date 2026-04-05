@@ -2,6 +2,23 @@
 
 ---
 
+## v1.3.3 — Error Log Access + Chunked Sync + QoL
+
+**Error log access:**
+- `garmin_app.py` / `garmin_app_standalone.py` — new "📋 Copy Last Error Log" button in Output section. Reads the most recent file from `log/fail/`, copies its contents to the clipboard. `self.update()` called after `clipboard_append()` to ensure Windows retains the clipboard contents after focus changes. If `log/fail/` is absent or empty, a clear message is written to the GUI log instead.
+
+**Chunked sync:**
+- `garmin_config.py` — new `SYNC_CHUNK_SIZE` constant (ENV: `GARMIN_SYNC_CHUNK_SIZE`, default: 10). Set to `0` to disable chunking (single pass, previous behaviour).
+- `garmin_collector.py` — fetch loop restructured: `batch` is split into sub-lists of `SYNC_CHUNK_SIZE` days. `quality_log.json` is flushed to disk after each chunk via `_save_quality_log()`, within the existing `QUALITY_LOCK`. If a sync is interrupted mid-run, the next run resumes automatically from the first unwritten day — no separate checkpoint state needed. Stop-event aborts the current chunk cleanly via `for/else` pattern. `run_import()` is unaffected — chunking applies to API sync only.
+
+**QoL:**
+- `garmin_app_standalone.py` — header label updated from `"local · private · yours"` to `"local · private · yours · Standalone"`. Makes the build variant immediately visible in screenshots and support contexts.
+
+**Testing:**
+- `test_local.py` — 1 new check: `SYNC_CHUNK_SIZE` default value. Total: 142 checks.
+
+---
+
 ## v1.3.2 — Auth Stack Rebuild + Version Check + QoL
 
 **Auth stack rebuild (garminconnect ≥ 0.2.40):**
