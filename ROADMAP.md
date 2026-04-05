@@ -38,7 +38,7 @@ When Garmin changes its API structure, the current pipeline passes the change th
 | `validator_issues` | `[{"field": "hrv", "expected": "dict", "got": "string"}]` | Structured issue list, empty if ok |
 | `validator_schema_version` | e.g. `"1.0"` | Records which schema version was used for validation |
 
-Background check: identifies days where `validator_result != "ok"` and `validator_schema_version` is older than the current `garmin_dataformat.json`. Reruns the validator against local raw files (no API call). Only triggers a Quality re-evaluation if the validator result actually changes — prevents unnecessary recomputes. Updated result appears in the GUI Quality display. The user decides manually whether to trigger the background timer.
+Schema check on every manually started process (Sync, Timer, Bulk Import): at process start, `validator_schema_version` in `quality_log.json` is compared against the current version in `garmin_dataformat.json`. On mismatch, days with `validator_result != "ok"` are identified and revalidated against local raw files — no API call. Quality is only re-evaluated if the validator result actually changes — prevents unnecessary recomputes. Updated result appears in the GUI Quality display. The user decides manually whether to trigger the background timer.
 
 `garmin_normalizer.py` — structural type checks removed (`_EXPECTED_DICT`, `_EXPECTED_LIST`). Pure transformation only. A minimal guard remains: raises `ValueError` if non-dict input arrives — protection against future direct calls that bypass the validator.
 
