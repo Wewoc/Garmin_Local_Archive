@@ -65,7 +65,7 @@ Claude translates architecture decisions into working code. I don't perform trad
 
 Documentation in this project is intentionally detailed — it serves as the persistent reference layer that keeps context consistent across AI sessions.
 
-The actual work split reflects this: roughly half of all development conversation is planning and validation — architecture decisions, cross-checking with multiple AI models, behavioral testing against real data. The other half is implementation and documentation. Very little time is spent on line-level code review, because the structural decisions made upstream leave limited room for errors to propagate silently.
+The actual work split reflects this: roughly half of all development conversation is planning and validation — architecture decisions, cross-checking with multiple AI models, behavioral testing against real data. The other half is implementation and documentation. Structural decisions made upstream leave limited room for errors to propagate silently.
 
 ![Human-AI Collaboration Flowchart](screenshots/flowchart.png)
 
