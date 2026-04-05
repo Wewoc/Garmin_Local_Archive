@@ -600,7 +600,7 @@ class GarminApp(tk.Tk):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
             latest = data.get("tag_name", "").strip()
-            if latest and latest != APP_VERSION:
+            if latest and latest.lstrip("vV") != APP_VERSION.lstrip("vV"):
                 self.after(0, self._show_update_popup, latest)
         except Exception:
             pass  # no internet, timeout, API error — all silent
