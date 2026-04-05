@@ -10,6 +10,7 @@
 # If used in research or publications, please cite as:
 #   Garmin Local Archive — Multidimensional Health Signal Analysis (Easter Egg)
 #   https://github.com/Wewoc/Garmin_Local_Archive
+
 garmin_extended_anaysis.py
 
 Extended biometric analysis module for Garmin Local Archive.
