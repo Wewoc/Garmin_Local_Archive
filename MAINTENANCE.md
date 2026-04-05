@@ -6,6 +6,16 @@ For a complete reference of all environment variables, constants, file paths, an
 
 ---
 
+## Pipeline Architecture
+
+![System Architecture v1.3.4](screenshots/flowchart_v134.png)
+
+> [!TIP]
+> **Interactive version:** Open [screenshots/flowchart_v134.html](screenshots/flowchart_v134.html) in your browser for the full diagram with readable labels.
+
+---
+
+
 ## Project structure
 
 ```
