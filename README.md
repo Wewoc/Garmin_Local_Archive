@@ -12,7 +12,7 @@ The problem: every existing tool sends your data somewhere else. Garmin Chat Con
 
 I didn't want that. So I built this instead.
 
-My background is mechanical system design, not software development. I approached this the way I'd approach any engineering problem: define the structure, the module boundaries, the data flow, the quality rules — and use the right tool for implementation. In this case, In this case, using Claude as a coding partner. The architecture and logic are mine. The code is AI-created and guided by those decisions.
+My background is mechanical system design, not software development. I approached this the way I'd approach any engineering problem: define the structure, the module boundaries, the data flow, the quality rules — and use the right tool for implementation. In this case, using Claude as a coding partner. The architecture and logic are mine. The code is AI-created and guided by those decisions.
 
 This project reflects a few design decisions:
 
