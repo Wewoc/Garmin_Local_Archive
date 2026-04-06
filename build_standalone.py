@@ -86,6 +86,12 @@ def migrate_layout(root: Path, scripts_dir: Path, info_dir: Path):
             print(f"    {name}")
         print(f"  ✓ Moved {len(scripts_in_root)} files to scripts/")
 
+    for name in manifest.REQUIRED_DATA_FILES:
+        if (root / name).exists():
+            scripts_dir.mkdir(exist_ok=True)
+            (root / name).rename(scripts_dir / name)
+            print(f"  Data file moved to scripts/: {name}")
+
     docs_in_root = [d for d in DOCS if (root / d).exists()]
     if docs_in_root:
         print(f"  Docs found in root — moving to info/ ...")
