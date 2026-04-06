@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
-# © 2026 Wewoc
+"""
+
+# © 2026 Wewoc (Timo)
 # Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0)
 # https://creativecommons.org/licenses/by/4.0/
 #
