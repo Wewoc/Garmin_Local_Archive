@@ -11,8 +11,9 @@ Responsibilities:
 No other module writes to raw/ or summary/ directly.
 No API logic, no quality log access, no date strategy logic.
 
-Single public entry point:
+Public functions:
   write_day(normalized, summary, date_str) -> bool
+  read_raw(date_str)                       -> dict
 """
 
 import json
@@ -61,3 +62,32 @@ def write_day(normalized: dict, summary: dict, date_str: str) -> bool:
     except Exception as e:
         log.error(f"  Writer: failed to write {date_str}: {e}")
         return False
+
+
+def read_raw(date_str: str) -> dict:
+    """
+    Reads and returns the raw file for a given date.
+
+    Used exclusively by the self-healing loop in garmin_collector.py —
+    no API call, no re-download. Returns empty dict on any error.
+
+    Parameters
+    ----------
+    date_str : str — date in YYYY-MM-DD format
+
+    Returns
+    -------
+    dict — parsed raw data, or {} if file is missing or corrupt
+    """
+    raw_path = cfg.RAW_DIR / f"garmin_raw_{date_str}.json"
+
+    if not raw_path.exists():
+        log.warning(f"  Writer.read_raw: file not found for {date_str}")
+        return {}
+
+    try:
+        with open(raw_path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        log.error(f"  Writer.read_raw: failed to read {date_str}: {e}")
+        return {}

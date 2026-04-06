@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "fields": {
+    "date":               { "type": "str",  "required": true  },
+    "sleep":              { "type": "dict", "required": false },
+    "stress":             { "type": "dict", "required": false },
+    "body_battery":       { "type": "dict", "required": false },
+    "heart_rates":        { "type": "dict", "required": false },
+    "respiration":        { "type": "dict", "required": false },
+    "spo2":               { "type": "dict", "required": false },
+    "stats":              { "type": "dict", "required": false },
+    "user_summary":       { "type": "dict", "required": false },
+    "training_status":    { "type": "dict", "required": false },
+    "training_readiness": { "type": "dict", "required": false },
+    "hrv":                { "type": "dict", "required": false },
+    "race_predictions":   { "type": "dict", "required": false },
+    "max_metrics":        { "type": "dict", "required": false },
+    "activities":         { "type": "list", "required": false }
+  }
+}
