@@ -70,6 +70,12 @@ REQUIRED_DATA_FILES = [
     "garmin_dataformat.json",
 ]
 
+# ── Required non-Python files (must be present alongside scripts) ─────────────
+
+REQUIRED_DATA_FILES = [
+    "garmin_dataformat.json",
+]
+
 # ── Runtime dependencies (Target 3 only — must be installed for bundling) ─────
 
 RUNTIME_DEPS = [
