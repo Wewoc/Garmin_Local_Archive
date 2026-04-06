@@ -9,9 +9,24 @@ If Target 2 fails, Target 3 is not started.
 Note: Standalone build embeds all dependencies and takes significantly longer.
 """
 
+import subprocess
+import sys
+from pathlib import Path
+
 import build
 import build_standalone
 
 if __name__ == "__main__":
+    print("=" * 55)
+    print("  Pre-build: running test suite ...")
+    print("=" * 55)
+
+    test_path = Path(__file__).parent / "test_local.py"
+    result = subprocess.run([sys.executable, str(test_path)])
+    if result.returncode != 0:
+        print("\n  ✗ Tests failed — build aborted.")
+        sys.exit(1)
+
+    print("\n  ✓ All tests passed — starting build.\n")
     build.main()
     build_standalone.main()
