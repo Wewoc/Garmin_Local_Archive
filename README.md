@@ -1,6 +1,6 @@
 # Garmin Local Archive
 
-Archive and analyze your Garmin Connect data **locally on your machine** — no cloud, no third parties, no subscriptions. Everything runs under your control.
+Archive and analyze your Garmin Connect data **locally on your machine** — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
 
 ---
 
@@ -12,12 +12,12 @@ The problem: every existing tool sends your data somewhere else. Garmin Chat Con
 
 I didn't want that. So I built this instead.
 
-My background is mechanical system design, not software development. I approached this the way I'd approach any engineering problem: define the structure, the module boundaries, the data flow, the quality rules — and use the right tool for implementation. In this case, Claude as coding partner. The architecture and logic are mine. The Python is his.
+My background is mechanical system design, not software development. I approached this the way I'd approach any engineering problem: define the structure, the module boundaries, the data flow, the quality rules — and use the right tool for implementation. In this case, In this case, using Claude as a coding partner. The architecture and logic are mine. The code is AI-created and guided by those decisions.
 
-This project is as much a statement as it is a tool:
+This project reflects a few design decisions:
 
 - **Local-first data storage** — your data never leaves your machine
-- **The "Double Cloud" Trap** — one cloud (Garmin) is already enough; this project doesn't add a second
+- **Avoids introducing an additional cloud dependency** — one cloud (Garmin) is already enough; this project doesn't add a second
 - **Simple usage** — EXE, no setup, no terminal
 - **Structured data** — ready for analysis with any tool, including local AI
 - **Offline first** — once the data is on your disk, no further transmission occurs
@@ -28,20 +28,15 @@ This project is as much a statement as it is a tool:
 
 ## What makes this different
 
-This is not a data export script. It solves a specific problem:
+This is not a data export script. It addresses a specific problem:
 
-> **Get a complete, consistent local copy of your Garmin data — and keep it that way.**
+> **Maintaining a complete, consistent local copy of your Garmin data over time.**
 
-Garmin erodes your historical data over time. Intraday data disappears after roughly 1–2 years. Once it's gone from their servers, it's gone. This tool stops that.
+In practice, historical data loses detail: fine-grained metrics disappear, leaving only summarized values. Intraday data is typically only available for a limited time window (roughly 1–2 years). Once it is no longer accessible via the API or export, it cannot be recovered in full resolution.
 
-| Feature | Garmin Connect | Cloud-AI Bridges | **Garmin Local Archive** |
-| :--- | :--- | :--- | :--- |
-| **Data Storage** | Garmin Servers (USA) | US AI Servers | **Your Machine** |
-| **Privacy Risk** | Medium | High (training data) | **Minimal** |
-| **Access** | Online only | Requires subscription | **100% Offline** |
-| **History** | Erodes over time | Depends on source | **Permanent local copy** |
+This tool is designed to mitigate that by capturing and storing the data locally while it is still available.
 
-Your data stays on your machine in open formats — readable, exportable, analyzable with any tool you choose. Local AI, cloud AI, or no AI at all. **Your data, your call.**
+Your data stays on your machine in open formats — readable, exportable, and analyzable with any tool you choose. Local AI, cloud AI, or no AI at all. **Your data, your call.**
 
 ---
 
@@ -137,7 +132,8 @@ Trade-offs:
 - Historical data quality depends on Garmin servers
 - Large sync operations are not checkpointed yet
 
-It works. And if I could build it, you are free to use it.
+This project is built for my own use.
+If it happens to be useful to others, feel free to use it — but evaluate it like any other unverified open-source tool.
 
 *Built with Claude · [☕ ko-fi.com/wewoc](https://ko-fi.com/wewoc) · [⭐ GitHub](https://github.com/Wewoc/Garmin_Local_Archive)*
 
@@ -217,7 +213,7 @@ The trade-off: if the Windows Credential Manager entry is lost (e.g. after a Win
 | Attacker with full access to your Windows account | ❌ No — system-level boundary |
 | Compromised system (malware, remote access) | ❌ No — same for all local tools |
 
-The encryption is not security theatre — it solves the problem it was designed to solve. It just does not solve every possible problem, and it does not claim to.
+The encryption addresses specific risks (e.g. accidental exposure). It solves the problem it was designed to solve, but does not aim to provide full system-level protection.
 
 ---
 
@@ -309,7 +305,7 @@ The collector pipeline consists of nine focused modules plus a thin orchestrator
 | `garmin_timeseries_html.py` | Interactive browser dashboard — zoomable, tabbed, offline | `raw/` |
 | `garmin_analysis_html.py` | Analysis dashboard: daily values vs personal baseline vs norm ranges | `summary/` |
 | `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | — |
-| `correlation_concept.md` | Designed by curiosity — maybe not part of the pipeline | cosmic knowleg |
+| `correlation_concept.md` | Designed by curiosity — maybe not part of the pipeline | cosmic knowledge |
 
 Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
 
