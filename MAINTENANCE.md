@@ -618,6 +618,8 @@ Produces `Garmin_Local_Archive_Standalone.exe` and `Garmin_Local_Archive_Standal
 
 Both scripts auto-migrate files to the correct subfolders if still in root. Safe to run from any starting layout. Upload both ZIPs to the GitHub release page.
 
+`build_all.py` runs the full test suite (`test_local.py`) before starting either build — if any test fails, the build is aborted immediately. `garmin_dataformat.json` is automatically migrated alongside the scripts and validated before PyInstaller starts.
+
 **Pre-build validation (`validate_scripts()`):**
 
 Both build scripts run a validation block before PyInstaller starts. It checks:
