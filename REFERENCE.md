@@ -56,6 +56,7 @@ Constants defined in `garmin_config.py` (v1.2.0+). All modules import via `impor
 | `LOG_RECENT_DIR` | `BASE_DIR/log/recent` | — | Derived from `LOG_DIR` |
 | `LOG_FAIL_DIR` | `BASE_DIR/log/fail` | — | Derived from `LOG_DIR` |
 | `QUALITY_LOG_FILE` | `BASE_DIR/log/quality_log.json` | — | Derived from `LOG_DIR` |
+| `DATAFORMAT_FILE` | `<script_dir>/garmin_dataformat.json` | — | Schema definition for `garmin_validator.py` — resolved relative to `garmin_config.py` location |
 | `GARMIN_TOKEN_DIR`  | `BASE_DIR/log/garmin_token` | — | Temporary working dir for garminconnect library — created and removed by `garmin_security.py` |
 | `GARMIN_TOKEN_FILE` | `BASE_DIR/log/garmin_token.enc` | — | Encrypted OAuth token — managed exclusively by `garmin_security.py` |
 | `SYNC_MODE` | `"recent"` | `GARMIN_SYNC_MODE` | Sync mode: `"recent"`, `"range"`, `"auto"` |
@@ -207,6 +208,9 @@ Located at `BASE_DIR/log/quality_log.json`.
 | `attempts` | int | Number of re-download attempts for this day |
 | `last_checked` | str | ISO date of last quality assessment |
 | `last_attempt` | str/null | ISO datetime of last download attempt. `null` if never re-downloaded |
+| `validator_result` | str/null | Structural validation result: `"ok"` / `"warning"` / `"critical"`. `null` for legacy entries or when validator was not run |
+| `validator_issues` | list/null | Structured list of validator issues — empty list if `ok`, `null` for legacy entries. Each issue: `{"field", "type", "expected", "actual", "severity"}` |
+| `validator_schema_version` | str/null | Schema version used for the last validation. `null` for legacy entries. Used by self-healing loop to detect schema version mismatch |
 
 **Quality levels:**
 
@@ -417,13 +421,65 @@ Field mapping — export field → canonical raw schema (as produced by `garmin_
 
 ---
 
+### `garmin_validator.py`
+
+| Function | Purpose |
+|---|---|
+| `validate(raw)` | Validates a raw dict against the cached schema. Returns structured result object: `{"status", "schema_version", "timestamp", "issues"}`. Never modifies the input dict |
+| `reload_schema()` | Reloads `garmin_dataformat.json` from disk. Called by self-healing loop after schema version mismatch |
+| `current_version()` | Returns the currently cached schema version string |
+
+**Issue types:**
+
+| Type | Trigger | Severity | Status impact |
+|---|---|---|---|
+| `missing_required` | Required field absent or wrong type | `critical` | `critical` |
+| `type_mismatch` | Known field present but wrong type | `critical` (required) / `warning` (optional) | `critical` / `warning` |
+| `missing_optional` | Optional field absent | `info` | none — status stays `ok` |
+| `unexpected_field` | Field not defined in schema | `warning` | `warning` |
+
+Schema is cached at module import. Leaf-node: imports only `garmin_config` and standard libs.
+
+---
+
+### `garmin_dataformat.json`
+
+Located at `<script_dir>/garmin_dataformat.json` (same folder as `garmin_config.py`).
+
+Schema definition for `garmin_validator.py`. Defines expected field names, types, and `required`/`optional` categories for the consolidated raw dict produced by `garmin_api.fetch_raw()`.
+
+**Version scheme:** minor version for optional field changes, major version for changes to `required` fields (breaks backwards compatibility).
+
+**Current version:** `1.0`
+
+| Field | Type | Required |
+|---|---|---|
+| `date` | str | ✅ |
+| `sleep` | dict | — |
+| `stress` | dict | — |
+| `body_battery` | dict | — |
+| `heart_rates` | dict | — |
+| `respiration` | dict | — |
+| `spo2` | dict | — |
+| `stats` | dict | — |
+| `user_summary` | dict | — |
+| `training_status` | dict | — |
+| `training_readiness` | dict | — |
+| `hrv` | dict | — |
+| `race_predictions` | dict | — |
+| `max_metrics` | dict | — |
+| `activities` | list | — |
+
+---
+
 ### `garmin_collector.py`
 
 | Function | Purpose |
 |---|---|
 | `_should_write(label)` | Decision function — returns `True` if quality label is acceptable for writing (`high`, `medium`, `low`). Returns `False` for `failed` |
-| `_process_day(client, date_str)` | Isolated processing function: fetch → normalize → summarize → assess → write. Logs failed endpoints as warnings. Returns `(label, written, fields)` tuple |
-| `run_import(path, progress_callback)` | Bulk import orchestration. Iterates `garmin_import.load_bulk()`, runs each day through the full pipeline. Skips days already present with `high`/`medium` quality from API. Returns `{"ok", "skipped", "failed"}` |
+| `_process_day(client, date_str)` | Isolated processing function: validate → fetch → normalize → summarize → assess → write. Logs failed endpoints as warnings. Returns `(label, written, fields, val_result)` tuple. Critical validator result skips the day |
+| `run_import(path, progress_callback)` | Bulk import orchestration. Iterates `garmin_import.load_bulk()`, runs each day through the full pipeline including validator. Skips days already present with `high`/`medium` quality from API. Critical validator result skips the day. Returns `{"ok", "skipped", "failed"}` |
+| `_run_self_healing(quality_data)` | Runs at every process start. Compares current schema version against stored `validator_schema_version` per day. Days with open issues and a stale schema version are revalidated against local `raw/` files — no API call. Quality re-evaluated only if result changes |
 | `_is_stopped()` | Returns `True` if standalone GUI has injected `_STOP_EVENT` and set it |
 | `_start_session_log()` | Opens `log/recent/{SESSION_LOG_PREFIX}_YYYY-MM-DD_HHMMSS.log` at DEBUG level. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if session had errors or low-quality downloads, enforces rolling limit |

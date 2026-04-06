@@ -79,31 +79,8 @@ def _normalize_api(raw: dict) -> dict:
         log.warning("  _normalize_api: received non-dict — returning empty day")
         return {"date": "unknown"}
 
-    # Guarantee canonical minimum: date must always be present
-    if "date" not in raw:
-        log.warning("  _normalize_api: 'date' key missing in raw dict")
-
-    # Type validation: remove keys whose values have unexpected types.
-    # Downstream functions (summarize, assess_quality) expect dicts or lists —
-    # a wrong type (e.g. a string or number) would silently produce wrong output.
-    _EXPECTED_DICT = ("sleep", "stress", "body_battery", "heart_rates",
-                      "respiration", "spo2", "stats", "user_summary",
-                      "training_status", "training_readiness", "hrv",
-                      "race_predictions", "max_metrics")
-    _EXPECTED_LIST = ("activities",)
-
-    for key in _EXPECTED_DICT:
-        if key in raw and not isinstance(raw[key], dict):
-            log.warning(f"  _normalize_api: '{key}' has unexpected type "
-                        f"({type(raw[key]).__name__}) — removed")
-            del raw[key]
-
-    for key in _EXPECTED_LIST:
-        if key in raw and not isinstance(raw[key], list):
-            log.warning(f"  _normalize_api: '{key}' has unexpected type "
-                        f"({type(raw[key]).__name__}) — removed")
-            del raw[key]
-
+    # Structural type checks removed in v1.3.4 — now handled by garmin_validator.py
+    # before this function is called. Minimal guard above remains as bypass protection.
     return raw
 
 
@@ -119,26 +96,8 @@ def _normalize_import(raw: dict) -> dict:
         log.warning("  _normalize_import: received non-dict — returning empty day")
         return {"date": "unknown"}
 
-    if "date" not in raw:
-        log.warning("  _normalize_import: 'date' key missing in raw dict")
-
-    _EXPECTED_DICT = ("sleep", "stress", "body_battery", "heart_rates",
-                      "respiration", "spo2", "stats", "user_summary",
-                      "training_status", "training_readiness", "hrv",
-                      "race_predictions", "max_metrics")
-    _EXPECTED_LIST = ("activities",)
-
-    for key in _EXPECTED_DICT:
-        if key in raw and not isinstance(raw[key], dict):
-            log.warning(f"  _normalize_import: '{key}' has unexpected type "
-                        f"({type(raw[key]).__name__}) — removed")
-            del raw[key]
-
-    for key in _EXPECTED_LIST:
-        if key in raw and not isinstance(raw[key], list):
-            log.warning(f"  _normalize_import: '{key}' has unexpected type "
-                        f"({type(raw[key]).__name__}) — removed")
-            del raw[key]
+    # Structural type checks removed in v1.3.4 — now handled by garmin_validator.py
+    # before this function is called. Minimal guard above remains as bypass protection.
 
     # Bulk HR remap: user_summary → heart_rates
     # summarize() reads from heart_rates — not present in bulk raw.

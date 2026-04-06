@@ -38,13 +38,16 @@ For a complete reference of all environment variables, constants, file paths, an
 |       garmin_normalizer.py        – normalises raw data from any source (v1.2.0)
 |       garmin_quality.py           – sole owner of quality_log.json (v1.2.0)
 |       garmin_sync.py              – date range resolution, local date scan (v1.2.0)
+|       garmin_validator.py         – structural validation against garmin_dataformat.json (v1.3.4)
 |       garmin_import.py            – Garmin GDPR export importer — ZIP or folder (v1.3.0)
 |       garmin_collector.py         – thin orchestrator, writes raw/ and summary/ (v1.2.0)
+|       garmin_dataformat.json      – schema definition for garmin_validator.py (v1.3.4)
 |       garmin_to_excel.py          – exports summary/ to daily overview Excel
 |       garmin_timeseries_excel.py  – exports raw/ intraday data to Excel + charts
 |       garmin_timeseries_html.py   – exports raw/ intraday data to interactive HTML
 |       garmin_analysis_html.py     – analysis dashboard + JSON for Ollama
 |       regenerate_summaries.py     – rebuilds summaries from raw without API call
+|       garmin_writer.py            – Sole owner of `raw/` and `summary/` 
 |
 +-- info/                           – documentation
 |       README.md
@@ -190,11 +193,13 @@ As of v1.2.0, `garmin_collector.py` is a thin orchestrator. The logic that was p
 |---|---|---|
 | `garmin_config.py` | All ENV variables, constants, derived paths | Nothing |
 | `garmin_api.py` | Login, API calls, device list | Nothing |
+| `garmin_validator.py` | Structural validation against `garmin_dataformat.json` | Nothing |
 | `garmin_normalizer.py` | Normalises raw dict from any source | Nothing |
+| `garmin_writer.py` | Sole owner of `raw/` and `summary/` | `raw/` and `summary/` only |
 | `garmin_quality.py` | Sole owner of `quality_log.json` | `quality_log.json` only |
 | `garmin_sync.py` | Date range resolution, local date scan | Nothing |
 | `garmin_import.py` | Garmin GDPR export importer — ZIP or folder | Nothing |
-| `garmin_collector.py` | Orchestrator | `raw/` and `summary/` only |
+| `garmin_collector.py` | Orchestrator | coordinates all modules |
 
 **Communication model:** all modules communicate via function calls — parameters in, return value out. No module writes intermediate files for another to read. `main()` is the sole orchestration point; no module calls another directly.
 
@@ -212,13 +217,16 @@ main()
   ├── garmin_quality._set_first_day()          → quality_data["first_day"]
   ├── garmin_sync.get_local_dates()            → set of present dates
   ├── garmin_sync.resolve_date_range()         → (start, end)
+  ├── _run_self_healing()                      → revalidate stale days (no API call)
   ├── for each missing day:
   │     garmin_api.fetch_raw()                 → raw dict
+  │     garmin_validator.validate()            → result object (ok/warning/critical)
+  │     [critical → skip day]
   │     garmin_normalizer.normalize()          → normalised dict
   │     summarize()                            → summary dict
-  │     write raw/ and summary/
+  │     garmin_writer.write_day()              → raw/ and summary/
   │     garmin_quality.assess_quality()        → quality string
-  │     garmin_quality._upsert_quality(..., source="api") → quality_data updated
+  │     garmin_quality._upsert_quality(..., validator_result=...) → quality_data updated
   └── garmin_quality._save_quality_log()       → quality_log.json written
 ```
 
@@ -289,7 +297,7 @@ In `garmin_api.py`, append a tuple to the `endpoints` list in `fetch_raw()`:
 
 ### Adding a new summary field
 
-In `garmin_collector.py`, add the extraction logic to `summarize()`. The field will appear in all new `summary/garmin_YYYY-MM-DD.json` files. Run `regenerate_summaries.py` to backfill existing files.
+In `garmin_normalizer.py`, add the extraction logic to `summarize()`. The field will appear in all new `summary/garmin_YYYY-MM-DD.json` files. Run `regenerate_summaries.py` to backfill existing files.
 
 ### Known Garmin API quirks
 
@@ -346,14 +354,35 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 **5. `garmin_writer`** — file output
 - `write_day()` creates both `raw/garmin_raw_YYYY-MM-DD.json` and `summary/garmin_YYYY-MM-DD.json`
 - Raw file content correct, summary `generated_by` field = `"garmin_normalizer.py"`, `schema_version` = `1`
+- `read_raw()`: happy path returns correct dict, missing file returns `{}`, corrupt JSON returns `{}`
 
 **6. `garmin_collector` internals** — decision layer and module boundaries
+- `_process_day()`: returns `(label, written, fields, val_result)` — four-value tuple
+- `val_result` is always a dict with `"status"` key
+
+**7. `garmin_validator`** — structural validation
+- Schema loaded at import: `current_version()` returns `"1.0"`
+- Happy path: all known fields correct → `status = "ok"`
+- `missing_optional`: optional field absent → status stays `"ok"`, issue logged
+- `unexpected_field`: unknown field → `status = "warning"`
+- `type_mismatch`: optional field wrong type → `status = "warning"`
+- `missing_required`: `date` absent → `status = "critical"`
+- Required field wrong type: `date = int` → `status = "critical"`
+- Non-dict input (`None`, `str`) → `status = "critical"`
+- Multiple issues: critical wins over warning
+- Evil API: `"date": "Gestern"` → `status = "ok"` — content is Quality's job
+- `reload_schema()`: no crash, version preserved
+
+**8. `garmin_writer` — `read_raw()`** — raw file read access for self-healing loop
+- Happy path: file written by `write_day()`, read back correctly
+- Missing file: returns `{}`
+- Corrupt JSON: returns `{}`
 - `_should_write()`: `True` for `high`/`medium`/`low`, `False` for `failed` and unknown labels
 - `_is_stopped()`: `False` without injected event, `True` when `_STOP_EVENT` is set
 - `summarize` and `safe_get` no longer present in collector (moved to normalizer)
-- `_process_day()` via mocked API: correct label returned, `write_day` called on success, not called when label is `failed`, `fields` dict returned as third element
+- `_process_day()` via mocked API: correct label returned, `write_day` called on success, not called when label is `failed`, `fields` dict and `val_result` dict returned as third and fourth element
 
-**7. `garmin_security`** — crypto layer (no keyring required)
+**9. `garmin_security`** — crypto layer (no keyring required)
 - `_derive_aes_key()`: 32-byte output, deterministic for same salt+key, unique per different key
 - `save_token()` + `load_token()` round-trip: correct plaintext recovered with random salt
 - `load_token()` with wrong key: returns `None`
@@ -361,11 +390,11 @@ Exits with code `0` (all passed) or `1` (failures). Cleans up all temporary file
 - `clear_token()`: token file removed from disk
 - `load_token()` after clear: returns `None`
 
-**8. `garmin_utils`** — shared utilities
+**10. `garmin_utils`** — shared utilities
 - `parse_device_date()`: ISO string, ISO date, millisecond timestamp, second timestamp, `None`, empty string
 - `parse_sync_dates()`: valid dates, sorted output, invalid entries skipped, empty → `None`, all invalid → `None`
 
-### Total: 142 checks
+### Total: 177 checks
 
 ### What is not tested
 
@@ -607,7 +636,8 @@ Both build scripts run a validation block before PyInstaller starts. It checks:
 | `garmin_config.py` | `GARMIN_EMAIL` |
 | `garmin_security.py` | `def load_token`, `def save_token` |
 | `garmin_normalizer.py` | `def normalize`, `def summarize` |
-| `garmin_writer.py` | `def write_day` |
+| `garmin_validator.py` | `def validate`, `def reload_schema`, `def current_version` |
+| `garmin_writer.py` | `def write_day`, `def read_raw` |
 | `garmin_sync.py` | `def get_local_dates`, `def resolve_date_range` |
 
 If any check fails, the build aborts immediately with a clear message identifying which file is missing or has wrong content. This catches cases where a file was accidentally replaced with the wrong content or never copied into the folder.

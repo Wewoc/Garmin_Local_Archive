@@ -10,6 +10,7 @@ logic, no date strategy logic, no file write logic.
 Pipeline:
   garmin_config      — all environment variables and paths
   garmin_api         — login, fetch_raw, get_devices
+  garmin_validator   — structural validation against garmin_dataformat.json
   garmin_normalizer  — normalize raw dict, summarize
   garmin_quality     — load/save/assess/upsert quality_log.json
   garmin_sync        — resolve date range, get local dates, date_range generator
@@ -29,6 +30,7 @@ import garmin_api as api
 import garmin_normalizer as normalizer
 import garmin_quality as quality
 import garmin_sync as sync
+import garmin_validator as validator
 import garmin_writer as writer
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -81,6 +83,12 @@ def _process_day(client, date_str: str) -> tuple:
     raw_data, failed_endpoints = api.fetch_raw(client, date_str)
     if failed_endpoints:
         log.warning(f"    ⚠ {len(failed_endpoints)} endpoint(s) failed: {', '.join(failed_endpoints)}")
+
+    val_result = validator.validate(raw_data)
+    if val_result["status"] == "critical":
+        log.warning(f"    ⚠ Validator critical — skipping {date_str}")
+        return "failed", False, {}, val_result
+
     normalized = normalizer.normalize(raw_data, source="api")
     summary    = normalizer.summarize(normalized)
     label      = quality.assess_quality(normalized)
@@ -91,7 +99,7 @@ def _process_day(client, date_str: str) -> tuple:
     else:
         written = False
 
-    return label, written, fields
+    return label, written, fields, val_result
 
 
 def run_import(path, progress_callback=None) -> dict:
@@ -139,6 +147,14 @@ def run_import(path, progress_callback=None) -> dict:
                 continue
 
             try:
+                val_result = validator.validate(raw_data)
+                if val_result["status"] == "critical":
+                    log.warning(f"  import [{i}]: {date_str} — validator critical, skipped")
+                    failed += 1
+                    if progress_callback:
+                        progress_callback(i, None, date_str)
+                    continue
+
                 normalized = normalizer.normalize(raw_data, source="bulk")
                 summary    = normalizer.summarize(normalized)
                 label      = quality.assess_quality(normalized)
@@ -160,7 +176,8 @@ def run_import(path, progress_callback=None) -> dict:
                     continue
 
                 quality._upsert_quality(quality_data, day, label, reason,
-                                        written=written, source="bulk", fields=fields)
+                                        written=written, source="bulk", fields=fields,
+                                        validator_result=val_result)
                 ok += 1
                 log.info(f"  import [{i}]: {date_str} — {label}")
 
@@ -228,6 +245,83 @@ def _close_session_log(fh: logging.FileHandler, log_path: Path,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Self-healing
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_self_healing(quality_data: dict) -> None:
+    """
+    Revalidates days with validator issues when the schema version has changed.
+
+    Runs at every process start — before login, no API call required.
+    Only triggers when both conditions are true:
+      1. A day has validator_result != "ok"
+      2. The stored validator_schema_version differs from the current schema
+
+    Quality is only re-evaluated if the validator result actually changes.
+    """
+    current_version = validator.current_version()
+    if current_version == "unknown":
+        log.debug("  Self-healing: schema not loaded — skipping")
+        return
+
+    candidates = [
+        e for e in quality_data.get("days", [])
+        if e.get("validator_result") not in (None, "ok")
+        and e.get("validator_schema_version") != current_version
+    ]
+
+    if not candidates:
+        log.debug("  Self-healing: no candidates — schema versions match")
+        return
+
+    log.info(f"  Self-healing: {len(candidates)} day(s) to revalidate "
+             f"(schema {current_version})")
+
+    changed = 0
+    with quality.QUALITY_LOCK:
+        for entry in candidates:
+            date_str = entry.get("date")
+            if not date_str:
+                continue
+
+            raw = writer.read_raw(date_str)
+            if not raw:
+                log.warning(f"  Self-healing: no raw file for {date_str} — skipped")
+                continue
+
+            new_result = validator.validate(raw)
+
+            # Only update if result actually changed
+            if new_result["status"] == entry.get("validator_result"):
+                entry["validator_schema_version"] = current_version
+                continue
+
+            log.info(f"  Self-healing: {date_str} — "
+                     f"{entry.get('validator_result')} → {new_result['status']}")
+
+            entry["validator_result"]         = new_result["status"]
+            entry["validator_issues"]         = new_result["issues"]
+            entry["validator_schema_version"] = current_version
+
+            # Re-evaluate quality only if validator result improved
+            if new_result["status"] == "ok":
+                raw_full = writer.read_raw(date_str)
+                if raw_full:
+                    normalized = normalizer.normalize(raw_full, source="api")
+                    new_label  = quality.assess_quality(normalized)
+                    new_fields = quality.assess_quality_fields(normalized)
+                    entry["quality"] = new_label
+                    entry["fields"]  = new_fields
+                    entry["recheck"] = new_label in ("failed", "low")
+
+            changed += 1
+
+        if changed:
+            quality._save_quality_log(quality_data)
+            log.info(f"  Self-healing: {changed} day(s) updated")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Main
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -277,6 +371,9 @@ def main():
         quality._save_quality_log(quality_data)
         recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
         log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
+
+    # ── 3b. Self-healing loop — schema version check ───────────────────────────
+    _run_self_healing(quality_data)
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:
@@ -360,11 +457,12 @@ def main():
                 log.info(f"  [{global_i}/{len(batch)}] {day}")
                 date_str = day.isoformat()
                 try:
-                    label, written, fields = _process_day(client, date_str)
+                    label, written, fields, val_result = _process_day(client, date_str)
                     reason = (f"Quality: {label}" if label in ("high", "medium")
                               else f"Quality: {label} — insufficient data from Garmin API")
                     quality._upsert_quality(quality_data, day, label, reason,
-                                            written=written, source="api", fields=fields)
+                                            written=written, source="api", fields=fields,
+                                            validator_result=val_result)
                     if label in ("low", "failed"):
                         _session_had_incomplete = True
                         log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")

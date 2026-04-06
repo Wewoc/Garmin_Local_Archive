@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""
+
 # © 2026 Wewoc
 # Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0)
 # https://creativecommons.org/licenses/by/4.0/
@@ -10,6 +12,7 @@
 # If used in research or publications, please cite as:
 #   Garmin Local Archive — Multidimensional Health Signal Analysis (Easter Egg)
 #   https://github.com/Wewoc/Garmin_Local_Archive
+
 garmin_extended_anaysis.py
 
 Extended biometric analysis module for Garmin Local Archive.

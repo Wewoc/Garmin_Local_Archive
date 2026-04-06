@@ -385,7 +385,8 @@ def assess_quality_fields(raw: dict) -> dict:
 
 def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                     written: bool = None, source: str = "legacy",
-                    fields: dict = None) -> None:
+                    fields: dict = None,
+                    validator_result: dict = None) -> None:
     """
     Adds or updates a day entry in the quality log.
       - 'failed': increments attempts, sets recheck=True
@@ -400,10 +401,23 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
     source : str
       Origin of the data: "api" | "bulk" | "csv" | "manual" | "legacy"
       Always overwrites the existing value — the most recent write wins.
+
+    validator_result : dict | None
+      Complete result object from garmin_validator.validate().
+      Three fields are extracted and stored per day entry:
+        validator_result       — "ok" | "warning" | "critical"
+        validator_issues       — list of structured issue dicts (empty if ok)
+        validator_schema_version — schema version used for validation
+      None = validator was not run (legacy entries, backfill).
     """
     day_str   = day.isoformat()
     today_str = date.today().isoformat()
     now_str   = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Extract validator fields from result object
+    v_status  = validator_result.get("status")         if validator_result else None
+    v_issues  = validator_result.get("issues", [])     if validator_result else None
+    v_version = validator_result.get("schema_version") if validator_result else None
 
     for entry in data["days"]:
         if entry.get("date") == day_str:
@@ -414,6 +428,10 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
             entry["last_checked"] = today_str
             if fields is not None:
                 entry["fields"]   = fields
+            if validator_result is not None:
+                entry["validator_result"]         = v_status
+                entry["validator_issues"]         = v_issues
+                entry["validator_schema_version"] = v_version
             if quality == "failed":
                 entry["attempts"]     = entry.get("attempts", 0) + 1
                 entry["last_attempt"] = now_str
@@ -444,6 +462,10 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
     }
     if fields is not None:
         entry["fields"] = fields
+    if validator_result is not None:
+        entry["validator_result"]         = v_status
+        entry["validator_issues"]         = v_issues
+        entry["validator_schema_version"] = v_version
     data["days"].append(entry)
 
 
