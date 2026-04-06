@@ -42,6 +42,9 @@ LOG_FAIL_DIR   = LOG_DIR / "fail"
 # Quality log
 QUALITY_LOG_FILE = LOG_DIR / "quality_log.json"
 
+# Schema definition for garmin_validator.py
+DATAFORMAT_FILE = Path(__file__).parent / "garmin_dataformat.json"
+
 # Token (AES-256-GCM encrypted — managed exclusively by garmin_security.py)
 GARMIN_TOKEN_DIR  = LOG_DIR / "garmin_token"        # temp working dir for library
 GARMIN_TOKEN_FILE = LOG_DIR / "garmin_token.enc"    # encrypted token — permanent

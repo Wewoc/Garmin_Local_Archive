@@ -351,6 +351,27 @@ quality._upsert_quality(data_f, date(2024, 5, 2), "medium", "Quality: medium",
                         written=True, source="api")
 check("upsert fields: None → no fields key",  "fields" not in data_f["days"][1])
 
+# _upsert_quality with validator_result
+val_ok  = {"status": "ok",      "schema_version": "1.0", "timestamp": "2026-04-06T12:00:00", "issues": []}
+val_warn = {"status": "warning", "schema_version": "1.0", "timestamp": "2026-04-06T12:00:00",
+            "issues": [{"field": "sleep", "type": "type_mismatch", "expected": "dict",
+                        "actual": "str", "severity": "warning"}]}
+data_v = {"first_day": None, "devices": [], "days": []}
+quality._upsert_quality(data_v, date(2024, 6, 1), "high", "Quality: high",
+                        written=True, source="api", validator_result=val_ok)
+check("upsert validator: result stored",         data_v["days"][0].get("validator_result") == "ok")
+check("upsert validator: issues stored",         data_v["days"][0].get("validator_issues") == [])
+check("upsert validator: version stored",        data_v["days"][0].get("validator_schema_version") == "1.0")
+
+quality._upsert_quality(data_v, date(2024, 6, 2), "high", "Quality: high",
+                        written=True, source="api", validator_result=val_warn)
+check("upsert validator warning: result stored", data_v["days"][1].get("validator_result") == "warning")
+check("upsert validator warning: issues stored", len(data_v["days"][1].get("validator_issues", [])) == 1)
+
+quality._upsert_quality(data_v, date(2024, 6, 3), "high", "Quality: high",
+                        written=True, source="api")
+check("upsert validator: None → no validator fields", "validator_result" not in data_v["days"][2])
+
 # Migration: fields={} for old entries
 data_nofields = {"first_day": "2024-01-01", "devices": [], "days": [
     {"date": "2023-09-01", "quality": "high", "reason": "old", "write": True,
@@ -413,17 +434,20 @@ check("safe_get not in collector",  not hasattr(collector, "safe_get"))
 mock_client = MagicMock()
 with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])), \
      patch("garmin_collector.writer.write_day", return_value=True):
-    label, written, fields = collector._process_day(mock_client, "2024-03-15")
-    check("_process_day: label = high",   label   == "high")
-    check("_process_day: written = True", written == True)
-    check("_process_day: fields is dict", isinstance(fields, dict))
+    label, written, fields, val_result = collector._process_day(mock_client, "2024-03-15")
+    check("_process_day: label = high",        label      == "high")
+    check("_process_day: written = True",      written    == True)
+    check("_process_day: fields is dict",      isinstance(fields, dict))
+    check("_process_day: val_result is dict",  isinstance(val_result, dict))
+    check("_process_day: val_result has status", "status" in val_result)
 
 with patch("garmin_collector.api.fetch_raw", return_value=({"date": "2024-03-20"}, [])), \
      patch("garmin_collector.writer.write_day", return_value=False) as mock_w:
-    label2, written2, fields2 = collector._process_day(mock_client, "2024-03-20")
+    label2, written2, fields2, val_result2 = collector._process_day(mock_client, "2024-03-20")
     check("_process_day failed: label=failed",         label2   == "failed")
     check("_process_day failed: write_day not called", not mock_w.called)
     check("_process_day failed: fields is dict",       isinstance(fields2, dict))
+    check("_process_day failed: val_result is dict",   isinstance(val_result2, dict))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. garmin_security (crypto layer only)
@@ -501,6 +525,108 @@ r2 = utils.parse_sync_dates("2024-01-01,invalid,2024-03-15")
 check("parse_sync_dates: invalid skipped",  r2 is not None and len(r2) == 2)
 check("parse_sync_dates: empty → None",     utils.parse_sync_dates("") is None)
 check("parse_sync_dates: all invalid → None", utils.parse_sync_dates("bad,worse") is None)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  9. garmin_validator
+# ══════════════════════════════════════════════════════════════════════════════
+section("9. garmin_validator")
+import garmin_validator as validator_mod
+
+# Schema loaded
+check("validator: schema loaded",          validator_mod.current_version() == "1.0")
+
+# Happy path — all known fields, correct types
+raw_valid = {
+    "date":               "2024-01-01",
+    "sleep":              {"dailySleepDTO": {}},
+    "heart_rates":        {"restingHeartRate": 55},
+    "activities":         [],
+}
+r = validator_mod.validate(raw_valid)
+check("validator ok: status=ok",           r["status"] == "ok")
+check("validator ok: schema_version set",  r["schema_version"] == "1.0")
+check("validator ok: timestamp set",       isinstance(r["timestamp"], str))
+check("validator ok: no critical issues",  not any(i["severity"] == "critical" for i in r["issues"]))
+
+# missing_optional — optional field absent → status stays ok
+raw_no_sleep = {"date": "2024-01-01"}
+r2 = validator_mod.validate(raw_no_sleep)
+check("validator missing_optional: status=ok",     r2["status"] == "ok")
+check("validator missing_optional: issue logged",
+      any(i["type"] == "missing_optional" and i["field"] == "sleep" for i in r2["issues"]))
+
+# unexpected_field — unknown field → warning
+raw_new_field = {"date": "2024-01-01", "garmin_new_metric": {"value": 42}}
+r3 = validator_mod.validate(raw_new_field)
+check("validator unexpected_field: status=warning", r3["status"] == "warning")
+check("validator unexpected_field: issue present",
+      any(i["type"] == "unexpected_field" and i["field"] == "garmin_new_metric" for i in r3["issues"]))
+
+# type_mismatch — optional field wrong type → warning
+raw_bad_type = {"date": "2024-01-01", "sleep": "corrupted"}
+r4 = validator_mod.validate(raw_bad_type)
+check("validator type_mismatch: status=warning",    r4["status"] == "warning")
+check("validator type_mismatch: issue present",
+      any(i["type"] == "type_mismatch" and i["field"] == "sleep" for i in r4["issues"]))
+
+# missing_required — date absent → critical
+raw_no_date = {"sleep": {"dailySleepDTO": {}}}
+r5 = validator_mod.validate(raw_no_date)
+check("validator missing_required: status=critical", r5["status"] == "critical")
+check("validator missing_required: issue present",
+      any(i["type"] == "missing_required" and i["field"] == "date" for i in r5["issues"]))
+
+# type_mismatch on required field — date wrong type → critical
+raw_date_int = {"date": 20240101}
+r6 = validator_mod.validate(raw_date_int)
+check("validator date wrong type: status=critical",  r6["status"] == "critical")
+check("validator date wrong type: severity=critical",
+      any(i["severity"] == "critical" and i["field"] == "date" for i in r6["issues"]))
+
+# non-dict input → critical
+r7 = validator_mod.validate(None)
+check("validator non-dict: status=critical",         r7["status"] == "critical")
+
+r8 = validator_mod.validate("string input")
+check("validator string input: status=critical",     r8["status"] == "critical")
+
+# multiple issues — critical wins over warning
+raw_multi = {"sleep": "bad_type", "garmin_new": 123}  # date missing + type_mismatch + unexpected
+r9 = validator_mod.validate(raw_multi)
+check("validator multi: critical wins",              r9["status"] == "critical")
+check("validator multi: multiple issues",            len(r9["issues"]) > 1)
+
+# evil API — date present as string but nonsense value → ok (content = quality's job)
+raw_evil = {"date": "Gestern", "sleep": {}}
+r10 = validator_mod.validate(raw_evil)
+check("validator evil: nonsense date string → ok",   r10["status"] == "ok")
+
+# reload_schema — no crash, version preserved
+validator_mod.reload_schema()
+check("validator reload: version intact",            validator_mod.current_version() == "1.0")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  10. garmin_writer — read_raw
+# ══════════════════════════════════════════════════════════════════════════════
+section("10. garmin_writer — read_raw")
+
+# Happy path — file written by write_day, read back by read_raw
+raw_rr = {"date": "2024-05-01", "heart_rates": {"restingHeartRate": 60}}
+writer.write_day(raw_rr, normalizer.summarize(raw_rr), "2024-05-01")
+result_rr = writer.read_raw("2024-05-01")
+check("read_raw: returns dict",           isinstance(result_rr, dict))
+check("read_raw: date correct",           result_rr.get("date") == "2024-05-01")
+check("read_raw: content preserved",      result_rr.get("heart_rates", {}).get("restingHeartRate") == 60)
+
+# File not found → empty dict
+result_missing = writer.read_raw("1900-01-01")
+check("read_raw: missing → empty dict",   result_missing == {})
+
+# Corrupt JSON → empty dict
+corrupt_path = cfg.RAW_DIR / "garmin_raw_2024-05-02.json"
+corrupt_path.write_text("{ not valid json }")
+result_corrupt = writer.read_raw("2024-05-02")
+check("read_raw: corrupt → empty dict",   result_corrupt == {})
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results

@@ -6,56 +6,11 @@
 
 ---
 
-**Currently stable — v1.3.3**
+**Currently stable — v1.3.4**
 
 ---
 
 ## Planned
-
----
-
-### v1.3.4 — API Structure Validation
-
-Introduces a dedicated validation layer at the pipeline entry point. Closes the gap between raw API data arriving and the normalizer assuming it is structurally sound.
-
-**Problem:**
-When Garmin changes its API structure, the current pipeline passes the change through silently. The normalizer warns in the log, drops unexpected fields, and writes anyway. No visible stop, no signal. Existing archive data is not affected — it has already passed through the pipeline and lives in the canonical schema. The validator sits at the entry point and sees only new incoming data.
-
-**New modules:**
-
-| Module | Responsibility |
-|---|---|
-| `garmin_validator.py` | Structure check against `garmin_dataformat.json`. Degraded mode — no hard stop. Returns structured result passed to Quality. Sits between API output and Normalizer, and between Bulk Import and Normalizer. |
-| `garmin_dataformat.json` | Defines expected field names, types, and `required` / `optional` categories. Contains explicit schema version. Minor version for optional changes, Major version for changes to `required` fields (breaks backwards compatibility). |
-
-**Changed modules:**
-
-`garmin_quality.py` — three new fields per day in `quality_log.json`:
-
-| Field | Values | Purpose |
-|---|---|---|
-| `validator_result` | `"ok"` \| `"warning"` \| `"critical"` | Replaces a boolean flag — preserves severity |
-| `validator_issues` | `[{"field": "hrv", "expected": "dict", "got": "string"}]` | Structured issue list, empty if ok |
-| `validator_schema_version` | e.g. `"1.0"` | Records which schema version was used for validation |
-
-Schema check on every manually started process (Sync, Timer, Bulk Import): at process start, `validator_schema_version` in `quality_log.json` is compared against the current version in `garmin_dataformat.json`. On mismatch, days with `validator_result != "ok"` are identified and revalidated against local raw files — no API call. Quality is only re-evaluated if the validator result actually changes — prevents unnecessary recomputes. Updated result appears in the GUI Quality display. The user decides manually whether to trigger the background timer.
-
-`garmin_normalizer.py` — structural type checks removed (`_EXPECTED_DICT`, `_EXPECTED_LIST`). Pure transformation only. A minimal guard remains: raises `ValueError` if non-dict input arrives — protection against future direct calls that bypass the validator.
-
-**Scope boundary:**
-
-The validator checks structure only — not content. A heart rate value of 0 (watch not worn) is a valid structure with a missing measurement. Content evaluation remains the responsibility of `garmin_quality.py`.
-
-**What the validator checks:**
-- Is the response a dict?
-- Are required fields present?
-- Do expected fields have the correct type?
-- Is `date` present and valid?
-
-**Preparation for v1.4:**
-`validator_issues` is fully structured and available in `quality_log.json` for v1.4 to consume. Whether and how issues are surfaced in `garmin_analysis.json` or passed to the LLM layer is a v1.4 decision. The pipeline is not touched from v1.4 onward.
-
----
 
 ### v1.4.0 — Dashboard Architecture Refactoring
 

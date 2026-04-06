@@ -17,6 +17,7 @@ SHARED_SCRIPTS = [
     "garmin_config.py",
     "garmin_api.py",
     "garmin_security.py",
+    "garmin_validator.py",
     "garmin_normalizer.py",
     "garmin_quality.py",
     "garmin_sync.py",
@@ -51,7 +52,8 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin_config.py":     ["GARMIN_EMAIL"],
     "garmin_security.py":   ["def load_token", "def save_token"],
     "garmin_normalizer.py": ["def normalize", "def summarize"],
-    "garmin_writer.py":     ["def write_day"],
+    "garmin_validator.py":  ["def validate", "def reload_schema", "def current_version"],
+    "garmin_writer.py":     ["def write_day", "def read_raw"],
     "garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
 }
 
