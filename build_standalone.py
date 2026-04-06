@@ -154,6 +154,14 @@ def build_exe(root: Path, scripts_dir: Path, entry_point: Path):
         src = scripts_dir / script
         add_data_args += ["--add-data", f"{src}{sep}scripts"]
 
+    # Embed garmin_dataformat.json alongside scripts
+    dataformat_src = scripts_dir / "garmin_dataformat.json"
+    if dataformat_src.exists():
+        add_data_args += ["--add-data", f"{dataformat_src}{sep}scripts"]
+    else:
+        print(f"  ✗ garmin_dataformat.json not found in {scripts_dir} — aborting build")
+        sys.exit(1)
+
     # Hidden imports for libraries that PyInstaller may miss
     hidden = [
         "garminconnect",
