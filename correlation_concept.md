@@ -1,8 +1,8 @@
 ![Garmin Local Archive](screenshots/Banner.png)
 
- Garmin Local Archive — Correlation Engine ✨
-
- © 2026 Wewoc
+```
+<!--
+© 2026 Wewoc (Timo)
 Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0)
 https://creativecommons.org/licenses/by/4.0/
 
@@ -12,7 +12,10 @@ commercially, as long as you give appropriate credit.
 If used in research or publications, please cite as:
   Garmin Local Archive — Human-AI Collaboration Documentation
   https://github.com/Wewoc/Garmin_Local_Archive
+-->
+```
 
+ Garmin Local Archive — Correlation Engine ✨
 
 > *Module name: `correlation_engine.py`*
 >
