@@ -6,65 +6,21 @@
 
 ---
 
-**Currently stable — v1.3.4**
+**Currently stable — v1.4.0**
 
 ---
 
 ## Planned
 
-### v1.4.0 — Dashboard Architecture Refactoring
+### ✅ v1.4.0 — Dashboard Architecture Refactoring — **released**
 
-Transition from individual monolithic scripts to a master/specialist model. No new dashboard content — pure architectural cleanup.
+See CHANGELOG for full details. Highlights:
 
-**Target structure:**
-
-| Module | Content |
-|---|---|
-| `garmin_dashboard_base.py` | Shared frame: CSS, Dark Mode, Header, Disclaimer, Footer, Plotly integration, tab navigation |
-| `garmin_content_timeseries.py` | Intraday metrics (HR, Stress, SpO2, Body Battery, Respiration) from `raw/` |
-| `garmin_content_health.py` | HRV, Resting HR, Stress, Body Battery with baseline + reference ranges from `summary/` |
-| `garmin_content_sleep.py` | Sleep total, Deep, REM, Sleep score, HRV night from `summary/` |
-| `garmin_content_activity.py` | Steps, Distance, Training load, Readiness, VO2max from `summary/` |
-
-**Benefits:** design changes in one place, disclaimer updated once everywhere, new dashboard = new specialist script with base untouched, Claude-efficient (300-line specialists vs. 2000-line monolith).
-
----
-
-### v1.4.0 — Dashboard Architecture Refactoring + v2.0 Interface Validation
-
-Transition from individual monolithic scripts to a master/specialist model.
-No new dashboard content — pure architectural work.
-
-This version serves a dual purpose: cleaning up the dashboard architecture
-**and** validating the data broker concept planned for v2.0 — with real
-Garmin data, before a second source makes a redesign expensive.
-
-**Target structure:**
-
-| Module | Role |
-|---|---|
-| `garmin_dashboard_base.py` | Shared frame: CSS, Dark Mode, Header, Disclaimer, Footer, Plotly integration, tab navigation |
-| `garmin_map.py` | Garmin-specific data access — translates common field names to Garmin internals, reads `raw/` and `summary/` |
-| `field_map.py` | Source-agnostic broker — registered sources only, single entry point for all dashboard and export scripts |
-| `garmin_content_timeseries.py` | Intraday metrics (HR, Stress, SpO2, Body Battery, Respiration) |
-| `garmin_content_health.py` | HRV, Resting HR, Stress, Body Battery with baseline + reference ranges |
-| `garmin_content_sleep.py` | Sleep total, Deep, REM, Sleep score, HRV night |
-| `garmin_content_activity.py` | Steps, Distance, Training load, Readiness, VO2max |
-
-Content specialists call `field_map` only — no direct file access, no knowledge
-of source-specific field names or directory structure.
-
-**v2.0 validation goals:**
-
-- Does `field_map.get(field, date_from, date_to)` hold as a stable interface,
-  or does intraday (`raw/`) vs. daily (`summary/`) data require a split?
-- Does `garmin_map.py` stay manageable, or does Garmin's data variety force
-  a further split between raw and summary access?
-- Does the broker add real value with a single source, or does friction appear
-  before Strava is ever involved?
-
-Findings feed directly into `CONCEPT_V2-0.md` — while it is still a document,
-not running code.
+- Four monolithic export scripts replaced by specialist/plotter architecture
+- `field_map` + `context_map` broker pattern validated with real data
+- First multi-source dashboard: Garmin + Weather + Pollen
+- GUI: single "Berichte erstellen" button with format selection popup
+- New output formats: HTML (Plotly), Excel, JSON + Markdown prompt
 
 ---
 
@@ -121,6 +77,8 @@ Protection of the local archive against software errors and silent data loss —
 - Ownership: writer or a dedicated backup module — to be evaluated
 - Strategy: incremental, newly written files only
 - Scope and implementation to be defined after v1.4 is stable
+
+- v1.5.1   — Content Validation (value range checks via garmin_dataformat.json min/max extension — structural validation already in v1.3.4, content layer deferred)
 
 ---
 

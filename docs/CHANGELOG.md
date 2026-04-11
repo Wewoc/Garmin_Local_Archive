@@ -2,6 +2,56 @@
 
 ---
 
+## v1.4.0 — Dashboard Architecture Refactoring
+
+Replaces four monolithic export scripts with a modular specialist/plotter architecture. No new dashboard content — pure architectural work. Serves as v2.0 testbed: validates the `field_map` / `context_map` data broker pattern with real Garmin and Open-Meteo data before a second source makes a redesign expensive.
+
+**New architecture:**
+
+| Layer | Module | Role |
+|---|---|---|
+| Runner | `dashboards/dash_runner.py` | Auto-discovery of specialists, popup matrix, orchestration |
+| Specialist | `dashboards/*_dash.py` | Declares META, fetches data via brokers, returns neutral Dict |
+| Plotter | `layouts/dash_plotter_*.py` | Renders Dict to output format — no knowledge of data sources |
+| Layout | `layouts/dash_layout*.py` | Passive resources: CSS, color tokens, disclaimer, footer, prompt templates |
+| Broker | `maps/field_map.py` | Routes specialist requests → `garmin_map` → `garmin_data/` |
+| Broker | `maps/context_map.py` | Routes specialist requests → `weather_map` / `pollen_map` → `context_data/` |
+
+**New modules:**
+
+- `dashboards/dash_runner.py` — scans `dashboards/` at startup, builds GUI popup matrix, orchestrates build
+- `dashboards/timeseries_garmin_html-xls_dash.py` — intraday HR, Stress, SpO2, Body Battery, Respiration
+- `dashboards/health_garmin_html-json_dash.py` — HRV, Resting HR, SpO2, Sleep, Body Battery, Stress with 90-day baseline + age/fitness-adjusted reference ranges
+- `dashboards/overview_garmin_xls_dash.py` — daily summary table, all fields, Activities sheet
+- `dashboards/health_garmin-weather-pollen_html-xls_dash.py` — Garmin health + Weather + Pollen context (first multi-source specialist)
+- `layouts/dash_layout.py` — shared color tokens, metric metadata, disclaimer, footer
+- `layouts/dash_layout_html.py` — HTML-specific CSS, Plotly CDN, template builders
+- `layouts/dash_plotter_html.py` — renders Dict → self-contained HTML with Plotly charts + tabs. Supports Timeseries (single trace) and Analysis (4 traces: value, baseline, reference band) chart types
+- `layouts/dash_plotter_excel.py` — renders Dict → .xlsx. Timeseries/Analysis mode: per-field data + chart sheets. Overview mode: broad flat table
+- `layouts/dash_plotter_json.py` — renders Dict → .json data dump + `_prompt.md` start prompt (always together)
+- `layouts/dash_prompt_templates.py` — passive resource: Markdown prompt templates per specialist type for Open WebUI / Ollama
+
+**Changed modules:**
+
+- `garmin_map.py` — intraday normalization: `_FIELD_MAP` extended with `extract` descriptor per field (`ts_index`, `val_index`, `ts_key`, `val_key`, `val_min`, `offset_key`). New `_ts_to_iso()` and `_extract_series()` — raw Garmin arrays normalized to `[{"ts": str, "value": float}, ...]` before leaving the module. Garmin-internal knowledge stays entirely inside `garmin_map`
+- `maps/api_map.py` renamed to `maps/context_map.py` — name reflects actual function (reads local context archive, never calls live APIs)
+- `garmin_app.py` / `garmin_app_standalone.py` — four individual export buttons replaced by single "📊 Berichte erstellen" button. Opens popup matrix: rows = specialists, columns = available formats, checkboxes for selection. Build runs in background thread with progress log
+- `build_manifest.py` — `dashboards/` and `layouts/` modules added
+- `build_all.py` — `test_dashboard.py` added to pre-build test sequence
+
+**Removed:**
+
+- `export/garmin_timeseries_html.py` — replaced by `timeseries_garmin_html-xls_dash.py` + `dash_plotter_html.py`
+- `export/garmin_timeseries_excel.py` — replaced by `timeseries_garmin_html-xls_dash.py` + `dash_plotter_excel.py`
+- `export/garmin_analysis_html.py` — replaced by `health_garmin_html-json_dash.py` + `dash_plotter_html.py` + `dash_plotter_json.py`
+- `export/garmin_to_excel.py` — replaced by `overview_garmin_xls_dash.py` + `dash_plotter_excel.py`
+
+**Testing:**
+
+- `tests/test_dashboard.py` — 166 checks, 12 sections, no network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → `field_map` routing → layout resources → all specialists → all plotters → runner
+
+---
+
 ## v1.3.4 — API Structure Validation
 
 Introduces a dedicated validation layer at the pipeline entry point. Closes the gap between raw API data and the normalizer, which previously assumed structural correctness without verification.
