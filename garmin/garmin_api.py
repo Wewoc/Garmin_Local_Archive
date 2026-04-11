@@ -127,18 +127,9 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
             garmin_security.store_enc_key(enc_key)
 
     try:
-        client = Garmin(cfg.GARMIN_EMAIL, cfg.GARMIN_PASSWORD, return_on_mfa=True)
-        result = client.login()
-
-        if result == "needs_mfa":
-            log.info("  MFA required")
-            if not on_mfa_required:
-                raise GarminLoginError("MFA required but no handler provided")
-            mfa_code = on_mfa_required()
-            if not mfa_code:
-                log.info("  MFA cancelled by user")
-                return None
-            client.resume_login(result, mfa_code)
+        cfg.GARMIN_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+        client = Garmin(cfg.GARMIN_EMAIL, cfg.GARMIN_PASSWORD, prompt_mfa=on_mfa_required)
+        client.login(str(cfg.GARMIN_TOKEN_DIR))
 
         log.info("  ✓ Login successful (SSO)")
         garmin_security.save_token()
