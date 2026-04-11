@@ -383,6 +383,8 @@ def assess_quality_fields(raw: dict) -> dict:
 #  Upsert
 # ══════════════════════════════════════════════════════════════════════════════
 
+_QUALITY_RANK = {"high": 4, "medium": 3, "low": 2, "failed": 1}
+
 def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                     written: bool = None, source: str = "legacy",
                     fields: dict = None,
@@ -421,6 +423,11 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
 
     for entry in data["days"]:
         if entry.get("date") == day_str:
+            existing_rank = _QUALITY_RANK.get(entry.get("quality", "failed"), 0)
+            new_rank      = _QUALITY_RANK.get(quality, 0)
+            if new_rank < existing_rank:
+                log.info(f"    ℹ {day}: quality downgrade blocked ({entry['quality']} → {quality})")
+                return
             entry["quality"]      = quality
             entry["reason"]       = reason
             entry["write"]        = written

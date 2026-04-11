@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App (Standalone) v1.3.4
+# Garmin Local Archive — Desktop App (Standalone) v1.4.0
 
 ## What this is
 
@@ -35,7 +35,7 @@ Double-click `Garmin_Local_Archive_Standalone.exe`.
 Left panel:
 - **Email** — your Garmin Connect login email
 - **Password** — your Garmin Connect password (stored securely in the Windows Credential Manager, never written to disk as plain text)
-- **Data folder** — where to store data (e.g. `C:\Users\YourName\garmin_data`)
+- **Data folder** — where to store data (e.g. `C:\Users\YourName\local_archive`)
 - **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history
 - **Export date range** — used by all export scripts. Leave empty to use the oldest/newest file in your archive automatically
 - **Age / Sex** — used by the Analysis Dashboard for reference ranges
@@ -111,22 +111,21 @@ When both queues are empty the timer stops automatically and logs "Archive compl
 
 The timer runs its own connection test before the first sync. If successful, the connection indicators in the top panel turn green. Clicking the timer button while a sync is running stops the current download immediately.
 
-### Daily Overview
-Exports `garmin_export.xlsx` — one row per day, colour-coded by category.
-Reads from `summary/`.
+### Berichte erstellen
+Opens a popup with all available dashboards and their output formats. Select any combination of dashboards and formats, then click **Erstellen**.
 
-### Timeseries Excel
-Exports `garmin_timeseries.xlsx` — full intraday data + charts per metric.
-Reads from `raw/`. Uses the Export Date Range from settings.
+| Dashboard | HTML | Excel | JSON |
+|---|---|---|---|
+| Timeseries | ✓ | ✓ | — |
+| Health Analysis | ✓ | — | ✓ |
+| Daily Overview | — | ✓ | — |
+| Health + Context | ✓ | ✓ | — |
 
-### Timeseries Dashboard
-Generates `garmin_dashboard.html` — open in any browser.
-Reads from `raw/`. Uses the Export Date Range from settings.
+Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
 
-### Analysis Dashboard
-Generates `garmin_analysis.html` + `garmin_analysis.json`.
-Shows daily values vs your 90-day baseline vs age/fitness reference ranges.
-Reads from `summary/`. The JSON file can be uploaded to Ollama / Open WebUI for AI-assisted interpretation.
+The **Health Analysis JSON** includes a ready-to-use Markdown start prompt (`health_garmin_prompt.md`) for Open WebUI / Ollama — load it as the system prompt for AI-assisted interpretation.
+
+> Reference ranges (Health Analysis) are based on published guidelines (AHA, ACSM, Garmin/Firstbeat) — informational only, not medical advice.
 
 ### Log: Simple / Log: Detailed
 Toggles the log output level in the GUI. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.
@@ -138,9 +137,6 @@ Session log files (in `log/recent/` and `log/fail/`) always record at full detai
 ### Open Data Folder
 Opens your data folder in Windows Explorer.
 
-### Open Last HTML
-Opens the most recently generated HTML file in your default browser.
-
 ### Copy Last Error Log
 Copies the contents of the most recent error log from `log/fail/` to your clipboard — ready to paste into a GitHub issue or support chat. Since the Standalone version has no terminal, this is the easiest way to retrieve diagnostic information when something goes wrong. If no error logs exist, a message appears in the log area instead.
 
@@ -151,10 +147,11 @@ Copies the contents of the most recent error log from `log/fail/` to your clipbo
 Every sync automatically writes a detailed log to your data folder:
 
 ```
-garmin_data/
-└── log/
-    ├── recent/    – last 30 sync sessions (always full detail)
-    └── fail/      – sessions with errors or incomplete days (kept permanently)
+local_archive/
+  garmin_data/
+    └── log/
+       ├── recent/    – last 30 sync sessions (always full detail)
+       └── fail/      – sessions with errors or incomplete days (kept permanently)
 ```
 
 Manual sync sessions are named `garmin_YYYY-MM-DD_HHMMSS.log`. Background timer sessions are named `garmin_background_YYYY-MM-DD_HHMMSS.log` — the prefix makes the source immediately identifiable in `log/fail/`.

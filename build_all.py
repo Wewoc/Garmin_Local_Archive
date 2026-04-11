@@ -21,10 +21,22 @@ if __name__ == "__main__":
     print("  Pre-build: running test suite ...")
     print("=" * 55)
 
-    test_path = Path(__file__).parent / "test_local.py"
+    test_path = Path(__file__).parent / "tests" / "test_local.py"
     result = subprocess.run([sys.executable, str(test_path)])
     if result.returncode != 0:
         print("\n  ✗ Tests failed — build aborted.")
+        sys.exit(1)
+
+    test_context_path = Path(__file__).parent / "tests" / "test_local_context.py"
+    result_context = subprocess.run([sys.executable, str(test_context_path)])
+    if result_context.returncode != 0:
+        print("\n  ✗ Context tests failed — build aborted.")
+        sys.exit(1)
+
+    test_dashboard_path = Path(__file__).parent / "tests" / "test_dashboard.py"
+    result_dashboard = subprocess.run([sys.executable, str(test_dashboard_path)])
+    if result_dashboard.returncode != 0:
+        print("\n  ✗ Dashboard tests failed — build aborted.")
         sys.exit(1)
 
     print("\n  ✓ All tests passed — starting build.\n")
