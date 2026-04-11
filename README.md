@@ -309,7 +309,7 @@ The encryption addresses specific risks (e.g. accidental exposure). It solves th
 ```
 
 > [!TIP]
-> **Pipeline Architecture:** For a detailed view of the v1.3.4 data flow including the validation layer and self-healing loop, open [screenshots/flowchart_v134.html](screenshots/flowchart_v134.html) in your browser.
+> **Pipeline Architecture:** For a detailed view of the v1.4.0 data flow including the validation layer and self-healing loop, open [screenshots/flowchart_v134.html](screenshots/flowchart_v140.html) in your browser.
 
 ---
 
