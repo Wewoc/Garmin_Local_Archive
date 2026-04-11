@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Garmin Local Archive — Dashboard Pipeline v1.4.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:      #0a0e17;
+            --surface: #0f1520;
+            --border:  #1e2d45;
+            --accent:  #3b82f6;
+            --cyan:    #06b6d4;
+            --green:   #22c55e;
+            --purple:  #8b5cf6;
+            --orange:  #f97316;
+            --red:     #ef4444;
+            --yellow:  #eab308;
+            --rose:    #f43f5e;
+            --text:    #e2e8f0;
+            --muted:   #64748b;
+            --dim:     #374151;
+            --mono:    'JetBrains Mono', monospace;
+            --sans:    'Space Grotesk', sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 48px 24px;
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(139,92,246,0.07) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 20% 80%, rgba(244,63,94,0.04) 0%, transparent 50%);
+        }
+        header { text-align: center; margin-bottom: 44px; }
+        .badge {
+            display: inline-block;
+            font-family: var(--mono);
+            font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+            color: var(--purple);
+            background: rgba(139,92,246,0.1);
+            border: 1px solid rgba(139,92,246,0.25);
+            border-radius: 4px; padding: 3px 10px; margin-bottom: 12px;
+        }
+        h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; }
+        header p { font-size: 13px; color: var(--muted); max-width: 680px; margin: 0 auto; line-height: 1.6; }
+        .diagram-wrap { max-width: 1140px; margin: 0 auto 48px; }
+        svg.flow { width: 100%; height: auto; display: block; overflow: visible; }
+        .legend {
+            max-width: 1140px; margin: 0 auto;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+        }
+        .lc { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px 16px; position:relative; overflow:hidden; }
+        .lc::before { content:''; position:absolute; top:0; left:0; width:3px; height:100%; border-radius:3px 0 0 3px; }
+        .lc.g::before{background:var(--green);}   .lc.p::before{background:var(--purple);}
+        .lc.b::before{background:var(--accent);}  .lc.o::before{background:var(--orange);}
+        .lc.c::before{background:var(--cyan);}    .lc.r::before{background:var(--rose);}
+        .lc h3 { font-family:var(--mono); font-size:10px; font-weight:600; letter-spacing:0.08em; margin-bottom:5px; text-transform:uppercase; }
+        .lc.g h3{color:var(--green);}   .lc.p h3{color:var(--purple);}
+        .lc.b h3{color:var(--accent);}  .lc.o h3{color:var(--orange);}
+        .lc.c h3{color:var(--cyan);}    .lc.r h3{color:var(--rose);}
+        .lc p { font-size:11.5px; color:var(--muted); line-height:1.5; }
+        footer { text-align:center; margin-top:36px; font-family:var(--mono); font-size:10px; color:var(--muted); opacity:0.5; }
+    </style>
+</head>
+<body>
+<header>
+    <div class="badge">v1.4.0 — DASHBOARD PIPELINE</div>
+    <h1>Dashboard Pipeline Flowchart</h1>
+    <p>From GUI trigger through auto-discovery and specialist execution to rendered output. Data brokers (maps/) route requests to local archives — no live API calls at build time.</p>
+</header>
+
+<div class="diagram-wrap">
+<svg class="flow" viewBox="0 0 1100 1020" xmlns="http://www.w3.org/2000/svg"
+     font-family="'JetBrains Mono', monospace">
+<defs>
+    <marker id="a-g"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#22c55e"/></marker>
+    <marker id="a-p"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#8b5cf6"/></marker>
+    <marker id="a-b"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#3b82f6"/></marker>
+    <marker id="a-o"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#f97316"/></marker>
+    <marker id="a-c"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#06b6d4"/></marker>
+    <marker id="a-r"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#f43f5e"/></marker>
+    <marker id="a-m"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#64748b"/></marker>
+    <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M40 0L0 0 0 40" fill="none" stroke="#1e2d45" stroke-width="0.4" opacity="0.5"/>
+    </pattern>
+</defs>
+
+<rect width="1100" height="1020" rx="12" fill="#0f1520"/>
+<rect width="1100" height="1020" rx="12" fill="url(#grid)" opacity="0.6"/>
+
+<!-- ═══ PHASE RAIL ═══ -->
+<rect x="18" y="36"  width="8" height="60"  rx="4" fill="#22c55e" opacity="0.7"/>
+<text x="14" y="96"  fill="#22c55e" font-size="8" letter-spacing="0.14em" opacity="0.75" transform="rotate(-90,14,96)">TRIGGER</text>
+
+<rect x="18" y="116" width="8" height="130" rx="4" fill="#8b5cf6" opacity="0.7"/>
+<text x="14" y="246" fill="#8b5cf6" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,246)">DISCOVERY</text>
+
+<rect x="18" y="266" width="8" height="130" rx="4" fill="#3b82f6" opacity="0.7"/>
+<text x="14" y="396" fill="#3b82f6" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,396)">SPECIALIST</text>
+
+<rect x="18" y="416" width="8" height="230" rx="4" fill="#f97316" opacity="0.7"/>
+<text x="14" y="640" fill="#f97316" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,640)">BROKER LAYER</text>
+
+<rect x="18" y="666" width="8" height="130" rx="4" fill="#06b6d4" opacity="0.7"/>
+<text x="14" y="796" fill="#06b6d4" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,796)">RENDER</text>
+
+<rect x="18" y="816" width="8" height="168" rx="4" fill="#f43f5e" opacity="0.7"/>
+<text x="14" y="984" fill="#f43f5e" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,984)">OUTPUT</text>
+
+<!-- ═══ NODES ═══ -->
+
+<!-- TRIGGER -->
+<rect x="180" y="36" width="370" height="42" rx="21" fill="#0f1520" stroke="#22c55e" stroke-width="1.5" filter="url(#glow)"/>
+<text x="365" y="62" text-anchor="middle" fill="#22c55e" font-size="11" font-weight="700">▶  GUI "📊 Create Reports" → Popup-Matrix</text>
+
+<!-- dash_runner.py — auto-discovery -->
+<rect x="155" y="116" width="420" height="52" rx="6" fill="#0f1520" stroke="#8b5cf6" stroke-width="2"/>
+<text x="365" y="137" text-anchor="middle" fill="#8b5cf6" font-size="11" font-weight="700">dash_runner.py</text>
+<text x="365" y="153" text-anchor="middle" fill="#64748b" font-size="10">Auto-discovery — scans dashboards/ for *_dash.py at startup</text>
+<text x="365" y="164" text-anchor="middle" fill="#374151" font-size="9">reads META per specialist · builds format matrix · garmin_config reload before build()</text>
+
+<!-- dashboards/ scan note -->
+<rect x="650" y="116" width="210" height="52" rx="6" fill="#0f1520" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="755" y="136" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">dashboards/*_dash.py</text>
+<text x="755" y="152" text-anchor="middle" fill="#374151" font-size="9">loaded via importlib — no</text>
+<text x="755" y="163" text-anchor="middle" fill="#374151" font-size="9">static import in GUI</text>
+<line x1="575" y1="142" x2="650" y2="142" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-m)"/>
+<text x="612" y="135" text-anchor="middle" fill="#374151" font-size="9">scans</text>
+
+<!-- Specialist box  y=266 -->
+<rect x="155" y="266" width="420" height="52" rx="6" fill="#0f1520" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="365" y="287" text-anchor="middle" fill="#3b82f6" font-size="11" font-weight="700">*_dash.py  (Spezialist)</text>
+<text x="365" y="303" text-anchor="middle" fill="#64748b" font-size="10">defines META · fetches data · passes render config to plotters</text>
+<text x="365" y="314" text-anchor="middle" fill="#374151" font-size="9">data fetched once — rendered to all selected formats</text>
+
+<!-- META note -->
+<rect x="650" y="266" width="210" height="52" rx="6" fill="#0f1520" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="755" y="284" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">META</text>
+<text x="755" y="300" text-anchor="middle" fill="#374151" font-size="9">name / description</text>
+<text x="755" y="311" text-anchor="middle" fill="#374151" font-size="9">output_format: html/excel/pdf</text>
+<line x1="575" y1="292" x2="650" y2="292" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-m)"/>
+
+<!-- ═══ BROKER LAYER ═══ -->
+
+<!-- Section label -->
+<text x="365" y="436" text-anchor="middle" fill="#f97316" font-size="9" letter-spacing="0.1em" opacity="0.7">BROKER LAYER — maps/ · routing only · no writes · no live API calls</text>
+
+<!-- field_map.py -->
+<rect x="80" y="450" width="260" height="52" rx="6" fill="#0f1520" stroke="#f97316" stroke-width="1.5"/>
+<text x="210" y="471" text-anchor="middle" fill="#f97316" font-size="11" font-weight="700">field_map.py</text>
+<text x="210" y="487" text-anchor="middle" fill="#64748b" font-size="10">single entry point — Garmin data</text>
+<text x="210" y="498" text-anchor="middle" fill="#374151" font-size="9">get(field, date_from, date_to, resolution)</text>
+
+<!-- context_map.py -->
+<rect x="400" y="450" width="260" height="52" rx="6" fill="#0f1520" stroke="#f97316" stroke-width="1.5"/>
+<text x="530" y="471" text-anchor="middle" fill="#f97316" font-size="11" font-weight="700">context_map.py</text>
+<text x="530" y="487" text-anchor="middle" fill="#64748b" font-size="10">single entry point — context data</text>
+<text x="530" y="498" text-anchor="middle" fill="#374151" font-size="9">get(field, date_from, date_to)</text>
+
+<!-- garmin_map.py -->
+<rect x="80" y="560" width="260" height="52" rx="6" fill="#0f1520" stroke="#f97316" stroke-width="1"/>
+<text x="210" y="581" text-anchor="middle" fill="#fb923c" font-size="11" font-weight="700">garmin_map.py</text>
+<text x="210" y="597" text-anchor="middle" fill="#64748b" font-size="10">resolver — garmin_data/raw + summary/</text>
+<text x="210" y="608" text-anchor="middle" fill="#374151" font-size="9">normalises intraday → [{ts, value}]</text>
+
+<!-- weather_map.py -->
+<rect x="370" y="560" width="200" height="52" rx="6" fill="#0f1520" stroke="#f97316" stroke-width="1"/>
+<text x="470" y="581" text-anchor="middle" fill="#fb923c" font-size="11" font-weight="700">weather_map.py</text>
+<text x="470" y="597" text-anchor="middle" fill="#64748b" font-size="10">resolver — context_data/weather/</text>
+
+<!-- pollen_map.py -->
+<rect x="590" y="560" width="200" height="52" rx="6" fill="#0f1520" stroke="#f97316" stroke-width="1"/>
+<text x="690" y="581" text-anchor="middle" fill="#fb923c" font-size="11" font-weight="700">pollen_map.py</text>
+<text x="690" y="597" text-anchor="middle" fill="#64748b" font-size="10">resolver — context_data/pollen/</text>
+
+<!-- Storage refs (dashed) -->
+<rect x="80" y="660" width="260" height="36" rx="4" fill="#0f1520" stroke="#374151" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="210" y="678" text-anchor="middle" fill="#374151" font-size="9">garmin_data/raw/ + summary/</text>
+<text x="210" y="689" text-anchor="middle" fill="#374151" font-size="8">read-only from dashboard pipeline</text>
+
+<rect x="370" y="660" width="420" height="36" rx="4" fill="#0f1520" stroke="#374151" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="580" y="678" text-anchor="middle" fill="#374151" font-size="9">context_data/weather/raw/ + context_data/pollen/raw/</text>
+<text x="580" y="689" text-anchor="middle" fill="#374151" font-size="8">read-only from dashboard pipeline</text>
+
+<!-- ═══ RENDER ═══ -->
+
+<!-- Plotters  y=750 -->
+<rect x="80"  y="750" width="188" height="48" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="1.5"/>
+<text x="174" y="770" text-anchor="middle" fill="#06b6d4" font-size="11" font-weight="700">dash_plotter_html.py</text>
+<text x="174" y="786" text-anchor="middle" fill="#64748b" font-size="10">Plotly · local CDN cache</text>
+
+<rect x="288" y="750" width="188" height="48" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="1.5"/>
+<text x="382" y="770" text-anchor="middle" fill="#06b6d4" font-size="11" font-weight="700">dash_plotter_excel.py</text>
+<text x="382" y="786" text-anchor="middle" fill="#64748b" font-size="10">openpyxl renderer</text>
+
+<rect x="496" y="750" width="188" height="48" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="1.5"/>
+<text x="590" y="770" text-anchor="middle" fill="#06b6d4" font-size="11" font-weight="700">dash_plotter_json.py</text>
+<text x="590" y="786" text-anchor="middle" fill="#64748b" font-size="10">JSON + Markdown prompt</text>
+
+<!-- dash_layout / dash_layout_html passive -->
+<rect x="750" y="750" width="218" height="48" rx="6" fill="#0f1520" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="859" y="768" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">dash_layout*.py</text>
+<text x="859" y="784" text-anchor="middle" fill="#374151" font-size="9">colours · tokens · CSS · templates</text>
+
+<!-- ═══ OUTPUT ═══ -->
+<rect x="80"  y="856" width="188" height="42" rx="6" fill="#0f1520" stroke="#f43f5e" stroke-width="1.5"/>
+<text x="174" y="877" text-anchor="middle" fill="#f43f5e" font-size="11" font-weight="700">dashboards/*.html</text>
+<text x="174" y="891" text-anchor="middle" fill="#64748b" font-size="10">interactive Plotly report</text>
+
+<rect x="288" y="856" width="188" height="42" rx="6" fill="#0f1520" stroke="#f43f5e" stroke-width="1.5"/>
+<text x="382" y="877" text-anchor="middle" fill="#f43f5e" font-size="11" font-weight="700">dashboards/*.xlsx</text>
+<text x="382" y="891" text-anchor="middle" fill="#64748b" font-size="10">Excel workbook</text>
+
+<rect x="496" y="856" width="188" height="42" rx="6" fill="#0f1520" stroke="#f43f5e" stroke-width="1.5"/>
+<text x="590" y="877" text-anchor="middle" fill="#f43f5e" font-size="11" font-weight="700">dashboards/*.json</text>
+<text x="590" y="891" text-anchor="middle" fill="#64748b" font-size="10">+ AI prompt Markdown</text>
+
+<!-- ═══ ARROWS ═══ -->
+
+<!-- Trigger → runner -->
+<line x1="365" y1="78" x2="365" y2="116" stroke="#22c55e" stroke-width="1.5" marker-end="url(#a-g)"/>
+
+<!-- runner → specialist -->
+<line x1="365" y1="168" x2="365" y2="266" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#a-p)"/>
+
+<!-- specialist → field_map -->
+<line x1="260" y1="318" x2="210" y2="450" stroke="#f97316" stroke-width="1.5" marker-end="url(#a-o)"/>
+
+<!-- specialist → context_map -->
+<line x1="470" y1="318" x2="530" y2="450" stroke="#f97316" stroke-width="1.5" marker-end="url(#a-o)"/>
+
+<!-- field_map → garmin_map -->
+<line x1="210" y1="502" x2="210" y2="560" stroke="#f97316" stroke-width="1.5" marker-end="url(#a-o)"/>
+
+<!-- context_map → weather_map -->
+<line x1="480" y1="502" x2="470" y2="560" stroke="#f97316" stroke-width="1.5" marker-end="url(#a-o)"/>
+
+<!-- context_map → pollen_map -->
+<line x1="580" y1="502" x2="690" y2="560" stroke="#f97316" stroke-width="1.5" marker-end="url(#a-o)"/>
+
+<!-- garmin_map → storage -->
+<line x1="210" y1="612" x2="210" y2="660" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-m)"/>
+
+<!-- weather_map → storage -->
+<line x1="470" y1="612" x2="480" y2="660" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-m)"/>
+
+<!-- pollen_map → storage -->
+<line x1="690" y1="612" x2="680" y2="660" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-m)"/>
+
+<!-- specialist → plotters (data + render config) -->
+<polyline points="365,318 365,718 174,718 174,750"
+          fill="none" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+<polyline points="365,318 365,718 382,718 382,750"
+          fill="none" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+<polyline points="365,318 365,718 590,718 590,750"
+          fill="none" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+<text x="820" y="722" text-anchor="middle" fill="#06b6d4" font-size="9" opacity="0.7">render config → plotters</text>
+
+<!-- plotters → output -->
+<line x1="174" y1="798" x2="174" y2="856" stroke="#f43f5e" stroke-width="1.5" marker-end="url(#a-r)"/>
+<line x1="382" y1="798" x2="382" y2="856" stroke="#f43f5e" stroke-width="1.5" marker-end="url(#a-r)"/>
+<line x1="590" y1="798" x2="590" y2="856" stroke="#f43f5e" stroke-width="1.5" marker-end="url(#a-r)"/>
+
+<!-- layout passive ref arrows (dashed) -->
+<line x1="750" y1="774" x2="684" y2="774" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" opacity="0.5" marker-end="url(#a-m)"/>
+
+<!-- note bottom -->
+<text x="430" y="970" text-anchor="middle" fill="#374151" font-size="9">Brokers: routing only — no writes, no live API calls — garmin_map Garmin-Wissen bleibt im Modul · context_map liest nur lokales context_data/</text>
+
+</svg>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+    <div class="lc g">
+        <h3>01 — Trigger</h3>
+        <p>GUI "Create Reports" opens a checkbox popup. Selection passed to dash_runner.build(). garmin_config reloaded before build — config cached in same process.</p>
+    </div>
+    <div class="lc p">
+        <h3>02 — Discovery</h3>
+        <p>dash_runner.py scans dashboards/ for *_dash.py via importlib at startup. No registry file. Reads META per specialist to build the format matrix for the GUI.</p>
+    </div>
+    <div class="lc b">
+        <h3>03 — Specialist</h3>
+        <p>Each *_dash.py defines its own fields, date range, and render config. Data fetched once — rendered to all selected formats. No format logic in the specialist.</p>
+    </div>
+    <div class="lc o">
+        <h3>04 — Broker Layer</h3>
+        <p>maps/ — routing only. field_map routes Garmin requests to garmin_map. context_map routes to weather_map and pollen_map. No writes, no live API, no domain logic.</p>
+    </div>
+    <div class="lc c">
+        <h3>05 — Render</h3>
+        <p>Plotters receive complete render config from specialist. dash_layout*.py provides passive resources: colours, tokens, CSS, Plotly CDN cache, template builders.</p>
+    </div>
+    <div class="lc r">
+        <h3>06 — Output</h3>
+        <p>All output written to BASE_DIR/dashboards/. HTML (interactive Plotly), Excel (openpyxl), JSON + Markdown AI prompt. Format determined by META.output_format.</p>
+    </div>
+</div>
+
+<footer>Garmin Local Archive · github.com/Wewoc/Garmin_Local_Archive · v1.4.0 Dashboard Pipeline</footer>
+</body>
+</html>

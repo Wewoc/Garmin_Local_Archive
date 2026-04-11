@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Garmin Local Archive — Context Pipeline v1.4.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:      #0a0e17;
+            --surface: #0f1520;
+            --border:  #1e2d45;
+            --accent:  #3b82f6;
+            --cyan:    #06b6d4;
+            --green:   #22c55e;
+            --purple:  #8b5cf6;
+            --orange:  #f97316;
+            --red:     #ef4444;
+            --yellow:  #eab308;
+            --teal:    #14b8a6;
+            --text:    #e2e8f0;
+            --muted:   #64748b;
+            --dim:     #374151;
+            --mono:    'JetBrains Mono', monospace;
+            --sans:    'Space Grotesk', sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 48px 24px;
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(20,184,166,0.07) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 80% 80%, rgba(139,92,246,0.04) 0%, transparent 50%);
+        }
+        header { text-align: center; margin-bottom: 44px; }
+        .badge {
+            display: inline-block;
+            font-family: var(--mono);
+            font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+            color: var(--teal);
+            background: rgba(20,184,166,0.1);
+            border: 1px solid rgba(20,184,166,0.25);
+            border-radius: 4px; padding: 3px 10px; margin-bottom: 12px;
+        }
+        h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; }
+        header p { font-size: 13px; color: var(--muted); max-width: 600px; margin: 0 auto; line-height: 1.6; }
+        .diagram-wrap { max-width: 1140px; margin: 0 auto 48px; }
+        svg.flow { width: 100%; height: auto; display: block; overflow: visible; }
+        .legend {
+            max-width: 1140px; margin: 0 auto;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+        }
+        .lc { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px 16px; position:relative; overflow:hidden; }
+        .lc::before { content:''; position:absolute; top:0; left:0; width:3px; height:100%; border-radius:3px 0 0 3px; }
+        .lc.t::before{background:var(--teal);}   .lc.g::before{background:var(--green);}
+        .lc.o::before{background:var(--orange);} .lc.p::before{background:var(--purple);}
+        .lc.c::before{background:var(--cyan);}
+        .lc h3 { font-family:var(--mono); font-size:10px; font-weight:600; letter-spacing:0.08em; margin-bottom:5px; text-transform:uppercase; }
+        .lc.t h3{color:var(--teal);}   .lc.g h3{color:var(--green);}
+        .lc.o h3{color:var(--orange);} .lc.p h3{color:var(--purple);}
+        .lc.c h3{color:var(--cyan);}
+        .lc p { font-size:11.5px; color:var(--muted); line-height:1.5; }
+        footer { text-align:center; margin-top:36px; font-family:var(--mono); font-size:10px; color:var(--muted); opacity:0.5; }
+    </style>
+</head>
+<body>
+<header>
+    <div class="badge">v1.4.0 — CONTEXT PIPELINE</div>
+    <h1>Context Pipeline Flowchart</h1>
+    <p>External data collection via Open-Meteo API — weather and pollen data fetched per location segment and written to local context_data/. No live API calls at dashboard build time.</p>
+</header>
+
+<div class="diagram-wrap">
+<svg class="flow" viewBox="0 0 1100 780" xmlns="http://www.w3.org/2000/svg"
+     font-family="'JetBrains Mono', monospace">
+<defs>
+    <marker id="a-t"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#14b8a6"/></marker>
+    <marker id="a-g"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#22c55e"/></marker>
+    <marker id="a-o"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#f97316"/></marker>
+    <marker id="a-p"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#8b5cf6"/></marker>
+    <marker id="a-c"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#06b6d4"/></marker>
+    <marker id="a-m"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#64748b"/></marker>
+    <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M40 0L0 0 0 40" fill="none" stroke="#1e2d45" stroke-width="0.4" opacity="0.5"/>
+    </pattern>
+</defs>
+
+<rect width="1100" height="780" rx="12" fill="#0f1520"/>
+<rect width="1100" height="780" rx="12" fill="url(#grid)" opacity="0.6"/>
+
+<!-- ═══ PHASE RAIL ═══ -->
+<rect x="18" y="36"  width="8" height="60"  rx="4" fill="#22c55e" opacity="0.7"/>
+<text x="14" y="96"  fill="#22c55e" font-size="8" letter-spacing="0.14em" opacity="0.75" transform="rotate(-90,14,96)">TRIGGER</text>
+
+<rect x="18" y="116" width="8" height="96"  rx="4" fill="#14b8a6" opacity="0.7"/>
+<text x="14" y="212" fill="#14b8a6" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,212)">ORCHESTRATION</text>
+
+<rect x="18" y="232" width="8" height="96"  rx="4" fill="#f97316" opacity="0.7"/>
+<text x="14" y="328" fill="#f97316" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,328)">PLUGINS</text>
+
+<rect x="18" y="348" width="8" height="96"  rx="4" fill="#06b6d4" opacity="0.7"/>
+<text x="14" y="444" fill="#06b6d4" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,444)">FETCH</text>
+
+<rect x="18" y="464" width="8" height="96"  rx="4" fill="#8b5cf6" opacity="0.7"/>
+<text x="14" y="560" fill="#8b5cf6" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,560)">WRITE</text>
+
+<rect x="18" y="580" width="8" height="162" rx="4" fill="#64748b" opacity="0.5"/>
+<text x="14" y="742" fill="#64748b" font-size="8" letter-spacing="0.12em" opacity="0.6" transform="rotate(-90,14,742)">LOCAL STORAGE</text>
+
+<!-- ═══ NODES ═══ -->
+
+<!-- TRIGGER  y=36 h=42 -->
+<rect x="180" y="36" width="310" height="42" rx="21" fill="#0f1520" stroke="#22c55e" stroke-width="1.5" filter="url(#glow)"/>
+<text x="335" y="62" text-anchor="middle" fill="#22c55e" font-size="11" font-weight="700">▶  GUI "Sync Context" button</text>
+
+<!-- context_collector  y=116 h=52 -->
+<rect x="155" y="116" width="360" height="52" rx="6" fill="#0f1520" stroke="#14b8a6" stroke-width="2"/>
+<text x="335" y="137" text-anchor="middle" fill="#14b8a6" font-size="11" font-weight="700">context_collector.py</text>
+<text x="335" y="153" text-anchor="middle" fill="#64748b" font-size="10">Orchestrator — date range from Garmin archive</text>
+<text x="335" y="164" text-anchor="middle" fill="#374151" font-size="9">segments per location row from local_config.csv</text>
+
+<!-- local_config.csv  right of collector -->
+<rect x="590" y="116" width="220" height="52" rx="6" fill="#0f1520" stroke="#64748b" stroke-width="1"/>
+<text x="700" y="137" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">local_config.csv</text>
+<text x="700" y="153" text-anchor="middle" fill="#64748b" font-size="10">date_from / date_to / location</text>
+<text x="700" y="164" text-anchor="middle" fill="#374151" font-size="9">created on first run if absent</text>
+<!-- arrow collector → local_config (dashed, read) -->
+<line x1="515" y1="142" x2="590" y2="142" stroke="#64748b" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-m)"/>
+<text x="552" y="135" text-anchor="middle" fill="#64748b" font-size="9">reads</text>
+
+<!-- Plugin boxes y=232 -->
+<!-- weather_plugin -->
+<rect x="155" y="232" width="218" height="48" rx="6" fill="#0f1520" stroke="#f97316" stroke-width="1.5"/>
+<text x="264" y="252" text-anchor="middle" fill="#f97316" font-size="11" font-weight="700">weather_plugin.py</text>
+<text x="264" y="269" text-anchor="middle" fill="#64748b" font-size="10">metadata only — endpoint, fields</text>
+
+<!-- pollen_plugin -->
+<rect x="397" y="232" width="218" height="48" rx="6" fill="#0f1520" stroke="#f97316" stroke-width="1.5"/>
+<text x="506" y="252" text-anchor="middle" fill="#f97316" font-size="11" font-weight="700">pollen_plugin.py</text>
+<text x="506" y="269" text-anchor="middle" fill="#64748b" font-size="10">metadata only — endpoint, fields</text>
+
+<!-- context_api  y=348 h=52 -->
+<rect x="155" y="348" width="460" height="52" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="1.5"/>
+<text x="385" y="369" text-anchor="middle" fill="#06b6d4" font-size="11" font-weight="700">context_api.py</text>
+<text x="385" y="385" text-anchor="middle" fill="#64748b" font-size="10">fetch(plugin, segment) → Open-Meteo API → (raw, failed_endpoints)</text>
+
+<!-- Open-Meteo API  right -->
+<rect x="690" y="348" width="188" height="52" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="1"/>
+<text x="784" y="366" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">Open-Meteo API</text>
+<text x="784" y="382" text-anchor="middle" fill="#64748b" font-size="10">weather + pollen endpoints</text>
+<text x="784" y="393" text-anchor="middle" fill="#374151" font-size="9">free, no key required</text>
+<!-- arrow context_api → Open-Meteo -->
+<line x1="615" y1="374" x2="690" y2="374" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+
+<!-- context_writer  y=464 h=52 -->
+<rect x="155" y="464" width="460" height="52" rx="6" fill="#0f1520" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="385" y="485" text-anchor="middle" fill="#8b5cf6" font-size="11" font-weight="700">context_writer.py</text>
+<text x="385" y="501" text-anchor="middle" fill="#64748b" font-size="10">Sole owner of context_data/ — writes raw JSON per plugin per segment</text>
+
+<!-- Storage boxes y=580 -->
+<!-- context_data/weather/raw -->
+<rect x="100" y="580" width="240" height="52" rx="6" fill="#0f1520" stroke="#64748b" stroke-width="1"/>
+<text x="220" y="600" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">context_data/weather/raw/</text>
+<text x="220" y="618" text-anchor="middle" fill="#64748b" font-size="10">YYYY-MM-DD_weather.json</text>
+
+<!-- context_data/pollen/raw -->
+<rect x="380" y="580" width="240" height="52" rx="6" fill="#0f1520" stroke="#64748b" stroke-width="1"/>
+<text x="500" y="600" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600">context_data/pollen/raw/</text>
+<text x="500" y="618" text-anchor="middle" fill="#64748b" font-size="10">YYYY-MM-DD_pollen.json</text>
+
+<!-- failed_endpoints note  right -->
+<rect x="690" y="464" width="188" height="52" rx="6" fill="#0f1520" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="784" y="484" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">failed_endpoints</text>
+<text x="784" y="500" text-anchor="middle" fill="#374151" font-size="9">logged, never hard-stop</text>
+<text x="784" y="511" text-anchor="middle" fill="#374151" font-size="9">degraded mode always</text>
+<!-- arrow writer → failed note -->
+<line x1="615" y1="490" x2="690" y2="490" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-m)"/>
+
+<!-- Garmin archive note -->
+<rect x="690" y="580" width="188" height="52" rx="6" fill="#0f1520" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="784" y="600" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">garmin_data/summary/</text>
+<text x="784" y="616" text-anchor="middle" fill="#374151" font-size="9">date range source for collector</text>
+<text x="784" y="627" text-anchor="middle" fill="#374151" font-size="9">read-only from context pipeline</text>
+
+<!-- ═══ ARROWS — main flow ═══ -->
+
+<!-- Trigger → collector -->
+<line x1="335" y1="78" x2="335" y2="116" stroke="#22c55e" stroke-width="1.5" marker-end="url(#a-g)"/>
+
+<!-- collector → weather_plugin -->
+<line x1="264" y1="168" x2="264" y2="232" stroke="#f97316" stroke-width="1.5" marker-end="url(#a-o)"/>
+
+<!-- collector → pollen_plugin -->
+<line x1="506" y1="168" x2="506" y2="232" stroke="#f97316" stroke-width="1.5" marker-end="url(#a-o)"/>
+
+<!-- weather_plugin → context_api -->
+<line x1="264" y1="280" x2="264" y2="348" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+
+<!-- pollen_plugin → context_api -->
+<line x1="506" y1="280" x2="506" y2="348" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+
+<!-- context_api → context_writer -->
+<line x1="385" y1="400" x2="385" y2="464" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#a-p)"/>
+
+<!-- context_writer → weather storage -->
+<line x1="220" y1="516" x2="220" y2="580" stroke="#64748b" stroke-width="1.5" marker-end="url(#a-m)"/>
+
+<!-- context_writer → pollen storage -->
+<line x1="500" y1="516" x2="500" y2="580" stroke="#64748b" stroke-width="1.5" marker-end="url(#a-m)"/>
+
+<!-- collector → garmin summary (dashed, reads) -->
+<line x1="515" y1="142" x2="690" y2="606" stroke="#374151" stroke-width="1" stroke-dasharray="4 3" opacity="0.4" marker-end="url(#a-m)"/>
+
+<!-- stop_event note -->
+<text x="385" y="745" text-anchor="middle" fill="#374151" font-size="9">stop_event passed from GUI — cancellable at any point — plugin OUTPUT_DIR overridden dynamically from settings["base_dir"]</text>
+
+</svg>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+    <div class="lc g">
+        <h3>01 — Trigger</h3>
+        <p>Initiated by the GUI "Sync Context" button. Runs in a background thread. Cancellable via stop_event at any point.</p>
+    </div>
+    <div class="lc t">
+        <h3>02 — Orchestration</h3>
+        <p>context_collector.py reads the date range from the local Garmin archive and splits it into segments per location row in local_config.csv.</p>
+    </div>
+    <div class="lc o">
+        <h3>03 — Plugins</h3>
+        <p>weather_plugin.py and pollen_plugin.py are metadata only — no executable logic. They define endpoints and fields. New plugins added to _PLUGINS list in context_collector.</p>
+    </div>
+    <div class="lc c">
+        <h3>04 — Fetch</h3>
+        <p>context_api.fetch() calls Open-Meteo per plugin per segment. Returns (raw, failed_endpoints). No API key required. Degraded mode on partial failure.</p>
+    </div>
+    <div class="lc p">
+        <h3>05 — Write</h3>
+        <p>context_writer.py is sole owner of context_data/. Writes raw JSON per plugin per segment. Never called from dashboard pipeline — read-only there.</p>
+    </div>
+</div>
+
+<footer>Garmin Local Archive · github.com/Wewoc/Garmin_Local_Archive · v1.4.0 Context Pipeline</footer>
+</body>
+</html>
