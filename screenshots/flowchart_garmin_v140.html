@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Garmin Local Archive — System Architecture v1.4.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:      #0a0e17;
+            --surface: #0f1520;
+            --border:  #1e2d45;
+            --accent:  #3b82f6;
+            --cyan:    #06b6d4;
+            --green:   #22c55e;
+            --purple:  #8b5cf6;
+            --orange:  #f97316;
+            --red:     #ef4444;
+            --yellow:  #eab308;
+            --text:    #e2e8f0;
+            --muted:   #64748b;
+            --dim:     #374151;
+            --mono:    'JetBrains Mono', monospace;
+            --sans:    'Space Grotesk', sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 48px 24px;
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59,130,246,0.07) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 80% 80%, rgba(139,92,246,0.04) 0%, transparent 50%);
+        }
+        header { text-align: center; margin-bottom: 44px; }
+        .badge {
+            display: inline-block;
+            font-family: var(--mono);
+            font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+            color: var(--accent);
+            background: rgba(59,130,246,0.1);
+            border: 1px solid rgba(59,130,246,0.25);
+            border-radius: 4px; padding: 3px 10px; margin-bottom: 12px;
+        }
+        h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; }
+        header p { font-size: 13px; color: var(--muted); max-width: 600px; margin: 0 auto; line-height: 1.6; }
+        .diagram-wrap { max-width: 1140px; margin: 0 auto 48px; }
+        svg.flow { width: 100%; height: auto; display: block; overflow: visible; }
+        .legend {
+            max-width: 1140px; margin: 0 auto;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+        }
+        .lc { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px 16px; position:relative; overflow:hidden; }
+        .lc::before { content:''; position:absolute; top:0; left:0; width:3px; height:100%; border-radius:3px 0 0 3px; }
+        .lc.b::before{background:var(--accent);} .lc.c::before{background:var(--cyan);}
+        .lc.g::before{background:var(--green);} .lc.p::before{background:var(--purple);} .lc.o::before{background:var(--orange);}
+        .lc h3 { font-family:var(--mono); font-size:10px; font-weight:600; letter-spacing:0.08em; margin-bottom:5px; text-transform:uppercase; }
+        .lc.b h3{color:var(--accent);} .lc.c h3{color:var(--cyan);}
+        .lc.g h3{color:var(--green);} .lc.p h3{color:var(--purple);} .lc.o h3{color:var(--orange);}
+        .lc p { font-size:11.5px; color:var(--muted); line-height:1.5; }
+        footer { text-align:center; margin-top:36px; font-family:var(--mono); font-size:10px; color:var(--muted); opacity:0.5; }
+    </style>
+</head>
+<body>
+<header>
+    <div class="badge">v1.4.0 — GARMIN PIPELINE</div>
+    <h1>System Architecture Flowchart</h1>
+    <p>Garmin data pipeline — from API ingestion through validation, normalisation, and quality assessment to the self-healing revalidation loop.</p>
+</header>
+
+<div class="diagram-wrap">
+<svg class="flow" viewBox="0 0 1100 1110" xmlns="http://www.w3.org/2000/svg"
+     font-family="'JetBrains Mono', monospace">
+<defs>
+    <marker id="a-b"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#3b82f6"/></marker>
+    <marker id="a-c"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#06b6d4"/></marker>
+    <marker id="a-g"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#22c55e"/></marker>
+    <marker id="a-y"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#eab308"/></marker>
+    <marker id="a-r"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#ef4444"/></marker>
+    <marker id="a-p"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#8b5cf6"/></marker>
+    <marker id="a-m"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#64748b"/></marker>
+    <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M40 0L0 0 0 40" fill="none" stroke="#1e2d45" stroke-width="0.4" opacity="0.5"/>
+    </pattern>
+</defs>
+
+<rect width="1100" height="1110" rx="12" fill="#0f1520"/>
+<rect width="1100" height="1110" rx="12" fill="url(#grid)" opacity="0.6"/>
+
+<!-- ═══ PHASE RAIL ═══ -->
+<rect x="18" y="36"  width="8" height="140" rx="4" fill="#3b82f6" opacity="0.7"/>
+<text x="14" y="162" fill="#3b82f6" font-size="8" letter-spacing="0.14em" opacity="0.75" transform="rotate(-90,14,162)">INGESTION</text>
+
+<rect x="18" y="196" width="8" height="64"  rx="4" fill="#06b6d4" opacity="0.7"/>
+<text x="14" y="256" fill="#06b6d4" font-size="8" letter-spacing="0.12em" opacity="0.75" transform="rotate(-90,14,256)">ORCHESTRATION</text>
+
+<rect x="18" y="280" width="8" height="188" rx="4" fill="#eab308" opacity="0.7"/>
+<text x="14" y="436" fill="#eab308" font-size="8" letter-spacing="0.14em" opacity="0.75" transform="rotate(-90,14,436)">VALIDATION</text>
+
+<rect x="18" y="488" width="8" height="82"  rx="4" fill="#22c55e" opacity="0.7"/>
+<text x="14" y="566" fill="#22c55e" font-size="8" letter-spacing="0.14em" opacity="0.75" transform="rotate(-90,14,566)">TRANSFORM</text>
+
+<rect x="18" y="590" width="8" height="162" rx="4" fill="#8b5cf6" opacity="0.7"/>
+<text x="14" y="750" fill="#8b5cf6" font-size="8" letter-spacing="0.14em" opacity="0.75" transform="rotate(-90,14,750)">ASSESSMENT</text>
+
+<rect x="18" y="776" width="8" height="300" rx="4" fill="#06b6d4" opacity="0.5"/>
+<text x="14" y="1068" fill="#06b6d4" font-size="8" letter-spacing="0.14em" opacity="0.6" transform="rotate(-90,14,1068)">SELF-HEALING</text>
+
+<!-- ═══ NODES ═══ -->
+
+<!-- TRIGGER  y=36 h=42 -->
+<rect x="180" y="36" width="290" height="42" rx="21" fill="#0f1520" stroke="#22c55e" stroke-width="1.5" filter="url(#glow)"/>
+<text x="325" y="62" text-anchor="middle" fill="#22c55e" font-size="11" font-weight="700">▶  Sync / Timer / Bulk Import</text>
+
+<!-- garmin_api.py  y=110 h=52 -->
+<rect x="180" y="110" width="290" height="52" rx="6" fill="#0f1520" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="325" y="131" text-anchor="middle" fill="#3b82f6" font-size="11" font-weight="700">garmin_api.py</text>
+<text x="325" y="149" text-anchor="middle" fill="#64748b" font-size="10">SSO login → fetch all endpoints</text>
+
+<!-- raw/  right y=110 -->
+<rect x="590" y="110" width="218" height="52" rx="6" fill="#0f1520" stroke="#3b82f6" stroke-width="1"/>
+<text x="699" y="131" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">raw/ YYYY-MM-DD.json</text>
+<text x="699" y="149" text-anchor="middle" fill="#64748b" font-size="10">raw persistence — immutable</text>
+
+<!-- garmin_collector  y=196 h=52 -->
+<rect x="160" y="196" width="330" height="52" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="2"/>
+<text x="325" y="217" text-anchor="middle" fill="#06b6d4" font-size="11" font-weight="700">garmin_collector.py</text>
+<text x="325" y="233" text-anchor="middle" fill="#64748b" font-size="10">Orchestrator — delegates to all modules</text>
+<text x="325" y="244" text-anchor="middle" fill="#374151" font-size="9">schema version check on every process start</text>
+
+<!-- garmin_validator  y=280 h=52 -->
+<rect x="180" y="280" width="290" height="52" rx="6" fill="#0f1520" stroke="#eab308" stroke-width="1.5"/>
+<text x="325" y="301" text-anchor="middle" fill="#eab308" font-size="11" font-weight="700">garmin_validator.py  ✦ NEW</text>
+<text x="325" y="317" text-anchor="middle" fill="#64748b" font-size="10">schema check vs. garmin_dataformat.json</text>
+<text x="325" y="329" text-anchor="middle" fill="#374151" font-size="9">no hard stop — always degraded mode</text>
+
+<!-- garmin_dataformat.json  right y=280 -->
+<rect x="590" y="280" width="218" height="52" rx="6" fill="#0f1520" stroke="#eab308" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="699" y="301" text-anchor="middle" fill="#a16207" font-size="11" font-weight="600">garmin_dataformat.json</text>
+<text x="699" y="317" text-anchor="middle" fill="#64748b" font-size="10">required / optional fields</text>
+<text x="699" y="329" text-anchor="middle" fill="#374151" font-size="9">schema version (Major / Minor)</text>
+
+<!-- Result diamond  center x=325 y=390 -->
+<polygon points="325,384 398,414 325,444 252,414" fill="#0f1520" stroke="#eab308" stroke-width="1.5"/>
+<text x="325" y="409" text-anchor="middle" fill="#eab308" font-size="10" font-weight="700">result?</text>
+<text x="325" y="423" text-anchor="middle" fill="#a16207" font-size="9">ok / warning / critical</text>
+
+<!-- Log Warning  right y=390 -->
+<rect x="590" y="390" width="218" height="52" rx="6" fill="#0f1520" stroke="#ef4444" stroke-width="1.5"/>
+<text x="699" y="411" text-anchor="middle" fill="#ef4444" font-size="11" font-weight="700">⚠  Log Warning</text>
+<text x="699" y="427" text-anchor="middle" fill="#64748b" font-size="10">validator_result: critical</text>
+<text x="699" y="439" text-anchor="middle" fill="#374151" font-size="9">pipeline continues — no skip</text>
+
+<!-- garmin_writer ownership bracket  far right x=870 y=110..564 -->
+<rect x="868" y="110" width="196" height="454" rx="6" fill="#0f1520" stroke="#22c55e" stroke-width="1" stroke-dasharray="3 2" opacity="0.55"/>
+<text x="966" y="350" text-anchor="middle" fill="#22c55e" font-size="9" font-weight="600" opacity="0.65"
+      transform="rotate(90,966,350)">garmin_writer.py — sole owner of  raw/  +  summary/</text>
+<line x1="868" y1="136" x2="808" y2="136" stroke="#22c55e" stroke-width="1" stroke-dasharray="2 2" opacity="0.3"/>
+<line x1="868" y1="514" x2="808" y2="514" stroke="#22c55e" stroke-width="1" stroke-dasharray="2 2" opacity="0.3"/>
+
+<!-- garmin_normalizer  y=488 h=52 -->
+<rect x="180" y="488" width="290" height="52" rx="6" fill="#0f1520" stroke="#22c55e" stroke-width="1.5"/>
+<text x="325" y="509" text-anchor="middle" fill="#22c55e" font-size="11" font-weight="700">garmin_normalizer.py</text>
+<text x="325" y="525" text-anchor="middle" fill="#64748b" font-size="10">pure transformation — no type checks</text>
+<text x="325" y="537" text-anchor="middle" fill="#374151" font-size="9">ValueError guard if non-dict input arrives</text>
+
+<!-- summary/  right y=488 -->
+<rect x="590" y="488" width="218" height="52" rx="6" fill="#0f1520" stroke="#22c55e" stroke-width="1"/>
+<text x="699" y="509" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">summary/ YYYY-MM-DD.json</text>
+<text x="699" y="525" text-anchor="middle" fill="#64748b" font-size="10">canonical schema, ~2 KB/day</text>
+<text x="699" y="537" text-anchor="middle" fill="#374151" font-size="9">incl. schema_version</text>
+
+<!-- garmin_quality  y=590 h=52 -->
+<rect x="180" y="590" width="290" height="52" rx="6" fill="#0f1520" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="325" y="611" text-anchor="middle" fill="#8b5cf6" font-size="11" font-weight="700">garmin_quality.py</text>
+<text x="325" y="627" text-anchor="middle" fill="#64748b" font-size="10">content assessment (not structure)</text>
+<text x="325" y="639" text-anchor="middle" fill="#374151" font-size="9">receives validator_result + validator_issues</text>
+
+<!-- quality_log  right y=590 -->
+<rect x="590" y="590" width="218" height="52" rx="6" fill="#0f1520" stroke="#8b5cf6" stroke-width="1"/>
+<text x="699" y="611" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">quality_log.json</text>
+<text x="699" y="627" text-anchor="middle" fill="#64748b" font-size="10">+validator_result / _issues</text>
+<text x="699" y="639" text-anchor="middle" fill="#374151" font-size="9">+validator_schema_version</text>
+
+<!-- garmin_writer (writes analysis)  y=690 h=52 -->
+<rect x="180" y="690" width="290" height="52" rx="6" fill="#0f1520" stroke="#8b5cf6" stroke-width="1"/>
+<text x="325" y="711" text-anchor="middle" fill="#8b5cf6" font-size="11" font-weight="700">garmin_writer.py</text>
+<text x="325" y="727" text-anchor="middle" fill="#64748b" font-size="10">writes garmin_analysis.json</text>
+
+<!-- garmin_analysis.json  right y=690 -->
+<rect x="590" y="690" width="218" height="52" rx="6" fill="#0f1520" stroke="#8b5cf6" stroke-width="1"/>
+<text x="699" y="711" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">garmin_analysis.json</text>
+<text x="699" y="727" text-anchor="middle" fill="#64748b" font-size="10">baselines, flags, trends</text>
+
+<!-- ═══ SELF-HEALING LOOP ═══ -->
+<rect x="44" y="776" width="1020" height="212" rx="8" fill="none" stroke="#06b6d4" stroke-width="1" stroke-dasharray="6 4" opacity="0.5"/>
+<text x="554" y="794" text-anchor="middle" fill="#06b6d4" font-size="9" letter-spacing="0.09em" opacity="0.6">SELF-HEALING LOOP — triggered on every process start by  garmin_collector.py</text>
+
+<!-- Version diamond  center=210 mid=870 -->
+<polygon points="210,836 282,866 210,896 138,866" fill="#0f1520" stroke="#06b6d4" stroke-width="1.5"/>
+<text x="210" y="861" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="700">Version</text>
+<text x="210" y="875" text-anchor="middle" fill="#06b6d4" font-size="9">Match?</text>
+
+<!-- Match → Idle -->
+<rect x="60" y="842" width="56" height="48" rx="6" fill="#0f1520" stroke="#64748b" stroke-width="1"/>
+<text x="88" y="861" text-anchor="middle" fill="#64748b" font-size="9" font-weight="600">✓ Match</text>
+<text x="88" y="875" text-anchor="middle" fill="#374151" font-size="8">no rerun</text>
+<line x1="138" y1="866" x2="116" y2="866" stroke="#64748b" stroke-width="1.5" marker-end="url(#a-m)"/>
+<text x="127" y="857" text-anchor="middle" fill="#64748b" font-size="8">match</text>
+
+<!-- Identify days -->
+<rect x="318" y="842" width="212" height="48" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="1.5"/>
+<text x="424" y="860" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="600">Identify days w/ result ≠ ok</text>
+<text x="424" y="876" text-anchor="middle" fill="#64748b" font-size="9">from quality_log.json</text>
+<line x1="282" y1="866" x2="318" y2="866" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+<text x="300" y="857" text-anchor="middle" fill="#ef4444" font-size="8">mismatch</text>
+
+<!-- Re-read from raw/ -->
+<rect x="566" y="842" width="188" height="48" rx="6" fill="#0f1520" stroke="#06b6d4" stroke-width="1.5"/>
+<text x="660" y="860" text-anchor="middle" fill="#06b6d4" font-size="10" font-weight="600">Re-read from raw/</text>
+<text x="660" y="876" text-anchor="middle" fill="#64748b" font-size="9">no API call required</text>
+<line x1="530" y1="866" x2="566" y2="866" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+
+<!-- → garmin_validator (re-run) -->
+<rect x="790" y="842" width="228" height="48" rx="6" fill="#0f1520" stroke="#eab308" stroke-width="1.5"/>
+<text x="904" y="860" text-anchor="middle" fill="#eab308" font-size="10" font-weight="600">→ garmin_validator.py</text>
+<text x="904" y="876" text-anchor="middle" fill="#64748b" font-size="9">re-run with updated schema</text>
+<line x1="754" y1="866" x2="790" y2="866" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+
+<!-- Note -->
+<text x="554" y="968" text-anchor="middle" fill="#374151" font-size="9">Quality is re-evaluated only if validator result changes — prevents unnecessary recomputes</text>
+
+
+<!-- ═══ ARROWS — main flow ═══ -->
+
+<!-- Trigger → api -->
+<line x1="325" y1="78" x2="325" y2="110" stroke="#22c55e" stroke-width="1.5" marker-end="url(#a-g)"/>
+
+<!-- api → raw/ -->
+<line x1="470" y1="136" x2="590" y2="136" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#a-b)"/>
+
+<!-- api → collector -->
+<line x1="325" y1="162" x2="325" y2="196" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+
+<!-- collector → validator -->
+<line x1="325" y1="248" x2="325" y2="280" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#a-c)"/>
+
+<!-- validator → dataformat (dashed) -->
+<line x1="470" y1="306" x2="590" y2="306" stroke="#eab308" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a-y)"/>
+<text x="530" y="299" text-anchor="middle" fill="#a16207" font-size="9">schema ref</text>
+
+<!-- validator → diamond -->
+<line x1="325" y1="332" x2="325" y2="384" stroke="#eab308" stroke-width="1.5" marker-end="url(#a-y)"/>
+
+<!-- diamond → Log Warning -->
+<line x1="398" y1="414" x2="590" y2="414" stroke="#ef4444" stroke-width="1.5" marker-end="url(#a-r)"/>
+<text x="494" y="406" text-anchor="middle" fill="#ef4444" font-size="9">critical</text>
+
+<!-- Log Warning → garmin_quality.py: enters from bottom-right, offset from normalizer arrow -->
+<polyline points="808,416 1076,416 1076,670 400,670 400,642"
+          fill="none" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.6" marker-end="url(#a-r)"/>
+<text x="1088" y="540" fill="#ef4444" font-size="9" opacity="0.55" transform="rotate(90,1088,540)">validator_result + issues →</text>
+
+<!-- diamond → normalizer (always) -->
+<line x1="325" y1="444" x2="325" y2="488" stroke="#22c55e" stroke-width="1.5" marker-end="url(#a-g)"/>
+<text x="300" y="470" text-anchor="end" fill="#22c55e" font-size="9">always</text>
+
+<!-- normalizer → summary/ -->
+<line x1="470" y1="514" x2="590" y2="514" stroke="#22c55e" stroke-width="1.5" marker-end="url(#a-g)"/>
+
+<!-- normalizer → quality -->
+<line x1="325" y1="540" x2="325" y2="590" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#a-p)"/>
+
+<!-- quality → quality_log -->
+<line x1="470" y1="616" x2="590" y2="616" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#a-p)"/>
+
+<!-- quality → writer -->
+<line x1="325" y1="642" x2="325" y2="690" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#a-p)"/>
+
+<!-- writer → analysis.json -->
+<line x1="470" y1="716" x2="590" y2="716" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#a-p)"/>
+
+<!-- quality_log → SH loop (version data, right col) -->
+<line x1="670" y1="642" x2="670" y2="776" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4 3" opacity="0.4" marker-end="url(#a-c)"/>
+<text x="654" y="712" fill="#06b6d4" font-size="9" opacity="0.4" transform="rotate(-90,654,712)">version data</text>
+
+<!-- Collector left-rail → SH loop -->
+<line x1="160" y1="222" x2="102" y2="222" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4 3" opacity="0.4"/>
+<line x1="102" y1="222" x2="102" y2="866" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4 3" opacity="0.4" marker-end="url(#a-c)"/>
+<text x="88" y="554" fill="#06b6d4" font-size="9" opacity="0.4" transform="rotate(-90,88,554)">triggers on process start</text>
+
+<!-- Re-validate loop: SH → validator — routes LEFT outside phase rail (x=34) -->
+<!-- From bottom of SH "→ garmin_validator" box → down below SH box → far left → up outside phase rail → right into validator left side -->
+<polyline points="904,890 904,1040 34,1040 34,306 180,306"
+          fill="none" stroke="#eab308" stroke-width="1" stroke-dasharray="5 3" opacity="0.45" marker-end="url(#a-y)"/>
+<text x="34" y="620" fill="#eab308" font-size="9" opacity="0.4" transform="rotate(-90,34,620)">re-validate loop</text>
+
+</svg>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+    <div class="lc b">
+        <h3>01 — Ingestion</h3>
+        <p>Raw persistence immediately after API fetch. Foundation for revalidation without new API calls. garmin_writer.py is the sole owner of raw/ and summary/.</p>
+    </div>
+    <div class="lc c">
+        <h3>02 — Orchestration</h3>
+        <p>garmin_collector.py coordinates all modules. No domain logic — pure flow control. Triggers schema version check on every process start.</p>
+    </div>
+    <div class="lc g">
+        <h3>03 — Validation</h3>
+        <p>Structural schema enforcement. No hard stop — degraded mode only. required missing → critical, optional missing → warning. Pipeline always continues.</p>
+    </div>
+    <div class="lc p">
+        <h3>04 — Assessment</h3>
+        <p>garmin_quality.py evaluates content (not structure). Receives validator_result + validator_issues. Writes three new fields per day to quality_log.json.</p>
+    </div>
+    <div class="lc o">
+        <h3>05 — Self-Healing</h3>
+        <p>On schema version mismatch: days with result ≠ ok are re-read from raw/ and revalidated. No API call. Quality only re-evaluated if the result changes.</p>
+    </div>
+</div>
+
+<footer>Garmin Local Archive · github.com/Wewoc/Garmin_Local_Archive · v1.4.0 Architecture</footer>
+</body>
+</html>
