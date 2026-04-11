@@ -20,6 +20,10 @@ Stop-event note:def login(on_key_required=None, on_token_expired=None):
   returns False safely via globals().get().
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
 import logging
 import random
 import time
