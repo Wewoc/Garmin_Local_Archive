@@ -259,6 +259,39 @@ master_collector
 
 ---
 
+## Possible Sources
+
+The architecture is designed to be source-agnostic. The sources listed below are
+candidates — not commitments. Each would require its own plugin module, API adapter,
+and quality log. No source is assumed to be simple to add.
+
+### Garmin — Health & Wellness *(current, v1.x)*
+Daily health metrics: HRV, resting heart rate, sleep, stress, body battery, SpO2,
+steps, respiration. Tagesbasiert — one entry per day. This is the existing pipeline.
+
+### Garmin — Activities *(possible, v2.x)*
+Event-based activity data: runs, cycling, swimming. Multiple entries per day possible.
+Fundamentally different data model from the health pipeline — not a extension of it,
+but a second independent strand under the same `garmin_master`. Field overlap with
+health data exists (e.g. heart rate during activity vs. resting heart rate) but the
+data structures and API endpoints are distinct.
+
+> Open: activity metadata only (type, duration, distance as fields in daily summary),
+> or full FIT file archival — these are two different scope levels and will be evaluated
+> separately when development begins.
+
+### Strava *(possible, v2.x)*
+Activity-based data similar to Garmin Activities. Relevant for users who record
+primarily via Strava or who cross-train across devices. Requires OAuth2 — different
+auth stack than Garmin. FIT file import path exists via `strava_import.py`.
+
+### Komoot *(possible, v2.x)*
+Route and tour data. Overlaps with Strava in data type but differs in use case —
+Komoot is primarily used for planned and completed outdoor routes (hiking, cycling).
+Auth and API structure to be evaluated when development begins.
+
+---
+
 ## What Stays Global
 
 ```
