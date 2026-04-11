@@ -66,13 +66,18 @@ def validate_scripts(scripts_dir: Path):
             if sig not in content:
                 errors.append(f"  ✗ Wrong content:   {name}  (expected: '{sig}')")
 
+    for name in manifest.REQUIRED_DATA_FILES:
+        path = scripts_dir / name
+        if not path.exists():
+            errors.append(f"  ✗ Missing data file: {name}")
+
     if errors:
         print("  Build aborted — script validation failed:")
         for e in errors:
             print(e)
         sys.exit(1)
 
-    print(f"  ✓ All {len(_ALL_VALIDATED)} scripts present and valid.")
+    print(f"  ✓ All {len(_ALL_VALIDATED)} scripts and {len(manifest.REQUIRED_DATA_FILES)} data file(s) present and valid.")
 
 
 def migrate_layout(root: Path, scripts_dir: Path, info_dir: Path):
@@ -85,6 +90,12 @@ def migrate_layout(root: Path, scripts_dir: Path, info_dir: Path):
             (root / name).rename(scripts_dir / name)
             print(f"    {name}")
         print(f"  ✓ Moved {len(scripts_in_root)} files to scripts/")
+
+    for name in manifest.REQUIRED_DATA_FILES:
+        if (root / name).exists():
+            scripts_dir.mkdir(exist_ok=True)
+            (root / name).rename(scripts_dir / name)
+            print(f"  Data file moved to scripts/: {name}")
 
     docs_in_root = [d for d in DOCS if (root / d).exists()]
     if docs_in_root:

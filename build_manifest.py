@@ -64,6 +64,18 @@ DOCS = ["README.md", "README_APP.md", "README_APP_Standalone.md", "MAINTENANCE.m
 INFO_INCLUDE_T2 = {"README.md", "README_APP.md"}
 INFO_INCLUDE_T3 = {"README.md", "README_APP_Standalone.md"}
 
+# ── Required non-Python files (must be present alongside scripts) ─────────────
+
+REQUIRED_DATA_FILES = [
+    "garmin_dataformat.json",
+]
+
+# ── Required non-Python files (must be present alongside scripts) ─────────────
+
+REQUIRED_DATA_FILES = [
+    "garmin_dataformat.json",
+]
+
 # ── Runtime dependencies (Target 3 only — must be installed for bundling) ─────
 
 RUNTIME_DEPS = [
