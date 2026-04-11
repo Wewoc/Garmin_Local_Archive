@@ -7,7 +7,7 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ## System Architecture
 
-![System Architecture v1.4.0](screenshots/flowchart_garmin_v140.jpg)
+![System Architecture v1.4.0](screenshots/flowchart_garmin_v140.png)
 
 > [!TIP]
 > **Interactive version:** Open [screenshots/flowchart_garmin_v140.html](screenshots/flowchart_garmin_v140.html) in your browser for the full diagram with readable labels.
@@ -16,7 +16,7 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ## Context Pipeline
 
-![Context Pipeline v1.4.0](screenshots/flowchart_context_v140.jpg)
+![Context Pipeline v1.4.0](screenshots/flowchart_context_v140.png)
 
 > [!TIP]
 > **Interactive version:** Open [screenshots/flowchart_context_v140.html](screenshots/flowchart_context_v140.html) in your browser for the full diagram with readable labels.
@@ -25,7 +25,7 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ## Dashboard Pipeline
 
-![Dashboard Pipeline v1.4.0](screenshots/flowchart_dashboard_v140.jpg)
+![Dashboard Pipeline v1.4.0](screenshots/flowchart_dashboard_v140.png)
 
 > [!TIP]
 > **Interactive version:** Open [screenshots/flowchart_dashboard_v140.html](screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
