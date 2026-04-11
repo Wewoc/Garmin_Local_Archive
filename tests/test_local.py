@@ -22,7 +22,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 # ── Path setup — works when run from project folder or elsewhere ───────────────
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 logging.disable(logging.CRITICAL)
 
 # ── Results tracking ───────────────────────────────────────────────────────────
@@ -65,12 +65,12 @@ import garmin_config as cfg
 importlib.reload(cfg)
 
 check("BASE_DIR from ENV",              cfg.BASE_DIR == _TMPDIR)
-check("RAW_DIR derived",                cfg.RAW_DIR == _TMPDIR / "raw")
-check("SUMMARY_DIR derived",            cfg.SUMMARY_DIR == _TMPDIR / "summary")
-check("LOG_DIR derived",                cfg.LOG_DIR == _TMPDIR / "log")
-check("QUALITY_LOG_FILE derived",       cfg.QUALITY_LOG_FILE == _TMPDIR / "log" / "quality_log.json")
-check("GARMIN_TOKEN_DIR derived",       cfg.GARMIN_TOKEN_DIR  == _TMPDIR / "log" / "garmin_token")
-check("GARMIN_TOKEN_FILE derived",      cfg.GARMIN_TOKEN_FILE == _TMPDIR / "log" / "garmin_token.enc")
+check("RAW_DIR derived",                cfg.RAW_DIR == _TMPDIR / "garmin_data" / "raw")
+check("SUMMARY_DIR derived",            cfg.SUMMARY_DIR == _TMPDIR / "garmin_data" / "summary")
+check("LOG_DIR derived",                cfg.LOG_DIR == _TMPDIR / "garmin_data" / "log")
+check("QUALITY_LOG_FILE derived",       cfg.QUALITY_LOG_FILE == _TMPDIR / "garmin_data" / "log" / "quality_log.json")
+check("GARMIN_TOKEN_DIR derived",       cfg.GARMIN_TOKEN_DIR  == _TMPDIR / "garmin_data" / "log" / "garmin_token")
+check("GARMIN_TOKEN_FILE derived",      cfg.GARMIN_TOKEN_FILE == _TMPDIR / "garmin_data" / "log" / "garmin_token.enc")
 check("SYNC_MODE = recent",             cfg.SYNC_MODE == "recent")
 check("MAX_DAYS_PER_SESSION = 30",      cfg.MAX_DAYS_PER_SESSION == 30)
 check("SYNC_CHUNK_SIZE = 10",           cfg.SYNC_CHUNK_SIZE == 10)
@@ -627,6 +627,125 @@ corrupt_path = cfg.RAW_DIR / "garmin_raw_2024-05-02.json"
 corrupt_path.write_text("{ not valid json }")
 result_corrupt = writer.read_raw("2024-05-02")
 check("read_raw: corrupt → empty dict",   result_corrupt == {})
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  11. DETERMINISM
+# ══════════════════════════════════════════════════════════════════════════════
+section("11. DETERMINISM")
+
+r1 = normalizer.summarize(raw_full)
+r2 = normalizer.summarize(raw_full)
+check("determinism: summarize stable",       r1 == r2)
+
+with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])), \
+     patch("garmin_collector.writer.write_day", return_value=True):
+    rd1 = collector._process_day(mock_client, "2024-03-15")
+    rd2 = collector._process_day(mock_client, "2024-03-15")
+check("determinism: process_day stable",     rd1 == rd2)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  12. INVARIANTS
+# ══════════════════════════════════════════════════════════════════════════════
+section("12. INVARIANTS")
+
+# Quality darf nicht downgraden
+data_inv = {"first_day": None, "devices": [], "days": []}
+quality._upsert_quality(data_inv, date(2024, 9, 1), "high", "Quality: high", written=True)
+quality._upsert_quality(data_inv, date(2024, 9, 1), "low",  "Quality: low",  written=True)
+check("invariant: high not downgraded to low",    data_inv["days"][0]["quality"] == "high")
+
+quality._upsert_quality(data_inv, date(2024, 9, 2), "medium", "Quality: medium", written=True)
+quality._upsert_quality(data_inv, date(2024, 9, 2), "failed", "API error",       written=False)
+check("invariant: medium not downgraded to failed", data_inv["days"][1]["quality"] == "medium")
+
+quality._upsert_quality(data_inv, date(2024, 9, 3), "high", "Quality: high", written=True)
+quality._upsert_quality(data_inv, date(2024, 9, 3), "high", "Quality: high", written=True)
+check("invariant: high stays high on repeat",     data_inv["days"][2]["quality"] == "high")
+
+# Failed darf niemals schreiben — explizit als Invariante
+with patch("garmin_collector.api.fetch_raw", return_value=({"date": "2024-01-01"}, [])), \
+     patch("garmin_collector.writer.write_day") as mock_w:
+    label_inv, _, _, _ = collector._process_day(mock_client, "2024-01-01")
+check("invariant: failed never writes",  label_inv == "failed" and not mock_w.called)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  12. ROBUSTNESS — Dirty Input
+# ══════════════════════════════════════════════════════════════════════════════
+section("12. ROBUSTNESS")
+from copy import deepcopy
+
+# Validator: fehlende Pflichtfelder blockieren zwingend
+r_no_date = validator_mod.validate({"sleep": {}, "heart_rates": {}})
+check("robustness: missing date → critical",      r_no_date["status"] == "critical")
+
+# Validator: falsche Typen erkannt
+r_wrong_type = validator_mod.validate({"date": "2024-01-01", "sleep": "corrupted", "heart_rates": "60"})
+check("robustness: wrong types → warning/critical", r_wrong_type["status"] in ("warning", "critical"))
+
+# Validator: None-Input kein Crash
+r_none = validator_mod.validate(None)
+check("robustness: None input → critical, no crash", r_none["status"] == "critical")
+
+# Validator: leeres Dict kein Crash
+r_empty = validator_mod.validate({})
+check("robustness: empty dict → critical, no crash", r_empty["status"] == "critical")
+
+# Normalizer: leere Hülle — kein Crash, kein Exception
+raw_shell = {"date": "2024-01-01", "sleep": None, "heart_rates": None, "activities": []}
+try:
+    s_shell = normalizer.summarize(raw_shell)
+    check("robustness: empty shell no crash",     isinstance(s_shell, dict))
+    check("robustness: empty shell date correct", s_shell.get("date") == "2024-01-01")
+except Exception as e:
+    check("robustness: empty shell no crash",     False)
+    check("robustness: empty shell date correct", False)
+
+# Normalizer: raw nicht mutiert durch summarize
+raw_immut = {"date": "2024-06-01", "heart_rates": {"restingHeartRate": 55}}
+raw_before = deepcopy(raw_immut)
+normalizer.summarize(raw_immut)
+check("robustness: raw not mutated by summarize", raw_immut == raw_before)
+
+# Normalizer: absurde Werte — kein Crash
+raw_garbage = {"date": "2024-01-01", "heart_rates": {"restingHeartRate": 9999},
+               "user_summary": {"totalSteps": -500}}
+try:
+    s_garbage = normalizer.summarize(raw_garbage)
+    check("robustness: garbage values no crash", isinstance(s_garbage, dict))
+except Exception:
+    check("robustness: garbage values no crash", False)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  13. PIPELINE_E2E
+# ══════════════════════════════════════════════════════════════════════════════
+section("13. PIPELINE_E2E")
+
+raw_e2e = {
+    "date": "2024-07-15",
+    "heart_rates": {"restingHeartRate": 58, "heartRateValues": [[0, 58], [60, 62]]},
+    "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 27000}},
+    "user_summary": {"totalSteps": 7200},
+}
+
+# normalize → validate → quality → write → read back
+val_e2e  = validator_mod.validate(raw_e2e)
+check("e2e: validator ok",            val_e2e["status"] == "ok")
+
+norm_e2e = normalizer.normalize(raw_e2e, "api")
+check("e2e: normalize returns dict",  isinstance(norm_e2e, dict))
+check("e2e: date preserved",          norm_e2e.get("date") == "2024-07-15")
+
+summ_e2e = normalizer.summarize(raw_e2e)
+q_e2e    = quality.assess_quality(raw_e2e)
+check("e2e: quality = high",          q_e2e == "high")
+
+ok_e2e   = writer.write_day(raw_e2e, summ_e2e, "2024-07-15")
+check("e2e: write_day ok",            ok_e2e == True)
+
+read_e2e = writer.read_raw("2024-07-15")
+check("e2e: read_raw returns dict",   isinstance(read_e2e, dict))
+check("e2e: read_raw date correct",   read_e2e.get("date") == "2024-07-15")
+check("e2e: read_raw content intact", read_e2e.get("heart_rates", {}).get("restingHeartRate") == 58)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
