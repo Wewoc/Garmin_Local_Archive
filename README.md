@@ -107,7 +107,10 @@ This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
 
-![Garmin Local Archive — Desktop App](screenshots/GUI-V130.jpg)
+![Garmin Local Archive — Desktop App](screenshots/GUI-V140.jpg)
+
+![Garmin Local Archive — Desktop App](screenshots/Create_report.jpg)
+
 *Desktop app — settings, sync, export, bulk import and background timer in one place.*
 
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
@@ -121,8 +124,9 @@ This project intentionally prioritizes:
 - Practical reliability over theoretical completeness
 
 Trade-offs:
-- No full automated test suite — core modules covered by local test script (`test_local.py`)
+- Three local test suites (488 checks total) — no CI/CD yet, all run locally
 - Relies on Garmin's unofficial API
+- HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that, fully offline thereafter
 - Garmin data export / bulk import (manual but recommended)
 - Designed for personal use, not enterprise environments
 
@@ -166,7 +170,7 @@ This token is functionally equivalent to a logged-in session. Anyone who obtains
 
 **What the encryption is designed to prevent:**
 
-The primary threat this system is designed against is *accidental exposure* — for example, if your `garmin_data/` folder ends up in a cloud sync (OneDrive, Google Drive, Dropbox), is included in a backup that gets shared, or is accidentally uploaded somewhere. In that scenario, an unencrypted token file would give anyone who finds it direct access to your Garmin account.
+The primary threat this system is designed against is *accidental exposure* — for example, if your `local_archive/garmin_data/` folder ends up in a cloud sync (OneDrive, Google Drive, Dropbox), is included in a backup that gets shared, or is accidentally uploaded somewhere. In that scenario, an unencrypted token file would give anyone who finds it direct access to your Garmin account.
 
 **What it is not designed to prevent:**
 
@@ -243,15 +247,41 @@ The encryption addresses specific risks (e.g. accidental exposure). It solves th
 [ garmin_collector ]   – orchestrator → decides → delegates
       │
       ▼
+[ Local Archive ]
+      │
+      ▼
 [ garmin_writer ]      – sole owner of raw/ + summary/
       │
       ▼
- [ Local Archive ]
+ [ garmin_data/ ]
+
+
+[ Open-Meteo API ]
       │
- ┌────┴────┐
- ▼         ▼
-[ Exports ] [ Dashboards ]
-(AI / JSON) (HTML / Excel)
+      ▼
+[ context_api ]        – fetches weather + pollen via plugin metadata
+      │
+      ▼
+[ context_writer ]     – sole owner of context_data/
+      │
+      ▼
+ [ context_data/ ]
+
+
+ [ garmin_data/ ]   [ context_data/ ]
+        │                  │
+        ▼                  ▼
+ [ field_map /      [ context_map /
+   garmin_map ]       weather_map /
+                       pollen_map ]
+        │                  │
+        └─────────┬─────────┘
+                  ▼
+          [ dash_runner ]    – Auto-Discovery → popup → orchestrate
+                  │
+          ┌───────┼───────┐
+          ▼       ▼       ▼
+       [HTML]  [Excel]  [JSON + Prompt]
 ```
 ```
 [ Garmin GDPR Export ZIP ]
@@ -300,10 +330,12 @@ The collector pipeline consists of nine focused modules plus a thin orchestrator
 | `garmin_normalizer.py` | Unified data schema across sources + summary extraction | — |
 | `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here | — |
 | `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline | ZIP / folder |
-| `garmin_to_excel.py` | Daily summary spreadsheet — one row per day | `summary/` |
-| `garmin_timeseries_excel.py` | Full intraday data per metric as Excel with charts | `raw/` |
-| `garmin_timeseries_html.py` | Interactive browser dashboard — zoomable, tabbed, offline | `raw/` |
-| `garmin_analysis_html.py` | Analysis dashboard: daily values vs personal baseline vs norm ranges | `summary/` |
+| `dash_runner.py` | Auto-discovers specialists, builds popup matrix, orchestrates dashboard build | — |
+| `*_dash.py` | Dashboard specialists — fetch data via brokers, return neutral dict for plotters | `garmin_data/`, `context_data/` |
+| `dash_plotter_*.py` | Format renderers — HTML (Plotly), Excel, JSON + Markdown prompt | — |
+| `dash_layout*.py` | Passive resources — CSS, color tokens, disclaimer, prompt templates | — |
+| `field_map.py` + `garmin_map.py` | Data broker — routes dashboard requests to Garmin data | `garmin_data/` |
+| `context_map.py` + `*_map.py` | Data broker — routes dashboard requests to weather/pollen archive | `context_data/` |
 | `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | — |
 | `correlation_concept.md` | Designed by curiosity — maybe not part of the pipeline | cosmic knowledge |
 
@@ -408,7 +440,7 @@ For script-only use, set the values directly in `garmin_config.py`:
 ```python
 GARMIN_EMAIL    = os.environ.get("GARMIN_EMAIL",    "your@email.com")
 GARMIN_PASSWORD = os.environ.get("GARMIN_PASSWORD", "yourpassword")
-BASE_DIR        = Path(os.environ.get("GARMIN_OUTPUT_DIR") or "~/garmin_data").expanduser()
+BASE_DIR        = Path(os.environ.get("GARMIN_OUTPUT_DIR") or "~/local_archive").expanduser()
 ```
 
 **Sync mode** — choose how far back to go:
@@ -433,50 +465,30 @@ On first run the script will connect to Garmin Connect, detect your registered d
 
 ---
 
-### Step 5 — Export to Excel (daily overview)
+### Step 5 — Generate dashboards
+
+In the desktop app: click **📊 Berichte erstellen** → select dashboards and formats → confirm.
+
+From the scripts directly:
 
 ```bash
-python garmin_to_excel.py
+python dashboards/dash_runner.py
 ```
 
-Produces `garmin_export.xlsx` — one row per day, colour-coded by category. Toggle columns on/off in the `FIELDS` block at the top of the script.
+Available dashboards:
 
----
+| Dashboard | Output | Source |
+|---|---|---|
+| Timeseries | HTML, Excel | Intraday HR, Stress, SpO2, Body Battery, Respiration |
+| Health Analysis | HTML, JSON + Prompt | HRV, Resting HR, SpO2, Sleep, Body Battery, Stress — baseline + reference ranges |
+| Daily Overview | Excel | All summary fields, one row per day + Activities sheet |
+| Health + Context | HTML, Excel | Garmin health metrics combined with weather and pollen data |
 
-### Step 6 — Export intraday timeseries (Excel + charts)
-
-```bash
-python garmin_timeseries_excel.py
-```
-
-Produces one data sheet + one chart sheet per metric. Set the date range in the CONFIG block first.
-
-> For ranges longer than ~30 days the HTML dashboard (Step 7) is faster and more usable.
-
----
-
-### Step 7 — Interactive HTML dashboard
-
-```bash
-python garmin_timeseries_html.py
-```
-
-Generates `garmin_dashboard.html` — open in any browser. One tab per metric, fully zoomable, works offline.
-
----
-
-### Step 8 — Analysis dashboard
-
-```bash
-python garmin_analysis_html.py
-```
-
-Set your age and sex in the CONFIG block first. Produces:
-
-- `garmin_analysis.html` — daily values vs your 90-day personal baseline vs age/fitness reference ranges
-- `garmin_analysis.json` — compact summary for AI tools with flagged days highlighted
+Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
 
 > Reference ranges are based on published guidelines (AHA, ACSM, Garmin/Firstbeat) and are informational only — not medical advice.
+
+> The Health Analysis JSON includes a ready-to-use Markdown start prompt for Open WebUI / Ollama — load `health_garmin_prompt.md` as the system prompt for AI-assisted interpretation.
 
 ---
 
@@ -522,7 +534,7 @@ Register-ScheduledTask -TaskName "GarminCollector" `
 ```bash
 crontab -e
 # add this line:
-0 7 * * * python3 /path/to/garmin_collector.py >> /path/to/garmin_data/log/collector.log 2>&1
+0 7 * * * python3 /path/to/garmin_collector.py >> /path/to/local_archive/garmin_data/log/collector.log 2>&1
 ```
 
 ---
@@ -545,14 +557,14 @@ docker run -d -p 3000:8080 --gpus all \
   ghcr.io/open-webui/open-webui:cuda
 ```
 
-4. Open http://localhost:3000 → Workspace → **Knowledge** → **+ New** → point to `garmin_data/summary`
+4. Open http://localhost:3000 → Workspace → **Knowledge** → **+ New** → point to `local_archive/garmin_data/summary`
 5. In chat: type `#` → select the knowledge base
 
 #### Option B — AnythingLLM
 
 1. Download AnythingLLM Desktop: https://anythingllm.com
 2. Connect Ollama (Settings → LLM → Ollama)
-3. New Workspace → Upload documents → point to `garmin_data/summary`
+3. New Workspace → Upload documents → point to `local_archive/garmin_data/summary`
 
 #### Which one to choose?
 
@@ -579,11 +591,15 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-`test_local.py` covers the core pipeline modules with 177 checks — config, sync, normalizer, quality (including all migrations), writer, validator, collector internals, and the security crypto layer. No network, no API, no GUI required. Run from the project folder:
+Three test suites cover the full pipeline — no network, no API, no GUI required:
 
 ```bash
-python test_local.py
+python tests/test_local.py          # 199 checks — Garmin pipeline
+python tests/test_local_context.py  # 123 checks — Context pipeline (Open-Meteo mocked)
+python tests/test_dashboard.py      # 166 checks — Dashboard pipeline
 ```
+
+`build_all.py` runs all three before starting either build — a failing test aborts the build.
 
 GUI changes are verified manually before release. Full CI/CD with automated builds and release packaging is planned for a later version.
 

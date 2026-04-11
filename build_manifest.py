@@ -3,7 +3,7 @@
 build_manifest.py
 
 Single source of truth for all build lists shared between build.py and
-build_standalone.py. Add new scripts here — both builds pick them up
+build_standalone.py. Add new modules here — both builds pick them up
 automatically.
 
 No logic, no imports, no side effects — pure data.
@@ -13,31 +13,51 @@ No logic, no imports, no side effects — pure data.
 # Add new modules here. Both Target 2 and Target 3 include these.
 
 SHARED_SCRIPTS = [
-    "garmin_utils.py",
-    "garmin_config.py",
-    "garmin_api.py",
-    "garmin_security.py",
-    "garmin_validator.py",
-    "garmin_normalizer.py",
-    "garmin_quality.py",
-    "garmin_sync.py",
-    "garmin_import.py",
-    "garmin_writer.py",
-    "garmin_collector.py",
-    "garmin_to_excel.py",
-    "garmin_timeseries_excel.py",
-    "garmin_timeseries_html.py",
-    "garmin_analysis_html.py",
-    "regenerate_summaries.py",
+    # garmin pipeline
+    "garmin/garmin_config.py",
+    "garmin/garmin_utils.py",
+    "garmin/garmin_api.py",
+    "garmin/garmin_security.py",
+    "garmin/garmin_validator.py",
+    "garmin/garmin_normalizer.py",
+    "garmin/garmin_quality.py",
+    "garmin/garmin_sync.py",
+    "garmin/garmin_import.py",
+    "garmin/garmin_writer.py",
+    "garmin/garmin_collector.py",
+    # maps (routing only)
+    "maps/field_map.py",
+    "maps/garmin_map.py",
+    "maps/context_map.py",
+    "maps/weather_map.py",
+    "maps/pollen_map.py",
+    # context pipeline
+    "context/context_collector.py",
+    "context/context_api.py",
+    "context/context_writer.py",
+    "context/weather_plugin.py",
+    "context/pollen_plugin.py",
+    # dashboards (specialists + runner)
+    "dashboards/dash_runner.py",
+    "dashboards/timeseries_garmin_html-xls_dash.py",
+    "dashboards/health_garmin_html-json_dash.py",
+    "dashboards/overview_garmin_xls_dash.py",
+    "dashboards/health_garmin-weather-pollen_html-xls_dash.py",
+    # layouts (plotters + passive resources)
+    "layouts/dash_layout.py",
+    "layouts/dash_layout_html.py",
+    "layouts/dash_plotter_html.py",
+    "layouts/dash_plotter_excel.py",
+    "layouts/dash_plotter_json.py",
+    "layouts/dash_prompt_templates.py",
 ]
-
 # Target 2 (build.py): entry point + shared scripts
 SCRIPTS = ["garmin_app.py"] + SHARED_SCRIPTS
 
 # Target 3 (build_standalone.py): shared scripts embedded as data
 EMBEDDED_SCRIPTS = SHARED_SCRIPTS
 
-# Target 3: all scripts for layout migration check
+# Target 3: all scripts (entry points + shared)
 ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py"] + SHARED_SCRIPTS
 
 # ── Signature checks ──────────────────────────────────────────────────────────
@@ -45,16 +65,16 @@ ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py"] + SHARED_SCRIPTS
 # Entry-point signatures are added per-build in each build script.
 
 SCRIPT_SIGNATURES_BASE = {
-    "garmin_api.py":        ["def login", "def fetch_raw"],
-    "garmin_collector.py":  ["def main", "def _process_day", "def run_import"],
-    "garmin_import.py":     ["def load_bulk", "def parse_day"],
-    "garmin_quality.py":    ["def _upsert_quality"],
-    "garmin_config.py":     ["GARMIN_EMAIL"],
-    "garmin_security.py":   ["def load_token", "def save_token"],
-    "garmin_normalizer.py": ["def normalize", "def summarize"],
-    "garmin_validator.py":  ["def validate", "def reload_schema", "def current_version"],
-    "garmin_writer.py":     ["def write_day", "def read_raw"],
-    "garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
+    "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
+    "garmin/garmin_collector.py":  ["def main", "def _process_day", "def run_import"],
+    "garmin/garmin_import.py":     ["def load_bulk", "def parse_day"],
+    "garmin/garmin_quality.py":    ["def _upsert_quality"],
+    "garmin/garmin_config.py":     ["GARMIN_EMAIL"],
+    "garmin/garmin_security.py":   ["def load_token", "def save_token"],
+    "garmin/garmin_normalizer.py": ["def normalize", "def summarize"],
+    "garmin/garmin_validator.py":  ["def validate", "def reload_schema", "def current_version"],
+    "garmin/garmin_writer.py":     ["def write_day", "def read_raw"],
+    "garmin/garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
 }
 
 # ── Docs ──────────────────────────────────────────────────────────────────────
@@ -65,12 +85,7 @@ INFO_INCLUDE_T2 = {"README.md", "README_APP.md"}
 INFO_INCLUDE_T3 = {"README.md", "README_APP_Standalone.md"}
 
 # ── Required non-Python files (must be present alongside scripts) ─────────────
-
-REQUIRED_DATA_FILES = [
-    "garmin_dataformat.json",
-]
-
-# ── Required non-Python files (must be present alongside scripts) ─────────────
+# Paths relative to garmin/ — build scripts prepend the folder.
 
 REQUIRED_DATA_FILES = [
     "garmin_dataformat.json",

@@ -26,6 +26,24 @@ import sys
 import threading
 import traceback
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent / "garmin"))
+
+def _register_embedded_packages():
+    """Register embedded packages so relative imports work in frozen EXE."""
+    if not getattr(sys, "frozen", False):
+        return
+    import types
+    scripts = Path(sys._MEIPASS) / "scripts"
+    for pkg in ("context", "maps", "dashboards", "layouts"):
+        pkg_dir = scripts / pkg
+        if pkg_dir.exists() and pkg not in sys.modules:
+            mod = types.ModuleType(pkg)
+            mod.__path__ = [str(pkg_dir)]
+            mod.__package__ = pkg
+            sys.modules[pkg] = mod
+
+_register_embedded_packages()
+
 from datetime import date, timedelta
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
@@ -35,7 +53,7 @@ SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
 
 DEFAULT_SETTINGS = {
     "email":              "",
-    "base_dir":           str(Path.home() / "garmin_data"),
+    "base_dir":           str(Path.home() / "local_archive"),
     "sync_mode":          "recent",
     "sync_days":          "90",
     "sync_from":          "",
@@ -109,9 +127,15 @@ def script_dir() -> Path:
     """
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "scripts"
-    return Path(__file__).parent
+    return Path(__file__).parent / "garmin"
 
 def script_path(name: str) -> Path:
+    # Frozen: alle Scripts flat in sys._MEIPASS/scripts/ — kein export/-Unterordner
+    # Dev: export/ liegt im Root neben garmin_app_standalone.py
+    if not getattr(sys, "frozen", False):
+        export_candidate = Path(__file__).parent / "export" / name
+        if export_candidate.exists():
+            return export_candidate
     return script_dir() / name
 
 def _open_url(url: str):
@@ -158,7 +182,7 @@ class _QueueHandler(logging.Handler):
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
-APP_VERSION = "v1.3.4"
+APP_VERSION = "v1.4.0"
 
 BG        = "#1a1a2e"
 BG2       = "#16213e"
@@ -201,8 +225,63 @@ class GarminApp(tk.Tk):
         self._load_settings_to_ui()
         self.v_sync_mode.set("recent")
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(0, self._check_migration)
         threading.Thread(target=self._check_version, daemon=True).start()
         self._poll_log_queue()                # start queue → log pump
+
+    def _check_migration(self):
+        import shutil
+        s        = self._collect_settings()
+        base_dir = Path(s.get("base_dir", "")).expanduser()
+        old_raw  = base_dir / "raw"
+        new_dir  = base_dir / "garmin_data"
+
+        if not old_raw.exists() or new_dir.exists():
+            return
+
+        msg = (
+            f"Old folder structure detected in:\n{base_dir}\n\n"
+            f"The folders raw/, summary/ and log/ will be moved to\n"
+            f"garmin_data/.\n\n"
+            f"⚠ Recommendation: Create a manual backup of:\n"
+            f"{base_dir}\n\n"
+            f"Migrate now?"
+        )
+
+        confirmed = tk.messagebox.askyesno(
+            "Structure migration required",
+            msg,
+            icon="warning",
+            default="no",
+        )
+
+        if not confirmed:
+            tk.messagebox.showinfo(
+                "App blocked",
+                "The app cannot be used without migration.\n"
+                "Please restart the app after creating a manual backup.",
+            )
+            self.destroy()
+            return
+
+        try:
+            new_dir.mkdir(parents=True, exist_ok=True)
+            for folder in ("raw", "summary", "log"):
+                src = base_dir / folder
+                dst = new_dir / folder
+                if src.exists():
+                    shutil.move(str(src), str(dst))
+            tk.messagebox.showinfo(
+                "Migration complete",
+                f"Folders successfully moved to:\n{new_dir}",
+            )
+        except Exception as e:
+            tk.messagebox.showerror(
+                "Migration error",
+                f"Error moving folders:\n{e}\n\n"
+                "Please migrate manually and restart the app.",
+            )
+            self.destroy()
 
     # ── Queue → log pump ───────────────────────────────────────────────────────
 
@@ -246,18 +325,52 @@ class GarminApp(tk.Tk):
 
         main = tk.Frame(self, bg=BG)
         main.pack(fill="both", expand=True)
-        left = tk.Frame(main, bg=BG2, width=300)
-        left.pack(side="left", fill="y")
-        left.pack_propagate(False)
-        self._build_settings_panel(left)
-        right = tk.Frame(main, bg=BG)
-        right.pack(side="left", fill="both", expand=True)
-        self._build_actions_panel(right)
+        left_outer = tk.Frame(main, bg=BG2, width=300)
+        left_outer.pack(side="left", fill="y")
+        left_outer.pack_propagate(False)
+        left_inner = self._make_scrollable_panel(left_outer, bg=BG2)
+        self._build_settings_panel(left_inner)
+        right_outer = tk.Frame(main, bg=BG)
+        right_outer.pack(side="left", fill="both", expand=True)
+        right_inner = self._make_scrollable_panel(right_outer, bg=BG)
+        self._build_actions_panel(right_inner)
         self.after(200, self._refresh_archive_info)
 
         log_frame = tk.Frame(self, bg=BG)
         log_frame.pack(fill="both", expand=False)
         self._build_log(log_frame)
+
+    def _make_scrollable_panel(self, parent, bg):
+        canvas = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0)
+        scrollbar = tk.Scrollbar(parent, orient="vertical", command=canvas.yview,
+                                 bg=bg, troughcolor=bg, relief="flat", bd=0,
+                                 width=6)
+        inner = tk.Frame(canvas, bg=bg)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(inner_id, width=event.width)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _on_enter(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _on_leave(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        inner.bind("<Configure>", _on_frame_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        canvas.bind("<Enter>", _on_enter)
+        canvas.bind("<Leave>", _on_leave)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        return inner
 
     def _section(self, parent, title):
         f = tk.Frame(parent, bg=BG2)
@@ -352,6 +465,24 @@ class GarminApp(tk.Tk):
         tk.Label(s6, text="⚠  Low delay values (< 5s) increase the risk of IP bans (HTTP 429). Recommended: min 5.0 / max 20.0",
                  font=("Segoe UI", 7), bg=BG2, fg=YELLOW, anchor="w", wraplength=240, justify="left"
                  ).pack(anchor="w", padx=16, pady=(2, 4))
+
+        # Context
+        s7 = self._section(parent, "Context")
+        self.v_maps_url = tk.StringVar()
+        self._field(s7, "Maps URL", self.v_maps_url, width=18)
+        ctx_btn_row = tk.Frame(s7, bg=BG2)
+        ctx_btn_row.pack(fill="x", padx=4, pady=2)
+        tk.Button(ctx_btn_row, text="📍  Set Location", font=FONT_BODY,
+                  bg=BG3, fg=TEXT, relief="flat", bd=0, pady=4, padx=10,
+                  cursor="hand2", command=self._set_location_from_maps).pack(side="left")
+        self._ctx_coords_label = tk.Label(
+            ctx_btn_row, text="", font=("Segoe UI", 7),
+            bg=BG2, fg=TEXT2)
+        self._ctx_coords_label.pack(side="left", padx=8)
+        maps_hint = tk.Label(s7, text="→ Open Google Maps, find your location, copy the URL",
+                             font=("Segoe UI", 7), bg=BG2, fg=ACCENT, cursor="hand2")
+        maps_hint.pack(anchor="w", padx=16, pady=(0, 4))
+        maps_hint.bind("<Button-1>", lambda e: _open_url("https://maps.google.com"))
 
         tk.Frame(parent, bg=BG2, height=10).pack()
         tk.Button(parent, text="💾  Save Settings", font=FONT_BTN,
@@ -459,7 +590,7 @@ class GarminApp(tk.Tk):
         tk.Frame(f, bg=ACCENT, height=1).pack(fill="x", pady=(2, 6))
         row = tk.Frame(f, bg=BG)
         row.pack(fill="x", pady=2)
-        tk.Button(row, text="▶  Sync Data", font=FONT_BTN,
+        tk.Button(row, text="▶  Sync Garmin", font=FONT_BTN,
                   bg=ACCENT, fg=TEXT, relief="flat", bd=0,
                   pady=7, padx=14, anchor="w", cursor="hand2",
                   command=self._run_collector).pack(side="left", fill="x", expand=True)
@@ -493,13 +624,35 @@ class GarminApp(tk.Tk):
         _exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
         _readme_candidates = [
             _exe_dir / "info" / "README_APP_Standalone.md",
-            Path(__file__).parent / "README_APP_Standalone.md",
+            Path(__file__).parent / "docs" / "README_APP_Standalone.md",
         ]
         _readme = next((p for p in _readme_candidates if p.exists()), None)
         readme_link = tk.Label(imp_link_row, text="→ Open README",
                                font=("Segoe UI", 8), bg=BG, fg=ACCENT, cursor="hand2")
         readme_link.pack(side="left", padx=14)
         readme_link.bind("<Button-1>", lambda e: os.startfile(_readme) if _readme else None)
+
+        # Sync Context row
+        ctx_row = tk.Frame(f, bg=BG)
+        ctx_row.pack(fill="x", pady=2)
+        self._ctx_btn = tk.Button(ctx_row, text="🌍  Sync Context", font=FONT_BTN,
+                                  bg=BG3, fg=TEXT2, relief="flat", bd=0,
+                                  pady=7, padx=14, anchor="w", cursor="hand2",
+                                  command=self._run_context_sync)
+        self._ctx_btn.pack(side="left", fill="x", expand=True)
+        self._ctx_stop_btn = tk.Button(ctx_row, text="⏹  Stop", font=FONT_BTN,
+                                       bg=BG3, fg=TEXT2, relief="flat", bd=0,
+                                       pady=7, padx=14, cursor="hand2",
+                                       state="disabled",
+                                       command=self._stop_context_sync)
+        self._ctx_stop_btn.pack(side="left", padx=(4, 0))
+        self._ctx_csv_btn = tk.Button(ctx_row, text="📄  CSV", font=FONT_BTN,
+                                      bg=BG3, fg=TEXT2, relief="flat", bd=0,
+                                      pady=7, padx=14, cursor="hand2",
+                                      command=self._open_local_config)
+        self._ctx_csv_btn.pack(side="left", padx=(4, 0))
+        tk.Label(ctx_row, text="Fetch weather & pollen from Open-Meteo",
+                 font=("Segoe UI", 8), bg=BG, fg=TEXT2).pack(side="left", padx=10)
 
         # ── Background Timer ───────────────────────────────────────────────────
         ft = tk.Frame(parent, bg=BG, pady=4)
@@ -539,20 +692,12 @@ class GarminApp(tk.Tk):
         _timer_field(fields_frame, "Max. Days per Run",   self.v_timer_max_days,     1, 1)
 
         self._action_section(parent, "Export", [
-            ("📊  Daily Overview",       BG3,     self._run_excel_overview,
-             "Summary spreadsheet — one row per day"),
-            ("📈  Timeseries Excel",     BG3,     self._run_excel_timeseries,
-             "Intraday data + charts per metric"),
-            ("🌐  Timeseries Dashboard", BG3,     self._run_html_timeseries,
-             "Interactive browser dashboard"),
-            ("🔍  Analysis Dashboard",   ACCENT2, self._run_html_analysis,
-             "Values vs baseline vs reference ranges + JSON for Ollama"),
+            ("📊  Create Reports",   BG3, self._open_dashboard_popup,
+             "Select dashboards and create as HTML, Excel or JSON"),
         ])
         self._action_section(parent, "Output", [
             ("📁  Open Data Folder", BG3, self._open_data_folder,
              "Open garmin_data/ in Explorer"),
-            ("📄  Open Last HTML",   BG3, self._open_last_html,
-             "Open the last generated HTML file in browser"),
             ("📋  Copy Last Error Log", BG3, self._copy_last_error_log,
              "Copy most recent error log to clipboard"),
         ])
@@ -657,6 +802,11 @@ class GarminApp(tk.Tk):
         self.v_timer_max_interval.set(s.get("timer_max_interval", "30"))
         self.v_timer_min_days.set(s.get("timer_min_days", "3"))
         self.v_timer_max_days.set(s.get("timer_max_days", "10"))
+        self.v_maps_url.set(s.get("context_location", ""))
+        lat = s.get("context_latitude", "0.0")
+        lon = s.get("context_longitude", "0.0")
+        if float(lat) != 0.0 or float(lon) != 0.0:
+            self._ctx_coords_label.config(text=f"lat {lat}  lon {lon}")
         self._on_sync_mode_change()
 
     def _on_sync_mode_change(self):
@@ -709,6 +859,9 @@ class GarminApp(tk.Tk):
             "timer_max_interval": self.v_timer_max_interval.get().strip(),
             "timer_min_days":     self.v_timer_min_days.get().strip(),
             "timer_max_days":     self.v_timer_max_days.get().strip(),
+            "context_location":   self.v_maps_url.get().strip(),
+            "context_latitude":   self.settings.get("context_latitude", "0.0"),
+            "context_longitude":  self.settings.get("context_longitude", "0.0"),
         }
 
     def _toggle_log_level(self):
@@ -769,7 +922,7 @@ class GarminApp(tk.Tk):
         Returns False if sync should skip them (normal behaviour).
         If no failed days in range: returns False silently.
         """
-        failed_file = Path(base_dir) / "log" / "quality_log.json"
+        failed_file = Path(base_dir) / "garmin_data" / "log" / "quality_log.json"
         if not failed_file.exists():
             return False
 
@@ -848,7 +1001,7 @@ class GarminApp(tk.Tk):
         _d_to   = s.get("date_to",   "").strip()
 
         if not _d_from or not _d_to:
-            _summary_dir = Path(s.get("base_dir", "")) / "summary"
+            _summary_dir = Path(s.get("base_dir", "")) / "garmin_data" / "summary"
             _dates = sorted(
                 f.stem.replace("garmin_", "")
                 for f in _summary_dir.glob("garmin_???-??-??.json")
@@ -1018,8 +1171,8 @@ class GarminApp(tk.Tk):
             import garmin_quality as quality
             from pathlib import Path
             s = self._collect_settings()
-            base_dir = Path(s.get("base_dir") or "~/garmin_data").expanduser()
-            quality_log = base_dir / "log" / "quality_log.json"
+            base_dir = Path(s.get("base_dir") or "~/local_archive").expanduser()
+            quality_log = base_dir / "garmin_data" / "log" / "quality_log.json"
             stats = quality.get_archive_stats(quality_log)
         except Exception:
             return
@@ -1347,7 +1500,7 @@ class GarminApp(tk.Tk):
             self._log("✗ Clean Archive: no data folder set.")
             return
 
-        quality_log = base_dir / "log" / "quality_log.json"
+        quality_log = base_dir / "garmin_data" / "log" / "quality_log.json"
         if not quality_log.exists():
             self._log("✗ Clean Archive: quality_log.json not found.")
             return
@@ -1371,8 +1524,8 @@ class GarminApp(tk.Tk):
 
         # Collect files to delete
         to_delete = []
-        raw_dir     = base_dir / "raw"
-        summary_dir = base_dir / "summary"
+        raw_dir     = base_dir / "garmin_data" / "raw"
+        summary_dir = base_dir / "garmin_data" / "summary"
         for folder, pattern, prefix in [
             (raw_dir,     "garmin_raw_*.json", "garmin_raw_"),
             (summary_dir, "garmin_*.json",     "garmin_"),
@@ -1553,32 +1706,262 @@ class GarminApp(tk.Tk):
             ),
         )
 
-    def _run_excel_overview(self):
-        self._run_module("garmin_to_excel.py")
+    def _open_dashboard_popup(self):
+        """Scan specialists, show selection popup, build selected dashboards."""
+        import sys
+        import importlib.util as _ilu
+        from pathlib import Path as _Path
 
-    def _run_excel_timeseries(self):
-        self._run_module("garmin_timeseries_excel.py")
+        root = _Path(sys._MEIPASS) / "scripts" if getattr(sys, "frozen", False) else _Path(__file__).parent
+        for p in (root / "dashboards", root / "layouts", root / "maps"):
+            s = str(p)
+            if s not in sys.path:
+                sys.path.insert(0, s)
 
-    def _run_html_timeseries(self):
-        s = self._collect_settings()
-        html_path = str(Path(s["base_dir"]) / "garmin_dashboard.html")
-        self._run_module(
-            "garmin_timeseries_html.py",
-            on_success=lambda: setattr(self, "_last_html", html_path),
-        )
+        try:
+            runner_path = root / "dashboards" / "dash_runner.py"
+            spec = _ilu.spec_from_file_location("dash_runner", runner_path)
+            dash_runner = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(dash_runner)
+        except Exception as exc:
+            self._log(f"✗ Dashboard runner konnte nicht geladen werden: {exc}")
+            return
 
-    def _run_html_analysis(self):
-        s = self._collect_settings()
-        html_path = str(Path(s["base_dir"]) / "garmin_analysis.html")
-        self._run_module(
-            "garmin_analysis_html.py",
-            on_success=lambda: setattr(self, "_last_html", html_path),
-        )
+        specialists = dash_runner.scan()
+        if not specialists:
+            messagebox.showinfo("Create Reports", "No dashboards found in dashboards/")
+            return
+
+        popup = tk.Toplevel(self)
+        popup.title("Create Reports")
+        popup.configure(bg=BG)
+        popup.resizable(False, False)
+        popup.grab_set()
+
+        tk.Label(popup, text="CREATE REPORTS", font=("Segoe UI", 9, "bold"),
+                 bg=BG, fg=ACCENT).grid(row=0, column=0, columnspan=10,
+                 sticky="w", padx=16, pady=(14, 4))
+        tk.Frame(popup, bg=ACCENT, height=1).grid(row=1, column=0,
+                 columnspan=10, sticky="ew", padx=16, pady=(0, 8))
+
+        all_formats = []
+        for s in specialists:
+            for fmt in s["formats"]:
+                if fmt not in all_formats:
+                    all_formats.append(fmt)
+
+        tk.Label(popup, text="Dashboard", font=("Segoe UI", 8, "bold"),
+                 bg=BG, fg=TEXT, width=28, anchor="w").grid(
+                 row=2, column=0, padx=(16, 4), pady=2)
+        for col_idx, fmt in enumerate(all_formats, start=1):
+            tk.Label(popup, text=fmt.upper(), font=("Segoe UI", 8, "bold"),
+                     bg=BG, fg=TEXT, width=7, anchor="center").grid(
+                     row=2, column=col_idx, padx=4, pady=2)
+
+        check_vars = {}
+
+        for row_idx, spec in enumerate(specialists, start=3):
+            tk.Label(popup,
+                     text=f"{spec['name']} — {spec['description'][:45]}",
+                     font=("Segoe UI", 8), bg=BG, fg=TEXT,
+                     width=46, anchor="w").grid(
+                     row=row_idx, column=0, padx=(16, 4), pady=3)
+            for col_idx, fmt in enumerate(all_formats, start=1):
+                if fmt in spec["formats"]:
+                    var = tk.BooleanVar(value=False)
+                    check_vars[(row_idx - 3, fmt)] = var
+                    tk.Checkbutton(popup, variable=var, bg=BG,
+                                   activebackground=BG,
+                                   selectcolor="white").grid(
+                                   row=row_idx, column=col_idx, padx=4)
+                else:
+                    tk.Label(popup, text="—", font=("Segoe UI", 8),
+                             bg=BG, fg="#555555").grid(
+                             row=row_idx, column=col_idx, padx=4)
+
+        last_row = 3 + len(specialists)
+        tk.Frame(popup, bg=ACCENT, height=1).grid(row=last_row, column=0,
+                 columnspan=10, sticky="ew", padx=16, pady=(8, 4))
+
+        def _build():
+            selections = []
+            for (spec_idx, fmt), var in check_vars.items():
+                if var.get():
+                    selections.append((specialists[spec_idx]["module"], fmt))
+            if not selections:
+                messagebox.showinfo("Create Reports", "Please select at least one format.")
+                return
+            popup.destroy()
+            self._run_dashboards(dash_runner, selections)
+
+        btn_frame = tk.Frame(popup, bg=BG)
+        btn_frame.grid(row=last_row + 1, column=0, columnspan=10,
+                       pady=(4, 14), padx=16, sticky="e")
+        tk.Button(btn_frame, text="Abbrechen", font=FONT_BTN,
+                  bg=BG2, fg=TEXT, relief="flat", bd=0,
+                  pady=6, padx=14, cursor="hand2",
+                  command=popup.destroy).pack(side="right", padx=(6, 0))
+        tk.Button(btn_frame, text="📊 Create", font=FONT_BTN,
+                  bg=ACCENT2, fg=TEXT, relief="flat", bd=0,
+                  pady=6, padx=14, cursor="hand2",
+                  command=_build).pack(side="right")
+
+    def _run_dashboards(self, dash_runner, selections):
+        """Run dashboard build in background thread, stream progress to log."""
+        from datetime import date, timedelta
+        s         = self._collect_settings()
+        date_from = s.get("date_from", "").strip()
+        date_to   = s.get("date_to",   "").strip()
+        # Fallback — identisch zu _build_env()
+        if not date_from:
+            date_from = (date.today() - timedelta(days=30)).isoformat()
+        if not date_to:
+            date_to = date.today().isoformat()
+        output_dir = Path(s["base_dir"]) / "dashboards"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        self._log(f"\n▶  Berichte erstellen ...")
+        self._log(f"   Output: {output_dir}")
+        self._log(f"   Zeitraum: {date_from} → {date_to}")
+
+        def worker():
+            try:
+                import os, importlib
+                os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
+                import garmin_config as _cfg
+                importlib.reload(_cfg)
+                results = dash_runner.build(
+                    selections=selections,
+                    date_from=date_from,
+                    date_to=date_to,
+                    settings=s,
+                    output_dir=output_dir,
+                    log=lambda msg: self.after(0, lambda m=msg: self._log(f"   {m}")),
+                )
+                def on_done():
+                    ok  = [r for r in results if r["success"]]
+                    err = [r for r in results if not r["success"]]
+                    self._log(f"\n  ✓ {len(ok)} Bericht(e) erstellt")
+                    for r in err:
+                        self._log(f"  ✗ {r['name']} ({r['format']}): {r.get('error','')}")
+                    if ok:
+                        import os
+                        os.startfile(str(output_dir))
+                self.after(0, on_done)
+            except Exception as exc:
+                self.after(0, lambda: self._log(f"  ✗ Fehler: {exc}"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _open_data_folder(self):
         folder = Path(self._collect_settings()["base_dir"])
         folder.mkdir(parents=True, exist_ok=True)
         os.startfile(str(folder))
+
+    def _set_location_from_maps(self):
+        """Extract lat/lon from a Google Maps URL and save as context location."""
+        import re as _re
+        url = self.v_maps_url.get().strip()
+        if not url:
+            messagebox.showwarning("Location", "Please paste a Google Maps URL first.")
+            return
+        match = _re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", url)
+        if not match:
+            messagebox.showwarning(
+                "Location",
+                "No coordinates found in URL.\n\n"
+                "Open Google Maps, right-click your location → 'What's here?'\n"
+                "or search and copy the URL from the browser address bar."
+            )
+            return
+        lat = str(round(float(match.group(1)), 4))
+        lon = str(round(float(match.group(2)), 4))
+        self.settings["context_latitude"]  = lat
+        self.settings["context_longitude"] = lon
+        self.settings["context_location"]  = url
+        self._ctx_coords_label.config(text=f"lat {lat}  lon {lon}")
+        save_settings(self.settings)
+        self._log(f"Context location set — lat {lat}, lon {lon}")
+
+    def _run_context_sync(self):
+        """Run context collect (weather + pollen) in background thread."""
+        s = self._collect_settings()
+        if float(s.get("context_latitude", "0.0")) == 0.0 and \
+           float(s.get("context_longitude", "0.0")) == 0.0:
+            messagebox.showwarning(
+                "Location not configured",
+                "Please set a location in Settings before running Context Sync.\n"
+                "Use the Settings panel to paste a Google Maps URL."
+            )
+            return
+        self._ctx_btn.config(state="disabled")
+        self._ctx_stop_btn.config(state="normal")
+        self._context_stop_event = threading.Event()
+
+        def run():
+            try:
+                _root = Path(sys._MEIPASS) if getattr(sys, "frozen", False) \
+                        else Path(__file__).parent
+                if str(_root) not in sys.path:
+                    sys.path.insert(0, str(_root))
+                from context import context_collector
+                result = context_collector.run(
+                    settings=s,
+                    stop_event=self._context_stop_event
+                )
+                msg = (f"Context sync complete\n"
+                       f"Weather: {result['plugins'].get('weather', {}).get('written', 0)} written\n"
+                       f"Pollen:  {result['plugins'].get('pollen',  {}).get('written', 0)} written")
+                if result.get("error"):
+                    msg = f"Error: {result['error']}"
+                self.after(0, lambda: self._log(msg))
+            except Exception as exc:
+                self.after(0, lambda: self._log(f"Context sync error: {exc}"))
+            finally:
+                self.after(0, self._on_context_sync_done)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _stop_context_sync(self):
+        if hasattr(self, "_context_stop_event"):
+            self._context_stop_event.set()
+
+    def _on_context_sync_done(self):
+        self._ctx_btn.config(state="normal")
+        self._ctx_stop_btn.config(state="disabled")
+
+    def _open_local_config(self):
+        """Open local_config.csv in default editor. Create if missing."""
+        sys.path.insert(0, str(Path(__file__).parent / "garmin"))
+        import garmin_config as cfg
+        csv_path = cfg.LOCAL_CONFIG_FILE
+        if not csv_path.exists():
+            csv_path.parent.mkdir(parents=True, exist_ok=True)
+            csv_path.write_text(
+                "date_from,date_to,country,place,latitude,longitude\n",
+                encoding="utf-8"
+            )
+            readme_path = csv_path.parent / "local_config_README.txt"
+            if not readme_path.exists():
+                readme_path.write_text(
+                    "Garmin Local Archive — Location Config\n"
+                    "======================================\n\n"
+                    "Edit local_config.csv to define your location per time period.\n\n"
+                    "Columns:\n"
+                    "  date_from   : YYYY-MM-DD — start of period\n"
+                    "  date_to     : YYYY-MM-DD — end of period\n"
+                    "  country     : English name (e.g. Germany, Spain, France)\n"
+                    "  place       : City or town name (e.g. Herford, Palma de Mallorca)\n"
+                    "  latitude    : Filled automatically — leave empty\n"
+                    "  longitude   : Filled automatically — leave empty\n\n"
+                    "Example row:\n"
+                    "  2025-07-14,2025-07-21,Spain,Palma de Mallorca,,\n\n"
+                    "Leave latitude and longitude empty.\n"
+                    "The app fills them automatically on next Context Sync.\n"
+                    "If no entry matches a date, the app uses the location from Settings.\n",
+                    encoding="utf-8"
+                )
+        os.startfile(csv_path)
 
     def _open_last_html(self):
         html = self._last_html
@@ -1592,7 +1975,7 @@ class GarminApp(tk.Tk):
         os.startfile(html)
 
     def _copy_last_error_log(self):
-        fail_dir = Path(self._collect_settings()["base_dir"]) / "log" / "fail"
+        fail_dir = Path(self._collect_settings()["base_dir"]) / "garmin_data" / "log" / "fail"
         if not fail_dir.exists():
             self._log("✗ No error logs found (log/fail/ does not exist).")
             return
@@ -1820,7 +2203,7 @@ class GarminApp(tk.Tk):
         Returns None if queue is empty.
         """
         try:
-            failed_file = Path(s["base_dir"]) / "log" / "quality_log.json"
+            failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
             if not failed_file.exists():
                 return None
             data    = json.loads(failed_file.read_text(encoding="utf-8"))
@@ -1843,7 +2226,7 @@ class GarminApp(tk.Tk):
         Returns None if queue is empty.
         """
         try:
-            failed_file = Path(s["base_dir"]) / "log" / "quality_log.json"
+            failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
             if not failed_file.exists():
                 return None
             data    = json.loads(failed_file.read_text(encoding="utf-8"))
@@ -1868,7 +2251,7 @@ class GarminApp(tk.Tk):
         Returns None if no truly missing days exist.
         """
         try:
-            raw_dir = Path(s["base_dir"]) / "raw"
+            raw_dir = Path(s["base_dir"]) / "garmin_data" / "raw"
 
             existing = set()
             if raw_dir.exists():
@@ -1878,7 +2261,7 @@ class GarminApp(tk.Tk):
                     except ValueError:
                         pass
 
-            failed_file = Path(s["base_dir"]) / "log" / "quality_log.json"
+            failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
             failed_dates = set()
             if failed_file.exists():
                 try:
@@ -1911,6 +2294,8 @@ class GarminApp(tk.Tk):
     def _on_close(self):
         self._timer_generation += 1
         self._timer_stop.set()
+        if hasattr(self, "_context_stop_event"):
+            self._context_stop_event.set()
         self.settings = self._collect_settings()
         save_password(self.settings.get("password", ""))
         save_settings(self.settings)
