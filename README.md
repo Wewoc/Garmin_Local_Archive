@@ -322,41 +322,72 @@ The encryption addresses specific risks (e.g. accidental exposure). It solves th
 
 ## What is included
 
-The collector pipeline consists of nine focused modules plus a thin orchestrator. Together with the export and dashboard scripts and the optional desktop app:
+The project is structured into five focused layers. Each layer has a single responsibility — collect, validate, assess, broker, or render. No crossover between layers.
 
-| Script | What it does | Reads from |
-|---|---|---|
-| `garmin_collector.py` | Orchestrates the pipeline — decides, delegates, coordinates | — |
-| `garmin_utils.py` | Shared utilities — date parsing, sync date parsing (no project-module dependencies) | — |
-| `garmin_config.py` | All configuration — ENV variables, paths, constants | — |
-| `garmin_api.py` | Login and all Garmin Connect API calls | Garmin API |
-| `garmin_security.py` | Token encryption/decryption — AES-256-GCM, key stored in Windows Credential Manager | `log/` |
-| `garmin_quality.py` | Quality assessment and sole owner of `quality_log.json` | `raw/`, `log/` |
-| `garmin_sync.py` | Determines which days are missing | `raw/` |
-| `garmin_validator.py` | Structural validation against `garmin_dataformat.json` — detects API changes before they reach the normalizer | `garmin_dataformat.json` |
-| `garmin_normalizer.py` | Unified data schema across sources + summary extraction | — |
-| `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here | — |
-| `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline | ZIP / folder |
-| `dash_runner.py` | Auto-discovers specialists, builds popup matrix, orchestrates dashboard build | — |
-| `*_dash.py` | Dashboard specialists — fetch data via brokers, return neutral dict for plotters | `garmin_data/`, `context_data/` |
-| `dash_plotter_*.py` | Format renderers — HTML (Plotly), Excel, JSON + Markdown prompt | — |
-| `dash_layout*.py` | Passive resources — CSS, color tokens, disclaimer, prompt templates | — |
-| `field_map.py` + `garmin_map.py` | Data broker — routes dashboard requests to Garmin data | `garmin_data/` |
-| `context_map.py` + `*_map.py` | Data broker — routes dashboard requests to weather/pollen archive | `context_data/` |
-| `garmin_app.py` + `build.py` | Optional desktop GUI — run all scripts without terminal or text editor | — |
-| `correlation_concept.md` | Designed by curiosity — maybe not part of the pipeline | cosmic knowledge |
+**Garmin pipeline** — `garmin/`
 
-Each script is self-contained and designed to be extended. Add new fields, metrics, or analysis logic without touching the rest of the system. See `info/MAINTENANCE.md` for how.
+| Script | What it does |
+|---|---|
+| `garmin_collector.py` | Orchestrator — decides, delegates, coordinates the full pipeline |
+| `garmin_config.py` | All configuration — ENV variables, paths, constants |
+| `garmin_utils.py` | Shared utilities — date parsing, no project-module dependencies |
+| `garmin_api.py` | Login and all Garmin Connect API calls |
+| `garmin_security.py` | Token encryption/decryption — AES-256-GCM, key stored in Windows Credential Manager |
+| `garmin_validator.py` | Structural validation against `garmin_dataformat.json` — detects API changes before they reach the normalizer |
+| `garmin_normalizer.py` | Unified data schema across sources + summary extraction |
+| `garmin_quality.py` | Quality assessment — sole owner of `quality_log.json` |
+| `garmin_sync.py` | Determines which days are missing |
+| `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here |
+| `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline |
 
-The desktop app also includes a **Background Timer**— a fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+**Context pipeline** — `context/`
 
-Data is stored in three folders:
+| Script | What it does |
+|---|---|
+| `context_collector.py` | Orchestrates external API collect — date range, location, plugin loop |
+| `context_api.py` | Fetches weather and pollen data from Open-Meteo based on plugin metadata |
+| `context_writer.py` | Sole owner of `context_data/` — all file writes go through here |
+| `weather_plugin.py` | Plugin metadata — Open-Meteo Weather API fields, endpoints, file prefix |
+| `pollen_plugin.py` | Plugin metadata — Open-Meteo Air Quality API fields, endpoints, aggregation |
+
+**Data brokers** — `maps/`
+
+| Script | What it does |
+|---|---|
+| `field_map.py` + `garmin_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
+| `context_map.py` + `weather_map.py` + `pollen_map.py` | Routes dashboard requests to weather/pollen archive — reads `context_data/` |
+
+**Dashboard layer** — `dashboards/` + `layouts/`
+
+| Script | What it does |
+|---|---|
+| `dash_runner.py` | Auto-discovers specialists, builds report selection popup, orchestrates build |
+| `*_dash.py` | Dashboard specialists — fetch data via brokers, return neutral dict for renderers |
+| `dash_plotter_*.py` | Format renderers — HTML (Plotly), Excel, JSON + Markdown prompt |
+| `dash_layout*.py` | Passive resources — color tokens, CSS variables, disclaimer, prompt templates |
+
+**Desktop app**
+
+| Script | What it does |
+|---|---|
+| `garmin_app.py` + `build.py` | Desktop GUI + standard EXE build (Python required on target) |
+| `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI + standalone EXE build (no Python required) |
+
+Each module is self-contained and designed to be extended. Add new fields, metrics, or dashboard specialists without touching the rest of the system. See `docs/MAINTENANCE_GLOBAL.md` for how.
+
+The desktop app includes a **Background Timer** — fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+
+Data is stored in two root folders:
 
 ```
 garmin_data/
 ├── raw/        – complete API dumps (~500 KB/day) — permanent archive
 ├── summary/    – compact daily JSONs (~2 KB/day)  — for Ollama / Open WebUI / AnythingLLM
-└── log/        – session logs and failed days registry
+└── log/        – session logs, quality register, encrypted token
+
+context_data/
+├── weather/raw/  – daily weather archive (Open-Meteo)
+└── pollen/raw/   – daily pollen archive (Open-Meteo Air Quality)
 ```
 
 ---
