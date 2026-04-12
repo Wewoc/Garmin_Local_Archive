@@ -49,11 +49,11 @@ _CSV_HEADER_COMMENT = """\
 # Garmin Local Archive — Location Config
 # date_from, date_to: YYYY-MM-DD
 # country: country name in English (e.g. Germany, Spain, France)
-# place: city or town name (e.g. Herford, Palma de Mallorca)
+# place: city or town name (e.g. Berlin, Palma de Mallorca)
 # latitude, longitude: filled automatically by the app after geocoding
 #   Leave empty — the app fills them on next API Sync setup.
 #   Example row:
-#   2025-01-01,2025-12-31,Germany,Herford,52.1134,8.6655
+#   2025-01-01;2025-12-31;Germany;Berlin;52.470933;13.365109
 """
 
 _CSV_COLUMNS = ["date_from", "date_to", "country", "place", "latitude", "longitude"]
@@ -69,7 +69,7 @@ def _ensure_csv() -> None:
         return
     try:
         _CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
-        lines = _CSV_HEADER_COMMENT + ",".join(_CSV_COLUMNS) + "\n"
+        lines = _CSV_HEADER_COMMENT + ";".join(_CSV_COLUMNS) + "\n"
         _CSV_FILE.write_text(lines, encoding="utf-8")
         log.info(f"  context_collector: created {_CSV_FILE}")
     except OSError as exc:
@@ -93,7 +93,7 @@ def _load_csv() -> list[dict]:
                     continue
                 if line.startswith("date_from"):
                     continue   # header row
-                parts = next(csv.reader([line]))
+                parts = next(csv.reader([line], delimiter=";"))
                 if len(parts) < 6:
                     continue
                 try:
