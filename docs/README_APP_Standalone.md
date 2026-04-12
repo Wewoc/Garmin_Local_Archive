@@ -87,7 +87,15 @@ Imports a Garmin GDPR data export into your local archive — useful for histori
 3. Click **📥 Import Bulk Export** — choose ZIP file or unpacked folder
 4. Progress is shown in the log window
 
-Imported days land in `raw/` and `summary/` alongside API data. Days already present with `high` or `medium` quality from the API are skipped — the better source wins. Imported data is marked `source: bulk` in the quality log and never re-fetched automatically.
+Imported data is marked `source: bulk` in the quality log and never re-fetched automatically.
+
+### Sync Context / CSV
+
+Downloads weather and pollen data for your full archive date range from [Open-Meteo](https://open-meteo.com/) — free, no account required. This data is used by the **Health + Context** dashboard to correlate Garmin metrics (e.g. HRV, resting heart rate) with environmental conditions.
+
+**Setting your location:** Settings → CONTEXT → paste a Google Maps URL → click **📍 Set Location**. The app extracts latitude and longitude automatically and shows them next to the button. To get a URL: open Google Maps, navigate to your location, and copy the URL from the address bar.
+
+**CSV button:** Opens `local_config.csv` directly in Excel. This file lets you define different coordinates for specific date ranges — useful if you travel or have relocated. It is created automatically on first Sync Context. For a fixed home location, the Settings entry is sufficient.
 
 ### Background Timer
 Automatically repairs and fills your archive in the background while the app is open — no manual intervention needed.
