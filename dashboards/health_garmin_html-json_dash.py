@@ -258,5 +258,6 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         "date_to":         date_to,
         "prompt_template": "health_analysis",
         "profile":         {"age": age, "sex": sex, "vo2max": vo2max, "fitness": fitness},
+        "baseline_note":   f"Dashed line = personal {BASELINE_DAYS}-day rolling average (prior to display period).",
         "fields":          fields_out,
     }
