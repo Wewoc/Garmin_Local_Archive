@@ -25,10 +25,10 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ## Dashboard Pipeline
 
-![Dashboard Pipeline v1.4.0](flowchart_dashboard_v140.png)
+![Dashboard Pipeline v1.4.0](../flowchart_dashboard_v140.png)
 
 > [!TIP]
-> **Interactive version:** Open [flowchart_dashboard_v140.html](flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
+> **Interactive version:** Open [flowchart_dashboard_v140.html](../flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
 
 ---
 
