@@ -61,8 +61,12 @@ EXCEL_ROW_COLORS = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 DISCLAIMER = (
-    "This report is generated from locally archived Garmin Connect data. "
-    "Values are for personal reference only and do not constitute medical advice."
+    "⚠️ Informational only — not medical advice. "
+    "Reference ranges are general health guidelines based on published research "
+    "(AHA, ACSM, Garmin/Firstbeat). "
+    "Individual variation is normal. "
+    "Consult a healthcare professional for medical decisions. "
+    "Data sourced from locally archived Garmin Connect data."
 )
 
 FOOTER = (
