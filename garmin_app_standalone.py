@@ -26,7 +26,14 @@ import sys
 import threading
 import traceback
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent / "garmin"))
+if getattr(sys, "frozen", False):
+    # T3: Scripts liegen in sys._MEIPASS — PyInstaller macht sie direkt importierbar
+    pass
+else:
+    # Dev: Unterordner liegen im Root neben garmin_app_standalone.py
+    _root = Path(__file__).parent
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+        sys.path.insert(0, str(_root / _sub))
 
 def _register_embedded_packages():
     """Register embedded packages so relative imports work in frozen EXE."""
@@ -34,6 +41,11 @@ def _register_embedded_packages():
         return
     import types
     scripts = Path(sys._MEIPASS) / "scripts"
+    # garmin/ direkt in sys.path — flat imports (import garmin_quality etc.)
+    garmin_dir = scripts / "garmin"
+    if garmin_dir.exists():
+        sys.path.insert(0, str(garmin_dir))
+    # Unterordner als Packages registrieren
     for pkg in ("context", "maps", "dashboards", "layouts"):
         pkg_dir = scripts / pkg
         if pkg_dir.exists() and pkg not in sys.modules:
