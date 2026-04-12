@@ -11,7 +11,17 @@ import sys
 import threading
 import subprocess
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent / "garmin"))
+if getattr(sys, "frozen", False):
+    # EXE: scripts/ liegt neben der EXE, alle Unterordner eintragen
+    _scripts = Path(sys.executable).parent / "scripts"
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+        sys.path.insert(0, str(_scripts / _sub))
+    sys.path.insert(0, str(_scripts))
+else:
+    # Dev: Unterordner liegen im Root neben garmin_app.py
+    _root = Path(__file__).parent
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+        sys.path.insert(0, str(_root / _sub))
 from datetime import date, timedelta
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
