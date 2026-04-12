@@ -23,15 +23,6 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ---
 
-## Dashboard Pipeline
-
-![Dashboard Pipeline v1.4.0](../screenshots/flowchart_dashboard_v140.png)
-
-> [!TIP]
-> **Interactive version:** Open [flowchart_dashboard_v140.html](../screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
-
----
-
 ## Three build targets
 
 | Target | Entry point | Build script | Output | Python on target |
