@@ -130,15 +130,18 @@ def script_dir() -> Path:
 
 def script_path(name: str) -> Path:
     if getattr(sys, "frozen", False):
-        # EXE: scripts/garmin/ und scripts/export/ liegen neben der EXE
-        export_candidate = script_dir() / "export" / name
-        if export_candidate.exists():
-            return export_candidate
-        return script_dir() / name
-    # Dev: export/ und garmin/ liegen im Root neben garmin_app.py
-    export_candidate = Path(__file__).parent / "export" / name
-    if export_candidate.exists():
-        return export_candidate
+        # EXE: scripts/ mit Unterordnern garmin/, maps/, dashboards/, layouts/, context/
+        base = script_dir()
+        for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+            candidate = base / sub / name
+            if candidate.exists():
+                return candidate
+        return base / name
+    # Dev: Unterordner liegen im Root neben garmin_app.py
+    for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+        candidate = Path(__file__).parent / sub / name
+        if candidate.exists():
+            return candidate
     return script_dir() / name
 
 def _open_url(url: str):

@@ -130,12 +130,13 @@ def script_dir() -> Path:
     return Path(__file__).parent / "garmin"
 
 def script_path(name: str) -> Path:
-    # Frozen: alle Scripts flat in sys._MEIPASS/scripts/ — kein export/-Unterordner
-    # Dev: export/ liegt im Root neben garmin_app_standalone.py
+    # Frozen: Scripts in sys._MEIPASS/scripts/ mit Unterordnern
+    # Dev: Unterordner liegen im Root neben garmin_app_standalone.py
     if not getattr(sys, "frozen", False):
-        export_candidate = Path(__file__).parent / "export" / name
-        if export_candidate.exists():
-            return export_candidate
+        for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+            candidate = Path(__file__).parent / sub / name
+            if candidate.exists():
+                return candidate
     return script_dir() / name
 
 def _open_url(url: str):
