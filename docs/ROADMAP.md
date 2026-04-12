@@ -181,11 +181,6 @@ Training load, activity volume and sport-specific metrics (swim/bike/run) visual
 **Test suite & CI/CD**
 Core modules are covered by `test_local.py` (136 checks, extended in v1.2.1/v1.2.1b/v1.2.2/v1.3.0). Build integrity is covered by `validate_scripts()` in both build scripts. Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.4 is complete. No timeline, no commitment, but the intention is there.
 
----
-
-## Post-release tasks
-
-- **Screenshots** — 2–3 GUI screenshots + Dashboard screenshots in README.md once v1.2.0 is stable in the repo
 
 ---
 
