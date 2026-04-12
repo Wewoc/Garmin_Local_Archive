@@ -1934,15 +1934,12 @@ class GarminApp(tk.Tk):
 
     def _open_local_config(self):
         """Open local_config.csv in default editor. Create if missing."""
-        _garmin_path = str(Path(__file__).parent / "garmin")
-        if _garmin_path not in sys.path:
-            sys.path.insert(0, _garmin_path)
         import garmin_config as cfg
         csv_path = cfg.LOCAL_CONFIG_FILE
         if not csv_path.exists():
             csv_path.parent.mkdir(parents=True, exist_ok=True)
             csv_path.write_text(
-                "date_from,date_to,country,place,latitude,longitude\n",
+                "date_from;date_to;country;place;latitude;longitude\n",
                 encoding="utf-8"
             )
             readme_path = csv_path.parent / "local_config_README.txt"
