@@ -42,10 +42,11 @@ def _load_plotters() -> dict:
                 break
 
     plotter_map = {
-        "html":  "dash_plotter_html",
-        "excel": "dash_plotter_excel",
-        "pdf":   "dash_plotter_pdf",
-        "word":  "dash_plotter_word",
+        "html":         "dash_plotter_html",
+        "html_complex": "dash_plotter_html_complex",
+        "excel":        "dash_plotter_excel",
+        "pdf":          "dash_plotter_pdf",
+        "word":         "dash_plotter_word",
     }
 
     for fmt, module_name in plotter_map.items():
@@ -75,6 +76,11 @@ def _load_specialist(path: Path):
         return mod
     except Exception:
         return None
+
+
+def display_label(fmt: str) -> str:
+    """Return human-readable format label for GUI display."""
+    return "html" if fmt == "html_complex" else fmt
 
 
 def scan() -> list[dict]:
@@ -111,6 +117,11 @@ def scan() -> list[dict]:
             fmt: filename
             for fmt, filename in meta.get("formats", {}).items()
             if fmt in plotters
+        }
+        # Normalise display key — html_complex shows as "html" in the GUI
+        available_formats = {
+            ("html" if fmt == "html_complex" else fmt): filename
+            for fmt, filename in available_formats.items()
         }
         if not available_formats:
             continue
@@ -198,7 +209,12 @@ def build(
 
         # Render each selected format
         for fmt in formats:
-            plotter  = plotters.get(fmt)
+            # html_complex registered under its own key — remap display key back
+            plotter_key = "html_complex" if (
+                fmt == "html" and plotters.get("html_complex") is not None
+                and meta.get("formats", {}).get("html_complex") is not None
+            ) else fmt
+            plotter  = plotters.get(plotter_key)
             filename = meta.get("formats", {}).get(fmt, f"{mod.__name__}.{fmt}")
             out_path = output_dir / filename
 
