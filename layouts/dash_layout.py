@@ -24,6 +24,10 @@ METRIC_META = {
     "respiration_series":  {"label": "Respiration",   "unit": "brpm",  "color": "#7F77DD"},
     # daily fields
     "hrv_last_night":      {"label": "HRV Last Night","unit": "ms",   "color": "#5B8DB8"},
+    "sleep_deep_pct":      {"label": "Deep Sleep",    "unit": "%",    "color": "#185FA5"},
+    "sleep_light_pct":     {"label": "Light Sleep",   "unit": "%",    "color": "#7F77DD"},
+    "sleep_rem_pct":       {"label": "REM",           "unit": "%",    "color": "#1D9E75"},
+    "sleep_awake_pct":     {"label": "Awake",         "unit": "%",    "color": "#BA7517"},
     "resting_heart_rate":  {"label": "Resting HR",    "unit": "bpm",  "color": "#E85D24"},
     "spo2_avg":            {"label": "SpO2 Avg",      "unit": "%",    "color": "#185FA5"},
     "sleep_duration":      {"label": "Sleep",         "unit": "h",    "color": "#7F77DD"},
