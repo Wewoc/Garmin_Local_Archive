@@ -14,12 +14,12 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ---
 
-## Dashboard Pipeline
+## Dashboard Context
 
-![Dashboard Pipeline v1.4.0](../screenshots/flowchart_dashboard_v140.png)
+![Dashboard Pipeline v1.4.0](../screenshots/flowchart_context_v140.png)
 
 > [!TIP]
-> **Interactive version:** Open [../screenshots/flowchart_dashboard_v140.html](../screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
+> **Interactive version:** Open [../screenshots/flowchart_dashboard_v140.html](../screenshots/flowchart_context_v140.html) in your browser for the full diagram with readable labels.
 
 ---
 
