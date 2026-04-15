@@ -53,6 +53,26 @@ _FIELD_MAP = {
         "intraday": None,
         "daily":    ("sleep",     "hrv_last_night_ms"),
     },
+    "sleep_deep_pct": {
+        "intraday": None,
+        "daily":    None,
+        "raw_pct":  ("sleep", "dailySleepDTO", "deepSleepSeconds",  "sleepTimeSeconds"),
+    },
+    "sleep_light_pct": {
+        "intraday": None,
+        "daily":    None,
+        "raw_pct":  ("sleep", "dailySleepDTO", "lightSleepSeconds", "sleepTimeSeconds"),
+    },
+    "sleep_rem_pct": {
+        "intraday": None,
+        "daily":    None,
+        "raw_pct":  ("sleep", "dailySleepDTO", "remSleepSeconds",   "sleepTimeSeconds"),
+    },
+    "sleep_awake_pct": {
+        "intraday": None,
+        "daily":    None,
+        "raw_pct":  ("sleep", "dailySleepDTO", "awakeSleepSeconds", "sleepTimeSeconds"),
+    },
     "resting_heart_rate": {
         "intraday": None,
         "daily":    ("heartrate", "resting_bpm"),
@@ -220,6 +240,33 @@ def _extract_series(arr: list, section_data: dict, extract: dict) -> list:
     return result
 
 
+def _read_raw_pct(field: str, date_from: str, date_to: str) -> dict:
+    """
+    Read a percentage value from raw/ by dividing seconds_key by total_key.
+    Returns {"values": [{"date": str, "value": float|None}, ...], "source_resolution": "daily"}.
+    """
+    section, dto_key, seconds_key, total_key = _FIELD_MAP[field]["raw_pct"]
+
+    values = []
+    for ds in _date_range(date_from, date_to):
+        f     = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
+        value = None
+        if f.exists():
+            try:
+                data  = json.loads(f.read_text(encoding="utf-8"))
+                dto   = data.get(section, {}).get(dto_key, {})
+                if isinstance(dto, dict):
+                    part  = dto.get(seconds_key)
+                    total = dto.get(total_key)
+                    if part is not None and total and total > 0:
+                        value = round(part / total * 100, 1)
+            except (json.JSONDecodeError, OSError):
+                pass
+        values.append({"date": ds, "value": value})
+
+    return {"values": values, "source_resolution": "daily"}
+
+
 def _read_daily(field: str, date_from: str, date_to: str) -> dict:
     """
     Read daily values from summary/.
@@ -307,7 +354,14 @@ def get(field: str, date_from: str, date_to: str,
     if resolution not in ("daily", "intraday"):
         raise ValueError(f"garmin_map: invalid resolution '{resolution}'")
 
-    definition          = _FIELD_MAP[field]
+    definition = _FIELD_MAP[field]
+
+    # raw_pct fields bypass the standard daily/intraday resolution logic
+    if definition.get("raw_pct") is not None:
+        result = _read_raw_pct(field, date_from, date_to)
+        result["fallback"] = False
+        return result
+
     requested_available = definition[resolution] is not None
 
     if requested_available:
