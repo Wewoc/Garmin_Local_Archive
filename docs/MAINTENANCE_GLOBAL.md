@@ -23,6 +23,15 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ---
 
+## Dashboard Pipeline
+
+![Dashboard Pipeline v1.4.0](../screenshots/flowchart_dashboard_v140.png)
+
+> [!TIP]
+> **Interactive version:** Open [flowchart_dashboard_v140.html](../screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
+
+---
+
 ## Three build targets
 
 | Target | Entry point | Build script | Output | Python on target |
@@ -173,7 +182,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 166 checks, 12 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 193 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`.
 

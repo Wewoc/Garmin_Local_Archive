@@ -128,10 +128,13 @@ Opens a popup with all available dashboards and their output formats. Select any
 | Health Analysis | ✓ | — | ✓ |
 | Daily Overview | — | ✓ | — |
 | Health + Context | ✓ | ✓ | — |
+| Sleep & Recovery | ✓ | — | — |
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
 
 The **Health Analysis JSON** includes a ready-to-use Markdown start prompt (`health_garmin_prompt.md`) for Open WebUI / Ollama — load it as the system prompt for AI-assisted interpretation.
+
+The **Sleep & Recovery** dashboard shows HRV, Body Battery, and Sleep duration alongside sleep phase composition (Deep / Light / REM / Awake as %) and weather/pollen context. Tab 1 covers the full date range. Tab 2 shows intraday detail (heart rate, stress, body battery, respiration) for any selected day.
 
 > Reference ranges (Health Analysis) are based on published guidelines (AHA, ACSM, Garmin/Firstbeat) — informational only, not medical advice.
 

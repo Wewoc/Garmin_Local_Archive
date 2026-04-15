@@ -2,6 +2,38 @@
 
 ---
 
+## v1.4.1 — Auth Hotfix (garminconnect 0.3.x)
+
+Garmin changed their authentication infrastructure in mid-March 2026. The `garth` library is deprecated, `garminconnect < 0.3.0` no longer works. This release updates the auth stack and fixes a config path bug in the connection test.
+
+**`garmin/garmin_api.py`:**
+- Path 3 (SSO) rewritten for `garminconnect 0.3.x`: `return_on_mfa=True` + `resume_login()` removed, replaced by `prompt_mfa=on_mfa_required` in constructor and `client.login(token_dir)`. `cfg.GARMIN_TOKEN_DIR.mkdir()` added before login call.
+- Path 1 (token probe): 429/403 responses no longer fall back to SSO — `GarminLoginError` is raised immediately. Prevents cascading rate-limit hits (Garmin rate-limits by IP + clientId + account email combined).
+
+**`garmin_app.py` / `garmin_app_standalone.py`:**
+- `_run_connection_test()` worker: `GARMIN_OUTPUT_DIR`, `GARMIN_EMAIL`, `GARMIN_PASSWORD` are now set before `garmin_config` is imported, followed by `importlib.reload(cfg)`. Fixes a bug where `cfg` resolved to `~/local_archive` instead of the configured data folder, causing Path 1 to miss the saved token and fall through to SSO.
+- `_timer_loop()` `_test_conn()`: same fix applied. Previously used raw `Garmin(email, pw)` + `client.login()` — bypassing token, ENV setup, and 429 protection entirely. Now routes through `garmin_api.login()` identically to `_run_connection_test()`.
+
+**`requirements.txt`:**
+- `garminconnect` minimum version bumped to `>=0.3.0`.
+
+---
+
+### v1.4.0 — Dashboard Features
+
+New functionality built on the clean v1.4.0 base:
+
+- ✅ **Sleep & Recovery Context Dashboard** — `sleep_recovery_context_dash.py` + `dash_plotter_html_complex.py`. HRV, Body Battery, Sleep with sleep phase composition (Deep/Light/REM/Awake %) + temperature and pollen context. Tab 1: daily dual-Y overview + stacked sleep phase bars. Tab 2: intraday drill-down per day. New `raw_pct` field type in `garmin_map`.
+- ✅ **Disclaimer strengthened** — medical disclaimer now includes source citations (AHA, ACSM, Garmin/Firstbeat) and individual variation note.
+- ✅ **Baseline note** — `health_garmin_html-json_dash` adds human-readable explanation of the 90-day dashed baseline line to the disclaimer area.
+
+**Deferred to Stufe 2 (Sleep & Recovery):**
+- Sleep window as shaded band on X-axis (requires `sleepStartTimestampGMT` / `sleepEndTimestampGMT` — data available in raw/)
+- Humidity trace (requires `weather_plugin.py` + `weather_map.py` extension + re-collect)
+- Sleep phase optimal range bands (`sleepScores.remPercentage.optimalStart` etc. available in raw/)
+
+---
+
 ## v1.4.0 — Dashboard Architecture Refactoring
 
 Replaces four monolithic export scripts with a modular specialist/plotter architecture. No new dashboard content — pure architectural work. Serves as v2.0 testbed: validates the `field_map` / `context_map` data broker pattern with real Garmin and Open-Meteo data before a second source makes a redesign expensive.
@@ -50,9 +82,13 @@ Replaces four monolithic export scripts with a modular specialist/plotter archit
 
 - `tests/test_dashboard.py` — 166 checks, 12 sections, no network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → `field_map` routing → layout resources → all specialists → all plotters → runner
 
+**Hotfix — garminconnect 0.3.x compatibility (April 2026):**
+
+- `garmin/garmin_api.py` — Path 3 (SSO) angepasst: `return_on_mfa=True` + `resume_login()` entfernt, ersetzt durch `prompt_mfa=on_mfa_required` im Konstruktor und `client.login(token_dir)`. Hintergrund: Garmin hat im März 2026 den Auth-Flow geändert, `garth` ist deprecated, `garminconnect ≥ 0.3.0` verwendet neuen Mobile-SSO-Flow mit `curl_cffi`. Frischer SSO-Login nach Update erforderlich (alter Token inkompatibel).
+
 ---
 
-## v1.3.4 — API Structure Validation
+## v1.3.4— API Structure Validation
 
 Introduces a dedicated validation layer at the pipeline entry point. Closes the gap between raw API data and the normalizer, which previously assumed structural correctness without verification.
 

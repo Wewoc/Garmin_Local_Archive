@@ -137,13 +137,15 @@ All modules import via `import garmin_config as cfg`.
 │   ├── timeseries_garmin_html-xls_dash.py
 │   ├── health_garmin_html-json_dash.py
 │   ├── overview_garmin_xls_dash.py
-│   └── health_garmin-weather-pollen_html-xls_dash.py
+│   ├── health_garmin-weather-pollen_html-xls_dash.py
+│   └── sleep_recovery_context_dash.py
 │
 ├── layouts/                    ← Format renderers + passive resources
 │   ├── __init__.py
 │   ├── dash_layout.py
 │   ├── dash_layout_html.py
 │   ├── dash_plotter_html.py
+│   ├── dash_plotter_html_complex.py
 │   ├── dash_plotter_excel.py
 │   ├── dash_plotter_json.py
 │   └── dash_prompt_templates.py
