@@ -237,7 +237,11 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
     tabs             = _build_tabs(fields)
     chart_divs, js   = _build_charts(fields)
     header_html      = layout_html.build_header(title, subtitle)
-    disclaimer_html  = layout_html.build_disclaimer(layout.get_disclaimer())
+    disclaimer_text  = layout.get_disclaimer()
+    baseline_note    = data.get("baseline_note")
+    if baseline_note:
+        disclaimer_text = f"{disclaimer_text} {baseline_note}"
+    disclaimer_html  = layout_html.build_disclaimer(disclaimer_text)
     footer_html      = layout_html.build_footer(layout.get_footer(html=True))
     css              = layout_html.get_css()
     plotly_cdn       = _get_plotly_script(Path(__file__).parent)

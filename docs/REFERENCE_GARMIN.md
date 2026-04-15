@@ -54,9 +54,9 @@ Pure constants module — no functions. See `REFERENCE_GLOBAL.md` for full const
 
 **Auth token flow:**
 
-- Path 1 (token valid): `load_token()` → `Garmin()` + `login(token_dir)` → `_clear_token_dir()` → probe call
+- Path 1 (token valid): `load_token()` → `Garmin()` + `login(token_dir)` → `_clear_token_dir()` → probe call — 429/403 on probe → `GarminLoginError` (no SSO fallback)
 - Path 2 (token expired): `clear_token()` → `on_token_expired()` → Path 3
-- Path 3 (SSO): `Garmin(email, pw, return_on_mfa=True)` → `login()` → MFA → `save_token()`
+- Path 3 (SSO): `Garmin(email, pw, prompt_mfa=on_mfa_required)` → `login(token_dir)` → `save_token()` (garminconnect ≥ 0.3.0)
 - Path 3b (key missing): `on_key_required()` → store key → retry Path 1
 
 ---
@@ -265,6 +265,47 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 
 ---
 
+## `garmin_map.py`
+
+Field resolver for the dashboard broker architecture. Called exclusively by `field_map.py` — never directly by specialists.
+
+### `_FIELD_MAP` — descriptor types
+
+Each field in `_FIELD_MAP` uses one of three descriptor types:
+
+| Type | Key | Resolution | Source |
+|---|---|---|---|
+| `daily` | `("section", "key")` | daily | `summary/garmin_YYYY-MM-DD.json` |
+| `intraday` | `("section", "array_key", extract_dict)` | intraday | `raw/garmin_raw_YYYY-MM-DD.json` |
+| `raw_pct` | `("section", "dto_key", "seconds_key", "total_key")` | daily | `raw/garmin_raw_YYYY-MM-DD.json` |
+
+`raw_pct` is used for fields that require percentage calculation from two seconds-based values in the raw file. `get()` detects `raw_pct` and bypasses the standard daily/intraday resolution fallback logic.
+
+### Registered fields
+
+| Generic field | Type | Source path | Notes |
+|---|---|---|---|
+| `hrv_last_night` | daily | `sleep.hrv_last_night_ms` | ms |
+| `resting_heart_rate` | daily | `heartrate.resting_bpm` | bpm |
+| `spo2_avg` | daily | `sleep.spo2_avg` | % |
+| `sleep_duration` | daily | `sleep.duration_h` | hours |
+| `body_battery_max` | daily | `stress.body_battery_max` | 0–100 |
+| `stress_avg` | daily | `stress.stress_avg` | 0–100 |
+| `vo2max` | daily | `training.vo2max` | — |
+| `sleep_deep_pct` | raw_pct | `sleep.dailySleepDTO`: `deepSleepSeconds / sleepTimeSeconds * 100` | % |
+| `sleep_light_pct` | raw_pct | `sleep.dailySleepDTO`: `lightSleepSeconds / sleepTimeSeconds * 100` | % |
+| `sleep_rem_pct` | raw_pct | `sleep.dailySleepDTO`: `remSleepSeconds / sleepTimeSeconds * 100` | % |
+| `sleep_awake_pct` | raw_pct | `sleep.dailySleepDTO`: `awakeSleepSeconds / sleepTimeSeconds * 100` | % |
+| `heart_rate_series` | intraday | `heart_rates.heartRateValues` | `[{"ts", "value"}]` |
+| `stress_series` | intraday | `stress.stressValuesArray` | offset applied |
+| `spo2_series` | intraday | `spo2.spO2HourlyAverages` | — |
+| `body_battery_series` | intraday | `stress.bodyBatteryValuesArray` | — |
+| `respiration_series` | intraday | `respiration.respirationValuesArray` | — |
+
+**Architecture boundary:** Any Garmin-internal key (`section.field`, `dailySleepDTO`, etc.) appearing outside `garmin_map.py` is an architecture violation — detectable by name format alone.
+
+---
+
 ## `garmin_app.py` / `garmin_app_standalone.py`
 
 | Function | Purpose |
@@ -275,6 +316,7 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 | `_clean_archive()` | Removes files before `first_day` after confirmation |
 | `_prompt_enc_key(mode)` | Modal encryption key input — `"setup"` or `"recovery"` |
 | `_prompt_token_expired()` | Warning popup for 429 risk on SSO fallback |
+| `_test_conn()` | Inner function in `_timer_loop()` — uses `garmin_api.login()` with full ENV setup and reload. No raw SSO. |
 | `_reset_token()` | Clears encrypted token and resets lamp |
 | `_toggle_log_level()` | Switches GUI log display between INFO and DEBUG |
 | `_toggle_timer()` | Starts or stops background timer |

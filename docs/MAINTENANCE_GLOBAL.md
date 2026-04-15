@@ -7,28 +7,28 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ## System Architecture
 
-![System Architecture v1.4.0](screenshots/flowchart_garmin_v140.jpg)
+![System Architecture v1.4.0](../screenshots/flowchart_garmin_v140.png)
 
 > [!TIP]
-> **Interactive version:** Open [screenshots/flowchart_garmin_v140.html](screenshots/flowchart_garmin_v140.html) in your browser for the full diagram with readable labels.
-
----
-
-## Context Pipeline
-
-![Context Pipeline v1.4.0](screenshots/flowchart_context_v140.jpg)
-
-> [!TIP]
-> **Interactive version:** Open [screenshots/flowchart_context_v140.html](screenshots/flowchart_context_v140.html) in your browser for the full diagram with readable labels.
+> **Interactive version:** Open [../screenshots/flowchart_garmin_v140.html](../screenshots/flowchart_garmin_v140.html) in your browser for the full diagram with readable labels.
 
 ---
 
 ## Dashboard Pipeline
 
-![Dashboard Pipeline v1.4.0](screenshots/flowchart_dashboard_v140.jpg)
+![Dashboard Pipeline v1.4.0](../screenshots/flowchart_dashboard_v140.png)
 
 > [!TIP]
-> **Interactive version:** Open [screenshots/flowchart_dashboard_v140.html](screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
+> **Interactive version:** Open [../screenshots/flowchart_dashboard_v140.html](../screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
+
+---
+
+## Dashboard Pipeline
+
+![Dashboard Pipeline v1.4.0](../screenshots/flowchart_dashboard_v140.png)
+
+> [!TIP]
+> **Interactive version:** Open [flowchart_dashboard_v140.html](../screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
 
 ---
 
@@ -182,7 +182,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 166 checks, 12 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 193 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
@@ -218,24 +218,31 @@ All source folders are Python packages with `__init__.py`:
 
 ## Module path resolution
 
-| Location | sys.path.insert |
+| Location | sys.path setup |
 |---|---|
-| `garmin_app.py` + `garmin_app_standalone.py` | `sys.path.insert(0, .../garmin)` |
+| `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` |
+| `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE |
+| `garmin_app_standalone.py` — Dev | same subfolder loop |
+| `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; others via package registration |
 | `tests/test_local.py` | `sys.path.insert(0, .../garmin)` |
 | `tests/test_local_context.py` | `sys.path.insert(0, .../garmin)` + `sys.path.insert(0, root)` |
 | `maps/garmin_map.py` | `sys.path.insert(0, .../garmin)` — bridge between packages |
 | `context/` plugins | `sys.path.insert(0, .../garmin)` — for `garmin_config` |
 | All modules inside `garmin/` | None — `sys.path.insert` removed in v1.4 |
 
+⚠ When adding a new subfolder: add it to the `sys.path` loop in both entry points **and** to `_register_embedded_packages()` in `garmin_app_standalone.py`.
+
 ---
 
 ## script_path() resolution (EXE targets)
 
-- **Target 2 frozen:** `script_dir() / "export" / name` first, fallback `script_dir() / name`
+- **Target 2 frozen:** iterates `scripts/garmin/`, `scripts/maps/`, `scripts/dashboards/`, `scripts/layouts/`, `scripts/context/`, `scripts/export/` — returns first match, fallback `scripts/name`
 - **Target 3 frozen:** `script_dir() / name` only — all scripts flat in `sys._MEIPASS/scripts/`
-- **Dev (both):** `Path(__file__).parent / "export" / name` first, fallback `script_dir() / name`
+- **Dev (both):** iterates same subfolder list relative to `Path(__file__).parent`, fallback `script_dir() / name`
 
 Note: Dashboard build (`dash_runner`) runs in-process — no `script_path()` involved. `dash_runner.py` is loaded via `importlib` directly from `dashboards/`.
+
+⚠ When adding a new subfolder: add it to the iteration list in `script_path()` in **both** `garmin_app.py` and `garmin_app_standalone.py`.
 
 ---
 
@@ -302,3 +309,22 @@ The `garminconnect` import warning is cosmetic. Click the interpreter selector (
 ### Standalone EXE startup fails
 
 Check that all modules in `build_manifest.py` `SHARED_SCRIPTS` are present in their correct subfolders. Run `validate_scripts()` manually via `python build.py` to get a clear error message.
+
+### Archive Status shows `—` in EXE (T2 or T3)
+
+Symptom: GUI shows `Days: —`, `high —` etc. after startup. No error in log.
+
+Root cause: `_refresh_archive_info()` catches all exceptions silently (`except Exception: return`). Any `ImportError` on `garmin_quality` or a wrong `base_dir` path disappears without trace.
+
+Checklist:
+1. **T2:** Is `scripts/garmin/garmin_quality.py` present next to the EXE?
+2. **T3:** Does `_register_embedded_packages()` insert `garmin/` into `sys.path`?
+3. **Both:** Does the Data folder in Settings point to the correct path (must contain `garmin_data/log/quality_log.json`)?
+
+To surface the actual error temporarily, change `_refresh_archive_info()`:
+```python
+except Exception as e:
+    self._log(f"[DIAG] _refresh_archive_info: {e}")
+    return
+```
+Remove the `[DIAG]` line after diagnosis.

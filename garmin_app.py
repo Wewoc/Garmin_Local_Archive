@@ -11,7 +11,17 @@ import sys
 import threading
 import subprocess
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent / "garmin"))
+if getattr(sys, "frozen", False):
+    # EXE: scripts/ liegt neben der EXE, alle Unterordner eintragen
+    _scripts = Path(sys.executable).parent / "scripts"
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+        sys.path.insert(0, str(_scripts / _sub))
+    sys.path.insert(0, str(_scripts))
+else:
+    # Dev: Unterordner liegen im Root neben garmin_app.py
+    _root = Path(__file__).parent
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+        sys.path.insert(0, str(_root / _sub))
 from datetime import date, timedelta
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
@@ -130,15 +140,18 @@ def script_dir() -> Path:
 
 def script_path(name: str) -> Path:
     if getattr(sys, "frozen", False):
-        # EXE: scripts/garmin/ und scripts/export/ liegen neben der EXE
-        export_candidate = script_dir() / "export" / name
-        if export_candidate.exists():
-            return export_candidate
-        return script_dir() / name
-    # Dev: export/ und garmin/ liegen im Root neben garmin_app.py
-    export_candidate = Path(__file__).parent / "export" / name
-    if export_candidate.exists():
-        return export_candidate
+        # EXE: scripts/ mit Unterordnern garmin/, maps/, dashboards/, layouts/, context/
+        base = script_dir()
+        for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+            candidate = base / sub / name
+            if candidate.exists():
+                return candidate
+        return base / name
+    # Dev: Unterordner liegen im Root neben garmin_app.py
+    for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+        candidate = Path(__file__).parent / sub / name
+        if candidate.exists():
+            return candidate
     return script_dir() / name
 
 def _open_url(url: str):
@@ -154,7 +167,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.0"
+APP_VERSION = "v1.4.1"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -1201,8 +1214,14 @@ class GarminApp(tk.Tk):
         self._log("\n🔌  Testing connection ...")
 
         def worker():
-            import garmin_security
+            s_inner = self._collect_settings()
+            os.environ["GARMIN_OUTPUT_DIR"] = s_inner["base_dir"]
+            os.environ["GARMIN_EMAIL"]      = s_inner["email"]
+            os.environ["GARMIN_PASSWORD"]   = s_inner["password"]
+            import importlib
             import garmin_config as cfg
+            importlib.reload(cfg)
+            import garmin_security
 
             try:
                 from garminconnect import Garmin
@@ -1921,15 +1940,12 @@ class GarminApp(tk.Tk):
 
     def _open_local_config(self):
         """Open local_config.csv in default editor. Create if missing."""
-        _garmin_path = str(Path(__file__).parent / "garmin")
-        if _garmin_path not in sys.path:
-            sys.path.insert(0, _garmin_path)
         import garmin_config as cfg
         csv_path = cfg.LOCAL_CONFIG_FILE
         if not csv_path.exists():
             csv_path.parent.mkdir(parents=True, exist_ok=True)
             csv_path.write_text(
-                "date_from,date_to,country,place,latitude,longitude\n",
+                "date_from;date_to;country;place;latitude;longitude\n",
                 encoding="utf-8"
             )
             readme_path = csv_path.parent / "local_config_README.txt"
@@ -2059,13 +2075,21 @@ class GarminApp(tk.Tk):
 
             def _test_conn():
                 try:
-                    from garminconnect import Garmin
                     s2 = self._collect_settings()
-                    client = Garmin(s2["email"], s2["password"])
-                    client.login()
-                    client.get_user_profile()
-                    yesterday = (date.today() - timedelta(days=1)).isoformat()
-                    client.get_stats(yesterday)
+                    os.environ["GARMIN_OUTPUT_DIR"] = s2["base_dir"]
+                    os.environ["GARMIN_EMAIL"]      = s2["email"]
+                    os.environ["GARMIN_PASSWORD"]   = s2["password"]
+                    import importlib
+                    import garmin_config as cfg
+                    importlib.reload(cfg)
+                    import garmin_api
+                    client = garmin_api.login(
+                        on_key_required  = self._prompt_enc_key,
+                        on_token_expired = self._prompt_token_expired,
+                        on_mfa_required  = self._prompt_mfa,
+                    )
+                    if client is None:
+                        raise Exception("Login cancelled")
                     conn_ok[0] = True
                 except Exception as e:
                     self.after(0, self._log, f"⏱  Connection failed: {e}")

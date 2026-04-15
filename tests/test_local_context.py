@@ -396,9 +396,9 @@ check("load_csv empty: returns list", isinstance(entries, list))
 # Write test CSV entries
 _csv_content = (
     "# comment\n"
-    "date_from,date_to,country,place,latitude,longitude\n"
-    "2026-01-01,2026-06-30,Germany,Herford,52.1134,8.6655\n"
-    "2026-07-01,2026-07-14,Spain,Palma de Mallorca,39.5696,2.6502\n"
+    "date_from;date_to;country;place;latitude;longitude\n"
+    "2026-01-01;2026-06-30;Germany;Berlin;52.470933;13.365109\n"
+    "2026-07-01;2026-07-14;Spain;Palma de Mallorca;39.5696;2.6502\n"
 )
 cfg.LOCAL_CONFIG_FILE.write_text(_csv_content, encoding="utf-8")
 entries = context_collector._load_csv()

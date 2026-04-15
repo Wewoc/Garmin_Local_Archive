@@ -46,6 +46,41 @@ New functionality built on the clean v1.4.0 base:
 
 ---
 
+### v1.4.x — Test Suite Extension
+
+Two new test modules complementing `test_local.py`, `test_local_context.py`, and `test_dashboard.py`.
+
+**`tests/test_app_logic.py` — App layer**
+
+Tests the logic behind GUI buttons without tkinter, without a real EXE, without a build. All three targets (T1/T2/T3) are simulated by mocking `sys.frozen` and `sys.executable`.
+
+Covered functions:
+- `script_path()` — correct path for all three targets and all subfolders (`garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`)
+- `script_dir()` — T1/T2/T3 distinction
+- `_find_python()` — returns a valid Python path
+- `_build_env()` — all ENV variables set, no password in subprocess dict
+- `_refresh_archive_info()` — reads mocked `quality_log.json` correctly, shows `—` on missing file, no exception leaks out
+- `_register_embedded_packages()` — `garmin/` added to `sys.path`, all other subfolders registered as packages (T3-specific)
+
+No GUI, no threads, no network. Runs in seconds, executable at any time without a prior build.
+
+**`tests/test_build_output.py` — Build output validation**
+
+Runs after `build_all.py` as Step 5 and verifies that the build result is consistent with `build_manifest.py`. Fully dynamic — the test reads `SHARED_SCRIPTS`, `REQUIRED_DATA_FILES`, and `SCRIPT_SIGNATURES_BASE` directly from the manifest. New modules added to `build_manifest.py` are automatically validated without any changes to the test.
+
+Covered checks:
+- All `SHARED_SCRIPTS` present in `scripts/` (T2 output)
+- All `REQUIRED_DATA_FILES` present in `scripts/garmin/`
+- All entries in `SCRIPT_SIGNATURES_BASE` contain the expected signature
+- `scripts/export/` empty — warns if unexpected files appear (regression guard)
+- `garmin_app.py` present in `scripts/`
+
+Scope: static structure after the build. Whether the EXE imports correctly at runtime remains a manual smoke test — that is the known limit of this approach.
+
+**Integration into `build_all.py`:** `test_build_output.py` is called as Step 5 after both builds complete. The three existing test suites (`test_local`, `test_local_context`, `test_dashboard`) remain as Steps 1–3 before the build.
+
+---
+
 ### v1.4.x — Documentation & AI Usability
 
 Focus on making the project easier to use, understand, and safer when used with local AI tools.
