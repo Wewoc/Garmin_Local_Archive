@@ -195,7 +195,7 @@ class _QueueHandler(logging.Handler):
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
-APP_VERSION = "v1.4.0"
+APP_VERSION = "v1.4.1"
 
 BG        = "#1a1a2e"
 BG2       = "#16213e"
@@ -1232,8 +1232,14 @@ class GarminApp(tk.Tk):
         self._log("\n🔌  Testing connection ...")
 
         def worker():
-            import garmin_security
+            s_inner = self._collect_settings()
+            os.environ["GARMIN_OUTPUT_DIR"] = s_inner["base_dir"]
+            os.environ["GARMIN_EMAIL"]      = s_inner["email"]
+            os.environ["GARMIN_PASSWORD"]   = s_inner["password"]
+            import importlib
             import garmin_config as cfg
+            importlib.reload(cfg)
+            import garmin_security
 
             try:
                 from garminconnect import Garmin
@@ -2067,14 +2073,21 @@ class GarminApp(tk.Tk):
 
             def _test_conn():
                 try:
-                    from garminconnect import Garmin
                     s2 = self._collect_settings()
-                    client = Garmin(s2["email"], s2["password"])
-                    client.login()
-                    client.get_user_profile()
-                    from datetime import date, timedelta
-                    yesterday = (date.today() - timedelta(days=1)).isoformat()
-                    client.get_stats(yesterday)
+                    os.environ["GARMIN_OUTPUT_DIR"] = s2["base_dir"]
+                    os.environ["GARMIN_EMAIL"]      = s2["email"]
+                    os.environ["GARMIN_PASSWORD"]   = s2["password"]
+                    import importlib
+                    import garmin_config as cfg
+                    importlib.reload(cfg)
+                    import garmin_api
+                    client = garmin_api.login(
+                        on_key_required  = self._prompt_enc_key,
+                        on_token_expired = self._prompt_token_expired,
+                        on_mfa_required  = self._prompt_mfa,
+                    )
+                    if client is None:
+                        raise Exception("Login cancelled")
                     conn_ok[0] = True
                 except Exception as e:
                     self.after(0, self._log, f"⏱  Connection failed: {e}")
