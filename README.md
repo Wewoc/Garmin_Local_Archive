@@ -146,8 +146,6 @@ Trade-offs:
 This project is built for my own use.
 If it happens to be useful to others, feel free to use it — but evaluate it like any other unverified open-source tool.
 
-*Built with Claude · [☕ ko-fi.com/wewoc](https://ko-fi.com/wewoc) · [⭐ GitHub](https://github.com/Wewoc/Garmin_Local_Archive)*
-
 ---
 
 ## Security & Trust
