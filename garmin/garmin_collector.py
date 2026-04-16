@@ -22,7 +22,7 @@ Configuration via environment variables — see garmin_config.py for full list.
 import logging
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import garmin_config as cfg
@@ -65,20 +65,18 @@ def _should_write(label: str) -> bool:
     return label in ("high", "medium", "low")
 
 
-def _process_day(client, date_str: str) -> tuple:
+def _fetch_and_assess(client, date_str: str) -> tuple:
     """
-    Fetches, normalises, summarises, assesses and writes a single day.
-
-    Parameters
-    ----------
-    client   : garminconnect client — authenticated API client
-    date_str : str — date in YYYY-MM-DD format
+    Fetches and assesses a single day — no file writes.
 
     Returns
     -------
-    tuple (label: str, written: bool)
-      label   — quality label: "high" | "medium" | "low" | "failed"
-      written — True if writer wrote both files successfully
+    tuple (label, normalized, summary, fields, val_result)
+      label      — "high" | "medium" | "low" | "failed"
+      normalized — normalized dict, or None on critical failure
+      summary    — summary dict, or None on critical failure
+      fields     — per-field quality dict
+      val_result — validator result dict
     """
     raw_data, failed_endpoints = api.fetch_raw(client, date_str)
     if failed_endpoints:
@@ -87,19 +85,23 @@ def _process_day(client, date_str: str) -> tuple:
     val_result = validator.validate(raw_data)
     if val_result["status"] == "critical":
         log.warning(f"    ⚠ Validator critical — skipping {date_str}")
-        return "failed", False, {}, val_result
+        return "failed", None, None, {}, val_result
 
     normalized = normalizer.normalize(raw_data, source="api")
     summary    = normalizer.summarize(normalized)
     label      = quality.assess_quality(normalized)
     fields     = quality.assess_quality_fields(normalized)
 
-    if _should_write(label):
-        written = writer.write_day(normalized, summary, date_str)
-    else:
-        written = False
+    return label, normalized, summary, fields, val_result
 
-    return label, written, fields, val_result
+
+def _write_assessed(normalized, summary, date_str: str, label: str) -> bool:
+    """
+    Writes a pre-assessed day to disk. Returns True if written successfully.
+    """
+    if _should_write(label):
+        return writer.write_day(normalized, summary, date_str)
+    return False
 
 
 def run_import(path, progress_callback=None) -> dict:
@@ -372,6 +374,24 @@ def main():
         recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
         log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
 
+        # ── bulk upgrade candidates ───────────────────────────────────────────
+        cutoff = date.today() - timedelta(days=90)
+        bulk_upgraded = 0
+        for e in quality_data.get("days", []):
+            if (e.get("source") == "bulk"
+                    and e.get("quality") == "medium"
+                    and not e.get("recheck", False)):
+                try:
+                    entry_date = date.fromisoformat(e["date"])
+                except (ValueError, KeyError):
+                    continue
+                if entry_date >= cutoff:
+                    e["recheck"] = True
+                    bulk_upgraded += 1
+        if bulk_upgraded:
+            quality._save_quality_log(quality_data)
+            log.info(f"  Bulk upgrade: {bulk_upgraded} day(s) flagged for API re-fetch (≤90 days, medium)")
+
     # ── 3b. Self-healing loop — schema version check ───────────────────────────
     _run_self_healing(quality_data)
 
@@ -411,15 +431,24 @@ def main():
         if e.get("recheck", False)
     }
 
+    # bulk upgrade candidates — always excluded from local, regardless of REFRESH_FAILED
+    bulk_upgrade_dates = {
+        date.fromisoformat(e["date"])
+        for e in quality_data.get("days", [])
+        if e.get("recheck", False) and e.get("source") == "bulk"
+    }
+    if bulk_upgrade_dates:
+        log.info(f"  Bulk upgrade: {len(bulk_upgrade_dates)} day(s) queued for API re-fetch")
+
     if cfg.SYNC_DATES:
         local   = sync.get_local_dates(cfg.RAW_DIR)
         missing = sorted(d for d in cfg.SYNC_DATES if d not in local or cfg.REFRESH_FAILED)
         log.info(f"  SYNC_DATES mode: {len(cfg.SYNC_DATES)} requested, {len(missing)} to fetch")
     else:
-        local        = sync.get_local_dates(cfg.RAW_DIR,
-                                            recheck_dates if cfg.REFRESH_FAILED else None)
-        start, end   = sync.resolve_date_range(quality_data.get("first_day"))
-        missing      = sorted(set(sync.date_range(start, end)) - local)
+        exclude = (recheck_dates if cfg.REFRESH_FAILED else set()) | bulk_upgrade_dates
+        local   = sync.get_local_dates(cfg.RAW_DIR, exclude if exclude else None)
+        start, end = sync.resolve_date_range(quality_data.get("first_day"))
+        missing    = sorted(set(sync.date_range(start, end)) - local)
 
     if not missing:
         log.info("All days already present — nothing to do.")
@@ -441,46 +470,57 @@ def main():
                  f"(MAX_DAYS_PER_SESSION={cfg.MAX_DAYS_PER_SESSION})")
 
     ok, failed = 0, 0
-    chunk_size = cfg.SYNC_CHUNK_SIZE if cfg.SYNC_CHUNK_SIZE > 0 else len(batch)
-    chunks = [batch[i:i + chunk_size] for i in range(0, len(batch), chunk_size)]
-    if cfg.SYNC_CHUNK_SIZE > 0:
-        log.info(f"  Chunked sync: {len(chunks)} chunk(s) of up to {chunk_size} days")
 
     with quality.QUALITY_LOCK:
-        for chunk_idx, chunk in enumerate(chunks, 1):
-            for i, day in enumerate(chunk, 1):
-                if _is_stopped():
-                    log.info(f"  Stopped after {ok} days saved.")
+        for i, day in enumerate(batch, 1):
+            if _is_stopped():
+                log.info(f"  Stopped after {ok} days saved.")
+                break
+            log.info(f"  [{i}/{len(batch)}] {day}")
+            date_str = day.isoformat()
+            try:
+                label, normalized, summary, fields, val_result = _fetch_and_assess(client, date_str)
+
+                # ── downgrade protection ──────────────────────────────────────
+                _quality_rank = {"high": 3, "medium": 2, "low": 1, "failed": 0}
+                existing_entry = next(
+                    (e for e in quality_data.get("days", []) if e.get("date") == date_str),
+                    None
+                )
+                existing_label  = existing_entry.get("quality", "failed") if existing_entry else "failed"
+                existing_source = existing_entry.get("source", "api")     if existing_entry else "api"
+                is_downgrade    = _quality_rank.get(label, 0) < _quality_rank.get(existing_label, 0)
+
+                if is_downgrade:
+                    log.warning(f"    ⚠ API result inferior ({label} < {existing_label}) — kept existing")
+                    quality._upsert_quality(quality_data, day, existing_label,
+                                            f"Quality: {existing_label} — API downgrade rejected",
+                                            written=existing_entry.get("write", False),
+                                            source=existing_source,
+                                            fields=fields, validator_result=val_result)
                     quality._save_quality_log(quality_data)
-                    break
-                global_i = (chunk_idx - 1) * chunk_size + i
-                log.info(f"  [{global_i}/{len(batch)}] {day}")
-                date_str = day.isoformat()
-                try:
-                    label, written, fields, val_result = _process_day(client, date_str)
-                    reason = (f"Quality: {label}" if label in ("high", "medium")
-                              else f"Quality: {label} — insufficient data from Garmin API")
-                    quality._upsert_quality(quality_data, day, label, reason,
-                                            written=written, source="api", fields=fields,
-                                            validator_result=val_result)
-                    if label in ("low", "failed"):
-                        _session_had_incomplete = True
-                        log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
-                    else:
-                        log.info(f"    ✓ Quality: {label}")
                     ok += 1
-                except Exception as e:
-                    log.error(f"    Error on {day}: {e}")
-                    quality._upsert_quality(quality_data, day, "failed", str(e), written=False, source="api")
-                    failed += 1
-                    _session_had_errors = True
-            else:
-                # ── flush after each chunk ────────────────────────────────────
+                    continue
+
+                written = _write_assessed(normalized, summary, date_str, label)
+                reason  = (f"Quality: {label}" if label in ("high", "medium")
+                           else f"Quality: {label} — insufficient data from Garmin API")
+                quality._upsert_quality(quality_data, day, label, reason,
+                                        written=written, source="api", fields=fields,
+                                        validator_result=val_result)
                 quality._save_quality_log(quality_data)
-                if cfg.SYNC_CHUNK_SIZE > 0 and len(chunks) > 1:
-                    log.info(f"  Chunk {chunk_idx}/{len(chunks)} done — quality log flushed")
-                continue
-            break  # inner loop was broken (stop event) — exit chunk loop too
+                if label in ("low", "failed"):
+                    _session_had_incomplete = True
+                    log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
+                else:
+                    log.info(f"    ✓ Quality: {label}")
+                ok += 1
+            except Exception as e:
+                log.error(f"    Error on {day}: {e}")
+                quality._upsert_quality(quality_data, day, "failed", str(e), written=False, source="api")
+                quality._save_quality_log(quality_data)
+                failed += 1
+                _session_had_errors = True
 
         # ── 9. Save + close ───────────────────────────────────────────────────
         quality._save_quality_log(quality_data)
