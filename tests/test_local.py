@@ -430,24 +430,25 @@ del collector._STOP_EVENT
 check("summarize not in collector", not hasattr(collector, "summarize"))
 check("safe_get not in collector",  not hasattr(collector, "safe_get"))
 
-# _process_day — mocked
+# _fetch_and_assess — mocked
 mock_client = MagicMock()
-with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])), \
-     patch("garmin_collector.writer.write_day", return_value=True):
-    label, written, fields, val_result = collector._process_day(mock_client, "2024-03-15")
-    check("_process_day: label = high",        label      == "high")
-    check("_process_day: written = True",      written    == True)
-    check("_process_day: fields is dict",      isinstance(fields, dict))
-    check("_process_day: val_result is dict",  isinstance(val_result, dict))
-    check("_process_day: val_result has status", "status" in val_result)
+with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])):
+    label, normalized, summary, fields, val_result = collector._fetch_and_assess(mock_client, "2024-03-15")
+    check("_fetch_and_assess: label = high",          label      == "high")
+    check("_fetch_and_assess: normalized is dict",    isinstance(normalized, dict))
+    check("_fetch_and_assess: summary is dict",       isinstance(summary, dict))
+    check("_fetch_and_assess: fields is dict",        isinstance(fields, dict))
+    check("_fetch_and_assess: val_result is dict",    isinstance(val_result, dict))
+    check("_fetch_and_assess: val_result has status", "status" in val_result)
 
-with patch("garmin_collector.api.fetch_raw", return_value=({"date": "2024-03-20"}, [])), \
-     patch("garmin_collector.writer.write_day", return_value=False) as mock_w:
-    label2, written2, fields2, val_result2 = collector._process_day(mock_client, "2024-03-20")
-    check("_process_day failed: label=failed",         label2   == "failed")
-    check("_process_day failed: write_day not called", not mock_w.called)
-    check("_process_day failed: fields is dict",       isinstance(fields2, dict))
-    check("_process_day failed: val_result is dict",   isinstance(val_result2, dict))
+with patch("garmin_collector.api.fetch_raw", return_value=({"date": 99999}, [])), \
+     patch("garmin_collector.writer.write_day") as mock_w:
+    label2, normalized2, summary2, fields2, val_result2 = collector._fetch_and_assess(mock_client, "2024-03-20")
+    check("_fetch_and_assess failed: label=failed",         label2       == "failed")
+    check("_fetch_and_assess failed: normalized is None",   normalized2  is None)
+    check("_fetch_and_assess failed: write_day not called", not mock_w.called)
+    check("_fetch_and_assess failed: fields is dict",       isinstance(fields2, dict))
+    check("_fetch_and_assess failed: val_result is dict",   isinstance(val_result2, dict))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. garmin_security (crypto layer only)
@@ -637,11 +638,10 @@ r1 = normalizer.summarize(raw_full)
 r2 = normalizer.summarize(raw_full)
 check("determinism: summarize stable",       r1 == r2)
 
-with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])), \
-     patch("garmin_collector.writer.write_day", return_value=True):
-    rd1 = collector._process_day(mock_client, "2024-03-15")
-    rd2 = collector._process_day(mock_client, "2024-03-15")
-check("determinism: process_day stable",     rd1 == rd2)
+with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])):
+    rd1 = collector._fetch_and_assess(mock_client, "2024-03-15")
+    rd2 = collector._fetch_and_assess(mock_client, "2024-03-15")
+check("determinism: fetch_and_assess stable", rd1 == rd2)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  12. INVARIANTS
@@ -665,7 +665,7 @@ check("invariant: high stays high on repeat",     data_inv["days"][2]["quality"]
 # Failed darf niemals schreiben — explizit als Invariante
 with patch("garmin_collector.api.fetch_raw", return_value=({"date": "2024-01-01"}, [])), \
      patch("garmin_collector.writer.write_day") as mock_w:
-    label_inv, _, _, _ = collector._process_day(mock_client, "2024-01-01")
+    label_inv, _, _, _, _ = collector._fetch_and_assess(mock_client, "2024-01-01")
 check("invariant: failed never writes",  label_inv == "failed" and not mock_w.called)
 
 # ══════════════════════════════════════════════════════════════════════════════

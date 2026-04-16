@@ -403,21 +403,21 @@ _csv_content = (
 cfg.LOCAL_CONFIG_FILE.write_text(_csv_content, encoding="utf-8")
 entries = context_collector._load_csv()
 check("load_csv: 2 entries",          len(entries) == 2)
-check("load_csv: lat correct",        entries[0]["lat"] == 52.1134)
-check("load_csv: lon correct",        entries[0]["lon"] == 8.6655)
+check("load_csv: lat correct",        entries[0]["lat"] == 52.470933)
+check("load_csv: lon correct",        entries[0]["lon"] == 13.365109)
 check("load_csv: date_from correct",  entries[0]["date_from"] == "2026-01-01")
 
 # location map
 loc_map = context_collector._build_location_map(
     "2026-01-01", "2026-07-14", entries, 0.0, 0.0
 )
-check("location_map: jan in herford",  loc_map["2026-01-15"] == (52.1134, 8.6655))
-check("location_map: july in palma",   loc_map["2026-07-05"] == (39.5696, 2.6502))
+check("location_map: jan in berlin",  loc_map["2026-01-15"] == (52.470933, 13.365109))
+check("location_map: july in palma",  loc_map["2026-07-05"] == (39.5696, 2.6502))
 
 # segments
 segments = context_collector._split_into_segments(loc_map)
 check("segments: 2 segments",          len(segments) == 2)
-check("segments: seg1 lat herford",    segments[0]["lat"] == 52.1134)
+check("segments: seg1 lat berlin",     segments[0]["lat"] == 52.470933)
 check("segments: seg2 lat palma",      segments[1]["lat"] == 39.5696)
 
 
