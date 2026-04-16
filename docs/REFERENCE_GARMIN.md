@@ -157,12 +157,25 @@ Schema cached at module import. Leaf node.
 
 | Function | Purpose |
 |---|---|
-| `main()` | Full sync orchestration: dirs → session log → quality load → login → devices → first_day → date resolution → fetch loop → save |
-| `_process_day(client, date_str)` | Validate → fetch → normalize → summarize → assess → write. Returns `(label, written, fields, val_result)` |
+| `main()` | Full sync orchestration: dirs → session log → quality load → bulk upgrade flagging → login → devices → first_day → date resolution → fetch loop → save |
+| `_fetch_and_assess(client, date_str)` | Fetch → validate → normalize → assess. No file writes. Returns `(label, normalized, summary, fields, val_result)` |
+| `_write_assessed(normalized, summary, date_str, label)` | Writes pre-assessed day to disk. Returns `bool` |
 | `run_import(path, progress_callback)` | Bulk import orchestration via `garmin_import.load_bulk()`. Returns `{"ok", "skipped", "failed"}` |
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
 | `_start_session_log()` | Opens session log file. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if errors present |
+
+**Bulk upgrade logic:**
+
+Days with `source: bulk` + `quality: medium` + date ≤ 90 days old are automatically flagged `recheck: true` on every startup (Step 3). In Step 7 they are collected into `bulk_upgrade_dates` and always excluded from `local_dates` — regardless of `REFRESH_FAILED`. This ensures API data replaces bulk data within the API availability window.
+
+**Downgrade protection:**
+
+After `_fetch_and_assess()`, the new label is compared to the existing quality log entry using rank `high=3 > medium=2 > low=1 > failed=0`. If the API result is inferior: file is not written, existing entry is preserved, `recheck: false` is set. If equal or better: `_write_assessed()` is called and entry is upserted as `source: api`.
+
+**Resume safety:**
+
+`_save_quality_log()` is called after every individual day — in all paths (upgrade, downgrade, error). Every successfully processed day is an atomic resume point. Stopping mid-run resumes from the next unprocessed day on the next start.
 
 ---
 

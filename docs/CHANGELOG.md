@@ -2,6 +2,19 @@
 
 ---
 
+## v1.4.2 — Bulk Upgrade + Downgrade Protection
+
+Automatic upgrade of bulk-imported days to API quality within the 90-day API window, with full downgrade protection and per-day resume safety.
+
+**`garmin/garmin_collector.py`:**
+- `_process_day()` split into `_fetch_and_assess()` (fetch + normalize + assess, no write) and `_write_assessed()` (write only). Required for correct downgrade protection — write decision now happens after quality comparison.
+- Step 3: bulk upgrade flagging — on every startup, days with `source: bulk` + `quality: medium` + date ≤ 90 days old are automatically flagged `recheck: true` for API re-fetch.
+- Step 7: `bulk_upgrade_dates` set — bulk recheck days are always excluded from `local_dates`, regardless of `REFRESH_FAILED`. Normal failed/low recheck path unchanged.
+- Step 8: downgrade protection — after `_fetch_and_assess()`, new label is compared to existing. If inferior: file not written, existing quality log entry preserved, `recheck: false` set to prevent repeat. Equal or better: write + upsert as `source: api`.
+- Step 8: chunk logic removed. `_save_quality_log()` now called after every individual day — in all three paths (upgrade, downgrade, error). Every day is an atomic resume point. `SYNC_CHUNK_SIZE` config constant deprecated (no longer used).
+
+---
+
 ## v1.4.1 — Auth Hotfix (garminconnect 0.3.x)
 
 Garmin changed their authentication infrastructure in mid-March 2026. The `garth` library is deprecated, `garminconnect < 0.3.0` no longer works. This release updates the auth stack and fixes a config path bug in the connection test.
@@ -17,7 +30,7 @@ Garmin changed their authentication infrastructure in mid-March 2026. The `garth
 **`requirements.txt`:**
 - `garminconnect` minimum version bumped to `>=0.3.0`.
 
----
+--- 
 
 ### v1.4.0 — Dashboard Features
 

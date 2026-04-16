@@ -15,21 +15,24 @@ garmin_app.py (GUI)
               ├── garmin_quality._load_quality_log()
               ├── garmin_quality._backfill_quality_log()   (first run only)
               ├── garmin_quality.get_low_quality_dates()
+              ├── bulk upgrade flagging                    (source:bulk + medium + ≤90d → recheck:true)
               ├── garmin_api.login()
               ├── garmin_api.get_devices()
               ├── garmin_quality._set_first_day()
-              ├── garmin_sync.get_local_dates()
+              ├── garmin_sync.get_local_dates()            (bulk_upgrade_dates always excluded)
               ├── garmin_sync.resolve_date_range()
               ├── garmin_collector._run_self_healing()
               ├── per day:
-              │     garmin_api.fetch_raw()
-              │     garmin_validator.validate()            → skip if critical
-              │     garmin_normalizer.normalize()
-              │     garmin_normalizer.summarize()
-              │     garmin_writer.write_day()
-              │     garmin_quality.assess_quality()
+              │     garmin_collector._fetch_and_assess()
+              │       ├── garmin_api.fetch_raw()
+              │       ├── garmin_validator.validate()      → label:failed if critical
+              │       ├── garmin_normalizer.normalize()
+              │       ├── garmin_normalizer.summarize()
+              │       └── garmin_quality.assess_quality()
+              │     downgrade check                        → skip write if new < existing
+              │     garmin_collector._write_assessed()     → skipped on downgrade
               │     garmin_quality._upsert_quality()
-              └── garmin_quality._save_quality_log()
+              └── garmin_quality._save_quality_log()       (after every day)
 ```
 
 ### Module ownership
@@ -46,8 +49,10 @@ garmin_app.py (GUI)
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `QUALITY_LOCK` must be held around all load-modify-save sequences on `quality_log.json`
 - `fetch_raw()` always returns `(raw, failed_endpoints)` — never raises
-- `_process_day()` always returns `(label, written, fields, val_result)` — never raises
-- `high` quality never downgrades — downgrade protection in `_upsert_quality()`
+- `_fetch_and_assess()` always returns `(label, normalized, summary, fields, val_result)` — never raises
+- `_write_assessed()` is only called after downgrade check passes — file never written if API result is inferior
+- Downgrade protection is in `garmin_collector.main()` — not in `_upsert_quality()`
+- `_save_quality_log()` is called after every individual day — every day is an atomic resume point
 - No module reads `os.environ` directly — all config via `garmin_config`
 
 ---

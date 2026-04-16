@@ -647,3 +647,8 @@ GUI changes are verified manually before release. Full CI/CD with automated buil
 > - fetch data in smaller increments
 > - include delays between requests
 > - allow cool-down periods between sync sessions
+
+---
+
+*Built with Claude · [☕ buy me a coffee](https://ko-fi.com/wewoc)*
+
