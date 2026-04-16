@@ -60,6 +60,15 @@ _TEST_DATE = "2026-03-01"
 
 _RAW = {
     "date": _TEST_DATE,
+    "sleep": {
+        "dailySleepDTO": {
+            "sleepTimeSeconds":  27000,
+            "deepSleepSeconds":  5400,
+            "lightSleepSeconds": 13500,
+            "remSleepSeconds":   6750,
+            "awakeSleepSeconds": 1350,
+        }
+    },
     "heart_rates": {
         "heartRateValues": [
             [1740787200000, 58],
@@ -635,6 +644,78 @@ check("context xlsx written",                   _out_ctx_xlsx.exists())
 _wb_ctx = load_workbook(_out_ctx_xlsx)
 check("context xlsx has hrv sheet",             any("HRV" in s for s in _wb_ctx.sheetnames))
 check("context xlsx has temp sheet",            any("Temp" in s for s in _wb_ctx.sheetnames))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  13. sleep_recovery_context specialist — build() + complex plotter
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("13. sleep_recovery_context specialist — build() + complex plotter")
+
+import dash_plotter_html_complex as plotter_complex
+
+_src_spec = importlib.util.spec_from_file_location(
+    "sleep_recovery_dash",
+    _ROOT / "dashboards" / "sleep_recovery_context_dash.py"
+)
+_src_mod = importlib.util.module_from_spec(_src_spec)
+_src_spec.loader.exec_module(_src_mod)
+
+check("sleep_recovery META present",             hasattr(_src_mod, "META"))
+check("sleep_recovery META has html_complex",    "html_complex" in _src_mod.META["formats"])
+
+_srdata = _src_mod.build(_TEST_DATE, _TEST_DATE, {})
+check("sleep_recovery build returns dict",       isinstance(_srdata, dict))
+check("sleep_recovery has daily key",            "daily" in _srdata)
+check("sleep_recovery has intraday key",         "intraday" in _srdata)
+
+_daily = _srdata["daily"]
+check("daily has dates",                         "dates" in _daily and len(_daily["dates"]) > 0)
+check("daily has hrv list",                      "hrv" in _daily)
+check("daily has body_battery list",             "body_battery" in _daily)
+check("daily has sleep_h list",                  "sleep_h" in _daily)
+check("daily has sleep_phases",                  "sleep_phases" in _daily)
+
+_phase = _daily["sleep_phases"][0]
+check("sleep_phases entry has date",             "date" in _phase)
+check("sleep_phases has deep",                   "deep" in _phase)
+check("sleep_phases has rem",                    "rem" in _phase)
+
+# raw_pct calculation: deepSleepSeconds=5400, sleepTimeSeconds=27000 → 20.0%
+check("deep_pct calculated correctly",           _phase.get("deep") == 20.0)
+# lightSleepSeconds=13500 / 27000 → 50.0%
+check("light_pct calculated correctly",          _phase.get("light") == 50.0)
+# remSleepSeconds=6750 / 27000 → 25.0%
+check("rem_pct calculated correctly",            _phase.get("rem") == 25.0)
+# awakeSleepSeconds=1350 / 27000 → 5.0%
+check("awake_pct calculated correctly",          _phase.get("awake") == 5.0)
+
+_intraday = _srdata["intraday"]
+check("intraday has test date",                  _TEST_DATE in _intraday)
+check("intraday day has heart_rate key",         "heart_rate" in _intraday[_TEST_DATE])
+check("intraday day has stress key",             "stress" in _intraday[_TEST_DATE])
+check("intraday day has body_battery key",       "body_battery" in _intraday[_TEST_DATE])
+
+# Complex plotter render
+_out_src_html = _TMPDIR / "test_sleep_recovery.html"
+plotter_complex.render(_srdata, _out_src_html, {})
+_src_html = _out_src_html.read_text(encoding="utf-8")
+check("sleep_recovery html written",             _out_src_html.exists())
+check("sleep_recovery html not empty",           _out_src_html.stat().st_size > 0)
+check("sleep_recovery html has DOCTYPE",         "<!DOCTYPE html>" in _src_html)
+check("sleep_recovery html has tab1",            "chart-tab1" in _src_html)
+check("sleep_recovery html has tab2",            "chart-tab2" in _src_html)
+check("sleep_recovery html has plotly",          "plotly" in _src_html.lower())
+check("sleep_recovery html has disclaimer",      "medical advice" in _src_html)
+check("sleep_recovery html has deep sleep",      "Deep Sleep" in _src_html)
+check("sleep_recovery html has intraday func",   "updateIntradayChart" in _src_html)
+
+# render without daily/intraday raises ValueError
+try:
+    plotter_complex.render({"title": "x"}, _TMPDIR / "empty_src.html", {})
+    check("complex render missing keys raises ValueError", False)
+except ValueError:
+    check("complex render missing keys raises ValueError", True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
