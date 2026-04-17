@@ -49,7 +49,11 @@ is mechanical system design. The implementation — every line of Python
 — came from Claude as coding partner.
 
 It started with 2-3 scripts and a dashboard. Then it escalated.
-30 days, 20 USD, 214 commits, 20 releases.
+30 days, 20 USD, 214 commits, 20 releases.30 days, 20 USD, 214 commits, 20 releases.
+
+Roughly half the time went into planning, architecture decisions, and 
+cross-model review — not implementation. No code without a prior 
+design decision.
 
 The result works because it was treated like any other engineering 
 problem: define responsibilities clearly, keep modules from crossing 
@@ -119,10 +123,19 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **User** | "Assess first" principle | Explicit rule: *"just assess, nothing yet"* — enforced as memory rule | Acknowledged own failure mode: *"question recognised → solution built without request"* |
 | **User** | F/A schema for decisions | Format developed to lock in scope before implementation begins | Applied the format, waited for explicit instruction |
 | **User** | Project character and humour | Accepted the esoteric dashboard, kept the intentional typo in `garmin_extended_anaysis.py` | Built it when asked |
+| **User** | `garmin_dataformat.json` as machine-readable field source | Decision after refactoring: all field types and descriptions in one JSON file instead of code | Defined structure, used as single source of truth for normalizer + validator |
+| **User** | `field_map.py` queries by concept, not by name | *"field_map.py doesn't ask: what is 'heartRateValues' called at your end — it asks: give me the value for 'heartRateValues'"* — core idea of the broker pattern | Formalised as architectural principle in `maps/` layer |
+| **User** | v1.4 as testbed for v2.0 architecture | *"Could we use v1.4 as a dry run for the architecture?"* — idea to introduce real structure already in v1.4 | Analysed trade-offs, recommended dummy implementation of maps layer |
+| **User** | Dataset merge instead of overwrite (Bulk + API) | *"Take the better part from each source"* — after 429 lockout and bulk import rework | Developed merge logic and field-flagging concept |
+| **User** | Weather + pollen dashboard with toggleable charts | *"A dashboard showing pollen/weather data and sleep/HRV/Body Battery — individual charts can be toggled"* | Evaluated, implemented as Sleep & Recovery Context Dashboard |
 | **Claude** | Single-owner principle for `quality_log.json` | *"Quality writes quality.json"* — User's idea for responsibility | Formulated it as an architecture principle, applied it consistently |
 | **Claude** | Schema versioning for summary files | — | Proposed `schema_version` field so `regenerate_summaries.py` can work selectively |
 | **Claude** | `NOTES_vX_Y_Z.md` workflow | Adopted immediately, applied in every subsequent session | Proposed: document decisions taken and not taken within a session |
 | **Claude** | Naming: Dirigent / Transformator / Schreiber | User: *"Collector directs. Normalizer organises."* | Precision: *"I'd say: transforms"* — then named and systematised the roles |
+| **Claude** | ENV timing as critical failure class | — | Identified and documented: `garmin_config` resolves constants at import time — any module imported before ENV is set silently falls back to defaults |
+| **Claude** | Return `None` not `[]` for missing intraday data | — | Rationale: `None` = file missing, `[]` = file empty — semantically distinct |
+| **Claude** | 90-day baseline as reference framework for dashboards | — | Proposed rolling 90-day window values instead of fixed thresholds for HRV, sleep, etc. |
+| **Claude** | Disclaimer block in all dashboards | — | Proposed unified medical disclaimer: *"Informational only — not medical advice"* |
 | **Dialog** | `garmin_writer.py` as separate layer | *"You'd need to put a writer.py alongside it"* | Analysed consequences, showed where it helps for the roadmap |
 | **Dialog** | `correlation_concept.md` | *"Weather data, moon phases"* — then: *"as md, that's too good"* | Esoteric list, including Mercury retrograde with zero explanation |
 | **Dialog** | Standalone EXE as third build target | *"Scripts for purists, EXE for everyone else"* | Analysed the consequences, worked out the three-target solution |
@@ -133,7 +146,11 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **Dialog** | No SSD backup in the application | Proposed built-in backup — stepped back after pushback: *"Ok, I was thinking too far."* | *"That's OS responsibility, not application responsibility"* |
 | **Dialog** | No file split for `quality_log.json` | Accepted the argument | Argued against splitting despite growing file size |
 | **Dialog** | No implementation without explicit instruction | *"nothing yet"* as working rule — acknowledged as compensation, not ideal | Self-correction documented in chat, stored as memory rule |
-
+| **Dialog** | Garmin SSO infrastructure change (March 2026) — detected and fixed | Reported symptom: 429 errors for over a week, no login possible | Identified: Garmin changed SSO API; updated `garminconnect` to 0.3.2, rewrote Path 3 with `prompt_mfa` constructor |
+| **Dialog** | `GARMIN_OUTPUT_DIR` ENV bug in `_run_connection_test()` | Reported symptom: wrong data folder after connection test | Identified root cause: `garmin_config` imported before ENV was set → cascading 429 spiral |
+| **Dialog** | Context pipeline (Open-Meteo weather + pollen) | Idea: external context data for sleep/recovery analysis | Architecture with `context/`, `weather_plugin.py`, `pollen_plugin.py` — no API key required |
+| **Dialog** | Multi-LLM loop as standard QA process | *"I ran Gemini through the project once — evaluate only, no changes"* | Claude evaluates Gemini/ChatGPT findings critically — architecturally valid points accepted, false positives rejected with reasoning |
+| **Dialog** | Local LLM for isolated single-file tasks | Decision: `qwen2.5-coder:14b` on RTX 4060 Ti for clearly scoped tasks | Formulated rule: architecture, multi-file, project context → Claude; single file without context → local model |
 ---
 
 ## What each side contributed
