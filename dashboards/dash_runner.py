@@ -45,6 +45,7 @@ def _load_plotters() -> dict:
         "html":         "dash_plotter_html",
         "html_complex": "dash_plotter_html_complex",
         "excel":        "dash_plotter_excel",
+        "json":         "dash_plotter_json",
         "pdf":          "dash_plotter_pdf",
         "word":         "dash_plotter_word",
     }

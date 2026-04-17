@@ -68,7 +68,7 @@ ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py"] + SHARED_SCRIPTS
 
 SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
-    "garmin/garmin_collector.py":  ["def main", "def _process_day", "def run_import"],
+    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import"],
     "garmin/garmin_import.py":     ["def load_bulk", "def parse_day"],
     "garmin/garmin_quality.py":    ["def _upsert_quality"],
     "garmin/garmin_config.py":     ["GARMIN_EMAIL"],
