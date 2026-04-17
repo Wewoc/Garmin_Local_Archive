@@ -60,6 +60,8 @@ problem: define responsibilities clearly, keep modules from crossing
 into each other's territory, test against real data, document decisions
 including the ones not taken.
 
+*This didn't happen because there was time for it. It happened because stopping wasn't really an option.*
+
 ---
 
 ## Why the architecture looks the way it does
