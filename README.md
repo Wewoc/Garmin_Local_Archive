@@ -6,37 +6,20 @@ Archive and analyze your Garmin Connect data **locally on your machine** — no 
 
 ## Why this exists
 
-I wanted what most Garmin users want: ask an AI questions about my health data. Sleep, HRV, stress, recovery.
+I wanted to ask an AI questions about my health data without sending that data to another cloud service. So I built a local alternative instead.
 
-The problem: every existing tool sends your data somewhere else. Garmin Chat Connector, Whoop's built-in AI — your heart rate, sleep patterns, and fitness metrics land on additional US company servers. One cloud is already enough.
+There's a second reason that matters more over time: Garmin deletes your intraday data after roughly 1–2 years. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
 
-I didn't want that. So I built this instead.
-
-My background is mechanical system design, not software development. I approached this the way I'd approach any engineering problem: define the structure, the module boundaries, the data flow, the quality rules — and use the right tool for implementation. In this case, using Claude as a coding partner. The architecture and logic are mine. The code is AI-created and guided by those decisions.
-
-This project reflects a few design decisions:
-
-- **Local-first data storage** — your data never leaves your machine
-- **Avoids introducing an additional cloud dependency** — one cloud (Garmin) is already enough; this project doesn't add a second
-- **Simple usage** — EXE, no setup, no terminal
-- **Structured data** — ready for analysis with any tool, including local AI
-- **Offline first** — once the data is on your disk, no further transmission occurs
-
-*Privacy first — inspired by European principles.*
+*→ For the full story, see [MINDSET.md](docs/MINDSET.md).*
 
 ---
 
 ## What makes this different
 
-This is not a data export script. It addresses a specific problem:
-
-> **Maintaining a complete, consistent local copy of your Garmin data over time.**
-
-In practice, historical data loses detail: fine-grained metrics disappear, leaving only summarized values. Intraday data is typically only available for a limited time window (roughly 1–2 years). Once it is no longer accessible via the API or export, it cannot be recovered in full resolution.
-
-This tool is designed to mitigate that by capturing and storing the data locally while it is still available.
-
-Your data stays on your machine in open formats — readable, exportable, and analyzable with any tool you choose. Local AI, cloud AI, or no AI at all. **Your data, your call.**
+This is not a data export script — it maintains a complete, consistent 
+local copy of your Garmin data over time. Your data stays in open 
+formats, readable and analyzable with any tool you choose. Local AI, 
+cloud AI, or no AI at all. **Your data, your call.**
 
 ---
 
@@ -61,20 +44,13 @@ The AI itself is not included. How to set one up is explained in the local AI gu
 
 ## AI-assisted development
 
-This project started as a proof of concept — exploring what's possible without a traditional software background, using AI as a coding partner.
+I can't write Python. The architecture, module boundaries, and decisions are mine. Every line of code is Claude's.
 
-The honest version: I can't write Python. My options were learn it from scratch, pay someone, or find a different way. This is the different way — and it turned out to work surprisingly well.
-
-Claude translates architecture decisions into working code. I don't perform traditional line-level code reviews, and I won't pretend otherwise. Control happens at a different layer: module boundaries, data flow logic, quality rules, and behavioral validation through real-world testing.
-
-Documentation in this project is intentionally detailed — it serves as the persistent reference layer that keeps context consistent across AI sessions.
-
-The actual work split reflects this: roughly half of all development conversation is planning and validation — architecture decisions, cross-checking with multiple AI models, behavioral testing against real data. The other half is implementation and documentation. Structural decisions made upstream leave limited room for errors to propagate silently.
+It escalated: 30 days, 214 commits, 20 releases.
 
 ![Human-AI Collaboration Flowchart](screenshots/flowchart.png)
 
-> [!TIP]
-> **Interactive Version:** For a deep dive including detailed tooltips for every step of the development cycle, open the local [flowchart.html](info/flowchart.html) in your browser.
+*→ How this collaboration actually worked — who had which idea, where Claude was wrong — is documented in [MINDSET.md](docs/MINDSET.md).*
 
 ---
 
@@ -86,8 +62,6 @@ The actual work split reflects this: roughly half of all development conversatio
 - **No guaranteed support:** Development happens when time and interest allow.
 - **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
 - **Feedback welcome:** If something feels off — logic, structure, results — open an issue.
-
-**Note:** the AI itself is not included in this project — the scripts prepare your data in a format suitable for any local AI you choose to use. How to install and use a local AI with your data is explained in the setup guide at the end of this README.
 
 ---
 
@@ -123,106 +97,41 @@ This is what makes the archive genuinely complete, not just a rolling window.
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
 *Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
-## Design Philosophy
+## Scope & limitations
 
-This project intentionally prioritizes:
-- Privacy (local-first, no cloud)
-- Robust heuristics over fragile assumptions
-- Practical reliability over theoretical completeness
+Local-first, personal use, no enterprise ambitions.
 
-Trade-offs:
-- Three local test suites (488 checks total) — no CI/CD yet, all run locally
-- Relies on Garmin's unofficial API
-- HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that, fully offline thereafter
-- Garmin data export / bulk import (manual but recommended)
-- Designed for personal use, not enterprise environments
-
-## Limitations
-
-- Garmin API may change without notice — structural changes are now detected and logged automatically (v1.3.4)
-- Historical data quality depends on Garmin servers
+- Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
+- Three local test suites (515 checks) — no CI/CD yet
+- HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
+- Historical data quality depends on Garmin servers
 
-This project is built for my own use.
-If it happens to be useful to others, feel free to use it — but evaluate it like any other unverified open-source tool.
-
----
-
-## Security & Trust
-
-The full source code is open. If you don't trust the pre-built EXE:
-
-- Read the scripts — or paste them into any AI and ask *"explain what this code does"*
-- Build your own EXE: `python build_standalone.py`
-
-The pre-built EXE is unsigned because code-signing certificates cost ~$500/year — money I'd rather spend on coffee. If the Windows security warning concerns you, the scripts are the primary way to run this and always will be.
-
-The pre-built EXE cannot currently be independently verified against the source code without building it yourself. Reproducible CI builds may come in a future version.
+This project is built for my own use. If it happens to be useful to others, feel free to use it — but evaluate it like any other unverified open-source tool.
 
 ---
 
-### Why the token exists — and why it needs protecting
+## Token security & Login
 
-Garmin login works via SSO (Single Sign-On). Every time the collector runs, it needs to authenticate with Garmin Connect. If it does this with email and password on every run, Garmin detects the automated pattern and triggers Captcha or MFA — at which point the collector hangs silently or fails, with no way to recover automatically in the Standalone version.
+Garmin login works via SSO — logging in with email and password on every 
+run triggers Captcha or MFA. The solution: log in once manually, and 
+Garmin returns an OAuth token that handles all subsequent runs for 
+approximately one year. This token is equivalent to a logged-in session 
+and must not sit unprotected on disk.
 
-The solution is token persistence: log in once manually, complete any Captcha or MFA challenge, and Garmin returns an OAuth token. The collector stores this token and uses it for all subsequent runs — no SSO required for approximately one year.
-
-This token is functionally equivalent to a logged-in session. Anyone who obtains it can make Garmin API requests on your behalf. It must not sit unprotected on disk.
-
----
-
-### How the token is protected
-
-**What the encryption is designed to prevent:**
-
-The primary threat this system is designed against is *accidental exposure* — for example, if your `local_archive/garmin_data/` folder ends up in a cloud sync (OneDrive, Google Drive, Dropbox), is included in a backup that gets shared, or is accidentally uploaded somewhere. In that scenario, an unencrypted token file would give anyone who finds it direct access to your Garmin account.
-
-**What it is not designed to prevent:**
-
-This system does not protect against an attacker who has already gained full access to your Windows user account. No local desktop application can guarantee that — if your system is compromised, your running sessions, browser cookies, and keyring entries are all potentially accessible regardless of what any individual tool does. This is a system-level boundary, not a flaw specific to this project.
-
----
-
-### The encryption design
-
-The token is encrypted with **AES-256-GCM** before being written to disk. This provides authenticated encryption: not only is the token unreadable without the key, but any tampering with the file is detected on decryption.
-
-The encryption key is derived from a user-defined string (set once on first setup) using **PBKDF2-HMAC-SHA256 with 600,000 iterations** — the current OWASP recommendation for password-based key derivation. This makes brute-force attacks computationally expensive. The derived key is stored in the **Windows Credential Manager**, which encrypts it using your Windows login credentials. It is never written to disk in plaintext.
-
-**On the salt:**
-
-Each time the token is saved, a fresh 16-byte random salt is generated and stored as the first 16 bytes of the token file. This means the same encryption key produces a different derived AES key on every save — eliminating the fixed-salt weakness present in older versions. If the token file leaks, an attacker cannot pre-compute keys even knowing the encryption scheme.
-
-The trade-off: if the Windows Credential Manager entry is lost (e.g. after a Windows reinstall), re-entering your encryption key is not enough to decrypt an existing token file — the salt that was used is gone with it. This is handled gracefully: the old token is discarded and you log in once manually to generate a new one. No health data is lost — only the cached login session.
-
-**What this achieves in practice:**
-
-- The token file on disk is unreadable without the encryption key
-- The encryption key in the WCM is protected by your Windows login
-- Plaintext token never exists on disk at any point
-- Each save produces a unique ciphertext — no repeated patterns
-- If the token file leaks, it is useless without both the key and the WCM entry
-- If the WCM entry is lost, a clean re-login restores full access
-
-**What this does not achieve:**
-
-- Protection against malware or an attacker already operating under your Windows account
-- This is the same limitation that applies to every password manager, browser, and credential store on the same system
-
----
-
-### Summary
+**How it's protected:** The token is encrypted with AES-256-GCM before 
+being written to disk. The encryption key is derived from a user-defined 
+string using PBKDF2-HMAC-SHA256 (600,000 iterations — current OWASP 
+recommendation) and stored in Windows Credential Manager, never on disk 
+in plaintext. A fresh random salt on every save means the same key 
+produces different ciphertext each time — no pre-computation attacks.
 
 | Threat | Protected? |
 |---|---|
-| Token file in cloud backup / accidental upload | ✅ Yes |
+| Token file in cloud sync / accidental upload | ✅ Yes |
 | Token file copied from disk without WCM access | ✅ Yes |
-| Tampered token file (detected on load) | ✅ Yes |
-| Pre-computed key attack (rainbow tables) | ✅ Yes |
-| Attacker with full access to your Windows account | ❌ No — system-level boundary |
-| Compromised system (malware, remote access) | ❌ No — same for all local tools |
-
-The encryption addresses specific risks (e.g. accidental exposure). It solves the problem it was designed to solve, but does not aim to provide full system-level protection.
+| Tampered token file | ✅ Yes — detected on load |
+| Attacker with full Windows account access | ❌ No — system-level boundary, same for all local tools |
 
 ---
 
@@ -651,4 +560,3 @@ GUI changes are verified manually before release. Full CI/CD with automated buil
 ---
 
 *Built with Claude · [☕ buy me a coffee](https://ko-fi.com/wewoc)*
-
