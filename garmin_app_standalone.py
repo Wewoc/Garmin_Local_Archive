@@ -195,7 +195,7 @@ class _QueueHandler(logging.Handler):
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
-APP_VERSION = "v1.4.1"
+APP_VERSION = "v1.4.2"
 
 BG        = "#1a1a2e"
 BG2       = "#16213e"
