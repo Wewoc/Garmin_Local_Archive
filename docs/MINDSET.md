@@ -86,7 +86,7 @@ These patterns have names in software development. I didn't know the
 names when I made the decisions. I made them because the alternative 
 — modules that do multiple things, direct file access everywhere, 
 logic scattered across plugins — creates failures that are hard to 
-find and harder to fix.
+find and harder to fix. **Claude recognized that the solutions had names.**
 
 ---
 
