@@ -92,6 +92,20 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
     label      = quality.assess_quality(normalized)
     fields     = quality.assess_quality_fields(normalized)
 
+    # ── Range-warning downgrade ───────────────────────────────────────────────
+    # If validator found more than 3 out_of_range warnings, cap label at "low".
+    # assess_quality() stays pure — downgrade decision lives here.
+    out_of_range_count = sum(
+        1 for i in val_result.get("issues", [])
+        if i.get("type") == "out_of_range"
+    )
+    if out_of_range_count > 3 and label in ("high", "medium"):
+        log.warning(
+            f"    ⚠ {out_of_range_count} out_of_range warnings — "
+            f"quality downgraded: {label} → low"
+        )
+        label = "low"
+
     return label, normalized, summary, fields, val_result
 
 
