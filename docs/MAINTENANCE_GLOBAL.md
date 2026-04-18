@@ -162,7 +162,7 @@ Never use `logging.warning()` for build-path diagnostics — it disappears silen
 python tests/test_local.py
 ```
 
-**Current count: 199 checks, 13 sections.** No network, no GUI, no API calls. Cleans up after itself.
+**Current count: 218 checks, 14 sections.** No network, no GUI, no API calls. Cleans up after itself.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -172,7 +172,7 @@ Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `g
 python tests/test_local_context.py
 ```
 
-**Current count: 123 checks, 11 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
+**Current count: 134 checks, 11 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
 
 Run after any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `weather_map`, `pollen_map`, `context_map`.
 
@@ -182,7 +182,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 193 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 211 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
@@ -194,9 +194,38 @@ If the file needs to be refreshed (e.g. after a Plotly version update), delete `
 
 For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_manifest.py` and is bundled automatically — provided it has been downloaded at least once before building.
 
+### `tests/test_app_logic.py` — App layer
+
+```bash
+python tests/test_app_logic.py
+```
+
+**Current count: 80 checks, 10 sections.** No network, no GUI, no build required. Tests module-level functions in `garmin_app.py` and `garmin_app_standalone.py` — settings load/save, keyring, script path resolution in dev and frozen mode (mocked `sys.frozen` / `sys._MEIPASS`). Includes v1.4.2 regression check for frozen path resolution.
+
+Run after any change to: `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
+
+### `tests/test_build_output.py` — Build output validation
+
+```bash
+python tests/test_build_output.py
+```
+
+**8 sections.** Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest).
+
+Run after: called automatically by `build_all.py` as post-build step. Can also be run standalone to verify source integrity without a build.
+
 ### All suites together
 
-`build_all.py` runs all three test suites before starting either build. If any fails, the build is aborted.
+`build_all.py` runs all three pre-build test suites, then both builds, then `test_build_output.py` as post-build validation.
+
+```bash
+python build_all.py
+# Pre-build:  test_local → test_local_context → test_dashboard
+# Build:      Target 2 → Target 3
+# Post-build: test_build_output
+```
+
+`test_app_logic.py` is not part of the automated build gate — run manually after changes to the entry point files.
 
 ---
 
@@ -237,7 +266,7 @@ All source folders are Python packages with `__init__.py`:
 ## script_path() resolution (EXE targets)
 
 - **Target 2 frozen:** iterates `scripts/garmin/`, `scripts/maps/`, `scripts/dashboards/`, `scripts/layouts/`, `scripts/context/`, `scripts/export/` — returns first match, fallback `scripts/name`
-- **Target 3 frozen:** `script_dir() / name` only — all scripts flat in `sys._MEIPASS/scripts/`
+- **Target 3 frozen:** iterates `scripts/garmin/`, `scripts/maps/`, `scripts/dashboards/`, `scripts/layouts/`, `scripts/context/`, `scripts/export/` — returns first match, fallback `scripts/name`
 - **Dev (both):** iterates same subfolder list relative to `Path(__file__).parent`, fallback `script_dir() / name`
 
 Note: Dashboard build (`dash_runner`) runs in-process — no `script_path()` involved. `dash_runner.py` is loaded via `importlib` directly from `dashboards/`.

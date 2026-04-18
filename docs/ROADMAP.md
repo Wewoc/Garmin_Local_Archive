@@ -6,23 +6,23 @@
 
 ---
 
-**Currently stable — v1.4.0**
+**Currently stable — v1.4.3**
+
+---
+
+## v1.4.4 — Known Bug Fix
+
+**`garmin_security.save_token()` fails after token expiry + SSO re-login**
+
+After a token expires, `clear_token()` deletes the WCM encryption key. Path 3 (SSO) generates a new OAuth token but does not create a new WCM key. `save_token()` then fails with "encryption key not found in WCM" — the session works but the token is not persisted. Next run falls back to SSO again.
+
+Fix: `save_token()` must generate a new WCM key when none is present before attempting to encrypt.
+
+Affected: `garmin/garmin_security.py` — `save_token()`.
 
 ---
 
 ## Planned
-
-### ✅ v1.4.0 — Dashboard Architecture Refactoring — **released**
-
-See CHANGELOG for full details. Highlights:
-
-- Four monolithic export scripts replaced by specialist/plotter architecture
-- `field_map` + `context_map` broker pattern validated with real data
-- First multi-source dashboard: Garmin + Weather + Pollen
-- GUI: single "Berichte erstellen" button with format selection popup
-- New output formats: HTML (Plotly), Excel, JSON + Markdown prompt
-
----
 
 ### v1.4.x — Dashboard Features
 
@@ -43,41 +43,6 @@ New functionality built on the clean v1.4.0 base:
 - **Measurement accuracy disclaimer** — note on each dashboard indicating
   the typical accuracy range of consumer wearables under ideal conditions
   (e.g. HR ±X%).
-
----
-
-### v1.4.x — Test Suite Extension
-
-Two new test modules complementing `test_local.py`, `test_local_context.py`, and `test_dashboard.py`.
-
-**`tests/test_app_logic.py` — App layer**
-
-Tests the logic behind GUI buttons without tkinter, without a real EXE, without a build. All three targets (T1/T2/T3) are simulated by mocking `sys.frozen` and `sys.executable`.
-
-Covered functions:
-- `script_path()` — correct path for all three targets and all subfolders (`garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`)
-- `script_dir()` — T1/T2/T3 distinction
-- `_find_python()` — returns a valid Python path
-- `_build_env()` — all ENV variables set, no password in subprocess dict
-- `_refresh_archive_info()` — reads mocked `quality_log.json` correctly, shows `—` on missing file, no exception leaks out
-- `_register_embedded_packages()` — `garmin/` added to `sys.path`, all other subfolders registered as packages (T3-specific)
-
-No GUI, no threads, no network. Runs in seconds, executable at any time without a prior build.
-
-**`tests/test_build_output.py` — Build output validation**
-
-Runs after `build_all.py` as Step 5 and verifies that the build result is consistent with `build_manifest.py`. Fully dynamic — the test reads `SHARED_SCRIPTS`, `REQUIRED_DATA_FILES`, and `SCRIPT_SIGNATURES_BASE` directly from the manifest. New modules added to `build_manifest.py` are automatically validated without any changes to the test.
-
-Covered checks:
-- All `SHARED_SCRIPTS` present in `scripts/` (T2 output)
-- All `REQUIRED_DATA_FILES` present in `scripts/garmin/`
-- All entries in `SCRIPT_SIGNATURES_BASE` contain the expected signature
-- `scripts/export/` empty — warns if unexpected files appear (regression guard)
-- `garmin_app.py` present in `scripts/`
-
-Scope: static structure after the build. Whether the EXE imports correctly at runtime remains a manual smoke test — that is the known limit of this approach.
-
-**Integration into `build_all.py`:** `test_build_output.py` is called as Step 5 after both builds complete. The three existing test suites (`test_local`, `test_local_context`, `test_dashboard`) remain as Steps 1–3 before the build.
 
 ---
 
@@ -113,7 +78,9 @@ Protection of the local archive against software errors and silent data loss —
 - Strategy: incremental, newly written files only
 - Scope and implementation to be defined after v1.4 is stable
 
-- v1.5.1   — Content Validation (value range checks via garmin_dataformat.json min/max extension — structural validation already in v1.3.4, content layer deferred)
+### v1.5.1 — Content Validation
+
+Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
 
 ---
 
@@ -179,13 +146,7 @@ Local overview of archive health built from session logs — days synced vs fail
 Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected — it just isn't used beyond the summary.
 
 **Test suite & CI/CD**
-Core modules are covered by `test_local.py` (136 checks, extended in v1.2.1/v1.2.1b/v1.2.2/v1.3.0). Build integrity is covered by `validate_scripts()` in both build scripts. Full CI/CD with GitHub Actions for automated builds and release packaging requires a stable v1.x architecture as a foundation — intentionally deferred until v1.4 is complete. No timeline, no commitment, but the intention is there.
-
----
-
-## Post-release tasks
-
-- **Screenshots** — 2–3 GUI screenshots + Dashboard screenshots in README.md once v1.2.0 is stable in the repo
+Core pipeline is covered by five test suites (218 + 134 + 211 + 80 checks + 8 sections for build output). Build integrity is covered by `validate_scripts()` in both build scripts and `test_build_output.py` as post-build gate. Full CI/CD with GitHub Actions for automated builds and release packaging is intentionally deferred — no timeline, no commitment, but the intention is there.
 
 ---
 
