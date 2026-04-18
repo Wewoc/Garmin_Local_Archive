@@ -108,6 +108,37 @@ def _write_raw(base_dir: Path):
     f.write_text(json.dumps(_RAW), encoding="utf-8")
     return raw_dir
 
+_NULL_DATE = "2026-03-02"
+
+_NULL_RAW = {
+    "date": _NULL_DATE,
+    "sleep": {
+        "dailySleepDTO": {
+            "sleepTimeSeconds":  27000,
+            "deepSleepSeconds":  5400,
+            "lightSleepSeconds": 13500,
+            "remSleepSeconds":   6750,
+            "awakeSleepSeconds": 1350,
+        }
+    },
+    "heart_rates": {
+        "heartRateValues": None,
+    },
+    "stress": {
+        "stressValuesArray": None,
+        "stressChartValueOffset": 0,
+        "bodyBatteryValuesArray": None,
+    },
+    "spo2":        {},
+    "respiration": {},
+}
+
+def _write_null_raw(base_dir: Path):
+    raw_dir = base_dir / "garmin_data" / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    f = raw_dir / f"garmin_raw_{_NULL_DATE}.json"
+    f.write_text(json.dumps(_NULL_RAW), encoding="utf-8")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  1. garmin_map — intraday normalization
@@ -154,6 +185,24 @@ check("respiration: value correct",             resp_series[0]["value"] == 14.5)
 
 result_missing = garmin_map.get("heart_rate_series", "2000-01-01", "2000-01-01", resolution="intraday")
 check("missing date: series is None",           result_missing["values"][0]["series"] is None)
+
+# null-Wert-Robustheit (F + K) — separates raw-File
+_write_null_raw(_TMPDIR)
+
+result_hr_null = garmin_map.get("heart_rate_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+check("null heart_rate: series is None",        result_hr_null["values"][0]["series"] is None)
+
+result_stress_null = garmin_map.get("stress_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+check("null stress: series is None",            result_stress_null["values"][0]["series"] is None)
+
+result_bb_null = garmin_map.get("body_battery_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+check("null body_battery: series is None",      result_bb_null["values"][0]["series"] is None)
+
+result_spo2_null = garmin_map.get("spo2_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+check("null spo2: series is None",              result_spo2_null["values"][0]["series"] is None)
+
+result_resp_null = garmin_map.get("respiration_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+check("null respiration: series is None",       result_resp_null["values"][0]["series"] is None)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -264,6 +313,7 @@ check("html contains tab button",               "tab-btn" in _html)
 check("html contains heart_rate chart",         "heart_rate_series" in _html)
 check("html contains disclaimer",               "medical advice" in _html)
 check("html contains footer",                   "github.com" in _html.lower())
+check("html contains title",                    data["title"] in _html)
 
 # render with empty fields raises ValueError
 try:
@@ -305,6 +355,18 @@ check("build returns results list",             isinstance(results, list))
 check("build result count matches selections",  len(results) == 1)
 check("build result success",                   results[0]["success"] is True)
 check("build result file exists",               results[0]["file"].exists())
+
+# Fehlerfall: ungültiges Format → success=False, kein Absturz
+results_err = dash_runner.build(
+    selections=[(ts_spec["module"], "nonexistent_format")],
+    date_from=_TEST_DATE,
+    date_to=_TEST_DATE,
+    settings={},
+    output_dir=_out_dir,
+)
+check("build invalid format: returns list",     isinstance(results_err, list))
+check("build invalid format: success=False",    results_err[0]["success"] is False)
+check("build invalid format: error key present", "error" in results_err[0])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -523,6 +585,30 @@ check("health prompt has profile section",      "## Personal Profile" in _health
 check("health prompt has metric table",         "## Metric Summary" in _health_prompt)
 check("health prompt has instructions",         "## Instructions" in _health_prompt)
 
+# Summary ohne hrv-Feld — build() darf nicht abstürzen
+_summary_no_hrv = {
+    "date": _TEST_DATE,
+    "sleep":    {"spo2_avg": 97.0, "duration_h": 7.5},
+    "heartrate": {"resting_bpm": 52.0},
+    "stress":    {"stress_avg": 28.0, "body_battery_max": 85.0},
+    "training":  {"vo2max": 48.0},
+}
+(_sum_dir / f"garmin_{_TEST_DATE}.json").write_text(
+    json.dumps(_summary_no_hrv), encoding="utf-8"
+)
+importlib.reload(cfg)
+_hdata_no_hrv = _health_mod.build(_TEST_DATE, _TEST_DATE, _settings)
+check("health build no hrv: returns dict",      isinstance(_hdata_no_hrv, dict))
+check("health build no hrv: has fields",        "fields" in _hdata_no_hrv)
+_hrv_absent = next((f for f in _hdata_no_hrv["fields"] if f["field"] == "hrv_last_night"), None)
+check("health build no hrv: field absent or value None",
+      _hrv_absent is None or _hrv_absent.get("days", [{}])[0].get("value") is None)
+
+# Isolation: Original-Summary wiederherstellen für folgende Sections
+(_sum_dir / f"garmin_{_TEST_DATE}.json").write_text(
+    json.dumps(_SUMMARY), encoding="utf-8"
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  11. overview_garmin specialist — build() + excel render
@@ -548,6 +634,11 @@ check("overview rows not empty",                len(_odata["rows"]) > 0)
 check("overview row has date",                  _odata["rows"][0]["date"] == _TEST_DATE)
 check("overview row has values",                "values" in _odata["rows"][0])
 check("overview columns has sleep_duration",    any(c["field"] == "sleep_duration" for c in _odata["columns"]))
+
+# Multi-Tage: zweiter Tag schon vorhanden via _prev_date aus Sek. 10
+_odata_multi = _overview_mod.build(_prev_date, _TEST_DATE, {})
+check("overview multi: 2 rows",                 len(_odata_multi["rows"]) == 2)
+check("overview multi: rows sorted asc",        _odata_multi["rows"][0]["date"] <= _odata_multi["rows"][1]["date"])
 
 _out_overview = _TMPDIR / "test_overview.xlsx"
 plotter_excel.render(_odata, _out_overview, {})
