@@ -39,12 +39,14 @@ Dashboard specialists
 - `context_map.py` never calls Open-Meteo directly — reads local files only
 - Plugins contain NO executable logic — metadata only
 - `context_writer.py` is the only module that creates files in `context_data/`
+- `context_api.fetch()` never raises — `OSError` caught in `_fetch_chunk()` (returns `None`); `fetch()` returns empty dict on network failure
+- `context_collector.run()` never raises — `Exception` caught around fetch+write block (`failed += 1`); always returns a result dict
 
 ---
 
 ## `test_local_context.py`
 
-**Current count: 123 checks, 11 sections.**
+**Current count: 134 checks, 11 sections.**
 
 ```bash
 python tests/test_local_context.py
@@ -55,14 +57,14 @@ python tests/test_local_context.py
 1. `garmin_config` — new context paths (`CONTEXT_DIR`, `CONTEXT_WEATHER_DIR`, `CONTEXT_POLLEN_DIR`, `LOCAL_CONFIG_FILE`)
 2. `weather_plugin` — all metadata attributes present and correct
 3. `pollen_plugin` — all metadata attributes present, `AGGREGATION = "daily_max"`
-4. `context_writer` — write, file content, already_written
-5. `context_api` — `_parse_daily()`, `_parse_hourly_to_daily_max()`
-6. `context_api` — `fetch()` with mocked network, `skip_dates` exclusion
+4. `context_writer` — write, file content, already_written; empty dict input → written=0
+5. `context_api` — `_parse_daily()`, `_parse_hourly_to_daily_max()`; null values in hourly arrays
+6. `context_api` — `fetch()` with mocked network, `skip_dates` exclusion, network error → empty dict
 7. `weather_map` — field resolution, fallback=True for intraday, KeyError for unknown
 8. `pollen_map` — field resolution, fallback=True for intraday, KeyError for unknown
 9. `context_map` — routing, unknown field returns `{}`, `list_sources()`, `list_fields()`
-10. `context_collector` — CSV helpers: `_ensure_csv()`, `_load_csv()`, `_build_location_map()`, `_split_into_segments()`
-11. `context_collector` — `run()` with mocked archive + network, skip on second run, stop event, no-location error, empty archive error
+10. `context_collector` — CSV helpers: `_ensure_csv()`, `_load_csv()`, `_build_location_map()`, `_split_into_segments()`; malformed CSV row skipped
+11. `context_collector` — `run()` with mocked archive + network, skip on second run, stop event, no-location error, empty archive error, network error → dict returned
 
 ### What is NOT tested
 

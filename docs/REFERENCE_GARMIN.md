@@ -16,9 +16,10 @@ garmin_app.py (GUI)
               ├── garmin_sync.resolve_date_range()
               ├── per day:
               │     garmin_api.fetch_raw()
-              │     garmin_validator.validate()
+              │     garmin_validator.validate()          ← out_of_range check (v1.4.3)
               │     garmin_normalizer.normalize() + summarize()
-              │     garmin_quality.assess_quality()
+              │     garmin_quality.assess_quality()      ← pure, no validator param
+              │     [range-warning downgrade in collector if >3 out_of_range]
               │     garmin_writer.write_day()
               │     garmin_quality._upsert_quality()
               └── garmin_quality._save_quality_log()

@@ -166,8 +166,11 @@ All modules import via `import garmin_config as cfg`.
 │   └── CONCEPT_V2-0.md
 │
 └── tests/
-    ├── test_local.py           ← Garmin pipeline (199 checks)
-    └── test_local_context.py   ← Context pipeline (123 checks)
+    ├── test_local.py           ← Garmin pipeline (218 checks)
+    ├── test_local_context.py   ← Context pipeline (134 checks)
+    ├── test_dashboard.py       ← Dashboard pipeline (211 checks)
+    ├── test_app_logic.py       ← App layer (80 checks)
+    └── test_build_output.py    ← Build output validation (8 sections)
 ```
 
 ---
@@ -209,5 +212,5 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 | 2 — Standard EXE | `garmin_app.py` | `python build.py` | Python required on target |
 | 3 — Standalone EXE | `garmin_app_standalone.py` | `python build_standalone.py` | No Python required |
 
-`build_all.py` runs both targets sequentially, preceded by `test_local.py`, `test_local_context.py`, and `test_dashboard.py`.
+`build_all.py` runs `test_local.py`, `test_local_context.py`, and `test_dashboard.py` before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
 `build_manifest.py` is the single source of truth for all script lists.

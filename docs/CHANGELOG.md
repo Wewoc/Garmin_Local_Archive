@@ -2,6 +2,87 @@
 
 ---
 
+## v1.4.3 — Test Suite Extension (App Logic + Build Output)
+
+Two new test modules completing the test suite. No changes to production code.
+
+**`tests/test_app_logic.py`** — new, 80 checks, 10 sections:
+- `DEFAULT_SETTINGS` completeness — both entry points (`garmin_app`, `garmin_app_standalone`)
+- `load_settings` / `save_settings` — roundtrip, password strip, corrupt JSON → defaults, missing file → defaults
+- `load_password` / `save_password` — keyring mock, None → empty string, exception → empty string, empty pw → delete
+- `script_dir()` / `script_path()` — dev mode and frozen mode (mocked `sys.frozen` / `sys._MEIPASS` / `sys.executable`) for both entry points
+- v1.4.2 regression check: `script_path()` frozen — file at wrong location (`scripts/garmin_collector.py` instead of `scripts/garmin/`) is not returned as correct path
+- `_find_python()` — dev mode returns `sys.executable`; frozen mode returns `shutil.which()` result
+
+**`tests/test_build_output.py`** — new, 8 sections:
+- Section 1: `build_manifest` consistency — list invariants, no duplicates, signature keys valid
+- Section 2: source integrity — all `SHARED_SCRIPTS` present in project folder, `REQUIRED_DATA_FILES` present, all signatures match (always runs, no build required)
+- Section 3–6: Target 2 — EXE exists, `scripts/` folder structure complete, `py_compile` syntax check on all scripts, ZIP contents match manifest (runs after build)
+- Section 7: Target 3 — Standalone EXE exists, larger than T2 EXE, ZIP contains EXE and no `scripts/` folder (embedded)
+- Section 8: Target 3 embed validation — reconstructs `--add-data` destination paths exactly as `build_standalone.py` builds them; verifies all scripts land under `scripts/{subfolder}/`, never flat in `scripts/`; all subdirectories covered; `EMBEDDED_SCRIPTS == SHARED_SCRIPTS`
+
+**`build_all.py`:**
+- Post-build step added: `test_build_output.py` runs after both builds complete. Exit code 1 aborts and prints failed checks.
+
+---
+
+## v1.4.3 — Standalone Frozen-Path Hotfix
+
+Drei Pfad-Bugs in der Standalone EXE behoben — gemeldet durch User-Feedback.
+
+**`garmin_app_standalone.py`:**
+- `script_path()` — Unterordner-Suche (`garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `export/`) läuft jetzt in beiden Modi (Dev + Frozen) über `script_dir()` als Basis. Im Frozen-Modus wurde zuvor der Unterordner ignoriert, was zu `Script not found: …/scripts/garmin_collector.py` führte.
+- Context-Collector: `_root` im Frozen-Modus korrigiert von `_MEIPASS` auf `_MEIPASS/scripts/` — `context/` liegt unter `scripts/context/`, nicht direkt unter `_MEIPASS`.
+
+**`build_standalone.py`:**
+- `garmin_dataformat.json` Einpack-Ziel korrigiert von `scripts` auf `scripts/garmin` — `garmin_config.py` sucht die Datei via `Path(__file__).parent`, was im Frozen-Modus `scripts/garmin/` ergibt.
+
+---
+
+## v1.4.3 — Value Range Validation + Test Hardening
+Semantic validation of numeric field values against defined min/max ranges. Test suite extended to 218 checks.
+
+**`garmin/garmin_dataformat.json`:**
+- `sub_fields` added to `stress`, `heart_rates`, `respiration`, `spo2` — each sub_field carries `type`, `min`, `max` for range validation.
+- `body_battery`, `training_readiness`, `max_metrics`, `activities` corrected to `type: "any"` — Garmin API delivers inconsistent types for these fields (list or dict depending on date/device). Eliminates persistent false-positive type_mismatch warnings.
+
+**`garmin/garmin_validator.py`:**
+- New issue type `out_of_range` (severity: `warning`) — emitted when a numeric sub_field value falls outside the schema-defined `min`/`max` range.
+- Range check runs after structural type check. Only applies to numeric values (`int`, `float`). Sub_field absent → no issue.
+- Issue field format: `parent_field.sub_key` (e.g. `heart_rates.restingHeartRate`).
+
+**`garmin/garmin_collector.py`:**
+- Range-warning downgrade: after `assess_quality()`, if `validator_result` contains > 3 `out_of_range` warnings and label is `high` or `medium`, label is capped to `low`.
+- `assess_quality()` remains a pure function — downgrade decision stays in the collector.
+- `low` label triggers standard recheck cycle: 3 attempts via `LOW_QUALITY_MAX_ATTEMPTS`, then `recheck: false`. Raw file is written and fully accessible regardless of label.
+
+**`tests/test_local_context.py`:**
+- 134 checks (up from 123). New checks across sections 4, 5, 6, 10, 11:
+  - Section 4: `write({}, lat, lon)` → written=0, failed=0 (empty dict, no crash)
+  - Section 5: `_parse_hourly_to_daily_max` with null values in arrays (Open-Meteo delivers null for missing entries) → no crash, max of non-null values correct, all-null field tolerated
+  - Section 6: `fetch()` with network error (OSError) → returns empty dict, does not raise
+  - Section 10: `_load_csv()` with malformed row → valid rows kept, bad row skipped
+  - Section 11: `run()` with network error → returns dict, stopped=False, written=0
+
+**`tests/test_dashboard.py`:**
+- 211 checks (up from 193). New checks across sections 1, 6, 7, 10, 11, plus new `_NULL_DATE`/`_NULL_RAW` fixture:
+  - Section 1: garmin_map with null intraday arrays in raw (heartRateValues=None, stressValuesArray=None, bodyBatteryValuesArray=None, empty spo2/respiration dicts) → series is None for all 5 series, no crash
+  - Section 6: HTML output contains dataset title
+  - Section 7: `dash_runner.build()` with invalid format key → success=False, error key present, no crash
+  - Section 10: health specialist `build()` with summary missing `hrv_last_night_ms` → returns dict, field absent or value=None
+  - Section 11: overview specialist `build()` over two dates → 2 rows returned, sorted ascending
+  - Test isolation fix: after the no-hrv test in section 10, original `_SUMMARY` file is restored — prevents summary file overwrite from breaking section 12
+
+**`tests/test_local.py`:**
+- 218 checks (up from 199). New checks across sections 1, 3, 7, 9, and new section 14:
+  - Section 1: `garmin_config` reload follows `GARMIN_OUTPUT_DIR`; `GARMIN_TOKEN_FILE` stays under `BASE_DIR`
+  - Section 3: `garmin_normalizer.normalize({})` — no crash on empty dict
+  - Section 7: `load_token` with corrupt `.enc` file → `False`; `save_token` with missing `garmin_tokens.json` → `False`
+  - Section 9: `validate(None)` → no crash; `validate({})` → critical; `out_of_range` issue type and field name correct; in-range value → no issue
+  - Section 14: downgrade count logic; threshold boundary (exactly 3 → no downgrade); `assess_quality()` pure function confirmed
+
+---
+
 ## v1.4.2 — Bulk Upgrade + Downgrade Protection
 
 Automatic upgrade of bulk-imported days to API quality within the 90-day API window, with full downgrade protection and per-day resume safety.
