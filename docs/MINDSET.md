@@ -30,8 +30,7 @@ But there's a second problem that's less obvious and harder to recover
 from: Garmin deletes your intraday data. The fine-grained stuff — 
 second-by-second heart rate, the stress curve from a difficult 
 afternoon, the breathing pattern during a night your HRV dropped — 
-disappears from their servers after roughly one to two years. For 
-Garmin, old high-resolution data has no business value. For you, it's 
+disappears from their servers in stages — full resolution gone after roughly six months, reduced data after roughly two and a half years, based on what's visible in archive data from April 2026. For Garmin, old high-resolution data has no business value. For you, it's 
 gone permanently. There's no export that brings it back.
 
 This tool exists because of both problems.
