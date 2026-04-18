@@ -91,7 +91,7 @@ If there are days with failed or incomplete downloads in the selected sync range
 > **Large archives:** If you have years of Garmin history, start with `range` mode for the last 1–2 years before using `auto`. Downloading everything at once can trigger Garmin rate limiting.
 
 ### Import Bulk Export
-Imports a Garmin GDPR data export into your local archive — useful for historical data that is no longer available via the API (Garmin degrades intraday data after ~1–2 years).
+Imports a Garmin GDPR data export into your local archive — useful for historical data that is no longer available via the API (Garmin degrades intraday data in stages: full resolution for ~6 months, reduced detail up to ~2.5 years, summaries only beyond that).
 
 1. Go to [garmin.com](https://www.garmin.com/en-US/account/datamanagement/exportdata/) → Request Data Export
 2. Wait for the email (typically 20–30 minutes), download the ZIP
