@@ -72,7 +72,7 @@ Protection of the local archive against software errors and silent data loss —
 - **Monthly backup** — `_save_quality_log()` creates a snapshot once per month as `quality_log_YYYY-MM.zip` in `log/backup/`. On the first save of a new year, the previous year is consolidated into `quality_log_YYYY.zip` and all monthly zips for that year are removed.
 - **Per-year checksums** — on every save, a SHA-256 hash is computed over all `days` entries for each calendar year and stored in a `checksums` block inside `quality_log.json`. On load, all completed years are verified — a mismatch triggers a warning in the log and GUI indicating which year is affected and where the backup is located.
 
-**`raw/`** — incremental backup of newly written files. Motivation: Garmin degrades intraday data after ~1–2 years — the local raw copy is then the only source. A software bug in the writer that overwrites or corrupts a raw file is not recoverable without a backup. This is a direct extension of the data erosion protection that is a core promise of this project.
+**`raw/`** — incremental backup of newly written files. Motivation: Garmin degrades intraday data in stages (full resolution → reduced → summaries only), with the high-resolution window covering only the most recent ~6 months — the local raw copy is then the only source. A software bug in the writer that overwrites or corrupts a raw file is not recoverable without a backup. This is a direct extension of the data erosion protection that is a core promise of this project.
 
 - Ownership: writer or a dedicated backup module — to be evaluated
 - Strategy: incremental, newly written files only
