@@ -167,7 +167,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.2"
+APP_VERSION = "v1.4.3"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -1761,7 +1761,7 @@ class GarminApp(tk.Tk):
                  bg=BG, fg=TEXT, width=28, anchor="w").grid(
                  row=2, column=0, padx=(16, 4), pady=2)
         for col_idx, fmt in enumerate(all_formats, start=1):
-            tk.Label(popup, text=fmt.upper(), font=("Segoe UI", 8, "bold"),
+            tk.Label(popup, text=dash_runner.display_label(fmt).upper(), font=("Segoe UI", 8, "bold"),
                      bg=BG, fg=TEXT, width=7, anchor="center").grid(
                      row=2, column=col_idx, padx=4, pady=2)
 

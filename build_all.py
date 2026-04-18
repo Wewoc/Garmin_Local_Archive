@@ -42,3 +42,15 @@ if __name__ == "__main__":
     print("\n  ✓ All tests passed — starting build.\n")
     build.main()
     build_standalone.main()
+
+    print("\n" + "=" * 55)
+    print("  Post-build: running output validation ...")
+    print("=" * 55)
+
+    test_build_path = Path(__file__).parent / "tests" / "test_build_output.py"
+    result_build = subprocess.run([sys.executable, str(test_build_path)])
+    if result_build.returncode != 0:
+        print("\n  ✗ Build output validation failed — check output above.")
+        sys.exit(1)
+
+    print("\n  ✓ Build output validated successfully.")
