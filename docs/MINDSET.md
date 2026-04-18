@@ -100,7 +100,7 @@ find and harder to fix. **Claude recognized that the solutions had names.**
 
 **Garmin Local Archive** · [github.com/Wewoc/Garmin_Local_Archive](https://github.com/Wewoc/Garmin_Local_Archive)
 
-The following table documents how architectural and design decisions emerged during development (approximately from v0.4 to v1.3.1).
+The following table documents how architectural and design decisions emerged during development (approximately from v0.4 to v1.4.2).
 
 It distinguishes between:
 

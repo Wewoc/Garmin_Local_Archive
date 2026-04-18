@@ -129,10 +129,10 @@ def build_exe(root: Path):
         dest = f"scripts/{subfolder}" if str(subfolder) != "." else "scripts"
         add_data_args += ["--add-data", f"{src}{sep}{dest}"]
 
-    # Embed garmin_dataformat.json
+    # Embed garmin_dataformat.json — muss neben garmin_config.py landen (scripts/garmin/)
     dataformat_src = root / "garmin" / "garmin_dataformat.json"
     if dataformat_src.exists():
-        add_data_args += ["--add-data", f"{dataformat_src}{sep}scripts"]
+        add_data_args += ["--add-data", f"{dataformat_src}{sep}scripts/garmin"]
     else:
         print(f"  ✗ garmin_dataformat.json not found in garmin/ — aborting build")
         sys.exit(1)

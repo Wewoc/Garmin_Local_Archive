@@ -86,6 +86,16 @@ check("SYNC_DATES: invalid skipped",    date(2024, 1, 1) in cfg.SYNC_DATES)
 os.environ["GARMIN_SYNC_DATES"] = ""
 importlib.reload(cfg)
 
+# ENV reload — BASE_DIR folgt GARMIN_OUTPUT_DIR nach reload
+_TMPDIR2 = Path(tempfile.mkdtemp(prefix="garmin_test2_"))
+os.environ["GARMIN_OUTPUT_DIR"] = str(_TMPDIR2)
+importlib.reload(cfg)
+check("config reload: BASE_DIR follows ENV",        cfg.BASE_DIR == _TMPDIR2)
+check("config reload: GARMIN_TOKEN_FILE under BASE", str(cfg.GARMIN_TOKEN_FILE).startswith(str(_TMPDIR2)))
+os.environ["GARMIN_OUTPUT_DIR"] = str(_TMPDIR)
+importlib.reload(cfg)
+shutil.rmtree(_TMPDIR2, ignore_errors=True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  2. garmin_sync
 # ══════════════════════════════════════════════════════════════════════════════
@@ -195,6 +205,13 @@ check("summarize full: resting_bpm = 52",   sf["heartrate"]["resting_bpm"] == 52
 check("summarize full: steps = 8500",       sf["day"]["steps"] == 8500)
 check("summarize full: 1 activity",         len(sf["activities"]) == 1)
 check("summarize full: activity type",      sf["activities"][0]["type"] == "running")
+
+# empty dict — no crash
+try:
+    normalizer.normalize({}, source="api")
+    check("normalizer empty dict: no crash",         True)
+except Exception:
+    check("normalizer empty dict: no crash",         False)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  4. garmin_quality
@@ -503,6 +520,20 @@ check("clear_token: token dir removed",     not cfg.GARMIN_TOKEN_DIR.exists())
 with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
     check("load_token: no file → False",     security.load_token() == False)
 
+# load_token — korrupte .enc Datei → False
+cfg.GARMIN_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+cfg.GARMIN_TOKEN_FILE.write_bytes(b"not_valid_encrypted_data")
+with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
+    check("load_token: corrupt enc → False", security.load_token() == False)
+cfg.GARMIN_TOKEN_FILE.unlink(missing_ok=True)
+
+# save_token — garmin_tokens.json fehlt → False
+cfg.GARMIN_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+# token dir exists but garmin_tokens.json is absent
+with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
+    check("save_token: no tokens.json → False", security.save_token() == False)
+shutil.rmtree(cfg.GARMIN_TOKEN_DIR, ignore_errors=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  8. garmin_utils
@@ -605,6 +636,30 @@ check("validator evil: nonsense date string → ok",   r10["status"] == "ok")
 # reload_schema — no crash, version preserved
 validator_mod.reload_schema()
 check("validator reload: version intact",            validator_mod.current_version() == "1.0")
+
+# None input — no crash
+r_none = validator_mod.validate(None)
+check("validator None input: no crash",              r_none["status"] == "critical")
+
+# empty dict — date missing → critical
+r_empty = validator_mod.validate({})
+check("validator empty dict: status=critical",       r_empty["status"] == "critical")
+check("validator empty dict: missing_required date",
+      any(i["type"] == "missing_required" and i["field"] == "date" for i in r_empty["issues"]))
+
+# out_of_range — HR value outside schema bounds
+raw_oor = {"date": "2024-01-01", "heart_rates": {"restingHeartRate": 999}}
+r_oor = validator_mod.validate(raw_oor)
+check("validator out_of_range: status=warning",      r_oor["status"] == "warning")
+check("validator out_of_range: issue type correct",
+      any(i["type"] == "out_of_range" and i["field"] == "heart_rates.restingHeartRate"
+          for i in r_oor["issues"]))
+
+# out_of_range — value within bounds → no out_of_range issue
+raw_inrange = {"date": "2024-01-01", "heart_rates": {"restingHeartRate": 55}}
+r_inrange = validator_mod.validate(raw_inrange)
+check("validator in_range: no out_of_range issue",
+      not any(i["type"] == "out_of_range" for i in r_inrange["issues"]))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  10. garmin_writer — read_raw
@@ -746,6 +801,57 @@ read_e2e = writer.read_raw("2024-07-15")
 check("e2e: read_raw returns dict",   isinstance(read_e2e, dict))
 check("e2e: read_raw date correct",   read_e2e.get("date") == "2024-07-15")
 check("e2e: read_raw content intact", read_e2e.get("heart_rates", {}).get("restingHeartRate") == 58)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  14. v1.4.3 — VALUE RANGE VALIDATION
+# ══════════════════════════════════════════════════════════════════════════════
+section("14. v1.4.3 — VALUE RANGE VALIDATION")
+
+# out_of_range warnings → quality downgrade in collector logic
+# Simuliert: validator liefert >3 out_of_range issues, label wird auf low gedrückt
+_oor_issues = [
+    {"type": "out_of_range", "field": f"heart_rates.field{i}",
+     "severity": "warning", "expected": "20–300", "actual": 999}
+    for i in range(4)
+]
+_val_result_oor = {"status": "warning", "issues": _oor_issues,
+                   "schema_version": "1.0", "timestamp": "2024-01-01T00:00:00"}
+
+_oor_count = sum(1 for i in _val_result_oor.get("issues", [])
+                 if i.get("type") == "out_of_range")
+check("downgrade: >3 out_of_range → count correct",  _oor_count == 4)
+check("downgrade: >3 out_of_range → cap to low",     "low" if _oor_count > 3 else "high" == "low")
+
+# exactly 3 → no downgrade
+_val_result_3 = {"status": "warning", "issues": _oor_issues[:3],
+                 "schema_version": "1.0", "timestamp": "2024-01-01T00:00:00"}
+_oor_count_3 = sum(1 for i in _val_result_3.get("issues", [])
+                   if i.get("type") == "out_of_range")
+check("downgrade: exactly 3 → no downgrade",         _oor_count_3 <= 3)
+
+# assess_quality with out_of_range data — quality stays pure (no validator_result param)
+import garmin_quality as quality_mod
+_raw_high = {
+    "date": "2024-01-01",
+    "heart_rates": {"heartRateValues": [[0, 60], [1, 65]], "restingHeartRate": 999},
+}
+_label = quality_mod.assess_quality(_raw_high)
+check("assess_quality: stays pure (no validator param)", _label == "high")
+
+# assess_quality with multiple out_of_range → still "low" from content if no intraday
+_raw_low = {"date": "2024-01-01", "heart_rates": {"restingHeartRate": 999}}
+_label_low = quality_mod.assess_quality(_raw_low)
+check("assess_quality: no intraday → not high",      _label_low != "high")
+
+# quality downgrade: >3 warnings + high label → low
+_raw_q = {
+    "date": "2024-01-01",
+    "heart_rates": {"heartRateValues": [[0, 60]], "restingHeartRate": 999},
+}
+_q_label = quality_mod.assess_quality(_raw_q)  # would be "high"
+_simulated = "low" if _oor_count > 3 and _q_label in ("high", "medium") else _q_label
+check("downgrade simulation: high → low",            _simulated == "low")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results

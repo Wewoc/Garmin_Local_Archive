@@ -176,6 +176,11 @@ check("already_written weather False",
 check("already_written pollen True",
       context_writer.already_written(_fake_pollen_plugin, "2026-01-01"))
 
+# leeres dict — kein Absturz, written=0
+result_empty = context_writer.write(_fake_weather_plugin, {}, 52.11, 8.67)
+check("write empty dict: written=0",  result_empty["written"] == 0)
+check("write empty dict: failed=0",   result_empty["failed"]  == 0)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  5. context_api — parse helpers (no network)
@@ -225,6 +230,26 @@ check("parse_hourly: birch day2 = max",    parsed_hourly["2026-02-02"]["birch_po
 check("parse_hourly: mugwort day1 = None or 0",
       parsed_hourly["2026-02-01"]["mugwort_pollen"] in (0.0, None))
 
+# null-Werte in hourly-Arrays — Open-Meteo liefert null für fehlende Einträge
+_hourly_with_nulls = {
+    "hourly": {
+        "time":         ["2026-02-03T00:00", "2026-02-03T12:00"],
+        "birch_pollen": [None, 3.5],
+        "grass_pollen": [None, None],
+        "alder_pollen": [1.0, None],
+        "mugwort_pollen": [None, None],
+        "olive_pollen":   [None, None],
+        "ragweed_pollen": [None, None],
+    }
+}
+parsed_nulls = context_api._parse_hourly_to_daily_max(
+    _hourly_with_nulls, pollen_plugin.API_FIELDS
+)
+check("parse_hourly nulls: returns dict",       isinstance(parsed_nulls, dict))
+check("parse_hourly nulls: birch = 3.5",        parsed_nulls["2026-02-03"]["birch_pollen"] == 3.5)
+check("parse_hourly nulls: grass all-null ok",
+      parsed_nulls["2026-02-03"]["grass_pollen"] in (0.0, None))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  6. context_api — fetch (mocked network)
@@ -255,6 +280,15 @@ with patch("urllib.request.urlopen", return_value=_MockResp()):
         52.11, 8.67, skip_dates={"2026-02-01"}
     )
 check("fetch with skip: day1 absent", "2026-02-01" not in fetched_skip)
+
+# Netzwerkfehler — fetch() darf nicht abstürzen, gibt leeres dict zurück
+with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
+    fetched_err = context_api.fetch(
+        weather_plugin, "2026-02-01", "2026-02-02",
+        52.11, 8.67
+    )
+check("fetch network error: returns dict",  isinstance(fetched_err, dict))
+check("fetch network error: empty dict",    len(fetched_err) == 0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -545,6 +579,30 @@ with patch("garmin_quality.get_archive_stats", return_value=_mock_stats), \
         stop_event=stop
     )
 check("run stopped: stopped=True",    run_stopped["stopped"] == True)
+
+# CSV-Robustheit (D) — fehlerhafte Zeile wird übersprungen, gültige bleibt
+_csv_bad = (
+    "# comment\n"
+    "date_from;date_to;country;place;latitude;longitude\n"
+    "not-a-date;also-not;Germany;Berlin;not-a-float;13.365109\n"
+    "2026-01-01;2026-06-30;Germany;Herford;52.1134;8.6655\n"
+)
+cfg.LOCAL_CONFIG_FILE.write_text(_csv_bad, encoding="utf-8")
+entries_bad = context_collector._load_csv()
+check("load_csv bad row: valid entry kept",  any(e["lat"] == 52.1134 for e in entries_bad))
+
+# Netzwerkfehler während run() (E) — run() gibt dict zurück, kein Absturz
+shutil.rmtree(cfg.CONTEXT_WEATHER_DIR, ignore_errors=True)
+shutil.rmtree(cfg.CONTEXT_POLLEN_DIR,  ignore_errors=True)
+with patch("garmin_quality.get_archive_stats", return_value=_mock_stats), \
+     patch("urllib.request.urlopen", side_effect=OSError("network down")):
+    run_net_err = context_collector.run(
+        settings={"context_latitude": "52.1134", "context_longitude": "8.6655"}
+    )
+check("run network error: returns dict",     isinstance(run_net_err, dict))
+check("run network error: not stopped",      run_net_err.get("stopped") == False)
+check("run network error: weather written=0",
+      run_net_err["plugins"]["weather"]["written"] == 0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

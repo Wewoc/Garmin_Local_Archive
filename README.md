@@ -102,7 +102,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 Local-first, personal use, no enterprise ambitions.
 
 - Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
-- Three local test suites (515 checks) — no CI/CD yet
+- Five local test suites (563 checks + build output validation) — no CI/CD yet
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
 - Historical data quality depends on Garmin servers
@@ -536,15 +536,17 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-Three test suites cover the full pipeline — no network, no API, no GUI required:
+Five test suites cover the full pipeline — no network, no API, no GUI required:
 
 ```bash
-python tests/test_local.py          # 199 checks — Garmin pipeline
-python tests/test_local_context.py  # 123 checks — Context pipeline (Open-Meteo mocked)
-python tests/test_dashboard.py      # 166 checks — Dashboard pipeline
+python tests/test_local.py          # 218 checks — Garmin pipeline
+python tests/test_local_context.py  # 134 checks — Context pipeline (Open-Meteo mocked)
+python tests/test_dashboard.py      # 211 checks — Dashboard pipeline
+python tests/test_app_logic.py      #  80 checks — App layer (entry points, path resolution)
+python tests/test_build_output.py   #   8 sections — Build output validation (run after build)
 ```
 
-`build_all.py` runs all three before starting either build — a failing test aborts the build.
+`build_all.py` runs the first three before starting either build — a failing test aborts the build. `test_build_output.py` runs automatically after both builds complete as a post-build gate. `test_app_logic.py` is run manually after changes to the entry point files.
 
 GUI changes are verified manually before release. Full CI/CD with automated builds and release packaging is planned for a later version.
 

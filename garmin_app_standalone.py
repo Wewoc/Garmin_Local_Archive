@@ -142,14 +142,13 @@ def script_dir() -> Path:
     return Path(__file__).parent / "garmin"
 
 def script_path(name: str) -> Path:
-    # Frozen: Scripts in sys._MEIPASS/scripts/ mit Unterordnern
-    # Dev: Unterordner liegen im Root neben garmin_app_standalone.py
-    if not getattr(sys, "frozen", False):
-        for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
-            candidate = Path(__file__).parent / sub / name
-            if candidate.exists():
-                return candidate
-    return script_dir() / name
+    # Dev + Frozen: Unterordner-Suche in beiden Modi
+    base = script_dir()
+    for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+        candidate = base / sub / name
+        if candidate.exists():
+            return candidate
+    return base / name
 
 def _open_url(url: str):
     try:
@@ -195,7 +194,7 @@ class _QueueHandler(logging.Handler):
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
-APP_VERSION = "v1.4.2"
+APP_VERSION = "v1.4.3"
 
 BG        = "#1a1a2e"
 BG2       = "#16213e"
@@ -1773,7 +1772,7 @@ class GarminApp(tk.Tk):
                  bg=BG, fg=TEXT, width=28, anchor="w").grid(
                  row=2, column=0, padx=(16, 4), pady=2)
         for col_idx, fmt in enumerate(all_formats, start=1):
-            tk.Label(popup, text=fmt.upper(), font=("Segoe UI", 8, "bold"),
+            tk.Label(popup, text=dash_runner.display_label(fmt).upper(), font=("Segoe UI", 8, "bold"),
                      bg=BG, fg=TEXT, width=7, anchor="center").grid(
                      row=2, column=col_idx, padx=4, pady=2)
 
@@ -1919,7 +1918,7 @@ class GarminApp(tk.Tk):
 
         def run():
             try:
-                _root = Path(sys._MEIPASS) if getattr(sys, "frozen", False) \
+                _root = Path(sys._MEIPASS) / "scripts" if getattr(sys, "frozen", False) \
                         else Path(__file__).parent
                 if str(_root) not in sys.path:
                     sys.path.insert(0, str(_root))

@@ -3,18 +3,31 @@
   "fields": {
     "date":               { "type": "str",  "required": true  },
     "sleep":              { "type": "dict", "required": false },
-    "stress":             { "type": "dict", "required": false },
-    "body_battery":       { "type": "dict", "required": false },
-    "heart_rates":        { "type": "dict", "required": false },
-    "respiration":        { "type": "dict", "required": false },
-    "spo2":               { "type": "dict", "required": false },
+    "stress":             { "type": "dict", "required": false,
+                            "sub_fields": {
+                              "averageStressLevel": { "type": "int", "min": 0,  "max": 100 }
+                            }},
+    "body_battery":       { "type": "any",  "required": false },
+    "heart_rates":        { "type": "dict", "required": false,
+                            "sub_fields": {
+                              "restingHeartRate": { "type": "int", "min": 20, "max": 300 },
+                              "maxHeartRate":     { "type": "int", "min": 20, "max": 300 }
+                            }},
+    "respiration":        { "type": "dict", "required": false,
+                            "sub_fields": {
+                              "avgWakingRespirationValue": { "type": "float", "min": 4, "max": 60 }
+                            }},
+    "spo2":               { "type": "dict", "required": false,
+                            "sub_fields": {
+                              "averageSpO2": { "type": "float", "min": 50, "max": 100 }
+                            }},
     "stats":              { "type": "dict", "required": false },
     "user_summary":       { "type": "dict", "required": false },
     "training_status":    { "type": "dict", "required": false },
-    "training_readiness": { "type": "dict", "required": false },
+    "training_readiness": { "type": "any",  "required": false },
     "hrv":                { "type": "dict", "required": false },
     "race_predictions":   { "type": "dict", "required": false },
-    "max_metrics":        { "type": "dict", "required": false },
-    "activities":         { "type": "list", "required": false }
+    "max_metrics":        { "type": "any",  "required": false },
+    "activities":         { "type": "any",  "required": false }
   }
 }

@@ -42,6 +42,7 @@ Issue types:
   type_mismatch     — known field present but wrong type   → warning (or critical if required)
   missing_optional  — optional field absent                → info (status stays ok)
   unexpected_field  — field not in schema                  → warning
+  out_of_range      — numeric sub_field outside min/max    → warning
 
 No file IO after module load. No imports from other project modules
 except garmin_config (leaf-node constraint).
@@ -229,6 +230,35 @@ def validate(raw: dict) -> dict:
                            f"Field '{field}' has invalid type "
                            f"(expected {type_str}, got {type(value).__name__})."
                            f" Proceeding in degraded mode.")
+
+    # ── Check sub_field ranges ────────────────────────────────────────────────
+
+    for field, spec in _schema.items():
+        sub_fields = spec.get("sub_fields")
+        if not sub_fields:
+            continue
+        value = raw.get(field)
+        if not isinstance(value, dict):
+            continue  # field absent or wrong type — already handled above
+        for sub_key, sub_spec in sub_fields.items():
+            sub_val = value.get(sub_key)
+            if sub_val is None:
+                continue  # sub_field absent — not an error
+            if not isinstance(sub_val, (int, float)):
+                continue  # not numeric — skip range check
+            lo = sub_spec.get("min")
+            hi = sub_spec.get("max")
+            if (lo is not None and sub_val < lo) or (hi is not None and sub_val > hi):
+                issues.append({
+                    "field":    f"{field}.{sub_key}",
+                    "type":     "out_of_range",
+                    "expected": f"{lo}–{hi}",
+                    "actual":   sub_val,
+                    "severity": "warning",
+                })
+                _log_issue("warning", date_str,
+                           f"Field '{field}.{sub_key}' out of range "
+                           f"(expected {lo}–{hi}, got {sub_val}).")
 
     # ── Check for unexpected fields ───────────────────────────────────────────
 
