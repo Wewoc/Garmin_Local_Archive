@@ -8,7 +8,7 @@ Archive and analyze your Garmin Connect data **locally on your machine** — no 
 
 I wanted to ask an AI questions about my health data without sending that data to another cloud service. So I built a local alternative instead.
 
-There's a second reason that matters more over time: Garmin deletes your intraday data after roughly 1–2 years. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
+There's a second reason that matters more over time: Garmin degrades intraday data in stages — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months; older data loses detail progressively, and beyond ~2.5 years only daily summaries remain. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
 
 *→ For the full story, see [MINDSET.md](docs/MINDSET.md).*
 
@@ -78,7 +78,7 @@ No install, no terminal. Download, unzip, run.
 
 ### Recovering your history — Bulk Import
 
-Garmin keeps intraday data (heart rate by second, stress curve, sleep stages) for approximately 1–2 years. After that, only daily aggregates remain. Once it's gone from Garmin's servers, the API can't retrieve it.
+Garmin degrades intraday data in stages rather than deleting it at once. Based on archive data collected in April 2026: the most recent ~6 months deliver full resolution (~500 KB/day); data between ~6 months and ~2.5 years old is reduced (~15–30 KB/day); anything older contains only daily aggregates (~1 KB/day). Once a tier drops, the API can't retrieve what's been removed — and the boundaries shift forward over time.
 
 The **Bulk Import** feature closes this gap: request your full GDPR data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
 
