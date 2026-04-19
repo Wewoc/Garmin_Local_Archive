@@ -12,6 +12,24 @@
 
 ## Planned
 
+---
+
+### v1.4.x — Write Robustness
+
+Two findings from a multi-LLM architectural review (Gemini / Claude cross-validation):
+
+- **Atomic writes** — `garmin_writer.py` and `context_writer.py` currently write
+  files directly. If the process crashes between the raw and summary write, the
+  archive is left in an inconsistent state. Both writers should write to a
+  temporary file first and finalize with `os.replace()` — guaranteeing that
+  either both files land cleanly or neither does.
+- **`utcnow()` deprecation** — `context_writer.py` uses `datetime.utcnow()`,
+  deprecated since Python 3.12. Replace with `datetime.now(timezone.utc)`.
+
+Both are small, isolated fixes with no cross-module dependencies.
+
+---
+
 ### v1.4.x — Dashboard Features
 
 New functionality built on the clean v1.4.0 base:
