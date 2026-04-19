@@ -194,7 +194,7 @@ class _QueueHandler(logging.Handler):
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
-APP_VERSION = "v1.4.3"
+APP_VERSION = "v1.4.4"
 
 BG        = "#1a1a2e"
 BG2       = "#16213e"
@@ -1267,8 +1267,8 @@ class GarminApp(tk.Tk):
                     on_token_expired = self._prompt_token_expired,
                     on_mfa_required  = self._prompt_mfa,
                 )
-                token_used = token_file_exists and enc_key_present
-                self.after(0, self._set_indicator, "token", "ok" if token_used else "reset")
+                token_now = cfg.GARMIN_TOKEN_FILE.exists() and garmin_security.get_enc_key() is not None
+                self.after(0, self._set_indicator, "token", "ok" if token_now else "reset")
                 self.after(0, self._set_indicator, "login", "ok")
                 self._log_queue.put("  ✓ Login successful")
             except SystemExit:

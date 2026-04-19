@@ -167,7 +167,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.3"
+APP_VERSION = "v1.4.4"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -1251,8 +1251,8 @@ class GarminApp(tk.Tk):
                     on_mfa_required  = self._prompt_mfa,
                 )
                 # Update token lamp based on outcome
-                token_used = token_file_exists and enc_key_present
-                self.after(0, self._set_indicator, "token", "ok" if token_used else "reset")
+                token_now = cfg.GARMIN_TOKEN_FILE.exists() and garmin_security.get_enc_key() is not None
+                self.after(0, self._set_indicator, "token", "ok" if token_now else "reset")
                 self.after(0, self._set_indicator, "login", "ok")
                 self.after(0, self._log, "  ✓ Login successful")
             except SystemExit:
