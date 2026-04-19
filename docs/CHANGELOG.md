@@ -2,6 +2,29 @@
 
 ---
 
+## v1.4.4 — Token Path Fix (garmin_security lazy cfg)
+
+Root cause fix for token not being found after app start or Reset Token, causing
+an unexpected encryption key prompt on every sync.
+
+**`garmin/garmin_security.py`:**
+- `import garmin_config as cfg` auf Modulebene entfernt — `cfg` wurde beim ersten
+  Import eingefroren und ignorierte spätere `importlib.reload(cfg)` Aufrufe aus der GUI.
+- Alle vier Funktionen die `cfg` nutzen (`_clear_token_dir`, `save_token`,
+  `load_token`, `clear_token`) lesen `cfg` jetzt lazy per lokalem Import beim
+  Funktionsaufruf — immer aktueller Stand nach Reload.
+
+**`garmin_app.py` / `garmin_app_standalone.py`:**
+- Token-Indikator nach Login: Zustand wird jetzt nach dem Login vom tatsächlichen
+  Disk-Zustand abgelesen (`cfg.GARMIN_TOKEN_FILE.exists()`) statt vom
+  Pre-Login-Boolean — Indikator zeigt nach SSO korrekt grün.
+
+**Diagnosis path:** Live-Log + Windows Credential Manager check → Multi-LLM review
+(Gemini, Copilot, Le Chat) → Schnittmenge: lazy cfg in `garmin_security.py` ist
+der richtige Fix, nicht `importlib.reload(garmin_security)` in der GUI.
+
+---
+
 ## v1.4.3 — Test Suite Extension (App Logic + Build Output)
 
 Two new test modules completing the test suite. No changes to production code.

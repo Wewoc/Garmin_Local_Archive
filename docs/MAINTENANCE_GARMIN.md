@@ -71,6 +71,8 @@ Desktop GUI built with tkinter. Target 2 is distributed as a PyInstaller `.exe` 
 
 **Token persistence** — after first SSO login, `garmin_security.save_token()` encrypts the OAuth token with AES-256-GCM. Library writes `garmin_tokens.json` to `GARMIN_TOKEN_DIR` — `save_token()` reads, encrypts, writes `.enc`, removes dir. On subsequent runs, `load_token()` decrypts and writes the file back for the library — removed immediately after login. The encryption key is stored in WCM under `GarminLocalArchive / token_enc_key`.
 
+**Pitfall — lazy cfg in garmin_security:** `garmin_config` is imported lazily inside each function, not at module level. Reason: the GUI sets `GARMIN_OUTPUT_DIR` and calls `importlib.reload(cfg)` after the module is first imported — a module-level import would freeze the wrong path. Any future function added to `garmin_security.py` that needs `cfg` must follow this pattern: `import garmin_config as cfg` as the first line of the function body, never at module level.
+
 **Stop button** — `self._active_proc` holds subprocess reference. `_stop_collector()` calls `proc.terminate()`, waits 5s, then `proc.kill()`.
 
 **Background Timer** — daemon thread cycling: Repair → Quality → Fill. Repair re-fetches `failed` days, Quality re-checks `low` days, Fill fetches completely missing days. Each mode draws a random subset. Timer pauses during manual sync and resumes afterwards.

@@ -6,19 +6,7 @@
 
 ---
 
-**Currently stable — v1.4.3**
-
----
-
-## v1.4.4 — Known Bug Fix
-
-**`garmin_security.save_token()` fails after token expiry + SSO re-login**
-
-After a token expires, `clear_token()` deletes the WCM encryption key. Path 3 (SSO) generates a new OAuth token but does not create a new WCM key. `save_token()` then fails with "encryption key not found in WCM" — the session works but the token is not persisted. Next run falls back to SSO again.
-
-Fix: `save_token()` must generate a new WCM key when none is present before attempting to encrypt.
-
-Affected: `garmin/garmin_security.py` — `save_token()`.
+**Currently stable — v1.4.4**
 
 ---
 
