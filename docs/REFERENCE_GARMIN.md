@@ -64,6 +64,10 @@ Pure constants module — no functions. See `REFERENCE_GLOBAL.md` for full const
 
 ## `garmin_security.py`
 
+**Design note:** `garmin_config` is imported lazily inside each function (not at module level).
+This ensures `cfg` paths always reflect the current state after `importlib.reload(cfg)` in the GUI —
+avoiding stale paths when `GARMIN_OUTPUT_DIR` is set after the module was first imported.
+
 | Function | Purpose |
 |---|---|
 | `get_enc_key()` | Reads encryption key from Windows Credential Manager. Returns `None` if not found |
