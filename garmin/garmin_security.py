@@ -30,8 +30,6 @@ import logging
 import os
 import shutil
 
-import garmin_config as cfg
-
 log = logging.getLogger(__name__)
 
 KEYRING_SERVICE  = "GarminLocalArchive"
@@ -91,6 +89,7 @@ def _derive_aes_key(enc_key: str, salt: bytes) -> bytes:
 
 def _clear_token_dir() -> None:
     """Removes GARMIN_TOKEN_DIR and all contents (plaintext cleanup)."""
+    import garmin_config as cfg
     try:
         if cfg.GARMIN_TOKEN_DIR.exists():
             shutil.rmtree(cfg.GARMIN_TOKEN_DIR)
@@ -111,6 +110,7 @@ def save_token() -> bool:
     Reads enc_key from WCM — must already be stored before calling this.
     Returns True on success.
     """
+    import garmin_config as cfg
     enc_key = get_enc_key()
     if enc_key is None:
         log.error("  Cannot save token — encryption key not found in WCM")
@@ -152,6 +152,7 @@ def load_token() -> bool:
     (called from garmin_api.py after login completes or fails).
     Returns True on success, False if: file missing, WCM empty, decryption failed.
     """
+    import garmin_config as cfg
     if not cfg.GARMIN_TOKEN_FILE.exists():
         log.info("  No saved token found")
         return False
@@ -185,6 +186,7 @@ def load_token() -> bool:
 
 def clear_token() -> None:
     """Removes garmin_token.enc, GARMIN_TOKEN_DIR, and the enc_key from WCM."""
+    import garmin_config as cfg
     try:
         if cfg.GARMIN_TOKEN_FILE.exists():
             cfg.GARMIN_TOKEN_FILE.unlink()
