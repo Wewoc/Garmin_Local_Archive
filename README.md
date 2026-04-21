@@ -1,4 +1,4 @@
-![Garmin Local Archive](../screenshots/Banner2.png)
+![Garmin Local Archive](/screenshots/Banner2.png)
 
 # Garmin Local Archive
 
