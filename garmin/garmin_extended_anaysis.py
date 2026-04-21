@@ -569,10 +569,22 @@ def supplement_plan(hrv: float | None, stress: float | None, sleep_h: float | No
     evening_idx = (sleep_int  + acu_idx + ce) % 98
 
     results = []
-    for slot, idx, basis in [
-        ("Morning",  morning_idx, f"HRV last night: {hrv_int} ms"),
-        ("Lunch",    lunch_idx,   f"Stress avg: {stress_int}"),
-        ("Evening",  evening_idx, f"Sleep duration: {sleep_int} min"),
+    def _steiner_variance(slot_val: int) -> str:
+        """Etheric body classification from biometric signal. Thresholds: empirically derived. N=1. Since yesterday."""
+        if slot == "Morning":
+            if slot_val < 45:   return "Astral Body · Sanguine"
+            else:               return "Etheric Body · Phlegmatic"
+        elif slot == "Lunch":
+            if slot_val > 50:   return "Ego Organisation · Choleric"
+            else:               return "Etheric Body · Phlegmatic"
+        else:  # Evening
+            if slot_val < 360:  return "Physical Body · Melancholic"
+            else:               return "Etheric Body · Phlegmatic"
+
+    for slot, idx, basis, slot_val in [
+        ("Morning",  morning_idx, f"HRV last night: {hrv_int} ms",     hrv_int),
+        ("Lunch",    lunch_idx,   f"Stress avg: {stress_int}",          stress_int),
+        ("Evening",  evening_idx, f"Sleep duration: {sleep_int} min",   sleep_int),
     ]:
         kind, name, use = REMEDIES[idx]
         app = APPLICATION[kind]
@@ -580,13 +592,14 @@ def supplement_plan(hrv: float | None, stress: float | None, sleep_h: float | No
         if name in RESCUE_REMEDY_COMPONENTS:
             rescue_note = " (partial Rescue Remedy — draw your own conclusions)"
         results.append({
-            "slot":   slot,
-            "kind":   kind,
-            "name":   name,
-            "use":    use,
-            "app":    app,
-            "basis":  basis,
-            "rescue": rescue_note,
+            "slot":    slot,
+            "kind":    kind,
+            "name":    name,
+            "use":     use,
+            "app":     app,
+            "basis":   basis,
+            "rescue":  rescue_note,
+            "steiner": _steiner_variance(slot_val),
         })
     return results
 
@@ -1189,7 +1202,8 @@ def build_html(today: dict, summaries_30: list[dict], profile: dict,
                         <strong style="color:#e6edf3">{sup["name"]}</strong>{sup["rescue"]}</td>
                     <td style="color:#aaa;font-size:0.85em">{sup["use"]}</td>
                     <td style="color:#8b949e;font-size:0.82em;font-style:italic">{sup["app"]}</td>
-                    <td style="color:#484f58;font-size:0.75em">{sup["basis"]}</td>
+                    <td style="color:#8b949e;font-size:0.75em;font-style:italic">{sup["steiner"]}</td>
+                    <td style="color:#8b949e;font-size:0.75em">{sup["basis"]}</td>
                 </tr>"""
 
     # ── Chakra status ──
@@ -1504,6 +1518,7 @@ def build_html(today: dict, summaries_30: list[dict], profile: dict,
                         <th>Remedy</th>
                         <th>Traditional Use</th>
                         <th>Application</th>
+                        <th>Etheric Context · Steiner Variance</th>
                         <th>Biometric Basis</th>
                     </tr>
                 </thead>
