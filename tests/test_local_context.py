@@ -415,7 +415,7 @@ section("10. context_collector — CSV helpers")
 # ensure_csv creates file
 context_collector._ensure_csv()
 check("ensure_csv: file created",     cfg.LOCAL_CONFIG_FILE.exists())
-content = cfg.LOCAL_CONFIG_FILE.read_text(encoding="utf-8")
+content = cfg.LOCAL_CONFIG_FILE.read_text(encoding="utf-8-sig")
 check("ensure_csv: has comment",      content.startswith("#"))
 check("ensure_csv: has header row",   "date_from" in content)
 

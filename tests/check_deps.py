@@ -6,7 +6,7 @@ Checks PyPI versions of direct dependencies and monitors GitHub repos
 for recent releases/commits that may signal Garmin API or auth changes.
 
 Run via run_T1.bat in the project root — do not run directly.
-Cache file is written to the project root.
+Cache file is written to the project root (one level up from tests/).
 
 Config: edit PYPI_PACKAGES and GITHUB_REPOS below to add/remove targets.
 """
@@ -49,6 +49,11 @@ GITHUB_REPOS = [
         "repo":  "drkostas/garmin-auth",
         "type":  "sentinel",
         "label": "garmin-auth (OAuth/token self-healing sentinel)",
+    },
+    {
+        "repo":  "arpanghosh8453/garmin-grafana",
+        "type":  "sentinel",
+        "label": "garmin-grafana (high-traffic ecosystem sentinel)",
     },
 ]
 
