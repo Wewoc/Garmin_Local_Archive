@@ -70,7 +70,7 @@ def _ensure_csv() -> None:
     try:
         _CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
         lines = _CSV_HEADER_COMMENT + ";".join(_CSV_COLUMNS) + "\n"
-        _CSV_FILE.write_text(lines, encoding="utf-8")
+        _CSV_FILE.write_text(lines, encoding="utf-8-sig")
         log.info(f"  context_collector: created {_CSV_FILE}")
     except OSError as exc:
         log.warning(f"  context_collector: could not create CSV — {exc}")

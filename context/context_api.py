@@ -26,6 +26,9 @@ from datetime import date, timedelta
 
 log = logging.getLogger(__name__)
 
+_RETRY_COUNT   = 3    # attempts per chunk (1 = no retry)
+_RETRY_BACKOFF = 1.0  # initial backoff in seconds — doubled on each retry
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
@@ -55,23 +58,37 @@ def _select_url(plugin, date_from: str) -> str:
 def _fetch_chunk(url: str, date_from: str, date_to: str,
                  lat: float, lon: float, fields: list,
                  resolution: str) -> dict | None:
-    """Execute one API call. Returns parsed JSON or None on failure."""
-    try:
-        params = {
-            resolution:   ",".join(fields),
-            "latitude":   lat,
-            "longitude":  lon,
-            "start_date": date_from,
-            "end_date":   date_to,
-            "timezone":   "auto",
-        }
-        full_url = f"{url}?{urllib.parse.urlencode(params)}"
-        log.debug(f"  context_api: GET {full_url}")
-        with urllib.request.urlopen(full_url, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:
-        log.warning(f"  context_api: fetch failed {date_from}→{date_to} — {exc}")
-        return None
+    """Execute one API call with retry. Returns parsed JSON or None on failure."""
+    params = {
+        resolution:   ",".join(fields),
+        "latitude":   lat,
+        "longitude":  lon,
+        "start_date": date_from,
+        "end_date":   date_to,
+        "timezone":   "auto",
+    }
+    full_url = f"{url}?{urllib.parse.urlencode(params)}"
+    backoff  = _RETRY_BACKOFF
+
+    for attempt in range(_RETRY_COUNT):
+        try:
+            log.debug(f"  context_api: GET {full_url}")
+            with urllib.request.urlopen(full_url, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            if attempt < _RETRY_COUNT - 1:
+                log.warning(
+                    f"  context_api: fetch failed {date_from}→{date_to} "
+                    f"(attempt {attempt + 1}/{_RETRY_COUNT}) — retrying in {backoff:.0f}s: {exc}"
+                )
+                time.sleep(backoff)
+                backoff *= 2
+            else:
+                log.warning(
+                    f"  context_api: fetch failed {date_from}→{date_to} "
+                    f"(attempt {attempt + 1}/{_RETRY_COUNT}) — giving up: {exc}"
+                )
+    return None
 
 
 def _parse_daily(response: dict, fields: list) -> dict[str, dict]:
