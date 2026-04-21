@@ -27,7 +27,8 @@ File structure per day:
 
 import json
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def write(plugin, data: dict[str, dict],
         {"written": int, "failed": int}
     """
     written = failed = 0
-    fetched_at  = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    fetched_at  = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     aggregation = getattr(plugin, "AGGREGATION", None)
 
     try:
@@ -61,6 +62,7 @@ def write(plugin, data: dict[str, dict],
         return {"written": 0, "failed": len(data)}
 
     for ds, fields in data.items():
+        tmp = None
         try:
             out = {
                 "date":       ds,
@@ -74,13 +76,21 @@ def write(plugin, data: dict[str, dict],
                 out["aggregation"] = aggregation
 
             path = plugin.OUTPUT_DIR / f"{plugin.FILE_PREFIX}{ds}.json"
-            path.write_text(
+            tmp  = plugin.OUTPUT_DIR / f"{plugin.FILE_PREFIX}{ds}.tmp"
+            tmp.write_text(
                 json.dumps(out, ensure_ascii=False, indent=2),
                 encoding="utf-8"
             )
+            os.replace(tmp, path)
+            tmp = None
             written += 1
         except OSError as exc:
             log.warning(f"  context_writer: write failed {ds} — {exc}")
+            if tmp is not None:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
             failed += 1
 
     log.info(f"  context_writer [{plugin.NAME}]: written={written} failed={failed}")

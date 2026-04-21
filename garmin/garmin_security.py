@@ -29,6 +29,7 @@ No GUI logic. No direct calls to garmin_api or other project modules.
 import logging
 import os
 import shutil
+import time
 
 log = logging.getLogger(__name__)
 
@@ -88,14 +89,24 @@ def _derive_aes_key(enc_key: str, salt: bytes) -> bytes:
 
 
 def _clear_token_dir() -> None:
-    """Removes GARMIN_TOKEN_DIR and all contents (plaintext cleanup)."""
+    """Removes GARMIN_TOKEN_DIR and all contents (plaintext cleanup).
+
+    Retries up to 3 times with 200 ms delay — garminconnect may briefly
+    hold a file handle on garmin_tokens.json after login returns (WinError 5).
+    """
     import garmin_config as cfg
-    try:
-        if cfg.GARMIN_TOKEN_DIR.exists():
-            shutil.rmtree(cfg.GARMIN_TOKEN_DIR)
-            log.debug("  Token working dir removed")
-    except Exception as e:
-        log.warning(f"  Could not remove token working dir: {e}")
+    for attempt in range(3):
+        try:
+            if cfg.GARMIN_TOKEN_DIR.exists():
+                shutil.rmtree(cfg.GARMIN_TOKEN_DIR)
+                log.debug("  Token working dir removed")
+            return
+        except Exception as e:
+            if attempt < 2:
+                log.debug(f"  Token dir removal attempt {attempt + 1} failed — retrying: {e}")
+                time.sleep(0.2)
+            else:
+                log.warning(f"  Could not remove token working dir: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

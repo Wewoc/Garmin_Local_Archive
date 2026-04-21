@@ -2,6 +2,27 @@
 
 ---
 
+## v1.4.5 — Write Robustness + API Resilience
+
+**`garmin/garmin_writer.py`:**
+- `write_day()`: atomic writes via temp file + `os.replace()` — partial writes on crash no longer possible. Cleanup of temp files on failure.
+
+**`context/context_writer.py`:**
+- `write()`: atomic writes via temp file + `os.replace()` per day file.
+- `datetime.utcnow()` replaced with `datetime.now(timezone.utc)` — fixes Python 3.12 deprecation warning.
+
+**`garmin/garmin_security.py`:**
+- `_clear_token_dir()`: retry loop (3 attempts, 200 ms delay) — fixes intermittent WinError 5 when garminconnect briefly holds the token file handle after login.
+
+**`garmin_app.py` / `garmin_app_standalone.py`:**
+- Sync completion message changed from `✓ Done.` to `✓ Done. — please update context`.
+
+**`context/context_api.py`:**
+- `_fetch_chunk()`: retry with exponential backoff (3 attempts, 1s → 2s) — silent failures on HTTP 429/500 or unstable connections now logged and retried.
+- New module-level constants: `_RETRY_COUNT = 3`, `_RETRY_BACKOFF = 1.0`.
+
+---
+
 ## v1.4.4 — Token Path Fix (garmin_security lazy cfg)
 
 Root cause fix for token not being found after app start or Reset Token, causing

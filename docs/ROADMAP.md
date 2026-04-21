@@ -6,13 +6,15 @@
 
 ---
 
-**Currently stable — v1.4.4**
+**Currently stable — v1.4.5**
 
 ---
 
 ## Planned
 
-### v1.4.x — Dashboard Features
+---
+
+### v1.4.6 — Dashboard Features
 
 New functionality built on the clean v1.4.0 base:
 
@@ -71,6 +73,13 @@ Protection of the local archive against software errors and silent data loss —
 ### v1.5.1 — Content Validation
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
+
+---
+
+## Planned — v1.6
+
+- **Garmin FIT Pipeline & Plugin Architecture**
+The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
 
 ---
 

@@ -18,6 +18,7 @@ Public functions:
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import garmin_config as cfg
@@ -43,24 +44,42 @@ def write_day(normalized: dict, summary: dict, date_str: str) -> bool:
     -------
     bool — True if both files were written successfully, False on any error
     """
+    tmp_raw     = None
+    tmp_summary = None
     try:
         cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
         cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
 
         raw_path     = cfg.RAW_DIR     / f"garmin_raw_{date_str}.json"
         summary_path = cfg.SUMMARY_DIR / f"garmin_{date_str}.json"
+        tmp_raw      = cfg.RAW_DIR     / f"garmin_raw_{date_str}.tmp"
+        tmp_summary  = cfg.SUMMARY_DIR / f"garmin_{date_str}.tmp"
 
-        with open(raw_path, "w", encoding="utf-8") as f:
-            json.dump(normalized, f, ensure_ascii=False, indent=2)
+        tmp_raw.write_text(
+            json.dumps(normalized, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        tmp_summary.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
 
-        with open(summary_path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_raw, raw_path)
+        tmp_raw = None
+        os.replace(tmp_summary, summary_path)
+        tmp_summary = None
 
         log.debug(f"  Writer: raw + summary written for {date_str}")
         return True
 
     except Exception as e:
         log.error(f"  Writer: failed to write {date_str}: {e}")
+        for tmp in (tmp_raw, tmp_summary):
+            if tmp is not None:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
         return False
 
 

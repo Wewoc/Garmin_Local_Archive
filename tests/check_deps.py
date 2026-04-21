@@ -50,6 +50,11 @@ GITHUB_REPOS = [
         "type":  "sentinel",
         "label": "garmin-auth (OAuth/token self-healing sentinel)",
     },
+    {
+        "repo":  "arpanghosh8453/garmin-grafana",
+        "type":  "sentinel",
+        "label": "garmin-grafana (high-traffic ecosystem sentinel)",
+    },
 ]
 
 # How many days back to consider "recent"

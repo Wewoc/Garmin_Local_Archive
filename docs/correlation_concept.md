@@ -1,4 +1,4 @@
-![Garmin Local Archive](screenshots/Banner.png)
+![Garmin Local Archive](../screenshots/Banner.png)
 
 ```
 <!--
@@ -14,6 +14,7 @@ If used in research or publications, please cite as:
   https://github.com/Wewoc/Garmin_Local_Archive
 -->
 ```
+
 
  Garmin Local Archive — Correlation Engine ✨
 
