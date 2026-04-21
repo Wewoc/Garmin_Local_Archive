@@ -1,3 +1,5 @@
+![Garmin Local Archive](../screenshots/Banner2.png)
+
 # Garmin Local Archive
 
 Archive and analyze your Garmin Connect data **locally on your machine** — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
