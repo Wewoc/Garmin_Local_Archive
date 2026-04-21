@@ -1,5 +1,5 @@
-![Garmin Local Archive](screenshots/Banner.png)
-
+![Garmin Local Archive]
+(../screenshots/
 ```
 <!--
 © 2026 Wewoc
