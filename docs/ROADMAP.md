@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.4.4**
+**Currently stable — v1.4.5**
 
 ---
 
@@ -14,23 +14,7 @@
 
 ---
 
-### v1.4.x — Write Robustness
-
-Two findings from a multi-LLM architectural review (Gemini / Claude cross-validation):
-
-- **Atomic writes** — `garmin_writer.py` and `context_writer.py` currently write
-  files directly. If the process crashes between the raw and summary write, the
-  archive is left in an inconsistent state. Both writers should write to a
-  temporary file first and finalize with `os.replace()` — guaranteeing that
-  either both files land cleanly or neither does.
-- **`utcnow()` deprecation** — `context_writer.py` uses `datetime.utcnow()`,
-  deprecated since Python 3.12. Replace with `datetime.now(timezone.utc)`.
-
-Both are small, isolated fixes with no cross-module dependencies.
-
----
-
-### v1.4.x — Dashboard Features
+### v1.4.6 — Dashboard Features
 
 New functionality built on the clean v1.4.0 base:
 
@@ -89,6 +73,13 @@ Protection of the local archive against software errors and silent data loss —
 ### v1.5.1 — Content Validation
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
+
+---
+
+## Planned — v1.6
+
+- **Garmin FIT Pipeline & Plugin Architecture**
+The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
 
 ---
 
