@@ -194,7 +194,7 @@ class _QueueHandler(logging.Handler):
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
-APP_VERSION = "v1.4.4"
+APP_VERSION = "v1.4.5"
 
 BG        = "#1a1a2e"
 BG2       = "#16213e"
@@ -1161,7 +1161,7 @@ class GarminApp(tk.Tk):
                 if stopped:
                     q.put("✗ Stopped by user.")
                 elif success:
-                    q.put("✓ Done.")
+                    q.put("✓ Done. — please update context")
                     if on_success:
                         self.after(0, on_success)
 

@@ -46,8 +46,6 @@ The AI itself is not included. How to set one up is explained in the local AI gu
 
 I can't write Python. The architecture, module boundaries, and decisions are mine. Every line of code is Claude's.
 
-It escalated: 30 days, 214 commits, 20 releases.
-
 ![Human-AI Collaboration Flowchart](screenshots/flowchart.png)
 
 *→ How this collaboration actually worked — who had which idea, where Claude was wrong — is documented in [MINDSET.md](docs/MINDSET.md).*

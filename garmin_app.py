@@ -167,7 +167,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.4"
+APP_VERSION = "v1.4.5"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -1123,7 +1123,7 @@ class GarminApp(tk.Tk):
                 proc.wait()
 
                 if proc.returncode == 0:
-                    self.after(0, self._log, "✓ Done.")
+                    self.after(0, self._log, "✓ Done. — please update context")
                     if on_success:
                         self.after(0, on_success)
                 elif not self._stopped_by_user:
