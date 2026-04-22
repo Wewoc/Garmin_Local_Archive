@@ -609,6 +609,30 @@ check("health build no hrv: field absent or value None",
     json.dumps(_SUMMARY), encoding="utf-8"
 )
 
+# Flag guard: sleep_duration = 0.0 → val must be None in days
+_summary_zero_sleep = {**_SUMMARY, "sleep": {**_SUMMARY["sleep"], "duration_h": 0.0}}
+(_sum_dir / f"garmin_{_TEST_DATE}.json").write_text(
+    json.dumps(_summary_zero_sleep), encoding="utf-8"
+)
+importlib.reload(cfg)
+_hdata_zero_sleep = _health_mod.build(_TEST_DATE, _TEST_DATE, _settings)
+_sleep_field = next((f for f in _hdata_zero_sleep["fields"] if f["field"] == "sleep_duration"), None)
+check("flag guard: sleep_duration 0.0 → val is None",
+      _sleep_field is not None and _sleep_field["days"][0]["value"] is None)
+
+# Auto-size: date_from before any data → d_from adjusted, subtitle contains 'adjusted'
+_early_date = "2000-01-01"
+importlib.reload(cfg)
+_hdata_autosize = _health_mod.build(_early_date, _TEST_DATE, _settings)
+check("auto-size: subtitle present",               "subtitle" in _hdata_autosize)
+check("auto-size: subtitle shows adjusted range",  "adjusted" in _hdata_autosize.get("subtitle", ""))
+
+# Isolation: Original-Summary wiederherstellen
+(_sum_dir / f"garmin_{_TEST_DATE}.json").write_text(
+    json.dumps(_SUMMARY), encoding="utf-8"
+)
+importlib.reload(cfg)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  11. overview_garmin specialist — build() + excel render
