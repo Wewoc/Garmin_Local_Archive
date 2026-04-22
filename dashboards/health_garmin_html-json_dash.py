@@ -25,6 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from maps.field_map import get as field_get
+from layouts.reference_ranges import fitness_level as _fitness_level
+from layouts.reference_ranges import reference_ranges as _reference_ranges
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -35,8 +37,9 @@ META = {
     "description": "HRV, Resting HR, SpO2, Sleep, Body Battery, Stress — baseline + reference ranges",
     "source":      "Garmin summary/",
     "formats": {
-        "html": "health_garmin.html",
-        "json": "health_garmin.json",
+        "html":        "health_garmin.html",
+        "json":        "health_garmin.json",
+        "html_mobile": "health_garmin_mobile.html",
     },
 }
 
@@ -51,67 +54,6 @@ _FIELDS = [
     {"field": "body_battery_max",  "label": "Body Battery", "unit": "level", "higher_better": True},
     {"field": "stress_avg",        "label": "Stress",       "unit": "level", "higher_better": False},
 ]
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Reference ranges
-#  Sources: AHA, ACSM, Garmin/Firstbeat HRV whitepapers, WHO SpO2 guidelines
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _fitness_level(age: int, sex: str, vo2max: float) -> str:
-    if sex == "male":
-        if age < 30:
-            return "superior" if vo2max >= 55 else "excellent" if vo2max >= 48 else "good" if vo2max >= 42 else "fair" if vo2max >= 36 else "poor"
-        elif age < 40:
-            return "superior" if vo2max >= 53 else "excellent" if vo2max >= 46 else "good" if vo2max >= 40 else "fair" if vo2max >= 34 else "poor"
-        elif age < 50:
-            return "superior" if vo2max >= 50 else "excellent" if vo2max >= 43 else "good" if vo2max >= 37 else "fair" if vo2max >= 31 else "poor"
-        else:
-            return "superior" if vo2max >= 46 else "excellent" if vo2max >= 39 else "good" if vo2max >= 33 else "fair" if vo2max >= 27 else "poor"
-    else:
-        if age < 30:
-            return "superior" if vo2max >= 49 else "excellent" if vo2max >= 43 else "good" if vo2max >= 37 else "fair" if vo2max >= 31 else "poor"
-        elif age < 40:
-            return "superior" if vo2max >= 47 else "excellent" if vo2max >= 41 else "good" if vo2max >= 35 else "fair" if vo2max >= 29 else "poor"
-        elif age < 50:
-            return "superior" if vo2max >= 44 else "excellent" if vo2max >= 38 else "good" if vo2max >= 32 else "fair" if vo2max >= 26 else "poor"
-        else:
-            return "superior" if vo2max >= 41 else "excellent" if vo2max >= 35 else "good" if vo2max >= 29 else "fair" if vo2max >= 23 else "poor"
-
-
-def _reference_ranges(age: int, sex: str, fitness: str) -> dict:
-    bonus = {"superior": 15, "excellent": 10, "good": 5, "average": 0, "fair": -5, "poor": -10}.get(fitness, 0)
-    if age < 30:
-        hrv = (50 + bonus, 100 + bonus)
-    elif age < 40:
-        hrv = (40 + bonus, 85 + bonus)
-    elif age < 50:
-        hrv = (32 + bonus, 72 + bonus)
-    elif age < 60:
-        hrv = (25 + bonus, 62 + bonus)
-    else:
-        hrv = (18 + bonus, 50 + bonus)
-    if sex == "female":
-        hrv = (hrv[0] - 3, hrv[1] - 3)
-
-    if fitness in ("superior", "excellent"):
-        hr = (40, 60)
-    elif fitness == "good":
-        hr = (50, 65)
-    else:
-        hr = (55, 75) if age < 50 else (58, 78)
-
-    sleep = (7.0, 8.0) if age >= 65 else (7.0, 9.0)
-
-    return {
-        "hrv_last_night":    hrv,
-        "resting_heart_rate": hr,
-        "spo2_avg":          (95, 100),
-        "sleep_duration":    sleep,
-        "body_battery_max":  (50, 100),
-        "stress_avg":        (0, 50),
-    }
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Rolling baseline
@@ -200,12 +142,30 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     fitness = _fitness_level(age, sex, vo2max) if vo2max is not None else "average"
     refs    = _reference_ranges(age, sex, fitness)
 
+    # Auto-size: determine actual data boundaries across all fields
+    all_dates_with_data = set()
+    for field_values in raw.values():
+        for ds, v in field_values.items():
+            if v is not None and ds >= date_from and ds <= date_to:
+                all_dates_with_data.add(ds)
+
+    adjusted_from = None
+    adjusted_to   = None
+    if all_dates_with_data:
+        actual_first = min(all_dates_with_data)
+        actual_last  = max(all_dates_with_data)
+        if actual_first > date_from:
+            adjusted_from = date_from
+            d_from        = date.fromisoformat(actual_first)
+        if actual_last < date_to:
+            adjusted_to = date_to
+            d_to        = date.fromisoformat(actual_last)
+
     # Build display date range
     display_dates = [
         (d_from + timedelta(days=i)).isoformat()
         for i in range((d_to - d_from).days + 1)
     ]
-
     fields_out = []
     for f in _FIELDS:
         field        = f["field"]
@@ -220,6 +180,9 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
 
         for ds in display_dates:
             val      = values.get(ds)
+            # sleep_duration: 0.0 means no sleep recorded — treat as missing
+            if field == "sleep_duration" and val == 0.0:
+                val = None
             baseline = _rolling_avg(values, date.fromisoformat(ds), BASELINE_DAYS)
             status   = None
             if val is not None:
@@ -253,7 +216,10 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
 
     return {
         "title":           "Garmin Health Analysis",
-        "subtitle":        f"{date_from} \u2192 {date_to} \u00b7 90-day baseline \u00b7 Age/fitness-adjusted ranges",
+        "subtitle":        (
+            f"{d_from.isoformat()} \u2192 {d_to.isoformat()} \u00b7 90-day baseline \u00b7 Age/fitness-adjusted ranges"
+            + (f" \u00b7 adjusted to available data (requested: {adjusted_from} \u2192 {adjusted_to or date_to})" if adjusted_from or adjusted_to else "")
+        ),
         "date_from":       date_from,
         "date_to":         date_to,
         "prompt_template": "health_analysis",
