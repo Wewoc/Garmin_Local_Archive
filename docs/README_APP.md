@@ -1,14 +1,18 @@
-# Garmin Local Archive — Desktop App (Standard) v1.4.5
-
-## What this is
-
-`Garmin_Local_Archive.exe` is a desktop launcher for all Garmin Local Archive scripts.
-No terminal, no text editor — configure everything in the UI and click to run.
-
-**This version requires Python to be installed on your machine.**
-If you don't have Python or don't want to install it, use the Standalone version instead — see `README_APP_Standalone.md`.
+# Garmin Local Archive — Desktop App v1.4.6
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
+
+**Two versions are available:**
+
+| | Standard | Standalone |
+|---|---|---|
+| Python required | Yes | No |
+| `scripts/` folder needed | Yes | No |
+| First launch speed | Normal | Slightly slower (first run only) |
+| Stop button behaviour | Immediate process kill | Stops after current day finishes |
+| Recommended for | Users who already have Python | Anyone |
+
+---
 
 ## Project status & disclaimer
 
@@ -27,9 +31,13 @@ Garmin Connect is still required — the app pulls data from there via API. This
 
 ## First-time setup
 
-### Step 1 — Extract the ZIP
+> Windows may show a security warning ("Windows protected your PC") for either version. Click **More info** → **Run anyway**. This happens because the .exe is not code-signed. The source code is open at github.com/Wewoc/Garmin_Local_Archive — you can review it before running.
 
-Download `Garmin_Local_Archive.zip` and extract it. The folder must contain:
+### Standard version (`Garmin_Local_Archive.zip`)
+
+**Step 1 — Extract the ZIP**
+
+Download and extract. The folder must contain:
 
 ```
 Garmin_Local_Archive.exe     ← double-click to launch
@@ -39,7 +47,7 @@ info/                        ← documentation (optional)
 
 > `scripts/` is required. Without it no buttons will work.
 
-### Step 2 — Install Python and dependencies
+**Step 2 — Install Python and dependencies**
 
 1. Download Python 3.10 or newer from https://www.python.org/downloads/
 2. Run the installer — tick **"Add Python to PATH"**
@@ -49,21 +57,42 @@ info/                        ← documentation (optional)
 pip install garminconnect openpyxl keyring
 ```
 
-### Step 3 — Run the app
+**Step 3 — Run the app**
 
 Double-click `Garmin_Local_Archive.exe`.
 
-> Windows may show a security warning ("Windows protected your PC"). Click **More info** → **Run anyway**. This happens because the .exe is not code-signed. The source code is open — you can review it before running.
+---
 
-### Step 4 — Fill in your settings
+### Standalone version (`Garmin_Local_Archive_Standalone.zip`)
+
+**Step 1 — Extract the ZIP**
+
+Download and extract. The folder contains:
+
+```
+Garmin_Local_Archive_Standalone.exe     ← double-click to launch
+info/                                   ← documentation (optional)
+```
+
+No `scripts/` folder needed — everything is embedded inside the `.exe`.
+
+**Step 2 — Run the app**
+
+Double-click `Garmin_Local_Archive_Standalone.exe`.
+
+> The first launch may take a few seconds longer than usual. Windows Defender and other antivirus software sometimes scan self-contained executables on first run. This is normal.
+
+---
+
+## Settings
 
 Left panel:
 - **Email** — your Garmin Connect login email
 - **Password** — your Garmin Connect password (stored securely in the Windows Credential Manager, never written to disk as plain text)
 - **Data folder** — where to store data (e.g. `C:\Users\YourName\local_archive`)
 - **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history (everything since your oldest device — can take hours, **not recommended**, rate limit risk, use Bulk Import instead)
-- **Export date range** — used by all export scripts. Leave empty to use the oldest/newest file in your archive automatically
-- **Age / Sex** — used by the Analysis Dashboard for reference ranges
+- **Export date range** — used by all dashboards. Leave empty to use the oldest/newest file in your archive automatically
+- **Age / Sex** — used by the Health Analysis dashboard for reference ranges
 
 Click **Save Settings** — settings are remembered between sessions.
 
@@ -96,9 +125,10 @@ Click the button to open a preview popup showing exactly which files will be del
 Use this to clean up files created accidentally by entering a date that is too early in range mode. The `first_day` anchor is detected automatically on first run and stored in `log/quality_log.json`. If the popup reports "nothing to clean", your archive is already consistent.
 
 ### Sync Data / Stop
-Downloads missing days from Garmin Connect. Watch the log at the bottom for progress.
-First run may take a while depending on how far back you go.
-Click **Stop** to cancel a running sync at any time.
+Downloads missing days from Garmin Connect. Watch the log at the bottom for progress. First run may take a while depending on how far back you go.
+
+> **Standard:** Click **Stop** to cancel a running sync immediately.
+> **Standalone:** Click **Stop** to cancel — the current day finishes saving before stopping.
 
 If there are days with failed or incomplete downloads in the selected sync range, a popup will appear before the sync starts: **"Incomplete records found: X days in the selected range — Refresh now?"** Click **Yes** to re-fetch those days, or **No** to skip them and sync normally.
 
@@ -116,9 +146,9 @@ Imported days land in `raw/` and `summary/` alongside API data. Days already pre
 
 ### Sync Context / CSV
 
-Downloads weather and pollen data for your full archive date range from [Open-Meteo](https://open-meteo.com/) — free, no account required. This data is used by the **Health + Context** dashboard to correlate Garmin metrics (e.g. HRV, resting heart rate) with environmental conditions.
+Downloads weather and pollen data for your full archive date range from [Open-Meteo](https://open-meteo.com/) — free, no account required. This data is used by the **Health + Context** and **Sleep & Recovery** dashboards to correlate Garmin metrics with environmental conditions.
 
-**Setting your location:** Settings → CONTEXT → paste a Google Maps URL → click **📍 Set Location**. The app extracts latitude and longitude automatically and shows them next to the button. To get a URL: open Google Maps, navigate to your location, and copy the URL from the address bar.
+**Setting your location:** Settings → CONTEXT → paste a Google Maps URL → click **📍 Set Location**. The app extracts latitude and longitude automatically. To get a URL: open Google Maps, navigate to your location, and copy the URL from the address bar.
 
 **CSV button:** Opens `local_config.csv` directly in Excel. This file lets you define different coordinates for specific date ranges — useful if you travel or have relocated. It is created automatically on first Sync Context. For a fixed home location, the Settings entry is sufficient.
 
@@ -147,21 +177,24 @@ The timer runs its own connection test before the first sync. If successful, the
 ### Berichte erstellen
 Opens a popup with all available dashboards and their output formats. Select any combination of dashboards and formats, then click **Erstellen**.
 
-| Dashboard | HTML | Excel | JSON |
-|---|---|---|---|
-| Timeseries | ✓ | ✓ | — |
-| Health Analysis | ✓ | — | ✓ |
-| Daily Overview | — | ✓ | — |
-| Health + Context | ✓ | ✓ | — |
-| Sleep & Recovery | ✓ | — | — |
+| Dashboard | HTML | Mobile HTML | Excel | JSON |
+|---|---|---|---|---|
+| Timeseries | ✓ | — | ✓ | — |
+| Health Analysis | ✓ | ✓ | — | ✓ |
+| Daily Overview | — | — | ✓ | — |
+| Health + Context | ✓ | — | ✓ | — |
+| Sleep & Recovery | ✓ | — | — | — |
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
 
 The **Health Analysis JSON** includes a ready-to-use Markdown start prompt (`health_garmin_prompt.md`) for Open WebUI / Ollama — load it as the system prompt for AI-assisted interpretation.
 
-The **Sleep & Recovery** dashboard shows HRV, Body Battery, and Sleep duration alongside sleep phase composition (Deep / Light / REM / Awake as %) and weather/pollen context. Tab 1 covers the full date range. Tab 2 shows intraday detail (heart rate, stress, body battery, respiration) for any selected day.
+The **Health Analysis Mobile HTML** is optimised for landscape phone viewing — all metrics on one scrollable page, global range dropdown (calendar weeks, months, fixed ranges) controls all charts at once. Copy it to OneDrive or Google Drive to open on your phone.
+
+The **Sleep & Recovery** dashboard shows HRV, Body Battery, and Sleep duration alongside sleep phase composition (Deep / Light / REM / Awake as %) and weather/pollen context. Tab 1 covers the full date range. Tab 2 shows intraday detail for any selected day.
 
 > Reference ranges (Health Analysis) are based on published guidelines (AHA, ACSM, Garmin/Firstbeat) — informational only, not medical advice.
+> Dashboard values from consumer wearables are indicative only — not medical-grade.
 
 ### Log: Simple / Log: Detailed
 Toggles the log output level in the GUI. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.
@@ -174,7 +207,11 @@ Session log files (in `log/recent/` and `log/fail/`) always record at full detai
 Opens your data folder in Windows Explorer.
 
 ### Copy Last Error Log
-Copies the contents of the most recent error log from `log/fail/` to your clipboard — ready to paste into a GitHub issue or support chat. If no error logs exist, a message appears in the log area instead.
+Copies the contents of the most recent error log from `log/fail/` to your clipboard — ready to paste into a GitHub issue or support chat.
+
+> **Standalone:** Since there is no terminal, this is the primary way to retrieve diagnostic information when something goes wrong.
+
+If no error logs exist, a message appears in the log area instead.
 
 ---
 
@@ -190,7 +227,7 @@ local_archive/
        └── fail/      – sessions with errors or incomplete days (kept permanently)
 ```
 
-Manual sync sessions are named `garmin_YYYY-MM-DD_HHMMSS.log`. Background timer sessions are named `garmin_background_YYYY-MM-DD_HHMMSS.log` — the prefix makes the source immediately identifiable in `log/fail/`.
+Manual sync sessions are named `garmin_YYYY-MM-DD_HHMMSS.log`. Background timer sessions are named `garmin_background_YYYY-MM-DD_HHMMSS.log`.
 
 These are plain text files — open them in any text editor if you need to diagnose a problem.
 
@@ -222,22 +259,17 @@ Delete this file to reset all settings to defaults. The password must be cleared
 
 ## Building from source
 
-To rebuild after modifying scripts:
+> **Standard version only.**
 
-1. Place `build.py`, `build_standalone.py`, and all `garmin_*.py` scripts in the same folder
-2. Run:
+To rebuild after modifying scripts:
 
 ```bash
 python build.py
 ```
 
-`build.py` will automatically:
-- Install PyInstaller and keyring if missing
-- Move scripts to `scripts/` and docs to `info/`
-- Build `Garmin_Local_Archive.exe`
-- Create `Garmin_Local_Archive.zip` ready for distribution
+`build.py` will automatically install PyInstaller if missing, move scripts to `scripts/` and docs to `info/`, build the EXE, and create a ZIP ready for distribution.
 
-To build the Standalone version instead:
+To build the Standalone version:
 
 ```bash
 python build_standalone.py
@@ -247,16 +279,29 @@ python build_standalone.py
 
 ## Troubleshooting
 
-**App doesn't start** — make sure the `scripts/` folder is in the same folder as the `.exe` and contains all `garmin_*.py` files.
+**App doesn't start**
 
-**Script not found error** — a `garmin_*.py` file is missing from `scripts/`. Check all files are present.
+> **Standard:** Make sure the `scripts/` folder is in the same folder as the `.exe` and contains all required files.
+> **Standalone:** Open a terminal, navigate to the folder, and run the `.exe` directly to see the error output:
+> ```
+> cd C:\path\to\folder
+> Garmin_Local_Archive_Standalone.exe
+> ```
 
-**Login fails** — if Garmin requires MFA, the app will show a code input popup automatically. Enter the code from your Garmin app or authenticator. If login still fails, run `garmin_collector.py` directly in a terminal once to complete any captcha verification, then use the app normally.
+**Login fails** — if Garmin requires MFA, the app will show a code input popup automatically. Enter the code from your Garmin app or authenticator.
 
-**Log shows errors but no data** — check your email/password in Settings and make sure the data folder path is valid.
+> **Standalone:** If login fails due to captcha or browser verification, download the Standard version, install Python, and run `garmin_collector.py` once in a terminal to complete verification. After that the Standalone version will work normally using the saved session.
 
-**Password not saved between sessions** — click Save Settings after entering your password. If keyring is unavailable, install it: `pip install keyring`.
+**Log shows errors but no data** — check your email/password in Settings and make sure the data folder path is valid and writable.
+
+**Password not saved between sessions** — click Save Settings after entering your password.
+
+> **Standard:** If keyring is unavailable: `pip install keyring`.
 
 **Stress / Body Battery missing from Excel or dashboard** — run `regenerate_summaries.py` once to rebuild all summary files from raw data.
 
-**Background timer flags days as `low` after fetching them** — this is expected behaviour. The timer fetches days that are missing in your archive. For old dates (typically before 2022), Garmin returns little or no data via the API — either because intraday data has been degraded over time, or because the watch was not worn on those days (repair, sent in for service, device gap between two watches). A day with no device produces a null response from Garmin and is not included in the GDPR export — `low` is the correct assessment for that. The timer will retry up to 3 times, then stop automatically and never touch those days again.
+> **Standalone:** Click the Analysis Dashboard once — this regenerates summaries from raw data automatically.
+
+**Background timer flags days as `low` after fetching them** — this is expected behaviour. For old dates (typically before 2022), Garmin returns little or no data via the API — either because intraday data has been degraded over time, or because the watch was not worn on those days. A day with no device produces a null response from Garmin and is not included in the GDPR export — `low` is the correct assessment. The timer will retry up to 3 times, then stop automatically and never touch those days again.
+
+**Antivirus flags the EXE** — this is a false positive common with PyInstaller-built executables. The source code is fully open at github.com/Wewoc/Garmin_Local_Archive. You can whitelist the file in your antivirus settings or build the EXE yourself from source.

@@ -82,8 +82,30 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
             "values": {col["field"]: field_values[col["field"]].get(ds) for col in _COLUMNS},
         })
 
+    # Auto-size: determine actual data boundaries
+    adjusted_from = None
+    adjusted_to   = None
+    if all_dates:
+        actual_first = min(all_dates)
+        actual_last  = max(all_dates)
+        if actual_first > date_from:
+            adjusted_from = date_from
+        if actual_last < date_to:
+            adjusted_to = date_to
+
+    subtitle = f"{date_from} \u2192 {date_to}"
+    if adjusted_from or adjusted_to:
+        actual_first = min(all_dates) if all_dates else date_from
+        actual_last  = max(all_dates) if all_dates else date_to
+        subtitle = (
+            f"{actual_first} \u2192 {actual_last}"
+            f" \u00b7 adjusted to available data"
+            f" (requested: {adjusted_from or date_from} \u2192 {adjusted_to or date_to})"
+        )
+
     return {
         "title":    "Garmin Daily Overview",
+        "subtitle": subtitle,
         "date_from": date_from,
         "date_to":   date_to,
         "columns":  _COLUMNS,

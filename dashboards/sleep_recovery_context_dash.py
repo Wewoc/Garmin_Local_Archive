@@ -26,6 +26,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from maps.field_map   import get as field_get
 from maps.context_map import get as context_get
+from layouts.reference_ranges import fitness_level as _fitness_level
+from layouts.reference_ranges import reference_ranges as _reference_ranges
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -117,7 +119,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     Args:
         date_from: Start date ISO string (YYYY-MM-DD), inclusive.
         date_to:   End date ISO string (YYYY-MM-DD), inclusive.
-        settings:  Settings dict from GUI (unused here, reserved).
+        settings:  Settings dict from GUI — reads age, sex, vo2max.
 
     Returns:
         {
@@ -154,6 +156,18 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         }
     """
 
+    # ── Profile + reference ranges ────────────────────────────────────────────
+    age     = int(settings.get("age") or 35)
+    sex     = settings.get("sex") or "male"
+    vo2max  = None
+    result_vo2 = field_get("vo2max", date_from, date_to, resolution="daily")
+    for entry in reversed(result_vo2.get("garmin", {}).get("values", [])):
+        if entry["value"] is not None:
+            vo2max = entry["value"]
+            break
+    fitness = _fitness_level(age, sex, vo2max) if vo2max is not None else "average"
+    refs    = _reference_ranges(age, sex, fitness)
+
     # ── Fetch daily Garmin fields ─────────────────────────────────────────────
     daily_raw = {}
     for f in _DAILY_FIELDS:
@@ -185,6 +199,23 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         for d in src.keys()
     ))
 
+    # ── Status per day — for flagged marker in plotter ────────────────────────
+    ref_hrv_low,  ref_hrv_high  = refs["hrv_last_night"]
+    ref_bb_low,   ref_bb_high   = refs["body_battery_max"]
+    ref_slp_low,  ref_slp_high  = refs["sleep_duration"]
+
+    def _status_hrv(v):
+        if v is None: return None
+        return "low" if v < ref_hrv_low else "ok"
+
+    def _status_bb(v):
+        if v is None: return None
+        return "low" if v < ref_bb_low else "ok"
+
+    def _status_sleep(v):
+        if v is None or v == 0.0: return None
+        return "low" if v < ref_slp_low else "high" if v > ref_slp_high else "ok"
+
     # ── Build daily output ────────────────────────────────────────────────────
     daily_out = {
         "dates":        all_dates,
@@ -193,6 +224,9 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         "sleep_h":      [daily_raw["sleep_h"].get(d)      for d in all_dates],
         "temperature":  [context_raw["temperature"].get(d) for d in all_dates],
         "pollen":       [context_raw["pollen"].get(d)      for d in all_dates],
+        "hrv_status":          [_status_hrv(daily_raw["hrv"].get(d))          for d in all_dates],
+        "body_battery_status": [_status_bb(daily_raw["body_battery"].get(d))  for d in all_dates],
+        "sleep_status":        [_status_sleep(daily_raw["sleep_h"].get(d))    for d in all_dates],
         "sleep_phases": [
             {
                 "date":  d,
@@ -222,9 +256,38 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         )
         if has_data:
             intraday_out[d] = day
+    # Auto-size: determine actual data boundaries from Garmin fields only
+    garmin_dates = set(
+        d
+        for src in list(daily_raw.values()) + list(phase_raw.values())
+        for d, v in src.items()
+        if v is not None
+    )
+
+    adjusted_from = None
+    adjusted_to   = None
+    if garmin_dates:
+        actual_first = min(garmin_dates)
+        actual_last  = max(garmin_dates)
+        if actual_first > date_from:
+            adjusted_from = date_from
+        if actual_last < date_to:
+            adjusted_to = date_to
+
+    subtitle = f"{date_from} \u2192 {date_to} \u00b7 HRV \u00b7 Body Battery \u00b7 Sleep phases \u00b7 Context"
+    if adjusted_from or adjusted_to:
+        actual_first = min(garmin_dates)
+        actual_last  = max(garmin_dates)
+        subtitle = (
+            f"{actual_first} \u2192 {actual_last}"
+            f" \u00b7 HRV \u00b7 Body Battery \u00b7 Sleep phases \u00b7 Context"
+            f" \u00b7 adjusted to available data"
+            f" (requested: {adjusted_from or date_from} \u2192 {adjusted_to or date_to})"
+        )
+
     return {
         "title":    "Sleep & Recovery Context",
-        "subtitle": f"{date_from} \u2192 {date_to} \u00b7 HRV \u00b7 Body Battery \u00b7 Sleep phases \u00b7 Context",
+        "subtitle": subtitle,
         "date_from": date_from,
         "date_to":   date_to,
         "daily":    daily_out,

@@ -44,6 +44,7 @@ def _load_plotters() -> dict:
     plotter_map = {
         "html":         "dash_plotter_html",
         "html_complex": "dash_plotter_html_complex",
+        "html_mobile":  "dash_plotter_html_mobile",
         "excel":        "dash_plotter_excel",
         "json":         "dash_plotter_json",
         "pdf":          "dash_plotter_pdf",
@@ -81,7 +82,11 @@ def _load_specialist(path: Path):
 
 def display_label(fmt: str) -> str:
     """Return human-readable format label for GUI display."""
-    return "html" if fmt == "html_complex" else fmt
+    if fmt == "html_complex":
+        return "html"
+    if fmt == "html_mobile":
+        return "mobile"
+    return fmt
 
 
 def scan() -> list[dict]:

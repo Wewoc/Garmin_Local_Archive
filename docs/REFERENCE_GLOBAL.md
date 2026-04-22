@@ -146,20 +146,24 @@ All modules import via `import garmin_config as cfg`.
 │   ├── dash_layout_html.py
 │   ├── dash_plotter_html.py
 │   ├── dash_plotter_html_complex.py
+│   ├── dash_plotter_html_mobile.py
 │   ├── dash_plotter_excel.py
 │   ├── dash_plotter_json.py
-│   └── dash_prompt_templates.py
+│   ├── dash_prompt_templates.py
+│   └── reference_ranges.py
 │
-├── export/                     ← Legacy scripts — kept for 
+├── export/                     ← Legacy scripts — kept for reference
 │   └── regenerate_summaries.py
 │
 ├── docs/                       ← Documentation
 │   ├── REFERENCE_GLOBAL.md     ← this file
 │   ├── REFERENCE_GARMIN.md
 │   ├── REFERENCE_CONTEXT.md
+│   ├── REFERENCE_DASHBOARD.md
 │   ├── MAINTENANCE_GLOBAL.md
 │   ├── MAINTENANCE_GARMIN.md
 │   ├── MAINTENANCE_CONTEXT.md
+│   ├── MAINTENANCE_DASHBOARD.md
 │   ├── CHANGELOG.md
 │   ├── ROADMAP.md
 │   ├── CONCEPT_V1-4.md
@@ -168,7 +172,7 @@ All modules import via `import garmin_config as cfg`.
 └── tests/
     ├── test_local.py           ← Garmin pipeline (218 checks)
     ├── test_local_context.py   ← Context pipeline (134 checks)
-    ├── test_dashboard.py       ← Dashboard pipeline (211 checks)
+    ├── test_dashboard.py       ← Dashboard pipeline (214 checks)
     ├── test_app_logic.py       ← App layer (80 checks)
     └── test_build_output.py    ← Build output validation (8 sections)
 ```

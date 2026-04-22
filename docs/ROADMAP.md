@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.4.5**
+**Currently stable — v1.4.6**
 
 ---
 
@@ -14,25 +14,148 @@
 
 ---
 
-### v1.4.6 — Dashboard Features
+### v1.4.7 — Daily Sync (Automated Daily Workflow)
 
-New functionality built on the clean v1.4.0 base:
+Automated daily workflow as a standalone tool — no GUI, no manual interaction.
+After initial setup in the desktop app, `daily_update` becomes the only daily
+touchpoint with the system.
 
-- **Smart Regeneration** — auto-detect summaries generated with an older
-  `schema_version` and re-run `summarize()` on the corresponding raw files
-  without hitting the Garmin API. Extends `regenerate_summaries.py`.
-- **Auto-size dashboards** — if the requested date range exceeds available
-  data, the dashboard adjusts to the actual range with a note explaining why.
-- **Flagged Day Tooltips** — hovering over a flagged day marker shows the exact value and why it was flagged (above/below reference range, distance from baseline). Deferred from v1.3.3 — belongs in the dashboard refactor context.
-- **Flag guard** — suppress flagged day markers when underlying data is
-  absent or zero.
-- **Outlier / measurement error cleanup** — detect and visually mark obvious
-  outliers and likely sensor errors (e.g. HR spike during sleep).
-- **Responsive output** — dynamic resolution and layout adapting to the
-  display device (PC monitor vs. mobile).
-- **Measurement accuracy disclaimer** — note on each dashboard indicating
-  the typical accuracy range of consumer wearables under ideal conditions
-  (e.g. HR ±X%).
+#### What it does
+
+1. Call `garmin_collector` with date range: yesterday → yesterday
+2. Call `context_collector` with date range: yesterday → yesterday
+3. Call `dash_runner.build()` for all dashboards
+4. Close the console window if everything completed cleanly
+
+No new date logic, no new orchestration — existing collectors and runner
+are called with parameters. `daily_update` is a thin entry point, not a
+second orchestrator.
+
+#### Gap detection
+
+On each run `daily_update` checks the last successful sync date and acts
+accordingly:
+
+| Gap | Behaviour |
+|---|---|
+| ≤ 7 days | Closes the gap automatically — syncs all missing days |
+| > 7 days | Hard stop — "X days missing, please open the app to sync" |
+
+Keeps `daily_update` self-healing for normal interruptions (holiday,
+machine off) without replicating Background Timer logic or introducing
+a second orchestrator.
+
+#### Console behaviour
+
+| State | Behaviour |
+|---|---|
+| All OK | Console window closes automatically |
+| New version available | Window stays open — yellow notice |
+| Error | Window stays open — red notice |
+| Migration required | Window stays open — hard stop, open the app |
+| Settings missing | Window stays open — hard stop, open the app |
+
+No silent failures. The window closing is the success signal.
+
+Exit codes for Task Scheduler integration:
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Migration required |
+| 2 | Settings missing |
+| 3 | API / Sync error |
+| 4 | Dashboard error |
+
+#### Delivery per build target
+
+| Target | GUI | Daily Update |
+|---|---|---|
+| T1 — Dev/Scripts | `python garmin_app.py` | `python daily_update.py` or via `.bat` |
+| T2 — Standard EXE | `Garmin_Local_Archive.exe` | `daily_update.bat` (calls `python daily_update.py`) |
+| T3.1 — Standalone GUI | `Garmin_Local_Archive.exe` | — |
+| T3.2 — Standalone headless | — | `daily_update.exe` |
+
+T3.1 and T3.2 ship in the same ZIP — one download, both tools included.
+
+#### Shared config
+
+Both T3 executables read from the same `~/.garmin_archive_settings.json` and
+the same Windows Credential Manager entry. Configure once in T3.1 — T3.2 picks
+it up automatically. No duplicate setup.
+
+#### Onboarding flow
+
+```
+1. Open T3.1 — enter email, password, folder, location → Save Settings
+2. Run Bulk Import — full history
+3. Run Sync Garmin + Sync Context once manually — archive up to date
+4. Add daily_update.exe to Windows Task Scheduler → done
+```
+
+`daily_update` is step 4, not step 1. Running it before the app has been
+configured once results in a hard stop with a clear message including the
+expected settings file path and the name of the app to open.
+
+#### Logging
+
+Dedicated folder `BASE_DIR/log/daily/` — rolling 30 files, same mechanism
+as `log/recent/`.
+
+#### Task Scheduler setup notes (documentation)
+
+Three settings to document for users configuring Windows Task Scheduler:
+
+1. **"Run task as soon as possible after a scheduled start is missed"** — ensures the sync runs after waking from sleep even if the scheduled time was missed.
+2. **"Do not restart on failure"** — prevents a restart loop from flooding `log/daily/` with error files within minutes.
+3. **Run once daily, in the morning** — running more frequently than once per day is unnecessary and risks Garmin API rate limits (HTTP 429).
+
+These are documentation items only — no code changes required.
+
+A ready-to-import Task Scheduler XML template ships in `info/` (T2/T3)
+and `docs/` (T1) — users import it once into Windows Task Scheduler.
+
+**Auto-fill on Save Settings:** when the user clicks Save Settings in the
+app, the XML template is automatically updated with the correct absolute
+path to the `daily_update` entry point for that build target. No manual
+editing required.
+
+Path resolution uses the existing frozen-check pattern already used
+throughout the project:
+
+- T1 — `Path(__file__).parent / "docs"` → `daily_update.py`
+- T2/T3 — `Path(sys.executable).parent / "info"` → `daily_update.bat` / `daily_update.exe`
+
+`daily_update.py` lives in the project root alongside `garmin_app.py`.
+No T1 ZIP — T1 users work directly in the repo.
+
+#### Operational policy layer
+
+Gap rules, exit code mapping, and stop conditions currently live in
+`daily_update`. If GUI, Background Timer, and Daily Sync ever need to share
+the same operational rules, this logic moves to a dedicated `sync_policy.py`
+— consistent with the v2.0 global actor pattern (`sync.py`). No duplication,
+no divergence. Noted here as the natural migration path when the time comes.
+
+#### Build
+
+Two entry points, one build run, one output folder. `build_manifest.py` gets
+a second entry point definition. `build_standalone.py` builds both executables
+sequentially. No additional maintenance overhead — identical codebase,
+different packaging.
+
+#### Implementation note — ENV loading order (T3.2)
+
+T3.2 has no Python subprocess available — collector runs as a thread, not a
+child process. `garmin_config` reads `os.environ` at import time, not
+dynamically. This means ENVs must be set via `os.environ` *before*
+`garmin_config` is imported — exactly the pattern already used in
+`garmin_app_standalone.py` via `_apply_env()`.
+
+`daily_update` must follow this same pattern. Any deviation would silently
+use default config values instead of the user's settings — a classic silent
+failure. The `_apply_env()` implementation in `garmin_app_standalone.py` is
+the reference.
 
 ---
 
@@ -48,6 +171,8 @@ Focus on making the project easier to use, understand, and safer when used with 
 - **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
 - **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
 - **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
+- **README_APP consolidation — merge** `README_APP.md` and `README_APP_Standalone.md` into a single file with a small Standard/Standalone-specific block; ~80% of content is identical, two files create maintenance overhead (changes must be applied twice).
+- **Timer documentation — Background Timer** section in both READMEs documents only Repair + Fill; Quality mode (re-checks `low` days) is missing from user-facing docs.
 
 ---
 
@@ -93,6 +218,27 @@ Low priority — only relevant once API access is stable and the bulk import bac
 
 ---
 
+### Sync Mode "auto" — Deprecation Candidate
+
+Sync mode `auto` fetches the complete history from `first_day` to yesterday
+via the Garmin API. It was the original solution for building a full archive
+before Bulk Import existed.
+
+With the current toolset this use case is fully covered:
+
+| Task | Tool |
+|---|---|
+| Complete history | Bulk Import — faster, no 429 risk |
+| Gap repair | Background Timer |
+| Daily updates | Daily Sync (v1.4.5) |
+
+`auto` is no longer the recommended path for any standard workflow. It
+remains functional but is not actively promoted. Removal or explicit
+deprecation notice to be evaluated — not a priority while the mode causes
+no active harm.
+
+
+---
 
 ## Under consideration — v2.0
 
