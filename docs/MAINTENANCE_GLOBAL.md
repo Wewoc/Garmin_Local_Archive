@@ -182,9 +182,9 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 211 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 214 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
-Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`.
+Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
 ### Plotly local cache
 
@@ -308,8 +308,8 @@ List all new or changed dependencies explicitly:
 **Code:**
 - [ ] All new modules in `build_manifest.py` (`SHARED_SCRIPTS`)?
 - [ ] All new modules in README script table?
-- [ ] All new modules in REFERENCE (own file)?
-- [ ] All new modules in MAINTENANCE (project structure)?
+- [ ] All new modules in REFERENCE (own file or REFERENCE_DASHBOARD)?
+- [ ] All new modules in MAINTENANCE (project structure or MAINTENANCE_DASHBOARD)?
 
 **Documentation:**
 - [ ] All new ENV variables in REFERENCE_GLOBAL?

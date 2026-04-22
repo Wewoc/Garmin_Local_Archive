@@ -2,6 +2,55 @@
 
 ---
 
+## v1.4.6 — Dashboard Features
+
+**`dashboards/health_garmin_html-json_dash.py`:**
+- Auto-size: actual data boundaries determined across all fields. `d_from`/`d_to` adjusted if requested range exceeds available data. Subtitle shows adjusted range + original request.
+- Flag guard `sleep_duration`: `0.0h` treated as missing data (`val = None`) — Garmin delivers `0.0` when no sleep was recorded (device not worn).
+- Local `_fitness_level` / `_reference_ranges` replaced by import from `layouts/reference_ranges.py`.
+- New format target: `html_mobile` → `health_garmin_mobile.html`.
+
+**`dashboards/timeseries_garmin_html-xls_dash.py`:**
+- Auto-size: actual data boundaries determined from intraday timestamps. Subtitle shows adjusted range if applicable.
+
+**`dashboards/health_garmin-weather-pollen_html-xls_dash.py`:**
+- Auto-size: boundaries determined from Garmin fields only — context data excluded. Subtitle shows adjusted range if applicable.
+
+**`dashboards/sleep_recovery_context_dash.py`:**
+- Auto-size: boundaries determined from Garmin fields only. Subtitle shows adjusted range if applicable.
+- Dynamic reference ranges: reads `age`/`sex` from `settings`, fetches VO2max, computes fitness level and thresholds via `layouts/reference_ranges.py`.
+- Per-day status fields added to `daily` output: `hrv_status`, `body_battery_status`, `sleep_status`.
+
+**`dashboards/overview_garmin_xls_dash.py`:**
+- Auto-size: boundaries determined from loaded rows. `subtitle` key added to return dict.
+
+**`layouts/dash_plotter_html.py`:**
+- Flagged Day Markers: per-point `marker.color` and `marker.size` based on `status`. `customdata` passes status string to hovertemplate.
+- Null values render as gaps via Plotly native `null` handling — no guard needed.
+
+**`layouts/dash_plotter_html_complex.py`:**
+- Flagged day markers: HRV, Body Battery, Sleep traces in Tab 1 use per-point `marker.color` and `marker.size`. Flagged points (`low`/`high`) rendered in red, larger size.
+
+**`layouts/dash_layout.py`:**
+- Measurement accuracy disclaimer added to `DISCLAIMER`. Applies to all HTML dashboards and Excel automatically.
+
+**New: `layouts/reference_ranges.py`:**
+- Shared reference range logic extracted from `health_garmin_html-json_dash.py`.
+- Provides `fitness_level(age, sex, vo2max)` and `reference_ranges(age, sex, fitness)`.
+- Used by `health_garmin_html-json_dash.py` and `sleep_recovery_context_dash.py`.
+
+**New: `layouts/dash_plotter_html_mobile.py`:**
+- Mobile-optimised HTML plotter for landscape phone viewing.
+- All metrics stacked vertically — no tabs.
+- Global range dropdown (All / last 7d / 30d / 90d / calendar months / calendar weeks) controls all charts simultaneously.
+- Zoom/drag disabled. Reference band, baseline, and flagged markers included.
+
+**`dashboards/dash_runner.py`:**
+- `html_mobile` registered in plotter registry.
+- `display_label()` returns `"mobile"` for `html_mobile`.
+
+---
+
 ## v1.4.5 — Write Robustness + API Resilience
 
 **`garmin/garmin_writer.py`:**
