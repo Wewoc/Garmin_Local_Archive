@@ -14,7 +14,75 @@
 
 ---
 
-### v1.4.7 — Daily Sync (Automated Daily Workflow)
+### v1.4.7 — Documentation, AI Usability & Pipeline Hardening
+
+Two focused tracks: making the project easier to use and understand, and
+closing known silent-failure gaps in the dashboard pipeline.
+
+#### Documentation & AI Usability
+
+- **AI prompts** — provide ready-to-use system prompts for local AI tools (Ollama / AnythingLLM) to correctly interpret `garmin_analysis.json` (quality flags, HRV meaning, stress direction, etc.)
+- **Documentation reorganization** — split into clear user, developer, and AI-focused sections (`USER_GUIDE.md`, `ARCHITECTURE.md`, `AI_CONTEXT.md`) with improved navigation, reduced redundancy, and a unified structure that makes the project easier to understand, maintain, and safely extend.
+  - README structure: move AI-assisted analysis (Step 11) up directly after the philosophy section — the end result (asking an AI about your health data) should be visible before the technical pipeline details
+  - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
+  - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
+- **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
+- **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
+- **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
+- **README_APP consolidation — merge** `README_APP.md` and `README_APP_Standalone.md` into a single file with a small Standard/Standalone-specific block; ~80% of content is identical, two files create maintenance overhead (changes must be applied twice).
+- **Timer documentation — Background Timer** section in both READMEs documents only Repair + Fill; Quality mode (re-checks `low` days) is missing from user-facing docs.
+
+#### Pipeline Hardening
+
+**`dash_runner.py` — `_load_plotters()` silent failure**
+
+`_load_plotters()` currently swallows import errors with `except Exception: pass`.
+A plotter that fails to load simply disappears from the registry — no message,
+no trace. The format is missing in the GUI popup with no explanation.
+
+Fix: store the error string in `plotters[f"{fmt}_err"]` instead of discarding it.
+`scan()` and `build()` can surface these on demand (e.g. as a log warning during
+`build()` when a format is requested but its plotter has an `_err` entry).
+This converts a permanent silent gap into a visible, diagnosable failure.
+
+**Broker contract — `field_map` / `garmin_map` (`test_dashboard.py`)**
+
+`garmin_map.get()` returns a dict with an implicit contract: `values`, `fallback`,
+`source_resolution`, optional `error`. This contract is documented but never
+asserted. New test section in `test_dashboard.py`:
+
+- `garmin_map.get()` returns a dict with all required keys for known fields
+- `values` is always a list
+- `fallback` is always a bool
+- `source_resolution` is always a string
+- Unknown field raises `KeyError` (tested — used by `field_map` to skip silently)
+
+**Broker contract — `context_map` / `weather_map` / `pollen_map` (`test_local_context.py`)**
+
+Same pattern, same contract. New test section in `test_local_context.py`:
+
+- `weather_map.get()` and `pollen_map.get()` return dicts with all required keys
+- Contract assertions identical to `garmin_map` above
+- Unknown field raises `KeyError`
+
+**Specialist return contract (`test_dashboard.py`)**
+
+`dash_runner.build()` passes the specialist `build()` return dict directly to
+`plotter.render()` without structural validation. Every plotter implicitly assumes:
+`daily` is a list, each entry has `date`, `meta` has `date_from` / `date_to`.
+A specialist returning a malformed dict currently fails inside the plotter —
+far from the actual source. New test section in `test_dashboard.py`:
+
+- Every `*_dash.py` `build()` is called with a valid test range and mock settings
+- Return dict contains `daily` (list) and `meta` (dict)
+- Every entry in `daily` contains at minimum a `date` key
+- `meta` contains `date_from` and `date_to`
+
+No new production code — all hardening lives in the test suites.
+
+---
+
+### v1.4.8 — Daily Sync (Automated Daily Workflow)
 
 Automated daily workflow as a standalone tool — no GUI, no manual interaction.
 After initial setup in the desktop app, `daily_update` becomes the only daily
@@ -159,23 +227,6 @@ the reference.
 
 ---
 
-### v1.4.x — Documentation & AI Usability
-
-Focus on making the project easier to use, understand, and safer when used with local AI tools.
-
-- **AI prompts** — provide ready-to-use system prompts for local AI tools (Ollama / AnythingLLM) to correctly interpret `garmin_analysis.json` (quality flags, HRV meaning, stress direction, etc.)
-- **Documentation reorganization** — split into clear user, developer, and AI-focused sections (`USER_GUIDE.md`, `ARCHITECTURE.md`, `AI_CONTEXT.md`) with improved navigation, reduced redundancy, and a unified structure that makes the project easier to understand, maintain, and safely extend.
-  - README structure: move AI-assisted analysis (Step 11) up directly after the philosophy section — the end result (asking an AI about your health data) should be visible before the technical pipeline details
-  - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
-  - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
-- **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
-- **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
-- **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
-- **README_APP consolidation — merge** `README_APP.md` and `README_APP_Standalone.md` into a single file with a small Standard/Standalone-specific block; ~80% of content is identical, two files create maintenance overhead (changes must be applied twice).
-- **Timer documentation — Background Timer** section in both READMEs documents only Repair + Fill; Quality mode (re-checks `low` days) is missing from user-facing docs.
-
----
-
 ## Planned — v1.5
 
 ### v1.5 — Archive Integrity & Backup
@@ -205,16 +256,6 @@ Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector`
 
 - **Garmin FIT Pipeline & Plugin Architecture**
 The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
-
----
-
-## Deferred — end of v1.x
-
-### v1.x — Include-today Flag
-
-An optional `INCLUDE_TODAY` flag that allows syncing today's incomplete data. Currently today is always excluded because the data is partial — this flag makes it opt-in. Lives in `garmin_sync.py`.
-
-Low priority — only relevant once API access is stable and the bulk import backlog is resolved.
 
 ---
 
