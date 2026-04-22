@@ -96,6 +96,29 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
     meta_rem   = layout.get_metric_meta("sleep_rem_pct")
     meta_awake = layout.get_metric_meta("sleep_awake_pct")
 
+    # Flagged day markers — per-point color/size based on status
+    _COLOR_FLAG    = "#e05c5c"
+    _COLOR_DEFAULT = meta_hrv.get("color", "#5B8DB8")
+    _COLOR_BB      = meta_bb.get("color",  "#BA7517")
+    _COLOR_SLEEP   = meta_sleep.get("color", "#7F77DD")
+
+    hrv_status  = daily.get("hrv_status",          [None] * len(dates))
+    bb_status   = daily.get("body_battery_status", [None] * len(dates))
+    slp_status  = daily.get("sleep_status",        [None] * len(dates))
+
+    def _marker_colors(statuses, base_color):
+        return [_COLOR_FLAG if s in ("low", "high") else base_color for s in statuses]
+
+    def _marker_sizes(statuses):
+        return [8 if s in ("low", "high") else 4 for s in statuses]
+
+    hrv_colors_json   = json.dumps(_marker_colors(hrv_status,  _COLOR_DEFAULT))
+    hrv_sizes_json    = json.dumps(_marker_sizes(hrv_status))
+    bb_colors_json    = json.dumps(_marker_colors(bb_status,   _COLOR_BB))
+    bb_sizes_json     = json.dumps(_marker_sizes(bb_status))
+    slp_colors_json   = json.dumps(_marker_colors(slp_status,  _COLOR_SLEEP))
+    slp_sizes_json    = json.dumps(_marker_sizes(slp_status))
+
     div_html = '<div id="chart-tab1" class="chart-container"></div>\n'
 
     js = f"""
@@ -118,7 +141,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
       x: dates, y: hrv, name: '{meta_hrv.get("label","HRV")}',
       type: 'scatter', mode: 'lines+markers',
       line: {{color: '{meta_hrv.get("color","#5B8DB8")}', width: 2}},
-      marker: {{size: 4}},
+      marker: {{size: {hrv_sizes_json}, color: {hrv_colors_json}}},
       yaxis: 'y1', xaxis: 'x1',
       hovertemplate: '%{{x}}<br>HRV: %{{y:.0f}} ms<extra></extra>'
     }},
@@ -126,7 +149,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
       x: dates, y: bb, name: '{meta_bb.get("label","Body Battery")}',
       type: 'scatter', mode: 'lines+markers',
       line: {{color: '{meta_bb.get("color","#BA7517")}', width: 2}},
-      marker: {{size: 4}},
+      marker: {{size: {bb_sizes_json}, color: {bb_colors_json}}},
       yaxis: 'y1', xaxis: 'x1',
       hovertemplate: '%{{x}}<br>Body Battery: %{{y:.0f}}<extra></extra>'
     }},
@@ -134,7 +157,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
       x: dates, y: sleep, name: '{meta_sleep.get("label","Sleep")}',
       type: 'scatter', mode: 'lines+markers',
       line: {{color: '{meta_sleep.get("color","#7F77DD")}', width: 2, dash: 'dash'}},
-      marker: {{size: 4}},
+      marker: {{size: {slp_sizes_json}, color: {slp_colors_json}}},
       yaxis: 'y4', xaxis: 'x1',
       hovertemplate: '%{{x}}<br>Sleep: %{{y:.1f}} h<extra></extra>'
     }},

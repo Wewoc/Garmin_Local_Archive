@@ -79,13 +79,36 @@ def _build_charts(fields: list[dict]) -> tuple[str, str]:
             ref_upper = [ref_high] * len(dates) if has_ref else []
             ref_lower = [ref_low]  * len(dates) if has_ref else []
 
-            dates_json    = json.dumps(dates)
-            values_json   = json.dumps(values)
-            baselines_json= json.dumps(baselines)
-            ref_upper_json= json.dumps(ref_upper)
+            dates_json      = json.dumps(dates)
+            values_json     = json.dumps(values)
             ref_upper_json  = json.dumps(ref_upper)
             ref_lower_json  = json.dumps(ref_lower)
             baselines_clean = [b if b is not None else "null" for b in baselines]
+
+            # Per-point marker color and tooltip data
+            _COLOR_FLAG = "#e05c5c"
+            statuses    = [d.get("status") for d in days]
+            marker_colors = [
+                _COLOR_FLAG if s in ("low", "high") else color
+                for s in statuses
+            ]
+            marker_sizes = [
+                8 if s in ("low", "high") else 5
+                for s in statuses
+            ]
+            # customdata: [status, ref_low, ref_high, baseline] per point
+            customdata = [
+                [
+                    d.get("status") or "",
+                    ref_low  if ref_low  is not None else "",
+                    ref_high if ref_high is not None else "",
+                    round(d.get("baseline"), 1) if d.get("baseline") is not None else "",
+                ]
+                for d in days
+            ]
+            marker_colors_json = json.dumps(marker_colors)
+            marker_sizes_json  = json.dumps(marker_sizes)
+            customdata_json    = json.dumps(customdata)
 
             # Build traces list conditionally
             _traces = ""
@@ -115,8 +138,9 @@ def _build_charts(fields: list[dict]) -> tuple[str, str]:
       x: {dates_json}, y: {values_json},
       type: 'scatter', mode: 'lines+markers', name: '{label}',
       line: {{color: '{color}', width: 2}},
-      marker: {{size: 5, color: '{color}'}},
-      hovertemplate: '%{{x}}<br>{label}: %{{y:.1f}} {unit}<extra></extra>'
+      marker: {{size: {marker_sizes_json}, color: {marker_colors_json}}},
+      customdata: {customdata_json},
+      hovertemplate: '%{{x}}<br>{label}: %{{y:.1f}} {unit}<br>%{{customdata[0]}}<extra></extra>'
     }}"""
 
             js_data += f"""
@@ -264,6 +288,8 @@ function showTab(field) {{
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('chart-' + field).style.display = 'block';
   document.getElementById('btn-'   + field).classList.add('active');
+  var plotDiv = document.getElementById('plot-' + field);
+  if (plotDiv && plotDiv.data) {{ Plotly.relayout(plotDiv, {{autosize: true}}); }}
 }}
 {js}
 </script>
