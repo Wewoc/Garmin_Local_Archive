@@ -70,6 +70,8 @@ DISCLAIMER = (
     "(AHA, ACSM, Garmin/Firstbeat). "
     "Individual variation is normal. "
     "Consult a healthcare professional for medical decisions. "
+    "Data from consumer wearables is indicative only — not medical-grade. "
+    "Values may deviate significantly from clinical measurements. "
     "Data sourced from locally archived Garmin Connect data."
 )
 
