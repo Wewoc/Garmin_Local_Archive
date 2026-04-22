@@ -19,9 +19,10 @@ There's a second reason that matters more over time: Garmin degrades intraday da
 ## What makes this different
 
 This is not a data export script — it maintains a complete, consistent 
-local copy of your Garmin data over time. Your data stays in open 
-formats, readable and analyzable with any tool you choose. Local AI, 
-cloud AI, or no AI at all. **Your data, your call.**
+local copy of your Garmin data over time. Your data stays in open formats, readable and analyzable with any tool you choose. Local AI, cloud AI, or no AI at all. **Your data, your call.**
+
+**What this is not:**
+Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
 
 ---
 
@@ -35,10 +36,11 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 
 | Dashboard | What it shows | Output |
 |---|---|---|
-| **Health Analysis** | HRV, Resting HR, SpO2, Sleep, Body Battery, Stress — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges. Flags days outside range. | HTML, JSON + AI prompt |
+| **Health Analysis** | HRV, Resting HR, SpO2, Sleep, Body Battery, Stress — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges. Flags days outside range. | HTML, Mobile HTML, JSON + AI prompt |
 | **Timeseries** | Intraday heart rate, stress, SpO2, body battery and respiration as zoomable charts across any date range. | HTML, Excel |
 | **Daily Overview** | All summary fields in one flat table, one row per day. | Excel |
 | **Health + Context** | Garmin health metrics alongside local weather and pollen data. | HTML, Excel |
+| **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 
 The AI itself is not included. How to set one up is explained in the local AI guide at the end of this README.
 
@@ -58,6 +60,10 @@ I can't write Python. The architecture, module boundaries, and decisions are min
 
 > GNU General Public License v3.0 — provided as-is.
 
+- **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
+- **Unofficial API:** Garmin Local Archive uses Garmin's unofficial API — it may change or break without notice.
+- **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
+- **Context data:** Weather and pollen data is provided by Open-Meteo — accuracy and availability are not guaranteed.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
 - **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
@@ -393,7 +399,7 @@ BASE_DIR        = Path(os.environ.get("GARMIN_OUTPUT_DIR") or "~/local_archive")
 ```python
 SYNC_MODE = "recent"    # default: last 90 days
 SYNC_MODE = "range"     # specific period: set SYNC_FROM and SYNC_TO below
-SYNC_MODE = "auto"      # everything since your oldest device (can take hours)
+SYNC_MODE = "auto"      # everything since your oldest device (can take hours — not recommended, rate limit risk)
 ```
 
 ---

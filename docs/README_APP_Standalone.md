@@ -7,6 +7,21 @@ No Python, no terminal, no dependencies — everything is built in.
 
 Just extract the ZIP and double-click.
 
+Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
+
+## Project status & disclaimer
+
+> GNU General Public License v3.0 — provided as-is.
+
+- **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
+- **Unofficial API:** Garmin Local Archive uses Garmin's unofficial API — it may change or break without notice.
+- **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
+- **Context data:** Weather and pollen data is provided by Open-Meteo — accuracy and availability are not guaranteed.
+- **Early stage:** Core functionality is stable. APIs and internal structure may still change.
+- **No guaranteed support:** Development happens when time and interest allow.
+- **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
+- **Feedback welcome:** If something feels off — logic, structure, results — open an issue.
+
 ---
 
 ## First-time setup
@@ -36,7 +51,7 @@ Left panel:
 - **Email** — your Garmin Connect login email
 - **Password** — your Garmin Connect password (stored securely in the Windows Credential Manager, never written to disk as plain text)
 - **Data folder** — where to store data (e.g. `C:\Users\YourName\local_archive`)
-- **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history
+- **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history (everything since your oldest device — can take hours, **not recommended**, rate limit risk, use Bulk Import instead)
 - **Export date range** — used by all export scripts. Leave empty to use the oldest/newest file in your archive automatically
 - **Age / Sex** — used by the Analysis Dashboard for reference ranges
 
@@ -211,6 +226,9 @@ Garmin_Local_Archive_Standalone.exe
 **Password not saved between sessions** — click Save Settings after entering your password.
 
 **Stress / Body Battery missing from Excel or dashboard** — click Analysis Dashboard once — this regenerates summaries from raw data automatically. Alternatively use the Standard version and run `regenerate_summaries.py`.
+
+**Background timer flags days as `low` after fetching them** — this is expected behaviour. The timer fetches days that are missing in your archive. For old dates (typically before 2022), Garmin returns little or no data via the API — either because intraday data has been degraded over time, or because the watch was not worn on those days (repair, sent in for service, device gap between two watches). A day with no device produces a null response from Garmin and is not included in the GDPR export — `low` is the correct assessment for that. The timer will retry up to 3 times, then stop automatically and never touch those days again.
+
 
 **Antivirus flags the EXE** — this is a false positive common with PyInstaller-built executables. The source code is fully open at github.com/Wewoc/Garmin_Local_Archive. You can whitelist the file in your antivirus settings or build the EXE yourself from source.
 
