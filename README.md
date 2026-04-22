@@ -36,10 +36,11 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 
 | Dashboard | What it shows | Output |
 |---|---|---|
-| **Health Analysis** | HRV, Resting HR, SpO2, Sleep, Body Battery, Stress — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges. Flags days outside range. | HTML, JSON + AI prompt |
+| **Health Analysis** | HRV, Resting HR, SpO2, Sleep, Body Battery, Stress — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges. Flags days outside range. | HTML, Mobile HTML, JSON + AI prompt |
 | **Timeseries** | Intraday heart rate, stress, SpO2, body battery and respiration as zoomable charts across any date range. | HTML, Excel |
 | **Daily Overview** | All summary fields in one flat table, one row per day. | Excel |
 | **Health + Context** | Garmin health metrics alongside local weather and pollen data. | HTML, Excel |
+| **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 
 The AI itself is not included. How to set one up is explained in the local AI guide at the end of this README.
 

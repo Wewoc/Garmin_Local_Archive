@@ -121,6 +121,27 @@ class ScreenshotApp(GarminApp):
         for dot in self._conn_indicators.values():
             dot.config(fg="#4ecca3")   # GREEN constant value
 
+    def _refresh_archive_info(self):
+        """Override: fill archive info panel with static demo values."""
+        def _apply():
+            try:
+                self._info_total.config(text="Days: 1825")
+                for q, lbl_text, val in [
+                    ("high",   "high", 892),
+                    ("medium", "med",  876),
+                    ("low",    "low",  48),
+                    ("failed", "fail", 9),
+                ]:
+                    self._info_qdots[q].config(text=f"{lbl_text} {val}")
+                self._info_recheck.config(text="Recheck: 12")
+                self._info_range.config(text="Range: 2019-03-15 → 2024-03-14")
+                self._info_coverage.config(text="Coverage: 98%")
+                self._info_last_api.config(text="Last API: 2024-03-14")
+                self._info_last_bulk.config(text="Last Bulk: 2022-11-30")
+            except Exception:
+                pass
+        self.after(0, _apply)
+
     def _write_demo_log(self):
         """Pre-fill the log widget with plausible demo output."""
         for line in DEMO_LOG:

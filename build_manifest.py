@@ -49,9 +49,11 @@ SHARED_SCRIPTS = [
     "layouts/dash_layout_html.py",
     "layouts/dash_plotter_html.py",
     "layouts/dash_plotter_html_complex.py",
+    "layouts/dash_plotter_html_mobile.py",
     "layouts/dash_plotter_excel.py",
     "layouts/dash_plotter_json.py",
     "layouts/dash_prompt_templates.py",
+    "layouts/reference_ranges.py",
 ]
 # Target 2 (build.py): entry point + shared scripts
 SCRIPTS = ["garmin_app.py"] + SHARED_SCRIPTS
@@ -81,10 +83,10 @@ SCRIPT_SIGNATURES_BASE = {
 
 # ── Docs ──────────────────────────────────────────────────────────────────────
 
-DOCS = ["README.md", "README_APP.md", "README_APP_Standalone.md", "MAINTENANCE.md", "SETUP.md"]
+DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
 
 INFO_INCLUDE_T2 = {"README.md", "README_APP.md"}
-INFO_INCLUDE_T3 = {"README.md", "README_APP_Standalone.md"}
+INFO_INCLUDE_T3 = {"README.md", "README_APP.md"}
 
 # ── Required non-Python files (must be present alongside scripts) ─────────────
 # Paths relative to garmin/ — build scripts prepend the folder.

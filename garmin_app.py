@@ -167,7 +167,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.5"
+APP_VERSION = "v1.4.6"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
