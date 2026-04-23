@@ -14,13 +14,14 @@ GUI "API Sync" Button
         ├── Reads location from local_config.csv + GUI fallback
         ├── Splits date range into segments per location
         └── Per segment, per plugin:
-              context_api.fetch(plugin, ...)   → Open-Meteo API
+              context_api.fetch(plugin, ...)   → external API (Open-Meteo or Brightsky)
               context_writer.write(plugin, ...) → context_data/
 
 Dashboard specialists
   └── context_map.get(field, date_from, date_to)
-        ├── weather_map.get() → context_data/weather/raw/
-        └── pollen_map.get()  → context_data/pollen/raw/
+        ├── weather_map.get()   → context_data/weather/raw/
+        ├── pollen_map.get()    → context_data/pollen/raw/
+        └── brightsky_map.get() → context_data/brightsky/raw/
 ```
 
 **Key principle:** `maps/` = routing only. `context/` = collect only. No crossover.
@@ -32,19 +33,21 @@ Dashboard specialists
 | Module | Responsibility | Does NOT |
 |---|---|---|
 | `context_collector.py` | Orchestrates collect — date range, CSV, segments, plugin loop | Fetch data, write files |
-| `context_api.py` | Fetches from Open-Meteo based on plugin metadata | Write files, know about dashboards |
+| `context_api.py` | Fetches from external APIs based on plugin metadata and FETCH_ADAPTER | Write files, know about dashboards |
 | `context_writer.py` | Writes context_data/ based on plugin metadata | Fetch data, know about dashboards |
 | `weather_plugin.py` | Metadata only — URL, fields, prefix, output dir | Execute any logic |
 | `pollen_plugin.py` | Metadata only — URL, fields, prefix, output dir, aggregation | Execute any logic |
-| `context_map.py` | Routes dashboard requests to weather_map + pollen_map | Fetch data, call Open-Meteo |
+| `brightsky_plugin.py` | Metadata only — URL, fields, prefix, output dir, FETCH_ADAPTER, AGGREGATION_MAP | Execute any logic |
+| `context_map.py` | Routes dashboard requests to weather_map, pollen_map, brightsky_map | Fetch data, call APIs |
 | `weather_map.py` | Resolves generic field names to weather archive files | Write files, call APIs |
 | `pollen_map.py` | Resolves generic field names to pollen archive files | Write files, call APIs |
+| `brightsky_map.py` | Resolves generic field names to Brightsky archive files | Write files, call APIs |
 
 ---
 
 ## Plugin system
 
-Plugins are **metadata-only** — no executable logic. Adding a new source means adding a new plugin file. No changes to `context_api.py`, `context_writer.py`, or `context_collector.py` required.
+Plugins are **metadata-only** — no executable logic. Adding a new source means adding a new plugin file. `context_writer.py` never requires changes. `context_api.py` only requires changes if the new source uses a different API structure than Open-Meteo (add a `FETCH_ADAPTER` value and a corresponding parse function).
 
 ### Required plugin attributes
 
@@ -56,12 +59,14 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 | `API_URL_FORECAST` | str | Endpoint for recent/forecast data |
 | `HISTORICAL_LAG_DAYS` | int | Days before today where historical ends and forecast begins |
 | `API_RESOLUTION` | str | `"daily"` or `"hourly"` |
-| `API_FIELDS` | list[str] | Open-Meteo internal field names to request |
+| `API_FIELDS` | list[str] | Internal field names to request from the API |
 | `OUTPUT_DIR` | Path | Write target — must be a `cfg.CONTEXT_*` path |
 | `FILE_PREFIX` | str | File naming prefix (e.g. `"weather_"`) |
 | `SOURCE_TAG` | str | Written into each output file as `"source"` |
 | `CHUNK_DAYS` | int | Max days per API call |
-| `AGGREGATION` | str | Optional — aggregation method (`"daily_max"`). Omit if not applicable |
+| `AGGREGATION` | str | Optional — uniform aggregation method (`"daily_max"`). Omit if not applicable |
+| `AGGREGATION_MAP` | dict[str, str] | Optional — field-specific aggregation (`{"temperature": "mean", "precipitation": "sum", ...}`). Used instead of `AGGREGATION` when aggregation differs per field. Requires `FETCH_ADAPTER = "brightsky"` |
+| `FETCH_ADAPTER` | str | Optional — adapter key for `context_api.py`. Omit for Open-Meteo plugins (default). Set to `"brightsky"` for Brightsky DWD |
 
 ### Registered plugins
 
@@ -69,6 +74,7 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 |---|---|---|---|---|
 | `weather_plugin.py` | `weather` | Open-Meteo Weather + Archive API | daily | — |
 | `pollen_plugin.py` | `pollen` | Open-Meteo Air Quality API | hourly → daily max | `daily_max` |
+| `brightsky_plugin.py` | `brightsky` | Brightsky DWD API | hourly → daily (field-specific) | `AGGREGATION_MAP` |
 
 ---
 
@@ -90,8 +96,9 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
     "date_to":   str | None,
     "segments":  int,
     "plugins": {
-        "weather": {"written": int, "skipped": int, "failed": int},
-        "pollen":  {"written": int, "skipped": int, "failed": int},
+        "weather":   {"written": int, "skipped": int, "failed": int},
+        "pollen":    {"written": int, "skipped": int, "failed": int},
+        "brightsky": {"written": int, "skipped": int, "failed": int},
     },
     "stopped": bool,
     "error":   str,   # optional — only present on abort
@@ -105,9 +112,10 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 | Function | Purpose |
 |---|---|
 | `fetch(plugin, date_from, date_to, lat, lon, skip_dates)` | Fetches data for a plugin over a date range. Returns `{date_str: {field: value}}`. Dates in `skip_dates` are excluded from result |
-| `_parse_daily(response, fields)` | Parses daily API response to `{date: {field: value}}` |
-| `_parse_hourly_to_daily_max(response, fields)` | Aggregates hourly response to daily max per field |
-| `_fetch_chunk(url, date_from, date_to, lat, lon, fields, resolution)` | Single API call — returns parsed JSON or None on failure |
+| `_parse_daily(response, fields)` | Parses daily Open-Meteo response to `{date: {field: value}}` |
+| `_parse_hourly_to_daily_max(response, fields)` | Aggregates hourly Open-Meteo response to daily max per field |
+| `_parse_brightsky(response, aggregation_map)` | Parses Brightsky `weather[]` array to `{date: {field: value}}` with field-specific aggregation (mean / sum / max / mode) |
+| `_fetch_chunk(url, date_from, date_to, lat, lon, fields, resolution, adapter)` | Single API call — builds adapter-specific URL params, returns parsed JSON or None on failure |
 | `_select_url(plugin, date_from)` | Selects historical or forecast URL based on `HISTORICAL_LAG_DAYS` |
 
 **Never writes files.** Returns raw parsed data only.
@@ -135,16 +143,16 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 
 ---
 
-## `weather_map.py` / `pollen_map.py`
+## `weather_map.py` / `pollen_map.py` / `brightsky_map.py`
 
-Both follow identical interface:
+All three follow identical interface:
 
 | Function | Purpose |
 |---|---|
 | `get(field, date_from, date_to, resolution)` | Reads locally archived files. Returns `{"values": [...], "fallback": bool, "source_resolution": str}` |
 | `list_fields()` | Returns all registered generic field names |
 
-**Fallback behaviour:** Both sources are always daily. If `resolution="intraday"` is requested, `fallback=True` is set but daily data is returned.
+**Fallback behaviour:** All sources are always daily. If `resolution="intraday"` is requested, `fallback=True` is set but daily data is returned.
 
 ### Registered fields — `weather_map.py`
 
@@ -167,6 +175,20 @@ Both follow identical interface:
 | `pollen_mugwort` | `mugwort_pollen` | grains/m³ |
 | `pollen_olive` | `olive_pollen` | grains/m³ |
 | `pollen_ragweed` | `ragweed_pollen` | grains/m³ |
+
+### Registered fields — `brightsky_map.py`
+
+| Generic name | Internal key | Unit | Aggregation |
+|---|---|---|---|
+| `temperature_avg` | `temperature` | °C | daily mean |
+| `humidity_avg` | `relative_humidity` | % | daily mean |
+| `precipitation_sum` | `precipitation` | mm | daily sum |
+| `sunshine_sum` | `sunshine` | min | daily sum |
+| `wind_speed_max` | `wind_speed` | km/h | daily max |
+| `wind_gust_max` | `wind_gust_speed` | km/h | daily max |
+| `cloud_cover_avg` | `cloud_cover` | % | daily mean |
+| `pressure_avg` | `pressure_msl` | hPa | daily mean |
+| `condition` | `condition` | string | daily mode |
 
 ---
 
@@ -213,6 +235,29 @@ Both follow identical interface:
 }
 ```
 
+### `context_data/brightsky/raw/brightsky_YYYY-MM-DD.json`
+
+```json
+{
+    "date":        "2026-01-01",
+    "source":      "brightsky-dwd",
+    "fetched_at":  "2026-04-09T10:00:00",
+    "latitude":    52.1134,
+    "longitude":   8.6655,
+    "fields": {
+        "temperature":       4.8,
+        "relative_humidity": 78.0,
+        "precipitation":     1.2,
+        "sunshine":          45.0,
+        "wind_speed":        18.0,
+        "wind_gust_speed":   32.0,
+        "cloud_cover":       85.0,
+        "pressure_msl":      1008.5,
+        "condition":         "rain"
+    }
+}
+```
+
 ---
 
 ## `local_config.csv`
@@ -246,5 +291,6 @@ date_from,date_to,country,place,latitude,longitude
 | Open-Meteo Forecast | `api.open-meteo.com/v1/forecast` | None | daily | recent weeks |
 | Open-Meteo Air Quality | `air-quality-api.open-meteo.com/v1/air-quality` | None | hourly | limited |
 | Open-Meteo Geocoding | `geocoding-api.open-meteo.com/v1/search` | None | — | — |
+| Brightsky DWD | `api.brightsky.dev/weather` | None | hourly | 2010-01-01+ |
 
 All APIs are free for non-commercial use, no registration required.

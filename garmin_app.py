@@ -167,7 +167,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.6"
+APP_VERSION = "v1.4.7"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -1917,9 +1917,11 @@ class GarminApp(tk.Tk):
                     settings=s,
                     stop_event=self._context_stop_event
                 )
-                msg = (f"Context sync complete\n"
-                       f"Weather: {result['plugins'].get('weather', {}).get('written', 0)} written\n"
-                       f"Pollen:  {result['plugins'].get('pollen',  {}).get('written', 0)} written")
+                plugins = result.get("plugins", {})
+                lines = ["Context sync complete"]
+                for name, stats in plugins.items():
+                    lines.append(f"{name.capitalize():<10}{stats.get('written', 0)} written")
+                msg = "\n".join(lines)
                 if result.get("error"):
                     msg = f"Error: {result['error']}"
                 self.after(0, lambda: self._log(msg))
