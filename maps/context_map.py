@@ -8,13 +8,14 @@ Structurally identical to field_map.py — same broker principle, different doma
 Knows which *_map.py modules are registered for context sources,
 but knows nothing about how any source stores its data.
 
-In v1.4: weather_map and pollen_map are registered.
-Interface is designed to accept additional sources in v2.0 without modification.
+Registered sources: weather_map, pollen_map, brightsky_map.
+Interface is designed to accept additional sources without modification.
 
 Usage (from a specialist):
     from maps.context_map import get, list_fields, list_sources
     result = get("temperature_max", "2026-01-01", "2026-03-31")
     result = get("pollen_birch",    "2026-01-01", "2026-03-31")
+    result = get("temperature_avg", "2026-01-01", "2026-03-31")
 
 Return structure:
     {
@@ -29,6 +30,12 @@ Return structure:
             "fallback":          bool,
             "source_resolution": str,
             "error":             str,   # optional — only present if source failed
+        },
+        "brightsky": {
+            "values":            [{"date": str, "value": float|str|None}, ...],
+            "fallback":          bool,
+            "source_resolution": str,
+            "error":             str,   # optional — only present if source failed
         }
     }
 
@@ -39,19 +46,21 @@ The collect step is triggered by the "API Sync" button in the GUI.
 
 from . import weather_map
 from . import pollen_map
+from . import brightsky_map
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Source registry — v1.4: weather + pollen
+#  Source registry — weather + pollen + brightsky
 #
-#  To add a source in v2.0:
+#  To add a source:
 #    1. Drop the *_map.py module into maps/
 #    2. Import it here with a relative import
 #    3. Add it to _SOURCES with its key name
 # ══════════════════════════════════════════════════════════════════════════════
 
 _SOURCES = {
-    "weather": weather_map,
-    "pollen":  pollen_map,
+    "weather":   weather_map,
+    "pollen":    pollen_map,
+    "brightsky": brightsky_map,
 }
 
 
