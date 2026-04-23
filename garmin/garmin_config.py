@@ -54,12 +54,13 @@ RAW_FILE_PREFIX     = "garmin_raw_"
 LOCAL_CONFIG_FILE = BASE_DIR / "local_config.csv"
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Context data (external API — weather, pollen)
+#  Context data (external API — weather, pollen, brightsky)
 # ══════════════════════════════════════════════════════════════════════════════
 
-CONTEXT_DIR      = BASE_DIR / "context_data"
-CONTEXT_WEATHER_DIR = CONTEXT_DIR / "weather" / "raw"
-CONTEXT_POLLEN_DIR  = CONTEXT_DIR / "pollen"  / "raw"
+CONTEXT_DIR           = BASE_DIR / "context_data"
+CONTEXT_WEATHER_DIR   = CONTEXT_DIR / "weather"   / "raw"
+CONTEXT_POLLEN_DIR    = CONTEXT_DIR / "pollen"    / "raw"
+CONTEXT_BRIGHTSKY_DIR = CONTEXT_DIR / "brightsky" / "raw"
 
 # Location for external API calls — set via GUI (geocoded from place name)
 # Falls back to ENV for headless/testing use
