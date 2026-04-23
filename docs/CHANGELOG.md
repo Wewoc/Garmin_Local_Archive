@@ -2,6 +2,47 @@
 
 ---
 
+## v1.4.7 — Brightsky DWD Context Plugin
+
+New context source: Brightsky API (Deutscher Wetterdienst) as third plugin alongside Open-Meteo weather and pollen.
+
+**Architecture extension — `context/context_api.py`:**
+- `from statistics import mean, mode as stats_mode` added.
+- `_parse_brightsky(response, aggregation_map)` — new parser for Brightsky `weather[]` array structure. Aggregates hourly entries to daily values with field-specific methods (mean / sum / max / mode).
+- `_fetch_chunk()` — new `adapter` parameter (`default="open_meteo"`). Brightsky uses different URL parameters (`lat`, `lon`, `date`, `last_date`, `tz`, `units`) vs. Open-Meteo (`latitude`, `longitude`, `start_date`, `end_date`). Dispatch by adapter string — not by URL.
+- `fetch()` — reads `FETCH_ADAPTER` from plugin via `getattr`. Passes adapter to `_fetch_chunk()` and routes to `_parse_brightsky()` when `adapter == "brightsky"`. Open-Meteo path unchanged.
+
+**New: `context/brightsky_plugin.py`:**
+- Metadata-only plugin. `FETCH_ADAPTER = "brightsky"`, `AGGREGATION_MAP` with per-field method (mean/sum/max/mode), `CHUNK_DAYS = 30`, `SOURCE_TAG = "brightsky-dwd"`.
+- `API_URL_HISTORICAL` and `API_URL_FORECAST` both point to single Brightsky endpoint — no split needed. `HISTORICAL_LAG_DAYS = 0`.
+
+**New: `maps/brightsky_map.py`:**
+- Field resolver for `context_data/brightsky/raw/`. Generic names → internal Brightsky keys. 9 fields: `temperature_avg`, `humidity_avg`, `precipitation_sum`, `sunshine_sum`, `wind_speed_max`, `wind_gust_max`, `cloud_cover_avg`, `pressure_avg`, `condition`.
+
+**`context/context_collector.py`:**
+- `brightsky_plugin` imported and added to `_PLUGINS`.
+- `brightsky_plugin.OUTPUT_DIR` override added to `base_dir` block in `run()`.
+
+**`maps/context_map.py`:**
+- `brightsky_map` imported and registered in `_SOURCES` as `"brightsky"`.
+
+**`garmin/garmin_config.py`:**
+- `CONTEXT_BRIGHTSKY_DIR = CONTEXT_DIR / "brightsky" / "raw"` added.
+
+**`build_manifest.py`:**
+- `maps/brightsky_map.py` and `context/brightsky_plugin.py` added to `SHARED_SCRIPTS`.
+- Signatures for both new modules added to `SCRIPT_SIGNATURES_BASE`.
+
+**`tests/test_local_context.py`:**
+- Section 4 added: `brightsky_plugin` metadata checks (FETCH_ADAPTER, AGGREGATION_MAP keys + methods, no AGGREGATION string).
+- Section 6 extended: `_parse_brightsky()` — mean/sum/max/mode aggregation, null values, single-entry day.
+- Section 10 added: `brightsky_map` field resolution, condition string field, intraday fallback, KeyError for unknown.
+- Section 11 extended: `context_map` — `list_sources()` includes `"brightsky"`, `list_fields("brightsky")` correct, `get()` routes to brightsky.
+- Section 13 extended: `run()` — brightsky plugin present in result, written=2, files on disk, source tag correct, skip on second run, network error → written=0.
+- All section numbers updated (old 4–11 → new 5–12, new sections inserted at 4 and 10).
+
+---
+
 ## v1.4.6 — Dashboard Features
 
 **`dashboards/health_garmin_html-json_dash.py`:**
@@ -234,7 +275,7 @@ Replaces four monolithic export scripts with a modular specialist/plotter archit
 | Plotter | `layouts/dash_plotter_*.py` | Renders Dict to output format — no knowledge of data sources |
 | Layout | `layouts/dash_layout*.py` | Passive resources: CSS, color tokens, disclaimer, footer, prompt templates |
 | Broker | `maps/field_map.py` | Routes specialist requests → `garmin_map` → `garmin_data/` |
-| Broker | `maps/context_map.py` | Routes specialist requests → `weather_map` / `pollen_map` → `context_data/` |
+| Broker | `maps/context_map.py` | Routes specialist requests → `weather_map` / `pollen_map` / `brightsky_map` → `context_data/` |
 
 **New modules:**
 
@@ -356,22 +397,6 @@ Introduces a dedicated validation layer at the pipeline entry point. Closes the 
 **Notes:**
 - Body Battery, HRV, SpO2, Respiration remain `null` after bulk import — these fields are not included in the Garmin GDPR export.
 - Users who ran bulk import before this fix and have a `quality_log.json` without `source` fields can use the one-time migration script `fix_quality_source.py` (sets `source="api"` for all entries without a source field) to restore correct skip behaviour before re-importing.
-
----
-```
-
----
-
-**REFERENCE** — Zeile 305, `_normalize_import` Beschreibung:
-
-Alt:
-```
-| `_normalize_import(raw)` | Placeholder for bulk import normalisation — not implemented in v1.2.0 |
-```
-
-Neu:
-```
-| `_normalize_import(raw)` | Normalises a raw dict from `garmin_import.parse_day()`. Applies type validation (same as `_normalize_api()`) and remaps HR aggregate fields from `user_summary` into `heart_rates` so `summarize()` can read them — `heart_rates` key is not present in bulk raw dicts |
 
 ---
 

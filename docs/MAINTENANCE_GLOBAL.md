@@ -277,14 +277,38 @@ Note: Dashboard build (`dash_runner`) runs in-process — no `script_path()` inv
 
 ## Session workflow
 
+### Task workflow — three mandatory steps
+
+Every new task follows this sequence. No step is skipped.
+No build order without prior analysis. No analysis without prior scope assessment.
+
+```
+Step 1 — Assess idea       → clarify scope, name risks, make decision
+Step 2 — Analysis order    → research / review / pre-clarification
+Step 3 — Build order       → implementation with complete specs
+```
+
+The full prompt patterns for each step are in `WORKFLOW_TEMPLATE.md`.
+
+**Emergency brake:** If the data flow is no longer traceable or a dependency
+is missing mid-implementation:
+
+```
+Stop — check [what seems off]
+```
+
+Two words. No further context needed. Resets the session to the last confirmed state.
+
+---
+
 ### Notes file
 
 Create `NOTES_vX_Y_Z.md` at session start. Update after every delivery. Three blocks:
 
 ```markdown
-## ✅ Umgesetzt
-## ❌ Nicht umgesetzt (mit Begründung)
-## 🔒 Entscheidungen & Begründungen
+## ✅ Done
+## ❌ Not done (with reason)
+## 🔒 Decisions & rationale
 ```
 
 ### Before every implementation — cross-dependency check
@@ -316,12 +340,15 @@ List all new or changed dependencies explicitly:
 - [ ] All changed function signatures in relevant REFERENCE file?
 - [ ] Test count updated in MAINTENANCE_GLOBAL + ROADMAP?
 - [ ] Stale "planned for vX.Y.Z" references removed?
-- [ ] GUI text in README_APP + README_APP_Standalone current?
+- [ ] GUI text in README_APP current?
 - [ ] Version number in README updated?
 
 ### Documentation closure order
 
-CHANGELOG → ROADMAP → REFERENCE_GLOBAL → REFERENCE_GARMIN → REFERENCE_CONTEXT → MAINTENANCE_GLOBAL → MAINTENANCE_GARMIN → MAINTENANCE_CONTEXT → README → README_APP → README_APP_Standalone → START_PROMPT for next session
+CHANGELOG → ROADMAP → REFERENCE_GLOBAL → REFERENCE_GARMIN → REFERENCE_CONTEXT →
+MAINTENANCE_GLOBAL → MAINTENANCE_GARMIN → MAINTENANCE_CONTEXT →
+README → README_APP → WORKFLOW_TEMPLATE (if process changed) →
+START_PROMPT for next session
 
 ---
 

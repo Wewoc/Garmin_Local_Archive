@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.4.6
+# Garmin Local Archive — Desktop App v1.4.7
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -21,7 +21,7 @@ Garmin Connect is still required — the app pulls data from there via API. This
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Unofficial API:** Garmin Local Archive uses Garmin's unofficial API — it may change or break without notice.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
-- **Context data:** Weather and pollen data is provided by Open-Meteo — accuracy and availability are not guaranteed.
+- **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data by Open-Meteo — accuracy and availability are not guaranteed.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
 - **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
@@ -146,7 +146,7 @@ Imported days land in `raw/` and `summary/` alongside API data. Days already pre
 
 ### Sync Context / CSV
 
-Downloads weather and pollen data for your full archive date range from [Open-Meteo](https://open-meteo.com/) — free, no account required. This data is used by the **Health + Context** and **Sleep & Recovery** dashboards to correlate Garmin metrics with environmental conditions.
+Downloads weather and pollen data for your full archive date range — free, no account required. Weather data is fetched from [Open-Meteo](https://open-meteo.com/) and [Brightsky (DWD)](https://brightsky.dev/), pollen data from Open-Meteo Air Quality. This data is used by the **Health + Context** and **Sleep & Recovery** dashboards to correlate Garmin metrics with environmental conditions.
 
 **Setting your location:** Settings → CONTEXT → paste a Google Maps URL → click **📍 Set Location**. The app extracts latitude and longitude automatically. To get a URL: open Google Maps, navigate to your location, and copy the URL from the address bar.
 
