@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.4.6**
+**Currently stable — v1.4.7**
 
 ---
 
@@ -14,7 +14,7 @@
 
 ---
 
-### v1.4.7 — Documentation, AI Usability & Pipeline Hardening
+### v1.4.8 — Documentation, AI Usability & Pipeline Hardening
 
 Two focused tracks: making the project easier to use and understand, and
 closing known silent-failure gaps in the dashboard pipeline.
@@ -29,7 +29,6 @@ closing known silent-failure gaps in the dashboard pipeline.
 - **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
 - **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
 - **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
-- **README_APP consolidation — merge** `README_APP.md` and `README_APP_Standalone.md` into a single file with a small Standard/Standalone-specific block; ~80% of content is identical, two files create maintenance overhead (changes must be applied twice).
 - **Timer documentation — Background Timer** section in both READMEs documents only Repair + Fill; Quality mode (re-checks `low` days) is missing from user-facing docs.
 
 #### Pipeline Hardening
@@ -78,11 +77,51 @@ far from the actual source. New test section in `test_dashboard.py`:
 - Every entry in `daily` contains at minimum a `date` key
 - `meta` contains `date_from` and `date_to`
 
-No new production code — all hardening lives in the test suites.
+**`garmin_collector.py` — Lock gap in bulk import**
+
+`run_bulk_import()` writes to `quality_log.json` without acquiring
+`QUALITY_LOCK`. All other write paths (`main()`, `_run_self_healing()`,
+`_run_backfill()`) use the lock. The GUI pauses the Background Timer before
+import, but that is a signal — not a guarantee. A timer cycle still in
+progress when import starts creates a race condition on `quality_log.json`.
+
+Fix: wrap the write block in `run_bulk_import()` with
+`with quality.QUALITY_LOCK:` — identical to all other write paths.
+
+**`garmin_app.py` / `garmin_app_standalone.py` — `save_settings()` unguarded**
+
+`save_settings()` calls `SETTINGS_FILE.write_text()` without try/except.
+If the settings file is not writable (permissions, path missing), an
+unhandled `OSError` is raised in the GUI thread. The user sees no error
+message and settings are silently lost on next startup.
+
+Fix: wrap in try/except with `self._log()` or `messagebox.showerror()`.
+Applies to both entry points.
+
+**`sleep_recovery_context_dash.py` / `health_garmin_html-json_dash.py` — `age` cast unguarded**
+
+```python
+age = int(settings.get("age") or 35)
+```
+
+`int()` raises `ValueError` if the Settings field contains a float string
+(`"35.5"`) or invalid input (`"abc"`). This surfaces as `build() failed`
+in `dash_runner` — no dashboard, no clear error message in the GUI.
+
+Fix:
+```python
+try:
+    age = int(float(settings.get("age") or 35))
+except (TypeError, ValueError):
+    age = 35
+```
+
+No new production code — all test hardening lives in the test suites.
+Lock fix and save_settings fix are minimal production changes.
 
 ---
 
-### v1.4.8 — Daily Sync (Automated Daily Workflow)
+### v1.4.9 — Daily Sync (Automated Daily Workflow)
 
 Automated daily workflow as a standalone tool — no GUI, no manual interaction.
 After initial setup in the desktop app, `daily_update` becomes the only daily
@@ -284,6 +323,22 @@ no active harm.
 ## Under consideration — v2.0
 
 These are ideas, not commitments. Some may never get built.
+
+**`context_validator.py` — Context Pipeline Validation**
+
+Structural validation of context archive files at read time — analogous to
+`garmin_validator.py` for the Garmin pipeline. Would detect missing fields,
+wrong types, or corrupt JSON in `context_data/` before `context_map.py`
+passes data to dashboard specialists.
+
+Not needed while context data is written exclusively by `context_writer.py`
+under full project control. Becomes relevant when additional external sources
+(SILAM, other APIs) are added — external API responses are structurally
+unpredictable in the same way Garmin API responses are.
+
+Prerequisite: v2.0 multi-source architecture stable.
+Natural companion to `context_dataformat.json` (schema definition, analogous
+to `garmin_dataformat.json`).
 
 **`GarminAppBase` — GUI Consolidation (Pre-v2.0 Preparation)**
 
