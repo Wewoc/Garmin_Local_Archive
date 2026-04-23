@@ -31,12 +31,14 @@ SHARED_SCRIPTS = [
     "maps/context_map.py",
     "maps/weather_map.py",
     "maps/pollen_map.py",
+    "maps/brightsky_map.py",
     # context pipeline
     "context/context_collector.py",
     "context/context_api.py",
     "context/context_writer.py",
     "context/weather_plugin.py",
     "context/pollen_plugin.py",
+    "context/brightsky_plugin.py",
     # dashboards (specialists + runner)
     "dashboards/dash_runner.py",
     "dashboards/timeseries_garmin_html-xls_dash.py",
@@ -69,6 +71,8 @@ ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py"] + SHARED_SCRIPTS
 # Entry-point signatures are added per-build in each build script.
 
 SCRIPT_SIGNATURES_BASE = {
+    "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
+    "maps/brightsky_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
     "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import"],
     "garmin/garmin_import.py":     ["def load_bulk", "def parse_day"],

@@ -63,7 +63,7 @@ I can't write Python. The architecture, module boundaries, and decisions are min
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Unofficial API:** Garmin Local Archive uses Garmin's unofficial API — it may change or break without notice.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
-- **Context data:** Weather and pollen data is provided by Open-Meteo — accuracy and availability are not guaranteed.
+- **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data by Open-Meteo — accuracy and availability are not guaranteed.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
 - **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
@@ -191,9 +191,10 @@ produces different ciphertext each time — no pre-computation attacks.
  [ garmin_data/ ]   [ context_data/ ]
         │                  │
         ▼                  ▼
- [ field_map /      [ context_map /
+[ field_map /      [ context_map /
    garmin_map ]       weather_map /
-                       pollen_map ]
+                       pollen_map /
+                       brightsky_map ]
         │                  │
         └─────────┬─────────┘
                   ▼
@@ -258,17 +259,18 @@ The project is structured into five focused layers. Each layer has a single resp
 | Script | What it does |
 |---|---|
 | `context_collector.py` | Orchestrates external API collect — date range, location, plugin loop |
-| `context_api.py` | Fetches weather and pollen data from Open-Meteo based on plugin metadata |
+| `context_api.py` | Fetches external context data based on plugin metadata — supports Open-Meteo and Brightsky adapters |
 | `context_writer.py` | Sole owner of `context_data/` — all file writes go through here |
 | `weather_plugin.py` | Plugin metadata — Open-Meteo Weather API fields, endpoints, file prefix |
 | `pollen_plugin.py` | Plugin metadata — Open-Meteo Air Quality API fields, endpoints, aggregation |
+| `brightsky_plugin.py` | Plugin metadata — Brightsky DWD Weather API fields, endpoints, field-specific aggregation |
 
 **Data brokers** — `maps/`
 
 | Script | What it does |
 |---|---|
 | `field_map.py` + `garmin_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
-| `context_map.py` + `weather_map.py` + `pollen_map.py` | Routes dashboard requests to weather/pollen archive — reads `context_data/` |
+| `context_map.py` + `weather_map.py` + `pollen_map.py` + `brightsky_map.py` | Routes dashboard requests to context archive — reads `context_data/` |
 
 **Dashboard layer** — `dashboards/` + `layouts/`
 
@@ -299,8 +301,9 @@ garmin_data/
 └── log/        – session logs, quality register, encrypted token
 
 context_data/
-├── weather/raw/  – daily weather archive (Open-Meteo)
-└── pollen/raw/   – daily pollen archive (Open-Meteo Air Quality)
+├── weather/raw/    – daily weather archive (Open-Meteo)
+├── pollen/raw/     – daily pollen archive (Open-Meteo Air Quality)
+└── brightsky/raw/  – daily weather archive (Brightsky DWD)
 ```
 
 ---
