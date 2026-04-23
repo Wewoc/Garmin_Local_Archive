@@ -31,6 +31,7 @@ from . import context_api
 from . import context_writer
 from . import weather_plugin
 from . import pollen_plugin
+from . import brightsky_plugin
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ log = logging.getLogger(__name__)
 _PLUGINS = [
     weather_plugin,
     pollen_plugin,
+    brightsky_plugin,
 ]
 
 # ── CSV config ─────────────────────────────────────────────────────────────────
@@ -221,8 +223,9 @@ def run(settings: dict = None, stop_event=None) -> dict:
         base = Path(settings["base_dir"])
         _CSV_FILE = base / "local_config.csv"
         # Override plugin output dirs to use correct base_dir
-        weather_plugin.OUTPUT_DIR = base / "context_data" / "weather" / "raw"
-        pollen_plugin.OUTPUT_DIR  = base / "context_data" / "pollen"  / "raw"
+        weather_plugin.OUTPUT_DIR   = base / "context_data" / "weather"   / "raw"
+        pollen_plugin.OUTPUT_DIR    = base / "context_data" / "pollen"    / "raw"
+        brightsky_plugin.OUTPUT_DIR = base / "context_data" / "brightsky" / "raw"
     _ensure_csv()
 
     # Default location from GUI settings
