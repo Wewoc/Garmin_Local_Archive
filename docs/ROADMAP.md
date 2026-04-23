@@ -14,6 +14,33 @@
 
 ---
 
+### v1.4.7.1 — Brightsky Location Routing
+
+Completion of the Brightsky plugin scope: location-aware source selection
+in `context_collector.py`.
+
+Brightsky covers Germany only (DWD station network). Users outside Germany
+currently receive empty files without explanation — a silent failure.
+
+**Fix:** `context_collector.py` evaluates the configured location before
+plugin dispatch. If coordinates are outside Germany (approximate bounding
+box: lat 47.2–55.1, lon 5.8–15.1), `brightsky_plugin` is skipped for that
+sync segment. Open-Meteo weather runs as fallback. A log entry documents
+the routing decision.
+
+This keeps the broker layer (`context_map.py`) clean — no config dependency,
+no coordinate logic. Routing stays in the collector where location is
+already known.
+
+**Scope:**
+- `context/context_collector.py` — location check before plugin loop
+- `docs/REFERENCE_CONTEXT.md` — routing logic documented
+- `docs/MAINTENANCE_CONTEXT.md` — added to "Adding a new context source"
+
+No changes to `brightsky_plugin.py`, `brightsky_map.py`, or `context_map.py`.
+
+---
+
 ### v1.4.8 — Documentation, AI Usability & Pipeline Hardening
 
 Two focused tracks: making the project easier to use and understand, and
