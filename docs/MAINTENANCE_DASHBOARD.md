@@ -51,6 +51,8 @@ garmin_app.py (GUI)
 
 **Auto-discovery:** `dash_runner.scan()` picks up any `*_dash.py` file automatically — no registration needed in `dash_runner.py`.
 
+**Using `html_complex` with Explorer layout:** set `"layout": "explorer"` in the specialist return dict. `dash_plotter_html_complex.render()` detects the key and dispatches to `_render_explorer()`. No changes to the plotter needed for additional Explorer-style specialists.
+
 ---
 
 ## Adding a new plotter
@@ -110,6 +112,8 @@ python tests/test_dashboard.py
 ```
 
 **Current count: 214 checks, 13 sections.**
+
+Note: `explorer_garmin-context_html_dash` is discovered by `dash_runner.scan()` and covered by section 7 (auto-discovery). Dedicated specialist tests to be added in a later session.
 
 | Section | Coverage |
 |---|---|

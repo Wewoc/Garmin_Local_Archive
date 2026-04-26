@@ -6,99 +6,11 @@
 
 ---
 
-**Currently stable — v1.4.7**
+**Currently stable — v1.4.7.1**
 
 ---
 
 ## Planned
-
----
-
-### v1.4.7.1 — Context Pipeline Extension & Explorer Dashboard
-
-Four extensions in one patch. Possible because the architecture is stable
-enough: a new data source, location routing, normalizer additions, and a new
-dashboard type each land in clearly defined touch points — no open-heart
-surgery required.
-
-#### 1 — Brightsky Location Routing
-
-Brightsky covers Germany only (DWD station network). Users outside Germany
-currently receive empty files without explanation — a silent failure.
-
-`context_collector.py` evaluates the configured location before plugin
-dispatch. If coordinates fall outside Germany (approximate bounding box:
-lat 47.2–55.1, lon 5.8–15.1), `brightsky_plugin` is skipped for that
-segment. Open-Meteo weather continues as fallback. A log entry documents
-the routing decision.
-
-The broker layer (`context_map.py`) stays clean — no config dependency,
-no coordinate logic. Routing stays in the collector where location is
-already known.
-
-#### 2 — Air Quality Plugin (Open-Meteo Air Quality)
-
-New plugin via the Open-Meteo Air Quality endpoint — no API key, no new
-provider, no new adapter. Same infrastructure as `weather_plugin`, different
-endpoint and fields: `pm2_5`, `pm10`, `european_aqi`, `ozone`.
-
-Since `context_collector.py` is opened for the routing fix anyway, registering
-the new plugin costs one line.
-
-#### 3 — Broker Layer & Normalizer
-
-`airquality_map.py` registered in `field_map._SOURCES` (2 lines).
-`garmin_map._FIELD_MAP` extended with `sleep_score_feedback` and
-`sleep_score_qualifier` (~8 lines). `garmin_normalizer.py` — both fields
-added to `s["sleep"]` (2 lines). These fields are prerequisites for the
-recovery annotation in the Explorer dashboard.
-
-#### 4 — Explorer Dashboard
-
-New specialist `explorer_garmin-context_html_dash.py` — free metric
-exploration without a preset theme. The user chooses what to see side by side.
-
-**Page 1 (Summary):** up to 4 freely selectable metrics as line traces on a
-shared time axis (time window via dropdown). Each Y-axis adapts dynamically
-to the selected metric — unit and value range from `dash_layout.get_metric_meta()`.
-Below the line chart: a fixed stacked bar for sleep phases (Deep / Light /
-REM / Awake) with a colour-coded recovery annotation per day from
-`sleep_score_feedback` and `sleep_score_qualifier`. An empty dropdown removes
-that axis entirely.
-
-**Page 2 (Intraday):** visible only when intraday data exists for the selected
-period. HR, Stress, Body Battery, and Respiration on a shared time axis.
-
-Available fields in dropdowns: all Garmin daily fields from
-`garmin_map.list_fields()` (excluding `_series`) plus all context fields
-(weather, pollen, air quality).
-
-Plotter: `dash_plotter_html_complex.py` with new layout type `"explorer"` —
-line chart and stacked bar rendered as subplots on a shared X-axis.
-
----
-
-**Scope:**
-
-| File | Change |
-|---|---|
-| `context/context_collector.py` | Brightsky routing + airquality registration + OUTPUT_DIR entry |
-| `context/airquality_plugin.py` | new |
-| `maps/airquality_map.py` | new |
-| `maps/field_map.py` | airquality_map import + `_SOURCES` entry (2 lines) |
-| `garmin/garmin_normalizer.py` | `score_feedback` + `score_qualifier` in `s["sleep"]` (2 lines) |
-| `maps/garmin_map.py` | `sleep_score_feedback` + `sleep_score_qualifier` in `_FIELD_MAP` (~8 lines) |
-| `layouts/dash_plotter_html_complex.py` | layout type `"explorer"` — line + stacked bar subplots |
-| `dashboards/explorer_garmin-context_html_dash.py` | new |
-| `docs/REFERENCE_CONTEXT.md` | routing logic + new plugin documented |
-| `docs/MAINTENANCE_CONTEXT.md` | "Adding a new context source" updated |
-| `docs/REFERENCE_DASHBOARD.md` | Explorer specialist documented |
-| `docs/CHANGELOG.md` / `docs/ROADMAP.md` | standard closure |
-
-No changes to: `brightsky_plugin.py`, `brightsky_map.py`, `context_api.py`,
-`context_writer.py`, `context_map.py`, `weather_plugin.py`, `pollen_plugin.py`,
-`weather_map.py`, `pollen_map.py`, `dash_runner.py`, `garmin_app.py`.
-
 
 ---
 
@@ -216,6 +128,39 @@ except (TypeError, ValueError):
 
 No new production code — all test hardening lives in the test suites.
 Lock fix and save_settings fix are minimal production changes.
+
+**`dash_plotter_html_complex.py` — internal structure**
+
+Experience from v1.4.7.1 showed that f-string rendering, layout logic, and JS
+generation in a single function leads to structural fragility — changes in one
+area break another without warning, and anchor-based patching becomes unreliable.
+
+The plotter needs the same contract discipline as the broker layer:
+- Each layout type (`recovery_context`, `explorer`) gets its own clearly bounded
+  render path — already partially done via `_render_recovery_context()` /
+  `_render_explorer()`
+- JS generation extracted into named helper functions with documented inputs
+- No implicit state shared between layout paths
+
+This is not a rewrite — it is applying the same ownership boundaries that made
+the pipeline layer robust. Target: a change to the Explorer layout cannot
+accidentally affect the Recovery Context layout, and vice versa.
+
+---
+
+### v1.4.8 Parking Lot — Explorer Sleep Score Annotation
+
+Sleep score labels per day in the Explorer dashboard sleep phase panel.
+Data is available (`_scores` in JS, `_FEEDBACK_SHORT` mapping in Python),
+but no reliable rendering approach was found within Plotly's Grid subplot
+constraints during v1.4.7.1.
+
+Known constraint: `textangle` is ignored for Scatter text traces in Grid
+subplots. Marker traces land inside the bar area. A separate subplot row
+for score labels is the most promising path — requires layout restructuring.
+
+No action until a clean solution is identified. Not a blocker for any other
+feature.
 
 ---
 

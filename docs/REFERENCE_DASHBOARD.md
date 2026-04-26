@@ -231,6 +231,35 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
 }
 ```
 
+### `explorer_garmin-context_html_dash` — Explorer
+
+```python
+{
+    "layout":   "explorer",          # signals dash_plotter_html_complex to use Explorer layout
+    "title":    str,
+    "subtitle": str,
+    "date_from": str,
+    "date_to":   str,
+    "daily": {
+        "dates":         [str, ...],
+        "field_options": [{"field": str, "label": str, "unit": str}, ...],
+        "series":        {field: [value | None, ...]},   # all daily fields, aligned to dates
+        "sleep_phases":  [
+            {"date": str, "deep": float|None, "light": float|None,
+             "rem": float|None, "awake": float|None},
+            ...
+        ],
+        "sleep_scores":  [
+            {"date": str, "feedback": str|None, "qualifier": str|None},
+            ...
+        ],
+    },
+    "intraday":  {},   # reserved, unused
+}
+```
+
+`field_options` covers all Garmin daily fields (excluding categorical and phase fields) plus all context fields (weather, pollen, air quality). Sleep score labels are rendered as a vertical Plotly text trace inside the sleep phase panel — one label per day at the position of its bar.
+
 ---
 
 ## Plotter interface
@@ -247,6 +276,10 @@ Every plotter in `layouts/` must expose:
 
 Raises `ValueError` if required data is missing or empty.
 Raises `OSError` if output file cannot be written.
+
+`dash_plotter_html_complex` supports two layout types, detected via `data.get("layout")`:
+- `"explorer"` → Explorer layout (`_render_explorer`)
+- `None` / any other → Recovery Context layout (`_render_recovery_context`)
 
 ---
 
@@ -304,5 +337,6 @@ Specialists that compute per-day status (`low`/`high`/`ok`) pass it in the retur
 |---|---|
 | `health_garmin_html-json_dash` | Per `days` entry: `"status"` key |
 | `sleep_recovery_context_dash` | Top-level lists: `hrv_status`, `body_battery_status`, `sleep_status` |
+| `explorer_garmin-context_html_dash` | Sleep score vertical text labels in sleep phase panel — colour from `qualifier` field |
 
 Plotters that support flagged markers: `dash_plotter_html`, `dash_plotter_html_complex`, `dash_plotter_html_mobile`.
