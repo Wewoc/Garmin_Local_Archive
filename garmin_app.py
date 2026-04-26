@@ -167,7 +167,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.7"
+APP_VERSION = "v1.4.7.1"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -914,6 +914,49 @@ class GarminApp(tk.Tk):
 
     # ── Failed days popup ──────────────────────────────────────────────────────
 
+    def _check_schema_migration(self, base_dir: str) -> bool:
+        """
+        Checks whether any summary files are below CURRENT_SCHEMA_VERSION.
+        If so, shows a backup warning popup.
+        Returns True if migration should run (user confirmed backup),
+        False if no migration needed or user cancelled.
+        """
+        summary_dir = Path(base_dir) / "garmin_data" / "summary"
+        if not summary_dir.exists():
+            return False
+
+        # Detect current schema version from normalizer
+        try:
+            import garmin_normalizer as normalizer
+            current_version = normalizer.CURRENT_SCHEMA_VERSION
+        except Exception:
+            return False
+
+        # Check if any summary is below current version
+        outdated = 0
+        for f in summary_dir.glob("garmin_*.json"):
+            try:
+                import json as _json
+                data = _json.loads(f.read_text(encoding="utf-8"))
+                if data.get("schema_version", 0) < current_version:
+                    outdated += 1
+            except Exception:
+                continue
+
+        if outdated == 0:
+            return False
+
+        answer = messagebox.askyesno(
+            "Data Migration — Backup Required",
+            f"A schema update requires rewriting {outdated} summary file(s).\n\n"
+            f"Raw data files will NOT be modified.\n"
+            f"Summary files will be regenerated from raw data.\n\n"
+            f"Please make a backup of your data directory before continuing.\n\n"
+            f"I have a backup — continue with migration?",
+            icon="warning",
+        )
+        return answer
+
     def _check_failed_days_popup(self, base_dir: str, sync_mode: str,
                                   sync_days: str, sync_from: str, sync_to: str) -> bool:
         """
@@ -1643,9 +1686,14 @@ class GarminApp(tk.Tk):
             sync_to     = s.get("sync_to", ""),
         )
 
+        # ── Schema migration popup ──
+        run_migration = self._check_schema_migration(base_dir=s["base_dir"])
+        env_extra = {"GARMIN_SCHEMA_MIGRATE": "1"} if run_migration else {}
+
         if self._connection_verified:
             self._run_script("garmin_collector.py", enable_stop=True,
                              refresh_failed=refresh_failed,
+                             env_overrides=env_extra,
                              on_done=lambda: (
                                  self._timer_resume_after_sync(timer_was_active),
                                  self._refresh_archive_info(),
@@ -1656,6 +1704,7 @@ class GarminApp(tk.Tk):
             on_success=lambda: self._run_script(
                 "garmin_collector.py", enable_stop=True,
                 refresh_failed=refresh_failed,
+                env_overrides=env_extra,
                 on_done=lambda: (
                     self._timer_resume_after_sync(timer_was_active),
                     self._refresh_archive_info(),

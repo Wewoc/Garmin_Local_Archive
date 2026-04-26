@@ -41,6 +41,7 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Daily Overview** | All summary fields in one flat table, one row per day. | Excel |
 | **Health + Context** | Garmin health metrics alongside local weather and pollen data. | HTML, Excel |
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
+| **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
 
 The AI itself is not included. How to set one up is explained in the local AI guide at the end of this README.
 
@@ -63,7 +64,7 @@ I can't write Python. The architecture, module boundaries, and decisions are min
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Unofficial API:** Garmin Local Archive uses Garmin's unofficial API — it may change or break without notice.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
-- **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data by Open-Meteo — accuracy and availability are not guaranteed.
+- **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data and air quality data by Open-Meteo — accuracy and availability are not guaranteed. Air quality data (CAMS dataset) is available from approximately 2020 onwards.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
 - **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
@@ -103,7 +104,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
 *Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
-![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg)
+![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg.jpg)
 *Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
 ## Scope & limitations
@@ -111,7 +112,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 Local-first, personal use, no enterprise ambitions.
 
 - Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
-- Five local test suites (563 checks + build output validation) — no CI/CD yet
+- Five local test suites (690 checks + build output validation) — no CI/CD yet
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
 - Historical data quality depends on Garmin servers
@@ -267,13 +268,14 @@ The project is structured into five focused layers. Each layer has a single resp
 | `weather_plugin.py` | Plugin metadata — Open-Meteo Weather API fields, endpoints, file prefix |
 | `pollen_plugin.py` | Plugin metadata — Open-Meteo Air Quality API fields, endpoints, aggregation |
 | `brightsky_plugin.py` | Plugin metadata — Brightsky DWD Weather API fields, endpoints, field-specific aggregation |
+| `airquality_plugin.py` | Plugin metadata — Open-Meteo Air Quality API fields (PM2.5, PM10, AQI, NO₂, Ozone), daily mean aggregation |
 
 **Data brokers** — `maps/`
 
 | Script | What it does |
 |---|---|
 | `field_map.py` + `garmin_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
-| `context_map.py` + `weather_map.py` + `pollen_map.py` + `brightsky_map.py` | Routes dashboard requests to context archive — reads `context_data/` |
+| `context_map.py` + `weather_map.py` + `pollen_map.py` + `brightsky_map.py` + `airquality_map.py` | Routes dashboard requests to context archive — reads `context_data/` |
 
 **Dashboard layer** — `dashboards/` + `layouts/`
 
@@ -551,10 +553,10 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 Five test suites cover the full pipeline — no network, no API, no GUI required:
 
 ```bash
-python tests/test_local.py          # 218 checks — Garmin pipeline
-python tests/test_local_context.py  # 134 checks — Context pipeline (Open-Meteo mocked)
-python tests/test_dashboard.py      # 211 checks — Dashboard pipeline
-python tests/test_app_logic.py      #  80 checks — App layer (entry points, path resolution)
+python tests/test_local.py          # 227 checks — Garmin pipeline
+python tests/test_local_context.py  # 191 checks — Context pipeline (Open-Meteo mocked)
+python tests/test_dashboard.py      # 220 checks — Dashboard pipeline
+python tests/test_app_logic.py      #  52 checks — App layer (entry points, path resolution)
 python tests/test_build_output.py   #   8 sections — Build output validation (run after build)
 ```
 

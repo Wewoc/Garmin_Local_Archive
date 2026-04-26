@@ -32,6 +32,7 @@ SHARED_SCRIPTS = [
     "maps/weather_map.py",
     "maps/pollen_map.py",
     "maps/brightsky_map.py",
+    "maps/airquality_map.py",
     # context pipeline
     "context/context_collector.py",
     "context/context_api.py",
@@ -39,6 +40,7 @@ SHARED_SCRIPTS = [
     "context/weather_plugin.py",
     "context/pollen_plugin.py",
     "context/brightsky_plugin.py",
+    "context/airquality_plugin.py",
     # dashboards (specialists + runner)
     "dashboards/dash_runner.py",
     "dashboards/timeseries_garmin_html-xls_dash.py",
@@ -46,6 +48,7 @@ SHARED_SCRIPTS = [
     "dashboards/overview_garmin_xls_dash.py",
     "dashboards/health_garmin-weather-pollen_html-xls_dash.py",
     "dashboards/sleep_recovery_context_dash.py",
+    "dashboards/explorer_garmin-context_html_dash.py",
     # layouts (plotters + passive resources)
     "layouts/dash_layout.py",
     "layouts/dash_layout_html.py",
@@ -74,14 +77,16 @@ SCRIPT_SIGNATURES_BASE = {
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
-    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import"],
+    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration"],
     "garmin/garmin_import.py":     ["def load_bulk", "def parse_day"],
     "garmin/garmin_quality.py":    ["def _upsert_quality"],
     "garmin/garmin_config.py":     ["GARMIN_EMAIL"],
     "garmin/garmin_security.py":   ["def load_token", "def save_token"],
     "garmin/garmin_normalizer.py": ["def normalize", "def summarize"],
     "garmin/garmin_validator.py":  ["def validate", "def reload_schema", "def current_version"],
-    "garmin/garmin_writer.py":     ["def write_day", "def read_raw"],
+    "garmin/garmin_writer.py":     ["def write_day", "def read_raw", "def read_summary"],
+    "context/airquality_plugin.py": ["AGGREGATION_MAP", "CHUNK_DAYS"],
+    "maps/airquality_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
 }
 
