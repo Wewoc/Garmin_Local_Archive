@@ -2,6 +2,75 @@
 
 ---
 
+## v1.4.7.1 — Context Pipeline Extension & Explorer Dashboard
+
+**`maps/context_map.py`:**
+- `airquality_map` imported and registered in `_SOURCES` as `"airquality"`.
+- `list_sources()` now returns `{"weather", "pollen", "brightsky", "airquality"}`.
+
+**`maps/field_map.py`:**
+- `airquality_map` import and `_SOURCES` entry removed — air quality is a context source, not a Garmin source. Corrected from Session 1.
+
+**`context/context_collector.py`:**
+- Bounding-box guard before plugin dispatch: lat 47.2–55.1, lon 5.8–15.1. `brightsky_plugin` skipped for segments outside Germany. Log entry written on skip.
+- `airquality_plugin` imported, added to `_PLUGINS` and `OUTPUT_DIR` override block.
+
+**New: `context/airquality_plugin.py`:**
+- Metadata-only plugin. Open-Meteo Air Quality endpoint, no API key. 5 fields: `pm2_5`, `pm10`, `european_aqi`, `nitrogen_dioxide`, `ozone`. `AGGREGATION_MAP` (all mean), `CHUNK_DAYS = 30`.
+
+**New: `maps/airquality_map.py`:**
+- Field resolver for `context_data/airquality/raw/`. Generic names → internal JSON keys. `get_label()` returns `(label, unit)` per field.
+
+**`garmin/garmin_config.py`:**
+- `CONTEXT_AIRQUALITY_DIR` added after `CONTEXT_BRIGHTSKY_DIR`.
+
+**`context/context_api.py`:**
+- `_parse_hourly_to_daily(response, fields, aggregation_map)` — new parser for mean-aggregated hourly fields. Dispatch via `hasattr(plugin, "AGGREGATION_MAP")` before existing `else` branch.
+
+**`garmin/garmin_normalizer.py`:**
+- `sleep_score_feedback` from `dailySleepDTO.sleepScoreFeedback` added to `s["sleep"]`.
+- `sleep_score_qualifier` from `dailySleepDTO.sleepScores.overall.qualifierKey` added to `s["sleep"]`.
+- `CURRENT_SCHEMA_VERSION` bumped from `1` to `2`.
+
+**`maps/garmin_map.py`:**
+- `sleep_score_feedback` and `sleep_score_qualifier` registered in `_FIELD_MAP` as daily fields reading from `summary/sleep/`.
+
+**New: `dashboards/explorer_garmin-context_html_dash.py`:**
+- Specialist: free metric exploration across all Garmin daily fields and context sources.
+- Single page: 4 freely selectable metric dropdowns → line traces on shared X-axis, each with own Y-axis. Fixed lower panel: stacked sleep phase bars + vertical sleep score text labels per day (Plotly text trace, colour from `qualifier`).
+
+**`layouts/dash_plotter_html_complex.py`:**
+- `render()` now dispatches by `data.get("layout")`: `"explorer"` → `_render_explorer()`, otherwise → `_render_recovery_context()` (unchanged).
+- New: `_build_explorer_tab1()`, `_render_explorer()`. Explorer renders as single page — no tab navigation.
+- Sleep score chips replaced by Plotly text trace (`mode='text'`, `textangle=-90`, `y=2`) inside sleep phase panel.
+- `_TAB_SWITCH_JS` updated: `showComplexTab()` now receives full element ID — no implicit `"chart-"` prefix. `_build_tab_buttons()` updated accordingly.
+- Dead `tab1_div.replace()` call removed from `_render_recovery_context()`.
+
+**`tests/test_local_context.py`:**
+- Section 11: `list_sources` expected set updated to include `"airquality"`.
+- 6 new checks for `airquality_plugin` and `_parse_hourly_to_daily` (Session 1).
+- **Total: 187/187 passed.**
+
+**`tests/test_local.py`:**
+- 4 new checks for `sleep_score_feedback` + `sleep_score_qualifier`. `schema_version` expectation updated to `2`.
+- Section 15: 8 new checks for `_check_downgrade` — covers no-entry, same label, downgrade, upgrade, missing-quality-key edge case.
+- Section 16: 7 new checks for `_run_self_healing` — covers no-candidate, missing raw file, status improved, status unchanged.
+- **Total: 237/237 passed.**
+
+**`layouts/dash_plotter_html_complex.py` — Explorer refinements:**
+- Sleep score annotation: after multiple iterations, reverted to stable stacked bar only — text/marker traces caused data loss and layout instability at scale. Score data (`_scores`) retained in JS for future use.
+- Three collapsible panels added below the chart:
+  - **Sleep Quality Log** — chronological table (newest first) with qualifier badge + short feedback label per day.
+  - **Field Descriptions** — one-line explanation per field in the dataset. Garmin fields brief; context fields with units and context.
+  - **Air Quality Guide** — visible only when airquality fields are present. AQI scale with colour-coded thresholds, PM2.5/PM10/NO₂/Ozone interpretation, WHO/EU reference values, correlation tips.
+- `_FEEDBACK_SHORT` mapping added — 26 Garmin `sleepScoreFeedback` enum values mapped to short display labels.
+- `_FIELD_DESCRIPTIONS` added — descriptions for all airquality, pollen, weather, and key Garmin fields.
+
+**`tests/test_dashboard.py`:**
+- Explorer specialist picked up by auto-discovery (section 7). 214/214 passed.
+
+---
+
 ## v1.4.7 — Brightsky DWD Context Plugin
 
 New context source: Brightsky API (Deutscher Wetterdienst) as third plugin alongside Open-Meteo weather and pollen.
@@ -32,6 +101,21 @@ New context source: Brightsky API (Deutscher Wetterdienst) as third plugin along
 **`build_manifest.py`:**
 - `maps/brightsky_map.py` and `context/brightsky_plugin.py` added to `SHARED_SCRIPTS`.
 - Signatures for both new modules added to `SCRIPT_SIGNATURES_BASE`.
+
+**`garmin/garmin_writer.py`:**
+- `read_summary(date_str)` — new function. Reads and returns a summary JSON file. Used by schema migration loop. Sole owner contract maintained.
+
+**`garmin/garmin_collector.py`:**
+- `_run_schema_migration(quality_data)` — new function. Iterates quality log days, checks `schema_version` against `CURRENT_SCHEMA_VERSION`, rewrites summary from raw if outdated. Log output per day `[i/total]`. No API call, no login required.
+- Step 3c in `main()`: runs `_run_schema_migration()` when `GARMIN_SCHEMA_MIGRATE=1`.
+
+**`garmin/garmin_app.py` + `garmin/garmin_app_standalone.py`:**
+- `_check_schema_migration()` — new method. Scans `summary/` for outdated `schema_version`, shows backup warning popup (English) if candidates found. Returns `True` if user confirms.
+- Sync trigger: sets `GARMIN_SCHEMA_MIGRATE=1` in env overrides when migration confirmed.
+
+**`build_manifest.py`:**
+- `maps/airquality_map.py`, `context/airquality_plugin.py`, `dashboards/explorer_garmin-context_html_dash.py` added to `SHARED_SCRIPTS`.
+- `SCRIPT_SIGNATURES_BASE` — new entries: `airquality_plugin`, `airquality_map`, `garmin_writer.read_summary`, `garmin_collector._run_schema_migration`. Duplicate `garmin_collector` key removed.
 
 **`tests/test_local_context.py`:**
 - Section 4 added: `brightsky_plugin` metadata checks (FETCH_ADAPTER, AGGREGATION_MAP keys + methods, no AGGREGATION string).

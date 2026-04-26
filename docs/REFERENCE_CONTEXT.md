@@ -19,9 +19,10 @@ GUI "API Sync" Button
 
 Dashboard specialists
   └── context_map.get(field, date_from, date_to)
-        ├── weather_map.get()   → context_data/weather/raw/
-        ├── pollen_map.get()    → context_data/pollen/raw/
-        └── brightsky_map.get() → context_data/brightsky/raw/
+        ├── weather_map.get()    → context_data/weather/raw/
+        ├── pollen_map.get()     → context_data/pollen/raw/
+        ├── brightsky_map.get()  → context_data/brightsky/raw/
+        └── airquality_map.get() → context_data/airquality/raw/
 ```
 
 **Key principle:** `maps/` = routing only. `context/` = collect only. No crossover.
@@ -38,10 +39,11 @@ Dashboard specialists
 | `weather_plugin.py` | Metadata only — URL, fields, prefix, output dir | Execute any logic |
 | `pollen_plugin.py` | Metadata only — URL, fields, prefix, output dir, aggregation | Execute any logic |
 | `brightsky_plugin.py` | Metadata only — URL, fields, prefix, output dir, FETCH_ADAPTER, AGGREGATION_MAP | Execute any logic |
-| `context_map.py` | Routes dashboard requests to weather_map, pollen_map, brightsky_map | Fetch data, call APIs |
+| `context_map.py` | Routes dashboard requests to weather_map, pollen_map, brightsky_map, airquality_map | Fetch data, call APIs |
 | `weather_map.py` | Resolves generic field names to weather archive files | Write files, call APIs |
 | `pollen_map.py` | Resolves generic field names to pollen archive files | Write files, call APIs |
 | `brightsky_map.py` | Resolves generic field names to Brightsky archive files | Write files, call APIs |
+| `airquality_map.py` | Resolves generic field names to air quality archive files | Write files, call APIs |
 
 ---
 
@@ -65,7 +67,7 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 | `SOURCE_TAG` | str | Written into each output file as `"source"` |
 | `CHUNK_DAYS` | int | Max days per API call |
 | `AGGREGATION` | str | Optional — uniform aggregation method (`"daily_max"`). Omit if not applicable |
-| `AGGREGATION_MAP` | dict[str, str] | Optional — field-specific aggregation (`{"temperature": "mean", "precipitation": "sum", ...}`). Used instead of `AGGREGATION` when aggregation differs per field. Requires `FETCH_ADAPTER = "brightsky"` |
+| `AGGREGATION_MAP` | dict[str, str] | Optional — field-specific aggregation (`{"temperature": "mean", "precipitation": "sum", ...}`). Used when aggregation differs per field. Triggers `_parse_hourly_to_daily()` in `context_api.py` for Open-Meteo hourly plugins. For Brightsky, requires `FETCH_ADAPTER = "brightsky"` |
 | `FETCH_ADAPTER` | str | Optional — adapter key for `context_api.py`. Omit for Open-Meteo plugins (default). Set to `"brightsky"` for Brightsky DWD |
 
 ### Registered plugins
@@ -75,6 +77,7 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 | `weather_plugin.py` | `weather` | Open-Meteo Weather + Archive API | daily | — |
 | `pollen_plugin.py` | `pollen` | Open-Meteo Air Quality API | hourly → daily max | `daily_max` |
 | `brightsky_plugin.py` | `brightsky` | Brightsky DWD API | hourly → daily (field-specific) | `AGGREGATION_MAP` |
+| `airquality_plugin.py` | `airquality` | Open-Meteo Air Quality API | hourly → daily mean | `AGGREGATION_MAP` |
 
 ---
 
@@ -96,9 +99,10 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
     "date_to":   str | None,
     "segments":  int,
     "plugins": {
-        "weather":   {"written": int, "skipped": int, "failed": int},
-        "pollen":    {"written": int, "skipped": int, "failed": int},
-        "brightsky": {"written": int, "skipped": int, "failed": int},
+        "weather":    {"written": int, "skipped": int, "failed": int},
+        "pollen":     {"written": int, "skipped": int, "failed": int},
+        "brightsky":  {"written": int, "skipped": int, "failed": int},
+        "airquality": {"written": int, "skipped": int, "failed": int},
     },
     "stopped": bool,
     "error":   str,   # optional — only present on abort
@@ -113,7 +117,8 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 |---|---|
 | `fetch(plugin, date_from, date_to, lat, lon, skip_dates)` | Fetches data for a plugin over a date range. Returns `{date_str: {field: value}}`. Dates in `skip_dates` are excluded from result |
 | `_parse_daily(response, fields)` | Parses daily Open-Meteo response to `{date: {field: value}}` |
-| `_parse_hourly_to_daily_max(response, fields)` | Aggregates hourly Open-Meteo response to daily max per field |
+| `_parse_hourly_to_daily_max(response, fields)` | Aggregates hourly Open-Meteo response to daily max per field — used by pollen |
+| `_parse_hourly_to_daily(response, fields, aggregation_map)` | Aggregates hourly Open-Meteo response per field with method from `aggregation_map` (mean / max / sum / mode) — used by airquality |
 | `_parse_brightsky(response, aggregation_map)` | Parses Brightsky `weather[]` array to `{date: {field: value}}` with field-specific aggregation (mean / sum / max / mode) |
 | `_fetch_chunk(url, date_from, date_to, lat, lon, fields, resolution, adapter)` | Single API call — builds adapter-specific URL params, returns parsed JSON or None on failure |
 | `_select_url(plugin, date_from)` | Selects historical or forecast URL based on `HISTORICAL_LAG_DAYS` |
@@ -143,7 +148,7 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 
 ---
 
-## `weather_map.py` / `pollen_map.py` / `brightsky_map.py`
+## `weather_map.py` / `pollen_map.py` / `brightsky_map.py` / `airquality_map.py`
 
 All three follow identical interface:
 
@@ -189,6 +194,16 @@ All three follow identical interface:
 | `cloud_cover_avg` | `cloud_cover` | % | daily mean |
 | `pressure_avg` | `pressure_msl` | hPa | daily mean |
 | `condition` | `condition` | string | daily mode |
+
+### Registered fields — `airquality_map.py`
+
+| Generic name | Internal key | Unit | Aggregation |
+|---|---|---|---|
+| `airquality_pm2_5` | `pm2_5` | μg/m³ | daily mean |
+| `airquality_pm10` | `pm10` | μg/m³ | daily mean |
+| `airquality_european_aqi` | `european_aqi` | — | daily mean |
+| `airquality_nitrogen_dioxide` | `nitrogen_dioxide` | μg/m³ | daily mean |
+| `airquality_ozone` | `ozone` | μg/m³ | daily mean |
 
 ---
 
@@ -258,6 +273,26 @@ All three follow identical interface:
 }
 ```
 
+### `context_data/airquality/raw/airquality_YYYY-MM-DD.json`
+
+```json
+{
+    "date":        "2026-01-01",
+    "source":      "open-meteo-airquality",
+    "fetched_at":  "2026-04-09T10:00:00",
+    "latitude":    52.5134,
+    "longitude":   13.6655,
+    "aggregation": "daily_mean",
+    "fields": {
+        "pm2_5":            12.4,
+        "pm10":             18.7,
+        "european_aqi":     32.0,
+        "nitrogen_dioxide": 15.2,
+        "ozone":            68.5
+    }
+}
+```
+
 ---
 
 ## `local_config.csv`
@@ -289,7 +324,8 @@ date_from,date_to,country,place,latitude,longitude
 |---|---|---|---|---|
 | Open-Meteo Weather | `archive-api.open-meteo.com/v1/archive` | None | daily | 1940+ |
 | Open-Meteo Forecast | `api.open-meteo.com/v1/forecast` | None | daily | recent weeks |
-| Open-Meteo Air Quality | `air-quality-api.open-meteo.com/v1/air-quality` | None | hourly | limited |
+| Open-Meteo Air Quality (pollen) | `air-quality-api.open-meteo.com/v1/air-quality` | None | hourly | limited |
+| Open-Meteo Air Quality (airquality) | `air-quality-api.open-meteo.com/v1/air-quality` | None | hourly | limited |
 | Open-Meteo Geocoding | `geocoding-api.open-meteo.com/v1/search` | None | — | — |
 | Brightsky DWD | `api.brightsky.dev/weather` | None | hourly | 2010-01-01+ |
 
