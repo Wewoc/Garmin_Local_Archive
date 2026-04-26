@@ -104,7 +104,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
 *Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
-![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg.jpg)
+![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg)
 *Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
 ## Scope & limitations
