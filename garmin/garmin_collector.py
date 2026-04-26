@@ -109,6 +109,32 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
     return label, normalized, summary, fields, val_result
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Downgrade guard
+# ══════════════════════════════════════════════════════════════════════════════
+
+_QUALITY_RANK = {"high": 3, "medium": 2, "low": 1, "failed": 0}
+
+
+def _check_downgrade(new_label: str, existing_entry: dict | None) -> tuple:
+    """
+    Compares a freshly fetched quality label against the stored entry.
+
+    Returns
+    -------
+    tuple (is_downgrade, existing_label, existing_source)
+      is_downgrade    — True if new_label is worse than stored label
+      existing_label  — stored quality label, or "failed" if no entry
+      existing_source — stored source, or "api" if no entry
+    """
+    if existing_entry is None:
+        return False, "failed", "api"
+
+    existing_label  = existing_entry.get("quality", "failed")
+    existing_source = existing_entry.get("source", "api")
+    is_downgrade    = _QUALITY_RANK.get(new_label, 0) < _QUALITY_RANK.get(existing_label, 0)
+    return is_downgrade, existing_label, existing_source
+
 def _write_assessed(normalized, summary, date_str: str, label: str) -> bool:
     """
     Writes a pre-assessed day to disk. Returns True if written successfully.
@@ -338,8 +364,67 @@ def _run_self_healing(quality_data: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Main
+#  Schema migration — re-summarize outdated summaries
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _run_schema_migration(quality_data: dict) -> None:
+    """
+    Rewrites summary files whose schema_version is below CURRENT_SCHEMA_VERSION.
+
+    Runs after the user confirms the backup popup in garmin_app.py.
+    Iterates over quality_data["days"] only — days not in the quality log
+    are not touched.
+
+    Raw files are read-only. Only summary/ files are overwritten.
+    No API call, no login required.
+
+    Logs every day individually so the user can follow progress in the GUI.
+    """
+    current = normalizer.CURRENT_SCHEMA_VERSION
+
+    candidates = []
+    for e in quality_data.get("days", []):
+        date_str = e.get("date")
+        if not date_str:
+            continue
+        summary = writer.read_summary(date_str)
+        if not summary:
+            continue
+        if summary.get("schema_version", 0) < current:
+            candidates.append(date_str)
+
+    if not candidates:
+        log.info("  Schema migration: all summaries up to date — nothing to do.")
+        return
+
+    log.info(
+        f"  Schema migration: {len(candidates)} summary file(s) will be rewritten "
+        f"(schema version → {current})"
+    )
+    log.info("  Raw files are not modified.")
+
+    ok = 0
+    failed = 0
+    total = len(candidates)
+
+    with quality.QUALITY_LOCK:
+        for i, date_str in enumerate(candidates, 1):
+            raw = writer.read_raw(date_str)
+            if not raw:
+                log.warning(f"  [{i}/{total}] {date_str} — no raw file, skipped")
+                failed += 1
+                continue
+            try:
+                normalized = normalizer.normalize(raw, source="api")
+                summary    = normalizer.summarize(normalized)
+                writer.write_day(normalized, summary, date_str)
+                log.info(f"  [{i}/{total}] {date_str} — ok")
+                ok += 1
+            except Exception as e:
+                log.error(f"  [{i}/{total}] {date_str} — error: {e}")
+                failed += 1
+
+    log.info(f"  Schema migration complete: {ok} rewritten, {failed} skipped/failed.")
 
 def main():
     # ── 0. Import mode — delegated entry points ───────────────────────────────
@@ -408,6 +493,10 @@ def main():
 
     # ── 3b. Self-healing loop — schema version check ───────────────────────────
     _run_self_healing(quality_data)
+
+    # ── 3c. Schema migration — rewrite outdated summaries if triggered ─────────
+    if os.environ.get("GARMIN_SCHEMA_MIGRATE") == "1":
+        _run_schema_migration(quality_data)
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:
@@ -496,14 +585,11 @@ def main():
                 label, normalized, summary, fields, val_result = _fetch_and_assess(client, date_str)
 
                 # ── downgrade protection ──────────────────────────────────────
-                _quality_rank = {"high": 3, "medium": 2, "low": 1, "failed": 0}
                 existing_entry = next(
                     (e for e in quality_data.get("days", []) if e.get("date") == date_str),
                     None
                 )
-                existing_label  = existing_entry.get("quality", "failed") if existing_entry else "failed"
-                existing_source = existing_entry.get("source", "api")     if existing_entry else "api"
-                is_downgrade    = _quality_rank.get(label, 0) < _quality_rank.get(existing_label, 0)
+                is_downgrade, existing_label, existing_source = _check_downgrade(label, existing_entry)
 
                 if is_downgrade:
                     log.warning(f"    ⚠ API result inferior ({label} < {existing_label}) — kept existing")

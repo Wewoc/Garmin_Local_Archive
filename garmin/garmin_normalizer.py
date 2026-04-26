@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 # Version of the summary schema produced by summarize().
 # Increment when fields are added, removed, or renamed in the summary dict.
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -144,6 +144,8 @@ def summarize(raw: dict) -> dict:
         "hrv_weekly_avg_ms":   safe_get(hrv_sum, "weeklyAvg"),
         "hrv_status":          safe_get(hrv_sum, "status"),
         "hrv_feedback":        safe_get(hrv_sum, "feedbackPhrase"),
+        "sleep_score_feedback":  safe_get(ds, "sleepScoreFeedback"),
+        "sleep_score_qualifier": safe_get(ds, "sleepScores", "overall", "qualifierKey"),
     }
 
     # ── Heart rate ──

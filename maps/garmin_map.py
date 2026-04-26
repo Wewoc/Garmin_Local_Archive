@@ -98,6 +98,15 @@ _FIELD_MAP = {
         "daily":    ("training",  "vo2max"),
     },
 
+    "sleep_score_feedback": {
+        "intraday": None,
+        "daily":    ("sleep", "sleep_score_feedback"),
+    },
+    "sleep_score_qualifier": {
+        "intraday": None,
+        "daily":    ("sleep", "sleep_score_qualifier"),
+    },
+
     # ── Intraday fields (raw/) ────────────────────────────────────────────────
     #
     #  "intraday": (section, array_key, extract)

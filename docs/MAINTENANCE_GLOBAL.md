@@ -23,15 +23,6 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ---
 
-## Dashboard Pipeline
-
-![Dashboard Pipeline v1.4.0](../screenshots/flowchart_dashboard_v140.png)
-
-> [!TIP]
-> **Interactive version:** Open [flowchart_dashboard_v140.html](../screenshots/flowchart_dashboard_v140.html) in your browser for the full diagram with readable labels.
-
----
-
 ## Three build targets
 
 | Target | Entry point | Build script | Output | Python on target |
@@ -79,7 +70,7 @@ Both build scripts run `validate_scripts()` before PyInstaller starts:
 | `garmin_app.py` | `class GarminApp` |
 | `garmin_app_standalone.py` | `class GarminApp` |
 | `garmin_api.py` | `def login`, `def fetch_raw` |
-| `garmin_collector.py` | `def main`, `def _process_day`, `def run_import` |
+| `garmin_collector.py` | `def main`, `def _fetch_and_assess`, `def run_import` |
 | `garmin_import.py` | `def load_bulk`, `def parse_day` |
 | `garmin_quality.py` | `def _upsert_quality` |
 | `garmin_config.py` | `GARMIN_EMAIL` |
@@ -162,7 +153,7 @@ Never use `logging.warning()` for build-path diagnostics — it disappears silen
 python tests/test_local.py
 ```
 
-**Current count: 218 checks, 14 sections.** No network, no GUI, no API calls. Cleans up after itself.
+**Current count: 227 checks, 14 sections.** No network, no GUI, no API calls. Cleans up after itself.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -172,7 +163,7 @@ Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `g
 python tests/test_local_context.py
 ```
 
-**Current count: 134 checks, 11 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
+**Current count: 191 checks, 11 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
 
 Run after any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `weather_map`, `pollen_map`, `context_map`.
 
@@ -182,7 +173,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 214 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 220 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
@@ -200,7 +191,7 @@ For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_man
 python tests/test_app_logic.py
 ```
 
-**Current count: 80 checks, 10 sections.** No network, no GUI, no build required. Tests module-level functions in `garmin_app.py` and `garmin_app_standalone.py` — settings load/save, keyring, script path resolution in dev and frozen mode (mocked `sys.frozen` / `sys._MEIPASS`). Includes v1.4.2 regression check for frozen path resolution.
+**Current count: 52 checks, 10 sections.** No network, no GUI, no build required. Tests module-level functions in `garmin_app.py` and `garmin_app_standalone.py` — settings load/save, keyring, script path resolution in dev and frozen mode (mocked `sys.frozen` / `sys._MEIPASS`). Includes v1.4.2 regression check for frozen path resolution.
 
 Run after any change to: `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
 

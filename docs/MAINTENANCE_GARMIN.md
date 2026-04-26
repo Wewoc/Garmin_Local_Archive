@@ -149,6 +149,7 @@ Add the endpoint key to `assess_quality_fields()` in `garmin_quality.py`.
 2. Increment `schema_version` (minor for optional fields, major for required)
 3. Update `CURRENT_SCHEMA_VERSION` in `garmin_normalizer.py` if summary schema changes
 4. Self-healing loop will revalidate affected days on next run automatically
+5. Schema migration loop will rewrite outdated summaries from raw on next sync — user sees backup popup before migration starts. No API call required. Raw files are never modified.
 
 ---
 

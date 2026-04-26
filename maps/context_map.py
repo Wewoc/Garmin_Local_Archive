@@ -8,7 +8,7 @@ Structurally identical to field_map.py — same broker principle, different doma
 Knows which *_map.py modules are registered for context sources,
 but knows nothing about how any source stores its data.
 
-Registered sources: weather_map, pollen_map, brightsky_map.
+Registered sources: weather_map, pollen_map, brightsky_map, airquality_map.
 Interface is designed to accept additional sources without modification.
 
 Usage (from a specialist):
@@ -47,6 +47,7 @@ The collect step is triggered by the "API Sync" button in the GUI.
 from . import weather_map
 from . import pollen_map
 from . import brightsky_map
+from . import airquality_map
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Source registry — weather + pollen + brightsky
@@ -58,9 +59,10 @@ from . import brightsky_map
 # ══════════════════════════════════════════════════════════════════════════════
 
 _SOURCES = {
-    "weather":   weather_map,
-    "pollen":    pollen_map,
-    "brightsky": brightsky_map,
+    "weather":    weather_map,
+    "pollen":     pollen_map,
+    "brightsky":  brightsky_map,
+    "airquality": airquality_map,
 }
 
 

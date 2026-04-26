@@ -32,6 +32,7 @@ from . import context_writer
 from . import weather_plugin
 from . import pollen_plugin
 from . import brightsky_plugin
+from . import airquality_plugin
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ _PLUGINS = [
     weather_plugin,
     pollen_plugin,
     brightsky_plugin,
+    airquality_plugin,
 ]
 
 # ── CSV config ─────────────────────────────────────────────────────────────────
@@ -223,9 +225,10 @@ def run(settings: dict = None, stop_event=None) -> dict:
         base = Path(settings["base_dir"])
         _CSV_FILE = base / "local_config.csv"
         # Override plugin output dirs to use correct base_dir
-        weather_plugin.OUTPUT_DIR   = base / "context_data" / "weather"   / "raw"
-        pollen_plugin.OUTPUT_DIR    = base / "context_data" / "pollen"    / "raw"
-        brightsky_plugin.OUTPUT_DIR = base / "context_data" / "brightsky" / "raw"
+        weather_plugin.OUTPUT_DIR    = base / "context_data" / "weather"    / "raw"
+        pollen_plugin.OUTPUT_DIR     = base / "context_data" / "pollen"     / "raw"
+        brightsky_plugin.OUTPUT_DIR  = base / "context_data" / "brightsky"  / "raw"
+        airquality_plugin.OUTPUT_DIR = base / "context_data" / "airquality" / "raw"
     _ensure_csv()
 
     # Default location from GUI settings
@@ -277,6 +280,15 @@ def run(settings: dict = None, stop_event=None) -> dict:
                 break
 
             name = plugin.NAME
+
+            # Brightsky covers Germany only — skip outside bounding box
+            if plugin is brightsky_plugin:
+                if not (47.2 <= lat <= 55.1 and 5.8 <= lon <= 15.1):
+                    log.info(
+                        f"  context_collector: skipping brightsky — "
+                        f"location ({lat}, {lon}) outside Germany"
+                    )
+                    continue
 
             # Skip dates already written
             from datetime import date as _date, timedelta as _td

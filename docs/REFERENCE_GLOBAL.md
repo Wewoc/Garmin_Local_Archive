@@ -61,6 +61,8 @@ All modules import via `import garmin_config as cfg`.
 | `CONTEXT_DIR` | `BASE_DIR/context_data` | External API data root |
 | `CONTEXT_WEATHER_DIR` | `CONTEXT_DIR/weather/raw` | Archived weather files |
 | `CONTEXT_POLLEN_DIR` | `CONTEXT_DIR/pollen/raw` | Archived pollen files |
+| `CONTEXT_BRIGHTSKY_DIR` | `CONTEXT_DIR/brightsky/raw` | Archived Brightsky DWD files |
+| `CONTEXT_AIRQUALITY_DIR` | `CONTEXT_DIR/airquality/raw` | Archived air quality files |
 | `LOCAL_CONFIG_FILE` | `BASE_DIR/local_config.csv` | User location config for context collect |
 
 ### File name prefixes
@@ -121,7 +123,9 @@ All modules import via `import garmin_config as cfg`.
 │   ├── context_api.py
 │   ├── context_writer.py
 │   ├── weather_plugin.py
-│   └── pollen_plugin.py
+│   ├── pollen_plugin.py
+│   ├── brightsky_plugin.py
+│   └── airquality_plugin.py
 │
 ├── maps/                       ← Data brokers — routing only, no collect
 │   ├── __init__.py
@@ -129,7 +133,9 @@ All modules import via `import garmin_config as cfg`.
 │   ├── garmin_map.py
 │   ├── context_map.py
 │   ├── weather_map.py
-│   └── pollen_map.py
+│   ├── pollen_map.py
+│   ├── brightsky_map.py
+│   └── airquality_map.py
 │
 ├── dashboards/                 ← Dashboard specialists (Auto-Discovery)
 │   ├── __init__.py
@@ -138,7 +144,8 @@ All modules import via `import garmin_config as cfg`.
 │   ├── health_garmin_html-json_dash.py
 │   ├── overview_garmin_xls_dash.py
 │   ├── health_garmin-weather-pollen_html-xls_dash.py
-│   └── sleep_recovery_context_dash.py
+│   ├── sleep_recovery_context_dash.py
+│   └── explorer_garmin-context_html_dash.py
 │
 ├── layouts/                    ← Format renderers + passive resources
 │   ├── __init__.py
@@ -170,10 +177,10 @@ All modules import via `import garmin_config as cfg`.
 │   └── CONCEPT_V2-0.md
 │
 └── tests/
-    ├── test_local.py           ← Garmin pipeline (218 checks)
-    ├── test_local_context.py   ← Context pipeline (134 checks)
-    ├── test_dashboard.py       ← Dashboard pipeline (214 checks)
-    ├── test_app_logic.py       ← App layer (80 checks)
+    ├── test_local.py           ← Garmin pipeline (227 checks)
+    ├── test_local_context.py   ← Context pipeline (191 checks)
+    ├── test_dashboard.py       ← Dashboard pipeline (220 checks)
+    ├── test_app_logic.py       ← App layer (52 checks)
     └── test_build_output.py    ← Build output validation (8 sections)
 ```
 

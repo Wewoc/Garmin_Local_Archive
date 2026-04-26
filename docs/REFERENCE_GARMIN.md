@@ -121,6 +121,7 @@ Schema cached at module import. Leaf node.
 |---|---|
 | `write_day(normalized, summary, date_str)` | Sole write authority for `raw/` and `summary/`. Returns `bool` |
 | `read_raw(date_str)` | Reads raw file for a date. Used by self-healing loop only. Returns `{}` on failure |
+| `read_summary(date_str)` | Reads summary file for a date. Used by schema migration loop. Returns `{}` on failure |
 
 ---
 
@@ -164,9 +165,11 @@ Schema cached at module import. Leaf node.
 |---|---|
 | `main()` | Full sync orchestration: dirs → session log → quality load → bulk upgrade flagging → login → devices → first_day → date resolution → fetch loop → save |
 | `_fetch_and_assess(client, date_str)` | Fetch → validate → normalize → assess. No file writes. Returns `(label, normalized, summary, fields, val_result)` |
+| `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)` |
 | `_write_assessed(normalized, summary, date_str, label)` | Writes pre-assessed day to disk. Returns `bool` |
 | `run_import(path, progress_callback)` | Bulk import orchestration via `garmin_import.load_bulk()`. Returns `{"ok", "skipped", "failed"}` |
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
+| `_run_schema_migration(quality_data)` | Rewrites outdated summary files from raw when `GARMIN_SCHEMA_MIGRATE=1`. No API call. Raw files unchanged. Log output per day `[i/total]` |
 | `_start_session_log()` | Opens session log file. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if errors present |
 
@@ -176,7 +179,7 @@ Days with `source: bulk` + `quality: medium` + date ≤ 90 days old are automati
 
 **Downgrade protection:**
 
-After `_fetch_and_assess()`, the new label is compared to the existing quality log entry using rank `high=3 > medium=2 > low=1 > failed=0`. If the API result is inferior: file is not written, existing entry is preserved, `recheck: false` is set. If equal or better: `_write_assessed()` is called and entry is upserted as `source: api`.
+After `_fetch_and_assess()`, `_check_downgrade()` compares the new label against the existing quality log entry using rank `high=3 > medium=2 > low=1 > failed=0`. If the API result is inferior: file is not written, existing entry is preserved. If equal or better: `_write_assessed()` is called and entry is upserted as `source: api`.
 
 **Resume safety:**
 
@@ -274,7 +277,7 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 |---|---|
 | `date` | ISO date string |
 | `generated_by` | Always `"garmin_normalizer.py"` |
-| `sleep` | Duration, stages, score, SpO2, HRV |
+| `sleep` | Duration, stages, score, SpO2, HRV, sleep_score_feedback, sleep_score_qualifier |
 | `heartrate` | Resting, max, min, average BPM |
 | `stress` | Stress average/max, Body Battery max/min/end |
 | `day` | Steps, calories, intensity minutes, distance |
@@ -310,6 +313,8 @@ Each field in `_FIELD_MAP` uses one of three descriptor types:
 | `body_battery_max` | daily | `stress.body_battery_max` | 0–100 |
 | `stress_avg` | daily | `stress.stress_avg` | 0–100 |
 | `vo2max` | daily | `training.vo2max` | — |
+| `sleep_score_feedback` | daily | `sleep.sleep_score_feedback` | z.B. `POSITIVE_DEEP` |
+| `sleep_score_qualifier` | daily | `sleep.sleep_score_qualifier` | z.B. `FAIR`, `EXCELLENT` |
 | `sleep_deep_pct` | raw_pct | `sleep.dailySleepDTO`: `deepSleepSeconds / sleepTimeSeconds * 100` | % |
 | `sleep_light_pct` | raw_pct | `sleep.dailySleepDTO`: `lightSleepSeconds / sleepTimeSeconds * 100` | % |
 | `sleep_rem_pct` | raw_pct | `sleep.dailySleepDTO`: `remSleepSeconds / sleepTimeSeconds * 100` | % |

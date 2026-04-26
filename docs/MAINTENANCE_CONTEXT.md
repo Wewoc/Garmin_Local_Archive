@@ -24,7 +24,8 @@ Dashboard specialists
   └── context_map.get(field, date_from, date_to)
         ├── weather_map.get()           → reads context_data/weather/raw/
         ├── pollen_map.get()            → reads context_data/pollen/raw/
-        └── brightsky_map.get()         → reads context_data/brightsky/raw/
+        ├── brightsky_map.get()         → reads context_data/brightsky/raw/
+        └── airquality_map.get()        → reads context_data/airquality/raw/
 ```
 
 ### Module ownership
@@ -55,7 +56,9 @@ python tests/test_local_context.py
 
 ### What is tested
 
-1. `garmin_config` — context paths (`CONTEXT_DIR`, `CONTEXT_WEATHER_DIR`, `CONTEXT_POLLEN_DIR`, `CONTEXT_BRIGHTSKY_DIR`, `LOCAL_CONFIG_FILE`)
+When to run
+
+After any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `brightsky_plugin`, `weather_map`, `pollen_map`, `brightsky_map`, `context_map`, or context-related constants in `garmin_config`.
 2. `weather_plugin` — all metadata attributes present and correct
 3. `pollen_plugin` — all metadata attributes present, `AGGREGATION = "daily_max"`
 4. `brightsky_plugin` — all metadata attributes present, `FETCH_ADAPTER = "brightsky"`, `AGGREGATION_MAP` keys and methods correct, no `AGGREGATION` string
@@ -77,20 +80,21 @@ python tests/test_local_context.py
 
 ### When to run
 
-After any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `brightsky_plugin`, `weather_map`, `pollen_map`, `brightsky_map`, `context_map`, or context-related constants in `garmin_config`.
+After any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `brightsky_plugin`, `airquality_plugin`, `weather_map`, `pollen_map`, `brightsky_map`, `airquality_map`, `context_map`, or context-related constants in `garmin_config`.
 
 ---
 
 ## Adding a new context source (plugin)
 
 1. Create `context/new_source_plugin.py` with all required metadata attributes (see `REFERENCE_CONTEXT.md`)
-   - If the source uses the Open-Meteo API: no `FETCH_ADAPTER` needed — default path applies
+   - If the source uses the Open-Meteo API with uniform aggregation: no `FETCH_ADAPTER`, no `AGGREGATION_MAP` needed — `_parse_hourly_to_daily_max` applies
+   - If the source uses the Open-Meteo API with field-specific aggregation: set `AGGREGATION_MAP` — `context_api.py` routes to `_parse_hourly_to_daily()` automatically via `hasattr` check
    - If the source uses a different API: set `FETCH_ADAPTER = "new_source"` and add a parse branch + `_fetch_chunk` params block to `context_api.py`
 2. Add to `_PLUGINS` list in `context/context_collector.py`:
-   ```python
+```python
    from . import new_source_plugin
-   _PLUGINS = [weather_plugin, pollen_plugin, brightsky_plugin, new_source_plugin]
-   ```
+   _PLUGINS = [weather_plugin, pollen_plugin, brightsky_plugin, airquality_plugin, new_source_plugin]
+```
 3. Add `OUTPUT_DIR` override to the `base_dir` block in `context_collector.run()`:
    ```python
    new_source_plugin.OUTPUT_DIR = base / "context_data" / "new_source" / "raw"
@@ -142,6 +146,15 @@ Auto-created at `BASE_DIR/local_config.csv` on first API Sync if not present.
 - Chunk size: 30 days per call (tighter API limits)
 - Aggregation: daily max = highest hourly reading per day per field
 
+### Open-Meteo Air Quality (airquality)
+
+- Endpoint: `https://air-quality-api.open-meteo.com/v1/air-quality`
+- Resolution: hourly — aggregated to daily mean by `context_api._parse_hourly_to_daily()`
+- Aggregation: daily mean = arithmetic mean of all hourly readings per day per field
+- Fields: `pm2_5`, `pm10`, `european_aqi`, `nitrogen_dioxide`, `ozone`
+- Chunk size: 30 days per call
+- No API key required.
+
 ### Brightsky DWD
 
 - Endpoint: `https://api.brightsky.dev/weather`
@@ -181,7 +194,7 @@ All APIs are free for non-commercial use with no authentication. `context_api.py
    - `context_data/brightsky/raw/brightsky_YYYY-MM-DD.json`
 2. If missing: run API Sync — check for location configured (not 0.0/0.0)
 3. Check `local_config.csv` for the date range — correct coordinates?
-4. For Brightsky: location must be within Germany (DWD station coverage)
+4. For Brightsky: location must be within Germany bounding box (lat 47.2–55.1, lon 5.8–15.1) — outside this range, `brightsky_plugin` is skipped automatically and a log entry is written
 5. Check the API directly with the coordinates
 
 ### `context_map.get()` returns empty dict
