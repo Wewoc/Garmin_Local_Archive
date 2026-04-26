@@ -141,6 +141,56 @@ def _parse_hourly_to_daily_max(response: dict, fields: list) -> dict[str, dict]:
     }
 
 
+def _parse_hourly_to_daily(response: dict, fields: list,
+                            aggregation_map: dict) -> dict[str, dict]:
+    """
+    Aggregate hourly API response to daily values per field.
+
+    Aggregation method per field is defined in aggregation_map:
+        mean  → arithmetic mean of all hourly values
+        max   → maximum of all hourly values
+        sum   → sum of all hourly values
+        mode  → most frequent non-None value
+    """
+    hourly = response.get("hourly", {})
+    times  = hourly.get("time", [])   # "YYYY-MM-DDTHH:MM"
+
+    by_date: dict[str, dict[str, list]] = {}
+    for i, ts in enumerate(times):
+        ds = ts[:10]
+        if ds not in by_date:
+            by_date[ds] = {f: [] for f in fields}
+        for field in fields:
+            val = hourly.get(field, [])
+            v   = val[i] if i < len(val) else None
+            if v is not None:
+                by_date[ds][field].append(v)
+
+    result = {}
+    for ds, field_data in by_date.items():
+        day_values = {}
+        for field, vals in field_data.items():
+            method = aggregation_map.get(field, "mean")
+            if not vals:
+                day_values[field] = None
+            elif method == "mean":
+                day_values[field] = round(mean(vals), 2)
+            elif method == "max":
+                day_values[field] = max(vals)
+            elif method == "sum":
+                day_values[field] = round(sum(vals), 2)
+            elif method == "mode":
+                try:
+                    day_values[field] = stats_mode(vals)
+                except Exception:
+                    day_values[field] = vals[0]
+            else:
+                day_values[field] = None
+        result[ds] = day_values
+
+    return result
+
+
 def _parse_brightsky(response: dict, aggregation_map: dict) -> dict[str, dict]:
     """
     Parse Brightsky weather[] array to {date: {field: value}}.
@@ -233,6 +283,8 @@ def fetch(plugin, date_from: str, date_to: str,
             parsed = _parse_brightsky(response, plugin.AGGREGATION_MAP)
         elif resolution == "daily":
             parsed = _parse_daily(response, fields)
+        elif hasattr(plugin, "AGGREGATION_MAP"):
+            parsed = _parse_hourly_to_daily(response, fields, plugin.AGGREGATION_MAP)
         else:
             parsed = _parse_hourly_to_daily_max(response, fields)
 
