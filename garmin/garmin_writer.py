@@ -14,6 +14,7 @@ No API logic, no quality log access, no date strategy logic.
 Public functions:
   write_day(normalized, summary, date_str) -> bool
   read_raw(date_str)                       -> dict
+  read_summary(date_str)                   -> dict
 """
 
 import json
@@ -109,4 +110,33 @@ def read_raw(date_str: str) -> dict:
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         log.error(f"  Writer.read_raw: failed to read {date_str}: {e}")
+        return {}
+
+
+def read_summary(date_str: str) -> dict:
+    """
+    Reads and returns the summary file for a given date.
+
+    Used by the schema-migration loop in garmin_collector.py to check
+    the stored schema_version before deciding whether to rewrite.
+    Returns empty dict if file is missing or corrupt.
+
+    Parameters
+    ----------
+    date_str : str — date in YYYY-MM-DD format
+
+    Returns
+    -------
+    dict — parsed summary data, or {} if file is missing or corrupt
+    """
+    summary_path = cfg.SUMMARY_DIR / f"garmin_{date_str}.json"
+
+    if not summary_path.exists():
+        return {}
+
+    try:
+        with open(summary_path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        log.error(f"  Writer.read_summary: failed to read {date_str}: {e}")
         return {}
