@@ -516,7 +516,7 @@ except KeyError:
 # ══════════════════════════════════════════════════════════════════════════════
 section("11. maps/context_map")
 
-check("list_sources",                 set(context_map.list_sources()) == {"weather", "pollen", "brightsky"})
+check("list_sources",                 set(context_map.list_sources()) == {"weather", "pollen", "brightsky", "airquality"})
 check("list_fields weather",          "temperature_max"  in context_map.list_fields("weather"))
 check("list_fields pollen",           "pollen_birch"     in context_map.list_fields("pollen"))
 check("list_fields brightsky",        "temperature_avg"  in context_map.list_fields("brightsky"))
@@ -799,3 +799,85 @@ if _failures:
 else:
     print("\n  All tests passed.")
     sys.exit(0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  airquality_plugin — structural checks
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_airquality_plugin_aggregation_map_coverage():
+    """AGGREGATION_MAP must cover every API_FIELDS entry — no silent fallback."""
+    from context import airquality_plugin
+    missing = [f for f in airquality_plugin.API_FIELDS
+               if f not in airquality_plugin.AGGREGATION_MAP]
+    assert not missing, f"AGGREGATION_MAP missing fields: {missing}"
+
+
+def test_airquality_plugin_aggregation_map_no_extra():
+    """AGGREGATION_MAP must not contain keys absent from API_FIELDS."""
+    from context import airquality_plugin
+    extra = [f for f in airquality_plugin.AGGREGATION_MAP
+             if f not in airquality_plugin.API_FIELDS]
+    assert not extra, f"AGGREGATION_MAP has extra keys not in API_FIELDS: {extra}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  context_api._parse_hourly_to_daily — unit tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_parse_hourly_to_daily_mean():
+    """Daily mean is calculated correctly from known hourly values."""
+    from context import context_api
+    response = {
+        "hourly": {
+            "time":  ["2026-01-01T00:00", "2026-01-01T01:00", "2026-01-01T02:00"],
+            "pm2_5": [10.0, 20.0, 30.0],
+        }
+    }
+    aggregation_map = {"pm2_5": "mean"}
+    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
+    assert "2026-01-01" in result
+    assert result["2026-01-01"]["pm2_5"] == 20.0
+
+
+def test_parse_hourly_to_daily_none_handling():
+    """None values in hourly data are excluded from aggregation."""
+    from context import context_api
+    response = {
+        "hourly": {
+            "time":  ["2026-01-01T00:00", "2026-01-01T01:00"],
+            "pm2_5": [None, 10.0],
+        }
+    }
+    aggregation_map = {"pm2_5": "mean"}
+    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
+    assert result["2026-01-01"]["pm2_5"] == 10.0
+
+
+def test_parse_hourly_to_daily_all_none():
+    """All-None hourly series returns None for the day — no crash."""
+    from context import context_api
+    response = {
+        "hourly": {
+            "time":  ["2026-01-01T00:00"],
+            "pm2_5": [None],
+        }
+    }
+    aggregation_map = {"pm2_5": "mean"}
+    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
+    assert result["2026-01-01"]["pm2_5"] is None
+
+
+def test_parse_hourly_to_daily_multiday():
+    """Values from different days are bucketed correctly."""
+    from context import context_api
+    response = {
+        "hourly": {
+            "time":  ["2026-01-01T12:00", "2026-01-02T12:00"],
+            "pm2_5": [10.0, 40.0],
+        }
+    }
+    aggregation_map = {"pm2_5": "mean"}
+    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
+    assert result["2026-01-01"]["pm2_5"] == 10.0
+    assert result["2026-01-02"]["pm2_5"] == 40.0

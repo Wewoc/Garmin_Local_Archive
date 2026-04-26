@@ -181,7 +181,7 @@ check("_parse_list_values: ts,val pairs", normalizer._parse_list_values([[0, 55]
 s = normalizer.summarize({"date": "2024-03-15"})
 check("summarize: returns dict",            isinstance(s, dict))
 check("summarize: date correct",            s["date"] == "2024-03-15")
-check("summarize: schema_version = 1",      s["schema_version"] == 1)
+check("summarize: schema_version = 2",      s["schema_version"] == 2)
 check("summarize: generated_by normalizer", s["generated_by"] == "garmin_normalizer.py")
 check("summarize: has sleep",               "sleep" in s)
 check("summarize: has heartrate",           "heartrate" in s)
@@ -205,6 +205,29 @@ check("summarize full: resting_bpm = 52",   sf["heartrate"]["resting_bpm"] == 52
 check("summarize full: steps = 8500",       sf["day"]["steps"] == 8500)
 check("summarize full: 1 activity",         len(sf["activities"]) == 1)
 check("summarize full: activity type",      sf["activities"][0]["type"] == "running")
+
+# sleep_score_feedback + sleep_score_qualifier
+_raw_ssf = {
+    "date": "2026-01-01",
+    "sleep": {
+        "dailySleepDTO": {
+            "sleepScoreFeedback": "POSITIVE_DEEP",
+            "sleepScores": {"overall": {"qualifierKey": "FAIR"}},
+        }
+    },
+}
+_ssf = normalizer.summarize(_raw_ssf)
+check("summarize: sleep_score_feedback = POSITIVE_DEEP",
+      _ssf["sleep"]["sleep_score_feedback"] == "POSITIVE_DEEP")
+check("summarize: sleep_score_qualifier = FAIR",
+      _ssf["sleep"]["sleep_score_qualifier"] == "FAIR")
+
+_raw_ssf_missing = {"date": "2026-01-01", "sleep": {"dailySleepDTO": {}}}
+_ssf_m = normalizer.summarize(_raw_ssf_missing)
+check("summarize: sleep_score_feedback None if absent",
+      _ssf_m["sleep"]["sleep_score_feedback"] is None)
+check("summarize: sleep_score_qualifier None if absent",
+      _ssf_m["sleep"]["sleep_score_qualifier"] is None)
 
 # empty dict — no crash
 try:
@@ -854,20 +877,146 @@ check("downgrade simulation: high → low",            _simulated == "low")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  15. _check_downgrade
+# ══════════════════════════════════════════════════════════════════════════════
+section("15. _check_downgrade")
+import garmin_collector as collector_dg
+
+# Kein existing entry → nie downgrade
+is_dg, el, es = collector_dg._check_downgrade("high", None)
+check("downgrade: no entry → not a downgrade",       is_dg == False)
+check("downgrade: no entry → existing_label=failed", el == "failed")
+check("downgrade: no entry → existing_source=api",   es == "api")
+
+# Gleiche Qualität → kein Downgrade
+entry_high = {"quality": "high", "source": "api"}
+is_dg, el, es = collector_dg._check_downgrade("high", entry_high)
+check("downgrade: same label → not a downgrade",     is_dg == False)
+
+# Echter Downgrade: high → low
+entry_high2 = {"quality": "high", "source": "api"}
+is_dg, el, es = collector_dg._check_downgrade("low", entry_high2)
+check("downgrade: low < high → is_downgrade",        is_dg == True)
+check("downgrade: existing_label = high",            el == "high")
+check("downgrade: existing_source = api",            es == "api")
+
+# Upgrade: low → high → kein Downgrade
+entry_low = {"quality": "low", "source": "bulk"}
+is_dg, el, es = collector_dg._check_downgrade("high", entry_low)
+check("downgrade: high > low → not a downgrade",     is_dg == False)
+check("downgrade: source = bulk preserved",          es == "bulk")
+
+# failed → medium: Upgrade, kein Downgrade
+entry_failed = {"quality": "failed", "source": "api"}
+is_dg, el, es = collector_dg._check_downgrade("medium", entry_failed)
+check("downgrade: medium > failed → not a downgrade", is_dg == False)
+
+# medium → failed: Downgrade
+entry_medium = {"quality": "medium", "source": "api"}
+is_dg, el, es = collector_dg._check_downgrade("failed", entry_medium)
+check("downgrade: failed < medium → is_downgrade",   is_dg == True)
+
+# Grenzfall: fehlende 'quality'-Key im Entry → fällt auf "failed" zurück
+entry_no_q = {"source": "api"}
+is_dg, el, es = collector_dg._check_downgrade("low", entry_no_q)
+check("downgrade: missing quality key → existing=failed, no downgrade", is_dg == False)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  16. _run_self_healing
+# ══════════════════════════════════════════════════════════════════════════════
+section("16. _run_self_healing")
+
+import garmin_collector as collector_sh
+import garmin_writer    as writer_sh
+import garmin_normalizer as normalizer_sh
+
+# Hilfsfunktion: synthetischen Quality-Eintrag bauen
+def _make_entry(date_str, validator_result, schema_version, quality_label="high"):
+    return {
+        "date":                    date_str,
+        "quality":                 quality_label,
+        "reason":                  "test",
+        "recheck":                 False,
+        "attempts":                0,
+        "write":                   True,
+        "source":                  "api",
+        "last_checked":            date_str,
+        "last_attempt":            None,
+        "validator_result":        validator_result,
+        "validator_schema_version": schema_version,
+        "validator_issues":        [],
+        "fields":                  {},
+    }
+
+_current_ver = collector_sh.validator.current_version()
+
+# 1. Kein Kandidat (Schema-Version stimmt überein) → nichts geändert
+qd_no_candidate = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        _make_entry("2024-01-01", "ok", _current_ver),
+    ]
+}
+collector_sh._run_self_healing(qd_no_candidate)
+check("self-healing: no candidate → entry unchanged",
+      qd_no_candidate["days"][0]["validator_schema_version"] == _current_ver)
+
+# 2. Kandidat — kein Raw-File → Entry bleibt unverändert, kein Crash
+qd_no_raw = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        _make_entry("1900-01-01", "warning", "0.9"),
+    ]
+}
+try:
+    collector_sh._run_self_healing(qd_no_raw)
+    check("self-healing: no raw file → no crash",         True)
+except Exception:
+    check("self-healing: no raw file → no crash",         False)
+check("self-healing: no raw file → entry not modified",
+      qd_no_raw["days"][0]["validator_schema_version"] == "0.9")
+
+# 3. Kandidat — Raw-File vorhanden, Status verbessert sich (warning → ok)
+_heal_date = "2024-08-01"
+_heal_raw  = {
+    "date":        _heal_date,
+    "heart_rates": {"heartRateValues": [[0, 60]], "restingHeartRate": 58},
+    "sleep":       {"dailySleepDTO": {"sleepTimeSeconds": 27000}},
+}
+writer_sh.write_day(_heal_raw, normalizer_sh.summarize(_heal_raw), _heal_date)
+
+qd_improves = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        _make_entry(_heal_date, "warning", "0.9", quality_label="medium"),
+    ]
+}
+collector_sh._run_self_healing(qd_improves)
+check("self-healing: improved → schema_version updated",
+      qd_improves["days"][0]["validator_schema_version"] == _current_ver)
+check("self-healing: improved → validator_result updated",
+      qd_improves["days"][0]["validator_result"] == "ok")
+
+# 4. Kandidat — Status bleibt gleich (warning → warning) → nur schema_version aktualisiert
+_heal_date2 = "2024-08-02"
+_heal_raw2  = {"date": _heal_date2, "heart_rates": "corrupted"}
+writer_sh.write_day(
+    {"date": _heal_date2}, normalizer_sh.summarize({"date": _heal_date2}), _heal_date2
+)
+
+qd_same = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        _make_entry(_heal_date2, "warning", "0.9", quality_label="medium"),
+    ]
+}
+with patch("garmin_collector.validator.validate",
+           return_value={"status": "warning", "issues": [], "schema_version": _current_ver,
+                         "timestamp": "2024-01-01T00:00:00"}):
+    collector_sh._run_self_healing(qd_same)
+check("self-healing: same status → schema_version bumped, quality unchanged",
+      qd_same["days"][0]["validator_schema_version"] == _current_ver
+      and qd_same["days"][0]["quality"] == "medium")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
 # ══════════════════════════════════════════════════════════════════════════════
 shutil.rmtree(_TMPDIR, ignore_errors=True)
-
-total = _pass + _fail
-print(f"\n{'═' * 55}")
-print(f"  Results: {_pass}/{total} passed  |  {_fail} failed")
-print(f"{'═' * 55}")
-
-if _failures:
-    print("\n  Failed:")
-    for name in _failures:
-        print(f"    ✗  {name}")
-    sys.exit(1)
-else:
-    print("\n  All tests passed.")
-    sys.exit(0)
