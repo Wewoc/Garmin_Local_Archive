@@ -14,30 +14,91 @@
 
 ---
 
-### v1.4.7.1 — Brightsky Location Routing
+### v1.4.7.1 — Context Pipeline Extension & Explorer Dashboard
 
-Completion of the Brightsky plugin scope: location-aware source selection
-in `context_collector.py`.
+Four extensions in one patch. Possible because the architecture is stable
+enough: a new data source, location routing, normalizer additions, and a new
+dashboard type each land in clearly defined touch points — no open-heart
+surgery required.
+
+#### 1 — Brightsky Location Routing
 
 Brightsky covers Germany only (DWD station network). Users outside Germany
 currently receive empty files without explanation — a silent failure.
 
-**Fix:** `context_collector.py` evaluates the configured location before
-plugin dispatch. If coordinates are outside Germany (approximate bounding
-box: lat 47.2–55.1, lon 5.8–15.1), `brightsky_plugin` is skipped for that
-sync segment. Open-Meteo weather runs as fallback. A log entry documents
+`context_collector.py` evaluates the configured location before plugin
+dispatch. If coordinates fall outside Germany (approximate bounding box:
+lat 47.2–55.1, lon 5.8–15.1), `brightsky_plugin` is skipped for that
+segment. Open-Meteo weather continues as fallback. A log entry documents
 the routing decision.
 
-This keeps the broker layer (`context_map.py`) clean — no config dependency,
+The broker layer (`context_map.py`) stays clean — no config dependency,
 no coordinate logic. Routing stays in the collector where location is
 already known.
 
-**Scope:**
-- `context/context_collector.py` — location check before plugin loop
-- `docs/REFERENCE_CONTEXT.md` — routing logic documented
-- `docs/MAINTENANCE_CONTEXT.md` — added to "Adding a new context source"
+#### 2 — Air Quality Plugin (Open-Meteo Air Quality)
 
-No changes to `brightsky_plugin.py`, `brightsky_map.py`, or `context_map.py`.
+New plugin via the Open-Meteo Air Quality endpoint — no API key, no new
+provider, no new adapter. Same infrastructure as `weather_plugin`, different
+endpoint and fields: `pm2_5`, `pm10`, `european_aqi`, `ozone`.
+
+Since `context_collector.py` is opened for the routing fix anyway, registering
+the new plugin costs one line.
+
+#### 3 — Broker Layer & Normalizer
+
+`airquality_map.py` registered in `field_map._SOURCES` (2 lines).
+`garmin_map._FIELD_MAP` extended with `sleep_score_feedback` and
+`sleep_score_qualifier` (~8 lines). `garmin_normalizer.py` — both fields
+added to `s["sleep"]` (2 lines). These fields are prerequisites for the
+recovery annotation in the Explorer dashboard.
+
+#### 4 — Explorer Dashboard
+
+New specialist `explorer_garmin-context_html_dash.py` — free metric
+exploration without a preset theme. The user chooses what to see side by side.
+
+**Page 1 (Summary):** up to 4 freely selectable metrics as line traces on a
+shared time axis (time window via dropdown). Each Y-axis adapts dynamically
+to the selected metric — unit and value range from `dash_layout.get_metric_meta()`.
+Below the line chart: a fixed stacked bar for sleep phases (Deep / Light /
+REM / Awake) with a colour-coded recovery annotation per day from
+`sleep_score_feedback` and `sleep_score_qualifier`. An empty dropdown removes
+that axis entirely.
+
+**Page 2 (Intraday):** visible only when intraday data exists for the selected
+period. HR, Stress, Body Battery, and Respiration on a shared time axis.
+
+Available fields in dropdowns: all Garmin daily fields from
+`garmin_map.list_fields()` (excluding `_series`) plus all context fields
+(weather, pollen, air quality).
+
+Plotter: `dash_plotter_html_complex.py` with new layout type `"explorer"` —
+line chart and stacked bar rendered as subplots on a shared X-axis.
+
+---
+
+**Scope:**
+
+| File | Change |
+|---|---|
+| `context/context_collector.py` | Brightsky routing + airquality registration + OUTPUT_DIR entry |
+| `context/airquality_plugin.py` | new |
+| `maps/airquality_map.py` | new |
+| `maps/field_map.py` | airquality_map import + `_SOURCES` entry (2 lines) |
+| `garmin/garmin_normalizer.py` | `score_feedback` + `score_qualifier` in `s["sleep"]` (2 lines) |
+| `maps/garmin_map.py` | `sleep_score_feedback` + `sleep_score_qualifier` in `_FIELD_MAP` (~8 lines) |
+| `layouts/dash_plotter_html_complex.py` | layout type `"explorer"` — line + stacked bar subplots |
+| `dashboards/explorer_garmin-context_html_dash.py` | new |
+| `docs/REFERENCE_CONTEXT.md` | routing logic + new plugin documented |
+| `docs/MAINTENANCE_CONTEXT.md` | "Adding a new context source" updated |
+| `docs/REFERENCE_DASHBOARD.md` | Explorer specialist documented |
+| `docs/CHANGELOG.md` / `docs/ROADMAP.md` | standard closure |
+
+No changes to: `brightsky_plugin.py`, `brightsky_map.py`, `context_api.py`,
+`context_writer.py`, `context_map.py`, `weather_plugin.py`, `pollen_plugin.py`,
+`weather_map.py`, `pollen_map.py`, `dash_runner.py`, `garmin_app.py`.
+
 
 ---
 
@@ -57,6 +118,16 @@ closing known silent-failure gaps in the dashboard pipeline.
 - **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
 - **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
 - **Timer documentation — Background Timer** section in both READMEs documents only Repair + Fill; Quality mode (re-checks `low` days) is missing from user-facing docs.
+
+#### Pipeline: Sleep Quality Fields
+
+- **Sleep quality labels** — `sleepScores` fields from `get_sleep_data` (raw)
+  promoted to summary via `garmin_normalizer.py`. Labels such as "not restful",
+  "good recovery", "too little REM" become available as structured fields.
+- Fields surfaced in existing sleep/recovery dashboards once present in summary.
+
+Pipeline order: `garmin_normalizer.py` → `garmin_writer.py` → dashboard plotters.
+No dashboard changes until summary fields are confirmed.
 
 #### Pipeline Hardening
 
@@ -149,6 +220,11 @@ Lock fix and save_settings fix are minimal production changes.
 ---
 
 ### v1.4.9 — Daily Sync (Automated Daily Workflow)
+
+**Prerequisite:** `_clear_token_dir()` in `garmin_security.py` must reliably
+remove the token working dir after `client.login()` — currently fails with
+WinError 5 when garminconnect holds the file handle. Headless operation cannot
+tolerate a stale working dir. Fix must land before v1.4.9 implementation begins.
 
 Automated daily workflow as a standalone tool — no GUI, no manual interaction.
 After initial setup in the desktop app, `daily_update` becomes the only daily
@@ -321,7 +397,11 @@ Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector`
 ## Planned — v1.6
 
 - **Garmin FIT Pipeline & Plugin Architecture**
-The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
+  The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
+
+  *Pre-conditions (resolved before plugin work begins):*
+  - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
+  - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
 
 ---
 
