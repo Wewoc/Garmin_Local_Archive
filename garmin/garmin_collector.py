@@ -474,12 +474,15 @@ def main():
         log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
 
         # ── bulk upgrade candidates ───────────────────────────────────────────
-        cutoff = date.today() - timedelta(days=90)
+        # All bulk-sourced days within the high-resolution window (~180 days)
+        # are flagged for API re-fetch — quality is irrelevant, source is the trigger.
+        # After 180 days Garmin degrades intraday data permanently; the local raw
+        # copy is then the only high-resolution source.
+        _BULK_RECHECK_DAYS = 180
+        cutoff = date.today() - timedelta(days=_BULK_RECHECK_DAYS)
         bulk_upgraded = 0
         for e in quality_data.get("days", []):
-            if (e.get("source") == "bulk"
-                    and e.get("quality") == "medium"
-                    and not e.get("recheck", False)):
+            if e.get("source") == "bulk" and not e.get("recheck", False):
                 try:
                     entry_date = date.fromisoformat(e["date"])
                 except (ValueError, KeyError):
@@ -489,7 +492,7 @@ def main():
                     bulk_upgraded += 1
         if bulk_upgraded:
             quality._save_quality_log(quality_data)
-            log.info(f"  Bulk upgrade: {bulk_upgraded} day(s) flagged for API re-fetch (≤90 days, medium)")
+            log.info(f"  Bulk recheck: {bulk_upgraded} day(s) flagged for API re-fetch (≤{_BULK_RECHECK_DAYS} days, source=bulk)")
 
     # ── 3b. Self-healing loop — schema version check ───────────────────────────
     _run_self_healing(quality_data)
@@ -593,11 +596,24 @@ def main():
 
                 if is_downgrade:
                     log.warning(f"    ⚠ API result inferior ({label} < {existing_label}) — kept existing")
+                    # Bulk recheck: increment attempts, disable recheck after 2 tries.
+                    # One transient failure is acceptable; a second downgrade means the
+                    # API permanently delivers less than the bulk export for this day.
+                    bulk_attempts = existing_entry.get("attempts", 0) + 1 if existing_source == "bulk" else existing_entry.get("attempts", 0)
+                    bulk_recheck  = (existing_source == "bulk" and bulk_attempts < 2)
                     quality._upsert_quality(quality_data, day, existing_label,
-                                            f"Quality: {existing_label} — API downgrade rejected",
+                                            f"Quality: {existing_label} — API downgrade rejected ({bulk_attempts} attempts)" if existing_source == "bulk" else f"Quality: {existing_label} — API downgrade rejected",
                                             written=existing_entry.get("write", False),
                                             source=existing_source,
                                             fields=fields, validator_result=val_result)
+                    if existing_source == "bulk":
+                        # Manually patch recheck + attempts — _upsert_quality resets these
+                        patched = next((e for e in quality_data["days"] if e.get("date") == date_str), None)
+                        if patched:
+                            patched["attempts"] = bulk_attempts
+                            patched["recheck"]  = bulk_recheck
+                            if not bulk_recheck:
+                                log.info(f"    ℹ {date_str}: bulk recheck exhausted after {bulk_attempts} attempts — accepted")
                     quality._save_quality_log(quality_data)
                     ok += 1
                     continue
