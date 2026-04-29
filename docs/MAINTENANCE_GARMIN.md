@@ -15,7 +15,7 @@ garmin_app.py (GUI)
               ├── garmin_quality._load_quality_log()
               ├── garmin_quality._backfill_quality_log()   (first run only)
               ├── garmin_quality.get_low_quality_dates()
-              ├── bulk upgrade flagging                    (source:bulk + medium + ≤90d → recheck:true)
+              ├── bulk recheck flagging                   (source:bulk + ≤180d → recheck:true, quality irrelevant)
               ├── garmin_api.login()
               ├── garmin_api.get_devices()
               ├── garmin_quality._set_first_day()
@@ -48,6 +48,8 @@ garmin_app.py (GUI)
 - `garmin_validator.py` always runs before `garmin_normalizer.py`
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `QUALITY_LOCK` must be held around all load-modify-save sequences on `quality_log.json`
+- **`first_day` is not protected against manual edits or ENV overrides.** It is derived from Garmin's device history API, which does not guarantee completeness — older devices may not appear. `first_day` reflects the earliest known device registration, not necessarily the actual start of data collection. The GDPR Bulk Import is the only reliable source for data predating the oldest listed device. Incorrect `first_day` values can create archive gaps silently.
+- **`quality_log.json` has no checksums or integrity verification.** Manual edits or file corruption are not automatically detected. Handle backups carefully — the schema migration creates a timestamped backup before any destructive operation, but ongoing integrity is the user's responsibility.
 - `fetch_raw()` always returns `(raw, failed_endpoints)` — never raises
 - `_fetch_and_assess()` always returns `(label, normalized, summary, fields, val_result)` — never raises
 - `_write_assessed()` is only called after downgrade check passes — file never written if API result is inferior
@@ -75,7 +77,7 @@ Desktop GUI built with tkinter. Target 2 is distributed as a PyInstaller `.exe` 
 
 **Stop button** — `self._active_proc` holds subprocess reference. `_stop_collector()` calls `proc.terminate()`, waits 5s, then `proc.kill()`.
 
-**Background Timer** — daemon thread cycling: Repair → Quality → Fill. Repair re-fetches `failed` days, Quality re-checks `low` days, Fill fetches completely missing days. Each mode draws a random subset. Timer pauses during manual sync and resumes afterwards.
+**Background Timer** — daemon thread with priority mode: **Bulk Recheck** runs first as long as candidates exist (`source=bulk` + `recheck=True` + ≤180 days), oldest first — no random selection. Once exhausted, cycles through Repair → Quality → Fill. Repair re-fetches `failed` days, Quality re-checks `low` days, Fill fetches completely missing days. Each normal mode draws a random subset. Timer pauses during manual sync and resumes afterwards.
 
 **Thread safety** — timer threads carry a `generation` integer. `_timer_generation` increments on Start/Stop — stale threads exit immediately.
 
@@ -165,7 +167,7 @@ Garmin stores intraday detail for ~1–2 years. Older data returns daily aggrega
 | Level | Condition | Background Timer |
 |---|---|---|
 | `high` | Intraday data present (`heartRateValues` or `stressValuesArray` has entries) | Never re-downloaded |
-| `medium` | Daily aggregates present, no intraday — as good as it gets | Never re-downloaded |
+| `medium` | Daily aggregates present, no intraday — as good as it gets | Never re-downloaded unless `source=bulk` within 180-day window |
 | `low` | Minimal stats only | Re-tried up to `LOW_QUALITY_MAX_ATTEMPTS` times |
 | `failed` | API error — no usable data | Re-tried until successful |
 
