@@ -59,8 +59,8 @@ def _load_plotters() -> dict:
             try:
                 spec.loader.exec_module(mod)
                 plotters[fmt] = mod
-            except Exception:
-                pass  # plotter exists but failed to load — skip silently
+            except Exception as exc:
+                plotters[f"{fmt}_err"] = str(exc)  # surfaced in build()
 
     return plotters
 
@@ -225,12 +225,19 @@ def build(
             out_path = output_dir / filename
 
             if plotter is None:
+                err_detail = plotters.get(f"{plotter_key}_err", "")
+                error_msg  = (
+                    f"plotter failed to load: {err_detail}"
+                    if err_detail
+                    else f"no plotter registered for '{fmt}'"
+                )
                 results.append({
                     "name":    name,
                     "format":  fmt,
                     "success": False,
-                    "error":   f"no plotter registered for '{fmt}'",
+                    "error":   error_msg,
                 })
+                log(f"  ✗ {name} → {fmt.upper()}: {error_msg}")
                 continue
 
             try:
