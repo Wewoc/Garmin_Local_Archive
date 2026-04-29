@@ -834,6 +834,256 @@ except ValueError:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  14. sleep_garmin specialist — build() + html + excel render
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("14. sleep_garmin specialist — build() + render()")
+
+# Synthetic summary with sleep score fields
+_SUMMARY_SLEEP = {
+    **_SUMMARY,
+    "sleep": {
+        **_SUMMARY["sleep"],
+        "score":                 74,
+        "sleep_score_qualifier": "FAIR",
+        "sleep_score_feedback":  "NEGATIVE_LONG_BUT_NOT_ENOUGH_REM",
+    },
+}
+(_sum_dir / f"garmin_{_TEST_DATE}.json").write_text(
+    json.dumps(_SUMMARY_SLEEP), encoding="utf-8"
+)
+importlib.reload(cfg)
+
+_sleep_spec = importlib.util.spec_from_file_location(
+    "sleep_dash",
+    _ROOT / "dashboards" / "sleep_garmin_html-xls_dash.py"
+)
+_sleep_mod = importlib.util.module_from_spec(_sleep_spec)
+_sleep_spec.loader.exec_module(_sleep_mod)
+
+# META
+check("sleep META present",                      hasattr(_sleep_mod, "META"))
+check("sleep META has name",                     "name" in _sleep_mod.META)
+check("sleep META has html_complex",             "html_complex" in _sleep_mod.META["formats"])
+check("sleep META has excel",                    "excel" in _sleep_mod.META["formats"])
+
+# build()
+_slp = _sleep_mod.build(_TEST_DATE, _TEST_DATE, {"age": 35, "sex": "male"})
+check("sleep build returns dict",                isinstance(_slp, dict))
+check("sleep build layout == sleep",             _slp.get("layout") == "sleep")
+check("sleep build has rows",                    "rows" in _slp and len(_slp["rows"]) > 0)
+check("sleep build has refs",                    "refs" in _slp)
+check("sleep build has date_from",               _slp.get("date_from") == _TEST_DATE)
+
+_row = _slp["rows"][0]
+check("sleep row has date",                      _row.get("date") == _TEST_DATE)
+check("sleep row has duration_h",                _row.get("duration_h") == 7.5)
+check("sleep row has score",                     _row.get("score") == 74)
+check("sleep row has qualifier",                 _row.get("qualifier") == "FAIR")
+check("sleep row has feedback",                  _row.get("feedback") == "NEGATIVE_LONG_BUT_NOT_ENOUGH_REM")
+check("sleep row has hrv",                       _row.get("hrv") == 62.0)
+check("sleep row has body_battery",              _row.get("body_battery") == 85.0)
+check("sleep row has deep pct",                  _row.get("deep") == 20.0)
+check("sleep row has rem pct",                   _row.get("rem") == 25.0)
+
+_refs = _slp["refs"]
+check("sleep refs has hrv_last_night",           "hrv_last_night" in _refs)
+check("sleep refs has sleep_duration",           "sleep_duration" in _refs)
+check("sleep refs has body_battery_max",         "body_battery_max" in _refs)
+
+# HTML render
+_out_slp_html = _TMPDIR / "test_sleep.html"
+import dash_plotter_html_complex as plotter_complex_slp
+plotter_complex_slp.render(_slp, _out_slp_html, {})
+_slp_html = _out_slp_html.read_text(encoding="utf-8")
+check("sleep html written",                      _out_slp_html.exists())
+check("sleep html not empty",                    _out_slp_html.stat().st_size > 0)
+check("sleep html has DOCTYPE",                  "<!DOCTYPE html>" in _slp_html)
+check("sleep html has table",                    "sleep-table" in _slp_html)
+check("sleep html has date",                     _TEST_DATE in _slp_html)
+check("sleep html has FAIR badge",               "FAIR" in _slp_html)
+check("sleep html has disclaimer",               "medical advice" in _slp_html)
+
+# Excel render
+_out_slp_xlsx = _TMPDIR / "test_sleep.xlsx"
+plotter_excel.render(_slp, _out_slp_xlsx, {})
+_wb_slp = load_workbook(_out_slp_xlsx)
+check("sleep xlsx written",                      _out_slp_xlsx.exists())
+check("sleep xlsx not empty",                    _out_slp_xlsx.stat().st_size > 0)
+check("sleep xlsx has sheet",                    len(_wb_slp.sheetnames) > 0)
+check("sleep xlsx date in first data row",       _wb_slp.active.cell(2, 1).value == _TEST_DATE)
+
+# ValueError on empty rows
+try:
+    plotter_excel.render({"layout": "sleep", "rows": [], "refs": {}}, _TMPDIR / "empty_slp.xlsx", {})
+    check("sleep excel empty rows raises ValueError", False)
+except ValueError:
+    check("sleep excel empty rows raises ValueError", True)
+
+try:
+    plotter_complex_slp.render({"layout": "sleep", "rows": [], "refs": {}}, _TMPDIR / "empty_slp.html", {})
+    check("sleep html empty rows raises ValueError", False)
+except ValueError:
+    check("sleep html empty rows raises ValueError", True)
+
+# Isolation: original summary wiederherstellen
+(_sum_dir / f"garmin_{_TEST_DATE}.json").write_text(
+    json.dumps(_SUMMARY), encoding="utf-8"
+)
+importlib.reload(cfg)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  15. garmin_map — Broker-Contract
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("15. garmin_map — Broker-Contract")
+
+# Contract: bekanntes daily-Feld → values (list), fallback (bool), source_resolution (str)
+_bc = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="daily")
+check("broker: result is dict",                  isinstance(_bc, dict))
+check("broker: values is list",                  isinstance(_bc["values"], list))
+check("broker: fallback is bool",                isinstance(_bc["fallback"], bool))
+check("broker: source_resolution is str",        isinstance(_bc["source_resolution"], str))
+check("broker: no fallback for daily→daily",     _bc["fallback"] is False)
+check("broker: source_resolution = daily",       _bc["source_resolution"] == "daily")
+check("broker: values entry has date key",       len(_bc["values"]) > 0 and "date" in _bc["values"][0])
+
+# raw_pct-Feld — gleicher Contract
+_bc_pct = garmin_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="daily")
+check("broker raw_pct: values is list",          isinstance(_bc_pct["values"], list))
+check("broker raw_pct: fallback is bool",        isinstance(_bc_pct["fallback"], bool))
+check("broker raw_pct: source_resolution is str",isinstance(_bc_pct["source_resolution"], str))
+check("broker raw_pct: fallback = False",        _bc_pct["fallback"] is False)
+
+# intraday-Feld mit resolution=intraday → kein Fallback
+_bc_intra = garmin_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+check("broker intraday: values is list",         isinstance(_bc_intra["values"], list))
+check("broker intraday: fallback = False",       _bc_intra["fallback"] is False)
+check("broker intraday: source_resolution = intraday", _bc_intra["source_resolution"] == "intraday")
+
+# daily-only-Feld mit resolution=intraday → Fallback auf daily
+_bc_fb = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="intraday")
+check("broker fallback: fallback = True",        _bc_fb["fallback"] is True)
+check("broker fallback: source_resolution = daily", _bc_fb["source_resolution"] == "daily")
+
+# unbekanntes Feld → KeyError
+try:
+    garmin_map.get("nonexistent_field", _TEST_DATE, _TEST_DATE)
+    check("broker: unknown field raises KeyError", False)
+except KeyError:
+    check("broker: unknown field raises KeyError", True)
+
+# ungültige Resolution → ValueError
+try:
+    garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="weekly")
+    check("broker: invalid resolution raises ValueError", False)
+except ValueError:
+    check("broker: invalid resolution raises ValueError", True)
+
+# list_fields()
+_lf = garmin_map.list_fields()
+check("broker list_fields: is list",             isinstance(_lf, list))
+check("broker list_fields: not empty",           len(_lf) > 0)
+check("broker list_fields: all strings",         all(isinstance(f, str) for f in _lf))
+check("broker list_fields: hrv_last_night in list", "hrv_last_night" in _lf)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  16. Specialist-Return-Contract — alle build()
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("16. Specialist-Return-Contract — alle build()")
+
+# Synthetische Context-Dateien für Explorer + Sleep&Recovery
+_ctx_weather_dir = _TMPDIR / "context_data" / "weather" / "raw"
+_ctx_pollen_dir  = _TMPDIR / "context_data" / "pollen"  / "raw"
+_ctx_weather_dir.mkdir(parents=True, exist_ok=True)
+_ctx_pollen_dir.mkdir(parents=True, exist_ok=True)
+
+_ctx_weather_json = {"source": "open-meteo-weather", "fields": {
+    "temperature_2m_max": 12.0, "temperature_2m_min": 4.0,
+    "precipitation_sum": 0.0, "wind_speed_10m_max": 15.0,
+    "uv_index_max": 2.0, "sunshine_duration": 3600.0,
+}}
+_ctx_pollen_json = {"source": "open-meteo-pollen", "fields": {
+    "birch_pollen": 3.0, "grass_pollen": 0.0, "alder_pollen": 1.0,
+    "mugwort_pollen": 0.0, "olive_pollen": 0.0, "ragweed_pollen": 0.0,
+}}
+(_ctx_weather_dir / f"weather_{_TEST_DATE}.json").write_text(json.dumps(_ctx_weather_json), encoding="utf-8")
+(_ctx_pollen_dir  / f"pollen_{_TEST_DATE}.json").write_text(json.dumps(_ctx_pollen_json),  encoding="utf-8")
+importlib.reload(cfg)
+
+_s16 = {"age": 35, "sex": "male"}
+
+# ── overview ──────────────────────────────────────────────────────────────────
+_ov16 = _overview_mod.build(_TEST_DATE, _TEST_DATE, _s16)
+check("contract overview: is dict",              isinstance(_ov16, dict))
+check("contract overview: has date_from",        "date_from" in _ov16)
+check("contract overview: has date_to",          "date_to" in _ov16)
+check("contract overview: rows is list",         isinstance(_ov16["rows"], list))
+check("contract overview: row has date",         len(_ov16["rows"]) > 0 and "date" in _ov16["rows"][0])
+
+# ── health ────────────────────────────────────────────────────────────────────
+_hv16 = _health_mod.build(_TEST_DATE, _TEST_DATE, _s16)
+check("contract health: is dict",                isinstance(_hv16, dict))
+check("contract health: has date_from",          "date_from" in _hv16)
+check("contract health: has date_to",            "date_to" in _hv16)
+check("contract health: fields is list",         isinstance(_hv16["fields"], list))
+check("contract health: field has days",         len(_hv16["fields"]) > 0 and "days" in _hv16["fields"][0])
+check("contract health: day has date",           "date" in _hv16["fields"][0]["days"][0])
+
+# ── timeseries ────────────────────────────────────────────────────────────────
+_tv16 = _mod.build(_TEST_DATE, _TEST_DATE, _s16)
+check("contract timeseries: is dict",            isinstance(_tv16, dict))
+check("contract timeseries: has fields",         "fields" in _tv16)
+check("contract timeseries: fields is list",     isinstance(_tv16["fields"], list))
+check("contract timeseries: field has field key", len(_tv16["fields"]) > 0 and "field" in _tv16["fields"][0])
+check("contract timeseries: field has series",   "series" in _tv16["fields"][0])
+
+# ── sleep ─────────────────────────────────────────────────────────────────────
+_sleep_spec16 = importlib.util.spec_from_file_location(
+    "sleep_dash16", _ROOT / "dashboards" / "sleep_garmin_html-xls_dash.py"
+)
+_sleep_mod16 = importlib.util.module_from_spec(_sleep_spec16)
+_sleep_spec16.loader.exec_module(_sleep_mod16)
+
+_sv16 = _sleep_mod16.build(_TEST_DATE, _TEST_DATE, _s16)
+check("contract sleep: is dict",                 isinstance(_sv16, dict))
+check("contract sleep: has date_from",           "date_from" in _sv16)
+check("contract sleep: has date_to",             "date_to" in _sv16)
+check("contract sleep: rows is list",            isinstance(_sv16["rows"], list))
+check("contract sleep: row has date",            len(_sv16["rows"]) > 0 and "date" in _sv16["rows"][0])
+
+# ── sleep_recovery ────────────────────────────────────────────────────────────
+_sr_spec16 = importlib.util.spec_from_file_location(
+    "sleep_recovery_dash16", _ROOT / "dashboards" / "sleep_recovery_context_dash.py"
+)
+_sr_mod16 = importlib.util.module_from_spec(_sr_spec16)
+_sr_spec16.loader.exec_module(_sr_mod16)
+
+_srvc16 = _sr_mod16.build(_TEST_DATE, _TEST_DATE, _s16)
+check("contract sleep_recovery: is dict",        isinstance(_srvc16, dict))
+check("contract sleep_recovery: has date_from",  "date_from" in _srvc16)
+check("contract sleep_recovery: has date_to",    "date_to" in _srvc16)
+check("contract sleep_recovery: has daily",      "daily" in _srvc16)
+check("contract sleep_recovery: daily has dates","dates" in _srvc16["daily"])
+check("contract sleep_recovery: has intraday",   "intraday" in _srvc16)
+
+# ── explorer ──────────────────────────────────────────────────────────────────
+_ex_spec16 = importlib.util.spec_from_file_location(
+    "explorer_dash16", _ROOT / "dashboards" / "explorer_garmin-context_html_dash.py"
+)
+_ex_mod16 = importlib.util.module_from_spec(_ex_spec16)
+_ex_spec16.loader.exec_module(_ex_mod16)
+
+_ev16 = _ex_mod16.build(_TEST_DATE, _TEST_DATE, _s16)
+check("contract explorer: is dict",              isinstance(_ev16, dict))
+check("contract explorer: has daily",            "daily" in _ev16)
+check("contract explorer: daily has dates",      "dates" in _ev16["daily"])
+check("contract explorer: daily has field_options","field_options" in _ev16["daily"])
+check("contract explorer: field_options is list", isinstance(_ev16["daily"]["field_options"], list))
+check("contract explorer: has intraday",         "intraday" in _ev16)
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 
