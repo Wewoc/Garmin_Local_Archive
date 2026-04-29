@@ -40,10 +40,11 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Timeseries** | Intraday heart rate, stress, SpO2, body battery and respiration as zoomable charts across any date range. | HTML, Excel |
 | **Daily Overview** | All summary fields in one flat table, one row per day. | Excel |
 | **Health + Context** | Garmin health metrics alongside local weather and pollen data. | HTML, Excel |
+| **Sleep Dashboard** | One row per night — segmented phase bar (Deep / Light / REM / Awake), sleep duration, score, quality badge, feedback label, HRV, and Body Battery. Color-coded numbers via continuous gradient against personal reference ranges. | HTML, Excel |
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 | **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
 
-The AI itself is not included. How to set one up is explained in the local AI guide at the end of this README.
+The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
 
 ---
 
@@ -295,7 +296,7 @@ The project is structured into five focused layers. Each layer has a single resp
 
 Each module is self-contained and designed to be extended. Add new fields, metrics, or dashboard specialists without touching the rest of the system. See `docs/MAINTENANCE_GLOBAL.md` for how.
 
-The desktop app includes a **Background Timer** — fully automatic background sync that repairs failed/incomplete days and fills missing ones while the app is open, without any manual intervention.
+The desktop app includes a **Background Timer** — fully automatic background sync that repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~6 months), and fills missing days, all while the app is open without any manual intervention.
 
 Data is stored in two root folders:
 
@@ -553,11 +554,11 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 Five test suites cover the full pipeline — no network, no API, no GUI required:
 
 ```bash
-python tests/test_local.py          # 227 checks — Garmin pipeline
-python tests/test_local_context.py  # 191 checks — Context pipeline (Open-Meteo mocked)
-python tests/test_dashboard.py      # 220 checks — Dashboard pipeline
-python tests/test_app_logic.py      #  52 checks — App layer (entry points, path resolution)
-python tests/test_build_output.py   #   8 sections — Build output validation (run after build)
+python tests/test_local.py          # Garmin pipeline
+python tests/test_local_context.py  # Context pipeline (external APIs mocked)
+python tests/test_dashboard.py      # Dashboard pipeline
+python tests/test_app_logic.py      # App layer (entry points, path resolution)
+python tests/test_build_output.py   # Build output validation (run after build)
 ```
 
 `build_all.py` runs the first three before starting either build — a failing test aborts the build. `test_build_output.py` runs automatically after both builds complete as a post-build gate. `test_app_logic.py` is run manually after changes to the entry point files.
