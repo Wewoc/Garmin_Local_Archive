@@ -112,7 +112,10 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
             ],
         }
     """
-    age = int(settings.get("age") or 35)
+    try:
+        age = int(float(settings.get("age") or 35))
+    except (TypeError, ValueError):
+        age = 35
     sex = settings.get("sex") or "male"
 
     # Extend window back for baseline calculation

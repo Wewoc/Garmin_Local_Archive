@@ -231,6 +231,39 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
 }
 ```
 
+### `sleep_garmin_html-xls_dash` — Sleep Dashboard
+
+```python
+{
+    "layout":    "sleep",
+    "title":     str,
+    "subtitle":  str,
+    "date_from": str,
+    "date_to":   str,
+    "refs": {
+        "hrv_last_night":   (low, high),
+        "sleep_duration":   (low, high),
+        "body_battery_max": (low, high),
+    },
+    "rows": [
+        {
+            "date":         str,
+            "deep":         float | None,   # % of total sleep time
+            "light":        float | None,
+            "rem":          float | None,
+            "awake":        float | None,
+            "duration_h":   float | None,
+            "score":        float | None,   # 0–100
+            "qualifier":    str | None,     # "EXCELLENT"|"GOOD"|"FAIR"|"POOR"
+            "feedback":     str | None,     # Garmin enum, e.g. "NEGATIVE_LONG_BUT_NOT_ENOUGH_REM"
+            "hrv":          float | None,
+            "body_battery": float | None,
+        },
+        ...
+    ],
+}
+```
+
 ### `explorer_garmin-context_html_dash` — Explorer
 
 ```python
@@ -262,6 +295,58 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
 
 ---
 
+## Broker interface
+
+### `field_map.get()` — Garmin data
+
+```python
+from maps.field_map import get as field_get
+
+result = field_get(field, date_from, date_to, resolution="daily")
+# result["garmin"] contains the broker return dict
+```
+
+`result["garmin"]` contract:
+
+```python
+{
+    "values":            list,   # [{"date": str, "value": any}, ...]  — daily
+                                 # [{"date": str, "series": list|None}, ...]  — intraday
+    "fallback":          bool,   # True if requested resolution was unavailable, downgraded
+    "source_resolution": str,    # actual resolution used: "daily" or "intraday"
+}
+```
+
+Raises `KeyError` if field is not registered in `garmin_map._FIELD_MAP`.
+Raises `ValueError` if resolution is not `"daily"` or `"intraday"`.
+
+### `context_map.get()` — external context data
+
+```python
+from maps.context_map import get as context_get
+
+result = context_get(field, date_from, date_to, resolution="daily")
+# result is keyed by source name
+```
+
+`result[source_name]` contract — same structure as `field_map` broker return:
+
+```python
+{
+    "values":            list,
+    "fallback":          bool,
+    "source_resolution": str,
+    "error":             str,    # optional — only present if source failed
+}
+```
+
+Sources that do not know the requested field are silently skipped (`KeyError` caught internally).
+Unknown field with no matching source → empty dict `{}`.
+
+`weather_map.get()` and `pollen_map.get()` follow the same contract as `garmin_map.get()` but raise only `KeyError` (no `ValueError` — resolution is always treated as daily with `fallback=True` for intraday requests). 
+
+---
+
 ## Plotter interface
 
 Every plotter in `layouts/` must expose:
@@ -277,9 +362,12 @@ Every plotter in `layouts/` must expose:
 Raises `ValueError` if required data is missing or empty.
 Raises `OSError` if output file cannot be written.
 
-`dash_plotter_html_complex` supports two layout types, detected via `data.get("layout")`:
+`dash_plotter_html_complex` supports three layout types, detected via `data.get("layout")`:
 - `"explorer"` → Explorer layout (`_render_explorer`)
+- `"sleep"`    → Sleep Dashboard layout (`_render_sleep`) — pure HTML/CSS, no Plotly
 - `None` / any other → Recovery Context layout (`_render_recovery_context`)
+
+`dash_plotter_excel` dispatch order: `layout == "sleep"` checked before `"rows" in data` to avoid collision with Overview mode.
 
 ---
 

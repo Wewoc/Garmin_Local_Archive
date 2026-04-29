@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.4.7.1**
+**Currently stable — v1.4.8**
 
 ---
 
@@ -14,157 +14,58 @@
 
 ---
 
-### v1.4.8 — Documentation, AI Usability & Pipeline Hardening
+### v1.4.9 — GUI Consolidation (GarminAppBase Refactoring)
 
-Two focused tracks: making the project easier to use and understand, and
-closing known silent-failure gaps in the dashboard pipeline.
+`garmin_app.py` and `garmin_app_standalone.py` currently share ~2400 lines
+each with ~90% identical content. Every GUI fix requires two identical
+anchor-block changes. v1.4.9.1 (Daily Sync) would add a third entry point
+that needs the same shared logic — making consolidation a prerequisite,
+not a deferral.
 
-#### Documentation & AI Usability
+#### What changes
 
-- **AI prompts** — provide ready-to-use system prompts for local AI tools (Ollama / AnythingLLM) to correctly interpret `garmin_analysis.json` (quality flags, HRV meaning, stress direction, etc.)
-- **Documentation reorganization** — split into clear user, developer, and AI-focused sections (`USER_GUIDE.md`, `ARCHITECTURE.md`, `AI_CONTEXT.md`) with improved navigation, reduced redundancy, and a unified structure that makes the project easier to understand, maintain, and safely extend.
-  - README structure: move AI-assisted analysis (Step 11) up directly after the philosophy section — the end result (asking an AI about your health data) should be visible before the technical pipeline details
-  - "What is included" script table moved to end of README or fully into `MAINTENANCE.md` — relevant for developers, not for first-time users
-  - Standalone troubleshooting: replace all CMD-based instructions with log file navigation via Windows Explorer — point users to `log/fail/` in Notepad instead of a terminal
-- **Warnings & disclaimers** — make health-related limitations and AI interpretation risks more prominent in README and dashboards
-- **`first_day` caution** — clarify in documentation that `first_day` in `quality_log.json` is **not protected against manual JSON edits or environment variable overrides**; changes can create gaps or inconsistent archival data.
-- **Integrity notes** — mention that **no checksums or signatures are currently applied** to `quality_log.json`; modifications or corruption are not automatically detected — users should handle backups carefully.
-- **Timer documentation — Background Timer** section in both READMEs documents only Repair + Fill; Quality mode (re-checks `low` days) is missing from user-facing docs.
+A new `garmin_app_base.py` contains all shared code:
+- UI constants (colors, fonts)
+- `DEFAULT_SETTINGS`, `load_settings()`, `save_settings()`
+- Keyring helpers — moved to `garmin_security.py` (where they belong)
+- Full `GarminAppBase(tk.Tk)` class with all GUI layout and shared methods
 
-#### Pipeline: Sleep Quality Fields
+`garmin_app.py` retains only:
+- `script_dir()`, `_find_python()`
+- `_run_script()` and `_stop_collector()` (subprocess model)
+- `class GarminApp(GarminAppBase)`
 
-- **Sleep quality labels** — `sleepScores` fields from `get_sleep_data` (raw)
-  promoted to summary via `garmin_normalizer.py`. Labels such as "not restful",
-  "good recovery", "too little REM" become available as structured fields.
-- Fields surfaced in existing sleep/recovery dashboards once present in summary.
+`garmin_app_standalone.py` retains only:
+- `script_dir()`, `_register_embedded_packages()`
+- `_apply_env()`, `_apply_env_overrides()`
+- `_run_module()`, `_poll_log_queue()` (thread + queue model)
+- `class GarminApp(GarminAppBase)`
 
-Pipeline order: `garmin_normalizer.py` → `garmin_writer.py` → dashboard plotters.
-No dashboard changes until summary fields are confirmed.
+#### What does not change
 
-#### Pipeline Hardening
+- Class name `GarminApp` in both files — build validation signatures unchanged
+- PyInstaller dependency detection — `garmin_app_base.py` added to
+  `SHARED_SCRIPTS` in `build_manifest.py`; both builds pick it up automatically
+- External behavior — no functional changes, pure structural consolidation
 
-**`dash_runner.py` — `_load_plotters()` silent failure**
+#### Result
 
-`_load_plotters()` currently swallows import errors with `except Exception: pass`.
-A plotter that fails to load simply disappears from the registry — no message,
-no trace. The format is missing in the GUI popup with no explanation.
-
-Fix: store the error string in `plotters[f"{fmt}_err"]` instead of discarding it.
-`scan()` and `build()` can surface these on demand (e.g. as a log warning during
-`build()` when a format is requested but its plotter has an `_err` entry).
-This converts a permanent silent gap into a visible, diagnosable failure.
-
-**Broker contract — `field_map` / `garmin_map` (`test_dashboard.py`)**
-
-`garmin_map.get()` returns a dict with an implicit contract: `values`, `fallback`,
-`source_resolution`, optional `error`. This contract is documented but never
-asserted. New test section in `test_dashboard.py`:
-
-- `garmin_map.get()` returns a dict with all required keys for known fields
-- `values` is always a list
-- `fallback` is always a bool
-- `source_resolution` is always a string
-- Unknown field raises `KeyError` (tested — used by `field_map` to skip silently)
-
-**Broker contract — `context_map` / `weather_map` / `pollen_map` (`test_local_context.py`)**
-
-Same pattern, same contract. New test section in `test_local_context.py`:
-
-- `weather_map.get()` and `pollen_map.get()` return dicts with all required keys
-- Contract assertions identical to `garmin_map` above
-- Unknown field raises `KeyError`
-
-**Specialist return contract (`test_dashboard.py`)**
-
-`dash_runner.build()` passes the specialist `build()` return dict directly to
-`plotter.render()` without structural validation. Every plotter implicitly assumes:
-`daily` is a list, each entry has `date`, `meta` has `date_from` / `date_to`.
-A specialist returning a malformed dict currently fails inside the plotter —
-far from the actual source. New test section in `test_dashboard.py`:
-
-- Every `*_dash.py` `build()` is called with a valid test range and mock settings
-- Return dict contains `daily` (list) and `meta` (dict)
-- Every entry in `daily` contains at minimum a `date` key
-- `meta` contains `date_from` and `date_to`
-
-**`garmin_collector.py` — Lock gap in bulk import**
-
-`run_bulk_import()` writes to `quality_log.json` without acquiring
-`QUALITY_LOCK`. All other write paths (`main()`, `_run_self_healing()`,
-`_run_backfill()`) use the lock. The GUI pauses the Background Timer before
-import, but that is a signal — not a guarantee. A timer cycle still in
-progress when import starts creates a race condition on `quality_log.json`.
-
-Fix: wrap the write block in `run_bulk_import()` with
-`with quality.QUALITY_LOCK:` — identical to all other write paths.
-
-**`garmin_app.py` / `garmin_app_standalone.py` — `save_settings()` unguarded**
-
-`save_settings()` calls `SETTINGS_FILE.write_text()` without try/except.
-If the settings file is not writable (permissions, path missing), an
-unhandled `OSError` is raised in the GUI thread. The user sees no error
-message and settings are silently lost on next startup.
-
-Fix: wrap in try/except with `self._log()` or `messagebox.showerror()`.
-Applies to both entry points.
-
-**`sleep_recovery_context_dash.py` / `health_garmin_html-json_dash.py` — `age` cast unguarded**
-
-```python
-age = int(settings.get("age") or 35)
-```
-
-`int()` raises `ValueError` if the Settings field contains a float string
-(`"35.5"`) or invalid input (`"abc"`). This surfaces as `build() failed`
-in `dash_runner` — no dashboard, no clear error message in the GUI.
-
-Fix:
-```python
-try:
-    age = int(float(settings.get("age") or 35))
-except (TypeError, ValueError):
-    age = 35
-```
-
-No new production code — all test hardening lives in the test suites.
-Lock fix and save_settings fix are minimal production changes.
-
-**`dash_plotter_html_complex.py` — internal structure**
-
-Experience from v1.4.7.1 showed that f-string rendering, layout logic, and JS
-generation in a single function leads to structural fragility — changes in one
-area break another without warning, and anchor-based patching becomes unreliable.
-
-The plotter needs the same contract discipline as the broker layer:
-- Each layout type (`recovery_context`, `explorer`) gets its own clearly bounded
-  render path — already partially done via `_render_recovery_context()` /
-  `_render_explorer()`
-- JS generation extracted into named helper functions with documented inputs
-- No implicit state shared between layout paths
-
-This is not a rewrite — it is applying the same ownership boundaries that made
-the pipeline layer robust. Target: a change to the Explorer layout cannot
-accidentally affect the Recovery Context layout, and vice versa.
+One change, one file. `daily_update.py` (v1.4.9.1) imports shared logic
+from `garmin_app_base.py` without duplicating it.
 
 ---
 
-### v1.4.8 Parking Lot — Explorer Sleep Score Annotation
+### v1.4.9.1 — Daily Sync (Automated Daily Workflow)
 
-Sleep score labels per day in the Explorer dashboard sleep phase panel.
-Data is available (`_scores` in JS, `_FEEDBACK_SHORT` mapping in Python),
-but no reliable rendering approach was found within Plotly's Grid subplot
-constraints during v1.4.7.1.
-
-Known constraint: `textangle` is ignored for Scatter text traces in Grid
-subplots. Marker traces land inside the bar area. A separate subplot row
-for score labels is the most promising path — requires layout restructuring.
-
-No action until a clean solution is identified. Not a blocker for any other
-feature.
+**Prerequisite:** v1.4.9 (GarminAppBase) complete. `_clear_token_dir()` in
+`garmin_security.py` must reliably remove the token working dir after
+`client.login()` — currently fails with WinError 5 when garminconnect holds
+the file handle. Headless operation cannot tolerate a stale working dir.
+Fix must land before implementation begins.
 
 ---
 
-### v1.4.9 — Daily Sync (Automated Daily Workflow)
+### v1.4.9.1 — Daily Sync (Automated Daily Workflow)
 
 **Prerequisite:** `_clear_token_dir()` in `garmin_security.py` must reliably
 remove the token working dir after `client.login()` — currently fails with
@@ -369,6 +270,41 @@ remains functional but is not actively promoted. Removal or explicit
 deprecation notice to be evaluated — not a priority while the mode causes
 no active harm.
 
+---
+
+## Planned — v1.7
+
+### v1.7 — Dashboard Render Registry
+
+The dashboard render layer currently dispatches layout types via an `if/elif`
+block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
+edit to this file — the plotter grows as a side effect of new specialists, not
+by its own logic.
+
+v1.7 replaces this with a render registry: each specialist declares its render
+function alongside its `META` and `build()`. `dash_plotter_html_complex.py`
+becomes a pure dispatcher — it routes to the registered renderer without
+knowing anything about layout-specific logic.
+
+**What changes:**
+- `dash_plotter_html_complex.py` — dispatch by registry lookup, not `if/elif`
+- Each `*_dash.py` specialist — declares a `render()` function or a
+  `RENDERER` reference alongside `META` and `build()`
+- Adding a new dashboard no longer requires touching the plotter
+
+**What does not change:**
+- The neutral dict contract between specialist and plotter remains identical
+- `dash_runner.py` — no changes; it calls `plotter.render()` as before
+- Existing specialists — migrated mechanically, no logic changes
+
+**Motivation:** v1.6 introduces a second Garmin source; v2.0 adds external
+sources (Strava, Komoot). Each will bring new dashboard layouts. A growing
+`if/elif` chain is not a sustainable dispatch pattern at that scale.
+The registry closes this before v2.0 begins.
+
+**Pre-condition:** `dash_plotter_html_complex.py` internal restructuring
+(v1.4.8 pipeline hardening) must be complete — layout paths cleanly separated
+before the registry is introduced.
 
 ---
 
@@ -391,14 +327,6 @@ unpredictable in the same way Garmin API responses are.
 Prerequisite: v2.0 multi-source architecture stable.
 Natural companion to `context_dataformat.json` (schema definition, analogous
 to `garmin_dataformat.json`).
-
-**`GarminAppBase` — GUI Consolidation (Pre-v2.0 Preparation)**
-
-`garmin_app.py` and `garmin_app_standalone.py` currently share identical GUI code but differ fundamentally in their execution model: Target 2 spawns subprocesses (`_run_script`), Target 3 imports modules directly in threads with queue-based output (`_run_module`). This means every GUI fix currently requires changes in two places.
-
-The clean solution is a base class `GarminAppBase` in a shared `garmin_app_base.py` containing all GUI logic. Each target file then only defines what differs: `script_dir()`, `_find_python()`, and the run mechanism. This is a significant refactor — not a simple extraction — and requires careful handling of PyInstaller dependency detection and the `_STOP_EVENT` injection mechanism.
-
-Intentionally deferred until v2.0 architecture is stable: the multi-source architecture will likely require further GUI changes, making it more efficient to consolidate once rather than twice.
 
 ---
 

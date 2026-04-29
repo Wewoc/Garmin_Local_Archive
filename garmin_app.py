@@ -62,7 +62,10 @@ def load_settings() -> dict:
 
 def save_settings(s: dict):
     safe = {k: v for k, v in s.items() if k != "password"}
-    SETTINGS_FILE.write_text(json.dumps(safe, indent=2))
+    try:
+        SETTINGS_FILE.write_text(json.dumps(safe, indent=2))
+    except OSError as exc:
+        messagebox.showerror("Settings", f"Could not save settings:\n{exc}")
 
 
 # ── Keyring helpers ────────────────────────────────────────────────────────────
@@ -167,7 +170,7 @@ def _open_url(url: str):
             pass
 
 
-APP_VERSION = "v1.4.7.1"
+APP_VERSION = "v1.4.8"
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
 BG        = "#1a1a2e"
@@ -1853,7 +1856,22 @@ class GarminApp(tk.Tk):
 
         btn_frame = tk.Frame(popup, bg=BG)
         btn_frame.grid(row=last_row + 1, column=0, columnspan=10,
-                       pady=(4, 14), padx=16, sticky="e")
+                       pady=(4, 14), padx=16, sticky="ew")
+
+        _all_selected = [False]
+
+        def _toggle_all():
+            _all_selected[0] = not _all_selected[0]
+            for var in check_vars.values():
+                var.set(_all_selected[0])
+            toggle_btn.config(text="☑  Deselect All" if _all_selected[0] else "☐  Select All")
+
+        toggle_btn = tk.Button(btn_frame, text="☐  Select All",
+                               font=("Segoe UI", 8), bg=BG2, fg=TEXT2,
+                               relief="flat", bd=0, padx=8, pady=6,
+                               cursor="hand2", command=_toggle_all)
+        toggle_btn.pack(side="left")
+
         tk.Button(btn_frame, text="Abbrechen", font=FONT_BTN,
                   bg=BG2, fg=TEXT, relief="flat", bd=0,
                   pady=6, padx=14, cursor="hand2",
@@ -2181,16 +2199,25 @@ class GarminApp(tk.Tk):
                 min_days,     max_days     = 3, 10
 
             # ── Determine what to do this run ──
-            _mode_cycle = ["repair", "quality", "fill"]
-            mode = self._timer_next_mode
-            if mode == "repair":
-                days = self._timer_run_repair(s)
-            elif mode == "quality":
-                days = self._timer_run_quality(s)
+            # Bulk recheck has priority: days imported from GDPR export within the
+            # last 180 days may still have higher-resolution data available via API.
+            # Process oldest first before the high-resolution window closes permanently.
+            bulk_days = self._timer_run_bulk_recheck(s)
+            if bulk_days is not None:
+                days    = bulk_days
+                mode    = "bulk"
+                skipped = False
             else:
-                days = self._timer_run_fill(s)
+                _mode_cycle = ["repair", "quality", "fill"]
+                mode = self._timer_next_mode
+                if mode == "repair":
+                    days = self._timer_run_repair(s)
+                elif mode == "quality":
+                    days = self._timer_run_quality(s)
+                else:
+                    days = self._timer_run_fill(s)
 
-            skipped = days is None
+                skipped = days is None
 
             if not skipped:
                 # Advance to next mode
@@ -2222,14 +2249,19 @@ class GarminApp(tk.Tk):
                         self.after(0, self._timer_update_btn)
                     return
 
-            # ── Pick random subset of days ──
-            n_days    = random.randint(min_days, max_days)
-            days_pick = sorted(random.sample(days, min(n_days, len(days))))
+            # ── Pick subset of days ──
+            # Bulk recheck: deterministic oldest-first (no random — order matters).
+            # All other modes: random sample.
+            n_days = random.randint(min_days, max_days)
+            if mode == "bulk":
+                days_pick = days[:n_days]
+            else:
+                days_pick = sorted(random.sample(days, min(n_days, len(days))))
             sync_dates_str = ",".join(d.isoformat() for d in days_pick)
             days_left      = len(days_pick)
             queue_total    = len(days)
 
-            label = {"repair": "Repair", "quality": "Quality", "fill": "Fill"}.get(mode, mode)
+            label = {"repair": "Repair", "quality": "Quality", "fill": "Fill", "bulk": "Bulk Recheck"}.get(mode, mode)
             self.after(0, self._log,
                 f"⏱  [{label}] Syncing {days_left} days"
                 f" ({queue_total} in queue)")
@@ -2241,7 +2273,7 @@ class GarminApp(tk.Tk):
                 self._timer_stop.wait(timeout=0.5)
 
             # ── Run the sync ──
-            refresh = (mode in ("repair", "quality"))
+            refresh = (mode in ("repair", "quality", "bulk"))
             env_overrides = {
                 "GARMIN_SYNC_DATES":         sync_dates_str,
                 "GARMIN_REFRESH_FAILED":     "1" if refresh else "0",
@@ -2303,6 +2335,34 @@ class GarminApp(tk.Tk):
                         days.append(date.fromisoformat(e["date"]))
                     except (ValueError, KeyError):
                         pass
+            return days if days else None
+        except Exception:
+            return None
+
+    def _timer_run_bulk_recheck(self, s: dict):
+        """
+        Returns list of date objects with source='bulk' and recheck=True,
+        sorted oldest first (highest risk of falling out of the high-resolution
+        window). Only days within the last 180 days are considered.
+        Returns None if no candidates exist.
+        """
+        try:
+            from datetime import date, timedelta
+            log_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
+            if not log_file.exists():
+                return None
+            data    = json.loads(log_file.read_text(encoding="utf-8"))
+            cutoff  = date.today() - timedelta(days=180)
+            days = []
+            for e in data.get("days", []):
+                if e.get("source") == "bulk" and e.get("recheck", False):
+                    try:
+                        d = date.fromisoformat(e["date"])
+                        if d >= cutoff:
+                            days.append(d)
+                    except (ValueError, KeyError):
+                        pass
+            days.sort()  # oldest first
             return days if days else None
         except Exception:
             return None

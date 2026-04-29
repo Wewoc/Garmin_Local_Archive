@@ -2,6 +2,84 @@
 
 ---
 
+## v1.4.8 — Sleep Dashboard + Pipeline Hardening
+
+**New: `dashboards/sleep_garmin_html-xls_dash.py`:**
+- Specialist: one row per night — sleep phases (segmented bar), duration, score, quality badge, feedback text, HRV, Body Battery.
+- `layout = "sleep"` in return dict — dispatched by both `dash_plotter_html_complex` and `dash_plotter_excel`.
+- `refs` dict passes age/sex/fitness-adjusted reference ranges to plotters.
+- Age-cast with `int(float(...))` fallback — consistent with other specialists.
+
+**`maps/garmin_map.py`:**
+- `sleep_score` registered as daily field reading from `summary/sleep/score`.
+
+**`layouts/dash_plotter_html_complex.py`:**
+- `render()` dispatch extended: `"sleep"` → `_render_sleep()` (new), `"explorer"` → `_render_explorer()`, otherwise → `_render_recovery_context()`.
+- `_render_sleep()` — pure HTML/CSS table render, no Plotly dependency. Phase bar as CSS flex with proportional segments. Colored numbers via HSL interpolation (continuous gradient, no discrete buckets). Qualifier as colored badge. Feedback as cleaned plain text (enum → readable label).
+
+**`layouts/dash_plotter_excel.py`:**
+- `render()` dispatch: `layout == "sleep"` checked before `"rows"` check to prevent collision with Overview mode.
+- `_write_sleep_sheet()` — phase bar as 20 narrow `PatternFill` cells. Colored numbers via font color from HSL anchor-point interpolation. Qualifier with background fill. HRV column with medium left border as visual separator.
+
+**`build_manifest.py`:**
+- `dashboards/sleep_garmin_html-xls_dash.py` added to `SHARED_SCRIPTS`.
+
+**`tests/test_dashboard.py`:**
+- Section 14 added: 26 checks — META, `build()` return structure, all field values, HTML render, Excel render, ValueError guards for both plotters.
+- Section 15 added: `garmin_map` broker contract — `values` (list), `fallback` (bool), `source_resolution` (str); fallback behaviour daily/intraday; `KeyError` on unknown field; `ValueError` on invalid resolution; `list_fields()`.
+- Section 16 added: Specialist return contract — all 6 specialists called with synthetic data; mandatory keys per specialist verified.
+- **Total: 303/303 passed.**
+
+**Pipeline hardening:**
+
+**`dashboards/dash_runner.py`:**
+- `_load_plotters()`: import errors no longer silently discarded. Error string stored as `plotters["{fmt}_err"]`. `build()` returns `success=False` with exact import error in `"error"` field when a format's plotter failed to load.
+
+**`garmin_app.py` + `garmin_app_standalone.py`:**
+- `save_settings()`: `write_text()` wrapped in try/except. `OSError` → `messagebox.showerror()`. Previously a non-writable settings file caused a silent unhandled exception in the GUI thread.
+- Create Reports popup: **Select/Deselect All** toggle button added bottom-left, next to Create. State resets on each popup open.
+
+**`dashboards/sleep_recovery_context_dash.py` + `dashboards/health_garmin_html-json_dash.py`:**
+- `age`-cast hardened: `int(float(settings.get("age") or 35))` with `(TypeError, ValueError)` guard, fallback 35. Prevents crash on float-string input (`"35.5"`) or invalid value.
+
+**`garmin/garmin_collector.py`:**
+- Bulk recheck flagging: all days with `source=bulk` + date ≤ 180 days → `recheck=True` on every startup (quality irrelevant). Previously: only `medium` + ≤90 days.
+- Downgrade path: if API result inferior to existing bulk entry, `attempts` is incremented manually after `_upsert_quality()`. After 2 failed attempts `recheck=False` — bulk quality accepted as final.
+
+**`garmin_app.py` + `garmin_app_standalone.py` — Background Timer:**
+- `_timer_run_bulk_recheck()` added: returns bulk recheck candidates (`source=bulk` + `recheck=True` + ≤180 days), sorted oldest first. Returns `None` if empty.
+- `_timer_loop()`: Bulk Recheck runs as priority mode before the normal Repair → Quality → Fill cycle. While candidates exist, only bulk days are processed — oldest first, no random selection. Label `"Bulk Recheck"` in log.
+
+**`tests/test_app_logic.py`:**
+- Sections 11–13 added: OSError handling for `save_settings()` in both app files; structural source-check for `age`-cast guard in both dash specialists.
+- Section 14 added: `_timer_run_bulk_recheck()` exists in both app classes; returns `None` without log file; filters candidates correctly by source, recheck, and 180-day window.
+- **Total: 293/293 passed.**
+
+**`tests/test_local_context.py`:**
+- Broker contract added: `weather_map.get()`, `pollen_map.get()`, `context_map.get()` — same contract as `garmin_map`; fallback behaviour; `KeyError`; `list_fields()`; `list_sources()`.
+- **Total: 217/217 passed.**
+
+**`REFERENCE_GARMIN.md`:** Bulk recheck logic updated (180 days, quality irrelevant, downgrade behaviour); `_timer_run_bulk_recheck()` added to app method table.
+
+**`MAINTENANCE_GARMIN.md`:** Pipeline diagram updated; Background Timer description extended with Bulk Recheck priority mode; Quality table: `medium` + `source=bulk` exception noted.
+
+**`MAINTENANCE_DASHBOARD.md`:** Test section table updated (248→303, sections 14→16).
+
+**`README.md`:** Background Timer description updated to include Bulk Recheck.
+
+**`README_APP.md`:** Background Timer section fully rewritten — 4 modes with priority order documented.
+
+**`REFERENCE_DASHBOARD.md`:** New section "Broker interface" — `field_map.get()` and `context_map.get()` contract fully documented including `weather_map`/`pollen_map` deviation.
+
+**`MAINTENANCE_DASHBOARD.md`:** Test section table updated (248→303, 14→16 sections); broker contract and specialist return contract notes added.
+
+**Documentation:**
+- `README.md`: Link in dashboard table adjusted — AI guide referenced inline instead of "at the end of this README".
+- `README_APP.md`: Standalone troubleshooting — CMD-block replaced with log file navigation via Windows Explorer (`garmin_data\log\fail\`).
+- `MAINTENANCE_GARMIN.md`: `first_day` caution added — not protected against manual edits or ENV overrides; derived from device history API, not guaranteed complete. Integrity note added — `quality_log.json` has no checksums; corruption is not automatically detected.
+
+---
+
 ## v1.4.7.1 — Context Pipeline Extension & Explorer Dashboard
 
 **`maps/context_map.py`:**

@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.4.7.1
+# Garmin Local Archive — Desktop App v1.4.8
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -157,11 +157,14 @@ Automatically repairs and fills your archive in the background while the app is 
 
 Click the **⏱ Timer: Off** button to start. The button turns green and shows a live countdown to the next run. While a sync is running it shows **"Syncing · N offen"**.
 
-The timer alternates between two modes each run:
-- **Repair** — re-fetches days listed in `log/failed_days.json` (API errors and incomplete files)
-- **Fill** — fetches completely missing days between your earliest local file and yesterday
+The timer works through a priority queue each run:
 
-When both queues are empty the timer stops automatically and logs "Archive complete".
+1. **Bulk Recheck** *(priority)* — if you have imported a Garmin GDPR export, the timer first upgrades those days via the live API. Garmin keeps full intraday resolution available for approximately 6 months — bulk-imported days within that window are re-fetched oldest first before the high-resolution data is permanently gone. Runs exclusively until all candidates are resolved.
+2. **Repair** — re-fetches days where the API call itself failed (no file created)
+3. **Quality** — re-checks days with poor data quality (`low`)
+4. **Fill** — fetches completely missing days between your earliest known date and yesterday
+
+When all queues are empty the timer stops automatically and logs "Archive complete".
 
 **Settings** (shown next to the button):
 
@@ -282,11 +285,7 @@ python build_standalone.py
 **App doesn't start**
 
 > **Standard:** Make sure the `scripts/` folder is in the same folder as the `.exe` and contains all required files.
-> **Standalone:** Open a terminal, navigate to the folder, and run the `.exe` directly to see the error output:
-> ```
-> cd C:\path\to\folder
-> Garmin_Local_Archive_Standalone.exe
-> ```
+> **Standalone:** Open your data folder in Windows Explorer and navigate to `garmin_data\log\fail\`. Open the most recent `.log` file in Notepad — it contains the full error output. If the app never started and no data folder exists yet, use the **Copy Last Error Log** button if the app partially loaded, or re-run from the Standard version with Python to see terminal output.
 
 **Login fails** — if Garmin requires MFA, the app will show a code input popup automatically. Enter the code from your Garmin app or authenticator.
 

@@ -157,7 +157,10 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
 
     # ── Profile + reference ranges ────────────────────────────────────────────
-    age     = int(settings.get("age") or 35)
+    try:
+        age = int(float(settings.get("age") or 35))
+    except (TypeError, ValueError):
+        age = 35
     sex     = settings.get("sex") or "male"
     vo2max  = None
     result_vo2 = field_get("vo2max", date_from, date_to, resolution="daily")
