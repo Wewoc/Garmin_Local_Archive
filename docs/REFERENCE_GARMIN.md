@@ -173,9 +173,11 @@ Schema cached at module import. Leaf node.
 | `_start_session_log()` | Opens session log file. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if errors present |
 
-**Bulk upgrade logic:**
+**Bulk recheck logic:**
 
-Days with `source: bulk` + `quality: medium` + date ≤ 90 days old are automatically flagged `recheck: true` on every startup (Step 3). In Step 7 they are collected into `bulk_upgrade_dates` and always excluded from `local_dates` — regardless of `REFRESH_FAILED`. This ensures API data replaces bulk data within the API availability window.
+All days with `source: bulk` + date ≤ 180 days old are automatically flagged `recheck: true` on every startup (Step 3) — quality is irrelevant, source is the trigger. After 180 days Garmin degrades intraday data permanently; the local raw copy is then the only high-resolution source. In Step 7, bulk recheck days are collected into `bulk_upgrade_dates` and always excluded from `local_dates` — regardless of `REFRESH_FAILED`.
+
+**Downgrade during bulk recheck:** If the API result is inferior to the existing bulk entry, `attempts` is incremented manually after `_upsert_quality()`. After 2 failed attempts `recheck` is set to `false` — the bulk quality is accepted as final.
 
 **Downgrade protection:**
 
@@ -343,5 +345,6 @@ Each field in `_FIELD_MAP` uses one of three descriptor types:
 | `_reset_token()` | Clears encrypted token and resets lamp |
 | `_toggle_log_level()` | Switches GUI log display between INFO and DEBUG |
 | `_toggle_timer()` | Starts or stops background timer |
-| `_timer_loop(generation)` | Main timer loop — Repair → Quality → Fill cycle |
+| `_timer_loop(generation)` | Main timer loop — Bulk Recheck (priority) → Repair → Quality → Fill cycle |
+| `_timer_run_bulk_recheck(s)` | Returns bulk recheck candidates: `source=bulk` + `recheck=True` + ≤180 days, oldest first. Returns `None` if empty |
 | `_copy_last_error_log()` | Copies most recent fail log to clipboard |

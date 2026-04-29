@@ -111,9 +111,7 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 214 checks, 13 sections.**
-
-Note: `explorer_garmin-context_html_dash` is discovered by `dash_runner.scan()` and covered by section 7 (auto-discovery). Dedicated specialist tests to be added in a later session.
+**Current count: 303 checks, 16 sections.**
 
 | Section | Coverage |
 |---|---|
@@ -130,6 +128,13 @@ Note: `explorer_garmin-context_html_dash` is discovered by `dash_runner.scan()` 
 | 11 | `overview_garmin` specialist |
 | 12 | `health_garmin-weather-pollen` specialist |
 | 13 | `sleep_recovery_context` specialist + complex plotter |
+| 14 | `sleep_garmin` specialist + html + excel render |
+| 15 | `garmin_map` broker contract |
+| 16 | Specialist return contract — alle 6 specialists |
+
+**Broker contract (section 15):** `garmin_map.get()` gibt immer `values` (list), `fallback` (bool), `source_resolution` (str) zurück. Unbekanntes Feld → `KeyError`. Ungültige Resolution → `ValueError`. Gilt analog für `weather_map` und `pollen_map` — getestet in `test_local_context.py`.
+
+**Specialist return contract (section 16):** Jeder `build()`-Call wird mit synthetischen Daten ausgeführt. Pflicht-Keys pro Specialist: siehe REFERENCE_DASHBOARD.md → Specialist return dicts.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`, `reference_ranges.py`.
 
@@ -137,15 +142,13 @@ Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`
 
 ## Diagnosing plotter load failures
 
-In `_load_plotters()` the `except: pass` silently swallows load errors. To surface them:
+If a plotter fails to load, `_load_plotters()` stores the error string under
+`plotters["{fmt}_err"]` instead of raising. The format key itself (`"html"`, `"excel"`)
+remains absent — `scan()` silently skips the format, `build()` returns a result with
+`success=False` and the exact import error in the `"error"` field.
 
-```python
-except Exception as _e:
-    plotters[fmt] = None
-    plotters[f"{fmt}_err"] = str(_e)
-```
-
-Then log `plotters` after `dash_runner._load_plotters()`. The `_err` key shows the exact error.
+To inspect errors during development, log `plotters` after `_load_plotters()`:
+any key ending in `_err` signals a load failure for that format.
 
 ---
 
