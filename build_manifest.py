@@ -48,6 +48,7 @@ SHARED_SCRIPTS = [
     "dashboards/overview_garmin_xls_dash.py",
     "dashboards/health_garmin-weather-pollen_html-xls_dash.py",
     "dashboards/sleep_recovery_context_dash.py",
+    "dashboards/sleep_garmin_html-xls_dash.py",
     "dashboards/explorer_garmin-context_html_dash.py",
     # layouts (plotters + passive resources)
     "layouts/dash_layout.py",
