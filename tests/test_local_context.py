@@ -780,6 +780,82 @@ check("run network error: weather written=0",
 check("run network error: brightsky written=0",
       run_net_err["plugins"]["brightsky"]["written"] == 0)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Broker-Contract — weather_map, pollen_map, context_map
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("Broker-Contract — weather_map / pollen_map / context_map")
+
+_BC_DATE = "2026-03-01"
+
+# weather_map — bekanntes Feld
+_wbc = weather_map.get("temperature_max", _BC_DATE, _BC_DATE, resolution="daily")
+check("weather_map: values is list",             isinstance(_wbc["values"], list))
+check("weather_map: fallback is bool",           isinstance(_wbc["fallback"], bool))
+check("weather_map: source_resolution is str",   isinstance(_wbc["source_resolution"], str))
+check("weather_map: fallback = False",           _wbc["fallback"] is False)
+check("weather_map: source_resolution = daily",  _wbc["source_resolution"] == "daily")
+check("weather_map: values entry has date",      len(_wbc["values"]) > 0 and "date" in _wbc["values"][0])
+
+# weather_map — intraday → fallback=True
+_wbc_fb = weather_map.get("temperature_max", _BC_DATE, _BC_DATE, resolution="intraday")
+check("weather_map: intraday → fallback = True", _wbc_fb["fallback"] is True)
+
+# weather_map — unbekanntes Feld → KeyError
+try:
+    weather_map.get("nonexistent_field", _BC_DATE, _BC_DATE)
+    check("weather_map: unknown field raises KeyError", False)
+except KeyError:
+    check("weather_map: unknown field raises KeyError", True)
+
+# weather_map — list_fields()
+_wlf = weather_map.list_fields()
+check("weather_map list_fields: is list",        isinstance(_wlf, list))
+check("weather_map list_fields: not empty",      len(_wlf) > 0)
+check("weather_map list_fields: all strings",    all(isinstance(f, str) for f in _wlf))
+
+# pollen_map — bekanntes Feld
+_pbc = pollen_map.get("pollen_birch", _BC_DATE, _BC_DATE, resolution="daily")
+check("pollen_map: values is list",              isinstance(_pbc["values"], list))
+check("pollen_map: fallback is bool",            isinstance(_pbc["fallback"], bool))
+check("pollen_map: source_resolution is str",    isinstance(_pbc["source_resolution"], str))
+check("pollen_map: fallback = False",            _pbc["fallback"] is False)
+check("pollen_map: values entry has date",       len(_pbc["values"]) > 0 and "date" in _pbc["values"][0])
+
+# pollen_map — intraday → fallback=True
+_pbc_fb = pollen_map.get("pollen_birch", _BC_DATE, _BC_DATE, resolution="intraday")
+check("pollen_map: intraday → fallback = True",  _pbc_fb["fallback"] is True)
+
+# pollen_map — unbekanntes Feld → KeyError
+try:
+    pollen_map.get("nonexistent_field", _BC_DATE, _BC_DATE)
+    check("pollen_map: unknown field raises KeyError", False)
+except KeyError:
+    check("pollen_map: unknown field raises KeyError", True)
+
+# pollen_map — list_fields()
+_plf = pollen_map.list_fields()
+check("pollen_map list_fields: is list",         isinstance(_plf, list))
+check("pollen_map list_fields: not empty",       len(_plf) > 0)
+check("pollen_map list_fields: all strings",     all(isinstance(f, str) for f in _plf))
+
+# context_map — bekanntes Feld landet beim richtigen Source-Key
+_cbc = context_map.get("temperature_max", _BC_DATE, _BC_DATE)
+check("context_map: result is dict",             isinstance(_cbc, dict))
+check("context_map: weather key present",        "weather" in _cbc)
+check("context_map: weather values is list",     isinstance(_cbc["weather"]["values"], list))
+check("context_map: weather fallback is bool",   isinstance(_cbc["weather"]["fallback"], bool))
+check("context_map: weather source_resolution is str", isinstance(_cbc["weather"]["source_resolution"], str))
+
+# context_map — unbekanntes Feld → leeres Dict (KeyError wird intern geschluckt)
+_cbc_unk = context_map.get("nonexistent_field", _BC_DATE, _BC_DATE)
+check("context_map: unknown field → empty dict", isinstance(_cbc_unk, dict) and len(_cbc_unk) == 0)
+
+# context_map — list_sources()
+_cs = context_map.list_sources()
+check("context_map list_sources: is list",       isinstance(_cs, list))
+check("context_map list_sources: weather in list","weather" in _cs)
+check("context_map list_sources: pollen in list", "pollen" in _cs)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
