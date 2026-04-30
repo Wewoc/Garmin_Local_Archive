@@ -105,6 +105,9 @@ This is what makes the archive genuinely complete, not just a rolling window.
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
 *Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
+![Garmin Health Analysis Dashboard](screenshots/sleep_dashboard.jpg)
+*One row per night — segmented phase bar, duration, sleep score, quality badge, Garmin feedback text, HRV, and Body Battery. Numbers are color-coded against personal reference ranges.*
+
 ![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg)
 *Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
@@ -113,7 +116,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 Local-first, personal use, no enterprise ambitions.
 
 - Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
-- Five local test suites (690 checks + build output validation) — no CI/CD yet
+- Five local test suites (849 checks + build output validation) — no CI/CD yet
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
 - Historical data quality depends on Garmin servers
@@ -291,8 +294,9 @@ The project is structured into five focused layers. Each layer has a single resp
 
 | Script | What it does |
 |---|---|
-| `garmin_app.py` + `build.py` | Desktop GUI + standard EXE build (Python required on target) |
-| `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI + standalone EXE build (no Python required) |
+| `garmin_app_base.py` | Shared GUI base class — all logic, layout, and business methods shared between both entry points |
+| `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
+| `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 
 Each module is self-contained and designed to be extended. Add new fields, metrics, or dashboard specialists without touching the rest of the system. See `docs/MAINTENANCE_GLOBAL.md` for how.
 
@@ -331,12 +335,13 @@ There are three ways to run Garmin Local Archive:
 Extract and double-click `Garmin_Local_Archive_Standalone.exe`.
 
 ```
-Garmin_Local_Archive_Standalone.exe     ← double-click to launch — nothing else needed
-info/                                   ← documentation (optional)
+Garmin_Local_Archive_Standalone.exe     ← double-click to launch the GUI
+daily_update.exe                        ← headless daily sync for Task Scheduler
+info/                                   ← documentation + Task Scheduler XML template
 ```
 
 No Python, no terminal, no dependencies. Everything is built in.
-See `info/README_APP_Standalone.md` for full details.
+See `info/README_APP.md` for full details.
 
 ### Option 2 — Standard EXE (Python required)
 
@@ -468,24 +473,25 @@ Produces `Garmin_Local_Archive.exe` + `Garmin_Local_Archive.zip`.
 python build_standalone.py
 ```
 
-Produces `Garmin_Local_Archive_Standalone.exe` + `Garmin_Local_Archive_Standalone.zip`. All scripts and dependencies are embedded — the target machine needs nothing installed.
+Produces `Garmin_Local_Archive_Standalone.exe` + `daily_update.exe` + `Garmin_Local_Archive_Standalone.zip` (both EXEs combined). All scripts and dependencies are embedded — the target machine needs nothing installed.
 
 Both build scripts auto-migrate scripts to `scripts/` and docs to `info/` if they are still in the root folder. Safe to run from any starting layout.
 
 ---
 
-### Step 10 — Automate the collector (optional)
+### Step 10 — Automate daily sync (optional)
 
 **Windows Task Scheduler:**
 
-```powershell
-$action  = New-ScheduledTaskAction `
-    -Execute "python.exe" `
-    -Argument "C:\path\to\scripts\garmin_collector.py"
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName "GarminCollector" `
-    -Action $action -Trigger $trigger -RunLevel Highest
-```
+A ready-to-import XML template (`daily_update_task.xml`) ships in `info/` (Standalone + Standard) and `docs/` (Scripts only). Import it once into Windows Task Scheduler — it runs `daily_update` every morning automatically.
+
+| Target | Entry point for Task Scheduler |
+|---|---|
+| Standalone | `daily_update.exe` |
+| Standard EXE | `daily_update.bat` |
+| Scripts only | `python daily_update.py` |
+
+`daily_update` handles gap detection automatically: gaps up to 7 days are healed without intervention, larger gaps trigger a hard stop with a clear message to open the app.
 
 **Linux / macOS** (daily at 07:00):
 
