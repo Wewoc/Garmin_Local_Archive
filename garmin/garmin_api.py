@@ -102,6 +102,7 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
         try:
             client = Garmin()
             client.login(str(cfg.GARMIN_TOKEN_DIR))
+            client._tokenstore_path = None
             garmin_security._clear_token_dir()
             # Probe call — verify token is still accepted by Garmin
             from datetime import date
