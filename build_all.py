@@ -40,7 +40,15 @@ if __name__ == "__main__":
         sys.exit(1)
 
     print("\n  ✓ All tests passed — starting build.\n")
+
+    print("=" * 55)
+    print("  Target 2: Garmin_Local_Archive.exe ...")
+    print("=" * 55)
     build.main()
+
+    print("\n" + "=" * 55)
+    print("  Target 3: Standalone + Headless EXEs ...")
+    print("=" * 55)
     build_standalone.main()
 
     print("\n" + "=" * 55)
@@ -54,3 +62,15 @@ if __name__ == "__main__":
         sys.exit(1)
 
     print("\n  ✓ Build output validated successfully.")
+
+    print("\n" + "=" * 55)
+    print("  Post-build: running app logic tests ...")
+    print("=" * 55)
+
+    test_app_path = Path(__file__).parent / "tests" / "test_app_logic.py"
+    result_app = subprocess.run([sys.executable, str(test_app_path)])
+    if result_app.returncode != 0:
+        print("\n  ✗ App logic tests failed — check output above.")
+        sys.exit(1)
+
+    print("\n  ✓ App logic tests passed.")
