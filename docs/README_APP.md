@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.4.8
+# Garmin Local Archive — Desktop App v1.4.9
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -257,6 +257,48 @@ C:\Users\YourName\.garmin_archive_settings.json
 ```
 
 Delete this file to reset all settings to defaults. The password must be cleared separately via the Windows Credential Manager.
+
+---
+
+## Daily Sync — automated daily operation
+
+`daily_update` runs the full daily workflow headlessly — no GUI, no manual interaction. Configure the app once, then let `daily_update` handle the rest automatically via Windows Task Scheduler.
+
+**What it does on each run:**
+1. Checks the archive for gaps — heals gaps up to 7 days automatically
+2. Syncs Garmin data for the missing period
+3. Syncs context data (weather, pollen, air quality)
+4. Rebuilds all dashboards
+5. Closes the console window if everything completed cleanly
+
+Gaps larger than 7 days trigger a hard stop — open the app and sync manually first.
+
+**Entry point per version:**
+
+| Version | Entry point |
+|---|---|
+| Standalone | `daily_update.exe` — double-click or Task Scheduler |
+| Standard EXE | `daily_update.bat` — double-click or Task Scheduler |
+| Scripts only | `python daily_update.py` |
+
+**Task Scheduler setup:**
+
+A ready-to-import XML template (`daily_update_task.xml`) ships in `info/`. Import it once into Windows Task Scheduler. Recommended settings:
+- Run daily in the morning
+- Enable "Run task as soon as possible after a scheduled start is missed" — ensures the sync runs after waking from sleep
+- Disable "Restart on failure" — prevents flooding `log/daily/` with error files
+
+**Console behaviour:**
+
+| State | Behaviour |
+|---|---|
+| All OK | Console closes automatically |
+| Update available | Stays open — yellow notice |
+| Error | Stays open — red notice, check `garmin_data/log/daily/` |
+| Migration required | Stays open — open the app first |
+| Settings missing | Stays open — open the app and save settings first |
+
+**Prerequisite:** The app must be configured at least once (email, password, folder, location saved) before `daily_update` can run. Running it before setup results in a hard stop with a clear message.
 
 ---
 
