@@ -25,11 +25,12 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ## Three build targets
 
-| Target | Entry point | Build script | Output | Python on target |
+| Target | GUI entry point | Daily Sync entry point | Build script | Python on target |
 |---|---|---|---|---|
-| 1 — Dev | `garmin_app.py` | — (run directly) | — | Required |
-| 2 — Standard EXE | `garmin_app.py` | `build.py` | `Garmin_Local_Archive.exe` | Required |
-| 3 — Standalone EXE | `garmin_app_standalone.py` | `build_standalone.py` | `Garmin_Local_Archive_Standalone.exe` | Not required |
+| 1 — Dev | `garmin_app.py` | `python daily_update.py` | — | Required |
+| 2 — Standard EXE | `garmin_app.py` | `daily_update.bat` | `build.py` | Required |
+| 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `build_standalone.py` | Not required |
+| 3.2 — Standalone headless | — | `daily_update.exe` | `build_standalone.py` | Not required |
 
 `build_all.py` runs both targets sequentially, preceded by the full test suite.
 
@@ -43,18 +44,18 @@ python build.py
 ```
 Produces `Garmin_Local_Archive.exe` and `Garmin_Local_Archive.zip`.
 
-**Target 3:**
+**Target 3 (T3.1 GUI + T3.2 Headless):**
 ```bash
 python build_standalone.py
 ```
-Produces `Garmin_Local_Archive_Standalone.exe` and `Garmin_Local_Archive_Standalone.zip`.
+Produces `Garmin_Local_Archive_Standalone.exe`, `daily_update.exe`, and `Garmin_Local_Archive_Standalone.zip` (both EXEs combined).
 
 **Both targets (with pre-build tests):**
 ```bash
 python build_all.py
 ```
 
-Upload both ZIPs to the GitHub release page.
+Upload `Garmin_Local_Archive.zip` and `Garmin_Local_Archive_Standalone.zip` to the GitHub release page.
 
 ---
 
@@ -163,7 +164,7 @@ Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `g
 python tests/test_local_context.py
 ```
 
-**Current count: 191 checks, 11 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
+**Current count: 217 checks, 11 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
 
 Run after any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `weather_map`, `pollen_map`, `context_map`.
 
@@ -173,7 +174,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 220 checks, 13 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 303 checks, 16 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
@@ -191,9 +192,9 @@ For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_man
 python tests/test_app_logic.py
 ```
 
-**Current count: 52 checks, 10 sections.** No network, no GUI, no build required. Tests module-level functions in `garmin_app.py` and `garmin_app_standalone.py` — settings load/save, keyring, script path resolution in dev and frozen mode (mocked `sys.frozen` / `sys._MEIPASS`). Includes v1.4.2 regression check for frozen path resolution.
+**Current count: 102 checks, 14 sections.** No network, no GUI, no build required. Tests `garmin_app_base.py` (settings, keyring, password helpers, hook implementation, `_build_env_dict`), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides). Includes v1.4.2 regression check for frozen path resolution.
 
-Run after any change to: `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
+Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
 
 ### `tests/test_build_output.py` — Build output validation
 
@@ -213,10 +214,10 @@ Run after: called automatically by `build_all.py` as post-build step. Can also b
 python build_all.py
 # Pre-build:  test_local → test_local_context → test_dashboard
 # Build:      Target 2 → Target 3
-# Post-build: test_build_output
+# Post-build: test_build_output → test_app_logic
 ```
 
-`test_app_logic.py` is not part of the automated build gate — run manually after changes to the entry point files.
+`test_app_logic.py` runs automatically as the final post-build step in `build_all.py`, after `test_build_output.py`. Can also be run standalone after changes to the entry point files.
 
 ---
 
@@ -241,6 +242,8 @@ All source folders are Python packages with `__init__.py`:
 | Location | sys.path setup |
 |---|---|
 | `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` |
+| `daily_update.py` — Dev/T2 | same subfolder loop; `context` additionally registered as `types.ModuleType` in `sys.modules` |
+| `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`) |
 | `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE |
 | `garmin_app_standalone.py` — Dev | same subfolder loop |
 | `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; others via package registration |
@@ -323,8 +326,9 @@ List all new or changed dependencies explicitly:
 **Code:**
 - [ ] All new modules in `build_manifest.py` (`SHARED_SCRIPTS`)?
 - [ ] All new modules in README script table?
-- [ ] All new modules in REFERENCE (own file or REFERENCE_DASHBOARD)?
-- [ ] All new modules in MAINTENANCE (project structure or MAINTENANCE_DASHBOARD)?
+- [ ] All new modules in REFERENCE_GLOBAL (project structure + App constants)?
+- [ ] `APP_VERSION` updated in `version.py`?
+- [ ] All new modules in MAINTENANCE_GLOBAL (test suite description)?
 
 **Documentation:**
 - [ ] All new ENV variables in REFERENCE_GLOBAL?
