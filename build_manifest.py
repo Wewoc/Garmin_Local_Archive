@@ -13,6 +13,9 @@ No logic, no imports, no side effects — pure data.
 # Add new modules here. Both Target 2 and Target 3 include these.
 
 SHARED_SCRIPTS = [
+    # app base
+    "version.py",
+    "garmin_app_base.py",
     # garmin pipeline
     "garmin/garmin_config.py",
     "garmin/garmin_utils.py",
@@ -68,7 +71,7 @@ SCRIPTS = ["garmin_app.py"] + SHARED_SCRIPTS
 EMBEDDED_SCRIPTS = SHARED_SCRIPTS
 
 # Target 3: all scripts (entry points + shared)
-ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py"] + SHARED_SCRIPTS
+ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py", "daily_update.py"] + SHARED_SCRIPTS
 
 # ── Signature checks ──────────────────────────────────────────────────────────
 # Shared signatures — applied to both builds.
@@ -95,8 +98,8 @@ SCRIPT_SIGNATURES_BASE = {
 
 DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
 
-INFO_INCLUDE_T2 = {"README.md", "README_APP.md"}
-INFO_INCLUDE_T3 = {"README.md", "README_APP.md"}
+INFO_INCLUDE_T2 = {"README.md", "README_APP.md", "daily_update_task.xml"}
+INFO_INCLUDE_T3 = {"README.md", "README_APP.md", "daily_update_task.xml"}
 
 # ── Required non-Python files (must be present alongside scripts) ─────────────
 # Paths relative to garmin/ — build scripts prepend the folder.

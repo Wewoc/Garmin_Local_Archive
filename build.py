@@ -144,6 +144,11 @@ def build_zip(root: Path):
             if f.exists():
                 zf.write(f, f"scripts/garmin/{name}")
 
+        # Daily Sync BAT
+        bat = root / "daily_update.bat"
+        if bat.exists():
+            zf.write(bat, "daily_update.bat")
+
         # Docs
         if info_dir.exists():
             for f in sorted(info_dir.iterdir()):
