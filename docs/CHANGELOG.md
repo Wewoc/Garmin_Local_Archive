@@ -2,6 +2,89 @@
 
 ---
 
+## v1.4.9 — GarminAppBase · Daily Sync
+
+**New: `garmin_app_base.py`:**
+- `GarminAppBase(tk.Tk)` — shared base class for all GUI entry points.
+- Contains all UI constants, `DEFAULT_SETTINGS`, `load_settings()`, `save_settings()`, keyring helpers, `apply_style()`, full GUI layout, all settings methods, all business methods, all timer methods.
+- Three abstract hooks: `_run()`, `_log_bg()`, `_is_running()` — subclasses implement per execution model. Template Method Pattern.
+- `_build_env_dict(s, refresh_failed) → dict` — pure ENV builder, no side effects. Both entry points call this; App passes result to `Popen`, Standalone writes to `os.environ`.
+- `DEFAULT_SETTINGS` unified: `context_latitude` + `context_longitude` added (were missing in Standalone).
+- `APP_VERSION = "v1.4.9"` replaced by `from version import APP_VERSION`.
+- New method `_create_task_scheduler_xml()` — generates a configured `daily_update_task.xml` for Windows Task Scheduler.
+- New button "🗓  Create Task Scheduler XML" in Output section. Dialog: target selection (T2/T3/T1), entry point path auto-filled from current exe location (T2/T3), Browse button, Generate & Save. XML written as UTF-16 (required by Windows Task Scheduler). Template sourced from `info/daily_update_task.xml` (builds) or `docs/daily_update_task.xml` (dev).
+- Bugs fixed during consolidation: `s` not defined in `_run_collector` (Standalone), `_clean_archive` ownership violation (Standalone inline → Quality module), `toggle_btn` double definition (Standalone), `FONT_MONO` missing (Standalone), `_timer_generation` double increment (Standalone), inline `root`-path logic replaced with `script_dir()`.
+
+**`garmin_app.py` — Target 1+2:**
+- Now subclasses `GarminAppBase`. Retains only: `script_dir()`, `script_path()`, `_find_python()`, subprocess `_run()`, `_log_bg()`, `_is_running()`, `_stop_collector()`.
+- Reduced from 2476 → 228 lines.
+
+**`garmin_app_standalone.py` — Target 3:**
+- Now subclasses `GarminAppBase`. Retains only: `script_dir()`, `script_path()`, `_register_embedded_packages()`, `_QueueWriter`, `_QueueHandler`, importlib `_run()`, `_log_bg()`, `_is_running()`, `_stop_collector()`, `_poll_log_queue()`.
+- Reduced from 2467 → 279 lines.
+
+**New: `version.py`:**
+- Single source of truth for `APP_VERSION` in repo root.
+- No tkinter dependency — safe for all build targets.
+- Imported by `garmin_app_base.py` and `daily_update.py`.
+
+**New: `daily_update.py`:**
+- Thin headless entry point for automated daily operation via Windows Task Scheduler.
+- Workflow: preconditions → version check → gap detection → Garmin sync → context sync → dashboards → exit.
+- Gap detection: reads `quality_log.json` — gaps ≤ 7 days healed automatically, gaps > 7 days → hard stop with message.
+- Error logic: both APIs run through even on error; dashboards skipped if any API had errors.
+- Exit codes: 0 = success, 1 = migration required, 2 = settings missing, 3 = API error, 4 = dashboard error, 5 = update available.
+- Logging: `BASE_DIR/garmin_data/log/daily/` — rolling 30 files, prefix `daily`.
+- Console closes automatically on success (exit 0); stays open with message on any other exit.
+- Reads `~/.garmin_archive_settings.json` and Windows Credential Manager — identical to GUI config.
+- All project module imports lazy (after `os.environ` set) — `garmin_config` safe.
+- `APP_VERSION` import replaced by `from version import APP_VERSION` — sync warning removed.
+- `context` package registered as `types.ModuleType` in `sys.modules` — relative imports resolve correctly.
+- `_setup_paths()`: all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) added to `sys.path` — flat imports (`import dash_runner`) work correctly in T3.2 frozen context.
+
+**`garmin_api.py` + `garmin_security.py` — WinError 5 fix:**
+- Root cause: `garminconnect` stores `_tokenstore_path` internally and writes back to `garmin_tokens.json` on token refresh — after `login()` returns. `shutil.rmtree` failed because the library was actively re-creating the file.
+- Fix: `client._tokenstore_path = None` before `_clear_token_dir()` — library can no longer write back.
+- `_clear_token_dir()` retry-loop extended: 3× 200 ms → 5× 1 s as secondary safety net.
+
+**New: `daily_update.bat` — T2 wrapper:**
+- Calls `python daily_update.py` — Task Scheduler entry point for Target 2.
+
+**New: `docs/daily_update_task.xml` — Task Scheduler template:**
+- Ready-to-import XML with placeholder `{ENTRY_POINT_PATH}` — ships in `info/` (T2/T3) and `docs/` (T1).
+
+**`build_manifest.py`:**
+- `"garmin_app_base.py"` added as first entry in `SHARED_SCRIPTS`.
+- `"version.py"` added to `SHARED_SCRIPTS`.
+- `daily_update.py` added to `ALL_SCRIPTS`.
+- `daily_update_task.xml` added to `INFO_INCLUDE_T2` + `INFO_INCLUDE_T3`.
+
+**`build_standalone.py`:**
+- `build_exe()` parametrized: `name`, `entry_point`, `windowed`.
+- `build_combined_zip()` — T3.1 + T3.2 EXEs in one ZIP (`Garmin_Local_Archive_Standalone.zip`).
+- T3.2 (`daily_update.exe`) built without `--windowed` — console visible for Task Scheduler exit code.
+- `validate_scripts()` extended: `daily_update.py` + signature `"def main"`.
+
+**`build.py`:**
+- `daily_update.bat` packed into T2 ZIP.
+
+**`build_all.py`:**
+- Console output updated — T2 and T3 blocks labelled separately.
+- `test_app_logic.py` added as final post-build step after `test_build_output.py`.
+
+**`tests/test_app_logic.py`:**
+- Sections 1–5, 11–12 updated: Settings, keyring, password tests moved to `garmin_app_base`. Re-export checks confirm `app` and `standalone` share base functions.
+- Section 12 replaced: Hook implementation tests — `_run`, `_log_bg`, `_is_running` override verification; `_build_env_dict` unit test (keys, `GARMIN_REFRESH_FAILED`, no `os.environ` side-effect).
+- **Total: 102/102 passed.**
+
+**`tests/test_build_output.py`:**
+- Section 1: `ALL_SCRIPTS contains daily_update.py` added.
+- Section 2: `daily_update.py exists` + signature `"def main"` added.
+- Section 7: extended — both EXEs + combined ZIP checked.
+- **Total: 306/306 passed.**
+
+---
+
 ## v1.4.8 — Sleep Dashboard + Pipeline Hardening
 
 **New: `dashboards/sleep_garmin_html-xls_dash.py`:**
@@ -537,7 +620,7 @@ Introduces a dedicated validation layer at the pipeline entry point. Closes the 
 - `garmin_app.py` / `garmin_app_standalone.py` — `APP_VERSION` constant added (replaces hardcoded version string in header). Background thread checks GitHub API on startup, shows non-blocking update popup if a newer release is available. Silent on no internet or no update.
 
 **QoL:**
-- `garmin_app.py` / `garmin_app_standalone.py` — "→ Open README" link added next to "Request export at garmin.com". Opens `README_APP.md` / `README_APP_Standalone.md` in the system default text editor.
+- `garmin_app.py` / `garmin_app_standalone.py` — "→ Open README" link added next to "Request export at garmin.com". Opens `README_APP.md` in the system default text editor.
 
 ---
 

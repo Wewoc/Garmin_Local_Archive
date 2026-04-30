@@ -7,7 +7,7 @@ Consult this alongside `REFERENCE_GARMIN.md` and `REFERENCE_CONTEXT.md`.
 
 ## Environment variables
 
-All configuration is passed between the GUI and scripts via `os.environ`. The GUI sets them in `_build_env()` (Target 1+2) or `_apply_env()` (Target 3). Scripts read them exclusively via `garmin_config.py` — no script reads `os.environ` directly.
+All configuration is passed between the GUI and scripts via `os.environ`. The GUI builds them via `_build_env_dict()` in `garmin_app_base.py` — Target 1+2 passes the result to `Popen`, Target 3 writes it to `os.environ` before module import. Scripts read them exclusively via `garmin_config.py` — no script reads `os.environ` directly.
 
 | Variable | Type | Default | Purpose |
 |---|---|---|---|
@@ -79,7 +79,7 @@ All modules import via `import garmin_config as cfg`.
 | `CONTEXT_LATITUDE` | `0.0` | `GARMIN_CONTEXT_LAT` | Default latitude — set via GUI geocoding |
 | `CONTEXT_LONGITUDE` | `0.0` | `GARMIN_CONTEXT_LON` | Default longitude — set via GUI geocoding |
 
-### App constants (`garmin_app.py` / `garmin_app_standalone.py`)
+### App constants (`garmin_app_base.py`)
 
 | Constant | Value | Purpose |
 |---|---|---|
@@ -94,8 +94,11 @@ All modules import via `import garmin_config as cfg`.
 
 ```
 /                               ← repo root
-├── garmin_app.py               ← Entry Point Target 1+2
-├── garmin_app_standalone.py    ← Entry Point Target 3
+├── garmin_app.py               ← Entry Point Target 1+2 (GUI)
+├── garmin_app_standalone.py    ← Entry Point Target 3 (GUI, Standalone)
+├── garmin_app_base.py          ← Shared GUI base class (GarminAppBase)
+├── version.py                  ← Single source of truth for APP_VERSION
+├── daily_update.py             ← Entry Point Daily Sync (headless, all targets)
 ├── build.py
 ├── build_standalone.py
 ├── build_all.py
@@ -178,9 +181,9 @@ All modules import via `import garmin_config as cfg`.
 │
 └── tests/
     ├── test_local.py           ← Garmin pipeline (227 checks)
-    ├── test_local_context.py   ← Context pipeline (191 checks)
-    ├── test_dashboard.py       ← Dashboard pipeline (220 checks)
-    ├── test_app_logic.py       ← App layer (52 checks)
+    ├── test_local_context.py   ← Context pipeline (217 checks)
+    ├── test_dashboard.py       ← Dashboard pipeline (303 checks)
+    ├── test_app_logic.py       ← App layer (102 checks)
     └── test_build_output.py    ← Build output validation (8 sections)
 ```
 
@@ -217,11 +220,12 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 
 ## Build targets
 
-| Target | Entry point | Command | Note |
-|---|---|---|---|
-| 1 — Dev | `garmin_app.py` | `python garmin_app.py` | No build needed |
-| 2 — Standard EXE | `garmin_app.py` | `python build.py` | Python required on target |
-| 3 — Standalone EXE | `garmin_app_standalone.py` | `python build_standalone.py` | No Python required |
+| Target | GUI entry point | Daily Sync entry point | Build script | Python on target |
+|---|---|---|---|---|
+| 1 — Dev | `garmin_app.py` | `python daily_update.py` | — | Required |
+| 2 — Standard EXE | `garmin_app.py` | `daily_update.bat` | `build.py` | Required |
+| 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `build_standalone.py` | Not required |
+| 3.2 — Standalone headless | — | `daily_update.exe` | `build_standalone.py` | Not required |
 
 `build_all.py` runs `test_local.py`, `test_local_context.py`, and `test_dashboard.py` before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
 `build_manifest.py` is the single source of truth for all script lists.

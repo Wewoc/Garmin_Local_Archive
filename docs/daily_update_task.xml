@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Garmin Local Archive — Daily automated sync and dashboard update.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2024-01-01T06:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions>
+    <Exec>
+      <!-- Replace {ENTRY_POINT_PATH} with the full path to your entry point.    -->
+      <!-- T2 (Standard EXE):   C:\path\to\daily_update.bat                      -->
+      <!-- T3.2 (Standalone):   C:\path\to\daily_update.exe                      -->
+      <!-- T1 (Dev):            C:\path\to\python.exe C:\path\to\daily_update.py -->
+      <Command>{ENTRY_POINT_PATH}</Command>
+      <WorkingDirectory></WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
