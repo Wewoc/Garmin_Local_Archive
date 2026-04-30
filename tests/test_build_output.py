@@ -86,6 +86,8 @@ check("No duplicates in SHARED_SCRIPTS",
       len(manifest.SHARED_SCRIPTS) == len(set(manifest.SHARED_SCRIPTS)))
 check("No duplicates in ALL_SCRIPTS",
       len(manifest.ALL_SCRIPTS) == len(set(manifest.ALL_SCRIPTS)))
+check("ALL_SCRIPTS contains daily_update.py",
+      "daily_update.py" in manifest.ALL_SCRIPTS)
 check("REQUIRED_DATA_FILES not empty",
       len(manifest.REQUIRED_DATA_FILES) > 0)
 check("garmin_dataformat.json in REQUIRED_DATA_FILES",
@@ -111,9 +113,12 @@ for name in manifest.SHARED_SCRIPTS:
 for name in manifest.REQUIRED_DATA_FILES:
     check(f"data file exists: garmin/{name}", (_ROOT / "garmin" / name).exists())
 
+check("daily_update.py exists", (_ROOT / "daily_update.py").exists())
+
 _entry_sigs = {
     "garmin_app.py":            ["class GarminApp"],
     "garmin_app_standalone.py": ["class GarminApp"],
+    "daily_update.py":          ["def main"],
 }
 for fname, sigs in {**manifest.SCRIPT_SIGNATURES_BASE, **_entry_sigs}.items():
     fpath = _ROOT / fname
@@ -199,7 +204,10 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. Target 3 — Standalone EXE + ZIP
 # ══════════════════════════════════════════════════════════════════════════════
-section("7. Target 3 — Standalone EXE + ZIP")
+section("7. Target 3 — Standalone EXEs + combined ZIP")
+
+_DU_EXE  = _BUILD_ROOT / "daily_update.exe"
+_DU_BUILT = _DU_EXE.exists()
 
 if not _T3_BUILT:
     skip("Garmin_Local_Archive_Standalone.exe exists", "no build found")
@@ -210,17 +218,27 @@ else:
         check("Standalone EXE larger than T2 EXE (embeds deps)",
               _T3_EXE.stat().st_size > _T2_EXE.stat().st_size)
 
-    if not _T3_ZIP.exists():
-        skip("Standalone ZIP checks", "Garmin_Local_Archive_Standalone.zip not found")
-    else:
-        check("Garmin_Local_Archive_Standalone.zip exists", True)
-        with zipfile.ZipFile(_T3_ZIP, "r") as zf:
-            _names_sa = set(zf.namelist())
-            check("Standalone ZIP contains EXE",
-                  "Garmin_Local_Archive_Standalone.exe" in _names_sa)
-            _script_entries = [n for n in _names_sa if n.startswith("scripts/")]
-            check("Standalone ZIP has no scripts/ folder (all embedded)",
-                  len(_script_entries) == 0)
+if not _DU_BUILT:
+    skip("daily_update.exe exists", "no build found")
+else:
+    check("daily_update.exe exists", True)
+    check("daily_update.exe size > 0 bytes", _DU_EXE.stat().st_size > 0)
+
+if not _T3_BUILT or not _DU_BUILT:
+    skip("combined ZIP checks", "one or both EXEs missing")
+elif not _T3_ZIP.exists():
+    skip("combined ZIP checks", "Garmin_Local_Archive_Standalone.zip not found")
+else:
+    check("Garmin_Local_Archive_Standalone.zip exists", True)
+    with zipfile.ZipFile(_T3_ZIP, "r") as zf:
+        _names_sa = set(zf.namelist())
+        check("combined ZIP contains Standalone EXE",
+              "Garmin_Local_Archive_Standalone.exe" in _names_sa)
+        check("combined ZIP contains daily_update.exe",
+              "daily_update.exe" in _names_sa)
+        _script_entries = [n for n in _names_sa if n.startswith("scripts/")]
+        check("combined ZIP has no scripts/ folder (all embedded)",
+              len(_script_entries) == 0)
 
 section("8. Target 3 — Embed-Vollständigkeit (add-data Rekonstruktion)")
 

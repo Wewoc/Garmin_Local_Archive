@@ -6,7 +6,8 @@ Run from the project folder:
     python tests/test_app_logic.py
 
 No network, no GUI, no Garmin API calls.
-Tests module-level functions in garmin_app.py and garmin_app_standalone.py.
+Tests module-level functions in garmin_app_base.py, garmin_app.py,
+and garmin_app_standalone.py.
 Cleans up after itself — leaves no files behind.
 """
 
@@ -38,6 +39,7 @@ sys.modules.setdefault("tkinter.scrolledtext", _tk_mock)
 sys.modules.setdefault("tkinter.messagebox", _tk_mock)
 
 import importlib
+import garmin_app_base as base
 import garmin_app as app
 import garmin_app_standalone as standalone
 
@@ -65,9 +67,9 @@ def section(title):
 _TMPDIR = Path(tempfile.mkdtemp(prefix="garmin_apptest_"))
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  1. DEFAULT_SETTINGS — garmin_app
+#  1. DEFAULT_SETTINGS — garmin_app_base (unified source)
 # ══════════════════════════════════════════════════════════════════════════════
-section("1. DEFAULT_SETTINGS — garmin_app")
+section("1. DEFAULT_SETTINGS — garmin_app_base")
 
 REQUIRED_KEYS = [
     "email", "base_dir", "sync_mode", "sync_days",
@@ -79,148 +81,129 @@ REQUIRED_KEYS = [
 ]
 
 for key in REQUIRED_KEYS:
-    check(f"DEFAULT_SETTINGS has '{key}'", key in app.DEFAULT_SETTINGS)
+    check(f"DEFAULT_SETTINGS has '{key}'", key in base.DEFAULT_SETTINGS)
 
-check("base_dir default is string",        isinstance(app.DEFAULT_SETTINGS["base_dir"], str))
-check("sync_mode default = recent",        app.DEFAULT_SETTINGS["sync_mode"] == "recent")
-check("sync_days default = 90",            app.DEFAULT_SETTINGS["sync_days"] == "90")
-check("age default = 35",                  app.DEFAULT_SETTINGS["age"] == "35")
-check("sex default = male",                app.DEFAULT_SETTINGS["sex"] == "male")
+check("base_dir default is string",        isinstance(base.DEFAULT_SETTINGS["base_dir"], str))
+check("sync_mode default = recent",        base.DEFAULT_SETTINGS["sync_mode"] == "recent")
+check("sync_days default = 90",            base.DEFAULT_SETTINGS["sync_days"] == "90")
+check("age default = 35",                  base.DEFAULT_SETTINGS["age"] == "35")
+check("sex default = male",                base.DEFAULT_SETTINGS["sex"] == "male")
+check("context_latitude present",          "context_latitude" in base.DEFAULT_SETTINGS)
+check("context_longitude present",         "context_longitude" in base.DEFAULT_SETTINGS)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  2. DEFAULT_SETTINGS — garmin_app_standalone
+#  2. DEFAULT_SETTINGS — garmin_app and standalone re-export base
 # ══════════════════════════════════════════════════════════════════════════════
-section("2. DEFAULT_SETTINGS — garmin_app_standalone")
+section("2. DEFAULT_SETTINGS — app and standalone use base")
 
-REQUIRED_KEYS_SA = [
-    "email", "base_dir", "sync_mode", "sync_days",
-    "sync_from", "sync_to", "date_from", "date_to",
-    "age", "sex", "request_delay_min", "request_delay_max",
-    "timer_min_interval", "timer_max_interval",
-    "timer_min_days", "timer_max_days",
-]
-
-for key in REQUIRED_KEYS_SA:
-    check(f"DEFAULT_SETTINGS has '{key}'", key in standalone.DEFAULT_SETTINGS)
-
-check("sync_mode default = recent",        standalone.DEFAULT_SETTINGS["sync_mode"] == "recent")
-check("sync_days default = 90",            standalone.DEFAULT_SETTINGS["sync_days"] == "90")
+check("base.DEFAULT_SETTINGS has all required keys",
+      all(k in base.DEFAULT_SETTINGS for k in REQUIRED_KEYS))
+check("app does not shadow DEFAULT_SETTINGS",
+      not hasattr(app, "DEFAULT_SETTINGS"))
+check("standalone does not shadow DEFAULT_SETTINGS",
+      not hasattr(standalone, "DEFAULT_SETTINGS"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  3. load_settings / save_settings — garmin_app
 # ══════════════════════════════════════════════════════════════════════════════
-section("3. load_settings / save_settings — garmin_app")
+section("3. load_settings / save_settings — garmin_app_base")
 
 _settings_file = _TMPDIR / ".garmin_archive_settings_test.json"
 
-with patch.object(app, "SETTINGS_FILE", _settings_file):
-    s = dict(app.DEFAULT_SETTINGS)
+with patch.object(base, "SETTINGS_FILE", _settings_file):
+    s = dict(base.DEFAULT_SETTINGS)
     s["email"] = "test@example.com"
-    app.save_settings(s)
-    loaded = app.load_settings()
+    base.save_settings(s)
+    loaded = base.load_settings()
     check("roundtrip: email preserved",        loaded["email"] == "test@example.com")
     check("roundtrip: sync_mode preserved",    loaded["sync_mode"] == "recent")
     check("roundtrip: password stripped",      "password" not in loaded)
 
-with patch.object(app, "SETTINGS_FILE", _settings_file):
-    s2 = dict(app.DEFAULT_SETTINGS)
+with patch.object(base, "SETTINGS_FILE", _settings_file):
+    s2 = dict(base.DEFAULT_SETTINGS)
     s2["password"] = "secret"
-    app.save_settings(s2)
+    base.save_settings(s2)
     raw = json.loads(_settings_file.read_text())
     check("save: password not written to file", "password" not in raw)
 
-with patch.object(app, "SETTINGS_FILE", _settings_file):
+with patch.object(base, "SETTINGS_FILE", _settings_file):
     _settings_file.write_text(json.dumps({"email": "only@this.com"}))
-    loaded2 = app.load_settings()
-    check("missing keys filled with defaults",  loaded2["sync_mode"] == app.DEFAULT_SETTINGS["sync_mode"])
+    loaded2 = base.load_settings()
+    check("missing keys filled with defaults",  loaded2["sync_mode"] == base.DEFAULT_SETTINGS["sync_mode"])
     check("provided key preserved",             loaded2["email"] == "only@this.com")
 
-with patch.object(app, "SETTINGS_FILE", _settings_file):
+with patch.object(base, "SETTINGS_FILE", _settings_file):
     _settings_file.write_text("{not valid json")
-    loaded3 = app.load_settings()
-    check("corrupt JSON → returns defaults",    loaded3 == app.DEFAULT_SETTINGS)
+    loaded3 = base.load_settings()
+    check("corrupt JSON → returns defaults",    loaded3 == base.DEFAULT_SETTINGS)
 
 _missing = _TMPDIR / ".garmin_notexist.json"
-with patch.object(app, "SETTINGS_FILE", _missing):
-    loaded4 = app.load_settings()
-    check("missing file → returns defaults",    loaded4 == app.DEFAULT_SETTINGS)
+with patch.object(base, "SETTINGS_FILE", _missing):
+    loaded4 = base.load_settings()
+    check("missing file → returns defaults",    loaded4 == base.DEFAULT_SETTINGS)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  4. load_settings / save_settings — garmin_app_standalone
 # ══════════════════════════════════════════════════════════════════════════════
-section("4. load_settings / save_settings — garmin_app_standalone")
+section("4. load_settings / save_settings — shared via base (smoke test)")
 
-_settings_file_sa = _TMPDIR / ".garmin_archive_settings_sa_test.json"
-
-with patch.object(standalone, "SETTINGS_FILE", _settings_file_sa):
-    s = dict(standalone.DEFAULT_SETTINGS)
-    s["email"] = "standalone@example.com"
-    standalone.save_settings(s)
-    loaded = standalone.load_settings()
-    check("roundtrip: email preserved",        loaded["email"] == "standalone@example.com")
-    check("roundtrip: password stripped",      "password" not in loaded)
-
-with patch.object(standalone, "SETTINGS_FILE", _settings_file_sa):
-    s2 = dict(standalone.DEFAULT_SETTINGS)
-    s2["password"] = "secret"
-    standalone.save_settings(s2)
-    raw = json.loads(_settings_file_sa.read_text())
-    check("save: password not written to file", "password" not in raw)
-
-with patch.object(standalone, "SETTINGS_FILE", _settings_file_sa):
-    _settings_file_sa.write_text("{bad json")
-    loaded3 = standalone.load_settings()
-    check("corrupt JSON → returns defaults",    loaded3 == standalone.DEFAULT_SETTINGS)
-
-with patch.object(standalone, "SETTINGS_FILE", _TMPDIR / ".notexist_sa.json"):
-    loaded4 = standalone.load_settings()
-    check("missing file → returns defaults",    loaded4 == standalone.DEFAULT_SETTINGS)
+# Settings functions live in base — full tests in section 3.
+# Here: confirm app and standalone do not shadow base functions.
+check("base.load_settings callable",           callable(base.load_settings))
+check("base.save_settings callable",           callable(base.save_settings))
+check("app does not shadow load_settings",     not hasattr(app, "load_settings"))
+check("app does not shadow save_settings",     not hasattr(app, "save_settings"))
+check("standalone does not shadow load_settings",
+      not hasattr(standalone, "load_settings"))
+check("standalone does not shadow save_settings",
+      not hasattr(standalone, "save_settings"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  5. load_password / save_password — garmin_app
 # ══════════════════════════════════════════════════════════════════════════════
-section("5. load_password / save_password — garmin_app")
+section("5. load_password / save_password — garmin_app_base")
 
 _keyring_mock = MagicMock()
 _keyring_mock.get_password.return_value = "mypassword"
 with patch.dict(sys.modules, {"keyring": _keyring_mock}):
-    importlib.reload(app)
-    check("load_password: returns keyring value",    app.load_password() == "mypassword")
+    importlib.reload(base)
+    check("load_password: returns keyring value",    base.load_password() == "mypassword")
 
 _keyring_none = MagicMock()
 _keyring_none.get_password.return_value = None
 with patch.dict(sys.modules, {"keyring": _keyring_none}):
-    importlib.reload(app)
-    check("load_password: None → empty string",      app.load_password() == "")
+    importlib.reload(base)
+    check("load_password: None → empty string",      base.load_password() == "")
 
 _keyring_fail = MagicMock()
 _keyring_fail.get_password.side_effect = Exception("no keyring")
 with patch.dict(sys.modules, {"keyring": _keyring_fail}):
-    importlib.reload(app)
-    check("load_password: exception → empty string", app.load_password() == "")
+    importlib.reload(base)
+    check("load_password: exception → empty string", base.load_password() == "")
 
 _keyring_save = MagicMock()
 with patch.dict(sys.modules, {"keyring": _keyring_save}):
-    importlib.reload(app)
-    app.save_password("testpw")
+    importlib.reload(base)
+    base.save_password("testpw")
     check("save_password: set_password called",      _keyring_save.set_password.called)
 
 _keyring_save2 = MagicMock()
 with patch.dict(sys.modules, {"keyring": _keyring_save2}):
-    importlib.reload(app)
-    app.save_password("")
+    importlib.reload(base)
+    base.save_password("")
     check("save_password empty: delete called",      _keyring_save2.delete_password.called)
 
 _keyring_exc = MagicMock()
 _keyring_exc.set_password.side_effect = Exception("fail")
 with patch.dict(sys.modules, {"keyring": _keyring_exc}):
-    importlib.reload(app)
+    importlib.reload(base)
     try:
-        app.save_password("x")
+        base.save_password("x")
         check("save_password exception: no crash",   True)
     except Exception:
         check("save_password exception: no crash",   False)
 
+importlib.reload(base)
 importlib.reload(app)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -355,18 +338,18 @@ importlib.reload(app)
 # ══════════════════════════════════════════════════════════════════════════════
 #  11. save_settings — OSError handling — garmin_app
 # ══════════════════════════════════════════════════════════════════════════════
-section("11. save_settings — OSError handling — garmin_app")
+section("11. save_settings — OSError handling — garmin_app_base")
 
-importlib.reload(app)
+importlib.reload(base)
 
 _readonly_dir = _TMPDIR / "readonly_dir"
 _readonly_dir.mkdir(exist_ok=True)
 _bad_settings_file = _readonly_dir / "sub" / "settings.json"  # non-existent parent
 
 _showerror_calls = []
-with patch.object(app, "SETTINGS_FILE", _bad_settings_file), \
-     patch("garmin_app.messagebox.showerror", side_effect=lambda *a, **k: _showerror_calls.append(a)):
-    app.save_settings({"email": "x@y.com"})
+with patch.object(base, "SETTINGS_FILE", _bad_settings_file), \
+     patch("garmin_app_base.messagebox.showerror", side_effect=lambda *a, **k: _showerror_calls.append(a)):
+    base.save_settings({"email": "x@y.com"})
     check("OSError: showerror called",       len(_showerror_calls) == 1)
     check("OSError: title is 'Settings'",    _showerror_calls[0][0] == "Settings")
     check("OSError: file not created",       not _bad_settings_file.exists())
@@ -374,47 +357,86 @@ with patch.object(app, "SETTINGS_FILE", _bad_settings_file), \
 # ══════════════════════════════════════════════════════════════════════════════
 #  12. save_settings — OSError handling — garmin_app_standalone
 # ══════════════════════════════════════════════════════════════════════════════
-section("12. save_settings — OSError handling — garmin_app_standalone")
+section("12. Hook implementation — _run / _log_bg / _is_running")
 
-importlib.reload(standalone)
+# Source-text checks — GarminApp is not instantiable without real tkinter.
+import inspect as _inspect
 
-_showerror_calls_sa = []
-with patch.object(standalone, "SETTINGS_FILE", _bad_settings_file), \
-     patch("garmin_app_standalone.messagebox.showerror",
-           side_effect=lambda *a, **k: _showerror_calls_sa.append(a)):
-    standalone.save_settings({"email": "x@y.com"})
-    check("OSError: showerror called",       len(_showerror_calls_sa) == 1)
-    check("OSError: title is 'Settings'",    _showerror_calls_sa[0][0] == "Settings")
-    check("OSError: file not created",       not _bad_settings_file.exists())
+_base_src = _inspect.getsource(base)
+_app_src   = Path(_ROOT / "garmin_app.py").read_text(encoding="utf-8")
+_sa_src    = Path(_ROOT / "garmin_app_standalone.py").read_text(encoding="utf-8")
+
+check("base: _run raises NotImplementedError",
+      "def _run(" in _base_src and "raise NotImplementedError" in _base_src)
+check("base: _log_bg raises NotImplementedError",
+      "def _log_bg(" in _base_src and "raise NotImplementedError" in _base_src)
+check("base: _is_running raises NotImplementedError",
+      "def _is_running(" in _base_src and "raise NotImplementedError" in _base_src)
+
+check("app: _run defined in GarminApp",      "def _run(" in _app_src)
+check("app: _log_bg defined in GarminApp",   "def _log_bg(" in _app_src)
+check("app: _is_running defined",            "def _is_running(" in _app_src)
+check("app: _stop_collector defined",        "def _stop_collector(" in _app_src)
+check("app: no NotImplementedError in _run", "raise NotImplementedError" not in _app_src)
+
+check("standalone: _run defined",            "def _run(" in _sa_src)
+check("standalone: _log_bg defined",         "def _log_bg(" in _sa_src)
+check("standalone: _is_running defined",     "def _is_running(" in _sa_src)
+check("standalone: _stop_collector defined", "def _stop_collector(" in _sa_src)
+check("standalone: no NotImplementedError",  "raise NotImplementedError" not in _sa_src)
+
+# _build_env_dict — load base without tkinter mock to access real class
+import importlib as _il_base
+import types as _types
+_real_tk = _types.ModuleType("tkinter")
+_real_tk.Tk = object  # minimal stub so class definition works
+_base_spec = _il_base.util.spec_from_file_location(
+    "garmin_app_base_real", _ROOT / "garmin_app_base.py")
+_base_real_mod = _il_base.util.module_from_spec(_base_spec)
+_base_real_mod.__dict__["tkinter"] = _real_tk
+import sys as _sys
+_sys.modules["garmin_app_base_real"] = _base_real_mod
+with patch.dict(_sys.modules, {"tkinter": _real_tk,
+                                "tkinter.ttk": MagicMock(),
+                                "tkinter.filedialog": MagicMock(),
+                                "tkinter.scrolledtext": MagicMock(),
+                                "tkinter.messagebox": MagicMock()}):
+    _base_spec.loader.exec_module(_base_real_mod)
+
+_mock_self = MagicMock()
+_mock_self._log_level = "INFO"
+_test_s = {
+    "email": "t@t.com", "password": "pw",
+    "base_dir": str(_TMPDIR), "sync_mode": "recent",
+    "sync_days": "90", "sync_from": "", "sync_to": "",
+    "date_from": "", "date_to": "",
+    "age": "35", "sex": "male",
+    "request_delay_min": "5.0", "request_delay_max": "20.0",
+    "sync_auto_fallback": "",
+}
+_env = _base_real_mod.GarminAppBase._build_env_dict(_mock_self, _test_s, refresh_failed=False)
+check("_build_env_dict: returns dict",              isinstance(_env, dict))
+check("_build_env_dict: GARMIN_EMAIL present",      "GARMIN_EMAIL" in _env)
+check("_build_env_dict: GARMIN_PASSWORD present",   "GARMIN_PASSWORD" in _env)
+check("_build_env_dict: GARMIN_OUTPUT_DIR present", "GARMIN_OUTPUT_DIR" in _env)
+check("_build_env_dict: GARMIN_REFRESH_FAILED=0",   _env.get("GARMIN_REFRESH_FAILED") == "0")
+_env_r = _base_real_mod.GarminAppBase._build_env_dict(_mock_self, _test_s, refresh_failed=True)
+check("_build_env_dict: GARMIN_REFRESH_FAILED=1",   _env_r.get("GARMIN_REFRESH_FAILED") == "1")
+check("_build_env_dict: no os.environ side-effect",
+      os.environ.get("GARMIN_EMAIL") != "t@t.com")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  13. age-Cast — robust float handling — dash specialists
 # ══════════════════════════════════════════════════════════════════════════════
 section("13. age-Cast — robust float handling — dash specialists")
 
-import importlib as _il
-_src  = _il.util.spec_from_file_location
-_here = Path(__file__).parent
+_dashboards_dir = _ROOT / "dashboards"
 
-def _load_dash(name):
-    p = _here / name
-    sp = _il.util.spec_from_file_location(name, p)
-    m  = _il.util.module_from_spec(sp)
-    sp.loader.exec_module(m)
-    return m
-
-for _dash_name, _fn_name in [
-    ("sleep_recovery_context_dash.py", "build"),
-    ("health_garmin_html-json_dash.py", "build"),
+for _dash_name in [
+    "sleep_recovery_context_dash.py",
+    "health_garmin_html-json_dash.py",
 ]:
-    _mod = _load_dash(_dash_name)
-    for _age_val in ["35.5", "abc", "", None]:
-        try:
-            _result = _mod.build.__code__  # just check it compiles; runtime needs mock data
-        except Exception:
-            pass
-    # Structural check: age line uses float() guard
-    _src_text = (_here / _dash_name).read_text(encoding="utf-8")
+    _src_text = (_dashboards_dir / _dash_name).read_text(encoding="utf-8")
     check(f"{_dash_name}: age uses int(float(...))",
           "int(float(settings.get" in _src_text)
     check(f"{_dash_name}: age has TypeError/ValueError guard",
@@ -425,26 +447,24 @@ for _dash_name, _fn_name in [
 # ══════════════════════════════════════════════════════════════════════════════
 section("14. _timer_run_bulk_recheck — structural + None-return")
 
-_app_instance     = MagicMock()
-_sa_instance      = MagicMock()
-_no_log_settings  = {"base_dir": str(_TMPDIR / "no_such_dir")}
+# Method lives in base — source-text check for app and standalone
+_base_src_text = Path(_ROOT / "garmin_app_base.py").read_text(encoding="utf-8")
+check("base: _timer_run_bulk_recheck defined",
+      "def _timer_run_bulk_recheck(" in _base_src_text)
+check("app: does not shadow _timer_run_bulk_recheck",
+      "def _timer_run_bulk_recheck(" not in _app_src)
+check("standalone: does not shadow _timer_run_bulk_recheck",
+      "def _timer_run_bulk_recheck(" not in _sa_src)
 
-check("app: _timer_run_bulk_recheck exists",
-      hasattr(app.GarminApp, "_timer_run_bulk_recheck"))
-check("standalone: _timer_run_bulk_recheck exists",
-      hasattr(standalone.GarminApp, "_timer_run_bulk_recheck"))
-
-# Call unbound — returns None when quality_log.json absent
-_result_app = app.GarminApp._timer_run_bulk_recheck(_app_instance, _no_log_settings)
-check("app: returns None when no quality_log.json",
-      _result_app is None)
-
-_result_sa = standalone.GarminApp._timer_run_bulk_recheck(_sa_instance, _no_log_settings)
-check("standalone: returns None when no quality_log.json",
-      _result_sa is None)
-
-# With a quality_log.json containing a bulk entry within 180 days
+# Functional test via _base_real_mod (loaded without tkinter mock in section 12)
 import datetime as _dt
+_mock_inst       = MagicMock()
+_no_log_settings = {"base_dir": str(_TMPDIR / "no_such_dir")}
+
+_result_none = _base_real_mod.GarminAppBase._timer_run_bulk_recheck(
+    _mock_inst, _no_log_settings)
+check("returns None when no quality_log.json", _result_none is None)
+
 _bulk_log_dir  = _TMPDIR / "bulk_test" / "garmin_data" / "log"
 _bulk_log_dir.mkdir(parents=True, exist_ok=True)
 _bulk_log_file = _bulk_log_dir / "quality_log.json"
@@ -457,13 +477,14 @@ _bulk_log_file.write_text(json.dumps({"days": [
 ]}), encoding="utf-8")
 
 _bulk_settings = {"base_dir": str(_TMPDIR / "bulk_test")}
-_result_bulk   = app.GarminApp._timer_run_bulk_recheck(_app_instance, _bulk_settings)
-check("app: returns list when bulk+recheck candidates exist",
+_result_bulk   = _base_real_mod.GarminAppBase._timer_run_bulk_recheck(
+    _mock_inst, _bulk_settings)
+check("returns list when bulk+recheck candidates exist",
       isinstance(_result_bulk, list) and len(_result_bulk) == 1)
-check("app: excludes entries older than 180 days",
+check("excludes entries older than 180 days",
       all(d >= _dt.date.today() - _dt.timedelta(days=180) for d in (_result_bulk or [])))
-check("app: excludes api-sourced entries",
-      all(True for d in (_result_bulk or [])))  # only 1 entry returned — api filtered
+check("excludes api-sourced entries",
+      len(_result_bulk or []) == 1)
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 shutil.rmtree(_TMPDIR, ignore_errors=True)
