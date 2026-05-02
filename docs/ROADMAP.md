@@ -16,7 +16,31 @@
 
 ## Planned — v1.5
 
-### v1.5 — Archive Integrity & Backup
+### v1.5 — Root Cleanup & Folder Restructuring
+
+The project root currently holds entry points, build scripts, scheduler files, and dev tools in a flat list. With v2.0 adding new sources (Strava, Komoot), each bringing its own build scripts and entry points, the root would grow unmanageably without prior restructuring.
+
+**Target structure:**
+
+| Folder | Contents |
+|---|---|
+| `build/` | `build.py`, `build_all.py`, `build_standalone.py`, `build_manifest.py`, `run_build_all.bat`, `run_build_all - Fast.bat` |
+| `scheduler/` | `daily_update.py`, `daily_update.bat`, `daily_update_task.xml` (moved from `docs/`) |
+| `tools/` | `garmin_app_screenshot.py` |
+| Root | `garmin_app.py`, `garmin_app_standalone.py`, `garmin_app_base.py`, `version.py`, `requirements.txt`, `README.md`, `run_T1.bat` |
+
+**Constraints:**
+- `scripts/` is reserved — created by the build process at runtime, not a source folder
+- All entry points referencing `Path(__file__).parent` as root require path adjustment after move
+- `build_manifest.py` is imported by `build.py` — must stay in the same folder
+- `validate_scripts()` in both build scripts must be updated to reflect new paths
+- Querverbindungs-Check mandatory before implementation — `sys.path` logic in all entry points affected
+
+**Motivation:** Root stays at < 10 files. v2.0 build scripts land in `build/` without polluting the root. Isolated refactor — no logic changes, no feature additions.
+
+---
+
+### v1.5.1 — Archive Integrity & Backup
 
 Protection of the local archive against software errors and silent data loss — independent of OS-level backup.
 
@@ -33,11 +57,13 @@ Protection of the local archive against software errors and silent data loss —
 
 **Mirror Backup (manual)** — a button in the GUI copies the full archive to a second location configured once in Settings (path, optional — leaving it empty disables the feature). On each run: destination is compared against source (filename + size), missing files are copied over. Follows the same manual trigger pattern as Sync Garmin and Sync Context — no automatic execution. Target location can be a NAS, external drive, or any local path. If the destination is unreachable, the operation logs a clear warning and exits cleanly.
 
-### v1.5.1 — Content Validation
+### v1.5.2 — Content Validation
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
 
 ---
+
+
 
 ## Planned — v1.6
 
