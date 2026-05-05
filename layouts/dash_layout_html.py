@@ -17,7 +17,7 @@ Rules:
 CSS = """
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #f5f5f5; color: #333; }
-  header { background: #1F3864; color: #fff; padding: 16px 24px; }
+  header { background: #231f38; color: #fff; padding: 16px 24px; }
   header h1 { font-size: 20px; font-weight: 600; }
   header p  { font-size: 13px; opacity: 0.75; margin-top: 4px; }
   .disclaimer { font-size: 11px; color: #888; padding: 8px 24px 0; background: #fff; }
@@ -30,7 +30,7 @@ CSS = """
     transition: background 0.15s;
   }
   .tab-btn:hover  { background: #ddd; }
-  .tab-btn.active { background: #fff; border-bottom: 3px solid #1F3864; font-weight: 600; }
+  .tab-btn.active { background: #fff; border-bottom: 3px solid #6e3fcf; font-weight: 600; }
   .chart-container { background: #fff; margin: 0; padding: 16px 24px 24px; }
   footer { text-align: center; padding: 16px; font-size: 11px; color: #999; }
 """

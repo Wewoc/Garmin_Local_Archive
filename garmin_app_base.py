@@ -125,11 +125,11 @@ def _open_url(url: str):
 
 from version import APP_VERSION
 
-BG        = "#1a1a2e"
-BG2       = "#16213e"
-BG3       = "#0f3460"
-ACCENT    = "#e94560"
-ACCENT2   = "#533483"
+BG        = "#12101f"
+BG2       = "#1a1729"
+BG3       = "#231f38"
+ACCENT    = "#a259f7"
+ACCENT2   = "#6e3fcf"
 TEXT      = "#eaeaea"
 TEXT2     = "#a0a0b0"
 GREEN     = "#4ecca3"
@@ -314,7 +314,7 @@ class GarminAppBase(tk.Tk):
         # ── Header ──
         header = tk.Frame(self, bg=BG3, pady=10)
         header.pack(fill="x")
-        tk.Label(header, text="⌚  GARMIN LOCAL ARCHIVE",
+        tk.Label(header, text="🦄  GARMIN LOCAL ARCHIVE",
                  font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
         tk.Label(header, text=APP_VERSION,
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
@@ -560,6 +560,10 @@ class GarminAppBase(tk.Tk):
         self._info_recheck = tk.Label(row1, text="Recheck: —",
                                        font=("Segoe UI", 8), bg=BG, fg=TEXT2)
         self._info_recheck.pack(side="left", padx=(10, 0))
+
+        self._info_missing = tk.Label(row1, text="Missing: —",
+                                       font=("Segoe UI", 8), bg=BG, fg=TEXT2)
+        self._info_missing.pack(side="left", padx=(10, 0))
 
         row2 = tk.Frame(info_frame, bg=BG)
         row2.pack(fill="x", pady=(3, 0))
@@ -1063,6 +1067,9 @@ class GarminAppBase(tk.Tk):
                                      ("low", "low"), ("failed", "fail")]:
                     self._info_qdots[q].config(text=f"{lbl_text} {stats[q]}")
                 self._info_recheck.config(text=f"Recheck: {stats['recheck']}")
+                m = stats.get("missing")
+                self._info_missing.config(
+                    text=f"Missing: {m}" if m is not None else "Missing: —")
                 if stats["date_min"] and stats["date_max"]:
                     self._info_range.config(
                         text=f"Range: {stats['date_min']} → {stats['date_max']}")

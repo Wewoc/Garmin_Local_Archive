@@ -297,6 +297,8 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_app_base.py` | Shared GUI base class — all logic, layout, and business methods shared between both entry points |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
+| `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation |
+| `version.py` | Single source of truth for `APP_VERSION` — no dependencies, safe for all build targets |
 
 Each module is self-contained and designed to be extended. Add new fields, metrics, or dashboard specialists without touching the rest of the system. See `docs/MAINTENANCE_GLOBAL.md` for how.
 
@@ -579,6 +581,13 @@ GUI changes are verified manually before release. Full CI/CD with automated buil
 > - fetch data in smaller increments
 > - include delays between requests
 > - allow cool-down periods between sync sessions
+
+---
+
+## Related
+
+**[GLA — Needful Things](https://github.com/Wewoc/GLA-NeedfulThings)** 
+Tools that grew out of building this project — `chat pipeline`, `GLA local translator`, `git analysis`, and small utilities. Most have no dependency on GLA. `quick_dash` is the exception — it requires a configured GLA installation.
 
 ---
 

@@ -16,7 +16,31 @@
 
 ## Planned — v1.5
 
-### v1.5 — Archive Integrity & Backup
+### v1.5 — Root Cleanup & Folder Restructuring
+
+The project root currently holds entry points, build scripts, scheduler files, and dev tools in a flat list. With v2.0 adding new sources (Strava, Komoot), each bringing its own build scripts and entry points, the root would grow unmanageably without prior restructuring.
+
+**Target structure:**
+
+| Folder | Contents |
+|---|---|
+| `build/` | `build.py`, `build_all.py`, `build_standalone.py`, `build_manifest.py`, `run_build_all.bat`, `run_build_all - Fast.bat` |
+| `scheduler/` | `daily_update.py`, `daily_update.bat`, `daily_update_task.xml` (moved from `docs/`) |
+| `tools/` | `garmin_app_screenshot.py` |
+| Root | `garmin_app.py`, `garmin_app_standalone.py`, `garmin_app_base.py`, `version.py`, `requirements.txt`, `README.md`, `run_T1.bat` |
+
+**Constraints:**
+- `scripts/` is reserved — created by the build process at runtime, not a source folder
+- All entry points referencing `Path(__file__).parent` as root require path adjustment after move
+- `build_manifest.py` is imported by `build.py` — must stay in the same folder
+- `validate_scripts()` in both build scripts must be updated to reflect new paths
+- Querverbindungs-Check mandatory before implementation — `sys.path` logic in all entry points affected
+
+**Motivation:** Root stays at < 10 files. v2.0 build scripts land in `build/` without polluting the root. Isolated refactor — no logic changes, no feature additions.
+
+---
+
+### v1.5.1 — Archive Integrity & Backup
 
 Protection of the local archive against software errors and silent data loss — independent of OS-level backup.
 
@@ -33,7 +57,7 @@ Protection of the local archive against software errors and silent data loss —
 
 **Mirror Backup (manual)** — a button in the GUI copies the full archive to a second location configured once in Settings (path, optional — leaving it empty disables the feature). On each run: destination is compared against source (filename + size), missing files are copied over. Follows the same manual trigger pattern as Sync Garmin and Sync Context — no automatic execution. Target location can be a NAS, external drive, or any local path. If the destination is unreachable, the operation logs a clear warning and exits cleanly.
 
-### v1.5.1 — Content Validation
+### v1.5.2 — Content Validation
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
 
@@ -41,39 +65,7 @@ Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector`
 
 ## Planned — v1.6
 
-- **Garmin FIT Pipeline & Plugin Architecture**
-  The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
-
-  *Pre-conditions (resolved before plugin work begins):*
-  - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
-  - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
-
----
-
-### Sync Mode "auto" — Deprecation Candidate
-
-Sync mode `auto` fetches the complete history from `first_day` to yesterday
-via the Garmin API. It was the original solution for building a full archive
-before Bulk Import existed.
-
-With the current toolset this use case is fully covered:
-
-| Task | Tool |
-|---|---|
-| Complete history | Bulk Import — faster, no 429 risk |
-| Gap repair | Background Timer |
-| Daily updates | Daily Sync (v1.4.5) |
-
-`auto` is no longer the recommended path for any standard workflow. It
-remains functional but is not actively promoted. Removal or explicit
-deprecation notice to be evaluated — not a priority while the mode causes
-no active harm.
-
----
-
-## Planned — v1.7
-
-### v1.7 — Dashboard Render Registry
+### v1.6 — Dashboard Render Registry
 
 The dashboard render layer currently dispatches layout types via an `if/elif`
 block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
@@ -104,6 +96,51 @@ The registry closes this before v2.0 begins.
 **Pre-condition:** `dash_plotter_html_complex.py` internal restructuring
 (v1.4.8 pipeline hardening) must be complete — layout paths cleanly separated
 before the registry is introduced.
+
+---
+
+### 1.6.1Sleep Dashboard → Explorer drill-down
+
+When the Sleep Dashboard is built, an Explorer HTML is automatically generated for the same date range with four preset intraday fields (Heart Rate, Stress, Body Battery, Respiration). Each row in the Sleep Dashboard carries a link to this Explorer file.
+
+- Two output files, not one per row: `sleep_dashboard_RANGE.html` + `sleep_explorer_RANGE.html`
+- Files are relative-linked — both must be in the same output folder
+- The Explorer opens at full range; the user navigates to the relevant day themselves
+- T3-compatible — no Python callback from the browser, no server component
+
+*Pre-condition: Sleep Dashboard and Explorer Dashboard both stable and tested.*
+
+---
+
+## Planned — v1.7
+
+- **Garmin FIT Pipeline & Plugin Architecture**
+  The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
+
+  *Pre-conditions (resolved before plugin work begins):*
+  - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
+  - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
+
+---
+
+### Sync Mode "auto" — Deprecation Candidate
+
+Sync mode `auto` fetches the complete history from `first_day` to yesterday
+via the Garmin API. It was the original solution for building a full archive
+before Bulk Import existed.
+
+With the current toolset this use case is fully covered:
+
+| Task | Tool |
+|---|---|
+| Complete history | Bulk Import — faster, no 429 risk |
+| Gap repair | Background Timer |
+| Daily updates | Daily Sync (v1.4.5) |
+
+`auto` is no longer the recommended path for any standard workflow. It
+remains functional but is not actively promoted. Removal or explicit
+deprecation notice to be evaluated — not a priority while the mode causes
+no active harm.
 
 ---
 

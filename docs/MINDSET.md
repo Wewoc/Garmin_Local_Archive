@@ -1,11 +1,11 @@
 ```
 <!--
 © 2026 Wewoc
-Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0)
-https://creativecommons.org/licenses/by/4.0/
+Licensed under Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
+https://creativecommons.org/licenses/by-nc/4.0/
 
-You are free to share and adapt this material for any purpose, including
-commercially, as long as you give appropriate credit.
+You are free to share and adapt this material for any non-commercial purpose,
+as long as you give appropriate credit.
 
 If used in research or publications, please cite as:
   Garmin Local Archive — Human-AI Collaboration Documentation
