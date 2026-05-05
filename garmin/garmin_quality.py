@@ -698,6 +698,7 @@ def get_archive_stats(quality_log_path=None) -> dict:
       low          int   — days with quality 'low'
       failed       int   — days with quality 'failed'
       recheck      int   — days with recheck=True
+      missing      int   — days absent in range (possible - present) or None
       date_min     str   — earliest date tracked (YYYY-MM-DD) or None
       date_max     str   — latest date tracked (YYYY-MM-DD) or None
       coverage_pct int   — days present vs. possible days in range (0–100) or None
@@ -747,6 +748,7 @@ def get_archive_stats(quality_log_path=None) -> dict:
     date_max = max(dates) if dates else None
 
     coverage_pct = None
+    missing      = None
     if date_min and date_max:
         try:
             from datetime import date as _date
@@ -755,6 +757,7 @@ def get_archive_stats(quality_log_path=None) -> dict:
             possible = (d1 - d0).days + 1
             present  = len(dates)
             coverage_pct = round(present / possible * 100) if possible > 0 else 100
+            missing      = possible - present
         except Exception:
             pass
 
@@ -765,6 +768,7 @@ def get_archive_stats(quality_log_path=None) -> dict:
         "low":          counts["low"],
         "failed":       counts["failed"],
         "recheck":      recheck,
+        "missing":      missing,
         "date_min":     date_min,
         "date_max":     date_max,
         "coverage_pct": coverage_pct,
