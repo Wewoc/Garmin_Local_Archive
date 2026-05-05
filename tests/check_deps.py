@@ -23,7 +23,6 @@ import importlib.metadata
 # PyPI packages to check (importlib name → PyPI package name)
 PYPI_PACKAGES = {
     "garminconnect": "garminconnect",
-    "garth":         "garth",
 }
 
 # GitHub repos to monitor
@@ -34,11 +33,13 @@ GITHUB_REPOS = [
         "repo":  "cyberjunky/python-garminconnect",
         "type":  "dependency",
         "label": "garminconnect library",
+        "pkg":   "garminconnect",
     },
     {
         "repo":  "matin/garth",
-        "type":  "dependency",
+        "type":  "sentinel",
         "label": "garth (auth layer)",
+        "pkg":   "garth",
     },
     {
         "repo":  "nrvim/garmin-givemydata",
@@ -187,8 +188,15 @@ def check_github(cache: dict) -> list[dict]:
                     "notes":  snippet,
                     "msg": (
                         f"[{rtype.upper()}] {label}\n"
-                        f"  Release {tag} — {round(days):.0f}d ago\n"
-                        f"  {url}"
+                        f"  Release {tag} — {round(days):.0f}d ago"
+                        + (
+                            f"  (installed: {_installed_version(entry.get('pkg', '')) or 'n/a'}"
+                            + (" ✓" if _installed_version(entry.get("pkg", "")) == tag.lstrip("v") else "")
+                            + ")"
+                            if rtype == "dependency" and entry.get("pkg")
+                            else ""
+                        )
+                        + f"\n  {url}"
                         + (f"\n  Notes: {snippet}" if snippet else "")
                     ),
                 })
@@ -272,11 +280,6 @@ def build_analysis_prompt(findings: list[dict]) -> str:
             candidates.append(
                 "→ garminconnect update: review garmin_api.py for breaking "
                 "changes (login flow, method signatures, return values)."
-            )
-        if src == "pypi" and pkg == "garth":
-            candidates.append(
-                "→ garth update: auth layer may have changed. "
-                "garmin_api.py and garmin_security.py most likely affected."
             )
         if any(kw in notes for kw in ("auth", "login", "sso", "token", "oauth")):
             candidates.append(
