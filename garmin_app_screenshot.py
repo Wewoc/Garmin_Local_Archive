@@ -134,6 +134,7 @@ class ScreenshotApp(GarminApp):
                 ]:
                     self._info_qdots[q].config(text=f"{lbl_text} {val}")
                 self._info_recheck.config(text="Recheck: 12")
+                self._info_missing.config(text="Missing: 37")
                 self._info_range.config(text="Range: 2019-03-15 → 2024-03-14")
                 self._info_coverage.config(text="Coverage: 98%")
                 self._info_last_api.config(text="Last API: 2024-03-14")
