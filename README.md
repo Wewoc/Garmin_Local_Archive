@@ -584,4 +584,11 @@ GUI changes are verified manually before release. Full CI/CD with automated buil
 
 ---
 
+## Related
+
+**[GLA — Needful Things](https://github.com/Wewoc/GLA-NeedfulThings)** 
+Tools that grew out of building this project — `chat pipeline`, `GLA local translator`, `git analysis`, and small utilities. Most have no dependency on GLA. `quick_dash` is the exception — it requires a configured GLA installation.
+
+---
+
 *Built with Claude · [☕ buy me a coffee](https://ko-fi.com/wewoc)*
