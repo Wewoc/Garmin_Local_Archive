@@ -884,8 +884,9 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
 
 def _render_explorer(data: dict, output_path: Path) -> None:
     """Render Explorer dashboard — free metric exploration, single page."""
-    title    = data.get("title", "Explorer")
-    subtitle = data.get("subtitle", "")
+    _raw_title = data.get("title", "Explorer")
+    title      = f"🦄 GARMIN LOCAL ARCHIVE — {_raw_title}"
+    subtitle   = data.get("subtitle", "")
     daily    = data.get("daily")
 
     if daily is None:
@@ -982,8 +983,9 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
 
 def _render_sleep(data: dict, output_path: Path) -> None:
     """Sleep Dashboard render — one row per night, HTML/CSS table, no Plotly."""
-    title    = data.get("title", "Sleep Dashboard")
-    subtitle = data.get("subtitle", "")
+    _raw_title = data.get("title", "Sleep Dashboard")
+    title      = f"🦄 GARMIN LOCAL ARCHIVE — {_raw_title}"
+    subtitle   = data.get("subtitle", "")
     rows     = data.get("rows")
     refs     = data.get("refs", {})
 
@@ -1156,8 +1158,9 @@ def _render_sleep(data: dict, output_path: Path) -> None:
 
 def _render_recovery_context(data: dict, output_path: Path) -> None:
     """Original recovery context render — unchanged."""
-    title    = data.get("title", "Dashboard")
-    subtitle = data.get("subtitle", "")
+    _raw_title = data.get("title", "Dashboard")
+    title      = f"🦄 GARMIN LOCAL ARCHIVE — {_raw_title}"
+    subtitle   = data.get("subtitle", "")
     daily    = data.get("daily")
     intraday = data.get("intraday")
 

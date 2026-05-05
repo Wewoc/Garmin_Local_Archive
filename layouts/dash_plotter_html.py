@@ -251,8 +251,9 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
     Raises:
         OSError: if output file cannot be written.
     """
-    title    = data.get("title", "Garmin Dashboard")
-    subtitle = data.get("subtitle", "")
+    _raw_title = data.get("title", "Garmin Dashboard")
+    title      = f"🦄 GARMIN LOCAL ARCHIVE — {_raw_title}"
+    subtitle   = data.get("subtitle", "")
     fields   = [f for f in data.get("fields", []) if f.get("series") or f.get("days")]
 
     if not fields:
@@ -270,32 +271,35 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
     css              = layout_html.get_css()
     plotly_cdn       = _get_plotly_script(Path(__file__).parent)
 
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title}</title>
-{plotly_cdn}
-<style>{css}</style>
-</head>
-<body>
-{header_html}{disclaimer_html}<div class="tabs">
-{tabs}</div>
-{chart_divs}{footer_html}<script>
-function showTab(field) {{
-  document.querySelectorAll('.chart-container').forEach(d => d.style.display = 'none');
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('chart-' + field).style.display = 'block';
-  document.getElementById('btn-'   + field).classList.add('active');
-  var plotDiv = document.getElementById('plot-' + field);
-  if (plotDiv && plotDiv.data) {{ Plotly.relayout(plotDiv, {{autosize: true}}); }}
-}}
-{js}
-</script>
-</body>
-</html>"""
-
+    html = (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        "<title>" + title + "</title>\n"
+        + plotly_cdn + "\n"
+        "<style>" + css + "</style>\n"
+        "</head>\n"
+        "<body>\n"
+        + header_html + disclaimer_html
+        + '<div class="tabs">\n'
+        + tabs + "</div>\n"
+        + chart_divs + footer_html
+        + "<script>\n"
+        "function showTab(field) {\n"
+        "  document.querySelectorAll('.chart-container').forEach(d => d.style.display = 'none');\n"
+        "  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));\n"
+        "  document.getElementById('chart-' + field).style.display = 'block';\n"
+        "  document.getElementById('btn-'   + field).classList.add('active');\n"
+        "  var plotDiv = document.getElementById('plot-' + field);\n"
+        "  if (plotDiv && plotDiv.data) { Plotly.relayout(plotDiv, {autosize: true}); }\n"
+        "}\n"
+        + js + "\n"
+        "</script>\n"
+        "</body>\n"
+        "</html>"
+    )
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")

@@ -56,19 +56,19 @@ def _get_plotly_script(layouts_dir: Path) -> str:
 _MOBILE_CSS = """
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #f5f5f5; color: #333; }
-  header { background: #1F3864; color: #fff; padding: 12px 16px; }
+  header { background: #231f38; color: #fff; padding: 12px 16px; }
   header h1 { font-size: 17px; font-weight: 600; }
   header p  { font-size: 11px; opacity: 0.75; margin-top: 3px; }
   .disclaimer { font-size: 10px; color: #888; padding: 6px 16px 4px; background: #fff; }
   .range-bar { background: #fff; padding: 8px 16px 10px;
                border-bottom: 1px solid #ddd; display: flex;
                align-items: center; gap: 8px; }
-  .range-bar label { font-size: 12px; font-weight: 600; color: #1F3864; white-space: nowrap; }
+  .range-bar label { font-size: 12px; font-weight: 600; color: #6e3fcf; white-space: nowrap; }
   .range-bar select { font-size: 12px; padding: 4px 8px; border-radius: 4px;
                       border: 1px solid #ccc; flex: 1; max-width: 260px; }
   .metric-section { background: #fff; margin: 8px 0 0; padding: 10px 16px 16px; }
-  .metric-title { font-size: 13px; font-weight: 600; color: #1F3864;
-                  padding-bottom: 6px; border-bottom: 2px solid #1F3864;
+  .metric-title { font-size: 13px; font-weight: 600; color: #6e3fcf;
+                  padding-bottom: 6px; border-bottom: 2px solid #6e3fcf;
                   margin-bottom: 8px; }
   footer { text-align: center; padding: 12px; font-size: 10px; color: #999; }
 """
@@ -267,8 +267,9 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
         ValueError: if no fields with data.
         OSError:    if output file cannot be written.
     """
-    title    = data.get("title", "Garmin Dashboard")
-    subtitle = data.get("subtitle", "")
+    _raw_title = data.get("title", "Garmin Dashboard")
+    title      = f"🦄 GARMIN LOCAL ARCHIVE — {_raw_title}"
+    subtitle   = data.get("subtitle", "")
     fields   = [f for f in data.get("fields", []) if f.get("days")]
 
     if not fields:
