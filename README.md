@@ -96,9 +96,9 @@ This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
 
-![Garmin Local Archive — Desktop App](screenshots/GUI-V140.jpg)
+![Garmin Local Archive — Desktop App](screenshots/GUI-V149.jpg)
 
-![Garmin Local Archive — Desktop App](screenshots/Create_report.jpg)
+![Garmin Local Archive — Desktop App](screenshots/Create_report_V149.jpg)
 
 *Desktop app — settings, sync, export, bulk import and background timer in one place.*
 
