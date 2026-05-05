@@ -133,7 +133,7 @@ Schema cached at module import. Leaf node.
 | `assess_quality(raw)` | Returns `"high"` / `"medium"` / `"low"` / `"failed"`. Pure function |
 | `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result)` | Adds or updates day entry. Downgrade protection: `high` stays `high` |
-| `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `medium`, `low`, `failed`, `recheck`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk` |
+| `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `medium`, `low`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk` |
 | `get_low_quality_dates(folder, known_dates)` | Scans `raw/` for files not in quality log |
 | `_set_first_day(data, client)` | Determines and persists `first_day`. Never overwrites existing value |
 | `cleanup_before_first_day(data, dry_run)` | Removes files and log entries before `first_day` |

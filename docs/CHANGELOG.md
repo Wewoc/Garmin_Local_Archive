@@ -2,6 +2,35 @@
 
 ---
 
+## [1.4.9.1] - New Design
+
+### **Changed - new design**
+- Color palette updated: Navy/Red → Dark-Purple/Violet accent
+  (`ACCENT #e94560 → #a259f7`, `ACCENT2 #533483 → #6e3fcf`,
+  `BG #1a1a2e → #12101f`, `BG2 #16213e → #1a1729`, `BG3 #0f3460 → #231f38`)
+- Header icon updated: `⌚` → `🦄`
+- Visual identity now aligned with project logo and GLA-Translate aesthetic
+- HTML dashboard titles now prefixed with `🦄 GARMIN LOCAL ARCHIVE — `
+  across all HTML plotters (`dash_plotter_html.py`, `dash_plotter_html_complex.py`,
+  `dash_plotter_html_mobile.py`) — Excel and JSON unaffected
+- HTML dashboard header color updated: Navy `#1F3864` → Dark-Purple `#231f38` (background)
+  and `#6e3fcf` (accents/borders) across `dash_layout_html.py` and
+  `dash_plotter_html_mobile.py` — visual identity now consistent with GUI palette
+
+### **Fix**
+- [Fix] dash_plotter_html: replaced f-string HTML assembly with string concatenation to prevent NameError when CSS or JS contains unescaped curly braces
+
+### Project & Ecosystem
+- **Needful Things Repo**: Formalized the separation of the tools ecosystem. The [GLA-NeedfulThings](https://github.com/Wewoc/GLA-NeedfulThings) repository provides independent utilities (Translator, Chat Pipeline, etc.) that function without a local GLA installation[cite: 14].
+
+## **Archive Info Panel — Missing Days:**
+**New:**
+- `garmin_quality.py` — `get_archive_stats()`: `missing` key added (`possible - present`). If determined in the same calculation step as` coverage_pct `, no additional run.
+- `garmin_app_base.py` — Widget `_info_missing` inserted in `row1` after `_info_recheck`. `_refresh_archive_info()`: Label is filled from `stats['missing']`.
+- `garmin_app_screenshot.py` — Demo value `Missing: 37` added.
+
+---
+
 ## v1.4.9 — GarminAppBase · Daily Sync
 
 **New: `garmin_app_base.py`:**

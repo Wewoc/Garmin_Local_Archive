@@ -63,43 +63,9 @@ Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector`
 
 ---
 
-
-
 ## Planned — v1.6
 
-- **Garmin FIT Pipeline & Plugin Architecture**
-  The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
-
-  *Pre-conditions (resolved before plugin work begins):*
-  - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
-  - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
-
----
-
-### Sync Mode "auto" — Deprecation Candidate
-
-Sync mode `auto` fetches the complete history from `first_day` to yesterday
-via the Garmin API. It was the original solution for building a full archive
-before Bulk Import existed.
-
-With the current toolset this use case is fully covered:
-
-| Task | Tool |
-|---|---|
-| Complete history | Bulk Import — faster, no 429 risk |
-| Gap repair | Background Timer |
-| Daily updates | Daily Sync (v1.4.5) |
-
-`auto` is no longer the recommended path for any standard workflow. It
-remains functional but is not actively promoted. Removal or explicit
-deprecation notice to be evaluated — not a priority while the mode causes
-no active harm.
-
----
-
-## Planned — v1.7
-
-### v1.7 — Dashboard Render Registry
+### v1.6 — Dashboard Render Registry
 
 The dashboard render layer currently dispatches layout types via an `if/elif`
 block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
@@ -130,6 +96,51 @@ The registry closes this before v2.0 begins.
 **Pre-condition:** `dash_plotter_html_complex.py` internal restructuring
 (v1.4.8 pipeline hardening) must be complete — layout paths cleanly separated
 before the registry is introduced.
+
+---
+
+### 1.6.1Sleep Dashboard → Explorer drill-down
+
+When the Sleep Dashboard is built, an Explorer HTML is automatically generated for the same date range with four preset intraday fields (Heart Rate, Stress, Body Battery, Respiration). Each row in the Sleep Dashboard carries a link to this Explorer file.
+
+- Two output files, not one per row: `sleep_dashboard_RANGE.html` + `sleep_explorer_RANGE.html`
+- Files are relative-linked — both must be in the same output folder
+- The Explorer opens at full range; the user navigates to the relevant day themselves
+- T3-compatible — no Python callback from the browser, no server component
+
+*Pre-condition: Sleep Dashboard and Explorer Dashboard both stable and tested.*
+
+---
+
+## Planned — v1.7
+
+- **Garmin FIT Pipeline & Plugin Architecture**
+  The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
+
+  *Pre-conditions (resolved before plugin work begins):*
+  - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
+  - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
+
+---
+
+### Sync Mode "auto" — Deprecation Candidate
+
+Sync mode `auto` fetches the complete history from `first_day` to yesterday
+via the Garmin API. It was the original solution for building a full archive
+before Bulk Import existed.
+
+With the current toolset this use case is fully covered:
+
+| Task | Tool |
+|---|---|
+| Complete history | Bulk Import — faster, no 429 risk |
+| Gap repair | Background Timer |
+| Daily updates | Daily Sync (v1.4.5) |
+
+`auto` is no longer the recommended path for any standard workflow. It
+remains functional but is not actively promoted. Removal or explicit
+deprecation notice to be evaluated — not a priority while the mode causes
+no active harm.
 
 ---
 
