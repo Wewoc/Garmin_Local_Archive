@@ -109,7 +109,7 @@ def build_exe(root: Path):
         "--hidden-import", "openpyxl.cell._writer",
         "--distpath", str(root),
         "--workpath", str(root / "build"),
-        "--specpath", str(root),
+        "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/
         str(entry_point),
     ]
     result = subprocess.run(cmd, cwd=str(root))
@@ -145,7 +145,7 @@ def build_zip(root: Path):
                 zf.write(f, f"scripts/garmin/{name}")
 
         # Daily Sync BAT
-        bat = root / "daily_update.bat"
+        bat = root / "scheduler" / "daily_update.bat"
         if bat.exists():
             zf.write(bat, "daily_update.bat")
 
@@ -195,7 +195,7 @@ def prepare_scripts_dir(root: Path):
     info_dir.mkdir(exist_ok=True)
     for name in INFO_INCLUDE:
         # README.md liegt im Root, alle anderen in docs/
-        src = root / name if (root / name).exists() else root / "docs" / name
+        src = root / name if (root / name).exists() else root / "scheduler" / name
         if src.exists():
             shutil.copy2(src, info_dir / name)
 
@@ -207,7 +207,7 @@ def main():
     print(f"Garmin Local Archive — Build Script (Target 2: Python required)")
     print("=" * 60)
 
-    root = Path(__file__).parent
+    root = Path(__file__).parent.parent   # compiler/ → Root/
 
     check_dependencies()
 
