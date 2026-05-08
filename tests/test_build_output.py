@@ -27,6 +27,7 @@ from pathlib import Path
 # ── Path setup ─────────────────────────────────────────────────────────────────
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "compiler"))
 
 import build_manifest as manifest
 
@@ -105,7 +106,7 @@ section("2. Source-Integrität — Manifest-Scripts im Projektordner")
 
 check("garmin_app.py exists",             (_ROOT / "garmin_app.py").exists())
 check("garmin_app_standalone.py exists",  (_ROOT / "garmin_app_standalone.py").exists())
-check("build_manifest.py exists",         (_ROOT / "build_manifest.py").exists())
+check("build_manifest.py exists",         (_ROOT / "compiler" / "build_manifest.py").exists())
 
 for name in manifest.SHARED_SCRIPTS:
     check(f"source exists: {name}", (_ROOT / name).exists())
@@ -113,15 +114,19 @@ for name in manifest.SHARED_SCRIPTS:
 for name in manifest.REQUIRED_DATA_FILES:
     check(f"data file exists: garmin/{name}", (_ROOT / "garmin" / name).exists())
 
-check("daily_update.py exists", (_ROOT / "daily_update.py").exists())
+check("daily_update.py exists", (_ROOT / "scheduler" / "daily_update.py").exists())
 
 _entry_sigs = {
     "garmin_app.py":            ["class GarminApp"],
     "garmin_app_standalone.py": ["class GarminApp"],
     "daily_update.py":          ["def main"],
 }
+# Entry points nicht im Root-Pfad: daily_update.py liegt nach Umbau in scheduler/
+_entry_overrides = {
+    "daily_update.py": _ROOT / "scheduler" / "daily_update.py",
+}
 for fname, sigs in {**manifest.SCRIPT_SIGNATURES_BASE, **_entry_sigs}.items():
-    fpath = _ROOT / fname
+    fpath = _entry_overrides.get(fname, _ROOT / fname)
     if fpath.exists():
         content = fpath.read_text(encoding="utf-8", errors="replace")
         for sig in sigs:
