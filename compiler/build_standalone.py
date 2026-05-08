@@ -68,11 +68,15 @@ def validate_scripts(root: Path):
     errors = []
 
     # Entry points in root
+    _ep_paths = {
+        "garmin_app_standalone.py": root / "garmin_app_standalone.py",
+        "daily_update.py":          root / "scheduler" / "daily_update.py",
+    }
     for ep, sig in [
         ("garmin_app_standalone.py", "class GarminApp"),
         ("daily_update.py",          "def main"),
     ]:
-        entry = root / ep
+        entry = _ep_paths[ep]
         if not entry.exists():
             errors.append(f"  ✗ Missing entry point: {ep}")
         else:
@@ -159,7 +163,7 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True):
         "--name", name,
         "--distpath", str(root),
         "--workpath", str(root / f"build_{name}_work"),
-        "--specpath", str(root),
+        "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/
         *add_data_args,
         *hidden_args,
         str(entry_point),
@@ -200,7 +204,7 @@ def main():
     print("Garmin Local Archive — Build Script (Target 3: Standalone, no Python required)")
     print("=" * 80)
 
-    root = Path(__file__).parent
+    root = Path(__file__).parent.parent   # compiler/ → Root/
 
     check_dependencies(root)
     validate_scripts(root)
@@ -210,7 +214,7 @@ def main():
     info_dir = root / "info"
     info_dir.mkdir(exist_ok=True)
     for name in INFO_INCLUDE:
-        src = root / name if (root / name).exists() else root / "docs" / name
+        src = root / name if (root / name).exists() else root / "scheduler" / name
         if src.exists():
             shutil.copy2(src, info_dir / name)
 
@@ -226,7 +230,7 @@ def main():
     print(f"\n  --- T3.2: daily_update.exe ---")
     build_exe(root,
               name="daily_update",
-              entry_point=root / "daily_update.py",
+              entry_point=root / "scheduler" / "daily_update.py",
               windowed=False)
 
     build_combined_zip(root)
