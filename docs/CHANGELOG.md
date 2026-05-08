@@ -2,6 +2,33 @@
 
 ---
 
+## v1.5.0 — Root Cleanup
+
+**Structural refactoring — no logic changes, no new features.**
+
+Root reduced from 18 to 10 files. Build scripts and scheduler files moved to dedicated subfolders.
+
+**New folders:**
+- `compiler/` — `build.py`, `build_all.py`, `build_manifest.py`, `build_standalone.py`
+- `scheduler/` — `daily_update.py`, `daily_update.bat`, `daily_update_task.xml`
+
+**Removed from root:** `generate_tree.bat`, `struktur.md` (local dev tools, not repo content)
+
+**Path changes:**
+- All build scripts: `root = Path(__file__).parent.parent` — anchors on repo root, not `compiler/`
+- `.spec` files: `--specpath` → `compiler/` — spec files stay in `compiler/` alongside build scripts
+- `build.py` ZIP: `daily_update.bat` sourced from `scheduler/`
+- `build_standalone.py`: `daily_update.py` entry point sourced from `scheduler/`
+- `build_all.py`: all five test paths updated to `parent.parent / "tests" / ...`
+- `daily_update.py`: sys.path root anchor inserted before `from version import APP_VERSION`; T1/T2 branch: `_root = Path(__file__).parent.parent`
+- `garmin_app_base.py`: `_default_path()` T2 → `scheduler/daily_update.bat`; template candidate → `scheduler/daily_update_task.xml`
+- `test_build_output.py`: `build_manifest` import from `compiler/`; existence checks for `compiler/build_manifest.py` and `scheduler/daily_update.py`; signature lookup uses path override for `daily_update.py`
+- Both BAT launchers: `python .\build_all.py` → `python .\compiler\build_all.py`
+
+**Test result:** 227 / 217 / 303 / 102 / 309 — all green.
+
+---
+
 ## [1.4.9.1] - New Design
 
 ### **Changed - new design**

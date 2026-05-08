@@ -27,10 +27,10 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 | Target | GUI entry point | Daily Sync entry point | Build script | Python on target |
 |---|---|---|---|---|
-| 1 — Dev | `garmin_app.py` | `python daily_update.py` | — | Required |
-| 2 — Standard EXE | `garmin_app.py` | `daily_update.bat` | `build.py` | Required |
-| 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `build_standalone.py` | Not required |
-| 3.2 — Standalone headless | — | `daily_update.exe` | `build_standalone.py` | Not required |
+| 1 — Dev | `garmin_app.py` | `python scheduler/daily_update.py` | — | Required |
+| 2 — Standard EXE | `garmin_app.py` | `scheduler/daily_update.bat` | `compiler/build.py` | Required |
+| 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `compiler/build_standalone.py` | Not required |
+| 3.2 — Standalone headless | — | `daily_update.exe` | `compiler/build_standalone.py` | Not required |
 
 `build_all.py` runs both targets sequentially, preceded by the full test suite.
 
@@ -40,19 +40,19 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 **Target 2:**
 ```bash
-python build.py
+python compiler/build.py
 ```
 Produces `Garmin_Local_Archive.exe` and `Garmin_Local_Archive.zip`.
 
 **Target 3 (T3.1 GUI + T3.2 Headless):**
 ```bash
-python build_standalone.py
+python compiler/build_standalone.py
 ```
 Produces `Garmin_Local_Archive_Standalone.exe`, `daily_update.exe`, and `Garmin_Local_Archive_Standalone.zip` (both EXEs combined).
 
 **Both targets (with pre-build tests):**
 ```bash
-python build_all.py
+python compiler/build_all.py
 ```
 
 Upload `Garmin_Local_Archive.zip` and `Garmin_Local_Archive_Standalone.zip` to the GitHub release page.
@@ -202,16 +202,16 @@ Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_stan
 python tests/test_build_output.py
 ```
 
-**8 sections.** Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest).
+**309 checks, 8 sections.** Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest). `build_manifest` is imported from `compiler/`.
 
 Run after: called automatically by `build_all.py` as post-build step. Can also be run standalone to verify source integrity without a build.
 
 ### All suites together
 
-`build_all.py` runs all three pre-build test suites, then both builds, then `test_build_output.py` as post-build validation.
+`compiler/build_all.py` runs all three pre-build test suites, then both builds, then `test_build_output.py` as post-build validation.
 
 ```bash
-python build_all.py
+python compiler/build_all.py
 # Pre-build:  test_local → test_local_context → test_dashboard
 # Build:      Target 2 → Target 3
 # Post-build: test_build_output → test_app_logic
@@ -242,7 +242,7 @@ All source folders are Python packages with `__init__.py`:
 | Location | sys.path setup |
 |---|---|
 | `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` |
-| `daily_update.py` — Dev/T2 | same subfolder loop; `context` additionally registered as `types.ModuleType` in `sys.modules` |
+| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); same subfolder loop from `parent.parent`; `context` additionally registered as `types.ModuleType` in `sys.modules` |
 | `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`) |
 | `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE |
 | `garmin_app_standalone.py` — Dev | same subfolder loop |
