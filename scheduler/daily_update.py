@@ -47,6 +47,12 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+# Root ins sys.path — vor allen Projekt-Imports (version.py liegt in Root)
+_here = Path(__file__).resolve().parent          # scheduler/
+_repo_root = _here.parent                        # Root/
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Constants
 # ══════════════════════════════════════════════════════════════════════════════
@@ -428,9 +434,9 @@ def _setup_paths():
             if pkg_dir.exists() and str(pkg_dir) not in sys.path:
                 sys.path.append(str(pkg_dir))
     else:
-        # T1/T2: subfolders next to daily_update.py
+        # T1/T2: subfolders relative to repo root
         import types
-        _root = Path(__file__).parent
+        _root = Path(__file__).parent.parent     # scheduler/ → Root/
         for _sub in ("garmin", "maps", "dashboards", "layouts"):
             _p = str(_root / _sub)
             if _p not in sys.path:
