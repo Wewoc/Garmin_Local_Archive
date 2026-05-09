@@ -87,6 +87,12 @@ def validate_scripts(root: Path):
         if not path.exists():
             errors.append(f"  ✗ Missing data file: garmin/{name}")
 
+    # Scheduler files
+    for name in ("daily_update.bat", "daily_update.py", "daily_update_task.xml", "Starte_Daily_Sync.bat"):
+        path = root / "scheduler" / name
+        if not path.exists():
+            errors.append(f"  ✗ Missing scheduler file: scheduler/{name}")
+
     if errors:
         print("  Build aborted — validation failed:")
         for e in errors:
@@ -144,10 +150,18 @@ def build_zip(root: Path):
             if f.exists():
                 zf.write(f, f"scripts/garmin/{name}")
 
-        # Daily Sync BAT
-        bat = root / "scheduler" / "daily_update.bat"
-        if bat.exists():
-            zf.write(bat, "daily_update.bat")
+        # Scheduler files — preserve scheduler/ subfolder (daily_update.py needs parent.parent = Root)
+        for name in ("daily_update.bat", "daily_update.py"):
+            f = root / "scheduler" / name
+            if f.exists():
+                zf.write(f, f"scheduler/{name}")
+            else:
+                print(f"  ⚠ Warning: scheduler/{name} not found — skipped in ZIP")
+
+        # Launcher in ZIP root — calls scheduler/daily_update.py
+        launcher = root / "scheduler" / "Starte_Daily_Sync.bat"
+        if launcher.exists():
+            zf.write(launcher, "Starte_Daily_Sync.bat")
 
         # Docs
         if info_dir.exists():
