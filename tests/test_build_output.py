@@ -114,7 +114,11 @@ for name in manifest.SHARED_SCRIPTS:
 for name in manifest.REQUIRED_DATA_FILES:
     check(f"data file exists: garmin/{name}", (_ROOT / "garmin" / name).exists())
 
-check("daily_update.py exists", (_ROOT / "scheduler" / "daily_update.py").exists())
+check("daily_update.py exists",          (_ROOT / "scheduler" / "daily_update.py").exists())
+check("daily_update.bat exists",              (_ROOT / "scheduler" / "daily_update.bat").exists())
+check("daily_update.py exists",               (_ROOT / "scheduler" / "daily_update.py").exists())
+check("daily_update_task.xml exists",         (_ROOT / "scheduler" / "daily_update_task.xml").exists())
+check("Starte_Daily_Sync.bat exists",         (_ROOT / "scheduler" / "Starte_Daily_Sync.bat").exists())
 
 _entry_sigs = {
     "garmin_app.py":            ["class GarminApp"],
@@ -199,6 +203,14 @@ else:
               "Garmin_Local_Archive.exe" in _names)
         check("ZIP contains scripts/garmin_app.py",
               "scripts/garmin_app.py" in _names)
+        check("ZIP contains scheduler/daily_update.bat",
+              "scheduler/daily_update.bat" in _names)
+        check("ZIP contains scheduler/daily_update.py",
+              "scheduler/daily_update.py" in _names)
+        check("ZIP contains Starte_Daily_Sync.bat",
+              "Starte_Daily_Sync.bat" in _names)
+        check("ZIP contains info/daily_update_task.xml",
+              "info/daily_update_task.xml" in _names)
         for name in manifest.SHARED_SCRIPTS:
             check(f"ZIP contains scripts/{name}",
                   f"scripts/{name}" in _names)
