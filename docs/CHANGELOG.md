@@ -25,7 +25,15 @@ Root reduced from 18 to 10 files. Build scripts and scheduler files moved to ded
 - `test_build_output.py`: `build_manifest` import from `compiler/`; existence checks for `compiler/build_manifest.py` and `scheduler/daily_update.py`; signature lookup uses path override for `daily_update.py`
 - Both BAT launchers: `python .\build_all.py` → `python .\compiler\build_all.py`
 
-**Test result:** 227 / 217 / 303 / 102 / 309 — all green.
+**Test result:** 227 / 217 / 303 / 102 / 313 — all green.
+
+**T2 ZIP distribution fix (post-release patch):**
+- `scheduler/` preserved as subfolder in ZIP — `daily_update.py` requires `.parent.parent = ZIP-Root` for module resolution
+- `Starte_Daily_Sync.bat` added to ZIP root — single user entry point; `cd`s into `scheduler/` before calling `daily_update.py`
+- `build.py` `validate_scripts()`: scheduler files (`daily_update.bat`, `daily_update.py`, `daily_update_task.xml`, `Starte_Daily_Sync.bat`) now checked before build
+- `scheduler/daily_update.py`: `_scripts_early` path inserted before `from version import APP_VERSION` (T2 fix); `_ctx_dir` corrected to `_base / "context"`
+- `tests/test_build_output.py`: Section 2 + Section 6 extended with scheduler file checks
+- `docs/WORKFLOW_TEMPLATE.md`: "Analysestrategie — Laufzeitfehler" added
 
 ---
 

@@ -57,6 +57,22 @@ python compiler/build_all.py
 
 Upload `Garmin_Local_Archive.zip` and `Garmin_Local_Archive_Standalone.zip` to the GitHub release page.
 
+**T2 ZIP layout (`Garmin_Local_Archive.zip`):**
+Garmin_Local_Archive.exe
+Starte_Daily_Sync.bat       ← user entry point for daily sync
+scheduler/
+daily_update.py
+daily_update.bat
+scripts/
+garmin_app.py
+garmin/ maps/ context/ dashboards/ layouts/
+info/
+README.md
+daily_update_task.xml
+`scheduler/` stays at ZIP root — `daily_update.py` uses `.parent.parent` to locate `scripts/`.
+`Starte_Daily_Sync.bat` `cd`s into `scheduler/` before calling `daily_update.py`.
+When adding new scheduler files: add to `validate_scripts()` in `build.py` **and** to Section 2 + Section 6 in `test_build_output.py`.
+
 ---
 
 ## Pre-build validation

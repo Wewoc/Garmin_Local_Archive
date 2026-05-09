@@ -278,8 +278,8 @@ Gaps larger than 7 days trigger a hard stop — open the app and sync manually f
 | Version | Entry point |
 |---|---|
 | Standalone | `daily_update.exe` — double-click or Task Scheduler |
-| Standard EXE | `daily_update.bat` — double-click or Task Scheduler |
-| Scripts only | `python daily_update.py` |
+| Standard EXE | `Starte_Daily_Sync.bat` — double-click or Task Scheduler |
+| Scripts only | `python scheduler/daily_update.py` |
 
 **Task Scheduler setup:**
 

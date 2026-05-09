@@ -111,7 +111,8 @@ All modules import via `import garmin_config as cfg`.
 │
 ├── scheduler/                  ← Daily Sync entry points
 │   ├── daily_update.py         ← Entry Point Daily Sync (headless, all targets)
-│   ├── daily_update.bat        ← T2 wrapper for Task Scheduler
+│   ├── daily_update.bat        ← T1 wrapper (calls python daily_update.py)
+│   ├── Starte_Daily_Sync.bat   ← T2 user entry point (in ZIP root — cd into scheduler/ first)
 │   └── daily_update_task.xml   ← Task Scheduler template
 │
 ├── garmin/                     ← Garmin pipeline (source-specific)
@@ -231,7 +232,7 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 | Target | GUI entry point | Daily Sync entry point | Build script | Python on target |
 |---|---|---|---|---|
 | 1 — Dev | `garmin_app.py` | `python scheduler/daily_update.py` | — | Required |
-| 2 — Standard EXE | `garmin_app.py` | `scheduler/daily_update.bat` | `compiler/build.py` | Required |
+| 2 — Standard EXE | `garmin_app.py` | `Starte_Daily_Sync.bat` (ZIP root) | `compiler/build.py` | Required |
 | 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `compiler/build_standalone.py` | Not required |
 | 3.2 — Standalone headless | — | `daily_update.exe` | `compiler/build_standalone.py` | Not required |
 
