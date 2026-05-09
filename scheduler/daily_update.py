@@ -52,6 +52,10 @@ _here = Path(__file__).resolve().parent          # scheduler/
 _repo_root = _here.parent                        # Root/
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
+# T2 (ZIP): version.py liegt in scripts/, nicht in Root
+_scripts_early = _repo_root / "scripts"
+if _scripts_early.exists() and str(_scripts_early) not in sys.path:
+    sys.path.insert(0, str(_scripts_early))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Constants
@@ -434,15 +438,24 @@ def _setup_paths():
             if pkg_dir.exists() and str(pkg_dir) not in sys.path:
                 sys.path.append(str(pkg_dir))
     else:
-        # T1/T2: subfolders relative to repo root
         import types
         _root = Path(__file__).parent.parent     # scheduler/ → Root/
+
+        # T2: scripts/ subfolder exists (ZIP distribution)
+        # T1: direct subfolders exist (dev/repo)
+        _scripts = _root / "scripts"
+        _base = _scripts if _scripts.exists() else _root
+
         for _sub in ("garmin", "maps", "dashboards", "layouts"):
-            _p = str(_root / _sub)
+            _p = str(_base / _sub)
             if _p not in sys.path:
                 sys.path.insert(0, _p)
+        # version.py liegt in _scripts (T2) oder _root (T1)
+        _vp = str(_scripts) if _scripts.exists() else str(_root)
+        if _vp not in sys.path:
+            sys.path.insert(0, _vp)
         # context must be registered as a package — it uses relative imports
-        _ctx_dir = _root / "context"
+        _ctx_dir = _base / "context"
         if _ctx_dir.exists() and "context" not in sys.modules:
             _ctx_mod = types.ModuleType("context")
             _ctx_mod.__path__ = [str(_ctx_dir)]
