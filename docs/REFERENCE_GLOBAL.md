@@ -98,12 +98,22 @@ All modules import via `import garmin_config as cfg`.
 ├── garmin_app_standalone.py    ← Entry Point Target 3 (GUI, Standalone)
 ├── garmin_app_base.py          ← Shared GUI base class (GarminAppBase)
 ├── version.py                  ← Single source of truth for APP_VERSION
-├── daily_update.py             ← Entry Point Daily Sync (headless, all targets)
-├── build.py
-├── build_standalone.py
-├── build_all.py
-├── build_manifest.py
 ├── requirements.txt
+├── run_T1.bat
+├── run_build_all.bat
+├── run_build_all_-_check_deps.bat
+│
+├── compiler/                   ← Build scripts
+│   ├── build.py
+│   ├── build_all.py
+│   ├── build_manifest.py       ← Single source of truth for all script lists
+│   └── build_standalone.py
+│
+├── scheduler/                  ← Daily Sync entry points
+│   ├── daily_update.py         ← Entry Point Daily Sync (headless, all targets)
+│   ├── daily_update.bat        ← T1 wrapper (calls python daily_update.py)
+│   ├── Starte_Daily_Sync.bat   ← T2 user entry point (in ZIP root — cd into scheduler/ first)
+│   └── daily_update_task.xml   ← Task Scheduler template
 │
 ├── garmin/                     ← Garmin pipeline (source-specific)
 │   ├── __init__.py
@@ -176,7 +186,6 @@ All modules import via `import garmin_config as cfg`.
 │   ├── MAINTENANCE_DASHBOARD.md
 │   ├── CHANGELOG.md
 │   ├── ROADMAP.md
-│   ├── CONCEPT_V1-4.md
 │   └── CONCEPT_V2-0.md
 │
 └── tests/
@@ -222,10 +231,10 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 
 | Target | GUI entry point | Daily Sync entry point | Build script | Python on target |
 |---|---|---|---|---|
-| 1 — Dev | `garmin_app.py` | `python daily_update.py` | — | Required |
-| 2 — Standard EXE | `garmin_app.py` | `daily_update.bat` | `build.py` | Required |
-| 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `build_standalone.py` | Not required |
-| 3.2 — Standalone headless | — | `daily_update.exe` | `build_standalone.py` | Not required |
+| 1 — Dev | `garmin_app.py` | `python scheduler/daily_update.py` | — | Required |
+| 2 — Standard EXE | `garmin_app.py` | `Starte_Daily_Sync.bat` (ZIP root) | `compiler/build.py` | Required |
+| 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `compiler/build_standalone.py` | Not required |
+| 3.2 — Standalone headless | — | `daily_update.exe` | `compiler/build_standalone.py` | Not required |
 
-`build_all.py` runs `test_local.py`, `test_local_context.py`, and `test_dashboard.py` before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
-`build_manifest.py` is the single source of truth for all script lists.
+`compiler/build_all.py` runs `test_local.py`, `test_local_context.py`, and `test_dashboard.py` before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
+`compiler/build_manifest.py` is the single source of truth for all script lists.

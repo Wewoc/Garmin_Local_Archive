@@ -21,19 +21,21 @@ if __name__ == "__main__":
     print("  Pre-build: running test suite ...")
     print("=" * 55)
 
-    test_path = Path(__file__).parent / "tests" / "test_local.py"
+    _root = Path(__file__).parent.parent   # compiler/ → Root/
+
+    test_path = _root / "tests" / "test_local.py"
     result = subprocess.run([sys.executable, str(test_path)])
     if result.returncode != 0:
         print("\n  ✗ Tests failed — build aborted.")
         sys.exit(1)
 
-    test_context_path = Path(__file__).parent / "tests" / "test_local_context.py"
+    test_context_path = _root / "tests" / "test_local_context.py"
     result_context = subprocess.run([sys.executable, str(test_context_path)])
     if result_context.returncode != 0:
         print("\n  ✗ Context tests failed — build aborted.")
         sys.exit(1)
 
-    test_dashboard_path = Path(__file__).parent / "tests" / "test_dashboard.py"
+    test_dashboard_path = _root / "tests" / "test_dashboard.py"
     result_dashboard = subprocess.run([sys.executable, str(test_dashboard_path)])
     if result_dashboard.returncode != 0:
         print("\n  ✗ Dashboard tests failed — build aborted.")
@@ -55,7 +57,7 @@ if __name__ == "__main__":
     print("  Post-build: running output validation ...")
     print("=" * 55)
 
-    test_build_path = Path(__file__).parent / "tests" / "test_build_output.py"
+    test_build_path = _root / "tests" / "test_build_output.py"
     result_build = subprocess.run([sys.executable, str(test_build_path)])
     if result_build.returncode != 0:
         print("\n  ✗ Build output validation failed — check output above.")
@@ -67,7 +69,7 @@ if __name__ == "__main__":
     print("  Post-build: running app logic tests ...")
     print("=" * 55)
 
-    test_app_path = Path(__file__).parent / "tests" / "test_app_logic.py"
+    test_app_path = _root / "tests" / "test_app_logic.py"
     result_app = subprocess.run([sys.executable, str(test_app_path)])
     if result_app.returncode != 0:
         print("\n  ✗ App logic tests failed — check output above.")

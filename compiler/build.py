@@ -87,6 +87,12 @@ def validate_scripts(root: Path):
         if not path.exists():
             errors.append(f"  ✗ Missing data file: garmin/{name}")
 
+    # Scheduler files
+    for name in ("daily_update.bat", "daily_update.py", "daily_update_task.xml", "Starte_Daily_Sync.bat"):
+        path = root / "scheduler" / name
+        if not path.exists():
+            errors.append(f"  ✗ Missing scheduler file: scheduler/{name}")
+
     if errors:
         print("  Build aborted — validation failed:")
         for e in errors:
@@ -109,7 +115,7 @@ def build_exe(root: Path):
         "--hidden-import", "openpyxl.cell._writer",
         "--distpath", str(root),
         "--workpath", str(root / "build"),
-        "--specpath", str(root),
+        "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/
         str(entry_point),
     ]
     result = subprocess.run(cmd, cwd=str(root))
@@ -144,10 +150,18 @@ def build_zip(root: Path):
             if f.exists():
                 zf.write(f, f"scripts/garmin/{name}")
 
-        # Daily Sync BAT
-        bat = root / "daily_update.bat"
-        if bat.exists():
-            zf.write(bat, "daily_update.bat")
+        # Scheduler files — preserve scheduler/ subfolder (daily_update.py needs parent.parent = Root)
+        for name in ("daily_update.bat", "daily_update.py"):
+            f = root / "scheduler" / name
+            if f.exists():
+                zf.write(f, f"scheduler/{name}")
+            else:
+                print(f"  ⚠ Warning: scheduler/{name} not found — skipped in ZIP")
+
+        # Launcher in ZIP root — calls scheduler/daily_update.py
+        launcher = root / "scheduler" / "Starte_Daily_Sync.bat"
+        if launcher.exists():
+            zf.write(launcher, "Starte_Daily_Sync.bat")
 
         # Docs
         if info_dir.exists():
@@ -195,7 +209,7 @@ def prepare_scripts_dir(root: Path):
     info_dir.mkdir(exist_ok=True)
     for name in INFO_INCLUDE:
         # README.md liegt im Root, alle anderen in docs/
-        src = root / name if (root / name).exists() else root / "docs" / name
+        src = root / name if (root / name).exists() else root / "scheduler" / name
         if src.exists():
             shutil.copy2(src, info_dir / name)
 
@@ -207,7 +221,7 @@ def main():
     print(f"Garmin Local Archive — Build Script (Target 2: Python required)")
     print("=" * 60)
 
-    root = Path(__file__).parent
+    root = Path(__file__).parent.parent   # compiler/ → Root/
 
     check_dependencies()
 

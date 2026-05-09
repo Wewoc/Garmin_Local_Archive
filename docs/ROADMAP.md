@@ -6,37 +6,11 @@
 
 ---
 
-**Currently stable — v1.4.9**
+**Currently stable — v1.5**
 
 ---
 
 ## Planned
-
----
-
-## Planned — v1.5
-
-### v1.5 — Root Cleanup & Folder Restructuring
-
-The project root currently holds entry points, build scripts, scheduler files, and dev tools in a flat list. With v2.0 adding new sources (Strava, Komoot), each bringing its own build scripts and entry points, the root would grow unmanageably without prior restructuring.
-
-**Target structure:**
-
-| Folder | Contents |
-|---|---|
-| `build/` | `build.py`, `build_all.py`, `build_standalone.py`, `build_manifest.py`, `run_build_all.bat`, `run_build_all - Fast.bat` |
-| `scheduler/` | `daily_update.py`, `daily_update.bat`, `daily_update_task.xml` (moved from `docs/`) |
-| `tools/` | `garmin_app_screenshot.py` |
-| Root | `garmin_app.py`, `garmin_app_standalone.py`, `garmin_app_base.py`, `version.py`, `requirements.txt`, `README.md`, `run_T1.bat` |
-
-**Constraints:**
-- `scripts/` is reserved — created by the build process at runtime, not a source folder
-- All entry points referencing `Path(__file__).parent` as root require path adjustment after move
-- `build_manifest.py` is imported by `build.py` — must stay in the same folder
-- `validate_scripts()` in both build scripts must be updated to reflect new paths
-- Querverbindungs-Check mandatory before implementation — `sys.path` logic in all entry points affected
-
-**Motivation:** Root stays at < 10 files. v2.0 build scripts land in `build/` without polluting the root. Isolated refactor — no logic changes, no feature additions.
 
 ---
 
@@ -99,7 +73,19 @@ before the registry is introduced.
 
 ---
 
-### 1.6.1Sleep Dashboard → Explorer drill-down
+### 1.6.1 — Encrypted Dashboards (Optional Export)
+
+Introduction of an option to encrypt reports before saving with AES-256-GCM. This allows for the secure transfer of dashboards to third parties (e.g., trainers or doctors) without sending health data in plain text.
+
+- Secure Transfer: Creates a password-protected HTML file that is only decrypted after entering the password in the browser.
+- Privacy: Uses the proven encryption technique already used for securing login tokens in the project.
+- Local Control: The password is set by the user during export; decryption occurs solely on the client side in the browser — no cloud server involved.
+
+Motivation: Extension of the "Local-only" philosophy in case data must leave one's own computer.
+
+---
+
+### 1.6.2 Sleep Dashboard → Explorer drill-down
 
 When the Sleep Dashboard is built, an Explorer HTML is automatically generated for the same date range with four preset intraday fields (Heart Rate, Stress, Body Battery, Respiration). Each row in the Sleep Dashboard carries a link to this Explorer file.
 

@@ -728,7 +728,7 @@ class GarminAppBase(tk.Tk):
                    else Path(__file__).parent
         _candidates = [
             _exe_dir / "info" / "daily_update_task.xml",
-            Path(__file__).parent / "docs" / "daily_update_task.xml",
+            Path(__file__).parent / "scheduler" / "daily_update_task.xml",
         ]
         template_path = next((p for p in _candidates if p.exists()), None)
         if template_path is None:
@@ -763,7 +763,7 @@ class GarminAppBase(tk.Tk):
 
         def _default_path(target: str) -> str:
             if target == "T2":
-                p = _exe_dir / "daily_update.bat"
+                p = _exe_dir / "scheduler" / "daily_update.bat"
             elif target == "T3":
                 p = _exe_dir / "daily_update.exe"
             else:
