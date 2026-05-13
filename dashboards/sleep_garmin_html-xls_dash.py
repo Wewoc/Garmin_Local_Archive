@@ -195,6 +195,18 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         for d in reversed(all_dates)
     ]
 
+    # ── 7-day HRV moving average (chronological window, newest-first rows) ────
+    # rows are newest-first; we iterate oldest-first for the sliding window
+    hrv_by_date = {r["date"]: r["hrv"] for r in rows}
+    sorted_dates = sorted(hrv_by_date.keys())
+    hrv_7d = {}
+    for i, d in enumerate(sorted_dates):
+        window = [hrv_by_date[sorted_dates[j]] for j in range(max(0, i - 6), i + 1)
+                  if hrv_by_date[sorted_dates[j]] is not None]
+        hrv_7d[d] = round(sum(window) / len(window), 1) if window else None
+    for r in rows:
+        r["hrv_7d_avg"] = hrv_7d.get(r["date"])
+
     return {
         "layout":    "sleep",
         "title":     "Sleep Dashboard",
