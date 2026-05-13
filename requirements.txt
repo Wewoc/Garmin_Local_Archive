@@ -1,4 +1,4 @@
-garminconnect>=0.3.0
+garminconnect==0.3.4
 openpyxl
 keyring
 cryptography
