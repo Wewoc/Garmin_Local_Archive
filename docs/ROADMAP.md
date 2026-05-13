@@ -98,6 +98,25 @@ When the Sleep Dashboard is built, an Explorer HTML is automatically generated f
 
 ---
 
+### v1.6.3 — Heatmap Dashboard
+New specialist: activity and physiological patterns visualized as time-of-day × date heatmaps.
+New:
+
+- `dashboards/heatmap_garmin_html_dash.py` — Specialist: fetches intraday series for N days via `field_map.py`, pivots to hourly bins, returns neutral heatmap dict
+- `garmin_map._FIELD_MAP` — `steps_series` entry added (movement array, analogous to heart_rate_series)
+- `dash_plotter_html_complex.py` — `heatmap` chart type added via render registry (v1.6 pre-condition)
+
+Metrics (candidates):
+
+- Heart Rate heatmap (X = time of day 0–24h, Y = date, color = bpm)
+- Steps heatmap (activity regularity)
+- Stress heatmap
+- Body Battery heatmap
+
+Pre-condition: v1.6 Render Registry must be complete — new specialist registers its own renderer, no `if/elif` edit required.
+
+---
+
 ## Planned — v1.7
 
 - **Garmin FIT Pipeline & Plugin Architecture**

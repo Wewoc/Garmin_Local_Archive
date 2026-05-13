@@ -258,6 +258,7 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
             "feedback":     str | None,     # Garmin enum, e.g. "NEGATIVE_LONG_BUT_NOT_ENOUGH_REM"
             "hrv":          float | None,
             "body_battery": float | None,
+            "hrv_7d_avg":   float | None,   # 7-day rolling average of nightly HRV (computed in build)
         },
         ...
     ],

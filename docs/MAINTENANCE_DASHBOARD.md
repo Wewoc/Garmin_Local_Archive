@@ -128,7 +128,7 @@ python tests/test_dashboard.py
 | 11 | `overview_garmin` specialist |
 | 12 | `health_garmin-weather-pollen` specialist |
 | 13 | `sleep_recovery_context` specialist + complex plotter |
-| 14 | `sleep_garmin` specialist + html + excel render |
+| 14 | `sleep_garmin` specialist + html + excel render — rows carry `hrv_7d_avg` (computed in build, rendered in both plotters) |
 | 15 | `garmin_map` broker contract |
 | 16 | Specialist return contract — alle 6 specialists |
 
