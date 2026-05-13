@@ -1086,6 +1086,10 @@ def _render_sleep(data: dict, output_path: Path) -> None:
         hrv_str   = f"{hrv:.0f}"          if hrv        is not None else "—"
         bb_str    = f"{bb:.0f}"           if bb         is not None else "—"
 
+        hrv_7d     = row.get("hrv_7d_avg")
+        hrv_7d_color = _hsl_color(hrv_7d, ref_hrv_low, ref_hrv_high, higher_better=True)
+        hrv_7d_str = f"{hrv_7d:.1f}" if hrv_7d is not None else "—"
+
         row_html += f"""
 <tr>
   <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">{date}</td>
@@ -1096,6 +1100,7 @@ def _render_sleep(data: dict, output_path: Path) -> None:
   <td style="padding:6px 10px;">{_feedback_text(row.get("feedback"))}</td>
   <td style="padding:6px 10px;text-align:center;border-left:2px solid #333;font-weight:700;color:{hrv_color};">{hrv_str}</td>
   <td style="padding:6px 10px;text-align:center;font-weight:700;color:{bb_color};">{bb_str}</td>
+  <td style="padding:6px 10px;text-align:center;color:{hrv_7d_color};font-size:12px;">{hrv_7d_str}</td>
 </tr>"""
 
     # ── Assemble page ─────────────────────────────────────────────────────────
@@ -1126,6 +1131,7 @@ def _render_sleep(data: dict, output_path: Path) -> None:
   <th>Feedback</th>
   <th style="border-left:2px solid #2d6a9f;">HRV</th>
   <th>Body Battery</th>
+  <th>HRV 7d Ø</th>
 </tr>
 </thead>
 <tbody>
