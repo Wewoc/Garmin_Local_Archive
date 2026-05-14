@@ -20,9 +20,11 @@
 
 Test files (`test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_app_logic.py`) have grown organically. A dedicated refactor session after v1.5.1 is stable would introduce: shared setup helpers, section isolation (early crash doesn't cascade), possible pytest migration. No urgency — 306/306 green is the baseline.
 
-### v1.5.2 — Content Validation
-
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
+
+**Archive Integrity Alert (GUI)**
+
+Detection layer already exists: `check_raw_integrity()` in `garmin_backup.py` compares `quality_log` write-entries against actually present raw files; `integrity_warnings` in `garmin_quality.py` catches checksum mismatches with auto-restore. What is missing: a visible warning in the GUI status panel when either check fires. Users currently see nothing — warnings land only in the log.
 
 ---
 
