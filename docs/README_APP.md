@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.0.1
+# Garmin Local Archive — Desktop App v1.5.1
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -93,6 +93,7 @@ Left panel:
 - **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history (everything since your oldest device — can take hours, **not recommended**, rate limit risk, use Bulk Import instead)
 - **Export date range** — used by all dashboards. Leave empty to use the oldest/newest file in your archive automatically
 - **Age / Sex** — used by the Health Analysis dashboard for reference ranges
+- **Mirror folder** — optional second location for your archive (NAS, USB, external drive). Leave empty to disable. Set once, then use the **Data Mirror** button to sync.
 
 Click **Save Settings** — settings are remembered between sessions.
 
@@ -124,11 +125,28 @@ Click the button to open a preview popup showing exactly which files will be del
 
 Use this to clean up files created accidentally by entering a date that is too early in range mode. The `first_day` anchor is detected automatically on first run and stored in `log/quality_log.json`. If the popup reports "nothing to clean", your archive is already consistent.
 
+### Restore Data
+Appears in the Connection & Archive Status panel. Normally greyed out — becomes active if the app detects raw data files that are registered in the quality log as written but are missing or unreadable on disk.
+
+- **"⚠ N days missing"** — backup copies exist, click to restore automatically
+- **"⚠ N days missing, N no backup"** — some days have no backup; a dialog lists them so you can re-fetch manually via Sync Data
+
+The check runs silently in the background at startup and takes a few seconds.
+
+### Data Mirror
+Copies your full archive to the folder configured in **Mirror folder** (Settings). Comparison is by filename and file size — identical files are skipped, deleted files are removed from the target, new or changed files are copied over. `garmin_token` and `__pycache__` are never mirrored.
+
+The button is greyed out if no mirror folder is configured or the target is unreachable. Disabled automatically while a Sync or Context Sync is running.
+
+**To restore from mirror:** copy the mirror folder contents back to your Data folder manually — no special tool needed. The app detects the restored data automatically on next start.
+
 ### Sync Data / Stop
 Downloads missing days from Garmin Connect. Watch the log at the bottom for progress. First run may take a while depending on how far back you go.
 
 > **Standard:** Click **Stop** to cancel a running sync immediately.
 > **Standalone:** Click **Stop** to cancel — the current day finishes saving before stopping.
+
+**First sync after v1.5.1 upgrade:** If existing raw files have no backup copy yet, a one-time popup appears offering to create backups in the background. This runs independently of the sync — click **Yes** to secure your archive, or **No** to skip. New files are backed up automatically after every sync regardless of this choice.
 
 If there are days with failed or incomplete downloads in the selected sync range, a popup will appear before the sync starts: **"Incomplete records found: X days in the selected range — Refresh now?"** Click **Yes** to re-fetch those days, or **No** to skip them and sync normally.
 
