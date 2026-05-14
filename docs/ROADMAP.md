@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5**
+**Currently stable — v1.5.1**
 
 ---
 
@@ -14,22 +14,11 @@
 
 ---
 
-### v1.5.1 — Archive Integrity & Backup
+### v1.5.2 — Content Validation
 
-Protection of the local archive against software errors and silent data loss — independent of OS-level backup.
+### Note — Test Suite Refactor (post-v1.5.1)
 
-**`quality_log.json`**
-
-- **Monthly backup** — `_save_quality_log()` creates a snapshot once per month as `quality_log_YYYY-MM.zip` in `log/backup/`. On the first save of a new year, the previous year is consolidated into `quality_log_YYYY.zip` and all monthly zips for that year are removed.
-- **Per-year checksums** — on every save, a SHA-256 hash is computed over all `days` entries for each calendar year and stored in a `checksums` block inside `quality_log.json`. On load, all completed years are verified — a mismatch triggers a warning in the log and GUI indicating which year is affected and where the backup is located.
-
-**`raw/`** — incremental backup of newly written files. Motivation: Garmin degrades intraday data in stages (full resolution → reduced → summaries only), with the high-resolution window covering only the most recent ~6 months — the local raw copy is then the only source. A software bug in the writer that overwrites or corrupts a raw file is not recoverable without a backup. This is a direct extension of the data erosion protection that is a core promise of this project.
-
-- Ownership: writer or a dedicated backup module — to be evaluated
-- Strategy: incremental, newly written files only
-- Scope and implementation to be defined after v1.4 is stable
-
-**Mirror Backup (manual)** — a button in the GUI copies the full archive to a second location configured once in Settings (path, optional — leaving it empty disables the feature). On each run: destination is compared against source (filename + size), missing files are copied over. Follows the same manual trigger pattern as Sync Garmin and Sync Context — no automatic execution. Target location can be a NAS, external drive, or any local path. If the destination is unreachable, the operation logs a clear warning and exits cleanly.
+Test files (`test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_app_logic.py`) have grown organically. A dedicated refactor session after v1.5.1 is stable would introduce: shared setup helpers, section isolation (early crash doesn't cascade), possible pytest migration. No urgency — 306/306 green is the baseline.
 
 ### v1.5.2 — Content Validation
 
@@ -40,6 +29,22 @@ Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector`
 ## Planned — v1.6
 
 ### v1.6 — Dashboard Render Registry
+
+**Step 1 — Dashboard Consolidation & UI Refactor (pre-condition)**
+
+The existing specialist set has grown organically and contains redundancy.
+Before the registry is introduced — and before new specialists are added —
+the current set is reviewed and cleaned up:
+
+- Redundant or overlapping specialists are merged or removed
+- `META["description"]` entries are revised for clarity
+- The Create Reports popup widget (`garmin_app.py`) is reworked:
+  full descriptions visible, column layout readable at a glance
+
+Rationale: the registry should be built over a clean, stable specialist set —
+not over a baseline that will be restructured again afterwards.
+
+**Step 2 — Render Registry**
 
 The dashboard render layer currently dispatches layout types via an `if/elif`
 block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
@@ -113,7 +118,7 @@ Metrics (candidates):
 - Stress heatmap
 - Body Battery heatmap
 
-Pre-condition: v1.6 Render Registry must be complete — new specialist registers its own renderer, no `if/elif` edit required.
+Pre-condition: v1.6 Render Registry must be complete — new specialist registers its own renderer, no `if/elif` edit required.idee
 
 ---
 
@@ -125,6 +130,31 @@ Pre-condition: v1.6 Render Registry must be complete — new specialist register
   *Pre-conditions (resolved before plugin work begins):*
   - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
   - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
+
+---
+
+### v1.7.1 — PDF Report
+
+A standalone workflow for generating a formatted health report as PDF — separate from the Create Reports pipeline. Triggered via a dedicated **PDF Report** button in the Outputs section of the GUI (not via the Create Reports dialog, to avoid collision with Daily Update and the existing report workflow).
+
+**Workflow:**
+
+1. User clicks **PDF Report** — a separate console/dialog opens
+2. User selects sections (HRV, Sleep, Activity, ...) and date range
+3. App generates `/dashboards/pdf-report/yyyy-mm-dd/report_data.json` and a prompt file with output structure instructions for the LLM
+4. Console displays: instructions for the LLM step — user runs their local LLM externally and saves the response as `LLM-Output.md` in the same folder
+5. User confirms → app checks whether `LLM-Output.md` exists → renders PDF with or without LLM analysis
+
+**Output folder:** `/dashboards/pdf-report/yyyy-mm-dd/`
+- `report_data.json` — section data for LLM input
+- `LLM-Output.md` — optional, user-provided LLM response
+- `report_yyyy-mm-dd.pdf` — final report
+
+**Page 1:** mandatory disclaimer — no medical product, no diagnosis, no therapy recommendation.
+
+**LLM step is fully optional** — report renders completely without it. No API calls, no cloud dependency, no model lock-in. User chooses their own LLM (Open WebUI, ChatGPT, anything).
+
+*Pre-condition: v1.7 FIT Pipeline stable — Activity data available via `field_map.py` broker before PDF Report is built.*
 
 ---
 

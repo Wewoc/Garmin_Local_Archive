@@ -42,6 +42,8 @@ garmin_app.py (GUI)
 | `garmin_writer.py` | `raw/` and `summary/` |
 | `garmin_quality.py` | `quality_log.json` |
 | `garmin_security.py` | `garmin_token.enc` |
+| `garmin_backup.py` | `garmin_data/backup/` |
+| `garmin_mirror.py` | mirror operation (target path) |
 
 ### Invariants
 
@@ -49,7 +51,7 @@ garmin_app.py (GUI)
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `QUALITY_LOCK` must be held around all load-modify-save sequences on `quality_log.json`
 - **`first_day` is not protected against manual edits or ENV overrides.** It is derived from Garmin's device history API, which does not guarantee completeness — older devices may not appear. `first_day` reflects the earliest known device registration, not necessarily the actual start of data collection. The GDPR Bulk Import is the only reliable source for data predating the oldest listed device. Incorrect `first_day` values can create archive gaps silently.
-- **`quality_log.json` has no checksums or integrity verification.** Manual edits or file corruption are not automatically detected. Handle backups carefully — the schema migration creates a timestamped backup before any destructive operation, but ongoing integrity is the user's responsibility.
+- **`quality_log.json` is protected by a SHA-256 checksum** over stable core fields (`date` + `write`) stored in `_checksum`. Computed on every save, verified on every load. Mismatch triggers auto-restore from `backup/log/` and a yellow warning label in the GUI. Checksum covers only fields that never change through migration — adding new fields to entries does not invalidate it. Handle backups carefully — the schema migration creates a timestamped backup before any destructive operation, but ongoing integrity is the user's responsibility.
 - `fetch_raw()` always returns `(raw, failed_endpoints)` — never raises
 - `_fetch_and_assess()` always returns `(label, normalized, summary, fields, val_result)` — never raises
 - `_write_assessed()` is only called after downgrade check passes — file never written if API result is inferior
@@ -91,7 +93,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 199 checks, 13 sections.**
+**Current count: 315 checks, 19 sections.**
 
 ```bash
 python tests/test_local.py
@@ -112,6 +114,12 @@ python tests/test_local.py
 11. `INVARIANTS` — `fetch_raw` return type, `_process_day` tuple length, write-only ownership
 12. `ROBUSTNESS` — empty raw, corrupt JSON, stop event, non-dict input
 13. `PIPELINE_E2E` — full day through pipeline: write → quality → read
+14. `v1.4.3` — value range validation, downgrade logic
+15. `_check_downgrade` — all edge cases
+16. `_run_self_healing` — schema version bump, status improvement
+A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
+B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check
+C. `garmin_mirror` — file collection, sync logic, exclusions, empty dir cleanup
 
 ### What is NOT tested
 
