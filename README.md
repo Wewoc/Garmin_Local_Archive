@@ -116,7 +116,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 Local-first, personal use, no enterprise ambitions.
 
 - Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
-- Five local test suites (849 checks + build output validation) — no CI/CD yet
+- Five local test suites (928 checks + build output validation) — no CI/CD yet
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
 - Historical data quality depends on Garmin servers
@@ -257,10 +257,12 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_security.py` | Token encryption/decryption — AES-256-GCM, key stored in Windows Credential Manager |
 | `garmin_validator.py` | Structural validation against `garmin_dataformat.json` — detects API changes before they reach the normalizer |
 | `garmin_normalizer.py` | Unified data schema across sources + summary extraction |
-| `garmin_quality.py` | Quality assessment — sole owner of `quality_log.json` |
+| `garmin_quality.py` | Quality assessment — sole owner of `quality_log.json`. Checksum-protected, auto-restore on mismatch |
 | `garmin_sync.py` | Determines which days are missing |
 | `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here |
 | `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline |
+| `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
+| `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive) |
 
 **Context pipeline** — `context/`
 

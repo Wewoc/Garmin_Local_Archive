@@ -47,8 +47,10 @@ DEFAULT_SETTINGS = {
     "timer_max_interval": "30",
     "timer_min_days":     "3",
     "timer_max_days":     "10",
-    "context_latitude":   "0.0",
-    "context_longitude":  "0.0",
+    "context_latitude":          "0.0",
+    "context_longitude":         "0.0",
+    "mirror_dir":                "",
+    "backup_raw_backfill_asked": False,
 }
 
 def load_settings() -> dict:
@@ -180,12 +182,15 @@ class GarminAppBase(tk.Tk):
         self._timer_btn           = None
         self._timer_next_mode     = "repair"
         self._timer_generation    = 0
+        self._mirror_running      = False
         self._build_ui()
         self._load_settings_to_ui()
         self.v_sync_mode.set("recent")
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(0, self._check_migration)
         threading.Thread(target=self._check_version, daemon=True).start()
+        threading.Thread(target=self._startup_integrity_check, daemon=True).start()
+        threading.Thread(target=self._startup_mirror_check, daemon=True).start()
 
     # ── Execution-model hooks ──────────────────────────────────────────────────
 
@@ -314,8 +319,10 @@ class GarminAppBase(tk.Tk):
         # ── Header ──
         header = tk.Frame(self, bg=BG3, pady=10)
         header.pack(fill="x")
-        tk.Label(header, text="🦄  GARMIN LOCAL ARCHIVE",
-                 font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT).pack(side="left", padx=20)
+        _unicorn = tk.Label(header, text="🦄  GARMIN LOCAL ARCHIVE",
+                            font=("Segoe UI", 13, "bold"), bg=BG3, fg=TEXT, cursor="arrow")
+        _unicorn.pack(side="left", padx=20)
+        _unicorn.bind("<Button-1>", lambda e: self._run_extended_analysis())
         tk.Label(header, text=APP_VERSION,
                  font=("Segoe UI", 9), bg=BG3, fg=TEXT2).pack(side="left", padx=(0, 8))
         tk.Label(header, text="local · private · yours",
@@ -406,7 +413,8 @@ class GarminAppBase(tk.Tk):
         self._field(s, "Password", self.v_password, show="•")
 
         s2 = self._section(parent, "Storage")
-        self.v_base_dir = tk.StringVar()
+        self.v_base_dir   = tk.StringVar()
+        self.v_mirror_dir = tk.StringVar()
         row = tk.Frame(s2, bg=BG2)
         row.pack(fill="x", padx=4, pady=2)
         tk.Label(row, text="Data folder", font=FONT_BODY, bg=BG2, fg=TEXT2,
@@ -416,6 +424,15 @@ class GarminAppBase(tk.Tk):
         tk.Button(row, text="…", font=FONT_BODY, bg=ACCENT2, fg=TEXT,
                   relief="flat", bd=0, padx=6,
                   command=self._browse_folder).pack(side="left")
+        row_m = tk.Frame(s2, bg=BG2)
+        row_m.pack(fill="x", padx=4, pady=2)
+        tk.Label(row_m, text="Mirror folder", font=FONT_BODY, bg=BG2, fg=TEXT2,
+                 width=14, anchor="w").pack(side="left")
+        tk.Entry(row_m, textvariable=self.v_mirror_dir, font=FONT_BODY, bg=BG3, fg=TEXT,
+                 insertbackground=TEXT, relief="flat", bd=4, width=18).pack(side="left", padx=(2, 2))
+        tk.Button(row_m, text="…", font=FONT_BODY, bg=ACCENT2, fg=TEXT,
+                  relief="flat", bd=0, padx=6,
+                  command=self._browse_mirror_folder).pack(side="left")
 
         s3 = self._section(parent, "Sync Mode")
         self.v_sync_mode = tk.StringVar()
@@ -533,6 +550,18 @@ class GarminAppBase(tk.Tk):
                   bg=BG3, fg=TEXT2, relief="flat", bd=0,
                   pady=7, padx=14, cursor="hand2",
                   command=self._reset_token).pack(side="right", padx=(0, 4))
+        self._restore_btn = tk.Button(
+            conn_row, text="Restore Data", font=FONT_BTN,
+            bg=BG3, fg=TEXT2, relief="flat", bd=0,
+            pady=7, padx=14, cursor="hand2", state="disabled",
+            command=self._on_restore_data)
+        self._restore_btn.pack(side="right", padx=(0, 4))
+        self._mirror_btn = tk.Button(
+            conn_row, text="🔁  Data Mirror", font=FONT_BTN,
+            bg=BG3, fg=TEXT2, relief="flat", bd=0,
+            pady=7, padx=14, cursor="hand2", state="disabled",
+            command=self._on_mirror)
+        self._mirror_btn.pack(side="right", padx=(0, 4))
 
         # ── Archive Info Panel ─────────────────────────────────────────────────
         info_frame = tk.Frame(fc, bg=BG)
@@ -579,6 +608,12 @@ class GarminAppBase(tk.Tk):
         self._info_last_bulk = tk.Label(row2, text="Last Bulk: —",
                                          font=("Segoe UI", 8), bg=BG, fg=TEXT2)
         self._info_last_bulk.pack(side="left")
+
+        # Integrity warning label — hidden until a mismatch is detected (A6)
+        self._integrity_warning_lbl = tk.Label(
+            info_frame, text="", font=("Segoe UI", 8, "bold"),
+            bg=BG, fg=YELLOW)
+        self._integrity_warning_lbl.pack(anchor="w", pady=(2, 0))
 
         # ── Data Collection ────────────────────────────────────────────────────
         f = tk.Frame(parent, bg=BG, pady=4)
@@ -945,6 +980,7 @@ class GarminAppBase(tk.Tk):
         self.v_timer_max_interval.set(s.get("timer_max_interval", "30"))
         self.v_timer_min_days.set(s.get("timer_min_days", "3"))
         self.v_timer_max_days.set(s.get("timer_max_days", "10"))
+        self.v_mirror_dir.set(s.get("mirror_dir", ""))
         self.v_maps_url.set(s.get("context_location", ""))
         lat = s.get("context_latitude", "0.0")
         lon = s.get("context_longitude", "0.0")
@@ -1004,6 +1040,8 @@ class GarminAppBase(tk.Tk):
             "context_location":   self.v_maps_url.get().strip(),
             "context_latitude":   self.settings.get("context_latitude", "0.0"),
             "context_longitude":  self.settings.get("context_longitude", "0.0"),
+            "mirror_dir":                self.v_mirror_dir.get().strip(),
+            "backup_raw_backfill_asked": self.settings.get("backup_raw_backfill_asked", False),
         }
 
     def _toggle_log_level(self):
@@ -1060,6 +1098,11 @@ class GarminAppBase(tk.Tk):
         except Exception:
             return
 
+        # Read integrity warnings from last load (A6)
+        # get_archive_stats reads via _load_quality_log internally
+        # Warnings are stored on the data dict and passed through stats
+        integrity_warnings = stats.get("integrity_warnings", [])
+
         def _apply():
             try:
                 self._info_total.config(text=f"Days: {stats['total']}")
@@ -1082,6 +1125,17 @@ class GarminAppBase(tk.Tk):
                     text=f"Last API: {stats['last_api']}" if stats["last_api"] else "Last API: —")
                 self._info_last_bulk.config(
                     text=f"Last Bulk: {stats['last_bulk']}" if stats["last_bulk"] else "Last Bulk: —")
+
+                # Integrity warnings (A6)
+                if integrity_warnings:
+                    warn_text = "  ".join(f"⚠ {w}" for w in integrity_warnings)
+                    self._integrity_warning_lbl.config(text=warn_text)
+                    self._integrity_warning_lbl.pack(anchor="w", pady=(2, 0))
+                    for w in integrity_warnings:
+                        self._log(f"⚠  Integrity warning: {w}")
+                else:
+                    self._integrity_warning_lbl.config(text="")
+                    self._integrity_warning_lbl.pack_forget()
             except Exception:
                 pass
 
@@ -1520,6 +1574,61 @@ class GarminAppBase(tk.Tk):
 
     # ── Sync actions ───────────────────────────────────────────────────────────
 
+    def _check_raw_backfill_popup(self, s: dict) -> None:
+        """
+        Checks if raw files exist without a backup copy (one-time, first sync).
+        If yes: shows a popup offering to run backfill in the background.
+        Sets backup_raw_backfill_asked=True regardless of user choice.
+        """
+        try:
+            import importlib, os
+            os.environ["GARMIN_OUTPUT_DIR"] = s.get("base_dir", "")
+            import garmin_backup as _backup
+            import garmin_config as _cfg
+            importlib.reload(_cfg)
+            importlib.reload(_backup)
+            count = _backup.check_raw_backfill_needed()
+        except Exception:
+            return
+
+        if count == 0:
+            # Nothing to do — mark as asked so we never check again
+            self.settings["backup_raw_backfill_asked"] = True
+            save_settings(self.settings)
+            return
+
+        confirmed = messagebox.askyesno(
+            "Raw Backup — New Feature",
+            f"Garmin Local Archive v1.5.1 introduced automatic raw file backups.\n\n"
+            f"{count} existing raw file(s) have no backup copy yet.\n\n"
+            f"Create backups now? This runs in the background and does not\n"
+            f"affect the sync. Completed months are stored as ZIP archives\n"
+            f"in garmin_data/backup/raw/.\n\n"
+            f"You can also skip this — new files will be backed up automatically\n"
+            f"after every sync from now on.",
+            icon="info",
+        )
+        if not confirmed:
+            return
+
+        def _do_backfill():
+            try:
+                result = _backup.backfill_raw()
+                self._log_bg(
+                    f"✓ Raw backup complete: {result['copied']} files backed up"
+                    + (f", {result['errors']} errors" if result["errors"] else "")
+                )
+            except Exception as e:
+                self._log_bg(f"✗ Raw backup failed: {e}")
+
+        import threading
+        # Mark as asked only after user confirmed — "No" keeps flag false,
+        # so next sync will ask again until user actively confirms or archive is complete.
+        self.settings["backup_raw_backfill_asked"] = True
+        save_settings(self.settings)
+        threading.Thread(target=_do_backfill, daemon=True).start()
+        self._log("🗄  Raw backup running in background …")
+
     def _run_collector(self):
         """Run connection test first (once per session), then start sync."""
         s = self._collect_settings()
@@ -1533,6 +1642,10 @@ class GarminAppBase(tk.Tk):
             self._timer_stop.set()
             self._timer_active = False
             self.after(0, self._timer_update_btn)
+
+        # Backfill-Check — einmalig beim ersten Sync nach v1.5.1
+        if not self.settings.get("backup_raw_backfill_asked", False):
+            self._check_raw_backfill_popup(s)
 
         refresh_failed = self._check_failed_days_popup(
             base_dir  = s["base_dir"],
@@ -2237,6 +2350,172 @@ class GarminAppBase(tk.Tk):
             return missing if missing else None
         except Exception:
             return None
+
+    # ── Backup / Restore / Mirror ──────────────────────────────────────────────
+
+    def _startup_mirror_check(self):
+        """
+        Checks at startup if mirror_dir is set and reachable (C3).
+        Updates _mirror_btn state via self.after().
+        """
+        try:
+            import garmin_mirror as _mirror
+            s          = self._collect_settings()
+            mirror_dir = s.get("mirror_dir", "").strip()
+            reachable  = _mirror.is_reachable(mirror_dir)
+        except Exception:
+            reachable = False
+
+        def _update():
+            if reachable:
+                self._mirror_btn.config(state="normal", fg=TEXT)
+            else:
+                self._mirror_btn.config(state="disabled", fg=TEXT2)
+        self.after(0, _update)
+
+    def _browse_mirror_folder(self):
+        d = filedialog.askdirectory(title="Select mirror folder")
+        if d:
+            self.v_mirror_dir.set(d)
+            # Re-check reachability immediately after selection
+            threading.Thread(target=self._startup_mirror_check, daemon=True).start()
+
+    def _on_mirror(self):
+        """Starts mirror operation in background thread (C4/C5)."""
+        if self._mirror_running:
+            return
+        s          = self._collect_settings()
+        mirror_dir = s.get("mirror_dir", "").strip()
+        if not mirror_dir:
+            messagebox.showwarning("Data Mirror", "No mirror folder configured.")
+            return
+        base_dir = Path(s.get("base_dir", "")).expanduser()
+
+        # C4 — block if any sync is running
+        if self._is_running():
+            messagebox.showwarning("Data Mirror",
+                "A Garmin sync is currently running.\nPlease wait until it finishes.")
+            return
+        if self._timer_active:
+            messagebox.showwarning("Data Mirror",
+                "Background timer is active.\nStop the timer before mirroring.")
+            return
+        if getattr(self, "_ctx_running", False):
+            messagebox.showwarning("Data Mirror",
+                "Context sync is running.\nPlease wait until it finishes.")
+            return
+
+        self._mirror_running = True
+        self._mirror_btn.config(state="disabled", text="🔁  Mirroring…", fg=YELLOW)
+        self._log("🔁  Data Mirror started …")
+
+        def _do_mirror():
+            try:
+                import garmin_mirror as _mirror
+                result = _mirror.run_mirror(base_dir, Path(mirror_dir))
+                msg = (
+                    f"✓ Mirror complete: {result['copied']} copied, "
+                    f"{result['deleted']} deleted, {result['skipped']} skipped"
+                )
+                if result["errors"]:
+                    msg += f", {result['errors']} errors"
+                self._log_bg(msg)
+            except Exception as e:
+                self._log_bg(f"✗ Mirror failed: {e}")
+            finally:
+                self._mirror_running = False
+                self.after(0, lambda: self._mirror_btn.config(
+                    state="normal", text="🔁  Data Mirror", fg=TEXT))
+
+        threading.Thread(target=_do_mirror, daemon=True).start()
+
+    def _startup_integrity_check(self):
+        """
+        Runs check_raw_integrity() in background at startup (B5).
+        Updates _restore_btn state via self.after().
+        """
+        try:
+            import garmin_backup as _backup
+            result = _backup.check_raw_integrity()
+        except Exception:
+            return
+
+        missing  = result.get("missing_days", [])
+        no_bkup  = result.get("no_backup", [])
+
+        def _update():
+            if not missing:
+                self._restore_btn.config(state="disabled", text="Restore Data", fg=TEXT2)
+                return
+            if no_bkup:
+                label = f"⚠ {len(missing)} days missing, {len(no_bkup)} no backup"
+            else:
+                label = f"⚠ {len(missing)} days missing"
+            self._restore_btn.config(
+                state="normal", text=label, fg=YELLOW,
+                command=lambda: self._on_restore_data(missing, no_bkup))
+
+        self.after(0, _update)
+
+    def _on_restore_data(self, missing_days: list = None, no_backup: list = None):
+        """Handles Restore Data button click (B5)."""
+        if not missing_days:
+            return
+
+        if no_backup:
+            detail = "\n".join(no_backup[:10])
+            if len(no_backup) > 10:
+                detail += f"\n… and {len(no_backup) - 10} more"
+            messagebox.showwarning(
+                "Restore Data",
+                f"{len(no_backup)} day(s) have no backup and cannot be restored:\n\n"
+                f"{detail}\n\nThese days must be re-fetched from Garmin Connect.",
+            )
+
+        restorable = [d for d in missing_days if d not in (no_backup or [])]
+        if not restorable:
+            return
+
+        confirmed = messagebox.askyesno(
+            "Restore Data",
+            f"Restore {len(restorable)} day(s) from backup?\n\n"
+            f"First day: {restorable[0]}\nLast day:  {restorable[-1]}",
+        )
+        if not confirmed:
+            return
+
+        def _do_restore():
+            try:
+                import garmin_backup as _backup
+                result = _backup.restore_raw_days(restorable)
+                restored = result.get("restored", [])
+                failed   = result.get("failed", [])
+                self._log_bg(
+                    f"✓ Restore complete: {len(restored)} restored"
+                    + (f", {len(failed)} failed" if failed else "")
+                )
+                self.after(0, lambda: self._restore_btn.config(
+                    state="disabled", text="Restore Data", fg=TEXT2))
+            except Exception as e:
+                self._log_bg(f"✗ Restore failed: {e}")
+
+        threading.Thread(target=_do_restore, daemon=True).start()
+
+    # ── Extended Analysis ─────────────────────────────────────────
+
+    def _run_extended_analysis(self):
+        """Launches garmin_extended_anaysis.py in a new console window.
+        Subclass (garmin_app.py) overrides this with _find_python() access."""
+        pass  # overridden in garmin_app.py
+
+    def _find_script(self, name: str):
+        """Locates a script file — checks scripts/ next to exe, then project root."""
+        candidates = [
+            Path(sys.executable).parent / "scripts" / name,
+            Path(__file__).parent / "garmin" / name,
+            Path(__file__).parent / name,
+        ]
+        return next((p for p in candidates if p.exists()), None)
 
     # ── Close ──────────────────────────────────────────────────────────────────
 
