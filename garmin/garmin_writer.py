@@ -71,6 +71,16 @@ def write_day(normalized: dict, summary: dict, date_str: str) -> bool:
         tmp_summary = None
 
         log.debug(f"  Writer: raw + summary written for {date_str}")
+
+        # Trigger incremental raw backup (B1) — lazy import, failure non-fatal
+        try:
+            import garmin_backup as _backup
+            _backup.backup_raw(date_str)
+        except ImportError:
+            pass  # garmin_backup not yet available
+        except Exception as e:
+            log.error(f"  Writer: raw backup trigger failed for {date_str}: {e}")
+
         return True
 
     except Exception as e:

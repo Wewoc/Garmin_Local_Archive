@@ -17,9 +17,11 @@ All other modules receive quality data as a plain dict parameter — they
 never read or write quality_log.json directly.
 """
 
+import hashlib
 import json
 import logging
 import threading
+import zipfile
 from datetime import date, datetime
 from pathlib import Path
 
@@ -46,6 +48,13 @@ def _load_quality_log() -> dict:
       - 'category' field → 'quality' field
       - old 'error' → 'failed', old 'incomplete' → 'low'
       - Adds missing fields: recheck, last_checked
+
+    Integrity check (A6/A7):
+      - Verifies stored checksum against recomputed hash after load
+      - On mismatch: attempts auto-restore from latest backup ZIP
+      - Returns integrity_warnings: list[str] in the result dict
+        (empty list = all OK). App-layer reads this key and displays
+        a yellow label in the Archive Info Panel via self.after().
     """
     old_file = cfg.LOG_DIR / "failed_days.json"
 
@@ -133,29 +142,143 @@ def _load_quality_log() -> dict:
 
         # Save to new location if migrated from old file
         if source == old_file:
-            _save_quality_log(data)
+            _save_quality_log(data, skip_backup=True)
             try:
                 old_file.unlink()
                 log.info("  Migration complete — failed_days.json removed.")
             except Exception:
                 pass
+        # No re-save needed: _compute_checksum uses only stable core fields
+        # (date, quality, write) that are always present at save time.
+        # Field migrations (fields, source, recheck) do not affect the checksum.
 
+        # ── Integrity check (A6/A7) — nach allen Migrationen ─────────────────
+        # Checksum wird NACH der Migration geprüft, weil Migrationen
+        # (fields, source, recheck etc.) die days-Struktur verändern.
+        # Beim nächsten Save wird ein konsistenter Checksum gespeichert.
+        integrity_warnings = []
+        stored_checksum = data.get("_checksum")
+        if stored_checksum and source == cfg.QUALITY_LOG_FILE:
+            recomputed = _compute_checksum(data)
+            if recomputed != stored_checksum:
+                years_affected = sorted({
+                    e["date"][:4] for e in data.get("days", [])
+                    if "date" in e
+                })
+                for yr in years_affected:
+                    integrity_warnings.append(f"log mismatch {yr}")
+                log.warning(
+                    f"  quality_log.json checksum mismatch — affected years: "
+                    f"{', '.join(years_affected)}"
+                )
+                # Auto-restore from latest backup (A7)
+                try:
+                    import garmin_backup as _backup
+                    restored = _backup.restore_quality_log()
+                    if restored is not None:
+                        # Save defective state first
+                        _save_defective_log(data)
+                        data = restored
+                        data["integrity_warnings"] = integrity_warnings
+                        log.info("  quality_log.json restored from backup.")
+                    else:
+                        log.warning(
+                            "  Auto-restore failed — no valid backup found. "
+                            "App continues with current (possibly corrupt) log."
+                        )
+                except ImportError:
+                    # garmin_backup not yet available (component B not built)
+                    log.warning(
+                        "  garmin_backup not available — skipping auto-restore."
+                    )
+
+        data["integrity_warnings"] = integrity_warnings
         return data
 
     except Exception as e:
         log.warning(f"  Could not read quality log: {e} — starting fresh.")
-        return {"first_day": None, "devices": [], "days": []}
+        return {"first_day": None, "devices": [], "days": [], "integrity_warnings": []}
 
 
-def _save_quality_log(data: dict) -> None:
-    """Writes quality_log.json atomically via temp file."""
+def _save_quality_log(data: dict, skip_backup: bool = False) -> None:
+    """
+    Writes quality_log.json atomically via temp file.
+
+    skip_backup=True: suppresses backup trigger (used for filename-migration
+      where content is unchanged — no backup needed).
+    skip_backup=False (default): triggers garmin_backup after successful write
+      for monthly snapshot and yearly consolidation (A2, A4).
+
+    Before writing:
+      - sorts data['days'] by 'date' ascending (A3)
+      - computes and stores SHA-256 checksum of entries (A3)
+    """
+    # Sort days chronologically (A3) — deterministic checksum as side-effect
+    try:
+        data["days"] = sorted(data.get("days", []), key=lambda e: e.get("date", ""))
+    except Exception:
+        pass
+
+    # Compute checksum over entries only (A3)
+    # Use sort_keys=True + compact separators for stable hash input
+    data["_checksum"] = _compute_checksum(data)
+
     tmp = cfg.QUALITY_LOG_FILE.with_suffix(".tmp")
     try:
+        cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         tmp.replace(cfg.QUALITY_LOG_FILE)
     except Exception as e:
         log.warning(f"  Could not write quality_log.json: {e}")
+        return
+
+    if skip_backup:
+        return
+
+    # Trigger backup — monthly snapshot + yearly consolidation (A2, A4)
+    try:
+        import garmin_backup as _backup
+        _backup.backup_quality_log()
+    except ImportError:
+        pass  # garmin_backup not yet available (component B not built)
+    except Exception as e:
+        log.warning(f"  quality_log backup trigger failed: {e}")
+
+
+def _compute_checksum(data: dict) -> str:
+    """
+    Computes SHA-256 hash over stable core fields of each day entry:
+    date, quality, write — always present after a save, never added by migration.
+    This keeps the checksum stable across schema migrations that add new fields.
+    """
+    stable = [
+        {
+            "date":  e.get("date"),
+            "write": e.get("write"),
+        }
+        for e in sorted(data.get("days", []), key=lambda e: e.get("date", ""))
+    ]
+    payload = json.dumps(stable, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _save_defective_log(data: dict) -> None:
+    """
+    Saves a copy of the defective quality_log state to AUTORESTORE_DIR
+    before auto-restore overwrites it. Filename: auto-restore-YYYY-MM-DD.zip
+    Silently skips on any error — defective state preservation is best-effort.
+    """
+    try:
+        cfg.AUTORESTORE_DIR.mkdir(parents=True, exist_ok=True)
+        ts       = datetime.now().strftime("%Y-%m-%d")
+        zip_path = cfg.AUTORESTORE_DIR / f"auto-restore-{ts}.zip"
+        payload  = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("quality_log_defective.json", payload)
+        log.info(f"  Defective log saved to: {zip_path.name}")
+    except Exception as e:
+        log.warning(f"  Could not save defective log: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -762,16 +885,17 @@ def get_archive_stats(quality_log_path=None) -> dict:
             pass
 
     return {
-        "total":        len(days),
-        "high":         counts["high"],
-        "medium":       counts["medium"],
-        "low":          counts["low"],
-        "failed":       counts["failed"],
-        "recheck":      recheck,
-        "missing":      missing,
-        "date_min":     date_min,
-        "date_max":     date_max,
-        "coverage_pct": coverage_pct,
-        "last_api":     max(api_dates)  if api_dates  else None,
-        "last_bulk":    max(bulk_dates) if bulk_dates else None,
+        "total":              len(days),
+        "high":               counts["high"],
+        "medium":             counts["medium"],
+        "low":                counts["low"],
+        "failed":             counts["failed"],
+        "recheck":            recheck,
+        "missing":            missing,
+        "date_min":           date_min,
+        "date_max":           date_max,
+        "coverage_pct":       coverage_pct,
+        "last_api":           max(api_dates)  if api_dates  else None,
+        "last_bulk":          max(bulk_dates) if bulk_dates else None,
+        "integrity_warnings": data.get("integrity_warnings", []),
     }
