@@ -127,25 +127,13 @@ This project is built for my own use. If it happens to be useful to others, feel
 
 ## Token security & Login
 
-Garmin login works via SSO — logging in with email and password on every 
-run triggers Captcha or MFA. The solution: log in once manually, and 
-Garmin returns an OAuth token that handles all subsequent runs for 
-approximately one year. This token is equivalent to a logged-in session 
+Garmin login works via SSO — logging in with email and password on every
+run triggers Captcha or MFA. The solution: log in once manually, and
+Garmin returns an OAuth token that handles all subsequent runs for
+approximately one year. This token is equivalent to a logged-in session
 and must not sit unprotected on disk.
 
-**How it's protected:** The token is encrypted with AES-256-GCM before 
-being written to disk. The encryption key is derived from a user-defined 
-string using PBKDF2-HMAC-SHA256 (600,000 iterations — current OWASP 
-recommendation) and stored in Windows Credential Manager, never on disk 
-in plaintext. A fresh random salt on every save means the same key 
-produces different ciphertext each time — no pre-computation attacks.
-
-| Threat | Protected? |
-|---|---|
-| Token file in cloud sync / accidental upload | ✅ Yes |
-| Token file copied from disk without WCM access | ✅ Yes |
-| Tampered token file | ✅ Yes — detected on load |
-| Attacker with full Windows account access | ❌ No — system-level boundary, same for all local tools |
+The token is encrypted at rest. Details on the encryption design and threat model: [SECURITY.md](SECURITY.md)
 
 ---
 
