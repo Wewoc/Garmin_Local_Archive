@@ -81,8 +81,19 @@ pipeline changes required.
 - All HTML output files — untouched
 
 **Effort:** high. PyQt6 requires a threading model change (`QThread`
-instead of `threading.Thread` + `self.after()`). PyInstaller packaging
-increases significantly due to QWebEngineView (~60MB Chromium runtime).
+instead of `threading.Thread` + `self.after()`). The GUI itself will
+likely be simpler than tkinter — the hard part is deployment.
+
+QWebEngineView embeds Chromium. Expected impact on the standalone build:
+- EXE size: +150–200 MB
+- RAM at runtime: significantly higher
+- PyInstaller: additional flags required (`QtWebEngineProcess`,
+  codecs, locales, resources, sandbox binaries)
+
+This is the primary technical risk of v1.5.3 — not the UI rewrite
+itself, but the packaging of the Chromium runtime under PyInstaller.
+The v1.5.2 separation limits this risk: all Qt-specific complexity
+stays contained in `garmin_app_base.py`.
 
 **Alternative: CustomTkinter**
 If embedded dashboards are not a priority at build time, CustomTkinter
