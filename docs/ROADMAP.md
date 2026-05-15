@@ -14,11 +14,90 @@
 
 ---
 
-### v1.5.2 — Content Validation
+### v1.5.2 — GUI / Controller Separation
+
+`garmin_app_base.py` has grown to ~2500 lines mixing four conceptually
+distinct layers: configuration, UI construction, application logic, and
+UI callbacks. This refactoring separates them before v2.0 makes the
+cost of doing so significantly higher.
+
+**New modules:**
+- `app/garmin_app_settings.py` — settings persistence, keyring helpers,
+  constants. No tkinter dependency — importable in any context.
+- `app/garmin_app_controller.py` — application logic: ENV construction,
+  archive stats, connection checks, timer logic, integrity checks.
+  No tkinter dependency — pure functions, return values only.
+
+**What does not change:**
+- `garmin_app_base.py` remains the UI layer — layout, widgets, callbacks
+- `garmin_app.py` and `garmin_app_standalone.py` — minimal changes to
+  sys.path and imports only
+- All three build targets — no behavioural change, no new features
+- Test suite — 102 existing checks must remain green; import paths updated
+
+**Why now:**
+- Separation of concerns — each module owns exactly one thing
+- v2.0 readiness — multi-source architecture with a 2500-line monolith
+  as GUI base would be painful; separation now costs far less than later
+- Context window — more, smaller files are better for LLM-assisted
+  development
+- `garmin_app_settings` becomes importable without tkinter — relevant
+  if headless contexts ever need settings access
+
+Full plan and dependency analysis in `REFACTORING_GUI_Separation.md`.
+
+---
+
+### v1.5.3 — Modern UI Layer
+
+**Prerequisite: v1.5.2 GUI / Controller Separation complete.**
+
+After the separation, the UI layer (`garmin_app_base.py`) is the only
+file that needs to change for a UI technology swap. The controller and
+settings modules are reused without modification.
+
+**Target: PyQt6 with QWebEngineView**
+
+PyQt6 is the primary target. The decisive factor is `QWebEngineView` —
+a fully embedded Chromium widget that renders Plotly HTML dashboards
+natively inside the app. No external browser, no local server, no
+pipeline changes required.
+
+- Dashboards open inline — in the main window or a docked panel
+- Daily Update can show results directly without `os.startfile()`
+- Full Plotly interactivity: zoom, hover, filter — all in-app
+- v2.0 readiness: multi-source dashboards with cross-source views
+  become a first-class UI element, not a browser export
+
+**What changes:**
+- `garmin_app_base.py` — rewritten in PyQt6 (Signals/Slots, QThread)
+- `garmin_app.py` / `garmin_app_standalone.py` — entry points updated
+- `daily_update.py` — unaffected; remains fully headless
+
+**What does not change:**
+- `app/garmin_app_settings.py` — untouched
+- `app/garmin_app_controller.py` — untouched
+- Dashboard pipeline (specialists, plotters, brokers) — untouched
+- All HTML output files — untouched
+
+**Effort:** high. PyQt6 requires a threading model change (`QThread`
+instead of `threading.Thread` + `self.after()`). PyInstaller packaging
+increases significantly due to QWebEngineView (~60MB Chromium runtime).
+
+**Alternative: CustomTkinter**
+If embedded dashboards are not a priority at build time, CustomTkinter
+remains a valid fallback — modern styling, no paradigm shift,
+PyInstaller-friendly. Decision deferred until v1.5.2 is complete.
+
+---
+
+### v1.5.4 — Content Validation
 
 ### Note — Test Suite Refactor (post-v1.5.1)
 
 Test files (`test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_app_logic.py`) have grown organically. A dedicated refactor session after v1.5.1 is stable would introduce: shared setup helpers, section isolation (early crash doesn't cascade), possible pytest migration. No urgency — 306/306 green is the baseline.
+
+### v1.5.4 — Content Validation
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
 
@@ -120,7 +199,7 @@ Metrics (candidates):
 - Stress heatmap
 - Body Battery heatmap
 
-Pre-condition: v1.6 Render Registry must be complete — new specialist registers its own renderer, no `if/elif` edit required.idee
+Pre-condition: v1.6 Render Registry must be complete — new specialist registers its own renderer, no `if/elif` edit required.
 
 ---
 
