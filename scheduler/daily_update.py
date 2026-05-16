@@ -90,7 +90,7 @@ DEFAULT_SETTINGS = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s %(levelname)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -289,7 +289,7 @@ def _build_env(s: dict, password: str, date_from: date | None, date_to: date | N
     env["GARMIN_REFRESH_FAILED"]    = "0"
     env["GARMIN_PROFILE_AGE"]       = str(s.get("age", "35"))
     env["GARMIN_PROFILE_SEX"]       = str(s.get("sex", "male"))
-    env["GARMIN_LOG_LEVEL"]         = "INFO"
+    env["GARMIN_LOG_LEVEL"]         = "DEBUG"
     env["GARMIN_SESSION_LOG_PREFIX"] = "daily"
     env["GARMIN_SYNC_DATES"]        = ""
     env["GARMIN_CONTEXT_LAT"]       = str(s.get("context_latitude",  "0.0"))
