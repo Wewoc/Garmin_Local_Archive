@@ -43,6 +43,12 @@ LOG_FAIL_DIR   = LOG_DIR / "fail"
 # Quality log
 QUALITY_LOG_FILE = LOG_DIR / "quality_log.json"
 
+# Backup directories (sole owner: garmin_backup.py)
+BACKUP_DIR       = GARMIN_DIR / "backup"
+LOG_BACKUP_DIR   = BACKUP_DIR / "log"    # quality_log ZIPs (monatlich + jährlich)
+RAW_BACKUP_DIR   = BACKUP_DIR / "raw"    # Raw-Verzeichnisse / ZIPs
+AUTORESTORE_DIR  = BACKUP_DIR / "autorestore"  # defekte Stände vor Auto-Restore
+
 # Schema definition for garmin_validator.py
 DATAFORMAT_FILE = Path(__file__).parent / "garmin_dataformat.json"
 

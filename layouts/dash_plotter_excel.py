@@ -227,6 +227,7 @@ def _write_sleep_sheet(wb: Workbook, data: dict) -> None:
     COL_FB    = COL_QUAL  + 1                  # = 25
     COL_HRV   = COL_FB    + 1                  # = 26
     COL_BB    = COL_HRV   + 1                  # = 27
+    COL_HRV7D = COL_BB    + 1                  # = 28
 
     # ── Column widths ─────────────────────────────────────────────────────────
     ws.column_dimensions["A"].width = 12
@@ -238,17 +239,19 @@ def _write_sleep_sheet(wb: Workbook, data: dict) -> None:
     ws.column_dimensions[get_column_letter(COL_FB)].width    = 32
     ws.column_dimensions[get_column_letter(COL_HRV)].width   = 8
     ws.column_dimensions[get_column_letter(COL_BB)].width    = 12
+    ws.column_dimensions[get_column_letter(COL_HRV7D)].width = 10
 
     # ── Header row ────────────────────────────────────────────────────────────
     headers = {
-        1:        "Date",
-        BAR_START:"Sleep Phases",
-        COL_DUR:  "Duration",
-        COL_SCORE:"Score",
-        COL_QUAL: "Quality",
-        COL_FB:   "Feedback",
-        COL_HRV:  "HRV",
-        COL_BB:   "Body Battery",
+        1:         "Date",
+        BAR_START: "Sleep Phases",
+        COL_DUR:   "Duration",
+        COL_SCORE: "Score",
+        COL_QUAL:  "Quality",
+        COL_FB:    "Feedback",
+        COL_HRV:   "HRV",
+        COL_BB:    "Body Battery",
+        COL_HRV7D: "HRV 7d Ø",
     }
     for col, label in headers.items():
         cell           = ws.cell(1, col, label)
@@ -357,6 +360,15 @@ def _write_sleep_sheet(wb: Workbook, data: dict) -> None:
         c.font      = Font(name="Arial", bold=True, color=bb_hex, size=10)
         c.alignment = Alignment(horizontal="center")
         c.border    = _CELL_BORDER
+
+        # HRV 7d moving average
+        hrv_7d = row.get("hrv_7d_avg")
+        hrv_7d_hex = _value_color_hex(hrv_7d, ref_hrv_low, ref_hrv_high)
+        c = ws.cell(row_idx, COL_HRV7D, hrv_7d)
+        c.font          = Font(name="Arial", bold=False, color=hrv_7d_hex, size=10)
+        c.alignment     = Alignment(horizontal="center")
+        c.border        = _CELL_BORDER
+        c.number_format = "0.0"
 
 
 def _write_overview_sheet(wb: Workbook, data: dict) -> None:

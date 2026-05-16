@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5**
+**Currently stable — v1.5.1.1**
 
 ---
 
@@ -14,32 +14,129 @@
 
 ---
 
-### v1.5.1 — Archive Integrity & Backup
+### v1.5.2 — GUI / Controller Separation
 
-Protection of the local archive against software errors and silent data loss — independent of OS-level backup.
+`garmin_app_base.py` has grown to ~2500 lines mixing four conceptually
+distinct layers: configuration, UI construction, application logic, and
+UI callbacks. This refactoring separates them before v2.0 makes the
+cost of doing so significantly higher.
 
-**`quality_log.json`**
+**New modules:**
+- `app/garmin_app_settings.py` — settings persistence, keyring helpers,
+  constants. No tkinter dependency — importable in any context.
+- `app/garmin_app_controller.py` — application logic: ENV construction,
+  archive stats, connection checks, timer logic, integrity checks.
+  No tkinter dependency — pure functions, return values only.
 
-- **Monthly backup** — `_save_quality_log()` creates a snapshot once per month as `quality_log_YYYY-MM.zip` in `log/backup/`. On the first save of a new year, the previous year is consolidated into `quality_log_YYYY.zip` and all monthly zips for that year are removed.
-- **Per-year checksums** — on every save, a SHA-256 hash is computed over all `days` entries for each calendar year and stored in a `checksums` block inside `quality_log.json`. On load, all completed years are verified — a mismatch triggers a warning in the log and GUI indicating which year is affected and where the backup is located.
+**What does not change:**
+- `garmin_app_base.py` remains the UI layer — layout, widgets, callbacks
+- `garmin_app.py` and `garmin_app_standalone.py` — minimal changes to
+  sys.path and imports only
+- All three build targets — no behavioural change, no new features
+- Test suite — 102 existing checks must remain green; import paths updated
 
-**`raw/`** — incremental backup of newly written files. Motivation: Garmin degrades intraday data in stages (full resolution → reduced → summaries only), with the high-resolution window covering only the most recent ~6 months — the local raw copy is then the only source. A software bug in the writer that overwrites or corrupts a raw file is not recoverable without a backup. This is a direct extension of the data erosion protection that is a core promise of this project.
+**Why now:**
+- Separation of concerns — each module owns exactly one thing
+- v2.0 readiness — multi-source architecture with a 2500-line monolith
+  as GUI base would be painful; separation now costs far less than later
+- Context window — more, smaller files are better for LLM-assisted
+  development
+- `garmin_app_settings` becomes importable without tkinter — relevant
+  if headless contexts ever need settings access
 
-- Ownership: writer or a dedicated backup module — to be evaluated
-- Strategy: incremental, newly written files only
-- Scope and implementation to be defined after v1.4 is stable
+Full plan and dependency analysis in `REFACTORING_GUI_Separation.md`.
 
-**Mirror Backup (manual)** — a button in the GUI copies the full archive to a second location configured once in Settings (path, optional — leaving it empty disables the feature). On each run: destination is compared against source (filename + size), missing files are copied over. Follows the same manual trigger pattern as Sync Garmin and Sync Context — no automatic execution. Target location can be a NAS, external drive, or any local path. If the destination is unreachable, the operation logs a clear warning and exits cleanly.
+---
 
-### v1.5.2 — Content Validation
+### v1.5.3 — Modern UI Layer
+
+**Prerequisite: v1.5.2 GUI / Controller Separation complete.**
+
+After the separation, the UI layer (`garmin_app_base.py`) is the only
+file that needs to change for a UI technology swap. The controller and
+settings modules are reused without modification.
+
+**Target: PyQt6 with QWebEngineView**
+
+PyQt6 is the primary target. The decisive factor is `QWebEngineView` —
+a fully embedded Chromium widget that renders Plotly HTML dashboards
+natively inside the app. No external browser, no local server, no
+pipeline changes required.
+
+- Dashboards open inline — in the main window or a docked panel
+- Daily Update can show results directly without `os.startfile()`
+- Full Plotly interactivity: zoom, hover, filter — all in-app
+- v2.0 readiness: multi-source dashboards with cross-source views
+  become a first-class UI element, not a browser export
+
+**What changes:**
+- `garmin_app_base.py` — rewritten in PyQt6 (Signals/Slots, QThread)
+- `garmin_app.py` / `garmin_app_standalone.py` — entry points updated
+- `daily_update.py` — unaffected; remains fully headless
+
+**What does not change:**
+- `app/garmin_app_settings.py` — untouched
+- `app/garmin_app_controller.py` — untouched
+- Dashboard pipeline (specialists, plotters, brokers) — untouched
+- All HTML output files — untouched
+
+**Effort:** high. PyQt6 requires a threading model change (`QThread`
+instead of `threading.Thread` + `self.after()`). The GUI itself will
+likely be simpler than tkinter — the hard part is deployment.
+
+QWebEngineView embeds Chromium. Expected impact on the standalone build:
+- EXE size: +150–200 MB
+- RAM at runtime: significantly higher
+- PyInstaller: additional flags required (`QtWebEngineProcess`,
+  codecs, locales, resources, sandbox binaries)
+
+This is the primary technical risk of v1.5.3 — not the UI rewrite
+itself, but the packaging of the Chromium runtime under PyInstaller.
+The v1.5.2 separation limits this risk: all Qt-specific complexity
+stays contained in `garmin_app_base.py`.
+
+**Alternative: CustomTkinter**
+If embedded dashboards are not a priority at build time, CustomTkinter
+remains a valid fallback — modern styling, no paradigm shift,
+PyInstaller-friendly. Decision deferred until v1.5.2 is complete.
+
+---
+
+### v1.5.4 — Content Validation
+
+### Note — Test Suite Refactor (post-v1.5.1)
+
+Test files (`test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_app_logic.py`) have grown organically. A dedicated refactor session after v1.5.1 is stable would introduce: shared setup helpers, section isolation (early crash doesn't cascade), possible pytest migration. No urgency — 306/306 green is the baseline.
+
+### v1.5.4 — Content Validation
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
+
+**Archive Integrity Alert (GUI)**
+
+Detection layer already exists: `check_raw_integrity()` in `garmin_backup.py` compares `quality_log` write-entries against actually present raw files; `integrity_warnings` in `garmin_quality.py` catches checksum mismatches with auto-restore. What is missing: a visible warning in the GUI status panel when either check fires. Users currently see nothing — warnings land only in the log.
 
 ---
 
 ## Planned — v1.6
 
 ### v1.6 — Dashboard Render Registry
+
+**Step 1 — Dashboard Consolidation & UI Refactor (pre-condition)**
+
+The existing specialist set has grown organically and contains redundancy.
+Before the registry is introduced — and before new specialists are added —
+the current set is reviewed and cleaned up:
+
+- Redundant or overlapping specialists are merged or removed
+- `META["description"]` entries are revised for clarity
+- The Create Reports popup widget (`garmin_app.py`) is reworked:
+  full descriptions visible, column layout readable at a glance
+
+Rationale: the registry should be built over a clean, stable specialist set —
+not over a baseline that will be restructured again afterwards.
+
+**Step 2 — Render Registry**
 
 The dashboard render layer currently dispatches layout types via an `if/elif`
 block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
@@ -98,6 +195,25 @@ When the Sleep Dashboard is built, an Explorer HTML is automatically generated f
 
 ---
 
+### v1.6.3 — Heatmap Dashboard
+New specialist: activity and physiological patterns visualized as time-of-day × date heatmaps.
+New:
+
+- `dashboards/heatmap_garmin_html_dash.py` — Specialist: fetches intraday series for N days via `field_map.py`, pivots to hourly bins, returns neutral heatmap dict
+- `garmin_map._FIELD_MAP` — `steps_series` entry added (movement array, analogous to heart_rate_series)
+- `dash_plotter_html_complex.py` — `heatmap` chart type added via render registry (v1.6 pre-condition)
+
+Metrics (candidates):
+
+- Heart Rate heatmap (X = time of day 0–24h, Y = date, color = bpm)
+- Steps heatmap (activity regularity)
+- Stress heatmap
+- Body Battery heatmap
+
+Pre-condition: v1.6 Render Registry must be complete — new specialist registers its own renderer, no `if/elif` edit required.
+
+---
+
 ## Planned — v1.7
 
 - **Garmin FIT Pipeline & Plugin Architecture**
@@ -106,6 +222,31 @@ When the Sleep Dashboard is built, an Explorer HTML is automatically generated f
   *Pre-conditions (resolved before plugin work begins):*
   - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
   - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
+
+---
+
+### v1.7.1 — PDF Report
+
+A standalone workflow for generating a formatted health report as PDF — separate from the Create Reports pipeline. Triggered via a dedicated **PDF Report** button in the Outputs section of the GUI (not via the Create Reports dialog, to avoid collision with Daily Update and the existing report workflow).
+
+**Workflow:**
+
+1. User clicks **PDF Report** — a separate console/dialog opens
+2. User selects sections (HRV, Sleep, Activity, ...) and date range
+3. App generates `/dashboards/pdf-report/yyyy-mm-dd/report_data.json` and a prompt file with output structure instructions for the LLM
+4. Console displays: instructions for the LLM step — user runs their local LLM externally and saves the response as `LLM-Output.md` in the same folder
+5. User confirms → app checks whether `LLM-Output.md` exists → renders PDF with or without LLM analysis
+
+**Output folder:** `/dashboards/pdf-report/yyyy-mm-dd/`
+- `report_data.json` — section data for LLM input
+- `LLM-Output.md` — optional, user-provided LLM response
+- `report_yyyy-mm-dd.pdf` — final report
+
+**Page 1:** mandatory disclaimer — no medical product, no diagnosis, no therapy recommendation.
+
+**LLM step is fully optional** — report renders completely without it. No API calls, no cloud dependency, no model lock-in. User chooses their own LLM (Open WebUI, ChatGPT, anything).
+
+*Pre-condition: v1.7 FIT Pipeline stable — Activity data available via `field_map.py` broker before PDF Report is built.*
 
 ---
 

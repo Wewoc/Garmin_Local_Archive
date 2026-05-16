@@ -2,7 +2,7 @@
 
 # Garmin Local Archive
 
-Archive and analyze your Garmin Connect data **locally on your machine** — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
+Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
 
 ---
 
@@ -40,7 +40,7 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Timeseries** | Intraday heart rate, stress, SpO2, body battery and respiration as zoomable charts across any date range. | HTML, Excel |
 | **Daily Overview** | All summary fields in one flat table, one row per day. | Excel |
 | **Health + Context** | Garmin health metrics alongside local weather and pollen data. | HTML, Excel |
-| **Sleep Dashboard** | One row per night — segmented phase bar (Deep / Light / REM / Awake), sleep duration, score, quality badge, feedback label, HRV, and Body Battery. Color-coded numbers via continuous gradient against personal reference ranges. | HTML, Excel |
+| **Sleep Dashboard** | One row per night — segmented phase bar (Deep / Light / REM / Awake), sleep duration, score, quality badge, feedback label, HRV, Body Battery, and **7-day HRV moving average** (computed from archive, no extra API call). Color-coded numbers via continuous gradient against personal reference ranges. Inspired by [Garmin's own HRV pattern guide](https://www.garmin.com/en-US/blog/fitness/understanding-the-hrv-status-on-your-garmin-smartwatch/). | HTML, Excel |
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 | **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
 
@@ -116,7 +116,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 Local-first, personal use, no enterprise ambitions.
 
 - Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
-- Five local test suites (849 checks + build output validation) — no CI/CD yet
+- Five local test suites (928 checks + build output validation) — no CI/CD yet
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
 - Historical data quality depends on Garmin servers
@@ -127,25 +127,13 @@ This project is built for my own use. If it happens to be useful to others, feel
 
 ## Token security & Login
 
-Garmin login works via SSO — logging in with email and password on every 
-run triggers Captcha or MFA. The solution: log in once manually, and 
-Garmin returns an OAuth token that handles all subsequent runs for 
-approximately one year. This token is equivalent to a logged-in session 
+Garmin login works via SSO — logging in with email and password on every
+run triggers Captcha or MFA. The solution: log in once manually, and
+Garmin returns an OAuth token that handles all subsequent runs for
+approximately one year. This token is equivalent to a logged-in session
 and must not sit unprotected on disk.
 
-**How it's protected:** The token is encrypted with AES-256-GCM before 
-being written to disk. The encryption key is derived from a user-defined 
-string using PBKDF2-HMAC-SHA256 (600,000 iterations — current OWASP 
-recommendation) and stored in Windows Credential Manager, never on disk 
-in plaintext. A fresh random salt on every save means the same key 
-produces different ciphertext each time — no pre-computation attacks.
-
-| Threat | Protected? |
-|---|---|
-| Token file in cloud sync / accidental upload | ✅ Yes |
-| Token file copied from disk without WCM access | ✅ Yes |
-| Tampered token file | ✅ Yes — detected on load |
-| Attacker with full Windows account access | ❌ No — system-level boundary, same for all local tools |
+The token is encrypted at rest. Details on the encryption design and threat model: [SECURITY.md](SECURITY.md)
 
 ---
 
@@ -257,10 +245,12 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_security.py` | Token encryption/decryption — AES-256-GCM, key stored in Windows Credential Manager |
 | `garmin_validator.py` | Structural validation against `garmin_dataformat.json` — detects API changes before they reach the normalizer |
 | `garmin_normalizer.py` | Unified data schema across sources + summary extraction |
-| `garmin_quality.py` | Quality assessment — sole owner of `quality_log.json` |
+| `garmin_quality.py` | Quality assessment — sole owner of `quality_log.json`. Checksum-protected, auto-restore on mismatch |
 | `garmin_sync.py` | Determines which days are missing |
 | `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here |
 | `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline |
+| `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
+| `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive) |
 
 **Context pipeline** — `context/`
 

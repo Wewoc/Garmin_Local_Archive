@@ -205,6 +205,25 @@ class GarminApp(GarminAppBase):
     def _is_running(self) -> bool:
         return self._active_proc is not None
 
+    def _run_extended_analysis(self):
+        """Launches garmin_extended_anaysis.py in a new console window."""
+        import subprocess
+        s = self._collect_settings()
+        try:
+            script = script_path("garmin_extended_anaysis.py")
+            if not script.exists():
+                return
+            env = self._build_env_dict(s)
+            env["GARMIN_OUTPUT_DIR"] = s.get("base_dir", "")
+            subprocess.Popen(
+                [str(_find_python()), str(script)],
+                env={**os.environ, **env},
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                cwd=str(script.parent),
+            )
+        except Exception:
+            pass  # Easter egg — fails silently
+
     def _stop_collector(self):
         """Terminate the running collector subprocess."""
         proc = self._active_proc

@@ -1,5 +1,69 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.1.1 — Log Improvement
+
+Daily-Logs und GUI-Session-Logs werden jetzt immer im Detail-Modus (DEBUG) geschrieben. Behebt einen strukturellen Fehler: `logging.basicConfig()` ist idempotent — der File-Handler war zwar auf DEBUG gesetzt, der Root-Logger filterte jedoch auf INFO, wodurch DEBUG-Nachrichten den Handler nie erreichten. Zusätzlich wird beim Token-Expired-Warning jetzt der genaue Exception-Typ und -Text mitgeloggt.
+
+**Changed modules:**
+- `daily_update.py` — Root-Logger und `GARMIN_LOG_LEVEL` ENV von `INFO` auf `DEBUG`
+- `garmin_app_base.py` — `GARMIN_LOG_LEVEL` ENV von `getattr(self, "_log_level", "INFO")` auf `"DEBUG"`
+- `garmin_api.py` — Token-Expired-Warning enthält jetzt `type(e).__name__` und `str(e)`
+
+**Test result:** 315 / 217 / 303 / 102 — all green.
+
+---
+
+## v1.5.1 — Archive Integrity & Backup
+
+Protection of the local archive against software errors and silent data loss.
+
+**New modules:**
+- `garmin/garmin_backup.py` — Sole Owner of `garmin_data/backup/`. Incremental raw backup after each write, monthly ZIP consolidation, `quality_log.json` monthly snapshots + yearly consolidation, restore from backup, startup integrity check (raw files vs. quality log).
+- `garmin/garmin_mirror.py` — Sole Owner of mirror operation. Mirrors `BASE_DIR` → user-configured target (NAS, USB, OneDrive). Comparison: filename + filesize. Excludes `__pycache__`, `garmin_token`.
+
+**Changed modules:**
+- `garmin/garmin_config.py` — 4 new paths: `BACKUP_DIR`, `LOG_BACKUP_DIR`, `RAW_BACKUP_DIR`, `AUTORESTORE_DIR`.
+- `garmin/garmin_quality.py` — `_save_quality_log()`: `skip_backup` parameter, sorts `days` by date, computes SHA-256 checksum over stable core fields (`date` + `write`), triggers `garmin_backup.backup_quality_log()`. `_load_quality_log()`: verifies checksum after load, populates `integrity_warnings` list, triggers auto-restore from backup on mismatch. New helpers: `_compute_checksum()`, `_save_defective_log()`. `get_archive_stats()`: passes `integrity_warnings` through.
+- `garmin/garmin_writer.py` — `write_day()`: triggers `garmin_backup.backup_raw()` after successful write (lazy import, failure non-fatal).
+- `garmin_app_base.py` — `DEFAULT_SETTINGS`: `mirror_dir`. Storage panel: Mirror folder field + `…` button. CONNECTION & ARCHIVE STATUS: `Restore Data` button (raw integrity check at startup, restore from backup), `Data Mirror` button (disabled when unreachable, race condition guard). New methods: `_startup_integrity_check()`, `_on_restore_data()`, `_startup_mirror_check()`, `_browse_mirror_folder()`, `_on_mirror()`. `_integrity_warning_lbl`: yellow label in Archive Info Panel on checksum mismatch.
+
+**Backup structure:**
+garmin_data/backup/
+log/    — quality_log_YYYY-MM.zip (monthly), quality_log_YYYY.zip (yearly)
+raw/    — YYYY-MM/ (open month), raw_backup_YYYY-MM.zip (completed months)
+autorestore/ — auto-restore-YYYY-MM-DD.zip (defective log before restore)
+
+**Test result:** 315 / 217 / 303 / 102 — all green.
+
+**Nachtrag — Raw Backfill:**
+- `garmin/garmin_backup.py`: `check_raw_backfill_needed()` + `backfill_raw()` — einmalige Sicherung aller bestehenden Raw-Dateien die noch kein Backup haben. Idempotent.
+- `garmin_app_base.py`: `_check_raw_backfill_popup()` — wird beim ersten Sync aufgerufen. Zeigt Popup mit Anzahl ungesicherter Dateien und Option zur Sicherung im Hintergrund. Flag `backup_raw_backfill_asked` in Settings verhindert wiederholte Anzeige.
+
+---
+
+## v1.5.0.1 — API Hotfix & Dependency Pinning
+
+**Fixed: Broken login flow due to Garmin SSO changes.**
+
+Garmin tightened security for login endpoints (Cloudflare/Rate-Limiting), resulting in HTTP 429 errors. This release restores synchronization functionality.
+
+- **Dependency:** Pinned `garminconnect==0.3.4` in `requirements.txt` to resolve 429 Rate-Limit issues caused by Garmin SSO changes.
+- **Verification:** Confirmed existing 429-protection logic in `garmin_api.py` and token-based login are fully operational with the updated library.
+
+**Changed files:**
+- `requirements.txt` — Fixed version to `0.3.4`
+
+**New column: HRV 7d Ø** — added to Sleep Dashboard (HTML + Excel).
+
+Displays the 7-day rolling average of nightly HRV per row.
+Calculated in `sleep_garmin_html-xls_dash.py` from archived data — no new API field required.
+Color-coded using the same HRV reference range as the daily value.
+
+**Changed files:**
+- `sleep_garmin_html-xls_dash.py` — `build()`: computes `hrv_7d_avg` per row
+- `dash_plotter_html_complex.py` — `_render_sleep()`: new column in HTML table
+- `dash_plotter_excel.py` — `_write_sleep_sheet()`: new column `COL_HRV7D`
+
 ---
 
 ## v1.5.0 — Root Cleanup

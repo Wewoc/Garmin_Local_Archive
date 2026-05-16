@@ -29,10 +29,13 @@ garmin_app.py (GUI)
 - `garmin_validator.py` always runs before `garmin_normalizer.py`
 - `garmin_writer.py` is sole write authority for `raw/` and `summary/`
 - `garmin_quality.py` is sole write authority for `quality_log.json`
+- `garmin_backup.py` is sole write authority for `garmin_data/backup/`
+- `garmin_mirror.py` is sole owner of the mirror operation
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
 - `_process_day()` returns `(label, written, fields, val_result)` — never raises
+- `garmin_backup` must never import `garmin_writer` or `garmin_quality` — avoids circular imports
 
 ---
 
@@ -119,7 +122,7 @@ Schema cached at module import. Leaf node.
 
 | Function | Purpose |
 |---|---|
-| `write_day(normalized, summary, date_str)` | Sole write authority for `raw/` and `summary/`. Returns `bool` |
+| `write_day(normalized, summary, date_str)` | Sole write authority for `raw/` and `summary/`. Triggers `garmin_backup.backup_raw()` after successful write (lazy import, failure non-fatal). Returns `bool` |
 | `read_raw(date_str)` | Reads raw file for a date. Used by self-healing loop only. Returns `{}` on failure |
 | `read_summary(date_str)` | Reads summary file for a date. Used by schema migration loop. Returns `{}` on failure |
 
@@ -133,7 +136,11 @@ Schema cached at module import. Leaf node.
 | `assess_quality(raw)` | Returns `"high"` / `"medium"` / `"low"` / `"failed"`. Pure function |
 | `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result)` | Adds or updates day entry. Downgrade protection: `high` stays `high` |
-| `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `medium`, `low`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk` |
+| `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `medium`, `low`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk`, `integrity_warnings` |
+| `_compute_checksum(data)` | SHA-256 over stable core fields (`date` + `write`) of all day entries. Stable across migrations |
+| `_save_defective_log(data)` | Saves defective quality_log state to `AUTORESTORE_DIR` before auto-restore. Best-effort |
+| `_load_quality_log()` | Now returns `integrity_warnings: list[str]` — empty if checksum OK, year labels if mismatch |
+| `_save_quality_log(data, skip_backup)` | `skip_backup=True` suppresses backup trigger. Default `False` triggers `garmin_backup.backup_quality_log()` |
 | `get_low_quality_dates(folder, known_dates)` | Scans `raw/` for files not in quality log |
 | `_set_first_day(data, client)` | Determines and persists `first_day`. Never overwrites existing value |
 | `cleanup_before_first_day(data, dry_run)` | Removes files and log entries before `first_day` |
@@ -220,6 +227,48 @@ Leaf node — no project-module imports.
 
 ---
 
+## `garmin_backup.py`
+
+Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_quality`.
+
+| Function | Purpose |
+|---|---|
+| `backup_raw(date_str)` | Copies `garmin_raw_YYYY-MM-DD.json` into `backup/raw/YYYY-MM/`. Triggers `_consolidate_raw_months()`. Returns `bool` |
+| `backup_quality_log()` | Creates monthly snapshot of `quality_log.json` as `quality_log_YYYY-MM.zip`. Triggers yearly consolidation |
+| `restore_quality_log()` | Restores from latest valid monthly ZIP. Returns loaded `dict` or `None` |
+| `check_raw_integrity()` | Compares `write=True` quality log entries vs. existing raw files. Returns `{"missing_days", "no_backup", "total_checked"}` |
+| `restore_raw_days(date_strs)` | Restores raw files from backup (dir first, then ZIP). Returns `{"restored", "failed"}` |
+| `_consolidate_raw_months(current_month)` | ZIPs completed month dirs, deletes dir after ZIP verified |
+| `_consolidate_log_years(current_year)` | Creates `quality_log_YYYY.zip` for completed years without yearly ZIP |
+| `_zip_contains(zip_path, filename)` | Returns `True` if filename exists in ZIP. Silent on error |
+| `check_raw_backfill_needed()` | Returns count of raw files without backup. Fast, no copy. Returns 0 if complete |
+| `backfill_raw()` | Copies all unbackedup raw files into `backup/raw/`. Consolidates completed months. Idempotent. Returns `{"copied", "skipped", "errors"}` |
+
+**Backup directory structure:**
+```
+garmin_data/backup/
+  log/         — quality_log_YYYY-MM.zip, quality_log_YYYY.zip
+  raw/         — YYYY-MM/ (open month), raw_backup_YYYY-MM.zip (completed)
+  autorestore/ — auto-restore-YYYY-MM-DD.zip (defective log before restore)
+```
+
+---
+
+## `garmin_mirror.py`
+
+Sole Owner of the mirror operation. No `garmin_config` import — all paths from caller.
+
+| Function | Purpose |
+|---|---|
+| `run_mirror(source_dir, mirror_dir)` | Mirrors `source_dir` → `mirror_dir`. Returns `{"copied", "deleted", "skipped", "errors", "ok"}` |
+| `is_reachable(mirror_dir)` | Returns `True` if `mirror_dir` is set and exists. Used for button state |
+| `_collect_files(root)` | Returns `{relative_path → filesize}`. Skips `EXCLUDE_DIRS` |
+| `_remove_empty_dirs(root)` | Removes empty subdirectories bottom-up. Silent on error |
+
+`EXCLUDE_DIRS = {"__pycache__", "garmin_token"}`
+
+---
+
 ## `garmin_dataformat.json`
 
 Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
@@ -254,6 +303,7 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 {
   "first_day": "2021-05-10",
   "devices": [{"name": "...", "id": 0, "first_used": "...", "last_used": "..."}],
+  "_checksum": "sha256hex...",
   "days": [
     {
       "date": "2025-11-15",

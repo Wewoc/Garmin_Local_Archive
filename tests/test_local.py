@@ -17,6 +17,7 @@ import shutil
 import tempfile
 import logging
 import threading
+import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -77,6 +78,10 @@ check("SYNC_CHUNK_SIZE = 10",           cfg.SYNC_CHUNK_SIZE == 10)
 check("LOW_QUALITY_MAX_ATTEMPTS = 3",   cfg.LOW_QUALITY_MAX_ATTEMPTS == 3)
 check("REFRESH_FAILED = False",         cfg.REFRESH_FAILED == False)
 check("SYNC_DATES = None",              cfg.SYNC_DATES is None)
+check("BACKUP_DIR derived",             cfg.BACKUP_DIR == _TMPDIR / "garmin_data" / "backup")
+check("LOG_BACKUP_DIR derived",         cfg.LOG_BACKUP_DIR == _TMPDIR / "garmin_data" / "backup" / "log")
+check("RAW_BACKUP_DIR derived",         cfg.RAW_BACKUP_DIR == _TMPDIR / "garmin_data" / "backup" / "raw")
+check("AUTORESTORE_DIR derived",        cfg.AUTORESTORE_DIR == _TMPDIR / "garmin_data" / "backup" / "autorestore")
 
 # SYNC_DATES parsing
 os.environ["GARMIN_SYNC_DATES"] = "2024-01-01,2024-01-02,bad-date"
@@ -1017,6 +1022,314 @@ check("self-healing: same status → schema_version bumped, quality unchanged",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  A. garmin_quality — Checksum + Backup-Trigger (v1.5.1)
+# ══════════════════════════════════════════════════════════════════════════════
+section("A. garmin_quality — Checksum + Backup-Trigger (v1.5.1)")
+import garmin_quality as quality_a
+importlib.reload(quality_a)
+
+# _compute_checksum — deterministisch bei gleichen Daten
+_days_a = [
+    {"date": "2024-01-02", "quality": "high",   "reason": "ok"},
+    {"date": "2024-01-01", "quality": "medium",  "reason": "ok"},
+]
+_data_a = {"first_day": "2024-01-01", "devices": [], "days": _days_a}
+_cs1 = quality_a._compute_checksum(_data_a)
+_cs2 = quality_a._compute_checksum(_data_a)
+check("checksum: deterministic",            _cs1 == _cs2)
+check("checksum: is string",                isinstance(_cs1, str))
+check("checksum: 64 hex chars (SHA-256)",   len(_cs1) == 64)
+
+# _save_quality_log — sortiert days nach date, speichert _checksum
+_data_save = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        {"date": "2024-01-03", "quality": "high",   "reason": "ok"},
+        {"date": "2024-01-01", "quality": "medium",  "reason": "ok"},
+        {"date": "2024-01-02", "quality": "low",    "reason": "ok"},
+    ]
+}
+quality_a._save_quality_log(_data_save, skip_backup=True)
+check("save: file exists",                  cfg.QUALITY_LOG_FILE.exists())
+_saved = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
+check("save: days sorted by date",          [e["date"] for e in _saved["days"]] == ["2024-01-01", "2024-01-02", "2024-01-03"])
+check("save: _checksum stored",             "_checksum" in _saved)
+check("save: _checksum is string",          isinstance(_saved["_checksum"], str))
+
+# _load_quality_log — integrity_warnings leer wenn Checksum passt
+_loaded_ok = quality_a._load_quality_log()
+check("load: integrity_warnings key present",   "integrity_warnings" in _loaded_ok)
+check("load: no warnings on clean log",         _loaded_ok["integrity_warnings"] == [])
+
+# Checksum manipulieren → Mismatch → integrity_warnings nicht leer
+_tampered = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
+_tampered["_checksum"] = "000000deadbeef"
+cfg.QUALITY_LOG_FILE.write_text(json.dumps(_tampered, indent=2), encoding="utf-8")
+_loaded_mismatch = quality_a._load_quality_log()
+check("load: mismatch → integrity_warnings not empty",
+      len(_loaded_mismatch.get("integrity_warnings", [])) > 0)
+
+# skip_backup=True unterdrückt Backup-Trigger
+_triggered = []
+import unittest.mock as _mock
+with _mock.patch.dict("sys.modules", {"garmin_backup": _mock.MagicMock(backup_quality_log=lambda: _triggered.append(1))}):
+    quality_a._save_quality_log(_data_save, skip_backup=True)
+check("save: skip_backup=True → no backup call",  len(_triggered) == 0)
+
+# skip_backup=False triggert Backup
+_triggered2 = []
+_mock_backup = _mock.MagicMock()
+_mock_backup.backup_quality_log = lambda: _triggered2.append(1)
+with _mock.patch.dict("sys.modules", {"garmin_backup": _mock_backup}):
+    quality_a._save_quality_log(_data_save, skip_backup=False)
+check("save: skip_backup=False → backup called",  len(_triggered2) == 1)
+
+# get_archive_stats — integrity_warnings weitergereicht
+_stats_a = quality_a.get_archive_stats(cfg.QUALITY_LOG_FILE)
+check("get_archive_stats: integrity_warnings key present",
+      "integrity_warnings" in _stats_a)
+check("get_archive_stats: integrity_warnings is list",
+      isinstance(_stats_a["integrity_warnings"], list))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  B. garmin_backup (v1.5.1)
+# ══════════════════════════════════════════════════════════════════════════════
+section("B. garmin_backup (v1.5.1)")
+import garmin_backup as backup
+importlib.reload(backup)
+
+# Pfade korrekt aus cfg
+check("backup: BACKUP_DIR",      cfg.BACKUP_DIR     == _TMPDIR / "garmin_data" / "backup")
+check("backup: LOG_BACKUP_DIR",  cfg.LOG_BACKUP_DIR == cfg.BACKUP_DIR / "log")
+check("backup: RAW_BACKUP_DIR",  cfg.RAW_BACKUP_DIR == cfg.BACKUP_DIR / "raw")
+check("backup: AUTORESTORE_DIR", cfg.AUTORESTORE_DIR == cfg.BACKUP_DIR / "autorestore")
+
+# backup_raw — Quelldatei fehlt → False
+check("backup_raw: missing source → False",  backup.backup_raw("1900-01-01") == False)
+
+# backup_raw — Quelldatei vorhanden → True, Datei landet in backup/raw/YYYY-MM/
+_bkp_date = "2024-03-15"
+_bkp_raw  = cfg.RAW_DIR / f"garmin_raw_{_bkp_date}.json"
+cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+_bkp_raw.write_text(json.dumps({"date": _bkp_date, "test": True}), encoding="utf-8")
+_bkp_result = backup.backup_raw(_bkp_date)
+check("backup_raw: success → True",
+      _bkp_result == True)
+check("backup_raw: file in month dir",
+      (cfg.RAW_BACKUP_DIR / "2024-03" / f"garmin_raw_{_bkp_date}.json").exists())
+
+# _consolidate_raw_months — abgeschlossener Monat wird gezippt
+_old_date = "2024-01-10"
+_old_dir  = cfg.RAW_BACKUP_DIR / "2024-01"
+_old_dir.mkdir(parents=True, exist_ok=True)
+(_old_dir / f"garmin_raw_{_old_date}.json").write_text("{}", encoding="utf-8")
+backup._consolidate_raw_months(current_month="2024-03")
+check("consolidate: old month zipped",
+      (cfg.RAW_BACKUP_DIR / "raw_backup_2024-01.zip").exists())
+check("consolidate: old month dir removed",
+      not _old_dir.exists())
+check("consolidate: current month not zipped",
+      not (cfg.RAW_BACKUP_DIR / "raw_backup_2024-03.zip").exists())
+
+# backup_quality_log — erstellt monthly snapshot
+import garmin_quality as quality_bsec
+importlib.reload(quality_bsec)
+_data_bsec = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        {"date": "2024-01-01", "quality": "high", "reason": "ok",
+         "write": True, "source": "api", "recheck": False,
+         "attempts": 0, "last_checked": "2024-01-01", "last_attempt": None, "fields": {}}
+    ]
+}
+quality_bsec._save_quality_log(_data_bsec, skip_backup=True)
+backup.backup_quality_log()
+_month_str = date.today().strftime("%Y-%m")
+check("backup_quality_log: monthly snapshot created",
+      (cfg.LOG_BACKUP_DIR / f"quality_log_{_month_str}.zip").exists())
+
+# restore_quality_log — snapshot vorhanden → returns dict
+_restored = backup.restore_quality_log()
+check("restore_quality_log: returns dict",   isinstance(_restored, dict))
+check("restore_quality_log: has days key",   "days" in (_restored or {}))
+
+# restore_quality_log — kein Backup → None
+_empty_bkp = Path(tempfile.mkdtemp(prefix="garmin_nobkp_"))
+with _mock.patch.object(cfg, "LOG_BACKUP_DIR", _empty_bkp):
+    _no_restore = backup.restore_quality_log()
+check("restore_quality_log: no backup → None",  _no_restore is None)
+shutil.rmtree(_empty_bkp, ignore_errors=True)
+
+# check_raw_integrity — write=True Eintrag ohne Raw-Datei → missing
+_missing_date = "2024-06-01"
+_qlog_missing = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        {"date": _missing_date, "quality": "high", "reason": "ok",
+         "write": True, "source": "api", "recheck": False,
+         "attempts": 0, "last_checked": "2024-06-01", "last_attempt": None, "fields": {}}
+    ]
+}
+quality_bsec._save_quality_log(_qlog_missing, skip_backup=True)
+_integrity2 = backup.check_raw_integrity()
+check("check_raw_integrity: returns dict",       isinstance(_integrity2, dict))
+check("check_raw_integrity: keys present",
+      all(k in _integrity2 for k in ("missing_days", "no_backup", "total_checked")))
+check("check_raw_integrity: missing day detected",
+      _missing_date in _integrity2["missing_days"])
+check("check_raw_integrity: no backup for missing day",
+      _missing_date in _integrity2["no_backup"])
+
+# restore_raw_days — kein Backup → landed in failed
+_restore_result = backup.restore_raw_days([_missing_date])
+check("restore_raw_days: no backup → failed",
+      _missing_date in _restore_result.get("failed", []))
+
+# restore_raw_days — Backup vorhanden → restored
+_restore_month_dir = cfg.RAW_BACKUP_DIR / "2024-06"
+_restore_month_dir.mkdir(parents=True, exist_ok=True)
+(_restore_month_dir / f"garmin_raw_{_missing_date}.json").write_text(
+    json.dumps({"date": _missing_date}), encoding="utf-8")
+_restore_result2 = backup.restore_raw_days([_missing_date])
+check("restore_raw_days: from dir → restored",
+      _missing_date in _restore_result2.get("restored", []))
+check("restore_raw_days: file exists after restore",
+      (cfg.RAW_DIR / f"garmin_raw_{_missing_date}.json").exists())
+
+# check_raw_backfill_needed — alle bestehenden Raw-Dateien zuerst sichern
+# damit der Zähler auf 0 steht, dann neue Datei hinzufügen
+backup.backfill_raw()  # sichert alle bisherigen Test-Dateien
+check("backfill_needed: after initial backfill → 0",
+      backup.check_raw_backfill_needed() == 0)
+
+# check_raw_backfill_needed — neue Raw-Datei ohne Backup → count > 0
+_bf_date = "2024-10-01"
+_bf_raw  = cfg.RAW_DIR / f"garmin_raw_{_bf_date}.json"
+cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+_bf_raw.write_text(json.dumps({"date": _bf_date}), encoding="utf-8")
+check("backfill_needed: unbackedup file → ≥1",
+      backup.check_raw_backfill_needed() >= 1)
+
+# backfill_raw — kopiert neue Datei
+_bf_result = backup.backfill_raw()
+check("backfill: returns dict",          isinstance(_bf_result, dict))
+check("backfill: ≥1 copied",            _bf_result["copied"] >= 1)
+check("backfill: 0 errors",             _bf_result["errors"] == 0)
+check("backfill: zip created for 2024-10",
+      (cfg.RAW_BACKUP_DIR / "raw_backup_2024-10.zip").exists())
+
+# backfill_raw — idempotent, zweiter Aufruf → alles skipped
+_bf_result2 = backup.backfill_raw()
+check("backfill: idempotent → copied=0", _bf_result2["copied"] == 0)
+check("backfill: idempotent → skipped≥1", _bf_result2["skipped"] >= 1)
+
+# check_raw_backfill_needed — nach Backfill → 0
+check("backfill_needed: after backfill → 0",
+      backup.check_raw_backfill_needed() == 0)
+
+# _zip_contains helper — eigenes Temp-Dir, keine Kollision mit anderen ZIPs
+_zip_tmpdir = Path(tempfile.mkdtemp(prefix="garmin_zip_"))
+_test_zip   = _zip_tmpdir / "test_helper.zip"
+with zipfile.ZipFile(_test_zip, "w") as zf:
+    zf.writestr("hello.json", "{}")
+check("_zip_contains: present → True",   backup._zip_contains(_test_zip, "hello.json"))
+check("_zip_contains: absent → False",   not backup._zip_contains(_test_zip, "nope.json"))
+check("_zip_contains: bad path → False", not backup._zip_contains(_zip_tmpdir / "nonexistent.zip", "x"))
+shutil.rmtree(_zip_tmpdir, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  C. garmin_mirror (v1.5.1)
+# ══════════════════════════════════════════════════════════════════════════════
+section("C. garmin_mirror (v1.5.1)")
+import garmin_mirror as mirror
+importlib.reload(mirror)
+
+# is_reachable — leer → False
+check("is_reachable: empty string → False",  mirror.is_reachable("") == False)
+check("is_reachable: None → False",          mirror.is_reachable(None) == False)
+
+# is_reachable — existierendes Verzeichnis → True
+check("is_reachable: existing dir → True",   mirror.is_reachable(_TMPDIR) == True)
+
+# is_reachable — nicht existierender Pfad → False
+check("is_reachable: missing path → False",
+      mirror.is_reachable(_TMPDIR / "nonexistent_xyz") == False)
+
+# _collect_files — leeres Verzeichnis
+_mir_src = Path(tempfile.mkdtemp(prefix="garmin_mirror_src_"))
+_collected = mirror._collect_files(_mir_src)
+check("_collect_files: empty dir → empty dict",  _collected == {})
+
+# _collect_files — Dateien und EXCLUDE_DIRS
+(_mir_src / "file_a.json").write_text("{}", encoding="utf-8")
+(_mir_src / "file_b.json").write_text("{}", encoding="utf-8")
+_excl_dir = _mir_src / "__pycache__"
+_excl_dir.mkdir()
+(_excl_dir / "should_skip.pyc").write_text("x", encoding="utf-8")
+_token_dir = _mir_src / "garmin_token"
+_token_dir.mkdir()
+(_token_dir / "token.enc").write_text("secret", encoding="utf-8")
+_collected2 = mirror._collect_files(_mir_src)
+check("_collect_files: 2 files found",           len(_collected2) == 2)
+check("_collect_files: __pycache__ excluded",
+      not any("__pycache__" in str(p) for p in _collected2))
+check("_collect_files: garmin_token excluded",
+      not any("garmin_token" in str(p) for p in _collected2))
+
+# run_mirror — source nicht vorhanden → errors=1, ok=False
+_bad_src = _TMPDIR / "nonexistent_source"
+_mir_dst  = Path(tempfile.mkdtemp(prefix="garmin_mirror_dst_"))
+_result_bad = mirror.run_mirror(_bad_src, _mir_dst)
+check("run_mirror: missing source → ok=False",  _result_bad["ok"] == False)
+check("run_mirror: missing source → errors=1",  _result_bad["errors"] == 1)
+
+# run_mirror — normale Synchronisation
+_mir_dst2 = Path(tempfile.mkdtemp(prefix="garmin_mirror_dst2_"))
+_result_ok = mirror.run_mirror(_mir_src, _mir_dst2)
+check("run_mirror: returns dict",         isinstance(_result_ok, dict))
+check("run_mirror: ok=True",              _result_ok["ok"] == True)
+check("run_mirror: 2 files copied",       _result_ok["copied"] == 2)
+check("run_mirror: 0 errors",             _result_ok["errors"] == 0)
+check("run_mirror: file_a present",       (_mir_dst2 / "file_a.json").exists())
+check("run_mirror: file_b present",       (_mir_dst2 / "file_b.json").exists())
+check("run_mirror: __pycache__ absent",   not (_mir_dst2 / "__pycache__").exists())
+check("run_mirror: garmin_token absent",  not (_mir_dst2 / "garmin_token").exists())
+
+# run_mirror — identische Dateien → skipped
+_result_skip = mirror.run_mirror(_mir_src, _mir_dst2)
+check("run_mirror: identical → skipped=2",  _result_skip["skipped"] == 2)
+check("run_mirror: identical → copied=0",   _result_skip["copied"] == 0)
+
+# run_mirror — Datei in Quelle gelöscht → im Ziel ebenfalls gelöscht
+(_mir_src / "file_b.json").unlink()
+_result_del = mirror.run_mirror(_mir_src, _mir_dst2)
+check("run_mirror: deleted in source → deleted=1",  _result_del["deleted"] == 1)
+check("run_mirror: file_b removed from mirror",
+      not (_mir_dst2 / "file_b.json").exists())
+
+# run_mirror — Datei geändert (Größe) → überschrieben
+(_mir_src / "file_a.json").write_text('{"updated": true}', encoding="utf-8")
+_result_upd = mirror.run_mirror(_mir_src, _mir_dst2)
+check("run_mirror: size changed → copied=1",  _result_upd["copied"] == 1)
+
+# _remove_empty_dirs — leere Unterordner werden entfernt
+_empty_sub = _mir_dst2 / "empty_sub"
+_empty_sub.mkdir()
+mirror._remove_empty_dirs(_mir_dst2)
+check("_remove_empty_dirs: empty subdir removed",  not _empty_sub.exists())
+
+# Aufräumen
+shutil.rmtree(_mir_src,  ignore_errors=True)
+shutil.rmtree(_mir_dst,  ignore_errors=True)
+shutil.rmtree(_mir_dst2, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
 # ══════════════════════════════════════════════════════════════════════════════
 shutil.rmtree(_TMPDIR, ignore_errors=True)
+
+print(f"\n{'═' * 55}")
+if _fail == 0:
+    print(f"  Results: {_pass}/{_pass + _fail} passed  |  0 failed")
+else:
+    print(f"  Results: {_pass}/{_pass + _fail} passed  |  {_fail} failed")
+    for f in _failures:
+        print(f"    ✗  {f}")
+print(f"{'═' * 55}\n")
