@@ -256,7 +256,7 @@ class GarminAppBase(tk.Tk):
         )
         env["GARMIN_PROFILE_AGE"]         = s.get("age", "35")
         env["GARMIN_PROFILE_SEX"]         = s.get("sex", "male")
-        env["GARMIN_LOG_LEVEL"]           = getattr(self, "_log_level", "INFO")
+        env["GARMIN_LOG_LEVEL"]           = "DEBUG"
         env["GARMIN_SESSION_LOG_PREFIX"]  = "garmin"
         env["GARMIN_SYNC_DATES"]          = ""
         return env
