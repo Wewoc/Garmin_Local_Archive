@@ -115,7 +115,7 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
                 log.warning(f"  Token probe failed ({err[:60]}) — not falling back to SSO to protect IP")
                 garmin_security._clear_token_dir()
                 raise GarminLoginError(f"Token probe failed: {err}")
-            log.warning("  Saved token rejected by Garmin — token expired")
+            log.warning(f"  Saved token rejected by Garmin — token expired ({type(e).__name__}: {e})")
             garmin_security._clear_token_dir()
             garmin_security.clear_token()
 
