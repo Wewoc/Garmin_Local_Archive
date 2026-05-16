@@ -1,5 +1,18 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.1.1 — Log Improvement
+
+Daily-Logs und GUI-Session-Logs werden jetzt immer im Detail-Modus (DEBUG) geschrieben. Behebt einen strukturellen Fehler: `logging.basicConfig()` ist idempotent — der File-Handler war zwar auf DEBUG gesetzt, der Root-Logger filterte jedoch auf INFO, wodurch DEBUG-Nachrichten den Handler nie erreichten. Zusätzlich wird beim Token-Expired-Warning jetzt der genaue Exception-Typ und -Text mitgeloggt.
+
+**Changed modules:**
+- `daily_update.py` — Root-Logger und `GARMIN_LOG_LEVEL` ENV von `INFO` auf `DEBUG`
+- `garmin_app_base.py` — `GARMIN_LOG_LEVEL` ENV von `getattr(self, "_log_level", "INFO")` auf `"DEBUG"`
+- `garmin_api.py` — Token-Expired-Warning enthält jetzt `type(e).__name__` und `str(e)`
+
+**Test result:** 315 / 217 / 303 / 102 — all green.
+
+---
+
 ## v1.5.1 — Archive Integrity & Backup
 
 Protection of the local archive against software errors and silent data loss.
