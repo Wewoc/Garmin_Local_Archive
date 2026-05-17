@@ -363,6 +363,143 @@ START_PROMPT for next session
 
 ---
 
+---
+
+## AI Collaboration Workflow
+
+This section documents how Garmin Local Archive was built and how the AI collaboration
+is structured. It is intended for contributors and anyone who wants to understand the
+development process — not just the code.
+
+### Philosophy
+
+Architecture is the developer's job. Implementation is the AI's job.
+
+The developer defines what goes in, what comes out, what happens where — like designing
+a material flow system. The AI translates that logic into code. Architectural mistakes
+are always the developer's responsibility, regardless of who wrote the code.
+
+This separation only works if the AI is kept on a short leash. Every session follows
+the same structure: assess first, decide second, build third. Never the other way around.
+
+### The three-document system
+
+Every session loads three documents before any work begins:
+
+| Document | Purpose |
+|---|---|
+| `START_PROMPT_base.md` | Stable project context — architecture, invariants, rules |
+| `Session_Prompt_vX.Y.Z.md` | Version-specific scope and task list |
+| `WORKFLOW_TEMPLATE.md` | Prompt patterns for assess / analyze / build |
+
+Claude reads these before touching any code. Rules tell it how to work. Docs tell it
+what exists. Both are required — neither replaces the other.
+
+### Task workflow — assess → analyze → build
+
+Every change follows three mandatory steps. No step is skipped.
+
+NEU:
+```markdown
+**Step 1 — Assess**
+```
+Assess — [Title]
+Bewerten — [Title]
+Idea: [What should be built / changed]
+Motivation: [Why]
+Only assess, do not implement yet.
+To clarify:
+
+Does this fit the current scope or belong in a later version?
+Which modules / files would be affected?
+Are there dependencies or risks to clarify first?
+
+
+**Step 2 — Analyze** (only when Step 1 recommends it)
+Analyse — [Module / API / Feature]
+Only review, do not change anything.
+Scope: [Which files / areas to check]
+
+NEU:
+```markdown
+**Step 3 — Build** (only after explicit confirmation from Step 1 or 2)
+```
+Build — [What is being built]
+Bauauftrag — [What is being built]
+Read project context: [list of files to read first]
+TASK
+[New files to create]
+[Existing files to change]
+SPECS
+[Complete technical details — no assumptions]
+RULES
+
+Do not touch anything outside the stated scope
+Assess first if an architecture decision is open
+Cross-dependency check before delivery
+
+
+### Emergency brake
+
+If the data flow is no longer traceable or a dependency is missing mid-implementation:
+Stop — check [what seems off]
+
+Two words. No further context needed. Resets the session to the last confirmed state.
+Used over 200 times across the project's development history.
+
+### Multi-LLM review
+
+Architecture decisions are reviewed across multiple models:
+
+- **Claude** — primary implementation partner, reality-check
+- **Gemini** — generative exploration, first-pass critique
+- **ChatGPT / Copilot / Le Chat** — additional review passes
+
+The intersection of findings across models is treated as signal. One model flagging
+something is noise. Three models flagging the same thing is a real issue.
+
+Tests are written by one model and reviewed by another without project context.
+Regressions introduced by later model iterations are caught by the static test suite.
+
+### Closing prompt — 11-step checklist
+
+Every session ends with a defined documentation closure. The full checklist is in
+`FINAL_DOKU_PROMPT.md`. In short:
+
+1. `version.py` — update APP_VERSION
+2. `CHANGELOG.md` — new entry at top
+3. `ROADMAP.md` — mark released, add new notes
+4. `build_manifest.py` — new / removed modules
+5. `REFERENCE_*.md` — updated signatures, paths, invariants
+6. `MAINTENANCE_*.md` — updated test counts, ownership
+7. `README.md` — user-visible changes
+8. `README_APP.md` — GUI changes, version number
+9. Run all test suites — all green before closing
+10. `NOTES_vX.Y.Z.md` — finalize decisions and rationale
+11. `START_PROMPT` for next version
+
+Docs are updated to current state, not extended. Stale entries do not survive session close.
+
+### Key metrics (as of v1.5.x)
+
+- Started: March 17, 2026
+- Sessions: ~200+
+- Scope-brake interventions ("Stop — check"): 200+
+- Ratio of planning / architecture to implementation: approximately 1:1
+- Test suite: 850+ checks across 4 suites
+- Build targets: 3 (dev / standard EXE / standalone EXE)
+
+### Further reading
+
+| Document | Location |
+|---|---|
+| Base context and invariants | `docs/START_PROMPT_base.md` |
+| Prompt patterns | `docs/WORKFLOW_TEMPLATE.md` |
+| Session closing checklist | `docs/FINAL_DOKU_PROMPT.md` |
+| Version-specific session notes | `docs/NOTES_vX_Y_Z.md` |
+
+---
+
 ## Common issues
 
 ### Pylance / VS Code import warning
