@@ -20,15 +20,18 @@ if getattr(sys, "frozen", False):
     _scripts = Path(sys.executable).parent / "scripts"
     for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         sys.path.insert(0, str(_scripts / _sub))
+    sys.path.insert(0, str(_scripts / "app"))
     sys.path.insert(0, str(_scripts))
 else:
     # Dev: Unterordner liegen im Root neben garmin_app.py
     _root = Path(__file__).parent
     for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         sys.path.insert(0, str(_root / _sub))
+    sys.path.insert(0, str(_root / "app"))
 
+from garmin_app_settings import load_password, save_password
 from garmin_app_base import (
-    GarminAppBase, load_password, save_password, apply_style,
+    GarminAppBase, apply_style,
     APP_VERSION, BG, BG2, BG3, ACCENT, ACCENT2, TEXT, TEXT2,
     GREEN, YELLOW, FONT_HEAD, FONT_BODY, FONT_MONO, FONT_BTN, FONT_LOG,
 )

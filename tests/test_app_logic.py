@@ -28,6 +28,7 @@ sys.path.insert(0, str(_ROOT / "dashboards"))
 sys.path.insert(0, str(_ROOT / "layouts"))
 sys.path.insert(0, str(_ROOT / "garmin"))
 sys.path.insert(0, str(_ROOT / "context"))
+sys.path.insert(0, str(_ROOT / "app"))
 logging.disable(logging.CRITICAL)
 
 # ── Suppress tkinter at import time ───────────────────────────────────────────
@@ -39,6 +40,8 @@ sys.modules.setdefault("tkinter.scrolledtext", _tk_mock)
 sys.modules.setdefault("tkinter.messagebox", _tk_mock)
 
 import importlib
+import garmin_app_settings as settings_mod
+import garmin_app_controller as controller_mod
 import garmin_app_base as base
 import garmin_app as app
 import garmin_app_standalone as standalone
@@ -106,51 +109,51 @@ check("standalone does not shadow DEFAULT_SETTINGS",
 # ══════════════════════════════════════════════════════════════════════════════
 #  3. load_settings / save_settings — garmin_app
 # ══════════════════════════════════════════════════════════════════════════════
-section("3. load_settings / save_settings — garmin_app_base")
+section("3. load_settings / save_settings — garmin_app_settings")
 
 _settings_file = _TMPDIR / ".garmin_archive_settings_test.json"
 
-with patch.object(base, "SETTINGS_FILE", _settings_file):
-    s = dict(base.DEFAULT_SETTINGS)
+with patch.object(settings_mod, "SETTINGS_FILE", _settings_file):
+    s = dict(settings_mod.DEFAULT_SETTINGS)
     s["email"] = "test@example.com"
-    base.save_settings(s)
-    loaded = base.load_settings()
+    settings_mod.save_settings(s)
+    loaded = settings_mod.load_settings()
     check("roundtrip: email preserved",        loaded["email"] == "test@example.com")
     check("roundtrip: sync_mode preserved",    loaded["sync_mode"] == "recent")
     check("roundtrip: password stripped",      "password" not in loaded)
 
-with patch.object(base, "SETTINGS_FILE", _settings_file):
-    s2 = dict(base.DEFAULT_SETTINGS)
+with patch.object(settings_mod, "SETTINGS_FILE", _settings_file):
+    s2 = dict(settings_mod.DEFAULT_SETTINGS)
     s2["password"] = "secret"
-    base.save_settings(s2)
+    settings_mod.save_settings(s2)
     raw = json.loads(_settings_file.read_text())
     check("save: password not written to file", "password" not in raw)
 
-with patch.object(base, "SETTINGS_FILE", _settings_file):
+with patch.object(settings_mod, "SETTINGS_FILE", _settings_file):
     _settings_file.write_text(json.dumps({"email": "only@this.com"}))
-    loaded2 = base.load_settings()
-    check("missing keys filled with defaults",  loaded2["sync_mode"] == base.DEFAULT_SETTINGS["sync_mode"])
+    loaded2 = settings_mod.load_settings()
+    check("missing keys filled with defaults",  loaded2["sync_mode"] == settings_mod.DEFAULT_SETTINGS["sync_mode"])
     check("provided key preserved",             loaded2["email"] == "only@this.com")
 
-with patch.object(base, "SETTINGS_FILE", _settings_file):
+with patch.object(settings_mod, "SETTINGS_FILE", _settings_file):
     _settings_file.write_text("{not valid json")
-    loaded3 = base.load_settings()
-    check("corrupt JSON → returns defaults",    loaded3 == base.DEFAULT_SETTINGS)
+    loaded3 = settings_mod.load_settings()
+    check("corrupt JSON → returns defaults",    loaded3 == settings_mod.DEFAULT_SETTINGS)
 
 _missing = _TMPDIR / ".garmin_notexist.json"
-with patch.object(base, "SETTINGS_FILE", _missing):
-    loaded4 = base.load_settings()
-    check("missing file → returns defaults",    loaded4 == base.DEFAULT_SETTINGS)
+with patch.object(settings_mod, "SETTINGS_FILE", _missing):
+    loaded4 = settings_mod.load_settings()
+    check("missing file → returns defaults",    loaded4 == settings_mod.DEFAULT_SETTINGS)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  4. load_settings / save_settings — garmin_app_standalone
 # ══════════════════════════════════════════════════════════════════════════════
-section("4. load_settings / save_settings — shared via base (smoke test)")
+section("4. load_settings / save_settings — settings_mod (smoke test)")
 
-# Settings functions live in base — full tests in section 3.
-# Here: confirm app and standalone do not shadow base functions.
-check("base.load_settings callable",           callable(base.load_settings))
-check("base.save_settings callable",           callable(base.save_settings))
+# Settings functions live in garmin_app_settings — full tests in section 3.
+# Here: confirm settings_mod exposes them and app/standalone do not shadow them.
+check("settings_mod.load_settings callable",   callable(settings_mod.load_settings))
+check("settings_mod.save_settings callable",   callable(settings_mod.save_settings))
 check("app does not shadow load_settings",     not hasattr(app, "load_settings"))
 check("app does not shadow save_settings",     not hasattr(app, "save_settings"))
 check("standalone does not shadow load_settings",
@@ -161,48 +164,49 @@ check("standalone does not shadow save_settings",
 # ══════════════════════════════════════════════════════════════════════════════
 #  5. load_password / save_password — garmin_app
 # ══════════════════════════════════════════════════════════════════════════════
-section("5. load_password / save_password — garmin_app_base")
+section("5. load_password / save_password — garmin_app_settings")
 
 _keyring_mock = MagicMock()
 _keyring_mock.get_password.return_value = "mypassword"
 with patch.dict(sys.modules, {"keyring": _keyring_mock}):
-    importlib.reload(base)
-    check("load_password: returns keyring value",    base.load_password() == "mypassword")
+    importlib.reload(settings_mod)
+    check("load_password: returns keyring value",    settings_mod.load_password() == "mypassword")
 
 _keyring_none = MagicMock()
 _keyring_none.get_password.return_value = None
 with patch.dict(sys.modules, {"keyring": _keyring_none}):
-    importlib.reload(base)
-    check("load_password: None → empty string",      base.load_password() == "")
+    importlib.reload(settings_mod)
+    check("load_password: None → empty string",      settings_mod.load_password() == "")
 
 _keyring_fail = MagicMock()
 _keyring_fail.get_password.side_effect = Exception("no keyring")
 with patch.dict(sys.modules, {"keyring": _keyring_fail}):
-    importlib.reload(base)
-    check("load_password: exception → empty string", base.load_password() == "")
+    importlib.reload(settings_mod)
+    check("load_password: exception → empty string", settings_mod.load_password() == "")
 
 _keyring_save = MagicMock()
 with patch.dict(sys.modules, {"keyring": _keyring_save}):
-    importlib.reload(base)
-    base.save_password("testpw")
+    importlib.reload(settings_mod)
+    settings_mod.save_password("testpw")
     check("save_password: set_password called",      _keyring_save.set_password.called)
 
 _keyring_save2 = MagicMock()
 with patch.dict(sys.modules, {"keyring": _keyring_save2}):
-    importlib.reload(base)
-    base.save_password("")
+    importlib.reload(settings_mod)
+    settings_mod.save_password("")
     check("save_password empty: delete called",      _keyring_save2.delete_password.called)
 
 _keyring_exc = MagicMock()
 _keyring_exc.set_password.side_effect = Exception("fail")
 with patch.dict(sys.modules, {"keyring": _keyring_exc}):
-    importlib.reload(base)
+    importlib.reload(settings_mod)
     try:
-        base.save_password("x")
+        settings_mod.save_password("x")
         check("save_password exception: no crash",   True)
     except Exception:
         check("save_password exception: no crash",   False)
 
+importlib.reload(settings_mod)
 importlib.reload(base)
 importlib.reload(app)
 
@@ -338,20 +342,20 @@ importlib.reload(app)
 # ══════════════════════════════════════════════════════════════════════════════
 #  11. save_settings — OSError handling — garmin_app
 # ══════════════════════════════════════════════════════════════════════════════
-section("11. save_settings — OSError handling — garmin_app_base")
+section("11. save_settings — OSError handling — garmin_app_settings")
 
-importlib.reload(base)
+importlib.reload(settings_mod)
 
 _readonly_dir = _TMPDIR / "readonly_dir"
 _readonly_dir.mkdir(exist_ok=True)
 _bad_settings_file = _readonly_dir / "sub" / "settings.json"  # non-existent parent
 
-_showerror_calls = []
-with patch.object(base, "SETTINGS_FILE", _bad_settings_file), \
-     patch("garmin_app_base.messagebox.showerror", side_effect=lambda *a, **k: _showerror_calls.append(a)):
-    base.save_settings({"email": "x@y.com"})
-    check("OSError: showerror called",       len(_showerror_calls) == 1)
-    check("OSError: title is 'Settings'",    _showerror_calls[0][0] == "Settings")
+with patch.object(settings_mod, "SETTINGS_FILE", _bad_settings_file):
+    try:
+        settings_mod.save_settings({"email": "x@y.com"})
+        check("OSError: exception raised",   False)
+    except OSError:
+        check("OSError: exception raised",   True)
     check("OSError: file not created",       not _bad_settings_file.exists())
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -485,6 +489,146 @@ check("excludes entries older than 180 days",
       all(d >= _dt.date.today() - _dt.timedelta(days=180) for d in (_result_bulk or [])))
 check("excludes api-sourced entries",
       len(_result_bulk or []) == 1)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  15. AST-Test — kein tkinter / Qt in app/garmin_app_settings + controller
+# ══════════════════════════════════════════════════════════════════════════════
+section("15. AST-Test — tkinter/Qt-Freiheit app/garmin_app_settings + controller")
+
+import ast as _ast
+
+_GUI_BLACKLIST = {
+    "tkinter", "tkinter.ttk", "tkinter.messagebox",
+    "tkinter.filedialog", "tkinter.scrolledtext",
+    "PyQt6", "PyQt5", "PySide6", "PySide2",
+    "PyQt6.QtWidgets", "PyQt6.QtCore", "PyQt6.QtGui",
+}
+
+def _ast_gui_imports(filepath: Path) -> list[str]:
+    """Return list of blacklisted GUI import names found in the file."""
+    try:
+        tree = _ast.parse(filepath.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return ["<SyntaxError>"]
+    found = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            for alias in node.names:
+                if alias.name in _GUI_BLACKLIST:
+                    found.append(alias.name)
+        elif isinstance(node, _ast.ImportFrom):
+            mod = node.module or ""
+            if mod in _GUI_BLACKLIST or mod.split(".")[0] in _GUI_BLACKLIST:
+                found.append(mod)
+    return found
+
+_settings_py  = _ROOT / "app" / "garmin_app_settings.py"
+_controller_py = _ROOT / "app" / "garmin_app_controller.py"
+
+_s_hits = _ast_gui_imports(_settings_py)
+check("garmin_app_settings: no tkinter/Qt imports",   _s_hits == [])
+check("garmin_app_settings: file exists",             _settings_py.exists())
+
+_c_hits = _ast_gui_imports(_controller_py)
+check("garmin_app_controller: no tkinter/Qt imports", _c_hits == [])
+check("garmin_app_controller: file exists",            _controller_py.exists())
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  16. Controller — build_env_dict
+# ══════════════════════════════════════════════════════════════════════════════
+section("16. Controller — build_env_dict")
+
+_ctrl_s = {
+    "email": "ctrl@test.com", "password": "pw",
+    "base_dir": str(_TMPDIR), "sync_mode": "recent",
+    "sync_days": "90", "sync_from": "", "sync_to": "",
+    "date_from": "", "date_to": "",
+    "age": "35", "sex": "male",
+    "request_delay_min": "5.0", "request_delay_max": "20.0",
+    "sync_auto_fallback": "",
+}
+
+_ctrl_env = controller_mod.build_env_dict(_ctrl_s, refresh_failed=False)
+check("build_env_dict: returns dict",                isinstance(_ctrl_env, dict))
+check("build_env_dict: GARMIN_EMAIL",                _ctrl_env.get("GARMIN_EMAIL") == "ctrl@test.com")
+check("build_env_dict: GARMIN_PASSWORD",             "GARMIN_PASSWORD" in _ctrl_env)
+check("build_env_dict: GARMIN_OUTPUT_DIR",           "GARMIN_OUTPUT_DIR" in _ctrl_env)
+check("build_env_dict: GARMIN_REFRESH_FAILED=0",     _ctrl_env.get("GARMIN_REFRESH_FAILED") == "0")
+check("build_env_dict: PYTHONUTF8=1",                _ctrl_env.get("PYTHONUTF8") == "1")
+check("build_env_dict: GARMIN_SYNC_MODE",            _ctrl_env.get("GARMIN_SYNC_MODE") == "recent")
+check("build_env_dict: GARMIN_DATE_FROM present",    "GARMIN_DATE_FROM" in _ctrl_env)
+check("build_env_dict: GARMIN_DATE_TO present",      "GARMIN_DATE_TO" in _ctrl_env)
+check("build_env_dict: no os.environ side-effect",
+      os.environ.get("GARMIN_EMAIL") != "ctrl@test.com")
+
+_ctrl_env_r = controller_mod.build_env_dict(_ctrl_s, refresh_failed=True)
+check("build_env_dict: GARMIN_REFRESH_FAILED=1",     _ctrl_env_r.get("GARMIN_REFRESH_FAILED") == "1")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  17. Controller — timer_run_repair / timer_run_fill
+# ══════════════════════════════════════════════════════════════════════════════
+section("17. Controller — timer_run_repair / timer_run_fill")
+
+import datetime as _dt
+
+_no_dir_s   = {"base_dir": str(_TMPDIR / "no_such_timer_dir")}
+_repair_none = controller_mod.timer_run_repair(_no_dir_s)
+check("timer_run_repair: no log → None",             _repair_none is None)
+_fill_none   = controller_mod.timer_run_fill(_no_dir_s)
+check("timer_run_fill: no dir → None",               _fill_none is None)
+
+# Build a real quality_log for functional tests
+_timer_log_dir = _TMPDIR / "timer_test" / "garmin_data" / "log"
+_timer_log_dir.mkdir(parents=True, exist_ok=True)
+_timer_log_file = _timer_log_dir / "quality_log.json"
+
+_today_iso    = _dt.date.today().isoformat()
+_failed_date  = (_dt.date.today() - _dt.timedelta(days=5)).isoformat()
+_low_date     = (_dt.date.today() - _dt.timedelta(days=10)).isoformat()
+_high_date    = (_dt.date.today() - _dt.timedelta(days=15)).isoformat()
+
+_timer_log_file.write_text(json.dumps({"days": [
+    {"date": _failed_date, "quality": "failed", "recheck": True},
+    {"date": _low_date,    "quality": "low",    "recheck": True},
+    {"date": _high_date,   "quality": "high",   "recheck": False},
+]}), encoding="utf-8")
+
+_timer_s = {"base_dir": str(_TMPDIR / "timer_test")}
+
+# timer_run_repair
+_repair_result = controller_mod.timer_run_repair(_timer_s)
+check("timer_run_repair: returns list with failed day",
+      isinstance(_repair_result, list) and len(_repair_result) == 1)
+check("timer_run_repair: correct date",
+      _repair_result is not None and
+      _repair_result[0] == _dt.date.fromisoformat(_failed_date))
+
+# timer_run_fill: raw/ dir has only the high-quality day → fill should find gaps
+_timer_raw_dir = _TMPDIR / "timer_test" / "garmin_data" / "raw"
+_timer_raw_dir.mkdir(parents=True, exist_ok=True)
+(_timer_raw_dir / f"garmin_raw_{_high_date}.json").write_text("{}", encoding="utf-8")
+
+_fill_result = controller_mod.timer_run_fill(_timer_s)
+check("timer_run_fill: returns list when gaps exist",
+      isinstance(_fill_result, list) and len(_fill_result) > 0)
+check("timer_run_fill: does not include raw-present date",
+      _fill_result is None or
+      _dt.date.fromisoformat(_high_date) not in _fill_result)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  18. Controller — check_integrity (exception-safe contract)
+# ══════════════════════════════════════════════════════════════════════════════
+section("18. Controller — check_integrity")
+
+# garmin_backup may not be importable in test env (ENV not set) —
+# controller must return safe fallback, never raise.
+_dummy_s = {"base_dir": str(_TMPDIR)}
+_integrity_result = controller_mod.check_integrity(_dummy_s)
+check("check_integrity: returns dict",               isinstance(_integrity_result, dict))
+check("check_integrity: missing_days key present",   "missing_days" in _integrity_result)
+check("check_integrity: no_backup key present",      "no_backup" in _integrity_result)
+check("check_integrity: missing_days is list",       isinstance(_integrity_result["missing_days"], list))
+check("check_integrity: no_backup is list",          isinstance(_integrity_result["no_backup"], list))
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 shutil.rmtree(_TMPDIR, ignore_errors=True)

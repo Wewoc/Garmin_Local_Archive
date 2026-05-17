@@ -96,6 +96,8 @@ Both build scripts run `validate_scripts()` before PyInstaller starts:
 | `garmin_validator.py` | `def validate`, `def reload_schema`, `def current_version` |
 | `garmin_writer.py` | `def write_day`, `def read_raw` |
 | `garmin_sync.py` | `def get_local_dates`, `def resolve_date_range` |
+| `app/garmin_app_settings.py` | `def load_settings`, `def save_settings`, `def load_password`, `def save_password` |
+| `app/garmin_app_controller.py` | `def build_env_dict`, `def check_connection`, `def timer_run_repair`, `def timer_run_fill` |
 
 Signature list is defined in `build_manifest.py` as `SCRIPT_SIGNATURES_BASE`.
 
@@ -208,7 +210,7 @@ For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_man
 python tests/test_app_logic.py
 ```
 
-**Current count: 102 checks, 14 sections.** No network, no GUI, no build required. Tests `garmin_app_base.py` (settings, keyring, password helpers, hook implementation, `_build_env_dict`), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides). Includes v1.4.2 regression check for frozen path resolution.
+**Current count: 129 checks, 18 sections.** No network, no GUI, no build required. Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides). Includes v1.4.2 regression check for frozen path resolution. Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
 
 Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
 
@@ -245,6 +247,7 @@ All source folders are Python packages with `__init__.py`:
 - `maps/` — data brokers
 - `dashboards/` — dashboard specialists (v1.4+)
 - `layouts/` — format renderers (v1.4+)
+- `app/` — GUI logic layer (v1.5.2+): settings, controller
 
 **Import pattern:**
 - Entry points (`garmin_app.py`, `tests/`) use `sys.path.insert` to reach `garmin/`
@@ -257,11 +260,11 @@ All source folders are Python packages with `__init__.py`:
 
 | Location | sys.path setup |
 |---|---|
-| `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` |
+| `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `app/` |
 | `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); same subfolder loop from `parent.parent`; `context` additionally registered as `types.ModuleType` in `sys.modules` |
 | `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`) |
 | `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE |
-| `garmin_app_standalone.py` — Dev | same subfolder loop |
+| `garmin_app_standalone.py` — Dev | same subfolder loop (incl. `app/`) |
 | `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; others via package registration |
 | `tests/test_local.py` | `sys.path.insert(0, .../garmin)` |
 | `tests/test_local_context.py` | `sys.path.insert(0, .../garmin)` + `sys.path.insert(0, root)` |

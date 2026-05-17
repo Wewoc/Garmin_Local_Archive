@@ -35,6 +35,7 @@ else:
     _root = Path(__file__).parent
     for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         sys.path.insert(0, str(_root / _sub))
+    sys.path.insert(0, str(_root / "app"))
 
 
 def _register_embedded_packages():
@@ -46,6 +47,9 @@ def _register_embedded_packages():
     garmin_dir = scripts / "garmin"
     if garmin_dir.exists():
         sys.path.insert(0, str(garmin_dir))
+    app_dir = scripts / "app"
+    if app_dir.exists():
+        sys.path.insert(0, str(app_dir))
     for pkg in ("context", "maps", "dashboards", "layouts"):
         pkg_dir = scripts / pkg
         if pkg_dir.exists() and pkg not in sys.modules:
@@ -57,8 +61,9 @@ def _register_embedded_packages():
 
 _register_embedded_packages()
 
+from garmin_app_settings import load_password, save_password
 from garmin_app_base import (
-    GarminAppBase, load_password, save_password, apply_style,
+    GarminAppBase, apply_style,
     APP_VERSION, BG, BG2, BG3, ACCENT, ACCENT2, TEXT, TEXT2,
     GREEN, YELLOW, FONT_HEAD, FONT_BODY, FONT_MONO, FONT_BTN, FONT_LOG,
 )
