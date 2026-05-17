@@ -7,7 +7,7 @@ Consult this alongside `REFERENCE_GARMIN.md` and `REFERENCE_CONTEXT.md`.
 
 ## Environment variables
 
-All configuration is passed between the GUI and scripts via `os.environ`. The GUI builds them via `_build_env_dict()` in `garmin_app_base.py` — Target 1+2 passes the result to `Popen`, Target 3 writes it to `os.environ` before module import. Scripts read them exclusively via `garmin_config.py` — no script reads `os.environ` directly.
+All configuration is passed between the GUI and scripts via `os.environ`. The GUI builds them via `build_env_dict()` in `app/garmin_app_controller.py` (delegated from `GarminAppBase._build_env_dict()`) — Target 1+2 passes the result to `Popen`, Target 3 writes it to `os.environ` before module import. Scripts read them exclusively via `garmin_config.py` — no script reads `os.environ` directly.
 
 | Variable | Type | Default | Purpose |
 |---|---|---|---|
@@ -79,14 +79,15 @@ All modules import via `import garmin_config as cfg`.
 | `CONTEXT_LATITUDE` | `0.0` | `GARMIN_CONTEXT_LAT` | Default latitude — set via GUI geocoding |
 | `CONTEXT_LONGITUDE` | `0.0` | `GARMIN_CONTEXT_LON` | Default longitude — set via GUI geocoding |
 
-### App constants (`garmin_app_base.py`)
+### App constants (`app/garmin_app_settings.py`)
 
 | Constant | Value | Purpose |
 |---|---|---|
 | `KEYRING_SERVICE` | `"GarminLocalArchive"` | Windows Credential Manager service name |
 | `KEYRING_USER` | `"garmin_password"` | WCM username key for password |
-| `KEYRING_ENC_USER` | `"token_enc_key"` | WCM key for token encryption key |
 | `SETTINGS_FILE` | `~/.garmin_archive_settings.json` | GUI settings persistence |
+
+Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — removed in Trockenlauf (Neu-3).
 
 ---
 
@@ -96,8 +97,13 @@ All modules import via `import garmin_config as cfg`.
 /                               ← repo root
 ├── garmin_app.py               ← Entry Point Target 1+2 (GUI)
 ├── garmin_app_standalone.py    ← Entry Point Target 3 (GUI, Standalone)
-├── garmin_app_base.py          ← Shared GUI base class (GarminAppBase)
+├── garmin_app_base.py          ← View layer (GarminAppBase) — tkinter exclusive
 ├── version.py                  ← Single source of truth for APP_VERSION
+│
+├── app/                        ← GUI logic layer (v1.5.2+)
+│   ├── __init__.py
+│   ├── garmin_app_settings.py  ← Layer 1: settings, keyring, constants (no tkinter)
+│   └── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no tkinter)
 ├── requirements.txt
 ├── run_T1.bat
 ├── run_build_all.bat
@@ -192,7 +198,7 @@ All modules import via `import garmin_config as cfg`.
     ├── test_local.py           ← Garmin pipeline (227 checks)
     ├── test_local_context.py   ← Context pipeline (217 checks)
     ├── test_dashboard.py       ← Dashboard pipeline (303 checks)
-    ├── test_app_logic.py       ← App layer (102 checks)
+    ├── test_app_logic.py       ← App layer (129 checks)
     └── test_build_output.py    ← Build output validation (8 sections)
 ```
 
