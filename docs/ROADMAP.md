@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.1.1**
+**Currently stable — v1.5.2**
 
 ---
 
@@ -14,101 +14,117 @@
 
 ---
 
-### v1.5.2 — GUI / Controller Separation
-
-`garmin_app_base.py` has grown to ~2500 lines mixing four conceptually
-distinct layers: configuration, UI construction, application logic, and
-UI callbacks. This refactoring separates them before v2.0 makes the
-cost of doing so significantly higher.
-
-**New modules:**
-- `app/garmin_app_settings.py` — settings persistence, keyring helpers,
-  constants. No tkinter dependency — importable in any context.
-- `app/garmin_app_controller.py` — application logic: ENV construction,
-  archive stats, connection checks, timer logic, integrity checks.
-  No tkinter dependency — pure functions, return values only.
-
-**What does not change:**
-- `garmin_app_base.py` remains the UI layer — layout, widgets, callbacks
-- `garmin_app.py` and `garmin_app_standalone.py` — minimal changes to
-  sys.path and imports only
-- All three build targets — no behavioural change, no new features
-- Test suite — 102 existing checks must remain green; import paths updated
-
-**Why now:**
-- Separation of concerns — each module owns exactly one thing
-- v2.0 readiness — multi-source architecture with a 2500-line monolith
-  as GUI base would be painful; separation now costs far less than later
-- Context window — more, smaller files are better for LLM-assisted
-  development
-- `garmin_app_settings` becomes importable without tkinter — relevant
-  if headless contexts ever need settings access
-
-Full plan and dependency analysis in `REFACTORING_GUI_Separation.md`.
-
----
-
-### v1.5.3 — Modern UI Layer
+### v1.5.3 — UI Panel Decomposition
 
 **Prerequisite: v1.5.2 GUI / Controller Separation complete.**
 
-After the separation, the UI layer (`garmin_app_base.py`) is the only
-file that needs to change for a UI technology swap. The controller and
-settings modules are reused without modification.
+`garmin_app_base.py` remains in tkinter but is broken into dedicated
+panel modules. The monolith becomes an assembler.
 
-**Target: PyQt6 with QWebEngineView**
-
-PyQt6 is the primary target. The decisive factor is `QWebEngineView` —
-a fully embedded Chromium widget that renders Plotly HTML dashboards
-natively inside the app. No external browser, no local server, no
-pipeline changes required.
-
-- Dashboards open inline — in the main window or a docked panel
-- Daily Update can show results directly without `os.startfile()`
-- Full Plotly interactivity: zoom, hover, filter — all in-app
-- v2.0 readiness: multi-source dashboards with cross-source views
-  become a first-class UI element, not a browser export
+**New modules:**
+- `app/panel_settings.py` — Settings panel (credentials, paths, sync config)
+- `app/panel_archive.py` — Archive Info + Integrity panel
+- `app/panel_connection.py` — Connection test + indicators panel
+- `app/panel_timer.py` — Background timer panel
+- `app/panel_outputs.py` — Outputs + Dashboard panel
 
 **What changes:**
-- `garmin_app_base.py` — rewritten in PyQt6 (Signals/Slots, QThread)
-- `garmin_app.py` / `garmin_app_standalone.py` — entry points updated
-- `daily_update.py` — unaffected; remains fully headless
+- `garmin_app_base.py` — reduced to assembler: imports panels, wires
+  them together, holds shared state. Target: under 400 lines.
+- `app/` — new panel modules, each owning one UI section
 
 **What does not change:**
 - `app/garmin_app_settings.py` — untouched
 - `app/garmin_app_controller.py` — untouched
-- Dashboard pipeline (specialists, plotters, brokers) — untouched
-- All HTML output files — untouched
+- All three build targets — no behavioural change
 
-**Effort:** high. PyQt6 requires a threading model change (`QThread`
-instead of `threading.Thread` + `self.after()`). The GUI itself will
-likely be simpler than tkinter — the hard part is deployment.
-
-QWebEngineView embeds Chromium. Expected impact on the standalone build:
-- EXE size: +150–200 MB
-- RAM at runtime: significantly higher
-- PyInstaller: additional flags required (`QtWebEngineProcess`,
-  codecs, locales, resources, sandbox binaries)
-
-This is the primary technical risk of v1.5.3 — not the UI rewrite
-itself, but the packaging of the Chromium runtime under PyInstaller.
-The v1.5.2 separation limits this risk: all Qt-specific complexity
-stays contained in `garmin_app_base.py`.
-
-**Alternative: CustomTkinter**
-If embedded dashboards are not a priority at build time, CustomTkinter
-remains a valid fallback — modern styling, no paradigm shift,
-PyInstaller-friendly. Decision deferred until v1.5.2 is complete.
+**Why before PyQt6:**
+Decomposition in tkinter is low-risk — the technology is well-known, tests are underway,
+every error is clearly locatable. The subsequent PyQt6 conversion will be a
+mechanical panel-by-panel translation with a clear gate after each step.
 
 ---
 
-### v1.5.4 — Content Validation
+### v1.5.4 — PyQt6 / QWebEngineView
 
-### Note — Test Suite Refactor (post-v1.5.1)
+**Prerequisite: v1.5.3 Panel Decomposition complete.**
 
-Test files (`test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_app_logic.py`) have grown organically. A dedicated refactor session after v1.5.1 is stable would introduce: shared setup helpers, section isolation (early crash doesn't cascade), possible pytest migration. No urgency — 306/306 green is the baseline.
+Each panel module is translated from tkinter to PyQt6 individually.
+`garmin_app_base.py` (assembler) is rewritten last.
 
-### v1.5.4 — Content Validation
+**Target: PyQt6 with QWebEngineView**
+
+`QWebEngineView` — a fully embedded Chromium widget that renders Plotly
+HTML dashboards natively inside the app. No external browser, no local
+server, no pipeline changes required.
+
+- Dashboards open inline in a dedicated "Dashboards" tab
+- `QComboBox` dropdown above one `QWebEngineView` instance —
+  no tab-per-dashboard (avoids Chromium subprocess proliferation)
+- Full Plotly interactivity: zoom, hover, filter — all in-app
+- v2.0 readiness: multi-source dashboards become a first-class UI element
+
+**What changes:**
+- All `app/panel_*.py` — rewritten in PyQt6 (Signals/Slots, QThread)
+- `garmin_app_base.py` — rewritten as PyQt6 assembler
+- `garmin_app.py` / `garmin_app_standalone.py` — entry points updated
+
+**What does not change:**
+- `app/garmin_app_settings.py` — untouched
+- `app/garmin_app_controller.py` — untouched
+- Dashboard pipeline — untouched
+- All HTML output files — untouched
+
+**Known risks:**
+- QWebEngineView embeds Chromium — EXE size +150–200 MB, RAM significantly
+  higher, PyInstaller needs additional flags (QtWebEngineProcess, codecs,
+  locales, resources, sandbox binaries)
+- GPU fallback required on NVIDIA systems:
+  `os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")`
+- `load(QUrl)` is async — QComboBox must be disabled during load,
+  re-enabled on `loadFinished` signal
+
+**Alternative: CustomTkinter**
+If embedded dashboards are not a priority, CustomTkinter remains a valid
+fallback — modern styling, no paradigm shift, PyInstaller-friendly.
+Decision deferred until v1.5.3 is complete.
+
+---
+
+### v1.5.4.1 — UI Testsuite
+
+**Prerequisite: v1.5.4 PyQt6 stable, all three build targets green.**
+
+First dedicated test suite for the UI layer. PyQt6 allows headless
+widget testing — `QApplication` starts without a visible window,
+widgets are instantiable and inspectable in isolation.
+
+**New:**
+- `tests/test_ui.py` — headless QApplication, panel modules
+  instantiated individually, controller return values injected,
+  widget state verified. No screenshot comparison, no visual
+  validation — logic correctness of UI reactions only.
+
+**What gets tested:**
+- Each panel initializes without exception
+- Panel methods respond correctly to controller return values
+  (label text, button enabled state, indicator color)
+- Cross-panel wiring: signal in → correct callback triggered
+
+**What does not get tested:**
+- Visual rendering, layout, colors
+- Screenshot comparison
+- Any behaviour that requires a visible window
+
+**Why separate from v1.5.4:**
+During the PyQt6 rewrite, behaviour is still being defined.
+Writing tests for something not yet stable is backwards.
+v1.5.4.1 locks in the behaviour that v1.5.4 established —
+analogous to how `test_app_logic.py` covers the app layer.
+
+---
+
+### v1.5.5 — Content Validation
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
 

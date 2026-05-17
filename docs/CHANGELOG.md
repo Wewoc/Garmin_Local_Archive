@@ -1,5 +1,30 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.2 — GUI / Controller Separation
+
+Structural refactoring — no logic changes, no new features.
+
+`garmin_app_base.py` (~2500 lines) separated into three distinct layers.
+
+**New modules:**
+- `app/garmin_app_settings.py` — Layer 1: settings persistence, keyring helpers, constants. No tkinter dependency — importable in any context including headless.
+- `app/garmin_app_controller.py` — Layer 3: application logic (ENV construction, archive stats, connection testing, timer calculations, startup integrity/mirror checks). No tkinter, no Qt — pure functions, return values and callbacks only.
+- `app/__init__.py` — package marker
+
+**Changed modules:**
+- `garmin_app_base.py` — becomes pure View (Layer 4): imports settings and controller via module references. All former settings/keyring functions replaced by re-exports from `garmin_app_settings`. All former logic methods delegated to `garmin_app_controller`. New `_safe_save()` wrapper centralises OSError handling for `save_settings()` calls. Layer 4 Schicht-4-Blockkommentar set before mixed-callback methods (`_create_task_scheduler_xml`, `_open_dashboard_popup`, `_on_mirror`, `_on_restore_data`, `_check_version`).
+- `garmin_app.py` — `sys.path` extended with `app/`; `load_password`/`save_password` imported directly from `garmin_app_settings` (Option B — no re-export via base)
+- `garmin_app_standalone.py` — `sys.path` + `_register_embedded_packages()` extended with `app/`; same direct import pattern
+- `compiler/build_manifest.py` — three new entries in `SHARED_SCRIPTS` (`app/__init__.py`, `app/garmin_app_settings.py`, `app/garmin_app_controller.py`) + corresponding `SCRIPT_SIGNATURES_BASE` entries
+- `tests/test_app_logic.py` — import paths updated (Sections 3–5, 11); `garmin_app_controller` imported and tested (Sections 15–18); B15 AST-test added
+
+**Callback contract (v1.5.3-ready):**
+Controller communicates with View exclusively via return values and callbacks. No tkinter-specific types in parameters or return values. In v1.5.3, the View replaces lambda callbacks with `pyqtSignal` emitters — the controller remains unchanged.
+
+**Test result:** 315 / 255 / 303 / 129 / 356 — all green.
+
+---
+
 ## v1.5.1.1 — Log Improvement
 
 Daily-Logs und GUI-Session-Logs werden jetzt immer im Detail-Modus (DEBUG) geschrieben. Behebt einen strukturellen Fehler: `logging.basicConfig()` ist idempotent — der File-Handler war zwar auf DEBUG gesetzt, der Root-Logger filterte jedoch auf INFO, wodurch DEBUG-Nachrichten den Handler nie erreichten. Zusätzlich wird beim Token-Expired-Warning jetzt der genaue Exception-Typ und -Text mitgeloggt.
