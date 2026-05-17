@@ -13,6 +13,10 @@ No logic, no imports, no side effects — pure data.
 # Add new modules here. Both Target 2 and Target 3 include these.
 
 SHARED_SCRIPTS = [
+    # app layer
+    "app/__init__.py",
+    "app/garmin_app_settings.py",
+    "app/garmin_app_controller.py",
     # app base
     "version.py",
     "garmin_app_base.py",
@@ -81,6 +85,8 @@ ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py", "daily_update.py"] +
 # Entry-point signatures are added per-build in each build script.
 
 SCRIPT_SIGNATURES_BASE = {
+    "app/garmin_app_settings.py": ["def load_settings", "def save_settings", "def load_password", "def save_password"],
+    "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def check_mirror"],
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
