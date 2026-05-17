@@ -329,6 +329,15 @@ Create `NOTES_vX_Y_Z.md` at session start. Update after every delivery. Three bl
 - What is affected by the *new* behaviour? → must be explicitly updated
 - For every new behaviour: **"Which other threads access the same resource?"**
 
+These four questions map to universal engineering invariants:
+
+| Question | Maps to | GLA implementation |
+|---|---|---|
+| Where does state live? | Ownership & truth | Sole-Write-Authority — `garmin_writer.py` owns raw/ + summary/, `garmin_quality.py` owns quality_log.json, `context_writer.py` owns context_data/. No overlap. |
+| Where does feedback live? | Observability | `quality_log.json` + DEBUG logging through all pipeline layers |
+| What breaks if I delete this? | Coupling & fragility | Cross-dependency check before every build — mandatory, not optional |
+| When does timing work? | Async & ordering | Thread-lock check for every shared resource access — explicit question in pre-build checklist |
+
 ### During every implementation — dependency transparency (mandatory)
 
 List all new or changed dependencies explicitly:
