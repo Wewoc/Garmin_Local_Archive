@@ -25,102 +25,20 @@ from datetime import date, timedelta
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
 
+import garmin_app_settings as _settings
+import garmin_app_controller as _controller
 
-# ── Settings ───────────────────────────────────────────────────────────────────
+# ── Settings — re-exported from garmin_app_settings ───────────────────────────
+# garmin_app.py and garmin_app_standalone.py import these names from this module.
+# Source of truth: app/garmin_app_settings.py
 
-SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
-
-DEFAULT_SETTINGS = {
-    "email":              "",
-    "base_dir":           str(Path.home() / "local_archive"),
-    "sync_mode":          "recent",
-    "sync_days":          "90",
-    "sync_from":          "",
-    "sync_to":            "",
-    "date_from":          "",
-    "date_to":            "",
-    "age":                "35",
-    "sex":                "male",
-    "request_delay_min":  "5.0",
-    "request_delay_max":  "20.0",
-    "timer_min_interval": "5",
-    "timer_max_interval": "30",
-    "timer_min_days":     "3",
-    "timer_max_days":     "10",
-    "context_latitude":          "0.0",
-    "context_longitude":         "0.0",
-    "mirror_dir":                "",
-    "backup_raw_backfill_asked": False,
-}
-
-def load_settings() -> dict:
-    if SETTINGS_FILE.exists():
-        try:
-            data = json.loads(SETTINGS_FILE.read_text())
-            data.pop("password", None)
-            return {**DEFAULT_SETTINGS, **data}
-        except Exception:
-            pass
-    return dict(DEFAULT_SETTINGS)
-
-def save_settings(s: dict):
-    safe = {k: v for k, v in s.items() if k != "password"}
-    try:
-        SETTINGS_FILE.write_text(json.dumps(safe, indent=2))
-    except OSError as exc:
-        messagebox.showerror("Settings", f"Could not save settings:\n{exc}")
-
-
-# ── Keyring helpers ────────────────────────────────────────────────────────────
-
-KEYRING_SERVICE = "GarminLocalArchive"
-KEYRING_USER    = "garmin_password"
-
-def load_password() -> str:
-    """Load password from Windows Credential Manager, fall back to empty."""
-    try:
-        import keyring
-        pw = keyring.get_password(KEYRING_SERVICE, KEYRING_USER)
-        return pw or ""
-    except Exception:
-        return ""
-
-def save_password(pw: str):
-    """Save password to Windows Credential Manager."""
-    try:
-        import keyring
-        if pw:
-            keyring.set_password(KEYRING_SERVICE, KEYRING_USER, pw)
-        else:
-            try:
-                keyring.delete_password(KEYRING_SERVICE, KEYRING_USER)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-def delete_password():
-    """Remove password from Windows Credential Manager."""
-    try:
-        import keyring
-        keyring.delete_password(KEYRING_SERVICE, KEYRING_USER)
-    except Exception:
-        pass
-
-
-# ── URL helper ─────────────────────────────────────────────────────────────────
-
-def _open_url(url: str):
-    """Open a URL in the default browser."""
-    try:
-        import webbrowser
-        if not webbrowser.open(url):
-            os.startfile(url)
-    except Exception:
-        try:
-            os.startfile(url)
-        except Exception:
-            pass
+SETTINGS_FILE    = _settings.SETTINGS_FILE
+DEFAULT_SETTINGS = _settings.DEFAULT_SETTINGS
+load_settings    = _settings.load_settings
+save_password    = _settings.save_password
+load_password    = _settings.load_password
+delete_password  = _settings.delete_password
+_open_url        = _settings._open_url
 
 
 # ── Colors & fonts ─────────────────────────────────────────────────────────────
@@ -213,64 +131,17 @@ class GarminAppBase(tk.Tk):
     # ── ENV builder ────────────────────────────────────────────────────────────
 
     def _build_env_dict(self, s: dict, refresh_failed: bool = False) -> dict:
-        """
-        Build GARMIN_* environment variables as a pure dict.
-        No side effects — callers decide how to apply (Popen env= or os.environ).
-        """
-        base = Path(s["base_dir"])
-        env = {}
-        env["PYTHONUTF8"]               = "1"
-        env["GARMIN_EMAIL"]             = s["email"]
-        env["GARMIN_PASSWORD"]          = s["password"]
-        env["GARMIN_OUTPUT_DIR"]        = str(base)
-        env["GARMIN_EXPORT_FILE"]       = str(base / "garmin_export.xlsx")
-        env["GARMIN_TIMESERIES_FILE"]   = str(base / "garmin_timeseries.xlsx")
-        env["GARMIN_DASHBOARD_FILE"]    = str(base / "garmin_dashboard.html")
-        env["GARMIN_ANALYSIS_HTML"]     = str(base / "garmin_analysis.html")
-        env["GARMIN_ANALYSIS_JSON"]     = str(base / "garmin_analysis.json")
-        env["GARMIN_SYNC_MODE"]         = s["sync_mode"]
-        env["GARMIN_DAYS_BACK"]         = s["sync_days"] or "90"
-        env["GARMIN_SYNC_START"]        = s.get("sync_from", "")
-        env["GARMIN_SYNC_END"]          = s.get("sync_to", "")
-        env["GARMIN_SYNC_FALLBACK"]     = s.get("sync_auto_fallback", "")
-        env["GARMIN_REQUEST_DELAY_MIN"] = s["request_delay_min"]
-        env["GARMIN_REQUEST_DELAY_MAX"] = s["request_delay_max"]
-        env["GARMIN_REFRESH_FAILED"]    = "1" if refresh_failed else "0"
-
-        _today  = date.today()
-        _d_from = s.get("date_from", "").strip()
-        _d_to   = s.get("date_to",   "").strip()
-
-        if not _d_from or not _d_to:
-            _summary_dir = Path(s.get("base_dir", "")) / "garmin_data" / "summary"
-            _dates = sorted(
-                f.stem.replace("garmin_", "")
-                for f in _summary_dir.glob("garmin_???-??-??.json")
-            ) if _summary_dir.exists() else []
-
-        env["GARMIN_DATE_FROM"] = _d_from or (
-            _dates[0] if _dates else (_today - timedelta(days=90)).isoformat()
-        )
-        env["GARMIN_DATE_TO"] = _d_to or (
-            _dates[-1] if _dates else _today.isoformat()
-        )
-        env["GARMIN_PROFILE_AGE"]         = s.get("age", "35")
-        env["GARMIN_PROFILE_SEX"]         = s.get("sex", "male")
-        env["GARMIN_LOG_LEVEL"]           = "DEBUG"
-        env["GARMIN_SESSION_LOG_PREFIX"]  = "garmin"
-        env["GARMIN_SYNC_DATES"]          = ""
-        return env
+        """Delegates to garmin_app_controller.build_env_dict."""
+        return _controller.build_env_dict(s, refresh_failed)
 
     # ── Migration ──────────────────────────────────────────────────────────────
 
     def _check_migration(self):
-        import shutil
+        """Migration check — logic in controller, dialogs and destroy here."""
         s        = self._collect_settings()
         base_dir = Path(s.get("base_dir", "")).expanduser()
-        old_raw  = base_dir / "raw"
-        new_dir  = base_dir / "garmin_data"
 
-        if not old_raw.exists() or new_dir.exists():
+        if not _controller.check_migration_needed(base_dir):
             return
 
         msg = (
@@ -294,21 +165,16 @@ class GarminAppBase(tk.Tk):
             self.destroy()
             return
 
-        try:
-            new_dir.mkdir(parents=True, exist_ok=True)
-            for folder in ("raw", "summary", "log"):
-                src = base_dir / folder
-                dst = new_dir / folder
-                if src.exists():
-                    shutil.move(str(src), str(dst))
+        result = _controller.run_migration(base_dir)
+        if result == "ok":
             tk.messagebox.showinfo(
                 "Migration complete",
-                f"Folders successfully moved to:\n{new_dir}",
+                f"Folders successfully moved to:\n{base_dir / 'garmin_data'}",
             )
-        except Exception as e:
+        else:
             tk.messagebox.showerror(
                 "Migration error",
-                f"Error moving folders:\n{e}\n\n"
+                "Error moving folders.\n\n"
                 "Please migrate manually and restart the app.",
             )
             self.destroy()
@@ -754,6 +620,11 @@ class GarminAppBase(tk.Tk):
             tk.Label(row, text=tooltip, font=("Segoe UI", 8),
                      bg=BG, fg=TEXT2).pack(side="left", padx=10)
 
+    # ── Layer 4 — mixed GUI/workflow callbacks ──────────────────────────────────
+    # These methods intentionally combine dialog logic and workflow control.
+    # Do NOT add pure logic here — new logic belongs in garmin_app_controller.py.
+    # Refactoring scope: v1.5.3+.
+
     def _create_task_scheduler_xml(self):
         """Generate a configured daily_update_task.xml for Windows Task Scheduler."""
         import shutil as _shutil
@@ -1057,10 +928,17 @@ class GarminAppBase(tk.Tk):
         else:
             self._log_level_hint.pack_forget()
 
+    def _safe_save(self, s: dict = None):
+        """Central wrapper for save_settings() — catches OSError and shows dialog."""
+        try:
+            _settings.save_settings(s if s is not None else self._collect_settings())
+        except OSError as exc:
+            messagebox.showerror("Settings", f"Could not save settings:\n{exc}")
+
     def _save(self):
         self.settings = self._collect_settings()
         save_password(self.settings.get("password", ""))
-        save_settings(self.settings)
+        self._safe_save(self.settings)
         self._log("✓ Settings saved.")
 
     def _browse_folder(self):
@@ -1088,13 +966,13 @@ class GarminAppBase(tk.Tk):
         self._conn_indicators[key].config(fg=colors.get(state, TEXT2))
 
     def _refresh_archive_info(self):
-        """Reads quality_log.json and updates the Archive Info Panel labels."""
+        """Reads archive stats via controller and updates the Archive Info Panel labels."""
         try:
-            import garmin_quality as quality
-            s = self._collect_settings()
+            s        = self._collect_settings()
             base_dir = Path(s.get("base_dir") or "~/local_archive").expanduser()
-            quality_log = base_dir / "garmin_data" / "log" / "quality_log.json"
-            stats = quality.get_archive_stats(quality_log)
+            stats    = _controller.get_archive_stats(base_dir)
+            if not stats:
+                return
         except Exception:
             return
 
@@ -1142,7 +1020,7 @@ class GarminAppBase(tk.Tk):
         self.after(0, _apply)
 
     def _run_connection_test(self, on_success=None):
-        """Test Token → Login → API Access → Data in a background thread."""
+        """Test Token → Login → API Access → Data. Logic in controller."""
         s = self._collect_settings()
         if not s["email"] or not s["password"]:
             self._log("✗ Connection test: email or password missing.")
@@ -1152,80 +1030,22 @@ class GarminAppBase(tk.Tk):
             self._set_indicator(key, "reset")
         self._log("\n🔌  Testing connection ...")
 
-        def worker():
-            s_inner = self._collect_settings()
-            os.environ["GARMIN_OUTPUT_DIR"] = s_inner["base_dir"]
-            os.environ["GARMIN_EMAIL"]      = s_inner["email"]
-            os.environ["GARMIN_PASSWORD"]   = s_inner["password"]
-            import importlib
-            import garmin_config as cfg
-            importlib.reload(cfg)
-            import garmin_security
+        def _on_success_wrapper():
+            self._connection_verified = True
+            if on_success:
+                self.after(0, on_success)
 
-            try:
-                from garminconnect import Garmin
-            except ImportError:
-                self._log_bg("✗ garminconnect not installed.")
-                return
-
-            token_file_exists = cfg.GARMIN_TOKEN_FILE.exists()
-            enc_key_present   = garmin_security.get_enc_key() is not None
-
-            if not token_file_exists:
-                self.after(0, self._set_indicator, "token", "reset")
-            elif token_file_exists and not enc_key_present:
-                self.after(0, self._set_indicator, "token", "fail")
-                self._log_bg("  ⚠ Encryption key missing — re-entry required")
-            else:
-                self.after(0, self._set_indicator, "token", "pending")
-
-            self.after(0, self._set_indicator, "login", "pending")
-            try:
-                import garmin_api
-                client = garmin_api.login(
-                    on_key_required  = self._prompt_enc_key,
-                    on_token_expired = self._prompt_token_expired,
-                    on_mfa_required  = self._prompt_mfa,
-                )
-                token_now = cfg.GARMIN_TOKEN_FILE.exists() and \
-                            garmin_security.get_enc_key() is not None
-                self.after(0, self._set_indicator, "token", "ok" if token_now else "reset")
-                self.after(0, self._set_indicator, "login", "ok")
-                self._log_bg("  ✓ Login successful")
-            except SystemExit:
-                self.after(0, self._set_indicator, "login", "fail")
-                self.after(0, self._set_indicator, "token", "fail")
-                self._log_bg("  ✗ Login failed or cancelled")
-                return
-            except Exception as e:
-                self.after(0, self._set_indicator, "login", "fail")
-                self._log_bg(f"  ✗ Login failed: {e}")
-                return
-
-            self.after(0, self._set_indicator, "api", "pending")
-            try:
-                client.get_user_profile()
-                self.after(0, self._set_indicator, "api", "ok")
-                self._log_bg("  ✓ API access OK")
-            except Exception as e:
-                self.after(0, self._set_indicator, "api", "fail")
-                self._log_bg(f"  ✗ API access failed: {e}")
-                return
-
-            self.after(0, self._set_indicator, "data", "pending")
-            try:
-                yesterday = (date.today() - timedelta(days=1)).isoformat()
-                client.get_stats(yesterday)
-                self.after(0, self._set_indicator, "data", "ok")
-                self._log_bg("  ✓ Data access OK")
-                self._connection_verified = True
-                if on_success:
-                    self.after(0, on_success)
-            except Exception as e:
-                self.after(0, self._set_indicator, "data", "fail")
-                self._log_bg(f"  ✗ Data access failed: {e}")
-
-        threading.Thread(target=worker, daemon=True).start()
+        _controller.check_connection(s, callbacks={
+            "on_log":           self._log_bg,
+            "on_token":         lambda st: self.after(0, self._set_indicator, "token", st),
+            "on_login":         lambda st: self.after(0, self._set_indicator, "login", st),
+            "on_api":           lambda st: self.after(0, self._set_indicator, "api",   st),
+            "on_data":          lambda st: self.after(0, self._set_indicator, "data",  st),
+            "on_success":       lambda: self.after(0, _on_success_wrapper),
+            "on_enc_key":       self._prompt_enc_key,
+            "on_token_expired": self._prompt_token_expired,
+            "on_mfa":           self._prompt_mfa,
+        })
 
     def _prompt_enc_key(self, mode="setup") -> str | None:
         import threading as _threading
@@ -1594,7 +1414,7 @@ class GarminAppBase(tk.Tk):
         if count == 0:
             # Nothing to do — mark as asked so we never check again
             self.settings["backup_raw_backfill_asked"] = True
-            save_settings(self.settings)
+            self._safe_save(self.settings)
             return
 
         confirmed = messagebox.askyesno(
@@ -1625,7 +1445,7 @@ class GarminAppBase(tk.Tk):
         # Mark as asked only after user confirmed — "No" keeps flag false,
         # so next sync will ask again until user actively confirms or archive is complete.
         self.settings["backup_raw_backfill_asked"] = True
-        save_settings(self.settings)
+        self._safe_save(self.settings)
         threading.Thread(target=_do_backfill, daemon=True).start()
         self._log("🗄  Raw backup running in background …")
 
@@ -1904,7 +1724,7 @@ class GarminAppBase(tk.Tk):
         self.settings["context_longitude"] = lon
         self.settings["context_location"]  = url
         self._ctx_coords_label.config(text=f"lat {lat}  lon {lon}")
-        save_settings(self.settings)
+        self._safe_save(self.settings)
         self._log(f"Context location set — lat {lat}, lon {lon}")
 
     def _run_context_sync(self):
@@ -1926,7 +1746,6 @@ class GarminAppBase(tk.Tk):
             try:
                 # script_dir() returns garmin/ in dev, scripts/garmin/ in EXE.
                 # Parent gives the correct root for context/ package import.
-                from garmin_app_base import _open_url as _  # noqa: ensure base imported
                 if not getattr(sys, "frozen", False):
                     _root = Path(__file__).parent
                 elif hasattr(sys, "_MEIPASS") and (Path(sys._MEIPASS) / "scripts").exists():
@@ -2252,104 +2071,20 @@ class GarminAppBase(tk.Tk):
                 self._timer_stop.wait(timeout=1)
 
     def _timer_run_repair(self, s: dict):
-        """Returns list of date objects with quality='failed'. None if empty."""
-        try:
-            failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
-            if not failed_file.exists():
-                return None
-            data    = json.loads(failed_file.read_text(encoding="utf-8"))
-            entries = data.get("days", [])
-            days = []
-            for e in entries:
-                q = e.get("quality", e.get("category", ""))
-                if q == "failed" and e.get("recheck", True):
-                    try:
-                        days.append(date.fromisoformat(e["date"]))
-                    except (ValueError, KeyError):
-                        pass
-            return days if days else None
-        except Exception:
-            return None
+        """Delegates to garmin_app_controller.timer_run_repair."""
+        return _controller.timer_run_repair(s)
 
     def _timer_run_bulk_recheck(self, s: dict):
-        """Returns bulk-source days within last 180 days, oldest first. None if empty."""
-        try:
-            log_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
-            if not log_file.exists():
-                return None
-            data   = json.loads(log_file.read_text(encoding="utf-8"))
-            cutoff = date.today() - timedelta(days=180)
-            days = []
-            for e in data.get("days", []):
-                if e.get("source") == "bulk" and e.get("recheck", False):
-                    try:
-                        d = date.fromisoformat(e["date"])
-                        if d >= cutoff:
-                            days.append(d)
-                    except (ValueError, KeyError):
-                        pass
-            days.sort()
-            return days if days else None
-        except Exception:
-            return None
+        """Delegates to garmin_app_controller.timer_run_bulk_recheck."""
+        return _controller.timer_run_bulk_recheck(s)
 
     def _timer_run_quality(self, s: dict):
-        """Returns list of date objects with quality='low'. None if empty."""
-        try:
-            failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
-            if not failed_file.exists():
-                return None
-            data    = json.loads(failed_file.read_text(encoding="utf-8"))
-            entries = data.get("days", [])
-            days = []
-            for e in entries:
-                q = e.get("quality", e.get("category", ""))
-                if q == "low" and e.get("recheck", True):
-                    try:
-                        days.append(date.fromisoformat(e["date"]))
-                    except (ValueError, KeyError):
-                        pass
-            return days if days else None
-        except Exception:
-            return None
+        """Delegates to garmin_app_controller.timer_run_quality."""
+        return _controller.timer_run_quality(s)
 
     def _timer_run_fill(self, s: dict):
-        """Returns dates completely absent from raw/ between earliest known and yesterday."""
-        try:
-            raw_dir = Path(s["base_dir"]) / "garmin_data" / "raw"
-            existing = set()
-            if raw_dir.exists():
-                for f in raw_dir.glob("garmin_raw_*.json"):
-                    try:
-                        existing.add(date.fromisoformat(f.stem.replace("garmin_raw_", "")))
-                    except ValueError:
-                        pass
-            failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
-            failed_dates = set()
-            if failed_file.exists():
-                try:
-                    data = json.loads(failed_file.read_text(encoding="utf-8"))
-                    for e in data.get("days", []):
-                        try:
-                            failed_dates.add(date.fromisoformat(e["date"]))
-                        except (ValueError, KeyError):
-                            pass
-                except Exception:
-                    pass
-            all_known = existing | failed_dates
-            if not all_known:
-                return None
-            yesterday = date.today() - timedelta(days=1)
-            earliest  = min(all_known)
-            missing = []
-            current = earliest
-            while current <= yesterday:
-                if current not in existing and current not in failed_dates:
-                    missing.append(current)
-                current += timedelta(days=1)
-            return missing if missing else None
-        except Exception:
-            return None
+        """Delegates to garmin_app_controller.timer_run_fill."""
+        return _controller.timer_run_fill(s)
 
     # ── Backup / Restore / Mirror ──────────────────────────────────────────────
 
@@ -2358,13 +2093,8 @@ class GarminAppBase(tk.Tk):
         Checks at startup if mirror_dir is set and reachable (C3).
         Updates _mirror_btn state via self.after().
         """
-        try:
-            import garmin_mirror as _mirror
-            s          = self._collect_settings()
-            mirror_dir = s.get("mirror_dir", "").strip()
-            reachable  = _mirror.is_reachable(mirror_dir)
-        except Exception:
-            reachable = False
+        s         = self._collect_settings()
+        reachable = _controller.check_mirror(s)
 
         def _update():
             if reachable:
@@ -2431,14 +2161,20 @@ class GarminAppBase(tk.Tk):
 
     def _startup_integrity_check(self):
         """
-        Runs check_raw_integrity() in background at startup (B5).
+        Runs check_integrity() via controller at startup (B5).
         Updates _restore_btn state via self.after().
         """
-        try:
-            import garmin_backup as _backup
-            result = _backup.check_raw_integrity()
-        except Exception:
-            return
+        s      = self._collect_settings()
+        result = _controller.check_integrity(s)
+        if not result.get("missing_days") and not result.get("no_backup"):
+            # Early out: also covers exception case (controller returns empty lists)
+            missing = result.get("missing_days", [])
+            no_bkup = result.get("no_backup", [])
+            if not missing:
+                def _reset():
+                    self._restore_btn.config(state="disabled", text="Restore Data", fg=TEXT2)
+                self.after(0, _reset)
+                return
 
         missing  = result.get("missing_days", [])
         no_bkup  = result.get("no_backup", [])
@@ -2526,5 +2262,5 @@ class GarminAppBase(tk.Tk):
             self._context_stop_event.set()
         self.settings = self._collect_settings()
         save_password(self.settings.get("password", ""))
-        save_settings(self.settings)
+        self._safe_save(self.settings)
         self.destroy()
