@@ -20,8 +20,9 @@
 
 `garmin_app_base.py` remains in tkinter but is broken into dedicated
 panel modules. The monolith becomes an assembler.
+Pure structural move — no behaviour change, no bug fixes.
 
-**New modules:**
+**New modules (all Mixin classes, no `__init__`):**
 - `app/panel_settings.py` — Settings panel (credentials, paths, sync config)
 - `app/panel_archive.py` — Archive Info + Integrity panel
 - `app/panel_connection.py` — Connection test + indicators panel
@@ -45,9 +46,38 @@ mechanical panel-by-panel translation with a clear gate after each step.
 
 ---
 
+### v1.5.3.1 — State Hardening
+
+**Prerequisite: v1.5.3 Panel Decomposition complete, all tests green.**
+
+Hardening step in preparation for the PyQt6 migration.
+Cross-LLM review (Gemini + ChatGPT) confirmed shared mutable state on `self`
+as the primary long-term risk for Qt compatibility. This version addresses it
+without touching behaviour or scope of v1.5.3.
+
+**Three deliverables:**
+
+1. **State block in `__init__`** — all `self._xyz` flags documented with
+   owner panel and thread rule. Makes implicit state explicitly visible.
+
+2. **`_ctx_running` bug fix** — setter added in `_run_context_sync` and
+   `_on_context_sync_done`, initialization in `__init__`. Without this,
+   Context Sync never blocks the Mirror operation — concurrent archive
+   writes are possible.
+
+3. **Widget accessor methods** — for the most critical cross-panel widget
+   access. No panel writes directly to a widget owned by another panel.
+   Candidates: `_mirror_btn`, `_restore_btn`, `_timer_btn`.
+
+**What does not change:**
+- Panel structure from v1.5.3 — untouched
+- All three build targets — no behavioural change beyond the bug fix
+
+---
+
 ### v1.5.4 — PyQt6 / QWebEngineView
 
-**Prerequisite: v1.5.3 Panel Decomposition complete.**
+**Prerequisite: v1.5.3.1 State Hardening complete.**
 
 Each panel module is translated from tkinter to PyQt6 individually.
 `garmin_app_base.py` (assembler) is rewritten last.
