@@ -1,5 +1,26 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.4.1 — Auth Hardening
+
+Four independent improvements to the login flow and dependency monitoring.
+Trigger: rate-limit incident 2026-05-19 (settings lost during UI migration
+→ token unusable → automatic SSO login → immediate 429 → account-side
+block 48h+).
+
+**Changed modules:**
+- `garmin/garmin_api.py` — `login()`: new optional callback `on_sso_required()` (Path 3) — user explicitly confirms before garminconnect sends the first SSO request. Headless/Standalone: default `None`, SSO starts automatically as before. Auto-generates encryption key via `generate_enc_key()` if no key is present and no manual callback is provided.
+- `garmin/garmin_security.py` — new function `generate_enc_key()`: generates a 256-bit key via `os.urandom(32)`, stores it as a hex string directly in WCM. No user input, no password dialog.
+- `app/garmin_app_controller.py` — `check_connection()`: `on_sso_required` wired into `login()` call, callback documentation updated.
+- `app/panel_connection.py` — new `SsoRequiredDialog` (analogous to `TokenExpiredDialog`), `_prompt_sso_required()`, `_show_prompt` branch `"sso_required"`. Dialog informs the user about automatic key generation and 429 risk in a single step.
+- `tests/check_deps.py` — optional probe call against Garmin Connect after findings display: token status, 429, 401, no token. Read-only, never deletes token. Order: findings → probe? → start anyway?
+
+**Item 3 deferred:** `requirements.txt` + `build_manifest.py` (`curl_cffi` / `ua-generator`) — pending `garminconnect 0.3.4` PyPI release. Released to PyPI during this session (0.3.4 ✓) — follows in a patch or v1.5.4.2.
+
+**Test result:** 315 / 255 / 303 / 128 — all green
+(test_local / test_local_context / test_dashboard / test_app_logic)
+
+---
+
 ## v1.5.4 — PyQt6 Migration
 
 tkinter vollständig durch PyQt6 ersetzt. Alle fünf Panel-Mixins wurden zu

@@ -125,7 +125,7 @@ class EncKeyDialog(QDialog):
 
 
 class TokenExpiredDialog(QDialog):
-    """Modal dialog asking user to confirm SSO re-login."""
+    """Modal dialog asking user to confirm SSO re-login after token expiry."""
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -149,6 +149,61 @@ class TokenExpiredDialog(QDialog):
         body = QLabel(
             "A full SSO login is required to generate a new token.\n"
             "This may trigger rate limiting or MFA on Garmin's side.\nProceed?"
+        )
+        body.setFont(QFont("Segoe UI", 9))
+        body.setStyleSheet(f"color: {t2};")
+        body.setWordWrap(True)
+        lay.addWidget(body)
+
+        btn_row = QHBoxLayout()
+        proceed = QPushButton("Proceed")
+        proceed.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        proceed.setStyleSheet(
+            f"QPushButton {{ background: {acc}; color: {t}; "
+            f"border: none; padding: 6px 18px; }}")
+        proceed.setCursor(Qt.CursorShape.PointingHandCursor)
+        proceed.clicked.connect(self.accept)
+        cancel = QPushButton("Cancel")
+        cancel.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        cancel.setStyleSheet(
+            f"QPushButton {{ background: {bg3}; color: {t2}; "
+            f"border: none; padding: 6px 18px; }}")
+        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        btn_row.addWidget(proceed)
+        btn_row.addWidget(cancel)
+        lay.addLayout(btn_row)
+
+
+class SsoRequiredDialog(QDialog):
+    """Modal dialog asking user to confirm SSO login on first setup (no token)."""
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setWindowTitle("Login Required")
+        self.setModal(True)
+        self.setFixedWidth(420)
+        bg  = parent._app.BG
+        bg3 = parent._app.BG3
+        t   = parent._app.TEXT
+        t2  = parent._app.TEXT2
+        acc = parent._app.ACCENT
+        self.setStyleSheet(f"background: {bg}; color: {t};")
+        lay = QVBoxLayout(self)
+        lay.setSpacing(8)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        title = QLabel("Garmin SSO Login")
+        title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        lay.addWidget(title)
+
+        body = QLabel(
+            "No saved token found. A full SSO login is required.\n\n"
+            "An encryption key will be generated automatically and stored "
+            "in Windows Credential Manager — no manual setup needed.\n\n"
+            "garminconnect will send several requests to Garmin's servers "
+            "during login — do not repeat this if you are already rate-limited.\n\n"
+            "Proceed?"
         )
         body.setFont(QFont("Segoe UI", 9))
         body.setStyleSheet(f"color: {t2};")
@@ -256,7 +311,7 @@ class PanelConnection(QWidget):
 
     # Signals — class level only (D-2)
     # payload: (dialog_type, callback)
-    # dialog_type: "enc_key_setup" | "enc_key_unlock" | "token_expired" | "mfa"
+    # dialog_type: "enc_key_setup" | "enc_key_unlock" | "token_expired" | "sso_required" | "mfa"
     _prompt_requested = pyqtSignal(str, object)
 
     def __init__(self, app):
@@ -490,6 +545,7 @@ class PanelConnection(QWidget):
             "on_success":       lambda: self._app._dispatch(_on_success_wrapper),
             "on_enc_key":       self._prompt_enc_key,
             "on_token_expired": self._prompt_token_expired,
+            "on_sso_required":  self._prompt_sso_required,
             "on_mfa":           self._prompt_mfa,
         })
 
@@ -512,6 +568,13 @@ class PanelConnection(QWidget):
 
         elif dialog_type == "token_expired":
             dialog = TokenExpiredDialog(self)
+            dialog.finished.connect(
+                lambda: setattr(self._app, "_dialog_open", False))
+            result = dialog.exec()
+            callback(result == QDialog.DialogCode.Accepted)
+
+        elif dialog_type == "sso_required":
+            dialog = SsoRequiredDialog(self)
             dialog.finished.connect(
                 lambda: setattr(self._app, "_dialog_open", False))
             result = dialog.exec()
@@ -551,6 +614,19 @@ class PanelConnection(QWidget):
             response_event.set()
 
         self._prompt_requested.emit("token_expired", _cb)
+        response_event.wait()
+        return result[0]
+
+    def _prompt_sso_required(self) -> bool:
+        """Called from Worker thread — emits signal, blocks until dialog closes."""
+        response_event = threading.Event()
+        result         = [False]
+
+        def _cb(value):
+            result[0] = value
+            response_event.set()
+
+        self._prompt_requested.emit("sso_required", _cb)
         response_event.wait()
         return result[0]
 

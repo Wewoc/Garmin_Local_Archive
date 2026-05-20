@@ -6,17 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.4**
-
----
-
-## Maintenance
-
-### garmin_api.py — 429/401 Fehlerbehandlung beim Token-Probe
-
-`garmin_api.py` unterscheidet beim Token-Probe aktuell nicht zwischen 429 (Rate Limit) und 401 (Token abgelaufen). Bei einem 429 wird das gültige Token gelöscht und beim nächsten Lauf ein frischer SSO-Login erzwungen — der sofort wieder in den 429 läuft. Fix: 429 bricht ab ohne Token zu löschen. Nur 401 löst Token-Löschung und Re-Login aus.
-
-Aufgedeckt: 2026-05-19 · Abhängigkeit: kein externes Upstream-Update nötig · Priorität: nach Rate-Limit-Abklingen
+**Currently stable — v1.5.4.1**
 
 ---
 
@@ -24,72 +14,7 @@ Aufgedeckt: 2026-05-19 · Abhängigkeit: kein externes Upstream-Update nötig ·
 
 ---
 
-### v1.5.4 — PyQt6 Migration
-
-**Prerequisite: v1.5.3.1 State Hardening complete.**
-
-Mechanical panel-by-panel translation from tkinter to PyQt6.
-`garmin_app_base.py` (assembler) is rewritten last.
-No behaviour changes. No new features.
-
-**Scope decision (2026-05-18):** QWebEngineView is explicitly excluded
-from this version. Chromium deployment (EXE size, PyInstaller flags,
-GPU/ANGLE issues, antivirus false positives) is orthogonal to the
-UI migration and would mix three problem classes simultaneously.
-The Dashboards tab exists in v1.5.4 as a placeholder only.
-QWebEngineView is v1.5.4.1 scope.
-
-**Architecture decisions (locked):**
-- Mixin pattern abandoned — each panel becomes a standalone `QWidget` subclass.
-  `GarminApp(QMainWindow)` instantiates panels via composition, not inheritance.
-  Reason: Qt forbids multiple inheritance from QObject subclasses.
-- `self.after()` replaced by `pyqtSignal` — defined at class level only, never
-  per instance. Qt queues cross-thread signal emissions automatically.
-- Thread model: `threading.Thread` retained. `QThread` not introduced —
-  business logic lives in the controller, not in threads.
-- Shared state: hybrid — flags stay on the Base, owner-matrix is explicit
-  (see below). `AppState(QObject)` deferred to v1.6.
-- Dialog guard: `self._dialog_open: bool` on Base — set before `QDialog.exec()`,
-  cleared in `finished` signal. Prevents reentrancy from nested event loop.
-- Worker rule: workers never read or write widgets. They receive primitive
-  copies (str, bool, dict) and emit signals.
-- Shutdown: stop_events set in `_on_close()`, threads joined with `timeout=2.0`.
-
-**State owner-matrix:**
-
-| State | Owner | Other panels |
-|---|---|---|
-| `_ctx_running` | PanelOutputs | read-only |
-| `_context_stop_event` | PanelOutputs | `.set()` allowed |
-| `_mirror_running` | PanelArchive | read-only |
-| `_connection_verified` | PanelConnection | read-only |
-| `_timer_active` | PanelTimer | read-only |
-| `_timer_stop` | PanelTimer | `.set()` allowed |
-| `_timer_generation` | PanelTimer | read-only |
-| `_stopped_by_user` | PanelOutputs | read-only |
-| `_last_html` | PanelOutputs | read-only |
-
-**What changes:**
-- All `app/panel_*.py` — rewritten as `QWidget` subclasses (Signals/Slots)
-- `garmin_app_base.py` — rewritten as `QMainWindow` assembler
-- `garmin_app.py` / `garmin_app_standalone.py` — entry points updated
-- `tests/test_app_logic.py` — migrated to `pytest-qt`, parallel to panel work
-
-**What does not change:**
-- `app/garmin_app_settings.py` — untouched
-- `app/garmin_app_controller.py` — untouched
-- Dashboard pipeline — untouched
-- All HTML output files — untouched
-- `scheduler/daily_update.py` — untouched, remains headless
-
-**Known risks:**
-- Modal dialog reentrancy — mitigated by dialog guard
-- `daemon=True` threads during Qt shutdown — `join(timeout=2.0)` in `_on_close()`
-  reduces risk; full fix deferred to v1.5.4.1 (with QWebEngine subprocess)
-
----
-
-### v1.5.4.1 — InApp Dashboards (QWebEngineView)
+### v1.5.4.2 — InApp Dashboards (QWebEngineView)
 
 **Prerequisite: v1.5.4 PyQt6 stable, all three build targets green.**
 
