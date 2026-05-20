@@ -31,9 +31,11 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QPlainTextEdit, QSplitter,
     QScrollArea, QFrame, QSizePolicy, QMessageBox,
+    QTabWidget, QComboBox,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 import garmin_app_settings as _settings
 import garmin_app_controller as _controller
@@ -129,6 +131,7 @@ class GarminApp(QMainWindow):
         QTimer.singleShot(0,   self._check_migration)
         QTimer.singleShot(200, self._panel_archive._refresh_archive_info)
         QTimer.singleShot(500, self._startup_bg_checks)
+        QTimer.singleShot(300, self._scan_dashboards)
 
     @pyqtSlot(object)
     def _dispatch_slot(self, fn):
@@ -213,30 +216,74 @@ class GarminApp(QMainWindow):
         left_scroll.setWidget(self._panel_settings)
         main_splitter.addWidget(left_scroll)
 
-        # Right — Connection + Timer + Outputs in scroll area
-        right_scroll = QScrollArea()
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        right_scroll.setStyleSheet(f"background: {self.BG};")
+        # Right — QTabWidget: Tab 1 Actions, Tab 2 Dashboards
+        right_tabs = QTabWidget()
+        right_tabs.setStyleSheet(
+            f"QTabWidget::pane {{ border: none; background: {self.BG}; }}"
+            f"QTabBar::tab {{ background: {self.BG3}; color: {self.TEXT2}; "
+            f"padding: 6px 18px; border: none; font-family: 'Segoe UI'; font-size: 9pt; }}"
+            f"QTabBar::tab:selected {{ background: {self.BG}; color: {self.TEXT}; "
+            f"border-bottom: 2px solid {self.ACCENT}; }}"
+            f"QTabBar::tab:hover {{ color: {self.TEXT}; }}")
 
-        right_widget = QWidget()
-        right_widget.setStyleSheet(f"background: {self.BG};")
-        right_lay = QVBoxLayout(right_widget)
-        right_lay.setContentsMargins(0, 0, 0, 0)
-        right_lay.setSpacing(0)
+        # ── Tab 1: Actions ────────────────────────────────────────────────────
+        tab1_scroll = QScrollArea()
+        tab1_scroll.setWidgetResizable(True)
+        tab1_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        tab1_scroll.setStyleSheet(f"background: {self.BG};")
+
+        tab1_widget = QWidget()
+        tab1_widget.setStyleSheet(f"background: {self.BG};")
+        tab1_lay = QVBoxLayout(tab1_widget)
+        tab1_lay.setContentsMargins(0, 0, 0, 0)
+        tab1_lay.setSpacing(0)
 
         self._panel_connection = PanelConnection(self)
         self._panel_timer      = PanelTimer(self)
         self._panel_outputs    = PanelOutputs(self)
         self._panel_archive    = PanelArchive(self)
 
-        right_lay.addWidget(self._panel_connection)
-        right_lay.addWidget(self._panel_timer)
-        right_lay.addWidget(self._panel_outputs)
-        right_lay.addStretch()
-        right_scroll.setWidget(right_widget)
-        main_splitter.addWidget(right_scroll)
+        tab1_lay.addWidget(self._panel_connection)
+        tab1_lay.addWidget(self._panel_timer)
+        tab1_lay.addWidget(self._panel_outputs)
+        tab1_lay.addStretch()
+        tab1_scroll.setWidget(tab1_widget)
+        right_tabs.addTab(tab1_scroll, "Actions")
 
+        # ── Tab 2: Dashboards ─────────────────────────────────────────────────
+        tab2_widget = QWidget()
+        tab2_widget.setStyleSheet(f"background: {self.BG};")
+        tab2_lay = QVBoxLayout(tab2_widget)
+        tab2_lay.setContentsMargins(12, 8, 12, 8)
+        tab2_lay.setSpacing(6)
+
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(8)
+        self._dash_combo = QComboBox()
+        self._dash_combo.setFont(QFont("Segoe UI", 9))
+        self._dash_combo.setStyleSheet(
+            f"QComboBox {{ background: {self.BG3}; color: {self.TEXT}; "
+            f"border: none; padding: 5px 10px; }}"
+            f"QComboBox::drop-down {{ border: none; }}"
+            f"QComboBox QAbstractItemView {{ background: {self.BG3}; "
+            f"color: {self.TEXT}; "
+            f"selection-background-color: {self.ACCENT2}; }}")
+        self._dash_combo.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                       QSizePolicy.Policy.Fixed)
+        self._dash_combo.currentIndexChanged.connect(
+            self._load_selected_dashboard)
+        combo_row.addWidget(self._dash_combo)
+        tab2_lay.addLayout(combo_row)
+
+        self._dash_view = QWebEngineView()
+        self._dash_view.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                      QSizePolicy.Policy.Expanding)
+        self._dash_view.setStyleSheet(f"background: {self.BG};")
+        tab2_lay.addWidget(self._dash_view)
+
+        right_tabs.addTab(tab2_widget, "Dashboards")
+
+        main_splitter.addWidget(right_tabs)
         main_splitter.setSizes([310, 790])
         root_lay.addWidget(main_splitter, stretch=1)
 
@@ -412,9 +459,12 @@ class GarminApp(QMainWindow):
                                    QMessageBox.ButtonRole.AcceptRole)
         dlg.addButton("Dismiss", QMessageBox.ButtonRole.RejectRole)
         dlg.exec()
-        if dlg.clickedButton() == open_btn:
-            webbrowser.open(
-                "https://github.com/Wewoc/Garmin_Local_Archive/releases/latest")
+        try:
+            if dlg.clickedButton() == open_btn:
+                webbrowser.open(
+                    "https://github.com/Wewoc/Garmin_Local_Archive/releases/latest")
+        except RuntimeError:
+            pass
 
     # ── Extended Analysis (Easter Egg) ─────────────────────────────────────────
 
@@ -429,6 +479,44 @@ class GarminApp(QMainWindow):
             Path(__file__).parent / name,
         ]
         return next((p for p in candidates if p.exists()), None)
+
+    # ── Dashboard tab helpers ──────────────────────────────────────────────────
+
+    def _scan_dashboards(self, auto_load: str = None):
+        """Scan garmin_data/dashboards/ for HTML files and populate Tab 2 combo.
+        Called on startup and after every dashboard build (on_done via _dispatch)."""
+        s        = self._panel_settings._collect_settings()
+        dash_dir = Path(s.get("base_dir", "")) / "dashboards"
+        html_files = sorted(
+            dash_dir.glob("*.html"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        ) if dash_dir.exists() else []
+
+        self._dash_combo.blockSignals(True)
+        self._dash_combo.clear()
+        if not html_files:
+            self._dash_combo.addItem("— no dashboards found —")
+            self._dash_combo.setEnabled(False)
+        else:
+            self._dash_combo.setEnabled(True)
+            for f in html_files:
+                self._dash_combo.addItem(f.name, userData=str(f))
+        self._dash_combo.blockSignals(False)
+
+        if auto_load and html_files:
+            paths = [str(f) for f in html_files]
+            idx   = paths.index(auto_load) if auto_load in paths else 0
+            self._dash_combo.setCurrentIndex(idx)
+            self._load_selected_dashboard()
+        elif html_files:
+            self._load_selected_dashboard()
+
+    def _load_selected_dashboard(self):
+        """Load the currently selected HTML file into the Tab 2 QWebEngineView."""
+        path = self._dash_combo.currentData()
+        if path and Path(path).exists():
+            self._dash_view.setUrl(QUrl.fromLocalFile(path))
 
     # ── Close ──────────────────────────────────────────────────────────────────
 

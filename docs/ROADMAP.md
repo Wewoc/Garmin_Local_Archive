@@ -6,39 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.4.1**
+**Currently stable — v1.5.4.2**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.4.2 — InApp Dashboards (QWebEngineView)
-
-**Prerequisite: v1.5.4 PyQt6 stable, all three build targets green.**
-
-QWebEngineView integration into the Dashboards placeholder tab.
-
-`QWebEngineView` — a fully embedded Chromium widget that renders Plotly
-HTML dashboards natively inside the app. No external browser, no local
-server, no pipeline changes required.
-
-- `QComboBox` dropdown + single `QWebEngineView` instance in "Dashboards" tab
-- No tab-per-dashboard (avoids Chromium subprocess proliferation)
-- Full Plotly interactivity: zoom, hover, filter — all in-app
-- v2.0 readiness: multi-source dashboards become a first-class UI element
-
-**Known risks:**
-- EXE size +150–300 MB (Chromium embedded)
-- PyInstaller requires additional flags: QtWebEngineProcess, codecs,
-  locales, resources, sandbox binaries — `build_manifest.py` must be extended
-- GPU/ANGLE issues on NVIDIA systems: `--disable-gpu` as opt-in CLI flag
-- `load(QUrl)` is async — `QComboBox` disabled during load,
-  re-enabled on `loadFinished` signal
-- Antivirus false positives on EXE with Chromium subprocess
-- Daemon thread + WebEngine subprocess interaction during shutdown —
-  requires robust teardown (own scope item within this version)
 
 ---
 

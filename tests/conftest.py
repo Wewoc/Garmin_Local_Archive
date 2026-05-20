@@ -24,8 +24,12 @@ sys.path.insert(0, str(_ROOT / "layouts"))
 
 @pytest.fixture(scope="session")
 def qapp_cls():
-    """Use QApplication — required by pytest-qt."""
+    """Use QApplication — required by pytest-qt.
+    AA_ShareOpenGLContexts must be set before QApplication is created —
+    required by QtWebEngineWidgets (v1.5.4.2+)."""
     from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import Qt
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     return QApplication
 
 

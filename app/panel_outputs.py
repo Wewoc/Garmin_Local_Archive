@@ -146,13 +146,6 @@ class PanelOutputs(QWidget):
             self._tip("Select dashboards and create as HTML, Excel or JSON"))
         lay.addLayout(exp_row)
 
-        # Dashboards tab placeholder (D-7 — QWebEngineView comes in v1.5.4.1)
-        placeholder = QLabel("Dashboards embedded view — coming in v1.5.4.1")
-        placeholder.setFont(QFont("Segoe UI", 8))
-        placeholder.setStyleSheet(
-            f"color: {self._app.TEXT2}; padding: 6px 20px;")
-        lay.addWidget(placeholder)
-
         # ── Output ───────────────────────────────────────────────────────────
         lay.addWidget(self._section_widget("Output"))
         for label, cmd, tip in [
@@ -624,6 +617,8 @@ class PanelOutputs(QWidget):
                              if r.get("format") == "html"), None)
                         if last_html:
                             self._app._last_html = str(last_html)
+                        self._app._scan_dashboards(
+                            auto_load=self._app._last_html)
                     if ok:
                         os.startfile(str(output_dir))
 
