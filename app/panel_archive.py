@@ -80,8 +80,8 @@ class PanelArchiveMixin(object):
             missing = result.get("missing_days", [])
             if not missing:
                 def _reset():
-                    self._restore_btn.config(state="disabled",
-                                             text="Restore Data", fg=self.TEXT2)
+                    self._set_restore_button_state(False,
+                                                   text="Restore Data", color=self.TEXT2)
                 self.after(0, _reset)
                 return
 
@@ -90,15 +90,14 @@ class PanelArchiveMixin(object):
 
         def _update():
             if not missing:
-                self._restore_btn.config(state="disabled",
-                                         text="Restore Data", fg=self.TEXT2)
+                self._set_restore_button_state(False,
+                                               text="Restore Data", color=self.TEXT2)
                 return
             if no_bkup:
                 label = f"⚠ {len(missing)} days missing, {len(no_bkup)} no backup"
             else:
                 label = f"⚠ {len(missing)} days missing"
-            self._restore_btn.config(
-                state="normal", text=label, fg=self.YELLOW,
+            self._set_restore_button_state(True, text=label, color=self.YELLOW,
                 command=lambda: self._on_restore_data(missing, no_bkup))
 
         self.after(0, _update)
@@ -140,8 +139,8 @@ class PanelArchiveMixin(object):
                     f"✓ Restore complete: {len(restored)} restored"
                     + (f", {len(failed)} failed" if failed else "")
                 )
-                self.after(0, lambda: self._restore_btn.config(
-                    state="disabled", text="Restore Data", fg=self.TEXT2))
+                self.after(0, lambda: self._set_restore_button_state(
+                    False, text="Restore Data", color=self.TEXT2))
             except Exception as e:
                 self._log_bg(f"✗ Restore failed: {e}")
 
@@ -351,9 +350,9 @@ class PanelArchiveMixin(object):
 
         def _update():
             if reachable:
-                self._mirror_btn.config(state="normal", fg=self.TEXT)
+                self._set_mirror_button_state(True, color=self.TEXT)
             else:
-                self._mirror_btn.config(state="disabled", fg=self.TEXT2)
+                self._set_mirror_button_state(False, color=self.TEXT2)
         self.after(0, _update)
 
     def _on_mirror(self):
@@ -375,14 +374,13 @@ class PanelArchiveMixin(object):
             messagebox.showwarning("Data Mirror",
                 "Background timer is active.\nStop the timer before mirroring.")
             return
-        if getattr(self, "_ctx_running", False):
+        if self._ctx_running:
             messagebox.showwarning("Data Mirror",
                 "Context sync is running.\nPlease wait until it finishes.")
             return
 
         self._mirror_running = True
-        self._mirror_btn.config(state="disabled",
-                                text="🔁  Mirroring…", fg=self.YELLOW)
+        self._set_mirror_button_state(False, text="🔁  Mirroring…", color=self.YELLOW)
         self._log("🔁  Data Mirror started …")
 
         def _do_mirror():
@@ -400,7 +398,7 @@ class PanelArchiveMixin(object):
                 self._log_bg(f"✗ Mirror failed: {e}")
             finally:
                 self._mirror_running = False
-                self.after(0, lambda: self._mirror_btn.config(
-                    state="normal", text="🔁  Data Mirror", fg=self.TEXT))
+                self.after(0, lambda: self._set_mirror_button_state(
+                    True, text="🔁  Data Mirror", color=self.TEXT))
 
         threading.Thread(target=_do_mirror, daemon=True).start()

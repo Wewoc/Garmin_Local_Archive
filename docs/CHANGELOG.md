@@ -1,4 +1,26 @@
 # Garmin Local Archive — Changelog
+ 
+## v1.5.3.1 — State Hardening
+ 
+Hardening step in preparation for the PyQt6 migration. No behaviour changes,
+no new features. Cross-LLM review (Gemini) identified a critical Event-recycling
+risk in the original plan (`clear()` on shared Event = potential Zombie-Thread);
+corrected to per-run `threading.Event()` instantiation with Dummy-Event in Base-Init.
+ 
+**Changed modules:**
+- `garmin_app_base.py` — State-Block: `_ctx_running = False` and `_context_stop_event = threading.Event()` added with owner + thread-rule comments; `hasattr`-guard in `_on_close` removed (direct call)
+- `panel_outputs.py` — `_stop_context_sync`: `hasattr`-guard removed (direct call)
+- `panel_archive.py` — `_on_mirror`: `getattr`-guard replaced by direct `self._ctx_running` access; all direct `self._mirror_btn.config()` and `self._restore_btn.config()` calls replaced by accessor calls
+- `panel_connection.py` — `_set_mirror_button_state()` and `_set_restore_button_state()` accessor methods added; sole authorised write-path for cross-panel button access
+**Architecture decisions:**
+- `_context_stop_event` initialised as `threading.Event()` (not `None`) in Base-Init — eliminates `hasattr`-guards; per-run reassignment (`= threading.Event()`) retained so each sync thread holds its own Event reference (no `clear()` recycling)
+- Accessor methods carry no threading logic — `self.after()` wrappers remain explicit in `panel_archive` as Qt migration markers for v1.5.4
+- E-7 prefix audit: no collision risk found — Phase 3 skipped by design
+**Test result:** 128 / 128 — all green.
+ 
+**Hotfix (post-release):** T2 and T3 EXEs failed to start with `ImportError: cannot import name 'filedialog' from 'tkinter'`. PyInstaller does not auto-detect tkinter submodules — `tkinter.filedialog`, `tkinter.messagebox`, `tkinter.ttk`, `tkinter.scrolledtext` added as explicit hidden imports in `build.py` and `build_standalone.py`. `cloudscraper` removed from T3 hidden imports (leftover from pre-March 2026 `garth` era, not used since `garminconnect 0.3.x`). Both targets confirmed working after fix.
+ 
+---
 
 ## v1.5.3 — UI Panel Decomposition
 
