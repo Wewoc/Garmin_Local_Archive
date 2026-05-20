@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
 app/panel_outputs.py
-Garmin Local Archive — Outputs Panel Mixin
+Garmin Local Archive — Outputs Panel
 
-PanelOutputsMixin — data collection buttons (sync, import, context sync),
-dashboard popup, output buttons (folder, error log, task scheduler XML),
-and all related callbacks.
+PanelOutputs — PyQt6 QWidget for data collection buttons (sync, import,
+context sync), dashboard popup, output buttons (folder, error log,
+task scheduler XML), and all related callbacks.
 
 Rules:
-  - No __init__ — all state lives on the GarminAppBase instance (self)
-  - All widget references stored as self._xyz
+  - __init__(self, app) — app is the GarminApp(QMainWindow) instance
   - Panel-private helpers use _outputs_* prefix (E-7)
+  - Owned state: _ctx_running, _context_stop_event, _stopped_by_user,
+                 _last_html (all on self._app, D-4)
+  - Workers never touch widgets — use self._app._dispatch()
 """
 
 import os
@@ -18,103 +20,202 @@ import sys
 import threading
 from datetime import date, timedelta
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, messagebox
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QCheckBox, QRadioButton, QButtonGroup, QLineEdit,
+    QListWidget, QMessageBox, QFileDialog, QFrame, QGridLayout,
+    QApplication, QSizePolicy,
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 import garmin_app_settings as _settings
 
 
-class PanelOutputsMixin(object):
+class PanelOutputs(QWidget):
 
-    def _build_outputs_panel(self, parent):
+    def __init__(self, app):
+        super().__init__()
+        self._app = app
+        self._build_ui()
+
+    # ── Build ──────────────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
         # ── Data Collection ────────────────────────────────────────────────────
-        f = tk.Frame(parent, bg=self.BG, pady=4)
-        f.pack(fill="x", padx=20, pady=2)
-        tk.Label(f, text="DATA COLLECTION", font=("Segoe UI", 7, "bold"),
-                 bg=self.BG, fg=self.ACCENT).pack(anchor="w")
-        tk.Frame(f, bg=self.ACCENT, height=1).pack(fill="x", pady=(2, 6))
-        row = tk.Frame(f, bg=self.BG)
-        row.pack(fill="x", pady=2)
-        sync_btn = tk.Button(row, text="▶  Sync Garmin", font=self.FONT_BTN,
-                             bg=self.ACCENT, fg=self.TEXT, relief="flat", bd=0,
-                             pady=7, padx=14, anchor="w", cursor="hand2",
-                             command=self._run_collector)
-        sync_btn.pack(side="left", fill="x", expand=True)
-        self._stop_btn = tk.Button(row, text="⏹  Stop", font=self.FONT_BTN,
-                                   bg=self.BG3, fg=self.TEXT2, relief="flat", bd=0,
-                                   pady=7, padx=14, cursor="hand2",
-                                   state="disabled",
-                                   command=self._stop_collector)
-        self._stop_btn.pack(side="left", padx=(4, 0))
-        tk.Label(row, text="Fetch missing days from Garmin Connect",
-                 font=("Segoe UI", 8), bg=self.BG, fg=self.TEXT2).pack(side="left", padx=10)
+        lay.addWidget(self._section_widget("Data Collection"))
 
-        imp_row = tk.Frame(f, bg=self.BG)
-        imp_row.pack(fill="x", pady=2)
-        tk.Button(imp_row, text="📥  Import Bulk Export", font=self.FONT_BTN,
-                  bg=self.BG3, fg=self.TEXT, relief="flat", bd=0,
-                  pady=7, padx=14, anchor="w", cursor="hand2",
-                  command=self._run_import).pack(side="left", fill="x", expand=True)
-        tk.Label(imp_row,
-                 text="Import Garmin GDPR export ZIP or folder (recommended for history)",
-                 font=("Segoe UI", 8), bg=self.BG, fg=self.TEXT2).pack(side="left", padx=10)
+        # Sync row
+        sync_row = QHBoxLayout()
+        sync_row.setContentsMargins(20, 2, 20, 2)
+        sync_row.setSpacing(4)
+        self._sync_btn = self._action_btn("▶  Sync Garmin", self._app.ACCENT,
+                                          self._app.TEXT, self._run_collector)
+        self._sync_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                     QSizePolicy.Policy.Fixed)
+        self._stop_btn = self._action_btn("⏹  Stop", self._app.BG3,
+                                          self._app.TEXT2, self._app._stop_collector)
+        self._stop_btn.setEnabled(False)
+        sync_row.addWidget(self._sync_btn)
+        sync_row.addWidget(self._stop_btn)
+        sync_row.addWidget(self._tip("Fetch missing days from Garmin Connect"))
+        lay.addLayout(sync_row)
 
+        # Import row
+        imp_row = QHBoxLayout()
+        imp_row.setContentsMargins(20, 2, 20, 2)
+        imp_row.setSpacing(4)
+        imp_btn = self._action_btn("📥  Import Bulk Export", self._app.BG3,
+                                   self._app.TEXT, self._run_import)
+        imp_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                              QSizePolicy.Policy.Fixed)
+        imp_row.addWidget(imp_btn)
+        imp_row.addWidget(
+            self._tip("Import Garmin GDPR export ZIP or folder (recommended for history)"))
+        lay.addLayout(imp_row)
+
+        # Import links row
         _EXPORT_URL = "https://www.garmin.com/en-US/account/datamanagement/exportdata/"
-        imp_link_row = tk.Frame(f, bg=self.BG)
-        imp_link_row.pack(fill="x", pady=(0, 2))
-        imp_link = tk.Label(imp_link_row, text="→ Request export at garmin.com",
-                            font=("Segoe UI", 8), bg=self.BG, fg=self.ACCENT, cursor="hand2")
-        imp_link.pack(side="left", padx=14)
-        imp_link.bind("<Button-1>", lambda e: _settings._open_url(_EXPORT_URL))
+        link_row = QHBoxLayout()
+        link_row.setContentsMargins(20, 0, 20, 4)
+        link_row.setSpacing(14)
+        exp_link = QLabel("→ Request export at garmin.com")
+        exp_link.setFont(QFont("Segoe UI", 8))
+        exp_link.setStyleSheet(
+            f"color: {self._app.ACCENT}; text-decoration: underline;")
+        exp_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        exp_link.mousePressEvent = lambda e: _settings._open_url(_EXPORT_URL)
 
-        _exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) \
-                   else Path(__file__).parent
+        _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+                    else Path(__file__).parent)
         _readme_candidates = [
             _exe_dir / "info" / "README_APP.md",
             Path(__file__).parent / "docs" / "README_APP.md",
         ]
         _readme = next((p for p in _readme_candidates if p.exists()), None)
-        readme_link = tk.Label(imp_link_row, text="→ Open README",
-                               font=("Segoe UI", 8), bg=self.BG,
-                               fg=self.ACCENT, cursor="hand2")
-        readme_link.pack(side="left", padx=14)
-        readme_link.bind("<Button-1>",
-                         lambda e: os.startfile(_readme) if _readme else None)
+        readme_link = QLabel("→ Open README")
+        readme_link.setFont(QFont("Segoe UI", 8))
+        readme_link.setStyleSheet(
+            f"color: {self._app.ACCENT}; text-decoration: underline;")
+        readme_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        readme_link.mousePressEvent = (
+            lambda e: os.startfile(_readme) if _readme else None)
 
-        ctx_row = tk.Frame(f, bg=self.BG)
-        ctx_row.pack(fill="x", pady=2)
-        self._ctx_btn = tk.Button(ctx_row, text="🌍  Sync Context", font=self.FONT_BTN,
-                                  bg=self.BG3, fg=self.TEXT2, relief="flat", bd=0,
-                                  pady=7, padx=14, anchor="w", cursor="hand2",
-                                  command=self._run_context_sync)
-        self._ctx_btn.pack(side="left", fill="x", expand=True)
-        self._ctx_stop_btn = tk.Button(ctx_row, text="⏹  Stop", font=self.FONT_BTN,
-                                       bg=self.BG3, fg=self.TEXT2, relief="flat", bd=0,
-                                       pady=7, padx=14, cursor="hand2",
-                                       state="disabled",
-                                       command=self._stop_context_sync)
-        self._ctx_stop_btn.pack(side="left", padx=(4, 0))
-        self._ctx_csv_btn = tk.Button(ctx_row, text="📄  CSV", font=self.FONT_BTN,
-                                      bg=self.BG3, fg=self.TEXT2, relief="flat", bd=0,
-                                      pady=7, padx=14, cursor="hand2",
-                                      command=self._open_local_config)
-        self._ctx_csv_btn.pack(side="left", padx=(4, 0))
-        tk.Label(ctx_row, text="Fetch weather & pollen from Open-Meteo",
-                 font=("Segoe UI", 8), bg=self.BG, fg=self.TEXT2).pack(side="left", padx=10)
+        link_row.addWidget(exp_link)
+        link_row.addWidget(readme_link)
+        link_row.addStretch()
+        lay.addLayout(link_row)
 
-        # Export + Output sections use Base helper _action_section
-        self._action_section(parent, "Export", [
-            ("📊  Create Reports", self.BG3, self._open_dashboard_popup,
-             "Select dashboards and create as HTML, Excel or JSON"),
-        ])
-        self._action_section(parent, "Output", [
-            ("📁  Open Data Folder",        self.BG3, self._open_data_folder,
+        # Context sync row
+        ctx_row = QHBoxLayout()
+        ctx_row.setContentsMargins(20, 2, 20, 2)
+        ctx_row.setSpacing(4)
+        self._ctx_btn = self._action_btn("🌍  Sync Context", self._app.BG3,
+                                          self._app.TEXT2, self._run_context_sync)
+        self._ctx_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                     QSizePolicy.Policy.Fixed)
+        self._ctx_stop_btn = self._action_btn("⏹  Stop", self._app.BG3,
+                                               self._app.TEXT2,
+                                               self._stop_context_sync)
+        self._ctx_stop_btn.setEnabled(False)
+        self._ctx_csv_btn = self._action_btn("📄  CSV", self._app.BG3,
+                                              self._app.TEXT2,
+                                              self._open_local_config)
+        ctx_row.addWidget(self._ctx_btn)
+        ctx_row.addWidget(self._ctx_stop_btn)
+        ctx_row.addWidget(self._ctx_csv_btn)
+        ctx_row.addWidget(self._tip("Fetch weather & pollen from Open-Meteo"))
+        lay.addLayout(ctx_row)
+
+        # ── Export ────────────────────────────────────────────────────────────
+        lay.addWidget(self._section_widget("Export"))
+        exp_row = QHBoxLayout()
+        exp_row.setContentsMargins(20, 2, 20, 2)
+        exp_row.setSpacing(4)
+        rep_btn = self._action_btn("📊  Create Reports", self._app.BG3,
+                                   self._app.TEXT, self._open_dashboard_popup)
+        rep_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                              QSizePolicy.Policy.Fixed)
+        exp_row.addWidget(rep_btn)
+        exp_row.addWidget(
+            self._tip("Select dashboards and create as HTML, Excel or JSON"))
+        lay.addLayout(exp_row)
+
+        # Dashboards tab placeholder (D-7 — QWebEngineView comes in v1.5.4.1)
+        placeholder = QLabel("Dashboards embedded view — coming in v1.5.4.1")
+        placeholder.setFont(QFont("Segoe UI", 8))
+        placeholder.setStyleSheet(
+            f"color: {self._app.TEXT2}; padding: 6px 20px;")
+        lay.addWidget(placeholder)
+
+        # ── Output ───────────────────────────────────────────────────────────
+        lay.addWidget(self._section_widget("Output"))
+        for label, cmd, tip in [
+            ("📁  Open Data Folder",
+             self._open_data_folder,
              "Open garmin_data/ in Explorer"),
-            ("📋  Copy Last Error Log",     self.BG3, self._copy_last_error_log,
+            ("📋  Copy Last Error Log",
+             self._copy_last_error_log,
              "Copy most recent error log to clipboard"),
-            ("🗓  Create Task Scheduler XML", self.BG3, self._create_task_scheduler_xml,
+            ("🗓  Create Task Scheduler XML",
+             self._create_task_scheduler_xml,
              "Generate daily_update_task.xml for Windows Task Scheduler"),
-        ])
+        ]:
+            out_row = QHBoxLayout()
+            out_row.setContentsMargins(20, 2, 20, 2)
+            out_row.setSpacing(4)
+            btn = self._action_btn(label, self._app.BG3,
+                                   self._app.TEXT, cmd)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                              QSizePolicy.Policy.Fixed)
+            out_row.addWidget(btn)
+            out_row.addWidget(self._tip(tip))
+            lay.addLayout(out_row)
+
+        lay.addStretch()
+
+    # ── Widget helpers ─────────────────────────────────────────────────────────
+
+    def _section_widget(self, title: str) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        vl = QVBoxLayout(w)
+        vl.setContentsMargins(20, 6, 20, 2)
+        vl.setSpacing(2)
+        lbl = QLabel(title.upper())
+        lbl.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
+        lbl.setStyleSheet(f"color: {self._app.ACCENT};")
+        vl.addWidget(lbl)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {self._app.ACCENT};")
+        sep.setFixedHeight(1)
+        vl.addWidget(sep)
+        return w
+
+    def _action_btn(self, text: str, bg: str, fg: str, cmd) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        btn.setStyleSheet(
+            f"QPushButton {{ background: {bg}; color: {fg}; "
+            f"border: none; padding: 7px 14px; text-align: left; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
+            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
+            f"background: {self._app.BG3}; }}")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(cmd)
+        return btn
+
+    def _tip(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setFont(QFont("Segoe UI", 8))
+        lbl.setStyleSheet(f"color: {self._app.TEXT2};")
+        return lbl
 
     # ── Sync actions ───────────────────────────────────────────────────────────
 
@@ -131,12 +232,12 @@ class PanelOutputsMixin(object):
             return
 
         if count == 0:
-            self.settings["backup_raw_backfill_asked"] = True
-            self._safe_save(self.settings)
+            self._app.settings["backup_raw_backfill_asked"] = True
+            self._app._panel_settings._safe_save(self._app.settings)
             return
 
-        confirmed = messagebox.askyesno(
-            "Raw Backup — New Feature",
+        answer = QMessageBox.question(
+            self._app, "Raw Backup — New Feature",
             f"Garmin Local Archive v1.5.1 introduced automatic raw file backups.\n\n"
             f"{count} existing raw file(s) have no backup copy yet.\n\n"
             f"Create backups now? This runs in the background and does not\n"
@@ -144,107 +245,110 @@ class PanelOutputsMixin(object):
             f"in garmin_data/backup/raw/.\n\n"
             f"You can also skip this — new files will be backed up automatically\n"
             f"after every sync from now on.",
-            icon="info",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if not confirmed:
+        if answer != QMessageBox.StandardButton.Yes:
             return
 
         def _do_backfill():
             try:
                 result = _backup.backfill_raw()
-                self._log_bg(
+                self._app._log_bg(
                     f"✓ Raw backup complete: {result['copied']} files backed up"
                     + (f", {result['errors']} errors" if result["errors"] else "")
                 )
             except Exception as e:
-                self._log_bg(f"✗ Raw backup failed: {e}")
+                self._app._log_bg(f"✗ Raw backup failed: {e}")
 
-        self.settings["backup_raw_backfill_asked"] = True
-        self._safe_save(self.settings)
+        self._app.settings["backup_raw_backfill_asked"] = True
+        self._app._panel_settings._safe_save(self._app.settings)
         threading.Thread(target=_do_backfill, daemon=True).start()
-        self._log("🗄  Raw backup running in background …")
+        self._app._log("🗄  Raw backup running in background …")
 
     def _run_collector(self):
         """Run connection test first (once per session), then start sync."""
-        s = self._collect_settings()
+        s = self._app._panel_settings._collect_settings()
         if not s["email"] or not s["password"]:
-            self._log("✗ Email or password missing.")
+            self._app._log("✗ Email or password missing.")
             return
 
-        timer_was_active = self._timer_active
-        if self._timer_active:
-            self._log("⏱  Background timer paused for manual sync.")
-            self._timer_stop.set()
-            self._timer_active = False
-            self.after(0, self._timer_update_btn)
+        timer_was_active = self._app._timer_active
+        if self._app._timer_active:
+            self._app._log("⏱  Background timer paused for manual sync.")
+            self._app._timer_stop.set()
+            self._app._timer_active = False
+            self._app._dispatch(
+                self._app._panel_timer._timer_update_btn)
 
-        if not self.settings.get("backup_raw_backfill_asked", False):
+        if not self._app.settings.get("backup_raw_backfill_asked", False):
             self._check_raw_backfill_popup(s)
 
-        refresh_failed = self._check_failed_days_popup(
+        refresh_failed = self._app._panel_archive._check_failed_days_popup(
             base_dir  = s["base_dir"],
             sync_mode = s["sync_mode"],
             sync_days = s["sync_days"],
             sync_from = s.get("sync_from", ""),
             sync_to   = s.get("sync_to", ""),
         )
-        run_migration = self._check_schema_migration(base_dir=s["base_dir"])
-        env_extra     = {"GARMIN_SCHEMA_MIGRATE": "1"} if run_migration else {}
+        run_migration = self._app._panel_archive._check_schema_migration(
+            base_dir=s["base_dir"])
+        env_extra = {"GARMIN_SCHEMA_MIGRATE": "1"} if run_migration else {}
 
-        if self._connection_verified:
-            self._run("garmin_collector.py", enable_stop=True,
-                      refresh_failed=refresh_failed,
-                      env_overrides=env_extra,
-                      on_done=lambda: (
-                          self._timer_resume_after_sync(timer_was_active),
-                          self._refresh_archive_info(),
-                      ))
-            return
-
-        self._run_connection_test(
-            on_success=lambda: self._run(
+        if self._app._connection_verified:
+            self._app._run(
                 "garmin_collector.py", enable_stop=True,
                 refresh_failed=refresh_failed,
                 env_overrides=env_extra,
                 on_done=lambda: (
-                    self._timer_resume_after_sync(timer_was_active),
-                    self._refresh_archive_info(),
+                    self._app._panel_timer._timer_resume_after_sync(timer_was_active),
+                    self._app._panel_archive._refresh_archive_info(),
+                ))
+            return
+
+        self._app._panel_connection._run_connection_test(
+            on_success=lambda: self._app._run(
+                "garmin_collector.py", enable_stop=True,
+                refresh_failed=refresh_failed,
+                env_overrides=env_extra,
+                on_done=lambda: (
+                    self._app._panel_timer._timer_resume_after_sync(timer_was_active),
+                    self._app._panel_archive._refresh_archive_info(),
                 )))
 
     def _run_import(self):
         """Open file dialog and run bulk import."""
-        choice = messagebox.askquestion(
-            "Import Bulk Export",
+        answer = QMessageBox.question(
+            self._app, "Import Bulk Export",
             "Select ZIP file?\n\nYes = ZIP file\nNo = unpacked folder",
-            icon="question",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if choice == "yes":
-            path = filedialog.askopenfilename(
-                title="Select Garmin Export ZIP",
-                filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")],
-            )
+        if answer == QMessageBox.StandardButton.Yes:
+            path, _ = QFileDialog.getOpenFileName(
+                self._app, "Select Garmin Export ZIP",
+                filter="ZIP files (*.zip);;All files (*.*)")
         else:
-            path = filedialog.askdirectory(
-                title="Select unpacked Garmin Export folder")
+            path = QFileDialog.getExistingDirectory(
+                self._app, "Select unpacked Garmin Export folder")
         if not path:
             return
 
-        timer_was_active = self._timer_active
-        if self._timer_active:
-            self._log("⏱  Background timer paused for import.")
-            self._timer_stop.set()
-            self._timer_active = False
-            self.after(0, self._timer_update_btn)
+        timer_was_active = self._app._timer_active
+        if self._app._timer_active:
+            self._app._log("⏱  Background timer paused for import.")
+            self._app._timer_stop.set()
+            self._app._timer_active = False
+            self._app._dispatch(
+                self._app._panel_timer._timer_update_btn)
 
-        self._log(f"   Source: {path}")
-        self._run(
+        self._app._log(f"   Source: {path}")
+        self._app._run(
             "garmin_collector.py",
             enable_stop=True,
             log_prefix="garmin_bulk",
             env_overrides={"GARMIN_IMPORT_PATH": path},
             on_done=lambda: (
-                self._timer_resume_after_sync(timer_was_active),
-                self._refresh_archive_info(),
+                self._app._panel_timer._timer_resume_after_sync(timer_was_active),
+                self._app._panel_archive._refresh_archive_info(),
             ),
         )
 
@@ -252,26 +356,27 @@ class PanelOutputsMixin(object):
 
     def _run_context_sync(self):
         """Run context collect (weather + pollen) in background thread."""
-        s = self._collect_settings()
-        if float(s.get("context_latitude", "0.0")) == 0.0 and \
-           float(s.get("context_longitude", "0.0")) == 0.0:
-            messagebox.showwarning(
-                "Location not configured",
+        s = self._app._panel_settings._collect_settings()
+        if (float(s.get("context_latitude",  "0.0")) == 0.0 and
+                float(s.get("context_longitude", "0.0")) == 0.0):
+            QMessageBox.warning(
+                self._app, "Location not configured",
                 "Please set a location in Settings before running Context Sync.\n"
                 "Use the Settings panel to enter coordinates."
             )
             return
-        self._ctx_btn.config(state="disabled")
-        self._ctx_stop_btn.config(state="normal")
-        self._context_stop_event = threading.Event()
-        self._ctx_running        = True
+
+        self._ctx_btn.setEnabled(False)
+        self._ctx_stop_btn.setEnabled(True)
+        self._app._context_stop_event = threading.Event()
+        self._app._ctx_running        = True
 
         def run():
             try:
                 if not getattr(sys, "frozen", False):
                     _root = Path(__file__).parent.parent
-                elif hasattr(sys, "_MEIPASS") and \
-                        (Path(sys._MEIPASS) / "scripts").exists():
+                elif (hasattr(sys, "_MEIPASS") and
+                        (Path(sys._MEIPASS) / "scripts").exists()):
                     _root = Path(sys._MEIPASS) / "scripts"
                 else:
                     _root = Path(sys.executable).parent / "scripts"
@@ -280,7 +385,7 @@ class PanelOutputsMixin(object):
                 from context import context_collector
                 result  = context_collector.run(
                     settings=s,
-                    stop_event=self._context_stop_event
+                    stop_event=self._app._context_stop_event
                 )
                 plugins = result.get("plugins", {})
                 lines   = ["Context sync complete"]
@@ -290,32 +395,33 @@ class PanelOutputsMixin(object):
                 msg = "\n".join(lines)
                 if result.get("error"):
                     msg = f"Error: {result['error']}"
-                self.after(0, lambda: self._log(msg))
+                self._app._dispatch(lambda m=msg: self._app._log(m))
             except Exception as exc:
-                self.after(0, lambda: self._log(f"Context sync error: {exc}"))
+                self._app._dispatch(
+                    lambda e=exc: self._app._log(f"Context sync error: {e}"))
             finally:
-                self.after(0, self._on_context_sync_done)
+                self._app._dispatch(self._on_context_sync_done)
 
         threading.Thread(target=run, daemon=True).start()
 
     def _stop_context_sync(self):
-        self._context_stop_event.set()
+        self._app._context_stop_event.set()
 
     def _on_context_sync_done(self):
-        self._ctx_btn.config(state="normal")
-        self._ctx_stop_btn.config(state="disabled")
-        self._ctx_running = False
+        self._ctx_btn.setEnabled(True)
+        self._ctx_stop_btn.setEnabled(False)
+        self._app._ctx_running = False
 
     # ── Dashboard popup ────────────────────────────────────────────────────────
 
     def _open_dashboard_popup(self):
-        """Scan specialists, show selection popup, build selected dashboards."""
+        """Scan specialists, show selection dialog, build selected dashboards."""
         import importlib.util as _ilu
 
         if not getattr(sys, "frozen", False):
             root = Path(__file__).parent.parent
-        elif hasattr(sys, "_MEIPASS") and \
-                (Path(sys._MEIPASS) / "scripts").exists():
+        elif (hasattr(sys, "_MEIPASS") and
+                (Path(sys._MEIPASS) / "scripts").exists()):
             root = Path(sys._MEIPASS) / "scripts"
         else:
             root = Path(sys.executable).parent / "scripts"
@@ -333,30 +439,37 @@ class PanelOutputsMixin(object):
             dash_runner = _ilu.module_from_spec(spec)
             spec.loader.exec_module(dash_runner)
         except Exception as exc:
-            self._log(f"✗ Dashboard runner konnte nicht geladen werden: {exc}")
+            self._app._log(
+                f"✗ Dashboard runner konnte nicht geladen werden: {exc}")
             return
 
         try:
             specialists = dash_runner.scan()
         except Exception as exc:
-            self._log(f"✗ scan() fehlgeschlagen: {exc}")
+            self._app._log(f"✗ scan() fehlgeschlagen: {exc}")
             return
         if not specialists:
-            messagebox.showinfo("Create Reports",
-                                "No dashboards found in dashboards/")
+            QMessageBox.information(self._app, "Create Reports",
+                                    "No dashboards found in dashboards/")
             return
 
-        popup = tk.Toplevel(self)
-        popup.title("Create Reports")
-        popup.configure(bg=self.BG)
-        popup.resizable(False, False)
-        popup.grab_set()
+        # ── Dialog ────────────────────────────────────────────────────────────
+        dlg = QDialog(self._app)
+        dlg.setWindowTitle("Create Reports")
+        dlg.setModal(True)
+        dlg.setStyleSheet(f"background: {self._app.BG}; color: {self._app.TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(6)
 
-        tk.Label(popup, text="CREATE REPORTS", font=("Segoe UI", 9, "bold"),
-                 bg=self.BG, fg=self.ACCENT).grid(
-                 row=0, column=0, columnspan=10, sticky="w", padx=16, pady=(14, 4))
-        tk.Frame(popup, bg=self.ACCENT, height=1).grid(
-                 row=1, column=0, columnspan=10, sticky="ew", padx=16, pady=(0, 8))
+        title = QLabel("CREATE REPORTS")
+        title.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(title)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(sep)
 
         all_formats = []
         for sp in specialists:
@@ -364,83 +477,110 @@ class PanelOutputsMixin(object):
                 if fmt not in all_formats:
                     all_formats.append(fmt)
 
-        tk.Label(popup, text="Dashboard", font=("Segoe UI", 8, "bold"),
-                 bg=self.BG, fg=self.TEXT, width=28, anchor="w").grid(
-                 row=2, column=0, padx=(16, 4), pady=2)
+        grid_widget = QWidget()
+        grid_widget.setStyleSheet("background: transparent;")
+        grid = QGridLayout(grid_widget)
+        grid.setSpacing(4)
+
+        # Header row
+        hdr = QLabel("Dashboard")
+        hdr.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        hdr.setStyleSheet(f"color: {self._app.TEXT};")
+        grid.addWidget(hdr, 0, 0)
         for col_idx, fmt in enumerate(all_formats, start=1):
-            tk.Label(popup, text=dash_runner.display_label(fmt).upper(),
-                     font=("Segoe UI", 8, "bold"), bg=self.BG, fg=self.TEXT,
-                     width=7, anchor="center").grid(
-                     row=2, column=col_idx, padx=4, pady=2)
+            lbl = QLabel(dash_runner.display_label(fmt).upper())
+            lbl.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+            lbl.setStyleSheet(f"color: {self._app.TEXT};")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            grid.addWidget(lbl, 0, col_idx)
 
         check_vars = {}
-        for row_idx, spec in enumerate(specialists, start=3):
-            tk.Label(popup,
-                     text=f"{spec['name']} — {spec['description'][:45]}",
-                     font=("Segoe UI", 8), bg=self.BG, fg=self.TEXT,
-                     width=46, anchor="w").grid(
-                     row=row_idx, column=0, padx=(16, 4), pady=3)
+        for row_idx, spec in enumerate(specialists, start=1):
+            name_lbl = QLabel(
+                f"{spec['name']} — {spec['description'][:45]}")
+            name_lbl.setFont(QFont("Segoe UI", 8))
+            name_lbl.setStyleSheet(f"color: {self._app.TEXT};")
+            grid.addWidget(name_lbl, row_idx, 0)
             for col_idx, fmt in enumerate(all_formats, start=1):
                 if fmt in spec["formats"]:
-                    var = tk.BooleanVar(value=False)
-                    check_vars[(row_idx - 3, fmt)] = var
-                    tk.Checkbutton(popup, variable=var, bg=self.BG,
-                                   activebackground=self.BG,
-                                   selectcolor="white").grid(
-                                   row=row_idx, column=col_idx, padx=4)
+                    cb = QCheckBox()
+                    cb.setStyleSheet(
+                        f"QCheckBox::indicator {{ background: {self._app.BG3}; }}")
+                    grid.addWidget(cb, row_idx, col_idx,
+                                   Qt.AlignmentFlag.AlignCenter)
+                    check_vars[(row_idx - 1, fmt)] = cb
                 else:
-                    tk.Label(popup, text="—", font=("Segoe UI", 8),
-                             bg=self.BG, fg="#555555").grid(
-                             row=row_idx, column=col_idx, padx=4)
+                    dash = QLabel("—")
+                    dash.setFont(QFont("Segoe UI", 8))
+                    dash.setStyleSheet("color: #555555;")
+                    dash.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    grid.addWidget(dash, row_idx, col_idx)
 
-        last_row = 3 + len(specialists)
-        tk.Frame(popup, bg=self.ACCENT, height=1).grid(
-                 row=last_row, column=0, columnspan=10,
-                 sticky="ew", padx=16, pady=(8, 4))
+        lay.addWidget(grid_widget)
 
-        def _build():
-            selections = []
-            for (spec_idx, fmt), var in check_vars.items():
-                if var.get():
-                    selections.append((specialists[spec_idx]["module"], fmt))
-            if not selections:
-                messagebox.showinfo("Create Reports",
-                                    "Please select at least one format.")
-                return
-            popup.destroy()
-            self._run_dashboards(dash_runner, selections)
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(sep2)
 
-        btn_frame = tk.Frame(popup, bg=self.BG)
-        btn_frame.grid(row=last_row + 1, column=0, columnspan=10,
-                       pady=(4, 14), padx=16, sticky="ew")
-
+        btn_row = QHBoxLayout()
         _all_selected = [False]
+
+        toggle_btn = QPushButton("☐  Select All")
+        toggle_btn.setFont(QFont("Segoe UI", 8))
+        toggle_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG2}; color: {self._app.TEXT2}; "
+            f"border: none; padding: 6px 8px; }}")
+        toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         def _toggle_all():
             _all_selected[0] = not _all_selected[0]
-            for var in check_vars.values():
-                var.set(_all_selected[0])
-            toggle_btn.config(
-                text="☑  Deselect All" if _all_selected[0] else "☐  Select All")
+            for cb in check_vars.values():
+                cb.setChecked(_all_selected[0])
+            toggle_btn.setText(
+                "☑  Deselect All" if _all_selected[0] else "☐  Select All")
 
-        toggle_btn = tk.Button(btn_frame, text="☐  Select All",
-                               font=("Segoe UI", 8), bg=self.BG2, fg=self.TEXT2,
-                               relief="flat", bd=0, padx=8, pady=6,
-                               cursor="hand2", command=_toggle_all)
-        toggle_btn.pack(side="left")
+        toggle_btn.clicked.connect(_toggle_all)
 
-        tk.Button(btn_frame, text="Abbrechen", font=self.FONT_BTN,
-                  bg=self.BG2, fg=self.TEXT, relief="flat", bd=0,
-                  pady=6, padx=14, cursor="hand2",
-                  command=popup.destroy).pack(side="right", padx=(6, 0))
-        tk.Button(btn_frame, text="📊 Create", font=self.FONT_BTN,
-                  bg=self.ACCENT2, fg=self.TEXT, relief="flat", bd=0,
-                  pady=6, padx=14, cursor="hand2",
-                  command=_build).pack(side="right")
+        cancel_btn = QPushButton("Abbrechen")
+        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG2}; color: {self._app.TEXT}; "
+            f"border: none; padding: 6px 14px; }}")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        create_btn = QPushButton("📊 Create")
+        create_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        create_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.ACCENT2}; "
+            f"color: {self._app.TEXT}; border: none; padding: 6px 14px; }}")
+        create_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        def _build():
+            selections = []
+            for (spec_idx, fmt), cb in check_vars.items():
+                if cb.isChecked():
+                    selections.append((specialists[spec_idx]["module"], fmt))
+            if not selections:
+                QMessageBox.information(dlg, "Create Reports",
+                                        "Please select at least one format.")
+                return
+            dlg.accept()
+            self._run_dashboards(dash_runner, selections)
+
+        create_btn.clicked.connect(_build)
+
+        btn_row.addWidget(toggle_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(create_btn)
+        lay.addLayout(btn_row)
+        dlg.exec()
 
     def _run_dashboards(self, dash_runner, selections):
         """Run dashboard build in background thread, stream progress to log."""
-        s         = self._collect_settings()
+        s         = self._app._panel_settings._collect_settings()
         date_from = s.get("date_from", "").strip()
         date_to   = s.get("date_to",   "").strip()
         if not date_from:
@@ -450,9 +590,9 @@ class PanelOutputsMixin(object):
         output_dir = Path(s["base_dir"]) / "dashboards"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        self._log(f"\n▶  Berichte erstellen ...")
-        self._log(f"   Output: {output_dir}")
-        self._log(f"   Zeitraum: {date_from} → {date_to}")
+        self._app._log(f"\n▶  Berichte erstellen ...")
+        self._app._log(f"   Output: {output_dir}")
+        self._app._log(f"   Zeitraum: {date_from} → {date_to}")
 
         def worker():
             try:
@@ -466,69 +606,74 @@ class PanelOutputsMixin(object):
                     date_to=date_to,
                     settings=s,
                     output_dir=output_dir,
-                    log=lambda msg: self.after(
-                        0, lambda m=msg: self._log(f"   {m}")),
+                    log=lambda msg: self._app._dispatch(
+                        lambda m=msg: self._app._log(f"   {m}")),
                 )
 
                 def on_done():
                     ok  = [r for r in results if r["success"]]
                     err = [r for r in results if not r["success"]]
-                    self._log(f"\n  ✓ {len(ok)} Bericht(e) erstellt")
+                    self._app._log(f"\n  ✓ {len(ok)} Bericht(e) erstellt")
                     for r in err:
-                        self._log(
-                            f"  ✗ {r['name']} ({r['format']}): {r.get('error', '')}")
+                        self._app._log(
+                            f"  ✗ {r['name']} ({r['format']}): "
+                            f"{r.get('error', '')}")
                     if ok:
                         last_html = next(
                             (r.get("path") for r in ok
                              if r.get("format") == "html"), None)
                         if last_html:
-                            self._last_html = str(last_html)
+                            self._app._last_html = str(last_html)
                     if ok:
                         os.startfile(str(output_dir))
-                self.after(0, on_done)
+
+                self._app._dispatch(on_done)
             except Exception as exc:
-                self.after(0, lambda: self._log(f"  ✗ Fehler: {exc}"))
+                self._app._dispatch(
+                    lambda e=exc: self._app._log(f"  ✗ Fehler: {e}"))
 
         threading.Thread(target=worker, daemon=True).start()
 
     # ── Output helpers ─────────────────────────────────────────────────────────
 
     def _open_data_folder(self):
-        folder = Path(self._collect_settings()["base_dir"])
+        folder = Path(self._app._panel_settings._collect_settings()["base_dir"])
         folder.mkdir(parents=True, exist_ok=True)
         os.startfile(str(folder))
 
     def _open_last_html(self):
-        html = self._last_html
+        html = self._app._last_html
         if not html or not Path(html).exists():
-            base  = Path(self._collect_settings()["base_dir"])
+            base  = Path(
+                self._app._panel_settings._collect_settings()["base_dir"])
             files = list(base.glob("*.html"))
             if not files:
-                self._log("✗ No HTML files found in data folder.")
+                self._app._log("✗ No HTML files found in data folder.")
                 return
             html = str(max(files, key=lambda f: f.stat().st_mtime))
         os.startfile(html)
 
     def _copy_last_error_log(self):
-        fail_dir = Path(
-            self._collect_settings()["base_dir"]) / "garmin_data" / "log" / "fail"
+        fail_dir = (
+            Path(self._app._panel_settings._collect_settings()["base_dir"])
+            / "garmin_data" / "log" / "fail"
+        )
         if not fail_dir.exists():
-            self._log("✗ No error logs found (log/fail/ does not exist).")
+            self._app._log("✗ No error logs found (log/fail/ does not exist).")
             return
         logs = sorted(fail_dir.glob("garmin_*.log"),
                       key=lambda f: f.stat().st_mtime)
         if not logs:
-            self._log("✓ No error logs — no failed sessions recorded.")
+            self._app._log("✓ No error logs — no failed sessions recorded.")
             return
         latest = logs[-1]
         try:
             content = latest.read_text(encoding="utf-8")
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self.update()
-            self._log(f"✓ Error log copied to clipboard ({latest.name})")
+            QApplication.clipboard().setText(content)
+            self._app._log(
+                f"✓ Error log copied to clipboard ({latest.name})")
         except Exception as e:
-            self._log(f"✗ Could not read error log: {e}")
+            self._app._log(f"✗ Could not read error log: {e}")
 
     def _open_local_config(self):
         """Open local_config.csv in default editor. Create if missing."""
@@ -566,42 +711,55 @@ class PanelOutputsMixin(object):
         """Generate a configured daily_update_task.xml for Windows Task Scheduler."""
         import shutil as _shutil
 
-        _exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) \
-                   else Path(__file__).parent.parent
+        _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+                    else Path(__file__).parent.parent)
         _candidates = [
             _exe_dir / "info" / "daily_update_task.xml",
             Path(__file__).parent.parent / "scheduler" / "daily_update_task.xml",
         ]
         template_path = next((p for p in _candidates if p.exists()), None)
         if template_path is None:
-            messagebox.showerror(
-                "Task Scheduler XML",
+            QMessageBox.critical(
+                self._app, "Task Scheduler XML",
                 "Template file 'daily_update_task.xml' not found.\n"
                 "Expected in docs/ (dev) or info/ (build).",
             )
             return
 
-        dlg = tk.Toplevel(self)
-        dlg.title("Create Task Scheduler XML")
-        dlg.configure(bg=self.BG)
-        dlg.resizable(False, False)
-        dlg.grab_set()
+        # ── Dialog ────────────────────────────────────────────────────────────
+        dlg = QDialog(self._app)
+        dlg.setWindowTitle("Create Task Scheduler XML")
+        dlg.setModal(True)
+        dlg.setFixedWidth(480)
+        dlg.setStyleSheet(f"background: {self._app.BG}; color: {self._app.TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(8)
 
-        tk.Label(dlg, text="Create Task Scheduler XML",
-                 font=self.FONT_HEAD, bg=self.BG, fg=self.TEXT).pack(
-                 padx=20, pady=(16, 4))
-        tk.Label(dlg,
-                 text="Select your build target and entry point path.\n"
-                      "The XML will be saved ready to import into Windows Task Scheduler.",
-                 font=self.FONT_BODY, bg=self.BG, fg=self.TEXT2,
-                 justify="left").pack(padx=20, pady=(0, 10))
+        title = QLabel("Create Task Scheduler XML")
+        title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        lay.addWidget(title)
+        body = QLabel(
+            "Select your build target and entry point path.\n"
+            "The XML will be saved ready to import into Windows Task Scheduler."
+        )
+        body.setFont(QFont("Segoe UI", 9))
+        body.setStyleSheet(f"color: {self._app.TEXT2};")
+        body.setWordWrap(True)
+        lay.addWidget(body)
 
-        target_frame = tk.Frame(dlg, bg=self.BG)
-        target_frame.pack(fill="x", padx=20, pady=4)
-        tk.Label(target_frame, text="Build target:", font=self.FONT_BODY,
-                 bg=self.BG, fg=self.TEXT2).pack(anchor="w")
+        lay.addWidget(QLabel("Build target:", font=QFont("Segoe UI", 9)))
 
-        v_target = tk.StringVar(value="T2")
+        btn_group = QButtonGroup(dlg)
+        radio_T2  = QRadioButton("T2 — Standard EXE  (daily_update.bat)")
+        radio_T3  = QRadioButton("T3 — Standalone EXE  (daily_update.exe)")
+        radio_T1  = QRadioButton("T1 — Dev  (python daily_update.py)")
+        radio_T2.setChecked(True)
+        for rb in (radio_T2, radio_T3, radio_T1):
+            rb.setFont(QFont("Segoe UI", 9))
+            rb.setStyleSheet(f"color: {self._app.TEXT};")
+            btn_group.addButton(rb)
+            lay.addWidget(rb)
 
         def _default_path(target: str) -> str:
             if target == "T2":
@@ -612,58 +770,64 @@ class PanelOutputsMixin(object):
                 return ""
             return str(p) if p.exists() else ""
 
-        def _on_target_change(*_):
-            v_path.set(_default_path(v_target.get()))
+        lay.addWidget(QLabel("Entry point path:", font=QFont("Segoe UI", 9)))
+        path_row = QHBoxLayout()
+        path_entry = QLineEdit(_default_path("T2"))
+        path_entry.setFont(QFont("Segoe UI", 9))
+        path_entry.setStyleSheet(
+            f"background: {self._app.BG3}; color: {self._app.TEXT}; "
+            f"border: none; padding: 4px;")
+        path_row.addWidget(path_entry)
 
-        for label, val in [
-            ("T2 — Standard EXE  (daily_update.bat)",   "T2"),
-            ("T3 — Standalone EXE  (daily_update.exe)", "T3"),
-            ("T1 — Dev  (python daily_update.py)",      "T1"),
-        ]:
-            tk.Radiobutton(target_frame, text=label, variable=v_target, value=val,
-                           font=self.FONT_BODY, bg=self.BG, fg=self.TEXT,
-                           selectcolor=self.BG3, activebackground=self.BG,
-                           activeforeground=self.TEXT,
-                           command=_on_target_change).pack(anchor="w")
+        def _on_target_change():
+            if radio_T2.isChecked():
+                path_entry.setText(_default_path("T2"))
+            elif radio_T3.isChecked():
+                path_entry.setText(_default_path("T3"))
+            else:
+                path_entry.setText("")
 
-        path_frame = tk.Frame(dlg, bg=self.BG)
-        path_frame.pack(fill="x", padx=20, pady=(8, 4))
-        tk.Label(path_frame, text="Entry point path:", font=self.FONT_BODY,
-                 bg=self.BG, fg=self.TEXT2).pack(anchor="w")
-        v_path = tk.StringVar(value=_default_path("T2"))
-        path_row = tk.Frame(path_frame, bg=self.BG)
-        path_row.pack(fill="x")
-        tk.Entry(path_row, textvariable=v_path, font=self.FONT_BODY,
-                 bg=self.BG3, fg=self.TEXT, insertbackground=self.TEXT,
-                 relief="flat", bd=4, width=44).pack(side="left", fill="x", expand=True)
+        for rb in (radio_T2, radio_T3, radio_T1):
+            rb.toggled.connect(lambda _: _on_target_change())
+
+        browse_btn = QPushButton("…")
+        browse_btn.setFixedWidth(28)
+        browse_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.ACCENT2}; "
+            f"color: {self._app.TEXT}; border: none; padding: 4px; }}")
+        browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         def _browse():
-            t = v_target.get()
-            ft = (
-                [("Batch files", "*.bat"), ("All files", "*.*")] if t == "T2"
-                else [("Executable", "*.exe"), ("All files", "*.*")] if t == "T3"
-                else [("Python files", "*.py"), ("All files", "*.*")]
-            )
-            p = filedialog.askopenfilename(title="Select entry point", filetypes=ft)
+            if radio_T2.isChecked():
+                ft = "Batch files (*.bat);;All files (*.*)"
+            elif radio_T3.isChecked():
+                ft = "Executable (*.exe);;All files (*.*)"
+            else:
+                ft = "Python files (*.py);;All files (*.*)"
+            p, _ = QFileDialog.getOpenFileName(
+                dlg, "Select entry point", filter=ft)
             if p:
-                v_path.set(p)
+                path_entry.setText(p)
 
-        tk.Button(path_row, text="…", font=self.FONT_BODY,
-                  bg=self.ACCENT2, fg=self.TEXT, relief="flat", bd=0,
-                  padx=6, command=_browse).pack(side="left", padx=(4, 0))
+        browse_btn.clicked.connect(_browse)
+        path_row.addWidget(browse_btn)
+        lay.addLayout(path_row)
 
-        tk.Label(dlg,
-                 text="⚠  For T1 (Dev): enter the full path to python.exe followed by\n"
-                      "   the full path to daily_update.py, separated by a space.",
-                 font=("Segoe UI", 7), bg=self.BG, fg=self.YELLOW,
-                 justify="left").pack(padx=20, pady=(0, 8))
+        warn = QLabel(
+            "⚠  For T1 (Dev): enter the full path to python.exe followed by\n"
+            "   the full path to daily_update.py, separated by a space."
+        )
+        warn.setFont(QFont("Segoe UI", 7))
+        warn.setStyleSheet(f"color: {self._app.YELLOW};")
+        lay.addWidget(warn)
+
+        btn_row = QHBoxLayout()
 
         def _generate():
-            entry = v_path.get().strip()
+            entry = path_entry.text().strip()
             if not entry:
-                messagebox.showwarning("Task Scheduler XML",
-                                       "Please enter the entry point path.",
-                                       parent=dlg)
+                QMessageBox.warning(dlg, "Task Scheduler XML",
+                                    "Please enter the entry point path.")
                 return
             try:
                 xml = template_path.read_text(encoding="utf-16")
@@ -675,35 +839,42 @@ class PanelOutputsMixin(object):
             xml = xml.replace("<WorkingDirectory></WorkingDirectory>",
                               f"<WorkingDirectory>{working_dir}</WorkingDirectory>")
 
-            save_path = filedialog.asksaveasfilename(
-                parent=dlg,
-                title="Save Task Scheduler XML",
-                initialfile="daily_update_task.xml",
-                defaultextension=".xml",
-                filetypes=[("XML files", "*.xml"), ("All files", "*.*")],
+            save_path, _ = QFileDialog.getSaveFileName(
+                dlg, "Save Task Scheduler XML",
+                "daily_update_task.xml",
+                "XML files (*.xml);;All files (*.*)",
             )
             if not save_path:
                 return
             try:
                 Path(save_path).write_text(xml, encoding="utf-16")
-                messagebox.showinfo(
-                    "Task Scheduler XML",
+                QMessageBox.information(
+                    dlg, "Task Scheduler XML",
                     f"Saved to:\n{save_path}\n\n"
                     "Import via Task Scheduler → Action → Import Task…",
-                    parent=dlg,
                 )
-                dlg.destroy()
+                dlg.accept()
             except OSError as exc:
-                messagebox.showerror("Task Scheduler XML",
-                                     f"Could not write file:\n{exc}", parent=dlg)
+                QMessageBox.critical(dlg, "Task Scheduler XML",
+                                     f"Could not write file:\n{exc}")
 
-        btn_row = tk.Frame(dlg, bg=self.BG)
-        btn_row.pack(pady=(4, 16))
-        tk.Button(btn_row, text="Generate & Save", font=self.FONT_BTN,
-                  bg=self.ACCENT, fg=self.TEXT, relief="flat", bd=0,
-                  pady=7, padx=16, cursor="hand2",
-                  command=_generate).pack(side="left", padx=4)
-        tk.Button(btn_row, text="Cancel", font=self.FONT_BTN,
-                  bg=self.BG3, fg=self.TEXT2, relief="flat", bd=0,
-                  pady=7, padx=16, cursor="hand2",
-                  command=dlg.destroy).pack(side="left", padx=4)
+        gen_btn = QPushButton("Generate & Save")
+        gen_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        gen_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.ACCENT}; "
+            f"color: {self._app.TEXT}; border: none; padding: 7px 16px; }}")
+        gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        gen_btn.clicked.connect(_generate)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; "
+            f"color: {self._app.TEXT2}; border: none; padding: 7px 16px; }}")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        btn_row.addWidget(gen_btn)
+        btn_row.addWidget(cancel_btn)
+        lay.addLayout(btn_row)
+        dlg.exec()
