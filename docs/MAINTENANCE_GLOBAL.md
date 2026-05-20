@@ -210,7 +210,7 @@ For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_man
 python tests/test_app_logic.py
 ```
 
-**Current count: 129 checks, 18 sections.** No network, no GUI, no build required. Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides). Includes v1.4.2 regression check for frozen path resolution. Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
+**Current count: 128 checks, 18 sections.** No network, no GUI, no build required. Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides), `app/panel_timer.py` (timer_run_bulk_recheck functional test). Includes v1.4.2 regression check for frozen path resolution. Section 14: `_timer_run_bulk_recheck` tested against `PanelTimerMixin` directly (v1.5.3). Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
 
 Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
 
@@ -247,7 +247,7 @@ All source folders are Python packages with `__init__.py`:
 - `maps/` — data brokers
 - `dashboards/` — dashboard specialists (v1.4+)
 - `layouts/` — format renderers (v1.4+)
-- `app/` — GUI logic layer (v1.5.2+): settings, controller
+- `app/` — GUI logic layer (v1.5.2+): settings, controller, panel Mixins (v1.5.3+)
 
 **Import pattern:**
 - Entry points (`garmin_app.py`, `tests/`) use `sys.path.insert` to reach `garmin/`

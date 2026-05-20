@@ -1,5 +1,38 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.3 — UI Panel Decomposition
+
+Structural refactoring — no logic changes, no new features.
+
+`garmin_app_base.py` (~1952 lines after v1.5.2) decomposed into five dedicated
+panel Mixin modules. The base class becomes a pure assembler (~440 lines).
+Panel-by-panel decomposition enables mechanical translation to PyQt6 in v1.5.4.
+Cross-LLM review (Gemini + ChatGPT) identified `_ctx_running` bug and confirmed
+Mixin as the correct architectural pattern for Qt migration.
+
+**New modules:**
+- `app/panel_settings.py` — `PanelSettingsMixin`: credentials, paths, sync config, context location
+- `app/panel_connection.py` — `PanelConnectionMixin`: connection test, status indicators, enc-key/MFA/token prompts, reset token, archive info panel
+- `app/panel_archive.py` — `PanelArchiveMixin`: archive info refresh, integrity check, restore data, clean archive, schema migration popup, failed-days popup, mirror operation
+- `app/panel_timer.py` — `PanelTimerMixin`: timer UI, toggle, resume-after-sync, timer loop, controller delegates
+- `app/panel_outputs.py` — `PanelOutputsMixin`: data collection (sync, import, context sync), dashboard popup, output buttons; includes `_ctx_running` bug fix
+
+**Changed modules:**
+- `garmin_app_base.py` — rewritten as pure assembler: inherits all five Mixins (`PanelSettingsMixin, PanelConnectionMixin, PanelArchiveMixin, PanelTimerMixin, PanelOutputsMixin, tk.Tk`); MRO order documented and binding; shared state block with owner + thread-rule per flag; `_stop_collector` abstract hook added; 440 lines (was ~2500 at v1.5.2 start, ~1952 after v1.5.2)
+- `compiler/build_manifest.py` — five new entries in `SHARED_SCRIPTS` (`app/panel_settings.py`, `app/panel_connection.py`, `app/panel_archive.py`, `app/panel_timer.py`, `app/panel_outputs.py`)
+- `tests/test_app_logic.py` — tkinter mock updated (`_tk_mock.Tk = type("Tk", (object,), {})`); Section 12 `patch.dict` extended with panel mocks; Section 14 `_timer_run_bulk_recheck` migrated to `PanelTimerMixin`
+
+**Architecture decisions:**
+- Mixin pattern (not function delegation) — enables panel-by-panel PyQt6 translation without wrapper layer
+- MRO order: Settings → Connection → Archive → Timer → Outputs → tk.Tk
+- Invariant: no Mixin may define `__init__`
+- Panel-private helpers use `_{panel}_*` prefix to prevent silent MRO collisions (E-7)
+- `_ctx_running` bug fixed in `panel_outputs.py` (no setter existed — context sync never blocked mirror)
+
+**Test result:** 315 / 255 / 303 / 128 — all green.
+
+---
+
 ## v1.5.2 — GUI / Controller Separation
 
 Structural refactoring — no logic changes, no new features.

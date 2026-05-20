@@ -33,8 +33,11 @@ logging.disable(logging.CRITICAL)
 
 # ── Suppress tkinter at import time ───────────────────────────────────────────
 _tk_mock = MagicMock()
+_tk_mock.Tk = type("Tk", (object,), {})
+_tk_mock.ttk = MagicMock()
+_tk_mock.ttk.Style = type("Style", (object,), {})
 sys.modules.setdefault("tkinter", _tk_mock)
-sys.modules.setdefault("tkinter.ttk", _tk_mock)
+sys.modules.setdefault("tkinter.ttk", _tk_mock.ttk)
 sys.modules.setdefault("tkinter.filedialog", _tk_mock)
 sys.modules.setdefault("tkinter.scrolledtext", _tk_mock)
 sys.modules.setdefault("tkinter.messagebox", _tk_mock)
@@ -400,11 +403,28 @@ _base_real_mod = _il_base.util.module_from_spec(_base_spec)
 _base_real_mod.__dict__["tkinter"] = _real_tk
 import sys as _sys
 _sys.modules["garmin_app_base_real"] = _base_real_mod
-with patch.dict(_sys.modules, {"tkinter": _real_tk,
-                                "tkinter.ttk": MagicMock(),
-                                "tkinter.filedialog": MagicMock(),
-                                "tkinter.scrolledtext": MagicMock(),
-                                "tkinter.messagebox": MagicMock()}):
+_panel_mocks = {
+    "panel_settings":   MagicMock(),
+    "panel_connection": MagicMock(),
+    "panel_archive":    MagicMock(),
+    "panel_timer":      MagicMock(),
+    "panel_outputs":    MagicMock(),
+}
+for _name, _mock in _panel_mocks.items():
+    _mock.PanelSettingsMixin   = type("PanelSettingsMixin",   (object,), {})
+    _mock.PanelConnectionMixin = type("PanelConnectionMixin", (object,), {})
+    _mock.PanelArchiveMixin    = type("PanelArchiveMixin",    (object,), {})
+    _mock.PanelTimerMixin      = type("PanelTimerMixin",      (object,), {})
+    _mock.PanelOutputsMixin    = type("PanelOutputsMixin",    (object,), {})
+
+with patch.dict(_sys.modules, {
+        "tkinter":            _real_tk,
+        "tkinter.ttk":        MagicMock(),
+        "tkinter.filedialog": MagicMock(),
+        "tkinter.scrolledtext": MagicMock(),
+        "tkinter.messagebox": MagicMock(),
+        **_panel_mocks,
+}):
     _base_spec.loader.exec_module(_base_real_mod)
 
 _mock_self = MagicMock()
@@ -451,21 +471,33 @@ for _dash_name in [
 # ══════════════════════════════════════════════════════════════════════════════
 section("14. _timer_run_bulk_recheck — structural + None-return")
 
-# Method lives in base — source-text check for app and standalone
-_base_src_text = Path(_ROOT / "garmin_app_base.py").read_text(encoding="utf-8")
-check("base: _timer_run_bulk_recheck defined",
-      "def _timer_run_bulk_recheck(" in _base_src_text)
+# v1.5.3: method moved to PanelTimerMixin (app/panel_timer.py)
+_base_src_text  = Path(_ROOT / "garmin_app_base.py").read_text(encoding="utf-8")
+_timer_src_text = Path(_ROOT / "app" / "panel_timer.py").read_text(encoding="utf-8")
+check("panel_timer: _timer_run_bulk_recheck defined",
+      "def _timer_run_bulk_recheck(" in _timer_src_text)
+check("base: _timer_run_bulk_recheck NOT redefined in base",
+      "def _timer_run_bulk_recheck(" not in _base_src_text)
 check("app: does not shadow _timer_run_bulk_recheck",
       "def _timer_run_bulk_recheck(" not in _app_src)
 check("standalone: does not shadow _timer_run_bulk_recheck",
       "def _timer_run_bulk_recheck(" not in _sa_src)
 
-# Functional test via _base_real_mod (loaded without tkinter mock in section 12)
+# Functional test — load panel_timer directly (no tkinter dependency)
+import importlib.util as _ilu_timer
 import datetime as _dt
+_timer_spec = _ilu_timer.spec_from_file_location(
+    "panel_timer_test", _ROOT / "app" / "panel_timer.py")
+_timer_mod = _ilu_timer.module_from_spec(_timer_spec)
+with patch.dict(_sys.modules, {
+        "tkinter": _real_tk,
+}):
+    _timer_spec.loader.exec_module(_timer_mod)
+
 _mock_inst       = MagicMock()
 _no_log_settings = {"base_dir": str(_TMPDIR / "no_such_dir")}
 
-_result_none = _base_real_mod.GarminAppBase._timer_run_bulk_recheck(
+_result_none = _timer_mod.PanelTimerMixin._timer_run_bulk_recheck(
     _mock_inst, _no_log_settings)
 check("returns None when no quality_log.json", _result_none is None)
 
@@ -481,7 +513,7 @@ _bulk_log_file.write_text(json.dumps({"days": [
 ]}), encoding="utf-8")
 
 _bulk_settings = {"base_dir": str(_TMPDIR / "bulk_test")}
-_result_bulk   = _base_real_mod.GarminAppBase._timer_run_bulk_recheck(
+_result_bulk   = _timer_mod.PanelTimerMixin._timer_run_bulk_recheck(
     _mock_inst, _bulk_settings)
 check("returns list when bulk+recheck candidates exist",
       isinstance(_result_bulk, list) and len(_result_bulk) == 1)

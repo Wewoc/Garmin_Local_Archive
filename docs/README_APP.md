@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.2
+# Garmin Local Archive — Desktop App v1.5.3
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
