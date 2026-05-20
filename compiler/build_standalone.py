@@ -149,9 +149,12 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True):
         "cryptography.hazmat.primitives.ciphers.aead",
         "cryptography.hazmat.primitives.hashes",
         "requests",
-        "cloudscraper",
         "lxml",
         "lxml.etree",
+        "tkinter.filedialog",
+        "tkinter.messagebox",
+        "tkinter.ttk",
+        "tkinter.scrolledtext",
     ]
     hidden_args = []
     for h in hidden:

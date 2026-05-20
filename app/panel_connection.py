@@ -121,6 +121,37 @@ class PanelConnectionMixin(object):
             bg=self.BG, fg=self.YELLOW)
         self._integrity_warning_lbl.pack(anchor="w", pady=(2, 0))
 
+    # ── Button-Accessoren (Owner: PanelConnectionMixin) ───────────────────────
+
+    def _set_mirror_button_state(self, enabled: bool,
+                                  text: str = None, color=None):
+        """Accessor für _mirror_btn — einziger erlaubter Zugriffspunkt
+        aus Fremd-Panels. Threading-Sicherheit liegt beim Aufrufer."""
+        if self._mirror_btn is None:
+            return
+        cfg = {"state": "normal" if enabled else "disabled"}
+        if text is not None:
+            cfg["text"] = text
+        if color is not None:
+            cfg["fg"] = color
+        self._mirror_btn.config(**cfg)
+
+    def _set_restore_button_state(self, enabled: bool,
+                                   text: str = None, color=None,
+                                   command=None):
+        """Accessor für _restore_btn — einziger erlaubter Zugriffspunkt
+        aus Fremd-Panels. Threading-Sicherheit liegt beim Aufrufer."""
+        if self._restore_btn is None:
+            return
+        cfg = {"state": "normal" if enabled else "disabled"}
+        if text is not None:
+            cfg["text"] = text
+        if color is not None:
+            cfg["fg"] = color
+        if command is not None:
+            cfg["command"] = command
+        self._restore_btn.config(**cfg)
+
     def _run_connection_test(self, on_success=None):
         """Test Token → Login → API Access → Data. Logic in controller."""
         s = self._collect_settings()

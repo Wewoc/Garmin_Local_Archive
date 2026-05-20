@@ -299,8 +299,7 @@ class PanelOutputsMixin(object):
         threading.Thread(target=run, daemon=True).start()
 
     def _stop_context_sync(self):
-        if hasattr(self, "_context_stop_event"):
-            self._context_stop_event.set()
+        self._context_stop_event.set()
 
     def _on_context_sync_done(self):
         self._ctx_btn.config(state="normal")

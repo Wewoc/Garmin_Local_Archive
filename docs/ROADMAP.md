@@ -6,40 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.3**
+**Currently stable — v1.5.3.1**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.3.1 — State Hardening
-
-**Prerequisite: v1.5.3 Panel Decomposition complete, all tests green.**
-
-Hardening step in preparation for the PyQt6 migration.
-Cross-LLM review (Gemini + ChatGPT) confirmed shared mutable state on `self`
-as the primary long-term risk for Qt compatibility. This version addresses it
-without touching behaviour or scope of v1.5.3.
-
-**Three deliverables:**
-
-1. **State block in `__init__`** — all `self._xyz` flags documented with
-   owner panel and thread rule. Makes implicit state explicitly visible.
-
-2. **`_ctx_running` bug fix** — setter added in `_run_context_sync` and
-   `_on_context_sync_done`, initialization in `__init__`. Without this,
-   Context Sync never blocks the Mirror operation — concurrent archive
-   writes are possible.
-
-3. **Widget accessor methods** — for the most critical cross-panel widget
-   access. No panel writes directly to a widget owned by another panel.
-   Candidates: `_mirror_btn`, `_restore_btn`, `_timer_btn`.
-
-**What does not change:**
-- Panel structure from v1.5.3 — untouched
-- All three build targets — no behavioural change beyond the bug fix
 
 ---
 

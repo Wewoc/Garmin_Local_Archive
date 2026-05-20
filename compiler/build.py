@@ -113,6 +113,10 @@ def build_exe(root: Path):
         "--name", APP_NAME,
         "--hidden-import", "openpyxl",
         "--hidden-import", "openpyxl.cell._writer",
+        "--hidden-import", "tkinter.filedialog",
+        "--hidden-import", "tkinter.messagebox",
+        "--hidden-import", "tkinter.ttk",
+        "--hidden-import", "tkinter.scrolledtext",
         "--distpath", str(root),
         "--workpath", str(root / "build"),
         "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/

@@ -120,6 +120,8 @@ class GarminAppBase(
         self._timer_next_mode     = "repair"  # Owner: panel_timer  | Thread: Main
         self._timer_generation    = 0       # Owner: panel_timer    | Thread: Main
         self._mirror_running      = False   # Owner: panel_archive  | Thread: BG-write (GIL-safe bool) + Main-read
+        self._ctx_running         = False   # Owner: panel_outputs  | Thread: BG-write (GIL-safe bool) + Main-read
+        self._context_stop_event  = threading.Event()  # Owner: panel_outputs | cross-thread; neues Objekt pro _run_context_sync()-Aufruf
 
         self._build_ui()
         self._load_settings_to_ui()
@@ -418,8 +420,7 @@ class GarminAppBase(
     def _on_close(self):
         self._timer_generation += 1
         self._timer_stop.set()
-        if hasattr(self, "_context_stop_event"):
-            self._context_stop_event.set()
+        self._context_stop_event.set()
         self.settings = self._collect_settings()
         save_password(self.settings.get("password", ""))
         self._safe_save(self.settings)
