@@ -17,6 +17,11 @@ SHARED_SCRIPTS = [
     "app/__init__.py",
     "app/garmin_app_settings.py",
     "app/garmin_app_controller.py",
+    "app/panel_settings.py",
+    "app/panel_connection.py",
+    "app/panel_archive.py",
+    "app/panel_timer.py",
+    "app/panel_outputs.py",
     # app base
     "version.py",
     "garmin_app_base.py",
@@ -87,6 +92,11 @@ ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py", "daily_update.py"] +
 SCRIPT_SIGNATURES_BASE = {
     "app/garmin_app_settings.py": ["def load_settings", "def save_settings", "def load_password", "def save_password"],
     "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def check_mirror"],
+    "app/panel_settings.py":    ["class PanelSettingsMixin"],
+    "app/panel_connection.py":  ["class PanelConnectionMixin"],
+    "app/panel_archive.py":     ["class PanelArchiveMixin"],
+    "app/panel_timer.py":       ["class PanelTimerMixin"],
+    "app/panel_outputs.py":     ["class PanelOutputsMixin"],
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],

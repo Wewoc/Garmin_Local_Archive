@@ -6,43 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.2**
+**Currently stable — v1.5.3**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.3 — UI Panel Decomposition
-
-**Prerequisite: v1.5.2 GUI / Controller Separation complete.**
-
-`garmin_app_base.py` remains in tkinter but is broken into dedicated
-panel modules. The monolith becomes an assembler.
-Pure structural move — no behaviour change, no bug fixes.
-
-**New modules (all Mixin classes, no `__init__`):**
-- `app/panel_settings.py` — Settings panel (credentials, paths, sync config)
-- `app/panel_archive.py` — Archive Info + Integrity panel
-- `app/panel_connection.py` — Connection test + indicators panel
-- `app/panel_timer.py` — Background timer panel
-- `app/panel_outputs.py` — Outputs + Dashboard panel
-
-**What changes:**
-- `garmin_app_base.py` — reduced to assembler: imports panels, wires
-  them together, holds shared state. Target: under 400 lines.
-- `app/` — new panel modules, each owning one UI section
-
-**What does not change:**
-- `app/garmin_app_settings.py` — untouched
-- `app/garmin_app_controller.py` — untouched
-- All three build targets — no behavioural change
-
-**Why before PyQt6:**
-Decomposition in tkinter is low-risk — the technology is well-known, tests are underway,
-every error is clearly locatable. The subsequent PyQt6 conversion will be a
-mechanical panel-by-panel translation with a clear gate after each step.
 
 ---
 
