@@ -1,5 +1,25 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.4.2 — InApp Dashboards
+
+QWebEngineView integrated as a second tab on the right side of the app.
+HTML dashboards are now viewable directly inside the app without an external
+browser. The Screenshot/Demo mode loads an embedded demo dashboard with
+synthetic data — no real user data exposed.
+
+**Changed modules:**
+- `garmin_app_base.py` — right side replaced by `QTabWidget`: Tab 1 "Actions" (unchanged content), Tab 2 "Dashboards" with `QComboBox` dropdown + `QWebEngineView` fullscreen. `_scan_dashboards()` and `_load_selected_dashboard()` added as methods on `GarminApp`. Startup scan via `QTimer.singleShot(300)`. New imports: `QTabWidget`, `QComboBox`, `QUrl`, `QWebEngineView`.
+- `app/panel_outputs.py` — `on_done` in `_run_dashboards()` calls `self._app._scan_dashboards(auto_load=...)` after a build to rescan and auto-load the new dashboard in Tab 2. No WebEngine code in this module.
+- `garmin_app_screenshot.py` — `_scan_dashboards()` overridden: loads `DEMO_HTML` (embedded as string constant, `dashboard_desktop.html` with synthetic data) via `setHtml()` into Tab 2. No file access, no real data.
+- `requirements.txt` — `PyQt6-WebEngine` added (direct import dependency).
+
+**Dependencies note:** `curl_cffi` and `ua-generator` (mandatory since garminconnect 0.3.0) are installed transitively — not added explicitly since neither is imported directly by this project.
+
+**Test result:** 315 / 255 / 303 / 128 — all green
+(test_local / test_local_context / test_dashboard / test_app_logic)
+
+---
+
 ## v1.5.4.1 — Auth Hardening
 
 Four independent improvements to the login flow and dependency monitoring.

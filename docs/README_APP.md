@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.4.1
+# Garmin Local Archive — Desktop App v1.5.4.2
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -207,6 +207,12 @@ Opens a popup with all available dashboards and their output formats. Select any
 | Sleep & Recovery | ✓ | — | — | — |
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
+
+### Dashboards tab
+
+The **Dashboards** tab (second tab on the right side) shows your HTML dashboards directly inside the app — no browser needed. After a successful build the latest dashboard loads automatically.
+
+Use the dropdown at the top to switch between all HTML dashboards in `BASE_DIR/dashboards/`. The view is fully interactive — zoom, hover, and filter work exactly as in a browser.
 
 The **Health Analysis JSON** includes a ready-to-use Markdown start prompt (`health_garmin_prompt.md`) for Open WebUI / Ollama — load it as the system prompt for AI-assisted interpretation.
 
