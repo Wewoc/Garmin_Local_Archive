@@ -1,32 +1,51 @@
 #!/usr/bin/env python3
 """
 app/panel_archive.py
-Garmin Local Archive — Archive Panel Mixin
+Garmin Local Archive — Archive Panel
 
-PanelArchiveMixin — archive info display, integrity check, restore data,
-clean archive, schema migration popup, failed-days popup, mirror operation.
+PanelArchive — PyQt6 QWidget for archive info display, integrity check,
+restore data, clean archive, schema migration dialog, failed-days dialog,
+and mirror operation.
 
 Rules:
-  - No __init__ — all state lives on the GarminAppBase instance (self)
+  - __init__(self, app) — app is the GarminApp(QMainWindow) instance
   - All widget references stored as self._xyz
   - Panel-private helpers use _archive_* prefix (E-7)
+  - Workers never touch widgets — use self._app._dispatch()
+  - Accessor calls go via self._app._panel_connection.set_*_button_state()
 """
 
 import json
 import threading
 from datetime import date, timedelta
 from pathlib import Path
-import tkinter as tk
-from tkinter import messagebox
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QListWidget, QMessageBox, QFrame, QSizePolicy,
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 import garmin_app_controller as _controller
 
 
-class PanelArchiveMixin(object):
+class PanelArchive(QWidget):
+
+    def __init__(self, app):
+        super().__init__()
+        self._app = app
+        # Owner (D-4)
+        self._mirror_running = False
+        # No UI widgets owned here — archive info labels live on PanelConnection
+        # This panel owns the logic; PanelConnection owns the display labels.
+
+    # ── Archive info ───────────────────────────────────────────────────────────
 
     def _refresh_archive_info(self):
-        """Refresh archive info labels from quality_log.json (C1)."""
-        s        = self._collect_settings()
+        """Refresh archive info labels from quality_log.json (C1).
+        Safe to call from any thread — dispatches UI update to Main Thread."""
+        s        = self._app._panel_settings._collect_settings()
         base_dir = Path(s.get("base_dir", "")).expanduser()
         log_path = base_dir / "garmin_data" / "log" / "quality_log.json"
 
@@ -47,63 +66,62 @@ class PanelArchiveMixin(object):
 
             recheck  = sum(1 for e in entries if e.get("recheck"))
             missing  = sum(1 for e in entries
-                           if e.get("quality", e.get("category", "")) in ("failed", "low"))
+                           if e.get("quality", e.get("category", ""))
+                           in ("failed", "low"))
             dates    = sorted(e["date"] for e in entries if "date" in e)
             rng      = f"{dates[0]} → {dates[-1]}" if dates else "—"
-            coverage = f"{total / max(1, (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days + 1):.0%}" \
-                       if len(dates) >= 2 else "—"
+            coverage = (
+                f"{total / max(1, (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days + 1):.0%}"
+                if len(dates) >= 2 else "—"
+            )
             last_api  = data.get("last_api_sync",  "—")
             last_bulk = data.get("last_bulk_import", "—")
 
+            pc = self._app._panel_connection
+
             def _update():
-                self._info_total.config(text=f"Days: {total}")
-                for q, lbl in self._info_qdots.items():
-                    lbl.config(text=f"{q[:3] if q != 'failed' else 'fail'} {counts[q]}")
-                self._info_recheck.config(text=f"Recheck: {recheck}")
-                self._info_missing.config(text=f"Missing: {missing}")
-                self._info_range.config(text=f"Range: {rng}")
-                self._info_coverage.config(text=f"Coverage: {coverage}")
-                self._info_last_api.config(text=f"Last API: {last_api}")
-                self._info_last_bulk.config(text=f"Last Bulk: {last_bulk}")
-            self.after(0, _update)
+                pc._info_total.setText(f"Days: {total}")
+                for q, lbl in pc._info_qdots.items():
+                    lbl.setText(f"{q[:3] if q != 'failed' else 'fail'} {counts[q]}")
+                pc._info_recheck.setText(f"Recheck: {recheck}")
+                pc._info_missing.setText(f"Missing: {missing}")
+                pc._info_range.setText(f"Range: {rng}")
+                pc._info_coverage.setText(f"Coverage: {coverage}")
+                pc._info_last_api.setText(f"Last API: {last_api}")
+                pc._info_last_bulk.setText(f"Last Bulk: {last_bulk}")
+
+            self._app._dispatch(_update)
         except Exception:
             pass
 
-    def _startup_integrity_check(self):
-        """
-        Runs check_integrity() via controller at startup (B5).
-        Updates _restore_btn state via self.after().
-        """
-        s      = self._collect_settings()
-        result = _controller.check_integrity(s)
-        if not result.get("missing_days") and not result.get("no_backup"):
-            missing = result.get("missing_days", [])
-            if not missing:
-                def _reset():
-                    self._set_restore_button_state(False,
-                                                   text="Restore Data", color=self.TEXT2)
-                self.after(0, _reset)
-                return
+    # ── Integrity check ────────────────────────────────────────────────────────
 
+    def _startup_integrity_check(self):
+        """Runs check_integrity() at startup (B5). Worker-safe."""
+        s      = self._app._panel_settings._collect_settings()
+        result = _controller.check_integrity(s)
         missing = result.get("missing_days", [])
         no_bkup = result.get("no_backup", [])
 
         def _update():
+            pc = self._app._panel_connection
             if not missing:
-                self._set_restore_button_state(False,
-                                               text="Restore Data", color=self.TEXT2)
+                pc.set_restore_button_state(False, text="Restore Data")
                 return
             if no_bkup:
                 label = f"⚠ {len(missing)} days missing, {len(no_bkup)} no backup"
             else:
                 label = f"⚠ {len(missing)} days missing"
-            self._set_restore_button_state(True, text=label, color=self.YELLOW,
+            pc.set_restore_button_state(
+                True, text=label,
                 command=lambda: self._on_restore_data(missing, no_bkup))
 
-        self.after(0, _update)
+        self._app._dispatch(_update)
+
+    # ── Restore data ───────────────────────────────────────────────────────────
 
     def _on_restore_data(self, missing_days: list = None, no_backup: list = None):
-        """Handles Restore Data button click (B5)."""
+        """Handles Restore Data button click (B5). Main Thread only."""
         if not missing_days:
             return
 
@@ -111,8 +129,8 @@ class PanelArchiveMixin(object):
             detail = "\n".join(no_backup[:10])
             if len(no_backup) > 10:
                 detail += f"\n… and {len(no_backup) - 10} more"
-            messagebox.showwarning(
-                "Restore Data",
+            QMessageBox.warning(
+                self._app, "Restore Data",
                 f"{len(no_backup)} day(s) have no backup and cannot be restored:\n\n"
                 f"{detail}\n\nThese days must be re-fetched from Garmin Connect.",
             )
@@ -121,12 +139,13 @@ class PanelArchiveMixin(object):
         if not restorable:
             return
 
-        confirmed = messagebox.askyesno(
-            "Restore Data",
+        answer = QMessageBox.question(
+            self._app, "Restore Data",
             f"Restore {len(restorable)} day(s) from backup?\n\n"
             f"First day: {restorable[0]}\nLast day:  {restorable[-1]}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if not confirmed:
+        if answer != QMessageBox.StandardButton.Yes:
             return
 
         def _do_restore():
@@ -135,41 +154,47 @@ class PanelArchiveMixin(object):
                 result   = _backup.restore_raw_days(restorable)
                 restored = result.get("restored", [])
                 failed   = result.get("failed", [])
-                self._log_bg(
+                self._app._log_bg(
                     f"✓ Restore complete: {len(restored)} restored"
                     + (f", {len(failed)} failed" if failed else "")
                 )
-                self.after(0, lambda: self._set_restore_button_state(
-                    False, text="Restore Data", color=self.TEXT2))
+                self._app._dispatch(
+                    lambda: self._app._panel_connection.set_restore_button_state(
+                        False, text="Restore Data"))
             except Exception as e:
-                self._log_bg(f"✗ Restore failed: {e}")
+                self._app._log_bg(f"✗ Restore failed: {e}")
 
         threading.Thread(target=_do_restore, daemon=True).start()
 
+    # ── Clean archive ──────────────────────────────────────────────────────────
+
     def _clean_archive(self):
+        """Opens Clean Archive dialog. Main Thread only."""
         import json as _json
-        s        = self._collect_settings()
+        s        = self._app._panel_settings._collect_settings()
         base_dir = Path(s["base_dir"]).expanduser() if s["base_dir"] else None
         if not base_dir:
-            self._log("✗ Clean Archive: no data folder set.")
+            self._app._log("✗ Clean Archive: no data folder set.")
             return
         quality_log = base_dir / "garmin_data" / "log" / "quality_log.json"
         if not quality_log.exists():
-            self._log("✗ Clean Archive: quality_log.json not found.")
+            self._app._log("✗ Clean Archive: quality_log.json not found.")
             return
         try:
             data = _json.loads(quality_log.read_text(encoding="utf-8"))
         except Exception as e:
-            self._log(f"✗ Clean Archive: could not read quality_log.json: {e}")
+            self._app._log(f"✗ Clean Archive: could not read quality_log.json: {e}")
             return
+
         first_day_str = data.get("first_day")
         if not first_day_str:
-            self._log("✗ Clean Archive: first_day not set in quality_log.json.")
+            self._app._log("✗ Clean Archive: first_day not set in quality_log.json.")
             return
         try:
             cutoff = date.fromisoformat(first_day_str)
         except ValueError:
-            self._log(f"✗ Clean Archive: invalid first_day value '{first_day_str}'.")
+            self._app._log(
+                f"✗ Clean Archive: invalid first_day value '{first_day_str}'.")
             return
 
         to_delete = []
@@ -195,39 +220,66 @@ class PanelArchiveMixin(object):
         ]
 
         if not to_delete and not entries_to_remove:
-            self._log(f"✓ Clean Archive: nothing to clean before {first_day_str}.")
+            self._app._log(
+                f"✓ Clean Archive: nothing to clean before {first_day_str}.")
             return
 
-        popup = tk.Toplevel(self)
-        popup.title("Clean Archive")
-        popup.configure(bg=self.BG)
-        popup.resizable(False, False)
-        popup.grab_set()
-        tk.Label(popup, text="🗑  Clean Archive",
-                 font=("Segoe UI", 12, "bold"), bg=self.BG, fg=self.TEXT,
-                 padx=20, pady=14).pack(anchor="w")
-        tk.Frame(popup, bg=self.ACCENT, height=1).pack(fill="x", padx=20)
-        info_frame = tk.Frame(popup, bg=self.BG, padx=20, pady=10)
-        info_frame.pack(fill="x")
-        tk.Label(info_frame, text=f"first_day:  {first_day_str}",
-                 font=("Segoe UI", 9, "bold"), bg=self.BG, fg=self.ACCENT).pack(anchor="w")
-        tk.Label(info_frame,
-                 text="The following files will be permanently deleted:",
-                 font=self.FONT_BODY, bg=self.BG, fg=self.TEXT2, pady=6).pack(anchor="w")
-        list_frame = tk.Frame(popup, bg=self.BG, padx=20)
-        list_frame.pack(fill="both", expand=True)
-        scrollbar = tk.Scrollbar(list_frame)
-        scrollbar.pack(side="right", fill="y")
-        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set,
-                             bg=self.BG3, fg=self.TEXT2, font=("Consolas", 8),
-                             selectbackground=self.ACCENT2, height=12,
-                             relief="flat", bd=0)
-        listbox.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=listbox.yview)
+        # ── Dialog ────────────────────────────────────────────────────────────
+        dlg = QDialog(self._app)
+        dlg.setWindowTitle("Clean Archive")
+        dlg.setModal(True)
+        dlg.setMinimumWidth(480)
+        dlg.setStyleSheet(f"background: {self._app.BG}; color: {self._app.TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(20, 14, 20, 14)
+        lay.setSpacing(8)
+
+        title = QLabel("🗑  Clean Archive")
+        title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {self._app.TEXT};")
+        lay.addWidget(title)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(sep)
+
+        info = QLabel(f"first_day:  {first_day_str}")
+        info.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        info.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(info)
+
+        hint = QLabel("The following files will be permanently deleted:")
+        hint.setFont(QFont("Segoe UI", 9))
+        hint.setStyleSheet(f"color: {self._app.TEXT2};")
+        lay.addWidget(hint)
+
+        listbox = QListWidget()
+        listbox.setStyleSheet(
+            f"background: {self._app.BG3}; color: {self._app.TEXT2}; "
+            f"border: none; font-family: Consolas; font-size: 8pt;")
+        listbox.setFixedHeight(200)
         for f in to_delete:
-            listbox.insert(tk.END, f.name)
+            listbox.addItem(f.name)
         for e in entries_to_remove:
-            listbox.insert(tk.END, f"[log entry] {e.get('date', '?')}")
+            listbox.addItem(f"[log entry] {e.get('date', '?')}")
+        lay.addWidget(listbox)
+
+        btn_row = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
+            f"border: none; padding: 6px 18px; }}")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        delete_btn = QPushButton("🗑  Löschen")
+        delete_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        delete_btn.setStyleSheet(
+            "QPushButton { background: #e94560; color: #eaeaea; "
+            "border: none; padding: 6px 18px; }")
+        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         def do_delete():
             errors = 0
@@ -248,24 +300,23 @@ class PanelArchiveMixin(object):
                     )
                 except Exception:
                     errors += 1
-            popup.destroy()
+            dlg.accept()
             msg = f"✓ Clean Archive: {len(to_delete)} files deleted"
             if errors:
                 msg += f" ({errors} errors)"
-            self._log(msg)
+            self._app._log(msg)
 
-        btn_frame = tk.Frame(popup, bg=self.BG, padx=20, pady=10)
-        btn_frame.pack(fill="x")
-        tk.Button(btn_frame, text="Cancel", font=self.FONT_BTN,
-                  bg=self.BG3, fg=self.TEXT2, relief="flat", bd=0,
-                  pady=6, padx=18, cursor="hand2",
-                  command=popup.destroy).pack(side="left")
-        tk.Button(btn_frame, text="🗑  Löschen", font=self.FONT_BTN,
-                  bg="#e94560", fg=self.TEXT, relief="flat", bd=0,
-                  pady=6, padx=18, cursor="hand2",
-                  command=do_delete).pack(side="right")
+        delete_btn.clicked.connect(do_delete)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(delete_btn)
+        lay.addLayout(btn_row)
+        dlg.exec()
+
+    # ── Schema migration check ─────────────────────────────────────────────────
 
     def _check_schema_migration(self, base_dir: str) -> bool:
+        """Returns True if migration confirmed. Main Thread only."""
         summary_dir = Path(base_dir) / "garmin_data" / "summary"
         if not summary_dir.exists():
             return False
@@ -285,19 +336,23 @@ class PanelArchiveMixin(object):
                 continue
         if outdated == 0:
             return False
-        answer = messagebox.askyesno(
-            "Data Migration — Backup Required",
+        answer = QMessageBox.question(
+            self._app, "Data Migration — Backup Required",
             f"A schema update requires rewriting {outdated} summary file(s).\n\n"
             f"Raw data files will NOT be modified.\n"
             f"Summary files will be regenerated from raw data.\n\n"
             f"Please make a backup of your data directory before continuing.\n\n"
             f"I have a backup — continue with migration?",
-            icon="warning",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        return answer
+        return answer == QMessageBox.StandardButton.Yes
+
+    # ── Failed days popup ──────────────────────────────────────────────────────
 
     def _check_failed_days_popup(self, base_dir: str, sync_mode: str,
-                                  sync_days: str, sync_from: str, sync_to: str) -> bool:
+                                  sync_days: str, sync_from: str,
+                                  sync_to: str) -> bool:
+        """Returns True if user confirms refresh. Main Thread only."""
         failed_file = Path(base_dir) / "garmin_data" / "log" / "quality_log.json"
         if not failed_file.exists():
             return False
@@ -329,59 +384,62 @@ class PanelArchiveMixin(object):
             )
             if count == 0:
                 return False
-            answer = messagebox.askyesno(
-                "Incomplete records found",
+            answer = QMessageBox.question(
+                self._app, "Incomplete records found",
                 f"There are incomplete records:\n\n"
                 f"  {count} days in the selected range\n\n"
                 f"Refresh now?",
-                icon="warning",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
-            return answer
+            return answer == QMessageBox.StandardButton.Yes
         except Exception:
             return False
 
+    # ── Mirror check ───────────────────────────────────────────────────────────
+
     def _startup_mirror_check(self):
-        """
-        Checks at startup if mirror_dir is set and reachable (C3).
-        Updates _mirror_btn state via self.after().
-        """
-        s         = self._collect_settings()
+        """Checks at startup if mirror_dir is reachable (C3). Worker-safe."""
+        s         = self._app._panel_settings._collect_settings()
         reachable = _controller.check_mirror(s)
 
         def _update():
-            if reachable:
-                self._set_mirror_button_state(True, color=self.TEXT)
-            else:
-                self._set_mirror_button_state(False, color=self.TEXT2)
-        self.after(0, _update)
+            self._app._panel_connection.set_mirror_button_state(
+                reachable,
+                text="🔁  Data Mirror",
+            )
+        self._app._dispatch(_update)
+
+    # ── Mirror operation ───────────────────────────────────────────────────────
 
     def _on_mirror(self):
-        """Starts mirror operation in background thread (C4/C5)."""
+        """Starts mirror operation in background thread (C4/C5). Main Thread only."""
         if self._mirror_running:
             return
-        s          = self._collect_settings()
+        s          = self._app._panel_settings._collect_settings()
         mirror_dir = s.get("mirror_dir", "").strip()
         if not mirror_dir:
-            messagebox.showwarning("Data Mirror", "No mirror folder configured.")
+            QMessageBox.warning(self._app, "Data Mirror",
+                                "No mirror folder configured.")
             return
         base_dir = Path(s.get("base_dir", "")).expanduser()
 
-        if self._is_running():
-            messagebox.showwarning("Data Mirror",
+        if self._app._is_running():
+            QMessageBox.warning(self._app, "Data Mirror",
                 "A Garmin sync is currently running.\nPlease wait until it finishes.")
             return
-        if self._timer_active:
-            messagebox.showwarning("Data Mirror",
+        if self._app._timer_active:
+            QMessageBox.warning(self._app, "Data Mirror",
                 "Background timer is active.\nStop the timer before mirroring.")
             return
-        if self._ctx_running:
-            messagebox.showwarning("Data Mirror",
+        if self._app._ctx_running:
+            QMessageBox.warning(self._app, "Data Mirror",
                 "Context sync is running.\nPlease wait until it finishes.")
             return
 
         self._mirror_running = True
-        self._set_mirror_button_state(False, text="🔁  Mirroring…", color=self.YELLOW)
-        self._log("🔁  Data Mirror started …")
+        self._app._panel_connection.set_mirror_button_state(
+            False, text="🔁  Mirroring…")
+        self._app._log("🔁  Data Mirror started …")
 
         def _do_mirror():
             try:
@@ -393,12 +451,13 @@ class PanelArchiveMixin(object):
                 )
                 if result["errors"]:
                     msg += f", {result['errors']} errors"
-                self._log_bg(msg)
+                self._app._log_bg(msg)
             except Exception as e:
-                self._log_bg(f"✗ Mirror failed: {e}")
+                self._app._log_bg(f"✗ Mirror failed: {e}")
             finally:
                 self._mirror_running = False
-                self.after(0, lambda: self._set_mirror_button_state(
-                    True, text="🔁  Data Mirror", color=self.TEXT))
+                self._app._dispatch(
+                    lambda: self._app._panel_connection.set_mirror_button_state(
+                        True, text="🔁  Data Mirror"))
 
         threading.Thread(target=_do_mirror, daemon=True).start()

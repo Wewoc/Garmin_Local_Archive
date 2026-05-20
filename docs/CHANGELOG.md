@@ -1,5 +1,39 @@
 # Garmin Local Archive — Changelog
- 
+
+## v1.5.4 — PyQt6 Migration
+
+tkinter vollständig durch PyQt6 ersetzt. Alle fünf Panel-Mixins wurden zu
+eigenständigen QWidget-Subklassen umgebaut. GarminAppBase wurde zu
+GarminApp(QMainWindow) als reiner Assembler. Thread-sicherer Dispatch via
+pyqtSignal ersetzt self.after(). Kein Verhalten geändert — reine
+Toolkit-Migration als Vorbereitung für QWebEngineView (v1.5.4.1).
+
+**Changed modules:**
+- `garmin_app_base.py` — GarminApp(QMainWindow), pyqtSignal-basierter _dispatch(), Komposition statt Mixin-Vererbung
+- `garmin_app.py` — Entry Point T1/T2, Qt-Eventloop, subprocess-Modell unverändert
+- `garmin_app_standalone.py` — Entry Point T3, QTimer statt self.after() für _poll_log_queue
+- `app/panel_settings.py` — PanelSettings(QWidget), QLineEdit/QComboBox statt StringVar
+- `app/panel_connection.py` — PanelConnection(QWidget), pyqtSignal für Modal-Dialoge (D-2), EncKeyDialog/TokenExpiredDialog/MfaDialog als QDialog-Subklassen
+- `app/panel_archive.py` — PanelArchive(QWidget), QDialog für Clean Archive
+- `app/panel_timer.py` — PanelTimer(QWidget), Timer-Loop unverändert
+- `app/panel_outputs.py` — PanelOutputs(QWidget), QDialog für Dashboard-Popup und Task Scheduler XML
+
+**New files:**
+- `tests/conftest.py` — pytest-qt QApplication-Fixture
+- `tests/test_qt_app.py` — 41 Checks, 7 Klassen
+- `tests/run_qt_tests.bat` — Schnellstart
+
+**Test result:** 315 / 255 / 303 / 128 / 41 — all green
+(test_local / test_local_context / test_dashboard / test_app_logic / test_qt_app)
+
+**Critical fix found during implementation:**
+- `_dispatch()` initially used `QTimer.singleShot()` from worker threads —
+  not thread-safe in PyQt6. Fixed via `pyqtSignal(object)` at class level
+  with `@pyqtSlot(object)` receiver. Qt queues cross-thread emissions
+  automatically. Rule: `QTimer.singleShot()` from Main Thread only.
+
+---
+
 ## v1.5.3.1 — State Hardening
  
 Hardening step in preparation for the PyQt6 migration. No behaviour changes,

@@ -102,8 +102,14 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
 │
 ├── app/                        ← GUI logic layer (v1.5.2+)
 │   ├── __init__.py
-│   ├── garmin_app_settings.py  ← Layer 1: settings, keyring, constants (no tkinter)
-│   └── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no tkinter)
+│   ├── garmin_app_settings.py  ← Layer 1: settings, keyring, constants (no GUI)
+│   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
+│   ├── panel_settings.py       ← PanelSettings(QWidget) — credentials, paths, sync config (v1.5.4+)
+│   ├── panel_connection.py     ← PanelConnection(QWidget) — indicators, dialogs, token reset (v1.5.4+)
+│   ├── panel_archive.py        ← PanelArchive(QWidget) — integrity, mirror, clean, schema migration (v1.5.4+)
+│   ├── panel_timer.py          ← PanelTimer(QWidget) — background timer, loop, controller delegates (v1.5.4+)
+│   └── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboards, output helpers (v1.5.4+)
+│
 ├── requirements.txt
 ├── run_T1.bat
 ├── run_build_all.bat
@@ -198,8 +204,11 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     ├── test_local.py           ← Garmin pipeline (227 checks)
     ├── test_local_context.py   ← Context pipeline (217 checks)
     ├── test_dashboard.py       ← Dashboard pipeline (303 checks)
-    ├── test_app_logic.py       ← App layer (129 checks)
-    └── test_build_output.py    ← Build output validation (8 sections)
+    ├── test_app_logic.py       ← App layer (128 checks)
+    ├── test_qt_app.py          ← PyQt6 App layer (37 checks, v1.5.4+)
+    ├── test_build_output.py    ← Build output validation (8 sections)
+    ├── conftest.py             ← pytest-qt fixtures (QApplication, app_root)
+    └── run_qt_tests.bat        ← Schnellstart für test_qt_app.py
 ```
 
 ---

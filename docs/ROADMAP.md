@@ -6,7 +6,17 @@
 
 ---
 
-**Currently stable — v1.5.3.1**
+**Currently stable — v1.5.4**
+
+---
+
+## Maintenance
+
+### garmin_api.py — 429/401 Fehlerbehandlung beim Token-Probe
+
+`garmin_api.py` unterscheidet beim Token-Probe aktuell nicht zwischen 429 (Rate Limit) und 401 (Token abgelaufen). Bei einem 429 wird das gültige Token gelöscht und beim nächsten Lauf ein frischer SSO-Login erzwungen — der sofort wieder in den 429 läuft. Fix: 429 bricht ab ohne Token zu löschen. Nur 401 löst Token-Löschung und Re-Login aus.
+
+Aufgedeckt: 2026-05-19 · Abhängigkeit: kein externes Upstream-Update nötig · Priorität: nach Rate-Limit-Abklingen
 
 ---
 
@@ -14,82 +24,96 @@
 
 ---
 
-### v1.5.4 — PyQt6 / QWebEngineView
+### v1.5.4 — PyQt6 Migration
 
 **Prerequisite: v1.5.3.1 State Hardening complete.**
 
-Each panel module is translated from tkinter to PyQt6 individually.
+Mechanical panel-by-panel translation from tkinter to PyQt6.
 `garmin_app_base.py` (assembler) is rewritten last.
+No behaviour changes. No new features.
 
-**Target: PyQt6 with QWebEngineView**
+**Scope decision (2026-05-18):** QWebEngineView is explicitly excluded
+from this version. Chromium deployment (EXE size, PyInstaller flags,
+GPU/ANGLE issues, antivirus false positives) is orthogonal to the
+UI migration and would mix three problem classes simultaneously.
+The Dashboards tab exists in v1.5.4 as a placeholder only.
+QWebEngineView is v1.5.4.1 scope.
 
-`QWebEngineView` — a fully embedded Chromium widget that renders Plotly
-HTML dashboards natively inside the app. No external browser, no local
-server, no pipeline changes required.
+**Architecture decisions (locked):**
+- Mixin pattern abandoned — each panel becomes a standalone `QWidget` subclass.
+  `GarminApp(QMainWindow)` instantiates panels via composition, not inheritance.
+  Reason: Qt forbids multiple inheritance from QObject subclasses.
+- `self.after()` replaced by `pyqtSignal` — defined at class level only, never
+  per instance. Qt queues cross-thread signal emissions automatically.
+- Thread model: `threading.Thread` retained. `QThread` not introduced —
+  business logic lives in the controller, not in threads.
+- Shared state: hybrid — flags stay on the Base, owner-matrix is explicit
+  (see below). `AppState(QObject)` deferred to v1.6.
+- Dialog guard: `self._dialog_open: bool` on Base — set before `QDialog.exec()`,
+  cleared in `finished` signal. Prevents reentrancy from nested event loop.
+- Worker rule: workers never read or write widgets. They receive primitive
+  copies (str, bool, dict) and emit signals.
+- Shutdown: stop_events set in `_on_close()`, threads joined with `timeout=2.0`.
 
-- Dashboards open inline in a dedicated "Dashboards" tab
-- `QComboBox` dropdown above one `QWebEngineView` instance —
-  no tab-per-dashboard (avoids Chromium subprocess proliferation)
-- Full Plotly interactivity: zoom, hover, filter — all in-app
-- v2.0 readiness: multi-source dashboards become a first-class UI element
+**State owner-matrix:**
+
+| State | Owner | Other panels |
+|---|---|---|
+| `_ctx_running` | PanelOutputs | read-only |
+| `_context_stop_event` | PanelOutputs | `.set()` allowed |
+| `_mirror_running` | PanelArchive | read-only |
+| `_connection_verified` | PanelConnection | read-only |
+| `_timer_active` | PanelTimer | read-only |
+| `_timer_stop` | PanelTimer | `.set()` allowed |
+| `_timer_generation` | PanelTimer | read-only |
+| `_stopped_by_user` | PanelOutputs | read-only |
+| `_last_html` | PanelOutputs | read-only |
 
 **What changes:**
-- All `app/panel_*.py` — rewritten in PyQt6 (Signals/Slots, QThread)
-- `garmin_app_base.py` — rewritten as PyQt6 assembler
+- All `app/panel_*.py` — rewritten as `QWidget` subclasses (Signals/Slots)
+- `garmin_app_base.py` — rewritten as `QMainWindow` assembler
 - `garmin_app.py` / `garmin_app_standalone.py` — entry points updated
+- `tests/test_app_logic.py` — migrated to `pytest-qt`, parallel to panel work
 
 **What does not change:**
 - `app/garmin_app_settings.py` — untouched
 - `app/garmin_app_controller.py` — untouched
 - Dashboard pipeline — untouched
 - All HTML output files — untouched
+- `scheduler/daily_update.py` — untouched, remains headless
 
 **Known risks:**
-- QWebEngineView embeds Chromium — EXE size +150–200 MB, RAM significantly
-  higher, PyInstaller needs additional flags (QtWebEngineProcess, codecs,
-  locales, resources, sandbox binaries)
-- GPU fallback required on NVIDIA systems:
-  `os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")`
-- `load(QUrl)` is async — QComboBox must be disabled during load,
-  re-enabled on `loadFinished` signal
-
-**Alternative: CustomTkinter**
-If embedded dashboards are not a priority, CustomTkinter remains a valid
-fallback — modern styling, no paradigm shift, PyInstaller-friendly.
-Decision deferred until v1.5.3 is complete.
+- Modal dialog reentrancy — mitigated by dialog guard
+- `daemon=True` threads during Qt shutdown — `join(timeout=2.0)` in `_on_close()`
+  reduces risk; full fix deferred to v1.5.4.1 (with QWebEngine subprocess)
 
 ---
 
-### v1.5.4.1 — UI Testsuite
+### v1.5.4.1 — InApp Dashboards (QWebEngineView)
 
 **Prerequisite: v1.5.4 PyQt6 stable, all three build targets green.**
 
-First dedicated test suite for the UI layer. PyQt6 allows headless
-widget testing — `QApplication` starts without a visible window,
-widgets are instantiable and inspectable in isolation.
+QWebEngineView integration into the Dashboards placeholder tab.
 
-**New:**
-- `tests/test_ui.py` — headless QApplication, panel modules
-  instantiated individually, controller return values injected,
-  widget state verified. No screenshot comparison, no visual
-  validation — logic correctness of UI reactions only.
+`QWebEngineView` — a fully embedded Chromium widget that renders Plotly
+HTML dashboards natively inside the app. No external browser, no local
+server, no pipeline changes required.
 
-**What gets tested:**
-- Each panel initializes without exception
-- Panel methods respond correctly to controller return values
-  (label text, button enabled state, indicator color)
-- Cross-panel wiring: signal in → correct callback triggered
+- `QComboBox` dropdown + single `QWebEngineView` instance in "Dashboards" tab
+- No tab-per-dashboard (avoids Chromium subprocess proliferation)
+- Full Plotly interactivity: zoom, hover, filter — all in-app
+- v2.0 readiness: multi-source dashboards become a first-class UI element
 
-**What does not get tested:**
-- Visual rendering, layout, colors
-- Screenshot comparison
-- Any behaviour that requires a visible window
-
-**Why separate from v1.5.4:**
-During the PyQt6 rewrite, behaviour is still being defined.
-Writing tests for something not yet stable is backwards.
-v1.5.4.1 locks in the behaviour that v1.5.4 established —
-analogous to how `test_app_logic.py` covers the app layer.
+**Known risks:**
+- EXE size +150–300 MB (Chromium embedded)
+- PyInstaller requires additional flags: QtWebEngineProcess, codecs,
+  locales, resources, sandbox binaries — `build_manifest.py` must be extended
+- GPU/ANGLE issues on NVIDIA systems: `--disable-gpu` as opt-in CLI flag
+- `load(QUrl)` is async — `QComboBox` disabled during load,
+  re-enabled on `loadFinished` signal
+- Antivirus false positives on EXE with Chromium subprocess
+- Daemon thread + WebEngine subprocess interaction during shutdown —
+  requires robust teardown (own scope item within this version)
 
 ---
 

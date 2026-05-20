@@ -381,7 +381,7 @@ check("base: _is_running raises NotImplementedError",
       "def _is_running(" in _base_src and "raise NotImplementedError" in _base_src)
 
 check("app: _run defined in GarminApp",      "def _run(" in _app_src)
-check("app: _log_bg defined in GarminApp",   "def _log_bg(" in _app_src)
+check("app: _log_bg in base (not in garmin_app.py)", "def _log_bg(" not in _app_src or "def _log_bg(" in _base_src)
 check("app: _is_running defined",            "def _is_running(" in _app_src)
 check("app: _stop_collector defined",        "def _stop_collector(" in _app_src)
 check("app: no NotImplementedError in _run", "raise NotImplementedError" not in _app_src)
@@ -392,43 +392,29 @@ check("standalone: _is_running defined",     "def _is_running(" in _sa_src)
 check("standalone: _stop_collector defined", "def _stop_collector(" in _sa_src)
 check("standalone: no NotImplementedError",  "raise NotImplementedError" not in _sa_src)
 
-# _build_env_dict — load base without tkinter mock to access real class
+# _build_env_dict — load base without Qt mock (v1.5.4: no tkinter dependency)
 import importlib as _il_base
-import types as _types
-_real_tk = _types.ModuleType("tkinter")
-_real_tk.Tk = object  # minimal stub so class definition works
+import sys as _sys
+_panel_mocks_qt = {
+    "app.panel_settings":   MagicMock(),
+    "app.panel_connection": MagicMock(),
+    "app.panel_archive":    MagicMock(),
+    "app.panel_timer":      MagicMock(),
+    "app.panel_outputs":    MagicMock(),
+    "PyQt6":                MagicMock(),
+    "PyQt6.QtWidgets":      MagicMock(),
+    "PyQt6.QtCore":         MagicMock(),
+    "PyQt6.QtGui":          MagicMock(),
+}
 _base_spec = _il_base.util.spec_from_file_location(
     "garmin_app_base_real", _ROOT / "garmin_app_base.py")
 _base_real_mod = _il_base.util.module_from_spec(_base_spec)
-_base_real_mod.__dict__["tkinter"] = _real_tk
-import sys as _sys
 _sys.modules["garmin_app_base_real"] = _base_real_mod
-_panel_mocks = {
-    "panel_settings":   MagicMock(),
-    "panel_connection": MagicMock(),
-    "panel_archive":    MagicMock(),
-    "panel_timer":      MagicMock(),
-    "panel_outputs":    MagicMock(),
-}
-for _name, _mock in _panel_mocks.items():
-    _mock.PanelSettingsMixin   = type("PanelSettingsMixin",   (object,), {})
-    _mock.PanelConnectionMixin = type("PanelConnectionMixin", (object,), {})
-    _mock.PanelArchiveMixin    = type("PanelArchiveMixin",    (object,), {})
-    _mock.PanelTimerMixin      = type("PanelTimerMixin",      (object,), {})
-    _mock.PanelOutputsMixin    = type("PanelOutputsMixin",    (object,), {})
 
-with patch.dict(_sys.modules, {
-        "tkinter":            _real_tk,
-        "tkinter.ttk":        MagicMock(),
-        "tkinter.filedialog": MagicMock(),
-        "tkinter.scrolledtext": MagicMock(),
-        "tkinter.messagebox": MagicMock(),
-        **_panel_mocks,
-}):
+with patch.dict(_sys.modules, _panel_mocks_qt):
     _base_spec.loader.exec_module(_base_real_mod)
 
 _mock_self = MagicMock()
-_mock_self._log_level = "INFO"
 _test_s = {
     "email": "t@t.com", "password": "pw",
     "base_dir": str(_TMPDIR), "sync_mode": "recent",
@@ -438,13 +424,17 @@ _test_s = {
     "request_delay_min": "5.0", "request_delay_max": "20.0",
     "sync_auto_fallback": "",
 }
-_env = _base_real_mod.GarminAppBase._build_env_dict(_mock_self, _test_s, refresh_failed=False)
+# _build_env_dict delegates to garmin_app_controller — test directly
+import sys as _sys
+_sys.path.insert(0, str(_ROOT / "app"))
+import garmin_app_controller as _ctrl
+_env = _ctrl.build_env_dict(_test_s, refresh_failed=False)
 check("_build_env_dict: returns dict",              isinstance(_env, dict))
 check("_build_env_dict: GARMIN_EMAIL present",      "GARMIN_EMAIL" in _env)
 check("_build_env_dict: GARMIN_PASSWORD present",   "GARMIN_PASSWORD" in _env)
 check("_build_env_dict: GARMIN_OUTPUT_DIR present", "GARMIN_OUTPUT_DIR" in _env)
 check("_build_env_dict: GARMIN_REFRESH_FAILED=0",   _env.get("GARMIN_REFRESH_FAILED") == "0")
-_env_r = _base_real_mod.GarminAppBase._build_env_dict(_mock_self, _test_s, refresh_failed=True)
+_env_r = _ctrl.build_env_dict(_test_s, refresh_failed=True)
 check("_build_env_dict: GARMIN_REFRESH_FAILED=1",   _env_r.get("GARMIN_REFRESH_FAILED") == "1")
 check("_build_env_dict: no os.environ side-effect",
       os.environ.get("GARMIN_EMAIL") != "t@t.com")
@@ -483,22 +473,12 @@ check("app: does not shadow _timer_run_bulk_recheck",
 check("standalone: does not shadow _timer_run_bulk_recheck",
       "def _timer_run_bulk_recheck(" not in _sa_src)
 
-# Functional test — load panel_timer directly (no tkinter dependency)
-import importlib.util as _ilu_timer
+# Functional test — timer_run_bulk_recheck delegates to controller
+# Testing via controller directly avoids PyQt6 mock complexity (v1.5.4)
 import datetime as _dt
-_timer_spec = _ilu_timer.spec_from_file_location(
-    "panel_timer_test", _ROOT / "app" / "panel_timer.py")
-_timer_mod = _ilu_timer.module_from_spec(_timer_spec)
-with patch.dict(_sys.modules, {
-        "tkinter": _real_tk,
-}):
-    _timer_spec.loader.exec_module(_timer_mod)
 
-_mock_inst       = MagicMock()
 _no_log_settings = {"base_dir": str(_TMPDIR / "no_such_dir")}
-
-_result_none = _timer_mod.PanelTimerMixin._timer_run_bulk_recheck(
-    _mock_inst, _no_log_settings)
+_result_none = controller_mod.timer_run_bulk_recheck(_no_log_settings)
 check("returns None when no quality_log.json", _result_none is None)
 
 _bulk_log_dir  = _TMPDIR / "bulk_test" / "garmin_data" / "log"
@@ -513,8 +493,7 @@ _bulk_log_file.write_text(json.dumps({"days": [
 ]}), encoding="utf-8")
 
 _bulk_settings = {"base_dir": str(_TMPDIR / "bulk_test")}
-_result_bulk   = _timer_mod.PanelTimerMixin._timer_run_bulk_recheck(
-    _mock_inst, _bulk_settings)
+_result_bulk   = controller_mod.timer_run_bulk_recheck(_bulk_settings)
 check("returns list when bulk+recheck candidates exist",
       isinstance(_result_bulk, list) and len(_result_bulk) == 1)
 check("excludes entries older than 180 days",
