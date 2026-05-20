@@ -12,7 +12,7 @@ Responsibilities:
 
 No file IO, no quality log access, no date strategy logic.
 
-Stop-event note:def login(on_key_required=None, on_token_expired=None):
+Stop-event note:
   In Standalone mode (Target 3), garmin_app_standalone.py injects a
   threading.Event into this module via module.__dict__["_STOP_EVENT"].
   api_call() checks this event before each request via _is_stopped().
@@ -56,7 +56,8 @@ def _is_stopped() -> bool:
 #  Login
 # ══════════════════════════════════════════════════════════════════════════════
 
-def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
+def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
+          on_sso_required=None):
     """
     Logs in to Garmin Connect. Tries saved token first, falls back to SSO.
 
@@ -66,7 +67,8 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
       Path 2 — Token expired (probe fails):
         clear_token() → on_token_expired() → Proceed? → SSO (Path 3)
       Path 3 — No token (first setup or after clear):
-        Garmin(email, pw, return_on_mfa=True) → login()
+        on_sso_required() → Proceed?
+        → Garmin(email, pw, return_on_mfa=True) → login()
         → MFA required: on_mfa_required() → resume_login()
         → save_token() → return client
       Path 3b — Enc-key missing (WCM empty after Windows update):
@@ -78,6 +80,11 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
       on_token_expired()  -- callable: () -> bool
       on_mfa_required()   -- callable: () -> str | None
                              Returns MFA code entered by user, or None on cancel.
+      on_sso_required()   -- callable: () -> bool
+                             Called before first SSO request (Path 3).
+                             User confirms before garminconnect fires any request.
+                             Returns True to proceed, False to cancel.
+                             If None (e.g. headless/standalone), SSO starts automatically.
     """
     try:
         from garminconnect import Garmin
@@ -127,10 +134,19 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None):
                     return None
 
     # ── Path 3 — SSO login (first setup or after expired token) ───────────────
-    if garmin_security.get_enc_key() is None and on_key_required:
-        enc_key = on_key_required()
-        if enc_key:
-            garmin_security.store_enc_key(enc_key)
+    if on_sso_required:
+        proceed = on_sso_required()
+        if not proceed:
+            log.info("  SSO login cancelled by user")
+            return None
+
+    if garmin_security.get_enc_key() is None:
+        if not garmin_security.generate_enc_key():
+            log.warning("  Auto-generate enc_key failed — falling back to manual entry")
+            if on_key_required:
+                enc_key = on_key_required()
+                if enc_key:
+                    garmin_security.store_enc_key(enc_key)
 
     try:
         cfg.GARMIN_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
