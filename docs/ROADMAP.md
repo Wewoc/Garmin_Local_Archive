@@ -6,161 +6,55 @@
 
 ---
 
-**Currently stable — v1.5.2**
+**Currently stable — v1.5.4.3**
 
 ---
 
 ## Planned
 
----
+--- 
 
-### v1.5.3 — UI Panel Decomposition
+### v1.5.4.4 — Auth Flow Cleanup
 
-**Prerequisite: v1.5.2 GUI / Controller Separation complete.**
+Two residual issues in the authentication pipeline identified during v1.5.4.3 testing:
 
-`garmin_app_base.py` remains in tkinter but is broken into dedicated
-panel modules. The monolith becomes an assembler.
-Pure structural move — no behaviour change, no bug fixes.
+**Path 3b regression (`garmin_api.py`):** After the switch to RNG-generated encryption
+keys in v1.5.4.1, Path 3b (enc-key missing, token present) still showed the manual
+`EncKeyDialog` — a leftover from the pre-RNG era. The correct behaviour is to
+auto-generate a new key and clear the old token so Path 3 (SSO) re-creates it.
+Fixed in v1.5.4.3 hotfix but tracked here for documentation.
 
-**New modules (all Mixin classes, no `__init__`):**
-- `app/panel_settings.py` — Settings panel (credentials, paths, sync config)
-- `app/panel_archive.py` — Archive Info + Integrity panel
-- `app/panel_connection.py` — Connection test + indicators panel
-- `app/panel_timer.py` — Background timer panel
-- `app/panel_outputs.py` — Outputs + Dashboard panel
+**`SsoRequiredDialog` does not block (`panel_connection.py`):** When Path 3b fires and
+the dialog appears, the login flow continues without waiting for user confirmation —
+the dialog is a zombie. Requires investigation of the signal/callback chain between
+`check_connection()` and `_prompt_sso_required()`.
 
-**What changes:**
-- `garmin_app_base.py` — reduced to assembler: imports panels, wires
-  them together, holds shared state. Target: under 400 lines.
-- `app/` — new panel modules, each owning one UI section
-
-**What does not change:**
-- `app/garmin_app_settings.py` — untouched
-- `app/garmin_app_controller.py` — untouched
-- All three build targets — no behavioural change
-
-**Why before PyQt6:**
-Decomposition in tkinter is low-risk — the technology is well-known, tests are underway,
-every error is clearly locatable. The subsequent PyQt6 conversion will be a
-mechanical panel-by-panel translation with a clear gate after each step.
-
----
-
-### v1.5.3.1 — State Hardening
-
-**Prerequisite: v1.5.3 Panel Decomposition complete, all tests green.**
-
-Hardening step in preparation for the PyQt6 migration.
-Cross-LLM review (Gemini + ChatGPT) confirmed shared mutable state on `self`
-as the primary long-term risk for Qt compatibility. This version addresses it
-without touching behaviour or scope of v1.5.3.
-
-**Three deliverables:**
-
-1. **State block in `__init__`** — all `self._xyz` flags documented with
-   owner panel and thread rule. Makes implicit state explicitly visible.
-
-2. **`_ctx_running` bug fix** — setter added in `_run_context_sync` and
-   `_on_context_sync_done`, initialization in `__init__`. Without this,
-   Context Sync never blocks the Mirror operation — concurrent archive
-   writes are possible.
-
-3. **Widget accessor methods** — for the most critical cross-panel widget
-   access. No panel writes directly to a widget owned by another panel.
-   Candidates: `_mirror_btn`, `_restore_btn`, `_timer_btn`.
-
-**What does not change:**
-- Panel structure from v1.5.3 — untouched
-- All three build targets — no behavioural change beyond the bug fix
-
----
-
-### v1.5.4 — PyQt6 / QWebEngineView
-
-**Prerequisite: v1.5.3.1 State Hardening complete.**
-
-Each panel module is translated from tkinter to PyQt6 individually.
-`garmin_app_base.py` (assembler) is rewritten last.
-
-**Target: PyQt6 with QWebEngineView**
-
-`QWebEngineView` — a fully embedded Chromium widget that renders Plotly
-HTML dashboards natively inside the app. No external browser, no local
-server, no pipeline changes required.
-
-- Dashboards open inline in a dedicated "Dashboards" tab
-- `QComboBox` dropdown above one `QWebEngineView` instance —
-  no tab-per-dashboard (avoids Chromium subprocess proliferation)
-- Full Plotly interactivity: zoom, hover, filter — all in-app
-- v2.0 readiness: multi-source dashboards become a first-class UI element
-
-**What changes:**
-- All `app/panel_*.py` — rewritten in PyQt6 (Signals/Slots, QThread)
-- `garmin_app_base.py` — rewritten as PyQt6 assembler
-- `garmin_app.py` / `garmin_app_standalone.py` — entry points updated
-
-**What does not change:**
-- `app/garmin_app_settings.py` — untouched
-- `app/garmin_app_controller.py` — untouched
-- Dashboard pipeline — untouched
-- All HTML output files — untouched
-
-**Known risks:**
-- QWebEngineView embeds Chromium — EXE size +150–200 MB, RAM significantly
-  higher, PyInstaller needs additional flags (QtWebEngineProcess, codecs,
-  locales, resources, sandbox binaries)
-- GPU fallback required on NVIDIA systems:
-  `os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")`
-- `load(QUrl)` is async — QComboBox must be disabled during load,
-  re-enabled on `loadFinished` signal
-
-**Alternative: CustomTkinter**
-If embedded dashboards are not a priority, CustomTkinter remains a valid
-fallback — modern styling, no paradigm shift, PyInstaller-friendly.
-Decision deferred until v1.5.3 is complete.
-
----
-
-### v1.5.4.1 — UI Testsuite
-
-**Prerequisite: v1.5.4 PyQt6 stable, all three build targets green.**
-
-First dedicated test suite for the UI layer. PyQt6 allows headless
-widget testing — `QApplication` starts without a visible window,
-widgets are instantiable and inspectable in isolation.
-
-**New:**
-- `tests/test_ui.py` — headless QApplication, panel modules
-  instantiated individually, controller return values injected,
-  widget state verified. No screenshot comparison, no visual
-  validation — logic correctness of UI reactions only.
-
-**What gets tested:**
-- Each panel initializes without exception
-- Panel methods respond correctly to controller return values
-  (label text, button enabled state, indicator color)
-- Cross-panel wiring: signal in → correct callback triggered
-
-**What does not get tested:**
-- Visual rendering, layout, colors
-- Screenshot comparison
-- Any behaviour that requires a visible window
-
-**Why separate from v1.5.4:**
-During the PyQt6 rewrite, behaviour is still being defined.
-Writing tests for something not yet stable is backwards.
-v1.5.4.1 locks in the behaviour that v1.5.4 established —
-analogous to how `test_app_logic.py` covers the app layer.
+Scope: `garmin/garmin_api.py`, `app/panel_connection.py`, `app/garmin_app_controller.py`.
+Review full auth flow end-to-end before touching.
 
 ---
 
 ### v1.5.5 — Content Validation
+
+### v1.5.5 — Content Validation & Backup Hardening
 
 Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
 
 **Archive Integrity Alert (GUI)**
 
 Detection layer already exists: `check_raw_integrity()` in `garmin_backup.py` compares `quality_log` write-entries against actually present raw files; `integrity_warnings` in `garmin_quality.py` catches checksum mismatches with auto-restore. What is missing: a visible warning in the GUI status panel when either check fires. Users currently see nothing — warnings land only in the log.
+
+**Checksum Coverage Extension**
+
+`_compute_checksum()` in `garmin_quality.py` currently covers only `date` and `write` per entry. Extend to include `quality` and `source` — the two fields that drive dashboard rendering and recheck logic. Silent corruption of these fields currently passes the integrity check undetected.
+
+**summary/ Backup**
+
+`garmin_data/summary/` is the only active data stream without a backup path. `garmin_backup.py` covers `raw/` and `quality_log.json`; summary files are not included. While summary files are regenerable from raw via `regenerate_summaries.py`, that is a manual recovery step. Monthly ZIP consolidation analogous to raw backup added to `garmin_backup.py`.
+
+**Mirror Spot-Check**
+
+`garmin_mirror.py` compares by filename and filesize only — content integrity of copied files is not verified. After `run_mirror()`, 5–10 randomly selected files are cross-checked via CRC32 against the source. Result surfaced in the return dict as `spot_check: {sampled: N, mismatches: M}`.
 
 ---
 
@@ -260,6 +154,23 @@ Pre-condition: v1.6 Render Registry must be complete — new specialist register
 
 ---
 
+### v1.6.4 — Custom Dashboard Builder
+
+A dialog in `panel_outputs.py` that replaces the fixed specialist list with free field selection. The user picks Garmin and Context fields, sets a date range and output format — the app assembles and renders the result directly, without persisting a specialist file.
+
+**What changes:**
+- `panel_outputs.py` — new "Custom Dashboard" button in the Export section; opens a dialog with field picker (Garmin + Context), date range input, and format selector
+- `dash_runner.py` — accepts an ad-hoc specialist dict (fields + metadata) in addition to file-based specialists; no new file written to disk
+- `field_map.py` / `context_map.py` — `list_fields()` used to populate the picker dynamically
+
+**What does not change:**
+- Plotter stack — called identically to the existing Create Reports flow
+- Existing specialists — unaffected; the fixed list remains available
+
+**Pre-condition:** v1.6 Render Registry stable — field_map.py broker and plotter dispatch finalized before the picker is built against it.
+
+---
+
 ## Planned — v1.7
 
 - **Garmin FIT Pipeline & Plugin Architecture**
@@ -336,6 +247,12 @@ unpredictable in the same way Garmin API responses are.
 Prerequisite: v2.0 multi-source architecture stable.
 Natural companion to `context_dataformat.json` (schema definition, analogous
 to `garmin_dataformat.json`).
+
+---
+
+**context_data/ Backup**
+
+`context_data/` (weather, pollen, air quality, Brightsky) has no backup path and no restore workflow. The mirror covers it when configured, but the mirror is optional and manually triggered. Re-fetching from Open-Meteo is possible but not unlimited for historical ranges. Becomes a must-have once external sources with restricted backfill windows are added (v2.0 multi-source). Trigger: any new source that cannot freely re-fetch its history.
 
 ---
 

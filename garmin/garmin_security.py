@@ -66,6 +66,17 @@ def store_enc_key(enc_key: str) -> bool:
         return False
 
 
+def generate_enc_key() -> bool:
+    """
+    Generates a random 256-bit encryption key via os.urandom(32),
+    encodes it as a 64-character hex string, and stores it in WCM.
+    Called automatically on first setup (Path 3) — no user input required.
+    Returns True on success, False if WCM storage failed.
+    """
+    enc_key = os.urandom(32).hex()
+    return store_enc_key(enc_key)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Crypto helpers
 # ══════════════════════════════════════════════════════════════════════════════

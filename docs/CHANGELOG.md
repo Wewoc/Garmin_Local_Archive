@@ -1,5 +1,184 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.4.3 — UI Bug Fixes, Backup Integrity & Settings Persistence
+
+Six bugs fixed across three sessions. No new features.
+
+**Changed modules:**
+- `garmin/garmin_backup.py` — Three bugs fixed in the backup pipeline:
+  (1) `backfill_raw()`: `zip_path.exists()` used as skip-guard without checking
+  whether the specific file is inside the ZIP — files were silently lost.
+  Fixed via `_zip_contains()` (already present, unused here). (CRITICAL)
+  (2) `check_raw_backfill_needed()`: same guard logic → backfill need
+  systematically underestimated when a monthly ZIP already existed. (MEDIUM)
+  (3) `_consolidate_raw_months()`: ZIP + directory coexist (e.g. after Background
+  Timer fetches a historical day) → directory silently skipped, never consolidated,
+  grows unbounded. Fixed: missing files appended to existing ZIP via `zipfile 'a'`
+  mode with integrity check; directory deleted afterwards. (HIGH)
+- `app/panel_archive.py` — `_refresh_archive_info()`: `Missing:` label showed
+  count of `low`+`failed` quality entries instead of physically absent days in
+  the tracked date range. Fixed: `missing = (possible days in range) - total`.
+  Added `RuntimeError` guard against pytest-qt widget teardown race.
+- `app/panel_outputs.py` — Create Reports dialog: (1) individual checkboxes
+  unresponsive — Qt6 on Windows disables native hit-testing on QCheckBox widgets
+  that inherit a background from a styled QDialog parent. Fixed: full explicit
+  stylesheet with all indicator states (normal, checked, hover) and explicit
+  width/height. Container transparent style also removed. (2) "Abbrechen" → "Cancel".
+- `compiler/build.py` — T2 EXE: `garminconnect`, `curl_cffi`, `curl_cffi.requests`,
+  `ua_generator` added as hidden imports. These transitive dependencies of
+  garminconnect 0.3.0+ are not auto-detected by PyInstaller. T3 already had them;
+  T2 was missing them since v1.5.4.1 (deferred at the time, now resolved).
+- `app/garmin_app_settings.py` — `read_text()` / `write_text()` without explicit
+  `encoding="utf-8"` — on Windows under PyInstaller the default encoding is
+  non-deterministic. Settings were silently unreadable → `except: pass` →
+  defaults returned and written back on close, wiping all user settings on every
+  update. Fixed: `encoding="utf-8"` explicit in both calls. (CRITICAL)
+- `garmin_app_base.py` — `closeEvent()`: `_collect_settings()` wrapped in
+  `try/except RuntimeError` as secondary guard for edge cases where widgets
+  are deleted before close completes.
+- `tests/test_qt_app.py` — `_TestApp` in all four `TestGarminAppBase` tests
+  overrides `closeEvent` with `event.accept()` — prevents pytest-qt teardown
+  from triggering settings save with empty widget values into the real
+  `~/.garmin_archive_settings.json`.
+- `tests/test_local_context.py` — 6 new checks for `garmin_backup` bug fixes
+  (Bug 1: backfill skips correctly; Bug 2: count correctly > 0; Bug 3: append
+  + directory removal verified).
+
+**Test result:** 41 / 315 / 267 / 303 / 128 — all green
+(test_qt_app / test_local / test_local_context / test_dashboard / test_app_logic)
+
+---
+
+## v1.5.4.2 — InApp Dashboards
+
+QWebEngineView integrated as a second tab on the right side of the app.
+HTML dashboards are now viewable directly inside the app without an external
+browser. The Screenshot/Demo mode loads an embedded demo dashboard with
+synthetic data — no real user data exposed.
+
+**Changed modules:**
+- `garmin_app_base.py` — right side replaced by `QTabWidget`: Tab 1 "Actions" (unchanged content), Tab 2 "Dashboards" with `QComboBox` dropdown + `QWebEngineView` fullscreen. `_scan_dashboards()` and `_load_selected_dashboard()` added as methods on `GarminApp`. Startup scan via `QTimer.singleShot(300)`. New imports: `QTabWidget`, `QComboBox`, `QUrl`, `QWebEngineView`.
+- `app/panel_outputs.py` — `on_done` in `_run_dashboards()` calls `self._app._scan_dashboards(auto_load=...)` after a build to rescan and auto-load the new dashboard in Tab 2. No WebEngine code in this module.
+- `garmin_app_screenshot.py` — `_scan_dashboards()` overridden: loads `DEMO_HTML` (embedded as string constant, `dashboard_desktop.html` with synthetic data) via `setHtml()` into Tab 2. No file access, no real data.
+- `requirements.txt` — `PyQt6-WebEngine` added (direct import dependency).
+
+**Dependencies note:** `curl_cffi` and `ua-generator` (mandatory since garminconnect 0.3.0) are installed transitively — not added explicitly since neither is imported directly by this project.
+
+**Test result:** 315 / 255 / 303 / 128 — all green
+(test_local / test_local_context / test_dashboard / test_app_logic)
+
+---
+
+## v1.5.4.1 — Auth Hardening
+
+Four independent improvements to the login flow and dependency monitoring.
+Trigger: rate-limit incident 2026-05-19 (settings lost during UI migration
+→ token unusable → automatic SSO login → immediate 429 → account-side
+block 48h+).
+
+**Changed modules:**
+- `garmin/garmin_api.py` — `login()`: new optional callback `on_sso_required()` (Path 3) — user explicitly confirms before garminconnect sends the first SSO request. Headless/Standalone: default `None`, SSO starts automatically as before. Auto-generates encryption key via `generate_enc_key()` if no key is present and no manual callback is provided.
+- `garmin/garmin_security.py` — new function `generate_enc_key()`: generates a 256-bit key via `os.urandom(32)`, stores it as a hex string directly in WCM. No user input, no password dialog.
+- `app/garmin_app_controller.py` — `check_connection()`: `on_sso_required` wired into `login()` call, callback documentation updated.
+- `app/panel_connection.py` — new `SsoRequiredDialog` (analogous to `TokenExpiredDialog`), `_prompt_sso_required()`, `_show_prompt` branch `"sso_required"`. Dialog informs the user about automatic key generation and 429 risk in a single step.
+- `tests/check_deps.py` — optional probe call against Garmin Connect after findings display: token status, 429, 401, no token. Read-only, never deletes token. Order: findings → probe? → start anyway?
+
+**Item 3 deferred:** `requirements.txt` + `build_manifest.py` (`curl_cffi` / `ua-generator`) — pending `garminconnect 0.3.4` PyPI release. Released to PyPI during this session (0.3.4 ✓) — follows in a patch or v1.5.4.2.
+
+**Test result:** 315 / 255 / 303 / 128 — all green
+(test_local / test_local_context / test_dashboard / test_app_logic)
+
+---
+
+## v1.5.4 — PyQt6 Migration
+
+tkinter vollständig durch PyQt6 ersetzt. Alle fünf Panel-Mixins wurden zu
+eigenständigen QWidget-Subklassen umgebaut. GarminAppBase wurde zu
+GarminApp(QMainWindow) als reiner Assembler. Thread-sicherer Dispatch via
+pyqtSignal ersetzt self.after(). Kein Verhalten geändert — reine
+Toolkit-Migration als Vorbereitung für QWebEngineView (v1.5.4.1).
+
+**Changed modules:**
+- `garmin_app_base.py` — GarminApp(QMainWindow), pyqtSignal-basierter _dispatch(), Komposition statt Mixin-Vererbung
+- `garmin_app.py` — Entry Point T1/T2, Qt-Eventloop, subprocess-Modell unverändert
+- `garmin_app_standalone.py` — Entry Point T3, QTimer statt self.after() für _poll_log_queue
+- `app/panel_settings.py` — PanelSettings(QWidget), QLineEdit/QComboBox statt StringVar
+- `app/panel_connection.py` — PanelConnection(QWidget), pyqtSignal für Modal-Dialoge (D-2), EncKeyDialog/TokenExpiredDialog/MfaDialog als QDialog-Subklassen
+- `app/panel_archive.py` — PanelArchive(QWidget), QDialog für Clean Archive
+- `app/panel_timer.py` — PanelTimer(QWidget), Timer-Loop unverändert
+- `app/panel_outputs.py` — PanelOutputs(QWidget), QDialog für Dashboard-Popup und Task Scheduler XML
+
+**New files:**
+- `tests/conftest.py` — pytest-qt QApplication-Fixture
+- `tests/test_qt_app.py` — 41 Checks, 7 Klassen
+- `tests/run_qt_tests.bat` — Schnellstart
+
+**Test result:** 315 / 255 / 303 / 128 / 41 — all green
+(test_local / test_local_context / test_dashboard / test_app_logic / test_qt_app)
+
+**Critical fix found during implementation:**
+- `_dispatch()` initially used `QTimer.singleShot()` from worker threads —
+  not thread-safe in PyQt6. Fixed via `pyqtSignal(object)` at class level
+  with `@pyqtSlot(object)` receiver. Qt queues cross-thread emissions
+  automatically. Rule: `QTimer.singleShot()` from Main Thread only.
+
+---
+
+## v1.5.3.1 — State Hardening
+ 
+Hardening step in preparation for the PyQt6 migration. No behaviour changes,
+no new features. Cross-LLM review (Gemini) identified a critical Event-recycling
+risk in the original plan (`clear()` on shared Event = potential Zombie-Thread);
+corrected to per-run `threading.Event()` instantiation with Dummy-Event in Base-Init.
+ 
+**Changed modules:**
+- `garmin_app_base.py` — State-Block: `_ctx_running = False` and `_context_stop_event = threading.Event()` added with owner + thread-rule comments; `hasattr`-guard in `_on_close` removed (direct call)
+- `panel_outputs.py` — `_stop_context_sync`: `hasattr`-guard removed (direct call)
+- `panel_archive.py` — `_on_mirror`: `getattr`-guard replaced by direct `self._ctx_running` access; all direct `self._mirror_btn.config()` and `self._restore_btn.config()` calls replaced by accessor calls
+- `panel_connection.py` — `_set_mirror_button_state()` and `_set_restore_button_state()` accessor methods added; sole authorised write-path for cross-panel button access
+**Architecture decisions:**
+- `_context_stop_event` initialised as `threading.Event()` (not `None`) in Base-Init — eliminates `hasattr`-guards; per-run reassignment (`= threading.Event()`) retained so each sync thread holds its own Event reference (no `clear()` recycling)
+- Accessor methods carry no threading logic — `self.after()` wrappers remain explicit in `panel_archive` as Qt migration markers for v1.5.4
+- E-7 prefix audit: no collision risk found — Phase 3 skipped by design
+**Test result:** 128 / 128 — all green.
+ 
+**Hotfix (post-release):** T2 and T3 EXEs failed to start with `ImportError: cannot import name 'filedialog' from 'tkinter'`. PyInstaller does not auto-detect tkinter submodules — `tkinter.filedialog`, `tkinter.messagebox`, `tkinter.ttk`, `tkinter.scrolledtext` added as explicit hidden imports in `build.py` and `build_standalone.py`. `cloudscraper` removed from T3 hidden imports (leftover from pre-March 2026 `garth` era, not used since `garminconnect 0.3.x`). Both targets confirmed working after fix.
+ 
+---
+
+## v1.5.3 — UI Panel Decomposition
+
+Structural refactoring — no logic changes, no new features.
+
+`garmin_app_base.py` (~1952 lines after v1.5.2) decomposed into five dedicated
+panel Mixin modules. The base class becomes a pure assembler (~440 lines).
+Panel-by-panel decomposition enables mechanical translation to PyQt6 in v1.5.4.
+Cross-LLM review (Gemini + ChatGPT) identified `_ctx_running` bug and confirmed
+Mixin as the correct architectural pattern for Qt migration.
+
+**New modules:**
+- `app/panel_settings.py` — `PanelSettingsMixin`: credentials, paths, sync config, context location
+- `app/panel_connection.py` — `PanelConnectionMixin`: connection test, status indicators, enc-key/MFA/token prompts, reset token, archive info panel
+- `app/panel_archive.py` — `PanelArchiveMixin`: archive info refresh, integrity check, restore data, clean archive, schema migration popup, failed-days popup, mirror operation
+- `app/panel_timer.py` — `PanelTimerMixin`: timer UI, toggle, resume-after-sync, timer loop, controller delegates
+- `app/panel_outputs.py` — `PanelOutputsMixin`: data collection (sync, import, context sync), dashboard popup, output buttons; includes `_ctx_running` bug fix
+
+**Changed modules:**
+- `garmin_app_base.py` — rewritten as pure assembler: inherits all five Mixins (`PanelSettingsMixin, PanelConnectionMixin, PanelArchiveMixin, PanelTimerMixin, PanelOutputsMixin, tk.Tk`); MRO order documented and binding; shared state block with owner + thread-rule per flag; `_stop_collector` abstract hook added; 440 lines (was ~2500 at v1.5.2 start, ~1952 after v1.5.2)
+- `compiler/build_manifest.py` — five new entries in `SHARED_SCRIPTS` (`app/panel_settings.py`, `app/panel_connection.py`, `app/panel_archive.py`, `app/panel_timer.py`, `app/panel_outputs.py`)
+- `tests/test_app_logic.py` — tkinter mock updated (`_tk_mock.Tk = type("Tk", (object,), {})`); Section 12 `patch.dict` extended with panel mocks; Section 14 `_timer_run_bulk_recheck` migrated to `PanelTimerMixin`
+
+**Architecture decisions:**
+- Mixin pattern (not function delegation) — enables panel-by-panel PyQt6 translation without wrapper layer
+- MRO order: Settings → Connection → Archive → Timer → Outputs → tk.Tk
+- Invariant: no Mixin may define `__init__`
+- Panel-private helpers use `_{panel}_*` prefix to prevent silent MRO collisions (E-7)
+- `_ctx_running` bug fixed in `panel_outputs.py` (no setter existed — context sync never blocked mirror)
+
+**Test result:** 315 / 255 / 303 / 128 — all green.
+
+---
+
 ## v1.5.2 — GUI / Controller Separation
 
 Structural refactoring — no logic changes, no new features.
