@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.2
+# Garmin Local Archive — Desktop App v1.5.4.3
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -208,6 +208,12 @@ Opens a popup with all available dashboards and their output formats. Select any
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
 
+### Dashboards tab
+
+The **Dashboards** tab (second tab on the right side) shows your HTML dashboards directly inside the app — no browser needed. After a successful build the latest dashboard loads automatically.
+
+Use the dropdown at the top to switch between all HTML dashboards in `BASE_DIR/dashboards/`. The view is fully interactive — zoom, hover, and filter work exactly as in a browser.
+
 The **Health Analysis JSON** includes a ready-to-use Markdown start prompt (`health_garmin_prompt.md`) for Open WebUI / Ollama — load it as the system prompt for AI-assisted interpretation.
 
 The **Health Analysis Mobile HTML** is optimised for landscape phone viewing — all metrics on one scrollable page, global range dropdown (calendar weeks, months, fixed ranges) controls all charts at once. Copy it to OneDrive or Google Drive to open on your phone.
@@ -348,6 +354,8 @@ python build_standalone.py
 > **Standalone:** Open your data folder in Windows Explorer and navigate to `garmin_data\log\fail\`. Open the most recent `.log` file in Notepad — it contains the full error output. If the app never started and no data folder exists yet, use the **Copy Last Error Log** button if the app partially loaded, or re-run from the Standard version with Python to see terminal output.
 
 **Login fails** — if Garmin requires MFA, the app will show a code input popup automatically. Enter the code from your Garmin app or authenticator.
+
+**First login (no saved token)** — the app shows a confirmation dialog before starting the SSO login. This is intentional — garminconnect sends several requests to Garmin during login and may trigger rate limiting if repeated too quickly. An encryption key is generated automatically in the background (no password required). Click **Proceed** to continue or **Cancel** to abort.
 
 > **Standalone:** If login fails due to captcha or browser verification, download the Standard version, install Python, and run `garmin_collector.py` once in a terminal to complete verification. After that the Standalone version will work normally using the saved session.
 

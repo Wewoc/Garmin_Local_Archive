@@ -68,9 +68,17 @@ def backup_raw(date_str: str) -> bool:
 
 def _consolidate_raw_months(current_month: str) -> None:
     """
-    Zips all completed month directories in backup/raw/ that don't yet have
-    a ZIP. A month is complete if it is not the current_month.
-    Deletes the directory after successful ZIP creation.
+    Zips all completed month directories in backup/raw/.
+    A month is complete if it is not the current_month.
+
+    Two cases handled:
+      - ZIP does not exist yet → create new ZIP from directory, delete directory.
+      - ZIP already exists, directory also exists → append missing files from
+        directory into existing ZIP ('a' mode), then delete directory.
+        This covers the case where a historical day is fetched after the month
+        was already consolidated (e.g. via Background Timer).
+
+    Deletes the directory after successful ZIP creation/update.
     """
     if not cfg.RAW_BACKUP_DIR.exists():
         return
@@ -81,23 +89,48 @@ def _consolidate_raw_months(current_month: str) -> None:
         if month_name >= current_month:
             continue                         # skip current month
         zip_path = cfg.RAW_BACKUP_DIR / f"raw_backup_{month_name}.zip"
-        if zip_path.exists():
-            continue                         # already consolidated
         try:
             files = list(month_dir.glob("garmin_raw_*.json"))
             if not files:
                 month_dir.rmdir()
                 continue
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for f in files:
-                    zf.write(f, f.name)
-            # Verify ZIP before deleting source directory
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                if zf.testzip() is not None:
-                    raise RuntimeError("ZIP integrity check failed")
+            if zip_path.exists():
+                # Bug 3 fix: ZIP exists but directory also has files — append
+                # only the files not yet in the ZIP, then delete the directory.
+                appended = 0
+                with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as zf:
+                    existing = set(zf.namelist())
+                    for f in files:
+                        if f.name not in existing:
+                            zf.write(f, f.name)
+                            appended += 1
+                if appended:
+                    log.info(
+                        f"  backup: raw/{month_name}/ → {appended} file(s) "
+                        f"appended to {zip_path.name}"
+                    )
+                # Verify ZIP integrity after append
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    if zf.testzip() is not None:
+                        log.error(
+                            f"  backup: ZIP integrity check failed after append "
+                            f"for {month_name} — directory kept as fallback"
+                        )
+                        continue
+            else:
+                # No ZIP yet — create from scratch
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for f in files:
+                        zf.write(f, f.name)
+                # Verify ZIP before deleting source directory
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    if zf.testzip() is not None:
+                        raise RuntimeError("ZIP integrity check failed")
+                log.info(f"  backup: raw/{month_name}/ consolidated → {zip_path.name}")
+
             import shutil
             shutil.rmtree(month_dir)
-            log.info(f"  backup: raw/{month_name}/ consolidated → {zip_path.name}")
+
         except Exception as e:
             log.error(f"  backup: failed to consolidate raw/{month_name}/: {e}")
 
@@ -322,6 +355,7 @@ def restore_raw_days(date_strs: list[str]) -> dict:
 
     return {"restored": restored, "failed": failed}
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Backfill — existing raw files (one-time, on first sync after v1.5.1)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -331,6 +365,10 @@ def check_raw_backfill_needed() -> int:
     Returns the number of raw files in raw/ that have no backup copy yet.
     Fast check — only counts, does not copy anything.
     Returns 0 if raw/ does not exist or backup is complete.
+
+    Bug 2 fix: zip_path.exists() alone is not sufficient — the file may be
+    absent from the ZIP even if the ZIP for that month exists. Uses
+    _zip_contains() to verify the specific file is present.
     """
     if not cfg.RAW_DIR.exists():
         return 0
@@ -342,7 +380,9 @@ def check_raw_backfill_needed() -> int:
             month    = date_str[:7]
             zip_path = cfg.RAW_BACKUP_DIR / f"raw_backup_{month}.zip"
             dir_path = cfg.RAW_BACKUP_DIR / month / raw_file.name
-            if not zip_path.exists() and not dir_path.exists():
+            # Bug 2 fix: check actual presence in ZIP, not just ZIP existence
+            in_zip = zip_path.exists() and _zip_contains(zip_path, raw_file.name)
+            if not dir_path.exists() and not in_zip:
                 count += 1
         except Exception:
             pass
@@ -354,6 +394,10 @@ def backfill_raw() -> dict:
     Copies all raw files that have no backup yet into backup/raw/YYYY-MM/.
     Completed months are consolidated into ZIPs immediately.
     Idempotent — safe to call multiple times.
+
+    Bug 1 fix: zip_path.exists() alone is not sufficient as a skip guard —
+    the specific file may be absent from the ZIP even if the ZIP for that
+    month exists. Uses _zip_contains() to verify before skipping.
 
     Returns dict: {"copied": int, "skipped": int, "errors": int}
     """
@@ -372,7 +416,9 @@ def backfill_raw() -> dict:
             zip_path = cfg.RAW_BACKUP_DIR / f"raw_backup_{month}.zip"
             dir_path = cfg.RAW_BACKUP_DIR / month / raw_file.name
 
-            if zip_path.exists() or dir_path.exists():
+            # Bug 1 fix: check actual presence in ZIP, not just ZIP existence
+            in_zip = zip_path.exists() and _zip_contains(zip_path, raw_file.name)
+            if dir_path.exists() or in_zip:
                 skipped += 1
                 continue
 
