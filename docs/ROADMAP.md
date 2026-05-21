@@ -248,6 +248,36 @@ Prerequisite: v2.0 multi-source architecture stable.
 Natural companion to `context_dataformat.json` (schema definition, analogous
 to `garmin_dataformat.json`).
 
+**`quality_context.json` — Context Location State Tracking**
+
+Location-aware state tracking for the context pipeline — analogous to
+`quality_log.json` for the Garmin pipeline.
+
+Current problem: `context_writer.already_written()` is a file-existence check
+only. If a travel period is entered in `local_config.csv` after the affected
+days were already downloaded with home coordinates, the next sync silently
+skips those days — wrong weather/pollen data remains without any warning.
+
+Concept:
+- `quality_context.json` is the single source of truth for which dates were
+  fetched with which coordinates. Home location is the implicit default for
+  all dates not explicitly listed.
+- Travel entries are written into the JSON from `local_config.csv` on sync.
+  Each date in a travel block gets a `true`/`false` flag (fetched / pending).
+  After import, the CSV is cleared back to header-only.
+- Removing a travel block from the JSON triggers a re-fetch of the affected
+  dates with home coordinates (old `/raw/` files deleted first).
+- A backup of `quality_context.json` is written before every destructive
+  operation. Diff between backup and current JSON determines which dates need
+  correction.
+- Validation at CSV import time: multiple travel blocks in one CSV → hard
+  stop, no import. Overlapping date ranges with existing JSON blocks → hard
+  stop, no import.
+- Home coordinate changes → Schema 2 migration path (not in scope here).
+- Sole write authority: new `context_quality.py` module, symmetric to
+  `garmin_quality.py`. `context_collector.py` remains orchestrator and calls
+  `context_quality` — it does not write the JSON directly.
+
 ---
 
 **context_data/ Backup**
