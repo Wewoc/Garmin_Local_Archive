@@ -126,6 +126,12 @@ Dynamically loaded modules (via `importlib`) are not detected by PyInstaller aut
 Known hidden imports:
 - `openpyxl` — required by `dash_plotter_excel.py` (dynamically loaded by `dash_runner.py`)
 - `openpyxl.cell._writer` — required by openpyxl internally
+- `garminconnect` — T2 only; not auto-detected by PyInstaller (v1.5.4.3)
+- `curl_cffi` — transitive dependency of garminconnect 0.3.0+; T2 only (v1.5.4.3)
+- `curl_cffi.requests` — transitive dependency of garminconnect 0.3.0+; T2 only (v1.5.4.3)
+- `ua_generator` — transitive dependency of garminconnect 0.3.0+; T2 only (v1.5.4.3)
+
+Note: T3 already had these since v1.5.4.1. T2 was missing them — garminconnect showed as "not installed" at runtime despite being installed on the system.
 
 **How to diagnose a missing hidden import:**
 In `_load_plotters()` the `except: pass` silently swallows load errors. To surface them temporarily:
@@ -210,7 +216,26 @@ For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_man
 python tests/test_app_logic.py
 ```
 
-**Current count: 129 checks, 18 sections.** No network, no GUI, no build required. Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides). Includes v1.4.2 regression check for frozen path resolution. Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
+**Current count: 128 checks, 18 sections.**
+
+### `tests/test_qt_app.py` — PyQt6 App layer (v1.5.4+)
+
+```bash
+pytest tests/test_qt_app.py -v
+# or via: tests/run_qt_tests.bat
+```
+
+**Current count: 41 checks, 6 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
+
+Classes:
+- `TestQtSmoke` (3) — QApplication startup, PyQt6 importability, GUI-freedom regression for Settings/Controller
+- `TestPanelSettings` (5) — instantiation, `_collect_settings()` keys, sync mode switching, location extraction
+- `TestPanelConnection` (10) — instantiation, indicators, accessor methods, Signal class-level definition
+- `TestPanelArchive` (5) — instantiation, mirror guard, archive info no-crash, failed-days popup
+- `TestPanelTimer` (7) — instantiation, field load/read, toggle on/off, resume logic
+- `TestPanelOutputs` (7) — instantiation, context sync state, stop event, no-crash helpers
+
+Run after any change to: `app/panel_*.py`, `garmin_app_base.py` (Qt version). Built panel-by-panel alongside the v1.5.4 migration. No network, no GUI, no build required. Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides), `app/panel_timer.py` (timer_run_bulk_recheck functional test). Includes v1.4.2 regression check for frozen path resolution. Section 14: `_timer_run_bulk_recheck` tested against `PanelTimerMixin` directly (v1.5.3). Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
 
 Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
 
@@ -247,7 +272,7 @@ All source folders are Python packages with `__init__.py`:
 - `maps/` — data brokers
 - `dashboards/` — dashboard specialists (v1.4+)
 - `layouts/` — format renderers (v1.4+)
-- `app/` — GUI logic layer (v1.5.2+): settings, controller
+- `app/` — GUI logic layer (v1.5.2+): settings, controller, panel Mixins (v1.5.3+)
 
 **Import pattern:**
 - Entry points (`garmin_app.py`, `tests/`) use `sys.path.insert` to reach `garmin/`

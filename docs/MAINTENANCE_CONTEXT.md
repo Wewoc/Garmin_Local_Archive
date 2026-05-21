@@ -50,6 +50,8 @@ Dashboard specialists
 
 **Current count: 13 sections.**
 
+**Check count: 267** (was 261 before v1.5.4.3 — 6 new checks for `garmin_backup` bug fixes)
+
 ```bash
 python tests/test_local_context.py
 ```
@@ -71,6 +73,10 @@ After any change to: `context_collector`, `context_api`, `context_writer`, `weat
 11. `context_map` — routing to all three sources, unknown field returns `{}`, `list_sources()`, `list_fields()` for all sources
 12. `context_collector` — CSV helpers: `_ensure_csv()`, `_load_csv()`, `_build_location_map()`, `_split_into_segments()`; malformed CSV row skipped
 13. `context_collector` — `run()` with mocked archive + network for all three plugins, skip on second run, stop event, no-location error, empty archive error, network error → dict returned
+
+**Section B — `garmin_backup` (v1.5.1+, extended v1.5.4.3):**
+- backup_raw, consolidate, backup_quality_log, restore, check_raw_integrity, restore_raw_days, _zip_contains
+- **v1.5.4.3 additions:** `backfill_raw` Bug 1: ZIP exists but file missing → still copied; `check_raw_backfill_needed` Bug 2: same guard → count correctly > 0; `_consolidate_raw_months` Bug 3: ZIP + directory coexist → files appended, directory removed
 
 ### What is NOT tested
 

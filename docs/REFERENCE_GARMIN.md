@@ -50,7 +50,7 @@ Pure constants module — no functions. See `REFERENCE_GLOBAL.md` for full const
 | Function / Symbol | Purpose |
 |---|---|
 | `GarminLoginError` | Exception raised on unrecoverable login failure. Replaces `sys.exit(1)` |
-| `login(on_key_required, on_token_expired, on_mfa_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA via callback. Returns client or `None` if cancelled. Raises `GarminLoginError` on failure |
+| `login(on_key_required, on_token_expired, on_mfa_required, on_sso_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA via callback. `on_sso_required` blocks Path 3 until user confirms — `None` (headless/standalone) starts SSO automatically. Returns client or `None` if cancelled. Raises `GarminLoginError` on failure |
 | `api_call(client, method, *args, label)` | Single API call with random delay and stop-check. Returns `(data, success)` |
 | `fetch_raw(client, date_str)` | Calls all 14 Garmin API endpoints. Returns `(raw: dict, failed_endpoints: list[str])` |
 | `get_devices(client)` | Fetches registered device list. Returns sorted list |
@@ -60,7 +60,7 @@ Pure constants module — no functions. See `REFERENCE_GLOBAL.md` for full const
 
 - Path 1 (token valid): `load_token()` → `Garmin()` + `login(token_dir)` → `_clear_token_dir()` → probe call — 429/403 on probe → `GarminLoginError` (no SSO fallback)
 - Path 2 (token expired): `clear_token()` → `on_token_expired()` → Path 3
-- Path 3 (SSO): `Garmin(email, pw, prompt_mfa=on_mfa_required)` → `login(token_dir)` → `save_token()` (garminconnect ≥ 0.3.0)
+- Path 3 (SSO): `on_sso_required()` → confirm → `generate_enc_key()` (auto, no dialog) → `Garmin(email, pw, prompt_mfa=on_mfa_required)` → `login(token_dir)` → `save_token()` (garminconnect ≥ 0.3.0)
 - Path 3b (key missing): `on_key_required()` → store key → retry Path 1
 
 ---
@@ -75,6 +75,7 @@ avoiding stale paths when `GARMIN_OUTPUT_DIR` is set after the module was first 
 |---|---|
 | `get_enc_key()` | Reads encryption key from Windows Credential Manager. Returns `None` if not found |
 | `store_enc_key(enc_key)` | Writes encryption key to WCM. Returns `bool` |
+| `generate_enc_key()` | Generates a random 256-bit key via `os.urandom(32)`, stores as hex string in WCM. Called automatically on first setup (Path 3). Returns `bool` |
 | `save_token()` | Reads `garmin_tokens.json` from `GARMIN_TOKEN_DIR`, encrypts AES-256-GCM, writes `.enc`, removes dir. Returns `bool` |
 | `load_token()` | Decrypts `.enc`, writes `garmin_tokens.json` to `GARMIN_TOKEN_DIR`. Returns `bool` |
 | `clear_token()` | Removes `.enc`, `GARMIN_TOKEN_DIR`, and enc_key from WCM |
