@@ -96,9 +96,11 @@ This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
 
-![Garmin Local Archive — Desktop App](screenshots/GUI-V149.jpg)
+![Garmin Local Archive — Desktop App](screenshots/GUI-V154-1.jpg)
 
-![Garmin Local Archive — Desktop App](screenshots/Create_report_V149.jpg)
+![Garmin Local Archive — Desktop App](screenshots/GUI-V154-2.jpg)
+
+![Garmin Local Archive — Desktop App](screenshots/Create_report_V154.jpg)
 
 *Desktop app — settings, sync, export, bulk import and background timer in one place.*
 
@@ -116,7 +118,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 Local-first, personal use, no enterprise ambitions.
 
 - Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
-- Five local test suites (928 checks + build output validation) — no CI/CD yet
+- Five local test suites (checks + build output validation) — no CI/CD yet
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
 - Historical data quality depends on Garmin servers
@@ -284,7 +286,14 @@ The project is structured into five focused layers. Each layer has a single resp
 
 | Script | What it does |
 |---|---|
-| `garmin_app_base.py` | Shared GUI base class — all logic, layout, and business methods shared between both entry points |
+| `garmin_app_base.py` | Assembler — wires panel Mixins together, holds shared state, defines abstract hooks. tkinter exclusive. |
+| `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No tkinter — importable in any context. |
+| `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No tkinter. |
+| `app/panel_settings.py` | Settings panel Mixin — credentials, paths, sync config, context location. |
+| `app/panel_connection.py` | Connection panel Mixin — connection test, indicators, prompts, token reset, archive info. |
+| `app/panel_archive.py` | Archive panel Mixin — integrity check, restore, clean archive, mirror operation. |
+| `app/panel_timer.py` | Timer panel Mixin — background timer UI, loop, controller delegates. |
+| `app/panel_outputs.py` | Outputs panel Mixin — sync, import, context sync, dashboard popup, output buttons. |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation |

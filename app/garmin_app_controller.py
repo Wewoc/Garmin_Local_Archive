@@ -142,7 +142,8 @@ def check_connection(s: dict, callbacks: dict) -> None:
         on_data(state: str)                 — "ok" / "fail" / "pending"
         on_success()                        — called when all checks pass
         on_enc_key(mode: str) -> str|None   — prompt for encryption key
-        on_token_expired() -> bool          — prompt for token re-entry
+        on_token_expired() -> bool          — prompt before SSO after expired token
+        on_sso_required() -> bool           — prompt before SSO on first setup
         on_mfa() -> str|None                — prompt for MFA code
 
     v1.5.3 note: View replaces lambda callbacks with pyqtSignal emitters.
@@ -191,6 +192,7 @@ def check_connection(s: dict, callbacks: dict) -> None:
                 on_key_required  = lambda mode="setup": _cb("on_enc_key", mode),
                 on_token_expired = lambda: _cb("on_token_expired"),
                 on_mfa_required  = lambda: _cb("on_mfa"),
+                on_sso_required  = lambda: _cb("on_sso_required"),
             )
             token_now = (cfg.GARMIN_TOKEN_FILE.exists() and
                          garmin_security.get_enc_key() is not None)

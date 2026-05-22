@@ -1045,6 +1045,67 @@ check("_zip_contains: bad path → False", not backup._zip_contains(_zip_tmpdir 
 shutil.rmtree(_zip_tmpdir, ignore_errors=True)
 
 
+# ── Bug 1 fix — backfill_raw: zip_path.exists() reicht nicht als Skip-Guard ──
+# Szenario: ZIP für 2024-02 existiert bereits, aber eine Datei fehlt darin.
+# backfill_raw() soll die fehlende Datei trotzdem kopieren (nicht skippen).
+_bf2_month   = "2024-02"
+_bf2_date    = "2024-02-14"
+_bf2_raw     = cfg.RAW_DIR / f"garmin_raw_{_bf2_date}.json"
+_bf2_zip     = cfg.RAW_BACKUP_DIR / f"raw_backup_{_bf2_month}.zip"
+_bf2_raw.write_text(json.dumps({"date": _bf2_date}), encoding="utf-8")
+# ZIP für diesen Monat anlegen, aber OHNE die Datei drin
+_bf2_zip.parent.mkdir(parents=True, exist_ok=True)
+with zipfile.ZipFile(_bf2_zip, "w") as zf:
+    zf.writestr("raw_backup_placeholder.json", "{}")
+# Jetzt backfill laufen lassen — muss die fehlende Datei erkennen und kopieren
+_bf2_result = backup.backfill_raw()
+check("backfill_raw Bug1: zip exists but file missing → copied ≥ 1",
+      _bf2_result["copied"] >= 1)
+# Nach dem Backfill muss die Datei im Verzeichnis oder im ZIP liegen
+_bf2_dir_path = cfg.RAW_BACKUP_DIR / _bf2_month / f"garmin_raw_{_bf2_date}.json"
+_bf2_in_zip   = backup._zip_contains(_bf2_zip, f"garmin_raw_{_bf2_date}.json")
+check("backfill_raw Bug1: file backed up after fix",
+      _bf2_dir_path.exists() or _bf2_in_zip)
+
+# ── Bug 2 fix — check_raw_backfill_needed: gleiche Guard-Logik ──
+# Szenario: ZIP existiert, Datei fehlt drin → count muss > 0 sein.
+_bf3_month = "2024-04"
+_bf3_date  = "2024-04-10"
+_bf3_raw   = cfg.RAW_DIR / f"garmin_raw_{_bf3_date}.json"
+_bf3_zip   = cfg.RAW_BACKUP_DIR / f"raw_backup_{_bf3_month}.zip"
+_bf3_raw.write_text(json.dumps({"date": _bf3_date}), encoding="utf-8")
+_bf3_zip.parent.mkdir(parents=True, exist_ok=True)
+with zipfile.ZipFile(_bf3_zip, "w") as zf:
+    zf.writestr("raw_backup_placeholder.json", "{}")
+_bf3_count = backup.check_raw_backfill_needed()
+check("check_raw_backfill_needed Bug2: zip exists, file missing → count > 0",
+      _bf3_count > 0)
+
+# ── Bug 3 fix — _consolidate_raw_months: ZIP + Verzeichnis gleichzeitig ──
+# Szenario: ZIP für 2024-05 existiert, danach kommt ein neuer Tag in das Verzeichnis.
+# _consolidate_raw_months() soll appendieren, nicht überspringen.
+_cons_month   = "2024-05"
+_cons_date1   = "2024-05-01"
+_cons_date2   = "2024-05-15"
+_cons_zip     = cfg.RAW_BACKUP_DIR / f"raw_backup_{_cons_month}.zip"
+_cons_dir     = cfg.RAW_BACKUP_DIR / _cons_month
+_cons_dir.mkdir(parents=True, exist_ok=True)
+# Erst ZIP mit date1 anlegen (simuliert: Monat bereits konsolidiert)
+with zipfile.ZipFile(_cons_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+    zf.writestr(f"garmin_raw_{_cons_date1}.json", json.dumps({"date": _cons_date1}))
+# Dann date2 ins Verzeichnis legen (simuliert: historischer Tag nachgefüllt)
+(_cons_dir / f"garmin_raw_{_cons_date2}.json").write_text(
+    json.dumps({"date": _cons_date2}), encoding="utf-8")
+# Consolidate aufrufen — soll date2 in ZIP appendieren und Verzeichnis löschen
+backup._consolidate_raw_months(current_month="2026-05")
+check("consolidate Bug3: date1 still in ZIP after append",
+      backup._zip_contains(_cons_zip, f"garmin_raw_{_cons_date1}.json"))
+check("consolidate Bug3: date2 appended to existing ZIP",
+      backup._zip_contains(_cons_zip, f"garmin_raw_{_cons_date2}.json"))
+check("consolidate Bug3: directory removed after append",
+      not _cons_dir.exists())
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
 # ══════════════════════════════════════════════════════════════════════════════

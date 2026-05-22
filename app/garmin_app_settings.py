@@ -48,7 +48,7 @@ def load_settings() -> dict:
     """Load settings from disk, merge with defaults. Never raises."""
     if SETTINGS_FILE.exists():
         try:
-            data = json.loads(SETTINGS_FILE.read_text())
+            data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             data.pop("password", None)
             return {**DEFAULT_SETTINGS, **data}
         except Exception:
@@ -61,7 +61,7 @@ def save_settings(s: dict):
     Caller (View) is responsible for catching OSError and showing a dialog.
     """
     safe = {k: v for k, v in s.items() if k != "password"}
-    SETTINGS_FILE.write_text(json.dumps(safe, indent=2))
+    SETTINGS_FILE.write_text(json.dumps(safe, indent=2), encoding="utf-8")
 
 
 # ── Keyring helpers ────────────────────────────────────────────────────────────
