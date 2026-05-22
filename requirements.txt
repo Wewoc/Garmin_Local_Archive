@@ -2,3 +2,9 @@ garminconnect==0.3.4
 openpyxl
 keyring
 cryptography
+
+# Development / testing only
+PyQt6
+PyQt6-WebEngine
+pytest
+pytest-qt

@@ -18,6 +18,8 @@ If used in research or publications, please cite as:
 *The thinking behind Garmin Local Archive — why it exists, how it was 
 built, and why the architecture looks the way it does.*
 
+*Current project status: v1.5.4.2*
+
 ---
 
 ## Why this exists
@@ -48,7 +50,7 @@ is mechanical system design. The implementation — every line of Python
 — came from Claude as coding partner.
 
 It started with 2-3 scripts and a dashboard. Then it escalated.
-30 days, 20 USD, 214 commits, 20 releases.30 days, 20 USD, 214 commits, 20 releases.
+~60 days, 60 USD, 396 commits, 37 releases.
 
 Roughly half the time went into planning, architecture decisions, and 
 cross-model review — not implementation. No code without a prior 
@@ -99,7 +101,7 @@ find and harder to fix. **Claude recognized that the solutions had names.**
 
 **Garmin Local Archive** · [github.com/Wewoc/Garmin_Local_Archive](https://github.com/Wewoc/Garmin_Local_Archive)
 
-The following table documents how architectural and design decisions emerged during development (approximately from v0.4 to v1.4.2).
+The following table documents how architectural and design decisions emerged during development (approximately from v0.4 to v1.5.4).
 
 It distinguishes between:
 
@@ -152,6 +154,20 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **Dialog** | Context pipeline (Open-Meteo weather + pollen) | Idea: external context data for sleep/recovery analysis | Architecture with `context/`, `weather_plugin.py`, `pollen_plugin.py` — no API key required |
 | **Dialog** | Multi-LLM loop as standard QA process | *"I ran Gemini through the project once — evaluate only, no changes"* | Claude evaluates Gemini/ChatGPT findings critically — architecturally valid points accepted, false positives rejected with reasoning |
 | **Dialog** | Local LLM for isolated single-file tasks | Decision: `qwen2.5-coder:14b` on RTX 4060 Ti for clearly scoped tasks | Formulated rule: architecture, multi-file, project context → Claude; single file without context → local model |
+| **User** | Decompose in known technology first, then migrate | *"it has to be stable long-term, not easy short-term"* — explicit sequencing: tkinter panel split (v1.5.3) before PyQt6 migration (v1.5.4) | Confirmed the risk of migrating and restructuring simultaneously |
+| **User** | GUI/Controller separation before GUI migration | *"The coupling between logic and GUI is very tight right now — wouldn't it make sense to separate them?"* — driven by separation of concerns and `daily_update.py` headless requirement | Worked out module boundaries, identified `garmin_app_settings.py` and `garmin_app_controller.py` as extraction targets |
+| **User** | Root folder cleanup as v1.5 structural goal | Identified that root directory grows with every version — explicitly framed as preparation for v2.0 | Assessed scope, sequenced cleanup relative to other v1.5 work |
+| **User** | Multi-session phased build with NOTES handover | Structured v1.5.2 across four chat sessions (A–D) with explicit NOTES documents as continuity mechanism — *"document the notes for session C"* | Carried phase state between sessions, updated NOTES at end of each |
+| **User** | Dry run (Trockenlauf) before every implementation | *"a theoretical dry run — check whether everything has really been accounted for"* — enforced as mandatory step before v1.5.2 and v1.5.3 | Executed dry runs, documented results in refactoring documents |
+| **Claude** | `garmin_app_settings.py` as clean extraction boundary | — | Proposed keyring, URL helpers, and settings as separable unit — extractable without touching GUI state machine |
+| **Dialog** | PyQt6 via single QWebEngineView, no tab-per-dashboard | *"what is the better option"* — concern about Chromium subprocess proliferation | Identified tab-per-dashboard as resource problem; proposed single QWebEngineView with QComboBox selector |
+| **Dialog** | Garmin SSO change (May 2026) — `garminconnect` breakage | Reported symptoms: login failures — *"garmin login acting up again"* | Identified root cause in upstream library; tracked GitHub issue status, confirmed fix path |
+| **Dialog** | Multi-LLM as structural QA — Gemini generates, Claude checks | *"I let Gemini generate first, then you review"* — named roles explicitly | Evaluated Gemini/ChatGPT outputs critically; accepted valid architectural points, rejected false positives with reasoning |
+| **Dialog** | Garmin blog as free feature backlog | *"Garmin publishes a blog post → you read 5 minutes → feature is built"* — HRV status pattern from Garmin blog directly mapped to sleep dashboard | Connected published metric explanations to existing dashboard capabilities |
+| **User** | `garmin_app_standalone.py` as deliberate redundancy | *"Scripts for purists — they won't have Python anyway"* — two near-identical files accepted as explicit trade-off for build target T3; never framed as clean, but as pragmatically correct for that user type | Identified non-trivial differences: `_STOP_EVENT` injection, `_register_embedded_packages()`, logging redirect — warned against treating both files as truly identical |
+| **Dialog** | `garmin_app_base.py` monolith held until v1.5.3 | Explicit decision to keep the ~2500-line base intact through v1.5.2 — *"v1.5.2 was foundational, not volume reduction"*; volume reduction scoped to v1.5.3 | Identified: ~4800 lines across two near-identical files as active tension; confirmed the monolith was the right call until the architectural foundation was in place |
+| **Dialog** | UI migration sequence: panels as tkinter mixins first, then translate to PyQt6 | Drove the sequencing — extract all panels in tkinter (v1.5.3), then translate panel by panel to PyQt6 (v1.5.4); never change technology and structure simultaneously | Confirmed the failure mode of doing both at once; panel-by-panel translation as the stable path |
+
 ---
 
 ## What each side contributed
