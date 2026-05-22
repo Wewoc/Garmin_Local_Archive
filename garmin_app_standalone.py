@@ -6,13 +6,14 @@ Garmin Local Archive — Desktop GUI (Standalone Entry Point)
 Target 3: no Python installation required on the target machine.
 
 Differences from garmin_app.py:
-  - script_dir()   → sys._MEIPASS/scripts/ (embedded data unpacked by PyInstaller)
-  - _run()         → importlib instead of subprocess — scripts are imported
-                     directly as modules and run in threads. stdout/stderr/logging
-                     are redirected to the GUI log via a queue.
+  - script_dir()      → sys._MEIPASS/scripts/ (embedded data unpacked by PyInstaller)
+  - _run()            → importlib instead of subprocess — scripts are imported
+                        directly as modules and run in threads. stdout/stderr/logging
+                        are redirected to the GUI log via a queue.
   - _stop_collector() → sets a threading.Event instead of killing a process
-  - _log_bg()      → self._log_queue.put() instead of self.after(0, self._log)
-  - _is_running()  → self._running instead of self._active_proc is not None
+  - _log_bg()         → self._log_queue.put() instead of _dispatch(self._log)
+  - _is_running()     → self._running instead of self._active_proc is not None
+  - _poll_log_queue() → QTimer.singleShot(100, ...) instead of self.after(100, ...)
 
 Built by: build_standalone.py
 """
@@ -43,7 +44,7 @@ def _register_embedded_packages():
     if not getattr(sys, "frozen", False):
         return
     import types
-    scripts = Path(sys._MEIPASS) / "scripts"
+    scripts   = Path(sys._MEIPASS) / "scripts"
     garmin_dir = scripts / "garmin"
     if garmin_dir.exists():
         sys.path.insert(0, str(garmin_dir))
@@ -54,21 +55,17 @@ def _register_embedded_packages():
         pkg_dir = scripts / pkg
         if pkg_dir.exists() and pkg not in sys.modules:
             mod = types.ModuleType(pkg)
-            mod.__path__ = [str(pkg_dir)]
+            mod.__path__    = [str(pkg_dir)]
             mod.__package__ = pkg
             sys.modules[pkg] = mod
 
 
 _register_embedded_packages()
 
-from garmin_app_settings import load_password, save_password
-from garmin_app_base import (
-    GarminAppBase, apply_style,
-    APP_VERSION, BG, BG2, BG3, ACCENT, ACCENT2, TEXT, TEXT2,
-    GREEN, YELLOW, FONT_HEAD, FONT_BODY, FONT_MONO, FONT_BTN, FONT_LOG,
-)
-import tkinter as tk
-from tkinter import messagebox
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore    import QTimer
+
+from garmin_app_base import GarminApp as _GarminAppBase, APP_VERSION
 
 
 # ── Queue-based output capture ─────────────────────────────────────────────────
@@ -126,7 +123,8 @@ def script_path(name: str) -> Path:
 
 # ── Main application ───────────────────────────────────────────────────────────
 
-class GarminApp(GarminAppBase):
+class GarminApp(_GarminAppBase):
+
     def __init__(self):
         self._stop_event = threading.Event()
         self._running    = False
@@ -160,19 +158,20 @@ class GarminApp(GarminAppBase):
         s = self._collect_settings()
         self._log(f"\n▶  Running {script_name} ...")
         self._log(f"   Data: {s['base_dir']}")
-        self._log_level_hint.pack_forget()
 
         def worker():
             self._running = True
             self._stop_event.clear()
 
             if enable_stop:
-                self.after(0, lambda: self._stop_btn.config(
-                    state="normal", bg=ACCENT, fg=TEXT))
+                self._dispatch(
+                    lambda: self._panel_outputs._stop_btn.setEnabled(True))
 
-            if days_left is not None and self._timer_btn:
-                self.after(0, lambda dl=days_left: self._timer_btn and
-                    self._timer_btn.config(text=f"⏱  Syncing · {dl}/{dl}"))
+            if days_left is not None:
+                self._dispatch(
+                    lambda dl=days_left:
+                        self._panel_timer._timer_btn.setText(
+                            f"⏱  Syncing · {dl}/{dl}"))
 
             q          = self._log_queue
             q_writer   = _QueueWriter(q)
@@ -181,20 +180,22 @@ class GarminApp(GarminAppBase):
                 "%(asctime)s %(levelname)s %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
             ))
-            old_stdout   = sys.stdout
-            old_stderr   = sys.stderr
-            root_logger  = logging.getLogger()
+            old_stdout  = sys.stdout
+            old_stderr  = sys.stderr
+            root_logger = logging.getLogger()
             old_handlers = root_logger.handlers[:]
             old_level    = root_logger.level
 
             sys.stdout = q_writer
             sys.stderr = q_writer
             root_logger.handlers = [q_handler]
-            root_logger.setLevel(getattr(logging, self._log_level, logging.INFO))
+            root_logger.setLevel(
+                getattr(logging,
+                        self._panel_settings._log_level,
+                        logging.INFO))
 
             success = False
             try:
-                # Build env dict and apply to os.environ before module load
                 env_dict = self._build_env_dict(s, refresh_failed=refresh_failed)
                 env_dict["GARMIN_SESSION_LOG_PREFIX"] = log_prefix
                 if env_overrides:
@@ -219,38 +220,42 @@ class GarminApp(GarminAppBase):
                         _garmin_api.__dict__["_STOP_EVENT"] = effective_stop
 
                 module.main()
-                success = not (effective_stop is not None and effective_stop.is_set())
+                success = not (
+                    effective_stop is not None and effective_stop.is_set())
 
             except SystemExit as e:
                 success = e.code in (None, 0)
-                if not success and not (stop_event is not None and stop_event.is_set()):
+                if not success and not (
+                        stop_event is not None and stop_event.is_set()):
                     q.put(f"✗ Script exited with code {e.code}")
             except Exception as e:
                 q.put(f"✗ Error in {script_name}: {e}")
                 q.put(traceback.format_exc())
             finally:
                 q_writer.flush()
-                sys.stdout        = old_stdout
-                sys.stderr        = old_stderr
+                sys.stdout           = old_stdout
+                sys.stderr           = old_stderr
                 root_logger.handlers = old_handlers
                 root_logger.setLevel(old_level)
 
                 self._running = False
-                if enable_stop and self._stop_btn:
-                    self.after(0, lambda: self._stop_btn.config(
-                        state="disabled", bg=BG3, fg=TEXT2))
+                if enable_stop:
+                    self._dispatch(
+                        lambda: self._panel_outputs._stop_btn.setEnabled(False))
 
-                stopped = (stop_event is not None and stop_event.is_set()) or \
-                          self._stop_event.is_set()
+                stopped = (
+                    (stop_event is not None and stop_event.is_set()) or
+                    self._stop_event.is_set()
+                )
                 if stopped:
                     q.put("✗ Stopped by user.")
                 elif success:
                     q.put("✓ Done. — please update context")
                     if on_success:
-                        self.after(0, on_success)
+                        self._dispatch(on_success)
 
                 if on_done:
-                    self.after(0, on_done)
+                    self._dispatch(on_done)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -275,10 +280,12 @@ class GarminApp(GarminAppBase):
                 self._log(line)
         except queue.Empty:
             pass
-        self.after(100, self._poll_log_queue)
+        QTimer.singleShot(100, self._poll_log_queue)
 
 
 if __name__ == "__main__":
-    app = GarminApp()
-    apply_style()
-    app.mainloop()
+    qapp = QApplication(sys.argv)
+    qapp.setStyle("Fusion")
+    window = GarminApp()
+    window.show()
+    sys.exit(qapp.exec())

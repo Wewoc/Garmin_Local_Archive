@@ -322,6 +322,64 @@ def build_analysis_prompt(findings: list[dict]) -> str:
 
     return "\n".join(lines)
 
+# ─── Probe call ───────────────────────────────────────────────────────────────
+
+def _run_probe() -> None:
+    """
+    Optional read-only probe call against Garmin Connect.
+    Checks token status without starting a full sync or SSO login.
+    Never deletes the token on 429 — only reports status.
+    """
+    print()
+    print("  Probing Garmin Connect ...")
+
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _root     = str(_Path(__file__).parent.parent)
+        _garmin   = str(_Path(__file__).parent.parent / "garmin")
+        for _p in (_root, _garmin):
+            if _p not in _sys.path:
+                _sys.path.insert(0, _p)
+        from garmin import garmin_security
+        from garmin import garmin_config as cfg
+    except Exception as e:
+        print(f"  ✗ Could not import project modules: {e}")
+        return
+
+    if not cfg.GARMIN_TOKEN_FILE.exists():
+        print("  ✗ No token found — re-login required before next sync")
+        return
+
+    if garmin_security.get_enc_key() is None:
+        print("  ✗ Encryption key missing — re-login required before next sync")
+        return
+
+    if not garmin_security.load_token():
+        print("  ✗ Token decryption failed")
+        return
+
+    try:
+        from garminconnect import Garmin
+        from datetime import date
+        client = Garmin()
+        client.login(str(cfg.GARMIN_TOKEN_DIR))
+        client._tokenstore_path = None
+        garmin_security._clear_token_dir()
+        client.get_user_summary(date.today().isoformat())
+        print("  ✓ Token OK — API reachable")
+    except Exception as e:
+        garmin_security._clear_token_dir()
+        err = str(e)
+        if "429" in err:
+            print("  ✗ 429 — rate limited, do not start")
+        elif "401" in err:
+            print("  ✗ 401 — token expired, re-login required")
+        else:
+            print(f"  ✗ Probe failed: {err[:80]}")
+    print()
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -356,10 +414,25 @@ def main() -> int:
         print()
         return 0
 
-    # ── Block + prompt ────────────────────────────────────────────────────────
+    # ── Block + findings ──────────────────────────────────────────────────────
     print()
     print(build_analysis_prompt(warn_findings))
 
+    # ── Optional probe call ───────────────────────────────────────────────────
+    while True:
+        try:
+            answer = input("Probe call against Garmin? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        if answer in ("y", "yes", "j", "ja"):
+            _run_probe()
+            break
+        elif answer in ("n", "no", ""):
+            break
+        else:
+            print("  Please enter 'y' to probe or 'N' to skip.")
+
+    # ── Start prompt ──────────────────────────────────────────────────────────
     while True:
         try:
             answer = input("Start anyway? [j/N] ").strip().lower()
