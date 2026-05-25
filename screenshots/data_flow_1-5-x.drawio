@@ -1,0 +1,370 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="qcmETE2WAIS1eWOO1qWs" name="Seite-1">
+    <mxGraphModel dx="2951" dy="1842" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="P4TmMydpIOBnshD8iCle-15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef5f1;strokeColor=#D85A30;fontColor=#993C1D;fontSize=9;fontStyle=1;verticalAlign=top;opacity=40;" value="Context Pipeline" vertex="1">
+          <mxGeometry height="300" width="644" x="740" y="547" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-21" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eeeeee;strokeColor=#36393d;fontSize=9;fontStyle=1;verticalAlign=top;opacity=40;" value="Export Layer" vertex="1">
+          <mxGeometry height="463" width="835" x="386" y="-420" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3c800;strokeColor=#B09500;fontSize=9;fontStyle=1;verticalAlign=top;opacity=40;fontColor=#000000;" value="Broker Layer" vertex="1">
+          <mxGeometry height="240" width="636" x="445" y="72" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf7f0;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;verticalAlign=top;opacity=40;" value="Garmin Pipeline" vertex="1">
+          <mxGeometry height="713" width="617" x="-187" y="206" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0edf8;strokeColor=#534AB7;fontColor=#534AB7;fontSize=10;fontStyle=1;verticalAlign=top;opacity=40;" value="GUI / App" vertex="1">
+          <mxGeometry height="196" width="351" x="483" y="894" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-2" edge="1" parent="1" source="P4TmMydpIOBnshD8iCle-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1.001;entryY=0.658;entryDx=0;entryDy=0;entryPerimeter=0;" target="cI6KTMDX8HTc6UFXMszY-72">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-3" edge="1" parent="1" source="P4TmMydpIOBnshD8iCle-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.002;entryY=0.877;entryDx=0;entryDy=0;entryPerimeter=0;" target="cI6KTMDX8HTc6UFXMszY-77">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=light-dark(#6A00FF,#330066);fontColor=#ffffff;strokeColor=#3700CC;" value="" vertex="1">
+          <mxGeometry height="176" width="188" x="520" y="686" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-87" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=light-dark(#6A00FF,#330066);fontColor=#ffffff;strokeColor=#3700CC;" value="" vertex="1">
+          <mxGeometry height="262" width="392" x="-62" y="244" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-77" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="232" width="160" x="798" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-73" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="137" width="139" x="-163" y="596" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-72" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="361" width="354" x="24" y="537" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-39" edge="1" parent="1" source="cI6KTMDX8HTc6UFXMszY-36" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="n9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-36" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="79" width="470" x="588" y="181.5" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-35" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="114" width="149" x="-15" y="377" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-30" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=light-dark(#0050EF,#0D0E17);fontColor=#ffffff;strokeColor=#001DBC;" value="" vertex="1">
+          <mxGeometry height="278" width="155" x="417" y="-398" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-23" edge="1" parent="1" source="tIgtYr5u41jDkuXSJUlN-74" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="cI6KTMDX8HTc6UFXMszY-12">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="493" y="348" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-38" edge="1" parent="1" source="tIgtYr5u41jDkuXSJUlN-74" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="n10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-74" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="214" width="187" x="485" y="333" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-80" edge="1" parent="1" source="tIgtYr5u41jDkuXSJUlN-38" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="n21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-38" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="214" width="152.5" x="1204" y="612.5" as="geometry" />
+        </mxCell>
+        <mxCell id="n1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6e8f5;strokeColor=#5B8DB8;fontColor=#0C447C;fontSize=10;fontStyle=1;arcSize=30;" value="dash_plotter_html" vertex="1">
+          <mxGeometry height="36" width="120" x="430" y="-180" as="geometry" />
+        </mxCell>
+        <mxCell id="n3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6e8f5;strokeColor=#5B8DB8;fontColor=#0C447C;fontSize=10;fontStyle=1;arcSize=30;" value="dash_plotter_excel" vertex="1">
+          <mxGeometry height="36" width="120" x="430" y="-246" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-32" edge="1" parent="1" source="n5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="cI6KTMDX8HTc6UFXMszY-30">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=10;fontStyle=1;arcSize=30;" value="dash_runner" vertex="1">
+          <mxGeometry height="36" width="120" x="729.5" y="-277" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-27" edge="1" parent="1" source="n8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="616.4999999999995" y="29.999999999999773" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="n8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=10;fontStyle=1;arcSize=30;" value="field_map" vertex="1">
+          <mxGeometry height="32" width="120" x="457" y="117" as="geometry" />
+        </mxCell>
+        <mxCell id="n9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=10;fontStyle=1;arcSize=30;" value="context_map" vertex="1">
+          <mxGeometry height="36" width="120" x="755" y="113" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-44" edge="1" parent="1" source="n10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="n8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_map" vertex="1">
+          <mxGeometry height="36" width="120" x="457" y="203" as="geometry" />
+        </mxCell>
+        <mxCell id="n11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=10;fontStyle=1;arcSize=30;" value="weather_map" vertex="1">
+          <mxGeometry height="36" width="120" x="607" y="203" as="geometry" />
+        </mxCell>
+        <mxCell id="n12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=10;fontStyle=1;arcSize=30;" value="pollen_map" vertex="1">
+          <mxGeometry height="36" width="120" x="755" y="203" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-43" edge="1" parent="1" source="n13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="tIgtYr5u41jDkuXSJUlN-72">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_quality" vertex="1">
+          <mxGeometry height="36" width="120" x="204" y="619" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-55" edge="1" parent="1" source="n14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="n23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_security" vertex="1">
+          <mxGeometry height="36" width="120" x="39" y="828" as="geometry" />
+        </mxCell>
+        <mxCell id="n15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="weather_plugin" vertex="1">
+          <mxGeometry height="36" width="120" x="1220.25" y="698.5" as="geometry" />
+        </mxCell>
+        <mxCell id="n16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="pollen_plugin" vertex="1">
+          <mxGeometry height="36" width="120" x="1220.25" y="645.5" as="geometry" />
+        </mxCell>
+        <mxCell id="n17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_collector" vertex="1">
+          <mxGeometry height="36" width="120" x="-153.5" y="619" as="geometry" />
+        </mxCell>
+        <mxCell id="n18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_normalizer" vertex="1">
+          <mxGeometry height="36" width="120" x="207" y="692" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-67" edge="1" parent="1" source="n19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="n18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n19" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_validator" vertex="1">
+          <mxGeometry height="36" width="120" x="204" y="762" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-34" edge="1" parent="1" source="n20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.292;entryY=0.978;entryDx=0;entryDy=0;entryPerimeter=0;" target="tIgtYr5u41jDkuXSJUlN-32">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="267" y="452" />
+              <mxPoint x="550" y="452" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="n20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_writer" vertex="1">
+          <mxGeometry height="36" width="120" x="207" y="552" as="geometry" />
+        </mxCell>
+        <mxCell id="n21" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="context_collector" vertex="1">
+          <mxGeometry height="36" width="120" x="1003" y="701.5" as="geometry" />
+        </mxCell>
+        <mxCell id="IG5sqyb1ClRClFUugzZr-2" edge="1" parent="1" source="n22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" target="tIgtYr5u41jDkuXSJUlN-33">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="context_writer" vertex="1">
+          <mxGeometry height="36" width="120" x="818" y="583" as="geometry" />
+        </mxCell>
+        <mxCell id="n23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_api" vertex="1">
+          <mxGeometry height="36" width="120" x="204" y="828" as="geometry" />
+        </mxCell>
+        <mxCell id="n24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_config" vertex="1">
+          <mxGeometry height="36" width="120" x="-153.5" y="669" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-17" edge="1" parent="1" source="n25" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="n22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n25" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="context_api" vertex="1">
+          <mxGeometry height="36" width="120" x="818" y="730" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-35" edge="1" parent="1" source="n26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="n25">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="941.0434782608695" y="840.8260869565217" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-14" edge="1" parent="1" source="n26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="cI6KTMDX8HTc6UFXMszY-72">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n26" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=10;fontStyle=1;arcSize=30;" value="Garmin Local Archive / daily_update" vertex="1">
+          <mxGeometry height="36" width="120" x="602" y="922" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="Garmin Archiv" vertex="1">
+          <mxGeometry height="68" width="162" x="503" y="358" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="Context Archiv" vertex="1">
+          <mxGeometry height="69.5" width="166" x="795" y="358" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-37" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="brightsky Plugin" vertex="1">
+          <mxGeometry height="36" width="120" x="1220.25" y="758.5" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-62" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6e8f5;strokeColor=#5B8DB8;fontColor=#0C447C;fontSize=10;fontStyle=1;arcSize=30;" value="&lt;font style=&quot;font-size: 8px;&quot;&gt;dash_plotter_html_complex&lt;/font&gt;" vertex="1">
+          <mxGeometry height="36" width="120" x="432" y="-312" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-63" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6e8f5;strokeColor=#5B8DB8;fontColor=#0C447C;fontSize=10;fontStyle=1;arcSize=30;" value="dash_plotter_json" vertex="1">
+          <mxGeometry height="36" width="120" x="436" y="-374" as="geometry" />
+        </mxCell>
+        <mxCell id="tIgtYr5u41jDkuXSJUlN-72" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_quality_log" vertex="1">
+          <mxGeometry height="36" width="120" x="524" y="474" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-24" edge="1" parent="1" source="cI6KTMDX8HTc6UFXMszY-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="cI6KTMDX8HTc6UFXMszY-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_mirror" vertex="1">
+          <mxGeometry height="36" width="120" x="183" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_backup" vertex="1">
+          <mxGeometry height="36" width="120" y="442" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin.zip" vertex="1">
+          <mxGeometry height="36" width="120" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="2nd folder" vertex="1">
+          <mxGeometry height="36" width="120" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-28" edge="1" parent="1" source="n9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.281;entryY=0.999;entryDx=0;entryDy=0;entryPerimeter=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="638.1380000000004" y="29.92099999999982" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-45" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=10;fontStyle=1;arcSize=30;" value="brightsky_map" vertex="1">
+          <mxGeometry height="36" width="120" x="912" y="203" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-60" edge="1" parent="1" source="cI6KTMDX8HTc6UFXMszY-59" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="n19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-59" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_dataformat.json" vertex="1">
+          <mxGeometry height="36" width="120" x="39" y="762" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-81" edge="1" parent="1" source="tIgtYr5u41jDkuXSJUlN-38" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=0.983;entryY=0.412;entryDx=0;entryDy=0;entryPerimeter=0;" target="cI6KTMDX8HTc6UFXMszY-77">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-82" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ece9f8;strokeColor=#534AB7;fontColor=#534AB7;fontSize=10;fontStyle=1;arcSize=30;" value="panel_timer" vertex="1">
+          <mxGeometry height="36" width="148" x="535" y="756" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-84" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ece9f8;strokeColor=#534AB7;fontColor=#534AB7;fontSize=10;fontStyle=1;arcSize=30;" value="panel_connection" vertex="1">
+          <mxGeometry height="36" width="148" x="535" y="705" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-85" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ece9f8;strokeColor=#534AB7;fontColor=#534AB7;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_app_base" vertex="1">
+          <mxGeometry height="36" width="148" x="540" y="816" as="geometry" />
+        </mxCell>
+        <mxCell id="cI6KTMDX8HTc6UFXMszY-86" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ece9f8;strokeColor=#534AB7;fontColor=#534AB7;fontSize=10;fontStyle=1;arcSize=30;" value="panel_archive" vertex="1">
+          <mxGeometry height="36" width="148" x="-1" y="260.5" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0ecff;strokeColor=#7B68CC;fontColor=#4A3F8A;fontSize=10;fontStyle=1;arcSize=30;" value="Connection / Login" vertex="1">
+          <mxGeometry height="36" width="148" x="663" y="973" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0ecff;strokeColor=#7B68CC;fontColor=#4A3F8A;fontSize=10;fontStyle=1;arcSize=30;" value="Background Timer" vertex="1">
+          <mxGeometry height="36" width="148" x="665" y="1023" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0ecff;strokeColor=#7B68CC;fontColor=#4A3F8A;fontSize=10;fontStyle=1;arcSize=30;" value="Sync Garmin" vertex="1">
+          <mxGeometry height="36" width="148" x="503" y="1020" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0ecff;strokeColor=#7B68CC;fontColor=#4A3F8A;fontSize=10;fontStyle=1;arcSize=30;" value="Sync Context" vertex="1">
+          <mxGeometry height="36" width="148" x="503" y="973" as="geometry" />
+        </mxCell>
+        <mxCell id="P4TmMydpIOBnshD8iCle-18" edge="1" parent="1" source="n21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.987;entryY=0.642;entryDx=0;entryDy=0;entryPerimeter=0;" target="cI6KTMDX8HTc6UFXMszY-77">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-output" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▲ OUTPUT" vertex="1">
+          <mxGeometry height="24" width="110" x="-356" y="-398" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-dash" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▲ DASHBOARDS" vertex="1">
+          <mxGeometry height="24" width="110" x="-356" y="-45" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-broker" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▲ DATA BROKER" vertex="1">
+          <mxGeometry height="24" width="110" x="-356" y="105" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-maps" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▲ MAPS" vertex="1">
+          <mxGeometry height="24" width="110" x="-356" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-archive" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▲ ARCHIVE" vertex="1">
+          <mxGeometry height="24" width="110" x="-356" y="362" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-pipeline" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▲ PIPELINE" vertex="1">
+          <mxGeometry height="24" width="110" x="-356" y="572" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-api" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▲ API / CORE" vertex="1">
+          <mxGeometry height="24" width="110" x="-343" y="741" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-trigger" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="▼ TRIGGER" vertex="1">
+          <mxGeometry height="24" width="110" x="-356" y="914" as="geometry" />
+        </mxCell>
+        <mxCell id="ann-ui" parent="1" style="text;html=1;align=right;verticalAlign=middle;resizable=0;points=[];strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=1;" value="◀ GUI" vertex="1">
+          <mxGeometry height="24" width="110" x="-365" y="954" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a1a2e;strokeColor=#555555;opacity=80;" value="" vertex="1">
+          <mxGeometry height="370" width="310" x="-68" y="-378" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-title" parent="1" style="text;html=1;align=left;verticalAlign=top;strokeColor=none;fillColor=none;fontSize=14;fontColor=#e8e8e8;fontStyle=1;" value="Garmin Local Archive" vertex="1">
+          <mxGeometry height="24" width="280" x="-54" y="-364" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-sub" parent="1" style="text;html=1;align=left;verticalAlign=top;strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=2;" value="Data Flow Diagram · v1.5.x" vertex="1">
+          <mxGeometry height="16" width="280" x="-54" y="-342" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-sep1" parent="1" style="line;html=1;strokeColor=#444444;fillColor=none;" value="" vertex="1">
+          <mxGeometry height="10" width="282" x="-54" y="-320" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-desc" parent="1" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=9;fontColor=#aaaaaa;" value="&lt;div&gt;Arrows show where data flows (not who calls whom).&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(170, 170, 170), rgb(91, 91, 91));&quot;&gt;Data flows from bottom to top — from the API fetch&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(170, 170, 170), rgb(91, 91, 91));&quot;&gt;to the finished dashboard export.&lt;/span&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="52" width="282" x="-54" y="-306" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-sep2" parent="1" style="line;html=1;strokeColor=#444444;fillColor=none;" value="" vertex="1">
+          <mxGeometry height="10" width="282" x="-54" y="-248" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-col-title" parent="1" style="text;html=1;align=left;verticalAlign=top;strokeColor=none;fillColor=none;fontSize=8;fontColor=#666666;fontStyle=1;letterSpacing=1;" value="COLOR LEGEND" vertex="1">
+          <mxGeometry height="16" width="200" x="-54" y="-234" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c1" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#1D9E75;strokeColor=none;" value="" vertex="1">
+          <mxGeometry height="14" width="14" x="-54" y="-212" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-t1" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontColor=#aaaaaa;" value="Garmin — API, Pipeline, Config, Security" vertex="1">
+          <mxGeometry height="20" width="260" x="-34" y="-215" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c2" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#D85A30;strokeColor=none;" value="" vertex="1">
+          <mxGeometry height="14" width="14" x="-54" y="-186" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-t2" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontColor=#aaaaaa;" value="Context — Weather, pollen, air quality (DWD)" vertex="1">
+          <mxGeometry height="20" width="260" x="-34" y="-189" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c3" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#BA7517;strokeColor=none;" value="" vertex="1">
+          <mxGeometry height="14" width="14" x="-54" y="-160" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-t3" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=9;fontColor=#aaaaaa;" value="&lt;div&gt;Broker — decouple field_map / context_map&lt;/div&gt;&lt;div&gt;Pipeline from dashboards&lt;/div&gt;" vertex="1">
+          <mxGeometry height="26" width="260" x="-34" y="-163" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c4" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#1a6fbf;strokeColor=none;" value="" vertex="1">
+          <mxGeometry height="14" width="14" x="-54" y="-128" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-t4" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontColor=#aaaaaa;" value="Dashboard — Specialists, Runner, Plotters" vertex="1">
+          <mxGeometry height="20" width="260" x="-34" y="-131" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c5" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#534AB7;strokeColor=none;" value="" vertex="1">
+          <mxGeometry height="14" width="14" x="-54" y="-102" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-t5" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontColor=#aaaaaa;" value="GUI / App — Panels, Controller, Trigger" vertex="1">
+          <mxGeometry height="20" width="260" x="-34" y="-105" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-sep3" parent="1" style="line;html=1;strokeColor=#444444;fillColor=none;" value="" vertex="1">
+          <mxGeometry height="10" width="282" x="-54" y="-78" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-note" parent="1" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=2;" value="&lt;div&gt;No cloud dependency after syncing.&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(136, 136, 136), rgb(120, 120, 120));&quot;&gt;All data is stored locally — garmin_data/ on disk.&lt;/span&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="40" width="282" x="-54" y="-64" as="geometry" />
+        </mxCell>
+        <mxCell id="IG5sqyb1ClRClFUugzZr-1" edge="1" parent="1" source="cI6KTMDX8HTc6UFXMszY-73" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=-0.004;entryY=0.351;entryDx=0;entryDy=0;entryPerimeter=0;" target="cI6KTMDX8HTc6UFXMszY-72">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IG5sqyb1ClRClFUugzZr-3" edge="1" parent="1" source="tIgtYr5u41jDkuXSJUlN-33" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.681;entryY=0.998;entryDx=0;entryDy=0;entryPerimeter=0;" target="P4TmMydpIOBnshD8iCle-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IG5sqyb1ClRClFUugzZr-6" edge="1" parent="1" source="IG5sqyb1ClRClFUugzZr-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="n5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IG5sqyb1ClRClFUugzZr-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=light-dark(#0050EF,#0D0E17);fontColor=#ffffff;strokeColor=#001DBC;" value="" vertex="1">
+          <mxGeometry height="71" width="651" x="464" y="-42" as="geometry" />
+        </mxCell>
+        <mxCell id="n2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6e8f5;strokeColor=#5B8DB8;fontColor=#0C447C;fontSize=10;fontStyle=1;arcSize=30;" value="dash_layout" vertex="1">
+          <mxGeometry height="36" width="120" x="620" y="-25" as="geometry" />
+        </mxCell>
+        <mxCell id="n4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=10;fontStyle=1;arcSize=30;" value="health_garmin_html-json_dash" vertex="1">
+          <mxGeometry height="36" width="120" x="981" y="-25" as="geometry" />
+        </mxCell>
+        <mxCell id="n6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=10;fontStyle=1;arcSize=30;" value="explorer_garmin-context_html_dash" vertex="1">
+          <mxGeometry height="36" width="120" x="477" y="-25" as="geometry" />
+        </mxCell>
+        <mxCell id="n7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=10;fontStyle=1;arcSize=30;" value="sleep_recovery_context_dash" vertex="1">
+          <mxGeometry height="39" width="179" x="771" y="-28" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
