@@ -875,7 +875,14 @@ def get_archive_stats(quality_log_path=None) -> dict:
     if date_min and date_max:
         try:
             from datetime import date as _date
-            d0 = _date.fromisoformat(date_min)
+            # If first_day is set and earlier than the oldest tracked entry,
+            # use first_day as the range start — otherwise missing count is
+            # understated on fresh archives after bulk import.
+            first_day_str = data.get("first_day")
+            if first_day_str and first_day_str < date_min:
+                d0 = _date.fromisoformat(first_day_str)
+            else:
+                d0 = _date.fromisoformat(date_min)
             d1 = _date.fromisoformat(date_max)
             possible = (d1 - d0).days + 1
             present  = len(dates)

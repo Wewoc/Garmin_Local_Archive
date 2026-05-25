@@ -230,6 +230,30 @@ def run_import(path, progress_callback=None) -> dict:
             if progress_callback:
                 progress_callback(i, None, date_str)
 
+        # ── first_day update after bulk import ────────────────────────────────
+        # GDPR exports may predate the oldest registered device — first_day from
+        # the device API can therefore be too late. If the earliest imported day
+        # is earlier than the stored first_day, overwrite it.
+        # Guard: only when at least one day was written successfully.
+        if ok > 0:
+            imported_dates = []
+            for e in quality_data.get("days", []):
+                if e.get("source") == "bulk":
+                    try:
+                        imported_dates.append(date.fromisoformat(e["date"]))
+                    except (ValueError, KeyError):
+                        pass
+            if imported_dates:
+                earliest = min(imported_dates)
+                old_first = quality_data.get("first_day")
+                if not old_first or earliest < date.fromisoformat(old_first):
+                    new_first = earliest.isoformat()
+                    quality_data["first_day"] = new_first
+                    log.info(
+                        f"  Archive: first_day updated from {old_first} to {new_first} "
+                        f"(GDPR export predates device history)"
+                    )
+
         quality._save_quality_log(quality_data)
 
     log.info(f"  Import done: {ok} written, {skipped} skipped, {failed} failed")

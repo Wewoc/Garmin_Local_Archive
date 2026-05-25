@@ -238,6 +238,11 @@ def check_connection(s: dict, callbacks: dict) -> None:
 def timer_run_repair(s: dict) -> list | None:
     """Returns list of date objects with quality='failed'. None if empty."""
     try:
+        # INTENTIONAL DIRECT READ — read-only analytical fast-path.
+        # No mutation, no ownership transfer, no QUALITY_LOCK required.
+        # garmin_quality provides no filtered-list API for these queries;
+        # adding one would inflate the module into a query gateway.
+        # Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
         failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
         if not failed_file.exists():
             return None
@@ -259,6 +264,11 @@ def timer_run_repair(s: dict) -> list | None:
 def timer_run_bulk_recheck(s: dict) -> list | None:
     """Returns bulk-source days within last 180 days, oldest first. None if empty."""
     try:
+        # INTENTIONAL DIRECT READ — read-only analytical fast-path.
+        # No mutation, no ownership transfer, no QUALITY_LOCK required.
+        # garmin_quality provides no filtered-list API for these queries;
+        # adding one would inflate the module into a query gateway.
+        # Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
         log_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
         if not log_file.exists():
             return None
@@ -282,6 +292,11 @@ def timer_run_bulk_recheck(s: dict) -> list | None:
 def timer_run_quality(s: dict) -> list | None:
     """Returns list of date objects with quality='low'. None if empty."""
     try:
+        # INTENTIONAL DIRECT READ — read-only analytical fast-path.
+        # No mutation, no ownership transfer, no QUALITY_LOCK required.
+        # garmin_quality provides no filtered-list API for these queries;
+        # adding one would inflate the module into a query gateway.
+        # Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
         failed_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
         if not failed_file.exists():
             return None

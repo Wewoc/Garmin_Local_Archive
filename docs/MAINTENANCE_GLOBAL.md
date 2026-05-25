@@ -130,8 +130,12 @@ Known hidden imports:
 - `curl_cffi` — transitive dependency of garminconnect 0.3.0+; T2 only (v1.5.4.3)
 - `curl_cffi.requests` — transitive dependency of garminconnect 0.3.0+; T2 only (v1.5.4.3)
 - `ua_generator` — transitive dependency of garminconnect 0.3.0+; T2 only (v1.5.4.3)
+- `keyring` — WCM backend not auto-detected by PyInstaller; T2 only (v1.5.4.4)
+- `keyring.backends` — required for backend discovery; T2 only (v1.5.4.4)
+- `keyring.backends.Windows` — Windows Credential Manager backend; T2 only (v1.5.4.4)
 
-Note: T3 already had these since v1.5.4.1. T2 was missing them — garminconnect showed as "not installed" at runtime despite being installed on the system.
+Note: T3 already had keyring hidden imports since initial standalone build.
+T2 was missing them — password field appeared empty on every start. T2 was missing them — garminconnect showed as "not installed" at runtime despite being installed on the system.
 
 **How to diagnose a missing hidden import:**
 In `_load_plotters()` the `except: pass` silently swallows load errors. To surface them temporarily:
