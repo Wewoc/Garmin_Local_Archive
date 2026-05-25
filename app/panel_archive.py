@@ -58,30 +58,19 @@ class PanelArchive(QWidget):
         if not log_path.exists():
             return
         try:
-            data    = json.loads(log_path.read_text(encoding="utf-8"))
-            entries = data.get("days", [])
-            if not entries:
+            stats = _quality.get_archive_stats(quality_log_path=log_path)
+            if not stats.get("total"):
                 return
 
-            total  = len(entries)
-            counts = {"high": 0, "medium": 0, "low": 0, "failed": 0}
-            for e in entries:
-                q = e.get("quality", e.get("category", ""))
-                if q in counts:
-                    counts[q] += 1
-
-            recheck  = sum(1 for e in entries if e.get("recheck"))
-            missing  = sum(1 for e in entries
-                           if e.get("quality", e.get("category", ""))
-                           in ("failed", "low"))
-            dates    = sorted(e["date"] for e in entries if "date" in e)
-            rng      = f"{dates[0]} → {dates[-1]}" if dates else "—"
-            coverage = (
-                f"{total / max(1, (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days + 1):.0%}"
-                if len(dates) >= 2 else "—"
-            )
-            last_api  = data.get("last_api_sync",  "—")
-            last_bulk = data.get("last_bulk_import", "—")
+            total    = stats["total"]
+            counts   = {q: stats[q] for q in ("high", "medium", "low", "failed")}
+            recheck  = stats["recheck"]
+            missing  = stats["missing"] if stats["missing"] is not None else 0
+            rng      = (f"{stats['date_min']} → {stats['date_max']}"
+                        if stats["date_min"] and stats["date_max"] else "—")
+            coverage = f"{stats['coverage_pct']}%" if stats["coverage_pct"] is not None else "—"
+            last_api  = stats["last_api"]  or "—"
+            last_bulk = stats["last_bulk"] or "—"
 
             pc = self._app._panel_connection
 
