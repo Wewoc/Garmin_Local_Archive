@@ -85,7 +85,7 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 
 | Function | Purpose |
 |---|---|
-| `run(settings, stop_event)` | Main entry point — orchestrates full collect run. Returns result dict with per-plugin stats |
+| `run(settings, stop_event, log_callback)` | `log_callback`: optional `callable(str)` — progress every 25 days written. `None` = headless | Main entry point — orchestrates full collect run. Returns result dict with per-plugin stats |
 | `_ensure_csv()` | Creates `local_config.csv` with header comment if not present |
 | `_load_csv()` | Loads location entries from CSV — skips comment lines, skips rows with missing coordinates |
 | `_build_location_map(date_from, date_to, csv_entries, default_lat, default_lon)` | Builds `{date_str: (lat, lon)}` for every date — CSV priority, GUI fallback |

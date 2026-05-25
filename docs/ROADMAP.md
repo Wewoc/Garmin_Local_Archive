@@ -6,31 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.4.3**
+**Currently stable — v1.5.4.4**
 
 ---
 
 ## Planned
-
---- 
-
-### v1.5.4.4 — Auth Flow Cleanup
-
-Two residual issues in the authentication pipeline identified during v1.5.4.3 testing:
-
-**Path 3b regression (`garmin_api.py`):** After the switch to RNG-generated encryption
-keys in v1.5.4.1, Path 3b (enc-key missing, token present) still showed the manual
-`EncKeyDialog` — a leftover from the pre-RNG era. The correct behaviour is to
-auto-generate a new key and clear the old token so Path 3 (SSO) re-creates it.
-Fixed in v1.5.4.3 hotfix but tracked here for documentation.
-
-**`SsoRequiredDialog` does not block (`panel_connection.py`):** When Path 3b fires and
-the dialog appears, the login flow continues without waiting for user confirmation —
-the dialog is a zombie. Requires investigation of the signal/callback chain between
-`check_connection()` and `_prompt_sso_required()`.
-
-Scope: `garmin/garmin_api.py`, `app/panel_connection.py`, `app/garmin_app_controller.py`.
-Review full auth flow end-to-end before touching.
 
 ---
 
@@ -55,6 +35,117 @@ Detection layer already exists: `check_raw_integrity()` in `garmin_backup.py` co
 **Mirror Spot-Check**
 
 `garmin_mirror.py` compares by filename and filesize only — content integrity of copied files is not verified. After `run_mirror()`, 5–10 randomly selected files are cross-checked via CRC32 against the source. Result surfaced in the return dict as `spot_check: {sampled: N, mismatches: M}`.
+
+---
+
+### v1.5.6 — Mirror Import
+
+Multi-device support via import from a mirrored archive. Extends the existing
+mirror feature with a reverse direction: a second device can import data from
+a mirror folder created by the primary device.
+
+**`garmin_import_mirror.py` — new module**
+
+Sole Owner of the mirror import operation. Reads `mirror_meta.json` for version
+checks, performs a quality-log-based delta analysis, and imports only days that
+are missing or have better quality than the local archive. Pipeline entry point
+is `summarize()` — `normalize()` is skipped because mirrored raw files are
+already normalized. Summaries are always regenerated locally from raw, which
+eliminates schema version conflicts structurally.
+
+Conflict resolution for raw files: quality rank comparison via the existing
+`_upsert_quality()` downgrade protection (`high` > `medium` > `low` > `failed`).
+Higher quality wins — the local archive is never silently downgraded.
+
+Context files: delta only — files missing on the target device are imported;
+existing files are not overwritten (source is master).
+
+**`garmin_mirror.py` — extended**
+
+Writes `mirror_meta.json` to the mirror folder after a successful run. Contains
+`gla_version`, `schema_version`, and `mirrored_at`. Written only on `ok=True` —
+a failed or partial mirror never produces a meta file.
+
+**What changes:**
+- `garmin/garmin_import_mirror.py` — new module. Returns
+  `{"raw_copied", "raw_skipped", "context_copied", "errors", "ok"}`
+- `garmin/garmin_mirror.py` — writes `mirror_meta.json` on successful completion
+- `garmin_app_base.py` — "Import from Mirror" button in Archive panel.
+  Active only when mirror folder is configured and reachable. Dry-run dialog
+  shows delta before import ("45 raw days, 12 context days"). Background thread,
+  progress in log window. Timer pause/resume wired (same pattern as Bulk Import).
+
+**What does not change:**
+- `garmin_writer.py`, `context_writer.py`, `garmin_quality.py` — sole owner
+  principle unchanged; import writes exclusively through existing owners
+- `garmin_mirror.py` core logic — `shutil.copy2()`, EXCLUDE_DIRS, stats dict
+- No encryption, no new dependencies
+
+**Import invariants:**
+- `normalize()` is never called on mirrored raw files — already normalized
+- Summary files are never imported — always regenerated from raw
+- `garmin_token` and `__pycache__` are never included in a mirror
+- Import pauses the background timer for the duration of the operation
+
+*Pre-condition: v1.5.5 stable. Mirror folder configured and populated by
+the source device before import is attempted.*
+
+---
+
+### v1.5.6.1 — Encrypted Mirror Container
+
+Introduces `mirror.gla` — a single encrypted container file replacing the plain
+mirror folder. Extends v1.5.6 without changing the import protocol or pipeline.
+
+The container format extends the "local-only" philosophy to transport: health
+data on USB, NAS, or a cloud folder of the user's choice remains unreadable
+without the password. No cloud dependency, no third-party service.
+
+**`garmin_container.py` — new module**
+
+Sole Owner of `mirror.gla`. Implements a section-based AES-256-GCM container
+with three independent encrypted sections (quality_log, raw, context). Each
+section has its own derived key — knowledge of one section key does not
+compromise the others.
+
+Key derivation: PBKDF2-HMAC-SHA256 (600,000 iterations) produces a master key
+from the user's password and a per-container salt. HKDF-Expand derives
+independent section keys from the master. The plaintext header is authenticated
+via HMAC-SHA256 — offset manipulation without the master key is not possible.
+
+Container writes are atomic: `mirror.gla.tmp` → `fsync()` → `os.replace()`.
+An interrupted write never produces a corrupt container.
+
+Import reads only what it needs: `unlock_meta()` decrypts only the quality_log
+section for delta analysis; `fulfill_order()` decrypts only the sections
+containing requested files. Raw and context data are never decrypted unless
+explicitly ordered. No plaintext ever touches disk.
+
+Spot-Check (introduced in v1.5.5) is removed from `garmin_mirror.py` — HMAC
+verification on every container open provides stronger integrity guarantees than
+a CRC32 sample check.
+
+**Compatibility:** `garmin_import_mirror.py` retains support for plain mirror
+folders (v1.5.6 format) for one release cycle. Folder support will be removed
+in a future version.
+
+**What changes:**
+- `garmin/garmin_container.py` — new module. API: `lock()`, `unlock_meta()`,
+  `fulfill_order()`, `is_container()`
+- `garmin/garmin_mirror.py` — delegates to `garmin_container.lock()`.
+  Password parameter added. Spot-Check removed.
+- `garmin/garmin_import_mirror.py` — reads via `garmin_container.unlock_meta()`
+  and `fulfill_order()`. Plain folder fallback retained for compatibility.
+- `garmin_app_base.py` — password dialog for Mirror and Import operations.
+  Settings field relabelled "Mirror target" (accepts folder or `.gla` file).
+  `is_container()` used for button state detection.
+
+**What does not change:**
+- Import protocol from delta analysis onward — identical to v1.5.6
+- Pipeline entry point, sole owner principle, all existing invariants
+- No new package dependencies (`cryptography` already required)
+
+*Pre-condition: v1.5.6 stable and in active use.*
 
 ---
 

@@ -39,6 +39,18 @@ garmin_app.py (GUI)
 
 ---
 
+## Documented Exceptions
+
+Intentional deviations from the invariants above. Each exception is stable by design — not a TODO.
+
+| Exception | Module | Reason |
+|---|---|---|
+| `regenerate_summaries.py` writes directly to `summary/` | `export/regenerate_summaries.py` | Maintenance utility — runs offline, outside pipeline. `garmin_writer` is not importable in that context. Acceptable: one-off backfill, not a runtime path. |
+| `garmin_validator.py` imports `garmin_config` | `garmin/garmin_validator.py` | `garmin_config` is a pure constants module with no project-module imports. `garmin_validator` needs `DATAFORMAT_FILE` path. Leaf-node status refers to pipeline modules — `garmin_config` is infrastructure. |
+| Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
+
+---
+
 ## `garmin_config.py`
 
 Pure constants module — no functions. See `REFERENCE_GLOBAL.md` for full constant list.
