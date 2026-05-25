@@ -198,28 +198,20 @@ def _resolve_date_range(base_dir: str = None) -> tuple[str, str] | tuple[None, N
 #  Public interface
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run(settings: dict = None, stop_event=None) -> dict:
+def run(settings: dict = None, stop_event=None,
+        log_callback=None) -> dict:
     """
     Run all registered plugins for the full archive date range.
 
     Args:
-        settings:    Dict from GUI. Must contain "context_latitude" and
-                     "context_longitude" as default location fallback.
-        stop_event:  Optional threading.Event — checked between segments.
-
-    Returns:
-        {
-            "date_from": str | None,
-            "date_to":   str | None,
-            "segments":  int,
-            "plugins": {
-                plugin_name: {"written": int, "failed": int, "skipped": int}
-            },
-            "stopped": bool,
-            "error":   str,   # optional
-        }
+        settings:     Dict from GUI. Must contain "context_latitude" and
+                      "context_longitude" as default location fallback.
+        stop_event:   Optional threading.Event — checked between segments.
+        log_callback: Optional callable(str) — called with progress messages
+                      every PROGRESS_LOG_INTERVAL days written. None = headless.
     """
     log.info("context_collector: starting API sync")
+    _PROGRESS_LOG_INTERVAL = 25
     global _CSV_FILE
     if settings and settings.get("base_dir"):
         base = Path(settings["base_dir"])
@@ -315,6 +307,12 @@ def run(settings: dict = None, stop_event=None) -> dict:
                 write_result = context_writer.write(plugin, data, lat, lon)
                 results[name]["written"] += write_result["written"]
                 results[name]["failed"]  += write_result["failed"]
+                if log_callback and results[name]["written"] % _PROGRESS_LOG_INTERVAL == 0 \
+                        and results[name]["written"] > 0:
+                    log_callback(
+                        f"  Context sync: {name} — "
+                        f"{results[name]['written']} days written"
+                    )
             except Exception as exc:
                 log.warning(f"  context_collector: plugin '{name}' failed — {exc}")
                 results[name]["failed"] += 1

@@ -334,15 +334,21 @@ class PanelOutputs(QWidget):
                 self._app._panel_timer._timer_update_btn)
 
         self._app._log(f"   Source: {path}")
+
+        def _on_import_done():
+            # T3: GARMIN_IMPORT_PATH lives in os.environ of the GUI process.
+            # Pop it before the timer resumes — otherwise the next timer-triggered
+            # _run() would re-enter the import path instead of the normal sync.
+            os.environ.pop("GARMIN_IMPORT_PATH", None)
+            self._app._panel_timer._timer_resume_after_sync(timer_was_active)
+            self._app._panel_archive._refresh_archive_info()
+
         self._app._run(
             "garmin_collector.py",
             enable_stop=True,
             log_prefix="garmin_bulk",
             env_overrides={"GARMIN_IMPORT_PATH": path},
-            on_done=lambda: (
-                self._app._panel_timer._timer_resume_after_sync(timer_was_active),
-                self._app._panel_archive._refresh_archive_info(),
-            ),
+            on_done=_on_import_done,
         )
 
     # ── Context sync ───────────────────────────────────────────────────────────
@@ -378,7 +384,8 @@ class PanelOutputs(QWidget):
                 from context import context_collector
                 result  = context_collector.run(
                     settings=s,
-                    stop_event=self._app._context_stop_event
+                    stop_event=self._app._context_stop_event,
+                    log_callback=self._app._log_bg,
                 )
                 plugins = result.get("plugins", {})
                 lines   = ["Context sync complete"]

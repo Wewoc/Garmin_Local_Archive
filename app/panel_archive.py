@@ -28,6 +28,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 import garmin_app_controller as _controller
+import garmin_quality as _quality
 
 
 class PanelArchive(QWidget):
@@ -287,30 +288,14 @@ class PanelArchive(QWidget):
         delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         def do_delete():
-            errors = 0
-            for f in to_delete:
-                try:
-                    f.unlink()
-                except Exception:
-                    errors += 1
-            if entries_to_remove:
-                data["days"] = [
-                    e for e in data.get("days", [])
-                    if e.get("date", "9999") >= first_day_str
-                ]
-                try:
-                    quality_log.write_text(
-                        _json.dumps(data, indent=2, ensure_ascii=False),
-                        encoding="utf-8"
-                    )
-                except Exception:
-                    errors += 1
+            result = _quality.cleanup_before_first_day(data, dry_run=False)
             dlg.accept()
-            msg = f"✓ Clean Archive: {len(to_delete)} files deleted"
-            if errors:
-                msg += f" ({errors} errors)"
-            self._app._log(msg)
-
+            n_files   = result.get("files_deleted", 0)
+            n_entries = result.get("entries_removed", 0)
+            self._app._log(
+                f"✓ Clean Archive: {n_files} files deleted, "
+                f"{n_entries} log entries removed"
+            )
         delete_btn.clicked.connect(do_delete)
         btn_row.addWidget(cancel_btn)
         btn_row.addStretch()

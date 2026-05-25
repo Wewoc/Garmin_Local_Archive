@@ -1,5 +1,30 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.4.4 — Auth Flow Cleanup, Fresh Archive Fixes & Architecture Hygiene
+
+Three independent fix groups, each separately releasable.
+
+**Step a — Architecture Repair:**
+- `app/panel_archive.py`: `do_delete()` now delegates to `garmin_quality.cleanup_before_first_day()` — fixes ownership violation (direct write to `quality_log.json` without `QUALITY_LOCK`, without backup trigger). Dialog and file list preview unchanged.
+- `app/garmin_app_controller.py`: Timer direct reads of `quality_log.json` documented as intentional exceptions (`INTENTIONAL DIRECT READ` comment in `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality`).
+- `docs/REFERENCE_GARMIN.md`: New `§ Documented Exceptions` section — three intentional invariant deviations documented: `regenerate_summaries.py`, `garmin_validator` → `garmin_config`, Controller timer reads.
+
+**Step b — Fresh Archive Fixes:**
+- `app/panel_outputs.py`: `_on_import_done()` wrapper pops `GARMIN_IMPORT_PATH` from `os.environ` after bulk import — prevents T3 timer from re-entering import path on next cycle.
+- `garmin/garmin_collector.py`: `run_import()` updates `first_day` after bulk import if GDPR export predates device history — guard: only when `ok > 0`.
+- `garmin/garmin_quality.py`: `get_archive_stats()` uses `first_day` as range start when earlier than `date_min` — fixes understated missing count on fresh archives.
+
+**Step c — Auth + Sync Fixes:**
+- `context/context_collector.py`: `run()` accepts optional `log_callback=None` — called every 25 days written per plugin. `daily_update.py` unaffected (passes `None`).
+- `app/panel_outputs.py`: `_run_context_sync()` passes `log_callback=self._app._log_bg` to context collector.
+- Items 1 (SsoRequiredDialog) and 5 (GARMIN_DAYS_BACK) — traced and closed: no bug found. Dialog blocks correctly in PyQt6. `_collect_settings()` already used in `_run()`.
+
+**Pre-session fix (T2 EXE):**
+- `compiler/build.py`: Added `keyring`, `keyring.backends`, `keyring.backends.Windows` as hidden imports — fixes password field empty on every T2 start.
+- `docs/MAINTENANCE_GLOBAL.md`: Known hidden imports table updated.
+
+**Test result:** 315 / 261 / 303 / 128 / 41 — all green
+
 ## v1.5.4.3 — UI Bug Fixes, Backup Integrity & Settings Persistence
 
 Six bugs fixed across three sessions. No new features.

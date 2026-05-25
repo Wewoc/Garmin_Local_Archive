@@ -121,6 +121,9 @@ def build_exe(root: Path):
         "--hidden-import", "curl_cffi",
         "--hidden-import", "curl_cffi.requests",
         "--hidden-import", "ua_generator",
+        "--hidden-import", "keyring",
+        "--hidden-import", "keyring.backends",
+        "--hidden-import", "keyring.backends.Windows",
         "--distpath", str(root),
         "--workpath", str(root / "build"),
         "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/
