@@ -4,6 +4,8 @@
 
 Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
 
+*Privacy first — inspired by European principles.*
+
 ---
 
 ## Why this exists
@@ -229,6 +231,14 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 
 > [!TIP]
 > **Pipeline Architecture:** For a detailed view of the v1.3.4 data flow including the validation layer and self-healing loop, open [screenshots/flowchart_v134.html](screenshots/flowchart_v134.html) in your browser.
+
+---
+
+## System Architecture
+
+The diagram below shows how all components relate to each other as of v1.5.x — from API ingestion and context collection through the broker layer to dashboard export.
+
+![System Architecture v1.5.x](screenshots/data_flow_1-5-x.png)
 
 ---
 
@@ -580,13 +590,6 @@ GUI changes are verified manually before release. Full CI/CD with automated buil
 > - fetch data in smaller increments
 > - include delays between requests
 > - allow cool-down periods between sync sessions
-
----
-
-## Related
-
-**[GLA — Needful Things](https://github.com/Wewoc/GLA-NeedfulThings)** 
-Tools that grew out of building this project — `chat pipeline`, `GLA local translator`, `git analysis`, and small utilities. Most have no dependency on GLA. `quick_dash` is the exception — it requires a configured GLA installation.
 
 ---
 
