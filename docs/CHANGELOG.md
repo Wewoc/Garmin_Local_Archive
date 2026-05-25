@@ -23,6 +23,9 @@ Three independent fix groups, each separately releasable.
 - `compiler/build.py`: Added `keyring`, `keyring.backends`, `keyring.backends.Windows` as hidden imports — fixes password field empty on every T2 start.
 - `docs/MAINTENANCE_GLOBAL.md`: Known hidden imports table updated.
 
+**Post-release fix (same version):**
+- `app/panel_archive.py`: `_refresh_archive_info()` now uses `get_archive_stats()` instead of local calculation — fixes `Missing` showing `low+failed` count instead of actual absent days, fixes `Last API` / `Last Bulk` always showing `—` (wrong key names), fixes `Coverage` not using `first_day` as range base.
+
 **Test result:** 315 / 261 / 303 / 128 / 41 — all green
 
 ## v1.5.4.3 — UI Bug Fixes, Backup Integrity & Settings Persistence
