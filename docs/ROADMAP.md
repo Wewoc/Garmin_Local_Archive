@@ -149,6 +149,27 @@ in a future version.
 
 ---
 
+### v1.5.7 — In-App File Viewer
+
+Third tab in the existing `QTabWidget` structure (Tab 1 "Actions", Tab 2 "Dashboards", Tab 3 "Files"). Renders Excel output directly inside the app via AG Grid Community (MIT licence). JSON output is intentionally excluded — Open Folder in Tab 1 is the intended path for JSON.
+
+**What changes:**
+- `garmin_app_base.py` — Tab 3 "Files" added to `QTabWidget`. `QComboBox` lists recent output files from `dashboards/` folder (`.xlsx` only), scanned on tab switch. `QWebEngineView` renders selected file via AG Grid. "Open File" button calls `os.startfile(path)` — opens in whatever the system has registered for `.xlsx` (Excel, LibreOffice, WPS).
+- `app/panel_outputs.py` — after a successful dashboard build, Tab 3 file list is refreshed automatically (same pattern as Tab 2 dashboard rescan after build).
+
+**What does not change:**
+- Tab 1 and Tab 2 — unchanged
+- Dashboard build pipeline — no changes to specialists or plotters
+- JSON workflow — Open Folder remains the access path
+
+**Dependencies:**
+- AG Grid Community (MIT) — loaded via CDN into QWebEngineView. No new Python package. Requires internet on first load unless bundled locally.
+- Offline fallback: if AG Grid fails to load, a plain HTML table is rendered from the XLSX data as fallback.
+
+**Licence:** AG Grid Community is MIT-licenced without restrictions. Handsontable CE is explicitly excluded — Commons Clause makes it incompatible with redistribution.
+
+---
+
 ## Planned — v1.6
 
 ### v1.6 — Dashboard Render Registry
@@ -264,16 +285,97 @@ A dialog in `panel_outputs.py` that replaces the fixed specialist list with free
 
 ## Planned — v1.7
 
-- **Garmin FIT Pipeline & Plugin Architecture**
-  The existing Garmin Health pipeline is being rebuilt into a plugin model — `garmin_map.py` → `garmin_health_map.py`, new `garmin_fit_map.py` as a second Garmin source (activity data via API + bulk import). `field_map.py` is being extended to become a source-agnostic broker. Goal: both Garmin sources run as equal pipelines side by side.
+### v1.7 — FIT Pipeline
 
-  *Pre-conditions (resolved before plugin work begins):*
-  - `garmin_normalizer.py` — add real transformation layer; current pass-through insufficient once two sources deliver differing raw schemas
-  - `run_import()` — narrow QUALITY_LOCK scope; currently held across entire bulk loop including file writes
+Standalone plugin pipeline for Garmin activity data (.fit files). The existing
+Health pipeline is not modified — the FIT pipeline runs as an independent,
+parallel pipeline alongside it. Full concept in `docs/KONZEPT_fit_pipeline.md`.
+
+**Architecture:**
+- `garmin/fit/` — isolated pipeline: `fit_master.py`, `fit_api.py`, `fit_import.py`,
+  `fit_parser.py` (stable shell + adapter layer), `fit_normalizer.py`,
+  `fit_quality.py`, `fit_writer.py`
+- `garmin_data/fit/` — own directory: `raw/` (.fit originals), `summary/` (JSON),
+  `tracks/` (GeoJSON, GPS only on demand), `log/`
+- `fit_map.py` — peer broker alongside `field_map.py` and `context_map.py`;
+  `garmin_fit_map.py` registered beneath it
+- Two entry points: Bulk Import (manual .fit files) + Sync (Garmin Connect API)
+- Both paths merge at `fit_parser.py` — identical pipeline from there onward
+
+**Quality model:** matrix per activity — `file_integrity`, `session`, `gps`,
+`fields`, `duplicate`, `merge_candidate`, `extreme_event`, `event_type`.
+Merge candidates flagged silently at import; lazy hint shown when user opens
+the activity. No auto-merge — user decides always.
+
+**Documentation:** `docs/MAINTENANCE_FIT.md` and `docs/REFERENCE_FIT.md`
+created with first module and maintained in every session that touches FIT modules.
+
+*Pre-condition: PyQt6 migration (v1.5.4) complete for GUI control elements
+(Import/Sync buttons in `panel_outputs.py`). Pipeline itself has no blocker.*
 
 ---
 
-### v1.7.1 — PDF Report
+### v1.7.1 — FIT GUI Integration
+
+Import and Sync control elements for the FIT pipeline added to `panel_outputs.py`.
+Steuerungslogik only — no activity view, no dashboards, no map display.
+Those follow after PyQt6 migration is stable and the pipeline is proven.
+
+**What changes:**
+- `app/panel_outputs.py` — FIT Import button (Bulk), FIT Sync button;
+  same subprocess pattern, same log window as Health pipeline
+- `REFERENCE_GLOBAL.md` — two new ENV variables:
+  `GARMIN_FIT_IMPORT_PATH` (Bulk Import source folder),
+  `GARMIN_FIT_SYNC_ENABLED` (FIT Sync on/off, separate from Health Sync)
+- `compiler/build_manifest.py` — all new FIT modules added to `SHARED_SCRIPTS`
+
+**What does not change:**
+- Health pipeline controls — unchanged
+- `garmin_security.py` — existing token reused, no second auth path
+- `scheduler/daily_update.py` — FIT Sync path must be fully headless;
+  no GUI dependency allowed
+
+*Pre-condition: v1.7 FIT Pipeline stable.*
+
+---
+
+### v1.7.2 — Context Integration & Location Fallback
+
+Location-aware context collection extended with GPS data from FIT activities
+and a formal state tracking layer (`quality_context.json`).
+
+**Fallback chain (coordinates per day):**
+1. GPS start point from .fit (only when GPS track present and bounding box < 50 km)
+2. `quality_context.json` (travel block or home)
+3. `local_config.csv` (manual)
+4. GUI default (home location)
+
+**`quality_context.json` — new module `context_quality.py`**
+Single source of truth for which dates were fetched with which coordinates.
+Travel entries imported from `local_config.csv` on sync — CSV cleared to
+header-only after import. Removing a travel block triggers re-fetch of affected
+dates with home coordinates. Sole write authority: `context_quality.py`,
+symmetric to `garmin_quality.py`.
+Validation at CSV import: multiple travel blocks → hard stop. Overlapping
+date ranges → hard stop.
+
+**Extreme Events**
+Activity with GPS bounding box > 50 km flagged as `extreme_event: true` in
+`fit_quality_log.json`. Two categories:
+- Slow (< 50 km/h between any two GPS points) → context pull 1× per hour
+- Fast (> 50 km/h between two points) → context pull every 50 km
+
+Context pull runs automatically after merge confirmation (if merge candidate)
+or on import. Weather data written directly into activity summary JSON —
+not into `context_data/`. Implemented via `activity_context_plugin.py`
+(same APIs as context pipeline, output only differs).
+Historical data available without time limit (Open-Meteo) — no urgency.
+
+*Pre-condition: v1.7.1 stable. FIT pipeline delivering GPS tracks reliably.*
+
+---
+
+### v1.7.3 — PDF Report
 
 A standalone workflow for generating a formatted health report as PDF — separate from the Create Reports pipeline. Triggered via a dedicated **PDF Report** button in the Outputs section of the GUI (not via the Create Reports dialog, to avoid collision with Daily Update and the existing report workflow).
 
@@ -293,8 +395,6 @@ A standalone workflow for generating a formatted health report as PDF — separa
 **Page 1:** mandatory disclaimer — no medical product, no diagnosis, no therapy recommendation.
 
 **LLM step is fully optional** — report renders completely without it. No API calls, no cloud dependency, no model lock-in. User chooses their own LLM (Open WebUI, ChatGPT, anything).
-
-*Pre-condition: v1.7 FIT Pipeline stable — Activity data available via `field_map.py` broker before PDF Report is built.*
 
 ---
 
@@ -338,38 +438,6 @@ unpredictable in the same way Garmin API responses are.
 Prerequisite: v2.0 multi-source architecture stable.
 Natural companion to `context_dataformat.json` (schema definition, analogous
 to `garmin_dataformat.json`).
-
-**`quality_context.json` — Context Location State Tracking**
-
-Location-aware state tracking for the context pipeline — analogous to
-`quality_log.json` for the Garmin pipeline.
-
-Current problem: `context_writer.already_written()` is a file-existence check
-only. If a travel period is entered in `local_config.csv` after the affected
-days were already downloaded with home coordinates, the next sync silently
-skips those days — wrong weather/pollen data remains without any warning.
-
-Concept:
-- `quality_context.json` is the single source of truth for which dates were
-  fetched with which coordinates. Home location is the implicit default for
-  all dates not explicitly listed.
-- Travel entries are written into the JSON from `local_config.csv` on sync.
-  Each date in a travel block gets a `true`/`false` flag (fetched / pending).
-  After import, the CSV is cleared back to header-only.
-- Removing a travel block from the JSON triggers a re-fetch of the affected
-  dates with home coordinates (old `/raw/` files deleted first).
-- A backup of `quality_context.json` is written before every destructive
-  operation. Diff between backup and current JSON determines which dates need
-  correction.
-- Validation at CSV import time: multiple travel blocks in one CSV → hard
-  stop, no import. Overlapping date ranges with existing JSON blocks → hard
-  stop, no import.
-- Home coordinate changes → Schema 2 migration path (not in scope here).
-- Sole write authority: new `context_quality.py` module, symmetric to
-  `garmin_quality.py`. `context_collector.py` remains orchestrator and calls
-  `context_quality` — it does not write the JSON directly.
-
----
 
 **context_data/ Backup**
 
