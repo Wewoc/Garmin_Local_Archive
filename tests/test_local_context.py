@@ -881,9 +881,9 @@ check("checksum: 64 hex chars (SHA-256)",   len(_cs1) == 64)
 # _save_quality_log — sortiert days, speichert _checksum
 _data_save = {
     "first_day": "2024-01-01", "devices": [], "days": [
-        {"date": "2024-01-03", "quality": "high",   "reason": "ok"},
-        {"date": "2024-01-01", "quality": "medium",  "reason": "ok"},
-        {"date": "2024-01-02", "quality": "low",    "reason": "ok"},
+        {"date": "2024-01-03", "quality": "high",   "source": "api",    "reason": "ok"},
+        {"date": "2024-01-01", "quality": "medium", "source": "api",    "reason": "ok"},
+        {"date": "2024-01-02", "quality": "low",    "source": "legacy", "reason": "ok"},
     ]
 }
 quality_a._save_quality_log(_data_save, skip_backup=True)

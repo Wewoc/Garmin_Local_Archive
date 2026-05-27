@@ -301,15 +301,6 @@ check("load: first_day preserved",  data2["first_day"] == "2024-01-01")
 check("load: entries preserved",    len(data2["days"]) == 5)
 check("load: write field intact",   data2["days"][0]["write"] == True)
 
-# Migration: med → medium
-data_old = {"first_day": "2024-01-01", "devices": [], "days": [
-    {"date": "2023-06-01", "quality": "med", "reason": "old",
-     "recheck": False, "attempts": 0, "last_checked": "2023-06-01", "last_attempt": None}
-]}
-quality._save_quality_log(data_old)
-data_m = quality._load_quality_log()
-check("migration: med → medium",    data_m["days"][0]["quality"] == "medium")
-
 # Migration: write=null for old entries
 data_nowrite = {"first_day": "2024-01-01", "devices": [], "days": [
     {"date": "2023-07-01", "quality": "high", "reason": "old",
@@ -320,11 +311,14 @@ data_nw = quality._load_quality_log()
 check("migration: write=null added", data_nw["days"][0].get("write") is None)
 
 # Migration: source=legacy for old entries
-data_nosource = {"first_day": "2024-01-01", "devices": [], "days": [
+# Datensatz direkt in Datei schreiben (kein _save → kein _checksum) damit
+# _load_quality_log() den Checksum-Check überspringt und die Migration sauber läuft.
+import json as _json
+_nosource_data = {"first_day": "2024-01-01", "devices": [], "days": [
     {"date": "2023-08-01", "quality": "high", "reason": "old", "write": True,
      "recheck": False, "attempts": 0, "last_checked": "2023-08-01", "last_attempt": None}
 ]}
-quality._save_quality_log(data_nosource)
+cfg.QUALITY_LOG_FILE.write_text(_json.dumps(_nosource_data, indent=2), encoding="utf-8")
 data_ns = quality._load_quality_log()
 check("migration: source=legacy added", data_ns["days"][0].get("source") == "legacy")
 
@@ -1043,9 +1037,9 @@ check("checksum: 64 hex chars (SHA-256)",   len(_cs1) == 64)
 # _save_quality_log — sortiert days nach date, speichert _checksum
 _data_save = {
     "first_day": "2024-01-01", "devices": [], "days": [
-        {"date": "2024-01-03", "quality": "high",   "reason": "ok"},
-        {"date": "2024-01-01", "quality": "medium",  "reason": "ok"},
-        {"date": "2024-01-02", "quality": "low",    "reason": "ok"},
+        {"date": "2024-01-03", "quality": "high",   "source": "api",    "reason": "ok"},
+        {"date": "2024-01-01", "quality": "medium", "source": "api",    "reason": "ok"},
+        {"date": "2024-01-02", "quality": "low",    "source": "legacy", "reason": "ok"},
     ]
 }
 quality_a._save_quality_log(_data_save, skip_backup=True)

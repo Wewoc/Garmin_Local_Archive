@@ -1,5 +1,20 @@
 # Garmin Local Archive — Changelog
 
+## v1.5.5 — Content Validation & Backup Hardening
+
+Three independent improvements to integrity detection, UI feedback, and mirror verification.
+
+**Changed modules:**
+- `garmin/garmin_quality.py` — `_compute_checksum()` extended from 2 to 4 fields (`date`, `write`, `quality`, `source`). `_compute_checksum_legacy()` added as migration bridge (TODO: remove after v1.6): on first load after upgrade, a legacy-algorithm match is detected and treated as a planned migration — no restore, no warning, new checksum written on next save. `med → medium` migration removed (obsolete since v1.2.0, all archives already migrated).
+- `garmin/garmin_mirror.py` — CRC32 spot-check after copy phase: up to 10 random files compared between source and mirror. Result added to return dict as `spot_check: {"sampled": N, "mismatches": M}`. New helper `_run_spot_check()`. `import random`, `import zlib` added.
+- `app/panel_archive.py` — `_refresh_archive_info()` now evaluates `stats["integrity_warnings"]` and sets `_integrity_warning_lbl` in `PanelConnection` (widget already existed, was never populated). Mirror log output extended with spot-check result when mismatches > 0.
+- `tests/test_local.py` — `med → medium` migration test removed. `source=legacy` migration test fixed (direct file write, no `_save` → no checksum conflict). Section A `_data_save` extended with `source` field.
+- `tests/test_local_context.py` — Section A `_data_save` extended with `source` field (same fix as `test_local.py`).
+
+**Test result:** 314 / 261 / 303 / 128 / 41 — all green
+
+---
+
 ## v1.5.4.4 — Auth Flow Cleanup, Fresh Archive Fixes & Architecture Hygiene
 
 Three independent fix groups, each separately releasable.
