@@ -16,7 +16,9 @@ Uses project logger — no own logging setup.
 All paths from caller (garmin_app_base) — no garmin_config import needed.
 """
 
+import random
 import shutil
+import zlib
 import logging
 from pathlib import Path
 
@@ -111,16 +113,22 @@ def run_mirror(source_dir: Path, mirror_dir: Path) -> dict:
     # Remove empty directories from mirror (bottom-up)
     _remove_empty_dirs(mirror_dir)
 
+    # Spot-check — CRC32 comparison of up to 10 random files (v1.5.5)
+    spot_check = _run_spot_check(source_dir, mirror_dir, source_files)
+
     log.info(
         f"  mirror done: {copied} copied, {deleted} deleted, "
-        f"{skipped} skipped, {errors} errors"
+        f"{skipped} skipped, {errors} errors — "
+        f"spot-check: {spot_check['sampled']} sampled, "
+        f"{spot_check['mismatches']} mismatches"
     )
     return {
-        "copied":  copied,
-        "deleted": deleted,
-        "skipped": skipped,
-        "errors":  errors,
-        "ok":      errors == 0,
+        "copied":     copied,
+        "deleted":    deleted,
+        "skipped":    skipped,
+        "errors":     errors,
+        "ok":         errors == 0,
+        "spot_check": spot_check,
     }
 
 
@@ -173,3 +181,36 @@ def _remove_empty_dirs(root: Path) -> None:
                 folder.rmdir()
         except OSError:
             pass
+
+
+def _run_spot_check(
+    source_dir: Path,
+    mirror_dir: Path,
+    source_files: dict,
+) -> dict:
+    """
+    CRC32 spot-check: compares up to 10 randomly selected files
+    between source and mirror. Called after run_mirror() copy phase.
+
+    Returns dict:
+      sampled    int — number of files checked
+      mismatches int — files where CRC32 differed
+    """
+    keys = list(source_files.keys())
+    sample = random.sample(keys, min(10, len(keys))) if keys else []
+    mismatches = 0
+
+    for rel in sample:
+        src = source_dir / rel
+        dst = mirror_dir / rel
+        try:
+            src_crc = zlib.crc32(src.read_bytes()) & 0xFFFFFFFF
+            dst_crc = zlib.crc32(dst.read_bytes()) & 0xFFFFFFFF
+            if src_crc != dst_crc:
+                mismatches += 1
+                log.warning(f"  mirror spot-check: CRC32 mismatch — {rel}")
+        except Exception as e:
+            log.warning(f"  mirror spot-check: could not read {rel}: {e}")
+            mismatches += 1
+
+    return {"sampled": len(sample), "mismatches": mismatches}

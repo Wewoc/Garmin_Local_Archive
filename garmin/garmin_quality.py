@@ -109,10 +109,6 @@ def _load_quality_log() -> dict:
                 old = entry.pop("category")
                 entry["quality"] = "failed" if old == "error" else "low"
 
-            # Migrate 'med' → 'medium'
-            if entry.get("quality") == "med":
-                entry["quality"] = "medium"
-
             # Ensure all new fields exist
             if "recheck" not in entry:
                 q = entry.get("quality", "failed")
@@ -161,36 +157,46 @@ def _load_quality_log() -> dict:
         if stored_checksum and source == cfg.QUALITY_LOG_FILE:
             recomputed = _compute_checksum(data)
             if recomputed != stored_checksum:
-                years_affected = sorted({
-                    e["date"][:4] for e in data.get("days", [])
-                    if "date" in e
-                })
-                for yr in years_affected:
-                    integrity_warnings.append(f"log mismatch {yr}")
-                log.warning(
-                    f"  quality_log.json checksum mismatch — affected years: "
-                    f"{', '.join(years_affected)}"
-                )
-                # Auto-restore from latest backup (A7)
-                try:
-                    import garmin_backup as _backup
-                    restored = _backup.restore_quality_log()
-                    if restored is not None:
-                        # Save defective state first
-                        _save_defective_log(data)
-                        data = restored
-                        data["integrity_warnings"] = integrity_warnings
-                        log.info("  quality_log.json restored from backup.")
-                    else:
-                        log.warning(
-                            "  Auto-restore failed — no valid backup found. "
-                            "App continues with current (possibly corrupt) log."
-                        )
-                except ImportError:
-                    # garmin_backup not yet available (component B not built)
-                    log.warning(
-                        "  garmin_backup not available — skipping auto-restore."
+                # Check if mismatch is due to planned v1.5.5 algorithm upgrade
+                # (pre-v1.5.5 checksums covered only date + write).
+                # If legacy checksum matches, this is a migration — not corruption.
+                # New checksum will be written on next save. No restore, no warning.
+                if _compute_checksum_legacy(data) == stored_checksum:
+                    log.info(
+                        "  quality_log.json checksum algorithm upgraded (v1.5.5) — "
+                        "new checksum will be written on next save."
                     )
+                else:
+                    years_affected = sorted({
+                        e["date"][:4] for e in data.get("days", [])
+                        if "date" in e
+                    })
+                    for yr in years_affected:
+                        integrity_warnings.append(f"log mismatch {yr}")
+                    log.warning(
+                        f"  quality_log.json checksum mismatch — affected years: "
+                        f"{', '.join(years_affected)}"
+                    )
+                    # Auto-restore from latest backup (A7)
+                    try:
+                        import garmin_backup as _backup
+                        restored = _backup.restore_quality_log()
+                        if restored is not None:
+                            # Save defective state first
+                            _save_defective_log(data)
+                            data = restored
+                            data["integrity_warnings"] = integrity_warnings
+                            log.info("  quality_log.json restored from backup.")
+                        else:
+                            log.warning(
+                                "  Auto-restore failed — no valid backup found. "
+                                "App continues with current (possibly corrupt) log."
+                            )
+                    except ImportError:
+                        # garmin_backup not yet available (component B not built)
+                        log.warning(
+                            "  garmin_backup not available — skipping auto-restore."
+                        )
 
         data["integrity_warnings"] = integrity_warnings
         return data
@@ -249,8 +255,28 @@ def _save_quality_log(data: dict, skip_backup: bool = False) -> None:
 def _compute_checksum(data: dict) -> str:
     """
     Computes SHA-256 hash over stable core fields of each day entry:
-    date, quality, write — always present after a save, never added by migration.
-    This keeps the checksum stable across schema migrations that add new fields.
+    date, write, quality, source — always present after a save, never added by migration.
+    Extended in v1.5.5 to include quality + source (previously only date + write).
+    Migration bridge: _compute_checksum_legacy() detects pre-v1.5.5 checksums on first load.
+    """
+    stable = [
+        {
+            "date":    e.get("date"),
+            "quality": e.get("quality"),
+            "source":  e.get("source"),
+            "write":   e.get("write"),
+        }
+        for e in sorted(data.get("days", []), key=lambda e: e.get("date", ""))
+    ]
+    payload = json.dumps(stable, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+# TODO: remove after v1.6 — migration bridge for pre-v1.5.5 checksums (date + write only)
+def _compute_checksum_legacy(data: dict) -> str:
+    """
+    Replicates the pre-v1.5.5 checksum algorithm (date + write only).
+    Used once on load to detect planned algorithm upgrade — never for new saves.
     """
     stable = [
         {

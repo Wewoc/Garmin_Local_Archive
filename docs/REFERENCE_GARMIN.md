@@ -150,7 +150,8 @@ Schema cached at module import. Leaf node.
 | `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result)` | Adds or updates day entry. Downgrade protection: `high` stays `high` |
 | `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `medium`, `low`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk`, `integrity_warnings` |
-| `_compute_checksum(data)` | SHA-256 over stable core fields (`date` + `write`) of all day entries. Stable across migrations |
+| `_compute_checksum(data)` | SHA-256 over stable core fields (`date`, `write`, `quality`, `source`) of all day entries. Extended in v1.5.5. Migration bridge: `_compute_checksum_legacy()` (TODO: remove after v1.6) |
+| `_compute_checksum_legacy(data)` | Pre-v1.5.5 algorithm (`date` + `write` only). Used once on load to detect planned upgrade — never for new saves |
 | `_save_defective_log(data)` | Saves defective quality_log state to `AUTORESTORE_DIR` before auto-restore. Best-effort |
 | `_load_quality_log()` | Now returns `integrity_warnings: list[str]` — empty if checksum OK, year labels if mismatch |
 | `_save_quality_log(data, skip_backup)` | `skip_backup=True` suppresses backup trigger. Default `False` triggers `garmin_backup.backup_quality_log()` |
@@ -273,10 +274,11 @@ Sole Owner of the mirror operation. No `garmin_config` import — all paths from
 
 | Function | Purpose |
 |---|---|
-| `run_mirror(source_dir, mirror_dir)` | Mirrors `source_dir` → `mirror_dir`. Returns `{"copied", "deleted", "skipped", "errors", "ok"}` |
+| `run_mirror(source_dir, mirror_dir)` | Mirrors `source_dir` → `mirror_dir`. Returns `{"copied", "deleted", "skipped", "errors", "ok", "spot_check"}` |
 | `is_reachable(mirror_dir)` | Returns `True` if `mirror_dir` is set and exists. Used for button state |
 | `_collect_files(root)` | Returns `{relative_path → filesize}`. Skips `EXCLUDE_DIRS` |
 | `_remove_empty_dirs(root)` | Removes empty subdirectories bottom-up. Silent on error |
+| `_run_spot_check(source_dir, mirror_dir, source_files)` | CRC32 spot-check: up to 10 random files compared after copy phase. Returns `{"sampled": N, "mismatches": M}` |
 
 `EXCLUDE_DIRS = {"__pycache__", "garmin_token"}`
 

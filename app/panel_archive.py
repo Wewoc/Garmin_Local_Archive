@@ -73,6 +73,11 @@ class PanelArchive(QWidget):
             last_bulk = stats["last_bulk"] or "—"
 
             pc = self._app._panel_connection
+            integrity_warnings = stats.get("integrity_warnings", [])
+            integrity_text = (
+                "⚠  " + ", ".join(integrity_warnings)
+                if integrity_warnings else ""
+            )
 
             def _update():
                 pc._info_total.setText(f"Days: {total}")
@@ -84,6 +89,7 @@ class PanelArchive(QWidget):
                 pc._info_coverage.setText(f"Coverage: {coverage}")
                 pc._info_last_api.setText(f"Last API: {last_api}")
                 pc._info_last_bulk.setText(f"Last Bulk: {last_bulk}")
+                pc._integrity_warning_lbl.setText(integrity_text)
 
             self._app._dispatch(_update)
         except Exception:
@@ -430,6 +436,12 @@ class PanelArchive(QWidget):
                 )
                 if result["errors"]:
                     msg += f", {result['errors']} errors"
+                sc = result.get("spot_check", {})
+                if sc.get("mismatches", 0) > 0:
+                    msg += (
+                        f" — ⚠ spot-check: {sc['mismatches']}/{sc['sampled']} "
+                        f"mismatch(es)"
+                    )
                 self._app._log_bg(msg)
             except Exception as e:
                 self._app._log_bg(f"✗ Mirror failed: {e}")

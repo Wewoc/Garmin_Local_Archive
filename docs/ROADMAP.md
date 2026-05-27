@@ -6,35 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.4.4**
+**Currently stable — v1.5.5**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.5 — Content Validation
-
-### v1.5.5 — Content Validation & Backup Hardening
-
-Value range checks implemented in v1.4.3 (`garmin_validator`, `garmin_collector` downgrade logic). Remaining scope: dashboard integration of flagged days, flagged day markers in charts, outlier visualization.
-
-**Archive Integrity Alert (GUI)**
-
-Detection layer already exists: `check_raw_integrity()` in `garmin_backup.py` compares `quality_log` write-entries against actually present raw files; `integrity_warnings` in `garmin_quality.py` catches checksum mismatches with auto-restore. What is missing: a visible warning in the GUI status panel when either check fires. Users currently see nothing — warnings land only in the log.
-
-**Checksum Coverage Extension**
-
-`_compute_checksum()` in `garmin_quality.py` currently covers only `date` and `write` per entry. Extend to include `quality` and `source` — the two fields that drive dashboard rendering and recheck logic. Silent corruption of these fields currently passes the integrity check undetected.
-
-**summary/ Backup**
-
-`garmin_data/summary/` is the only active data stream without a backup path. `garmin_backup.py` covers `raw/` and `quality_log.json`; summary files are not included. While summary files are regenerable from raw via `regenerate_summaries.py`, that is a manual recovery step. Monthly ZIP consolidation analogous to raw backup added to `garmin_backup.py`.
-
-**Mirror Spot-Check**
-
-`garmin_mirror.py` compares by filename and filesize only — content integrity of copied files is not verified. After `run_mirror()`, 5–10 randomly selected files are cross-checked via CRC32 against the source. Result surfaced in the return dict as `spot_check: {sampled: N, mismatches: M}`.
 
 ---
 
