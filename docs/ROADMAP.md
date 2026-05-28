@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.5.1**
+**Currently stable — v1.5.5**
 
 ---
 
@@ -14,7 +14,7 @@
 
 ---
 
-### v1.5.5.2 — Quality Log Transaction API
+### v1.5.5.1 — Quality Log Transaction API
 
 Architectural hardening of `garmin_quality.py`. Eliminates the existing
 sole-write-authority violation in which `garmin_collector.py` calls private
@@ -40,11 +40,11 @@ State Owner.
 Collector still bypasses the State Owner at import time, the invariant is
 broken from the first line of the new module.
 
-*Pre-condition: v1.5.5.1 stable.*
+*Pre-condition: v1.5.5 stable.*
 
 ---
 
-### v1.5.5.3 — Unified Date Parser in Quality Module
+### v1.5.5.2 — Unified Date Parser in Quality Module
 
 Removes redundant date-extraction logic scattered across three functions in
 `garmin_quality.py`. Low risk, isolated change — natural companion to v1.5.5.1
@@ -60,11 +60,11 @@ since the same file is open.
 - Return values and behaviour of all three calling functions — identical output
 - No other modules touched
 
-*Pre-condition: v1.5.5.2 complete.*
+*Pre-condition: v1.5.5.1 complete.*
 
 ---
 
-### v1.5.5.4 — Test Infrastructure Consolidation
+### v1.5.5.3 — Test Infrastructure Consolidation
 
 Extracts duplicated test-tracking boilerplate from four manual test scripts
 into a shared support module. Done before new tests are added for v1.5.6 —
@@ -86,11 +86,11 @@ consolidating after further growth costs more.
 - Full pytest migration — deferred, no timeline
 - `mypy`, `bandit`, `pip-audit` — out of scope for this project stage
 
-*Pre-condition: v1.5.5.3 complete. All five test suites green before and after.*
+*Pre-condition: v1.5.5.2 complete. All five test suites green before and after.*
 
 ---
 
-### v1.5.5.5 — Sync Mode Input Validation & Daily Update Fix
+### v1.5.5.4 — Sync Mode Input Validation & Daily Update Fix
  
 Two related fixes for the same failure chain. `daily_update.py` triggered
 a `ValueError` crash by setting `sync_mode = range` with empty date fields
@@ -123,7 +123,7 @@ after login has already been established.
 - Gap detection logic in `daily_update.py` — unchanged
 - All other sync modes (`auto`, `recent`) in `garmin_sync.py` — unaffected
 - `panel_archive.py` — pre-flight check explicitly out of scope for this patch
-*Pre-condition: v1.5.5.4 complete.*
+*Pre-condition: v1.5.5.3 complete.*
 
 ---
 
