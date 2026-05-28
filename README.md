@@ -20,8 +20,17 @@ There's a second reason that matters more over time: Garmin degrades intraday da
 
 ## What makes this different
 
-This is not a data export script — it maintains a complete, consistent 
+This project is as much a statement as it is a tool.
+
+This is not a data export script — it maintains a complete, consistent
 local copy of your Garmin data over time. Your data stays in open formats, readable and analyzable with any tool you choose. Local AI, cloud AI, or no AI at all. **Your data, your call.**
+
+| Feature | Garmin Connect | Cloud-AI Bridges | **Garmin Local Archive** |
+| :--- | :--- | :--- | :--- |
+| **Data storage** | Garmin servers (USA) | US AI servers | **Your machine** |
+| **Privacy risk** | Medium | High (training data risk) | **Minimal** |
+| **Access** | Online only | Requires subscription | **100% offline** |
+| **History** | Erodes over time | Depends on source | **Permanent local copy** |
 
 **What this is not:**
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
