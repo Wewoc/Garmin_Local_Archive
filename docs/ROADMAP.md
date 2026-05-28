@@ -14,6 +14,119 @@
 
 ---
 
+### v1.5.5.1 — Quality Log Transaction API
+
+Architectural hardening of `garmin_quality.py`. Eliminates the existing
+sole-write-authority violation in which `garmin_collector.py` calls private
+internal methods directly and manages raw state dictionaries outside the
+State Owner.
+
+**What changes:**
+- `garmin/garmin_quality.py` — new public method `record_attempt(day, status,
+  error_msg, source)`. Encapsulates load → upsert → save as a single atomic
+  operation under the existing `QUALITY_LOCK`. Internal helpers `_upsert_quality()`
+  and `_save_quality_log()` remain private — no external caller permitted.
+- `garmin/garmin_collector.py` — all direct calls to `quality._upsert_quality()`
+  and `quality._save_quality_log()` replaced by `quality.record_attempt()`.
+  Collector no longer holds or mutates raw quality dictionaries.
+
+**What does not change:**
+- `QUALITY_LOCK` — existing lock, no changes to scope or ownership
+- `quality_log.json` schema — no structural changes
+- All other callers of `garmin_quality.py` — public read API unchanged
+
+**Why before v1.5.6:**
+`garmin_import_mirror.py` writes through existing owners by design. If the
+Collector still bypasses the State Owner at import time, the invariant is
+broken from the first line of the new module.
+
+*Pre-condition: v1.5.5 stable.*
+
+---
+
+### v1.5.5.2 — Unified Date Parser in Quality Module
+
+Removes redundant date-extraction logic scattered across three functions in
+`garmin_quality.py`. Low risk, isolated change — natural companion to v1.5.5.1
+since the same file is open.
+
+**What changes:**
+- `garmin/garmin_quality.py` — new private helper `_extract_date_from_filename(path, prefix)`.
+  Returns `date | None`. Replaces inline string slices and scattered `try/except`
+  blocks in `_backfill_quality_log()`, `get_low_quality_dates()`, and
+  `cleanup_before_first_day()`.
+
+**What does not change:**
+- Return values and behaviour of all three calling functions — identical output
+- No other modules touched
+
+*Pre-condition: v1.5.5.1 complete.*
+
+---
+
+### v1.5.5.3 — Test Infrastructure Consolidation
+
+Extracts duplicated test-tracking boilerplate from four manual test scripts
+into a shared support module. Done before new tests are added for v1.5.6 —
+consolidating after further growth costs more.
+
+**What changes:**
+- `tests/support.py` — new module. Contains `TestRunner` class with `check()`,
+  `section()`, and summary output. Single implementation, no duplication.
+- `tests/test_dashboard.py`, `tests/test_app_logic.py`, `tests/test_local.py`,
+  `tests/test_local_context.py` — import `TestRunner` from `support.py`.
+  Inline `_pass / _fail / _failures / check()` blocks removed.
+
+**What does not change:**
+- `tests/test_qt_app.py` — already uses pytest, not affected
+- Test logic and assertions — behaviour identical, only the runner is centralised
+- Test counts — all existing checks preserved
+
+**Explicitly not included:**
+- Full pytest migration — deferred, no timeline
+- `mypy`, `bandit`, `pip-audit` — out of scope for this project stage
+
+*Pre-condition: v1.5.5.2 complete. All five test suites green before and after.*
+
+---
+
+### v1.5.5.4 — Sync Mode Input Validation & Daily Update Fix
+ 
+Two related fixes for the same failure chain. `daily_update.py` triggered
+a `ValueError` crash by setting `sync_mode = range` with empty date fields
+in edge cases. Both sides are hardened independently.
+ 
+**Root cause:** `_build_env()` in `daily_update.py` sets `GARMIN_SYNC_MODE = range`
+on both branches — including the fallback path. `garmin_config.py` uses
+`"2024-01-01"` / `"2024-12-31"` as hardcoded defaults for `SYNC_FROM`/`SYNC_TO`
+when the ENV keys are missing or empty. If the ENV keys are set to empty strings,
+`garmin_sync.py` receives an empty isoformat string and crashes with `ValueError`
+after login has already been established.
+ 
+**What changes:**
+- `scheduler/daily_update.py` — `_build_env()`: both branches replaced with
+  `GARMIN_SYNC_MODE = recent`. `GARMIN_SYNC_START` and `GARMIN_SYNC_END` removed
+  from the ENV dict entirely — `recent` mode does not use them.
+  `GARMIN_DAYS_BACK` set to cover the detected gap range. Daily Update never
+  falls back to `range` or `auto` — `recent` is the only permitted mode.
+- `garmin/garmin_sync.py` — `resolve_date_range()`: defensive guard raises
+  `ConfigurationError` with a human-readable message if `sync_mode = range`
+  and either `SYNC_FROM` or `SYNC_TO` is empty or not a valid ISO date.
+  Fires before any API call.
+- `app/panel_outputs.py` — `on_done()` in `_run_dashboards()`: `os.startfile(output_dir)`
+  removed. Dashboards are visible in Tab 2 (QWebEngineView) immediately after build —
+  automatic folder open is redundant since v1.5.4.2. "Open Data Folder" button
+  remains available for manual access.
+**What does not change:**
+- `garmin_config.py` — `SYNC_FROM`/`SYNC_TO` default values unchanged;
+  they are only read when `sync_mode = range`, which `daily_update` no longer sets
+- Gap detection logic in `daily_update.py` — unchanged
+- All other sync modes (`auto`, `recent`) in `garmin_sync.py` — unaffected
+- `panel_archive.py` — pre-flight check explicitly out of scope for this patch
+*Pre-condition: v1.5.5.3 complete.*
+
+---
+
 ### v1.5.6 — Mirror Import
 
 Multi-device support via import from a mirrored archive. Extends the existing
