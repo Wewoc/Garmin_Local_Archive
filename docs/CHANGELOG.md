@@ -1,7 +1,46 @@
 # Garmin Local Archive — Changelog
 
-## v1.5.5 — Content Validation & Backup Hardening
+## v1.5.5.1 — Quality Module Refactoring
 
+`garmin_quality.py` (~934 lines) converted to a facade. Implementation split into five sub-modules under `garmin/quality/`. All callers remain unchanged — the facade re-exports every public symbol identically.
+
+**New modules:**
+- `garmin/quality/__init__.py` — package init, empty
+- `garmin/quality/_io.py` — Load, Save, Checksum, Defective log, `_safe_get`, `_parse_device_date` alias
+- `garmin/quality/_assess.py` — `assess_quality`, `assess_quality_fields`
+- `garmin/quality/_scan.py` — `get_low_quality_dates`, `_backfill_quality_log`
+- `garmin/quality/_maint.py` — `_QUALITY_RANK`, `_upsert_quality`, `_set_first_day`, `cleanup_before_first_day`
+- `garmin/quality/_stats.py` — `get_archive_stats`
+
+**Changed modules:**
+- `garmin/garmin_quality.py` — converted to facade; all logic delegated to sub-modules via flat imports (`from quality._io import ...`). `QUALITY_LOCK` remains here — never in sub-modules.
+- `compiler/build_manifest.py` — six new entries in `SHARED_SCRIPTS`; signature check for `garmin_quality.py` updated to `from quality._maint import` + `QUALITY_LOCK`.
+
+**Architecture note:** Sub-modules use flat imports (`from quality._io import ...`, not relative `from ._io import ...`) because `garmin/` is on `sys.path` directly — same pattern as `context/`, `maps/`, `dashboards/`.
+
+**Test result:** 314 / 261 / 303 / 128 / 41 — all green · T2 + T3 build clean · GUI verified
+
+---
+
+`garmin_quality.py` (~934 lines) converted to a facade. Implementation split into five sub-modules under `garmin/quality/`. All callers remain unchanged — the facade re-exports every public symbol identically.
+
+**New modules:**
+- `garmin/quality/__init__.py` — package init, empty
+- `garmin/quality/_io.py` — Load, Save, Checksum, Defective log, `_safe_get`, `_parse_device_date` alias
+- `garmin/quality/_assess.py` — `assess_quality`, `assess_quality_fields`
+- `garmin/quality/_scan.py` — `get_low_quality_dates`, `_backfill_quality_log`
+- `garmin/quality/_maint.py` — `_QUALITY_RANK`, `_upsert_quality`, `_set_first_day`, `cleanup_before_first_day`
+- `garmin/quality/_stats.py` — `get_archive_stats`
+
+**Changed modules:**
+- `garmin/garmin_quality.py` — converted to facade; all logic delegated to sub-modules via flat imports (`from quality._io import ...`). `QUALITY_LOCK` remains here — never in sub-modules.
+- `compiler/build_manifest.py` — six new entries in `SHARED_SCRIPTS`; signature check for `garmin_quality.py` updated to `from quality._maint import` + `QUALITY_LOCK`.
+
+**Architecture note:** Sub-modules use flat imports (`from quality._io import ...`, not relative `from ._io import ...`) because `garmin/` is on `sys.path` directly — same pattern as `context/`, `maps/`, `dashboards/`.
+
+**Test result:** 314 / 261 / 303 / 128 / 41 — all green · T2 + T3 build clean · GUI verified
+
+---
 Three independent improvements to integrity detection, UI feedback, and mirror verification.
 
 **Changed modules:**
