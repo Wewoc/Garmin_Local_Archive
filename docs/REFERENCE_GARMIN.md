@@ -145,6 +145,8 @@ Schema cached at module import. Leaf node.
 
 | Function | Purpose |
 |---|---|
+*Implementation split into `garmin/quality/_io.py`, `_assess.py`, `_scan.py`, `_maint.py`, `_stats.py` — all symbols re-exported from this facade. Callers import from `garmin_quality` as before.*
+
 | `QUALITY_LOCK` | `threading.Lock()` — acquire around all load-modify-save sequences |
 | `assess_quality(raw)` | Returns `"high"` / `"medium"` / `"low"` / `"failed"`. Pure function |
 | `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function |

@@ -40,7 +40,7 @@ garmin_app.py (GUI)
 | Module | Sole write authority |
 |---|---|
 | `garmin_writer.py` | `raw/` and `summary/` |
-| `garmin_quality.py` | `quality_log.json` |
+| `garmin_quality.py` (facade → `quality/`) | `quality_log.json` |
 | `garmin_security.py` | `garmin_token.enc` |
 | `garmin_backup.py` | `garmin_data/backup/` |
 | `garmin_mirror.py` | mirror operation (target path) |

@@ -135,7 +135,14 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
 │   ├── garmin_dataformat.json
 │   ├── garmin_import.py
 │   ├── garmin_normalizer.py
-│   ├── garmin_quality.py
+│   ├── garmin_quality.py       ← Facade — delegates to quality/
+│   ├── quality/                ← Quality sub-modules (v1.5.5.1+)
+│   │   ├── __init__.py
+│   │   ├── _io.py
+│   │   ├── _assess.py
+│   │   ├── _scan.py
+│   │   ├── _maint.py
+│   │   └── _stats.py
 │   ├── garmin_security.py
 │   ├── garmin_sync.py
 │   ├── garmin_utils.py
