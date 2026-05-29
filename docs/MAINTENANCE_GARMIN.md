@@ -31,11 +31,17 @@ garmin_app.py (GUI)
               │       └── garmin_quality.assess_quality()
               │     downgrade check                        → skip write if new < existing
               │     garmin_collector._write_assessed()     → skipped on downgrade
-              │     garmin_quality._upsert_quality()
-              └── garmin_quality._save_quality_log()       (after every day)
+              │     garmin_quality.record_attempt()        (upsert + save, atomic)
+              └── garmin_quality._save_quality_log()       (final safety-net save after loop)
 ```
 
-### Module ownership
+### garmin/quality/ — known design decisions
+
+`_safe_get()` is defined separately in both `_io.py` and `_assess.py` — intentional
+duplication to avoid a cross-import between the two base modules. Both are leaf nodes
+within the quality package; neither should import the other. If this redundancy becomes
+a maintenance concern, `garmin_utils.py` is the correct consolidation point (v1.5.5.3
+or later).
 
 | Module | Sole write authority |
 |---|---|

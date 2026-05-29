@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.5**
+**Currently stable — v1.5.5.2**
 
 ---
 
@@ -14,37 +14,7 @@
 
 ---
 
-### v1.5.5.1 — Quality Log Transaction API
-
-Architectural hardening of `garmin_quality.py`. Eliminates the existing
-sole-write-authority violation in which `garmin_collector.py` calls private
-internal methods directly and manages raw state dictionaries outside the
-State Owner.
-
-**What changes:**
-- `garmin/garmin_quality.py` — new public method `record_attempt(day, status,
-  error_msg, source)`. Encapsulates load → upsert → save as a single atomic
-  operation under the existing `QUALITY_LOCK`. Internal helpers `_upsert_quality()`
-  and `_save_quality_log()` remain private — no external caller permitted.
-- `garmin/garmin_collector.py` — all direct calls to `quality._upsert_quality()`
-  and `quality._save_quality_log()` replaced by `quality.record_attempt()`.
-  Collector no longer holds or mutates raw quality dictionaries.
-
-**What does not change:**
-- `QUALITY_LOCK` — existing lock, no changes to scope or ownership
-- `quality_log.json` schema — no structural changes
-- All other callers of `garmin_quality.py` — public read API unchanged
-
-**Why before v1.5.6:**
-`garmin_import_mirror.py` writes through existing owners by design. If the
-Collector still bypasses the State Owner at import time, the invariant is
-broken from the first line of the new module.
-
-*Pre-condition: v1.5.5 stable.*
-
----
-
-### v1.5.5.2 — Unified Date Parser in Quality Module
+### v1.5.5.3 — Unified Date Parser in Quality Module
 
 Removes redundant date-extraction logic scattered across three functions in
 `garmin_quality.py`. Low risk, isolated change — natural companion to v1.5.5.1
@@ -60,11 +30,11 @@ since the same file is open.
 - Return values and behaviour of all three calling functions — identical output
 - No other modules touched
 
-*Pre-condition: v1.5.5.1 complete.*
+*Pre-condition: v1.5.5.2 complete.*
 
 ---
 
-### v1.5.5.3 — Test Infrastructure Consolidation
+### v1.5.5.4 — Test Infrastructure Consolidation
 
 Extracts duplicated test-tracking boilerplate from four manual test scripts
 into a shared support module. Done before new tests are added for v1.5.6 —
@@ -86,11 +56,11 @@ consolidating after further growth costs more.
 - Full pytest migration — deferred, no timeline
 - `mypy`, `bandit`, `pip-audit` — out of scope for this project stage
 
-*Pre-condition: v1.5.5.2 complete. All five test suites green before and after.*
+*Pre-condition: v1.5.5.3 complete. All five test suites green before and after.*
 
 ---
 
-### v1.5.5.4 — Sync Mode Input Validation & Daily Update Fix
+### v1.5.5.5 — Sync Mode Input Validation & Daily Update Fix
  
 Two related fixes for the same failure chain. `daily_update.py` triggered
 a `ValueError` crash by setting `sync_mode = range` with empty date fields
@@ -123,7 +93,7 @@ after login has already been established.
 - Gap detection logic in `daily_update.py` — unchanged
 - All other sync modes (`auto`, `recent`) in `garmin_sync.py` — unaffected
 - `panel_archive.py` — pre-flight check explicitly out of scope for this patch
-*Pre-condition: v1.5.5.3 complete.*
+*Pre-condition: v1.5.5.4 complete.*
 
 ---
 
@@ -256,6 +226,28 @@ Third tab in the existing `QTabWidget` structure (Tab 1 "Actions", Tab 2 "Dashbo
 - Offline fallback: if AG Grid fails to load, a plain HTML table is rendered from the XLSX data as fallback.
 
 **Licence:** AG Grid Community is MIT-licenced without restrictions. Handsontable CE is explicitly excluded — Commons Clause makes it incompatible with redistribution.
+
+---
+
+### v1.5.8 — Standalone EXE: --onedir Migration
+
+Replaces `--onefile` with `--onedir` in `build_standalone.py` for T3.
+Eliminates the per-launch extraction to `%TEMP%\_MEIxxxxxx` — all files
+sit permanently unpacked next to the EXE. Startup time for T3 drops
+significantly as a result.
+
+**What changes:**
+- `compiler/build_standalone.py` — `--onefile` → `--onedir`
+- `build_combined_zip()` — ZIP logic updated to pack the output folder
+  instead of a single EXE file
+- `tests/test_build_output.py` — T3 checks updated for folder structure
+
+**What does not change:**
+- T2 (`build.py`) — stays `--onefile`, unaffected
+- Total installed size — identical, only distribution format changes
+- User workflow — ZIP download unchanged, EXE name unchanged
+
+*Pre-condition: v1.5.5.7 stable — or skipped if no v1.5.5.7 planned.*
 
 ---
 
@@ -484,6 +476,27 @@ A standalone workflow for generating a formatted health report as PDF — separa
 **Page 1:** mandatory disclaimer — no medical product, no diagnosis, no therapy recommendation.
 
 **LLM step is fully optional** — report renders completely without it. No API calls, no cloud dependency, no model lock-in. User chooses their own LLM (Open WebUI, ChatGPT, anything).
+
+---
+
+### v1.8 — Integration Test Suite (Post-FIT)
+
+Full integration test suite against the built EXE using synthetic fixture data.
+Four suites parallel to the pipeline structure:
+
+- Health — `garmin_raw` / quality / backup / integrity
+- FIT — `fit_raw` / fit_quality / fit_writer
+- Context — weather / pollen / brightsky
+- Output — dashboard build / export / archive stats
+
+`test_fixture/` — synthetic mini-archive with known quality levels,
+intentionally corrupted JSONs, prepared backup ZIPs. Validates that
+the pipeline actually runs inside the bundle — not just that files are present.
+
+In the same pass: harden existing test suites — close gaps that have grown
+since v1.3.
+
+*Pre-condition: v1.7 FIT Pipeline stable.*
 
 ---
 

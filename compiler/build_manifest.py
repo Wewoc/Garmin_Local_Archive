@@ -135,6 +135,14 @@ REQUIRED_DATA_FILES = [
     "garmin_dataformat.json",
 ]
 
+# ── Asset files (non-Python, non-garmin — path relative to root) ──────────────
+# Each entry: (src_relative_to_root, dest_folder_in_zip_or_embed)
+# Optional — build continues with warning if missing.
+
+ASSET_FILES = [
+    ("screenshots/splash_base.png", "screenshots"),
+]
+
 # ── Runtime dependencies (Target 3 only — must be installed for bundling) ─────
 
 RUNTIME_DEPS = [

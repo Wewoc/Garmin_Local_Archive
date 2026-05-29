@@ -11,18 +11,28 @@ For shared paths, constants, and project structure see `REFERENCE_GLOBAL.md`.
 garmin_app.py (GUI)
   └── _build_env() / _apply_env()
         └── garmin_collector.main()
+              ├── garmin_quality._load_quality_log()
+              ├── garmin_quality._backfill_quality_log()   (first run only)
+              ├── garmin_quality.get_low_quality_dates()
+              ├── bulk recheck flagging                    (source:bulk + ≤180d → recheck:true)
               ├── garmin_api.login()
+              ├── garmin_api.get_devices()
               ├── garmin_quality._set_first_day()
+              ├── garmin_sync.get_local_dates()            (bulk_upgrade_dates always excluded)
               ├── garmin_sync.resolve_date_range()
+              ├── garmin_collector._run_self_healing()
               ├── per day:
-              │     garmin_api.fetch_raw()
-              │     garmin_validator.validate()          ← out_of_range check (v1.4.3)
-              │     garmin_normalizer.normalize() + summarize()
-              │     garmin_quality.assess_quality()      ← pure, no validator param
-              │     [range-warning downgrade in collector if >3 out_of_range]
-              │     garmin_writer.write_day()
-              │     garmin_quality._upsert_quality()
-              └── garmin_quality._save_quality_log()
+              │     garmin_collector._fetch_and_assess()
+              │       ├── garmin_api.fetch_raw()
+              │       ├── garmin_validator.validate()      → label:failed if critical
+              │       ├── garmin_normalizer.normalize()
+              │       ├── garmin_normalizer.summarize()
+              │       └── garmin_quality.assess_quality()  ← pure, no validator param
+              │     [range-warning downgrade if >3 out_of_range]
+              │     downgrade check                        → skip write if new < existing
+              │     garmin_collector._write_assessed()     → skipped on downgrade
+              │     garmin_quality.record_attempt()        (upsert + save, atomic)
+              └── garmin_quality._save_quality_log()       (final safety-net save after loop)
 ```
 
 **Invariants:**
@@ -150,6 +160,7 @@ Schema cached at module import. Leaf node.
 | `QUALITY_LOCK` | `threading.Lock()` — acquire around all load-modify-save sequences |
 | `assess_quality(raw)` | Returns `"high"` / `"medium"` / `"low"` / `"failed"`. Pure function |
 | `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function |
+| `record_attempt(data, day, label, reason, written, source, fields, validator_result)` | Public API — atomically calls `_upsert_quality` + `_save_quality_log`. Caller must hold `QUALITY_LOCK`. Use instead of the pair directly — except where manual state patch follows upsert (`# INTENTIONAL DIRECT CALL`) |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result)` | Adds or updates day entry. Downgrade protection: `high` stays `high` |
 | `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `medium`, `low`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk`, `integrity_warnings` |
 | `_compute_checksum(data)` | SHA-256 over stable core fields (`date`, `write`, `quality`, `source`) of all day entries. Extended in v1.5.5. Migration bridge: `_compute_checksum_legacy()` (TODO: remove after v1.6) |
