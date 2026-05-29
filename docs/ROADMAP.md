@@ -14,23 +14,48 @@
 
 ---
 
-### v1.5.5.3 — Unified Date Parser in Quality Module
+### v1.5.5.3 — Architecture Repair + Quality Module Cleanup
 
-Removes redundant date-extraction logic scattered across three functions in
-`garmin_quality.py`. Low risk, isolated change — natural companion to v1.5.5.1
-since the same file is open.
+Four findings from the pre-milestone architecture health check.
+`garmin_quality.py` is already open for the date parser — the sole-write
+fix lands in the same session. Context and test findings complete the pass.
 
 **What changes:**
+
 - `garmin/garmin_quality.py` — new private helper `_extract_date_from_filename(path, prefix)`.
   Returns `date | None`. Replaces inline string slices and scattered `try/except`
   blocks in `_backfill_quality_log()`, `get_low_quality_dates()`, and
   `cleanup_before_first_day()`.
 
-**What does not change:**
-- Return values and behaviour of all three calling functions — identical output
-- No other modules touched
+- `app/panel_archive.py` — `do_delete()` (Clean Archive): direct
+  `quality_log.write_text()` replaced by routing through `garmin_quality`.
+  Restores Sole-Write-Authority, QUALITY_LOCK coverage, and checksum
+  recomputation on every write. Regression introduced during v1.5.4
+  PyQt6 migration — v1.2.0 changelog explicitly required this routing.
+  ⚠ Pre-session: verify whether `cleanup_before_first_day()` covers the
+  full clean operation (raw/ + summary/ file deletion + log pruning) or
+  whether a split call is needed.
 
-*Pre-condition: v1.5.5.2 complete.*
+- `maps/weather_map.py`, `pollen_map.py`, `brightsky_map.py`,
+  `airquality_map.py` — `except (json.JSONDecodeError, OSError)` blocks
+  in `_read_field()` extended with `log.warning`. Corrupt or missing
+  context files currently produce silent `None` values with no observable
+  trace. Applies identically to all four map modules.
+
+- `tests/test_qt_app.py` — AST-based GUI-freedom guard added for
+  `scheduler/daily_update.py`. Checks that neither tkinter nor Qt imports
+  are present. Analogous to the existing Settings/Controller guard in
+  `TestQtSmoke`. Regression safety — headless path must remain fully
+  GUI-free across all future changes.
+
+**What does not change:**
+- Return values and behaviour of all three calling functions in
+  `garmin_quality.py` — identical output
+- Clean Archive behaviour visible to the user — identical
+- Context map routing and field resolution — unchanged
+- All existing test assertions — preserved
+
+*Pre-condition: v1.5.5.2 complete. All five test suites green before and after.*
 
 ---
 
