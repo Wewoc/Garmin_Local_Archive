@@ -489,9 +489,9 @@ def main():
 
         new_low = quality.get_low_quality_dates(cfg.RAW_DIR, known_dates=known_dates)
         for day, q in new_low.items():
-            quality._upsert_quality(quality_data, day, q,
-                                    f"Quality: {q} — insufficient data from Garmin API",
-                                    written=True)
+            quality.record_attempt(quality_data, day, q,
+                                   f"Quality: {q} — insufficient data from Garmin API",
+                                   written=True)
 
         quality._save_quality_log(quality_data)
         recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))
@@ -625,6 +625,8 @@ def main():
                     # API permanently delivers less than the bulk export for this day.
                     bulk_attempts = existing_entry.get("attempts", 0) + 1 if existing_source == "bulk" else existing_entry.get("attempts", 0)
                     bulk_recheck  = (existing_source == "bulk" and bulk_attempts < 2)
+                    # INTENTIONAL DIRECT CALL — record_attempt cannot be used here:
+                    # recheck + attempts are manually patched after upsert (bulk downgrade logic).
                     quality._upsert_quality(quality_data, day, existing_label,
                                             f"Quality: {existing_label} — API downgrade rejected ({bulk_attempts} attempts)" if existing_source == "bulk" else f"Quality: {existing_label} — API downgrade rejected",
                                             written=existing_entry.get("write", False),
@@ -645,10 +647,9 @@ def main():
                 written = _write_assessed(normalized, summary, date_str, label)
                 reason  = (f"Quality: {label}" if label in ("high", "medium")
                            else f"Quality: {label} — insufficient data from Garmin API")
-                quality._upsert_quality(quality_data, day, label, reason,
-                                        written=written, source="api", fields=fields,
-                                        validator_result=val_result)
-                quality._save_quality_log(quality_data)
+                quality.record_attempt(quality_data, day, label, reason,
+                                       written=written, source="api", fields=fields,
+                                       validator_result=val_result)
                 if label in ("low", "failed"):
                     _session_had_incomplete = True
                     log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
@@ -657,8 +658,7 @@ def main():
                 ok += 1
             except Exception as e:
                 log.error(f"    Error on {day}: {e}")
-                quality._upsert_quality(quality_data, day, "failed", str(e), written=False, source="api")
-                quality._save_quality_log(quality_data)
+                quality.record_attempt(quality_data, day, "failed", str(e), written=False, source="api")
                 failed += 1
                 _session_had_errors = True
 

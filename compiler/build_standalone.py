@@ -135,6 +135,14 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True):
         print(f"  ✗ garmin_dataformat.json not found in garmin/ — aborting build")
         sys.exit(1)
 
+    # Embed optional asset files (e.g. splash_base.png)
+    for asset_src, asset_dest in manifest.ASSET_FILES:
+        src = root / asset_src
+        if src.exists():
+            add_data_args += ["--add-data", f"{src}{sep}{asset_dest}"]
+        else:
+            print(f"  ⚠ Asset not found: {asset_src} — skipped (optional)")
+
     hidden = [
         "garminconnect",
         "openpyxl",

@@ -1,5 +1,42 @@
 # Garmin Local Archive — Changelog
 
+---
+
+## v1.5.5.2 — Splash Screen + Quality Log Transaction API
+
+Splash screen added to both GUI entry points. Appears immediately after PyQt6
+initializes — version number and animated progress bar painted dynamically at
+runtime onto a base image. No manual asset update required on future releases.
+Internally, quality log writes are now atomic: `record_attempt()` replaces the
+scattered `_upsert_quality + _save_quality_log` call pattern in the collector.
+
+**Changed modules:**
+- `garmin_app_base.py` — new module-level functions `_splash_base_path()` and
+  `build_splash_pixmap(version)`. Shared by both entry points. Paints title,
+  version, and progress bar track onto `screenshots/splash_base.png` at runtime.
+- `garmin_app.py` — `__main__` block: `QSplashScreen` + `QProgressBar` with
+  2.5s minimum display time via `QEventLoop`
+- `garmin_app_standalone.py` — identical to `garmin_app.py` (explicit)
+- `compiler/build_manifest.py` — new `ASSET_FILES` list for optional build assets
+- `compiler/build_standalone.py` — iterates `ASSET_FILES` for `--add-data`;
+  duplicate hardcoded splash block removed
+- `compiler/build.py` — iterates `ASSET_FILES` instead of hardcoded splash path
+- `garmin/quality/_maint.py` — new `record_attempt()`: atomically calls
+  `_upsert_quality` + `_save_quality_log` as a single unit. Caller must hold
+  `QUALITY_LOCK`. Lazy import of `_save_quality_log` avoids cross-module cycle.
+- `garmin/garmin_quality.py` — `record_attempt` added to facade re-exports
+- `garmin/garmin_collector.py` — three `_upsert_quality + _save_quality_log`
+  pairs replaced with `record_attempt()`. Downgrade-bulk path kept as direct
+  call (`# INTENTIONAL DIRECT CALL`) — manual recheck/attempts patch after
+  upsert makes atomic wrapper unsuitable there.
+
+**New assets:**
+- `screenshots/splash_base.png` — base image (frame without text); painted at runtime
+
+**Test result:** 314 / 261 / 303 / 128 / 41 — all green
+
+---
+
 ## v1.5.5.1 — Quality Module Refactoring
 
 `garmin_quality.py` (~934 lines) converted to a facade. Implementation split into five sub-modules under `garmin/quality/`. All callers remain unchanged — the facade re-exports every public symbol identically.
