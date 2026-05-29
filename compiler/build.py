@@ -106,6 +106,15 @@ def build_exe(root: Path):
     entry_point = root / "garmin_app.py"
     print(f"\n[3/4] Building {APP_NAME}.exe (Target 2 — Python required) ...")
 
+    sep = ";" if sys.platform == "win32" else ":"
+    asset_data = []
+    for asset_src, asset_dest in manifest.ASSET_FILES:
+        src = root / asset_src
+        if src.exists():
+            asset_data += ["--add-data", f"{src}{sep}{asset_dest}"]
+        else:
+            print(f"  ⚠ Asset not found: {asset_src} — skipped (optional)")
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
@@ -127,6 +136,7 @@ def build_exe(root: Path):
         "--distpath", str(root),
         "--workpath", str(root / "build"),
         "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/
+        *asset_data,
         str(entry_point),
     ]
     result = subprocess.run(cmd, cwd=str(root))

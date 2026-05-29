@@ -115,6 +115,26 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Public Transaction API
+# ══════════════════════════════════════════════════════════════════════════════
+
+def record_attempt(data: dict, day, label: str, reason: str,
+                   written: bool = None, source: str = "api",
+                   fields: dict = None,
+                   validator_result: dict = None) -> None:
+    """
+    Public API — atomically upserts a quality entry and persists the log.
+    Caller must already hold QUALITY_LOCK.
+    Replaces the _upsert_quality + _save_quality_log call pattern.
+    """
+    from quality._io import _save_quality_log
+    _upsert_quality(data, day, label, reason,
+                    written=written, source=source,
+                    fields=fields, validator_result=validator_result)
+    _save_quality_log(data)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  first_day
 # ══════════════════════════════════════════════════════════════════════════════
 

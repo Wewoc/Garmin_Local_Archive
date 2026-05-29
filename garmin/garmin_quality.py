@@ -57,6 +57,7 @@ from quality._maint import (
     _upsert_quality,
     _set_first_day,
     cleanup_before_first_day,
+    record_attempt,
 )
 
 from quality._stats import (
