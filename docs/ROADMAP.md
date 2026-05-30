@@ -407,6 +407,36 @@ A dialog in `panel_outputs.py` that replaces the fixed specialist list with free
 
 ---
 
+### v1.6.5 — Live Tracking Dashboard
+
+Extends the sync path with a lightweight live fetch for the current day. The result is stored in `garmin_data/live/live.json` and rendered as a standalone dashboard in the Dashboards tab — not part of Create Reports.
+
+**What is new:**
+
+- `garmin_data/live/live.json` — snapshot of the current day: Body Battery intraday series, Heart Rate intraday series, steps, stress + sync timestamp
+- `garmin/garmin_live_fetch.py` — lightweight module: fetches today's intraday data via the `garminconnect` API only; no archive write access, no `quality_log` contact
+- `dashboards/live_tracking_html_dash.py` — specialist: reads `live.json` + last sleep entry from the archive, returns a neutral dict
+- `live_tracking.html` — generated dashboard: upper half shows today's progression (Body Battery, HR, steps, stress); lower half shows last night analogous to the Sleep Dashboard
+- `panel_actions.py` — new "Update Live" button in the Life Tracking area (right side); triggers `garmin_live_fetch.py` and re-renders `live_tracking.html`
+
+**Triggers:**
+
+- End of "Sync Garmin" → live fetch appended automatically
+- "Update Live" button → live fetch only, no archive sync
+- "Create Reports" → Live Tracking is **not** included
+
+**What does not change:**
+
+- Archive pipeline — no access to `quality_log`, `raw/`, `summary/`
+- Existing dashboards — unaffected
+- `field_map.py` — no new broker entry required; `garmin_live_fetch.py` calls the API directly (intraday is not an archived field)
+
+**Invariant:** `garmin_live_fetch.py` writes exclusively to `garmin_data/live/`. No write access to any other directory.
+
+**Pre-condition:** none — independent of the v1.6 Render Registry; `live_tracking_html_dash.py` can use the existing HTML plotter path.
+
+---
+
 ## Planned — v1.7
 
 ### v1.7 — FIT Pipeline
