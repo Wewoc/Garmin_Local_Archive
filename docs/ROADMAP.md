@@ -55,37 +55,58 @@ fix lands in the same session. Context and test findings complete the pass.
 - Context map routing and field resolution — unchanged
 - All existing test assertions — preserved
 
-*Pre-condition: v1.5.5.2 complete. All five test suites green before and after.*
-
 ---
 
-### v1.5.5.4 — Test Infrastructure Consolidation
+### v1.5.5.4 — Test Infrastructure Consolidation + Critical Archive Protocol
 
-Extracts duplicated test-tracking boilerplate from four manual test scripts
-into a shared support module. Done before new tests are added for v1.5.6 —
-consolidating after further growth costs more.
+Combines two thematically related test infrastructure improvements into one release.
 
-**What changes:**
-- `tests/support.py` — new module. Contains `TestRunner` class with `check()`,
-  `section()`, and summary output. Single implementation, no duplication.
-- `tests/test_dashboard.py`, `tests/test_app_logic.py`, `tests/test_local.py`,
-  `tests/test_local_context.py` — import `TestRunner` from `support.py`.
-  Inline `_pass / _fail / _failures / check()` blocks removed.
+**Test Infrastructure Consolidation**
+
+Extracts duplicated test-tracking boilerplate from four manual test scripts into a shared support module. Done before new tests are added — consolidating after further growth costs more.
+
+- `tests/support.py` — new module. Contains `TestRunner` class with `check()`, `section()`, and summary output. Single implementation, no duplication.
+- `tests/test_dashboard.py`, `tests/test_app_logic.py`, `tests/test_local.py`, `tests/test_local_context.py` — import `TestRunner` from `support.py`. Inline `_pass` / `_fail` / `_failures` / `check()` blocks removed.
+
+**Critical Archive Protocol**
+
+New test script and HTML report focused exclusively on archive integrity. Does not replace the existing test suites — adds a second layer: "Is the archive protected?" as a distinct question from "Does the code work?"
+
+- `tests/test_critical_archive.py` — 58 checks across 9 risk groups. Imports `TestRunner` from `support.py`. Includes AST-based guard against drift from `test_local.py`. Runs as last step in `build_all.py`.
+- `report_critical_archive.html` — generated after each run. Tab 1: failures only + guard errors (🦄 on guard failure). Tab 2: full check table, Happy Path / Corrupted Path. Tab 3: terminal log from build run (collapsed by default).
+- `build_all.py` — extended with `test_critical_archive` as final step in `finally`-block. Terminal output written to temp file throughout the run.
+
+Risk groups: Writer (A) · Normalizer (B) · Quality (C) · Collector (D) · Validator (E) · Sync (F) · Self-healing + corrupt log (G) · API + access protection (H) · Archive immutability (I).
 
 **What does not change:**
 - `tests/test_qt_app.py` — already uses pytest, not affected
 - Test logic and assertions — behaviour identical, only the runner is centralised
 - Test counts — all existing checks preserved
 
-**Explicitly not included:**
-- Full pytest migration — deferred, no timeline
-- `mypy`, `bandit`, `pip-audit` — out of scope for this project stage
+---
 
-*Pre-condition: v1.5.5.3 complete. All five test suites green before and after.*
+### v1.5.5.5 — Writer Flush Hardening
+
+Adds `os.fsync()` to `garmin_writer.write_day()` after the atomic write completes.
+Without this, Python reports success from the OS page cache — a power loss between
+write and physical flush produces a corrupt or empty raw file with no error signal.
+
+Activates one additional check in `test_critical_archive.py` Group A:
+"write_day calls fsync" — confirming the call is made, which is the maximum
+assertion verifiable at application level.
+
+**What changes:**
+- `garmin/garmin_writer.py` — `write_day()`: `os.fsync(f.fileno())` added after
+  `f.write()` inside the `tmp` file context, before `tmp.replace(target)`.
+
+**What does not change:**
+- Return value of `write_day()` — `True` / `False` unchanged
+- Atomic write pattern — tmp → replace preserved
+- All callers — interface unchanged
 
 ---
 
-### v1.5.5.5 — Sync Mode Input Validation & Daily Update Fix
+### v1.5.5.6 — Sync Mode Input Validation & Daily Update Fix
  
 Two related fixes for the same failure chain. `daily_update.py` triggered
 a `ValueError` crash by setting `sync_mode = range` with empty date fields
@@ -118,7 +139,6 @@ after login has already been established.
 - Gap detection logic in `daily_update.py` — unchanged
 - All other sync modes (`auto`, `recent`) in `garmin_sync.py` — unaffected
 - `panel_archive.py` — pre-flight check explicitly out of scope for this patch
-*Pre-condition: v1.5.5.4 complete.*
 
 ---
 
@@ -229,7 +249,7 @@ in a future version.
 - Pipeline entry point, sole owner principle, all existing invariants
 - No new package dependencies (`cryptography` already required)
 
-*Pre-condition: v1.5.6 stable and in active use.*
+
 
 ---
 
@@ -271,8 +291,6 @@ significantly as a result.
 - T2 (`build.py`) — stays `--onefile`, unaffected
 - Total installed size — identical, only distribution format changes
 - User workflow — ZIP download unchanged, EXE name unchanged
-
-*Pre-condition: v1.5.5.7 stable — or skipped if no v1.5.5.7 planned.*
 
 ---
 
