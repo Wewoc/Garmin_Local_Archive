@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.5.2
+# Garmin Local Archive — Desktop App v1.5.5.3
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -356,6 +356,8 @@ python build_standalone.py
 **Login fails** — if Garmin requires MFA, the app will show a code input popup automatically. Enter the code from your Garmin app or authenticator.
 
 **First login (no saved token)** — the app shows a confirmation dialog before starting the SSO login. This is intentional — garminconnect sends several requests to Garmin during login and may trigger rate limiting if repeated too quickly. An encryption key is generated automatically in the background (no password required). Click **Proceed** to continue or **Cancel** to abort.
+
+**Token expired (sync starts slowly)** — If the log shows repeated `401` errors or `DI token refresh failed` at the start of a sync, the saved token has expired. The app recovers utomatically — do not cancel. The re-login sequence takes 3–4 minutes. Wait for `✓ Login successful` before assuming something is wrong.
 
 > **Standalone:** If login fails due to captcha or browser verification, download the Standard version, install Python, and run `garmin_collector.py` once in a terminal to complete verification. After that the Standalone version will work normally using the saved session.
 

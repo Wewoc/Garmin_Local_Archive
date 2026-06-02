@@ -13,6 +13,8 @@ from datetime import date, datetime
 
 import garmin_config as cfg
 
+from garmin_utils import extract_date_from_filename
+
 log = logging.getLogger(__name__)
 
 # Quality rank — defined here, re-exported via facade
@@ -219,25 +221,23 @@ def cleanup_before_first_day(data: dict, dry_run: bool = False) -> dict:
 
     # Delete raw files before cutoff
     for f in cfg.RAW_DIR.glob("garmin_raw_*.json"):
-        try:
-            d = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
-            if d < cutoff:
-                if not dry_run:
-                    f.unlink(missing_ok=True)
-                files_deleted += 1
-        except ValueError:
-            pass
+        d = extract_date_from_filename(f)
+        if d is None:
+            continue
+        if d < cutoff:
+            if not dry_run:
+                f.unlink(missing_ok=True)
+            files_deleted += 1
 
     # Delete summary files before cutoff
     for f in cfg.SUMMARY_DIR.glob("garmin_*.json"):
-        try:
-            d = date.fromisoformat(f.stem.replace("garmin_", ""))
-            if d < cutoff:
-                if not dry_run:
-                    f.unlink(missing_ok=True)
-                files_deleted += 1
-        except ValueError:
-            pass
+        d = extract_date_from_filename(f, prefix="garmin_")
+        if d is None:
+            continue
+        if d < cutoff:
+            if not dry_run:
+                f.unlink(missing_ok=True)
+            files_deleted += 1
 
     # Remove entries from quality log
     before = len(data["days"])
