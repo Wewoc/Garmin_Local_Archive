@@ -182,7 +182,7 @@ Never use `logging.warning()` for build-path diagnostics — it disappears silen
 python tests/test_local.py
 ```
 
-**Current count: 227 checks, 14 sections.** No network, no GUI, no API calls. Cleans up after itself.
+**Current count: 319 checks, 16 sections.** No network, no GUI, no API calls. Cleans up after itself.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -192,7 +192,7 @@ Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `g
 python tests/test_local_context.py
 ```
 
-**Current count: 217 checks, 11 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
+**Current count: 261 checks, 13 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
 
 Run after any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `weather_map`, `pollen_map`, `context_map`.
 
@@ -229,10 +229,10 @@ pytest tests/test_qt_app.py -v
 # or via: tests/run_qt_tests.bat
 ```
 
-**Current count: 41 checks, 6 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
+**Current count: 42 checks, 6 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
 
 Classes:
-- `TestQtSmoke` (3) — QApplication startup, PyQt6 importability, GUI-freedom regression for Settings/Controller
+- `TestQtSmoke` (4) — QApplication startup, PyQt6 importability, GUI-freedom regression for Settings/Controller, GUI-freedom guard for `scheduler/daily_update.py`
 - `TestPanelSettings` (5) — instantiation, `_collect_settings()` keys, sync mode switching, location extraction
 - `TestPanelConnection` (10) — instantiation, indicators, accessor methods, Signal class-level definition
 - `TestPanelArchive` (5) — instantiation, mirror guard, archive info no-crash, failed-days popup

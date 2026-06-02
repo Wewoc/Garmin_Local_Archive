@@ -23,6 +23,7 @@ Note: Values are daily mean aggregations (24h average per day).
 """
 
 import json
+import logging
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -54,6 +55,8 @@ _LABEL_MAP = {
 
 _FILE_PREFIX = "airquality_"
 
+log = logging.getLogger(__name__)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
@@ -79,8 +82,8 @@ def _read_field(field: str, date_from: str, date_to: str) -> dict:
             try:
                 data  = json.loads(f.read_text(encoding="utf-8"))
                 value = data.get("fields", {}).get(internal_key)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                log.warning(f"airquality_map: could not read {f}: {e}")
         values.append({"date": ds, "value": value})
     return {"values": values, "source_resolution": "daily"}
 

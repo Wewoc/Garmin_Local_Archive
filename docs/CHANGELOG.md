@@ -2,6 +2,43 @@
 
 ---
 
+## v1.5.5.4 — Test Infrastructure Consolidation + Maps Logging + AST-Guard
+
+Duplicate test-tracking boilerplate extracted from four manual test scripts
+into a shared `tests/support.py` module. All four suites now import `check()`,
+`section()`, and `summary()` as free functions — no inline implementation.
+Summary output unified to a single format. Four Maps modules gain `log.warning()`
+in their `_read_field()` except-blocks — previously silent JSON/OS errors are now
+observable. New AST-based regression guard in `test_qt_app.py` verifies that
+`scheduler/daily_update.py` stays GUI-free.
+
+**New modules:**
+- `tests/support.py` — shared test runner: `check()`, `section()`, `summary()`.
+  Free functions, no class wrapper. Import via `from support import check, section, summary`.
+
+**Changed modules:**
+- `tests/test_local.py` — imports from `support.py`. Inline boilerplate removed.
+  Local variable `summary` → `summary_data` (collision with imported `summary()`).
+  Summary format unified to Option A.
+- `tests/test_local_context.py` — imports from `support.py`. Inline boilerplate removed.
+  Summary format unified.
+- `tests/test_dashboard.py` — imports from `support.py`. Inline boilerplate removed.
+  Summary format unchanged (already Option A).
+- `tests/test_app_logic.py` — imports from `support.py`. Inline boilerplate removed.
+  Summary format unified.
+- `maps/weather_map.py` — `import logging`, `log = logging.getLogger(__name__)`,
+  `except`-block extended with `log.warning(f"weather_map: could not read {f}: {e}")`.
+- `maps/pollen_map.py` — same treatment as `weather_map.py`.
+- `maps/brightsky_map.py` — same treatment as `weather_map.py`.
+- `maps/airquality_map.py` — same treatment as `weather_map.py`.
+- `tests/test_qt_app.py` — new test `test_daily_update_gui_free` in `TestQtSmoke`.
+  AST-based guard: verifies `scheduler/daily_update.py` contains no GUI imports
+  (tkinter, PyQt6, PyQt5, PySide6, PySide2).
+
+**Test result:** 319 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.5.3 — Unified Date Parser
 
 Duplicate inline date-parsing code eliminated across three quality sub-module

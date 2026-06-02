@@ -49,25 +49,9 @@ import garmin_app_base as base
 import garmin_app as app
 import garmin_app_standalone as standalone
 
-# ── Results tracking ───────────────────────────────────────────────────────────
-_pass = 0
-_fail = 0
-_failures = []
-
-def check(name, condition):
-    global _pass, _fail
-    if condition:
-        _pass += 1
-        print(f"  ✓  {name}")
-    else:
-        _fail += 1
-        _failures.append(name)
-        print(f"  ✗  {name}")
-
-def section(title):
-    print(f"\n{'─' * 55}")
-    print(f"  {title}")
-    print(f"{'─' * 55}")
+# ── Test runner ────────────────────────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
+from support import check, section, summary
 
 # ── Temp dir ───────────────────────────────────────────────────────────────────
 _TMPDIR = Path(tempfile.mkdtemp(prefix="garmin_apptest_"))
@@ -645,16 +629,4 @@ check("check_integrity: no_backup is list",          isinstance(_integrity_resul
 shutil.rmtree(_TMPDIR, ignore_errors=True)
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-total = _pass + _fail
-print(f"\n{'═' * 55}")
-print(f"  Result: {_pass}/{total} checks passed", end="")
-if _fail:
-    print(f"  ({_fail} failed)")
-    print(f"\n  Failed checks:")
-    for f in _failures:
-        print(f"    ✗  {f}")
-else:
-    print("  ✓")
-print(f"{'═' * 55}")
-
-sys.exit(0 if _fail == 0 else 1)
+summary()

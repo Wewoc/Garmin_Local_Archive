@@ -26,25 +26,9 @@ sys.path.insert(0, str(_ROOT / "layouts"))
 sys.path.insert(0, str(_ROOT / "dashboards"))
 logging.disable(logging.CRITICAL)
 
-# ── Results tracking ───────────────────────────────────────────────────────────
-_pass = 0
-_fail = 0
-_failures = []
-
-def check(name, condition):
-    global _pass, _fail
-    if condition:
-        _pass += 1
-        print(f"  ✓  {name}")
-    else:
-        _fail += 1
-        _failures.append(name)
-        print(f"  ✗  {name}")
-
-def section(title):
-    print(f"\n{'─' * 55}")
-    print(f"  {title}")
-    print(f"{'─' * 55}")
+# ── Test runner ────────────────────────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
+from support import check, section, summary
 
 # ── Temp directory as BASE_DIR ─────────────────────────────────────────────────
 _TMPDIR = Path(tempfile.mkdtemp(prefix="garmin_dash_test_"))
@@ -1089,13 +1073,4 @@ check("contract explorer: has intraday",         "intraday" in _ev16)
 
 shutil.rmtree(_TMPDIR, ignore_errors=True)
 
-total = _pass + _fail
-print(f"\n{'═' * 55}")
-print(f"  {total} checks — {_pass} passed, {_fail} failed")
-if _failures:
-    print(f"\n  Failed:")
-    for f in _failures:
-        print(f"    ✗  {f}")
-print(f"{'═' * 55}\n")
-
-sys.exit(0 if _fail == 0 else 1)
+summary()
