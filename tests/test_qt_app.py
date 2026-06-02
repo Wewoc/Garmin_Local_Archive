@@ -64,6 +64,33 @@ class TestQtSmoke:
         assert gui_imports(app_root / "app" / "garmin_app_settings.py") == []
         assert gui_imports(app_root / "app" / "garmin_app_controller.py") == []
 
+    def test_daily_update_gui_free(self, app_root):
+        """scheduler/daily_update.py must never import any GUI framework.
+        Headless entry point — GUI imports would break T3.2 (standalone headless)."""
+        import ast
+
+        GUI_BLACKLIST = {
+            "tkinter", "tkinter.ttk", "tkinter.messagebox",
+            "tkinter.filedialog", "tkinter.scrolledtext",
+            "PyQt6", "PyQt5", "PySide6", "PySide2",
+        }
+
+        def gui_imports(path: Path) -> list:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            found = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name in GUI_BLACKLIST:
+                            found.append(alias.name)
+                elif isinstance(node, ast.ImportFrom):
+                    mod = node.module or ""
+                    if mod in GUI_BLACKLIST or mod.split(".")[0] in GUI_BLACKLIST:
+                        found.append(mod)
+            return found
+
+        assert gui_imports(app_root / "scheduler" / "daily_update.py") == []
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  2. PanelSettings

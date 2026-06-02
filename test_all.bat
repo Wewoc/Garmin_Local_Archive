@@ -1,6 +1,6 @@
 @echo off
 echo running tests
- 
+
 python tests/test_local.py
 python tests/test_local_context.py
 python tests/test_dashboard.py

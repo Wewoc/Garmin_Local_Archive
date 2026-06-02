@@ -23,6 +23,7 @@ Note: Values are daily max aggregations (highest hourly reading per day).
 """
 
 import json
+import logging
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -34,7 +35,7 @@ import garmin_config as cfg
 #  Field map
 #
 #  Generic name → internal key in the "fields" dict of pollen_YYYY-MM-DD.json
-# ══════════════════════════════════════════════════════════════════════════════
+# _FILE_PREFIX = "pollen_"
 
 _FIELD_MAP = {
     "pollen_birch":   "birch_pollen",
@@ -46,6 +47,8 @@ _FIELD_MAP = {
 }
 
 _FILE_PREFIX = "pollen_"
+
+log = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -72,8 +75,8 @@ def _read_field(field: str, date_from: str, date_to: str) -> dict:
             try:
                 data  = json.loads(f.read_text(encoding="utf-8"))
                 value = data.get("fields", {}).get(internal_key)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                log.warning(f"pollen_map: could not read {f}: {e}")
         values.append({"date": ds, "value": value})
     return {"values": values, "source_resolution": "daily"}
 

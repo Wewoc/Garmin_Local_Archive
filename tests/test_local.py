@@ -26,25 +26,9 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 logging.disable(logging.CRITICAL)
 
-# ── Results tracking ───────────────────────────────────────────────────────────
-_pass = 0
-_fail = 0
-_failures = []
-
-def check(name, condition):
-    global _pass, _fail
-    if condition:
-        _pass += 1
-        print(f"  ✓  {name}")
-    else:
-        _fail += 1
-        _failures.append(name)
-        print(f"  ✗  {name}")
-
-def section(title):
-    print(f"\n{'─' * 55}")
-    print(f"  {title}")
-    print(f"{'─' * 55}")
+# ── Test runner ────────────────────────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
+from support import check, section, summary
 
 # ── Temp directory as BASE_DIR ─────────────────────────────────────────────────
 _TMPDIR = Path(tempfile.mkdtemp(prefix="garmin_test_"))
@@ -472,17 +456,17 @@ check("safe_get not in collector",  not hasattr(collector, "safe_get"))
 # _fetch_and_assess — mocked
 mock_client = MagicMock()
 with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])):
-    label, normalized, summary, fields, val_result = collector._fetch_and_assess(mock_client, "2024-03-15")
+    label, normalized, summary_data, fields, val_result = collector._fetch_and_assess(mock_client, "2024-03-15")
     check("_fetch_and_assess: label = high",          label      == "high")
     check("_fetch_and_assess: normalized is dict",    isinstance(normalized, dict))
-    check("_fetch_and_assess: summary is dict",       isinstance(summary, dict))
+    check("_fetch_and_assess: summary is dict",       isinstance(summary_data, dict))
     check("_fetch_and_assess: fields is dict",        isinstance(fields, dict))
     check("_fetch_and_assess: val_result is dict",    isinstance(val_result, dict))
     check("_fetch_and_assess: val_result has status", "status" in val_result)
 
 with patch("garmin_collector.api.fetch_raw", return_value=({"date": 99999}, [])), \
      patch("garmin_collector.writer.write_day") as mock_w:
-    label2, normalized2, summary2, fields2, val_result2 = collector._fetch_and_assess(mock_client, "2024-03-20")
+    label2, normalized2, summary_data2, fields2, val_result2 = collector._fetch_and_assess(mock_client, "2024-03-20")
     check("_fetch_and_assess failed: label=failed",         label2       == "failed")
     check("_fetch_and_assess failed: normalized is None",   normalized2  is None)
     check("_fetch_and_assess failed: write_day not called", not mock_w.called)
@@ -1327,11 +1311,4 @@ shutil.rmtree(_mir_dst2, ignore_errors=True)
 # ══════════════════════════════════════════════════════════════════════════════
 shutil.rmtree(_TMPDIR, ignore_errors=True)
 
-print(f"\n{'═' * 55}")
-if _fail == 0:
-    print(f"  Results: {_pass}/{_pass + _fail} passed  |  0 failed")
-else:
-    print(f"  Results: {_pass}/{_pass + _fail} passed  |  {_fail} failed")
-    for f in _failures:
-        print(f"    ✗  {f}")
-print(f"{'═' * 55}\n")
+summary()
