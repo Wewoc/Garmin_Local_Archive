@@ -6,39 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.5.3**
+**Currently stable — v1.5.5.4**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.5.4 — Test Infrastructure Consolidation + Critical Archive Protocol
-
-Combines two thematically related test infrastructure improvements into one release.
-
-**Test Infrastructure Consolidation**
-
-Extracts duplicated test-tracking boilerplate from four manual test scripts into a shared support module. Done before new tests are added — consolidating after further growth costs more.
-
-- `tests/support.py` — new module. Contains `TestRunner` class with `check()`, `section()`, and summary output. Single implementation, no duplication.
-- `tests/test_dashboard.py`, `tests/test_app_logic.py`, `tests/test_local.py`, `tests/test_local_context.py` — import `TestRunner` from `support.py`. Inline `_pass` / `_fail` / `_failures` / `check()` blocks removed.
-
-**Critical Archive Protocol**
-
-New test script and HTML report focused exclusively on archive integrity. Does not replace the existing test suites — adds a second layer: "Is the archive protected?" as a distinct question from "Does the code work?"
-
-- `tests/test_critical_archive.py` — 58 checks across 9 risk groups. Imports `TestRunner` from `support.py`. Includes AST-based guard against drift from `test_local.py`. Runs as last step in `build_all.py`.
-- `report_critical_archive.html` — generated after each run. Tab 1: failures only + guard errors (🦄 on guard failure). Tab 2: full check table, Happy Path / Corrupted Path. Tab 3: terminal log from build run (collapsed by default).
-- `build_all.py` — extended with `test_critical_archive` as final step in `finally`-block. Terminal output written to temp file throughout the run.
-
-Risk groups: Writer (A) · Normalizer (B) · Quality (C) · Collector (D) · Validator (E) · Sync (F) · Self-healing + corrupt log (G) · API + access protection (H) · Archive immutability (I).
-
-**What does not change:**
-- `tests/test_qt_app.py` — already uses pytest, not affected
-- Test logic and assertions — behaviour identical, only the runner is centralised
-- Test counts — all existing checks preserved
 
 ---
 

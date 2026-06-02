@@ -28,25 +28,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 logging.disable(logging.CRITICAL)
 
-# ── Results tracking ───────────────────────────────────────────────────────────
-_pass = 0
-_fail = 0
-_failures = []
-
-def check(name, condition):
-    global _pass, _fail
-    if condition:
-        _pass += 1
-        print(f"  ✓  {name}")
-    else:
-        _fail += 1
-        _failures.append(name)
-        print(f"  ✗  {name}")
-
-def section(title):
-    print(f"\n{'─' * 55}")
-    print(f"  {title}")
-    print(f"{'─' * 55}")
+# ── Test runner ────────────────────────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
+from support import check, section, summary
 
 # ── Temp directory ─────────────────────────────────────────────────────────────
 _TMPDIR = Path(tempfile.mkdtemp(prefix="garmin_context_test_"))
@@ -1111,19 +1095,7 @@ check("consolidate Bug3: directory removed after append",
 # ══════════════════════════════════════════════════════════════════════════════
 shutil.rmtree(_TMPDIR, ignore_errors=True)
 
-total = _pass + _fail
-print(f"\n{'═' * 55}")
-print(f"  Results: {_pass}/{total} passed  |  {_fail} failed")
-print(f"{'═' * 55}")
-
-if _failures:
-    print("\n  Failed:")
-    for name in _failures:
-        print(f"    ✗  {name}")
-    sys.exit(1)
-else:
-    print("\n  All tests passed.")
-    sys.exit(0)
+summary()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
