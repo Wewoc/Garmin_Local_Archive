@@ -9,6 +9,7 @@ No imports from other project modules — this module is a leaf node.
 """
 
 from datetime import date, datetime
+from pathlib import Path
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -53,3 +54,24 @@ def parse_sync_dates(raw: str) -> list | None:
         except ValueError:
             pass
     return sorted(parsed) if parsed else None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Filename helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def extract_date_from_filename(path, prefix: str = "garmin_raw_") -> date | None:
+    """
+    Extracts a date from a filename like garmin_raw_YYYY-MM-DD.json.
+    Returns None on invalid format — no exception propagation.
+
+    Parameters
+    ----------
+    path   : str | Path — file path; only the stem is used
+    prefix : str        — prefix to strip before parsing (default: "garmin_raw_")
+    """
+    try:
+        stem = path.stem if hasattr(path, "stem") else Path(path).stem
+        return date.fromisoformat(stem.replace(prefix, "", 1))
+    except (ValueError, AttributeError):
+        return None

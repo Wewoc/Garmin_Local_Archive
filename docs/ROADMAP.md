@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.5.2**
+**Currently stable — v1.5.5.3**
 
 ---
 
@@ -14,53 +14,56 @@
 
 ---
 
-### v1.5.5.3 — Unified Date Parser in Quality Module
+### v1.5.5.4 — Test Infrastructure Consolidation + Critical Archive Protocol
 
-Removes redundant date-extraction logic scattered across three functions in
-`garmin_quality.py`. Low risk, isolated change — natural companion to v1.5.5.1
-since the same file is open.
+Combines two thematically related test infrastructure improvements into one release.
 
-**What changes:**
-- `garmin/garmin_quality.py` — new private helper `_extract_date_from_filename(path, prefix)`.
-  Returns `date | None`. Replaces inline string slices and scattered `try/except`
-  blocks in `_backfill_quality_log()`, `get_low_quality_dates()`, and
-  `cleanup_before_first_day()`.
+**Test Infrastructure Consolidation**
 
-**What does not change:**
-- Return values and behaviour of all three calling functions — identical output
-- No other modules touched
+Extracts duplicated test-tracking boilerplate from four manual test scripts into a shared support module. Done before new tests are added — consolidating after further growth costs more.
 
-*Pre-condition: v1.5.5.2 complete.*
+- `tests/support.py` — new module. Contains `TestRunner` class with `check()`, `section()`, and summary output. Single implementation, no duplication.
+- `tests/test_dashboard.py`, `tests/test_app_logic.py`, `tests/test_local.py`, `tests/test_local_context.py` — import `TestRunner` from `support.py`. Inline `_pass` / `_fail` / `_failures` / `check()` blocks removed.
 
----
+**Critical Archive Protocol**
 
-### v1.5.5.4 — Test Infrastructure Consolidation
+New test script and HTML report focused exclusively on archive integrity. Does not replace the existing test suites — adds a second layer: "Is the archive protected?" as a distinct question from "Does the code work?"
 
-Extracts duplicated test-tracking boilerplate from four manual test scripts
-into a shared support module. Done before new tests are added for v1.5.6 —
-consolidating after further growth costs more.
+- `tests/test_critical_archive.py` — 58 checks across 9 risk groups. Imports `TestRunner` from `support.py`. Includes AST-based guard against drift from `test_local.py`. Runs as last step in `build_all.py`.
+- `report_critical_archive.html` — generated after each run. Tab 1: failures only + guard errors (🦄 on guard failure). Tab 2: full check table, Happy Path / Corrupted Path. Tab 3: terminal log from build run (collapsed by default).
+- `build_all.py` — extended with `test_critical_archive` as final step in `finally`-block. Terminal output written to temp file throughout the run.
 
-**What changes:**
-- `tests/support.py` — new module. Contains `TestRunner` class with `check()`,
-  `section()`, and summary output. Single implementation, no duplication.
-- `tests/test_dashboard.py`, `tests/test_app_logic.py`, `tests/test_local.py`,
-  `tests/test_local_context.py` — import `TestRunner` from `support.py`.
-  Inline `_pass / _fail / _failures / check()` blocks removed.
+Risk groups: Writer (A) · Normalizer (B) · Quality (C) · Collector (D) · Validator (E) · Sync (F) · Self-healing + corrupt log (G) · API + access protection (H) · Archive immutability (I).
 
 **What does not change:**
 - `tests/test_qt_app.py` — already uses pytest, not affected
 - Test logic and assertions — behaviour identical, only the runner is centralised
 - Test counts — all existing checks preserved
 
-**Explicitly not included:**
-- Full pytest migration — deferred, no timeline
-- `mypy`, `bandit`, `pip-audit` — out of scope for this project stage
+---
 
-*Pre-condition: v1.5.5.3 complete. All five test suites green before and after.*
+### v1.5.5.5 — Writer Flush Hardening
+
+Adds `os.fsync()` to `garmin_writer.write_day()` after the atomic write completes.
+Without this, Python reports success from the OS page cache — a power loss between
+write and physical flush produces a corrupt or empty raw file with no error signal.
+
+Activates one additional check in `test_critical_archive.py` Group A:
+"write_day calls fsync" — confirming the call is made, which is the maximum
+assertion verifiable at application level.
+
+**What changes:**
+- `garmin/garmin_writer.py` — `write_day()`: `os.fsync(f.fileno())` added after
+  `f.write()` inside the `tmp` file context, before `tmp.replace(target)`.
+
+**What does not change:**
+- Return value of `write_day()` — `True` / `False` unchanged
+- Atomic write pattern — tmp → replace preserved
+- All callers — interface unchanged
 
 ---
 
-### v1.5.5.5 — Sync Mode Input Validation & Daily Update Fix
+### v1.5.5.6 — Sync Mode Input Validation & Daily Update Fix
  
 Two related fixes for the same failure chain. `daily_update.py` triggered
 a `ValueError` crash by setting `sync_mode = range` with empty date fields
@@ -93,7 +96,6 @@ after login has already been established.
 - Gap detection logic in `daily_update.py` — unchanged
 - All other sync modes (`auto`, `recent`) in `garmin_sync.py` — unaffected
 - `panel_archive.py` — pre-flight check explicitly out of scope for this patch
-*Pre-condition: v1.5.5.4 complete.*
 
 ---
 
@@ -204,7 +206,7 @@ in a future version.
 - Pipeline entry point, sole owner principle, all existing invariants
 - No new package dependencies (`cryptography` already required)
 
-*Pre-condition: v1.5.6 stable and in active use.*
+
 
 ---
 
@@ -246,8 +248,6 @@ significantly as a result.
 - T2 (`build.py`) — stays `--onefile`, unaffected
 - Total installed size — identical, only distribution format changes
 - User workflow — ZIP download unchanged, EXE name unchanged
-
-*Pre-condition: v1.5.5.7 stable — or skipped if no v1.5.5.7 planned.*
 
 ---
 
@@ -361,6 +361,36 @@ A dialog in `panel_outputs.py` that replaces the fixed specialist list with free
 - Existing specialists — unaffected; the fixed list remains available
 
 **Pre-condition:** v1.6 Render Registry stable — field_map.py broker and plotter dispatch finalized before the picker is built against it.
+
+---
+
+### v1.6.5 — Live Tracking Dashboard
+
+Extends the sync path with a lightweight live fetch for the current day. The result is stored in `garmin_data/live/live.json` and rendered as a standalone dashboard in the Dashboards tab — not part of Create Reports.
+
+**What is new:**
+
+- `garmin_data/live/live.json` — snapshot of the current day: Body Battery intraday series, Heart Rate intraday series, steps, stress + sync timestamp
+- `garmin/garmin_live_fetch.py` — lightweight module: fetches today's intraday data via the `garminconnect` API only; no archive write access, no `quality_log` contact
+- `dashboards/live_tracking_html_dash.py` — specialist: reads `live.json` + last sleep entry from the archive, returns a neutral dict
+- `live_tracking.html` — generated dashboard: upper half shows today's progression (Body Battery, HR, steps, stress); lower half shows last night analogous to the Sleep Dashboard
+- `panel_actions.py` — new "Update Live" button in the Life Tracking area (right side); triggers `garmin_live_fetch.py` and re-renders `live_tracking.html`
+
+**Triggers:**
+
+- End of "Sync Garmin" → live fetch appended automatically
+- "Update Live" button → live fetch only, no archive sync
+- "Create Reports" → Live Tracking is **not** included
+
+**What does not change:**
+
+- Archive pipeline — no access to `quality_log`, `raw/`, `summary/`
+- Existing dashboards — unaffected
+- `field_map.py` — no new broker entry required; `garmin_live_fetch.py` calls the API directly (intraday is not an archived field)
+
+**Invariant:** `garmin_live_fetch.py` writes exclusively to `garmin_data/live/`. No write access to any other directory.
+
+**Pre-condition:** none — independent of the v1.6 Render Registry; `live_tracking_html_dash.py` can use the existing HTML plotter path.
 
 ---
 

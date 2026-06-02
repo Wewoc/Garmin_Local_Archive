@@ -15,6 +15,7 @@ from pathlib import Path
 
 import garmin_config as cfg
 
+from garmin_utils import extract_date_from_filename
 from quality._assess import assess_quality
 from quality._maint import _upsert_quality
 
@@ -39,9 +40,8 @@ def _backfill_quality_log(data: dict) -> int:
     added = 0
 
     for f in sorted(cfg.RAW_DIR.glob("garmin_raw_*.json")):
-        try:
-            day = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
-        except ValueError:
+        day = extract_date_from_filename(f)
+        if day is None:
             continue
         if day.isoformat() in known:
             continue
@@ -74,8 +74,10 @@ def get_low_quality_dates(folder: Path, known_dates: set = None) -> dict:
     if not folder.exists():
         return result
     for f in folder.glob("garmin_raw_*.json"):
+        day = extract_date_from_filename(f)
+        if day is None:
+            continue
         try:
-            day = date.fromisoformat(f.stem.replace("garmin_raw_", ""))
             if known_dates and day in known_dates:
                 continue  # already in quality log — skip OneDrive download
             with open(f, encoding="utf-8") as fh:
@@ -83,7 +85,7 @@ def get_low_quality_dates(folder: Path, known_dates: set = None) -> dict:
             q = assess_quality(raw)
             if q in ("low", "failed"):
                 result[day] = q
-        except (ValueError, OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             pass
     if result:
         log.info(f"  Newly discovered low/failed quality files: {len(result)}")
