@@ -49,8 +49,7 @@ from engineering instinct applied to a software problem — my background
 is mechanical system design. The implementation — every line of Python 
 — came from Claude as coding partner.
 
-It started with 2-3 scripts and a dashboard. Then it escalated.
-~60 days, 60 USD, 396 commits, 37 releases.
+It started with 2–3 scripts and a dashboard. What it became was not the plan.
 
 Roughly half the time went into planning, architecture decisions, and 
 cross-model review — not implementation. No code without a prior 

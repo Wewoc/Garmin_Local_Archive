@@ -99,7 +99,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 314 checks, 19 sections.**
+**Current count: 319 checks, 19 sections.**
 
 ```bash
 python tests/test_local.py
@@ -116,7 +116,7 @@ python tests/test_local.py
 7. `garmin_validator` — schema load, all issue types, status escalation
 8. `garmin_writer` — `read_raw()` edge cases, `_should_write()`, `_is_stopped()`
 9. `garmin_security` — AES key derivation, save/load round-trip, wrong key, clear
-10. `garmin_utils` — `parse_device_date()`, `parse_sync_dates()`
+10. `garmin_utils` — `parse_device_date()`, `parse_sync_dates()`, `extract_date_from_filename()`
 11. `INVARIANTS` — `fetch_raw` return type, `_process_day` tuple length, write-only ownership
 12. `ROBUSTNESS` — empty raw, corrupt JSON, stop event, non-dict input
 13. `PIPELINE_E2E` — full day through pipeline: write → quality → read

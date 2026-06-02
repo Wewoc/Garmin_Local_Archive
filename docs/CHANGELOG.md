@@ -2,6 +2,31 @@
 
 ---
 
+## v1.5.5.3 — Unified Date Parser
+
+Duplicate inline date-parsing code eliminated across three quality sub-module
+functions. A new shared helper `extract_date_from_filename()` in `garmin_utils.py`
+replaces four identical `try/except`-wrapped `date.fromisoformat(f.stem.replace(...))`
+blocks in `_scan.py` and `_maint.py`. Leaf-node invariant preserved — only stdlib
+imports. Five new checks added to `test_local.py` Sektion 8.
+
+**Changed modules:**
+- `garmin/garmin_utils.py` — new `extract_date_from_filename(path, prefix)`.
+  Returns `date | None`. No exception propagation. Default prefix `"garmin_raw_"`.
+  Added `from pathlib import Path` import.
+- `garmin/quality/_scan.py` — `_backfill_quality_log()` and `get_low_quality_dates()`
+  use `extract_date_from_filename()`. `ValueError` removed from `get_low_quality_dates`
+  except-clause — date parsing no longer raises there.
+- `garmin/quality/_maint.py` — `cleanup_before_first_day()` uses
+  `extract_date_from_filename()` for both raw/ (default prefix) and summary/
+  (`prefix="garmin_"`). Both `try/except ValueError` blocks removed.
+- `tests/test_local.py` — 5 new checks in section 8: valid raw, valid summary
+  with explicit prefix, invalid format → None, wrong prefix → None, str path works.
+
+**Test result:** 319 / 261 / 303 / 128 / 41 — all green
+
+---
+
 ## v1.5.5.2 — Splash Screen + Quality Log Transaction API
 
 Splash screen added to both GUI entry points. Appears immediately after PyQt6

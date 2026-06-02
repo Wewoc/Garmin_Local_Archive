@@ -580,6 +580,14 @@ check("parse_sync_dates: invalid skipped",  r2 is not None and len(r2) == 2)
 check("parse_sync_dates: empty → None",     utils.parse_sync_dates("") is None)
 check("parse_sync_dates: all invalid → None", utils.parse_sync_dates("bad,worse") is None)
 
+# extract_date_from_filename
+_p = lambda name: Path(f"/tmp/{name}")
+check("extract_date: valid raw",             utils.extract_date_from_filename(_p("garmin_raw_2024-03-15.json")) == date(2024, 3, 15))
+check("extract_date: valid summary",         utils.extract_date_from_filename(_p("garmin_2024-03-15.json"), prefix="garmin_") == date(2024, 3, 15))
+check("extract_date: invalid format → None", utils.extract_date_from_filename(_p("garmin_raw_not-a-date.json")) is None)
+check("extract_date: wrong prefix → None",   utils.extract_date_from_filename(_p("garmin_raw_2024-03-15.json"), prefix="garmin_") is None)
+check("extract_date: str path works",        utils.extract_date_from_filename("/tmp/garmin_raw_2024-06-01.json") == date(2024, 6, 1))
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  9. garmin_validator
 # ══════════════════════════════════════════════════════════════════════════════

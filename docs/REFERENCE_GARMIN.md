@@ -127,6 +127,18 @@ Schema cached at module import. Leaf node.
 
 ---
 
+## `garmin_utils.py`
+
+Shared utilities — leaf node. No project-module imports.
+
+| Function | Purpose |
+|---|---|
+| `parse_device_date(val)` | Converts device date value to `YYYY-MM-DD`. Handles ISO strings, ms timestamps, s timestamps. Returns `None` on failure |
+| `parse_sync_dates(raw)` | Parses comma-separated `YYYY-MM-DD` string. Returns sorted `list[date]` or `None` |
+| `extract_date_from_filename(path, prefix)` | Extracts `date` from filename like `garmin_raw_YYYY-MM-DD.json`. Default prefix `"garmin_raw_"`. Returns `None` on invalid format — no exception propagation |
+
+---
+
 ## `garmin_normalizer.py`
 
 | Function / Constant | Purpose |
