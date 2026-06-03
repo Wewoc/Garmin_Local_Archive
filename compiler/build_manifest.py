@@ -45,6 +45,7 @@ SHARED_SCRIPTS = [
     "garmin/garmin_collector.py",
     "garmin/garmin_backup.py",
     "garmin/garmin_mirror.py",
+    "garmin/garmin_import_mirror.py",
     "garmin/garmin_extended_anaysis.py",
     # maps (routing only)
     "maps/field_map.py",
@@ -118,7 +119,8 @@ SCRIPT_SIGNATURES_BASE = {
     "maps/airquality_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
     "garmin/garmin_backup.py":     ["def backup_raw", "def backup_quality_log", "def restore_quality_log", "def check_raw_integrity"],
-    "garmin/garmin_mirror.py":     ["def run_mirror", "def is_reachable"],
+    "garmin/garmin_mirror.py":     ["def run_mirror", "def is_reachable", "def is_import_ready"],
+    "garmin/garmin_import_mirror.py": ["def run_import_mirror"],
 }
 
 # ── Docs ──────────────────────────────────────────────────────────────────────
