@@ -2,6 +2,30 @@
 
 ---
 
+## v1.5.5.5 — Sync Mode Input Validation & Daily Update Fix
+
+Two targeted fixes for the same failure chain. `daily_update.py` set
+`GARMIN_SYNC_MODE = range` on both branches of `_build_env()` — including
+the normal "up to date" path. `garmin_sync.py` crashed with `ValueError`
+if `SYNC_FROM` / `SYNC_TO` were empty strings, because `garmin_config.py`
+only applies its default when the ENV key is entirely absent.
+
+**Changed modules:**
+- `scheduler/daily_update.py` — `_build_env()`: both branches now set
+  `GARMIN_SYNC_MODE = "recent"`. `GARMIN_SYNC_START` and `GARMIN_SYNC_END`
+  removed from the ENV dict. Invariant documented in comment:
+  `# daily_update setzt immer recent — nie range oder auto`.
+  Gap-detected date range is used for logging only; the collector determines
+  the fetch window via `GARMIN_DAYS_BACK`.
+- `garmin/garmin_sync.py` — new `ConfigurationError` exception class.
+  `resolve_date_range()` `range`-branch: `date.fromisoformat()` calls wrapped
+  in `try/except (ValueError, TypeError)` — raises `ConfigurationError` with a
+  human-readable message before any API call is made.
+
+**Test result:** 319 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.5.4 — Test Infrastructure Consolidation + Maps Logging + AST-Guard
 
 Duplicate test-tracking boilerplate extracted from four manual test scripts

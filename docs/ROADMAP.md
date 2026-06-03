@@ -6,68 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.5.4**
+**Currently stable — v1.5.5.5**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.5.5 — Writer Flush Hardening
-
-Adds `os.fsync()` to `garmin_writer.write_day()` after the atomic write completes.
-Without this, Python reports success from the OS page cache — a power loss between
-write and physical flush produces a corrupt or empty raw file with no error signal.
-
-Activates one additional check in `test_critical_archive.py` Group A:
-"write_day calls fsync" — confirming the call is made, which is the maximum
-assertion verifiable at application level.
-
-**What changes:**
-- `garmin/garmin_writer.py` — `write_day()`: `os.fsync(f.fileno())` added after
-  `f.write()` inside the `tmp` file context, before `tmp.replace(target)`.
-
-**What does not change:**
-- Return value of `write_day()` — `True` / `False` unchanged
-- Atomic write pattern — tmp → replace preserved
-- All callers — interface unchanged
-
----
-
-### v1.5.5.6 — Sync Mode Input Validation & Daily Update Fix
- 
-Two related fixes for the same failure chain. `daily_update.py` triggered
-a `ValueError` crash by setting `sync_mode = range` with empty date fields
-in edge cases. Both sides are hardened independently.
- 
-**Root cause:** `_build_env()` in `daily_update.py` sets `GARMIN_SYNC_MODE = range`
-on both branches — including the fallback path. `garmin_config.py` uses
-`"2024-01-01"` / `"2024-12-31"` as hardcoded defaults for `SYNC_FROM`/`SYNC_TO`
-when the ENV keys are missing or empty. If the ENV keys are set to empty strings,
-`garmin_sync.py` receives an empty isoformat string and crashes with `ValueError`
-after login has already been established.
- 
-**What changes:**
-- `scheduler/daily_update.py` — `_build_env()`: both branches replaced with
-  `GARMIN_SYNC_MODE = recent`. `GARMIN_SYNC_START` and `GARMIN_SYNC_END` removed
-  from the ENV dict entirely — `recent` mode does not use them.
-  `GARMIN_DAYS_BACK` set to cover the detected gap range. Daily Update never
-  falls back to `range` or `auto` — `recent` is the only permitted mode.
-- `garmin/garmin_sync.py` — `resolve_date_range()`: defensive guard raises
-  `ConfigurationError` with a human-readable message if `sync_mode = range`
-  and either `SYNC_FROM` or `SYNC_TO` is empty or not a valid ISO date.
-  Fires before any API call.
-- `app/panel_outputs.py` — `on_done()` in `_run_dashboards()`: `os.startfile(output_dir)`
-  removed. Dashboards are visible in Tab 2 (QWebEngineView) immediately after build —
-  automatic folder open is redundant since v1.5.4.2. "Open Data Folder" button
-  remains available for manual access.
-**What does not change:**
-- `garmin_config.py` — `SYNC_FROM`/`SYNC_TO` default values unchanged;
-  they are only read when `sync_mode = range`, which `daily_update` no longer sets
-- Gap detection logic in `daily_update.py` — unchanged
-- All other sync modes (`auto`, `recent`) in `garmin_sync.py` — unaffected
-- `panel_archive.py` — pre-flight check explicitly out of scope for this patch
 
 ---
 
