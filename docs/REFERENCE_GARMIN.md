@@ -197,8 +197,9 @@ Shared utilities — leaf node. No project-module imports.
 
 ## `garmin_sync.py`
 
-| Function | Purpose |
+| Symbol | Purpose |
 |---|---|
+| `ConfigurationError` | Raised by `resolve_date_range()` when `SYNC_MODE=range` and `SYNC_FROM` / `SYNC_TO` is empty or not a valid ISO date. Fires before any API call. |
 | `resolve_date_range(first_day)` | Returns `(start, end)` based on `cfg.SYNC_MODE` |
 | `get_local_dates(folder, recheck_dates)` | Returns set of dates with local data |
 | `date_range(start, end)` | Generator — yields every `date` from `start` to `end` inclusive |

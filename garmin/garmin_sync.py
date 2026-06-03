@@ -27,6 +27,10 @@ from pathlib import Path
 
 import garmin_config as cfg
 
+
+class ConfigurationError(Exception):
+    """Raised when a required configuration value is missing or invalid."""
+
 log = logging.getLogger(__name__)
 
 
@@ -53,8 +57,15 @@ def resolve_date_range(first_day: str | None) -> tuple[date, date]:
         return start, yesterday
 
     if cfg.SYNC_MODE == "range":
-        start = date.fromisoformat(cfg.SYNC_FROM)
-        end   = date.fromisoformat(cfg.SYNC_TO)
+        try:
+            start = date.fromisoformat(cfg.SYNC_FROM)
+            end   = date.fromisoformat(cfg.SYNC_TO)
+        except (ValueError, TypeError) as e:
+            raise ConfigurationError(
+                f"GARMIN_SYNC_MODE=range requires valid ISO dates in "
+                f"GARMIN_SYNC_START and GARMIN_SYNC_END. Got: "
+                f"'{cfg.SYNC_FROM}' / '{cfg.SYNC_TO}' — {e}"
+            ) from e
         log.info(f"  Mode: range — {start} → {end}")
         return start, end
 

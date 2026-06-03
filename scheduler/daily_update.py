@@ -295,15 +295,11 @@ def _build_env(s: dict, password: str, date_from: date | None, date_to: date | N
     env["GARMIN_CONTEXT_LAT"]       = str(s.get("context_latitude",  "0.0"))
     env["GARMIN_CONTEXT_LON"]       = str(s.get("context_longitude", "0.0"))
 
-    if date_from and date_to:
-        env["GARMIN_SYNC_MODE"]  = "range"
-        env["GARMIN_SYNC_START"] = date_from.isoformat()
-        env["GARMIN_SYNC_END"]   = date_to.isoformat()
-    else:
-        # Empty archive or up to date — use range: today-1 → today-1
-        env["GARMIN_SYNC_MODE"]  = "range"
-        env["GARMIN_SYNC_START"] = yesterday.isoformat()
-        env["GARMIN_SYNC_END"]   = yesterday.isoformat()
+    # daily_update setzt immer recent — nie range oder auto.
+    # Gap-Detection liefert date_from/date_to nur zur Information (Log).
+    # Der Collector bestimmt den Fetch-Bereich über GARMIN_DAYS_BACK selbst.
+    # GARMIN_SYNC_START / GARMIN_SYNC_END werden bewusst nicht gesetzt.
+    env["GARMIN_SYNC_MODE"] = "recent"
 
     env["GARMIN_DAYS_BACK"]  = str(s.get("sync_days", "90"))
     env["GARMIN_SYNC_FALLBACK"] = str(s.get("sync_auto_fallback", ""))
