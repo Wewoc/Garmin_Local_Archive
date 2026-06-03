@@ -382,6 +382,12 @@ class PanelConnection(QWidget):
         self._mirror_btn.clicked.connect(
             lambda: self._app._panel_archive._on_mirror())
 
+        self._import_mirror_btn = _btn("📥  Import from Mirror",
+                                       self._app.BG3, self._app.TEXT2)
+        self._import_mirror_btn.setEnabled(False)
+        self._import_mirror_btn.clicked.connect(
+            lambda: self._app._panel_archive._on_import_mirror())
+
         self._restore_btn = _btn("Restore Data", self._app.BG3, self._app.TEXT2)
         self._restore_btn.setEnabled(False)
         self._restore_btn.clicked.connect(
@@ -390,11 +396,8 @@ class PanelConnection(QWidget):
         reset_btn = _btn("🔑  Reset Token", self._app.BG3, self._app.TEXT2)
         reset_btn.clicked.connect(self._reset_token)
 
-        clean_btn = _btn("🗑  Clean Archive", self._app.BG3, self._app.TEXT2)
-        clean_btn.clicked.connect(
-            lambda: self._app._panel_archive._clean_archive())
-
-        for b in [self._mirror_btn, self._restore_btn, reset_btn, clean_btn]:
+        for b in [self._mirror_btn, self._import_mirror_btn,
+                  self._restore_btn, reset_btn]:
             conn_row.addWidget(b)
             conn_row.addSpacing(4)
 
@@ -487,6 +490,23 @@ class PanelConnection(QWidget):
         self._mirror_btn.style().unpolish(self._mirror_btn)
         self._mirror_btn.style().polish(self._mirror_btn)
         self._mirror_btn.update()
+
+    def set_import_mirror_button_state(self, enabled: bool,
+                                       text: str = None):
+        """Called from PanelArchive — Main Thread only."""
+        self._import_mirror_btn.setEnabled(enabled)
+        if text is not None:
+            self._import_mirror_btn.setText(text)
+        fg = self._app.TEXT if enabled else self._app.TEXT2
+        self._import_mirror_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
+            f"border: none; padding: 7px 14px; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
+            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
+            f"background: {self._app.BG3}; }}")
+        self._import_mirror_btn.style().unpolish(self._import_mirror_btn)
+        self._import_mirror_btn.style().polish(self._import_mirror_btn)
+        self._import_mirror_btn.update()
 
     def set_restore_button_state(self, enabled: bool,
                                  text: str = None, color: str = None,

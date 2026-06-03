@@ -6,122 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.5.4**
+**Currently stable — v1.5.6**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.5.5 — Writer Flush Hardening
-
-Adds `os.fsync()` to `garmin_writer.write_day()` after the atomic write completes.
-Without this, Python reports success from the OS page cache — a power loss between
-write and physical flush produces a corrupt or empty raw file with no error signal.
-
-Activates one additional check in `test_critical_archive.py` Group A:
-"write_day calls fsync" — confirming the call is made, which is the maximum
-assertion verifiable at application level.
-
-**What changes:**
-- `garmin/garmin_writer.py` — `write_day()`: `os.fsync(f.fileno())` added after
-  `f.write()` inside the `tmp` file context, before `tmp.replace(target)`.
-
-**What does not change:**
-- Return value of `write_day()` — `True` / `False` unchanged
-- Atomic write pattern — tmp → replace preserved
-- All callers — interface unchanged
-
----
-
-### v1.5.5.6 — Sync Mode Input Validation & Daily Update Fix
- 
-Two related fixes for the same failure chain. `daily_update.py` triggered
-a `ValueError` crash by setting `sync_mode = range` with empty date fields
-in edge cases. Both sides are hardened independently.
- 
-**Root cause:** `_build_env()` in `daily_update.py` sets `GARMIN_SYNC_MODE = range`
-on both branches — including the fallback path. `garmin_config.py` uses
-`"2024-01-01"` / `"2024-12-31"` as hardcoded defaults for `SYNC_FROM`/`SYNC_TO`
-when the ENV keys are missing or empty. If the ENV keys are set to empty strings,
-`garmin_sync.py` receives an empty isoformat string and crashes with `ValueError`
-after login has already been established.
- 
-**What changes:**
-- `scheduler/daily_update.py` — `_build_env()`: both branches replaced with
-  `GARMIN_SYNC_MODE = recent`. `GARMIN_SYNC_START` and `GARMIN_SYNC_END` removed
-  from the ENV dict entirely — `recent` mode does not use them.
-  `GARMIN_DAYS_BACK` set to cover the detected gap range. Daily Update never
-  falls back to `range` or `auto` — `recent` is the only permitted mode.
-- `garmin/garmin_sync.py` — `resolve_date_range()`: defensive guard raises
-  `ConfigurationError` with a human-readable message if `sync_mode = range`
-  and either `SYNC_FROM` or `SYNC_TO` is empty or not a valid ISO date.
-  Fires before any API call.
-- `app/panel_outputs.py` — `on_done()` in `_run_dashboards()`: `os.startfile(output_dir)`
-  removed. Dashboards are visible in Tab 2 (QWebEngineView) immediately after build —
-  automatic folder open is redundant since v1.5.4.2. "Open Data Folder" button
-  remains available for manual access.
-**What does not change:**
-- `garmin_config.py` — `SYNC_FROM`/`SYNC_TO` default values unchanged;
-  they are only read when `sync_mode = range`, which `daily_update` no longer sets
-- Gap detection logic in `daily_update.py` — unchanged
-- All other sync modes (`auto`, `recent`) in `garmin_sync.py` — unaffected
-- `panel_archive.py` — pre-flight check explicitly out of scope for this patch
-
----
-
-### v1.5.6 — Mirror Import
-
-Multi-device support via import from a mirrored archive. Extends the existing
-mirror feature with a reverse direction: a second device can import data from
-a mirror folder created by the primary device.
-
-**`garmin_import_mirror.py` — new module**
-
-Sole Owner of the mirror import operation. Reads `mirror_meta.json` for version
-checks, performs a quality-log-based delta analysis, and imports only days that
-are missing or have better quality than the local archive. Pipeline entry point
-is `summarize()` — `normalize()` is skipped because mirrored raw files are
-already normalized. Summaries are always regenerated locally from raw, which
-eliminates schema version conflicts structurally.
-
-Conflict resolution for raw files: quality rank comparison via the existing
-`_upsert_quality()` downgrade protection (`high` > `medium` > `low` > `failed`).
-Higher quality wins — the local archive is never silently downgraded.
-
-Context files: delta only — files missing on the target device are imported;
-existing files are not overwritten (source is master).
-
-**`garmin_mirror.py` — extended**
-
-Writes `mirror_meta.json` to the mirror folder after a successful run. Contains
-`gla_version`, `schema_version`, and `mirrored_at`. Written only on `ok=True` —
-a failed or partial mirror never produces a meta file.
-
-**What changes:**
-- `garmin/garmin_import_mirror.py` — new module. Returns
-  `{"raw_copied", "raw_skipped", "context_copied", "errors", "ok"}`
-- `garmin/garmin_mirror.py` — writes `mirror_meta.json` on successful completion
-- `garmin_app_base.py` — "Import from Mirror" button in Archive panel.
-  Active only when mirror folder is configured and reachable. Dry-run dialog
-  shows delta before import ("45 raw days, 12 context days"). Background thread,
-  progress in log window. Timer pause/resume wired (same pattern as Bulk Import).
-
-**What does not change:**
-- `garmin_writer.py`, `context_writer.py`, `garmin_quality.py` — sole owner
-  principle unchanged; import writes exclusively through existing owners
-- `garmin_mirror.py` core logic — `shutil.copy2()`, EXCLUDE_DIRS, stats dict
-- No encryption, no new dependencies
-
-**Import invariants:**
-- `normalize()` is never called on mirrored raw files — already normalized
-- Summary files are never imported — always regenerated from raw
-- `garmin_token` and `__pycache__` are never included in a mirror
-- Import pauses the background timer for the duration of the operation
-
-*Pre-condition: v1.5.5 stable. Mirror folder configured and populated by
-the source device before import is attempted.*
 
 ---
 
@@ -177,8 +66,6 @@ in a future version.
 - Import protocol from delta analysis onward — identical to v1.5.6
 - Pipeline entry point, sole owner principle, all existing invariants
 - No new package dependencies (`cryptography` already required)
-
-
 
 ---
 
@@ -295,8 +182,6 @@ When the Sleep Dashboard is built, an Explorer HTML is automatically generated f
 - Files are relative-linked — both must be in the same output folder
 - The Explorer opens at full range; the user navigates to the relevant day themselves
 - T3-compatible — no Python callback from the browser, no server component
-
-*Pre-condition: Sleep Dashboard and Explorer Dashboard both stable and tested.*
 
 ---
 
@@ -498,8 +383,6 @@ the pipeline actually runs inside the bundle — not just that files are present
 In the same pass: harden existing test suites — close gaps that have grown
 since v1.3.
 
-*Pre-condition: v1.7 FIT Pipeline stable.*
-
 ---
 
 ### Sync Mode "auto" — Deprecation Candidate
@@ -520,6 +403,60 @@ With the current toolset this use case is fully covered:
 remains functional but is not actively promoted. Removal or explicit
 deprecation notice to be evaluated — not a priority while the mode causes
 no active harm.
+
+---
+
+### v1.9 — MCP Server
+
+Exposes GLA data to local LLMs via the Model Context Protocol. Allows natural-language queries against the full archive — health data, FIT activities, and context data — without manual export or file upload.
+
+**Architecture**
+
+A new `mcp_map.py` module sits alongside the existing brokers in the Broker Layer as a dedicated MCP entry point. It receives queries from the MCP Server and distributes them across the full Broker Layer (`field_map`, `fit_map`, `context_map`). The MCP Server itself has no knowledge of GLA's internal structure — `mcp_map` owns that translation.
+
+```
+MCP Server (external)
+    ↓
+mcp_map.py  ←→  Broker Layer (field_map / fit_map / context_map)
+    ↓
+[Pipeline untouched]
+```
+
+**`garmin/mcp_map.py` — new module**
+
+Sole Owner of MCP query translation. Accepts structured tool calls from the MCP Server and routes them to the appropriate broker. Returns normalized response dicts. No write access to any pipeline component — read-only by design.
+
+**`mcp_server.py` — new module**
+
+Standalone MCP server process. Implements the MCP tool definitions and delegates all data access to `mcp_map`. Can be started independently of the main GUI. Configurable via `local_config` — enabled/disabled, port, LLM backend.
+
+**LLM backend support**
+
+- Ollama (default, recommended) — fully local, no data leaves the machine
+- Claude API — optional, user's choice; no default
+
+The backend is a configuration option. GLA takes no position on which LLM the user runs.
+
+**Example tools exposed via MCP**
+
+- `query_day(date)` — full summary for a single day across all active sources
+- `query_range(start, end, fields)` — aggregated data for a date range
+- `query_fit_activities(start, end)` — FIT activity list with key metrics
+- `get_archive_stats()` — archive health overview (coverage, quality distribution)
+
+**What changes:**
+- `garmin/mcp_map.py` — new module; read-only broker aggregator
+- `mcp_server.py` — new standalone MCP server process
+- `local_config` — two new fields: `MCP_ENABLED` (on/off), `MCP_LLM_BACKEND` (ollama / claude-api)
+- `garmin_app_base.py` — optional "Start MCP Server" toggle in Settings panel
+
+**What does not change:**
+- Broker Layer internals — `field_map`, `fit_map`, `context_map` unchanged
+- Pipeline — no access below the Broker Layer
+- Sole owner principle — `mcp_map` reads via brokers only, never directly from archive files
+- All existing workflows — GUI, dashboards, export pipeline unaffected
+
+**Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
 
 ---
 

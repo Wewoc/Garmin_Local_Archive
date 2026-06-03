@@ -133,6 +133,7 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 |---|---|
 | `write(plugin, data, lat, lon)` | Writes `{date: fields}` dict to `plugin.OUTPUT_DIR`. Returns `{"written": int, "failed": int}` |
 | `already_written(plugin, date_str)` | Returns `True` if file for this plugin + date already exists |
+| `write_file(dest_path, data)` | Writes a pre-built context dict atomically to `dest_path`. Used by `garmin_import_mirror`. Returns `bool` |
 
 **Sole write authority for `context_data/`.** No other module writes there.
 

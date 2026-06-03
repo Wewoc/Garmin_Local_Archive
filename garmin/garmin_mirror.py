@@ -16,10 +16,12 @@ Uses project logger — no own logging setup.
 All paths from caller (garmin_app_base) — no garmin_config import needed.
 """
 
+import json
 import random
 import shutil
 import zlib
 import logging
+from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -49,6 +51,9 @@ def run_mirror(source_dir: Path, mirror_dir: Path) -> dict:
       skipped  int  — files identical (name + size)
       errors   int  — copy/delete errors
       ok       bool — True if errors == 0
+
+    Writes mirror_meta.json to mirror_dir on ok=True. The meta file
+    enables garmin_import_mirror to verify the mirror source before import.
     """
     if not source_dir.exists() or not source_dir.is_dir():
         log.error(f"  mirror: source not found or not a directory: {source_dir}")
@@ -116,6 +121,11 @@ def run_mirror(source_dir: Path, mirror_dir: Path) -> dict:
     # Spot-check — CRC32 comparison of up to 10 random files (v1.5.5)
     spot_check = _run_spot_check(source_dir, mirror_dir, source_files)
 
+    ok = errors == 0
+
+    if ok:
+        _write_mirror_meta(mirror_dir)
+
     log.info(
         f"  mirror done: {copied} copied, {deleted} deleted, "
         f"{skipped} skipped, {errors} errors — "
@@ -127,7 +137,7 @@ def run_mirror(source_dir: Path, mirror_dir: Path) -> dict:
         "deleted":    deleted,
         "skipped":    skipped,
         "errors":     errors,
-        "ok":         errors == 0,
+        "ok":         ok,
         "spot_check": spot_check,
     }
 
@@ -146,9 +156,47 @@ def is_reachable(mirror_dir: str | Path) -> bool:
         return False
 
 
+def is_import_ready(mirror_dir: str | Path) -> bool:
+    """
+    Returns True if mirror_dir is reachable AND contains mirror_meta.json.
+    Used by panel_archive to determine Import from Mirror button state.
+    A mirror without meta was never completed successfully — import not safe.
+    """
+    if not is_reachable(mirror_dir):
+        return False
+    try:
+        return (Path(mirror_dir) / "mirror_meta.json").exists()
+    except Exception:
+        return False
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _write_mirror_meta(mirror_dir: Path) -> None:
+    """
+    Writes mirror_meta.json to mirror_dir. Called only on ok=True.
+    Imports version and schema lazily to avoid circular import risk.
+    Failure is non-fatal — logged as warning, mirror result unchanged.
+    """
+    try:
+        from version import APP_VERSION
+        from garmin_normalizer import CURRENT_SCHEMA_VERSION
+        meta = {
+            "gla_version":    APP_VERSION,
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "mirrored_at":    datetime.now().isoformat(timespec="seconds"),
+        }
+        dest = mirror_dir / "mirror_meta.json"
+        tmp  = mirror_dir / "mirror_meta.json.tmp"
+        tmp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        import os
+        os.replace(tmp, dest)
+        log.debug(f"  mirror: wrote mirror_meta.json (v{APP_VERSION})")
+    except Exception as e:
+        log.warning(f"  mirror: could not write mirror_meta.json — {e}")
+
 
 def _collect_files(root: Path) -> dict[Path, int]:
     """

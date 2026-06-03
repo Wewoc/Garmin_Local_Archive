@@ -383,18 +383,150 @@ class PanelArchive(QWidget):
     # ── Mirror check ───────────────────────────────────────────────────────────
 
     def _startup_mirror_check(self):
-        """Checks at startup if mirror_dir is reachable (C3). Worker-safe."""
-        s         = self._app._panel_settings._collect_settings()
-        reachable = _controller.check_mirror(s)
+        """Checks at startup if mirror_dir is reachable (C3). Worker-safe.
 
-        def _update():
-            self._app._panel_connection.set_mirror_button_state(
-                reachable,
-                text="🔁  Data Mirror",
-            )
-        self._app._dispatch(_update)
+        Path.exists() on Windows can block indefinitely for unreachable
+        network paths (UNC, mapped drives, OneDrive). The check runs in
+        a dedicated daemon thread with no join() — it dispatches the UI
+        update whenever it completes, without blocking startup.
+        If mirror_dir is empty, buttons stay disabled immediately.
+        """
+        s          = self._app._panel_settings._collect_settings()
+        mirror_dir = s.get("mirror_dir", "").strip()
+
+        if not mirror_dir:
+            # No mirror configured — nothing to check, buttons stay disabled
+            return
+
+        def _check():
+            reachable    = False
+            import_ready = False
+            try:
+                reachable = _controller.check_mirror(s)
+            except Exception:
+                pass
+            try:
+                import garmin_mirror as _mirror
+                import_ready = _mirror.is_import_ready(mirror_dir)
+            except Exception:
+                pass
+
+            def _update():
+                self._app._panel_connection.set_mirror_button_state(
+                    reachable,
+                    text="🔁  Data Mirror",
+                )
+                self._app._panel_connection.set_import_mirror_button_state(
+                    import_ready)
+            self._app._dispatch(_update)
+
+        threading.Thread(target=_check, daemon=True).start()
 
     # ── Mirror operation ───────────────────────────────────────────────────────
+
+    def _on_import_mirror(self):
+        """Starts Mirror Import in background thread. Main Thread only."""
+        if self._mirror_running:
+            return
+        s          = self._app._panel_settings._collect_settings()
+        mirror_dir = s.get("mirror_dir", "").strip()
+        base_dir   = Path(s.get("base_dir", "")).expanduser()
+
+        if not mirror_dir:
+            QMessageBox.warning(self._app, "Import from Mirror",
+                                "No mirror folder configured.")
+            return
+
+        import garmin_mirror as _mirror
+        if not _mirror.is_import_ready(mirror_dir):
+            QMessageBox.warning(self._app, "Import from Mirror",
+                "Mirror folder has no mirror_meta.json.\n"
+                "Run 'Data Mirror' on the source device first.")
+            return
+
+        if self._app._is_running():
+            QMessageBox.warning(self._app, "Import from Mirror",
+                "A Garmin sync is currently running.\nPlease wait until it finishes.")
+            return
+        if self._app._ctx_running:
+            QMessageBox.warning(self._app, "Import from Mirror",
+                "Context sync is running.\nPlease wait until it finishes.")
+            return
+
+        # ── Dry-run: delta analysis before confirmation ────────────────────
+        try:
+            import garmin_import_mirror as _importer
+            dry = _importer.run_import_mirror(
+                mirror_dir=Path(mirror_dir),
+                base_dir=base_dir,
+                dry_run=True,
+            )
+        except Exception as e:
+            QMessageBox.critical(self._app, "Import from Mirror",
+                                 f"Dry-run failed:\n{e}")
+            return
+
+        if not dry.get("ok"):
+            QMessageBox.critical(self._app, "Import from Mirror",
+                "Could not read mirror data.\nCheck log for details.")
+            return
+
+        raw_n     = dry.get("raw_to_copy", 0)
+        ctx_n     = dry.get("context_to_copy", 0)
+        ver_warn  = dry.get("version_warning", "")
+
+        msg = f"{raw_n} raw day(s) and {ctx_n} context file(s) will be imported."
+        if ver_warn:
+            msg += f"\n\n⚠ {ver_warn}"
+        msg += "\n\nProceed?"
+
+        answer = QMessageBox.question(
+            self._app, "Import from Mirror", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        # ── Pause timer, run import ────────────────────────────────────────
+        timer_was_active = self._app._timer_active
+        if self._app._timer_active:
+            self._app._log("⏱  Background timer paused for mirror import.")
+            self._app._timer_stop.set()
+            self._app._timer_active = False
+            self._app._dispatch(self._app._panel_timer._timer_update_btn)
+
+        self._mirror_running = True
+        self._app._panel_connection.set_import_mirror_button_state(False)
+        self._app._log("📥  Import from Mirror started …")
+
+        def _do_import():
+            try:
+                import garmin_import_mirror as _imp
+                result = _imp.run_import_mirror(
+                    mirror_dir=Path(mirror_dir),
+                    base_dir=base_dir,
+                    dry_run=False,
+                )
+                msg = (
+                    f"✓ Mirror import complete: "
+                    f"{result['raw_copied']} raw day(s) imported, "
+                    f"{result['raw_skipped']} skipped, "
+                    f"{result['context_copied']} context file(s) imported"
+                )
+                if result["errors"]:
+                    msg += f", {result['errors']} error(s)"
+                self._app._log_bg(msg)
+            except Exception as e:
+                self._app._log_bg(f"✗ Mirror import failed: {e}")
+            finally:
+                self._mirror_running = False
+                self._app._dispatch(lambda: (
+                    self._app._panel_archive._refresh_archive_info(),
+                    self._app._panel_timer._timer_resume_after_sync(timer_was_active),
+                    self._app._panel_connection.set_import_mirror_button_state(True),
+                ))
+
+        threading.Thread(target=_do_import, daemon=True).start()
 
     def _on_mirror(self):
         """Starts mirror operation in background thread (C4/C5). Main Thread only."""

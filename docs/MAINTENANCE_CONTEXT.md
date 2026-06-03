@@ -50,7 +50,7 @@ Dashboard specialists
 
 **Current count: 13 sections.**
 
-**Check count: 267** (was 261 before v1.5.4.3 — 6 new checks for `garmin_backup` bug fixes)
+**Check count: 261** (v1.5.6 — `write_file()` is a thin atomic wrapper, tested implicitly via import round-trip; no new sections added)
 
 ```bash
 python tests/test_local_context.py

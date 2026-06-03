@@ -2,6 +2,84 @@
 
 ---
 
+## v1.5.6 — Mirror Import
+
+Multi-device support via selective import from a mirrored archive. A second device
+running GLA can import raw days and context files from a mirror folder created by the
+primary device. Only days that are missing or have better quality than the local archive
+are imported. Summary files are always regenerated locally — schema version conflicts
+are structurally eliminated.
+
+**New modules:**
+- `garmin/garmin_import_mirror.py` — Sole Owner of the mirror import operation.
+  Reads `mirror_meta.json` for version checks. Quality-log-based delta analysis:
+  raw days imported by rank (`high` > `medium` > `low` > `failed`), downgrade
+  protected via `_upsert_quality()`. Context files: source wins (overwrite existing).
+  Pipeline entry at `summarize()` — `normalize()` skipped (raw already normalized).
+  Dry-run mode returns delta counts before import. Returns
+  `{"raw_copied", "raw_skipped", "context_copied", "errors", "ok"}`.
+
+**Changed modules:**
+- `garmin/garmin_mirror.py` — writes `mirror_meta.json` after successful `run_mirror()`
+  (`ok=True` only). New public function `is_import_ready(mirror_dir)` — returns `True`
+  if folder is reachable and contains `mirror_meta.json`. Internal `_write_mirror_meta()`
+  is atomic and non-fatal on error.
+- `context/context_writer.py` — new `write_file(dest_path, data)` function. Atomic
+  write via temp file + `os.replace()`. Preserves sole-write-authority for `context_data/`
+  when called from `garmin_import_mirror`.
+- `compiler/build_manifest.py` — `garmin_import_mirror.py` added to `SHARED_SCRIPTS`
+  and `SCRIPT_SIGNATURES_BASE`.
+- `app/panel_archive.py` — new `_on_import_mirror()` method. Dry-run dialog shows delta
+  before import. Background thread, timer pause/resume (same pattern as Bulk Import).
+  `_startup_mirror_check()` extended to also set Import from Mirror button state.
+- `app/panel_connection.py` — `_import_mirror_btn` widget added.
+  `set_import_mirror_button_state()` accessor added (same pattern as mirror/restore buttons).
+
+**What does not change:**
+- `garmin_writer`, `garmin_quality`, `garmin_mirror` core logic — unmodified
+- `normalize()` — never called during mirror import
+- No new package dependencies
+
+**Additional changes (post-build fixes):**
+- `garmin_app.py` + `garmin_app_standalone.py` — Splash Screen removed.
+  `QEventLoop`, `processEvents()`, and `QThread.msleep()` all tested — none
+  rendered reliably on Windows with background thread dispatching active.
+  `build_splash_pixmap()` remains in `garmin_app_base.py` as reserve.
+- `app/panel_connection.py` — "Clean Archive" button removed (legacy relikt).
+  `_clean_archive()` in `panel_archive.py` retained as inactive code.
+- `app/panel_archive.py` — `_startup_mirror_check()` made fully non-blocking
+  (no `join()`) to prevent startup delay on network mirror paths.
+
+**Test result:** 319 / 261 / 303 / 128 / 42 — all green
+
+---
+
+---
+
+## v1.5.5.5 — Sync Mode Input Validation & Daily Update Fix
+
+Two targeted fixes for the same failure chain. `daily_update.py` set
+`GARMIN_SYNC_MODE = range` on both branches of `_build_env()` — including
+the normal "up to date" path. `garmin_sync.py` crashed with `ValueError`
+if `SYNC_FROM` / `SYNC_TO` were empty strings, because `garmin_config.py`
+only applies its default when the ENV key is entirely absent.
+
+**Changed modules:**
+- `scheduler/daily_update.py` — `_build_env()`: both branches now set
+  `GARMIN_SYNC_MODE = "recent"`. `GARMIN_SYNC_START` and `GARMIN_SYNC_END`
+  removed from the ENV dict. Invariant documented in comment:
+  `# daily_update setzt immer recent — nie range oder auto`.
+  Gap-detected date range is used for logging only; the collector determines
+  the fetch window via `GARMIN_DAYS_BACK`.
+- `garmin/garmin_sync.py` — new `ConfigurationError` exception class.
+  `resolve_date_range()` `range`-branch: `date.fromisoformat()` calls wrapped
+  in `try/except (ValueError, TypeError)` — raises `ConfigurationError` with a
+  human-readable message before any API call is made.
+
+**Test result:** 319 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.5.4 — Test Infrastructure Consolidation + Maps Logging + AST-Guard
 
 Duplicate test-tracking boilerplate extracted from four manual test scripts

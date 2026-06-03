@@ -50,6 +50,7 @@ or later).
 | `garmin_security.py` | `garmin_token.enc` |
 | `garmin_backup.py` | `garmin_data/backup/` |
 | `garmin_mirror.py` | mirror operation (target path) |
+| `garmin_import_mirror.py` | mirror import operation — orchestrates only |
 
 ### Invariants
 
@@ -100,6 +101,10 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 ## `test_local.py`
 
 **Current count: 319 checks, 19 sections.**
+
+*Note: `garmin_import_mirror` and `garmin_mirror` (meta/is_import_ready) are not yet covered
+by `test_local.py`. Test section D (garmin_import_mirror) is planned for v1.5.6.1 or v1.5.7
+when integration testing with a real mirror folder structure becomes practical.*
 
 ```bash
 python tests/test_local.py

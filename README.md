@@ -271,7 +271,8 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here |
 | `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline |
 | `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
-| `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive) |
+| `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive). Writes `mirror_meta.json` on success |
+| `garmin_import_mirror.py` | Mirror import — selective import from a mirror folder into the local archive. Quality-rank delta, dry-run dialog, timer-safe |
 
 **Context pipeline** — `context/`
 
