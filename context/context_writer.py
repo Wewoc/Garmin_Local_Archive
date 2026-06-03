@@ -29,6 +29,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -100,3 +101,34 @@ def write(plugin, data: dict[str, dict],
 def already_written(plugin, date_str: str) -> bool:
     """Return True if the file for this plugin + date already exists."""
     return (plugin.OUTPUT_DIR / f"{plugin.FILE_PREFIX}{date_str}.json").exists()
+
+
+def write_file(dest_path: Path, data: dict) -> bool:
+    """
+    Writes a pre-built context dict atomically to dest_path.
+    Used by garmin_import_mirror — sole write authority for context_data/
+    is preserved: all writes go through context_writer.
+
+    Parameters
+    ----------
+    dest_path : Path — full destination path (including filename)
+    data      : dict — content to write (already validated by caller)
+
+    Returns
+    -------
+    bool — True on success, False on OSError
+    """
+    tmp = dest_path.with_suffix(".tmp")
+    try:
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        os.replace(tmp, dest_path)
+        return True
+    except OSError as exc:
+        log.warning(f"  context_writer.write_file: failed {dest_path.name} — {exc}")
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False

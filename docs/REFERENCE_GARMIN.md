@@ -41,11 +41,13 @@ garmin_app.py (GUI)
 - `garmin_quality.py` is sole write authority for `quality_log.json`
 - `garmin_backup.py` is sole write authority for `garmin_data/backup/`
 - `garmin_mirror.py` is sole owner of the mirror operation
+- `garmin_import_mirror.py` is sole owner of the mirror import operation — orchestrates only, never writes directly
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
 - `_process_day()` returns `(label, written, fields, val_result)` — never raises
 - `garmin_backup` must never import `garmin_writer` or `garmin_quality` — avoids circular imports
+- `normalize()` is never called during mirror import — raw in mirror is already normalized
 
 ---
 
@@ -297,16 +299,24 @@ garmin_data/backup/
 ## `garmin_mirror.py`
 
 Sole Owner of the mirror operation. No `garmin_config` import — all paths from caller.
+Writes `mirror_meta.json` to mirror folder after successful run (ok=True only).
 
 | Function | Purpose |
 |---|---|
-| `run_mirror(source_dir, mirror_dir)` | Mirrors `source_dir` → `mirror_dir`. Returns `{"copied", "deleted", "skipped", "errors", "ok", "spot_check"}` |
-| `is_reachable(mirror_dir)` | Returns `True` if `mirror_dir` is set and exists. Used for button state |
+| `run_mirror(source_dir, mirror_dir)` | Mirrors `source_dir` → `mirror_dir`. Writes `mirror_meta.json` on `ok=True`. Returns `{"copied", "deleted", "skipped", "errors", "ok", "spot_check"}` |
+| `is_reachable(mirror_dir)` | Returns `True` if `mirror_dir` is set and exists. Used for Data Mirror button state |
+| `is_import_ready(mirror_dir)` | Returns `True` if `mirror_dir` is reachable AND contains `mirror_meta.json`. Used for Import from Mirror button state |
+| `_write_mirror_meta(mirror_dir)` | Writes `mirror_meta.json` atomically. Lazy imports `APP_VERSION` + `CURRENT_SCHEMA_VERSION`. Non-fatal on error |
 | `_collect_files(root)` | Returns `{relative_path → filesize}`. Skips `EXCLUDE_DIRS` |
 | `_remove_empty_dirs(root)` | Removes empty subdirectories bottom-up. Silent on error |
 | `_run_spot_check(source_dir, mirror_dir, source_files)` | CRC32 spot-check: up to 10 random files compared after copy phase. Returns `{"sampled": N, "mismatches": M}` |
 
 `EXCLUDE_DIRS = {"__pycache__", "garmin_token"}`
+
+### `mirror_meta.json` — format
+
+Written to mirror folder root on every successful `run_mirror()`. Required for import.
+
 
 ---
 

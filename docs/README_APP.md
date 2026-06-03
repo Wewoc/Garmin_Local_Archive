@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.5.5
+# Garmin Local Archive — Desktop App v1.5.6
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -117,13 +117,6 @@ The top section shows two things at once:
 - **Last API / Last Bulk** — most recent date imported via live sync or bulk import
 
 The panel refreshes automatically after every Sync and Bulk Import.
-
-### Clean Archive
-Removes all data files that predate your `first_day` — the earliest valid day detected in your Garmin account.
-
-Click the button to open a preview popup showing exactly which files will be deleted and how many quality log entries will be removed. Nothing is deleted until you confirm with **Delete**. Click **Cancel** to close without changes.
-
-Use this to clean up files created accidentally by entering a date that is too early in range mode. The `first_day` anchor is detected automatically on first run and stored in `log/quality_log.json`. If the popup reports "nothing to clean", your archive is already consistent.
 
 ### Restore Data
 Appears in the Connection & Archive Status panel. Normally greyed out — becomes active if the app detects raw data files that are registered in the quality log as written but are missing or unreadable on disk.
