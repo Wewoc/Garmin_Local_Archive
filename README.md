@@ -107,7 +107,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
 
-![Garmin Local Archive — Desktop App](screenshots/GUI-V154-1.jpg)
+![Garmin Local Archive — Desktop App](screenshots/GUI-V156-1.jpg)
 
 ![Garmin Local Archive — Desktop App](screenshots/GUI-V154-2.jpg)
 
