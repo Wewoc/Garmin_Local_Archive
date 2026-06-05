@@ -6,66 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.6**
+**Currently stable — v1.5.6.1**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.6.1 — Encrypted Mirror Container
-
-Introduces `mirror.gla` — a single encrypted container file replacing the plain
-mirror folder. Extends v1.5.6 without changing the import protocol or pipeline.
-
-The container format extends the "local-only" philosophy to transport: health
-data on USB, NAS, or a cloud folder of the user's choice remains unreadable
-without the password. No cloud dependency, no third-party service.
-
-**`garmin_container.py` — new module**
-
-Sole Owner of `mirror.gla`. Implements a section-based AES-256-GCM container
-with three independent encrypted sections (quality_log, raw, context). Each
-section has its own derived key — knowledge of one section key does not
-compromise the others.
-
-Key derivation: PBKDF2-HMAC-SHA256 (600,000 iterations) produces a master key
-from the user's password and a per-container salt. HKDF-Expand derives
-independent section keys from the master. The plaintext header is authenticated
-via HMAC-SHA256 — offset manipulation without the master key is not possible.
-
-Container writes are atomic: `mirror.gla.tmp` → `fsync()` → `os.replace()`.
-An interrupted write never produces a corrupt container.
-
-Import reads only what it needs: `unlock_meta()` decrypts only the quality_log
-section for delta analysis; `fulfill_order()` decrypts only the sections
-containing requested files. Raw and context data are never decrypted unless
-explicitly ordered. No plaintext ever touches disk.
-
-Spot-Check (introduced in v1.5.5) is removed from `garmin_mirror.py` — HMAC
-verification on every container open provides stronger integrity guarantees than
-a CRC32 sample check.
-
-**Compatibility:** `garmin_import_mirror.py` retains support for plain mirror
-folders (v1.5.6 format) for one release cycle. Folder support will be removed
-in a future version.
-
-**What changes:**
-- `garmin/garmin_container.py` — new module. API: `lock()`, `unlock_meta()`,
-  `fulfill_order()`, `is_container()`
-- `garmin/garmin_mirror.py` — delegates to `garmin_container.lock()`.
-  Password parameter added. Spot-Check removed.
-- `garmin/garmin_import_mirror.py` — reads via `garmin_container.unlock_meta()`
-  and `fulfill_order()`. Plain folder fallback retained for compatibility.
-- `garmin_app_base.py` — password dialog for Mirror and Import operations.
-  Settings field relabelled "Mirror target" (accepts folder or `.gla` file).
-  `is_container()` used for button state detection.
-
-**What does not change:**
-- Import protocol from delta analysis onward — identical to v1.5.6
-- Pipeline entry point, sole owner principle, all existing invariants
-- No new package dependencies (`cryptography` already required)
 
 ---
 

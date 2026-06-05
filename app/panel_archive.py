@@ -21,14 +21,106 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDialog, QListWidget, QMessageBox, QFrame, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
+    QDialog, QLineEdit, QListWidget, QMessageBox, QFrame, QSizePolicy,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 import garmin_app_controller as _controller
 import garmin_quality as _quality
+
+_WCM_MIRROR_KEY = "gla_mirror_password"
+
+
+class MirrorPasswordDialog(QDialog):
+    """
+    Modal dialog for mirror container password entry.
+    Optionally saves the password to Windows Credential Manager.
+    Used for lock() (mirror creation) — not for unlock (import).
+    """
+
+    def __init__(self, parent, show_save_checkbox: bool = True):
+        super().__init__(parent)
+        self._result   = None
+        self._save_pw  = False
+        self.setWindowTitle("Mirror Password")
+        self.setModal(True)
+        self.setFixedWidth(420)
+        app = parent._app
+        bg  = app.BG; bg3 = app.BG3; text = app.TEXT
+        t2  = app.TEXT2; acc = app.ACCENT
+        self.setStyleSheet(f"background: {bg}; color: {text};")
+        lay = QVBoxLayout(self)
+        lay.setSpacing(8)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        title = QLabel("Mirror Container Password")
+        title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {text};")
+        lay.addWidget(title)
+
+        body = QLabel(
+            "Enter the password for the mirror container.\n"
+            "This password protects data in transit (USB, NAS, cloud folder)."
+        )
+        body.setFont(QFont("Segoe UI", 9))
+        body.setStyleSheet(f"color: {t2};")
+        body.setWordWrap(True)
+        lay.addWidget(body)
+
+        lay.addWidget(QLabel("Password:", font=QFont("Segoe UI", 9)))
+        self._pw = QLineEdit()
+        self._pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._pw.setStyleSheet(
+            f"background: {bg3}; color: {text}; border: none; padding: 4px;")
+        lay.addWidget(self._pw)
+
+        self._chk = None
+        if show_save_checkbox:
+            self._chk = QCheckBox("Save password for this device (Windows Credential Manager)")
+            self._chk.setFont(QFont("Segoe UI", 9))
+            self._chk.setStyleSheet(f"color: {t2};")
+            lay.addWidget(self._chk)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #e94560;")
+        self._err.setFont(QFont("Segoe UI", 9))
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        ok_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        ok_btn.setStyleSheet(
+            f"QPushButton {{ background: {acc}; color: {text}; "
+            f"border: none; padding: 6px 18px; }}")
+        ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        ok_btn.clicked.connect(self._on_ok)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: {bg3}; color: {t2}; "
+            f"border: none; padding: 6px 18px; }}")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        lay.addLayout(btn_row)
+
+    def _on_ok(self):
+        pw = self._pw.text()
+        if not pw:
+            self._err.setText("Password cannot be empty.")
+            return
+        self._result  = pw
+        self._save_pw = bool(self._chk and self._chk.isChecked())
+        self.accept()
+
+    def get_result(self) -> str | None:
+        return self._result
+
+    def should_save(self) -> bool:
+        return self._save_pw
 
 
 class PanelArchive(QWidget):
@@ -389,36 +481,30 @@ class PanelArchive(QWidget):
         network paths (UNC, mapped drives, OneDrive). The check runs in
         a dedicated daemon thread with no join() — it dispatches the UI
         update whenever it completes, without blocking startup.
-        If mirror_dir is empty, buttons stay disabled immediately.
+
+        Import from Mirror uses a file picker — button always enabled.
+        Mirror (write) button depends on mirror_dir being reachable.
         """
+        # Import button always active — user picks .gla via file dialog
+        self._app._dispatch(
+            lambda: self._app._panel_connection.set_import_mirror_button_state(True))
+
         s          = self._app._panel_settings._collect_settings()
         mirror_dir = s.get("mirror_dir", "").strip()
 
         if not mirror_dir:
-            # No mirror configured — nothing to check, buttons stay disabled
             return
 
         def _check():
-            reachable    = False
-            import_ready = False
+            reachable = False
             try:
                 reachable = _controller.check_mirror(s)
             except Exception:
                 pass
-            try:
-                import garmin_mirror as _mirror
-                import_ready = _mirror.is_import_ready(mirror_dir)
-            except Exception:
-                pass
 
-            def _update():
-                self._app._panel_connection.set_mirror_button_state(
-                    reachable,
-                    text="🔁  Data Mirror",
-                )
-                self._app._panel_connection.set_import_mirror_button_state(
-                    import_ready)
-            self._app._dispatch(_update)
+            self._app._dispatch(
+                lambda: self._app._panel_connection.set_mirror_button_state(
+                    reachable, text="🔁  Data Mirror"))
 
         threading.Thread(target=_check, daemon=True).start()
 
@@ -428,21 +514,19 @@ class PanelArchive(QWidget):
         """Starts Mirror Import in background thread. Main Thread only."""
         if self._mirror_running:
             return
-        s          = self._app._panel_settings._collect_settings()
-        mirror_dir = s.get("mirror_dir", "").strip()
-        base_dir   = Path(s.get("base_dir", "")).expanduser()
 
-        if not mirror_dir:
-            QMessageBox.warning(self._app, "Import from Mirror",
-                                "No mirror folder configured.")
+        from PyQt6.QtWidgets import QFileDialog
+        mirror_path, _ = QFileDialog.getOpenFileName(
+            self._app,
+            "Select Mirror Container",
+            "",
+            "GLA Container (*.gla);;All Files (*)",
+        )
+        if not mirror_path:
             return
 
-        import garmin_mirror as _mirror
-        if not _mirror.is_import_ready(mirror_dir):
-            QMessageBox.warning(self._app, "Import from Mirror",
-                "Mirror folder has no mirror_meta.json.\n"
-                "Run 'Data Mirror' on the source device first.")
-            return
+        s        = self._app._panel_settings._collect_settings()
+        base_dir = Path(s.get("base_dir", "")).expanduser()
 
         if self._app._is_running():
             QMessageBox.warning(self._app, "Import from Mirror",
@@ -453,12 +537,19 @@ class PanelArchive(QWidget):
                 "Context sync is running.\nPlease wait until it finishes.")
             return
 
+        # ── Password dialog — always manual for import ─────────────────────
+        dlg = MirrorPasswordDialog(self, show_save_checkbox=False)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        password = dlg.get_result()
+
         # ── Dry-run: delta analysis before confirmation ────────────────────
         try:
             import garmin_import_mirror as _importer
             dry = _importer.run_import_mirror(
-                mirror_dir=Path(mirror_dir),
+                mirror_path=Path(mirror_path),
                 base_dir=base_dir,
+                password=password,
                 dry_run=True,
             )
         except Exception as e:
@@ -471,9 +562,9 @@ class PanelArchive(QWidget):
                 "Could not read mirror data.\nCheck log for details.")
             return
 
-        raw_n     = dry.get("raw_to_copy", 0)
-        ctx_n     = dry.get("context_to_copy", 0)
-        ver_warn  = dry.get("version_warning", "")
+        raw_n    = dry.get("raw_to_copy", 0)
+        ctx_n    = dry.get("context_to_copy", 0)
+        ver_warn = dry.get("version_warning", "")
 
         msg = f"{raw_n} raw day(s) and {ctx_n} context file(s) will be imported."
         if ver_warn:
@@ -503,8 +594,9 @@ class PanelArchive(QWidget):
             try:
                 import garmin_import_mirror as _imp
                 result = _imp.run_import_mirror(
-                    mirror_dir=Path(mirror_dir),
+                    mirror_path=Path(mirror_path),
                     base_dir=base_dir,
+                    password=password,
                     dry_run=False,
                 )
                 msg = (
@@ -532,11 +624,11 @@ class PanelArchive(QWidget):
         """Starts mirror operation in background thread (C4/C5). Main Thread only."""
         if self._mirror_running:
             return
-        s          = self._app._panel_settings._collect_settings()
-        mirror_dir = s.get("mirror_dir", "").strip()
-        if not mirror_dir:
+        s            = self._app._panel_settings._collect_settings()
+        mirror_path  = s.get("mirror_dir", "").strip()
+        if not mirror_path:
             QMessageBox.warning(self._app, "Data Mirror",
-                                "No mirror folder configured.")
+                                "No mirror target configured.")
             return
         base_dir = Path(s.get("base_dir", "")).expanduser()
 
@@ -553,6 +645,16 @@ class PanelArchive(QWidget):
                 "Context sync is running.\nPlease wait until it finishes.")
             return
 
+        # ── Password: try WCM first, then dialog ────────────────────────────────────────────
+        password = _archive_load_mirror_password()
+        if password is None:
+            dlg = MirrorPasswordDialog(self, show_save_checkbox=True)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            password = dlg.get_result()
+            if dlg.should_save():
+                _archive_save_mirror_password(password)
+
         self._mirror_running = True
         self._app._panel_connection.set_mirror_button_state(
             False, text="🔁  Mirroring…")
@@ -561,19 +663,12 @@ class PanelArchive(QWidget):
         def _do_mirror():
             try:
                 import garmin_mirror as _mirror
-                result = _mirror.run_mirror(base_dir, Path(mirror_dir))
+                result = _mirror.run_mirror(base_dir, Path(mirror_path), password)
                 msg = (
-                    f"✓ Mirror complete: {result['copied']} copied, "
-                    f"{result['deleted']} deleted, {result['skipped']} skipped"
+                    f"✓ Mirror complete: {result.get('files_packed', 0)} files packed"
                 )
-                if result["errors"]:
+                if result.get("errors"):
                     msg += f", {result['errors']} errors"
-                sc = result.get("spot_check", {})
-                if sc.get("mismatches", 0) > 0:
-                    msg += (
-                        f" — ⚠ spot-check: {sc['mismatches']}/{sc['sampled']} "
-                        f"mismatch(es)"
-                    )
                 self._app._log_bg(msg)
             except Exception as e:
                 self._app._log_bg(f"✗ Mirror failed: {e}")
@@ -584,3 +679,25 @@ class PanelArchive(QWidget):
                         True, text="🔁  Data Mirror"))
 
         threading.Thread(target=_do_mirror, daemon=True).start()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Module-level helpers — WCM for mirror password
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _archive_load_mirror_password() -> str | None:
+    """Loads mirror password from WCM. Returns None if not stored."""
+    try:
+        import keyring
+        return keyring.get_password("garmin_local_archive", _WCM_MIRROR_KEY)
+    except Exception:
+        return None
+
+
+def _archive_save_mirror_password(password: str) -> None:
+    """Saves mirror password to WCM. Silent on failure."""
+    try:
+        import keyring
+        keyring.set_password("garmin_local_archive", _WCM_MIRROR_KEY, password)
+    except Exception:
+        pass

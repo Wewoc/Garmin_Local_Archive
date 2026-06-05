@@ -1221,90 +1221,77 @@ check("_zip_contains: bad path → False", not backup._zip_contains(_zip_tmpdir 
 shutil.rmtree(_zip_tmpdir, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  C. garmin_mirror (v1.5.1)
+#  C. garmin_mirror (v1.5.6.1 — Container-Modell)
 # ══════════════════════════════════════════════════════════════════════════════
-section("C. garmin_mirror (v1.5.1)")
+section("C. garmin_mirror (v1.5.6.1)")
 import garmin_mirror as mirror
+import garmin_container as _gc
 importlib.reload(mirror)
 
-# is_reachable — leer → False
+# is_reachable — leer / None → False
 check("is_reachable: empty string → False",  mirror.is_reachable("") == False)
 check("is_reachable: None → False",          mirror.is_reachable(None) == False)
 
-# is_reachable — existierendes Verzeichnis → True
-check("is_reachable: existing dir → True",   mirror.is_reachable(_TMPDIR) == True)
+# is_reachable — Pfad dessen Parent existiert → True (Container muss noch nicht existieren)
+_mir_parent = Path(tempfile.mkdtemp(prefix="garmin_mirror_parent_"))
+_mir_gla    = _mir_parent / "mirror.gla"
+check("is_reachable: parent exists → True",  mirror.is_reachable(_mir_gla) == True)
 
-# is_reachable — nicht existierender Pfad → False
-check("is_reachable: missing path → False",
-      mirror.is_reachable(_TMPDIR / "nonexistent_xyz") == False)
+# is_reachable — Parent existiert nicht → False
+check("is_reachable: missing parent → False",
+      mirror.is_reachable(_mir_parent / "nonexistent" / "mirror.gla") == False)
 
-# _collect_files — leeres Verzeichnis
-_mir_src = Path(tempfile.mkdtemp(prefix="garmin_mirror_src_"))
-_collected = mirror._collect_files(_mir_src)
-check("_collect_files: empty dir → empty dict",  _collected == {})
-
-# _collect_files — Dateien und EXCLUDE_DIRS
-(_mir_src / "file_a.json").write_text("{}", encoding="utf-8")
-(_mir_src / "file_b.json").write_text("{}", encoding="utf-8")
-_excl_dir = _mir_src / "__pycache__"
-_excl_dir.mkdir()
-(_excl_dir / "should_skip.pyc").write_text("x", encoding="utf-8")
-_token_dir = _mir_src / "garmin_token"
-_token_dir.mkdir()
-(_token_dir / "token.enc").write_text("secret", encoding="utf-8")
-_collected2 = mirror._collect_files(_mir_src)
-check("_collect_files: 2 files found",           len(_collected2) == 2)
-check("_collect_files: __pycache__ excluded",
-      not any("__pycache__" in str(p) for p in _collected2))
-check("_collect_files: garmin_token excluded",
-      not any("garmin_token" in str(p) for p in _collected2))
-
-# run_mirror — source nicht vorhanden → errors=1, ok=False
+# run_mirror — source nicht vorhanden → ok=False
 _bad_src = _TMPDIR / "nonexistent_source"
-_mir_dst  = Path(tempfile.mkdtemp(prefix="garmin_mirror_dst_"))
-_result_bad = mirror.run_mirror(_bad_src, _mir_dst)
+_result_bad = mirror.run_mirror(_bad_src, _mir_gla, "test-pw")
 check("run_mirror: missing source → ok=False",  _result_bad["ok"] == False)
 check("run_mirror: missing source → errors=1",  _result_bad["errors"] == 1)
 
-# run_mirror — normale Synchronisation
-_mir_dst2 = Path(tempfile.mkdtemp(prefix="garmin_mirror_dst2_"))
-_result_ok = mirror.run_mirror(_mir_src, _mir_dst2)
-check("run_mirror: returns dict",         isinstance(_result_ok, dict))
-check("run_mirror: ok=True",              _result_ok["ok"] == True)
-check("run_mirror: 2 files copied",       _result_ok["copied"] == 2)
-check("run_mirror: 0 errors",             _result_ok["errors"] == 0)
-check("run_mirror: file_a present",       (_mir_dst2 / "file_a.json").exists())
-check("run_mirror: file_b present",       (_mir_dst2 / "file_b.json").exists())
-check("run_mirror: __pycache__ absent",   not (_mir_dst2 / "__pycache__").exists())
-check("run_mirror: garmin_token absent",  not (_mir_dst2 / "garmin_token").exists())
+# run_mirror — echte Quelle → Container entsteht
+# sys.modules stubs: version + garmin_normalizer liegen nicht im garmin/-Path
+import types as _types
+_ver_stub  = _types.ModuleType("version");           _ver_stub.APP_VERSION = "test"
+_norm_stub = _types.ModuleType("garmin_normalizer"); _norm_stub.CURRENT_SCHEMA_VERSION = 2
+sys.modules.setdefault("version",           _ver_stub)
+sys.modules.setdefault("garmin_normalizer", _norm_stub)
 
-# run_mirror — identische Dateien → skipped
-_result_skip = mirror.run_mirror(_mir_src, _mir_dst2)
-check("run_mirror: identical → skipped=2",  _result_skip["skipped"] == 2)
-check("run_mirror: identical → copied=0",   _result_skip["copied"] == 0)
+_mir_src = Path(tempfile.mkdtemp(prefix="garmin_mirror_src_"))
+(_mir_src / "garmin_data" / "log").mkdir(parents=True)
+(_mir_src / "garmin_data" / "raw" / "2024-01-15").mkdir(parents=True)
+(_mir_src / "context_data" / "weather" / "raw").mkdir(parents=True)
+(_mir_src / "garmin_token").mkdir()
+import json as _json
+(_mir_src / "garmin_data" / "log" / "quality_log.json").write_text(
+    _json.dumps({"days": [{"date": "2024-01-15", "quality": "high"}]}),
+    encoding="utf-8"
+)
+(_mir_src / "garmin_data" / "raw" / "2024-01-15" / "garmin_raw_2024-01-15.json").write_text(
+    _json.dumps({"hr": 60, "source": "api"}), encoding="utf-8"
+)
+(_mir_src / "context_data" / "weather" / "raw" / "2024-01-15.json").write_text(
+    _json.dumps({"temp": 5}), encoding="utf-8"
+)
+(_mir_src / "garmin_token" / "secret.enc").write_text("should_not_appear", encoding="utf-8")
 
-# run_mirror — Datei in Quelle gelöscht → im Ziel ebenfalls gelöscht
-(_mir_src / "file_b.json").unlink()
-_result_del = mirror.run_mirror(_mir_src, _mir_dst2)
-check("run_mirror: deleted in source → deleted=1",  _result_del["deleted"] == 1)
-check("run_mirror: file_b removed from mirror",
-      not (_mir_dst2 / "file_b.json").exists())
+_result_ok = mirror.run_mirror(_mir_src, _mir_gla, "test-pw")
+check("run_mirror: returns dict",          isinstance(_result_ok, dict))
+check("run_mirror: ok=True",               _result_ok["ok"] == True)
+check("run_mirror: files_packed > 0",      _result_ok.get("files_packed", 0) > 0)
+check("run_mirror: errors=0",              _result_ok.get("errors", 0) == 0)
+check("run_mirror: container created",     _mir_gla.exists())
+check("run_mirror: is valid container",    _gc.is_container(_mir_gla))
 
-# run_mirror — Datei geändert (Größe) → überschrieben
-(_mir_src / "file_a.json").write_text('{"updated": true}', encoding="utf-8")
-_result_upd = mirror.run_mirror(_mir_src, _mir_dst2)
-check("run_mirror: size changed → copied=1",  _result_upd["copied"] == 1)
-
-# _remove_empty_dirs — leere Unterordner werden entfernt
-_empty_sub = _mir_dst2 / "empty_sub"
-_empty_sub.mkdir()
-mirror._remove_empty_dirs(_mir_dst2)
-check("_remove_empty_dirs: empty subdir removed",  not _empty_sub.exists())
+# garmin_token nie im Container
+_raw_listed = _gc.list_files(_mir_gla, "raw")
+_ctx_listed = _gc.list_files(_mir_gla, "context")
+check("run_mirror: garmin_token not in raw",
+      not any("garmin_token" in p for p in _raw_listed))
+check("run_mirror: garmin_token not in context",
+      not any("garmin_token" in p for p in _ctx_listed))
 
 # Aufräumen
-shutil.rmtree(_mir_src,  ignore_errors=True)
-shutil.rmtree(_mir_dst,  ignore_errors=True)
-shutil.rmtree(_mir_dst2, ignore_errors=True)
+shutil.rmtree(_mir_src,    ignore_errors=True)
+shutil.rmtree(_mir_parent, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
