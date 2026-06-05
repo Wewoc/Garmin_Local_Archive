@@ -108,12 +108,6 @@ def build_exe(root: Path):
 
     sep = ";" if sys.platform == "win32" else ":"
     asset_data = []
-    for asset_src, asset_dest in manifest.ASSET_FILES:
-        src = root / asset_src
-        if src.exists():
-            asset_data += ["--add-data", f"{src}{sep}{asset_dest}"]
-        else:
-            print(f"  ⚠ Asset not found: {asset_src} — skipped (optional)")
 
     cmd = [
         sys.executable, "-m", "PyInstaller",

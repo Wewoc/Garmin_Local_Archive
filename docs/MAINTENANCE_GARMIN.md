@@ -49,7 +49,8 @@ or later).
 | `garmin_quality.py` (facade → `quality/`) | `quality_log.json` |
 | `garmin_security.py` | `garmin_token.enc` |
 | `garmin_backup.py` | `garmin_data/backup/` |
-| `garmin_mirror.py` | mirror operation (target path) |
+| `garmin_mirror.py` | mirror operation — delegates to `garmin_container.py` |
+| `garmin_container.py` | `mirror.gla` — sole owner, no other module touches the container file |
 | `garmin_import_mirror.py` | mirror import operation — orchestrates only |
 
 ### Invariants
@@ -100,11 +101,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 319 checks, 19 sections.**
-
-*Note: `garmin_import_mirror` and `garmin_mirror` (meta/is_import_ready) are not yet covered
-by `test_local.py`. Test section D (garmin_import_mirror) is planned for v1.5.6.1 or v1.5.7
-when integration testing with a real mirror folder structure becomes practical.*
+**Current count: 311 checks, 19 sections.**
 
 ```bash
 python tests/test_local.py
@@ -130,7 +127,7 @@ python tests/test_local.py
 16. `_run_self_healing` — schema version bump, status improvement
 A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
 B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check
-C. `garmin_mirror` — file collection, sync logic, exclusions, empty dir cleanup
+C. `garmin_mirror` (v1.5.6.2) — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `is_import_ready` entfernt. Pfad-Bug in `garmin_import_mirror` (flache Raw-Struktur) — Tests ausstehend, vor nächstem Release aktualisieren.
 
 ### What is NOT tested
 

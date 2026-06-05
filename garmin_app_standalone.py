@@ -16,8 +16,8 @@ Differences from garmin_app.py:
   - _poll_log_queue() → QTimer.singleShot(100, ...) instead of self.after(100, ...)
 
 Built by: build_standalone.py
-Note: Splash Screen removed in v1.5.6 — build_splash_pixmap() retained in
-      garmin_app_base.py as reserve.
+Note: Splash Screen removed in v1.5.6.2 — build_splash_pixmap() removed
+      from garmin_app_base.py.
 """
 
 import importlib.util
@@ -286,39 +286,9 @@ class GarminApp(_GarminAppBase):
 
 
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QSplashScreen, QProgressBar
-    from PyQt6.QtCore import Qt
-    from garmin_app_base import build_splash_pixmap
-
     qapp = QApplication(sys.argv)
     qapp.setStyle("Fusion")
 
-    splash = None
-    pixmap = build_splash_pixmap(APP_VERSION)
-    if pixmap is not None:
-        splash = QSplashScreen(pixmap, Qt.WindowType.WindowStaysOnTopHint)
-        bar = QProgressBar(splash)
-        bar.setRange(0, 0)
-        bar.setGeometry(162, 368, 197, 12)
-        bar.setTextVisible(False)
-        bar.setStyleSheet(
-            "QProgressBar { background: transparent; border: none; border-radius: 4px; }"
-            "QProgressBar::chunk { background: #7B4FA6; border-radius: 4px; }"
-        )
-        splash.show()
-        qapp.processEvents()
-
     window = GarminApp()
-
-    if splash is not None:
-        # Mindest-Anzeigezeit 2.5s via QEventLoop + single-shot Timer.
-        # Der Timer beendet die Loop nach 2.5s — processEvents() läuft
-        # in der Loop und verarbeitet alle dispatched UI-Updates korrekt.
-        from PyQt6.QtCore import QEventLoop, QTimer
-        loop = QEventLoop()
-        QTimer.singleShot(2500, loop.quit)
-        loop.exec()
-        splash.finish(window)
-
     window.show()
     sys.exit(qapp.exec())
