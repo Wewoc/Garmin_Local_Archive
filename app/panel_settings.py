@@ -69,7 +69,7 @@ class PanelSettings(QWidget):
         # Storage
         s2 = self._section("Storage")
         self._base_dir   = self._field_browse(s2, "Data folder",   self._browse_folder)
-        self._mirror_dir = self._field_browse(s2, "Mirror folder", self._browse_mirror_folder)
+        self._mirror_dir = self._field_browse(s2, "Mirror target", self._browse_mirror_file)
 
         # Sync Mode
         s3 = self._section("Sync Mode")
@@ -383,10 +383,19 @@ class PanelSettings(QWidget):
         if d:
             self._base_dir.setText(d)
 
-    def _browse_mirror_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Select mirror folder")
-        if d:
-            self._mirror_dir.setText(d)
+    def _browse_mirror_file(self):
+        current = self._mirror_dir.text().strip()
+        start_dir = str(Path(current).parent) if current else str(Path.home())
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Select mirror container location",
+            start_dir + "/archive.gla",
+            "GLA Container (*.gla);;All files (*)",
+        )
+        if path:
+            if not path.endswith(".gla"):
+                path += ".gla"
+            self._mirror_dir.setText(path)
             threading.Thread(
                 target=self._app._panel_archive._startup_mirror_check,
                 daemon=True).start()

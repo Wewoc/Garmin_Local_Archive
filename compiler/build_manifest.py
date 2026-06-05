@@ -45,6 +45,7 @@ SHARED_SCRIPTS = [
     "garmin/garmin_collector.py",
     "garmin/garmin_backup.py",
     "garmin/garmin_mirror.py",
+    "garmin/garmin_container.py",
     "garmin/garmin_import_mirror.py",
     "garmin/garmin_extended_anaysis.py",
     # maps (routing only)
@@ -119,8 +120,9 @@ SCRIPT_SIGNATURES_BASE = {
     "maps/airquality_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
     "garmin/garmin_backup.py":     ["def backup_raw", "def backup_quality_log", "def restore_quality_log", "def check_raw_integrity"],
-    "garmin/garmin_mirror.py":     ["def run_mirror", "def is_reachable", "def is_import_ready"],
-    "garmin/garmin_import_mirror.py": ["def run_import_mirror"],
+    "garmin/garmin_mirror.py":     ["def run_mirror", "def is_reachable"],
+    "garmin/garmin_container.py":  ["def lock", "def unlock_meta", "def fulfill_order", "def is_container", "def list_files"],
+    "garmin/garmin_import_mirror.py": ["def run_import_mirror", "def detect_source"],
 }
 
 # ── Docs ──────────────────────────────────────────────────────────────────────
@@ -137,13 +139,6 @@ REQUIRED_DATA_FILES = [
     "garmin_dataformat.json",
 ]
 
-# ── Asset files (non-Python, non-garmin — path relative to root) ──────────────
-# Each entry: (src_relative_to_root, dest_folder_in_zip_or_embed)
-# Optional — build continues with warning if missing.
-
-ASSET_FILES = [
-    ("screenshots/splash_base.png", "screenshots"),
-]
 
 # ── Runtime dependencies (Target 3 only — must be installed for bundling) ─────
 

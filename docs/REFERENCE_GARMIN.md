@@ -40,8 +40,13 @@ garmin_app.py (GUI)
 - `garmin_writer.py` is sole write authority for `raw/` and `summary/`
 - `garmin_quality.py` is sole write authority for `quality_log.json`
 - `garmin_backup.py` is sole write authority for `garmin_data/backup/`
-- `garmin_mirror.py` is sole owner of the mirror operation
+- `garmin_mirror.py` is sole owner of the mirror operation — delegates to `garmin_container.py` for container creation. `is_import_ready()` removed (v1.5.6.2) — import source selected via file picker, not stored path
+- `garmin_container.py` is sole owner of `mirror.gla` — no other module reads or writes the container file directly
 - `garmin_import_mirror.py` is sole owner of the mirror import operation — orchestrates only, never writes directly
+- `normalize()` is never called during mirror import — raw in mirror is already normalized
+- Container keys use POSIX forward-slash separators (`rel.as_posix()`) — cross-platform consistency
+- `mirror.gla` is written atomically: `mirror.gla.tmp` → `fsync()` → `os.replace()` — interrupted writes never produce a corrupt container
+- Password for `lock()` may be cached in WCM (user opt-in). Password for `unlock_meta()` / `fulfill_order()` is entered via `QFileDialog` file picker — no path configuration required on import device
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
@@ -296,26 +301,20 @@ garmin_data/backup/
 
 ---
 
-## `garmin_mirror.py`
+## `garmin_container.py`
 
-Sole Owner of the mirror operation. No `garmin_config` import — all paths from caller.
-Writes `mirror_meta.json` to mirror folder after successful run (ok=True only).
+Sole Owner of `mirror.gla`. No other module reads or writes the container file directly.
+All paths from caller — no `garmin_config` import.
 
 | Function | Purpose |
 |---|---|
-| `run_mirror(source_dir, mirror_dir)` | Mirrors `source_dir` → `mirror_dir`. Writes `mirror_meta.json` on `ok=True`. Returns `{"copied", "deleted", "skipped", "errors", "ok", "spot_check"}` |
-| `is_reachable(mirror_dir)` | Returns `True` if `mirror_dir` is set and exists. Used for Data Mirror button state |
-| `is_import_ready(mirror_dir)` | Returns `True` if `mirror_dir` is reachable AND contains `mirror_meta.json`. Used for Import from Mirror button state |
-| `_write_mirror_meta(mirror_dir)` | Writes `mirror_meta.json` atomically. Lazy imports `APP_VERSION` + `CURRENT_SCHEMA_VERSION`. Non-fatal on error |
-| `_collect_files(root)` | Returns `{relative_path → filesize}`. Skips `EXCLUDE_DIRS` |
-| `_remove_empty_dirs(root)` | Removes empty subdirectories bottom-up. Silent on error |
-| `_run_spot_check(source_dir, mirror_dir, source_files)` | CRC32 spot-check: up to 10 random files compared after copy phase. Returns `{"sampled": N, "mismatches": M}` |
+| `lock(source_dir, container_path, password)` | Creates/overwrites `mirror.gla` atomically. Packs quality_log, raw, summary, context sections. Returns `{"files_packed", "errors", "ok"}` |
+| `unlock_meta(container_path, password)` | Verifies header HMAC, decrypts only quality_log section. Returns `{"ok", "container_meta", "quality_log", "error"}` |
+| `fulfill_order(container_path, password, order)` | Verifies HMAC, decrypts only ordered sections. Returns `{rel_path: bytes}` |
+| `list_files(container_path, section)` | Returns file list from header — no decryption, no password. Returns `list[str]` |
+| `is_container(path)` | Checks magic bytes `GLA1`. Fast, no password. Returns `bool` |
 
-`EXCLUDE_DIRS = {"__pycache__", "garmin_token"}`
-
-### `mirror_meta.json` — format
-
-Written to mirror folder root on every successful `run_mirror()`. Required for import.
+**Container format:**
 
 
 ---
