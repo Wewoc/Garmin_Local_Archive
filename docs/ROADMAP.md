@@ -212,9 +212,9 @@ reliably distinguish.
 
 | Device | Days | Avg KB | Delivers |
 |---|---|---|---|
-| Vivoactive 3 | ~1846 | 1.2 KB | Basic daily values, minimal skeleton |
-| Fenix 5x | ~427 | 14.5 KB | Full API skeleton, daily values, no intraday |
-| Fenix 7X Sapphire Solar | ~451 | variable | Daily values (~36 KB) + intraday (~500 KB) |
+| device 1 | ~1846 | 1.2 KB | Basic daily values, minimal skeleton |
+| device 2 | ~427 | 14.5 KB | Full API skeleton, daily values, no intraday |
+| device 3 Sapphire Solar | ~451 | variable | Daily values (~36 KB) + intraday (~500 KB) |
 
 Device-specific top-level key differences (empirically confirmed via diff):
 - Vivoactive → `user_summary`, `stress`, `sleep`, `heart_rates`
@@ -315,6 +315,98 @@ the current set is reviewed and cleaned up:
 
 Rationale: the registry should be built over a clean, stable specialist set —
 not over a baseline that will be restructured again afterwards.
+
+### v1.6 Step 1c — Home Tab & Daily Workflow Refactor
+
+The app UI is restructured around actual usage behaviour instead of internal
+module layout. Today every panel — settings, status, actions, log — sits on a
+single plane with no hierarchy between "configure once" and "use daily". The
+top-level container becomes a three-tab layout (currently tabs exist only on the
+right side of a split layout).
+
+**Tab 1 — Home (daily use):**
+- Archive status panel: days archived, last sync, quality breakdown, integrity,
+  failed days, background-timer status
+- Three action buttons: Daily Sync, Backup, Timer Start/Stop
+- Dashboard view (QWebEngineView + dropdown) — no tab switch required;
+  Yesterday Overview specialist loaded as default on startup
+- Collapsible activity log — auto-expands during sync
+
+**Tab 2 — Settings (one-time configuration):**
+- All existing panels: PanelSettings, PanelTimer (full config with interval
+  fields), PanelConnection, PanelArchive
+- Individual action buttons (Garmin Sync, Context Sync, Create All) retained for
+  power-user and special-case access
+
+**Tab 3 — Files:** unchanged (v1.5.7).
+
+**`app/panel_home.py` — new module**
+
+Owns the archive-status labels and the three Tab-1 action buttons. The status
+figures come from `garmin_quality.get_archive_stats()` — already a side-effect-free
+dict, so nothing is recomputed, only relocated. `_refresh_archive_info()` keeps its
+side-effect contract; only the target label widgets move from PanelConnection to
+this module. All four existing callers of `_refresh_archive_info()` remain unchanged.
+
+**Daily Sync button**
+
+Orchestrates gap detection → Garmin Sync → Context Sync → Create All in a single
+sequential action. Reuses `_detect_gap()` (extracted to a shared module so the GUI
+does not depend on the headless `daily_update.py` entry point) for the range, and
+the Background Timer's `env_overrides` pattern for execution — `daily_update.main()`
+itself is never invoked. Only missing days are fetched, regardless of the sync mode
+configured in Settings. Not user-configurable by design. Disabled while running.
+
+**Backup button**
+
+Always clickable. With a mirror folder configured it runs the mirror operation;
+without one it switches to Tab 2 and highlights the Mirror-folder field. No disabled
+state.
+
+**What changes:**
+- `app/panel_home.py` — new module: archive-status labels + Daily Sync / Backup /
+  Timer buttons + collapsible log + dashboard view container
+- `garmin/garmin_sync.py` — `_detect_gap()` extracted here from `daily_update.py`;
+  both import from the shared location
+- `garmin_app_base.py` — top-level layout inverted: QTabWidget becomes root
+  (Home / Settings / Files). Existing panels migrated into Tab 2. Archive-status
+  labels removed from PanelConnection (relocated to PanelHome)
+- `app/panel_connection.py` — archive-status labels removed; connection indicators
+  and Restore button placement resolved per layout decision
+- `app/panel_outputs.py` — Daily Sync orchestration wired (gap range + env_overrides
+  chain); existing individual sync paths unchanged
+- `garmin_app_screenshot.py` — demo-value injection retargeted to the new PanelHome
+  labels; layout override aligned with the new tab structure
+- `compiler/build_manifest.py` — `app/panel_home.py` added to `SHARED_SCRIPTS` +
+  `SCRIPT_SIGNATURES_BASE`
+- `tests/test_qt_app.py` — new `TestPanelHome` class; PanelConnection tests adjusted
+  for relocated widgets
+- `docs/MAINTENANCE_GLOBAL.md` — `test_qt_app.py` class list + check count updated
+- `specialists/yesterday_overview.py` — new specialist: yesterday's key metrics
+  (steps, resting HR, Body Battery, sleep) vs. 30-day average + count of high-quality
+  days no longer retrievable at full resolution from Garmin servers. Registered via
+  the standard dropdown; preselected on startup. Data sources: `summary/*.json` +
+  `quality_log.json` — no API calls.
+
+**What does not change:**
+- The four callers of `_refresh_archive_info()` — interface and call sites identical
+- `garmin_quality.get_archive_stats()` — already returns a pure dict, unchanged
+- Pipeline logic, dashboard specialists, plotters — untouched
+- Threading model — `threading.Thread` + `_dispatch()` retained (D-3); no asyncio,
+  no QThread
+- Cross-panel communication — stays on the existing `_app._panel_x.method()` pattern;
+  no SignalBus in this step
+- `daily_update.py` workflow for Task Scheduler — unaffected by `_detect_gap()`
+  extraction (it imports from the shared location)
+
+**Pre-condition:** none — this is the UI groundwork that precedes the Render Registry
+(Step 2). Building the registry over the restructured UI avoids touching the same
+panels twice.
+
+**Open decisions (to confirm before build):**
+- Gap > 7 days in the GUI path: dialog (use Bulk Import) vs. full-range sync
+- Connection indicators (token/login/api/data): Tab 1 status bar vs. Tab 2
+- Restore button: Tab 1 vs. Tab 2 (with connection logic)
 
 **Step 2 — Render Registry**
 
