@@ -430,6 +430,13 @@ class PanelArchive(QWidget):
                                   sync_days: str, sync_from: str,
                                   sync_to: str) -> bool:
         """Returns True if user confirms refresh. Main Thread only."""
+        # INTENTIONAL DIRECT READ — read-only pre-flight check in GUI context.
+        # No mutation, no ownership transfer, no QUALITY_LOCK required.
+        # os.replace() atomicity guarantees reader sees either the old or the
+        # new complete file — never a partial write.
+        # garmin_quality provides no filtered count API for this query;
+        # adding one would inflate the module into a query gateway.
+        # Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
         failed_file = Path(base_dir) / "garmin_data" / "log" / "quality_log.json"
         if not failed_file.exists():
             return False

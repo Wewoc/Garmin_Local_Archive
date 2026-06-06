@@ -214,14 +214,9 @@ class GarminApp(_GarminAppBase):
                 effective_stop = stop_event if stop_event is not None else (
                     self._stop_event if enable_stop else None
                 )
-                if effective_stop is not None:
-                    module.__dict__["_STOP_EVENT"] = effective_stop
-                    _garmin_api = module.__dict__.get("garmin_api") or \
-                        sys.modules.get("garmin_api")
-                    if _garmin_api is not None:
-                        _garmin_api.__dict__["_STOP_EVENT"] = effective_stop
-
-                module.main()
+                # Collector is the stop orchestrator — main() registers the
+                # event with itself and garmin_api. No module.__dict__ injection.
+                module.main(stop_event=effective_stop)
                 success = not (
                     effective_stop is not None and effective_stop.is_set())
 

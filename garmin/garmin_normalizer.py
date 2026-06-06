@@ -131,8 +131,12 @@ def summarize(raw: dict) -> dict:
     ds        = safe_get(sleep_raw, "dailySleepDTO", default={})
     hrv_raw   = raw.get("hrv", {}) or {}
     hrv_sum   = safe_get(hrv_raw, "hrvSummary", default={}) or safe_get(sleep_raw, "hrvSummary", default={})
+    _sleep_secs = safe_get(ds, "sleepTimeSeconds")
+    if _sleep_secs is None:
+        log.warning(f"[NORMALIZER] summarize {raw.get('date', '?')}: "
+                    f"sleepTimeSeconds missing — writing 0.0h")
     s["sleep"] = {
-        "duration_h":          round((safe_get(ds, "sleepTimeSeconds") or 0) / 3600, 2),
+        "duration_h":          round((_sleep_secs or 0) / 3600, 2),
         "deep_h":              round((safe_get(ds, "deepSleepSeconds")  or 0) / 3600, 2),
         "rem_h":               round((safe_get(ds, "remSleepSeconds")   or 0) / 3600, 2),
         "light_h":             round((safe_get(ds, "lightSleepSeconds") or 0) / 3600, 2),

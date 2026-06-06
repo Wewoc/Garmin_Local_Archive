@@ -38,7 +38,6 @@ garmin_config reads os.environ at import time — any earlier import would
 silently use default paths instead of the user's settings.
 """
 
-import json
 import logging
 import os
 import shutil
@@ -63,26 +62,21 @@ if _scripts_early.exists() and str(_scripts_early) not in sys.path:
 
 from version import APP_VERSION
 
-SETTINGS_FILE   = Path.home() / ".garmin_archive_settings.json"
 KEYRING_SERVICE = "GarminLocalArchive"
 KEYRING_USER    = "garmin_password"
 
 GAP_HARD_STOP_DAYS = 7    # gaps larger than this trigger a hard stop
 LOG_DAILY_MAX      = 30   # rolling log file limit
 
-DEFAULT_SETTINGS = {
-    "email":             "",
-    "base_dir":          str(Path.home() / "local_archive"),
-    "sync_mode":         "recent",
-    "sync_days":         "90",
-    "sync_from":         "",
-    "sync_to":           "",
-    "age":               "35",
-    "sex":               "male",
-    "request_delay_min": "5.0",
-    "request_delay_max": "20.0",
-    "context_latitude":  "0.0",
-    "context_longitude": "0.0",
+# Keys used by the scheduler — subset of garmin_app_settings.DEFAULT_SETTINGS.
+# sync_mode is always forced to "recent" in _build_env — not needed here.
+# timer_*, mirror_dir, date_from/to, sync_auto_fallback — never read here.
+_DAILY_SETTINGS_KEYS = {
+    "email", "base_dir",
+    "age", "sex",
+    "context_latitude", "context_longitude",
+    "request_delay_min", "request_delay_max",
+    "sync_days",          # → GARMIN_DAYS_BACK
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -138,14 +132,14 @@ def _close_daily_log() -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _load_settings() -> dict | None:
-    """Load settings from ~/.garmin_archive_settings.json.
-    Returns None if file is missing or unreadable."""
-    if not SETTINGS_FILE.exists():
-        return None
+    """Load settings via garmin_app_settings — single source of truth.
+    Filters to _DAILY_SETTINGS_KEYS — the scheduler ignores all other fields.
+    Lazy import: garmin_app_settings lives in app/, sys.path built in _setup_paths().
+    Returns None if settings file is missing or unreadable."""
     try:
-        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-        data.pop("password", None)
-        return {**DEFAULT_SETTINGS, **data}
+        import garmin_app_settings as _s
+        data = _s.load_settings()
+        return {k: v for k, v in data.items() if k in _DAILY_SETTINGS_KEYS}
     except Exception as e:
         log.error(f"  Could not read settings: {e}")
         return None
@@ -477,7 +471,6 @@ def main() -> int:
     s = _load_settings()
     if not s or not s.get("email") or not s.get("base_dir"):
         log.error("  Settings missing or incomplete.")
-        log.error(f"  Expected: {SETTINGS_FILE}")
         log.error("  Please open the app and save your settings first.")
         return 2
 

@@ -444,13 +444,23 @@ check("_should_write low=True",     collector._should_write("low")     == True)
 check("_should_write failed=False", collector._should_write("failed")  == False)
 check("_should_write unknown=False",collector._should_write("xyz")     == False)
 
-# _is_stopped
+# _is_stopped — now via set_stop_event (Option C, no globals injection)
 check("_is_stopped: False by default", collector._is_stopped() == False)
 
 ev = threading.Event(); ev.set()
-collector._STOP_EVENT = ev
+collector.set_stop_event(ev)
 check("_is_stopped: True when set",    collector._is_stopped() == True)
-del collector._STOP_EVENT
+# Collector distributes to garmin_api — verify the API module sees it too
+import garmin_api as _api_stop
+check("_is_stopped: api sees event",   _api_stop._is_stopped() == True)
+
+# set_stop_event(None) clears on both modules
+collector.set_stop_event(None)
+check("_is_stopped: cleared on collector", collector._is_stopped() == False)
+check("_is_stopped: cleared on api",       _api_stop._is_stopped() == False)
+
+# Mandatory cleanup — module-level state must not leak into later tests
+collector.set_stop_event(None)
 
 # summarize + safe_get no longer in collector
 check("summarize not in collector", not hasattr(collector, "summarize"))
@@ -653,6 +663,18 @@ check("validator evil: nonsense date string → ok",   r10["status"] == "ok")
 # reload_schema — no crash, version preserved
 validator_mod.reload_schema()
 check("validator reload: version intact",            validator_mod.current_version() == "1.0")
+
+# F6 — Fail-Closed: schema absent → critical (not ok).
+# Simulate empty schema, then restore via reload_schema to avoid state leak.
+_saved_schema = validator_mod._schema
+validator_mod._schema = {}
+r_noschema = validator_mod.validate({"date": "2024-01-01"})
+check("validator no schema: status=critical",        r_noschema["status"] == "critical")
+check("validator no schema: schema issue present",
+      any(i["field"] == "schema" for i in r_noschema["issues"]))
+# Restore — mandatory cleanup, all later validator tests need the real schema
+validator_mod.reload_schema()
+check("validator restored after no-schema test",     validator_mod.current_version() == "1.0")
 
 # None input — no crash
 r_none = validator_mod.validate(None)

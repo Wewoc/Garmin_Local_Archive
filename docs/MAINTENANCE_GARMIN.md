@@ -95,13 +95,13 @@ Desktop GUI built with tkinter. Target 2 is distributed as a PyInstaller `.exe` 
 
 ## garmin_app_standalone.py (Target 3)
 
-No subprocesses — runs collector in a thread via `_run_module()`. Uses `importlib` to load modules dynamically from `sys._MEIPASS/scripts/`. Stop handled via `threading.Event` injected into module globals.
+No subprocesses — runs collector in a thread via `_run_module()`. Uses `importlib` to load modules dynamically from `sys._MEIPASS/scripts/`. Stop handled via `module.main(stop_event=ev)` — the collector registers the event with itself and `garmin_api` via `set_stop_event()`. No `module.__dict__` injection (v1.5.6.3).
 
 ---
 
 ## `test_local.py`
 
-**Current count: 320 checks, 19 sections.**
+**Current count: 316 checks, 19 sections.**
 
 ```bash
 python tests/test_local.py
@@ -114,11 +114,12 @@ python tests/test_local.py
 3. `garmin_normalizer` — `normalize()`, `safe_get()`, `_parse_list_values()`, `summarize()`
 4. `garmin_quality` — all four quality levels, upsert, round-trip, migrations, thread safety
 5. `garmin_writer` — `write_day()`, file content, `read_raw()`
-6. `garmin_collector` internals — `_process_day()` tuple, `val_result` structure
+6. `garmin_collector` internals — `_fetch_and_assess()` tuple, `val_result` structure, `set_stop_event()` distribution to `garmin_api` and bilateral clearing (v1.5.6.3)
 7. `garmin_validator` — schema load, all issue types, status escalation
 8. `garmin_writer` — `read_raw()` edge cases, `_should_write()`, `_is_stopped()`
-9. `garmin_security` — AES key derivation, save/load round-trip, wrong key, clear
-10. `garmin_utils` — `parse_device_date()`, `parse_sync_dates()`, `extract_date_from_filename()`
+9. `garmin_validator` — schema load, all issue types, status escalation, Fail-Closed when schema absent (v1.5.6.3)
+10. `garmin_security` — AES key derivation, save/load round-trip, wrong key, clear
+11. `garmin_utils` — `parse_device_date()`, `parse_sync_dates()`, `extract_date_from_filename()`
 11. `INVARIANTS` — `fetch_raw` return type, `_process_day` tuple length, write-only ownership
 12. `ROBUSTNESS` — empty raw, corrupt JSON, stop event, non-dict input
 13. `PIPELINE_E2E` — full day through pipeline: write → quality → read
