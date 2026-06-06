@@ -243,6 +243,9 @@ check("assess: medium", quality.assess_quality(raw_medium) == "medium")
 check("assess: low",    quality.assess_quality(raw_low)    == "low")
 check("assess: failed", quality.assess_quality(raw_failed) == "failed")
 
+raw_low_steps = {"date": "2023-01-01", "stats": {"totalSteps": 5000}, "user_summary": {}}
+check("assess: steps-only → low", quality.assess_quality(raw_low_steps) == "low")
+
 # _upsert_quality + write field
 cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
 data = {"first_day": None, "devices": [], "days": []}

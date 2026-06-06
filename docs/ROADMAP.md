@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.6.1**
+**Currently stable — v1.5.6.2**
 
 ---
 
@@ -14,7 +14,7 @@
 
 ---
 
-### v1.5.6.2 — Code Quality Patch
+### v1.5.6.3 — Code Quality Patch
 
 Maintenance release addressing findings from two independent code reviews
 of v1.5.6.1 (Claude direct code review + Gemini blind review via ZIP upload).
@@ -157,12 +157,31 @@ List of essential fields to be determined in session (not all
 
 ---
 
+**Finding 8 — `daily_update.py` duplizierter Settings-Pfad**
+*Source: Session-Analyse*
+
+`daily_update.py` definiert `SETTINGS_FILE` und `_load_settings()` eigenständig
+statt `garmin_app_settings` zu importieren:
+
+    # scheduler/daily_update.py — Zeile 66
+    SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
+
+`garmin_app_settings.save_settings()` ist der einzige Writer — korrekt. Aber
+der Dateipfad existiert zweimal als Literal. Wird der Pfad je geändert, muss
+`daily_update.py` manuell nachgezogen werden ohne dokumentierte Querverbindung.
+
+Fix: `daily_update.py` importiert `SETTINGS_FILE` und `load_settings()` aus
+`garmin_app_settings`. Sole-Owner-Prinzip explizit hergestellt.
+
+---
+
 **What changes:**
 - `garmin/garmin_collector.py` — `_QUALITY_RANK` removed (→ import); `_STOP_EVENT` global removed; `main()` + `run_import()` accept `stop_event` parameter
 - `garmin/garmin_validator.py` — Fail-Open → Fail-Closed: schema absent → `"critical"`, not `"ok"`
 - `garmin/garmin_normalizer.py` — `log.warning()` added for essential fields returning `None` in `summarize()`
 - `app/garmin_app_controller.py` — three INTENTIONAL DIRECT READ comments extended; `os.environ`/reload pattern reviewed (scope TBD); stop_event passed as argument instead of injected
 - `app/panel_archive.py` — `# INTENTIONAL DIRECT READ` comment added
+- `scheduler/daily_update.py` — `SETTINGS_FILE`-Literal + `_load_settings()` durch Import aus `garmin_app_settings` ersetzt
 
 **What does not change:**
 - Pipeline behaviour — identical (Fail-Closed in validator only affects schema-absent edge case)
@@ -177,11 +196,68 @@ List of essential fields to be determined in session (not all
 4. Finding 7 — summarize() warnings (list of essential fields first)
 5. Finding 4 — `_STOP_EVENT` DI refactor (touches collector + controller)
 6. Finding 5 — `os.environ`/reload (analysis session first)
-
+7. Finding 8 — `daily_update.py` Settings-Import (trivial, nach Finding 4)
 
 ---
 
-### v1.5.7 — In-App File Viewer
+## v1.5.7 — Quality System Neudefinition — Device-Rank
+
+The current `high / medium / low` quality label system is miscalibrated.
+Analysis of the live archive revealed that 2492 of 2725 entries are
+classified as `medium` — factually incorrect. Root cause: three devices
+with three distinct data profiles that the content-based heuristic cannot
+reliably distinguish.
+
+**Empirical findings (archive analysis, 2026-06-06):**
+
+| Device | Days | Avg KB | Delivers |
+|---|---|---|---|
+| Vivoactive 3 | ~1846 | 1.2 KB | Basic daily values, minimal skeleton |
+| Fenix 5x | ~427 | 14.5 KB | Full API skeleton, daily values, no intraday |
+| Fenix 7X Sapphire Solar | ~451 | variable | Daily values (~36 KB) + intraday (~500 KB) |
+
+Device-specific top-level key differences (empirically confirmed via diff):
+- Vivoactive → `user_summary`, `stress`, `sleep`, `heart_rates`
+- Fenix 5x → adds `stats`, `respiration`, `spo2`, `body_battery`, `activities`,
+  `training_status`, `max_metrics`, `race_predictions`, `training_readiness`
+- Fenix 7X → adds `hrv`
+
+`assess_quality_fields()` does not distinguish Vivoactive from Fenix 5x —
+absent blocks and empty blocks both evaluate to `failed`.
+
+**New model:**
+
+`high` — intraday present (heartRateValues or stressValuesArray filled)
+
+Non-intraday days differentiated by device rank instead of medium/low:
+- Rank 1 (fenix 7X Sapphire Solar) — N days — yyyy-mm-dd to yyyy-mm-dd
+- Rank 2 (fenix 5x)                — N days — yyyy-mm-dd to yyyy-mm-dd
+- Rank 3 (Vivoactive 3)            — N days — yyyy-mm-dd to yyyy-mm-dd
+
+Device rank replaces `medium` / `low` as the differentiator within non-intraday
+days. Rank is derived from `training_status → recordedDevices → deviceName`.
+New devices are ranked automatically — no code change required.
+
+**What changes:**
+- `garmin/quality/_assess.py` — simplified: only `high` vs. non-`high`
+- `garmin/quality/_maint.py` — `_QUALITY_RANK` revisited or removed
+- `quality_log.json` — schema change: `device_rank` field added
+- `tools/migrate_quality_reclassify_v2.py` — migration script for ~2492 entries
+- GUI Archive Stats Panel — shows device rank breakdown instead of medium/low counts
+- Timer logic — retry scope: `failed` only (no more `low` as retry trigger)
+
+**Constraint:** Must be built before v1.6+ — `quality` is central infrastructure.
+All subsequent features build on incorrect assumptions if this is not fixed first.
+
+**Analysis session required before build:**
+- Schema change: backward-compatible or hard-cut migration?
+- Unknown device fallback rank strategy
+- Retry logic: what happens to existing `low` entries after migration?
+- `_QUALITY_RANK` in `garmin_collector.py` and `_maint.py` — keep or remove?
+
+---
+
+### v1.5.8 — In-App File Viewer
 
 Third tab in the existing `QTabWidget` structure (Tab 1 "Actions", Tab 2 "Dashboards", Tab 3 "Files"). Renders Excel output directly inside the app via AG Grid Community (MIT licence). JSON output is intentionally excluded — Open Folder in Tab 1 is the intended path for JSON.
 
