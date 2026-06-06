@@ -1,5 +1,50 @@
 # Garmin Local Archive — Changelog
 
+# Garmin Local Archive — Changelog
+
+---
+
+## v1.5.6.2 — assess_quality Fix + Retroactive Migration
+
+Bug fix in `assess_quality()`: the inner condition `if has_sleep or has_steps:`
+was always True when reached via `has_steps`, making `return "low"` unreachable.
+Days with only `totalSteps` and no sleep or restingHR were silently classified
+as `medium`. Fixed to `if has_sleep or has_hr_resting:`. One new test case added.
+Standalone migration script provided for retroactive correction of existing entries.
+
+**New modules:**
+- `tools/migrate_quality_reclassify.py` — standalone migration script. Reads
+  `quality_log.json`, re-runs `assess_quality()` on all `medium` entries, corrects
+  any that now return `"low"`. Creates timestamped backup before writing.
+  Run once with app closed. Not in `build_manifest.py` — one-time tool.
+- `tools/extract_device_per_day.py` — analysis tool. Extracts recorded device per
+  day from all raw files. Output: CSV + console summary (device, days, avg/min/max KB).
+  Used for archive-quality analysis. Not in `build_manifest.py`.
+
+**Changed modules:**
+- `garmin/quality/_assess.py` — one-line fix: `if has_sleep or has_steps:` →
+  `if has_sleep or has_hr_resting:`. Steps alone no longer sufficient for `medium`.
+- `tests/test_local.py` — one new check: `assess: steps-only → low`.
+
+**Note:** Migration script ran against live archive — 0 entries corrected. The
+specific bug pattern (steps-only, no sleep, no restingHR) does not occur in this
+archive because Garmin always includes sleep and stress blocks. Fix remains correct
+for archives where the pattern may occur.
+
+**Test result:** 310 / 261 / 303 / 128 / 42 — all green
+
+---
+
+## v1.5.5.4 — Test Infrastructure Consolidation + Maps Logging + AST-Guard
+
+Duplicate test-tracking boilerplate extracted from four manual test scripts
+into a shared `tests/support.py` module. All four suites now import `check()`,
+`section()`, and `summary()` as free functions — no inline implementation.
+Summary output unified to a single format. Four Maps modules gain `log.warning()`
+in their `_read_field()` except-blocks — previously silent JSON/OS errors are now
+observable. New AST-based regression guard in `test_qt_app.py` verifies that
+`scheduler/daily_update.py` stays GUI-free.
+
 ---
 
 ## v1.5.6.1 — Encrypted Mirror Container

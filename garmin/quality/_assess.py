@@ -69,7 +69,7 @@ def assess_quality(raw: dict) -> str:
         sleep = raw.get("sleep") or {}
         has_sleep = _safe_get(sleep, "dailySleepDTO", "sleepTimeSeconds") is not None
 
-        if has_sleep or has_steps:
+        if has_sleep or has_hr_resting:
             return "medium"
         return "low"
 
