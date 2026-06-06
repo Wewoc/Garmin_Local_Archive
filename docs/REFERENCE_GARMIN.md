@@ -40,6 +40,7 @@ garmin_app.py (GUI)
 - `garmin_writer.py` is sole write authority for `raw/` and `summary/`
 - `garmin_quality.py` is sole write authority for `quality_log.json`
 - `garmin_backup.py` is sole write authority for `garmin_data/backup/`
+- `garmin_collector.py` is the stop-event orchestrator (v1.5.6.3) — `set_stop_event(ev)` registers the event on the collector and distributes it to `garmin_api` in one call. The GUI calls `main(stop_event=ev)`; no module ever reads `_STOP_EVENT` via `globals()`
 - `garmin_mirror.py` is sole owner of the mirror operation — delegates to `garmin_container.py` for container creation. `is_import_ready()` removed (v1.5.6.2) — import source selected via file picker, not stored path
 - `garmin_container.py` is sole owner of `mirror.gla` — no other module reads or writes the container file directly
 - `garmin_import_mirror.py` is sole owner of the mirror import operation — orchestrates only, never writes directly
@@ -83,7 +84,8 @@ Pure constants module — no functions. See `REFERENCE_GLOBAL.md` for full const
 | `api_call(client, method, *args, label)` | Single API call with random delay and stop-check. Returns `(data, success)` |
 | `fetch_raw(client, date_str)` | Calls all 14 Garmin API endpoints. Returns `(raw: dict, failed_endpoints: list[str])` |
 | `get_devices(client)` | Fetches registered device list. Returns sorted list |
-| `_is_stopped()` | Returns `True` if stop event is set. Safe to call without injection |
+| `set_stop_event(ev)` | Registers the stop event (`threading.Event` or `None`). Same pattern as `garmin_validator.reload_schema()` — explicit setter, no `globals()` injection |
+| `_is_stopped()` | Returns `True` if a registered stop event is set. Safe to call without a registered event |
 
 **Auth token flow:**
 
@@ -117,7 +119,7 @@ avoiding stale paths when `GARMIN_OUTPUT_DIR` is set after the module was first 
 
 | Function | Purpose |
 |---|---|
-| `validate(raw)` | Validates raw dict against cached schema. Returns `{"status", "schema_version", "timestamp", "issues"}`. Never modifies input |
+| `validate(raw)` | Validates raw dict against cached schema. Returns `{"status", "schema_version", "timestamp", "issues"}`. Never modifies input. Fail-Closed: returns `"critical"` with a `missing_required` issue on `field: "schema"` if schema is absent (v1.5.6.3) |
 | `reload_schema()` | Reloads `garmin_dataformat.json` from disk — called by self-healing loop on version mismatch |
 | `current_version()` | Returns currently cached schema version string |
 
@@ -125,7 +127,7 @@ avoiding stale paths when `GARMIN_OUTPUT_DIR` is set after the module was first 
 
 | Type | Trigger | Severity | Status impact |
 |---|---|---|---|
-| `missing_required` | Required field absent or wrong type | `critical` | `critical` |
+| `missing_required` | Required field absent or wrong type, or schema not loaded | `critical` | `critical` |
 | `type_mismatch` | Known field present but wrong type | `critical` / `warning` | depends |
 | `missing_optional` | Optional field absent | `info` | none |
 | `unexpected_field` | Field not in schema | `warning` | `warning` |
@@ -152,7 +154,7 @@ Shared utilities — leaf node. No project-module imports.
 |---|---|
 | `CURRENT_SCHEMA_VERSION` | int — summary schema version. Increment on field changes |
 | `normalize(raw, source)` | Entry point. `source`: `"api"` or `"bulk"` |
-| `summarize(raw)` | Produces compact daily summary. Writes `schema_version` into every file |
+| `summarize(raw)` | Produces compact daily summary. Writes `schema_version` into every file. Emits `log.warning()` when `sleepTimeSeconds` is `None` (structurally absent — distinct from `0`, which is a legitimate no-sleep-recorded value). v1.5.6.3 |
 | `_normalize_api(raw)` | Normalises Garmin API raw dict |
 | `_normalize_import(raw)` | Normalises bulk import raw dict. Remaps HR aggregate fields |
 | `safe_get(d, *keys, default)` | Safe nested dict traversal |

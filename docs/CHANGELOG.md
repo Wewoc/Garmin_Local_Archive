@@ -4,6 +4,75 @@
 
 ---
 
+## v1.5.6.3 — Code Quality Patch
+
+Maintenance release addressing seven findings from two independent code reviews
+of v1.5.6.1 (Claude direct review + Gemini blind review). No new features, no
+pipeline changes, no user-visible behaviour changes. One real behaviour change:
+the validator now returns `critical` instead of `ok` when its schema file is
+missing — pipeline already handles `critical` (day flagged for recheck, no
+data lost).
+
+The largest change architecturally is F4: the `_STOP_EVENT` monkey-patching
+via `module.__dict__` is replaced by explicit module-level setters
+(`set_stop_event(ev)`) on both `garmin_collector` and `garmin_api`. The
+collector is now the stop orchestrator — it distributes the event to
+`garmin_api`. The Standalone GUI no longer needs to know about `garmin_api`.
+
+**Changed modules:**
+- `garmin/garmin_collector.py` — `_QUALITY_RANK` removed (now imported from
+  `quality._maint`). `_STOP_EVENT` global removed; `_stop_event` module
+  variable + `set_stop_event(ev)` added; setter distributes to `garmin_api`.
+  `main(stop_event=None)` and `run_import(..., stop_event=None)` accept and
+  register the event.
+- `garmin/garmin_api.py` — `_STOP_EVENT` global removed; `_stop_event` +
+  `set_stop_event(ev)` added (same pattern as collector). 429 rate-limit
+  handler reads `_stop_event` directly instead of `globals().get()`. Module
+  docstring updated.
+- `garmin/garmin_validator.py` — Fail-Open → Fail-Closed: schema absent now
+  returns `critical` with a `missing_required` issue on `field: "schema"`,
+  not `ok`.
+- `garmin/garmin_normalizer.py` — `log.warning()` added in `summarize()` when
+  `sleepTimeSeconds` is `None` (structurally absent). `None`-trigger only;
+  `0` is a legitimate value (no sleep recorded) and stays silent.
+- `app/garmin_app_controller.py` — three `INTENTIONAL DIRECT READ` comments
+  extended with the `os.replace()` atomicity rationale (reader always sees
+  either the old or the new complete file).
+- `app/panel_archive.py` — `INTENTIONAL DIRECT READ` comment added to
+  `_check_failed_days_popup()` quality_log.json read (was undocumented).
+- `garmin_app_standalone.py` — `module.__dict__["_STOP_EVENT"]` double
+  injection (collector + garmin_api) replaced by
+  `module.main(stop_event=effective_stop)`. The GUI no longer references
+  `garmin_api` directly.
+- `scheduler/daily_update.py` — `SETTINGS_FILE` literal and local
+  `DEFAULT_SETTINGS` removed. `_load_settings()` delegates to
+  `garmin_app_settings.load_settings()` (lazy import after `_setup_paths()`)
+  and filters to `_DAILY_SETTINGS_KEYS` — the eight fields the scheduler
+  actually uses. Removed keys (`sync_mode`, `timer_*`, `mirror_dir`,
+  `date_from/to`, `sync_auto_fallback`) were either ignored by `_build_env`
+  or never read.
+- `docs/REFERENCE_GARMIN.md` — `set_stop_event(ev)` documented for both
+  `garmin_api` and `garmin_collector`. `_is_stopped()` description updated.
+
+**Test changes:**
+- `tests/test_local.py` Section 6: `_STOP_EVENT` direct assignment replaced
+  by `set_stop_event(ev)`. Two new checks verify cross-module distribution
+  (collector → garmin_api) and bilateral clearing on `set_stop_event(None)`.
+  Explicit cleanup at section end against state leak.
+- `tests/test_local.py` Section 9: F6 fail-closed test added with guaranteed
+  schema restore via `reload_schema()`.
+
+**What does not change:**
+- Pipeline behaviour — identical (F6 only affects schema-absent edge case)
+- Quality log format — unchanged
+- 429 self-stop chain — preserved, same event object across both modules
+- Subprocess mode (T1/T2) — `stop_event=None`, behaviour identical to before
+- User-visible behaviour — unchanged
+
+**Test result:** 316 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.6.2 — assess_quality Fix + Retroactive Migration
 
 Bug fix in `assess_quality()`: the inner condition `if has_sleep or has_steps:`

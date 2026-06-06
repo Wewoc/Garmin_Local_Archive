@@ -47,13 +47,24 @@ log = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Stop-event (injected by standalone GUI via module.__dict__)
+#  Stop-event (registered via set_stop_event — distributed to garmin_api)
 # ══════════════════════════════════════════════════════════════════════════════
 
+_stop_event = None   # threading.Event | None
+
+
+def set_stop_event(ev) -> None:
+    """Registers the stop event for collector + garmin_api. Pass None to clear.
+    The collector is the stop orchestrator — it owns distribution to the API
+    module so callers (GUI, scheduler) only ever talk to the collector."""
+    global _stop_event
+    _stop_event = ev
+    api.set_stop_event(ev)
+
+
 def _is_stopped() -> bool:
-    """Returns True if the standalone GUI has requested a stop."""
-    ev = globals().get("_STOP_EVENT")
-    return ev is not None and ev.is_set()
+    """Returns True if a stop event is registered and set."""
+    return _stop_event is not None and _stop_event.is_set()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -113,7 +124,8 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
 #  Downgrade guard
 # ══════════════════════════════════════════════════════════════════════════════
 
-_QUALITY_RANK = {"high": 3, "medium": 2, "low": 1, "failed": 0}
+# Single source of truth — defined in quality._maint, re-exported via facade.
+from quality._maint import _QUALITY_RANK
 
 
 def _check_downgrade(new_label: str, existing_entry: dict | None) -> tuple:
@@ -144,7 +156,7 @@ def _write_assessed(normalized, summary, date_str: str, label: str) -> bool:
     return False
 
 
-def run_import(path, progress_callback=None) -> dict:
+def run_import(path, progress_callback=None, stop_event=None) -> dict:
     """
     Imports a Garmin export ZIP or folder into the local archive.
 
@@ -156,11 +168,17 @@ def run_import(path, progress_callback=None) -> dict:
     path              : str | Path — path to Garmin export ZIP or unpacked folder
     progress_callback : callable(current, total, date_str) | None
                         Called after each day. total is None (unknown upfront).
+    stop_event        : threading.Event | None — registered so the bulk loop
+                        can abort via _is_stopped(). Bulk uses no API, so the
+                        stop is checked only in this loop.
 
     Returns
     -------
     dict — {"ok": int, "skipped": int, "failed": int}
     """
+    if stop_event is not None:
+        set_stop_event(stop_event)
+
     import garmin_import as importer
 
     ok, skipped, failed = 0, 0, 0
@@ -450,11 +468,16 @@ def _run_schema_migration(quality_data: dict) -> None:
 
     log.info(f"  Schema migration complete: {ok} rewritten, {failed} skipped/failed.")
 
-def main():
+def main(stop_event=None):
+    # Register the stop event with collector + garmin_api before anything runs.
+    # subprocess mode (T1/T2) passes None — stop handled via process terminate.
+    if stop_event is not None:
+        set_stop_event(stop_event)
+
     # ── 0. Import mode — delegated entry points ───────────────────────────────
     import_path = os.environ.get("GARMIN_IMPORT_PATH")
     if import_path:
-        result = run_import(import_path)
+        result = run_import(import_path, stop_event=stop_event)
         sys.exit(0 if result["failed"] == 0 else 1)
 
     # (v2.0) strava_path = os.environ.get("STRAVA_IMPORT_PATH")
