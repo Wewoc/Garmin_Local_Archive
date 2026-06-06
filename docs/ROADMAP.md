@@ -200,7 +200,7 @@ Fix: `daily_update.py` importiert `SETTINGS_FILE` und `load_settings()` aus
 
 ---
 
-## v1.5.7 — Quality System Neudefinition — Device-Rank
+## v1.5.7 — Quality System Redefinition — Device-Rank
 
 The current `high / medium / low` quality label system is miscalibrated.
 Analysis of the live archive revealed that 2492 of 2725 entries are
