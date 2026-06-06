@@ -6,11 +6,197 @@
 
 ---
 
-**Currently stable — v1.5.6.3**
+**Currently stable — v1.5.6.2**
 
 ---
 
 ## Planned
+
+---
+
+### v1.5.6.3 — Code Quality Patch
+
+Maintenance release addressing findings from two independent code reviews
+of v1.5.6.1 (Claude direct code review + Gemini blind review via ZIP upload).
+No new features, no pipeline changes, no user-visible behaviour changes.
+
+Sources:
+- Claude: direct file read, concrete line references
+- Gemini: blind review (fresh context, no prior GLA knowledge), partial file input
+
+Intersection of both reviews = confirmed priority. Single-source findings
+included where the underlying evidence is code-verifiable.
+
+---
+
+**Finding 1 — `_QUALITY_RANK` duplicate definition**
+*Source: Claude*
+
+`_QUALITY_RANK` is defined twice with different numeric values:
+- `garmin_collector.py` (line 110): `{"high": 3, "medium": 2, "low": 1, "failed": 0}`
+- `garmin/quality/_maint.py` (line 15): `{"high": 4, "medium": 3, "low": 2, "failed": 1}`
+
+Functionally equivalent today (relative ordering identical). Risk: silent
+divergence if a new quality label is added or an existing one is renamed.
+
+Fix: `garmin_collector.py` imports `_QUALITY_RANK` from `quality._maint`
+instead of defining its own copy. One definition, one source.
+
+---
+
+**Finding 2 — `panel_archive.py` direct read underdocumented**
+*Source: Claude*
+
+`panel_archive.py` reads `quality_log.json` directly (line 277) without the
+`# INTENTIONAL DIRECT READ` comment that the three equivalent bypasses in
+`garmin_app_controller.py` carry. Same pattern, inconsistent documentation.
+
+Fix: Add `# INTENTIONAL DIRECT READ` comment with rationale. No code change.
+
+---
+
+**Finding 3 — Timer read bypasses: missing threading rationale**
+*Source: Claude*
+
+The `# INTENTIONAL DIRECT READ` comments in `garmin_app_controller.py` state
+that `QUALITY_LOCK` is not required but do not explain why. The reason
+(`os.replace()` is atomic — reader always sees either the old or the new
+complete file, never a partial write) is not in the comment.
+
+Fix: Extend the three existing comments with the atomicity rationale.
+No code change.
+
+---
+
+**Finding 4 — `_STOP_EVENT` injected via `globals()` (Monkey-Patching)**
+*Source: Gemini, confirmed*
+
+`garmin_collector.py`:
+```python
+def _is_stopped() -> bool:
+    ev = globals().get("_STOP_EVENT")
+    return ev is not None and ev.is_set()
+```
+
+The GUI injects `_STOP_EVENT` into the collector's global namespace at
+runtime (`garmin_collector._STOP_EVENT = stop_event`). This is untestable
+in isolation and creates an invisible dependency — nothing in the collector's
+public interface signals that it expects external state injection.
+
+Fix: `main()` and `run_import()` accept an optional `stop_event: threading.Event | None = None`
+parameter. `_is_stopped()` receives the event directly. GUI passes the event
+as argument instead of injecting into `__dict__`. `_STOP_EVENT` global removed.
+
+---
+
+**Finding 5 — `os.environ` mutation inside worker thread**
+*Source: Gemini, confirmed*
+
+`garmin_app_controller.py`, `check_connection()` worker:
+```python
+os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
+importlib.reload(cfg)
+```
+
+`os.environ` is process-global. Mutation inside a background thread overwrites
+it for all concurrent threads. The subsequent `importlib.reload(cfg)` forces
+the config module to re-evaluate all ENV reads at runtime — any other thread
+reading `cfg` during this window sees an inconsistent state.
+
+Fix: Scope and approach to be determined in session. Options:
+- Pass `base_dir` directly into the functions that need it (preferred)
+- Or document explicitly which ENV vars are set before the thread starts
+  and guaranteed stable for its lifetime (narrower scope, lower risk)
+
+Note: This is the highest-complexity fix in this patch. Analysis session
+required before implementation.
+
+---
+
+**Finding 6 — Fail-Open Validator**
+*Source: Gemini, confirmed*
+
+`garmin_validator.py`: If `garmin_dataformat.json` cannot be loaded
+(missing, corrupt, permission error), `_schema` is set to `{}` and
+`validate()` returns `"ok"` with a log warning. A validator that cannot
+function silently approves all incoming data.
+
+Current:
+```python
+if not _schema:
+    log.warning("[VALIDATOR] No schema loaded — skipping structural validation")
+    return _result("ok", timestamp, issues)
+```
+
+Fix: Return `"critical"` instead of `"ok"` when schema is absent.
+The pipeline already handles `"critical"` — no day is written, the day
+is flagged for recheck. No data is lost; the day will be retried on
+the next run. Hard crash (`raise`) is explicitly not chosen — a missing
+schema file should not make the entire session unrecoverable.
+
+---
+
+**Finding 7 — Silent data loss in `summarize()` when API fields go missing**
+*Source: Gemini, confirmed*
+
+`garmin_normalizer.py`, `summarize()`: `safe_get()` returns `None`
+when a field is absent. The pattern `(safe_get(...) or 0) / 3600`
+then silently writes `0.0` to the summary. If Garmin renames or
+restructures a field, the pipeline stores zeros without any warning.
+The quality label is unaffected — a day with all-zero metrics can
+still receive a `"high"` label.
+
+Fix: For each essential field in `summarize()` (sleep, HRV, stress,
+body battery), add a `log.warning()` when `safe_get()` returns `None`.
+The warning is written to the session log — no user-visible change,
+no pipeline change. Gives the operator a signal that field mapping
+needs review.
+
+List of essential fields to be determined in session (not all
+`safe_get()` calls are essential — some fields are optional by design).
+
+---
+
+**Finding 8 — `daily_update.py` duplizierter Settings-Pfad**
+*Source: Session-Analyse*
+
+`daily_update.py` definiert `SETTINGS_FILE` und `_load_settings()` eigenständig
+statt `garmin_app_settings` zu importieren:
+
+    # scheduler/daily_update.py — Zeile 66
+    SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
+
+`garmin_app_settings.save_settings()` ist der einzige Writer — korrekt. Aber
+der Dateipfad existiert zweimal als Literal. Wird der Pfad je geändert, muss
+`daily_update.py` manuell nachgezogen werden ohne dokumentierte Querverbindung.
+
+Fix: `daily_update.py` importiert `SETTINGS_FILE` und `load_settings()` aus
+`garmin_app_settings`. Sole-Owner-Prinzip explizit hergestellt.
+
+---
+
+**What changes:**
+- `garmin/garmin_collector.py` — `_QUALITY_RANK` removed (→ import); `_STOP_EVENT` global removed; `main()` + `run_import()` accept `stop_event` parameter
+- `garmin/garmin_validator.py` — Fail-Open → Fail-Closed: schema absent → `"critical"`, not `"ok"`
+- `garmin/garmin_normalizer.py` — `log.warning()` added for essential fields returning `None` in `summarize()`
+- `app/garmin_app_controller.py` — three INTENTIONAL DIRECT READ comments extended; `os.environ`/reload pattern reviewed (scope TBD); stop_event passed as argument instead of injected
+- `app/panel_archive.py` — `# INTENTIONAL DIRECT READ` comment added
+- `scheduler/daily_update.py` — `SETTINGS_FILE`-Literal + `_load_settings()` durch Import aus `garmin_app_settings` ersetzt
+
+**What does not change:**
+- Pipeline behaviour — identical (Fail-Closed in validator only affects schema-absent edge case)
+- Quality log format — unchanged
+- User-visible behaviour — unchanged
+- Test suites — stop_event parameter change requires update to any test that calls `main()` or `run_import()` directly
+
+**Session order:**
+1. Finding 1 — `_QUALITY_RANK` (trivial import change)
+2. Finding 2 + 3 — comments only (no code risk)
+3. Finding 6 — Fail-Closed validator (small, self-contained)
+4. Finding 7 — summarize() warnings (list of essential fields first)
+5. Finding 4 — `_STOP_EVENT` DI refactor (touches collector + controller)
+6. Finding 5 — `os.environ`/reload (analysis session first)
+7. Finding 8 — `daily_update.py` Settings-Import (trivial, nach Finding 4)
 
 ---
 
