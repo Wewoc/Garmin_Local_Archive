@@ -210,11 +210,11 @@ reliably distinguish.
 
 **Empirical findings (archive analysis, 2026-06-06):**
 
-| Device | Days | Avg KB | Delivers |
+| Device | Avg KB | Delivers |
 |---|---|---|---|
-| device 1 | ~1846 | 1.2 KB | Basic daily values, minimal skeleton |
-| device 2 | ~427 | 14.5 KB | Full API skeleton, daily values, no intraday |
-| device 3 | ~451 | variable | Daily values (~36 KB) + intraday (~500 KB) |
+| device 1  | 1.2 KB | Basic daily values, minimal skeleton |
+| device 2  | 14.5 KB | Full API skeleton, daily values, no intraday |
+| device 3  | variable | Daily values (~36 KB) + intraday (~500 KB) |
 
 Device-specific top-level key differences (empirically confirmed via diff):
 - Vivoactive → `user_summary`, `stress`, `sleep`, `heart_rates`
