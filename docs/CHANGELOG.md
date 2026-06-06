@@ -1,5 +1,126 @@
 # Garmin Local Archive — Changelog
 
+# Garmin Local Archive — Changelog
+
+---
+
+## v1.5.6.2 — assess_quality Fix + Retroactive Migration
+
+Bug fix in `assess_quality()`: the inner condition `if has_sleep or has_steps:`
+was always True when reached via `has_steps`, making `return "low"` unreachable.
+Days with only `totalSteps` and no sleep or restingHR were silently classified
+as `medium`. Fixed to `if has_sleep or has_hr_resting:`. One new test case added.
+Standalone migration script provided for retroactive correction of existing entries.
+
+**New modules:**
+- `tools/migrate_quality_reclassify.py` — standalone migration script. Reads
+  `quality_log.json`, re-runs `assess_quality()` on all `medium` entries, corrects
+  any that now return `"low"`. Creates timestamped backup before writing.
+  Run once with app closed. Not in `build_manifest.py` — one-time tool.
+- `tools/extract_device_per_day.py` — analysis tool. Extracts recorded device per
+  day from all raw files. Output: CSV + console summary (device, days, avg/min/max KB).
+  Used for archive-quality analysis. Not in `build_manifest.py`.
+
+**Changed modules:**
+- `garmin/quality/_assess.py` — one-line fix: `if has_sleep or has_steps:` →
+  `if has_sleep or has_hr_resting:`. Steps alone no longer sufficient for `medium`.
+- `tests/test_local.py` — one new check: `assess: steps-only → low`.
+
+**Note:** Migration script ran against live archive — 0 entries corrected. The
+specific bug pattern (steps-only, no sleep, no restingHR) does not occur in this
+archive because Garmin always includes sleep and stress blocks. Fix remains correct
+for archives where the pattern may occur.
+
+**Test result:** 310 / 261 / 303 / 128 / 42 — all green
+
+---
+
+## v1.5.5.4 — Test Infrastructure Consolidation + Maps Logging + AST-Guard
+
+Duplicate test-tracking boilerplate extracted from four manual test scripts
+into a shared `tests/support.py` module. All four suites now import `check()`,
+`section()`, and `summary()` as free functions — no inline implementation.
+Summary output unified to a single format. Four Maps modules gain `log.warning()`
+in their `_read_field()` except-blocks — previously silent JSON/OS errors are now
+observable. New AST-based regression guard in `test_qt_app.py` verifies that
+`scheduler/daily_update.py` stays GUI-free.
+
+---
+
+## v1.5.6.1 — Encrypted Mirror Container
+
+Replaces the plain mirror folder with a single encrypted container file (`mirror.gla`).
+Health data on USB, NAS, or a cloud folder of choice is unreadable without the password.
+No cloud dependency, no third-party service — extends the local-first philosophy to transport.
+
+**New modules:**
+- `garmin/garmin_container.py` — Sole Owner of `mirror.gla`. Section-based AES-256-GCM
+  container with independent encrypted sections (quality_log, raw, summary, context).
+  Key derivation: PBKDF2-HMAC-SHA256 (600,000 iterations) → master key → HKDF-Expand →
+  per-section keys. Plaintext header authenticated via HMAC-SHA256. Atomic writes via
+  `mirror.gla.tmp` → `fsync()` → `os.replace()`. API: `lock()`, `unlock_meta()`,
+  `fulfill_order()`, `is_container()`, `list_files()`.
+
+**Changed modules:**
+- `garmin/garmin_mirror.py` — delegates to `garmin_container.lock()` instead of
+  `shutil.copy2()`. `password` parameter added. `_collect_files()`, `_remove_empty_dirs()`,
+  `_run_spot_check()`, `_write_mirror_meta()` removed — superseded by container logic.
+  `is_reachable()` now checks parent directory existence (container file may not exist yet
+  on first mirror). `is_import_ready()` uses `garmin_container.is_container()`.
+- `garmin/garmin_import_mirror.py` — reads via `garmin_container.unlock_meta()` and
+  `fulfill_order()`. `list_files()` used for context delta analysis (header-only, no
+  decryption). Summary fast-path: if `schema_version` matches, summary taken from container;
+  otherwise `summarize()` regenerated on target. Plain folder fallback retained for
+  v1.5.6 compatibility (`detect_source()` dispatches). `password` parameter added.
+  Dead import (`garmin_config`) removed.
+- `app/panel_archive.py` — `MirrorPasswordDialog` added (password entry + optional WCM
+  save checkbox). `_on_mirror()`: WCM lookup first, dialog if not stored, password forwarded
+  to `run_mirror()`. `_on_import_mirror()`: always manual password dialog (no WCM),
+  password forwarded to `run_import_mirror()`. Spot-check output removed from log.
+  Module-level WCM helpers: `_archive_load_mirror_password()`, `_archive_save_mirror_password()`.
+- `compiler/build_manifest.py` — `garmin_container.py` added to `SHARED_SCRIPTS` and
+  `SCRIPT_SIGNATURES_BASE`.
+- `tests/test_local.py` — Section C rewritten for container model. `_collect_files`,
+  `_remove_empty_dirs`, `copied/skipped/deleted` tests replaced by container round-trip
+  tests: `is_reachable`, `is_import_ready`, `run_mirror` → `mirror.gla`, `is_container`.
+  `sys.modules` stubs for `version` + `garmin_normalizer` added (test path isolation).
+
+**What does not change:**
+- Import protocol from delta analysis onward — identical to v1.5.6
+- Pipeline entry point (`summarize()`), sole owner principle, all existing invariants
+- No new package dependencies (`cryptography` already required)
+- `garmin_writer`, `garmin_quality`, `context_writer` — unmodified
+
+**Compatibility:** Plain mirror folder (v1.5.6 format) remains importable for one release
+cycle via folder fallback in `garmin_import_mirror.py`. Folder support will be removed
+in a future version.
+
+**Post-release fixes (Session 2):**
+- `garmin_app_standalone.py` — Splash Screen vollständig entfernt (war als "removed"
+  dokumentiert aber noch aktiv). `__main__`-Block auf 4 Zeilen reduziert.
+  `QEventLoop`-Blockade entfällt — T3.1 startet direkt ohne Hänger.
+- `garmin_app_base.py` — `_splash_base_path()` + `build_splash_pixmap()` gelöscht.
+  Kein toter Code mehr.
+- `compiler/build_manifest.py` — `ASSET_FILES` (splash_base.png) entfernt.
+  `is_import_ready` aus Mirror-Signaturliste entfernt.
+- `compiler/build_standalone.py` — `ASSET_FILES`-Loop entfernt. cryptography
+  Hidden Imports vervollständigt: `.kdf.pbkdf2`, `.kdf.hkdf`, `.hashes`, `.hmac`,
+  `.ciphers.aead`, `cryptography.hazmat.backends`, `cryptography.exceptions` —
+  behebt `cannot import name 'hmac'` und `No module named kdf` in T3.
+- `compiler/build.py` — `ASSET_FILES`-Loop entfernt.
+- `garmin/garmin_mirror.py` — `is_import_ready()` gelöscht (toter Code).
+- `app/panel_archive.py` — `_startup_mirror_check()`: Import-Button immer aktiv,
+  `is_import_ready`-Pfad-Check entfernt. `_on_import_mirror()`: `QFileDialog.
+  getOpenFileName` statt gespeichertem `mirror_dir` — Gerät 2 kann `.gla` direkt
+  per Datei-Picker laden, ohne Mirror-Pfad konfigurieren zu müssen.
+- `garmin/garmin_import_mirror.py` — Pfad-Bug behoben: Raw-Dateien liegen flach
+  (`garmin_data/raw/garmin_raw_YYYY-MM-DD.json`), Import-Code erwartete fälschlich
+  einen Unterordner pro Tag. Alle vier betroffenen Key-Ausdrücke korrigiert
+  (`raw_rel_paths`, `summary_rel_paths`, `raw_rel`, `sum_rel`). Ohne Fix:
+  0 raw imported, 199 errors. Nach Fix: 197 raw imported, 0 path errors.
+
+**Test result:** 311 / 261 / 303 / 128 / 42 — all green
+
 ---
 
 ## v1.5.6 — Mirror Import

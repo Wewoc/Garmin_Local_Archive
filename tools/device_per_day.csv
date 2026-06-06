@@ -1,0 +1,2726 @@
+date,device_name,device_id,file_size_bytes
+2018-12-19,unknown,unknown,923
+2018-12-20,unknown,unknown,1272
+2018-12-21,unknown,unknown,928
+2018-12-22,unknown,unknown,928
+2018-12-23,unknown,unknown,923
+2018-12-24,unknown,unknown,1273
+2018-12-25,unknown,unknown,926
+2018-12-26,unknown,unknown,1277
+2018-12-27,unknown,unknown,927
+2018-12-28,unknown,unknown,1271
+2018-12-29,unknown,unknown,1283
+2018-12-30,unknown,unknown,928
+2018-12-31,unknown,unknown,927
+2019-01-01,unknown,unknown,926
+2019-01-02,unknown,unknown,927
+2019-01-03,unknown,unknown,1269
+2019-01-04,unknown,unknown,1282
+2019-01-05,unknown,unknown,930
+2019-01-06,unknown,unknown,926
+2019-01-07,unknown,unknown,927
+2019-01-08,unknown,unknown,928
+2019-01-09,unknown,unknown,928
+2019-01-10,unknown,unknown,927
+2019-01-11,unknown,unknown,926
+2019-01-12,unknown,unknown,928
+2019-01-13,unknown,unknown,927
+2019-01-14,unknown,unknown,1277
+2019-01-15,unknown,unknown,1919
+2019-01-16,unknown,unknown,1909
+2019-01-17,unknown,unknown,1603
+2019-01-18,unknown,unknown,1595
+2019-01-19,unknown,unknown,928
+2019-01-20,unknown,unknown,925
+2019-01-21,unknown,unknown,1913
+2019-01-22,unknown,unknown,929
+2019-01-23,unknown,unknown,927
+2019-01-24,unknown,unknown,928
+2019-01-25,unknown,unknown,927
+2019-01-26,unknown,unknown,926
+2019-01-27,unknown,unknown,926
+2019-01-28,unknown,unknown,1566
+2019-01-29,unknown,unknown,1593
+2019-01-30,unknown,unknown,926
+2019-01-31,unknown,unknown,1593
+2019-02-01,unknown,unknown,1913
+2019-02-02,unknown,unknown,928
+2019-02-03,unknown,unknown,922
+2019-02-04,unknown,unknown,1907
+2019-02-05,unknown,unknown,1903
+2019-02-06,unknown,unknown,1911
+2019-02-07,unknown,unknown,1596
+2019-02-08,unknown,unknown,1583
+2019-02-09,unknown,unknown,926
+2019-02-10,unknown,unknown,926
+2019-02-11,unknown,unknown,1583
+2019-02-12,unknown,unknown,1589
+2019-02-13,unknown,unknown,1263
+2019-02-14,unknown,unknown,925
+2019-02-15,unknown,unknown,1604
+2019-02-16,unknown,unknown,929
+2019-02-17,unknown,unknown,928
+2019-02-18,unknown,unknown,929
+2019-02-19,unknown,unknown,928
+2019-02-20,unknown,unknown,928
+2019-02-21,unknown,unknown,924
+2019-02-22,unknown,unknown,925
+2019-02-23,unknown,unknown,925
+2019-02-24,unknown,unknown,927
+2019-02-25,unknown,unknown,1272
+2019-02-26,unknown,unknown,2243
+2019-02-27,unknown,unknown,1606
+2019-02-28,unknown,unknown,1592
+2019-03-01,unknown,unknown,1277
+2019-03-02,unknown,unknown,927
+2019-03-03,unknown,unknown,925
+2019-03-04,unknown,unknown,1600
+2019-03-05,unknown,unknown,1930
+2019-03-06,unknown,unknown,1926
+2019-03-07,unknown,unknown,1924
+2019-03-08,unknown,unknown,1601
+2019-03-09,unknown,unknown,925
+2019-03-10,unknown,unknown,927
+2019-03-11,unknown,unknown,1917
+2019-03-12,unknown,unknown,1911
+2019-03-13,unknown,unknown,1604
+2019-03-14,unknown,unknown,1588
+2019-03-15,unknown,unknown,1587
+2019-03-16,unknown,unknown,929
+2019-03-17,unknown,unknown,1282
+2019-03-18,unknown,unknown,1914
+2019-03-19,unknown,unknown,1926
+2019-03-20,unknown,unknown,1917
+2019-03-21,unknown,unknown,1917
+2019-03-22,unknown,unknown,1583
+2019-03-23,unknown,unknown,928
+2019-03-24,unknown,unknown,1276
+2019-03-25,unknown,unknown,1920
+2019-03-26,unknown,unknown,1277
+2019-03-27,unknown,unknown,1596
+2019-03-28,unknown,unknown,1597
+2019-03-29,unknown,unknown,1601
+2019-03-30,unknown,unknown,928
+2019-03-31,unknown,unknown,924
+2019-04-01,unknown,unknown,1922
+2019-04-02,unknown,unknown,1911
+2019-04-03,unknown,unknown,1930
+2019-04-04,unknown,unknown,1916
+2019-04-05,unknown,unknown,1590
+2019-04-06,unknown,unknown,1277
+2019-04-07,unknown,unknown,1276
+2019-04-08,unknown,unknown,1928
+2019-04-09,unknown,unknown,1605
+2019-04-10,unknown,unknown,1278
+2019-04-11,unknown,unknown,1599
+2019-04-12,unknown,unknown,928
+2019-04-13,unknown,unknown,927
+2019-04-14,unknown,unknown,926
+2019-04-15,unknown,unknown,1591
+2019-04-16,unknown,unknown,1949
+2019-04-17,unknown,unknown,930
+2019-04-18,unknown,unknown,1248
+2019-04-19,unknown,unknown,927
+2019-04-20,unknown,unknown,927
+2019-04-21,unknown,unknown,1274
+2019-04-22,unknown,unknown,927
+2019-04-23,unknown,unknown,926
+2019-04-24,unknown,unknown,925
+2019-04-25,unknown,unknown,1612
+2019-04-26,unknown,unknown,926
+2019-04-27,unknown,unknown,925
+2019-04-28,unknown,unknown,926
+2019-04-29,unknown,unknown,1281
+2019-04-30,unknown,unknown,2269
+2019-05-01,unknown,unknown,926
+2019-05-02,unknown,unknown,1613
+2019-05-03,unknown,unknown,1606
+2019-05-04,unknown,unknown,925
+2019-05-05,unknown,unknown,923
+2019-05-06,unknown,unknown,1279
+2019-05-07,unknown,unknown,1922
+2019-05-08,unknown,unknown,927
+2019-05-09,unknown,unknown,1261
+2019-05-10,unknown,unknown,927
+2019-05-11,unknown,unknown,926
+2019-05-12,unknown,unknown,921
+2019-05-13,unknown,unknown,1927
+2019-05-14,unknown,unknown,1274
+2019-05-15,unknown,unknown,1940
+2019-05-16,unknown,unknown,1271
+2019-05-17,unknown,unknown,1936
+2019-05-18,unknown,unknown,927
+2019-05-19,unknown,unknown,925
+2019-05-20,unknown,unknown,928
+2019-05-21,unknown,unknown,926
+2019-05-22,unknown,unknown,1267
+2019-05-23,unknown,unknown,1271
+2019-05-24,unknown,unknown,927
+2019-05-25,unknown,unknown,930
+2019-05-26,unknown,unknown,926
+2019-05-27,unknown,unknown,1278
+2019-05-28,unknown,unknown,1270
+2019-05-29,unknown,unknown,927
+2019-05-30,unknown,unknown,925
+2019-05-31,unknown,unknown,926
+2019-06-01,unknown,unknown,1607
+2019-06-02,unknown,unknown,927
+2019-06-03,unknown,unknown,1282
+2019-06-04,unknown,unknown,2264
+2019-06-05,unknown,unknown,2592
+2019-06-06,unknown,unknown,1275
+2019-06-07,unknown,unknown,2263
+2019-06-08,unknown,unknown,926
+2019-06-09,unknown,unknown,926
+2019-06-10,unknown,unknown,1605
+2019-06-11,unknown,unknown,1269
+2019-06-12,unknown,unknown,1611
+2019-06-13,unknown,unknown,2593
+2019-06-14,unknown,unknown,2231
+2019-06-15,unknown,unknown,929
+2019-06-16,unknown,unknown,926
+2019-06-17,unknown,unknown,1279
+2019-06-18,unknown,unknown,1279
+2019-06-19,unknown,unknown,1272
+2019-06-20,unknown,unknown,930
+2019-06-21,unknown,unknown,928
+2019-06-22,unknown,unknown,1285
+2019-06-23,unknown,unknown,926
+2019-06-24,unknown,unknown,1279
+2019-06-25,unknown,unknown,928
+2019-06-26,unknown,unknown,928
+2019-06-27,unknown,unknown,1616
+2019-06-28,unknown,unknown,1908
+2019-06-29,unknown,unknown,928
+2019-06-30,unknown,unknown,925
+2019-07-01,unknown,unknown,1269
+2019-07-02,unknown,unknown,1941
+2019-07-03,unknown,unknown,1278
+2019-07-04,unknown,unknown,1623
+2019-07-05,unknown,unknown,927
+2019-07-06,unknown,unknown,924
+2019-07-07,unknown,unknown,1279
+2019-07-08,unknown,unknown,1621
+2019-07-09,unknown,unknown,1277
+2019-07-10,unknown,unknown,1285
+2019-07-11,unknown,unknown,1279
+2019-07-12,unknown,unknown,928
+2019-07-13,unknown,unknown,1282
+2019-07-14,unknown,unknown,1283
+2019-07-15,unknown,unknown,1618
+2019-07-16,unknown,unknown,928
+2019-07-17,unknown,unknown,1289
+2019-07-18,unknown,unknown,926
+2019-07-19,unknown,unknown,1623
+2019-07-20,unknown,unknown,926
+2019-07-21,unknown,unknown,926
+2019-07-22,unknown,unknown,1923
+2019-07-23,unknown,unknown,923
+2019-07-24,unknown,unknown,1605
+2019-07-25,unknown,unknown,927
+2019-07-26,unknown,unknown,928
+2019-07-27,unknown,unknown,1287
+2019-07-28,unknown,unknown,925
+2019-07-29,unknown,unknown,929
+2019-07-30,unknown,unknown,1933
+2019-07-31,unknown,unknown,1267
+2019-08-01,unknown,unknown,1939
+2019-08-02,unknown,unknown,1270
+2019-08-03,unknown,unknown,925
+2019-08-04,unknown,unknown,926
+2019-08-05,unknown,unknown,1258
+2019-08-06,unknown,unknown,1614
+2019-08-07,unknown,unknown,927
+2019-08-08,unknown,unknown,925
+2019-08-09,unknown,unknown,928
+2019-08-10,unknown,unknown,925
+2019-08-11,unknown,unknown,927
+2019-08-12,unknown,unknown,927
+2019-08-13,unknown,unknown,926
+2019-08-14,unknown,unknown,926
+2019-08-15,unknown,unknown,924
+2019-08-16,unknown,unknown,929
+2019-08-17,unknown,unknown,929
+2019-08-18,unknown,unknown,925
+2019-08-19,unknown,unknown,926
+2019-08-20,unknown,unknown,928
+2019-08-21,unknown,unknown,928
+2019-08-22,unknown,unknown,926
+2019-08-23,unknown,unknown,926
+2019-08-24,unknown,unknown,927
+2019-08-25,unknown,unknown,929
+2019-08-26,unknown,unknown,927
+2019-08-27,unknown,unknown,927
+2019-08-28,unknown,unknown,928
+2019-08-29,unknown,unknown,929
+2019-08-30,unknown,unknown,928
+2019-08-31,unknown,unknown,928
+2019-09-01,unknown,unknown,927
+2019-09-02,unknown,unknown,1280
+2019-09-03,unknown,unknown,1282
+2019-09-04,unknown,unknown,928
+2019-09-05,unknown,unknown,1267
+2019-09-06,unknown,unknown,928
+2019-09-07,unknown,unknown,928
+2019-09-08,unknown,unknown,927
+2019-09-09,unknown,unknown,1282
+2019-09-10,unknown,unknown,927
+2019-09-11,unknown,unknown,1615
+2019-09-12,unknown,unknown,1282
+2019-09-13,unknown,unknown,1270
+2019-09-14,unknown,unknown,927
+2019-09-15,unknown,unknown,927
+2019-09-16,unknown,unknown,928
+2019-09-17,unknown,unknown,1603
+2019-09-18,unknown,unknown,1268
+2019-09-19,unknown,unknown,1933
+2019-09-20,unknown,unknown,1622
+2019-09-21,unknown,unknown,927
+2019-09-22,unknown,unknown,927
+2019-09-23,unknown,unknown,1277
+2019-09-24,unknown,unknown,1923
+2019-09-25,unknown,unknown,1270
+2019-09-26,unknown,unknown,1278
+2019-09-27,unknown,unknown,927
+2019-09-28,unknown,unknown,927
+2019-09-29,unknown,unknown,926
+2019-09-30,unknown,unknown,1269
+2019-10-01,unknown,unknown,1281
+2019-10-02,unknown,unknown,926
+2019-10-03,unknown,unknown,928
+2019-10-04,unknown,unknown,927
+2019-10-05,unknown,unknown,927
+2019-10-06,unknown,unknown,926
+2019-10-07,unknown,unknown,1954
+2019-10-08,unknown,unknown,929
+2019-10-09,unknown,unknown,928
+2019-10-10,unknown,unknown,1271
+2019-10-11,unknown,unknown,927
+2019-10-12,unknown,unknown,926
+2019-10-13,unknown,unknown,1600
+2019-10-14,unknown,unknown,925
+2019-10-15,unknown,unknown,1277
+2019-10-16,unknown,unknown,1270
+2019-10-17,unknown,unknown,1281
+2019-10-18,unknown,unknown,927
+2019-10-19,unknown,unknown,928
+2019-10-20,unknown,unknown,927
+2019-10-21,unknown,unknown,1277
+2019-10-22,unknown,unknown,1934
+2019-10-23,unknown,unknown,1274
+2019-10-24,unknown,unknown,927
+2019-10-25,unknown,unknown,1279
+2019-10-26,unknown,unknown,928
+2019-10-27,unknown,unknown,927
+2019-10-28,unknown,unknown,1271
+2019-10-29,unknown,unknown,1948
+2019-10-30,unknown,unknown,1274
+2019-10-31,unknown,unknown,1607
+2019-11-01,unknown,unknown,1274
+2019-11-02,unknown,unknown,927
+2019-11-03,unknown,unknown,928
+2019-11-04,unknown,unknown,927
+2019-11-05,unknown,unknown,930
+2019-11-06,unknown,unknown,1279
+2019-11-07,unknown,unknown,1271
+2019-11-08,unknown,unknown,928
+2019-11-09,unknown,unknown,928
+2019-11-10,unknown,unknown,927
+2019-11-11,unknown,unknown,929
+2019-11-12,unknown,unknown,930
+2019-11-13,unknown,unknown,929
+2019-11-14,unknown,unknown,928
+2019-11-15,unknown,unknown,926
+2019-11-16,unknown,unknown,928
+2019-11-17,unknown,unknown,927
+2019-11-18,unknown,unknown,927
+2019-11-19,unknown,unknown,927
+2019-11-20,unknown,unknown,927
+2019-11-21,unknown,unknown,928
+2019-11-22,unknown,unknown,927
+2019-11-23,unknown,unknown,925
+2019-11-24,unknown,unknown,928
+2019-11-25,unknown,unknown,1272
+2019-11-26,unknown,unknown,1592
+2019-11-27,unknown,unknown,929
+2019-11-28,unknown,unknown,927
+2019-11-29,unknown,unknown,929
+2019-11-30,unknown,unknown,928
+2019-12-01,unknown,unknown,924
+2019-12-02,unknown,unknown,1270
+2019-12-03,unknown,unknown,1274
+2019-12-04,unknown,unknown,1608
+2019-12-05,unknown,unknown,1279
+2019-12-06,unknown,unknown,929
+2019-12-07,unknown,unknown,927
+2019-12-08,unknown,unknown,925
+2019-12-09,unknown,unknown,1280
+2019-12-10,unknown,unknown,1618
+2019-12-11,unknown,unknown,1913
+2019-12-12,unknown,unknown,926
+2019-12-13,unknown,unknown,926
+2019-12-14,unknown,unknown,927
+2019-12-15,unknown,unknown,926
+2019-12-16,unknown,unknown,928
+2019-12-17,unknown,unknown,1261
+2019-12-18,unknown,unknown,1281
+2019-12-19,unknown,unknown,1280
+2019-12-20,unknown,unknown,928
+2019-12-21,unknown,unknown,928
+2019-12-22,unknown,unknown,924
+2019-12-23,unknown,unknown,929
+2019-12-24,unknown,unknown,928
+2019-12-25,unknown,unknown,927
+2019-12-26,unknown,unknown,925
+2019-12-27,unknown,unknown,924
+2019-12-28,unknown,unknown,927
+2019-12-29,unknown,unknown,928
+2019-12-30,unknown,unknown,929
+2019-12-31,unknown,unknown,927
+2020-01-01,unknown,unknown,929
+2020-01-02,unknown,unknown,1608
+2020-01-03,unknown,unknown,925
+2020-01-04,unknown,unknown,925
+2020-01-05,unknown,unknown,926
+2020-01-06,unknown,unknown,927
+2020-01-07,unknown,unknown,929
+2020-01-08,unknown,unknown,928
+2020-01-09,unknown,unknown,929
+2020-01-10,unknown,unknown,927
+2020-01-11,unknown,unknown,926
+2020-01-12,unknown,unknown,928
+2020-01-13,unknown,unknown,928
+2020-01-14,unknown,unknown,1272
+2020-01-15,unknown,unknown,1263
+2020-01-16,unknown,unknown,1267
+2020-01-17,unknown,unknown,1281
+2020-01-18,unknown,unknown,927
+2020-01-19,unknown,unknown,927
+2020-01-20,unknown,unknown,927
+2020-01-21,unknown,unknown,1275
+2020-01-22,unknown,unknown,930
+2020-01-23,unknown,unknown,928
+2020-01-24,unknown,unknown,1271
+2020-01-25,unknown,unknown,927
+2020-01-26,unknown,unknown,924
+2020-01-27,unknown,unknown,928
+2020-01-28,unknown,unknown,928
+2020-01-29,unknown,unknown,927
+2020-01-30,unknown,unknown,926
+2020-01-31,unknown,unknown,930
+2020-02-01,unknown,unknown,929
+2020-02-02,unknown,unknown,926
+2020-02-03,unknown,unknown,925
+2020-02-04,unknown,unknown,925
+2020-02-05,unknown,unknown,926
+2020-02-06,unknown,unknown,927
+2020-02-07,unknown,unknown,927
+2020-02-08,unknown,unknown,929
+2020-02-09,unknown,unknown,928
+2020-02-10,unknown,unknown,1273
+2020-02-11,unknown,unknown,1273
+2020-02-12,unknown,unknown,1273
+2020-02-13,unknown,unknown,928
+2020-02-14,unknown,unknown,929
+2020-02-15,unknown,unknown,925
+2020-02-16,unknown,unknown,928
+2020-02-17,unknown,unknown,1269
+2020-02-18,unknown,unknown,927
+2020-02-19,unknown,unknown,1271
+2020-02-20,unknown,unknown,1270
+2020-02-21,unknown,unknown,1270
+2020-02-22,unknown,unknown,927
+2020-02-23,unknown,unknown,926
+2020-02-24,unknown,unknown,927
+2020-02-25,unknown,unknown,1274
+2020-02-26,unknown,unknown,927
+2020-02-27,unknown,unknown,931
+2020-02-28,unknown,unknown,931
+2020-02-29,unknown,unknown,927
+2020-03-01,unknown,unknown,925
+2020-03-02,unknown,unknown,1274
+2020-03-03,unknown,unknown,1272
+2020-03-04,unknown,unknown,1272
+2020-03-05,unknown,unknown,1272
+2020-03-06,unknown,unknown,928
+2020-03-07,unknown,unknown,929
+2020-03-08,unknown,unknown,926
+2020-03-09,unknown,unknown,929
+2020-03-10,unknown,unknown,1271
+2020-03-11,unknown,unknown,1270
+2020-03-12,unknown,unknown,1271
+2020-03-13,unknown,unknown,929
+2020-03-14,unknown,unknown,927
+2020-03-15,unknown,unknown,926
+2020-03-16,unknown,unknown,1619
+2020-03-17,unknown,unknown,926
+2020-03-18,unknown,unknown,1271
+2020-03-19,unknown,unknown,1279
+2020-03-20,unknown,unknown,925
+2020-03-21,unknown,unknown,926
+2020-03-22,unknown,unknown,1282
+2020-03-23,unknown,unknown,926
+2020-03-24,unknown,unknown,1600
+2020-03-25,unknown,unknown,1285
+2020-03-26,unknown,unknown,925
+2020-03-27,unknown,unknown,1275
+2020-03-28,unknown,unknown,1288
+2020-03-29,unknown,unknown,925
+2020-03-30,unknown,unknown,922
+2020-03-31,unknown,unknown,1284
+2020-04-01,unknown,unknown,1278
+2020-04-02,unknown,unknown,924
+2020-04-03,unknown,unknown,927
+2020-04-04,unknown,unknown,928
+2020-04-05,unknown,unknown,1283
+2020-04-06,unknown,unknown,925
+2020-04-07,unknown,unknown,1286
+2020-04-08,unknown,unknown,1278
+2020-04-09,unknown,unknown,926
+2020-04-10,unknown,unknown,1276
+2020-04-11,unknown,unknown,1284
+2020-04-12,unknown,unknown,925
+2020-04-13,unknown,unknown,925
+2020-04-14,unknown,unknown,1285
+2020-04-15,unknown,unknown,926
+2020-04-16,unknown,unknown,926
+2020-04-17,unknown,unknown,928
+2020-04-18,unknown,unknown,928
+2020-04-19,unknown,unknown,1277
+2020-04-20,unknown,unknown,922
+2020-04-21,unknown,unknown,927
+2020-04-22,unknown,unknown,1284
+2020-04-23,unknown,unknown,924
+2020-04-24,unknown,unknown,926
+2020-04-25,unknown,unknown,1285
+2020-04-26,unknown,unknown,1611
+2020-04-27,unknown,unknown,928
+2020-04-28,unknown,unknown,925
+2020-04-29,unknown,unknown,1277
+2020-04-30,unknown,unknown,929
+2020-05-01,unknown,unknown,926
+2020-05-02,unknown,unknown,925
+2020-05-03,unknown,unknown,1586
+2020-05-04,unknown,unknown,926
+2020-05-05,unknown,unknown,1277
+2020-05-06,unknown,unknown,924
+2020-05-07,unknown,unknown,1286
+2020-05-08,unknown,unknown,927
+2020-05-09,unknown,unknown,926
+2020-05-10,unknown,unknown,1278
+2020-05-11,unknown,unknown,1590
+2020-05-12,unknown,unknown,1286
+2020-05-13,unknown,unknown,927
+2020-05-14,unknown,unknown,1276
+2020-05-15,unknown,unknown,928
+2020-05-16,unknown,unknown,927
+2020-05-17,unknown,unknown,1275
+2020-05-18,unknown,unknown,925
+2020-05-19,unknown,unknown,1601
+2020-05-20,unknown,unknown,927
+2020-05-21,unknown,unknown,1286
+2020-05-22,unknown,unknown,1600
+2020-05-23,unknown,unknown,927
+2020-05-24,unknown,unknown,924
+2020-05-25,unknown,unknown,928
+2020-05-26,unknown,unknown,929
+2020-05-27,unknown,unknown,926
+2020-05-28,unknown,unknown,1291
+2020-05-29,unknown,unknown,924
+2020-05-30,unknown,unknown,926
+2020-05-31,unknown,unknown,925
+2020-06-01,unknown,unknown,927
+2020-06-02,unknown,unknown,1275
+2020-06-03,unknown,unknown,927
+2020-06-04,unknown,unknown,927
+2020-06-05,unknown,unknown,928
+2020-06-06,unknown,unknown,1275
+2020-06-07,unknown,unknown,927
+2020-06-08,unknown,unknown,1282
+2020-06-09,unknown,unknown,923
+2020-06-10,unknown,unknown,927
+2020-06-11,unknown,unknown,926
+2020-06-12,unknown,unknown,1284
+2020-06-13,unknown,unknown,928
+2020-06-14,unknown,unknown,1287
+2020-06-15,unknown,unknown,925
+2020-06-16,unknown,unknown,1274
+2020-06-17,unknown,unknown,927
+2020-06-18,unknown,unknown,912
+2020-06-19,unknown,unknown,12897
+2020-06-20,unknown,unknown,12081
+2020-06-21,unknown,unknown,12663
+2020-06-22,unknown,unknown,12081
+2020-06-23,unknown,unknown,924
+2020-06-24,unknown,unknown,1601
+2020-06-25,unknown,unknown,1273
+2020-06-26,unknown,unknown,926
+2020-06-27,unknown,unknown,1276
+2020-06-28,unknown,unknown,1288
+2020-06-29,unknown,unknown,924
+2020-06-30,unknown,unknown,1284
+2020-07-01,unknown,unknown,1272
+2020-07-02,unknown,unknown,926
+2020-07-03,unknown,unknown,924
+2020-07-04,unknown,unknown,928
+2020-07-05,unknown,unknown,1272
+2020-07-06,unknown,unknown,926
+2020-07-07,unknown,unknown,1277
+2020-07-08,unknown,unknown,927
+2020-07-09,unknown,unknown,925
+2020-07-10,unknown,unknown,923
+2020-07-11,unknown,unknown,1289
+2020-07-12,unknown,unknown,1281
+2020-07-13,unknown,unknown,1276
+2020-07-14,unknown,unknown,924
+2020-07-15,unknown,unknown,1285
+2020-07-16,unknown,unknown,923
+2020-07-17,unknown,unknown,926
+2020-07-18,unknown,unknown,928
+2020-07-19,unknown,unknown,1276
+2020-07-20,unknown,unknown,1617
+2020-07-21,unknown,unknown,926
+2020-07-22,unknown,unknown,926
+2020-07-23,unknown,unknown,1286
+2020-07-24,unknown,unknown,926
+2020-07-25,unknown,unknown,928
+2020-07-26,unknown,unknown,1280
+2020-07-27,unknown,unknown,1277
+2020-07-28,unknown,unknown,925
+2020-07-29,unknown,unknown,926
+2020-07-30,unknown,unknown,1285
+2020-07-31,unknown,unknown,926
+2020-08-01,unknown,unknown,926
+2020-08-02,unknown,unknown,924
+2020-08-03,unknown,unknown,924
+2020-08-04,unknown,unknown,927
+2020-08-05,unknown,unknown,927
+2020-08-06,unknown,unknown,1277
+2020-08-07,unknown,unknown,930
+2020-08-08,unknown,unknown,928
+2020-08-09,unknown,unknown,1590
+2020-08-10,unknown,unknown,926
+2020-08-11,unknown,unknown,1274
+2020-08-12,unknown,unknown,926
+2020-08-13,unknown,unknown,929
+2020-08-14,unknown,unknown,924
+2020-08-15,unknown,unknown,1300
+2020-08-16,unknown,unknown,925
+2020-08-17,unknown,unknown,926
+2020-08-18,unknown,unknown,1276
+2020-08-19,unknown,unknown,927
+2020-08-20,unknown,unknown,1284
+2020-08-21,unknown,unknown,925
+2020-08-22,unknown,unknown,927
+2020-08-23,unknown,unknown,1279
+2020-08-24,unknown,unknown,921
+2020-08-25,unknown,unknown,927
+2020-08-26,unknown,unknown,923
+2020-08-27,unknown,unknown,1276
+2020-08-28,unknown,unknown,1271
+2020-08-29,unknown,unknown,929
+2020-08-30,unknown,unknown,1269
+2020-08-31,unknown,unknown,924
+2020-09-01,unknown,unknown,927
+2020-09-02,unknown,unknown,928
+2020-09-03,unknown,unknown,925
+2020-09-04,unknown,unknown,1285
+2020-09-05,unknown,unknown,928
+2020-09-06,unknown,unknown,929
+2020-09-07,unknown,unknown,927
+2020-09-08,unknown,unknown,926
+2020-09-09,unknown,unknown,927
+2020-09-10,unknown,unknown,924
+2020-09-11,unknown,unknown,929
+2020-09-12,unknown,unknown,926
+2020-09-13,unknown,unknown,1285
+2020-09-14,unknown,unknown,1285
+2020-09-15,unknown,unknown,926
+2020-09-16,unknown,unknown,927
+2020-09-17,unknown,unknown,928
+2020-09-18,unknown,unknown,927
+2020-09-19,unknown,unknown,12081
+2020-09-20,unknown,unknown,12081
+2020-09-21,unknown,unknown,921
+2020-09-22,unknown,unknown,927
+2020-09-23,unknown,unknown,928
+2020-09-24,unknown,unknown,926
+2020-09-25,unknown,unknown,926
+2020-09-26,unknown,unknown,929
+2020-09-27,unknown,unknown,927
+2020-09-28,unknown,unknown,927
+2020-09-29,unknown,unknown,927
+2020-09-30,unknown,unknown,929
+2020-10-01,unknown,unknown,928
+2020-10-02,unknown,unknown,930
+2020-10-03,unknown,unknown,928
+2020-10-04,unknown,unknown,929
+2020-10-05,unknown,unknown,927
+2020-10-06,unknown,unknown,923
+2020-10-07,unknown,unknown,926
+2020-10-08,unknown,unknown,927
+2020-10-09,unknown,unknown,927
+2020-10-10,unknown,unknown,928
+2020-10-11,unknown,unknown,1268
+2020-10-12,unknown,unknown,928
+2020-10-13,unknown,unknown,1283
+2020-10-14,unknown,unknown,927
+2020-10-15,unknown,unknown,927
+2020-10-16,unknown,unknown,925
+2020-10-17,unknown,unknown,927
+2020-10-18,unknown,unknown,927
+2020-10-19,unknown,unknown,927
+2020-10-20,unknown,unknown,926
+2020-10-21,unknown,unknown,925
+2020-10-22,unknown,unknown,929
+2020-10-23,unknown,unknown,927
+2020-10-24,unknown,unknown,928
+2020-10-25,unknown,unknown,929
+2020-10-26,unknown,unknown,926
+2020-10-27,unknown,unknown,927
+2020-10-28,unknown,unknown,927
+2020-10-29,unknown,unknown,927
+2020-10-30,unknown,unknown,928
+2020-10-31,unknown,unknown,925
+2020-11-01,unknown,unknown,925
+2020-11-02,unknown,unknown,928
+2020-11-03,unknown,unknown,927
+2020-11-04,unknown,unknown,926
+2020-11-05,unknown,unknown,925
+2020-11-06,unknown,unknown,927
+2020-11-07,unknown,unknown,924
+2020-11-08,unknown,unknown,928
+2020-11-09,unknown,unknown,927
+2020-11-10,unknown,unknown,927
+2020-11-11,unknown,unknown,929
+2020-11-12,unknown,unknown,929
+2020-11-13,unknown,unknown,929
+2020-11-14,unknown,unknown,930
+2020-11-15,unknown,unknown,928
+2020-11-16,unknown,unknown,925
+2020-11-17,unknown,unknown,927
+2020-11-18,unknown,unknown,925
+2020-11-19,unknown,unknown,927
+2020-11-20,unknown,unknown,925
+2020-11-21,unknown,unknown,928
+2020-11-22,unknown,unknown,925
+2020-11-23,unknown,unknown,928
+2020-11-24,unknown,unknown,928
+2020-11-25,unknown,unknown,929
+2020-11-26,unknown,unknown,929
+2020-11-27,unknown,unknown,926
+2020-11-28,unknown,unknown,928
+2020-11-29,unknown,unknown,926
+2020-11-30,unknown,unknown,928
+2020-12-01,unknown,unknown,928
+2020-12-02,unknown,unknown,927
+2020-12-03,unknown,unknown,928
+2020-12-04,unknown,unknown,927
+2020-12-05,unknown,unknown,928
+2020-12-06,unknown,unknown,928
+2020-12-07,unknown,unknown,928
+2020-12-08,unknown,unknown,924
+2020-12-09,unknown,unknown,926
+2020-12-10,unknown,unknown,927
+2020-12-11,unknown,unknown,928
+2020-12-12,unknown,unknown,930
+2020-12-13,unknown,unknown,928
+2020-12-14,unknown,unknown,926
+2020-12-15,unknown,unknown,930
+2020-12-16,unknown,unknown,927
+2020-12-17,unknown,unknown,926
+2020-12-18,unknown,unknown,927
+2020-12-19,unknown,unknown,928
+2020-12-20,unknown,unknown,928
+2020-12-21,unknown,unknown,1288
+2020-12-22,unknown,unknown,927
+2020-12-23,unknown,unknown,930
+2020-12-24,unknown,unknown,929
+2020-12-25,unknown,unknown,926
+2020-12-26,unknown,unknown,1278
+2020-12-27,unknown,unknown,921
+2020-12-28,unknown,unknown,926
+2020-12-29,unknown,unknown,927
+2020-12-30,unknown,unknown,929
+2020-12-31,unknown,unknown,929
+2021-01-01,unknown,unknown,1286
+2021-01-02,unknown,unknown,787
+2021-01-03,unknown,unknown,12081
+2021-01-04,unknown,unknown,12081
+2021-01-05,unknown,unknown,12081
+2021-01-06,unknown,unknown,12081
+2021-01-07,unknown,unknown,12081
+2021-01-08,unknown,unknown,12081
+2021-01-09,unknown,unknown,12081
+2021-01-10,unknown,unknown,12081
+2021-01-11,unknown,unknown,12081
+2021-01-12,unknown,unknown,12081
+2021-01-13,unknown,unknown,12081
+2021-01-14,unknown,unknown,921
+2021-01-15,unknown,unknown,923
+2021-01-16,unknown,unknown,1281
+2021-01-17,unknown,unknown,1290
+2021-01-18,unknown,unknown,925
+2021-01-19,unknown,unknown,926
+2021-01-20,unknown,unknown,927
+2021-01-21,unknown,unknown,927
+2021-01-22,unknown,unknown,1293
+2021-01-23,unknown,unknown,928
+2021-01-24,unknown,unknown,1281
+2021-01-25,unknown,unknown,1280
+2021-01-26,unknown,unknown,1292
+2021-01-27,unknown,unknown,925
+2021-01-28,unknown,unknown,1288
+2021-01-29,unknown,unknown,1282
+2021-01-30,unknown,unknown,928
+2021-01-31,unknown,unknown,928
+2021-02-01,unknown,unknown,1278
+2021-02-02,unknown,unknown,1280
+2021-02-03,unknown,unknown,923
+2021-02-04,unknown,unknown,1282
+2021-02-05,unknown,unknown,928
+2021-02-06,unknown,unknown,1280
+2021-02-07,unknown,unknown,1277
+2021-02-08,unknown,unknown,924
+2021-02-09,unknown,unknown,927
+2021-02-10,unknown,unknown,1288
+2021-02-11,unknown,unknown,928
+2021-02-12,unknown,unknown,924
+2021-02-13,unknown,unknown,1288
+2021-02-14,unknown,unknown,929
+2021-02-15,unknown,unknown,927
+2021-02-16,unknown,unknown,1278
+2021-02-17,unknown,unknown,1277
+2021-02-18,unknown,unknown,923
+2021-02-19,unknown,unknown,930
+2021-02-20,unknown,unknown,927
+2021-02-21,unknown,unknown,1283
+2021-02-22,unknown,unknown,924
+2021-02-23,unknown,unknown,1281
+2021-02-24,unknown,unknown,926
+2021-02-25,unknown,unknown,1281
+2021-02-26,unknown,unknown,922
+2021-02-27,unknown,unknown,927
+2021-02-28,unknown,unknown,1285
+2021-03-01,unknown,unknown,925
+2021-03-02,unknown,unknown,925
+2021-03-03,unknown,unknown,1277
+2021-03-04,unknown,unknown,923
+2021-03-05,unknown,unknown,927
+2021-03-06,unknown,unknown,925
+2021-03-07,unknown,unknown,926
+2021-03-08,unknown,unknown,925
+2021-03-09,unknown,unknown,928
+2021-03-10,unknown,unknown,927
+2021-03-11,unknown,unknown,924
+2021-03-12,unknown,unknown,926
+2021-03-13,unknown,unknown,926
+2021-03-14,unknown,unknown,924
+2021-03-15,unknown,unknown,927
+2021-03-16,unknown,unknown,927
+2021-03-17,unknown,unknown,929
+2021-03-18,unknown,unknown,928
+2021-03-19,unknown,unknown,929
+2021-03-20,unknown,unknown,929
+2021-03-21,unknown,unknown,927
+2021-03-22,unknown,unknown,925
+2021-03-23,unknown,unknown,928
+2021-03-24,unknown,unknown,923
+2021-03-25,unknown,unknown,929
+2021-03-26,unknown,unknown,927
+2021-03-27,unknown,unknown,926
+2021-03-28,unknown,unknown,1286
+2021-03-29,unknown,unknown,925
+2021-03-30,unknown,unknown,921
+2021-03-31,unknown,unknown,927
+2021-04-01,unknown,unknown,926
+2021-04-02,unknown,unknown,925
+2021-04-03,unknown,unknown,930
+2021-04-04,unknown,unknown,925
+2021-04-05,unknown,unknown,925
+2021-04-06,unknown,unknown,926
+2021-04-07,unknown,unknown,925
+2021-04-08,unknown,unknown,928
+2021-04-09,unknown,unknown,927
+2021-04-10,unknown,unknown,928
+2021-04-11,unknown,unknown,928
+2021-04-12,unknown,unknown,927
+2021-04-13,unknown,unknown,926
+2021-04-14,unknown,unknown,925
+2021-04-15,unknown,unknown,926
+2021-04-16,unknown,unknown,926
+2021-04-17,unknown,unknown,929
+2021-04-18,unknown,unknown,928
+2021-04-19,unknown,unknown,927
+2021-04-20,unknown,unknown,927
+2021-04-21,unknown,unknown,927
+2021-04-22,unknown,unknown,926
+2021-04-23,unknown,unknown,925
+2021-04-24,unknown,unknown,929
+2021-04-25,unknown,unknown,1279
+2021-04-26,unknown,unknown,925
+2021-04-27,unknown,unknown,923
+2021-04-28,unknown,unknown,926
+2021-04-29,unknown,unknown,926
+2021-04-30,unknown,unknown,926
+2021-05-01,unknown,unknown,928
+2021-05-02,unknown,unknown,929
+2021-05-03,unknown,unknown,924
+2021-05-04,unknown,unknown,927
+2021-05-05,unknown,unknown,928
+2021-05-06,unknown,unknown,926
+2021-05-07,unknown,unknown,927
+2021-05-08,unknown,unknown,929
+2021-05-09,unknown,unknown,931
+2021-05-10,unknown,unknown,924
+2021-05-11,unknown,unknown,927
+2021-05-12,unknown,unknown,929
+2021-05-13,unknown,unknown,1287
+2021-05-14,unknown,unknown,927
+2021-05-15,unknown,unknown,929
+2021-05-16,unknown,unknown,926
+2021-05-17,unknown,unknown,928
+2021-05-18,unknown,unknown,926
+2021-05-19,unknown,unknown,925
+2021-05-20,unknown,unknown,928
+2021-05-21,unknown,unknown,925
+2021-05-22,unknown,unknown,927
+2021-05-23,unknown,unknown,926
+2021-05-24,unknown,unknown,1279
+2021-05-25,unknown,unknown,929
+2021-05-26,unknown,unknown,926
+2021-05-27,unknown,unknown,929
+2021-05-28,unknown,unknown,930
+2021-05-29,unknown,unknown,1284
+2021-05-30,unknown,unknown,1278
+2021-05-31,unknown,unknown,925
+2021-06-01,unknown,unknown,922
+2021-06-02,unknown,unknown,927
+2021-06-03,unknown,unknown,929
+2021-06-04,unknown,unknown,929
+2021-06-05,unknown,unknown,929
+2021-06-06,unknown,unknown,928
+2021-06-07,unknown,unknown,927
+2021-06-08,unknown,unknown,928
+2021-06-09,unknown,unknown,928
+2021-06-10,unknown,unknown,925
+2021-06-11,unknown,unknown,930
+2021-06-12,unknown,unknown,927
+2021-06-13,unknown,unknown,1285
+2021-06-14,unknown,unknown,925
+2021-06-15,unknown,unknown,925
+2021-06-16,unknown,unknown,925
+2021-06-17,unknown,unknown,927
+2021-06-18,unknown,unknown,928
+2021-06-19,unknown,unknown,929
+2021-06-20,unknown,unknown,929
+2021-06-21,unknown,unknown,927
+2021-06-22,unknown,unknown,925
+2021-06-23,unknown,unknown,928
+2021-06-24,unknown,unknown,929
+2021-06-25,unknown,unknown,928
+2021-06-26,unknown,unknown,929
+2021-06-27,unknown,unknown,927
+2021-06-28,unknown,unknown,930
+2021-06-29,unknown,unknown,929
+2021-06-30,unknown,unknown,929
+2021-07-01,unknown,unknown,930
+2021-07-02,unknown,unknown,927
+2021-07-03,unknown,unknown,928
+2021-07-04,unknown,unknown,927
+2021-07-05,unknown,unknown,928
+2021-07-06,unknown,unknown,926
+2021-07-07,unknown,unknown,924
+2021-07-08,unknown,unknown,927
+2021-07-09,unknown,unknown,929
+2021-07-10,unknown,unknown,927
+2021-07-11,unknown,unknown,928
+2021-07-12,unknown,unknown,929
+2021-07-13,unknown,unknown,926
+2021-07-14,unknown,unknown,927
+2021-07-15,unknown,unknown,929
+2021-07-16,unknown,unknown,928
+2021-07-17,unknown,unknown,929
+2021-07-18,unknown,unknown,926
+2021-07-19,unknown,unknown,926
+2021-07-20,unknown,unknown,927
+2021-07-21,unknown,unknown,928
+2021-07-22,unknown,unknown,925
+2021-07-23,unknown,unknown,925
+2021-07-24,unknown,unknown,928
+2021-07-25,unknown,unknown,929
+2021-07-26,unknown,unknown,926
+2021-07-27,unknown,unknown,929
+2021-07-28,unknown,unknown,929
+2021-07-29,unknown,unknown,927
+2021-07-30,unknown,unknown,927
+2021-07-31,unknown,unknown,929
+2021-08-01,unknown,unknown,924
+2021-08-02,unknown,unknown,927
+2021-08-03,unknown,unknown,928
+2021-08-04,unknown,unknown,928
+2021-08-05,unknown,unknown,925
+2021-08-06,unknown,unknown,927
+2021-08-07,unknown,unknown,930
+2021-08-08,unknown,unknown,928
+2021-08-09,unknown,unknown,928
+2021-08-10,unknown,unknown,927
+2021-08-11,unknown,unknown,926
+2021-08-12,unknown,unknown,930
+2021-08-13,unknown,unknown,929
+2021-08-14,unknown,unknown,929
+2021-08-15,unknown,unknown,929
+2021-08-16,unknown,unknown,925
+2021-08-17,unknown,unknown,927
+2021-08-18,unknown,unknown,925
+2021-08-19,unknown,unknown,928
+2021-08-20,unknown,unknown,930
+2021-08-21,unknown,unknown,927
+2021-08-22,unknown,unknown,925
+2021-08-23,unknown,unknown,925
+2021-08-24,unknown,unknown,928
+2021-08-25,unknown,unknown,928
+2021-08-26,unknown,unknown,927
+2021-08-27,unknown,unknown,927
+2021-08-28,unknown,unknown,928
+2021-08-29,unknown,unknown,927
+2021-08-30,unknown,unknown,926
+2021-08-31,unknown,unknown,927
+2021-09-01,unknown,unknown,928
+2021-09-02,unknown,unknown,927
+2021-09-03,unknown,unknown,924
+2021-09-04,unknown,unknown,926
+2021-09-05,unknown,unknown,928
+2021-09-06,unknown,unknown,927
+2021-09-07,unknown,unknown,924
+2021-09-08,unknown,unknown,925
+2021-09-09,unknown,unknown,926
+2021-09-10,unknown,unknown,927
+2021-09-11,unknown,unknown,928
+2021-09-12,unknown,unknown,929
+2021-09-13,unknown,unknown,926
+2021-09-14,unknown,unknown,925
+2021-09-15,unknown,unknown,929
+2021-09-16,unknown,unknown,929
+2021-09-17,unknown,unknown,924
+2021-09-18,unknown,unknown,928
+2021-09-19,unknown,unknown,929
+2021-09-20,unknown,unknown,926
+2021-09-21,unknown,unknown,929
+2021-09-22,unknown,unknown,926
+2021-09-23,unknown,unknown,924
+2021-09-24,unknown,unknown,927
+2021-09-25,unknown,unknown,927
+2021-09-26,unknown,unknown,928
+2021-09-27,unknown,unknown,927
+2021-09-28,unknown,unknown,928
+2021-09-29,unknown,unknown,928
+2021-09-30,unknown,unknown,928
+2021-10-01,unknown,unknown,930
+2021-10-02,unknown,unknown,927
+2021-10-03,unknown,unknown,928
+2021-10-04,unknown,unknown,927
+2021-10-05,unknown,unknown,929
+2021-10-06,unknown,unknown,928
+2021-10-07,unknown,unknown,928
+2021-10-08,unknown,unknown,930
+2021-10-09,unknown,unknown,929
+2021-10-10,unknown,unknown,929
+2021-10-11,unknown,unknown,926
+2021-10-12,unknown,unknown,928
+2021-10-13,unknown,unknown,925
+2021-10-14,unknown,unknown,921
+2021-10-15,unknown,unknown,927
+2021-10-16,unknown,unknown,927
+2021-10-17,unknown,unknown,929
+2021-10-18,unknown,unknown,929
+2021-10-19,unknown,unknown,927
+2021-10-20,unknown,unknown,927
+2021-10-21,unknown,unknown,927
+2021-10-22,unknown,unknown,928
+2021-10-23,unknown,unknown,927
+2021-10-24,unknown,unknown,930
+2021-10-25,unknown,unknown,928
+2021-10-26,unknown,unknown,930
+2021-10-27,unknown,unknown,924
+2021-10-28,unknown,unknown,925
+2021-10-29,unknown,unknown,927
+2021-10-30,unknown,unknown,928
+2021-10-31,unknown,unknown,927
+2021-11-01,unknown,unknown,925
+2021-11-02,unknown,unknown,927
+2021-11-03,unknown,unknown,927
+2021-11-04,unknown,unknown,925
+2021-11-05,unknown,unknown,929
+2021-11-06,unknown,unknown,928
+2021-11-07,unknown,unknown,927
+2021-11-08,unknown,unknown,928
+2021-11-09,unknown,unknown,929
+2021-11-10,unknown,unknown,930
+2021-11-11,unknown,unknown,928
+2021-11-12,unknown,unknown,928
+2021-11-13,unknown,unknown,926
+2021-11-14,unknown,unknown,929
+2021-11-15,unknown,unknown,925
+2021-11-16,unknown,unknown,927
+2021-11-17,unknown,unknown,925
+2021-11-18,unknown,unknown,926
+2021-11-19,unknown,unknown,929
+2021-11-20,unknown,unknown,928
+2021-11-21,unknown,unknown,929
+2021-11-22,unknown,unknown,929
+2021-11-23,unknown,unknown,930
+2021-11-24,unknown,unknown,930
+2021-11-25,unknown,unknown,929
+2021-11-26,unknown,unknown,925
+2021-11-27,unknown,unknown,929
+2021-11-28,unknown,unknown,930
+2021-11-29,unknown,unknown,928
+2021-11-30,unknown,unknown,925
+2021-12-01,unknown,unknown,930
+2021-12-02,unknown,unknown,929
+2021-12-03,unknown,unknown,930
+2021-12-04,unknown,unknown,930
+2021-12-05,unknown,unknown,927
+2021-12-06,unknown,unknown,929
+2021-12-07,unknown,unknown,929
+2021-12-08,unknown,unknown,926
+2021-12-09,unknown,unknown,926
+2021-12-10,unknown,unknown,927
+2021-12-11,unknown,unknown,927
+2021-12-12,unknown,unknown,928
+2021-12-13,unknown,unknown,927
+2021-12-14,unknown,unknown,927
+2021-12-15,unknown,unknown,925
+2021-12-16,unknown,unknown,927
+2021-12-17,unknown,unknown,925
+2021-12-18,unknown,unknown,926
+2021-12-19,unknown,unknown,928
+2021-12-20,unknown,unknown,930
+2021-12-21,unknown,unknown,928
+2021-12-22,unknown,unknown,929
+2021-12-23,unknown,unknown,928
+2021-12-24,unknown,unknown,928
+2021-12-25,unknown,unknown,931
+2021-12-26,unknown,unknown,926
+2021-12-27,unknown,unknown,925
+2021-12-28,unknown,unknown,927
+2021-12-29,unknown,unknown,927
+2021-12-30,unknown,unknown,925
+2021-12-31,unknown,unknown,925
+2022-01-01,unknown,unknown,927
+2022-01-02,unknown,unknown,929
+2022-01-03,unknown,unknown,927
+2022-01-04,unknown,unknown,926
+2022-01-05,unknown,unknown,929
+2022-01-06,unknown,unknown,927
+2022-01-07,unknown,unknown,930
+2022-01-08,unknown,unknown,929
+2022-01-09,unknown,unknown,929
+2022-01-10,unknown,unknown,927
+2022-01-11,unknown,unknown,925
+2022-01-12,unknown,unknown,925
+2022-01-13,unknown,unknown,928
+2022-01-14,unknown,unknown,928
+2022-01-15,unknown,unknown,925
+2022-01-16,unknown,unknown,928
+2022-01-17,unknown,unknown,924
+2022-01-18,unknown,unknown,926
+2022-01-19,unknown,unknown,925
+2022-01-20,unknown,unknown,925
+2022-01-21,unknown,unknown,929
+2022-01-22,unknown,unknown,928
+2022-01-23,unknown,unknown,929
+2022-01-24,unknown,unknown,927
+2022-01-25,unknown,unknown,925
+2022-01-26,unknown,unknown,928
+2022-01-27,unknown,unknown,925
+2022-01-28,unknown,unknown,926
+2022-01-29,unknown,unknown,928
+2022-01-30,unknown,unknown,928
+2022-01-31,unknown,unknown,926
+2022-02-01,unknown,unknown,926
+2022-02-02,unknown,unknown,929
+2022-02-03,unknown,unknown,925
+2022-02-04,unknown,unknown,928
+2022-02-05,unknown,unknown,929
+2022-02-06,unknown,unknown,928
+2022-02-07,unknown,unknown,927
+2022-02-08,unknown,unknown,927
+2022-02-09,unknown,unknown,927
+2022-02-10,unknown,unknown,928
+2022-02-11,unknown,unknown,929
+2022-02-12,unknown,unknown,930
+2022-02-13,unknown,unknown,927
+2022-02-14,unknown,unknown,930
+2022-02-15,unknown,unknown,925
+2022-02-16,unknown,unknown,927
+2022-02-17,unknown,unknown,925
+2022-02-18,unknown,unknown,928
+2022-02-19,unknown,unknown,927
+2022-02-20,unknown,unknown,927
+2022-02-21,unknown,unknown,925
+2022-02-22,unknown,unknown,927
+2022-02-23,unknown,unknown,926
+2022-02-24,unknown,unknown,925
+2022-02-25,unknown,unknown,925
+2022-02-26,unknown,unknown,929
+2022-02-27,unknown,unknown,929
+2022-02-28,unknown,unknown,926
+2022-03-01,unknown,unknown,927
+2022-03-02,unknown,unknown,927
+2022-03-03,unknown,unknown,928
+2022-03-04,unknown,unknown,929
+2022-03-05,unknown,unknown,929
+2022-03-06,unknown,unknown,929
+2022-03-07,unknown,unknown,926
+2022-03-08,unknown,unknown,926
+2022-03-09,unknown,unknown,928
+2022-03-10,unknown,unknown,925
+2022-03-11,unknown,unknown,929
+2022-03-12,unknown,unknown,929
+2022-03-13,unknown,unknown,1290
+2022-03-14,unknown,unknown,928
+2022-03-15,unknown,unknown,928
+2022-03-16,unknown,unknown,927
+2022-03-17,unknown,unknown,927
+2022-03-18,unknown,unknown,926
+2022-03-19,unknown,unknown,931
+2022-03-20,unknown,unknown,930
+2022-03-21,unknown,unknown,925
+2022-03-22,unknown,unknown,924
+2022-03-23,unknown,unknown,921
+2022-03-24,unknown,unknown,926
+2022-03-25,unknown,unknown,926
+2022-03-26,unknown,unknown,929
+2022-03-27,unknown,unknown,930
+2022-03-28,unknown,unknown,924
+2022-03-29,unknown,unknown,928
+2022-03-30,unknown,unknown,926
+2022-03-31,unknown,unknown,924
+2022-04-01,unknown,unknown,928
+2022-04-02,unknown,unknown,927
+2022-04-03,unknown,unknown,929
+2022-04-04,unknown,unknown,927
+2022-04-05,unknown,unknown,929
+2022-04-06,unknown,unknown,929
+2022-04-07,unknown,unknown,925
+2022-04-08,unknown,unknown,926
+2022-04-09,unknown,unknown,926
+2022-04-10,unknown,unknown,922
+2022-04-11,unknown,unknown,925
+2022-04-12,unknown,unknown,929
+2022-04-13,unknown,unknown,929
+2022-04-14,unknown,unknown,929
+2022-04-15,unknown,unknown,927
+2022-04-16,unknown,unknown,923
+2022-04-17,unknown,unknown,924
+2022-04-18,unknown,unknown,927
+2022-04-19,unknown,unknown,925
+2022-04-20,unknown,unknown,926
+2022-04-21,unknown,unknown,928
+2022-04-22,unknown,unknown,925
+2022-04-23,unknown,unknown,927
+2022-04-24,unknown,unknown,923
+2022-04-25,unknown,unknown,925
+2022-04-26,unknown,unknown,926
+2022-04-27,unknown,unknown,925
+2022-04-28,unknown,unknown,928
+2022-04-29,unknown,unknown,927
+2022-04-30,unknown,unknown,925
+2022-05-01,unknown,unknown,929
+2022-05-02,unknown,unknown,926
+2022-05-03,unknown,unknown,925
+2022-05-04,unknown,unknown,928
+2022-05-05,unknown,unknown,927
+2022-05-06,unknown,unknown,923
+2022-05-07,unknown,unknown,926
+2022-05-08,unknown,unknown,929
+2022-05-09,unknown,unknown,927
+2022-05-10,unknown,unknown,925
+2022-05-11,unknown,unknown,929
+2022-05-12,unknown,unknown,926
+2022-05-13,unknown,unknown,927
+2022-05-14,unknown,unknown,927
+2022-05-15,unknown,unknown,927
+2022-05-16,unknown,unknown,922
+2022-05-17,unknown,unknown,922
+2022-05-18,unknown,unknown,925
+2022-05-19,unknown,unknown,926
+2022-05-20,unknown,unknown,928
+2022-05-21,unknown,unknown,927
+2022-05-22,unknown,unknown,929
+2022-05-23,unknown,unknown,927
+2022-05-24,unknown,unknown,928
+2022-05-25,unknown,unknown,925
+2022-05-26,unknown,unknown,927
+2022-05-27,unknown,unknown,927
+2022-05-28,unknown,unknown,928
+2022-05-29,unknown,unknown,927
+2022-05-30,unknown,unknown,924
+2022-05-31,unknown,unknown,924
+2022-06-01,unknown,unknown,928
+2022-06-02,unknown,unknown,925
+2022-06-03,unknown,unknown,928
+2022-06-04,unknown,unknown,932
+2022-06-05,unknown,unknown,930
+2022-06-06,unknown,unknown,929
+2022-06-07,unknown,unknown,927
+2022-06-08,unknown,unknown,924
+2022-06-09,unknown,unknown,923
+2022-06-10,unknown,unknown,928
+2022-06-11,unknown,unknown,930
+2022-06-12,unknown,unknown,929
+2022-06-13,unknown,unknown,925
+2022-06-14,unknown,unknown,925
+2022-06-15,unknown,unknown,927
+2022-06-16,unknown,unknown,928
+2022-06-17,unknown,unknown,931
+2022-06-18,unknown,unknown,932
+2022-06-19,unknown,unknown,1286
+2022-06-20,unknown,unknown,926
+2022-06-21,unknown,unknown,926
+2022-06-22,unknown,unknown,926
+2022-06-23,unknown,unknown,928
+2022-06-24,unknown,unknown,929
+2022-06-25,unknown,unknown,930
+2022-06-26,unknown,unknown,928
+2022-06-27,unknown,unknown,928
+2022-06-28,unknown,unknown,927
+2022-06-29,unknown,unknown,927
+2022-06-30,unknown,unknown,928
+2022-07-01,unknown,unknown,928
+2022-07-02,unknown,unknown,930
+2022-07-03,unknown,unknown,928
+2022-07-04,unknown,unknown,928
+2022-07-05,unknown,unknown,923
+2022-07-06,unknown,unknown,923
+2022-07-07,unknown,unknown,928
+2022-07-08,unknown,unknown,929
+2022-07-09,unknown,unknown,928
+2022-07-10,unknown,unknown,927
+2022-07-11,unknown,unknown,927
+2022-07-12,unknown,unknown,924
+2022-07-13,unknown,unknown,928
+2022-07-14,unknown,unknown,928
+2022-07-15,unknown,unknown,928
+2022-07-16,unknown,unknown,928
+2022-07-17,unknown,unknown,928
+2022-07-18,unknown,unknown,929
+2022-07-19,unknown,unknown,928
+2022-07-20,unknown,unknown,928
+2022-07-21,unknown,unknown,927
+2022-07-22,unknown,unknown,926
+2022-07-23,unknown,unknown,928
+2022-07-24,unknown,unknown,929
+2022-07-25,unknown,unknown,927
+2022-07-26,unknown,unknown,927
+2022-07-27,unknown,unknown,927
+2022-07-28,unknown,unknown,932
+2022-07-29,unknown,unknown,927
+2022-07-30,unknown,unknown,929
+2022-07-31,unknown,unknown,925
+2022-08-01,unknown,unknown,927
+2022-08-02,unknown,unknown,928
+2022-08-03,unknown,unknown,927
+2022-08-04,unknown,unknown,918
+2022-08-05,unknown,unknown,928
+2022-08-06,unknown,unknown,929
+2022-08-07,unknown,unknown,928
+2022-08-08,unknown,unknown,928
+2022-08-09,unknown,unknown,928
+2022-08-10,unknown,unknown,927
+2022-08-11,unknown,unknown,928
+2022-08-12,unknown,unknown,928
+2022-08-13,unknown,unknown,929
+2022-08-14,unknown,unknown,928
+2022-08-15,unknown,unknown,928
+2022-08-16,unknown,unknown,928
+2022-08-17,unknown,unknown,928
+2022-08-18,unknown,unknown,928
+2022-08-19,unknown,unknown,928
+2022-08-20,unknown,unknown,928
+2022-08-21,unknown,unknown,928
+2022-08-22,unknown,unknown,928
+2022-08-23,unknown,unknown,928
+2022-08-24,unknown,unknown,927
+2022-08-25,unknown,unknown,928
+2022-08-26,unknown,unknown,927
+2022-08-27,unknown,unknown,928
+2022-08-28,unknown,unknown,927
+2022-08-29,unknown,unknown,928
+2022-08-30,unknown,unknown,928
+2022-08-31,unknown,unknown,926
+2022-09-01,unknown,unknown,927
+2022-09-02,unknown,unknown,927
+2022-09-03,unknown,unknown,932
+2022-09-04,unknown,unknown,927
+2022-09-05,unknown,unknown,927
+2022-09-06,unknown,unknown,928
+2022-09-07,unknown,unknown,928
+2022-09-08,unknown,unknown,928
+2022-09-09,unknown,unknown,928
+2022-09-10,unknown,unknown,928
+2022-09-11,unknown,unknown,927
+2022-09-12,unknown,unknown,1296
+2022-09-13,unknown,unknown,927
+2022-09-14,unknown,unknown,924
+2022-09-15,unknown,unknown,922
+2022-09-16,unknown,unknown,925
+2022-09-17,unknown,unknown,927
+2022-09-18,unknown,unknown,928
+2022-09-19,unknown,unknown,928
+2022-09-20,unknown,unknown,927
+2022-09-21,unknown,unknown,925
+2022-09-22,unknown,unknown,929
+2022-09-23,unknown,unknown,928
+2022-09-24,unknown,unknown,927
+2022-09-25,unknown,unknown,928
+2022-09-26,unknown,unknown,926
+2022-09-27,unknown,unknown,926
+2022-09-28,unknown,unknown,925
+2022-09-29,unknown,unknown,928
+2022-09-30,unknown,unknown,928
+2022-10-01,unknown,unknown,928
+2022-10-02,unknown,unknown,928
+2022-10-03,unknown,unknown,928
+2022-10-04,unknown,unknown,928
+2022-10-05,unknown,unknown,927
+2022-10-06,unknown,unknown,927
+2022-10-07,unknown,unknown,928
+2022-10-08,unknown,unknown,928
+2022-10-09,unknown,unknown,930
+2022-10-10,unknown,unknown,927
+2022-10-11,unknown,unknown,925
+2022-10-12,unknown,unknown,925
+2022-10-13,unknown,unknown,927
+2022-10-14,unknown,unknown,929
+2022-10-15,unknown,unknown,928
+2022-10-16,unknown,unknown,928
+2022-10-17,unknown,unknown,926
+2022-10-18,unknown,unknown,928
+2022-10-19,unknown,unknown,927
+2022-10-20,unknown,unknown,926
+2022-10-21,unknown,unknown,928
+2022-10-22,unknown,unknown,928
+2022-10-23,unknown,unknown,927
+2022-10-24,unknown,unknown,926
+2022-10-25,unknown,unknown,927
+2022-10-26,unknown,unknown,927
+2022-10-27,unknown,unknown,927
+2022-10-28,unknown,unknown,927
+2022-10-29,unknown,unknown,928
+2022-10-30,unknown,unknown,928
+2022-10-31,unknown,unknown,929
+2022-11-01,unknown,unknown,928
+2022-11-02,unknown,unknown,927
+2022-11-03,unknown,unknown,926
+2022-11-04,unknown,unknown,927
+2022-11-05,unknown,unknown,932
+2022-11-06,unknown,unknown,926
+2022-11-07,unknown,unknown,927
+2022-11-08,unknown,unknown,927
+2022-11-09,unknown,unknown,927
+2022-11-10,unknown,unknown,925
+2022-11-11,unknown,unknown,925
+2022-11-12,unknown,unknown,928
+2022-11-13,unknown,unknown,928
+2022-11-14,unknown,unknown,926
+2022-11-15,unknown,unknown,928
+2022-11-16,unknown,unknown,928
+2022-11-17,unknown,unknown,927
+2022-11-18,unknown,unknown,927
+2022-11-19,unknown,unknown,930
+2022-11-20,unknown,unknown,929
+2022-11-21,unknown,unknown,925
+2022-11-22,unknown,unknown,923
+2022-11-23,unknown,unknown,925
+2022-11-24,unknown,unknown,926
+2022-11-25,unknown,unknown,930
+2022-11-26,unknown,unknown,928
+2022-11-27,unknown,unknown,928
+2022-11-28,unknown,unknown,925
+2022-11-29,unknown,unknown,927
+2022-11-30,unknown,unknown,928
+2022-12-01,unknown,unknown,927
+2022-12-02,unknown,unknown,927
+2022-12-03,unknown,unknown,931
+2022-12-04,unknown,unknown,927
+2022-12-05,unknown,unknown,928
+2022-12-06,unknown,unknown,927
+2022-12-07,unknown,unknown,928
+2022-12-08,unknown,unknown,926
+2022-12-09,unknown,unknown,926
+2022-12-10,unknown,unknown,929
+2022-12-11,unknown,unknown,925
+2022-12-12,unknown,unknown,927
+2022-12-13,unknown,unknown,926
+2022-12-14,unknown,unknown,929
+2022-12-15,unknown,unknown,927
+2022-12-16,unknown,unknown,928
+2022-12-17,unknown,unknown,928
+2022-12-18,unknown,unknown,927
+2022-12-19,unknown,unknown,928
+2022-12-20,unknown,unknown,928
+2022-12-21,unknown,unknown,929
+2022-12-22,unknown,unknown,930
+2022-12-23,unknown,unknown,929
+2022-12-24,unknown,unknown,928
+2022-12-25,unknown,unknown,926
+2022-12-26,unknown,unknown,927
+2022-12-27,unknown,unknown,928
+2022-12-28,unknown,unknown,929
+2022-12-29,unknown,unknown,929
+2022-12-30,unknown,unknown,927
+2022-12-31,unknown,unknown,928
+2023-01-01,unknown,unknown,926
+2023-01-02,unknown,unknown,927
+2023-01-03,unknown,unknown,929
+2023-01-04,unknown,unknown,928
+2023-01-05,unknown,unknown,926
+2023-01-06,unknown,unknown,928
+2023-01-07,unknown,unknown,928
+2023-01-08,unknown,unknown,927
+2023-01-09,unknown,unknown,928
+2023-01-10,unknown,unknown,928
+2023-01-11,unknown,unknown,928
+2023-01-12,unknown,unknown,928
+2023-01-13,unknown,unknown,929
+2023-01-14,unknown,unknown,928
+2023-01-15,unknown,unknown,927
+2023-01-16,unknown,unknown,928
+2023-01-17,unknown,unknown,927
+2023-01-18,unknown,unknown,925
+2023-01-19,unknown,unknown,927
+2023-01-20,unknown,unknown,926
+2023-01-21,unknown,unknown,926
+2023-01-22,unknown,unknown,928
+2023-01-23,unknown,unknown,927
+2023-01-24,unknown,unknown,927
+2023-01-25,unknown,unknown,925
+2023-01-26,unknown,unknown,927
+2023-01-27,unknown,unknown,928
+2023-01-28,unknown,unknown,928
+2023-01-29,unknown,unknown,927
+2023-01-30,unknown,unknown,927
+2023-01-31,unknown,unknown,928
+2023-02-01,unknown,unknown,928
+2023-02-02,unknown,unknown,928
+2023-02-03,unknown,unknown,925
+2023-02-04,unknown,unknown,928
+2023-02-05,unknown,unknown,924
+2023-02-06,unknown,unknown,925
+2023-02-07,unknown,unknown,922
+2023-02-08,unknown,unknown,927
+2023-02-09,unknown,unknown,928
+2023-02-10,unknown,unknown,928
+2023-02-11,unknown,unknown,929
+2023-02-12,unknown,unknown,926
+2023-02-13,unknown,unknown,929
+2023-02-14,unknown,unknown,927
+2023-02-15,unknown,unknown,925
+2023-02-16,unknown,unknown,927
+2023-02-17,unknown,unknown,928
+2023-02-18,unknown,unknown,928
+2023-02-19,unknown,unknown,927
+2023-02-20,unknown,unknown,925
+2023-02-21,unknown,unknown,927
+2023-02-22,unknown,unknown,928
+2023-02-23,unknown,unknown,928
+2023-02-24,unknown,unknown,928
+2023-02-25,unknown,unknown,929
+2023-02-26,unknown,unknown,927
+2023-02-27,unknown,unknown,929
+2023-02-28,unknown,unknown,928
+2023-03-01,unknown,unknown,926
+2023-03-02,unknown,unknown,929
+2023-03-03,unknown,unknown,927
+2023-03-04,unknown,unknown,928
+2023-03-05,unknown,unknown,928
+2023-03-06,unknown,unknown,928
+2023-03-07,unknown,unknown,928
+2023-03-08,unknown,unknown,927
+2023-03-09,unknown,unknown,928
+2023-03-10,unknown,unknown,929
+2023-03-11,unknown,unknown,928
+2023-03-12,unknown,unknown,928
+2023-03-13,unknown,unknown,927
+2023-03-14,unknown,unknown,925
+2023-03-15,unknown,unknown,928
+2023-03-16,unknown,unknown,927
+2023-03-17,unknown,unknown,927
+2023-03-18,unknown,unknown,930
+2023-03-19,unknown,unknown,926
+2023-03-20,unknown,unknown,922
+2023-03-21,unknown,unknown,925
+2023-03-22,unknown,unknown,928
+2023-03-23,unknown,unknown,929
+2023-03-24,unknown,unknown,927
+2023-03-25,unknown,unknown,927
+2023-03-26,unknown,unknown,928
+2023-03-27,unknown,unknown,928
+2023-03-28,unknown,unknown,927
+2023-03-29,unknown,unknown,925
+2023-03-30,unknown,unknown,928
+2023-03-31,unknown,unknown,928
+2023-04-01,unknown,unknown,928
+2023-04-02,unknown,unknown,927
+2023-04-03,unknown,unknown,930
+2023-04-04,unknown,unknown,927
+2023-04-05,unknown,unknown,928
+2023-04-06,unknown,unknown,927
+2023-04-07,unknown,unknown,928
+2023-04-08,unknown,unknown,928
+2023-04-09,unknown,unknown,929
+2023-04-10,unknown,unknown,928
+2023-04-11,unknown,unknown,926
+2023-04-12,unknown,unknown,927
+2023-04-13,unknown,unknown,926
+2023-04-14,unknown,unknown,926
+2023-04-15,unknown,unknown,927
+2023-04-16,unknown,unknown,927
+2023-04-17,unknown,unknown,927
+2023-04-18,unknown,unknown,928
+2023-04-19,unknown,unknown,931
+2023-04-20,unknown,unknown,928
+2023-04-21,unknown,unknown,930
+2023-04-22,unknown,unknown,928
+2023-04-23,unknown,unknown,928
+2023-04-24,unknown,unknown,927
+2023-04-25,unknown,unknown,926
+2023-04-26,unknown,unknown,927
+2023-04-27,unknown,unknown,930
+2023-04-28,unknown,unknown,929
+2023-04-29,unknown,unknown,927
+2023-04-30,unknown,unknown,928
+2023-05-01,unknown,unknown,927
+2023-05-02,unknown,unknown,926
+2023-05-03,unknown,unknown,929
+2023-05-04,unknown,unknown,927
+2023-05-05,unknown,unknown,927
+2023-05-06,unknown,unknown,929
+2023-05-07,unknown,unknown,926
+2023-05-08,unknown,unknown,927
+2023-05-09,unknown,unknown,926
+2023-05-10,unknown,unknown,927
+2023-05-11,unknown,unknown,926
+2023-05-12,unknown,unknown,929
+2023-05-13,unknown,unknown,928
+2023-05-14,unknown,unknown,927
+2023-05-15,unknown,unknown,927
+2023-05-16,unknown,unknown,927
+2023-05-17,unknown,unknown,927
+2023-05-18,unknown,unknown,926
+2023-05-19,unknown,unknown,931
+2023-05-20,unknown,unknown,932
+2023-05-21,unknown,unknown,928
+2023-05-22,unknown,unknown,927
+2023-05-23,unknown,unknown,927
+2023-05-24,unknown,unknown,928
+2023-05-25,unknown,unknown,926
+2023-05-26,unknown,unknown,927
+2023-05-27,unknown,unknown,930
+2023-05-28,unknown,unknown,927
+2023-05-29,unknown,unknown,930
+2023-05-30,unknown,unknown,925
+2023-05-31,unknown,unknown,931
+2023-06-01,unknown,unknown,927
+2023-06-02,unknown,unknown,927
+2023-06-03,unknown,unknown,926
+2023-06-04,unknown,unknown,926
+2023-06-05,unknown,unknown,927
+2023-06-06,unknown,unknown,927
+2023-06-07,unknown,unknown,926
+2023-06-08,unknown,unknown,928
+2023-06-09,unknown,unknown,926
+2023-06-10,unknown,unknown,929
+2023-06-11,unknown,unknown,927
+2023-06-12,unknown,unknown,930
+2023-06-13,unknown,unknown,929
+2023-06-14,unknown,unknown,929
+2023-06-15,unknown,unknown,926
+2023-06-16,unknown,unknown,928
+2023-06-17,unknown,unknown,929
+2023-06-18,unknown,unknown,927
+2023-06-19,unknown,unknown,924
+2023-06-20,unknown,unknown,923
+2023-06-21,unknown,unknown,927
+2023-06-22,unknown,unknown,926
+2023-06-23,unknown,unknown,928
+2023-06-24,unknown,unknown,926
+2023-06-25,unknown,unknown,927
+2023-06-26,unknown,unknown,928
+2023-06-27,unknown,unknown,930
+2023-06-28,unknown,unknown,928
+2023-06-29,unknown,unknown,927
+2023-06-30,unknown,unknown,928
+2023-07-01,unknown,unknown,927
+2023-07-02,unknown,unknown,927
+2023-07-03,unknown,unknown,926
+2023-07-04,unknown,unknown,928
+2023-07-05,unknown,unknown,926
+2023-07-06,unknown,unknown,928
+2023-07-07,unknown,unknown,928
+2023-07-08,unknown,unknown,928
+2023-07-09,unknown,unknown,928
+2023-07-10,unknown,unknown,929
+2023-07-11,unknown,unknown,930
+2023-07-12,unknown,unknown,929
+2023-07-13,unknown,unknown,928
+2023-07-14,unknown,unknown,928
+2023-07-15,unknown,unknown,928
+2023-07-16,unknown,unknown,928
+2023-07-17,unknown,unknown,932
+2023-07-18,unknown,unknown,1260
+2023-07-19,unknown,unknown,928
+2023-07-20,unknown,unknown,928
+2023-07-21,unknown,unknown,929
+2023-07-22,unknown,unknown,929
+2023-07-23,unknown,unknown,925
+2023-07-24,unknown,unknown,926
+2023-07-25,unknown,unknown,927
+2023-07-26,unknown,unknown,926
+2023-07-27,unknown,unknown,925
+2023-07-28,unknown,unknown,927
+2023-07-29,unknown,unknown,927
+2023-07-30,unknown,unknown,926
+2023-07-31,unknown,unknown,928
+2023-08-01,unknown,unknown,927
+2023-08-02,unknown,unknown,927
+2023-08-03,unknown,unknown,923
+2023-08-04,unknown,unknown,928
+2023-08-05,unknown,unknown,928
+2023-08-06,unknown,unknown,928
+2023-08-07,unknown,unknown,928
+2023-08-08,unknown,unknown,929
+2023-08-09,unknown,unknown,925
+2023-08-10,unknown,unknown,927
+2023-08-11,unknown,unknown,928
+2023-08-12,unknown,unknown,929
+2023-08-13,unknown,unknown,927
+2023-08-14,unknown,unknown,929
+2023-08-15,unknown,unknown,926
+2023-08-16,unknown,unknown,926
+2023-08-17,unknown,unknown,926
+2023-08-18,unknown,unknown,928
+2023-08-19,unknown,unknown,929
+2023-08-20,unknown,unknown,928
+2023-08-21,unknown,unknown,928
+2023-08-22,unknown,unknown,929
+2023-08-23,unknown,unknown,928
+2023-08-24,unknown,unknown,929
+2023-08-25,unknown,unknown,928
+2023-08-26,unknown,unknown,928
+2023-08-27,unknown,unknown,928
+2023-08-28,unknown,unknown,926
+2023-08-29,unknown,unknown,928
+2023-08-30,unknown,unknown,929
+2023-08-31,unknown,unknown,928
+2023-09-01,unknown,unknown,928
+2023-09-02,unknown,unknown,929
+2023-09-03,unknown,unknown,928
+2023-09-04,unknown,unknown,928
+2023-09-05,unknown,unknown,928
+2023-09-06,unknown,unknown,928
+2023-09-07,unknown,unknown,928
+2023-09-08,unknown,unknown,929
+2023-09-09,unknown,unknown,929
+2023-09-10,unknown,unknown,928
+2023-09-11,unknown,unknown,928
+2023-09-12,unknown,unknown,928
+2023-09-13,unknown,unknown,927
+2023-09-14,unknown,unknown,930
+2023-09-15,unknown,unknown,928
+2023-09-16,unknown,unknown,927
+2023-09-17,unknown,unknown,928
+2023-09-18,unknown,unknown,928
+2023-09-19,unknown,unknown,927
+2023-09-20,unknown,unknown,928
+2023-09-21,unknown,unknown,928
+2023-09-22,unknown,unknown,927
+2023-09-23,unknown,unknown,929
+2023-09-24,unknown,unknown,929
+2023-09-25,unknown,unknown,926
+2023-09-26,unknown,unknown,925
+2023-09-27,unknown,unknown,925
+2023-09-28,unknown,unknown,928
+2023-09-29,unknown,unknown,929
+2023-09-30,unknown,unknown,927
+2023-10-01,unknown,unknown,928
+2023-10-02,unknown,unknown,928
+2023-10-03,unknown,unknown,926
+2023-10-04,unknown,unknown,928
+2023-10-05,unknown,unknown,926
+2023-10-06,unknown,unknown,928
+2023-10-07,unknown,unknown,927
+2023-10-08,unknown,unknown,926
+2023-10-09,unknown,unknown,927
+2023-10-10,unknown,unknown,928
+2023-10-11,unknown,unknown,929
+2023-10-12,unknown,unknown,928
+2023-10-13,unknown,unknown,928
+2023-10-14,unknown,unknown,926
+2023-10-15,unknown,unknown,929
+2023-10-16,unknown,unknown,927
+2023-10-17,unknown,unknown,929
+2023-10-18,unknown,unknown,927
+2023-10-19,unknown,unknown,931
+2023-10-20,unknown,unknown,927
+2023-10-21,unknown,unknown,928
+2023-10-22,unknown,unknown,924
+2023-10-23,unknown,unknown,926
+2023-10-24,unknown,unknown,923
+2023-10-25,unknown,unknown,929
+2023-10-26,unknown,unknown,928
+2023-10-27,unknown,unknown,930
+2023-10-28,unknown,unknown,927
+2023-10-29,unknown,unknown,925
+2023-10-30,unknown,unknown,928
+2023-10-31,unknown,unknown,928
+2023-11-01,unknown,unknown,924
+2023-11-02,unknown,unknown,924
+2023-11-03,unknown,unknown,923
+2023-11-04,unknown,unknown,928
+2023-11-05,unknown,unknown,923
+2023-11-06,unknown,unknown,927
+2023-11-07,unknown,unknown,930
+2023-11-08,unknown,unknown,927
+2023-11-09,unknown,unknown,927
+2023-11-10,unknown,unknown,930
+2023-11-11,unknown,unknown,928
+2023-11-12,unknown,unknown,927
+2023-11-13,unknown,unknown,927
+2023-11-14,unknown,unknown,927
+2023-11-15,unknown,unknown,926
+2023-11-16,unknown,unknown,926
+2023-11-17,unknown,unknown,928
+2023-11-18,unknown,unknown,928
+2023-11-19,unknown,unknown,927
+2023-11-20,unknown,unknown,926
+2023-11-21,unknown,unknown,930
+2023-11-22,unknown,unknown,928
+2023-11-23,unknown,unknown,929
+2023-11-24,unknown,unknown,928
+2023-11-25,unknown,unknown,930
+2023-11-26,unknown,unknown,927
+2023-11-27,unknown,unknown,929
+2023-11-28,unknown,unknown,926
+2023-11-29,unknown,unknown,923
+2023-11-30,unknown,unknown,924
+2023-12-01,unknown,unknown,929
+2023-12-02,unknown,unknown,927
+2023-12-03,unknown,unknown,927
+2023-12-04,unknown,unknown,926
+2023-12-05,unknown,unknown,927
+2023-12-06,unknown,unknown,925
+2023-12-07,unknown,unknown,926
+2023-12-08,unknown,unknown,926
+2023-12-09,unknown,unknown,928
+2023-12-10,unknown,unknown,926
+2023-12-11,unknown,unknown,928
+2023-12-12,unknown,unknown,928
+2023-12-13,unknown,unknown,928
+2023-12-14,unknown,unknown,929
+2023-12-15,unknown,unknown,929
+2023-12-16,unknown,unknown,926
+2023-12-17,unknown,unknown,927
+2023-12-18,unknown,unknown,929
+2023-12-19,unknown,unknown,928
+2023-12-20,unknown,unknown,926
+2023-12-21,unknown,unknown,928
+2023-12-22,unknown,unknown,927
+2023-12-23,unknown,unknown,928
+2023-12-24,unknown,unknown,928
+2023-12-25,unknown,unknown,928
+2023-12-26,unknown,unknown,926
+2023-12-27,unknown,unknown,928
+2023-12-28,unknown,unknown,926
+2023-12-29,unknown,unknown,928
+2023-12-30,unknown,unknown,927
+2023-12-31,unknown,unknown,927
+2024-01-01,fenix 5x,3952922857,14498
+2024-01-02,fenix 5x,3952922857,14496
+2024-01-03,fenix 5x,3952922857,14498
+2024-01-04,fenix 5x,3952922857,14502
+2024-01-05,fenix 5x,3952922857,14508
+2024-01-06,fenix 5x,3952922857,14849
+2024-01-07,fenix 5x,3952922857,14496
+2024-01-08,fenix 5x,3952922857,14540
+2024-01-09,fenix 5x,3952922857,14841
+2024-01-10,fenix 5x,3952922857,14841
+2024-01-11,fenix 5x,3952922857,14841
+2024-01-12,fenix 5x,3952922857,14861
+2024-01-13,fenix 5x,3952922857,14841
+2024-01-14,fenix 5x,3952922857,14510
+2024-01-15,fenix 5x,3952922857,14500
+2024-01-16,fenix 5x,3952922857,14476
+2024-01-17,fenix 5x,3952922857,14500
+2024-01-18,fenix 5x,3952922857,14526
+2024-01-19,fenix 5x,3952922857,14512
+2024-01-20,fenix 5x,3952922857,14851
+2024-01-21,fenix 5x,3952922857,14819
+2024-01-22,fenix 5x,3952922857,14510
+2024-01-23,fenix 5x,3952922857,14817
+2024-01-24,fenix 5x,3952922857,14520
+2024-01-25,fenix 5x,3952922857,14843
+2024-01-26,fenix 5x,3952922857,14482
+2024-01-27,fenix 5x,3952922857,14827
+2024-01-28,fenix 5x,3952922857,14472
+2024-01-29,fenix 5x,3952922857,14486
+2024-01-30,fenix 5x,3952922857,14506
+2024-01-31,fenix 5x,3952922857,14494
+2024-02-01,fenix 5x,3952922857,14492
+2024-02-02,fenix 5x,3952922857,14464
+2024-02-03,fenix 5x,3952922857,14478
+2024-02-04,fenix 5x,3952922857,14488
+2024-02-05,fenix 5x,3952922857,14474
+2024-02-06,fenix 5x,3952922857,14488
+2024-02-07,fenix 5x,3952922857,14502
+2024-02-08,fenix 5x,3952922857,14843
+2024-02-09,fenix 5x,3952922857,14518
+2024-02-10,fenix 5x,3952922857,14851
+2024-02-11,fenix 5x,3952922857,14498
+2024-02-12,fenix 5x,3952922857,14480
+2024-02-13,fenix 5x,3952922857,14508
+2024-02-14,fenix 5x,3952922857,14851
+2024-02-15,fenix 5x,3952922857,14843
+2024-02-16,fenix 5x,3952922857,14536
+2024-02-17,fenix 5x,3952922857,14520
+2024-02-18,fenix 5x,3952922857,14849
+2024-02-19,fenix 5x,3952922857,14486
+2024-02-20,fenix 5x,3952922857,14488
+2024-02-21,fenix 5x,3952922857,14500
+2024-02-22,fenix 5x,3952922857,14831
+2024-02-23,fenix 5x,3952922857,14833
+2024-02-24,fenix 5x,3952922857,14494
+2024-02-25,fenix 5x,3952922857,14500
+2024-02-26,fenix 5x,3952922857,14520
+2024-02-27,fenix 5x,3952922857,14504
+2024-02-28,fenix 5x,3952922857,14520
+2024-02-29,fenix 5x,3952922857,14841
+2024-03-01,fenix 5x,3952922857,14516
+2024-03-02,fenix 5x,3952922857,14853
+2024-03-03,fenix 5x,3952922857,14478
+2024-03-04,fenix 5x,3952922857,14502
+2024-03-05,fenix 5x,3952922857,14488
+2024-03-06,fenix 5x,3952922857,14498
+2024-03-07,fenix 5x,3952922857,14823
+2024-03-08,fenix 5x,3952922857,14506
+2024-03-09,fenix 5x,3952922857,14859
+2024-03-10,fenix 5x,3952922857,14524
+2024-03-11,fenix 5x,3952922857,14851
+2024-03-12,fenix 5x,3952922857,14506
+2024-03-13,fenix 5x,3952922857,14496
+2024-03-14,fenix 5x,3952922857,14520
+2024-03-15,fenix 5x,3952922857,14508
+2024-03-16,fenix 5x,3952922857,14500
+2024-03-17,fenix 5x,3952922857,14524
+2024-03-18,fenix 5x,3952922857,14875
+2024-03-19,fenix 5x,3952922857,14528
+2024-03-20,fenix 5x,3952922857,14502
+2024-03-21,fenix 5x,3952922857,14492
+2024-03-22,fenix 5x,3952922857,14488
+2024-03-23,fenix 5x,3952922857,14506
+2024-03-24,fenix 5x,3952922857,14490
+2024-03-25,fenix 5x,3952922857,14490
+2024-03-26,fenix 5x,3952922857,14514
+2024-03-27,fenix 5x,3952922857,14546
+2024-03-28,fenix 5x,3952922857,14512
+2024-03-29,fenix 5x,3952922857,14510
+2024-03-30,fenix 5x,3952922857,14516
+2024-03-31,fenix 5x,3952922857,14492
+2024-04-01,fenix 5x,3952922857,14502
+2024-04-02,fenix 5x,3952922857,14484
+2024-04-03,fenix 5x,3952922857,14500
+2024-04-04,fenix 5x,3952922857,14502
+2024-04-05,fenix 5x,3952922857,14522
+2024-04-06,fenix 5x,3952922857,14865
+2024-04-07,fenix 5x,3952922857,14488
+2024-04-08,fenix 5x,3952922857,14510
+2024-04-09,fenix 5x,3952922857,14510
+2024-04-10,fenix 5x,3952922857,14500
+2024-04-11,fenix 5x,3952922857,14524
+2024-04-12,fenix 5x,3952922857,14534
+2024-04-13,fenix 5x,3952922857,14839
+2024-04-14,fenix 5x,3952922857,14512
+2024-04-15,fenix 5x,3952922857,14498
+2024-04-16,fenix 5x,3952922857,14496
+2024-04-17,fenix 5x,3952922857,14486
+2024-04-18,fenix 5x,3952922857,14540
+2024-04-19,fenix 5x,3952922857,14502
+2024-04-20,fenix 5x,3952922857,14508
+2024-04-21,fenix 5x,3952922857,14847
+2024-04-22,fenix 5x,3952922857,14835
+2024-04-23,fenix 5x,3952922857,14514
+2024-04-24,fenix 5x,3952922857,14845
+2024-04-25,fenix 5x,3952922857,14520
+2024-04-26,fenix 5x,3952922857,14520
+2024-04-27,fenix 5x,3952922857,14514
+2024-04-28,fenix 5x,3952922857,14518
+2024-04-29,fenix 5x,3952922857,14843
+2024-04-30,fenix 5x,3952922857,14492
+2024-05-01,fenix 5x,3952922857,14835
+2024-05-02,fenix 5x,3952922857,14500
+2024-05-03,fenix 5x,3952922857,14516
+2024-05-04,fenix 5x,3952922857,14532
+2024-05-05,fenix 5x,3952922857,14510
+2024-05-06,fenix 5x,3952922857,14512
+2024-05-07,fenix 5x,3952922857,14496
+2024-05-08,fenix 5x,3952922857,14514
+2024-05-09,fenix 5x,3952922857,14532
+2024-05-10,fenix 5x,3952922857,14847
+2024-05-11,fenix 5x,3952922857,14869
+2024-05-12,fenix 5x,3952922857,14506
+2024-05-13,fenix 5x,3952922857,14506
+2024-05-14,fenix 5x,3952922857,14518
+2024-05-15,fenix 5x,3952922857,14520
+2024-05-16,fenix 5x,3952922857,14508
+2024-05-17,fenix 5x,3952922857,14853
+2024-05-18,fenix 5x,3952922857,14520
+2024-05-19,fenix 5x,3952922857,14514
+2024-05-20,fenix 5x,3952922857,14833
+2024-05-21,fenix 5x,3952922857,14500
+2024-05-22,fenix 5x,3952922857,14506
+2024-05-23,fenix 5x,3952922857,14528
+2024-05-24,fenix 5x,3952922857,14859
+2024-05-25,fenix 5x,3952922857,14837
+2024-05-26,fenix 5x,3952922857,14518
+2024-05-27,fenix 5x,3952922857,14490
+2024-05-28,fenix 5x,3952922857,14508
+2024-05-29,fenix 5x,3952922857,14502
+2024-05-30,fenix 5x,3952922857,14516
+2024-05-31,fenix 5x,3952922857,14506
+2024-06-01,fenix 5x,3952922857,14516
+2024-06-02,fenix 5x,3952922857,14484
+2024-06-03,fenix 5x,3952922857,14482
+2024-06-04,fenix 5x,3952922857,14845
+2024-06-05,fenix 5x,3952922857,14500
+2024-06-06,fenix 5x,3952922857,14829
+2024-06-07,fenix 5x,3952922857,14496
+2024-06-08,fenix 5x,3952922857,14530
+2024-06-09,fenix 5x,3952922857,14524
+2024-06-10,fenix 5x,3952922857,14859
+2024-06-11,fenix 5x,3952922857,14480
+2024-06-12,fenix 5x,3952922857,14480
+2024-06-13,fenix 5x,3952922857,14498
+2024-06-14,fenix 5x,3952922857,14518
+2024-06-15,fenix 5x,3952922857,14869
+2024-06-16,fenix 5x,3952922857,14853
+2024-06-17,fenix 5x,3952922857,14835
+2024-06-18,fenix 5x,3952922857,14490
+2024-06-19,fenix 5x,3952922857,14480
+2024-06-20,fenix 5x,3952922857,14514
+2024-06-21,fenix 5x,3952922857,14500
+2024-06-22,fenix 5x,3952922857,14518
+2024-06-23,fenix 5x,3952922857,14837
+2024-06-24,fenix 5x,3952922857,14470
+2024-06-25,fenix 5x,3952922857,14518
+2024-06-26,fenix 5x,3952922857,14500
+2024-06-27,fenix 5x,3952922857,14510
+2024-06-28,fenix 5x,3952922857,14845
+2024-06-29,fenix 5x,3952922857,14526
+2024-06-30,fenix 5x,3952922857,14819
+2024-07-01,fenix 5x,3952922857,14498
+2024-07-02,fenix 5x,3952922857,14500
+2024-07-03,fenix 5x,3952922857,14514
+2024-07-04,fenix 5x,3952922857,14502
+2024-07-05,fenix 5x,3952922857,14502
+2024-07-06,fenix 5x,3952922857,14518
+2024-07-07,fenix 5x,3952922857,14482
+2024-07-08,fenix 5x,3952922857,14510
+2024-07-09,fenix 5x,3952922857,14514
+2024-07-10,fenix 5x,3952922857,14855
+2024-07-11,fenix 5x,3952922857,14504
+2024-07-12,fenix 5x,3952922857,14508
+2024-07-13,fenix 5x,3952922857,14863
+2024-07-14,fenix 5x,3952922857,14863
+2024-07-15,fenix 5x,3952922857,14839
+2024-07-16,fenix 5x,3952922857,14490
+2024-07-17,fenix 5x,3952922857,14510
+2024-07-18,fenix 5x,3952922857,14849
+2024-07-19,fenix 5x,3952922857,14849
+2024-07-20,fenix 5x,3952922857,14506
+2024-07-21,fenix 5x,3952922857,14480
+2024-07-22,fenix 5x,3952922857,14520
+2024-07-23,fenix 5x,3952922857,14514
+2024-07-24,fenix 5x,3952922857,14518
+2024-07-25,fenix 5x,3952922857,14512
+2024-07-26,fenix 5x,3952922857,14847
+2024-07-27,fenix 5x,3952922857,14524
+2024-07-28,fenix 5x,3952922857,14530
+2024-07-29,fenix 5x,3952922857,14528
+2024-07-30,fenix 5x,3952922857,14512
+2024-07-31,fenix 5x,3952922857,14518
+2024-08-01,fenix 5x,3952922857,14504
+2024-08-02,fenix 5x,3952922857,14506
+2024-08-03,fenix 5x,3952922857,14526
+2024-08-04,fenix 5x,3952922857,14837
+2024-08-05,fenix 5x,3952922857,14496
+2024-08-06,fenix 5x,3952922857,14825
+2024-08-07,fenix 5x,3952922857,14514
+2024-08-08,fenix 5x,3952922857,14851
+2024-08-09,fenix 5x,3952922857,15015
+2024-08-10,fenix 5x,3952922857,15324
+2024-08-11,fenix 5x,3952922857,15022
+2024-08-12,fenix 5x,3952922857,15012
+2024-08-13,fenix 5x,3952922857,15355
+2024-08-14,fenix 5x,3952922857,14987
+2024-08-15,fenix 5x,3952922857,15339
+2024-08-16,fenix 5x,3952922857,15014
+2024-08-17,fenix 5x,3952922857,15341
+2024-08-18,fenix 5x,3952922857,15008
+2024-08-19,fenix 5x,3952922857,15008
+2024-08-20,fenix 5x,3952922857,15010
+2024-08-21,fenix 5x,3952922857,14976
+2024-08-22,fenix 5x,3952922857,14982
+2024-08-23,fenix 5x,3952922857,15345
+2024-08-24,fenix 5x,3952922857,15019
+2024-08-25,fenix 5x,3952922857,15019
+2024-08-26,fenix 5x,3952922857,15008
+2024-08-27,fenix 5x,3952922857,14990
+2024-08-28,fenix 5x,3952922857,14996
+2024-08-29,fenix 5x,3952922857,15016
+2024-08-30,fenix 5x,3952922857,15003
+2024-08-31,fenix 5x,3952922857,15034
+2024-09-01,fenix 5x,3952922857,15345
+2024-09-02,fenix 5x,3952922857,14988
+2024-09-03,fenix 5x,3952922857,15334
+2024-09-04,fenix 5x,3952922857,14996
+2024-09-05,fenix 5x,3952922857,15006
+2024-09-06,fenix 5x,3952922857,15026
+2024-09-07,fenix 5x,3952922857,15355
+2024-09-08,fenix 5x,3952922857,15024
+2024-09-09,fenix 5x,3952922857,15002
+2024-09-10,fenix 5x,3952922857,14995
+2024-09-11,fenix 5x,3952922857,15010
+2024-09-12,fenix 5x,3952922857,15355
+2024-09-13,fenix 5x,3952922857,15344
+2024-09-14,fenix 5x,3952922857,15019
+2024-09-15,fenix 5x,3952922857,15330
+2024-09-16,fenix 5x,3952922857,15008
+2024-09-17,fenix 5x,3952922857,14992
+2024-09-18,fenix 5x,3952922857,14982
+2024-09-19,fenix 5x,3952922857,15003
+2024-09-20,fenix 5x,3952922857,15008
+2024-09-21,fenix 5x,3952922857,15030
+2024-09-22,fenix 5x,3952922857,15008
+2024-09-23,fenix 5x,3952922857,15036
+2024-09-24,fenix 5x,3952922857,14995
+2024-09-25,fenix 5x,3952922857,14998
+2024-09-26,fenix 5x,3952922857,14990
+2024-09-27,fenix 5x,3952922857,15011
+2024-09-28,fenix 5x,3952922857,15346
+2024-09-29,fenix 5x,3952922857,15330
+2024-09-30,fenix 5x,3952922857,14993
+2024-10-01,fenix 5x,3952922857,14983
+2024-10-02,fenix 5x,3952922857,14997
+2024-10-03,fenix 5x,3952922857,15336
+2024-10-04,fenix 5x,3952922857,15007
+2024-10-05,fenix 5x,3952922857,15333
+2024-10-06,fenix 5x,3952922857,15002
+2024-10-07,fenix 5x,3952922857,14979
+2024-10-08,fenix 5x,3952922857,15001
+2024-10-09,fenix 5x,3952922857,15010
+2024-10-10,fenix 5x,3952922857,15338
+2024-10-11,fenix 5x,3952922857,14977
+2024-10-12,fenix 5x,3952922857,15013
+2024-10-13,fenix 5x,3952922857,14993
+2024-10-14,fenix 5x,3952922857,14983
+2024-10-15,fenix 5x,3952922857,14992
+2024-10-16,fenix 5x,3952922857,15006
+2024-10-17,fenix 5x,3952922857,14978
+2024-10-18,fenix 5x,3952922857,15006
+2024-10-19,fenix 5x,3952922857,15008
+2024-10-20,fenix 5x,3952922857,15005
+2024-10-21,fenix 5x,3952922857,15003
+2024-10-22,fenix 5x,3952922857,15030
+2024-10-23,fenix 5x,3952922857,14986
+2024-10-24,fenix 5x,3952922857,14990
+2024-10-25,fenix 5x,3952922857,15335
+2024-10-26,fenix 5x,3952922857,15008
+2024-10-27,fenix 5x,3952922857,15003
+2024-10-28,fenix 5x,3952922857,14984
+2024-10-29,fenix 5x,3952922857,14974
+2024-10-30,fenix 5x,3952922857,14998
+2024-10-31,fenix 5x,3952922857,14995
+2024-11-01,fenix 5x,3952922857,15027
+2024-11-02,fenix 5x,3952922857,15339
+2024-11-03,fenix 5x,3952922857,15010
+2024-11-04,fenix 5x,3952922857,15007
+2024-11-05,fenix 5x,3952922857,15002
+2024-11-06,fenix 5x,3952922857,15315
+2024-11-07,fenix 5x,3952922857,15021
+2024-11-08,fenix 5x,3952922857,15010
+2024-11-09,fenix 5x,3952922857,15026
+2024-11-10,fenix 5x,3952922857,15338
+2024-11-11,fenix 5x,3952922857,14986
+2024-11-12,fenix 5x,3952922857,15039
+2024-11-13,fenix 5x,3952922857,14990
+2024-11-14,fenix 5x,3952922857,15004
+2024-11-15,fenix 5x,3952922857,15012
+2024-11-16,fenix 5x,3952922857,15347
+2024-11-17,fenix 5x,3952922857,14998
+2024-11-18,fenix 5x,3952922857,15012
+2024-11-19,fenix 5x,3952922857,15009
+2024-11-20,fenix 5x,3952922857,15002
+2024-11-21,fenix 5x,3952922857,15038
+2024-11-22,fenix 5x,3952922857,15340
+2024-11-23,fenix 5x,3952922857,15002
+2024-11-24,fenix 5x,3952922857,15021
+2024-11-25,fenix 5x,3952922857,15006
+2024-11-26,fenix 5x,3952922857,14982
+2024-11-27,fenix 5x,3952922857,14999
+2024-11-28,fenix 5x,3952922857,14993
+2024-11-29,fenix 5x,3952922857,14988
+2024-11-30,fenix 5x,3952922857,15004
+2024-12-01,fenix 5x,3952922857,15172
+2024-12-02,fenix 5x,3952922857,14664
+2024-12-03,fenix 5x,3952922857,15001
+2024-12-04,fenix 5x,3952922857,15323
+2024-12-05,fenix 5x,3952922857,15006
+2024-12-06,fenix 5x,3952922857,14990
+2024-12-07,fenix 5x,3952922857,15010
+2024-12-08,fenix 5x,3952922857,15357
+2024-12-09,fenix 5x,3952922857,15337
+2024-12-10,fenix 5x,3952922857,14993
+2024-12-11,fenix 5x,3952922857,15012
+2024-12-12,fenix 5x,3952922857,15020
+2024-12-13,fenix 5x,3952922857,15369
+2024-12-14,fenix 5x,3952922857,15008
+2024-12-15,fenix 5x,3952922857,14998
+2024-12-16,fenix 5x,3952922857,15008
+2024-12-17,fenix 5x,3952922857,15350
+2024-12-18,fenix 5x,3952922857,15359
+2024-12-19,fenix 5x,3952922857,15355
+2024-12-20,fenix 5x,3952922857,15358
+2024-12-21,fenix 5x,3952922857,15340
+2024-12-22,fenix 5x,3952922857,15011
+2024-12-23,fenix 5x,3952922857,15010
+2024-12-24,fenix 5x,3952922857,15008
+2024-12-25,fenix 5x,3952922857,14998
+2024-12-26,fenix 5x,3952922857,15019
+2024-12-27,fenix 5x,3952922857,15014
+2024-12-28,fenix 5x,3952922857,15012
+2024-12-29,fenix 5x,3952922857,14998
+2024-12-30,fenix 5x,3952922857,14990
+2024-12-31,fenix 5x,3952922857,14999
+2025-01-01,fenix 5x,3952922857,15331
+2025-01-02,fenix 5x,3952922857,15350
+2025-01-03,fenix 5x,3952922857,15349
+2025-01-04,fenix 5x,3952922857,15343
+2025-01-05,fenix 5x,3952922857,14980
+2025-01-06,fenix 5x,3952922857,15006
+2025-01-07,fenix 5x,3952922857,15009
+2025-01-08,fenix 5x,3952922857,14996
+2025-01-09,fenix 5x,3952922857,14991
+2025-01-10,fenix 5x,3952922857,14989
+2025-01-11,fenix 5x,3952922857,15027
+2025-01-12,fenix 5x,3952922857,15002
+2025-01-13,fenix 5x,3952922857,14996
+2025-01-14,fenix 5x,3952922857,15002
+2025-01-15,fenix 5x,3952922857,15317
+2025-01-16,fenix 5x,3952922857,14992
+2025-01-17,fenix 5x,3952922857,14992
+2025-01-18,fenix 5x,3952922857,15004
+2025-01-19,fenix 5x,3952922857,14986
+2025-01-20,fenix 5x,3952922857,15010
+2025-01-21,fenix 5x,3952922857,15002
+2025-01-22,fenix 5x,3952922857,14982
+2025-01-23,fenix 5x,3952922857,15000
+2025-01-24,fenix 5x,3952922857,15334
+2025-01-25,fenix 5x,3952922857,14992
+2025-01-26,fenix 5x,3952922857,14979
+2025-01-27,fenix 5x,3952922857,14964
+2025-01-28,fenix 5x,3952922857,14986
+2025-01-29,fenix 5x,3952922857,15020
+2025-01-30,fenix 5x,3952922857,14991
+2025-01-31,fenix 5x,3952922857,15003
+2025-02-01,fenix 5x,3952922857,15009
+2025-02-02,fenix 5x,3952922857,15344
+2025-02-03,fenix 5x,3952922857,15004
+2025-02-04,fenix 5x,3952922857,15018
+2025-02-05,fenix 5x,3952922857,15312
+2025-02-06,fenix 5x,3952922857,14811
+2025-02-07,fenix 5x,3952922857,14680
+2025-02-08,fenix 5x,3952922857,15018
+2025-02-09,fenix 5x,3952922857,15342
+2025-02-10,fenix 5x,3952922857,14985
+2025-02-11,fenix 5x,3952922857,14998
+2025-02-12,fenix 5x,3952922857,14984
+2025-02-13,fenix 5x,3952922857,15327
+2025-02-14,fenix 5x,3952922857,15008
+2025-02-15,fenix 5x,3952922857,15346
+2025-02-16,fenix 5x,3952922857,15003
+2025-02-17,fenix 5x,3952922857,14981
+2025-02-18,fenix 5x,3952922857,15008
+2025-02-19,fenix 5x,3952922857,14985
+2025-02-20,fenix 5x,3952922857,14994
+2025-02-21,fenix 5x,3952922857,15004
+2025-02-22,fenix 5x,3952922857,15011
+2025-02-23,fenix 5x,3952922857,15350
+2025-02-24,fenix 5x,3952922857,15327
+2025-02-25,fenix 5x,3952922857,14984
+2025-02-26,fenix 5x,3952922857,15003
+2025-02-27,fenix 5x,3952922857,15024
+2025-02-28,fenix 5x,3952922857,15016
+2025-03-01,fenix 5x,3952922857,18866
+2025-03-02,fenix 5x,3952922857,26347
+2025-03-03,unknown,unknown,23155
+2025-03-04,unknown,unknown,25180
+2025-03-05,unknown,unknown,24933
+2025-03-06,unknown,unknown,25399
+2025-03-07,unknown,unknown,26313
+2025-03-08,unknown,unknown,24280
+2025-03-09,unknown,unknown,28329
+2025-03-10,fenix 7X Sapphire Solar,3425438179,36959
+2025-03-11,fenix 7X Sapphire Solar,3425438179,29209
+2025-03-12,fenix 7X Sapphire Solar,3425438179,29092
+2025-03-13,fenix 7X Sapphire Solar,3425438179,26443
+2025-03-14,fenix 7X Sapphire Solar,3425438179,29203
+2025-03-15,fenix 7X Sapphire Solar,3425438179,29979
+2025-03-16,fenix 7X Sapphire Solar,3425438179,29949
+2025-03-17,fenix 7X Sapphire Solar,3425438179,28697
+2025-03-18,fenix 7X Sapphire Solar,3425438179,29873
+2025-03-19,fenix 7X Sapphire Solar,3425438179,28763
+2025-03-20,fenix 7X Sapphire Solar,3425438179,36558
+2025-03-21,fenix 7X Sapphire Solar,3425438179,28954
+2025-03-22,fenix 7X Sapphire Solar,3425438179,30255
+2025-03-23,fenix 7X Sapphire Solar,3425438179,28677
+2025-03-24,fenix 7X Sapphire Solar,3425438179,29979
+2025-03-25,fenix 7X Sapphire Solar,3425438179,27313
+2025-03-26,fenix 7X Sapphire Solar,3425438179,27594
+2025-03-27,fenix 7X Sapphire Solar,3425438179,30267
+2025-03-28,fenix 7X Sapphire Solar,3425438179,30241
+2025-03-29,fenix 7X Sapphire Solar,3425438179,30186
+2025-03-30,fenix 7X Sapphire Solar,3425438179,30227
+2025-03-31,fenix 7X Sapphire Solar,3425438179,27322
+2025-04-01,fenix 7X Sapphire Solar,3425438179,28699
+2025-04-02,fenix 7X Sapphire Solar,3425438179,31165
+2025-04-03,fenix 7X Sapphire Solar,3425438179,28663
+2025-04-04,fenix 7X Sapphire Solar,3425438179,30005
+2025-04-05,fenix 7X Sapphire Solar,3425438179,31667
+2025-04-06,fenix 7X Sapphire Solar,3425438179,28705
+2025-04-07,fenix 7X Sapphire Solar,3425438179,29799
+2025-04-08,fenix 7X Sapphire Solar,3425438179,31420
+2025-04-09,fenix 7X Sapphire Solar,3425438179,25993
+2025-04-10,fenix 7X Sapphire Solar,3425438179,28664
+2025-04-11,fenix 7X Sapphire Solar,3425438179,30010
+2025-04-12,fenix 7X Sapphire Solar,3425438179,31382
+2025-04-13,fenix 7X Sapphire Solar,3425438179,31135
+2025-04-14,fenix 7X Sapphire Solar,3425438179,29941
+2025-04-15,fenix 7X Sapphire Solar,3425438179,28645
+2025-04-16,fenix 7X Sapphire Solar,3425438179,30037
+2025-04-17,fenix 7X Sapphire Solar,3425438179,27300
+2025-04-18,fenix 7X Sapphire Solar,3425438179,26354
+2025-04-19,fenix 7X Sapphire Solar,3425438179,27314
+2025-04-20,fenix 7X Sapphire Solar,3425438179,30140
+2025-04-21,fenix 7X Sapphire Solar,3425438179,32976
+2025-04-22,fenix 7X Sapphire Solar,3425438179,28470
+2025-04-23,fenix 7X Sapphire Solar,3425438179,28296
+2025-04-24,fenix 7X Sapphire Solar,3425438179,28555
+2025-04-25,fenix 7X Sapphire Solar,3425438179,27040
+2025-04-26,fenix 7X Sapphire Solar,3425438179,28507
+2025-04-27,fenix 7X Sapphire Solar,3425438179,29716
+2025-04-28,fenix 7X Sapphire Solar,3425438179,28666
+2025-04-29,fenix 7X Sapphire Solar,3425438179,33491
+2025-04-30,fenix 7X Sapphire Solar,3425438179,32790
+2025-05-01,fenix 7X Sapphire Solar,3425438179,27383
+2025-05-02,fenix 7X Sapphire Solar,3425438179,31099
+2025-05-03,fenix 7X Sapphire Solar,3425438179,28498
+2025-05-04,fenix 7X Sapphire Solar,3425438179,29866
+2025-05-05,fenix 7X Sapphire Solar,3425438179,30034
+2025-05-06,fenix 7X Sapphire Solar,3425438179,35171
+2025-05-07,fenix 7X Sapphire Solar,3425438179,31298
+2025-05-08,fenix 7X Sapphire Solar,3425438179,28653
+2025-05-09,fenix 7X Sapphire Solar,3425438179,34866
+2025-05-10,fenix 7X Sapphire Solar,3425438179,33892
+2025-05-11,fenix 7X Sapphire Solar,3425438179,28488
+2025-05-12,fenix 7X Sapphire Solar,3425438179,29926
+2025-05-13,fenix 7X Sapphire Solar,3425438179,30037
+2025-05-14,fenix 7X Sapphire Solar,3425438179,26124
+2025-05-15,fenix 7X Sapphire Solar,3425438179,29938
+2025-05-16,fenix 7X Sapphire Solar,3425438179,28739
+2025-05-17,fenix 7X Sapphire Solar,3425438179,25961
+2025-05-18,fenix 7X Sapphire Solar,3425438179,28656
+2025-05-19,fenix 7X Sapphire Solar,3425438179,29977
+2025-05-20,fenix 7X Sapphire Solar,3425438179,27461
+2025-05-21,fenix 7X Sapphire Solar,3425438179,29938
+2025-05-22,fenix 7X Sapphire Solar,3425438179,28638
+2025-05-23,fenix 7X Sapphire Solar,3425438179,31323
+2025-05-24,fenix 7X Sapphire Solar,3425438179,25979
+2025-05-25,fenix 7X Sapphire Solar,3425438179,29744
+2025-05-26,fenix 7X Sapphire Solar,3425438179,28725
+2025-05-27,fenix 7X Sapphire Solar,3425438179,28716
+2025-05-28,fenix 7X Sapphire Solar,3425438179,29901
+2025-05-29,fenix 7X Sapphire Solar,3425438179,31270
+2025-05-30,fenix 7X Sapphire Solar,3425438179,31427
+2025-05-31,fenix 7X Sapphire Solar,3425438179,29532
+2025-06-01,fenix 7X Sapphire Solar,3425438179,28590
+2025-06-02,fenix 7X Sapphire Solar,3425438179,31180
+2025-06-03,fenix 7X Sapphire Solar,3425438179,30026
+2025-06-04,fenix 7X Sapphire Solar,3425438179,27361
+2025-06-05,fenix 7X Sapphire Solar,3425438179,27351
+2025-06-06,fenix 7X Sapphire Solar,3425438179,28687
+2025-06-07,fenix 7X Sapphire Solar,3425438179,28702
+2025-06-08,fenix 7X Sapphire Solar,3425438179,27287
+2025-06-09,fenix 7X Sapphire Solar,3425438179,28752
+2025-06-10,fenix 7X Sapphire Solar,3425438179,28663
+2025-06-11,fenix 7X Sapphire Solar,3425438179,28651
+2025-06-12,fenix 7X Sapphire Solar,3425438179,28658
+2025-06-13,fenix 7X Sapphire Solar,3425438179,26224
+2025-06-14,fenix 7X Sapphire Solar,3425438179,31194
+2025-06-15,fenix 7X Sapphire Solar,3425438179,34215
+2025-06-16,fenix 7X Sapphire Solar,3425438179,30908
+2025-06-17,fenix 7X Sapphire Solar,3425438179,35248
+2025-06-18,fenix 7X Sapphire Solar,3425438179,27707
+2025-06-19,fenix 7X Sapphire Solar,3425438179,28422
+2025-06-20,fenix 7X Sapphire Solar,3425438179,27239
+2025-06-21,fenix 7X Sapphire Solar,3425438179,27131
+2025-06-22,fenix 7X Sapphire Solar,3425438179,26028
+2025-06-23,fenix 7X Sapphire Solar,3425438179,31137
+2025-06-24,fenix 7X Sapphire Solar,3425438179,31188
+2025-06-25,fenix 7X Sapphire Solar,3425438179,28729
+2025-06-26,fenix 7X Sapphire Solar,3425438179,27383
+2025-06-27,fenix 7X Sapphire Solar,3425438179,28765
+2025-06-28,fenix 7X Sapphire Solar,3425438179,27343
+2025-06-29,fenix 7X Sapphire Solar,3425438179,27456
+2025-06-30,fenix 7X Sapphire Solar,3425438179,28458
+2025-07-01,fenix 7X Sapphire Solar,3425438179,29465
+2025-07-02,fenix 7X Sapphire Solar,3425438179,27379
+2025-07-03,fenix 7X Sapphire Solar,3425438179,34136
+2025-07-04,fenix 7X Sapphire Solar,3425438179,31336
+2025-07-05,fenix 7X Sapphire Solar,3425438179,28562
+2025-07-06,fenix 7X Sapphire Solar,3425438179,31100
+2025-07-07,fenix 7X Sapphire Solar,3425438179,27157
+2025-07-08,fenix 7X Sapphire Solar,3425438179,28778
+2025-07-09,fenix 7X Sapphire Solar,3425438179,32223
+2025-07-10,fenix 7X Sapphire Solar,3425438179,28723
+2025-07-11,fenix 7X Sapphire Solar,3425438179,30070
+2025-07-12,fenix 7X Sapphire Solar,3425438179,30492
+2025-07-13,fenix 7X Sapphire Solar,3425438179,28497
+2025-07-14,fenix 7X Sapphire Solar,3425438179,28508
+2025-07-15,fenix 7X Sapphire Solar,3425438179,29870
+2025-07-16,fenix 7X Sapphire Solar,3425438179,30093
+2025-07-17,fenix 7X Sapphire Solar,3425438179,27366
+2025-07-18,fenix 7X Sapphire Solar,3425438179,28701
+2025-07-19,fenix 7X Sapphire Solar,3425438179,27390
+2025-07-20,fenix 7X Sapphire Solar,3425438179,27388
+2025-07-21,fenix 7X Sapphire Solar,3425438179,28750
+2025-07-22,fenix 7X Sapphire Solar,3425438179,30911
+2025-07-23,fenix 7X Sapphire Solar,3425438179,30006
+2025-07-24,fenix 7X Sapphire Solar,3425438179,27385
+2025-07-25,fenix 7X Sapphire Solar,3425438179,29971
+2025-07-26,fenix 7X Sapphire Solar,3425438179,27175
+2025-07-27,fenix 7X Sapphire Solar,3425438179,31216
+2025-07-28,fenix 7X Sapphire Solar,3425438179,28509
+2025-07-29,fenix 7X Sapphire Solar,3425438179,28414
+2025-07-30,fenix 7X Sapphire Solar,3425438179,28636
+2025-07-31,fenix 7X Sapphire Solar,3425438179,27170
+2025-08-01,fenix 7X Sapphire Solar,3425438179,29513
+2025-08-02,fenix 7X Sapphire Solar,3425438179,28578
+2025-08-03,fenix 7X Sapphire Solar,3425438179,31175
+2025-08-04,fenix 7X Sapphire Solar,3425438179,31062
+2025-08-05,fenix 7X Sapphire Solar,3425438179,28717
+2025-08-06,fenix 7X Sapphire Solar,3425438179,27403
+2025-08-07,fenix 7X Sapphire Solar,3425438179,29897
+2025-08-08,fenix 7X Sapphire Solar,3425438179,31244
+2025-08-09,fenix 7X Sapphire Solar,3425438179,27179
+2025-08-10,fenix 7X Sapphire Solar,3425438179,28594
+2025-08-11,fenix 7X Sapphire Solar,3425438179,29796
+2025-08-12,fenix 7X Sapphire Solar,3425438179,28660
+2025-08-13,fenix 7X Sapphire Solar,3425438179,30237
+2025-08-14,fenix 7X Sapphire Solar,3425438179,28441
+2025-08-15,fenix 7X Sapphire Solar,3425438179,27346
+2025-08-16,fenix 7X Sapphire Solar,3425438179,26121
+2025-08-17,fenix 7X Sapphire Solar,3425438179,30015
+2025-08-18,fenix 7X Sapphire Solar,3425438179,30014
+2025-08-19,fenix 7X Sapphire Solar,3425438179,30086
+2025-08-20,fenix 7X Sapphire Solar,3425438179,28706
+2025-08-21,fenix 7X Sapphire Solar,3425438179,28787
+2025-08-22,fenix 7X Sapphire Solar,3425438179,28705
+2025-08-23,fenix 7X Sapphire Solar,3425438179,32170
+2025-08-24,fenix 7X Sapphire Solar,3425438179,31329
+2025-08-25,fenix 7X Sapphire Solar,3425438179,29811
+2025-08-26,fenix 7X Sapphire Solar,3425438179,29987
+2025-08-27,fenix 7X Sapphire Solar,3425438179,28665
+2025-08-28,fenix 7X Sapphire Solar,3425438179,27315
+2025-08-29,fenix 7X Sapphire Solar,3425438179,29989
+2025-08-30,fenix 7X Sapphire Solar,3425438179,28556
+2025-08-31,fenix 7X Sapphire Solar,3425438179,31185
+2025-09-01,fenix 7X Sapphire Solar,3425438179,27393
+2025-09-02,fenix 7X Sapphire Solar,3425438179,28733
+2025-09-03,fenix 7X Sapphire Solar,3425438179,28608
+2025-09-04,fenix 7X Sapphire Solar,3425438179,30107
+2025-09-05,fenix 7X Sapphire Solar,3425438179,31110
+2025-09-06,fenix 7X Sapphire Solar,3425438179,29458
+2025-09-07,fenix 7X Sapphire Solar,3425438179,27370
+2025-09-08,fenix 7X Sapphire Solar,3425438179,29786
+2025-09-09,fenix 7X Sapphire Solar,3425438179,28762
+2025-09-10,fenix 7X Sapphire Solar,3425438179,28745
+2025-09-11,fenix 7X Sapphire Solar,3425438179,27330
+2025-09-12,fenix 7X Sapphire Solar,3425438179,31420
+2025-09-13,fenix 7X Sapphire Solar,3425438179,31358
+2025-09-14,fenix 7X Sapphire Solar,3425438179,32419
+2025-09-15,fenix 7X Sapphire Solar,3425438179,27256
+2025-09-16,fenix 7X Sapphire Solar,3425438179,25984
+2025-09-17,fenix 7X Sapphire Solar,3425438179,30054
+2025-09-18,fenix 7X Sapphire Solar,3425438179,27362
+2025-09-19,fenix 7X Sapphire Solar,3425438179,28760
+2025-09-20,fenix 7X Sapphire Solar,3425438179,27287
+2025-09-21,fenix 7X Sapphire Solar,3425438179,27444
+2025-09-22,fenix 7X Sapphire Solar,3425438179,27383
+2025-09-23,fenix 7X Sapphire Solar,3425438179,27376
+2025-09-24,fenix 7X Sapphire Solar,3425438179,25992
+2025-09-25,fenix 7X Sapphire Solar,3425438179,27489
+2025-09-26,fenix 7X Sapphire Solar,3425438179,28842
+2025-09-27,fenix 7X Sapphire Solar,3425438179,27358
+2025-09-28,fenix 7X Sapphire Solar,3425438179,28559
+2025-09-29,fenix 7X Sapphire Solar,3425438179,29827
+2025-09-30,fenix 7X Sapphire Solar,3425438179,27347
+2025-10-01,fenix 7X Sapphire Solar,3425438179,28767
+2025-10-02,fenix 7X Sapphire Solar,3425438179,28666
+2025-10-03,fenix 7X Sapphire Solar,3425438179,31357
+2025-10-04,fenix 7X Sapphire Solar,3425438179,28500
+2025-10-05,fenix 7X Sapphire Solar,3425438179,27405
+2025-10-06,fenix 7X Sapphire Solar,3425438179,28691
+2025-10-07,fenix 7X Sapphire Solar,3425438179,28705
+2025-10-08,fenix 7X Sapphire Solar,3425438179,30060
+2025-10-09,fenix 7X Sapphire Solar,3425438179,32226
+2025-10-10,fenix 7X Sapphire Solar,3425438179,28724
+2025-10-11,fenix 7X Sapphire Solar,3425438179,28844
+2025-10-12,fenix 7X Sapphire Solar,3425438179,28386
+2025-10-13,fenix 7X Sapphire Solar,3425438179,30015
+2025-10-14,fenix 7X Sapphire Solar,3425438179,29496
+2025-10-15,fenix 7X Sapphire Solar,3425438179,26159
+2025-10-16,fenix 7X Sapphire Solar,3425438179,27350
+2025-10-17,fenix 7X Sapphire Solar,3425438179,32210
+2025-10-18,fenix 7X Sapphire Solar,3425438179,28866
+2025-10-19,fenix 7X Sapphire Solar,3425438179,29801
+2025-10-20,fenix 7X Sapphire Solar,3425438179,30058
+2025-10-21,fenix 7X Sapphire Solar,3425438179,32534
+2025-10-22,fenix 7X Sapphire Solar,3425438179,32947
+2025-10-23,fenix 7X Sapphire Solar,3425438179,29945
+2025-10-24,fenix 7X Sapphire Solar,3425438179,27165
+2025-10-25,fenix 7X Sapphire Solar,3425438179,28498
+2025-10-26,fenix 7X Sapphire Solar,3425438179,28676
+2025-10-27,fenix 7X Sapphire Solar,3425438179,28708
+2025-10-28,fenix 7X Sapphire Solar,3425438179,29695
+2025-10-29,fenix 7X Sapphire Solar,3425438179,28710
+2025-10-30,fenix 7X Sapphire Solar,3425438179,27312
+2025-10-31,fenix 7X Sapphire Solar,3425438179,29964
+2025-11-01,fenix 7X Sapphire Solar,3425438179,484323
+2025-11-02,fenix 7X Sapphire Solar,3425438179,508715
+2025-11-03,fenix 7X Sapphire Solar,3425438179,477223
+2025-11-04,fenix 7X Sapphire Solar,3425438179,482419
+2025-11-05,fenix 7X Sapphire Solar,3425438179,456875
+2025-11-06,fenix 7X Sapphire Solar,3425438179,477503
+2025-11-07,fenix 7X Sapphire Solar,3425438179,478457
+2025-11-08,fenix 7X Sapphire Solar,3425438179,464972
+2025-11-09,fenix 7X Sapphire Solar,3425438179,463008
+2025-11-10,fenix 7X Sapphire Solar,3425438179,456711
+2025-11-11,fenix 7X Sapphire Solar,3425438179,489464
+2025-11-12,fenix 7X Sapphire Solar,3425438179,498066
+2025-11-13,fenix 7X Sapphire Solar,3425438179,468185
+2025-11-14,fenix 7X Sapphire Solar,3425438179,514489
+2025-11-15,fenix 7X Sapphire Solar,3425438179,515373
+2025-11-16,fenix 7X Sapphire Solar,3425438179,439078
+2025-11-17,fenix 7X Sapphire Solar,3425438179,480403
+2025-11-18,fenix 7X Sapphire Solar,3425438179,490213
+2025-11-19,fenix 7X Sapphire Solar,3425438179,497151
+2025-11-20,fenix 7X Sapphire Solar,3425438179,506604
+2025-11-21,fenix 7X Sapphire Solar,3425438179,492405
+2025-11-22,fenix 7X Sapphire Solar,3425438179,519597
+2025-11-23,fenix 7X Sapphire Solar,3425438179,496289
+2025-11-24,fenix 7X Sapphire Solar,3425438179,511207
+2025-11-25,fenix 7X Sapphire Solar,3425438179,494732
+2025-11-26,fenix 7X Sapphire Solar,3425438179,518288
+2025-11-27,fenix 7X Sapphire Solar,3425438179,478833
+2025-11-28,fenix 7X Sapphire Solar,3425438179,511347
+2025-11-29,fenix 7X Sapphire Solar,3425438179,449688
+2025-11-30,fenix 7X Sapphire Solar,3425438179,504408
+2025-12-01,fenix 7X Sapphire Solar,3425438179,517681
+2025-12-02,fenix 7X Sapphire Solar,3425438179,402048
+2025-12-03,fenix 7X Sapphire Solar,3425438179,491659
+2025-12-04,fenix 7X Sapphire Solar,3425438179,506514
+2025-12-05,fenix 7X Sapphire Solar,3425438179,526129
+2025-12-06,fenix 7X Sapphire Solar,3425438179,491156
+2025-12-07,fenix 7X Sapphire Solar,3425438179,534937
+2025-12-08,fenix 7X Sapphire Solar,3425438179,512947
+2025-12-09,fenix 7X Sapphire Solar,3425438179,524596
+2025-12-10,fenix 7X Sapphire Solar,3425438179,502858
+2025-12-11,fenix 7X Sapphire Solar,3425438179,498630
+2025-12-12,other.device,3425438179,423386
+2025-12-13,fenix 7X Sapphire Solar,3425438179,572399
+2025-12-14,fenix 7X Sapphire Solar,3425438179,417449
+2025-12-15,fenix 7X Sapphire Solar,3425438179,524973
+2025-12-16,fenix 7X Sapphire Solar,3425438179,439720
+2025-12-17,fenix 7X Sapphire Solar,3425438179,498214
+2025-12-18,fenix 7X Sapphire Solar,3425438179,443995
+2025-12-19,fenix 7X Sapphire Solar,3425438179,511439
+2025-12-20,fenix 7X Sapphire Solar,3425438179,603753
+2025-12-21,fenix 7X Sapphire Solar,3425438179,537028
+2025-12-22,fenix 7X Sapphire Solar,3425438179,460953
+2025-12-23,fenix 7X Sapphire Solar,3425438179,513490
+2025-12-24,fenix 7X Sapphire Solar,3425438179,453348
+2025-12-25,fenix 7X Sapphire Solar,3425438179,526326
+2025-12-26,fenix 7X Sapphire Solar,3425438179,505415
+2025-12-27,fenix 7X Sapphire Solar,3425438179,472823
+2025-12-28,fenix 7X Sapphire Solar,3425438179,543196
+2025-12-29,fenix 7X Sapphire Solar,3425438179,496534
+2025-12-30,fenix 7X Sapphire Solar,3425438179,512555
+2025-12-31,fenix 7X Sapphire Solar,3425438179,544803
+2026-01-01,fenix 7X Sapphire Solar,3425438179,494796
+2026-01-02,fenix 7X Sapphire Solar,3425438179,467670
+2026-01-03,fenix 7X Sapphire Solar,3425438179,581895
+2026-01-04,fenix 7X Sapphire Solar,3425438179,478415
+2026-01-05,fenix 7X Sapphire Solar,3425438179,442097
+2026-01-06,fenix 7X Sapphire Solar,3425438179,497883
+2026-01-07,fenix 7X Sapphire Solar,3425438179,487160
+2026-01-08,fenix 7X Sapphire Solar,3425438179,486591
+2026-01-09,fenix 7X Sapphire Solar,3425438179,493013
+2026-01-10,fenix 7X Sapphire Solar,3425438179,520816
+2026-01-11,fenix 7X Sapphire Solar,3425438179,492718
+2026-01-12,fenix 7X Sapphire Solar,3425438179,535102
+2026-01-13,fenix 7X Sapphire Solar,3425438179,515967
+2026-01-14,fenix 7X Sapphire Solar,3425438179,466475
+2026-01-15,fenix 7X Sapphire Solar,3425438179,507904
+2026-01-16,fenix 7X Sapphire Solar,3425438179,480313
+2026-01-17,fenix 7X Sapphire Solar,3425438179,484326
+2026-01-18,fenix 7X Sapphire Solar,3425438179,545553
+2026-01-19,fenix 7X Sapphire Solar,3425438179,485735
+2026-01-20,fenix 7X Sapphire Solar,3425438179,508915
+2026-01-21,fenix 7X Sapphire Solar,3425438179,497044
+2026-01-22,fenix 7X Sapphire Solar,3425438179,481285
+2026-01-23,fenix 7X Sapphire Solar,3425438179,486522
+2026-01-24,fenix 7X Sapphire Solar,3425438179,504401
+2026-01-25,fenix 7X Sapphire Solar,3425438179,455781
+2026-01-26,fenix 7X Sapphire Solar,3425438179,449987
+2026-01-27,fenix 7X Sapphire Solar,3425438179,502945
+2026-01-28,fenix 7X Sapphire Solar,3425438179,490556
+2026-01-29,fenix 7X Sapphire Solar,3425438179,504805
+2026-01-30,fenix 7X Sapphire Solar,3425438179,498131
+2026-01-31,fenix 7X Sapphire Solar,3425438179,525594
+2026-02-01,fenix 7X Sapphire Solar,3425438179,534670
+2026-02-02,fenix 7X Sapphire Solar,3425438179,496654
+2026-02-03,fenix 7X Sapphire Solar,3425438179,477476
+2026-02-04,fenix 7X Sapphire Solar,3425438179,502637
+2026-02-05,fenix 7X Sapphire Solar,3425438179,491385
+2026-02-06,fenix 7X Sapphire Solar,3425438179,485900
+2026-02-07,fenix 7X Sapphire Solar,3425438179,485764
+2026-02-08,fenix 7X Sapphire Solar,3425438179,573626
+2026-02-09,fenix 7X Sapphire Solar,3425438179,509199
+2026-02-10,fenix 7X Sapphire Solar,3425438179,490712
+2026-02-11,fenix 7X Sapphire Solar,3425438179,525805
+2026-02-12,fenix 7X Sapphire Solar,3425438179,513971
+2026-02-13,fenix 7X Sapphire Solar,3425438179,478705
+2026-02-14,fenix 7X Sapphire Solar,3425438179,568462
+2026-02-15,fenix 7X Sapphire Solar,3425438179,504002
+2026-02-16,fenix 7X Sapphire Solar,3425438179,512850
+2026-02-17,fenix 7X Sapphire Solar,3425438179,511074
+2026-02-18,fenix 7X Sapphire Solar,3425438179,499842
+2026-02-19,fenix 7X Sapphire Solar,3425438179,500127
+2026-02-20,fenix 7X Sapphire Solar,3425438179,526425
+2026-02-21,fenix 7X Sapphire Solar,3425438179,455347
+2026-02-22,fenix 7X Sapphire Solar,3425438179,542410
+2026-02-23,fenix 7X Sapphire Solar,3425438179,504713
+2026-02-24,fenix 7X Sapphire Solar,3425438179,502226
+2026-02-25,fenix 7X Sapphire Solar,3425438179,496565
+2026-02-26,fenix 7X Sapphire Solar,3425438179,495567
+2026-02-27,fenix 7X Sapphire Solar,3425438179,511564
+2026-02-28,fenix 7X Sapphire Solar,3425438179,491857
+2026-03-01,fenix 7X Sapphire Solar,3425438179,505440
+2026-03-02,fenix 7X Sapphire Solar,3425438179,488767
+2026-03-03,fenix 7X Sapphire Solar,3425438179,509841
+2026-03-04,fenix 7X Sapphire Solar,3425438179,464424
+2026-03-05,fenix 7X Sapphire Solar,3425438179,512229
+2026-03-06,fenix 7X Sapphire Solar,3425438179,537038
+2026-03-07,fenix 7X Sapphire Solar,3425438179,499516
+2026-03-08,fenix 7X Sapphire Solar,3425438179,177683
+2026-03-09,fenix 7X Sapphire Solar,3425438179,518899
+2026-03-10,fenix 7X Sapphire Solar,3425438179,498082
+2026-03-11,fenix 7X Sapphire Solar,3425438179,488249
+2026-03-12,fenix 7X Sapphire Solar,3425438179,498344
+2026-03-13,fenix 7X Sapphire Solar,3425438179,512847
+2026-03-14,fenix 7X Sapphire Solar,3425438179,483576
+2026-03-15,fenix 7X Sapphire Solar,3425438179,521819
+2026-03-16,fenix 7X Sapphire Solar,3425438179,513376
+2026-03-17,fenix 7X Sapphire Solar,3425438179,493675
+2026-03-18,fenix 7X Sapphire Solar,3425438179,513600
+2026-03-19,fenix 7X Sapphire Solar,3425438179,502865
+2026-03-20,fenix 7X Sapphire Solar,3425438179,518374
+2026-03-21,fenix 7X Sapphire Solar,3425438179,456966
+2026-03-22,fenix 7X Sapphire Solar,3425438179,426015
+2026-03-23,fenix 7X Sapphire Solar,3425438179,473451
+2026-03-24,fenix 7X Sapphire Solar,3425438179,484093
+2026-03-25,fenix 7X Sapphire Solar,3425438179,509942
+2026-03-26,fenix 7X Sapphire Solar,3425438179,509108
+2026-03-27,fenix 7X Sapphire Solar,3425438179,479728
+2026-03-28,fenix 7X Sapphire Solar,3425438179,459970
+2026-03-29,fenix 7X Sapphire Solar,3425438179,436167
+2026-03-30,fenix 7X Sapphire Solar,3425438179,510335
+2026-03-31,fenix 7X Sapphire Solar,3425438179,498222
+2026-04-01,fenix 7X Sapphire Solar,3425438179,480153
+2026-04-02,fenix 7X Sapphire Solar,3425438179,483514
+2026-04-03,fenix 7X Sapphire Solar,3425438179,469761
+2026-04-04,fenix 7X Sapphire Solar,3425438179,506494
+2026-04-05,fenix 7X Sapphire Solar,3425438179,425480
+2026-04-06,fenix 7X Sapphire Solar,3425438179,547194
+2026-04-07,fenix 7X Sapphire Solar,3425438179,512507
+2026-04-08,fenix 7X Sapphire Solar,3425438179,510497
+2026-04-09,fenix 7X Sapphire Solar,3425438179,555398
+2026-04-10,fenix 7X Sapphire Solar,3425438179,468412
+2026-04-11,fenix 7X Sapphire Solar,3425438179,518109
+2026-04-12,fenix 7X Sapphire Solar,3425438179,496201
+2026-04-13,fenix 7X Sapphire Solar,3425438179,502654
+2026-04-14,fenix 7X Sapphire Solar,3425438179,504271
+2026-04-15,fenix 7X Sapphire Solar,3425438179,487331
+2026-04-16,fenix 7X Sapphire Solar,3425438179,492797
+2026-04-17,fenix 7X Sapphire Solar,3425438179,524808
+2026-04-18,fenix 7X Sapphire Solar,3425438179,527277
+2026-04-19,fenix 7X Sapphire Solar,3425438179,453722
+2026-04-20,fenix 7X Sapphire Solar,3425438179,525786
+2026-04-21,fenix 7X Sapphire Solar,3425438179,509897
+2026-04-22,fenix 7X Sapphire Solar,3425438179,509805
+2026-04-23,fenix 7X Sapphire Solar,3425438179,494821
+2026-04-24,fenix 7X Sapphire Solar,3425438179,508846
+2026-04-25,fenix 7X Sapphire Solar,3425438179,504581
+2026-04-26,fenix 7X Sapphire Solar,3425438179,560976
+2026-04-27,fenix 7X Sapphire Solar,3425438179,508232
+2026-04-28,fenix 7X Sapphire Solar,3425438179,517378
+2026-04-29,fenix 7X Sapphire Solar,3425438179,479754
+2026-04-30,fenix 7X Sapphire Solar,3425438179,518512
+2026-05-01,fenix 7X Sapphire Solar,3425438179,568094
+2026-05-02,fenix 7X Sapphire Solar,3425438179,536792
+2026-05-03,fenix 7X Sapphire Solar,3425438179,467686
+2026-05-04,fenix 7X Sapphire Solar,3425438179,512434
+2026-05-05,fenix 7X Sapphire Solar,3425438179,522344
+2026-05-06,fenix 7X Sapphire Solar,3425438179,512377
+2026-05-07,fenix 7X Sapphire Solar,3425438179,513892
+2026-05-08,fenix 7X Sapphire Solar,3425438179,457122
+2026-05-09,fenix 7X Sapphire Solar,3425438179,508318
+2026-05-10,fenix 7X Sapphire Solar,3425438179,449647
+2026-05-11,fenix 7X Sapphire Solar,3425438179,525648
+2026-05-12,fenix 7X Sapphire Solar,3425438179,488065
+2026-05-13,fenix 7X Sapphire Solar,3425438179,505433
+2026-05-14,fenix 7X Sapphire Solar,3425438179,533201
+2026-05-15,fenix 7X Sapphire Solar,3425438179,449993
+2026-05-16,fenix 7X Sapphire Solar,3425438179,520171
+2026-05-17,fenix 7X Sapphire Solar,3425438179,488444
+2026-05-18,fenix 7X Sapphire Solar,3425438179,511368
+2026-05-19,fenix 7X Sapphire Solar,3425438179,495023
+2026-05-20,fenix 7X Sapphire Solar,3425438179,501756
+2026-05-21,fenix 7X Sapphire Solar,3425438179,485395
+2026-05-22,fenix 7X Sapphire Solar,3425438179,500282
+2026-05-23,fenix 7X Sapphire Solar,3425438179,384287
+2026-05-24,fenix 7X Sapphire Solar,3425438179,392711
+2026-05-25,fenix 7X Sapphire Solar,3425438179,367593
+2026-05-26,fenix 7X Sapphire Solar,3425438179,367007
+2026-05-27,fenix 7X Sapphire Solar,3425438179,401207
+2026-05-28,fenix 7X Sapphire Solar,3425438179,398373
+2026-05-29,fenix 7X Sapphire Solar,3425438179,380909
+2026-05-30,fenix 7X Sapphire Solar,3425438179,504980
+2026-05-31,fenix 7X Sapphire Solar,3425438179,504910
+2026-06-01,fenix 7X Sapphire Solar,3425438179,504446
+2026-06-02,fenix 7X Sapphire Solar,3425438179,488566
+2026-06-03,fenix 7X Sapphire Solar,3425438179,502182
+2026-06-04,fenix 7X Sapphire Solar,3425438179,467690

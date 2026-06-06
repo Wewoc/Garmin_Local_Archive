@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.6**
+**Currently stable — v1.5.6.2**
 
 ---
 
@@ -14,62 +14,250 @@
 
 ---
 
-### v1.5.6.1 — Encrypted Mirror Container
+### v1.5.6.3 — Code Quality Patch
 
-Introduces `mirror.gla` — a single encrypted container file replacing the plain
-mirror folder. Extends v1.5.6 without changing the import protocol or pipeline.
+Maintenance release addressing findings from two independent code reviews
+of v1.5.6.1 (Claude direct code review + Gemini blind review via ZIP upload).
+No new features, no pipeline changes, no user-visible behaviour changes.
 
-The container format extends the "local-only" philosophy to transport: health
-data on USB, NAS, or a cloud folder of the user's choice remains unreadable
-without the password. No cloud dependency, no third-party service.
+Sources:
+- Claude: direct file read, concrete line references
+- Gemini: blind review (fresh context, no prior GLA knowledge), partial file input
 
-**`garmin_container.py` — new module**
-
-Sole Owner of `mirror.gla`. Implements a section-based AES-256-GCM container
-with three independent encrypted sections (quality_log, raw, context). Each
-section has its own derived key — knowledge of one section key does not
-compromise the others.
-
-Key derivation: PBKDF2-HMAC-SHA256 (600,000 iterations) produces a master key
-from the user's password and a per-container salt. HKDF-Expand derives
-independent section keys from the master. The plaintext header is authenticated
-via HMAC-SHA256 — offset manipulation without the master key is not possible.
-
-Container writes are atomic: `mirror.gla.tmp` → `fsync()` → `os.replace()`.
-An interrupted write never produces a corrupt container.
-
-Import reads only what it needs: `unlock_meta()` decrypts only the quality_log
-section for delta analysis; `fulfill_order()` decrypts only the sections
-containing requested files. Raw and context data are never decrypted unless
-explicitly ordered. No plaintext ever touches disk.
-
-Spot-Check (introduced in v1.5.5) is removed from `garmin_mirror.py` — HMAC
-verification on every container open provides stronger integrity guarantees than
-a CRC32 sample check.
-
-**Compatibility:** `garmin_import_mirror.py` retains support for plain mirror
-folders (v1.5.6 format) for one release cycle. Folder support will be removed
-in a future version.
-
-**What changes:**
-- `garmin/garmin_container.py` — new module. API: `lock()`, `unlock_meta()`,
-  `fulfill_order()`, `is_container()`
-- `garmin/garmin_mirror.py` — delegates to `garmin_container.lock()`.
-  Password parameter added. Spot-Check removed.
-- `garmin/garmin_import_mirror.py` — reads via `garmin_container.unlock_meta()`
-  and `fulfill_order()`. Plain folder fallback retained for compatibility.
-- `garmin_app_base.py` — password dialog for Mirror and Import operations.
-  Settings field relabelled "Mirror target" (accepts folder or `.gla` file).
-  `is_container()` used for button state detection.
-
-**What does not change:**
-- Import protocol from delta analysis onward — identical to v1.5.6
-- Pipeline entry point, sole owner principle, all existing invariants
-- No new package dependencies (`cryptography` already required)
+Intersection of both reviews = confirmed priority. Single-source findings
+included where the underlying evidence is code-verifiable.
 
 ---
 
-### v1.5.7 — In-App File Viewer
+**Finding 1 — `_QUALITY_RANK` duplicate definition**
+*Source: Claude*
+
+`_QUALITY_RANK` is defined twice with different numeric values:
+- `garmin_collector.py` (line 110): `{"high": 3, "medium": 2, "low": 1, "failed": 0}`
+- `garmin/quality/_maint.py` (line 15): `{"high": 4, "medium": 3, "low": 2, "failed": 1}`
+
+Functionally equivalent today (relative ordering identical). Risk: silent
+divergence if a new quality label is added or an existing one is renamed.
+
+Fix: `garmin_collector.py` imports `_QUALITY_RANK` from `quality._maint`
+instead of defining its own copy. One definition, one source.
+
+---
+
+**Finding 2 — `panel_archive.py` direct read underdocumented**
+*Source: Claude*
+
+`panel_archive.py` reads `quality_log.json` directly (line 277) without the
+`# INTENTIONAL DIRECT READ` comment that the three equivalent bypasses in
+`garmin_app_controller.py` carry. Same pattern, inconsistent documentation.
+
+Fix: Add `# INTENTIONAL DIRECT READ` comment with rationale. No code change.
+
+---
+
+**Finding 3 — Timer read bypasses: missing threading rationale**
+*Source: Claude*
+
+The `# INTENTIONAL DIRECT READ` comments in `garmin_app_controller.py` state
+that `QUALITY_LOCK` is not required but do not explain why. The reason
+(`os.replace()` is atomic — reader always sees either the old or the new
+complete file, never a partial write) is not in the comment.
+
+Fix: Extend the three existing comments with the atomicity rationale.
+No code change.
+
+---
+
+**Finding 4 — `_STOP_EVENT` injected via `globals()` (Monkey-Patching)**
+*Source: Gemini, confirmed*
+
+`garmin_collector.py`:
+```python
+def _is_stopped() -> bool:
+    ev = globals().get("_STOP_EVENT")
+    return ev is not None and ev.is_set()
+```
+
+The GUI injects `_STOP_EVENT` into the collector's global namespace at
+runtime (`garmin_collector._STOP_EVENT = stop_event`). This is untestable
+in isolation and creates an invisible dependency — nothing in the collector's
+public interface signals that it expects external state injection.
+
+Fix: `main()` and `run_import()` accept an optional `stop_event: threading.Event | None = None`
+parameter. `_is_stopped()` receives the event directly. GUI passes the event
+as argument instead of injecting into `__dict__`. `_STOP_EVENT` global removed.
+
+---
+
+**Finding 5 — `os.environ` mutation inside worker thread**
+*Source: Gemini, confirmed*
+
+`garmin_app_controller.py`, `check_connection()` worker:
+```python
+os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
+importlib.reload(cfg)
+```
+
+`os.environ` is process-global. Mutation inside a background thread overwrites
+it for all concurrent threads. The subsequent `importlib.reload(cfg)` forces
+the config module to re-evaluate all ENV reads at runtime — any other thread
+reading `cfg` during this window sees an inconsistent state.
+
+Fix: Scope and approach to be determined in session. Options:
+- Pass `base_dir` directly into the functions that need it (preferred)
+- Or document explicitly which ENV vars are set before the thread starts
+  and guaranteed stable for its lifetime (narrower scope, lower risk)
+
+Note: This is the highest-complexity fix in this patch. Analysis session
+required before implementation.
+
+---
+
+**Finding 6 — Fail-Open Validator**
+*Source: Gemini, confirmed*
+
+`garmin_validator.py`: If `garmin_dataformat.json` cannot be loaded
+(missing, corrupt, permission error), `_schema` is set to `{}` and
+`validate()` returns `"ok"` with a log warning. A validator that cannot
+function silently approves all incoming data.
+
+Current:
+```python
+if not _schema:
+    log.warning("[VALIDATOR] No schema loaded — skipping structural validation")
+    return _result("ok", timestamp, issues)
+```
+
+Fix: Return `"critical"` instead of `"ok"` when schema is absent.
+The pipeline already handles `"critical"` — no day is written, the day
+is flagged for recheck. No data is lost; the day will be retried on
+the next run. Hard crash (`raise`) is explicitly not chosen — a missing
+schema file should not make the entire session unrecoverable.
+
+---
+
+**Finding 7 — Silent data loss in `summarize()` when API fields go missing**
+*Source: Gemini, confirmed*
+
+`garmin_normalizer.py`, `summarize()`: `safe_get()` returns `None`
+when a field is absent. The pattern `(safe_get(...) or 0) / 3600`
+then silently writes `0.0` to the summary. If Garmin renames or
+restructures a field, the pipeline stores zeros without any warning.
+The quality label is unaffected — a day with all-zero metrics can
+still receive a `"high"` label.
+
+Fix: For each essential field in `summarize()` (sleep, HRV, stress,
+body battery), add a `log.warning()` when `safe_get()` returns `None`.
+The warning is written to the session log — no user-visible change,
+no pipeline change. Gives the operator a signal that field mapping
+needs review.
+
+List of essential fields to be determined in session (not all
+`safe_get()` calls are essential — some fields are optional by design).
+
+---
+
+**Finding 8 — `daily_update.py` duplizierter Settings-Pfad**
+*Source: Session-Analyse*
+
+`daily_update.py` definiert `SETTINGS_FILE` und `_load_settings()` eigenständig
+statt `garmin_app_settings` zu importieren:
+
+    # scheduler/daily_update.py — Zeile 66
+    SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
+
+`garmin_app_settings.save_settings()` ist der einzige Writer — korrekt. Aber
+der Dateipfad existiert zweimal als Literal. Wird der Pfad je geändert, muss
+`daily_update.py` manuell nachgezogen werden ohne dokumentierte Querverbindung.
+
+Fix: `daily_update.py` importiert `SETTINGS_FILE` und `load_settings()` aus
+`garmin_app_settings`. Sole-Owner-Prinzip explizit hergestellt.
+
+---
+
+**What changes:**
+- `garmin/garmin_collector.py` — `_QUALITY_RANK` removed (→ import); `_STOP_EVENT` global removed; `main()` + `run_import()` accept `stop_event` parameter
+- `garmin/garmin_validator.py` — Fail-Open → Fail-Closed: schema absent → `"critical"`, not `"ok"`
+- `garmin/garmin_normalizer.py` — `log.warning()` added for essential fields returning `None` in `summarize()`
+- `app/garmin_app_controller.py` — three INTENTIONAL DIRECT READ comments extended; `os.environ`/reload pattern reviewed (scope TBD); stop_event passed as argument instead of injected
+- `app/panel_archive.py` — `# INTENTIONAL DIRECT READ` comment added
+- `scheduler/daily_update.py` — `SETTINGS_FILE`-Literal + `_load_settings()` durch Import aus `garmin_app_settings` ersetzt
+
+**What does not change:**
+- Pipeline behaviour — identical (Fail-Closed in validator only affects schema-absent edge case)
+- Quality log format — unchanged
+- User-visible behaviour — unchanged
+- Test suites — stop_event parameter change requires update to any test that calls `main()` or `run_import()` directly
+
+**Session order:**
+1. Finding 1 — `_QUALITY_RANK` (trivial import change)
+2. Finding 2 + 3 — comments only (no code risk)
+3. Finding 6 — Fail-Closed validator (small, self-contained)
+4. Finding 7 — summarize() warnings (list of essential fields first)
+5. Finding 4 — `_STOP_EVENT` DI refactor (touches collector + controller)
+6. Finding 5 — `os.environ`/reload (analysis session first)
+7. Finding 8 — `daily_update.py` Settings-Import (trivial, nach Finding 4)
+
+---
+
+## v1.5.7 — Quality System Neudefinition — Device-Rank
+
+The current `high / medium / low` quality label system is miscalibrated.
+Analysis of the live archive revealed that 2492 of 2725 entries are
+classified as `medium` — factually incorrect. Root cause: three devices
+with three distinct data profiles that the content-based heuristic cannot
+reliably distinguish.
+
+**Empirical findings (archive analysis, 2026-06-06):**
+
+| Device | Days | Avg KB | Delivers |
+|---|---|---|---|
+| Vivoactive 3 | ~1846 | 1.2 KB | Basic daily values, minimal skeleton |
+| Fenix 5x | ~427 | 14.5 KB | Full API skeleton, daily values, no intraday |
+| Fenix 7X Sapphire Solar | ~451 | variable | Daily values (~36 KB) + intraday (~500 KB) |
+
+Device-specific top-level key differences (empirically confirmed via diff):
+- Vivoactive → `user_summary`, `stress`, `sleep`, `heart_rates`
+- Fenix 5x → adds `stats`, `respiration`, `spo2`, `body_battery`, `activities`,
+  `training_status`, `max_metrics`, `race_predictions`, `training_readiness`
+- Fenix 7X → adds `hrv`
+
+`assess_quality_fields()` does not distinguish Vivoactive from Fenix 5x —
+absent blocks and empty blocks both evaluate to `failed`.
+
+**New model:**
+
+`high` — intraday present (heartRateValues or stressValuesArray filled)
+
+Non-intraday days differentiated by device rank instead of medium/low:
+- Rank 1 (fenix 7X Sapphire Solar) — N days — yyyy-mm-dd to yyyy-mm-dd
+- Rank 2 (fenix 5x)                — N days — yyyy-mm-dd to yyyy-mm-dd
+- Rank 3 (Vivoactive 3)            — N days — yyyy-mm-dd to yyyy-mm-dd
+
+Device rank replaces `medium` / `low` as the differentiator within non-intraday
+days. Rank is derived from `training_status → recordedDevices → deviceName`.
+New devices are ranked automatically — no code change required.
+
+**What changes:**
+- `garmin/quality/_assess.py` — simplified: only `high` vs. non-`high`
+- `garmin/quality/_maint.py` — `_QUALITY_RANK` revisited or removed
+- `quality_log.json` — schema change: `device_rank` field added
+- `tools/migrate_quality_reclassify_v2.py` — migration script for ~2492 entries
+- GUI Archive Stats Panel — shows device rank breakdown instead of medium/low counts
+- Timer logic — retry scope: `failed` only (no more `low` as retry trigger)
+
+**Constraint:** Must be built before v1.6+ — `quality` is central infrastructure.
+All subsequent features build on incorrect assumptions if this is not fixed first.
+
+**Analysis session required before build:**
+- Schema change: backward-compatible or hard-cut migration?
+- Unknown device fallback rank strategy
+- Retry logic: what happens to existing `low` entries after migration?
+- `_QUALITY_RANK` in `garmin_collector.py` and `_maint.py` — keep or remove?
+
+---
+
+### v1.5.8 — In-App File Viewer
 
 Third tab in the existing `QTabWidget` structure (Tab 1 "Actions", Tab 2 "Dashboards", Tab 3 "Files"). Renders Excel output directly inside the app via AG Grid Community (MIT licence). JSON output is intentionally excluded — Open Folder in Tab 1 is the intended path for JSON.
 
