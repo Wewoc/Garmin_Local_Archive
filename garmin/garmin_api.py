@@ -13,11 +13,11 @@ Responsibilities:
 No file IO, no quality log access, no date strategy logic.
 
 Stop-event note:
-  In Standalone mode (Target 3), garmin_app_standalone.py injects a
-  threading.Event into this module via module.__dict__["_STOP_EVENT"].
+  The collector registers a threading.Event via set_stop_event() before a run.
   api_call() checks this event before each request via _is_stopped().
-  In Dev/Standard mode (Target 1+2) no event is injected — _is_stopped()
-  returns False safely via globals().get().
+  In subprocess mode (Target 1+2) no event is registered — _is_stopped()
+  returns False safely. The 429 rate-limit handler sets the same event to
+  stop the run immediately and protect the IP.
 """
 
 import sys
@@ -43,13 +43,23 @@ class GarminLoginError(Exception):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Stop-event (injected by standalone GUI via module.__dict__)
+#  Stop-event (registered by the collector via set_stop_event)
 # ══════════════════════════════════════════════════════════════════════════════
 
+_stop_event = None   # threading.Event | None
+
+
+def set_stop_event(ev) -> None:
+    """Registers the stop event for this module. Pass None to clear.
+    Same pattern as garmin_validator.reload_schema() — explicit module-level
+    state setter, no globals() injection."""
+    global _stop_event
+    _stop_event = ev
+
+
 def _is_stopped() -> bool:
-    """Returns True if the standalone GUI has requested a stop."""
-    ev = globals().get("_STOP_EVENT")
-    return ev is not None and ev.is_set()
+    """Returns True if a stop event is registered and set."""
+    return _stop_event is not None and _stop_event.is_set()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -181,9 +191,8 @@ def api_call(client, method: str, *args, label: str = ""):
         error_msg = str(e)
         if "429" in error_msg:
             log.critical(f"  ✗ RATE LIMIT (429) — stopping immediately to protect IP.")
-            ev = globals().get("_STOP_EVENT")
-            if ev:
-                ev.set()
+            if _stop_event is not None:
+                _stop_event.set()
             return None, False
         log.warning(f"    ✗ {label or method}: {e}")
         time.sleep(random.uniform(cfg.REQUEST_DELAY_MIN, cfg.REQUEST_DELAY_MAX))

@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.6.2**
+**Currently stable — v1.5.6.3**
 
 ---
 
@@ -14,193 +14,7 @@
 
 ---
 
-### v1.5.6.3 — Code Quality Patch
-
-Maintenance release addressing findings from two independent code reviews
-of v1.5.6.1 (Claude direct code review + Gemini blind review via ZIP upload).
-No new features, no pipeline changes, no user-visible behaviour changes.
-
-Sources:
-- Claude: direct file read, concrete line references
-- Gemini: blind review (fresh context, no prior GLA knowledge), partial file input
-
-Intersection of both reviews = confirmed priority. Single-source findings
-included where the underlying evidence is code-verifiable.
-
----
-
-**Finding 1 — `_QUALITY_RANK` duplicate definition**
-*Source: Claude*
-
-`_QUALITY_RANK` is defined twice with different numeric values:
-- `garmin_collector.py` (line 110): `{"high": 3, "medium": 2, "low": 1, "failed": 0}`
-- `garmin/quality/_maint.py` (line 15): `{"high": 4, "medium": 3, "low": 2, "failed": 1}`
-
-Functionally equivalent today (relative ordering identical). Risk: silent
-divergence if a new quality label is added or an existing one is renamed.
-
-Fix: `garmin_collector.py` imports `_QUALITY_RANK` from `quality._maint`
-instead of defining its own copy. One definition, one source.
-
----
-
-**Finding 2 — `panel_archive.py` direct read underdocumented**
-*Source: Claude*
-
-`panel_archive.py` reads `quality_log.json` directly (line 277) without the
-`# INTENTIONAL DIRECT READ` comment that the three equivalent bypasses in
-`garmin_app_controller.py` carry. Same pattern, inconsistent documentation.
-
-Fix: Add `# INTENTIONAL DIRECT READ` comment with rationale. No code change.
-
----
-
-**Finding 3 — Timer read bypasses: missing threading rationale**
-*Source: Claude*
-
-The `# INTENTIONAL DIRECT READ` comments in `garmin_app_controller.py` state
-that `QUALITY_LOCK` is not required but do not explain why. The reason
-(`os.replace()` is atomic — reader always sees either the old or the new
-complete file, never a partial write) is not in the comment.
-
-Fix: Extend the three existing comments with the atomicity rationale.
-No code change.
-
----
-
-**Finding 4 — `_STOP_EVENT` injected via `globals()` (Monkey-Patching)**
-*Source: Gemini, confirmed*
-
-`garmin_collector.py`:
-```python
-def _is_stopped() -> bool:
-    ev = globals().get("_STOP_EVENT")
-    return ev is not None and ev.is_set()
-```
-
-The GUI injects `_STOP_EVENT` into the collector's global namespace at
-runtime (`garmin_collector._STOP_EVENT = stop_event`). This is untestable
-in isolation and creates an invisible dependency — nothing in the collector's
-public interface signals that it expects external state injection.
-
-Fix: `main()` and `run_import()` accept an optional `stop_event: threading.Event | None = None`
-parameter. `_is_stopped()` receives the event directly. GUI passes the event
-as argument instead of injecting into `__dict__`. `_STOP_EVENT` global removed.
-
----
-
-**Finding 5 — `os.environ` mutation inside worker thread**
-*Source: Gemini, confirmed*
-
-`garmin_app_controller.py`, `check_connection()` worker:
-```python
-os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
-importlib.reload(cfg)
-```
-
-`os.environ` is process-global. Mutation inside a background thread overwrites
-it for all concurrent threads. The subsequent `importlib.reload(cfg)` forces
-the config module to re-evaluate all ENV reads at runtime — any other thread
-reading `cfg` during this window sees an inconsistent state.
-
-Fix: Scope and approach to be determined in session. Options:
-- Pass `base_dir` directly into the functions that need it (preferred)
-- Or document explicitly which ENV vars are set before the thread starts
-  and guaranteed stable for its lifetime (narrower scope, lower risk)
-
-Note: This is the highest-complexity fix in this patch. Analysis session
-required before implementation.
-
----
-
-**Finding 6 — Fail-Open Validator**
-*Source: Gemini, confirmed*
-
-`garmin_validator.py`: If `garmin_dataformat.json` cannot be loaded
-(missing, corrupt, permission error), `_schema` is set to `{}` and
-`validate()` returns `"ok"` with a log warning. A validator that cannot
-function silently approves all incoming data.
-
-Current:
-```python
-if not _schema:
-    log.warning("[VALIDATOR] No schema loaded — skipping structural validation")
-    return _result("ok", timestamp, issues)
-```
-
-Fix: Return `"critical"` instead of `"ok"` when schema is absent.
-The pipeline already handles `"critical"` — no day is written, the day
-is flagged for recheck. No data is lost; the day will be retried on
-the next run. Hard crash (`raise`) is explicitly not chosen — a missing
-schema file should not make the entire session unrecoverable.
-
----
-
-**Finding 7 — Silent data loss in `summarize()` when API fields go missing**
-*Source: Gemini, confirmed*
-
-`garmin_normalizer.py`, `summarize()`: `safe_get()` returns `None`
-when a field is absent. The pattern `(safe_get(...) or 0) / 3600`
-then silently writes `0.0` to the summary. If Garmin renames or
-restructures a field, the pipeline stores zeros without any warning.
-The quality label is unaffected — a day with all-zero metrics can
-still receive a `"high"` label.
-
-Fix: For each essential field in `summarize()` (sleep, HRV, stress,
-body battery), add a `log.warning()` when `safe_get()` returns `None`.
-The warning is written to the session log — no user-visible change,
-no pipeline change. Gives the operator a signal that field mapping
-needs review.
-
-List of essential fields to be determined in session (not all
-`safe_get()` calls are essential — some fields are optional by design).
-
----
-
-**Finding 8 — `daily_update.py` duplizierter Settings-Pfad**
-*Source: Session-Analyse*
-
-`daily_update.py` definiert `SETTINGS_FILE` und `_load_settings()` eigenständig
-statt `garmin_app_settings` zu importieren:
-
-    # scheduler/daily_update.py — Zeile 66
-    SETTINGS_FILE = Path.home() / ".garmin_archive_settings.json"
-
-`garmin_app_settings.save_settings()` ist der einzige Writer — korrekt. Aber
-der Dateipfad existiert zweimal als Literal. Wird der Pfad je geändert, muss
-`daily_update.py` manuell nachgezogen werden ohne dokumentierte Querverbindung.
-
-Fix: `daily_update.py` importiert `SETTINGS_FILE` und `load_settings()` aus
-`garmin_app_settings`. Sole-Owner-Prinzip explizit hergestellt.
-
----
-
-**What changes:**
-- `garmin/garmin_collector.py` — `_QUALITY_RANK` removed (→ import); `_STOP_EVENT` global removed; `main()` + `run_import()` accept `stop_event` parameter
-- `garmin/garmin_validator.py` — Fail-Open → Fail-Closed: schema absent → `"critical"`, not `"ok"`
-- `garmin/garmin_normalizer.py` — `log.warning()` added for essential fields returning `None` in `summarize()`
-- `app/garmin_app_controller.py` — three INTENTIONAL DIRECT READ comments extended; `os.environ`/reload pattern reviewed (scope TBD); stop_event passed as argument instead of injected
-- `app/panel_archive.py` — `# INTENTIONAL DIRECT READ` comment added
-- `scheduler/daily_update.py` — `SETTINGS_FILE`-Literal + `_load_settings()` durch Import aus `garmin_app_settings` ersetzt
-
-**What does not change:**
-- Pipeline behaviour — identical (Fail-Closed in validator only affects schema-absent edge case)
-- Quality log format — unchanged
-- User-visible behaviour — unchanged
-- Test suites — stop_event parameter change requires update to any test that calls `main()` or `run_import()` directly
-
-**Session order:**
-1. Finding 1 — `_QUALITY_RANK` (trivial import change)
-2. Finding 2 + 3 — comments only (no code risk)
-3. Finding 6 — Fail-Closed validator (small, self-contained)
-4. Finding 7 — summarize() warnings (list of essential fields first)
-5. Finding 4 — `_STOP_EVENT` DI refactor (touches collector + controller)
-6. Finding 5 — `os.environ`/reload (analysis session first)
-7. Finding 8 — `daily_update.py` Settings-Import (trivial, nach Finding 4)
-
----
-
-## v1.5.7 — Quality System Neudefinition — Device-Rank
+## v1.5.7 — Quality System Redefinition — Device-Rank
 
 The current `high / medium / low` quality label system is miscalibrated.
 Analysis of the live archive revealed that 2492 of 2725 entries are
@@ -210,11 +24,11 @@ reliably distinguish.
 
 **Empirical findings (archive analysis, 2026-06-06):**
 
-| Device | Days | Avg KB | Delivers |
+| Device | Avg KB | Delivers |
 |---|---|---|---|
-| Vivoactive 3 | ~1846 | 1.2 KB | Basic daily values, minimal skeleton |
-| Fenix 5x | ~427 | 14.5 KB | Full API skeleton, daily values, no intraday |
-| Fenix 7X Sapphire Solar | ~451 | variable | Daily values (~36 KB) + intraday (~500 KB) |
+| device 1  | 1.2 KB | Basic daily values, minimal skeleton |
+| device 2  | 14.5 KB | Full API skeleton, daily values, no intraday |
+| device 3  | variable | Daily values (~36 KB) + intraday (~500 KB) |
 
 Device-specific top-level key differences (empirically confirmed via diff):
 - Vivoactive → `user_summary`, `stress`, `sleep`, `heart_rates`
@@ -315,6 +129,98 @@ the current set is reviewed and cleaned up:
 
 Rationale: the registry should be built over a clean, stable specialist set —
 not over a baseline that will be restructured again afterwards.
+
+### v1.6 Step 1c — Home Tab & Daily Workflow Refactor
+
+The app UI is restructured around actual usage behaviour instead of internal
+module layout. Today every panel — settings, status, actions, log — sits on a
+single plane with no hierarchy between "configure once" and "use daily". The
+top-level container becomes a three-tab layout (currently tabs exist only on the
+right side of a split layout).
+
+**Tab 1 — Home (daily use):**
+- Archive status panel: days archived, last sync, quality breakdown, integrity,
+  failed days, background-timer status
+- Three action buttons: Daily Sync, Backup, Timer Start/Stop
+- Dashboard view (QWebEngineView + dropdown) — no tab switch required;
+  Yesterday Overview specialist loaded as default on startup
+- Collapsible activity log — auto-expands during sync
+
+**Tab 2 — Settings (one-time configuration):**
+- All existing panels: PanelSettings, PanelTimer (full config with interval
+  fields), PanelConnection, PanelArchive
+- Individual action buttons (Garmin Sync, Context Sync, Create All) retained for
+  power-user and special-case access
+
+**Tab 3 — Files:** unchanged (v1.5.7).
+
+**`app/panel_home.py` — new module**
+
+Owns the archive-status labels and the three Tab-1 action buttons. The status
+figures come from `garmin_quality.get_archive_stats()` — already a side-effect-free
+dict, so nothing is recomputed, only relocated. `_refresh_archive_info()` keeps its
+side-effect contract; only the target label widgets move from PanelConnection to
+this module. All four existing callers of `_refresh_archive_info()` remain unchanged.
+
+**Daily Sync button**
+
+Orchestrates gap detection → Garmin Sync → Context Sync → Create All in a single
+sequential action. Reuses `_detect_gap()` (extracted to a shared module so the GUI
+does not depend on the headless `daily_update.py` entry point) for the range, and
+the Background Timer's `env_overrides` pattern for execution — `daily_update.main()`
+itself is never invoked. Only missing days are fetched, regardless of the sync mode
+configured in Settings. Not user-configurable by design. Disabled while running.
+
+**Backup button**
+
+Always clickable. With a mirror folder configured it runs the mirror operation;
+without one it switches to Tab 2 and highlights the Mirror-folder field. No disabled
+state.
+
+**What changes:**
+- `app/panel_home.py` — new module: archive-status labels + Daily Sync / Backup /
+  Timer buttons + collapsible log + dashboard view container
+- `garmin/garmin_sync.py` — `_detect_gap()` extracted here from `daily_update.py`;
+  both import from the shared location
+- `garmin_app_base.py` — top-level layout inverted: QTabWidget becomes root
+  (Home / Settings / Files). Existing panels migrated into Tab 2. Archive-status
+  labels removed from PanelConnection (relocated to PanelHome)
+- `app/panel_connection.py` — archive-status labels removed; connection indicators
+  and Restore button placement resolved per layout decision
+- `app/panel_outputs.py` — Daily Sync orchestration wired (gap range + env_overrides
+  chain); existing individual sync paths unchanged
+- `garmin_app_screenshot.py` — demo-value injection retargeted to the new PanelHome
+  labels; layout override aligned with the new tab structure
+- `compiler/build_manifest.py` — `app/panel_home.py` added to `SHARED_SCRIPTS` +
+  `SCRIPT_SIGNATURES_BASE`
+- `tests/test_qt_app.py` — new `TestPanelHome` class; PanelConnection tests adjusted
+  for relocated widgets
+- `docs/MAINTENANCE_GLOBAL.md` — `test_qt_app.py` class list + check count updated
+- `specialists/yesterday_overview.py` — new specialist: yesterday's key metrics
+  (steps, resting HR, Body Battery, sleep) vs. 30-day average + count of high-quality
+  days no longer retrievable at full resolution from Garmin servers. Registered via
+  the standard dropdown; preselected on startup. Data sources: `summary/*.json` +
+  `quality_log.json` — no API calls.
+
+**What does not change:**
+- The four callers of `_refresh_archive_info()` — interface and call sites identical
+- `garmin_quality.get_archive_stats()` — already returns a pure dict, unchanged
+- Pipeline logic, dashboard specialists, plotters — untouched
+- Threading model — `threading.Thread` + `_dispatch()` retained (D-3); no asyncio,
+  no QThread
+- Cross-panel communication — stays on the existing `_app._panel_x.method()` pattern;
+  no SignalBus in this step
+- `daily_update.py` workflow for Task Scheduler — unaffected by `_detect_gap()`
+  extraction (it imports from the shared location)
+
+**Pre-condition:** none — this is the UI groundwork that precedes the Render Registry
+(Step 2). Building the registry over the restructured UI avoids touching the same
+panels twice.
+
+**Open decisions (to confirm before build):**
+- Gap > 7 days in the GUI path: dialog (use Bulk Import) vs. full-range sync
+- Connection indicators (token/login/api/data): Tab 1 status bar vs. Tab 2
+- Restore button: Tab 1 vs. Tab 2 (with connection logic)
 
 **Step 2 — Render Registry**
 

@@ -158,10 +158,20 @@ def validate(raw: dict) -> dict:
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     issues = []
 
-    # Schema not loaded — pass through without validation
+    # Schema not loaded — treat as critical: a validator that cannot function
+    # must not silently approve incoming data. The pipeline handles "critical"
+    # identically to a missing required field — day is flagged for recheck,
+    # retried on next run. No data is lost.
     if not _schema:
-        log.warning("[VALIDATOR] No schema loaded — skipping structural validation")
-        return _result("ok", timestamp, issues)
+        log.warning("[VALIDATOR] No schema loaded — returning critical to prevent silent pass-through")
+        issues.append({
+            "field":    "schema",
+            "type":     "missing_required",
+            "expected": "loaded",
+            "actual":   "absent",
+            "severity": "critical",
+        })
+        return _result("critical", timestamp, issues)
 
     # Input must be a dict
     if not isinstance(raw, dict):

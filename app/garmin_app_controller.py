@@ -240,6 +240,8 @@ def timer_run_repair(s: dict) -> list | None:
     try:
         # INTENTIONAL DIRECT READ — read-only analytical fast-path.
         # No mutation, no ownership transfer, no QUALITY_LOCK required.
+        # os.replace() atomicity guarantees reader sees either the old or the
+        # new complete file — never a partial write.
         # garmin_quality provides no filtered-list API for these queries;
         # adding one would inflate the module into a query gateway.
         # Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
@@ -266,6 +268,8 @@ def timer_run_bulk_recheck(s: dict) -> list | None:
     try:
         # INTENTIONAL DIRECT READ — read-only analytical fast-path.
         # No mutation, no ownership transfer, no QUALITY_LOCK required.
+        # os.replace() atomicity guarantees reader sees either the old or the
+        # new complete file — never a partial write.
         # garmin_quality provides no filtered-list API for these queries;
         # adding one would inflate the module into a query gateway.
         # Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
@@ -294,6 +298,8 @@ def timer_run_quality(s: dict) -> list | None:
     try:
         # INTENTIONAL DIRECT READ — read-only analytical fast-path.
         # No mutation, no ownership transfer, no QUALITY_LOCK required.
+        # os.replace() atomicity guarantees reader sees either the old or the
+        # new complete file — never a partial write.
         # garmin_quality provides no filtered-list API for these queries;
         # adding one would inflate the module into a query gateway.
         # Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.

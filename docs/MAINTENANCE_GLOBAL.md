@@ -178,6 +178,7 @@ Never use `logging.warning()` for build-path diagnostics — it disappears silen
 
 ### `tests/test_local.py` — Garmin pipeline
 
+
 ```bash
 python tests/test_local.py
 ```
