@@ -291,8 +291,8 @@ All source folders are Python packages with `__init__.py`:
 | Location | sys.path setup |
 |---|---|
 | `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `app/` |
-| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); same subfolder loop from `parent.parent`; `context` additionally registered as `types.ModuleType` in `sys.modules` |
-| `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`) |
+| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); subfolder loop from `parent.parent` incl. `app/`; `context` additionally registered as `types.ModuleType` in `sys.modules` |
+| `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` + `scripts/app/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`) |
 | `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE |
 | `garmin_app_standalone.py` — Dev | same subfolder loop (incl. `app/`) |
 | `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; others via package registration |

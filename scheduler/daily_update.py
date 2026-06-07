@@ -417,6 +417,9 @@ def _setup_paths():
         garmin_dir = scripts / "garmin"
         if garmin_dir.exists():
             sys.path.insert(0, str(garmin_dir))
+        app_dir = scripts / "app"
+        if app_dir.exists():
+            sys.path.insert(0, str(app_dir))
         for pkg in ("context", "maps", "dashboards", "layouts"):
             pkg_dir = scripts / pkg
             if pkg_dir.exists() and pkg not in sys.modules:
@@ -436,7 +439,7 @@ def _setup_paths():
         _scripts = _root / "scripts"
         _base = _scripts if _scripts.exists() else _root
 
-        for _sub in ("garmin", "maps", "dashboards", "layouts"):
+        for _sub in ("garmin", "maps", "dashboards", "layouts", "app"):
             _p = str(_base / _sub)
             if _p not in sys.path:
                 sys.path.insert(0, _p)
