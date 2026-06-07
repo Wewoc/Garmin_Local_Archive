@@ -1,7 +1,5 @@
 # Garmin Local Archive — Changelog
 
-# Garmin Local Archive — Changelog
-
 ---
 
 ## v1.5.7 — Quality System Redefinition
