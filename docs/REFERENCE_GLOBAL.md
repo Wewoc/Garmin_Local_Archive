@@ -28,6 +28,7 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_LOG_LEVEL` | str | `"INFO"` | GUI log display level: `"INFO"` or `"DEBUG"` |
 | `GARMIN_MAX_DAYS_PER_SESSION` | int | `30` | Max days fetched per sync run. `0` = unlimited |
 | `GARMIN_SYNC_CHUNK_SIZE` | int | `10` | Days per chunk before quality log is flushed. `0` = no chunking |
+| `GARMIN_INTRADAY_RETRY_WINDOW_DAYS` | int | `180` | Days within which a `standard` day with `prev_high=True` is eligible for recheck |
 | `GARMIN_DATE_FROM` | str | 30 days back | Start date for dashboard build (`YYYY-MM-DD`) — fallback if GUI field empty |
 | `GARMIN_DATE_TO` | str | today | End date for dashboard build (`YYYY-MM-DD`) — fallback if GUI field empty |
 | `GARMIN_PROFILE_AGE` | str | `"35"` | User age for reference range calculation |
@@ -55,6 +56,7 @@ All modules import via `import garmin_config as cfg`.
 | `LOG_RECENT_DIR` | `LOG_DIR/recent` | Rolling session logs (max 30) |
 | `LOG_FAIL_DIR` | `LOG_DIR/fail` | Error session logs (kept permanently) |
 | `QUALITY_LOG_FILE` | `LOG_DIR/quality_log.json` | Quality register |
+| `DEVICE_TABLE_FILE` | `LOG_DIR/device_table.json` | Device table — written by `garmin_quality` after each sync |
 | `DATAFORMAT_FILE` | `garmin/garmin_dataformat.json` | Schema for garmin_validator |
 | `GARMIN_TOKEN_DIR` | `LOG_DIR/garmin_token` | Temp dir for garminconnect library |
 | `GARMIN_TOKEN_FILE` | `LOG_DIR/garmin_token.enc` | AES-256-GCM encrypted OAuth token |
@@ -234,6 +236,7 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 │   │   └── garmin_YYYY-MM-DD.json
 │   └── log/
 │       ├── quality_log.json
+│       ├── device_table.json
 │       ├── garmin_token.enc
 │       ├── recent/
 │       └── fail/

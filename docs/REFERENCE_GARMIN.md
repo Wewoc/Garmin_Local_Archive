@@ -179,11 +179,12 @@ Shared utilities — leaf node. No project-module imports.
 *Implementation split into `garmin/quality/_io.py`, `_assess.py`, `_scan.py`, `_maint.py`, `_stats.py` — all symbols re-exported from this facade. Callers import from `garmin_quality` as before.*
 
 | `QUALITY_LOCK` | `threading.Lock()` — acquire around all load-modify-save sequences |
-| `assess_quality(raw)` | Returns `"high"` / `"medium"` / `"low"` / `"failed"`. Pure function |
+| `assess_quality(raw)` | Returns `"high"` / `"standard"` / `"failed"`. Pure function |
 | `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function |
-| `record_attempt(data, day, label, reason, written, source, fields, validator_result)` | Public API — atomically calls `_upsert_quality` + `_save_quality_log`. Caller must hold `QUALITY_LOCK`. Use instead of the pair directly — except where manual state patch follows upsert (`# INTENTIONAL DIRECT CALL`) |
-| `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result)` | Adds or updates day entry. Downgrade protection: `high` stays `high` |
-| `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `medium`, `low`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk`, `integrity_warnings` |
+| `record_attempt(data, day, label, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Public API — atomically calls `_upsert_quality` + `_save_quality_log`. Caller must hold `QUALITY_LOCK`. |
+| `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Adds or updates day entry. Downgrade protection: `high` stays `high`. Stores `device_id` + `device_name` per entry. |
+| `save_device_table(quality_data)` | Builds and writes `device_table.json`. Called after each sync and after device_id backfill. Groups entries by `device_id`; entries with `device_id=None` appear as `__unknown__` row. Sole write authority: `garmin_quality`. |
+| `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `standard`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk`, `integrity_warnings` |
 | `_compute_checksum(data)` | SHA-256 over stable core fields (`date`, `write`, `quality`, `source`) of all day entries. Extended in v1.5.5. Migration bridge: `_compute_checksum_legacy()` (TODO: remove after v1.6) |
 | `_compute_checksum_legacy(data)` | Pre-v1.5.5 algorithm (`date` + `write` only). Used once on load to detect planned upgrade — never for new saves |
 | `_save_defective_log(data)` | Saves defective quality_log state to `AUTORESTORE_DIR` before auto-restore. Best-effort |
@@ -193,14 +194,17 @@ Shared utilities — leaf node. No project-module imports.
 | `_set_first_day(data, client)` | Determines and persists `first_day`. Never overwrites existing value |
 | `cleanup_before_first_day(data, dry_run)` | Removes files and log entries before `first_day` |
 
-**Quality levels:**
+**Quality levels (v1.5.7+):**
 
 | Level | Meaning | `recheck` default |
 |---|---|---|
 | `high` | Intraday data present | `false` — never re-downloaded |
-| `medium` | Daily aggregates only — as good as it gets for older data | `false` |
-| `low` | Minimal data | `true` until `LOW_QUALITY_MAX_ATTEMPTS`, then `false` |
+| `standard` | Daily aggregates only — maximum available for this day | `false` unless `prev_high=true` and day ≤ 180 days old |
 | `failed` | API error — no file | `true` until successful |
+
+**Per-entry device tracking (v1.5.7+):**
+
+Each quality log entry stores `device_id` (str) and `device_name` (str) — set by `garmin_collector` from `training_status → mostRecentTrainingStatus → recordedDevices[0]`. Entries without `training_status` (older devices) have `device_id = None`. The `device_table.json` file is derived from these fields after each sync.
 
 ---
 
@@ -237,7 +241,7 @@ All days with `source: bulk` + date ≤ 180 days old are automatically flagged `
 
 **Downgrade protection:**
 
-After `_fetch_and_assess()`, `_check_downgrade()` compares the new label against the existing quality log entry using rank `high=3 > medium=2 > low=1 > failed=0`. If the API result is inferior: file is not written, existing entry is preserved. If equal or better: `_write_assessed()` is called and entry is upserted as `source: api`.
+After `_fetch_and_assess()`, `_check_downgrade()` compares the new label against the existing quality log entry using rank `high=2 > standard=1 > failed=0` (`QUALITY_RANK` in `quality/_maint.py`). If the API result is inferior: file is not written, existing entry is preserved. If equal or better: `_write_assessed()` is called and entry is upserted as `source: api`.
 
 **Resume safety:**
 
@@ -285,7 +289,7 @@ Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_
 | `backup_raw(date_str)` | Copies `garmin_raw_YYYY-MM-DD.json` into `backup/raw/YYYY-MM/`. Triggers `_consolidate_raw_months()`. Returns `bool` |
 | `backup_quality_log()` | Creates monthly snapshot of `quality_log.json` as `quality_log_YYYY-MM.zip`. Triggers yearly consolidation |
 | `restore_quality_log()` | Restores from latest valid monthly ZIP. Returns loaded `dict` or `None` |
-| `check_raw_integrity()` | Compares `write=True` quality log entries vs. existing raw files. Returns `{"missing_days", "no_backup", "total_checked"}` |
+| `check_raw_integrity()` | Compares `write=True` quality log entries vs. existing raw files. Returns `{"missing_days", "no_backup", "total_checked"}`. Called via `garmin_app_controller.check_integrity()` which sets `GARMIN_OUTPUT_DIR` first |
 | `restore_raw_days(date_strs)` | Restores raw files from backup (dir first, then ZIP). Returns `{"restored", "failed"}` |
 | `_consolidate_raw_months(current_month)` | ZIPs completed month dirs, deletes dir after ZIP verified |
 | `_consolidate_log_years(current_year)` | Creates `quality_log_YYYY.zip` for completed years without yearly ZIP |

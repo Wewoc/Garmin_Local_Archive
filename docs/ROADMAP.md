@@ -6,68 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.6.3**
+**Currently stable — v1.5.7**
 
 ---
 
 ## Planned
-
----
-
-## v1.5.7 — Quality System Redefinition — Device-Rank
-
-The current `high / medium / low` quality label system is miscalibrated.
-Analysis of the live archive revealed that 2492 of 2725 entries are
-classified as `medium` — factually incorrect. Root cause: three devices
-with three distinct data profiles that the content-based heuristic cannot
-reliably distinguish.
-
-**Empirical findings (archive analysis, 2026-06-06):**
-
-| Device | Avg KB | Delivers |
-|---|---|---|---|
-| device 1  | 1.2 KB | Basic daily values, minimal skeleton |
-| device 2  | 14.5 KB | Full API skeleton, daily values, no intraday |
-| device 3  | variable | Daily values (~36 KB) + intraday (~500 KB) |
-
-Device-specific top-level key differences (empirically confirmed via diff):
-- Vivoactive → `user_summary`, `stress`, `sleep`, `heart_rates`
-- Fenix 5x → adds `stats`, `respiration`, `spo2`, `body_battery`, `activities`,
-  `training_status`, `max_metrics`, `race_predictions`, `training_readiness`
-- Fenix 7X → adds `hrv`
-
-`assess_quality_fields()` does not distinguish Vivoactive from Fenix 5x —
-absent blocks and empty blocks both evaluate to `failed`.
-
-**New model:**
-
-`high` — intraday present (heartRateValues or stressValuesArray filled)
-
-Non-intraday days differentiated by device rank instead of medium/low:
-- Rank 1 (fenix 7X Sapphire Solar) — N days — yyyy-mm-dd to yyyy-mm-dd
-- Rank 2 (fenix 5x)                — N days — yyyy-mm-dd to yyyy-mm-dd
-- Rank 3 (Vivoactive 3)            — N days — yyyy-mm-dd to yyyy-mm-dd
-
-Device rank replaces `medium` / `low` as the differentiator within non-intraday
-days. Rank is derived from `training_status → recordedDevices → deviceName`.
-New devices are ranked automatically — no code change required.
-
-**What changes:**
-- `garmin/quality/_assess.py` — simplified: only `high` vs. non-`high`
-- `garmin/quality/_maint.py` — `_QUALITY_RANK` revisited or removed
-- `quality_log.json` — schema change: `device_rank` field added
-- `tools/migrate_quality_reclassify_v2.py` — migration script for ~2492 entries
-- GUI Archive Stats Panel — shows device rank breakdown instead of medium/low counts
-- Timer logic — retry scope: `failed` only (no more `low` as retry trigger)
-
-**Constraint:** Must be built before v1.6+ — `quality` is central infrastructure.
-All subsequent features build on incorrect assumptions if this is not fixed first.
-
-**Analysis session required before build:**
-- Schema change: backward-compatible or hard-cut migration?
-- Unknown device fallback rank strategy
-- Retry logic: what happens to existing `low` entries after migration?
-- `_QUALITY_RANK` in `garmin_collector.py` and `_maint.py` — keep or remove?
 
 ---
 
@@ -111,8 +54,6 @@ significantly as a result.
 - User workflow — ZIP download unchanged, EXE name unchanged
 
 ---
-
-## Planned — v1.6
 
 ### v1.6 — Dashboard Render Registry
 

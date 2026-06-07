@@ -73,7 +73,7 @@ def _is_stopped() -> bool:
 
 def _should_write(label: str) -> bool:
     """Returns True if the quality label is acceptable for writing to disk."""
-    return label in ("high", "medium", "low")
+    return label in ("high", "standard")
 
 
 def _fetch_and_assess(client, date_str: str) -> tuple:
@@ -104,18 +104,18 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
     fields     = quality.assess_quality_fields(normalized)
 
     # ── Range-warning downgrade ───────────────────────────────────────────────
-    # If validator found more than 3 out_of_range warnings, cap label at "low".
+    # If validator found more than 3 out_of_range warnings, cap label at "standard".
     # assess_quality() stays pure — downgrade decision lives here.
     out_of_range_count = sum(
         1 for i in val_result.get("issues", [])
         if i.get("type") == "out_of_range"
     )
-    if out_of_range_count > 3 and label in ("high", "medium"):
+    if out_of_range_count > 3 and label == "high":
         log.warning(
             f"    ⚠ {out_of_range_count} out_of_range warnings — "
-            f"quality downgraded: {label} → low"
+            f"quality downgraded: {label} → standard"
         )
-        label = "low"
+        label = "standard"
 
     return label, normalized, summary, fields, val_result
 
@@ -125,7 +125,7 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Single source of truth — defined in quality._maint, re-exported via facade.
-from quality._maint import _QUALITY_RANK
+from quality._maint import QUALITY_RANK
 
 
 def _check_downgrade(new_label: str, existing_entry: dict | None) -> tuple:
@@ -144,7 +144,7 @@ def _check_downgrade(new_label: str, existing_entry: dict | None) -> tuple:
 
     existing_label  = existing_entry.get("quality", "failed")
     existing_source = existing_entry.get("source", "api")
-    is_downgrade    = _QUALITY_RANK.get(new_label, 0) < _QUALITY_RANK.get(existing_label, 0)
+    is_downgrade    = QUALITY_RANK.get(new_label, 0) < QUALITY_RANK.get(existing_label, 0)
     return is_downgrade, existing_label, existing_source
 
 def _write_assessed(normalized, summary, date_str: str, label: str) -> bool:
@@ -199,8 +199,8 @@ def run_import(path, progress_callback=None, stop_event=None) -> dict:
                 (e for e in quality_data.get("days", []) if e.get("date") == date_str),
                 None
             )
-            if existing and existing.get("quality") in ("high", "medium") and existing.get("source") == "api":
-                log.debug(f"  import [{i}]: {date_str} — already high/medium from API, skipped")
+            if existing and existing.get("quality") in ("high", "standard") and existing.get("source") == "api":
+                log.debug(f"  import [{i}]: {date_str} — already high/standard from API, skipped")
                 skipped += 1
                 if progress_callback:
                     progress_callback(i, None, date_str)
@@ -396,7 +396,7 @@ def _run_self_healing(quality_data: dict) -> None:
                     new_fields = quality.assess_quality_fields(normalized)
                     entry["quality"] = new_label
                     entry["fields"]  = new_fields
-                    entry["recheck"] = new_label in ("failed", "low")
+                    entry["recheck"] = new_label == "failed"
 
             changed += 1
 
@@ -525,8 +525,7 @@ def main(stop_event=None):
         # are flagged for API re-fetch — quality is irrelevant, source is the trigger.
         # After 180 days Garmin degrades intraday data permanently; the local raw
         # copy is then the only high-resolution source.
-        _BULK_RECHECK_DAYS = 180
-        cutoff = date.today() - timedelta(days=_BULK_RECHECK_DAYS)
+        cutoff = date.today() - timedelta(days=cfg.INTRADAY_RETRY_WINDOW_DAYS)
         bulk_upgraded = 0
         for e in quality_data.get("days", []):
             if e.get("source") == "bulk" and not e.get("recheck", False):
@@ -539,7 +538,7 @@ def main(stop_event=None):
                     bulk_upgraded += 1
         if bulk_upgraded:
             quality._save_quality_log(quality_data)
-            log.info(f"  Bulk recheck: {bulk_upgraded} day(s) flagged for API re-fetch (≤{_BULK_RECHECK_DAYS} days, source=bulk)")
+            log.info(f"  Bulk recheck: {bulk_upgraded} day(s) flagged for API re-fetch (≤{cfg.INTRADAY_RETRY_WINDOW_DAYS} days, source=bulk)")
 
     # ── 3b. Self-healing loop — schema version check ───────────────────────────
     _run_self_healing(quality_data)
@@ -569,6 +568,54 @@ def main(stop_event=None):
             log.info(f"  Device history updated ({len(devices)} devices)")
     except Exception as e:
         log.warning(f"  Could not update device history: {e}")
+
+    # ── 5b. device_id backfill ────────────────────────────────────────────────
+    # Einmalig: Einträge ohne device_id aus den raw-Files befüllen.
+    # Erkennung: mindestens ein Eintrag hat device_id=None.
+    # Nach dem Backfill werden nur neue Tage iterativ ergänzt (im Fetch-Loop).
+    _entries_without_device_id = [
+        e for e in quality_data.get("days", [])
+        if e.get("device_id") is None and e.get("source") in ("api", "bulk", "legacy")
+    ]
+    if _entries_without_device_id:
+        log.info(f"  device_id backfill: {len(_entries_without_device_id)} entries to process ...")
+        _backfill_count = 0
+        for _entry in _entries_without_device_id:
+            _date_str = _entry.get("date")
+            if not _date_str:
+                continue
+            try:
+                _raw = writer.read_raw(_date_str)
+                if not _raw:
+                    continue
+                _ts   = _raw.get("training_status") or {}
+                _mrts = _ts.get("mostRecentTrainingStatus") if isinstance(_ts, dict) else None
+                if not isinstance(_mrts, dict):
+                    continue
+                # Primary: recordedDevices — contains deviceId + deviceName
+                _recorded = _mrts.get("recordedDevices") or []
+                if _recorded and isinstance(_recorded, list):
+                    _dev      = _recorded[0]
+                    _dev_id   = str(_dev.get("deviceId", "")) or None
+                    _dev_name = _dev.get("deviceName", "")
+                else:
+                    # Fallback: latestTrainingStatusData keys
+                    _lts    = _mrts.get("latestTrainingStatusData")
+                    _dev_id = str(next(iter(_lts))) if isinstance(_lts, dict) and _lts else None
+                    _dev_name = ""
+                if _dev_id:
+                    _entry["device_id"]   = _dev_id
+                    _entry["device_name"] = _dev_name
+                    _backfill_count += 1
+            except Exception:
+                continue
+        if _backfill_count:
+            with quality.QUALITY_LOCK:
+                quality._save_quality_log(quality_data)
+            log.info(f"  device_id backfill: {_backfill_count} entries updated")
+            quality.save_device_table(quality_data)
+        else:
+            log.info(f"  device_id backfill: no raw files with training_status found")
 
     # ── 6. Set first_day ──────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:
@@ -668,16 +715,44 @@ def main(stop_event=None):
                     continue
 
                 written = _write_assessed(normalized, summary, date_str, label)
-                reason  = (f"Quality: {label}" if label in ("high", "medium")
-                           else f"Quality: {label} — insufficient data from Garmin API")
+                reason  = f"Quality: {label}"
+
+                # prev_high lookup — check if previous calendar day has quality == "high"
+                prev_date_str = (day - timedelta(days=1)).isoformat()
+                prev_entry    = next(
+                    (e for e in quality_data["days"] if e.get("date") == prev_date_str),
+                    None
+                )
+                prev_high = prev_entry is not None and prev_entry.get("quality") == "high"
+
+                # device_id lookup via training_status
+                # latestTrainingStatusData is a dict keyed by deviceId (str)
+                # first key = recording device ID for this day
+                device_id   = None
+                device_name = None
+                if normalized:
+                    ts   = normalized.get("training_status") or {}
+                    mrts = ts.get("mostRecentTrainingStatus") if isinstance(ts, dict) else None
+                    lts  = mrts.get("latestTrainingStatusData") if isinstance(mrts, dict) else None
+                    if isinstance(lts, dict) and lts:
+                        device_id = str(next(iter(lts)))
+                        # Resolve name from devices list
+                        for dev in quality_data.get("devices", []):
+                            if str(dev.get("id", "")) == device_id:
+                                device_name = dev.get("name", "")
+                                break
+
                 quality.record_attempt(quality_data, day, label, reason,
                                        written=written, source="api", fields=fields,
-                                       validator_result=val_result)
-                if label in ("low", "failed"):
+                                       validator_result=val_result,
+                                       device_id=device_id, device_name=device_name,
+                                       prev_high=prev_high)
+                if label == "failed":
                     _session_had_incomplete = True
-                    log.warning(f"    ⚠ Low data quality ({label}) — flagged for recheck")
+                    log.warning(f"    ⚠ Fetch failed ({label}) — flagged for recheck")
                 else:
-                    log.info(f"    ✓ Quality: {label}")
+                    log.info(f"    ✓ Quality: {label}"
+                             + (f" [device={device_name or device_id}]" if device_id else ""))
                 ok += 1
             except Exception as e:
                 log.error(f"    Error on {day}: {e}")
@@ -687,6 +762,7 @@ def main(stop_event=None):
 
         # ── 9. Save + close ───────────────────────────────────────────────────
         quality._save_quality_log(quality_data)
+        quality.save_device_table(quality_data)
 
     log.info(f"Done. {ok} saved, {failed} errors.")
     recheck_count = sum(1 for e in quality_data.get("days", []) if e.get("recheck", False))

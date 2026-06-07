@@ -65,8 +65,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Quality rank for downgrade protection — mirrors garmin_collector._QUALITY_RANK
-_QUALITY_RANK = {"high": 3, "medium": 2, "low": 1, "failed": 0}
+# Quality rank for downgrade protection — mirrors quality._maint.QUALITY_RANK (v1.5.7)
+_QUALITY_RANK = {"high": 2, "standard": 1, "failed": 0}
 
 # Context subdirectories to scan (relative to context_data/) — folder fallback
 _CONTEXT_SUBDIRS = ["weather/raw", "pollen/raw", "brightsky/raw", "airquality/raw"]

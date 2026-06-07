@@ -294,7 +294,12 @@ def timer_run_bulk_recheck(s: dict) -> list | None:
 
 
 def timer_run_quality(s: dict) -> list | None:
-    """Returns list of date objects with quality='low'. None if empty."""
+    """Returns standard-quality days with recheck=True (non-bulk, ≤180 days). None if empty.
+
+    v1.5.7: 'low' label removed. standard + recheck=True is the equivalent:
+    Garmin delivered no intraday on first fetch — retry window still open.
+    bulk-sourced days are handled by timer_run_bulk_recheck (separate channel).
+    """
     try:
         # INTENTIONAL DIRECT READ — read-only analytical fast-path.
         # No mutation, no ownership transfer, no QUALITY_LOCK required.
@@ -308,14 +313,20 @@ def timer_run_quality(s: dict) -> list | None:
             return None
         data    = json.loads(failed_file.read_text(encoding="utf-8"))
         entries = data.get("days", [])
+        cutoff  = date.today() - timedelta(days=180)
         days = []
         for e in entries:
             q = e.get("quality", e.get("category", ""))
-            if q == "low" and e.get("recheck", True):
+            if (q == "standard"
+                    and e.get("recheck", False)
+                    and e.get("source", "") != "bulk"):
                 try:
-                    days.append(date.fromisoformat(e["date"]))
+                    d = date.fromisoformat(e["date"])
+                    if d >= cutoff:
+                        days.append(d)
                 except (ValueError, KeyError):
                     pass
+        days.sort()
         return days if days else None
     except Exception:
         return None
@@ -367,9 +378,19 @@ def check_integrity(s: dict) -> dict:
     Runs garmin_backup.check_raw_integrity().
     Returns result dict with 'missing_days' and 'no_backup' keys.
     Returns empty lists on any failure.
-    s is accepted for future use (path overrides) — not used today.
+
+    Sets GARMIN_OUTPUT_DIR from s["base_dir"] and reloads garmin_config
+    before the check — garmin_backup uses cfg.RAW_DIR / cfg.RAW_BACKUP_DIR
+    which are derived from GARMIN_OUTPUT_DIR at import time.
+    Without this, the check runs against the default path (~/local_archive)
+    instead of the user-configured data directory.
     """
     try:
+        import importlib
+        import os
+        import garmin_config as cfg
+        os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
+        importlib.reload(cfg)
         import garmin_backup as _backup
         return _backup.check_raw_integrity()
     except Exception:

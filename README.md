@@ -107,7 +107,7 @@ This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
 
-![Garmin Local Archive — Desktop App](screenshots/GUI-V156-1.jpg)
+![Garmin Local Archive — Desktop App](screenshots/GUI-V157-1.jpg)
 
 ![Garmin Local Archive — Desktop App](screenshots/GUI-V154-2.jpg)
 
@@ -229,7 +229,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 [ garmin_quality ]     – assess + register (source: bulk, recheck: false)
       │
       ▼
-[ garmin_collector ]   – skip if API high/medium already present
+[ garmin_collector ]   – skip if API high/standard already present
       │
       ▼
 [ garmin_writer ]      – sole owner of raw/ + summary/

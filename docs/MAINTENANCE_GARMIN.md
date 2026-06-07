@@ -18,6 +18,8 @@ garmin_app.py (GUI)
               ├── bulk recheck flagging                   (source:bulk + ≤180d → recheck:true, quality irrelevant)
               ├── garmin_api.login()
               ├── garmin_api.get_devices()
+              ├── garmin_collector._device_id_backfill()  (einmalig — Einträge ohne device_id aus raw-Files befüllen)
+              ├── garmin_quality.save_device_table()       (nach Backfill — device_table.json schreiben)
               ├── garmin_quality._set_first_day()
               ├── garmin_sync.get_local_dates()            (bulk_upgrade_dates always excluded)
               ├── garmin_sync.resolve_date_range()
@@ -46,7 +48,7 @@ or later).
 | Module | Sole write authority |
 |---|---|
 | `garmin_writer.py` | `raw/` and `summary/` |
-| `garmin_quality.py` (facade → `quality/`) | `quality_log.json` |
+| `garmin_quality.py` (facade → `quality/`) | `quality_log.json` and `device_table.json` |
 | `garmin_security.py` | `garmin_token.enc` |
 | `garmin_backup.py` | `garmin_data/backup/` |
 | `garmin_mirror.py` | mirror operation — delegates to `garmin_container.py` |
@@ -101,7 +103,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 316 checks, 19 sections.**
+**Current count: 317 checks, 19 sections.**
 
 ```bash
 python tests/test_local.py
@@ -112,7 +114,7 @@ python tests/test_local.py
 1. `garmin_config` — ENV parsing, path derivation, constants
 2. `garmin_sync` — all three sync modes, `date_range()`, `get_local_dates()`
 3. `garmin_normalizer` — `normalize()`, `safe_get()`, `_parse_list_values()`, `summarize()`
-4. `garmin_quality` — all four quality levels, upsert, round-trip, migrations, thread safety
+4. `garmin_quality` — `high`/`standard`/`failed` labels (v1.5.7), upsert, round-trip, migrations, thread safety, device_id fields
 5. `garmin_writer` — `write_day()`, file content, `read_raw()`
 6. `garmin_collector` internals — `_fetch_and_assess()` tuple, `val_result` structure, `set_stop_event()` distribution to `garmin_api` and bilateral clearing (v1.5.6.3)
 7. `garmin_validator` — schema load, all issue types, status escalation
@@ -184,8 +186,7 @@ Garmin stores intraday detail for ~1–2 years. Older data returns daily aggrega
 | Level | Condition | Background Timer |
 |---|---|---|
 | `high` | Intraday data present (`heartRateValues` or `stressValuesArray` has entries) | Never re-downloaded |
-| `medium` | Daily aggregates present, no intraday — as good as it gets | Never re-downloaded unless `source=bulk` within 180-day window |
-| `low` | Minimal stats only | Re-tried up to `LOW_QUALITY_MAX_ATTEMPTS` times |
+| `standard` | Daily aggregates present, no intraday — as good as it gets for this day | Never re-downloaded unless `source=bulk` within 180-day window |
 | `failed` | API error — no usable data | Re-tried until successful |
 
 **Downgrade protection:** `high` stays `high`. No legitimate path exists for a `high` day to become lower quality.

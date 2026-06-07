@@ -183,7 +183,7 @@ Never use `logging.warning()` for build-path diagnostics — it disappears silen
 python tests/test_local.py
 ```
 
-**Current count: 320 checks, 16 sections.** No network, no GUI, no API calls. Cleans up after itself.
+**Current count: 317 checks, 19 sections.** No network, no GUI, no API calls. Cleans up after itself.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
