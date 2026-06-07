@@ -204,7 +204,7 @@ DEMO_LOG = [
     "▶  Sync started  [recent · 90 days]",
     "  → 2024-03-15  high   ✓",
     "  → 2024-03-14  high   ✓",
-    "  → 2024-03-13  medium ✓",
+    "  → 2024-03-13  standard ✓",
     "  → 2024-03-12  high   ✓",
     "  → 2024-03-11  high   ✓",
     "✓ Sync complete — 5 days processed.",
@@ -228,13 +228,15 @@ class ScreenshotApp(GarminApp):
     """
 
     def __init__(self):
+        from PyQt6.QtCore import QTimer
         super().__init__()
         self._load_demo_settings()
         self._set_connection_indicators_green()
-        self._refresh_archive_info()
         self._write_demo_log()
         self._disable_all_buttons()
         self.setWindowTitle("Garmin Local Archive  [SCREENSHOT MODE]")
+        # Delay so table widget is fully laid out before we insert rows
+        QTimer.singleShot(100, self._refresh_archive_info)
 
     # ── Demo settings ──────────────────────────────────────────────────────────
 
@@ -278,21 +280,62 @@ class ScreenshotApp(GarminApp):
             dot.setStyleSheet(f"color: {self.GREEN};")
 
     def _refresh_archive_info(self):
+        from PyQt6.QtWidgets import QTableWidgetItem
+        from PyQt6.QtCore import Qt
         pc = self._panel_connection
-        pc._info_total.setText("Days: 1825")
-        for q, label, val in [
-            ("high",   "high", 892),
-            ("medium", "med",  876),
-            ("low",    "low",  48),
-            ("failed", "fail", 9),
-        ]:
-            pc._info_qdots[q].setText(f"{label} {val}")
-        pc._info_recheck.setText("Recheck: 12")
-        pc._info_missing.setText("Missing: 37")
-        pc._info_range.setText("Range: 2019-03-15 → 2024-03-14")
-        pc._info_coverage.setText("Coverage: 98%")
-        pc._info_last_api.setText("Last API: 2024-03-14")
-        pc._info_last_bulk.setText("Last Bulk: 2022-11-30")
+        pc._info_qdots["failed"].setText("fail 9")
+        pc._info_recheck.setText("Recheck: 0")
+        pc._info_missing.setText("Missing: 0")
+        pc._info_range.setText("Range: 2018-12-19 → 2026-06-06")
+        pc._info_coverage.setText("Coverage: 100%")
+        pc._info_last_api.setText("Last API: 2026-06-06")
+        pc._info_last_bulk.setText("Last Bulk: 2023-12-31")
+
+        # Device table — demo rows
+        _DEMO_ROWS = [
+            ("2024-09-12", "2026-06-06", "fenix 7X Sapphire Solar", 312, 181, 493),
+            ("2022-03-04", "2024-09-11", "fenix 5x",                  0, 684, 684),
+            ("2019-01-07", "2022-03-03", "vívoactive 3",               0,1147,1147),
+        ]
+        tbl = pc._info_device_table
+        tbl.setRowCount(0)
+        total_high = total_std = total_all = 0
+        for date_from, date_to, name, high, std, total in _DEMO_ROWS:
+            r = tbl.rowCount()
+            tbl.insertRow(r)
+            tbl.setItem(r, 0, QTableWidgetItem(date_from))
+            tbl.setItem(r, 1, QTableWidgetItem(date_to))
+            tbl.setItem(r, 2, QTableWidgetItem(name))
+            tbl.setItem(r, 3, QTableWidgetItem(str(high) if high else ""))
+            tbl.setItem(r, 4, QTableWidgetItem(str(std)))
+            tbl.setItem(r, 5, QTableWidgetItem(str(total)))
+            for col in (3, 4, 5):
+                item = tbl.item(r, col)
+                if item:
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            total_high += high
+            total_std  += std
+            total_all  += total
+        # Summary row
+        r = tbl.rowCount()
+        tbl.insertRow(r)
+        tbl.setItem(r, 2, QTableWidgetItem("Total"))
+        tbl.setItem(r, 3, QTableWidgetItem(str(total_high) if total_high else ""))
+        tbl.setItem(r, 4, QTableWidgetItem(str(total_std)))
+        tbl.setItem(r, 5, QTableWidgetItem(str(total_all)))
+        for col in (2, 3, 4, 5):
+            item = tbl.item(r, col)
+            if item:
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                f = item.font()
+                f.setBold(True)
+                item.setFont(f)
+        # Fix height
+        row_h  = tbl.verticalHeader().defaultSectionSize()
+        hdr_h  = tbl.horizontalHeader().height()
+        tbl.setFixedHeight(hdr_h + row_h * tbl.rowCount() + 4)
 
     def _write_demo_log(self):
         for line in DEMO_LOG:

@@ -146,6 +146,14 @@ def _load_quality_log() -> dict:
 
         today_str = date.today().isoformat()
         for entry in data["days"]:
+            # v1.5.7: device_id — replaces device_rank (v1.5.7 rev)
+            if "device_rank" in entry and "device_id" not in entry:
+                entry["device_id"]   = None
+                entry["device_name"] = ""
+                del entry["device_rank"]
+            elif "device_id" not in entry:
+                entry["device_id"]   = None
+                entry["device_name"] = ""
             # Migrate 'category' → 'quality'
             if "category" in entry and "quality" not in entry:
                 old = entry.pop("category")
@@ -242,6 +250,123 @@ def _load_quality_log() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 #  Save
 # ══════════════════════════════════════════════════════════════════════════════
+
+def save_device_table(quality_data: dict) -> None:
+    """
+    Builds and writes device_table.json from quality_data.
+    Called by garmin_collector after each sync.
+    Sole write authority: garmin_quality (this module).
+
+    Matching algorithm: group entries by device_id (str).
+    device_id is set per entry by garmin_collector from training_status.
+    Entries with device_id=None are excluded from named device rows.
+    Device name is taken from the entry's device_name field.
+    New devices are detected automatically — no manual config required.
+
+    Sorted: newest date_to first (most recently used device at top).
+
+    Format: list of dicts with keys:
+      device_id, name, date_from, date_to, days_high, days_standard, days_total
+    Plus a summary row with device_id="__total__".
+    """
+    days = quality_data.get("days", [])
+
+    # Accumulate per-device stats
+    # Entries with device_id=None are grouped under "__unknown__"
+    stats = {}  # device_id → {name, dates, days_high, days_standard}
+    unknown = {"name": "unknown", "dates": [], "days_high": 0, "days_standard": 0}
+    for entry in days:
+        dev_id = entry.get("device_id")
+        if not dev_id:
+            # Count under unknown
+            d = entry.get("date")
+            if d:
+                unknown["dates"].append(d)
+            q = entry.get("quality", "")
+            if q == "high":
+                unknown["days_high"] += 1
+            elif q == "standard":
+                unknown["days_standard"] += 1
+            continue
+        if dev_id not in stats:
+            stats[dev_id] = {
+                "name":          entry.get("device_name") or dev_id,
+                "dates":         [],
+                "days_high":     0,
+                "days_standard": 0,
+            }
+        # Update name if available (most recent wins)
+        if entry.get("device_name"):
+            stats[dev_id]["name"] = entry["device_name"]
+        d = entry.get("date")
+        if d:
+            stats[dev_id]["dates"].append(d)
+        q = entry.get("quality", "")
+        if q == "high":
+            stats[dev_id]["days_high"] += 1
+        elif q == "standard":
+            stats[dev_id]["days_standard"] += 1
+
+    # Build table rows
+    rows = []
+    total_high = total_std = total_all = 0
+    for dev_id, s in stats.items():
+        dh  = s["days_high"]
+        dst = s["days_standard"]
+        dt  = dh + dst
+        rows.append({
+            "device_id":     dev_id,
+            "name":          s["name"],
+            "date_from":     min(s["dates"]) if s["dates"] else None,
+            "date_to":       max(s["dates"]) if s["dates"] else None,
+            "days_high":     dh,
+            "days_standard": dst,
+            "days_total":    dt,
+        })
+        total_high += dh
+        total_std  += dst
+        total_all  += dt
+
+    # Sort: newest date_to first
+    rows.sort(key=lambda r: r["date_to"] or "", reverse=True)
+
+    # Unknown device row — appended after named devices, before total
+    if unknown["dates"]:
+        dh  = unknown["days_high"]
+        dst = unknown["days_standard"]
+        rows.append({
+            "device_id":     "__unknown__",
+            "name":          "unknown",
+            "date_from":     min(unknown["dates"]),
+            "date_to":       max(unknown["dates"]),
+            "days_high":     dh,
+            "days_standard": dst,
+            "days_total":    dh + dst,
+        })
+        total_high += dh
+        total_std  += dst
+        total_all  += dh + dst
+
+    # Summary row
+    rows.append({
+        "device_id":     "__total__",
+        "name":          "Total",
+        "date_from":     None,
+        "date_to":       None,
+        "days_high":     total_high,
+        "days_standard": total_std,
+        "days_total":    total_all,
+    })
+
+    try:
+        cfg.DEVICE_TABLE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cfg.DEVICE_TABLE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(cfg.DEVICE_TABLE_FILE)
+        log.info(f"  device_table.json written ({len(rows) - 1} device(s))")
+    except Exception as e:
+        log.warning(f"  Could not write device_table.json: {e}")
+
 
 def _save_quality_log(data: dict, skip_backup: bool = False) -> None:
     """

@@ -19,6 +19,7 @@ import threading
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QDialog, QLineEdit, QMessageBox, QFrame, QSizePolicy,
+    QTableWidget, QTableWidgetItem, QHeaderView,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QObject
 from PyQt6.QtGui import QFont
@@ -404,35 +405,22 @@ class PanelConnection(QWidget):
         lay.addLayout(conn_row)
         lay.addSpacing(6)
 
-        # Archive info — row 1
-        _QCOLORS = {
-            "high":   self._app.GREEN,
-            "medium": self._app.YELLOW,
-            "low":    self._app.TEXT2,
-            "failed": self._app.ACCENT,
-        }
+        # Archive info — row 1: fail indicator + recheck + missing
         row1 = QHBoxLayout()
         row1.setSpacing(0)
-        self._info_total = QLabel("Days: —")
-        self._info_total.setFont(QFont("Segoe UI", 9))
-        self._info_total.setStyleSheet(f"color: {self._app.TEXT2};")
-        row1.addWidget(self._info_total)
-        row1.addSpacing(14)
 
         self._info_qdots = {}
-        for q, label in [("high", "high"), ("medium", "med"),
-                          ("low", "low"), ("failed", "fail")]:
-            dot = QLabel("●")
-            dot.setFont(QFont("Segoe UI", 9))
-            dot.setStyleSheet(f"color: {_QCOLORS[q]};")
-            lbl = QLabel(f"{label} —")
-            lbl.setFont(QFont("Segoe UI", 8))
-            lbl.setStyleSheet(f"color: {self._app.TEXT2};")
-            row1.addWidget(dot)
-            row1.addSpacing(2)
-            row1.addWidget(lbl)
-            row1.addSpacing(10)
-            self._info_qdots[q] = lbl
+        dot = QLabel("●")
+        dot.setFont(QFont("Segoe UI", 9))
+        dot.setStyleSheet(f"color: {self._app.ACCENT};")
+        lbl = QLabel("fail —")
+        lbl.setFont(QFont("Segoe UI", 8))
+        lbl.setStyleSheet(f"color: {self._app.TEXT2};")
+        row1.addWidget(dot)
+        row1.addSpacing(2)
+        row1.addWidget(lbl)
+        row1.addSpacing(10)
+        self._info_qdots["failed"] = lbl
 
         self._info_recheck = QLabel("Recheck: —")
         self._info_recheck.setFont(QFont("Segoe UI", 8))
@@ -464,6 +452,42 @@ class PanelConnection(QWidget):
             row2.addSpacing(14)
         row2.addStretch()
         lay.addLayout(row2)
+
+        # Archive info — row 3: device table
+        _HDR = ["From", "To", "Device", "High", "Standard", "Total"]
+        self._info_device_table = QTableWidget(0, len(_HDR))
+        self._info_device_table.setHorizontalHeaderLabels(_HDR)
+        for col in range(6):
+            self._info_device_table.horizontalHeader().setSectionResizeMode(
+                col, QHeaderView.ResizeMode.ResizeToContents)
+        self._info_device_table.horizontalHeader().setStretchLastSection(False)
+        self._info_device_table.verticalHeader().setVisible(False)
+        self._info_device_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._info_device_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._info_device_table.setShowGrid(True)
+        self._info_device_table.setAlternatingRowColors(True)
+        self._info_device_table.setSizeAdjustPolicy(
+            QTableWidget.SizeAdjustPolicy.AdjustToContents)
+        self._info_device_table.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._info_device_table.setFont(QFont("Segoe UI", 8))
+        self._info_device_table.setStyleSheet(f"""
+            QTableWidget {{
+                background: {self._app.BG2};
+                alternate-background-color: {self._app.BG3};
+                color: {self._app.TEXT2};
+                gridline-color: {self._app.BG3};
+                border: none;
+            }}
+            QHeaderView::section {{
+                background: {self._app.BG3};
+                color: {self._app.TEXT};
+                font-size: 8pt;
+                border: none;
+                padding: 2px 4px;
+            }}
+        """)
+        lay.addWidget(self._info_device_table)
 
         self._integrity_warning_lbl = QLabel("")
         self._integrity_warning_lbl.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))

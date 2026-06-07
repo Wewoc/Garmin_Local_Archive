@@ -4,6 +4,74 @@
 
 ---
 
+## v1.5.7 — Quality System Redefinition
+
+Replaces the `high / medium / low` quality label system with `high / standard / failed`.
+Archive analysis showed that 2492 of 2725 entries were `medium` — the label was
+factually incorrect. The new `standard` label describes what the device actually
+delivers: full daily data without intraday. Device identity (`device_id`,
+`device_name`) is now stored per entry, sourced from
+`training_status → recordedDevices`. A `device_table.json` written after each
+sync drives a new device breakdown table in the GUI. Startup integrity check
+now correctly uses the configured data directory instead of the default path.
+
+**New files:**
+- `garmin_data/log/device_table.json` — written by `garmin_quality` after each
+  sync. Read directly by `panel_archive` (INTENTIONAL DIRECT READ). JSON array
+  sorted by `date_to` descending; `__total__` row at end filtered by GUI.
+
+**Changed modules:**
+- `garmin/quality/_assess.py` — `assess_quality()`: `medium`/`low` → `standard`.
+  Sleep-distinction removed (was only needed for medium vs. low).
+- `garmin/quality/_maint.py` — `QUALITY_RANK = {"high": 2, "standard": 1, "failed": 0}`
+  (public, no leading underscore). `_upsert_quality()`: `device_id` + `device_name`
+  parameters added; `standard` recheck logic: `day_age < 180 AND prev_high`.
+  `record_attempt()`: `device_id` + `device_name` + `prev_high` forwarded.
+  New `set_unknown_device_name(data, name)`: sets `device_name` on all entries
+  with `device_id = None`. Returns count updated.
+- `garmin/quality/_io.py` — on-load migration: `device_id = None` + `device_name = ""`
+  added to entries missing these fields. New `save_device_table(data)`: groups
+  entries by `device_id`, writes `device_table.json` atomically.
+- `garmin/quality/_stats.py` — counts: `medium`/`low` → `standard`.
+- `garmin/garmin_quality.py` — facade exports: `QUALITY_RANK` (was `_QUALITY_RANK`),
+  `save_device_table`, `set_unknown_device_name` added.
+- `garmin/garmin_config.py` — `INTRADAY_RETRY_WINDOW_DAYS = 180` added.
+  `DEVICE_TABLE_FILE = LOG_DIR / "device_table.json"` added.
+- `garmin/garmin_collector.py` — `_should_write`: `("high", "standard")`.
+  Fetch loop: `device_id`/`device_name` lookup from `recordedDevices`.
+  `prev_high` lookup per day. Retry window uses `cfg.INTRADAY_RETRY_WINDOW_DAYS`.
+  `_QUALITY_RANK` local dict removed → `from quality._maint import QUALITY_RANK`.
+  `_run_self_healing()`: recheck only on `failed`.
+  `run_import()`: skip condition `("high", "standard")`.
+  Backfill (Step 5b in `main()`): entries with `device_id = None` resolved from
+  raw files on first run. 881 entries set (fenix 7X + fenix 5x).
+- `garmin/garmin_import_mirror.py` — `_QUALITY_RANK`: `{"high": 2, "standard": 1, "failed": 0}`.
+- `app/garmin_app_controller.py` — `check_integrity()`: sets `GARMIN_OUTPUT_DIR`
+  from `s["base_dir"]` and reloads `garmin_config` before check. Fixes false
+  positives when configured data directory differs from default.
+- `app/panel_archive.py` — device table rendered in `_refresh_archive_info()`.
+  Double-click on "unknown" row opens `QInputDialog` → calls
+  `set_unknown_device_name()` → saves log + device table → refreshes.
+  `_check_failed_days_popup`: filter `== "failed"` (was `in ("failed", "low")`).
+- `app/panel_connection.py` — `_QCOLORS`: `"standard"` replaces `"medium"`/`"low"`.
+  `_info_qdots` loop: `("standard", "std")`. Row 3: `QTableWidget` 6 columns
+  (From / To / Device / High / Standard / Total). All columns `ResizeToContents`.
+- `garmin_app_screenshot.py` — demo values updated for new label set.
+- `tests/test_local.py` — all `medium`/`low` expectations updated to `standard`.
+  New baseline: 317 checks.
+- `tools/migrate_quality_reclassify_v2.py` — one-time migration script.
+  2727 entries: 218 high → unchanged, 2509 medium/low → standard. Run before
+  session start.
+
+**Known devices in archive:**
+- fenix 7X Sapphire Solar (ID: 3425438179) — 2025-03-10 → 2026-06-06
+- fenix 5x (ID: 3952922857) — 2024-01-01 → 2025-03-02
+- vívoactive 3 era (device_id = None) — 2018-12-19 → ~2024
+
+**Test result:** 317 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.6.3 — Code Quality Patch
 
 Maintenance release addressing seven findings from two independent code reviews

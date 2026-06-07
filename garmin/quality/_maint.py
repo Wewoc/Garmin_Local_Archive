@@ -17,8 +17,9 @@ from garmin_utils import extract_date_from_filename
 
 log = logging.getLogger(__name__)
 
-# Quality rank — defined here, re-exported via facade
-_QUALITY_RANK = {"high": 4, "medium": 3, "low": 2, "failed": 1}
+# Quality rank — defined here, re-exported via facade (without leading underscore)
+# Used for downgrade protection in _upsert_quality and in garmin_collector.
+QUALITY_RANK = {"high": 2, "standard": 1, "failed": 0}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -28,12 +29,15 @@ _QUALITY_RANK = {"high": 4, "medium": 3, "low": 2, "failed": 1}
 def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                     written: bool = None, source: str = "legacy",
                     fields: dict = None,
-                    validator_result: dict = None) -> None:
+                    validator_result: dict = None,
+                    device_id: str | None = None,
+                    device_name: str | None = None,
+                    prev_high: bool = False) -> None:
     """
     Adds or updates a day entry in the quality log.
-      - 'failed': increments attempts, sets recheck=True
-      - 'low':    increments attempts, sets recheck=False if attempts >= LOW_QUALITY_MAX_ATTEMPTS
-      - 'medium'/'high': sets recheck=False (data is good)
+      - 'failed':   increments attempts, sets recheck=True
+      - 'standard': sets recheck based on prev_high + age window (v1.5.7)
+      - 'high':     sets recheck=False (intraday present — no retry needed)
 
     written : bool | None
       True  — writer wrote both files successfully
@@ -43,6 +47,18 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
     source : str
       Origin of the data: "api" | "bulk" | "csv" | "manual" | "legacy"
       Always overwrites the existing value — the most recent write wins.
+
+    device_id : str | None
+      Numeric device ID string from training_status → latestTrainingStatusData.
+      None = training_status absent or no devices found.
+
+    device_name : str | None
+      Human-readable device name — stored alongside device_id.
+
+    prev_high : bool
+      True if the previous calendar day has quality == "high".
+      Used to determine whether a 'standard' day warrants a recheck.
+      Lookup is done by the caller (garmin_collector) — not here.
 
     validator_result : dict | None
       Complete result object from garmin_validator.validate().
@@ -63,8 +79,8 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
 
     for entry in data["days"]:
         if entry.get("date") == day_str:
-            existing_rank = _QUALITY_RANK.get(entry.get("quality", "failed"), 0)
-            new_rank      = _QUALITY_RANK.get(quality, 0)
+            existing_rank = QUALITY_RANK.get(entry.get("quality", "failed"), 0)
+            new_rank      = QUALITY_RANK.get(quality, 0)
             if new_rank < existing_rank:
                 log.info(f"    ℹ {day}: quality downgrade blocked ({entry['quality']} → {quality})")
                 return
@@ -73,6 +89,9 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
             entry["write"]        = written
             entry["source"]       = source
             entry["last_checked"] = today_str
+            if device_id is not None:
+                entry["device_id"]   = device_id
+                entry["device_name"] = device_name or ""
             if fields is not None:
                 entry["fields"]   = fields
             if validator_result is not None:
@@ -83,29 +102,36 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                 entry["attempts"]     = entry.get("attempts", 0) + 1
                 entry["last_attempt"] = now_str
                 entry["recheck"]      = True
-            elif quality == "low":
-                entry["attempts"]     = entry.get("attempts", 0) + 1
+            elif quality == "standard":
+                day_age = (date.today() - day).days
+                entry["recheck"]      = (day_age < cfg.INTRADAY_RETRY_WINDOW_DAYS and prev_high)
                 entry["last_attempt"] = now_str
-                entry["recheck"]      = entry["attempts"] < cfg.LOW_QUALITY_MAX_ATTEMPTS
-                if not entry["recheck"]:
-                    log.info(f"    ℹ {day}: low quality after {entry['attempts']} attempts — recheck disabled")
-            else:
+            else:  # "high"
                 entry["recheck"]      = False
                 entry["last_attempt"] = now_str
             return
 
     # New entry
-    attempts = 1 if quality in ("failed", "low") else 0
+    attempts = 1 if quality == "failed" else 0
+    if quality == "failed":
+        recheck_new = True
+    elif quality == "standard":
+        day_age = (date.today() - day).days
+        recheck_new = (day_age < cfg.INTRADAY_RETRY_WINDOW_DAYS and prev_high)
+    else:  # "high"
+        recheck_new = False
     entry = {
         "date":         day_str,
         "quality":      quality,
         "reason":       reason,
         "write":        written,
         "source":       source,
-        "recheck":      quality in ("failed", "low"),
+        "recheck":      recheck_new,
         "attempts":     attempts,
         "last_checked": today_str,
-        "last_attempt": now_str if quality in ("failed", "low") else None,
+        "last_attempt": now_str if quality == "failed" else None,
+        "device_id":    device_id,
+        "device_name":  device_name or "",
     }
     if fields is not None:
         entry["fields"] = fields
@@ -120,20 +146,48 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
 #  Public Transaction API
 # ══════════════════════════════════════════════════════════════════════════════
 
+def set_unknown_device_name(data: dict, name: str) -> int:
+    """
+    Sets device_name on all entries where device_id is None.
+    Returns the number of entries updated.
+    Caller is responsible for saving quality_log.json and device_table.json.
+    """
+    name = name.strip()
+    count = 0
+    for entry in data.get("days", []):
+        if entry.get("device_id") is None:
+            entry["device_name"] = name
+            count += 1
+    log.info(f"  set_unknown_device_name: {count} entries updated → '{name}'")
+    return count
+
+
 def record_attempt(data: dict, day, label: str, reason: str,
                    written: bool = None, source: str = "api",
                    fields: dict = None,
-                   validator_result: dict = None) -> None:
+                   validator_result: dict = None,
+                   device_id: str | None = None,
+                   device_name: str | None = None,
+                   prev_high: bool = False) -> None:
     """
     Public API — atomically upserts a quality entry and persists the log.
     Caller must already hold QUALITY_LOCK.
     Replaces the _upsert_quality + _save_quality_log call pattern.
+
+    device_id   : numeric device ID string from training_status, or None.
+    device_name : human-readable device name, or None.
+    prev_high   : True if the previous calendar day has quality == "high".
+                  Used for 'standard' recheck logic — lookup done by caller.
     """
     from quality._io import _save_quality_log
     _upsert_quality(data, day, label, reason,
                     written=written, source=source,
-                    fields=fields, validator_result=validator_result)
+                    fields=fields, validator_result=validator_result,
+                    device_id=device_id, device_name=device_name,
+                    prev_high=prev_high)
     _save_quality_log(data)
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════

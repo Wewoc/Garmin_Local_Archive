@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.6.3
+# Garmin Local Archive — Desktop App v1.5.7
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -110,7 +110,8 @@ The top section shows two things at once:
 **Archive info panel** — populated on startup from your local data, no sync required:
 
 - **Days** — total days tracked in the quality log
-- **high / med / low / fail** — breakdown by quality level (colour-coded)
+- **high / std / fail** — breakdown by quality level (colour-coded). `high` = intraday data present, `std` = full daily data without intraday (typical for older devices or degraded history), `fail` = nothing usable
+- **Device table** — one row per device showing date range, days high, days standard, total. Double-click the `unknown` row to assign a name to legacy entries (vívoactive era and similar)
 - **Recheck** — days flagged for re-download by the background timer
 - **Range** — earliest and latest date in your archive
 - **Coverage** — percentage of days present vs. possible days in the date range
@@ -153,7 +154,7 @@ Imports a Garmin GDPR data export into your local archive — useful for histori
 3. Click **📥 Import Bulk Export** — choose ZIP file or unpacked folder
 4. Progress is shown in the log window
 
-Imported days land in `raw/` and `summary/` alongside API data. Days already present with `high` or `medium` quality from the API are skipped — the better source wins. Imported data is marked `source: bulk` in the quality log and never re-fetched automatically.
+Imported days land in `raw/` and `summary/` alongside API data. Days already present with `high` or `standard` quality from the API are skipped — the better source wins. Imported data is marked `source: bulk` in the quality log and never re-fetched automatically.
 
 ### Sync Context / CSV
 
@@ -172,7 +173,7 @@ The timer works through a priority queue each run:
 
 1. **Bulk Recheck** *(priority)* — if you have imported a Garmin GDPR export, the timer first upgrades those days via the live API. Garmin keeps full intraday resolution available for approximately 6 months — bulk-imported days within that window are re-fetched oldest first before the high-resolution data is permanently gone. Runs exclusively until all candidates are resolved.
 2. **Repair** — re-fetches days where the API call itself failed (no file created)
-3. **Quality** — re-checks days with poor data quality (`low`)
+3. **Quality** — re-checks `standard` days where the previous day had intraday data and the retry window (180 days) is still open — worth trying again for a quality upgrade
 4. **Fill** — fetches completely missing days between your earliest known date and yesterday
 
 When all queues are empty the timer stops automatically and logs "Archive complete".
@@ -364,6 +365,6 @@ python build_standalone.py
 
 > **Standalone:** Click the Analysis Dashboard once — this regenerates summaries from raw data automatically.
 
-**Background timer flags days as `low` after fetching them** — this is expected behaviour. For old dates (typically before 2022), Garmin returns little or no data via the API — either because intraday data has been degraded over time, or because the watch was not worn on those days. A day with no device produces a null response from Garmin and is not included in the GDPR export — `low` is the correct assessment. The timer will retry up to 3 times, then stop automatically and never touch those days again.
+**Background timer shows days as `standard` instead of `high`** — this is expected behaviour. `standard` means the API returned full daily data but no intraday detail (heart rate curve, stress curve, etc.). This happens for older dates where Garmin has permanently degraded intraday resolution, or for device eras that never produced intraday data. The timer retries `standard` days only if the previous day had intraday data and the 180-day retry window is still open — after that the label is accepted as final and those days are never touched again.
 
 **Antivirus flags the EXE** — this is a false positive common with PyInstaller-built executables. The source code is fully open at github.com/Wewoc/Garmin_Local_Archive. You can whitelist the file in your antivirus settings or build the EXE yourself from source.

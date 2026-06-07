@@ -62,11 +62,13 @@ def get_archive_stats(quality_log_path=None) -> dict:
 
     days = data.get("days", [])
 
-    counts = {"high": 0, "medium": 0, "low": 0, "failed": 0}
+    counts = {"high": 0, "standard": 0, "failed": 0}
     recheck = 0
     dates = []
     api_dates = []
     bulk_dates = []
+    # device_table: {device_id: {name, rank, dates[], days_high, days_standard}}
+    device_map = {}
 
     for entry in days:
         q = entry.get("quality", "failed")
@@ -82,6 +84,14 @@ def get_archive_stats(quality_log_path=None) -> dict:
                 api_dates.append(d)
             elif src == "bulk":
                 bulk_dates.append(d)
+
+        # Accumulate per-device stats
+        dev_id = str(entry.get("device_rank", "")) or None
+        # Use a stable key: look up device_rank_config to find device_id
+        # device_rank is int|null — not useful as key. We need device_id from
+        # the config. Stats are built from config entries, not per-entry device_id
+        # (device_id is not stored per entry — only device_rank is).
+        # device_table is built from device_rank_config in the return block below.
 
     date_min = min(dates) if dates else None
     date_max = max(dates) if dates else None
@@ -106,11 +116,43 @@ def get_archive_stats(quality_log_path=None) -> dict:
         except Exception:
             pass
 
+    # Build device_table from device_rank_config + day entries
+    device_rank_config = data.get("device_rank_config", {})
+    device_table = []
+    for dev_id, dev_cfg in device_rank_config.items():
+        dev_dates    = []
+        days_high     = 0
+        days_standard = 0
+        for entry in days:
+            # Match by device_rank: find rank in config for this device_id
+            cfg_rank = dev_cfg.get("rank")
+            entry_rank = entry.get("device_rank")
+            if cfg_rank is not None and entry_rank == cfg_rank:
+                ed = entry.get("date")
+                if ed:
+                    dev_dates.append(ed)
+                eq = entry.get("quality", "failed")
+                if eq == "high":
+                    days_high += 1
+                elif eq == "standard":
+                    days_standard += 1
+        device_table.append({
+            "device_id":     dev_id,
+            "name":          dev_cfg.get("name", ""),
+            "rank":          dev_cfg.get("rank"),
+            "date_from":     min(dev_dates) if dev_dates else None,
+            "date_to":       max(dev_dates) if dev_dates else None,
+            "days_high":     days_high,
+            "days_standard": days_standard,
+            "days_total":    days_high + days_standard,
+        })
+    # Sort by rank (null last), then by date_from
+    device_table.sort(key=lambda r: (r["rank"] is None, r["rank"] or 0, r["date_from"] or ""))
+
     return {
         "total":              len(days),
         "high":               counts["high"],
-        "medium":             counts["medium"],
-        "low":                counts["low"],
+        "standard":           counts["standard"],
         "failed":             counts["failed"],
         "recheck":            recheck,
         "missing":            missing,
@@ -120,4 +162,5 @@ def get_archive_stats(quality_log_path=None) -> dict:
         "last_api":           max(api_dates)  if api_dates  else None,
         "last_bulk":          max(bulk_dates) if bulk_dates else None,
         "integrity_warnings": data.get("integrity_warnings", []),
+        "device_table":       device_table,
     }
