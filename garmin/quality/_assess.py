@@ -35,10 +35,14 @@ def assess_quality(raw: dict) -> str:
     Assesses the quality of a raw data dict based on content.
 
     Returns one of:
-      "high"   — intraday data present (HR values, stress values, etc.)
-      "medium" — daily aggregates present but no intraday (typical for older Garmin data)
-      "low"    — only summary-level data, minimum usable (stats or user_summary present)
-      "failed" — nothing usable, not even basic stats
+      "high"     — intraday data present (HR values or stress values array)
+      "standard" — no intraday, but daily aggregates present — maximum for this device/era
+      "failed"   — nothing usable, not even basic stats
+
+    Note: "medium" and "low" are no longer returned. Both collapse to "standard".
+    Device-level differentiation is handled via device_rank in quality_log.json.
+    assess_quality_fields() still returns "high"/"medium"/"low"/"failed" per endpoint
+    — that is internal field-level diagnosis, not user-facing quality.
     """
     # Check for intraday data
     hr = raw.get("heart_rates") or {}
@@ -66,18 +70,13 @@ def assess_quality(raw: dict) -> str:
     )
 
     if has_steps or has_hr_resting:
-        sleep = raw.get("sleep") or {}
-        has_sleep = _safe_get(sleep, "dailySleepDTO", "sleepTimeSeconds") is not None
-
-        if has_sleep or has_hr_resting:
-            return "medium"
-        return "low"
+        return "standard"
 
     # Check bare minimum — any stats at all
     if isinstance(stats, dict) and stats:
-        return "low"
+        return "standard"
     if isinstance(user_summary, dict) and user_summary:
-        return "low"
+        return "standard"
 
     return "failed"
 

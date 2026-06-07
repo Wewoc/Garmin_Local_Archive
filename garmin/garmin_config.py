@@ -41,7 +41,8 @@ LOG_RECENT_DIR = LOG_DIR / "recent"
 LOG_FAIL_DIR   = LOG_DIR / "fail"
 
 # Quality log
-QUALITY_LOG_FILE = LOG_DIR / "quality_log.json"
+QUALITY_LOG_FILE  = LOG_DIR / "quality_log.json"
+DEVICE_TABLE_FILE = LOG_DIR / "device_table.json"
 
 # Backup directories (sole owner: garmin_backup.py)
 BACKUP_DIR       = GARMIN_DIR / "backup"
@@ -116,7 +117,15 @@ REQUEST_DELAY_MAX = float(os.environ.get("GARMIN_REQUEST_DELAY_MAX", "20.0"))
 REFRESH_FAILED = os.environ.get("GARMIN_REFRESH_FAILED", "0") == "1"
 
 # Max re-download attempts for 'low' quality days before giving up
+# NOTE: LOW_QUALITY_MAX_ATTEMPTS is kept for backward compatibility with existing tests.
+# The 'low' label is removed in v1.5.7 — this constant will be removed in v1.6.
 LOW_QUALITY_MAX_ATTEMPTS = int(os.environ.get("GARMIN_LOW_QUALITY_MAX_ATTEMPTS", "3"))
+
+# Intraday data retention window — Garmin degrades intraday after ~180 days.
+# Used by:
+#   - _upsert_quality(): recheck logic for 'standard' days (Schritt 5)
+#   - garmin_collector: bulk recheck cutoff (Schritt 8)
+INTRADAY_RETRY_WINDOW_DAYS = int(os.environ.get("GARMIN_INTRADAY_RETRY_WINDOW_DAYS", "180"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Session & logging

@@ -23,6 +23,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
     QDialog, QLineEdit, QListWidget, QMessageBox, QFrame, QSizePolicy,
+    QTableWidgetItem, QInputDialog,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -155,7 +156,13 @@ class PanelArchive(QWidget):
                 return
 
             total    = stats["total"]
-            counts   = {q: stats[q] for q in ("high", "medium", "low", "failed")}
+            counts       = {"failed": stats.get("failed", 0)}
+            # device_table — read directly from device_table.json (written by collector)
+            _dt_path = base_dir / "garmin_data" / "log" / "device_table.json"
+            try:
+                device_table = json.loads(_dt_path.read_text(encoding="utf-8")) if _dt_path.exists() else []
+            except Exception:
+                device_table = []
             recheck  = stats["recheck"]
             missing  = stats["missing"] if stats["missing"] is not None else 0
             rng      = (f"{stats['date_min']} → {stats['date_max']}"
@@ -172,9 +179,7 @@ class PanelArchive(QWidget):
             )
 
             def _update():
-                pc._info_total.setText(f"Days: {total}")
-                for q, lbl in pc._info_qdots.items():
-                    lbl.setText(f"{q[:3] if q != 'failed' else 'fail'} {counts[q]}")
+                pc._info_qdots["failed"].setText(f"fail {counts['failed']}")
                 pc._info_recheck.setText(f"Recheck: {recheck}")
                 pc._info_missing.setText(f"Missing: {missing}")
                 pc._info_range.setText(f"Range: {rng}")
@@ -183,9 +188,106 @@ class PanelArchive(QWidget):
                 pc._info_last_bulk.setText(f"Last Bulk: {last_bulk}")
                 pc._integrity_warning_lbl.setText(integrity_text)
 
+                # Device table — __total__ row is in device_table.json but
+                # we render it separately for formatting control.
+                tbl = pc._info_device_table
+                tbl.setRowCount(0)
+                total_high = total_std = total_all = 0
+                data_rows = [r for r in device_table if r.get("device_id") != "__total__"]
+                for row in data_rows:
+                    r = tbl.rowCount()
+                    tbl.insertRow(r)
+                    tbl.setItem(r, 0, QTableWidgetItem(row.get("date_from") or "—"))
+                    tbl.setItem(r, 1, QTableWidgetItem(row.get("date_to")   or "—"))
+                    tbl.setItem(r, 2, QTableWidgetItem(row.get("name")      or row.get("device_id", "?")))
+                    tbl.setItem(r, 3, QTableWidgetItem(str(row.get("days_high",     0) or "") or ""))
+                    tbl.setItem(r, 4, QTableWidgetItem(str(row.get("days_standard", 0))))
+                    tbl.setItem(r, 5, QTableWidgetItem(str(row.get("days_total",    0))))
+                    for col in (3, 4, 5):
+                        item = tbl.item(r, col)
+                        if item:
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    total_high += row.get("days_high",     0) or 0
+                    total_std  += row.get("days_standard", 0) or 0
+                    total_all  += row.get("days_total",    0) or 0
+                # Summary row
+                if data_rows:
+                    r = tbl.rowCount()
+                    tbl.insertRow(r)
+                    tbl.setItem(r, 2, QTableWidgetItem("Total"))
+                    tbl.setItem(r, 3, QTableWidgetItem(str(total_high) if total_high else ""))
+                    tbl.setItem(r, 4, QTableWidgetItem(str(total_std)))
+                    tbl.setItem(r, 5, QTableWidgetItem(str(total_all)))
+                    for col in (2, 3, 4, 5):
+                        item = tbl.item(r, col)
+                        if item:
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                            f = item.font()
+                            f.setBold(True)
+                            item.setFont(f)
+                # Sizing: all columns fit content (set in panel_connection),
+                # height fits exactly all rows — no scroll needed
+                row_h  = tbl.verticalHeader().defaultSectionSize()
+                hdr_h  = tbl.horizontalHeader().height()
+                n_rows = tbl.rowCount()
+                tbl.setFixedHeight(hdr_h + row_h * n_rows + 4)
+
+                # Double-click on unknown row → name dialog (connect once)
+                if not getattr(self, "_archive_device_click_connected", False):
+                    tbl.cellDoubleClicked.connect(self._archive_on_device_name_click)
+                    self._archive_device_click_connected = True
+
             self._app._dispatch(_update)
         except Exception:
             pass
+
+    # ── Device name dialog ────────────────────────────────────────────────────
+
+    def _archive_on_device_name_click(self, row: int, col: int):
+        """Double-click on device table row — opens name dialog for unknown devices.
+        Main Thread only (signal always fires on Main Thread)."""
+        pc  = self._app._panel_connection
+        tbl = pc._info_device_table
+        name_item = tbl.item(row, 2)
+        if name_item is None:
+            return
+        # Only react to the unknown row (device_id = None → shown as "unknown")
+        if name_item.text() != "unknown":
+            return
+
+        current = name_item.text()
+        new_name, ok = QInputDialog.getText(
+            self._app,
+            "Device Name",
+            "Name für unbekanntes Gerät (vívoactive 3 Ära):",
+            text=current if current != "unknown" else "",
+        )
+        if not ok or not new_name.strip():
+            return
+
+        s        = self._app._panel_settings._collect_settings()
+        base_dir = Path(s.get("base_dir", "")).expanduser()
+        log_path = base_dir / "garmin_data" / "log" / "quality_log.json"
+        if not log_path.exists():
+            return
+
+        try:
+            import garmin_config as _cfg
+            with _quality.QUALITY_LOCK:
+                data = _quality._load_quality_log()
+                updated = _quality.set_unknown_device_name(data, new_name.strip())
+                if updated == 0:
+                    return
+                _quality._save_quality_log(data)
+                _quality.save_device_table(data)
+            self._app._log(
+                f"✓ Device name set: '{new_name.strip()}' ({updated} entries updated)"
+            )
+        except Exception as e:
+            self._app._log(f"✗ Device name update failed: {e}")
+            return
+
+        self._refresh_archive_info()
 
     # ── Integrity check ────────────────────────────────────────────────────────
 
@@ -463,7 +565,7 @@ class PanelArchive(QWidget):
                 return False
             count = sum(
                 1 for e in entries
-                if e.get("quality", e.get("category", "")) in ("failed", "low")
+                if e.get("quality", e.get("category", "")) == "failed"
                 and start <= date.fromisoformat(e["date"]) <= end
             )
             if count == 0:

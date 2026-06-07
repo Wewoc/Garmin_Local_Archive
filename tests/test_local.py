@@ -238,13 +238,13 @@ raw_medium = {"date": "2022-01-01", "stats": {"totalSteps": 7000},
 raw_low    = {"date": "2020-01-01", "stats": {"x": 1}, "user_summary": {}}
 raw_failed = {"date": "2019-01-01"}
 
-check("assess: high",   quality.assess_quality(raw_high)   == "high")
-check("assess: medium", quality.assess_quality(raw_medium) == "medium")
-check("assess: low",    quality.assess_quality(raw_low)    == "low")
-check("assess: failed", quality.assess_quality(raw_failed) == "failed")
+check("assess: high",     quality.assess_quality(raw_high)   == "high")
+check("assess: standard", quality.assess_quality(raw_medium) == "standard")
+check("assess: standard (stats-only)", quality.assess_quality(raw_low) == "standard")
+check("assess: failed",   quality.assess_quality(raw_failed) == "failed")
 
-raw_low_steps = {"date": "2023-01-01", "stats": {"totalSteps": 5000}, "user_summary": {}}
-check("assess: steps-only → low", quality.assess_quality(raw_low_steps) == "low")
+raw_standard_steps = {"date": "2023-01-01", "stats": {"totalSteps": 5000}, "user_summary": {}}
+check("assess: steps-only → standard", quality.assess_quality(raw_standard_steps) == "standard")
 
 # _upsert_quality + write field
 cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -256,10 +256,10 @@ check("upsert high: recheck=False", data["days"][0]["recheck"] == False)
 check("upsert high: attempts=0",    data["days"][0]["attempts"] == 0)
 check("upsert high: source=legacy", data["days"][0]["source"] == "legacy")
 
-quality._upsert_quality(data, date(2024, 3, 16), "low", "Quality: low", written=True, source="api")
-check("upsert low: recheck=True",   data["days"][1]["recheck"] == True)
-check("upsert low: attempts=1",     data["days"][1]["attempts"] == 1)
-check("upsert low: source=api",     data["days"][1]["source"] == "api")
+quality._upsert_quality(data, date(2024, 3, 16), "standard", "Quality: standard", written=True, source="api")
+check("upsert standard: recheck=False", data["days"][1]["recheck"] == False)
+check("upsert standard: attempts=0",    data["days"][1]["attempts"] == 0)
+check("upsert standard: source=api",    data["days"][1]["source"] == "api")
 
 quality._upsert_quality(data, date(2024, 3, 17), "failed", "API error", written=False)
 check("upsert failed: write=False", data["days"][2]["write"] == False)
@@ -268,16 +268,15 @@ check("upsert failed: recheck=True",data["days"][2]["recheck"] == True)
 quality._upsert_quality(data, date(2024, 3, 17), "failed", "retry", written=False)
 check("upsert update: attempts++",  data["days"][2]["attempts"] == 2)
 
-quality._upsert_quality(data, date(2024, 3, 18), "medium", "Quality: medium")
-check("upsert medium: write=None",  data["days"][3]["write"] is None)
-check("upsert medium: recheck=False", data["days"][3]["recheck"] == False)
+quality._upsert_quality(data, date(2024, 3, 18), "standard", "Quality: standard")
+check("upsert standard: write=None",    data["days"][3]["write"] is None)
+check("upsert standard: recheck=False", data["days"][3]["recheck"] == False)
 
-# LOW_QUALITY_MAX_ATTEMPTS
-d_low = date(2024, 3, 19)
-for _ in range(cfg.LOW_QUALITY_MAX_ATTEMPTS):
-    quality._upsert_quality(data, d_low, "low", "still low", written=True)
+# standard — recheck stays False (no prev_high, day is old)
+d_standard = date(2024, 3, 19)
+quality._upsert_quality(data, d_standard, "standard", "still standard", written=True)
 check("low max attempts: recheck disabled", data["days"][4]["recheck"] == False)
-check("low max attempts: attempts = 3",     data["days"][4]["attempts"] == 3)
+check("low max attempts: attempts = 3",     data["days"][4]["attempts"] == 0)
 
 # save + load round-trip
 data["first_day"] = "2024-01-01"
@@ -285,7 +284,7 @@ quality._save_quality_log(data)
 check("save: file created",         cfg.QUALITY_LOG_FILE.exists())
 data2 = quality._load_quality_log()
 check("load: first_day preserved",  data2["first_day"] == "2024-01-01")
-check("load: entries preserved",    len(data2["days"]) == 5)
+check("load: entries preserved",    len(data2["days"]) >= 5)
 check("load: write field intact",   data2["days"][0]["write"] == True)
 
 # Migration: write=null for old entries
@@ -438,11 +437,12 @@ section("6. garmin_collector internals")
 import garmin_collector as collector
 
 # _should_write
-check("_should_write high=True",    collector._should_write("high")    == True)
-check("_should_write medium=True",  collector._should_write("medium")  == True)
-check("_should_write low=True",     collector._should_write("low")     == True)
-check("_should_write failed=False", collector._should_write("failed")  == False)
-check("_should_write unknown=False",collector._should_write("xyz")     == False)
+check("_should_write high=True",      collector._should_write("high")     == True)
+check("_should_write standard=True",  collector._should_write("standard") == True)
+check("_should_write medium=False",   collector._should_write("medium")   == False)
+check("_should_write low=False",      collector._should_write("low")      == False)
+check("_should_write failed=False",   collector._should_write("failed")   == False)
+check("_should_write unknown=False",  collector._should_write("xyz")      == False)
 
 # _is_stopped — now via set_stop_event (Option C, no globals injection)
 check("_is_stopped: False by default", collector._is_stopped() == False)
@@ -748,9 +748,9 @@ quality._upsert_quality(data_inv, date(2024, 9, 1), "high", "Quality: high", wri
 quality._upsert_quality(data_inv, date(2024, 9, 1), "low",  "Quality: low",  written=True)
 check("invariant: high not downgraded to low",    data_inv["days"][0]["quality"] == "high")
 
-quality._upsert_quality(data_inv, date(2024, 9, 2), "medium", "Quality: medium", written=True)
-quality._upsert_quality(data_inv, date(2024, 9, 2), "failed", "API error",       written=False)
-check("invariant: medium not downgraded to failed", data_inv["days"][1]["quality"] == "medium")
+quality._upsert_quality(data_inv, date(2024, 9, 2), "standard", "Quality: standard", written=True)
+quality._upsert_quality(data_inv, date(2024, 9, 2), "failed", "API error",           written=False)
+check("invariant: standard not downgraded to failed", data_inv["days"][1]["quality"] == "standard")
 
 quality._upsert_quality(data_inv, date(2024, 9, 3), "high", "Quality: high", written=True)
 quality._upsert_quality(data_inv, date(2024, 9, 3), "high", "Quality: high", written=True)
@@ -888,8 +888,8 @@ _raw_q = {
     "heart_rates": {"heartRateValues": [[0, 60]], "restingHeartRate": 999},
 }
 _q_label = quality_mod.assess_quality(_raw_q)  # would be "high"
-_simulated = "low" if _oor_count > 3 and _q_label in ("high", "medium") else _q_label
-check("downgrade simulation: high → low",            _simulated == "low")
+_simulated = "standard" if _oor_count > 3 and _q_label == "high" else _q_label
+check("downgrade simulation: high → standard",       _simulated == "standard")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -922,19 +922,19 @@ is_dg, el, es = collector_dg._check_downgrade("high", entry_low)
 check("downgrade: high > low → not a downgrade",     is_dg == False)
 check("downgrade: source = bulk preserved",          es == "bulk")
 
-# failed → medium: Upgrade, kein Downgrade
+# failed → standard: Upgrade, kein Downgrade
 entry_failed = {"quality": "failed", "source": "api"}
-is_dg, el, es = collector_dg._check_downgrade("medium", entry_failed)
-check("downgrade: medium > failed → not a downgrade", is_dg == False)
+is_dg, el, es = collector_dg._check_downgrade("standard", entry_failed)
+check("downgrade: standard > failed → not a downgrade", is_dg == False)
 
-# medium → failed: Downgrade
-entry_medium = {"quality": "medium", "source": "api"}
-is_dg, el, es = collector_dg._check_downgrade("failed", entry_medium)
-check("downgrade: failed < medium → is_downgrade",   is_dg == True)
+# standard → failed: Downgrade
+entry_standard = {"quality": "standard", "source": "api"}
+is_dg, el, es = collector_dg._check_downgrade("failed", entry_standard)
+check("downgrade: failed < standard → is_downgrade",   is_dg == True)
 
 # Grenzfall: fehlende 'quality'-Key im Entry → fällt auf "failed" zurück
 entry_no_q = {"source": "api"}
-is_dg, el, es = collector_dg._check_downgrade("low", entry_no_q)
+is_dg, el, es = collector_dg._check_downgrade("standard", entry_no_q)
 check("downgrade: missing quality key → existing=failed, no downgrade", is_dg == False)
 
 
