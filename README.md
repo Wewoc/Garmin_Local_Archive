@@ -11,8 +11,8 @@ Archive and analyze your Garmin Connect data **locally on your machine** — `cr
 ## Why this exists
 
 I wanted to ask an AI questions about my health data without sending that data to another cloud service. So I built a local alternative instead.
-There's a second reason that matters more over time: Garmin degrades intraday data — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
 
+There's a second reason that matters more over time: Garmin degrades intraday data — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
 
 *→ For the full story, see [MINDSET.md](docs/MINDSET.md).*
 
@@ -76,6 +76,7 @@ I can't write Python. The architecture, module boundaries, and decisions are min
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Unofficial API:** Garmin Local Archive uses Garmin's unofficial API — it may change or break without notice.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
+- **AI and health data — handle with care:** If you use an external AI service (ChatGPT, Claude, Gemini) to interpret your data: never upload documents containing your name, date of birth, or other identifying information. Cloud AI services store what you send — linked to your account. Use a local model (Ollama) or at minimum a session without login. AI responses on health topics are statistically generated — not medically validated. Treat them as a first orientation, not a conclusion.
 - **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data and air quality data by Open-Meteo — accuracy and availability are not guaranteed. Air quality data (CAMS dataset) is available from approximately 2020 onwards.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
@@ -97,7 +98,7 @@ No install, no terminal. Download, unzip, run.
 
 ### Recovering your history — Bulk Import
 
-There's a second reason that matters more over time: Garmin degrades intraday data — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
+Garmin degrades intraday data after roughly six months rather than deleting it at once. Based on archive data collected in April 2026: the most recent ~6 months deliver full resolution (~500 KB/day); anything older contains only daily aggregates. Once it's gone, the API can't retrieve what's been removed — and the boundary shifts forward over time.
 
 The **Bulk Import** feature closes this gap: request your full GDPR data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
 
@@ -529,6 +530,10 @@ crontab -e
 ### Step 11 — AI-assisted analysis (optional)
 
 Connect a local AI model to your health data. Both options run entirely on your machine — your data never leaves your PC.
+
+> ⚠️ **Before you start:** The prompt file contains your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service, remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
+
+> ⚠️ **Before you start:** The prompt file contains your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service, remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
 
 #### Option A — Open WebUI
 
