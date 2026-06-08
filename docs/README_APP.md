@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.7
+# Garmin Local Archive — Desktop App v1.5.7.1
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -147,7 +147,7 @@ If there are days with failed or incomplete downloads in the selected sync range
 > **Large archives:** If you have years of Garmin history, start with `range` mode for the last 1–2 years before using `auto`. Downloading everything at once can trigger Garmin rate limiting.
 
 ### Import Bulk Export
-Imports a Garmin GDPR data export into your local archive — useful for historical data that is no longer available via the API (Garmin degrades intraday data in stages: full resolution for ~6 months, reduced detail up to ~2.5 years, summaries only beyond that).
+Imports a Garmin GDPR data export into your local archive — useful for historical data that is no longer available via the API (Garmin degrades intraday data after roughly six months — once gone, the API can't retrieve it).
 
 1. Go to [garmin.com](https://www.garmin.com/en-US/account/datamanagement/exportdata/) → Request Data Export
 2. Wait for the email (typically 20–30 minutes), download the ZIP
