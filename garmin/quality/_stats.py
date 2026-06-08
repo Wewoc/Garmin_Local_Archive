@@ -32,8 +32,7 @@ def get_archive_stats(quality_log_path=None) -> dict:
     Returns dict with keys:
       total        int   — total days tracked
       high         int   — days with quality 'high'
-      medium       int   — days with quality 'medium'
-      low          int   — days with quality 'low'
+      standard     int   — days with quality 'standard'
       failed       int   — days with quality 'failed'
       recheck      int   — days with recheck=True
       missing      int   — days absent in range (possible - present) or None

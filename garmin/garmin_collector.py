@@ -83,7 +83,7 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
     Returns
     -------
     tuple (label, normalized, summary, fields, val_result)
-      label      — "high" | "medium" | "low" | "failed"
+      label      — "high" | "standard" | "failed"
       normalized — normalized dict, or None on critical failure
       summary    — summary dict, or None on critical failure
       fields     — per-field quality dict
