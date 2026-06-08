@@ -324,6 +324,28 @@ def _analyse_context_delta_container(
     return order
 
 
+def _extract_device(raw: dict) -> tuple[str | None, str]:
+    """
+    Extracts device_id and device_name from a raw dict.
+    Source: training_status → mostRecentTrainingStatus → recordedDevices[0].
+    Returns (device_id, device_name) — (None, "") if absent.
+    Mirrors garmin_collector device lookup logic — no Keys fallback.
+    """
+    try:
+        ts          = raw.get("training_status") or {}
+        most_recent = ts.get("mostRecentTrainingStatus") or {}
+        recorded    = most_recent.get("recordedDevices")
+        if isinstance(recorded, list) and recorded:
+            first = recorded[0]
+            if isinstance(first, dict):
+                device_id   = str(first["deviceId"])   if first.get("deviceId")   else None
+                device_name = str(first["deviceName"]) if first.get("deviceName") else ""
+                return device_id, device_name
+    except Exception:
+        pass
+    return None, ""
+
+
 def _analyse_context_delta(mirror_dir: Path, base_dir: Path) -> list[tuple[Path, Path]]:
     """
     Folder fallback variant: scans context subdirectories in the mirror folder.
@@ -419,11 +441,14 @@ def _import_raw_from_bytes(
                 errors += 1
                 continue
 
+            device_id, device_name = _extract_device(raw_data)
             quality._upsert_quality(
                 quality_dst, day, label, reason,
                 written=written,
                 source=entry.get("source", "api"),
                 fields=fields,
+                device_id=device_id,
+                device_name=device_name,
             )
             copied += 1
             log.debug(f"  import_mirror: raw {date_str} — {label}")
@@ -599,11 +624,14 @@ def _import_raw_folder(
             written  = writer.write_day(raw_data, summary, date_str)
             reason   = f"Quality: {label} — mirror import (folder)"
             day      = _date.fromisoformat(date_str)
+            device_id, device_name = _extract_device(raw_data)
             quality._upsert_quality(
                 quality_dst, day, label, reason,
                 written=written,
                 source=entry.get("source", "api"),
                 fields=fields,
+                device_id=device_id,
+                device_name=device_name,
             )
             copied += 1
         except Exception as e:

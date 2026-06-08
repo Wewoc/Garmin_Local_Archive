@@ -2,6 +2,29 @@
 
 ---
 
+## v1.5.7.1 — Mirror Import Patch
+
+Fixes two gaps in `garmin_import_mirror.py` discovered during the v1.5.7
+architecture review. Both import paths now correctly extract and forward
+`device_id` / `device_name` from raw files to `_upsert_quality` — imported
+days are no longer written with `device_id = None` regardless of device info
+present in the raw data. The backfill on next Garmin sync still resolves
+any entries already imported without device info, so no data loss occurs.
+
+**Changed modules:**
+- `garmin/garmin_import_mirror.py` — new private helper `_extract_device(raw)`.
+  Extracts `device_id` + `device_name` from
+  `training_status → mostRecentTrainingStatus → recordedDevices[0]`.
+  Mirrors `garmin_collector` device lookup — no `latestTrainingStatusData` Keys
+  fallback. Both `_import_raw_from_bytes` (container path) and `_import_raw_folder`
+  (deprecated folder fallback) now call `_extract_device()` and pass the result
+  to `_upsert_quality`. `prev_high` intentionally not forwarded — mirror import
+  has no prior-day context.
+
+**Test result:** 317 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.7 — Quality System Redefinition
 
 Replaces the `high / medium / low` quality label system with `high / standard / failed`.
