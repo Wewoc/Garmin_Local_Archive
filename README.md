@@ -11,8 +11,8 @@ Archive and analyze your Garmin Connect data **locally on your machine** — `cr
 ## Why this exists
 
 I wanted to ask an AI questions about my health data without sending that data to another cloud service. So I built a local alternative instead.
+There's a second reason that matters more over time: Garmin degrades intraday data — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
 
-There's a second reason that matters more over time: Garmin degrades intraday data in stages — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months; older data loses detail progressively, and beyond ~2.5 years only daily summaries remain. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
 
 *→ For the full story, see [MINDSET.md](docs/MINDSET.md).*
 
