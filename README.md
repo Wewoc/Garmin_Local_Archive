@@ -97,7 +97,7 @@ No install, no terminal. Download, unzip, run.
 
 ### Recovering your history — Bulk Import
 
-Garmin degrades intraday data in stages rather than deleting it at once. Based on archive data collected in April 2026: the most recent ~6 months deliver full resolution (~500 KB/day); data between ~6 months and ~2.5 years old is reduced (~15–30 KB/day); anything older contains only daily aggregates (~1 KB/day). Once a tier drops, the API can't retrieve what's been removed — and the boundaries shift forward over time.
+There's a second reason that matters more over time: Garmin degrades intraday data — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
 
 The **Bulk Import** feature closes this gap: request your full GDPR data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
 
