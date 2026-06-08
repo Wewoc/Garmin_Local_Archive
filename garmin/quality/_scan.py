@@ -66,9 +66,9 @@ def _backfill_quality_log(data: dict) -> int:
 
 def get_low_quality_dates(folder: Path, known_dates: set = None) -> dict:
     """
-    Scans raw/ for files with quality 'low' or 'failed' based on content.
+    Scans raw/ for files with quality 'failed' based on content.
     Skips dates already in the quality log (known_dates set).
-    Returns {date: quality} for newly discovered problematic files.
+    Returns {date: quality} for newly discovered failed files.
     """
     result = {}
     if not folder.exists():
@@ -83,10 +83,10 @@ def get_low_quality_dates(folder: Path, known_dates: set = None) -> dict:
             with open(f, encoding="utf-8") as fh:
                 raw = json.load(fh)
             q = assess_quality(raw)
-            if q in ("low", "failed"):
+            if q == "failed":
                 result[day] = q
         except (OSError, json.JSONDecodeError):
             pass
     if result:
-        log.info(f"  Newly discovered low/failed quality files: {len(result)}")
+        log.info(f"  Newly discovered failed quality files: {len(result)}")
     return result

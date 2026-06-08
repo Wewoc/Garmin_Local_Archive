@@ -116,10 +116,6 @@ REQUEST_DELAY_MAX = float(os.environ.get("GARMIN_REQUEST_DELAY_MAX", "20.0"))
 # If True: days with recheck=True are excluded from get_local_dates() → re-fetched
 REFRESH_FAILED = os.environ.get("GARMIN_REFRESH_FAILED", "0") == "1"
 
-# Max re-download attempts for 'low' quality days before giving up
-# NOTE: LOW_QUALITY_MAX_ATTEMPTS is kept for backward compatibility with existing tests.
-# The 'low' label is removed in v1.5.7 — this constant will be removed in v1.6.
-LOW_QUALITY_MAX_ATTEMPTS = int(os.environ.get("GARMIN_LOW_QUALITY_MAX_ATTEMPTS", "3"))
 
 # Intraday data retention window — Garmin degrades intraday after ~180 days.
 # Used by:

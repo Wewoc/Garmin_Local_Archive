@@ -2,6 +2,32 @@
 
 ---
 
+## v1.5.7.2 — Legacy Quality Label Cleanup
+
+Removes all remaining references to the old `high / medium / low` quality label
+system from productive code. The `high / standard / failed` system introduced in
+v1.5.7 was complete in logic but still had stale strings in docstrings, a
+dead filter branch, and a now-obsolete config constant. No behavior changes.
+
+**Changed modules:**
+- `garmin/garmin_collector.py` — `_fetch_and_assess()` docstring: label
+  string updated to `"high" | "standard" | "failed"`.
+- `garmin/quality/_scan.py` — `get_low_quality_dates()`: docstring, filter
+  condition (`q in ("low", "failed")` → `q == "failed"`), and log message
+  updated. Dead `"low"` branch removed — `assess_quality()` never returns
+  `"low"` since v1.5.7.
+- `garmin/quality/_stats.py` — `get_archive_stats()` docstring: `medium int`
+  and `low int` entries replaced with `standard int`.
+- `garmin/garmin_config.py` — `LOW_QUALITY_MAX_ATTEMPTS` constant and its
+  3-line comment block removed. Was kept for test backward-compatibility;
+  no longer needed.
+- `tests/test_local.py` — `check("LOW_QUALITY_MAX_ATTEMPTS = 3", ...)` removed
+  from Section 1. Section 4 loop already hardcoded in a prior session.
+
+**Test result:** 316 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.7.1 — Mirror Import Patch
 
 Fixes two gaps in `garmin_import_mirror.py` discovered during the v1.5.7

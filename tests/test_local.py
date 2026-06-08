@@ -59,7 +59,6 @@ check("GARMIN_TOKEN_FILE derived",      cfg.GARMIN_TOKEN_FILE == _TMPDIR / "garm
 check("SYNC_MODE = recent",             cfg.SYNC_MODE == "recent")
 check("MAX_DAYS_PER_SESSION = 30",      cfg.MAX_DAYS_PER_SESSION == 30)
 check("SYNC_CHUNK_SIZE = 10",           cfg.SYNC_CHUNK_SIZE == 10)
-check("LOW_QUALITY_MAX_ATTEMPTS = 3",   cfg.LOW_QUALITY_MAX_ATTEMPTS == 3)
 check("REFRESH_FAILED = False",         cfg.REFRESH_FAILED == False)
 check("SYNC_DATES = None",              cfg.SYNC_DATES is None)
 check("BACKUP_DIR derived",             cfg.BACKUP_DIR == _TMPDIR / "garmin_data" / "backup")

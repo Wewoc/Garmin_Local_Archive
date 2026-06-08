@@ -103,7 +103,8 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 317 checks, 19 sections.**
+**Current count: 316 checks, 19 sections.**
+
 
 ```bash
 python tests/test_local.py
