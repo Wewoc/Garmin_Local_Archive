@@ -41,6 +41,33 @@ already in stack.
 
 **Test result:** 316 / 261 / 303 / 128 / 42 — all green
 
+**Mirror Fixes**
+
+Two bugs fixed in the mirror pipeline, no new version.
+
+**T2 Mirror — cryptography hidden imports:**
+`compiler/build.py` was missing five `--hidden-import` entries for
+`cryptography.hazmat` submodules (`kdf.pbkdf2`, `kdf.hkdf`,
+`ciphers.aead`, `hmac`, `hashes`). All are imported lazily inside
+functions in `garmin_container.py` — PyInstaller did not detect them
+automatically. Result: T2 Mirror returned `0 files packed, 1 errors`
+while T1 and T3 worked correctly.
+
+**device_table.json added to mirror container:**
+`garmin_container._classify_file()` extended to include
+`device_table.json` in the `quality_log` section alongside
+`quality_log.json`. `unlock_meta()` updated to extract
+`quality_log.json` by explicit key instead of `next(iter())`.
+`garmin_import_mirror._run_import_container()` gains Step 8:
+`_restore_device_table()` writes `device_table.json` from the
+fulfilled order to `garmin_data/log/` on the target device. Silent
+if absent (older containers).
+
+**Changed files:**
+- `compiler/build.py` — 5 hidden-imports added for `cryptography.hazmat`
+- `garmin/garmin_container.py` — `_classify_file()`, `unlock_meta()`
+- `garmin/garmin_import_mirror.py` — `_run_import_container()`, `_restore_device_table()` (new)
+
 ---
 
 ## v1.5.7.2 — Legacy Quality Label Cleanup
