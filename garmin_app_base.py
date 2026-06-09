@@ -218,8 +218,9 @@ class GarminApp(QMainWindow):
         left_scroll.setWidget(self._panel_settings)
         main_splitter.addWidget(left_scroll)
 
-        # Right — QTabWidget: Tab 1 Actions, Tab 2 Dashboards
-        right_tabs = QTabWidget()
+        # Right — QTabWidget: Tab 1 Actions, Tab 2 Dashboards, Tab 3 Files
+        self._right_tabs = QTabWidget()
+        right_tabs = self._right_tabs
         right_tabs.setStyleSheet(
             f"QTabWidget::pane {{ border: none; background: {self.BG}; }}"
             f"QTabBar::tab {{ background: {self.BG3}; color: {self.TEXT2}; "
@@ -284,6 +285,65 @@ class GarminApp(QMainWindow):
         tab2_lay.addWidget(self._dash_view)
 
         right_tabs.addTab(tab2_widget, "Dashboards")
+
+        # ── Tab 3: Files ──────────────────────────────────────────────────────
+        tab3_widget = QWidget()
+        tab3_widget.setStyleSheet(f"background: {self.BG};")
+        tab3_lay = QVBoxLayout(tab3_widget)
+        tab3_lay.setContentsMargins(12, 8, 12, 8)
+        tab3_lay.setSpacing(6)
+
+        xlsx_combo_row = QHBoxLayout()
+        xlsx_combo_row.setSpacing(8)
+        self._xlsx_combo = QComboBox()
+        self._xlsx_combo.setFont(QFont("Segoe UI", 9))
+        self._xlsx_combo.setStyleSheet(
+            f"QComboBox {{ background: {self.BG3}; color: {self.TEXT}; "
+            f"border: none; padding: 5px 10px; }}"
+            f"QComboBox::drop-down {{ border: none; }}"
+            f"QComboBox QAbstractItemView {{ background: {self.BG3}; "
+            f"color: {self.TEXT}; "
+            f"selection-background-color: {self.ACCENT2}; }}")
+        self._xlsx_combo.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                       QSizePolicy.Policy.Fixed)
+        self._xlsx_combo.currentIndexChanged.connect(self._load_selected_xlsx)
+        xlsx_combo_row.addWidget(self._xlsx_combo)
+
+        self._sheet_combo = QComboBox()
+        self._sheet_combo.setFont(QFont("Segoe UI", 9))
+        self._sheet_combo.setStyleSheet(
+            f"QComboBox {{ background: {self.BG3}; color: {self.TEXT}; "
+            f"border: none; padding: 5px 10px; }}"
+            f"QComboBox::drop-down {{ border: none; }}"
+            f"QComboBox QAbstractItemView {{ background: {self.BG3}; "
+            f"color: {self.TEXT}; "
+            f"selection-background-color: {self.ACCENT2}; }}")
+        self._sheet_combo.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                        QSizePolicy.Policy.Fixed)
+        self._sheet_combo.setMinimumWidth(160)
+        self._sheet_combo.setVisible(False)
+        self._sheet_combo.currentIndexChanged.connect(self._on_sheet_changed)
+        xlsx_combo_row.addWidget(self._sheet_combo)
+
+        self._xlsx_open_btn = QPushButton("Open File")
+        self._xlsx_open_btn.setFont(QFont("Segoe UI", 9))
+        self._xlsx_open_btn.setStyleSheet(
+            f"QPushButton {{ background: {self.BG3}; color: {self.TEXT}; "
+            f"border: none; padding: 5px 14px; }}"
+            f"QPushButton:hover {{ background: {self.ACCENT2}; }}")
+        self._xlsx_open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._xlsx_open_btn.clicked.connect(self._open_selected_xlsx)
+        xlsx_combo_row.addWidget(self._xlsx_open_btn)
+        tab3_lay.addLayout(xlsx_combo_row)
+
+        self._xlsx_view = QWebEngineView()
+        self._xlsx_view.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                      QSizePolicy.Policy.Expanding)
+        self._xlsx_view.setStyleSheet(f"background: {self.BG};")
+        tab3_lay.addWidget(self._xlsx_view)
+        right_tabs.addTab(tab3_widget, "Files")
+
+        right_tabs.currentChanged.connect(self._on_tab_changed)
 
         main_splitter.addWidget(right_tabs)
         main_splitter.setSizes([310, 790])
@@ -482,6 +542,13 @@ class GarminApp(QMainWindow):
         ]
         return next((p for p in candidates if p.exists()), None)
 
+    # ── Tab switch ────────────────────────────────────────────────────────────
+
+    def _on_tab_changed(self, index: int):
+        """Refresh Files tab on switch — catches XLSX files built since startup."""
+        if index == 2:
+            self._scan_xlsx_files()
+
     # ── Dashboard tab helpers ──────────────────────────────────────────────────
 
     def _scan_dashboards(self, auto_load: str = None):
@@ -519,6 +586,180 @@ class GarminApp(QMainWindow):
         path = self._dash_combo.currentData()
         if path and Path(path).exists():
             self._dash_view.setUrl(QUrl.fromLocalFile(path))
+
+    # ── Files tab helpers ──────────────────────────────────────────────────────
+
+    def _scan_xlsx_files(self):
+        """Scan dashboards/ for XLSX files and populate Tab 3 combo.
+        Called on tab switch and after every dashboard build."""
+        s         = self._panel_settings._collect_settings()
+        dash_dir  = Path(s.get("base_dir", "")) / "dashboards"
+        xlsx_files = sorted(
+            dash_dir.glob("*.xlsx"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        ) if dash_dir.exists() else []
+
+        self._xlsx_combo.blockSignals(True)
+        self._xlsx_combo.clear()
+        if not xlsx_files:
+            self._xlsx_combo.addItem("— no Excel files found —")
+            self._xlsx_combo.setEnabled(False)
+            self._xlsx_open_btn.setEnabled(False)
+        else:
+            self._xlsx_combo.setEnabled(True)
+            self._xlsx_open_btn.setEnabled(True)
+            for f in xlsx_files:
+                self._xlsx_combo.addItem(f.name, userData=str(f))
+        self._xlsx_combo.blockSignals(False)
+
+        if xlsx_files:
+            self._load_selected_xlsx()
+
+    def _load_selected_xlsx(self):
+        """Read selected XLSX, populate sheet combo, render active sheet."""
+        path = self._xlsx_combo.currentData()
+        if not path or not Path(path).exists():
+            self._sheet_combo.setVisible(False)
+            return
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            sheet_names = wb.sheetnames
+            wb.close()
+        except Exception as exc:
+            self._sheet_combo.setVisible(False)
+            self._xlsx_view.setHtml(
+                f"<body style='background:{self.BG};color:{self.TEXT};"
+                f"font-family:Segoe UI;padding:20px;'>"
+                f"<b>Could not read file:</b> {exc}</body>",
+                QUrl("about:blank"),
+            )
+            return
+
+        # Filter chart sheets — openpyxl reads them as empty, not useful in viewer
+        data_sheets = [n for n in sheet_names if not n.endswith(" - Chart")]
+        if not data_sheets:
+            data_sheets = sheet_names  # fallback: show all if none pass filter
+
+        # Populate sheet combo — block signals to avoid double render
+        self._sheet_combo.blockSignals(True)
+        self._sheet_combo.clear()
+        for name in data_sheets:
+            self._sheet_combo.addItem(name)
+        self._sheet_combo.setCurrentIndex(0)
+        self._sheet_combo.setVisible(len(data_sheets) > 1)
+        self._sheet_combo.blockSignals(False)
+
+        self._render_sheet(path, data_sheets[0])
+
+    def _on_sheet_changed(self, index: int):
+        """Render the newly selected sheet."""
+        path = self._xlsx_combo.currentData()
+        if not path or not Path(path).exists():
+            return
+        sheet_name = self._sheet_combo.currentText()
+        if sheet_name:
+            self._render_sheet(path, sheet_name)
+
+    def _render_sheet(self, path: str, sheet_name: str):
+        """Read one sheet from XLSX, write to temp file, load via setUrl().
+        setUrl() replaces content atomically — avoids setHtml() stale-render
+        on large sheets."""
+        import tempfile
+        try:
+            import openpyxl
+            wb   = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            ws   = wb[sheet_name]
+            rows = list(ws.iter_rows(values_only=True))
+            wb.close()
+        except Exception as exc:
+            self._xlsx_view.setHtml(
+                f"<body style='background:{self.BG};color:{self.TEXT};"
+                f"font-family:Segoe UI;padding:20px;'>"
+                f"<b>Could not read sheet '{sheet_name}':</b> {exc}</body>",
+                QUrl("about:blank"),
+            )
+            return
+
+        if not rows:
+            self._xlsx_view.setHtml(
+                f"<body style='background:{self.BG};color:{self.TEXT};"
+                f"font-family:Segoe UI;padding:20px;'>Sheet is empty.</body>",
+                QUrl("about:blank"),
+            )
+            return
+
+        th_style = (f"background:{self.BG3};color:{self.ACCENT};"
+                    f"padding:6px 12px;text-align:left;font-size:11px;"
+                    f"font-weight:600;border-bottom:1px solid {self.ACCENT};")
+        td_style = (f"padding:5px 12px;font-size:11px;color:{self.TEXT};"
+                    f"border-bottom:1px solid {self.BG3};")
+        td_alt   = (f"padding:5px 12px;font-size:11px;color:{self.TEXT};"
+                    f"border-bottom:1px solid {self.BG3};"
+                    f"background:{self.BG2};")
+
+        header = rows[0]
+        body   = rows[1:]
+        th_cells = "".join(
+            f"<th style='{th_style}'>{(v if v is not None else '')}</th>"
+            for v in header
+        )
+        # Detect single-char columns (e.g. sleep phase bar: D/L/R/A)
+        # by scanning all body rows — gives them a narrow fixed width in HTML.
+        num_cols = max((len(r) for r in body), default=0)
+        _SINGLE_CHAR = set()
+        for col_idx in range(num_cols):
+            vals = [
+                str(r[col_idx]) for r in body
+                if col_idx < len(r) and r[col_idx] is not None
+            ]
+            if vals and all(len(v) == 1 for v in vals):
+                _SINGLE_CHAR.add(col_idx)
+
+        td_narrow = (f"padding:2px 1px;font-size:9px;font-weight:bold;"
+                     f"text-align:center;width:10px;max-width:10px;"
+                     f"overflow:hidden;color:{self.TEXT};"
+                     f"border-bottom:1px solid {self.BG3};")
+        td_narrow_alt = (f"padding:2px 1px;font-size:9px;font-weight:bold;"
+                         f"text-align:center;width:10px;max-width:10px;"
+                         f"overflow:hidden;color:{self.TEXT};"
+                         f"border-bottom:1px solid {self.BG3};"
+                         f"background:{self.BG2};")
+
+        tr_rows = ""
+        for i, row in enumerate(body):
+            is_alt = i % 2
+            cells = ""
+            for col_idx, v in enumerate(row):
+                val = v if v is not None else ""
+                if col_idx in _SINGLE_CHAR:
+                    style = td_narrow_alt if is_alt else td_narrow
+                else:
+                    style = td_alt if is_alt else td_style
+                cells += f"<td style='{style}'>{val}</td>"
+            tr_rows += f"<tr>{cells}</tr>"
+
+        html = (
+            f"<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+            f"<style>body{{background:{self.BG};margin:0;padding:12px;"
+            f"font-family:'Segoe UI',sans-serif;}}"
+            f"table{{border-collapse:collapse;width:100%;}}"
+            f"</style></head><body>"
+            f"<table><thead><tr>{th_cells}</tr></thead>"
+            f"<tbody>{tr_rows}</tbody></table></body></html>"
+        )
+
+        tmp = Path(tempfile.gettempdir()) / "gla_xlsx_view.html"
+        tmp.write_text(html, encoding="utf-8")
+        self._xlsx_view.setUrl(QUrl.fromLocalFile(str(tmp)))
+
+    def _open_selected_xlsx(self):
+        """Open the selected XLSX in the system default application."""
+        import os
+        path = self._xlsx_combo.currentData()
+        if path and Path(path).exists():
+            os.startfile(path)
 
     # ── Close ──────────────────────────────────────────────────────────────────
 

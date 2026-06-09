@@ -98,7 +98,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
 /                               ← repo root
 ├── garmin_app.py               ← Entry Point Target 1+2 (GUI)
 ├── garmin_app_standalone.py    ← Entry Point Target 3 (GUI, Standalone)
-├── garmin_app_base.py          ← View layer (GarminApp) — PyQt6 QMainWindow, QTabWidget (v1.5.4+)
+├── garmin_app_base.py          ← View layer (GarminApp) — PyQt6 QMainWindow, QTabWidget: Actions / Dashboards / Files (v1.5.8+)
 ├── version.py                  ← Single source of truth for APP_VERSION
 │
 ├── app/                        ← GUI logic layer (v1.5.2+)
@@ -213,7 +213,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     ├── test_local_context.py   ← Context pipeline (217 checks)
     ├── test_dashboard.py       ← Dashboard pipeline (303 checks)
     ├── test_app_logic.py       ← App layer (128 checks)
-    ├── test_qt_app.py          ← PyQt6 App layer (37 checks, v1.5.4+)
+    ├── test_qt_app.py          ← PyQt6 App layer (42 checks, v1.5.4+)
     ├── test_build_output.py    ← Build output validation (8 sections)
     ├── conftest.py             ← pytest-qt fixtures (QApplication, app_root)
     └── run_qt_tests.bat        ← Schnellstart für test_qt_app.py
