@@ -2,6 +2,47 @@
 
 ---
 
+## v1.5.8 — In-App File Viewer
+
+Third tab ("Files") added to the existing `QTabWidget` (Tab 1 "Actions",
+Tab 2 "Dashboards"). Renders XLSX dashboard output directly inside the app
+via openpyxl + `QWebEngineView`. Sheet selector appears automatically for
+multi-sheet files. Chart sheets (`- Chart` suffix) are filtered out — only
+data sheets shown. Sleep phase bar enhanced with per-cell letters (D/L/R/A)
+in contrast color. No new Python dependencies — openpyxl and PyQt6-WebEngine
+already in stack.
+
+**Changed modules:**
+- `garmin_app_base.py` — Tab 3 "Files" added to `QTabWidget`. `QComboBox`
+  (`_xlsx_combo`) scans `dashboards/*.xlsx` on tab switch via `_on_tab_changed()`.
+  Second `QComboBox` (`_sheet_combo`) for sheet selection — hidden for
+  single-sheet files, visible for multi-sheet. `QWebEngineView` (`_xlsx_view`)
+  renders selected sheet as HTML. "Open File" button calls `os.startfile()`.
+  `_render_sheet()` writes HTML to `%TEMP%/gla_xlsx_view.html` and loads via
+  `setUrl()` — avoids `setHtml()` stale-render on large sheets.
+  Single-char columns (D/L/R/A phase bar) detected automatically and rendered
+  with `width:10px` in HTML. `_right_tabs` stored as `self._right_tabs`.
+- `app/panel_outputs.py` — `_scan_xlsx_files()` called after `_scan_dashboards()`
+  in `on_done` — Tab 3 refreshes automatically after dashboard build.
+- `garmin_app_screenshot.py` — `_scan_xlsx_files()` override: loads
+  `DEMO_XLSX_HTML` (10 demo rows: Date, Steps, Resting HR, Body Battery,
+  Sleep, Quality) into Tab 3. No file I/O. Docstring updated.
+- `layouts/dash_plotter_excel.py` — `_write_sleep_sheet()`: every phase-bar
+  cell now contains a letter (D/L/R/A) in contrast color. Phase-bar column
+  width reduced from 1.5 to 1.0.
+- `tests/test_qt_app.py` — `_xlsx_combo` + `_xlsx_view` added to
+  `test_all_panels_created`.
+
+**What does not change:**
+- Tab 1 and Tab 2 — unchanged
+- Dashboard build pipeline — no changes to specialists or plotters
+- JSON workflow — Open Folder in Tab 1 remains the access path
+- No new Python dependencies
+
+**Test result:** 316 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.7.2 — Legacy Quality Label Cleanup
 
 Removes all remaining references to the old `high / medium / low` quality label

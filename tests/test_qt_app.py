@@ -627,7 +627,8 @@ class TestGarminAppBase:
             app = _TestApp()
             qtbot.addWidget(app)
         for attr in ("_panel_settings", "_panel_connection",
-                     "_panel_archive", "_panel_timer", "_panel_outputs"):
+                     "_panel_archive", "_panel_timer", "_panel_outputs",
+                     "_xlsx_combo", "_xlsx_view"):
             assert hasattr(app, attr), f"missing: {attr}"
 
     def test_log_writes_to_widget(self, qtbot):

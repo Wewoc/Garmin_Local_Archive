@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.7.2**
+**Currently stable — v1.5.8**
 
 ---
 
@@ -14,28 +14,7 @@
 
 ---
 
-### v1.5.8 — In-App File Viewer
-
-Third tab in the existing `QTabWidget` structure (Tab 1 "Actions", Tab 2 "Dashboards", Tab 3 "Files"). Renders Excel output directly inside the app via AG Grid Community (MIT licence). JSON output is intentionally excluded — Open Folder in Tab 1 is the intended path for JSON.
-
-**What changes:**
-- `garmin_app_base.py` — Tab 3 "Files" added to `QTabWidget`. `QComboBox` lists recent output files from `dashboards/` folder (`.xlsx` only), scanned on tab switch. `QWebEngineView` renders selected file via AG Grid. "Open File" button calls `os.startfile(path)` — opens in whatever the system has registered for `.xlsx` (Excel, LibreOffice, WPS).
-- `app/panel_outputs.py` — after a successful dashboard build, Tab 3 file list is refreshed automatically (same pattern as Tab 2 dashboard rescan after build).
-
-**What does not change:**
-- Tab 1 and Tab 2 — unchanged
-- Dashboard build pipeline — no changes to specialists or plotters
-- JSON workflow — Open Folder remains the access path
-
-**Dependencies:**
-- AG Grid Community (MIT) — loaded via CDN into QWebEngineView. No new Python package. Requires internet on first load unless bundled locally.
-- Offline fallback: if AG Grid fails to load, a plain HTML table is rendered from the XLSX data as fallback.
-
-**Licence:** AG Grid Community is MIT-licenced without restrictions. Handsontable CE is explicitly excluded — Commons Clause makes it incompatible with redistribution.
-
----
-
-### v1.5.8 — Standalone EXE: --onedir Migration
+### v1.5.9 — Standalone EXE: --onedir Migration
 
 Replaces `--onefile` with `--onedir` in `build_standalone.py` for T3.
 Eliminates the per-launch extraction to `%TEMP%\_MEIxxxxxx` — all files

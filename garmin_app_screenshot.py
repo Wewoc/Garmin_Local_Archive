@@ -170,6 +170,35 @@ buildChart(0);
 
 """
 
+# ── Demo XLSX table (embedded — no file dependency) ───────────────────────────
+
+DEMO_XLSX_HTML = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
+<style>
+body{background:#12101f;margin:0;padding:12px;font-family:'Segoe UI',sans-serif;}
+table{border-collapse:collapse;width:100%;}
+th{background:#231f38;color:#a259f7;padding:6px 12px;text-align:left;font-size:11px;font-weight:600;border-bottom:1px solid #a259f7;}
+td{padding:5px 12px;font-size:11px;color:#eaeaea;border-bottom:1px solid #231f38;}
+tr:nth-child(even) td{background:#1a1729;}
+</style></head><body>
+<table>
+<thead><tr>
+<th>Date</th><th>Steps</th><th>Resting HR</th><th>Body Battery</th><th>Sleep (h)</th><th>Quality</th>
+</tr></thead>
+<tbody>
+<tr><td>2026-06-07</td><td>9 842</td><td>52</td><td>87</td><td>7.4</td><td>high</td></tr>
+<tr><td>2026-06-06</td><td>11 203</td><td>51</td><td>91</td><td>7.8</td><td>high</td></tr>
+<tr><td>2026-06-05</td><td>7 654</td><td>54</td><td>74</td><td>6.9</td><td>standard</td></tr>
+<tr><td>2026-06-04</td><td>13 401</td><td>50</td><td>95</td><td>8.1</td><td>high</td></tr>
+<tr><td>2026-06-03</td><td>8 177</td><td>53</td><td>80</td><td>7.2</td><td>high</td></tr>
+<tr><td>2026-06-02</td><td>6 290</td><td>56</td><td>68</td><td>6.5</td><td>standard</td></tr>
+<tr><td>2026-06-01</td><td>10 558</td><td>52</td><td>88</td><td>7.6</td><td>high</td></tr>
+<tr><td>2026-05-31</td><td>12 034</td><td>49</td><td>93</td><td>8.0</td><td>high</td></tr>
+<tr><td>2026-05-30</td><td>5 812</td><td>57</td><td>61</td><td>6.1</td><td>standard</td></tr>
+<tr><td>2026-05-29</td><td>9 321</td><td>53</td><td>82</td><td>7.3</td><td>high</td></tr>
+</tbody>
+</table>
+</body></html>"""
+
 # ── Dummy data ─────────────────────────────────────────────────────────────────
 
 DEMO = {
@@ -222,6 +251,7 @@ class ScreenshotApp(GarminApp):
       closeEvent            — destroys window without saving anything.
       _refresh_archive_info — static demo values.
       _scan_dashboards      — loads embedded DEMO_HTML into Tab 2, no file I/O.
+      _scan_xlsx_files      — loads embedded DEMO_XLSX_HTML into Tab 3, no file I/O.
 
     Everything else (layout, colours, fonts, sections, widgets) is inherited
     directly from GarminApp and stays in sync automatically.
@@ -370,6 +400,16 @@ class ScreenshotApp(GarminApp):
         self._dash_combo.setEnabled(True)
         self._dash_combo.blockSignals(False)
         self._dash_view.setHtml(DEMO_HTML, QUrl("about:blank"))
+
+    def _scan_xlsx_files(self):
+        """Load embedded DEMO_XLSX_HTML into Tab 3. No file scan, no real data."""
+        self._xlsx_combo.blockSignals(True)
+        self._xlsx_combo.clear()
+        self._xlsx_combo.addItem("Garmin Health Summary (Demo).xlsx")
+        self._xlsx_combo.setEnabled(True)
+        self._xlsx_open_btn.setEnabled(False)
+        self._xlsx_combo.blockSignals(False)
+        self._xlsx_view.setHtml(DEMO_XLSX_HTML, QUrl("about:blank"))
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
