@@ -32,6 +32,15 @@ local copy of your Garmin data over time. Your data stays in open formats, reada
 | **Access** | Online only | Requires subscription | **100% offline** |
 | **History** | Erodes over time | Depends on source | **Permanent local copy** |
 
+![Garmin Local Archive — Actions Tab](screenshots/GUI-Page_1.jpg)
+*Actions tab — sync controls, archive status by device, background timer, bulk import, and context sync in one place.*
+
+![Garmin Local Archive — Dashboards Tab](screenshots/GUI-Page_2.jpg)
+*Dashboards tab — in-app dashboard rendering with HRV, Resting HR, Sleep, Body Battery, Stress and SpO2. Daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
+
+![Garmin Local Archive — Files Tab](screenshots/GUI-Page_3.jpg)
+*Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.*
+
 **What this is not:**
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
 
@@ -54,6 +63,18 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Sleep Dashboard** | One row per night — segmented phase bar (Deep / Light / REM / Awake), sleep duration, score, quality badge, feedback label, HRV, Body Battery, and **7-day HRV moving average** (computed from archive, no extra API call). Color-coded numbers via continuous gradient against personal reference ranges. Inspired by [Garmin's own HRV pattern guide](https://www.garmin.com/en-US/blog/fitness/understanding-the-hrv-status-on-your-garmin-smartwatch/). | HTML, Excel |
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 | **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
+
+![Garmin Local Archive — Create Report](screenshots/Create_report.jpg)
+*Create Reports — select dashboards and export as HTML, Excel or JSON.*
+
+![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
+*Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
+
+![Garmin Health Analysis Dashboard](screenshots/sleep_dashboard.jpg)
+*One row per night — segmented phase bar, duration, sleep score, quality badge, Garmin feedback text, HRV, and Body Battery. Numbers are color-coded against personal reference ranges.*
+
+![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg)
+*Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
 The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
 
@@ -107,27 +128,6 @@ The **Bulk Import** feature closes this gap: request your full GDPR data export 
 This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
-
-![Garmin Local Archive — Actions Tab](screenshots/GUI-Page_1.jpg)
-*Actions tab — sync controls, archive status by device, background timer, bulk import, and context sync in one place.*
-
-![Garmin Local Archive — Dashboards Tab](screenshots/GUI-Page_2.jpg)
-*Dashboards tab — in-app dashboard rendering with HRV, Resting HR, Sleep, Body Battery, Stress and SpO2. Daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
-
-![Garmin Local Archive — Files Tab](screenshots/GUI-Page_3.jpg)
-*Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.*
-
-![Garmin Local Archive — Create Report](screenshots/Create_report.jpg)
-*Create Reports — select dashboards and export as HTML, Excel or JSON.*
-
-![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
-*Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
-
-![Garmin Health Analysis Dashboard](screenshots/sleep_dashboard.jpg)
-*One row per night — segmented phase bar, duration, sleep score, quality badge, Garmin feedback text, HRV, and Body Battery. Numbers are color-coded against personal reference ranges.*
-
-![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg)
-*Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
 ## Scope & limitations
 
