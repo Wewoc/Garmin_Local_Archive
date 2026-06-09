@@ -259,7 +259,7 @@ class PanelArchive(QWidget):
         new_name, ok = QInputDialog.getText(
             self._app,
             "Device Name",
-            "Name für unbekanntes Gerät (vívoactive 3 Ära):",
+            "Name for unknown device:",
             text=current if current != "unknown" else "",
         )
         if not ok or not new_name.strip():
