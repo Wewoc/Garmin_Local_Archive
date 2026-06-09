@@ -127,6 +127,11 @@ def build_exe(root: Path):
         "--hidden-import", "keyring",
         "--hidden-import", "keyring.backends",
         "--hidden-import", "keyring.backends.Windows",
+        "--hidden-import", "cryptography.hazmat.primitives.kdf.pbkdf2",
+        "--hidden-import", "cryptography.hazmat.primitives.kdf.hkdf",
+        "--hidden-import", "cryptography.hazmat.primitives.ciphers.aead",
+        "--hidden-import", "cryptography.hazmat.primitives.hmac",
+        "--hidden-import", "cryptography.hazmat.primitives.hashes",
         "--distpath", str(root),
         "--workpath", str(root / "build"),
         "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/

@@ -131,7 +131,7 @@ python tests/test_local.py
 16. `_run_self_healing` — schema version bump, status improvement
 A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
 B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check
-C. `garmin_mirror` (v1.5.6.2) — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `is_import_ready` entfernt. Pfad-Bug in `garmin_import_mirror` (flache Raw-Struktur) — Tests ausstehend, vor nächstem Release aktualisieren.
+C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
 
 ### What is NOT tested
 

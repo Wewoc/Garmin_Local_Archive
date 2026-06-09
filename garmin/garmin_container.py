@@ -215,12 +215,13 @@ def unlock_meta(container_path: Path, password: str) -> dict:
             "quality_log": {}, "error": f"quality_log decrypt failed: {e}",
         }
 
-    # quality_log section contains exactly one file
-    ql_bytes = next(iter(files.values()), None)
+    # quality_log section: extract quality_log.json by explicit key
+    ql_key   = "garmin_data/log/quality_log.json"
+    ql_bytes = files.get(ql_key)
     if ql_bytes is None:
         return {
             "ok": False, "container_meta": container_meta,
-            "quality_log": {}, "error": "quality_log section is empty",
+            "quality_log": {}, "error": "quality_log.json not found in section",
         }
 
     try:
@@ -539,11 +540,11 @@ def _classify_file(parts: tuple) -> str | None:
     if not parts:
         return None
 
-    # quality_log: garmin_data/log/quality_log.json
+    # quality_log section: garmin_data/log/quality_log.json + device_table.json
     if (len(parts) == 3
             and parts[0] == "garmin_data"
             and parts[1] == "log"
-            and parts[2] == "quality_log.json"):
+            and parts[2] in ("quality_log.json", "device_table.json")):
         return "quality_log"
 
     # raw: garmin_data/raw/**
