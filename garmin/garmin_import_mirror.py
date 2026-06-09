@@ -208,6 +208,7 @@ def _run_import_container(
             order["summary"] = summary_rel_paths
         if ctx_order:
             order["context"] = ctx_order
+        order["quality_log"] = ["garmin_data/log/device_table.json"]
 
         fulfilled = _container.fulfill_order(container_path, password, order)
 
@@ -226,6 +227,9 @@ def _run_import_container(
 
         # ── 7. Save quality log ───────────────────────────────────────────────
         quality._save_quality_log(quality_dst)
+
+        # ── 8. Restore device_table.json if present in container ──────────────
+        _restore_device_table(fulfilled, base_dir)
 
     log.info(
         f"  import_mirror done: {raw_copied} raw copied, "
@@ -462,6 +466,25 @@ def _import_raw_from_bytes(
         f"{copied} written, {raw_skip_count} skipped, {errors} errors"
     )
     return copied, raw_skip_count, errors
+
+
+def _restore_device_table(fulfilled: dict, base_dir: Path) -> None:
+    """
+    Writes device_table.json from the quality_log section to disk if present.
+    Silent on absence — device_table.json may not exist in older containers.
+    """
+    dt_key   = "garmin_data/log/device_table.json"
+    dt_bytes = fulfilled.get(dt_key)
+    if dt_bytes is None:
+        log.debug("  import_mirror: device_table.json not in container — skipped")
+        return
+    try:
+        dst = base_dir / "garmin_data" / "log" / "device_table.json"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(dt_bytes)
+        log.info("  import_mirror: device_table.json restored")
+    except Exception as e:
+        log.warning(f"  import_mirror: device_table.json restore failed: {e}")
 
 
 def _import_context_from_bytes(

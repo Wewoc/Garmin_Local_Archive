@@ -314,8 +314,8 @@ All paths from caller — no `garmin_config` import.
 
 | Function | Purpose |
 |---|---|
-| `lock(source_dir, container_path, password)` | Creates/overwrites `mirror.gla` atomically. Packs quality_log, raw, summary, context sections. Returns `{"files_packed", "errors", "ok"}` |
-| `unlock_meta(container_path, password)` | Verifies header HMAC, decrypts only quality_log section. Returns `{"ok", "container_meta", "quality_log", "error"}` |
+| `lock(source_dir, container_path, password)` | Creates/overwrites `mirror.gla` atomically. Packs quality_log (quality_log.json + device_table.json), raw, summary, context sections. Returns `{"files_packed", "errors", "ok"}` |
+| `unlock_meta(container_path, password)` | Verifies header HMAC, decrypts quality_log section, extracts quality_log.json by explicit key. Returns `{"ok", "container_meta", "quality_log", "error"}` |
 | `fulfill_order(container_path, password, order)` | Verifies HMAC, decrypts only ordered sections. Returns `{rel_path: bytes}` |
 | `list_files(container_path, section)` | Returns file list from header — no decryption, no password. Returns `list[str]` |
 | `is_container(path)` | Checks magic bytes `GLA1`. Fast, no password. Returns `bool` |
