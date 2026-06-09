@@ -80,6 +80,17 @@ The AI itself is not included. How to set one up — including a ready-to-use sy
 
 ---
 
+## Download
+
+| Version | Description | Requires |
+|---|---|---|
+| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
+| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
+
+No install, no terminal. Download, unzip, run.
+
+---
+
 ## AI-assisted development
 
 I can't write Python. The architecture, module boundaries, and decisions are mine. Every line of code is Claude's.
@@ -103,17 +114,6 @@ I can't write Python. The architecture, module boundaries, and decisions are min
 - **No guaranteed support:** Development happens when time and interest allow.
 - **Use at your own risk:** I am not responsible for data loss or Garmin account issues.
 - **Feedback welcome:** If something feels off — logic, structure, results — open an issue.
-
----
-
-## Download
-
-| Version | Description | Requires |
-|---|---|---|
-| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
-| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
-
-No install, no terminal. Download, unzip, run.
 
 ---
 
