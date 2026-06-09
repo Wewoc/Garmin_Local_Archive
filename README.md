@@ -95,8 +95,6 @@ No install, no terminal. Download, unzip, run.
 
 I can't write Python. The architecture, module boundaries, and decisions are mine. Every line of code is Claude's.
 
-![Human-AI Collaboration Flowchart](screenshots/flowchart.png)
-
 *→ How this collaboration actually worked — who had which idea, where Claude was wrong — is documented in [MINDSET.md](docs/MINDSET.md).*
 
 ---
