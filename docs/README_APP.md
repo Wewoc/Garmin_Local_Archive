@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.7.2
+# Garmin Local Archive — Desktop App v1.5.8
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -207,6 +207,14 @@ Output is written to `BASE_DIR/dashboards/`. The folder opens automatically afte
 The **Dashboards** tab (second tab on the right side) shows your HTML dashboards directly inside the app — no browser needed. After a successful build the latest dashboard loads automatically.
 
 Use the dropdown at the top to switch between all HTML dashboards in `BASE_DIR/dashboards/`. The view is fully interactive — zoom, hover, and filter work exactly as in a browser.
+
+### Files tab
+
+The **Files** tab (third tab on the right side) shows your Excel dashboards directly inside the app — no Excel required. Switch between files using the left dropdown and between sheets using the right dropdown (appears automatically for multi-sheet files). Chart sheets are hidden — only data sheets are shown.
+
+**Open File** opens the selected file in whatever your system has registered for `.xlsx` (Excel, LibreOffice, WPS).
+
+The file list refreshes automatically after every dashboard build and on every tab switch — new files appear without restarting the app.
 
 The **Health Analysis JSON** includes a ready-to-use Markdown start prompt (`health_garmin_prompt.md`) for Open WebUI / Ollama — load it as the system prompt for AI-assisted interpretation.
 

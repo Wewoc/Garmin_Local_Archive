@@ -368,7 +368,7 @@ Raises `OSError` if output file cannot be written.
 - `"sleep"`    → Sleep Dashboard layout (`_render_sleep`) — pure HTML/CSS, no Plotly
 - `None` / any other → Recovery Context layout (`_render_recovery_context`)
 
-`dash_plotter_excel` dispatch order: `layout == "sleep"` checked before `"rows" in data` to avoid collision with Overview mode.
+`dash_plotter_excel` dispatch order: `layout == "sleep"` checked before `"rows" in data` to avoid collision with Overview mode. Sleep phase bar: each of the 20 cells carries a letter label (D=Deep, L=Light, R=REM, A=Awake) in contrast color. Column width 1.0. (v1.5.8+)
 
 ---
 

@@ -108,13 +108,17 @@ This is what makes the archive genuinely complete, not just a rolling window.
 
 ---
 
-![Garmin Local Archive — Desktop App](screenshots/GUI-V157-1.jpg)
+![Garmin Local Archive — Actions Tab](screenshots/GUI-Page_1.jpg)
+*Actions tab — sync controls, archive status by device, background timer, bulk import, and context sync in one place.*
 
-![Garmin Local Archive — Desktop App](screenshots/GUI-V154-2.jpg)
+![Garmin Local Archive — Dashboards Tab](screenshots/GUI-Page_2.jpg)
+*Dashboards tab — in-app dashboard rendering with HRV, Resting HR, Sleep, Body Battery, Stress and SpO2. Daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
 
-![Garmin Local Archive — Desktop App](screenshots/Create_report_V154.jpg)
+![Garmin Local Archive — Files Tab](screenshots/GUI-Page_3.jpg)
+*Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.*
 
-*Desktop app — settings, sync, export, bulk import and background timer in one place.*
+![Garmin Local Archive — Create Report](screenshots/Create_report.jpg)
+*Create Reports — select dashboards and export as HTML, Excel or JSON.*
 
 ![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
 *Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*

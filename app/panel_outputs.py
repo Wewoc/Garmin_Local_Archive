@@ -651,6 +651,7 @@ class PanelOutputs(QWidget):
                             self._app._last_html = str(last_html)
                         self._app._scan_dashboards(
                             auto_load=self._app._last_html)
+                        self._app._scan_xlsx_files()
                     if ok:
                         os.startfile(str(output_dir))
 

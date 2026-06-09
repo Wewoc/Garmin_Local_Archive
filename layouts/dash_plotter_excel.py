@@ -232,7 +232,7 @@ def _write_sleep_sheet(wb: Workbook, data: dict) -> None:
     # ── Column widths ─────────────────────────────────────────────────────────
     ws.column_dimensions["A"].width = 12
     for col in range(BAR_START, BAR_END + 1):
-        ws.column_dimensions[get_column_letter(col)].width = 1.5
+        ws.column_dimensions[get_column_letter(col)].width = 1.0
     ws.column_dimensions[get_column_letter(COL_DUR)].width   = 9
     ws.column_dimensions[get_column_letter(COL_SCORE)].width = 7
     ws.column_dimensions[get_column_letter(COL_QUAL)].width  = 12
@@ -292,18 +292,35 @@ def _write_sleep_sheet(wb: Workbook, data: dict) -> None:
             ("awake", row.get("awake")),
         ]
         total = sum(v for _, v in phases if v is not None)
+        # Phase label: one letter per phase, first cell of each segment
+        _PHASE_LABELS = {"deep": "D", "light": "L", "rem": "R", "awake": "A"}
+        # Contrast font color per phase background
+        _PHASE_LABEL_FONT_COLOR = {
+            "deep":  "ffffff",  # white on dark blue
+            "light": "1a3a50",  # dark on light blue
+            "rem":   "ffffff",  # white on purple
+            "awake": "4a3a20",  # dark on beige
+        }
+
         col   = BAR_START
         if total > 0:
             for phase_key, val in phases:
                 if val is None or val <= 0:
                     continue
                 cells_for_phase = max(1, round(val / total * _PHASE_COUNT))
-                color = _PHASE_BAR_COLORS[phase_key]
-                for _ in range(cells_for_phase):
+                color      = _PHASE_BAR_COLORS[phase_key]
+                label      = _PHASE_LABELS[phase_key]
+                font_color = _PHASE_LABEL_FONT_COLOR[phase_key]
+                for i in range(cells_for_phase):
                     if col > BAR_END:
                         break
                     c = ws.cell(row_idx, col)
-                    c.fill = PatternFill("solid", start_color=color)
+                    c.fill      = PatternFill("solid", start_color=color)
+                    c.value     = label
+                    c.font      = Font(name="Arial", bold=True,
+                                       color=font_color, size=7)
+                    c.alignment = Alignment(horizontal="center",
+                                            vertical="center")
                     col += 1
         # Fill remaining bar cells (rounding gap) with last phase color or grey
         while col <= BAR_END:
