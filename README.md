@@ -32,14 +32,14 @@ local copy of your Garmin data over time. Your data stays in open formats, reada
 | **Access** | Online only | Requires subscription | **100% offline** |
 | **History** | Erodes over time | Depends on source | **Permanent local copy** |
 
-![Garmin Local Archive — Actions Tab](screenshots/GUI-Page_1.jpg)
-*Actions tab — sync controls, archive status by device, background timer, bulk import, and context sync in one place.*
+<img src="screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Actions Tab">
+<br><sub>Actions tab — sync controls, archive status by device, background timer, bulk import, and context sync in one place.</sub>
 
-![Garmin Local Archive — Dashboards Tab](screenshots/GUI-Page_2.jpg)
-*Dashboards tab — in-app dashboard rendering with HRV, Resting HR, Sleep, Body Battery, Stress and SpO2. Daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
+<img src="screenshots/GUI-Page_2.jpg" width="800" alt="Garmin Local Archive — Dashboards Tab">
+<br><sub>Dashboards tab — in-app dashboard rendering with HRV, Resting HR, Sleep, Body Battery, Stress and SpO2. Daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
-![Garmin Local Archive — Files Tab](screenshots/GUI-Page_3.jpg)
-*Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.*
+<img src="screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Files Tab">
+<br><sub>Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.</sub>
 
 **What this is not:**
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
@@ -64,17 +64,17 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 | **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
 
-![Garmin Local Archive — Create Report](screenshots/Create_report.jpg)
-*Create Reports — select dashboards and export as HTML, Excel or JSON.*
+<img src="screenshots/Create_report.jpg" width="800" alt="Garmin Local Archive — Create Report">
+<br><sub>Create Reports — select dashboards and export as HTML, Excel or JSON.</sub>
 
-![Garmin Health Analysis Dashboard](screenshots/Dashboard.jpg)
-*Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
+<img src="screenshots/Dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<br><sub>Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
-![Garmin Health Analysis Dashboard](screenshots/sleep_dashboard.jpg)
-*One row per night — segmented phase bar, duration, sleep score, quality badge, Garmin feedback text, HRV, and Body Battery. Numbers are color-coded against personal reference ranges.*
+<img src="screenshots/sleep_dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<br><sub>One row per night — segmented phase bar, duration, sleep score, quality badge, Garmin feedback text, HRV, and Body Battery. Numbers are color-coded against personal reference ranges.</sub>
 
-![Garmin Health Analysis Dashboard](screenshots/dashboard_mobile_landscape.jpg)
-*Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.*
+<img src="screenshots/dashboard_mobile_landscape.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<br><sub>Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
 The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
 
@@ -115,7 +115,7 @@ I can't write Python. The architecture, module boundaries, and decisions are min
 
 ---
 
-### Recovering your history — Bulk Import
+## Recovering your history — Bulk Import
 
 Garmin degrades intraday data after roughly six months rather than deleting it at once. Based on archive data collected in April 2026: the most recent ~6 months deliver full resolution (~500 KB/day); anything older contains only daily aggregates. Once it's gone, the API can't retrieve what's been removed — and the boundary shifts forward over time.
 
