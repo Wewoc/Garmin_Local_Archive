@@ -372,6 +372,23 @@ Raises `OSError` if output file cannot be written.
 
 ---
 
+## `garmin_mobile_landing.py`
+
+Generates `BASE_DIR/dashboards/index.html` with archive status and device
+table embedded inline as `window.__GLA_STATUS__` — no `fetch()`, works with
+`file://` protocol.
+
+| Function | Purpose |
+|---|---|
+| `write_index_html(base_dir)` | Reads `quality_log.json` + `device_table.json`, writes `index.html`. Always overwrites. Called after every sync. |
+| `ensure_index_html(base_dir)` | Calls `write_index_html()` only if `index.html` is absent. Called at app start. |
+
+**Sole write authority:** `BASE_DIR/dashboards/index.html`
+**Read-only access:** `quality_log.json`, `device_table.json` (no QUALITY_LOCK needed)
+**Dashboard links:** `health_garmin_mobile.html`, `sleep_garmin_html-xls_dash.html`
+
+---
+
 ## Layout resources
 
 ### `dash_layout.py`

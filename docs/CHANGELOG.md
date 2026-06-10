@@ -2,6 +2,32 @@
 
 ---
 
+## v1.5.8.1 — Mobile Landing Page
+
+Adds a local mobile landing page (`index.html`) that is automatically
+generated in `BASE_DIR/dashboards/` after every sync and on app start.
+The page shows archive status, device table, and links to the two main
+dashboards — readable in any mobile browser via local file access.
+
+**New modules:**
+- `layouts/garmin_mobile_landing.py` — generates `index.html` with archive
+  status and device table embedded as a JS variable (`window.__GLA_STATUS__`).
+  No `fetch()` — works with `file://` protocol. `write_index_html(base_dir)`
+  always regenerates; `ensure_index_html(base_dir)` writes only if absent.
+
+**Changed modules:**
+- `app/panel_archive.py` — `_refresh_archive_info()` calls
+  `write_index_html(base_dir)` after every refresh.
+- `garmin_app_base.py` — `QTimer.singleShot(400, self._ensure_mobile_landing)`
+  added to `__init__`. New method `_ensure_mobile_landing()` writes
+  `index.html` on app start if not yet present.
+- `compiler/build_manifest.py` — `layouts/garmin_mobile_landing.py` added
+  to `SHARED_SCRIPTS` and `SCRIPT_SIGNATURES_BASE`.
+
+**Test result:** 316 / 261 / 303 / 128 / 42 — all green (unchanged)
+
+---
+
 ## v1.5.8 — In-App File Viewer
 
 Third tab ("Files") added to the existing `QTabWidget` (Tab 1 "Actions",

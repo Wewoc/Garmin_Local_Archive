@@ -190,7 +190,8 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
 │   ├── dash_plotter_excel.py
 │   ├── dash_plotter_json.py
 │   ├── dash_prompt_templates.py
-│   └── reference_ranges.py
+│   ├── reference_ranges.py
+│   └── garmin_mobile_landing.py  ← Mobile landing page generator (v1.5.8.1+)
 │
 ├── export/                     ← Legacy scripts — kept for reference
 │   └── regenerate_summaries.py
