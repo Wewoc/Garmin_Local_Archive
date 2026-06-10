@@ -134,6 +134,7 @@ class GarminApp(QMainWindow):
         QTimer.singleShot(200, self._panel_archive._refresh_archive_info)
         QTimer.singleShot(500, self._startup_bg_checks)
         QTimer.singleShot(300, self._scan_dashboards)
+        QTimer.singleShot(400, self._ensure_mobile_landing)
 
     @pyqtSlot(object)
     def _dispatch_slot(self, fn):
@@ -150,6 +151,18 @@ class GarminApp(QMainWindow):
         threading.Thread(
             target=self._panel_archive._startup_mirror_check,
             daemon=True).start()
+
+    def _ensure_mobile_landing(self):
+        """Write index.html into dashboards/ if not yet present. Main Thread."""
+        try:
+            s        = self._panel_settings._collect_settings()
+            base_dir = s.get("base_dir", "")
+            if not base_dir:
+                return
+            import garmin_mobile_landing as _landing
+            _landing.write_index_html(base_dir)
+        except Exception:
+            pass
 
     # ── UI builder ─────────────────────────────────────────────────────────────
 

@@ -238,6 +238,14 @@ class PanelArchive(QWidget):
                     self._archive_device_click_connected = True
 
             self._app._dispatch(_update)
+
+            # Mobile landing page — update status.json after every refresh
+            try:
+                import garmin_mobile_landing as _landing
+                _landing.write_index_html(base_dir)
+            except Exception:
+                pass
+
         except Exception:
             pass
 
@@ -259,7 +267,7 @@ class PanelArchive(QWidget):
         new_name, ok = QInputDialog.getText(
             self._app,
             "Device Name",
-            "Name für unbekanntes Gerät (vívoactive 3 Ära):",
+            "Name for unknown device:",
             text=current if current != "unknown" else "",
         )
         if not ok or not new_name.strip():

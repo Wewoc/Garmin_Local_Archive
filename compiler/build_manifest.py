@@ -83,6 +83,7 @@ SHARED_SCRIPTS = [
     "layouts/dash_plotter_json.py",
     "layouts/dash_prompt_templates.py",
     "layouts/reference_ranges.py",
+    "layouts/garmin_mobile_landing.py",
 ]
 # Target 2 (build.py): entry point + shared scripts
 SCRIPTS = ["garmin_app.py"] + SHARED_SCRIPTS
@@ -123,6 +124,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_mirror.py":     ["def run_mirror", "def is_reachable"],
     "garmin/garmin_container.py":  ["def lock", "def unlock_meta", "def fulfill_order", "def is_container", "def list_files"],
     "garmin/garmin_import_mirror.py": ["def run_import_mirror", "def detect_source"],
+    "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
 }
 
 # ── Docs ──────────────────────────────────────────────────────────────────────
