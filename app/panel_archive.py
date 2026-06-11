@@ -22,8 +22,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
-    QDialog, QLineEdit, QListWidget, QMessageBox, QFrame, QSizePolicy,
-    QTableWidgetItem, QInputDialog,
+    QDialog, QLineEdit, QListWidget, QMessageBox, QFrame, QTableWidgetItem, QInputDialog,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -49,8 +48,11 @@ class MirrorPasswordDialog(QDialog):
         self.setModal(True)
         self.setFixedWidth(420)
         app = parent._app
-        bg  = app.BG; bg3 = app.BG3; text = app.TEXT
-        t2  = app.TEXT2; acc = app.ACCENT
+        bg   = app.BG
+        bg3  = app.BG3
+        text = app.TEXT
+        t2   = app.TEXT2
+        acc  = app.ACCENT
         self.setStyleSheet(f"background: {bg}; color: {text};")
         lay = QVBoxLayout(self)
         lay.setSpacing(8)
@@ -155,7 +157,6 @@ class PanelArchive(QWidget):
             if not stats.get("total"):
                 return
 
-            total    = stats["total"]
             counts       = {"failed": stats.get("failed", 0)}
             # device_table — read directly from device_table.json (written by collector)
             _dt_path = base_dir / "garmin_data" / "log" / "device_table.json"
@@ -280,7 +281,6 @@ class PanelArchive(QWidget):
             return
 
         try:
-            import garmin_config as _cfg
             with _quality.QUALITY_LOCK:
                 data = _quality._load_quality_log()
                 updated = _quality.set_unknown_device_name(data, new_name.strip())

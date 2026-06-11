@@ -67,7 +67,7 @@ _register_embedded_packages()
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore    import QTimer
 
-from garmin_app_base import GarminApp as _GarminAppBase, APP_VERSION
+from garmin_app_base import GarminApp as _GarminAppBase
 
 
 # ── Queue-based output capture ─────────────────────────────────────────────────
@@ -116,7 +116,7 @@ def script_dir() -> Path:
 
 def script_path(name: str) -> Path:
     base = script_dir()
-    for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+    for sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         candidate = base / sub / name
         if candidate.exists():
             return candidate

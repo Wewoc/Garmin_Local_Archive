@@ -2,6 +2,64 @@
 
 ---
 
+## v1.5.9 — Standalone EXE: --onedir Migration + Code-Hygiene
+
+Replaces `--onefile` with `--onedir` for T3.1 (GUI standalone), eliminating
+per-launch extraction to `%TEMP%\_MEIxxxxxx`. Startup time drops significantly.
+T3.2 (`daily_update.exe`) stays `--onefile` — Task Scheduler launches are
+infrequent and startup time is irrelevant there. Also fixes two real `NameError`
+bugs found via `ruff`, cleans the entire codebase to `ruff check . → 0 errors`,
+and removes zombie `export/` references from the build system. Additionally
+upgrades the mobile landing page (`index.html`) to a single-page layout — both
+dashboards are now embedded directly, making them accessible on OneDrive mobile
+without broken relative links.
+
+**Changed modules:**
+- `compiler/build_standalone.py` — `build_exe()` gets `onedir` parameter;
+  T3.1 uses `--onedir`, T3.2 stays `--onefile`. `cmd.append("--windowed")`
+  replaces position-dependent `cmd.insert(3, ...)`. `build_combined_zip()`
+  packs the `Garmin_Local_Archive_Standalone/` folder recursively; `daily_update.exe`
+  remains flat in ZIP root. Abort with message if folder/EXE missing.
+- `tests/test_build_output.py` — T3 checks updated for `--onedir` folder
+  structure: `_T3_DIR`, `_T3_EXE`, `_T3_BUILT` use new paths; Section 7
+  checks for `_internal/` and updated ZIP paths.
+- `context/context_collector.py` — `prev_ds = dates[0]` initialised before
+  `for` loop in `_split_into_segments()` — fixes `NameError` on first location
+  segment change.
+- `scheduler/daily_update.py` — `import json` added to top-level imports —
+  fixes `NameError` in `_check_schema_migration()` and `_check_version()`.
+- `garmin/garmin_collector.py` — `QUALITY_RANK` imported from `garmin_quality`
+  facade (not directly from `quality._maint`). Duplicate import and `known_dates`
+  unused variable removed.
+- `garmin/quality/_stats.py` — unused `device_map = {}` removed.
+- `app/panel_archive.py` — unused `total` variable removed; theme variable
+  assignments split onto separate lines (E702).
+- `compiler/build.py` — `export/` mkdir removed from `prepare_scripts_dir()`;
+  unused `sep` and `scripts_dir` variables removed.
+- `garmin_app.py` — `"export"` removed from `script_path()` subfolder list.
+- `garmin_app_standalone.py` — `"export"` removed from `script_path()` subfolder list.
+- `layouts/dash_layout_html.py` — duplicate `get_plotly_cdn()` definition removed (F811).
+- `layouts/garmin_mobile_landing.py` — single-page embed: `_render_html()`
+  accepts `dash_mobile` + `dash_sleep` parameters; `_read_dash()` extracts
+  `<script>` tags from `<head>` + `<body>` content (drops `<style>` to prevent
+  CSS override); dashboard buttons switch inline views via JS; `html` element
+  gets explicit dark background. `write_index_html()` also triggered from
+  `panel_outputs.py` after "Create Dashboards" — ensures fresh dashboard content.
+- `app/panel_outputs.py` — `write_index_html()` called in `on_done` after
+  `_scan_dashboards()` to regenerate `index.html` with freshly built dashboards.
+- `dashboards/dash_runner.py` — `# noqa: E731` on lambda noop.
+- `dashboards/health_garmin_html-json_dash.py` — `# noqa: F841` on `vo2_raw`.
+- `ruff.toml` (new) — `per-file-ignores` for `garmin_quality.py` (F401),
+  `tests/*` (E712, E402, E702, E731, F841), entry points (E402), `tools/*` (E402),
+  `garmin_extended_anaysis.py` (E701, F841, B, SIM),
+  `sleep_recovery_context_dash.py` (E701).
+- `scheduler/daily_update.py` — `yesterday` unused variable removed.
+- `version.py` — `APP_VERSION` → `"1.5.9"`.
+
+**Test result:** 316 / 261 / 303 / 128 / 42 — all green
+
+---
+
 ## v1.5.8.1 — Mobile Landing Page
 
 Adds a local mobile landing page (`index.html`) that is automatically

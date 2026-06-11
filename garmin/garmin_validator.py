@@ -51,7 +51,6 @@ except garmin_config (leaf-node constraint).
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 
 import garmin_config as cfg
 

@@ -46,7 +46,7 @@ def summary() -> None:
     print(f"\n{'═' * 55}")
     print(f"  {total} checks — {_pass} passed, {_fail} failed")
     if _failures:
-        print(f"\n  Failed:")
+        print("\n  Failed:")
         for name in _failures:
             print(f"    ✗  {name}")
     print(f"{'═' * 55}\n")

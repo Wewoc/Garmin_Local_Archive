@@ -16,9 +16,7 @@ Uses project logger — no own logging setup.
 All paths from caller (garmin_app_base) — no garmin_config import needed.
 """
 
-import json
 import logging
-from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)

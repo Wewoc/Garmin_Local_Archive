@@ -74,7 +74,3 @@ def build_footer(text: str) -> str:
 
 def get_css() -> str:
     return CSS
-
-
-def get_plotly_cdn() -> str:
-    return PLOTLY_CDN

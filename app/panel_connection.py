@@ -18,10 +18,10 @@ import threading
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDialog, QLineEdit, QMessageBox, QFrame, QSizePolicy,
-    QTableWidget, QTableWidgetItem, QHeaderView,
+    QDialog, QLineEdit, QFrame, QSizePolicy,
+    QTableWidget, QHeaderView,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QObject
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont
 
 import garmin_app_controller as _controller

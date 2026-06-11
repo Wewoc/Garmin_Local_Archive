@@ -6,31 +6,11 @@
 
 ---
 
-**Currently stable — v1.5.8.1**
+**Currently stable — v1.5.9**
 
 ---
 
 ## Planned
-
----
-
-### v1.5.9 — Standalone EXE: --onedir Migration
-
-Replaces `--onefile` with `--onedir` in `build_standalone.py` for T3.
-Eliminates the per-launch extraction to `%TEMP%\_MEIxxxxxx` — all files
-sit permanently unpacked next to the EXE. Startup time for T3 drops
-significantly as a result.
-
-**What changes:**
-- `compiler/build_standalone.py` — `--onefile` → `--onedir`
-- `build_combined_zip()` — ZIP logic updated to pack the output folder
-  instead of a single EXE file
-- `tests/test_build_output.py` — T3 checks updated for folder structure
-
-**What does not change:**
-- T2 (`build.py`) — stays `--onefile`, unaffected
-- Total installed size — identical, only distribution format changes
-- User workflow — ZIP download unchanged, EXE name unchanged
 
 ---
 

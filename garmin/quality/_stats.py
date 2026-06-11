@@ -13,7 +13,6 @@ import logging
 from datetime import date as _date
 from pathlib import Path
 
-import garmin_config as cfg
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +65,6 @@ def get_archive_stats(quality_log_path=None) -> dict:
     dates = []
     api_dates = []
     bulk_dates = []
-    # device_table: {device_id: {name, rank, dates[], days_high, days_standard}}
-    device_map = {}
 
     for entry in days:
         q = entry.get("quality", "failed")

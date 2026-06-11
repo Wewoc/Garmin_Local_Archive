@@ -18,7 +18,6 @@ Validates:
 Does not start any EXE. No network, no GUI, no Garmin API calls.
 """
 
-import os
 import py_compile
 import sys
 import zipfile
@@ -63,11 +62,12 @@ _BUILD_ROOT  = _ROOT
 _SCRIPTS_DIR = _BUILD_ROOT / "scripts"
 _T2_EXE      = _BUILD_ROOT / "Garmin_Local_Archive.exe"
 _T2_ZIP      = _BUILD_ROOT / "Garmin_Local_Archive.zip"
-_T3_EXE      = _BUILD_ROOT / "Garmin_Local_Archive_Standalone.exe"
+_T3_DIR      = _BUILD_ROOT / "Garmin_Local_Archive_Standalone"         # --onedir folder
+_T3_EXE      = _T3_DIR / "Garmin_Local_Archive_Standalone.exe"         # EXE inside folder
 _T3_ZIP      = _BUILD_ROOT / "Garmin_Local_Archive_Standalone.zip"
 
 _T2_BUILT = _T2_EXE.exists()
-_T3_BUILT = _T3_EXE.exists()
+_T3_BUILT = _T3_DIR.exists() and _T3_EXE.exists()                      # onedir: folder + EXE
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  1. build_manifest — Konsistenz
@@ -223,18 +223,22 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 section("7. Target 3 — Standalone EXEs + combined ZIP")
 
-_DU_EXE  = _BUILD_ROOT / "daily_update.exe"
+_DU_EXE   = _BUILD_ROOT / "daily_update.exe"
 _DU_BUILT = _DU_EXE.exists()
 
+# T3.1 — --onedir
 if not _T3_BUILT:
+    skip("Garmin_Local_Archive_Standalone/ folder exists", "no build found")
     skip("Garmin_Local_Archive_Standalone.exe exists", "no build found")
+    skip("Standalone _internal/ exists", "no build found")
 else:
-    check("Garmin_Local_Archive_Standalone.exe exists", True)
+    check("Garmin_Local_Archive_Standalone/ folder exists", _T3_DIR.exists())
+    check("Garmin_Local_Archive_Standalone.exe exists", _T3_EXE.exists())
     check("Standalone EXE size > 0 bytes", _T3_EXE.stat().st_size > 0)
-    if _T2_BUILT:
-        check("Standalone EXE larger than T2 EXE (embeds deps)",
-              _T3_EXE.stat().st_size > _T2_EXE.stat().st_size)
+    _t3_internal = _T3_DIR / "_internal"
+    check("Standalone _internal/ exists (--onedir layout)", _t3_internal.exists())
 
+# T3.2 — --onefile
 if not _DU_BUILT:
     skip("daily_update.exe exists", "no build found")
 else:
@@ -242,16 +246,22 @@ else:
     check("daily_update.exe size > 0 bytes", _DU_EXE.stat().st_size > 0)
 
 if not _T3_BUILT or not _DU_BUILT:
-    skip("combined ZIP checks", "one or both EXEs missing")
+    skip("combined ZIP checks", "one or both targets missing")
 elif not _T3_ZIP.exists():
     skip("combined ZIP checks", "Garmin_Local_Archive_Standalone.zip not found")
 else:
     check("Garmin_Local_Archive_Standalone.zip exists", True)
     with zipfile.ZipFile(_T3_ZIP, "r") as zf:
         _names_sa = set(zf.namelist())
-        check("combined ZIP contains Standalone EXE",
-              "Garmin_Local_Archive_Standalone.exe" in _names_sa)
-        check("combined ZIP contains daily_update.exe",
+        # T3.1 folder structure in ZIP
+        _t31_zip_exe = "Garmin_Local_Archive_Standalone/Garmin_Local_Archive_Standalone.exe"
+        _t31_zip_int = "Garmin_Local_Archive_Standalone/_internal/"
+        check("combined ZIP contains Standalone EXE (in subfolder)",
+              _t31_zip_exe in _names_sa)
+        check("combined ZIP contains Standalone _internal/ (--onedir)",
+              any(n.startswith("Garmin_Local_Archive_Standalone/_internal/") for n in _names_sa))
+        # T3.2 flat in ZIP root
+        check("combined ZIP contains daily_update.exe (flat in root)",
               "daily_update.exe" in _names_sa)
         _script_entries = [n for n in _names_sa if n.startswith("scripts/")]
         check("combined ZIP has no scripts/ folder (all embedded)",
@@ -314,7 +324,7 @@ if _skip:
     print(f"  ({_skip} skipped — build required)", end="")
 if _fail:
     print(f"  ({_fail} failed)")
-    print(f"\n  Failed checks:")
+    print("\n  Failed checks:")
     for f in _failures:
         print(f"    ✗  {f}")
 else:

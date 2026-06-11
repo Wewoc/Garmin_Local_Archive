@@ -135,7 +135,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
 
     # Auto-detect VO2max from most recent non-null value
     vo2max  = None
-    vo2_raw = raw.get("vo2max", {})  # not in _FIELDS but fetched separately below
+    vo2_raw = raw.get("vo2max", {})  # not in _FIELDS but fetched separately below  # noqa: F841
     result_vo2 = field_get("vo2max", base_from, date_to, resolution="daily")
     for entry in reversed(result_vo2.get("garmin", {}).get("values", [])):
         if entry["value"] is not None:

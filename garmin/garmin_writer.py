@@ -20,7 +20,6 @@ Public functions:
 import json
 import logging
 import os
-from pathlib import Path
 
 import garmin_config as cfg
 
