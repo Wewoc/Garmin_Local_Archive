@@ -107,16 +107,18 @@ def validate_scripts(root: Path):
             print(e)
         sys.exit(1)
 
-    print(f"  ✓ All scripts and data files present and valid.")
-    print(f"  ✓ Entry points: garmin_app_standalone.py, daily_update.py")
+    print("  ✓ All scripts and data files present and valid.")
+    print("  ✓ Entry points: garmin_app_standalone.py, daily_update.py")
     for s in EMBEDDED_SCRIPTS:
         print(f"  ✓ Embed: {s}")
 
 
-def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True):
+def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
+              onedir: bool = False):
     print(f"\n  Building {name}.exe ...")
     print(f"  Entry point: {entry_point}")
     print(f"  Embedding {len(EMBEDDED_SCRIPTS)} scripts as data ...")
+    print(f"  Mode: {'--onedir' if onedir else '--onefile'}")
 
     sep = ";" if sys.platform == "win32" else ":"
 
@@ -132,7 +134,7 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True):
     if dataformat_src.exists():
         add_data_args += ["--add-data", f"{dataformat_src}{sep}scripts/garmin"]
     else:
-        print(f"  ✗ garmin_dataformat.json not found in garmin/ — aborting build")
+        print("  ✗ garmin_dataformat.json not found in garmin/ — aborting build")
         sys.exit(1)
 
 
@@ -166,9 +168,11 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True):
     for h in hidden:
         hidden_args += ["--hidden-import", h]
 
+    packaging_flag = "--onedir" if onedir else "--onefile"
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--onefile",
+        packaging_flag,
         "--name", name,
         "--distpath", str(root),
         "--workpath", str(root / f"build_{name}_work"),
@@ -178,35 +182,61 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True):
         str(entry_point),
     ]
     if windowed:
-        cmd.insert(3, "--windowed")
+        cmd.append("--windowed")
 
     result = subprocess.run(cmd, cwd=str(root))
     if result.returncode != 0:
-        print(f"\n  ✗ Build failed — check output above.")
+        print("\n  ✗ Build failed — check output above.")
         sys.exit(1)
 
     print(f"  ✓ {name}.exe built successfully.")
 
 
 def build_combined_zip(root: Path):
-    """Packs T3.1 + T3.2 EXEs into a single release ZIP."""
-    zip_path = root / "Garmin_Local_Archive_Standalone.zip"
-    info_dir = root / "info"
+    """Packs T3.1 (--onedir folder) + T3.2 (--onefile EXE) into a single release ZIP.
 
-    print(f"\n  Creating Garmin_Local_Archive_Standalone.zip (T3.1 + T3.2) ...")
+    T3.1 layout in ZIP:
+        Garmin_Local_Archive_Standalone/
+            Garmin_Local_Archive_Standalone.exe
+            _internal/
+                ...
+
+    T3.2 layout in ZIP (flat, --onefile):
+        daily_update.exe
+    """
+    zip_path  = root / "Garmin_Local_Archive_Standalone.zip"
+    t31_dir   = root / "Garmin_Local_Archive_Standalone"   # --onedir output folder
+    du_exe    = root / "daily_update.exe"
+    info_dir  = root / "info"
+
+    print("\n  Creating Garmin_Local_Archive_Standalone.zip (T3.1 + T3.2) ...")
+
+    if not t31_dir.exists():
+        print(f"  ✗ T3.1 folder not found: {t31_dir}")
+        sys.exit(1)
+    if not du_exe.exists():
+        print(f"  ✗ T3.2 EXE not found: {du_exe}")
+        sys.exit(1)
+
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(root / "Garmin_Local_Archive_Standalone.exe",
-                 "Garmin_Local_Archive_Standalone.exe")
-        zf.write(root / "daily_update.exe",
-                 "daily_update.exe")
+        # T3.1 — pack entire --onedir folder, preserving structure
+        for f in sorted(t31_dir.rglob("*")):
+            if f.is_file():
+                arcname = f.relative_to(root)   # → Garmin_Local_Archive_Standalone/...
+                zf.write(f, arcname)
+
+        # T3.2 — flat single EXE in ZIP root
+        zf.write(du_exe, "daily_update.exe")
+
+        # Docs
         if info_dir.exists():
             for f in sorted(info_dir.iterdir()):
                 if f.name in INFO_INCLUDE:
                     zf.write(f, f"info/{f.name}")
 
     print(f"  -> {zip_path}")
-    print(f"  ZIP: Garmin_Local_Archive_Standalone.exe + daily_update.exe + info/")
-    print(f"  Upload Garmin_Local_Archive_Standalone.zip to GitHub release.")
+    print("  ZIP: Garmin_Local_Archive_Standalone/ (--onedir) + daily_update.exe + info/")
+    print("  Upload Garmin_Local_Archive_Standalone.zip to GitHub release.")
 
 
 def main():
@@ -227,24 +257,26 @@ def main():
         if src.exists():
             shutil.copy2(src, info_dir / name)
 
-    print(f"\n[3/3] Building ...")
+    print("\n[3/3] Building ...")
 
-    # --- T3.1: GUI ---
-    print(f"\n  --- T3.1: Garmin_Local_Archive_Standalone.exe ---")
+    # --- T3.1: GUI — --onedir (permanent unpack, fast startup) ---
+    print("\n  --- T3.1: Garmin_Local_Archive_Standalone (--onedir) ---")
     build_exe(root,
               name="Garmin_Local_Archive_Standalone",
               entry_point=root / "garmin_app_standalone.py",
-              windowed=True)
-    # --- T3.2: Headless ---
-    print(f"\n  --- T3.2: daily_update.exe ---")
+              windowed=True,
+              onedir=True)
+    # --- T3.2: Headless — --onefile (Task Scheduler, startup time irrelevant) ---
+    print("\n  --- T3.2: daily_update.exe (--onefile) ---")
     build_exe(root,
               name="daily_update",
               entry_point=root / "scheduler" / "daily_update.py",
-              windowed=False)
+              windowed=False,
+              onedir=False)
 
     build_combined_zip(root)
 
-    print(f"\n  Done. Distribute Garmin_Local_Archive_Standalone.zip — no Python installation needed on target.")
+    print("\n  Done. Distribute Garmin_Local_Archive_Standalone.zip — no Python installation needed on target.")
 
 
 if __name__ == "__main__":

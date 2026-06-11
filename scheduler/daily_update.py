@@ -39,8 +39,8 @@ silently use default paths instead of the user's settings.
 """
 
 import logging
+import json
 import os
-import shutil
 import sys
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -266,7 +266,6 @@ def _detect_gap(base_dir: Path) -> tuple[date | None, date | None, int]:
 def _build_env(s: dict, password: str, date_from: date | None, date_to: date | None) -> dict:
     """Build GARMIN_* environment variables as a dict."""
     base = Path(s["base_dir"])
-    yesterday = date.today() - timedelta(days=1)
 
     env = {}
     env["PYTHONUTF8"]               = "1"

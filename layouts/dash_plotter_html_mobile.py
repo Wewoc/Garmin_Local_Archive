@@ -287,7 +287,7 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
     dropdown_options_html = ""
     for i, opt in enumerate(range_options):
         if opt["from"] == "" :  # separator
-            dropdown_options_html += f'<option disabled>──────────</option>\n'
+            dropdown_options_html += '<option disabled>──────────</option>\n'
         else:
             selected = "selected" if i == 0 else ""
             dropdown_options_html += (

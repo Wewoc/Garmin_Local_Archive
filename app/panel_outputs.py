@@ -24,7 +24,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QDialog, QCheckBox, QRadioButton, QButtonGroup, QLineEdit,
-    QListWidget, QMessageBox, QFileDialog, QFrame, QGridLayout,
+    QMessageBox, QFileDialog, QFrame, QGridLayout,
     QApplication, QSizePolicy, QScrollArea,
 )
 from PyQt6.QtCore import Qt
@@ -615,7 +615,7 @@ class PanelOutputs(QWidget):
         output_dir = Path(s["base_dir"]) / "dashboards"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        self._app._log(f"\n▶  Berichte erstellen ...")
+        self._app._log("\n▶  Berichte erstellen ...")
         self._app._log(f"   Output: {output_dir}")
         self._app._log(f"   Zeitraum: {date_from} → {date_to}")
 
@@ -652,6 +652,12 @@ class PanelOutputs(QWidget):
                         self._app._scan_dashboards(
                             auto_load=self._app._last_html)
                         self._app._scan_xlsx_files()
+                    # Regenerate mobile landing page with fresh dashboard content
+                    try:
+                        import garmin_mobile_landing as _landing
+                        _landing.write_index_html(s["base_dir"])
+                    except Exception:
+                        pass
                     if ok:
                         os.startfile(str(output_dir))
 
@@ -737,7 +743,6 @@ class PanelOutputs(QWidget):
 
     def _create_task_scheduler_xml(self):
         """Generate a configured daily_update_task.xml for Windows Task Scheduler."""
-        import shutil as _shutil
 
         _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
                     else Path(__file__).parent.parent)

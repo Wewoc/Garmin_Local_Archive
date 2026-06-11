@@ -190,7 +190,7 @@ def api_call(client, method: str, *args, label: str = ""):
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg:
-            log.critical(f"  ✗ RATE LIMIT (429) — stopping immediately to protect IP.")
+            log.critical("  ✗ RATE LIMIT (429) — stopping immediately to protect IP.")
             if _stop_event is not None:
                 _stop_event.set()
             return None, False

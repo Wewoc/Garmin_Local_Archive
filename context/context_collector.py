@@ -151,6 +151,7 @@ def _split_into_segments(location_map: dict[str, tuple]) -> list[dict]:
     segments = []
     seg_start = dates[0]
     seg_lat, seg_lon = location_map[seg_start]
+    prev_ds = dates[0]
 
     for ds in dates[1:]:
         lat, lon = location_map[ds]

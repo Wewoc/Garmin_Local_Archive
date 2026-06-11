@@ -28,9 +28,8 @@ else:
     sys.path.insert(0, str(_root / "app"))
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QIcon
 
-from garmin_app_base import GarminApp as _GarminAppBase, APP_VERSION
+from garmin_app_base import GarminApp as _GarminAppBase
 
 
 # ── Script path helpers ────────────────────────────────────────────────────────
@@ -68,12 +67,12 @@ def script_dir() -> Path:
 def script_path(name: str) -> Path:
     if getattr(sys, "frozen", False):
         base = script_dir()
-        for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+        for sub in ("garmin", "maps", "dashboards", "layouts", "context"):
             candidate = base / sub / name
             if candidate.exists():
                 return candidate
         return base / name
-    for sub in ("garmin", "maps", "dashboards", "layouts", "context", "export"):
+    for sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         candidate = Path(__file__).parent / sub / name
         if candidate.exists():
             return candidate

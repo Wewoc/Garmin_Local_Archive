@@ -789,7 +789,7 @@ try:
     s_shell = normalizer.summarize(raw_shell)
     check("robustness: empty shell no crash",     isinstance(s_shell, dict))
     check("robustness: empty shell date correct", s_shell.get("date") == "2024-01-01")
-except Exception as e:
+except Exception:
     check("robustness: empty shell no crash",     False)
     check("robustness: empty shell date correct", False)
 

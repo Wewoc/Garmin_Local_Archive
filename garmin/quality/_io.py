@@ -13,7 +13,6 @@ import json
 import logging
 import zipfile
 from datetime import date, datetime
-from pathlib import Path
 
 import garmin_config as cfg
 import garmin_utils as utils
