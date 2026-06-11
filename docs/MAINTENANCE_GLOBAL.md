@@ -308,10 +308,11 @@ All source folders are Python packages with `__init__.py`:
 
 ## script_path() resolution (EXE targets)
 
-- **Target 2 frozen:** iterates `scripts/garmin/`, `scripts/maps/`, `scripts/dashboards/`, `scripts/layouts/`, `scripts/context/`, `scripts/export/` — returns first match, fallback `scripts/name`
-- **Target 3 frozen:** iterates `scripts/garmin/`, `scripts/maps/`, `scripts/dashboards/`, `scripts/layouts/`, `scripts/context/`, `scripts/export/` — returns first match, fallback `scripts/name`
+- **Target 2 frozen:** iterates `scripts/garmin/`, `scripts/maps/`, `scripts/dashboards/`, `scripts/layouts/`, `scripts/context/` — returns first match, fallback `scripts/name`
+- **Target 3 frozen:** iterates `scripts/garmin/`, `scripts/maps/`, `scripts/dashboards/`, `scripts/layouts/`, `scripts/context/` — returns first match, fallback `scripts/name`
 - **Dev (both):** iterates same subfolder list relative to `Path(__file__).parent`, fallback `script_dir() / name`
 
+Note: `export/` was removed from all iteration lists in v1.5.9 — the subfolder is no longer used.
 Note: Dashboard build (`dash_runner`) runs in-process — no `script_path()` involved. `dash_runner.py` is loaded via `importlib` directly from `dashboards/`.
 
 ⚠ When adding a new subfolder: add it to the iteration list in `script_path()` in **both** `garmin_app.py` and `garmin_app_standalone.py`.

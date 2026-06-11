@@ -97,9 +97,43 @@ def write_index_html(base_dir: Path | None = None) -> bool:
             "total_all":      next((r["days_total"]    for r in device_table if r.get("device_id") == "__total__"), 0),
         }
 
+        # ── Read dashboard files for inline embedding ─────────────────────────
+        # Strategy: extract <script> tags from <head> (Plotly etc.) + <body> content.
+        # Dropping <html>/<head>/<style> prevents dashboard CSS from overriding
+        # index.html styling, while keeping JS dependencies (Plotly) intact.
+        import re as _re
+        def _read_dash(filename: str) -> str:
+            p = out_dir / filename
+            if not p.exists():
+                return ""
+            try:
+                raw = p.read_text(encoding="utf-8")
+
+                # Extract <script> tags from <head> (src= and inline)
+                head_m = _re.search(r"<head[^>]*>(.*?)</head>", raw, _re.DOTALL | _re.IGNORECASE)
+                head_scripts = ""
+                if head_m:
+                    head_scripts = "".join(
+                        _re.findall(r"<script[^>]*>.*?</script>", head_m.group(1),
+                                    _re.DOTALL | _re.IGNORECASE)
+                    )
+
+                # Extract <body> content
+                body_m = _re.search(r"<body[^>]*>(.*?)</body>", raw, _re.DOTALL | _re.IGNORECASE)
+                body_content = body_m.group(1) if body_m else raw
+
+                return head_scripts + body_content
+
+            except Exception as e:
+                log.warning(f"write_index_html: could not read {filename}: {e}")
+            return ""
+
+        dash_mobile = _read_dash("health_garmin_mobile.html")
+        dash_sleep  = _read_dash("sleep_garmin_html-xls_dash.html")
+
         # ── Render and write index.html atomically ────────────────────────────
         out_dir.mkdir(parents=True, exist_ok=True)
-        html_content = _render_html(status)
+        html_content = _render_html(status, dash_mobile, dash_sleep)
         html_path    = out_dir / "index.html"
         tmp_path     = out_dir / "index.html.tmp"
         tmp_path.write_text(html_content, encoding="utf-8")
@@ -135,10 +169,19 @@ def ensure_index_html(base_dir: Path | None = None) -> bool:
 #  HTML renderer — embeds status data as JS variable
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _render_html(status: dict) -> str:
-    """Renders index.html with status data embedded as window.__GLA_STATUS__."""
-    status_json = json.dumps(status, ensure_ascii=False, indent=2)
-    return _HTML_TEMPLATE.replace("__STATUS_JSON_PLACEHOLDER__", status_json)
+def _render_html(status: dict, dash_mobile: str = "", dash_sleep: str = "") -> str:
+    """Renders index.html with status data and dashboard content embedded inline.
+
+    dash_mobile: full HTML content of health_garmin_mobile.html, or "" if not found.
+    dash_sleep:  full HTML content of sleep_garmin_html-xls_dash.html, or "" if not found.
+    Both are embedded as hidden <div> blocks — no external file references needed.
+    Works with file:// protocol (OneDrive mobile viewer compatible).
+    """
+    status_json   = json.dumps(status, ensure_ascii=False, indent=2)
+    html = _HTML_TEMPLATE.replace("__STATUS_JSON_PLACEHOLDER__", status_json)
+    html = html.replace("__DASH_MOBILE_PLACEHOLDER__",  dash_mobile)
+    html = html.replace("__DASH_SLEEP_PLACEHOLDER__",   dash_sleep)
+    return html
 
 
 _HTML_TEMPLATE = r"""<!DOCTYPE html>
@@ -161,6 +204,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     --red:     #e94560;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
   body {
     background: var(--bg);
     color: var(--text);
@@ -296,36 +340,78 @@ window.__GLA_STATUS__ = __STATUS_JSON_PLACEHOLDER__;
 
     <div class="section-label">Dashboards</div>
 
-    <div class="dash-card">
+    <div class="dash-card" id="card-mobile">
       <div class="dash-header">
         <div class="dash-meta">
           <span class="dash-icon">📱</span>
           <div>
             <div class="dash-name">Mobile Dashboard</div>
-            <div class="dash-file">health_garmin_mobile.html</div>
+            <div class="dash-file" id="lbl-mobile">health_garmin_mobile.html</div>
           </div>
         </div>
-        <a class="dash-btn" href="health_garmin_mobile.html" target="_blank">↗ öffnen</a>
+        <button class="dash-btn" id="btn-mobile" onclick="showDash('mobile')">▶ öffnen</button>
       </div>
     </div>
 
-    <div class="dash-card">
+    <div class="dash-card" id="card-sleep">
       <div class="dash-header">
         <div class="dash-meta">
           <span class="dash-icon">🌙</span>
           <div>
             <div class="dash-name">Sleep Dashboard</div>
-            <div class="dash-file">sleep_garmin_html-xls_dash.html</div>
+            <div class="dash-file" id="lbl-sleep">sleep_garmin_html-xls_dash.html</div>
           </div>
         </div>
-        <a class="dash-btn" href="sleep_garmin_html-xls_dash.html" target="_blank">↗ öffnen</a>
+        <button class="dash-btn" id="btn-sleep" onclick="showDash('sleep')">▶ öffnen</button>
       </div>
     </div>
 
   </div>
 </div>
 
+<!-- ── Inline dashboard embeds (shown on demand, hidden by default) ────── -->
+<div id="view-mobile" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#12101f; z-index:100; overflow:auto;">
+  <div style="position:fixed; top:8px; right:12px; z-index:200;">
+    <button onclick="hideDash()" style="background:#a259f7; color:#fff; border:none; border-radius:4px; padding:6px 14px; font-size:13px; cursor:pointer;">✕ zurück</button>
+  </div>
+  <div id="content-mobile">__DASH_MOBILE_PLACEHOLDER__</div>
+</div>
+
+<div id="view-sleep" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#12101f; z-index:100; overflow:auto;">
+  <div style="position:fixed; top:8px; right:12px; z-index:200;">
+    <button onclick="hideDash()" style="background:#a259f7; color:#fff; border:none; border-radius:4px; padding:6px 14px; font-size:13px; cursor:pointer;">✕ zurück</button>
+  </div>
+  <div id="content-sleep">__DASH_SLEEP_PLACEHOLDER__</div>
+</div>
+
 <script>
+function showDash(which) {
+  document.getElementById("view-mobile").style.display = "none";
+  document.getElementById("view-sleep").style.display  = "none";
+  var el = document.getElementById("view-" + which);
+  if (el) el.style.display = "block";
+  window.scrollTo(0, 0);
+}
+function hideDash() {
+  document.getElementById("view-mobile").style.display = "none";
+  document.getElementById("view-sleep").style.display  = "none";
+}
+
+(function () {
+  // Mark buttons unavailable if dashboard was not embedded
+  function markMissing(btnId, lblId) {
+    var btn = document.getElementById(btnId);
+    var lbl = document.getElementById(lblId);
+    if (btn) { btn.textContent = "nicht verfügbar"; btn.disabled = true;
+               btn.style.background = "#3a3a4a"; btn.style.cursor = "default"; }
+    if (lbl) lbl.style.color = "var(--red)";
+  }
+  var cm = document.getElementById("content-mobile");
+  var cs = document.getElementById("content-sleep");
+  if (cm && cm.innerHTML.trim() === "") markMissing("btn-mobile", "lbl-mobile");
+  if (cs && cs.innerHTML.trim() === "") markMissing("btn-sleep",  "lbl-sleep");
+})();
+
 (function () {
   var s = window.__GLA_STATUS__;
   if (!s) return;

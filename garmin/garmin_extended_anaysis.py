@@ -34,9 +34,8 @@ No further explanation.
 import json
 import math
 import hashlib
-import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -167,7 +166,7 @@ def setup_profile() -> dict:
         if summary_check.exists() and any(summary_check.glob("garmin_*.json")):
             break
         print(f"  No summary files found in: {summary_check}")
-        print(f"  Check the path and try again.")
+        print("  Check the path and try again.")
     print()
 
     while True:
@@ -224,7 +223,7 @@ def setup_profile() -> dict:
     save_profile(profile)
     print()
     print(f"  ✓ Profile saved.  Star sign: {star_sign}  ·  Ascendant: {ascendant}  ·  Moon: {moon_sign}")
-    print(f"  ✓ Encrypted with Enigma-inspired cipher. Rotors: 3. Security: historical.")
+    print("  ✓ Encrypted with Enigma-inspired cipher. Rotors: 3. Security: historical.")
     print()
     return profile
 
@@ -1785,7 +1784,7 @@ def main():
         sign    = profile.get("star_sign", "unknown")
         ascend  = profile.get("ascendant", "unknown")
         print(f"  ✓ Profile loaded. {sign} · Ascendant: {ascend}")
-        print(f"    (Delete enigma_profile.bin to reset.)")
+        print("    (Delete enigma_profile.bin to reset.)")
         print()
 
     # Resolve paths from profile
@@ -1813,7 +1812,7 @@ def main():
 
     output_file.write_text(html, encoding="utf-8")
 
-    print(f"  ✓ Analysis complete.")
+    print("  ✓ Analysis complete.")
     print(f"  ✓ Output: {output_file}")
     print()
 

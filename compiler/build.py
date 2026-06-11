@@ -64,7 +64,7 @@ def validate_scripts(root: Path):
     # Entry point lives in root
     entry = root / "garmin_app.py"
     if not entry.exists():
-        errors.append(f"  ✗ Missing entry point: garmin_app.py")
+        errors.append("  ✗ Missing entry point: garmin_app.py")
     else:
         content = entry.read_text(encoding="utf-8", errors="replace")
         if "class GarminApp" not in content:
@@ -99,14 +99,13 @@ def validate_scripts(root: Path):
             print(e)
         sys.exit(1)
 
-    print(f"  ✓ All scripts and data files present and valid.")
+    print("  ✓ All scripts and data files present and valid.")
 
 
 def build_exe(root: Path):
     entry_point = root / "garmin_app.py"
     print(f"\n[3/4] Building {APP_NAME}.exe (Target 2 — Python required) ...")
 
-    sep = ";" if sys.platform == "win32" else ":"
     asset_data = []
 
     cmd = [
@@ -140,7 +139,7 @@ def build_exe(root: Path):
     ]
     result = subprocess.run(cmd, cwd=str(root))
     if result.returncode != 0:
-        print(f"\n  ✗ Build failed — check output above.")
+        print("\n  ✗ Build failed — check output above.")
         sys.exit(1)
 
 
@@ -149,14 +148,14 @@ def build_zip(root: Path):
     zip_path = root / f"{APP_NAME}.zip"
     info_dir = root / "info"
 
-    print(f"\n[4/4] Creating release ZIP ...")
+    print("\n[4/4] Creating release ZIP ...")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(exe, f"{APP_NAME}.exe")
 
         # Entry point
         entry = root / "garmin_app.py"
         if entry.exists():
-            zf.write(entry, f"scripts/garmin_app.py")
+            zf.write(entry, "scripts/garmin_app.py")
 
         # Shared scripts — preserve subfolder structure inside scripts/
         for name in manifest.SHARED_SCRIPTS:
@@ -202,7 +201,6 @@ def prepare_scripts_dir(root: Path):
     scripts_dir = root / "scripts"
     scripts_dir.mkdir(exist_ok=True)
     (scripts_dir / "garmin").mkdir(exist_ok=True)
-    (scripts_dir / "export").mkdir(exist_ok=True)
 
     import shutil
 
@@ -233,12 +231,12 @@ def prepare_scripts_dir(root: Path):
         if src.exists():
             shutil.copy2(src, info_dir / name)
 
-    print(f"  ✓ Scripts copied to scripts/")
+    print("  ✓ Scripts copied to scripts/")
     return scripts_dir
 
 
 def main():
-    print(f"Garmin Local Archive — Build Script (Target 2: Python required)")
+    print("Garmin Local Archive — Build Script (Target 2: Python required)")
     print("=" * 60)
 
     root = Path(__file__).parent.parent   # compiler/ → Root/
@@ -247,7 +245,7 @@ def main():
 
     validate_scripts(root)
 
-    scripts_dir = prepare_scripts_dir(root)
+    prepare_scripts_dir(root)
 
     build_exe(root)
 

@@ -179,7 +179,7 @@ def build(
         ]
     """
     if log is None:
-        log = lambda msg: None
+        log = lambda msg: None  # noqa: E731
 
     plotters = _load_plotters()
 

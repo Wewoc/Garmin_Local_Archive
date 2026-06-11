@@ -23,7 +23,7 @@ Reads from raw/ and log/ (read-only), writes only to backup/.
 import json
 import logging
 import zipfile
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 import garmin_config as cfg

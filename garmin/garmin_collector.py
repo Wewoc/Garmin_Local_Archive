@@ -32,6 +32,7 @@ import garmin_quality as quality
 import garmin_sync as sync
 import garmin_validator as validator
 import garmin_writer as writer
+from garmin_quality import QUALITY_RANK
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Logging setup
@@ -124,10 +125,6 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
 #  Downgrade guard
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Single source of truth — defined in quality._maint, re-exported via facade.
-from quality._maint import QUALITY_RANK
-
-
 def _check_downgrade(new_label: str, existing_entry: dict | None) -> tuple:
     """
     Compares a freshly fetched quality label against the stored entry.
@@ -185,7 +182,6 @@ def run_import(path, progress_callback=None, stop_event=None) -> dict:
 
     with quality.QUALITY_LOCK:
         quality_data = quality._load_quality_log()
-        known_dates  = {e["date"] for e in quality_data.get("days", []) if "date" in e}
 
         for i, raw_data in enumerate(importer.load_bulk(path), 1):
             date_str = raw_data.get("date")
@@ -615,7 +611,7 @@ def main(stop_event=None):
             log.info(f"  device_id backfill: {_backfill_count} entries updated")
             quality.save_device_table(quality_data)
         else:
-            log.info(f"  device_id backfill: no raw files with training_status found")
+            log.info("  device_id backfill: no raw files with training_status found")
 
     # ── 6. Set first_day ──────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:

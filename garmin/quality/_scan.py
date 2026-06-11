@@ -10,7 +10,6 @@ Internal — import only via garmin_quality (facade).
 
 import json
 import logging
-from datetime import date
 from pathlib import Path
 
 import garmin_config as cfg

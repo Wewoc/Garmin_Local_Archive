@@ -19,9 +19,9 @@ import tempfile
 import logging
 import threading
 import zipfile
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # ── Path setup ─────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
@@ -728,7 +728,6 @@ with patch("garmin_quality.get_archive_stats", return_value=_empty_stats):
 check("run empty archive: error key",   "error" in run_empty)
 
 # Stop event
-import threading
 stop = threading.Event()
 stop.set()
 with patch("garmin_quality.get_archive_stats", return_value=_mock_stats), \

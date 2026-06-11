@@ -11,7 +11,6 @@ Scope: Qt-specific behaviour — Signals, Slots, Widget state,
 v1.5.4 — Panel-by-panel, built alongside the migration.
 """
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -31,9 +30,6 @@ class TestQtSmoke:
 
     def test_pyqt6_importable(self):
         """Core PyQt6 modules must be importable."""
-        from PyQt6.QtWidgets import QWidget, QMainWindow, QLabel
-        from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
-        from PyQt6.QtGui import QFont
         assert True
 
     def test_settings_controller_still_gui_free(self, app_root):
