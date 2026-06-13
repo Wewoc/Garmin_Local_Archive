@@ -32,14 +32,14 @@ local copy of your Garmin data over time. Your data stays in open formats, reada
 | **Access** | Online only | Requires subscription | **100% offline** |
 | **History** | Erodes over time | Depends on source | **Permanent local copy** |
 
-<img src="screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Actions Tab">
-<br><sub>Actions tab — sync controls, archive status by device, background timer, bulk import, and context sync in one place.</sub>
+<img src="screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Home Tab">
+<br><sub>Home tab — fixed top area with connection status, archive stats by device, and Daily Actions (Sync / Mirror / Timer); dashboard viewer below.</sub>
 
-<img src="screenshots/GUI-Page_2.jpg" width="800" alt="Garmin Local Archive — Dashboards Tab">
-<br><sub>Dashboards tab — in-app dashboard rendering with HRV, Resting HR, Sleep, Body Battery, Stress and SpO2. Daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
-
-<img src="screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Files Tab">
+<img src="screenshots/GUI-Page_2.jpg" width="800" alt="Garmin Local Archive — Files Tab">
 <br><sub>Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.</sub>
+
+<img src="screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Settings Tab">
+<br><sub>Settings tab — two-column layout: credentials, paths, and sync config on the left; sync controls, timer, mirror, and output options on the right.</sub>
 
 **What this is not:**
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
