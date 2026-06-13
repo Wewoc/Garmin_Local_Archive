@@ -18,8 +18,7 @@ import threading
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDialog, QLineEdit, QFrame, QSizePolicy,
-    QTableWidget, QHeaderView,
+    QDialog, QLineEdit, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont
@@ -345,25 +344,8 @@ class PanelConnection(QWidget):
         conn_row = QHBoxLayout()
         conn_row.setSpacing(0)
 
-        self._conn_indicators = {}
-        ind_widget = QWidget()
-        ind_lay    = QHBoxLayout(ind_widget)
-        ind_lay.setContentsMargins(0, 0, 0, 0)
-        ind_lay.setSpacing(0)
-        for key, label in [("token", "Token"), ("login", "Login"),
-                            ("api", "API Access"), ("data", "Data")]:
-            dot = QLabel("●")
-            dot.setFont(QFont("Segoe UI", 10))
-            dot.setStyleSheet(f"color: {self._app.TEXT2};")
-            lbl = QLabel(label)
-            lbl.setFont(QFont("Segoe UI", 9))
-            lbl.setStyleSheet(f"color: {self._app.TEXT2};")
-            ind_lay.addWidget(dot)
-            ind_lay.addWidget(lbl)
-            ind_lay.addSpacing(14)
-            self._conn_indicators[key] = dot
-
-        conn_row.addWidget(ind_widget)
+        # _conn_indicators lives in panel_home — panel_connection delegates
+        # all indicator writes via _set_indicator() → panel_home._conn_indicators.
         conn_row.addStretch()
 
         def _btn(text, color, fg):
@@ -403,96 +385,8 @@ class PanelConnection(QWidget):
             conn_row.addSpacing(4)
 
         lay.addLayout(conn_row)
-        lay.addSpacing(6)
-
-        # Archive info — row 1: fail indicator + recheck + missing
-        row1 = QHBoxLayout()
-        row1.setSpacing(0)
-
-        self._info_qdots = {}
-        dot = QLabel("●")
-        dot.setFont(QFont("Segoe UI", 9))
-        dot.setStyleSheet(f"color: {self._app.ACCENT};")
-        lbl = QLabel("fail —")
-        lbl.setFont(QFont("Segoe UI", 8))
-        lbl.setStyleSheet(f"color: {self._app.TEXT2};")
-        row1.addWidget(dot)
-        row1.addSpacing(2)
-        row1.addWidget(lbl)
-        row1.addSpacing(10)
-        self._info_qdots["failed"] = lbl
-
-        self._info_recheck = QLabel("Recheck: —")
-        self._info_recheck.setFont(QFont("Segoe UI", 8))
-        self._info_recheck.setStyleSheet(f"color: {self._app.TEXT2};")
-        row1.addWidget(self._info_recheck)
-        row1.addSpacing(10)
-
-        self._info_missing = QLabel("Missing: —")
-        self._info_missing.setFont(QFont("Segoe UI", 8))
-        self._info_missing.setStyleSheet(f"color: {self._app.TEXT2};")
-        row1.addWidget(self._info_missing)
-        row1.addStretch()
-        lay.addLayout(row1)
-
-        # Archive info — row 2
-        row2 = QHBoxLayout()
-        row2.setSpacing(0)
-        for attr, text in [
-            ("_info_range",    "Range: —"),
-            ("_info_coverage", "Coverage: —"),
-            ("_info_last_api", "Last API: —"),
-            ("_info_last_bulk","Last Bulk: —"),
-        ]:
-            lbl = QLabel(text)
-            lbl.setFont(QFont("Segoe UI", 8))
-            lbl.setStyleSheet(f"color: {self._app.TEXT2};")
-            setattr(self, attr, lbl)
-            row2.addWidget(lbl)
-            row2.addSpacing(14)
-        row2.addStretch()
-        lay.addLayout(row2)
-
-        # Archive info — row 3: device table
-        _HDR = ["From", "To", "Device", "High", "Standard", "Total"]
-        self._info_device_table = QTableWidget(0, len(_HDR))
-        self._info_device_table.setHorizontalHeaderLabels(_HDR)
-        for col in range(6):
-            self._info_device_table.horizontalHeader().setSectionResizeMode(
-                col, QHeaderView.ResizeMode.ResizeToContents)
-        self._info_device_table.horizontalHeader().setStretchLastSection(False)
-        self._info_device_table.verticalHeader().setVisible(False)
-        self._info_device_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._info_device_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self._info_device_table.setShowGrid(True)
-        self._info_device_table.setAlternatingRowColors(True)
-        self._info_device_table.setSizeAdjustPolicy(
-            QTableWidget.SizeAdjustPolicy.AdjustToContents)
-        self._info_device_table.setSizePolicy(
-            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        self._info_device_table.setFont(QFont("Segoe UI", 8))
-        self._info_device_table.setStyleSheet(f"""
-            QTableWidget {{
-                background: {self._app.BG2};
-                alternate-background-color: {self._app.BG3};
-                color: {self._app.TEXT2};
-                gridline-color: {self._app.BG3};
-                border: none;
-            }}
-            QHeaderView::section {{
-                background: {self._app.BG3};
-                color: {self._app.TEXT};
-                font-size: 8pt;
-                border: none;
-                padding: 2px 4px;
-            }}
-        """)
-        lay.addWidget(self._info_device_table)
-
-        self._integrity_warning_lbl = QLabel("")
-        self._integrity_warning_lbl.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self._integrity_warning_lbl.setStyleSheet(f"color: {self._app.YELLOW};")
-        lay.addWidget(self._integrity_warning_lbl)
+        # Archive info widgets (fail/recheck/missing/range/device-table/integrity)
+        # live in panel_home — not duplicated here.
 
     # ── Accessors — sole authorised write-path for mirror/restore buttons ──────
 
@@ -549,7 +443,7 @@ class PanelConnection(QWidget):
     # ── Indicator ──────────────────────────────────────────────────────────────
 
     def _set_indicator(self, key: str, state: str):
-        dot = self._conn_indicators.get(key)
+        dot = self._app._panel_home._conn_indicators.get(key)
         if not dot:
             return
         colors = {
@@ -567,7 +461,7 @@ class PanelConnection(QWidget):
             self._app._log("✗ Connection test: email or password missing.")
             return
 
-        for key in self._conn_indicators:
+        for key in self._app._panel_home._conn_indicators:
             self._set_indicator(key, "reset")
         self._app._log("\n🔌  Testing connection ...")
 
@@ -691,6 +585,6 @@ class PanelConnection(QWidget):
     def _reset_token(self):
         import garmin_security
         garmin_security.clear_token()
-        self._set_indicator("token", "reset")
+        self._app._panel_home._set_indicator("token", "reset")
         self._app._connection_verified = False
         self._app._log("🔑  Token reset — next sync will require a new login.")

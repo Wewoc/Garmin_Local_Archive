@@ -172,7 +172,7 @@ class PanelArchive(QWidget):
             last_api  = stats["last_api"]  or "—"
             last_bulk = stats["last_bulk"] or "—"
 
-            pc = self._app._panel_connection
+            ph = self._app._panel_home
             integrity_warnings = stats.get("integrity_warnings", [])
             integrity_text = (
                 "⚠  " + ", ".join(integrity_warnings)
@@ -180,18 +180,18 @@ class PanelArchive(QWidget):
             )
 
             def _update():
-                pc._info_qdots["failed"].setText(f"fail {counts['failed']}")
-                pc._info_recheck.setText(f"Recheck: {recheck}")
-                pc._info_missing.setText(f"Missing: {missing}")
-                pc._info_range.setText(f"Range: {rng}")
-                pc._info_coverage.setText(f"Coverage: {coverage}")
-                pc._info_last_api.setText(f"Last API: {last_api}")
-                pc._info_last_bulk.setText(f"Last Bulk: {last_bulk}")
-                pc._integrity_warning_lbl.setText(integrity_text)
+                ph._info_qdots["failed"].setText(f"fail {counts['failed']}")
+                ph._info_recheck.setText(f"Recheck: {recheck}")
+                ph._info_missing.setText(f"Missing: {missing}")
+                ph._info_range.setText(f"Range: {rng}")
+                ph._info_coverage.setText(f"Coverage: {coverage}")
+                ph._info_last_api.setText(f"Last API: {last_api}")
+                ph._info_last_bulk.setText(f"Last Bulk: {last_bulk}")
+                ph._integrity_warning_lbl.setText(integrity_text)
 
                 # Device table — __total__ row is in device_table.json but
                 # we render it separately for formatting control.
-                tbl = pc._info_device_table
+                tbl = ph._info_device_table
                 tbl.setRowCount(0)
                 total_high = total_std = total_all = 0
                 data_rows = [r for r in device_table if r.get("device_id") != "__total__"]

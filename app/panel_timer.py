@@ -123,14 +123,15 @@ class PanelTimer(QWidget):
     # ── Button state ───────────────────────────────────────────────────────────
 
     def _timer_update_btn(self):
-        """Updates timer button appearance. Main Thread only."""
+        """Updates timer button appearance (panel_home). Main Thread only."""
+        btn = self._app._panel_home._timer_btn
         if self._app._timer_active:
-            self._timer_btn.setStyleSheet(
+            btn.setStyleSheet(
                 f"QPushButton {{ background: {self._app.GREEN}; color: #0a0a1a; "
                 f"border: none; padding: 7px 14px; }}")
         else:
-            self._timer_btn.setText("⏱  Timer: Off")
-            self._timer_btn.setStyleSheet(
+            btn.setText("⏱  Timer: Off")
+            btn.setStyleSheet(
                 f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
                 f"border: none; padding: 7px 14px; }}"
                 f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
@@ -358,7 +359,7 @@ class PanelTimer(QWidget):
                 mins, secs = divmod(remaining, 60)
                 self._app._dispatch(
                     lambda t=f"{mins:02d}:{secs:02d}": (
-                        self._timer_btn.setText(f"⏱  {t}")
+                        self._app._panel_home._timer_btn.setText(f"⏱  {t}")
                         if self._app._timer_active else None
                     ))
                 self._app._timer_stop.wait(timeout=1)

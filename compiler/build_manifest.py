@@ -22,6 +22,7 @@ SHARED_SCRIPTS = [
     "app/panel_archive.py",
     "app/panel_timer.py",
     "app/panel_outputs.py",
+    "app/panel_home.py",
     # app base
     "version.py",
     "garmin_app_base.py",
@@ -106,6 +107,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/panel_archive.py":     ["class PanelArchive"],
     "app/panel_timer.py":       ["class PanelTimer"],
     "app/panel_outputs.py":     ["class PanelOutputs"],
+    "app/panel_home.py":        ["class PanelHome"],
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],

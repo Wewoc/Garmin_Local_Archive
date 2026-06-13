@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.5.9**
+**Currently stable — v1.6.0**
 
 ---
 
@@ -14,115 +14,7 @@
 
 ---
 
-### v1.6 — Dashboard Render Registry
-
-**Step 1 — Dashboard Consolidation & UI Refactor (pre-condition)**
-
-The existing specialist set has grown organically and contains redundancy.
-Before the registry is introduced — and before new specialists are added —
-the current set is reviewed and cleaned up:
-
-- Redundant or overlapping specialists are merged or removed
-- `META["description"]` entries are revised for clarity
-- The Create Reports popup widget (`garmin_app.py`) is reworked:
-  full descriptions visible, column layout readable at a glance
-
-Rationale: the registry should be built over a clean, stable specialist set —
-not over a baseline that will be restructured again afterwards.
-
-### v1.6 Step 1c — Home Tab & Daily Workflow Refactor
-
-The app UI is restructured around actual usage behaviour instead of internal
-module layout. Today every panel — settings, status, actions, log — sits on a
-single plane with no hierarchy between "configure once" and "use daily". The
-top-level container becomes a three-tab layout (currently tabs exist only on the
-right side of a split layout).
-
-**Tab 1 — Home (daily use):**
-- Archive status panel: days archived, last sync, quality breakdown, integrity,
-  failed days, background-timer status
-- Three action buttons: Daily Sync, Backup, Timer Start/Stop
-- Dashboard view (QWebEngineView + dropdown) — no tab switch required;
-  Yesterday Overview specialist loaded as default on startup
-- Collapsible activity log — auto-expands during sync
-
-**Tab 2 — Settings (one-time configuration):**
-- All existing panels: PanelSettings, PanelTimer (full config with interval
-  fields), PanelConnection, PanelArchive
-- Individual action buttons (Garmin Sync, Context Sync, Create All) retained for
-  power-user and special-case access
-
-**Tab 3 — Files:** unchanged (v1.5.7).
-
-**`app/panel_home.py` — new module**
-
-Owns the archive-status labels and the three Tab-1 action buttons. The status
-figures come from `garmin_quality.get_archive_stats()` — already a side-effect-free
-dict, so nothing is recomputed, only relocated. `_refresh_archive_info()` keeps its
-side-effect contract; only the target label widgets move from PanelConnection to
-this module. All four existing callers of `_refresh_archive_info()` remain unchanged.
-
-**Daily Sync button**
-
-Orchestrates gap detection → Garmin Sync → Context Sync → Create All in a single
-sequential action. Reuses `_detect_gap()` (extracted to a shared module so the GUI
-does not depend on the headless `daily_update.py` entry point) for the range, and
-the Background Timer's `env_overrides` pattern for execution — `daily_update.main()`
-itself is never invoked. Only missing days are fetched, regardless of the sync mode
-configured in Settings. Not user-configurable by design. Disabled while running.
-
-**Backup button**
-
-Always clickable. With a mirror folder configured it runs the mirror operation;
-without one it switches to Tab 2 and highlights the Mirror-folder field. No disabled
-state.
-
-**What changes:**
-- `app/panel_home.py` — new module: archive-status labels + Daily Sync / Backup /
-  Timer buttons + collapsible log + dashboard view container
-- `garmin/garmin_sync.py` — `_detect_gap()` extracted here from `daily_update.py`;
-  both import from the shared location
-- `garmin_app_base.py` — top-level layout inverted: QTabWidget becomes root
-  (Home / Settings / Files). Existing panels migrated into Tab 2. Archive-status
-  labels removed from PanelConnection (relocated to PanelHome)
-- `app/panel_connection.py` — archive-status labels removed; connection indicators
-  and Restore button placement resolved per layout decision
-- `app/panel_outputs.py` — Daily Sync orchestration wired (gap range + env_overrides
-  chain); existing individual sync paths unchanged
-- `garmin_app_screenshot.py` — demo-value injection retargeted to the new PanelHome
-  labels; layout override aligned with the new tab structure
-- `compiler/build_manifest.py` — `app/panel_home.py` added to `SHARED_SCRIPTS` +
-  `SCRIPT_SIGNATURES_BASE`
-- `tests/test_qt_app.py` — new `TestPanelHome` class; PanelConnection tests adjusted
-  for relocated widgets
-- `docs/MAINTENANCE_GLOBAL.md` — `test_qt_app.py` class list + check count updated
-- `specialists/yesterday_overview.py` — new specialist: yesterday's key metrics
-  (steps, resting HR, Body Battery, sleep) vs. 30-day average + count of high-quality
-  days no longer retrievable at full resolution from Garmin servers. Registered via
-  the standard dropdown; preselected on startup. Data sources: `summary/*.json` +
-  `quality_log.json` — no API calls.
-
-**What does not change:**
-- The four callers of `_refresh_archive_info()` — interface and call sites identical
-- `garmin_quality.get_archive_stats()` — already returns a pure dict, unchanged
-- Pipeline logic, dashboard specialists, plotters — untouched
-- Threading model — `threading.Thread` + `_dispatch()` retained (D-3); no asyncio,
-  no QThread
-- Cross-panel communication — stays on the existing `_app._panel_x.method()` pattern;
-  no SignalBus in this step
-- `daily_update.py` workflow for Task Scheduler — unaffected by `_detect_gap()`
-  extraction (it imports from the shared location)
-
-**Pre-condition:** none — this is the UI groundwork that precedes the Render Registry
-(Step 2). Building the registry over the restructured UI avoids touching the same
-panels twice.
-
-**Open decisions (to confirm before build):**
-- Gap > 7 days in the GUI path: dialog (use Bulk Import) vs. full-range sync
-- Connection indicators (token/login/api/data): Tab 1 status bar vs. Tab 2
-- Restore button: Tab 1 vs. Tab 2 (with connection logic)
-
-**Step 2 — Render Registry**
+### v1.6.0.1 — Dashboard Render Registry
 
 The dashboard render layer currently dispatches layout types via an `if/elif`
 block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
@@ -452,6 +344,63 @@ The backend is a configuration option. GLA takes no position on which LLM the us
 
 **Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
 
+---
+ 
+### v1.10 — Calendar Context (Concept)
+ 
+> **Status: Concept only — no implementation decision made.**
+> Visualisation concept confirmed; data source and auth path not yet decided.
+> Preliminary research completed — see notes below before reopening.
+ 
+Correlate calendar events with health metrics in dashboards. The core idea:
+external schedule data (meetings, travel, events) appears as contextual
+annotations alongside Garmin metrics — not as additional health fields,
+but as visual markers that make patterns interpretable.
+ 
+**Motivation**
+ 
+An HRV drop or stress spike is more meaningful when a calendar entry confirms
+"3-hour meeting block" or "travel day". The data is already there — it just
+lives in a different silo.
+ 
+**Visualisation concepts (two modes)**
+ 
+- *Daily dashboards:* event flags per day — marker or hover tooltip showing
+  event title/count. Low visual footprint, high informational value.
+- *Intraday dashboards:* time spans as overlay bands — e.g. a 14:00–16:00
+  meeting block rendered as a shaded region over the Stress or Heart Rate trace.
+  Opt-in per chart, not applied globally. Plotly `vrect` handles this natively.
+**Candidate sources — research status**
+ 
+- Google Calendar API — **effectively ruled out.** Refresh tokens expire after
+  7 days in testing status; weekly manual browser re-auth mandatory. Verified
+  status would resolve this but requires hosted privacy policy, formal Google
+  review, and ongoing compliance overhead — disproportionate for a hobby project.
+  Public repo additionally requires Bring-Your-Own-Key (Client ID/Secret never
+  in code).
+- Microsoft Graph (Outlook) — same OAuth2 constraints as Google; not separately
+  evaluated.
+- CalDAV — open standard; works with Nextcloud, Baikal, and other self-hosted
+  solutions; often only an app password instead of a full OAuth2 flow.
+  **Not yet evaluated — promising.**
+- OS-level calendar (Windows) — GLA reads the local calendar database directly;
+  the OS handles cloud sync in the background; no outbound network requests from
+  GLA. **Not yet evaluated — architecturally clean.**
+- Manual `.ics` import — no auth, no cloud dependency; manual export from any
+  calendar app. Remains valid as a fallback or first implementation step.
+**Open questions (to resolve before any build decision)**
+ 
+- Auth / source path: CalDAV and OS-level calendar not yet technically evaluated.
+  One of these must be confirmed as viable before architecture work begins.
+- Data model: calendar events are time-span objects with text, not numeric daily
+  aggregates. The context plugin pattern (weather, pollen) does not apply directly
+  — a separate storage path (`calendar_data/`) and a different map interface
+  would be needed.
+- Scope boundary: which charts get intraday overlays, and how is that configured?
+  Not every intraday chart warrants a calendar layer.
+**Pre-condition:** none from a pipeline perspective. Source and auth path decision
+required before any architecture work. Not before v1.9.
+ 
 ---
 
 ## Under consideration — v2.0

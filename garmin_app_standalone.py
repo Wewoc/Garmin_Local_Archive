@@ -172,7 +172,7 @@ class GarminApp(_GarminAppBase):
             if days_left is not None:
                 self._dispatch(
                     lambda dl=days_left:
-                        self._panel_timer._timer_btn.setText(
+                        self._panel_home._timer_btn.setText(
                             f"⏱  Syncing · {dl}/{dl}"))
 
             q          = self._log_queue
