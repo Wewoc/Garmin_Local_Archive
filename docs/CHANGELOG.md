@@ -2,6 +2,48 @@
 
 ---
 
+## v1.6.0 — Home Tab & Daily Workflow Refactor
+
+Complete redesign of the main window layout. The Settings sidebar is removed;
+all panels move into a scrollable Settings tab. A new fixed top area shows
+connection status, archive stats, and the device table at all times — visible
+regardless of which tab is active. Daily actions (Sync, Mirror, Timer) are
+permanently accessible without switching tabs.
+
+**New modules:**
+- `app/panel_home.py` — owns the fixed top area (connection indicators,
+  archive status labels, device table) and the Home tab content (Dashboard
+  viewer). Also owns the Daily Sync orchestration (gap detection → Garmin
+  Sync → Context Sync → Create All), Mirror dialogs, and the Daily Actions
+  button group.
+
+**Changed modules:**
+- `garmin_app_base.py` — `_build_ui()` rebuilt: Settings sidebar + Splitter
+  removed; new fixed top (`_panel_home`) above a QTabWidget with three tabs:
+  Home / Files / Settings. Log height reduced to 90px. Default dashboard
+  (`health_garmin`) and default XLSX (`overview_garmin`) selected on startup.
+- `app/panel_connection.py` — `_conn_indicators` dict, all `_info_*` labels,
+  and `_info_device_table` removed (moved to `panel_home`). `_set_indicator()`
+  now delegates to `self._app._panel_home._conn_indicators`.
+- `app/panel_archive.py` — `_refresh_archive_info()` `_update()` lambda
+  retargeted from `panel_connection` to `panel_home`.
+- `app/panel_timer.py` — `_timer_update_btn()` and countdown lambda retargeted
+  to `self._app._panel_home._timer_btn`.
+- `garmin_app_standalone.py` — `days_left` lambda retargeted to
+  `self._app._panel_home._timer_btn`.
+- `garmin_app_screenshot.py` — `_scan_dashboards()` retargeted to
+  `self._panel_home._dash_combo` / `._dash_view`.
+- `tests/test_qt_app.py` — `TestPanelConnection` indicator tests updated:
+  `app_mock._panel_home._conn_indicators` pre-populated with real QLabel
+  objects so `_set_indicator()` can call `setStyleSheet()` on real widgets.
+- `version.py` — bumped to `1.6.0`.
+- `ruff.toml` — added; `E501` and `W292` ignored globally. Per-file ignores
+  for test files, entry points, and intentional Easter Egg style.
+
+**Test result:** 316 / 261 / 303 / 128 / 42 — all green, ruff 0 errors
+
+---
+
 ## v1.5.9 — Standalone EXE: --onedir Migration + Code-Hygiene
 
 Replaces `--onefile` with `--onedir` for T3.1 (GUI standalone), eliminating

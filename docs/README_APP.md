@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.5.9
+# Garmin Local Archive — Desktop App v1.6.0
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -84,16 +84,33 @@ Double-click `Garmin_Local_Archive_Standalone.exe`.
 
 ---
 
+## Layout overview
+
+The app window is divided into two areas:
+
+**Fixed top area** — always visible regardless of which tab is active:
+- Connection indicators (Token / Login / API Access / Data)
+- Archive status (fail / recheck / missing / range / coverage / last sync)
+- Device table
+- Daily Actions: **Daily Sync**, **Mirror**, **Timer**
+
+**Tab area** — three tabs:
+- **Home** — Dashboard viewer (HTML dashboards)
+- **Files** — Excel viewer
+- **Settings** — all configuration panels
+
+---
+
 ## Settings
 
-Left panel:
+**Settings tab** (third tab):
 - **Email** — your Garmin Connect login email
 - **Password** — your Garmin Connect password (stored securely in the Windows Credential Manager, never written to disk as plain text)
 - **Data folder** — where to store data (e.g. `C:\Users\YourName\local_archive`)
 - **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history (everything since your oldest device — can take hours, **not recommended**, rate limit risk, use Bulk Import instead)
 - **Export date range** — used by all dashboards. Leave empty to use the oldest/newest file in your archive automatically
 - **Age / Sex** — used by the Health Analysis dashboard for reference ranges
-- **Mirror folder** — optional second location for your archive (NAS, USB, external drive). Leave empty to disable. Set once, then use the **Data Mirror** button to sync.
+- **Mirror folder** — optional second location for your archive (NAS, USB, external drive). Leave empty to disable. Set once, then use the **Mirror** button to sync.
 
 Click **Save Settings** — settings are remembered between sessions.
 
@@ -202,15 +219,25 @@ Opens a popup with all available dashboards and their output formats. Select any
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
 
-### Dashboards tab
+### Daily Sync button
 
-The **Dashboards** tab (second tab on the right side) shows your HTML dashboards directly inside the app — no browser needed. After a successful build the latest dashboard loads automatically.
+One-click daily workflow. Detects the gap since your last sync, then runs in sequence:
+
+1. Garmin Sync — downloads missing days
+2. Context Sync — updates weather and pollen data
+3. Create All — rebuilds all dashboards
+
+If the gap is larger than 7 days a confirmation dialog appears before starting. The button is disabled while running. Progress is shown in the log at the bottom.
+
+### Home tab
+
+The **Home** tab (first tab) shows your HTML dashboards directly inside the app — no browser needed. The **Health Analysis** dashboard loads by default on startup.
 
 Use the dropdown at the top to switch between all HTML dashboards in `BASE_DIR/dashboards/`. The view is fully interactive — zoom, hover, and filter work exactly as in a browser.
 
 ### Files tab
 
-The **Files** tab (third tab on the right side) shows your Excel dashboards directly inside the app — no Excel required. Switch between files using the left dropdown and between sheets using the right dropdown (appears automatically for multi-sheet files). Chart sheets are hidden — only data sheets are shown.
+The **Files** tab (second tab) shows your Excel dashboards directly inside the app — no Excel required. The **Daily Overview** spreadsheet loads by default. Switch between files using the left dropdown and between sheets using the right dropdown (appears automatically for multi-sheet files). Chart sheets are hidden — only data sheets are shown.
 
 **Open File** opens the selected file in whatever your system has registered for `.xlsx` (Excel, LibreOffice, WPS).
 

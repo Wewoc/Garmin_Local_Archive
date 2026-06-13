@@ -29,7 +29,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QLabel, QPushButton, QPlainTextEdit, QSplitter,
+    QLabel, QPushButton, QPlainTextEdit,
     QScrollArea, QFrame, QSizePolicy, QMessageBox,
     QTabWidget, QComboBox,
 )
@@ -45,6 +45,7 @@ from app.panel_connection import PanelConnection
 from app.panel_archive    import PanelArchive
 from app.panel_timer      import PanelTimer
 from app.panel_outputs    import PanelOutputs
+from app.panel_home       import PanelHome
 
 # ── Settings — re-exported for garmin_app.py / garmin_app_standalone.py ───────
 SETTINGS_FILE    = _settings.SETTINGS_FILE
@@ -216,22 +217,18 @@ class GarminApp(QMainWindow):
         h_lay.addWidget(gpl)
         root_lay.addWidget(header)
 
-        # ── Main area — left (Settings) + right (Actions) ─────────────────────
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_splitter.setStyleSheet(
-            f"QSplitter::handle {{ background: {self.BG3}; width: 2px; }}")
+        # ── Panels ────────────────────────────────────────────────────────────
+        self._panel_settings   = PanelSettings(self)
+        self._panel_connection = PanelConnection(self)
+        self._panel_timer      = PanelTimer(self)
+        self._panel_outputs    = PanelOutputs(self)
+        self._panel_archive    = PanelArchive(self)
+        self._panel_home       = PanelHome(self)
 
-        # Left — Settings panel in scroll area
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFixedWidth(310)
-        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        left_scroll.setStyleSheet(f"background: {self.BG2};")
-        self._panel_settings = PanelSettings(self)
-        left_scroll.setWidget(self._panel_settings)
-        main_splitter.addWidget(left_scroll)
+        # ── Fixed top (Connection & Archive Status + Daily Actions) ───────────
+        root_lay.addWidget(self._panel_home)
 
-        # Right — QTabWidget: Tab 1 Actions, Tab 2 Dashboards, Tab 3 Files
+        # ── QTabWidget: Tab 0 Home, Tab 1 Files, Tab 2 Settings ───────────────
         self._right_tabs = QTabWidget()
         right_tabs = self._right_tabs
         right_tabs.setStyleSheet(
@@ -242,64 +239,10 @@ class GarminApp(QMainWindow):
             f"border-bottom: 2px solid {self.ACCENT}; }}"
             f"QTabBar::tab:hover {{ color: {self.TEXT}; }}")
 
-        # ── Tab 1: Actions ────────────────────────────────────────────────────
-        tab1_scroll = QScrollArea()
-        tab1_scroll.setWidgetResizable(True)
-        tab1_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        tab1_scroll.setStyleSheet(f"background: {self.BG};")
+        # ── Tab 0: Home ────────────────────────────────────────────────────────
+        right_tabs.addTab(self._panel_home.tab_widget, "Home")
 
-        tab1_widget = QWidget()
-        tab1_widget.setStyleSheet(f"background: {self.BG};")
-        tab1_lay = QVBoxLayout(tab1_widget)
-        tab1_lay.setContentsMargins(0, 0, 0, 0)
-        tab1_lay.setSpacing(0)
-
-        self._panel_connection = PanelConnection(self)
-        self._panel_timer      = PanelTimer(self)
-        self._panel_outputs    = PanelOutputs(self)
-        self._panel_archive    = PanelArchive(self)
-
-        tab1_lay.addWidget(self._panel_connection)
-        tab1_lay.addWidget(self._panel_timer)
-        tab1_lay.addWidget(self._panel_outputs)
-        tab1_lay.addStretch()
-        tab1_scroll.setWidget(tab1_widget)
-        right_tabs.addTab(tab1_scroll, "Actions")
-
-        # ── Tab 2: Dashboards ─────────────────────────────────────────────────
-        tab2_widget = QWidget()
-        tab2_widget.setStyleSheet(f"background: {self.BG};")
-        tab2_lay = QVBoxLayout(tab2_widget)
-        tab2_lay.setContentsMargins(12, 8, 12, 8)
-        tab2_lay.setSpacing(6)
-
-        combo_row = QHBoxLayout()
-        combo_row.setSpacing(8)
-        self._dash_combo = QComboBox()
-        self._dash_combo.setFont(QFont("Segoe UI", 9))
-        self._dash_combo.setStyleSheet(
-            f"QComboBox {{ background: {self.BG3}; color: {self.TEXT}; "
-            f"border: none; padding: 5px 10px; }}"
-            f"QComboBox::drop-down {{ border: none; }}"
-            f"QComboBox QAbstractItemView {{ background: {self.BG3}; "
-            f"color: {self.TEXT}; "
-            f"selection-background-color: {self.ACCENT2}; }}")
-        self._dash_combo.setSizePolicy(QSizePolicy.Policy.Expanding,
-                                       QSizePolicy.Policy.Fixed)
-        self._dash_combo.currentIndexChanged.connect(
-            self._load_selected_dashboard)
-        combo_row.addWidget(self._dash_combo)
-        tab2_lay.addLayout(combo_row)
-
-        self._dash_view = QWebEngineView()
-        self._dash_view.setSizePolicy(QSizePolicy.Policy.Expanding,
-                                      QSizePolicy.Policy.Expanding)
-        self._dash_view.setStyleSheet(f"background: {self.BG};")
-        tab2_lay.addWidget(self._dash_view)
-
-        right_tabs.addTab(tab2_widget, "Dashboards")
-
-        # ── Tab 3: Files ──────────────────────────────────────────────────────
+        # ── Tab 1: Files ───────────────────────────────────────────────────────
         tab3_widget = QWidget()
         tab3_widget.setStyleSheet(f"background: {self.BG};")
         tab3_lay = QVBoxLayout(tab3_widget)
@@ -356,11 +299,54 @@ class GarminApp(QMainWindow):
         tab3_lay.addWidget(self._xlsx_view)
         right_tabs.addTab(tab3_widget, "Files")
 
+        # ── Tab 2: Settings — Zwei-Spalten-Layout ─────────────────────────────
+        settings_tab = QWidget()
+        settings_tab.setStyleSheet(f"background: {self.BG};")
+        settings_tab_lay = QHBoxLayout(settings_tab)
+        settings_tab_lay.setContentsMargins(0, 0, 0, 0)
+        settings_tab_lay.setSpacing(0)
+
+        # Links — Settings-Panel (fix 340px)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFixedWidth(340)
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setStyleSheet(f"background: {self.BG2};")
+        left_scroll.setWidget(self._panel_settings)
+        settings_tab_lay.addWidget(left_scroll)
+
+        # Trennlinie
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.VLine)
+        divider.setFixedWidth(1)
+        divider.setStyleSheet(f"background: {self.BG3}; border: none;")
+        settings_tab_lay.addWidget(divider)
+
+        # Rechts — Action-Panels (flex)
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        right_scroll.setStyleSheet(f"background: {self.BG};")
+
+        right_widget = QWidget()
+        right_widget.setStyleSheet(f"background: {self.BG};")
+        right_lay = QVBoxLayout(right_widget)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(0)
+
+        right_lay.addWidget(self._panel_connection)
+        right_lay.addWidget(self._panel_timer)
+        right_lay.addWidget(self._panel_outputs)
+        right_lay.addWidget(self._panel_archive)
+        right_lay.addStretch()
+        right_scroll.setWidget(right_widget)
+        settings_tab_lay.addWidget(right_scroll, stretch=1)
+
+        right_tabs.addTab(settings_tab, "Settings")
+
         right_tabs.currentChanged.connect(self._on_tab_changed)
 
-        main_splitter.addWidget(right_tabs)
-        main_splitter.setSizes([310, 790])
-        root_lay.addWidget(main_splitter, stretch=1)
+        root_lay.addWidget(right_tabs, stretch=1)
 
         # ── Log ───────────────────────────────────────────────────────────────
         log_frame = QWidget()
@@ -396,7 +382,7 @@ class GarminApp(QMainWindow):
         self.log.setStyleSheet(
             f"QPlainTextEdit {{ background: #0a0a1a; color: {self.GREEN}; "
             f"border: none; padding: 4px; }}")
-        self.log.setFixedHeight(180)
+        self.log.setFixedHeight(90)
         log_lay.addWidget(self.log)
         root_lay.addWidget(log_frame)
 
@@ -559,13 +545,13 @@ class GarminApp(QMainWindow):
 
     def _on_tab_changed(self, index: int):
         """Refresh Files tab on switch — catches XLSX files built since startup."""
-        if index == 2:
+        if index == 1:
             self._scan_xlsx_files()
 
     # ── Dashboard tab helpers ──────────────────────────────────────────────────
 
     def _scan_dashboards(self, auto_load: str = None):
-        """Scan garmin_data/dashboards/ for HTML files and populate Tab 2 combo.
+        """Scan garmin_data/dashboards/ for HTML files and populate Home combo.
         Called on startup and after every dashboard build (on_done via _dispatch)."""
         s        = self._panel_settings._collect_settings()
         dash_dir = Path(s.get("base_dir", "")) / "dashboards"
@@ -575,30 +561,38 @@ class GarminApp(QMainWindow):
             reverse=True,
         ) if dash_dir.exists() else []
 
-        self._dash_combo.blockSignals(True)
-        self._dash_combo.clear()
+        combo = self._panel_home._dash_combo
+        combo.blockSignals(True)
+        combo.clear()
         if not html_files:
-            self._dash_combo.addItem("— no dashboards found —")
-            self._dash_combo.setEnabled(False)
+            combo.addItem("— no dashboards found —")
+            combo.setEnabled(False)
         else:
-            self._dash_combo.setEnabled(True)
+            combo.setEnabled(True)
             for f in html_files:
-                self._dash_combo.addItem(f.name, userData=str(f))
-        self._dash_combo.blockSignals(False)
+                combo.addItem(f.name, userData=str(f))
+        combo.blockSignals(False)
 
         if auto_load and html_files:
             paths = [str(f) for f in html_files]
             idx   = paths.index(auto_load) if auto_load in paths else 0
-            self._dash_combo.setCurrentIndex(idx)
+            combo.setCurrentIndex(idx)
             self._load_selected_dashboard()
         elif html_files:
+            # Prefer health_garmin dashboard as default; fall back to index 0
+            # Exclude mobile variant (health_garmin_mobile.html)
+            names = [f.name for f in html_files]
+            default_idx = next(
+                (i for i, n in enumerate(names)
+                 if "health_garmin" in n and "mobile" not in n), 0)
+            combo.setCurrentIndex(default_idx)
             self._load_selected_dashboard()
 
     def _load_selected_dashboard(self):
-        """Load the currently selected HTML file into the Tab 2 QWebEngineView."""
-        path = self._dash_combo.currentData()
+        """Load the currently selected HTML file into the Home QWebEngineView."""
+        path = self._panel_home._dash_combo.currentData()
         if path and Path(path).exists():
-            self._dash_view.setUrl(QUrl.fromLocalFile(path))
+            self._panel_home._dash_view.setUrl(QUrl.fromLocalFile(path))
 
     # ── Files tab helpers ──────────────────────────────────────────────────────
 
@@ -627,6 +621,11 @@ class GarminApp(QMainWindow):
         self._xlsx_combo.blockSignals(False)
 
         if xlsx_files:
+            # Prefer overview_garmin as default; fall back to index 0
+            names = [f.name for f in xlsx_files]
+            default_idx = next(
+                (i for i, n in enumerate(names) if "overview_garmin" in n), 0)
+            self._xlsx_combo.setCurrentIndex(default_idx)
             self._load_selected_xlsx()
 
     def _load_selected_xlsx(self):

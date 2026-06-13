@@ -230,15 +230,18 @@ pytest tests/test_qt_app.py -v
 # or via: tests/run_qt_tests.bat
 ```
 
-**Current count: 42 checks, 6 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
+**Current count: 42 checks, 7 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
+
+**Test result v1.6.0:** 316 / 261 / 303 / 128 / 42 / 2 — all green
 
 Classes:
 - `TestQtSmoke` (4) — QApplication startup, PyQt6 importability, GUI-freedom regression for Settings/Controller, GUI-freedom guard for `scheduler/daily_update.py`
 - `TestPanelSettings` (5) — instantiation, `_collect_settings()` keys, sync mode switching, location extraction
-- `TestPanelConnection` (10) — instantiation, indicators, accessor methods, Signal class-level definition
+- `TestPanelConnection` (9) — instantiation, indicator tests (delegated to `panel_home._conn_indicators` since v1.6), accessor methods, Signal class-level definition
 - `TestPanelArchive` (5) — instantiation, mirror guard, archive info no-crash, failed-days popup
 - `TestPanelTimer` (7) — instantiation, field load/read, toggle on/off, resume logic
 - `TestPanelOutputs` (7) — instantiation, context sync state, stop event, no-crash helpers
+- `TestGarminAppBase` (4) — app instantiation, all panels created, log widget write, timer fields in collect_settings
 
 Run after any change to: `app/panel_*.py`, `garmin_app_base.py` (Qt version). Built panel-by-panel alongside the v1.5.4 migration. No network, no GUI, no build required. Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides), `app/panel_timer.py` (timer_run_bulk_recheck functional test). Includes v1.4.2 regression check for frozen path resolution. Section 14: `_timer_run_bulk_recheck` tested against `PanelTimerMixin` directly (v1.5.3). Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
 
@@ -254,9 +257,8 @@ python tests/test_build_output.py
 
 Run after: called automatically by `build_all.py` as post-build step. Can also be run standalone to verify source integrity without a build.
 
-### All suites together
+### `tests/test_static.py` — ruff linting (v1.6.0+)
 
-`compiler/build_all.py` runs all three pre-build test suites, then both builds, then `test_build_output.py` as post-build validation.
 
 ```bash
 python compiler/build_all.py

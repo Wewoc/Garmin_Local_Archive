@@ -306,20 +306,20 @@ class ScreenshotApp(GarminApp):
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _set_connection_indicators_green(self):
-        for dot in self._panel_connection._conn_indicators.values():
+        for dot in self._panel_home._conn_indicators.values():
             dot.setStyleSheet(f"color: {self.GREEN};")
 
     def _refresh_archive_info(self):
         from PyQt6.QtWidgets import QTableWidgetItem
         from PyQt6.QtCore import Qt
-        pc = self._panel_connection
-        pc._info_qdots["failed"].setText("fail 9")
-        pc._info_recheck.setText("Recheck: 0")
-        pc._info_missing.setText("Missing: 0")
-        pc._info_range.setText("Range: 2018-12-19 → 2026-06-06")
-        pc._info_coverage.setText("Coverage: 100%")
-        pc._info_last_api.setText("Last API: 2026-06-06")
-        pc._info_last_bulk.setText("Last Bulk: 2023-12-31")
+        ph = self._panel_home
+        ph._info_qdots["failed"].setText("fail 9")
+        ph._info_recheck.setText("Recheck: 0")
+        ph._info_missing.setText("Missing: 0")
+        ph._info_range.setText("Range: 2018-12-19 → 2026-06-06")
+        ph._info_coverage.setText("Coverage: 100%")
+        ph._info_last_api.setText("Last API: 2026-06-06")
+        ph._info_last_bulk.setText("Last Bulk: 2023-12-31")
 
         # Device table — demo rows
         _DEMO_ROWS = [
@@ -327,7 +327,7 @@ class ScreenshotApp(GarminApp):
             ("2022-03-04", "2024-09-11", "fenix 5x",                  0, 684, 684),
             ("2019-01-07", "2022-03-03", "vívoactive 3",               0,1147,1147),
         ]
-        tbl = pc._info_device_table
+        tbl = ph._info_device_table
         tbl.setRowCount(0)
         total_high = total_std = total_all = 0
         for date_from, date_to, name, high, std, total in _DEMO_ROWS:
@@ -394,12 +394,12 @@ class ScreenshotApp(GarminApp):
 
     def _scan_dashboards(self, auto_load: str = None):
         """Load embedded DEMO_HTML into Tab 2. No file scan, no real data."""
-        self._dash_combo.blockSignals(True)
-        self._dash_combo.clear()
-        self._dash_combo.addItem("Garmin Health Analysis (Demo)")
-        self._dash_combo.setEnabled(True)
-        self._dash_combo.blockSignals(False)
-        self._dash_view.setHtml(DEMO_HTML, QUrl("about:blank"))
+        self._panel_home._dash_combo.blockSignals(True)
+        self._panel_home._dash_combo.clear()
+        self._panel_home._dash_combo.addItem("Garmin Health Analysis (Demo)")
+        self._panel_home._dash_combo.setEnabled(True)
+        self._panel_home._dash_combo.blockSignals(False)
+        self._panel_home._dash_view.setHtml(DEMO_HTML, QUrl("about:blank"))
 
     def _scan_xlsx_files(self):
         """Load embedded DEMO_XLSX_HTML into Tab 3. No file scan, no real data."""
