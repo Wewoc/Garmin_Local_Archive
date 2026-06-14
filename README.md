@@ -64,16 +64,16 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 | **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
 
-<img src="src/screenshots/Create_report.jpg" width="800" alt="Garmin Local Archive — Create Report">
+<img src="screenshots/Create_report.jpg" width="800" alt="Garmin Local Archive — Create Report">
 <br><sub>Create Reports — select dashboards and export as HTML, Excel or JSON.</sub>
 
-<img src="src/screenshots/Dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<img src="screenshots/Dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
-<img src="src/screenshots/sleep_dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<img src="screenshots/sleep_dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>One row per night — segmented phase bar, duration, sleep score, quality badge, Garmin feedback text, HRV, and Body Battery. Numbers are color-coded against personal reference ranges.</sub>
 
-<img src="src/screenshots/dashboard_mobile_landscape.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<img src="screenshots/dashboard_mobile_landscape.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
 The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
@@ -276,6 +276,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
 | `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive). Writes `mirror_meta.json` on success |
 | `garmin_import_mirror.py` | Mirror import — selective import from a mirror folder into the local archive. Quality-rank delta, dry-run dialog, timer-safe |
+| `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
 
 **Context pipeline** — `context/`
 

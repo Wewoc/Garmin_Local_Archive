@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.0.1**
+**Currently stable — v1.6.0.2**
 
 ---
 
@@ -14,7 +14,108 @@
 
 ---
 
-### v1.6.0.2 — Dashboard Render Registry
+### v1.6.0.3 — Source Backfill (Background Timer)
+ 
+Closes the gap between the `source/` archive introduced in v1.6.0.2 and
+historical API days that were fetched before v1.6.0.2 was active.
+ 
+**Problem:** Every API fetch from v1.6.0.2 onward writes a
+`garmin_data/source/garmin_source_YYYY-MM-DD.json` file automatically.
+Days fetched before that have a `raw/` file and a quality log entry
+(`source: api`) — but no `source/` file. The Background Timer never
+re-fetches these days because they carry no `recheck` flag.
+Without intervention, `source/` remains permanently incomplete for the
+pre-v1.6.0.2 history.
+ 
+**What is added:**
+- `garmin_collector._run_source_backfill(quality_data)` — scans the last
+  180 days, identifies API days where `garmin_data/source/` has no
+  corresponding file, and flags them for re-fetch. Runs once per session
+  as part of the Background Timer startup sequence, analog to
+  `_run_self_healing()`. Stops flagging once `source/` is complete —
+  becomes a no-op on subsequent runs.
+- `garmin_collector.main()` — `_run_source_backfill()` added to the
+  timer startup path (not the regular GUI sync path).
+**What does not change:**
+- `garmin_source_writer.py` — untouched; backfill uses the same
+  `write_source()` call as the live pipeline
+- `quality_log.json` — no new fields; backfill re-fetches via the
+  existing API path, quality entries are updated as normal
+- Regular GUI sync — unaffected; backfill only runs in the timer path
+**Invariant:**
+- `source/` is populated exclusively from live API responses.
+  Bulk import never writes to `source/` — not even during backfill.
+  Days without a `source/` file after the 180-day window cannot be
+  recovered via backfill (Garmin degrades intraday resolution beyond
+  that boundary).
+**Pre-condition:** v1.6.0.2 (Source Archive) complete and `source/`
+directory established.
+
+---
+
+### v1.6.0.4 — Source Replay + Source Backup
+
+**Source Replay (`regenerate_raw.py`):**
+
+Standalone script that regenerates `raw/` and `summary/` from the `source/`
+archive established in v1.6.0.2 — without any API call.
+
+**Motivation:** When `garmin_normalizer.py` or the schema changes, historical
+days can be reprocessed from the immutable source record. No re-authentication,
+no dependency on Garmin server availability, no risk of degraded resolution on
+older dates.
+
+**What is added:**
+- `export/regenerate_raw.py` — reads `garmin_data/source/`, runs each day
+  through normalizer → quality.assess → writer. Identical output to a live
+  pipeline run. Analog to `export/regenerate_summaries.py`.
+
+**What does not change:**
+- `garmin_source_writer.py`, `garmin_normalizer.py`, `garmin_writer.py` —
+  untouched; replay uses the same modules as the live pipeline
+- `quality_log.json` — updated identically to a normal pipeline run
+
+**Pre-condition:** v1.6.0.2 (Source Archive) must be complete and `source/`
+must contain data.
+
+---
+
+**Source Backup (`garmin_backup_source.py`):**
+
+Dedicated backup module for `garmin_data/source/`. Introduced alongside
+`regenerate_raw.py` because both depend on `source/` as the authoritative
+raw record — replay only works if the record is intact.
+
+**Motivation:** `source/` contains unmodified API responses before any
+pipeline processing. If the normalizer had a bug, `raw/` carries the bug;
+`source/` does not. This makes `source/` more valuable than `raw/` as a
+long-term record, and warrants its own backup path.
+
+**What is added:**
+- `garmin/garmin_backup_source.py` — Sole Owner of `garmin_data/backup/source/`.
+  Triggered by `garmin_source_writer.write_source()` after each successful
+  write (lazy import, non-fatal — analog `garmin_writer` → `backup_raw`).
+  Provides `backup_source(date_str)`, `backfill_source()`,
+  `check_source_backfill_needed()`.
+
+**What changes:**
+- `garmin/garmin_source_writer.py` — lazy import of `garmin_backup_source`
+  after successful `write_source()`. Non-fatal on failure.
+- `garmin/garmin_config.py` — `SOURCE_BACKUP_DIR = BACKUP_DIR / "source"`
+- `compiler/build_manifest.py` — `garmin_backup_source.py` in `SHARED_SCRIPTS`
+
+**Invariant refinement (explicit — required before build):**
+Current: `garmin_backup.py` — Sole Owner of `garmin_data/backup/`
+Revised: `garmin_backup.py` — Sole Owner of `backup/raw/` + `backup/log/`
+         `garmin_backup_source.py` — Sole Owner of `backup/source/`
+Both documented in `REFERENCE_GARMIN.md` + `MAINTENANCE_GARMIN.md`.
+
+**Pre-condition:** v1.6.0.2 complete. `garmin_backup_source.py` is a
+Leaf-Node — only `garmin_config` + stdlib, no pipeline imports.
+
+---
+
+### v1.6.0.5 — Dashboard Render Registry
 
 The dashboard render layer currently dispatches layout types via an `if/elif`
 block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
@@ -44,7 +145,6 @@ The registry closes this before v2.0 begins.
 
 **Pre-condition:** `dash_plotter_html_complex.py` internal restructuring
 (v1.4.8 pipeline hardening) must be complete — layout paths cleanly separated
-before the registry is introduced.
 
 ---
 

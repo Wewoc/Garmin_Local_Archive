@@ -54,7 +54,7 @@ _HEADER_LEN_SZ = 4   # bytes for header_json length field
 _NONCE_LEN     = 12  # AES-GCM nonce
 
 # Section names — order defines section index
-_SECTIONS = ["quality_log", "raw", "summary", "context"]
+_SECTIONS = ["quality_log", "raw", "summary", "context", "source"]
 
 # Directories/files excluded from raw and summary sections
 _EXCLUDE_DIRS = {"__pycache__", "garmin_token"}
@@ -558,6 +558,10 @@ def _classify_file(parts: tuple) -> str | None:
     # context: context_data/**
     if parts[0] == "context_data":
         return "context"
+
+    # source: garmin_data/source/**
+    if parts[0] == "garmin_data" and len(parts) > 1 and parts[1] == "source":
+        return "source"
 
     return None
 

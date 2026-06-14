@@ -40,6 +40,8 @@ garmin_app.py (GUI)
 - `garmin_writer.py` is sole write authority for `raw/` and `summary/`
 - `garmin_quality.py` is sole write authority for `quality_log.json`
 - `garmin_backup.py` is sole write authority for `garmin_data/backup/`
+- `garmin_source_writer.py` is sole write authority for `garmin_data/source/` and `source_api_log.json` (v1.6.0.2)
+- `source/` contains exclusively live API responses — bulk import never writes to `source/`, not even during backfill (v1.6.0.2)
 - `garmin_collector.py` is the stop-event orchestrator (v1.5.6.3) — `set_stop_event(ev)` registers the event on the collector and distributes it to `garmin_api` in one call. The GUI calls `main(stop_event=ev)`; no module ever reads `_STOP_EVENT` via `globals()`
 - `garmin_mirror.py` is sole owner of the mirror operation — delegates to `garmin_container.py` for container creation. `is_import_ready()` removed (v1.5.6.2) — import source selected via file picker, not stored path
 - `garmin_container.py` is sole owner of `mirror.gla` — no other module reads or writes the container file directly
@@ -69,13 +71,21 @@ Intentional deviations from the invariants above. Each exception is stable by de
 
 ---
 
-## `garmin_config.py`
+## `garmin_source_writer.py`
 
-Pure constants module — no functions. See `REFERENCE_GLOBAL.md` for full constant list.
+Sole Owner of `garmin_data/source/` and `source_api_log.json`. Leaf-Node — only `garmin_config` + stdlib.
+`garmin_config` imported lazily inside each function (not at module level) — same pattern as `garmin_security.py`.
 
----
+| Function | Purpose |
+|---|---|
+| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Atomic: `.tmp` → `fsync` → `os.replace`. Called before `validator.validate()`. Returns `bool`. Non-fatal |
+| `update_log(date_str, val_result, endpoints_fetched, endpoints_failed, size_bytes)` | Upserts entry in `source_api_log.json`. Called after validator critical check — `validator_status` is known. Atomic write. Returns `bool`. Non-fatal |
 
-## `garmin_api.py`
+**Constants:**
+- `SOURCE_LOG_SCHEMA_VERSION = 1` — increment when log entry structure changes
+- `SOURCE_FILE_PREFIX = "garmin_source_"`
+
+**`source_api_log.json` entry format:**
 
 | Function / Symbol | Purpose |
 |---|---|

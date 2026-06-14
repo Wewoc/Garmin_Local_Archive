@@ -163,8 +163,9 @@ def _run_import_container(
     quality_src     = meta_result["quality_log"]
     version_warning = _build_version_warning(container_meta)
 
-    # ── 2. Context file list — header only, no decrypt ────────────────────────
+    # ── 2. File lists from header — no decrypt required ───────────────────────
     ctx_files_in_container = _container.list_files(container_path, "context")
+    src_files_in_container = _container.list_files(container_path, "source")
 
     # ── 3. Delta analysis ─────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:
@@ -173,11 +174,15 @@ def _run_import_container(
         ctx_order = _analyse_context_delta_container(
             ctx_files_in_container, base_dir
         )
+        src_order = _analyse_source_delta_container(
+            src_files_in_container, base_dir
+        )
 
         if dry_run:
             return {
                 "raw_to_copy":     len(raw_order),
                 "context_to_copy": len(ctx_order),
+                "source_to_copy":  len(src_order),
                 "version_warning": version_warning,
                 "ok":              True,
             }
@@ -208,6 +213,8 @@ def _run_import_container(
             order["summary"] = summary_rel_paths
         if ctx_order:
             order["context"] = ctx_order
+        if src_order:
+            order["source"] = src_order
         order["quality_log"] = ["garmin_data/log/device_table.json"]
 
         fulfilled = _container.fulfill_order(container_path, password, order)
@@ -225,6 +232,12 @@ def _run_import_container(
         )
         errors += ctx_errors
 
+        # ── 6b. Import source ─────────────────────────────────────────────────
+        src_copied, src_errors = _import_source_from_bytes(
+            fulfilled, src_order, base_dir
+        )
+        errors += src_errors
+
         # ── 7. Save quality log ───────────────────────────────────────────────
         quality._save_quality_log(quality_dst)
 
@@ -234,12 +247,13 @@ def _run_import_container(
     log.info(
         f"  import_mirror done: {raw_copied} raw copied, "
         f"{raw_skipped} raw skipped, {ctx_copied} context copied, "
-        f"{errors} errors"
+        f"{src_copied} source copied, {errors} errors"
     )
     return {
         "raw_copied":     raw_copied,
         "raw_skipped":    raw_skipped,
         "context_copied": ctx_copied,
+        "source_copied":  src_copied,
         "errors":         errors,
         "ok":             errors == 0,
     }
@@ -326,6 +340,66 @@ def _analyse_context_delta_container(
             log.debug(f"  import_mirror: context overwrite — {rel_path}")
     log.info(f"  import_mirror: context delta — {len(order)} file(s) to import")
     return order
+
+
+def _analyse_source_delta_container(
+    src_files_in_container: list[str],
+    base_dir: Path,
+) -> list[str]:
+    """
+    Compares container source file list against local garmin_data/source/.
+    Source archive wins — all container source files are imported.
+    Existing files are overwritten (source/ is immutable API snapshots,
+    overwrite is safe and correct).
+    Returns list of relative paths to request from fulfill_order().
+    """
+    order = []
+    for rel_path in src_files_in_container:
+        dst = base_dir / rel_path
+        order.append(rel_path)
+        if dst.exists():
+            log.debug(f"  import_mirror: source overwrite — {rel_path}")
+    log.info(f"  import_mirror: source delta — {len(order)} file(s) to import")
+    return order
+
+
+def _import_source_from_bytes(
+    fulfilled: dict,
+    src_order: list[str],
+    base_dir: Path,
+) -> tuple[int, int]:
+    """
+    Writes source files from fulfilled bytes dict to garmin_data/source/.
+    Direct write — bytes are immutable API snapshots, no transformation needed.
+    Analog to _import_context_from_bytes().
+    Returns (copied, errors).
+    """
+    copied = 0
+    errors = 0
+
+    dst_dir = base_dir / "garmin_data" / "source"
+
+    for rel_path in src_order:
+        data_bytes = fulfilled.get(rel_path)
+        if data_bytes is None:
+            log.warning(f"  import_mirror: source bytes not found: {rel_path}")
+            errors += 1
+            continue
+        try:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            dst_path = base_dir / rel_path
+            dst_path.write_bytes(data_bytes)
+            copied += 1
+            log.debug(f"  import_mirror: source {rel_path}")
+        except Exception as e:
+            log.error(f"  import_mirror: source error {rel_path}: {e}")
+            errors += 1
+
+    if src_order:
+        log.info(
+            f"  import_mirror: source import done — {copied} written, {errors} errors"
+        )
+    return copied, errors
 
 
 def _extract_device(raw: dict) -> tuple[str | None, str]:
