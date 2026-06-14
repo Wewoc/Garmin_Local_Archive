@@ -94,10 +94,44 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
     if failed_endpoints:
         log.warning(f"    ⚠ {len(failed_endpoints)} endpoint(s) failed: {', '.join(failed_endpoints)}")
 
+    # ── Source archive (non-fatal) ────────────────────────────────────────────
+    # write_source() before validator — secures raw data even if validator crashes.
+    try:
+        import garmin_source_writer as _sw
+        _sw.write_source(raw_data, date_str)
+    except Exception as _e:
+        log.warning(f"    source_writer.write_source failed for {date_str}: {_e}")
+
     val_result = validator.validate(raw_data)
     if val_result["status"] == "critical":
         log.warning(f"    ⚠ Validator critical — skipping {date_str}")
+        # update_log even on critical — validator_status recorded for audit trail
+        try:
+            import garmin_source_writer as _sw
+            import json as _json
+            _sw.update_log(
+                date_str, val_result,
+                endpoints_fetched=list(raw_data.keys()) if isinstance(raw_data, dict) else [],
+                endpoints_failed=failed_endpoints,
+                size_bytes=len(_json.dumps(raw_data).encode()) if isinstance(raw_data, dict) else 0,
+            )
+        except Exception as _e:
+            log.warning(f"    source_writer.update_log failed for {date_str}: {_e}")
         return "failed", None, None, {}, val_result
+
+    # ── Source log update (non-fatal) ─────────────────────────────────────────
+    # update_log() after validator — validator_status and issues are now known.
+    try:
+        import garmin_source_writer as _sw
+        import json as _json
+        _sw.update_log(
+            date_str, val_result,
+            endpoints_fetched=list(raw_data.keys()),
+            endpoints_failed=failed_endpoints,
+            size_bytes=len(_json.dumps(raw_data).encode()),
+        )
+    except Exception as _e:
+        log.warning(f"    source_writer.update_log failed for {date_str}: {_e}")
 
     normalized = normalizer.normalize(raw_data, source="api")
     summary    = normalizer.summarize(normalized)

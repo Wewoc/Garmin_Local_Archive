@@ -50,6 +50,12 @@ LOG_BACKUP_DIR   = BACKUP_DIR / "log"    # quality_log ZIPs (monatlich + jährli
 RAW_BACKUP_DIR   = BACKUP_DIR / "raw"    # Raw-Verzeichnisse / ZIPs
 AUTORESTORE_DIR  = BACKUP_DIR / "autorestore"  # defekte Stände vor Auto-Restore
 
+# Source archive (sole owner: garmin_source_writer.py)
+# Contains unmodified API responses before any pipeline processing.
+# Bulk import never writes here — only live API fetches.
+SOURCE_DIR     = GARMIN_DIR / "source"
+SOURCE_API_LOG = LOG_DIR / "source_api_log.json"
+
 # Schema definition for garmin_validator.py
 DATAFORMAT_FILE = Path(__file__).parent / "garmin_dataformat.json"
 

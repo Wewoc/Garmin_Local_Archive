@@ -57,6 +57,8 @@ All modules import via `import garmin_config as cfg`.
 | `QUALITY_LOG_FILE` | `LOG_DIR/quality_log.json` | Quality register |
 | `DEVICE_TABLE_FILE` | `LOG_DIR/device_table.json` | Device table — written by `garmin_quality` after each sync |
 | `DATAFORMAT_FILE` | `garmin/garmin_dataformat.json` | Schema for garmin_validator |
+| `SOURCE_DIR` | `GARMIN_DIR/source` | Source archive — unmodified API responses (sole owner: `garmin_source_writer.py`) |
+| `SOURCE_API_LOG` | `LOG_DIR/source_api_log.json` | Per-day fetch metadata: validator status, endpoints, byte size |
 | `GARMIN_TOKEN_DIR` | `LOG_DIR/garmin_token` | Temp dir for garminconnect library |
 | `GARMIN_TOKEN_FILE` | `LOG_DIR/garmin_token.enc` | AES-256-GCM encrypted OAuth token |
 | `CONTEXT_DIR` | `BASE_DIR/context_data` | External API data root |

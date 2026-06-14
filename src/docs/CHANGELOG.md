@@ -2,6 +2,60 @@
 
 ---
 
+## v1.6.0.2 — Source Archive
+
+Introduces the third data silo: `garmin_data/source/` stores the unmodified
+API response for every day, permanently and before any pipeline processing.
+`source_api_log.json` records fetch metadata per day (validator status,
+endpoints, byte size). Mirror container extended to include the source section.
+Mirror import extended to transfer source files to the target device.
+
+**Motivation:** Garmin silently degrades historical intraday data resolution
+over time. What is not saved today cannot be recovered later. `source/` is the
+permanent, pipeline-independent record of what the Garmin API actually delivered.
+`raw/` is derived from it and reproducible; `source/` is not.
+
+**New modules:**
+- `garmin/garmin_source_writer.py` — Sole Owner of `garmin_data/source/` and
+  `source_api_log.json`. Leaf-Node: only `garmin_config` + stdlib. Two public
+  functions: `write_source()` (called before validator, atomic write) and
+  `update_log()` (called after validator, records status + endpoints). Both
+  non-fatal — failures are logged as warnings, pipeline continues.
+
+**Changed modules:**
+- `garmin/garmin_config.py` — `SOURCE_DIR` and `SOURCE_API_LOG` constants added.
+- `garmin/garmin_collector.py` — `_fetch_and_assess()` extended with two non-fatal
+  call sites: `write_source()` before `validator.validate()`, `update_log()` after
+  the critical check. Both wrapped in `try/except` — pipeline never blocked.
+- `garmin/garmin_container.py` — `_SECTIONS` extended with `"source"`.
+  `_classify_file()` extended to classify `garmin_data/source/**` into the
+  `source` section. Existing containers without the section import silently.
+- `garmin/garmin_import_mirror.py` — source section added to container import
+  path: `list_files("source")`, `_analyse_source_delta_container()`,
+  `_import_source_from_bytes()`. `dry_run` return dict extended with
+  `source_to_copy`. Return dict extended with `source_copied`.
+- `compiler/build_manifest.py` — `garmin_source_writer.py` in `SHARED_SCRIPTS`
+  and `SCRIPT_SIGNATURES_BASE`.
+- `tests/test_local.py` — new Section D (18 checks): `SOURCE_DIR` + `SOURCE_API_LOG`
+  path derivation, `write_source` round-trip + overwrite + error cases, `update_log`
+  round-trip + overwrite + multi-date, Leaf-Node AST check.
+
+**Invariants:**
+- `source/` contains exclusively live API responses. Bulk import never writes
+  to `source/` — not even during backfill.
+- Days without a `source/` file after the 180-day window cannot be recovered
+  (Garmin degrades intraday resolution permanently beyond that boundary).
+- `garmin_source_writer.py` is the sole write authority for `source/` and
+  `source_api_log.json`. No other module writes to these paths.
+
+**Windows note:** `os.fsync()` is silently ignored on Windows filesystems that
+do not support it (`OSError` caught). `os.replace()` provides atomicity on all
+platforms.
+
+**Test result:** 339 / 261 / 303 / 128 / 42 — all green, ruff 0 errors
+
+---
+
 ## v1.6.0.1 — Repository /src Layout
 
 Structural refactoring — no logic changes, no new features.
