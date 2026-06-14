@@ -1,4 +1,4 @@
-![Garmin Local Archive](/src/screenshots/Banner_2.png)
+![Garmin Local Archive](src/screenshots/Banner_2.png)
 
 # Garmin Local Archive
 
@@ -276,6 +276,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
 | `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive). Writes `mirror_meta.json` on success |
 | `garmin_import_mirror.py` | Mirror import — selective import from a mirror folder into the local archive. Quality-rank delta, dry-run dialog, timer-safe |
+| `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
 
 **Context pipeline** — `context/`
 

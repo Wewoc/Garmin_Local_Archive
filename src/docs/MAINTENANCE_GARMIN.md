@@ -51,6 +51,7 @@ or later).
 | `garmin_quality.py` (facade → `quality/`) | `quality_log.json` and `device_table.json` |
 | `garmin_security.py` | `garmin_token.enc` |
 | `garmin_backup.py` | `garmin_data/backup/` |
+| `garmin_source_writer.py` | `garmin_data/source/` and `source_api_log.json` (v1.6.0.2) |
 | `garmin_mirror.py` | mirror operation — delegates to `garmin_container.py` |
 | `garmin_container.py` | `mirror.gla` — sole owner, no other module touches the container file |
 | `garmin_import_mirror.py` | mirror import operation — orchestrates only |
@@ -103,7 +104,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 316 checks, 19 sections.**
+**Current count: 339 checks, 20 sections.**
 
 
 ```bash
@@ -132,6 +133,7 @@ python tests/test_local.py
 A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
 B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check
 C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
+D. `garmin_source_writer` (v1.6.0.2) — `SOURCE_DIR` + `SOURCE_API_LOG` path derivation, `write_source` round-trip + overwrite + error cases (None/str input), `update_log` round-trip + overwrite + multi-date, Leaf-Node AST check (no forbidden pipeline imports).
 
 ### What is NOT tested
 

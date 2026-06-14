@@ -1245,6 +1245,121 @@ check("_zip_contains: bad path → False", not backup._zip_contains(_zip_tmpdir 
 shutil.rmtree(_zip_tmpdir, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  D. garmin_source_writer (v1.6.0.2)
+# ══════════════════════════════════════════════════════════════════════════════
+section("D. garmin_source_writer (v1.6.0.2)")
+import garmin_source_writer as source_writer
+importlib.reload(source_writer)
+
+# ── cfg paths ─────────────────────────────────────────────────────────────────
+check("SOURCE_DIR derived",
+      cfg.SOURCE_DIR == _TMPDIR / "garmin_data" / "source")
+check("SOURCE_API_LOG derived",
+      cfg.SOURCE_API_LOG == _TMPDIR / "garmin_data" / "log" / "source_api_log.json")
+
+# ── write_source: normal write ────────────────────────────────────────────────
+_sw_date = "2024-05-01"
+_sw_raw  = {"date": _sw_date, "heart_rates": {"restingHeartRate": 58}, "sleep": {}}
+_sw_ok   = source_writer.write_source(_sw_raw, _sw_date)
+import garmin_config as _sw_cfg
+_sw_file = _sw_cfg.SOURCE_DIR / f"garmin_source_{_sw_date}.json"
+
+check("write_source: returns True",        _sw_ok == True)
+check("write_source: file created",        _sw_file.exists())
+check("write_source: content correct",
+      json.loads(_sw_file.read_text(encoding="utf-8")).get("date") == _sw_date)
+check("write_source: no .tmp leftover",
+      not (_sw_file.with_suffix(".json.tmp")).exists())
+
+# ── write_source: second write overwrites (idempotent) ───────────────────────
+_sw_raw2  = {"date": _sw_date, "heart_rates": {"restingHeartRate": 62}}
+_sw_ok2   = source_writer.write_source(_sw_raw2, _sw_date)
+check("write_source: overwrite returns True",  _sw_ok2 == True)
+check("write_source: overwrite content updated",
+      json.loads(_sw_file.read_text(encoding="utf-8"))
+      .get("heart_rates", {}).get("restingHeartRate") == 62)
+
+# ── write_source: non-dict input → False, no crash ───────────────────────────
+check("write_source: None input → False",  source_writer.write_source(None, _sw_date) == False)
+check("write_source: str input → False",   source_writer.write_source("bad", _sw_date) == False)
+
+# ── update_log: new entry ─────────────────────────────────────────────────────
+_val_ok = {"status": "ok", "issues": [], "schema_version": "1.0"}
+_ul_ok  = source_writer.update_log(
+    _sw_date, _val_ok,
+    endpoints_fetched=["sleep", "heart_rates", "stress"],
+    endpoints_failed=[],
+    size_bytes=1234,
+)
+check("update_log: returns True",          _ul_ok == True)
+check("update_log: log file created",      _sw_cfg.SOURCE_API_LOG.exists())
+
+_sw_log = json.loads(_sw_cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))
+_sw_entry = _sw_log.get(_sw_date, {})
+check("update_log: date key present",      _sw_date in _sw_log)
+check("update_log: fetched_at present",    bool(_sw_entry.get("fetched_at")))
+check("update_log: source = api",          _sw_entry.get("source") == "api")
+check("update_log: validator_status = ok", _sw_entry.get("validator_status") == "ok")
+check("update_log: endpoints_fetched set",
+      "sleep" in _sw_entry.get("endpoints_fetched", []))
+check("update_log: size_bytes stored",     _sw_entry.get("size_bytes") == 1234)
+
+# ── update_log: second call same date → overwrites, no duplicate ──────────────
+_val_warn = {"status": "warning", "issues": [{"type": "out_of_range", "field": "heart_rates.restingHeartRate"}], "schema_version": "1.0"}
+source_writer.update_log(
+    _sw_date, _val_warn,
+    endpoints_fetched=["sleep", "heart_rates"],
+    endpoints_failed=["stress"],
+    size_bytes=999,
+)
+_sw_log2  = json.loads(_sw_cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))
+check("update_log: no duplicate — still 1 entry for date",
+      list(_sw_log2.keys()).count(_sw_date) == 1)
+check("update_log: overwrite: validator_status updated",
+      _sw_log2.get(_sw_date, {}).get("validator_status") == "warning")
+check("update_log: overwrite: endpoints_failed updated",
+      "stress" in _sw_log2.get(_sw_date, {}).get("endpoints_failed", []))
+
+# ── update_log: second date → two entries in log ──────────────────────────────
+_sw_date2 = "2024-05-02"
+source_writer.update_log(
+    _sw_date2, _val_ok,
+    endpoints_fetched=["sleep"],
+    endpoints_failed=[],
+    size_bytes=500,
+)
+_sw_log3 = json.loads(_sw_cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))
+check("update_log: two dates → two entries",
+      _sw_date in _sw_log3 and _sw_date2 in _sw_log3)
+
+# ── Leaf-Node check — no forbidden pipeline imports ───────────────────────────
+import ast as _ast
+_sw_src = Path(__file__).parent.parent / "garmin" / "garmin_source_writer.py"
+if _sw_src.exists():
+    _sw_tree   = _ast.parse(_sw_src.read_text(encoding="utf-8"))
+    _forbidden = {"garmin_collector", "garmin_quality", "garmin_normalizer",
+                  "garmin_writer", "garmin_validator", "garmin_sync", "garmin_api"}
+    _sw_imports = set()
+    for _node in _ast.walk(_sw_tree):
+        if isinstance(_node, _ast.Import):
+            for _alias in _node.names:
+                _sw_imports.add(_alias.name.split(".")[0])
+        elif isinstance(_node, _ast.ImportFrom):
+            if _node.module:
+                _sw_imports.add(_node.module.split(".")[0])
+    _violations = _sw_imports & _forbidden
+    check("source_writer leaf-node: no forbidden pipeline imports",
+          len(_violations) == 0)
+else:
+    check("source_writer leaf-node: file found for AST check", False)
+
+# ── Cleanup ───────────────────────────────────────────────────────────────────
+if _sw_file.exists():
+    _sw_file.unlink()
+if _sw_cfg.SOURCE_API_LOG.exists():
+    _sw_cfg.SOURCE_API_LOG.unlink()
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  C. garmin_mirror (v1.5.6.1 — Container-Modell)
 # ══════════════════════════════════════════════════════════════════════════════
 section("C. garmin_mirror (v1.5.6.1)")

@@ -234,6 +234,8 @@ pytest tests/test_qt_app.py -v
 
 **Test result v1.6.0:** 316 / 261 / 303 / 128 / 42 / 2 — all green
 
+**Test result v1.6.0.2:** 339 / 261 / 303 / 128 / 42 / 2 — all green
+
 Classes:
 - `TestQtSmoke` (4) — QApplication startup, PyQt6 importability, GUI-freedom regression for Settings/Controller, GUI-freedom guard for `scheduler/daily_update.py`
 - `TestPanelSettings` (5) — instantiation, `_collect_settings()` keys, sync mode switching, location extraction
