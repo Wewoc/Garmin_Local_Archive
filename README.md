@@ -1,4 +1,4 @@
-![Garmin Local Archive](/screenshots/Banner_2.png)
+![Garmin Local Archive](/src/screenshots/Banner_2.png)
 
 # Garmin Local Archive
 
@@ -32,13 +32,13 @@ local copy of your Garmin data over time. Your data stays in open formats, reada
 | **Access** | Online only | Requires subscription | **100% offline** |
 | **History** | Erodes over time | Depends on source | **Permanent local copy** |
 
-<img src="screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Home Tab">
+<img src="src/screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Home Tab">
 <br><sub>Home tab — fixed top area with connection status, archive stats by device, and Daily Actions (Sync / Mirror / Timer); dashboard viewer below.</sub>
 
-<img src="screenshots/GUI-Page_2.jpg" width="800" alt="Garmin Local Archive — Files Tab">
+<img src="src/screenshots/GUI-Page_2.jpg" width="800" alt="Garmin Local Archive — Files Tab">
 <br><sub>Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.</sub>
 
-<img src="screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Settings Tab">
+<img src="src/screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Settings Tab">
 <br><sub>Settings tab — two-column layout: credentials, paths, and sync config on the left; sync controls, timer, mirror, and output options on the right.</sub>
 
 **What this is not:**
@@ -242,7 +242,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 ```
 
 > [!TIP]
-> **Pipeline Architecture:** For a detailed view of the v1.3.4 data flow including the validation layer and self-healing loop, open [screenshots/flowchart_v134.html](screenshots/flowchart_v134.html) in your browser.
+> **Pipeline Architecture:** For a detailed view of the v1.3.4 data flow including the validation layer and self-healing loop, open [screenshots/flowchart_v134.html](src/screenshots/flowchart_v134.html) in your browser.
 
 ---
 
@@ -250,7 +250,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 
 The diagram below shows how all components relate to each other as of v1.5.x — from API ingestion and context collection through the broker layer to dashboard export.
 
-![System Architecture v1.5.x](screenshots/data_flow_1-5-x.png)
+![System Architecture v1.5.x](src/screenshots/data_flow_1-5-x.png)
 
 ---
 
