@@ -4,12 +4,12 @@ app/panel_home.py
 Garmin Local Archive — Home Panel
 
 PanelHome — PyQt6 QWidget owning the fixed top area (Connection & Archive
-Status + Daily Actions) and the Tab 1 Home content (Dashboard view +
+Status + Daily Actions) and the Tab 0 Dashboard content (Dashboard view +
 collapsible Activity Log).
 
 Layout injected by garmin_app_base._build_ui():
   - self._panel_home added to root_layout above the QTabWidget (fixed top)
-  - self._panel_home.tab_widget added as Tab 0 "Home"
+  - self._panel_home.tab_widget added as Tab 0 "Dashboard"
 
 Rules:
   - __init__(self, app) — app is the GarminApp(QMainWindow) instance
@@ -396,17 +396,16 @@ class PanelHome(QWidget):
 
         self._daily_sync_btn.setEnabled(False)
 
-        def _on_garmin_done():
-            self._app._panel_outputs._run_context_sync(
-                on_done=_on_context_done)
+        def _on_all_done():
+            self._daily_sync_btn.setEnabled(True)
 
         def _on_context_done():
             self._app._panel_outputs._run_all_dashboards(
                 on_done=_on_all_done)
 
-        def _on_all_done():
-            self._app._dispatch(
-                lambda: self._daily_sync_btn.setEnabled(True))
+        def _on_garmin_done():
+            self._app._panel_outputs._run_context_sync(
+                on_done=_on_context_done)
 
         self._app._panel_outputs._run_collector(on_done=_on_garmin_done)
 

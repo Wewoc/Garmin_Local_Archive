@@ -98,14 +98,14 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
 /                               ← repo root
 ├── garmin_app.py               ← Entry Point Target 1+2 (GUI)
 ├── garmin_app_standalone.py    ← Entry Point Target 3 (GUI, Standalone)
-├── garmin_app_base.py          ← View layer (GarminApp) — PyQt6 QMainWindow, fixed top (panel_home) + QTabWidget: Home / Files / Settings (v1.6.0+). Settings tab: two-column layout — Settings left (340px), Actions right (flex)
+├── garmin_app_base.py          ← View layer (GarminApp) — PyQt6 QMainWindow, fixed top (panel_home) + QTabWidget: Dashboard / Files / Settings (v1.6.0+). Settings tab: two-column layout — Settings left (340px), Actions right (flex)
 ├── version.py                  ← Single source of truth for APP_VERSION
 │
 ├── app/                        ← GUI logic layer (v1.5.2+)
 │   ├── __init__.py
 │   ├── garmin_app_settings.py  ← Layer 1: settings, keyring, constants (no GUI)
 │   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
-│   ├── panel_home.py           ← PanelHome(QWidget) — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Home tab: Dashboard viewer (v1.6.0+)
+│   ├── panel_home.py           ← PanelHome(QWidget) — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Dashboard tab: Dashboard viewer (v1.6.0+)
 │   ├── panel_settings.py       ← PanelSettings(QWidget) — credentials, paths, sync config (v1.5.4+)
 │   ├── panel_connection.py     ← PanelConnection(QWidget) — connection dialogs, token reset; indicators delegated to panel_home (v1.5.4+)
 │   ├── panel_archive.py        ← PanelArchive(QWidget) — integrity, mirror, clean, schema migration (v1.5.4+)
