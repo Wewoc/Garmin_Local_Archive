@@ -1,0 +1,40 @@
+# ruff.toml — Garmin Local Archive
+# Linting configuration. Added in v1.6 when ruff output became visible
+# after encoding fix in test_static.py.
+#
+# Rule decisions:
+#   E501 — pre-existing long lines throughout the codebase
+#     (HTML/CSS/JS templates, test assertions, Easter Egg strings).
+#     Enforcing line length would require reformatting thousands of lines
+#     of intentional HTML/JS and test assertions. Ignored globally.
+#   W292 — missing newline at end of file. Fixed via `ruff --fix` on
+#     all affected files (layouts, tests). Ignored here so ruff doesn't
+#     re-report on files that ruff --fix can't reach in CI context.
+#   E402 — test files + entry points use deferred imports after
+#     sys.path manipulation (intentional)
+#   E712 — test files use == True / == False for readability in
+#     check() calls (intentional)
+#   E702 — test files use semicolons for compact reload pairs (intentional)
+#   E701 — garmin_extended_anaysis.py uses inline returns (Easter Egg, intentional)
+#   E731 — lambda assignment in test files (intentional helper)
+#   F841 — unused variables in garmin_extended_anaysis.py (Easter Egg, intentional)
+#   F401 in garmin_quality.py — facade re-exports (intentional)
+
+[lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "W292"]
+
+[lint.per-file-ignores]
+# Test files — deferred imports + test style
+"tests/*.py" = ["E402", "E712", "E702", "E731"]
+# Facade module — all imports are intentional re-exports
+"garmin/garmin_quality.py" = ["F401"]
+# Easter Egg — intentional style
+"garmin/garmin_extended_anaysis.py" = ["E701", "F841"]
+# Dashboard specialist — intentional inline style
+"dashboards/sleep_recovery_context_dash.py" = ["E701"]
+# Entry points — sys.path manipulation before imports (intentional)
+"garmin_app_screenshot.py" = ["E402"]
+"garmin_app_standalone.py" = ["E402"]
+"scheduler/daily_update.py" = ["E402"]
+"garmin_app_base.py" = ["E402"]

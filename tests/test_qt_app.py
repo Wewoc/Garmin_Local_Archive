@@ -208,6 +208,8 @@ class TestPanelConnection:
     @pytest.fixture
     def app_mock(self):
         from unittest.mock import MagicMock
+        from PyQt6.QtWidgets import QLabel
+        from PyQt6.QtGui import QFont
         app = MagicMock()
         app.BG      = "#12101f"
         app.BG2     = "#1a1729"
@@ -221,6 +223,15 @@ class TestPanelConnection:
         app._dialog_open         = False
         app._connection_verified = False
         app._panel_archive       = MagicMock()
+        # _conn_indicators lives in panel_home — provide real QLabel dict
+        # so _set_indicator() can call setStyleSheet() on real widgets.
+        _indicators = {}
+        for key in ("token", "login", "api", "data"):
+            dot = QLabel("●")
+            dot.setFont(QFont("Segoe UI", 10))
+            dot.setStyleSheet(f"color: {app.TEXT2};")
+            _indicators[key] = dot
+        app._panel_home._conn_indicators = _indicators
         return app
 
     def test_panel_instantiates(self, qtbot, app_mock):
@@ -233,29 +244,30 @@ class TestPanelConnection:
         from app.panel_connection import PanelConnection
         panel = PanelConnection(app_mock)
         qtbot.addWidget(panel)
+        # _conn_indicators lives in panel_home since v1.6
         for key in ("token", "login", "api", "data"):
-            assert key in panel._conn_indicators
+            assert key in app_mock._panel_home._conn_indicators
 
     def test_set_indicator_ok(self, qtbot, app_mock):
         from app.panel_connection import PanelConnection
         panel = PanelConnection(app_mock)
         qtbot.addWidget(panel)
         panel._set_indicator("token", "ok")
-        assert app_mock.GREEN in panel._conn_indicators["token"].styleSheet()
+        assert app_mock.GREEN in app_mock._panel_home._conn_indicators["token"].styleSheet()
 
     def test_set_indicator_fail(self, qtbot, app_mock):
         from app.panel_connection import PanelConnection
         panel = PanelConnection(app_mock)
         qtbot.addWidget(panel)
         panel._set_indicator("login", "fail")
-        assert "#e94560" in panel._conn_indicators["login"].styleSheet()
+        assert "#e94560" in app_mock._panel_home._conn_indicators["login"].styleSheet()
 
     def test_set_indicator_reset(self, qtbot, app_mock):
         from app.panel_connection import PanelConnection
         panel = PanelConnection(app_mock)
         qtbot.addWidget(panel)
         panel._set_indicator("api", "reset")
-        assert app_mock.TEXT2 in panel._conn_indicators["api"].styleSheet()
+        assert app_mock.TEXT2 in app_mock._panel_home._conn_indicators["api"].styleSheet()
 
     def test_mirror_button_disabled_by_default(self, qtbot, app_mock):
         from app.panel_connection import PanelConnection

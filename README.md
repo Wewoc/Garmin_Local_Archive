@@ -32,14 +32,14 @@ local copy of your Garmin data over time. Your data stays in open formats, reada
 | **Access** | Online only | Requires subscription | **100% offline** |
 | **History** | Erodes over time | Depends on source | **Permanent local copy** |
 
-<img src="screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Actions Tab">
-<br><sub>Actions tab — sync controls, archive status by device, background timer, bulk import, and context sync in one place.</sub>
+<img src="screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Home Tab">
+<br><sub>Home tab — fixed top area with connection status, archive stats by device, and Daily Actions (Sync / Mirror / Timer); dashboard viewer below.</sub>
 
-<img src="screenshots/GUI-Page_2.jpg" width="800" alt="Garmin Local Archive — Dashboards Tab">
-<br><sub>Dashboards tab — in-app dashboard rendering with HRV, Resting HR, Sleep, Body Battery, Stress and SpO2. Daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
-
-<img src="screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Files Tab">
+<img src="screenshots/GUI-Page_2.jpg" width="800" alt="Garmin Local Archive — Files Tab">
 <br><sub>Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day.</sub>
+
+<img src="screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Settings Tab">
+<br><sub>Settings tab — two-column layout: credentials, paths, and sync config on the left; sync controls, timer, mirror, and output options on the right.</sub>
 
 **What this is not:**
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
@@ -310,14 +310,15 @@ The project is structured into five focused layers. Each layer has a single resp
 
 | Script | What it does |
 |---|---|
-| `garmin_app_base.py` | Assembler — wires panel Mixins together, holds shared state, defines abstract hooks. tkinter exclusive. |
-| `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No tkinter — importable in any context. |
-| `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No tkinter. |
-| `app/panel_settings.py` | Settings panel Mixin — credentials, paths, sync config, context location. |
-| `app/panel_connection.py` | Connection panel Mixin — connection test, indicators, prompts, token reset, archive info. |
-| `app/panel_archive.py` | Archive panel Mixin — integrity check, restore, clean archive, mirror operation. |
-| `app/panel_timer.py` | Timer panel Mixin — background timer UI, loop, controller delegates. |
-| `app/panel_outputs.py` | Outputs panel Mixin — sync, import, context sync, dashboard popup, output buttons. |
+| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings. PyQt6 QMainWindow. |
+| `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No GUI — importable in any context. |
+| `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No GUI. |
+| `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer). Home tab: Dashboard viewer. (v1.6.0+) |
+| `app/panel_settings.py` | Settings panel — credentials, paths, sync config, context location. |
+| `app/panel_connection.py` | Connection panel — connection test, dialogs, token reset. Indicators delegated to panel_home. |
+| `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
+| `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
+| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation |
@@ -586,7 +587,8 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-Five test suites cover the full pipeline — no network, no API, no GUI required:
+Six test suites cover the full pipeline — no network, no API required:
+
 
 ```bash
 python tests/test_local.py          # Garmin pipeline

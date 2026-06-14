@@ -37,6 +37,19 @@ gone permanently. There's no export that brings it back.
 
 This tool exists because of both problems.
 
+There is a third problem that only becomes visible when you try to share the
+data with someone else — a doctor, a trainer, a researcher. In mechanical
+engineering, STEP and DXF are universal exchange formats: any CAD system reads
+them. In healthcare, equivalent standards exist for clinical systems — FHIR for
+structured records, DICOM for imaging, HL7 for hospital communication. But for
+consumer wearables, there is no equivalent. Every manufacturer speaks its own
+dialect. Garmin data is Garmin data. It does not travel.
+
+Garmin Local Archive converts proprietary Garmin data into open, documented
+JSON formats — readable by any tool, any AI, any script. That is the closer
+answer to a format question that the healthcare world has not yet solved for
+wearables.
+
 ---
 
 ## How it was built

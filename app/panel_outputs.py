@@ -258,8 +258,13 @@ class PanelOutputs(QWidget):
         threading.Thread(target=_do_backfill, daemon=True).start()
         self._app._log("🗄  Raw backup running in background …")
 
-    def _run_collector(self):
-        """Run connection test first (once per session), then start sync."""
+    def _run_collector(self, *, on_done=None):
+        """Run connection test first (once per session), then start sync.
+
+        on_done: optional callable, fired on the Main Thread after sync
+                 completes (after _refresh_archive_info). Used by Daily Sync
+                 chain in panel_home to sequence Context Sync afterwards.
+        """
         s = self._app._panel_settings._collect_settings()
         if not s["email"] or not s["password"]:
             self._app._log("✗ Email or password missing.")
@@ -287,15 +292,19 @@ class PanelOutputs(QWidget):
             base_dir=s["base_dir"])
         env_extra = {"GARMIN_SCHEMA_MIGRATE": "1"} if run_migration else {}
 
+        def _internal_done():
+            self._app._panel_timer._timer_resume_after_sync(timer_was_active)
+            self._app._panel_archive._refresh_archive_info()
+            if on_done:
+                on_done()
+
         if self._app._connection_verified:
             self._app._run(
                 "garmin_collector.py", enable_stop=True,
                 refresh_failed=refresh_failed,
                 env_overrides=env_extra,
-                on_done=lambda: (
-                    self._app._panel_timer._timer_resume_after_sync(timer_was_active),
-                    self._app._panel_archive._refresh_archive_info(),
-                ))
+                on_done=_internal_done,
+            )
             return
 
         self._app._panel_connection._run_connection_test(
@@ -303,10 +312,8 @@ class PanelOutputs(QWidget):
                 "garmin_collector.py", enable_stop=True,
                 refresh_failed=refresh_failed,
                 env_overrides=env_extra,
-                on_done=lambda: (
-                    self._app._panel_timer._timer_resume_after_sync(timer_was_active),
-                    self._app._panel_archive._refresh_archive_info(),
-                )))
+                on_done=_internal_done,
+            ))
 
     def _run_import(self):
         """Open file dialog and run bulk import."""
@@ -353,8 +360,13 @@ class PanelOutputs(QWidget):
 
     # ── Context sync ───────────────────────────────────────────────────────────
 
-    def _run_context_sync(self):
-        """Run context collect (weather + pollen) in background thread."""
+    def _run_context_sync(self, *, on_done=None):
+        """Run context collect (weather + pollen) in background thread.
+
+        on_done: optional callable, fired on the Main Thread after context
+                 sync completes. Used by Daily Sync chain in panel_home to
+                 sequence dashboard build afterwards.
+        """
         s = self._app._panel_settings._collect_settings()
         if (float(s.get("context_latitude",  "0.0")) == 0.0 and
                 float(s.get("context_longitude", "0.0")) == 0.0):
@@ -363,12 +375,15 @@ class PanelOutputs(QWidget):
                 "Please set a location in Settings before running Context Sync.\n"
                 "Use the Settings panel to enter coordinates."
             )
+            if on_done:
+                on_done()
             return
 
         self._ctx_btn.setEnabled(False)
         self._ctx_stop_btn.setEnabled(True)
         self._app._context_stop_event = threading.Event()
         self._app._ctx_running        = True
+        _chain_done = on_done
 
         def run():
             try:
@@ -400,7 +415,11 @@ class PanelOutputs(QWidget):
                 self._app._dispatch(
                     lambda e=exc: self._app._log(f"Context sync error: {e}"))
             finally:
-                self._app._dispatch(self._on_context_sync_done)
+                def _finish():
+                    self._on_context_sync_done()
+                    if _chain_done:
+                        _chain_done()
+                self._app._dispatch(_finish)
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -665,6 +684,132 @@ class PanelOutputs(QWidget):
             except Exception as exc:
                 self._app._dispatch(
                     lambda e=exc: self._app._log(f"  ✗ Fehler: {e}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ── All-dashboards build (used by Daily Sync chain) ───────────────────────
+
+    def _run_all_dashboards(self, *, on_done=None):
+        """Build all specialists / all formats — no dialog, no date filter.
+
+        Mirrors daily_update._run_dashboards(): scans all specialists, selects
+        all formats, uses the full archive date range from summary/*.json.
+        Fires on_done on the Main Thread when complete (success or error).
+        """
+        import importlib.util as _ilu
+
+        if not getattr(sys, "frozen", False):
+            root = Path(__file__).parent.parent
+        elif (hasattr(sys, "_MEIPASS") and
+                (Path(sys._MEIPASS) / "scripts").exists()):
+            root = Path(sys._MEIPASS) / "scripts"
+        else:
+            root = Path(sys.executable).parent / "scripts"
+        for p in (root / "dashboards", root / "layouts", root / "maps"):
+            _s = str(p)
+            if _s not in sys.path:
+                sys.path.insert(0, _s)
+
+        try:
+            runner_path = root / "dashboards" / "dash_runner.py"
+            spec = _ilu.spec_from_file_location("dash_runner", runner_path)
+            if spec is None:
+                raise FileNotFoundError(f"dash_runner.py not found: {runner_path}")
+            dash_runner = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(dash_runner)
+        except Exception as exc:
+            self._app._log(f"✗ Dashboard runner could not be loaded: {exc}")
+            if on_done:
+                on_done()
+            return
+
+        try:
+            specialists = dash_runner.scan()
+        except Exception as exc:
+            self._app._log(f"✗ Dashboard scan failed: {exc}")
+            if on_done:
+                on_done()
+            return
+
+        if not specialists:
+            self._app._log("ℹ  No dashboard specialists found — skipping.")
+            if on_done:
+                on_done()
+            return
+
+        selections = [
+            (spec["module"], fmt)
+            for spec in specialists
+            for fmt in spec["formats"]
+        ]
+
+        # Full archive date range — same logic as daily_update
+        s         = self._app._panel_settings._collect_settings()
+        base      = Path(s["base_dir"])
+        summary_dir = base / "garmin_data" / "summary"
+        dates = sorted(
+            f.stem.replace("garmin_", "")
+            for f in summary_dir.glob("garmin_???-??-??.json")
+        ) if summary_dir.exists() else []
+        today     = date.today()
+        date_from = dates[0]  if dates else (today - timedelta(days=90)).isoformat()
+        date_to   = dates[-1] if dates else today.isoformat()
+
+        output_dir = base / "garmin_data" / "dashboards"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        self._app._log("\n▶  Daily Sync — building dashboards ...")
+        self._app._log(f"   Range: {date_from} → {date_to}")
+        _chain_done = on_done
+
+        def worker():
+            try:
+                import importlib
+                os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
+                import garmin_config as _cfg
+                importlib.reload(_cfg)
+                results = dash_runner.build(
+                    selections=selections,
+                    date_from=date_from,
+                    date_to=date_to,
+                    settings=s,
+                    output_dir=output_dir,
+                    log=lambda msg: self._app._dispatch(
+                        lambda m=msg: self._app._log(f"   {m}")),
+                )
+
+                def _finish():
+                    ok  = [r for r in results if r["success"]]
+                    err = [r for r in results if not r["success"]]
+                    self._app._log(f"\n  ✓ {len(ok)} dashboard(s) built")
+                    for r in err:
+                        self._app._log(
+                            f"  ✗ {r['name']} ({r['format']}): "
+                            f"{r.get('error', '')}")
+                    if ok:
+                        last_html = next(
+                            (r.get("path") for r in ok
+                             if r.get("format") == "html"), None)
+                        if last_html:
+                            self._app._last_html = str(last_html)
+                        self._app._scan_dashboards(
+                            auto_load=self._app._last_html)
+                        self._app._scan_xlsx_files()
+                    try:
+                        import garmin_mobile_landing as _landing
+                        _landing.write_index_html(s["base_dir"])
+                    except Exception:
+                        pass
+                    if _chain_done:
+                        _chain_done()
+
+                self._app._dispatch(_finish)
+            except Exception as exc:
+                def _err(e=exc):
+                    self._app._log(f"  ✗ Dashboard build error: {e}")
+                    if _chain_done:
+                        _chain_done()
+                self._app._dispatch(_err)
 
         threading.Thread(target=worker, daemon=True).start()
 
