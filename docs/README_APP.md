@@ -229,9 +229,9 @@ One-click daily workflow. Detects the gap since your last sync, then runs in seq
 
 If the gap is larger than 7 days a confirmation dialog appears before starting. The button is disabled while running. Progress is shown in the log at the bottom.
 
-### Home tab
+### Dashboard tab
 
-The **Home** tab (first tab) shows your HTML dashboards directly inside the app — no browser needed. The **Health Analysis** dashboard loads by default on startup.
+The **Dashboard** tab (first tab) shows your HTML dashboards directly inside the app — no browser needed. The **Health Analysis** dashboard loads by default on startup.
 
 Use the dropdown at the top to switch between all HTML dashboards in `BASE_DIR/dashboards/`. The view is fully interactive — zoom, hover, and filter work exactly as in a browser.
 

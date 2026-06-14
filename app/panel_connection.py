@@ -329,7 +329,7 @@ class PanelConnection(QWidget):
         lay.setSpacing(0)
 
         # Section header
-        header = QLabel("CONNECTION & ARCHIVE STATUS")
+        header = QLabel("DATA MANAGEMENT")
         header.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
         header.setStyleSheet(f"color: {self._app.ACCENT};")
         lay.addWidget(header)

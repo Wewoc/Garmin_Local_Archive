@@ -228,7 +228,7 @@ class GarminApp(QMainWindow):
         # ── Fixed top (Connection & Archive Status + Daily Actions) ───────────
         root_lay.addWidget(self._panel_home)
 
-        # ── QTabWidget: Tab 0 Home, Tab 1 Files, Tab 2 Settings ───────────────
+        # ── QTabWidget: Tab 0 Dashboard, Tab 1 Files, Tab 2 Settings ──────────
         self._right_tabs = QTabWidget()
         right_tabs = self._right_tabs
         right_tabs.setStyleSheet(
@@ -239,8 +239,8 @@ class GarminApp(QMainWindow):
             f"border-bottom: 2px solid {self.ACCENT}; }}"
             f"QTabBar::tab:hover {{ color: {self.TEXT}; }}")
 
-        # ── Tab 0: Home ────────────────────────────────────────────────────────
-        right_tabs.addTab(self._panel_home.tab_widget, "Home")
+        # ── Tab 0: Dashboard ──────────────────────────────────────────────────
+        right_tabs.addTab(self._panel_home.tab_widget, "Dashboard")
 
         # ── Tab 1: Files ───────────────────────────────────────────────────────
         tab3_widget = QWidget()
@@ -551,7 +551,7 @@ class GarminApp(QMainWindow):
     # ── Dashboard tab helpers ──────────────────────────────────────────────────
 
     def _scan_dashboards(self, auto_load: str = None):
-        """Scan garmin_data/dashboards/ for HTML files and populate Home combo.
+        """Scan garmin_data/dashboards/ for HTML files and populate Dashboard combo.
         Called on startup and after every dashboard build (on_done via _dispatch)."""
         s        = self._panel_settings._collect_settings()
         dash_dir = Path(s.get("base_dir", "")) / "dashboards"
@@ -589,7 +589,7 @@ class GarminApp(QMainWindow):
             self._load_selected_dashboard()
 
     def _load_selected_dashboard(self):
-        """Load the currently selected HTML file into the Home QWebEngineView."""
+        """Load the currently selected HTML file into the Dashboard QWebEngineView."""
         path = self._panel_home._dash_combo.currentData()
         if path and Path(path).exists():
             self._panel_home._dash_view.setUrl(QUrl.fromLocalFile(path))

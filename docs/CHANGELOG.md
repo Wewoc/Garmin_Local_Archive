@@ -20,7 +20,7 @@ permanently accessible without switching tabs.
 **Changed modules:**
 - `garmin_app_base.py` — `_build_ui()` rebuilt: Settings sidebar + Splitter
   removed; new fixed top (`_panel_home`) above a QTabWidget with three tabs:
-  Home / Files / Settings. Log height reduced to 90px. Default dashboard
+  Dashboard / Files / Settings. Log height reduced to 90px. Default dashboard
   (`health_garmin`) and default XLSX (`overview_garmin`) selected on startup.
 - `app/panel_connection.py` — `_conn_indicators` dict, all `_info_*` labels,
   and `_info_device_table` removed (moved to `panel_home`). `_set_indicator()`
