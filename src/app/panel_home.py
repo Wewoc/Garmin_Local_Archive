@@ -130,6 +130,18 @@ class PanelHome(QWidget):
         self._info_missing.setFont(QFont("Segoe UI", 8))
         self._info_missing.setStyleSheet(f"color: {self._app.TEXT2};")
         row1.addWidget(self._info_missing)
+        row1.addSpacing(10)
+
+        sep_src = QLabel("||")
+        sep_src.setFont(QFont("Segoe UI", 8))
+        sep_src.setStyleSheet(f"color: {self._app.TEXT2};")
+        row1.addWidget(sep_src)
+        row1.addSpacing(10)
+
+        self._info_source = QLabel("Source: —")
+        self._info_source.setFont(QFont("Segoe UI", 8))
+        self._info_source.setStyleSheet(f"color: {self._app.TEXT2};")
+        row1.addWidget(self._info_source)
         row1.addStretch()
         left.addLayout(row1)
 

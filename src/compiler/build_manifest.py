@@ -49,6 +49,7 @@ SHARED_SCRIPTS = [
     "garmin/garmin_container.py",
     "garmin/garmin_import_mirror.py",
     "garmin/garmin_source_writer.py",
+    "garmin/garmin_backup_source.py",
     "garmin/garmin_extended_anaysis.py",
     # maps (routing only)
     "maps/field_map.py",
@@ -128,6 +129,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_container.py":  ["def lock", "def unlock_meta", "def fulfill_order", "def is_container", "def list_files"],
     "garmin/garmin_import_mirror.py": ["def run_import_mirror", "def detect_source"],
     "garmin/garmin_source_writer.py": ["def write_source", "def update_log"],
+    "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
 }
 

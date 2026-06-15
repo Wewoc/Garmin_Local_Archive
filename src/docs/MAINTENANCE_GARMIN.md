@@ -50,7 +50,8 @@ or later).
 | `garmin_writer.py` | `raw/` and `summary/` |
 | `garmin_quality.py` (facade → `quality/`) | `quality_log.json` and `device_table.json` |
 | `garmin_security.py` | `garmin_token.enc` |
-| `garmin_backup.py` | `garmin_data/backup/` |
+| `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` (v1.6.0.4: split with garmin_backup_source) |
+| `garmin_backup_source.py` | `garmin_data/backup/source/` (v1.6.0.4) |
 | `garmin_source_writer.py` | `garmin_data/source/` and `source_api_log.json` (v1.6.0.2) |
 | `garmin_mirror.py` | mirror operation — delegates to `garmin_container.py` |
 | `garmin_container.py` | `mirror.gla` — sole owner, no other module touches the container file |
@@ -135,6 +136,7 @@ B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore,
 C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
 D. `garmin_source_writer` (v1.6.0.2) — `SOURCE_DIR` + `SOURCE_API_LOG` path derivation, `write_source` round-trip + overwrite + error cases (None/str input), `update_log` round-trip + overwrite + multi-date, Leaf-Node AST check (no forbidden pipeline imports).
 E. `garmin_collector._run_source_backfill` (v1.6.0.3) — no-op when `SYNC_DATES` empty, fetch called with correct date when `SYNC_DATES` set, stop event respected, per-day error does not crash loop.
+F. `garmin_backup_source` (v1.6.0.4) — `SOURCE_BACKUP_DIR` path derivation, `backup_source` round-trip + missing source → False, monthly dir write, `_consolidate_source_months` ZIP + skip current month, `backfill_source` copy + idempotent, `check_source_backfill_needed` count, `_zip_contains`, Leaf-Node AST check.
 
 ### What is NOT tested
 
