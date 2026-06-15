@@ -316,6 +316,7 @@ class ScreenshotApp(GarminApp):
         ph._info_qdots["failed"].setText("fail 9")
         ph._info_recheck.setText("Recheck: 0")
         ph._info_missing.setText("Missing: 0")
+        ph._info_source.setText("Source: 290 days · 178/180d")
         ph._info_range.setText("Range: 2018-12-19 → 2026-06-06")
         ph._info_coverage.setText("Coverage: 100%")
         ph._info_last_api.setText("Last API: 2026-06-06")

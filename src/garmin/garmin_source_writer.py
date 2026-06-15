@@ -88,6 +88,14 @@ def write_source(raw_data: dict, date_str: str) -> bool:
         os.replace(tmp, dst)
 
         log.debug(f"  source_writer: {date_str} → source/")
+
+        # ── Source backup (non-fatal, lazy import) ────────────────────────────
+        try:
+            import garmin_backup_source as _bsrc
+            _bsrc.backup_source(date_str)
+        except Exception as _be:
+            log.warning(f"  source_writer: backup_source failed for {date_str}: {_be}")
+
         return True
 
     except Exception as e:

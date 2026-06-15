@@ -7,6 +7,7 @@ For shared paths, constants, and project structure see `REFERENCE_GLOBAL.md`.
 
 ## Pipeline overview
 
+
 ```
 garmin_app.py (GUI)
   └── _build_env() / _apply_env()
@@ -67,7 +68,7 @@ Intentional deviations from the invariants above. Each exception is stable by de
 |---|---|---|
 | `regenerate_summaries.py` writes directly to `summary/` | `export/regenerate_summaries.py` | Maintenance utility — runs offline, outside pipeline. `garmin_writer` is not importable in that context. Acceptable: one-off backfill, not a runtime path. |
 | `garmin_validator.py` imports `garmin_config` | `garmin/garmin_validator.py` | `garmin_config` is a pure constants module with no project-module imports. `garmin_validator` needs `DATAFORMAT_FILE` path. Leaf-node status refers to pipeline modules — `garmin_config` is infrastructure. |
-| Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
+| Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality`, `timer_run_source_backfill` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
 
 ---
 
@@ -75,11 +76,28 @@ Intentional deviations from the invariants above. Each exception is stable by de
 
 Sole Owner of `garmin_data/source/` and `source_api_log.json`. Leaf-Node — only `garmin_config` + stdlib.
 `garmin_config` imported lazily inside each function (not at module level) — same pattern as `garmin_security.py`.
+After each successful `write_source()`: lazy import of `garmin_backup_source.backup_source()` — non-fatal.
 
 | Function | Purpose |
 |---|---|
-| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Atomic: `.tmp` → `fsync` → `os.replace`. Called before `validator.validate()`. Returns `bool`. Non-fatal |
+| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Atomic: `.tmp` → `fsync` → `os.replace`. Called before `validator.validate()`. Triggers `garmin_backup_source.backup_source()` after success (lazy, non-fatal). Returns `bool`. Non-fatal |
 | `update_log(date_str, val_result, endpoints_fetched, endpoints_failed, size_bytes)` | Upserts entry in `source_api_log.json`. Called after validator critical check — `validator_status` is known. Atomic write. Returns `bool`. Non-fatal |
+
+---
+
+## `garmin_backup_source.py`
+
+Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` + stdlib.
+
+**Invariant refinement (v1.6.0.4):**
+- `garmin_backup.py` — Sole Owner of `backup/raw/` + `backup/log/` (previously: all of `backup/`)
+- `garmin_backup_source.py` — Sole Owner of `backup/source/`
+
+| Function | Purpose |
+|---|---|
+| `backup_source(date_str)` | Copies `garmin_source_YYYY-MM-DD.json` to `backup/source/`. Called by `garmin_source_writer` after write. Returns `bool`. Non-fatal |
+| `backfill_source()` | Copies all source files without a backup copy. One-time operation. Returns `{"copied", "skipped", "failed"}` |
+| `check_source_backfill_needed()` | Returns count of source files without backup. Fast check, no copy |
 
 **Constants:**
 - `SOURCE_LOG_SCHEMA_VERSION = 1` — increment when log entry structure changes
@@ -233,13 +251,14 @@ Each quality log entry stores `device_id` (str) and `device_name` (str) — set 
 
 | Function | Purpose |
 |---|---|
-| `main()` | Full sync orchestration: dirs → session log → quality load → bulk upgrade flagging → login → devices → first_day → date resolution → fetch loop → save |
+| `main()` | Full sync orchestration: dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → login → devices → device_id backfill → source backfill (5c) → first_day → date resolution → fetch loop → save |
 | `_fetch_and_assess(client, date_str)` | Fetch → validate → normalize → assess. No file writes. Returns `(label, normalized, summary, fields, val_result)` |
 | `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)` |
 | `_write_assessed(normalized, summary, date_str, label)` | Writes pre-assessed day to disk. Returns `bool` |
 | `run_import(path, progress_callback)` | Bulk import orchestration via `garmin_import.load_bulk()`. Returns `{"ok", "skipped", "failed"}` |
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
 | `_run_schema_migration(quality_data)` | Rewrites outdated summary files from raw when `GARMIN_SCHEMA_MIGRATE=1`. No API call. Raw files unchanged. Log output per day `[i/total]` |
+| `_run_source_backfill(client, quality_data)` | Re-fetches API days from `cfg.SYNC_DATES` that have no `source/` file. Step 5c in `main()` — after login, triggered by `GARMIN_SOURCE_BACKFILL=1`. Non-fatal per-day errors. No-op if `SYNC_DATES` empty (v1.6.0.3) |
 | `_start_session_log()` | Opens session log file. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if errors present |
 

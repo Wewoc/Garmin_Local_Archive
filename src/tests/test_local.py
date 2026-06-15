@@ -938,6 +938,120 @@ check("downgrade: missing quality key → existing=failed, no downgrade", is_dg 
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  E. _run_source_backfill
+# ══════════════════════════════════════════════════════════════════════════════
+section("E. _run_source_backfill")
+
+import garmin_collector as collector_bf
+from unittest.mock import MagicMock, patch
+from datetime import timedelta as _timedelta
+
+# ── Hilfsfunktion: synthetischen Quality-Eintrag bauen ──────────────────────
+def _make_api_entry(date_str, quality_label="high"):
+    return {
+        "date":                     date_str,
+        "quality":                  quality_label,
+        "reason":                   "test",
+        "recheck":                  False,
+        "attempts":                 0,
+        "write":                    True,
+        "source":                   "api",
+        "last_checked":             date_str,
+        "last_attempt":             None,
+        "validator_result":         "ok",
+        "validator_schema_version": "1.0",
+        "validator_issues":         [],
+        "fields":                   {},
+        "device_id":                None,
+        "device_name":              "",
+    }
+
+_patched_result = ("high", {}, {}, {}, {"status": "ok", "issues": []})
+
+# ── 1. No-Op: GARMIN_SYNC_DATES leer → keine Candidates ─────────────────────
+_qd_empty = {"first_day": "2024-01-01", "devices": [], "days": []}
+with patch.dict(os.environ, {}, clear=False):
+    os.environ.pop("GARMIN_SYNC_DATES", None)
+    import importlib as _il
+    import garmin_config as _cfg_tmp
+    _il.reload(_cfg_tmp)
+    _mock_client_noop = MagicMock()
+    collector_bf._run_source_backfill(_mock_client_noop, _qd_empty)
+check("backfill: empty SYNC_DATES → no fetch",
+      _mock_client_noop.call_count == 0)
+
+# ── 2. Fetch: GARMIN_SYNC_DATES gesetzt → _fetch_and_assess aufgerufen ───────
+_fetch_date = (date.today() - _timedelta(days=30)).isoformat()
+_qd_fetch = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_fetch_date),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _fetch_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      return_value=_patched_result) as mock_faa:
+        collector_bf._run_source_backfill(MagicMock(), _qd_fetch)
+check("backfill: SYNC_DATES set → _fetch_and_assess called",
+      mock_faa.call_count == 1)
+check("backfill: _fetch_and_assess called with correct date",
+      mock_faa.call_args[0][1] == _fetch_date)
+
+# ── 3. Stop-Event wird respektiert ──────────────────────────────────────────
+import threading as _threading
+_stop_date1 = (date.today() - _timedelta(days=20)).isoformat()
+_stop_date2 = (date.today() - _timedelta(days=21)).isoformat()
+_sync_two   = f"{_stop_date1},{_stop_date2}"
+
+_qd_stop = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stop_date1),
+    _make_api_entry(_stop_date2),
+]}
+
+_ev = _threading.Event()
+_ev.set()
+collector_bf.set_stop_event(_ev)
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _sync_two}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      return_value=_patched_result) as mock_stop:
+        collector_bf._run_source_backfill(MagicMock(), _qd_stop)
+
+check("backfill: stop event set → fetch loop aborted (0 or 1 calls)",
+      mock_stop.call_count <= 1)
+collector_bf.set_stop_event(None)
+
+# ── 4. Fehler pro Tag → kein Crash, Loop läuft weiter ───────────────────────
+_err_date1 = (date.today() - _timedelta(days=40)).isoformat()
+_err_date2 = (date.today() - _timedelta(days=41)).isoformat()
+_sync_err  = f"{_err_date1},{_err_date2}"
+
+_qd_err = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_err_date1),
+    _make_api_entry(_err_date2),
+]}
+
+def _raise_on_first(client, date_str):
+    if date_str == _err_date1:
+        raise RuntimeError("simulated API error")
+    return _patched_result
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _sync_err}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      side_effect=_raise_on_first):
+        try:
+            collector_bf._run_source_backfill(MagicMock(), _qd_err)
+            check("backfill: per-day error → no crash, loop continues", True)
+        except Exception:
+            check("backfill: per-day error → no crash, loop continues", False)
+
+# ── reload cfg zurücksetzen ──────────────────────────────────────────────────
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  16. _run_self_healing
 # ══════════════════════════════════════════════════════════════════════════════
 section("16. _run_self_healing")
@@ -1431,6 +1545,106 @@ check("run_mirror: garmin_token not in context",
 # Aufräumen
 shutil.rmtree(_mir_src,    ignore_errors=True)
 shutil.rmtree(_mir_parent, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  F. garmin_backup_source (v1.6.0.4)
+# ══════════════════════════════════════════════════════════════════════════════
+section("F. garmin_backup_source (v1.6.0.4)")
+import garmin_backup_source as backup_src
+importlib.reload(backup_src)
+
+# ── Pfad-Ableitung ────────────────────────────────────────────────────────────
+check("backup_src: SOURCE_BACKUP_DIR derived",
+      cfg.SOURCE_BACKUP_DIR == _TMPDIR / "garmin_data" / "backup" / "source")
+
+# ── backup_source: Quelldatei fehlt → False ───────────────────────────────────
+check("backup_source: missing source → False",
+      backup_src.backup_source("1900-01-01") == False)
+
+# ── backup_source: normaler Write → True, Datei in YYYY-MM/ ──────────────────
+_bsrc_date  = "2024-03-15"
+_bsrc_file  = cfg.SOURCE_DIR / f"garmin_source_{_bsrc_date}.json"
+cfg.SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+_bsrc_file.write_text('{"date": "2024-03-15"}', encoding="utf-8")
+
+_bsrc_ok = backup_src.backup_source(_bsrc_date)
+check("backup_source: returns True",
+      _bsrc_ok == True)
+check("backup_source: file in month dir",
+      (cfg.SOURCE_BACKUP_DIR / "2024-03" / f"garmin_source_{_bsrc_date}.json").exists())
+
+# ── consolidate: alter Monat wird gezippt ─────────────────────────────────────
+from datetime import date as _bsrc_date_cls
+_bsrc_current_month = _bsrc_date_cls.today().strftime("%Y-%m")
+_old_src_date = "2024-01-10"
+_old_src_dir  = cfg.SOURCE_BACKUP_DIR / "2024-01"
+_old_src_dir.mkdir(parents=True, exist_ok=True)
+(_old_src_dir / f"garmin_source_{_old_src_date}.json").write_text("{}", encoding="utf-8")
+# Aktuellen Monatsordner anlegen damit consolidate ihn korrekt überspringt
+_cur_src_dir = cfg.SOURCE_BACKUP_DIR / _bsrc_current_month
+_cur_src_dir.mkdir(parents=True, exist_ok=True)
+(_cur_src_dir / f"garmin_source_{_bsrc_current_month}-01.json").write_text("{}", encoding="utf-8")
+backup_src._consolidate_source_months(current_month=_bsrc_current_month)
+check("consolidate: old month zipped",
+      (cfg.SOURCE_BACKUP_DIR / "source_backup_2024-01.zip").exists())
+check("consolidate: old month dir removed",
+      not _old_src_dir.exists())
+check("consolidate: current month not zipped",
+      not (cfg.SOURCE_BACKUP_DIR / f"source_backup_{_bsrc_current_month}.zip").exists())
+
+# ── check_source_backfill_needed ──────────────────────────────────────────────
+# Neue source-Datei ohne Backup → count ≥ 1
+_bsrc_date2 = "2024-03-16"
+_bsrc_file2 = cfg.SOURCE_DIR / f"garmin_source_{_bsrc_date2}.json"
+_bsrc_file2.write_text('{"date": "2024-03-16"}', encoding="utf-8")
+check("backfill_needed: unbackedup file → ≥1",
+      backup_src.check_source_backfill_needed() >= 1)
+
+# ── backfill_source ───────────────────────────────────────────────────────────
+_bfill_result = backup_src.backfill_source()
+check("backfill_source: returns dict",        isinstance(_bfill_result, dict))
+check("backfill_source: ≥1 copied",           _bfill_result["copied"] >= 1)
+check("backfill_source: failed=0",            _bfill_result["failed"] == 0)
+
+# backfill idempotent
+_bfill_result2 = backup_src.backfill_source()
+check("backfill_source: idempotent → copied=0",   _bfill_result2["copied"] == 0)
+check("backfill_source: idempotent → skipped≥1",  _bfill_result2["skipped"] >= 1)
+
+# check_source_backfill_needed → 0 nach Backfill
+check("backfill_needed: after backfill → 0",
+      backup_src.check_source_backfill_needed() == 0)
+
+# ── _zip_contains helper ──────────────────────────────────────────────────────
+check("backup_src: _zip_contains present → True",
+      backup_src._zip_contains(
+          cfg.SOURCE_BACKUP_DIR / "source_backup_2024-01.zip",
+          f"garmin_source_{_old_src_date}.json"))
+check("backup_src: _zip_contains absent → False",
+      not backup_src._zip_contains(
+          cfg.SOURCE_BACKUP_DIR / "source_backup_2024-01.zip",
+          "nonexistent.json"))
+
+# ── Leaf-Node check — keine Pipeline-Imports ──────────────────────────────────
+import ast as _bsrc_ast
+_bsrc_py = Path(__file__).parent.parent / "garmin" / "garmin_backup_source.py"
+if _bsrc_py.exists():
+    _bsrc_tree     = _bsrc_ast.parse(_bsrc_py.read_text(encoding="utf-8"))
+    _bsrc_forbidden = {
+        "garmin_collector", "garmin_quality", "garmin_normalizer",
+        "garmin_writer", "garmin_validator", "garmin_sync", "garmin_api",
+        "garmin_source_writer",
+    }
+    _bsrc_imports = set()
+    for _n in _bsrc_ast.walk(_bsrc_tree):
+        if isinstance(_n, _bsrc_ast.Import):
+            for _a in _n.names:
+                _bsrc_imports.add(_a.name.split(".")[0])
+        elif isinstance(_n, _bsrc_ast.ImportFrom):
+            if _n.module:
+                _bsrc_imports.add(_n.module.split(".")[0])
+    check("backup_src: Leaf-Node — no forbidden pipeline imports",
+          _bsrc_imports.isdisjoint(_bsrc_forbidden))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results

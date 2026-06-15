@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.0.2
+# Garmin Local Archive — Desktop App v1.6.0.4
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -133,6 +133,7 @@ The top section shows two things at once:
 - **Range** — earliest and latest date in your archive
 - **Coverage** — percentage of days present vs. possible days in the date range
 - **Last API / Last Bulk** — most recent date imported via live sync or bulk import
+- **Source** — total source files archived · files present within the last 180-day window (e.g. `175 days · 180/180d`). The 180-day window reflects Garmin's intraday resolution boundary — days within it can be replayed from source if needed
 
 The panel refreshes automatically after every Sync and Bulk Import.
 
@@ -192,6 +193,7 @@ The timer works through a priority queue each run:
 2. **Repair** — re-fetches days where the API call itself failed (no file created)
 3. **Quality** — re-checks `standard` days where the previous day had intraday data and the retry window (180 days) is still open — worth trying again for a quality upgrade
 4. **Fill** — fetches completely missing days between your earliest known date and yesterday
+5. **Source Backfill** *(v1.6.0.3)* — if you were running GLA before v1.6.0.2, some historical days may be missing from the source archive. The timer fills this gap automatically, oldest first, within the 180-day window where Garmin still delivers full intraday resolution. Becomes a no-op once complete — runs invisibly in the background.
 
 When all queues are empty the timer stops automatically and logs "Archive complete".
 

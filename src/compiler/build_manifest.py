@@ -49,6 +49,7 @@ SHARED_SCRIPTS = [
     "garmin/garmin_container.py",
     "garmin/garmin_import_mirror.py",
     "garmin/garmin_source_writer.py",
+    "garmin/garmin_backup_source.py",
     "garmin/garmin_extended_anaysis.py",
     # maps (routing only)
     "maps/field_map.py",
@@ -102,7 +103,7 @@ ALL_SCRIPTS = ["garmin_app.py", "garmin_app_standalone.py", "daily_update.py"] +
 
 SCRIPT_SIGNATURES_BASE = {
     "app/garmin_app_settings.py": ["def load_settings", "def save_settings", "def load_password", "def save_password"],
-    "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def check_mirror"],
+    "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def check_mirror", "def timer_run_source_backfill"],
     "app/panel_settings.py":    ["class PanelSettings"],
     "app/panel_connection.py":  ["class PanelConnection"],
     "app/panel_archive.py":     ["class PanelArchive"],
@@ -112,7 +113,7 @@ SCRIPT_SIGNATURES_BASE = {
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
-    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration"],
+    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration", "def _run_source_backfill"],
     "garmin/garmin_import.py":     ["def load_bulk", "def parse_day"],
     "garmin/garmin_quality.py":    ["from quality._maint import", "QUALITY_LOCK"],
     "garmin/garmin_config.py":     ["GARMIN_EMAIL"],
@@ -128,6 +129,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_container.py":  ["def lock", "def unlock_meta", "def fulfill_order", "def is_container", "def list_files"],
     "garmin/garmin_import_mirror.py": ["def run_import_mirror", "def detect_source"],
     "garmin/garmin_source_writer.py": ["def write_source", "def update_log"],
+    "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
 }
 

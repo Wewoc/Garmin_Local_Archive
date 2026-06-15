@@ -2,6 +2,100 @@
 
 ---
 
+## v1.6.0.4 — Source Replay + Source Status + Source Backup
+
+Closes the source archive triad: replay from source, backup of source,
+and live status display. Together with v1.6.0.2 (Source Archive) and
+v1.6.0.3 (Source Backfill), `source/` is now a fully protected and
+operationally visible data silo.
+
+**New modules:**
+- `export/regenerate_raw.py` — Source Replay. Reads `garmin_data/source/`,
+  runs each day through `normalize()` → `assess_quality()` → `write_day()` →
+  `_upsert_quality()`. Identical output to a live pipeline run. No API call,
+  no login required. Analog to `export/regenerate_summaries.py`.
+  Flags: `--dry-run` (show without writing), `--date YYYY-MM-DD` (single day).
+  Downgrade protection: days with a higher quality label in `quality_log.json`
+  than the replay produces are skipped entirely — no file write, no log update.
+  Protects days captured at full intraday resolution before Garmin's 180-day
+  degradation boundary. Documented Exception: reads/writes `quality_log.json`
+  directly via `_load_quality_log` / `_save_quality_log` — offline maintenance
+  utility, outside the live pipeline.
+- `garmin/garmin_backup_source.py` — Source Backup. Sole Owner of
+  `garmin_data/backup/source/`. Leaf-Node: only `garmin_config` + stdlib.
+  Three public functions: `backup_source(date_str)` (copy one file after write),
+  `backfill_source()` (copy all missing files, one-time), `check_source_backfill_needed()`
+  (count without copying). Flat copy strategy — no monthly consolidation.
+
+**Changed modules:**
+- `garmin/garmin_source_writer.py` — lazy import of `garmin_backup_source`
+  after each successful `write_source()`. Non-fatal — pipeline continues on
+  failure. Analog to `garmin_writer` → `garmin_backup`.
+- `garmin/garmin_config.py` — `SOURCE_BACKUP_DIR = BACKUP_DIR / "source"` added.
+- `compiler/build_manifest.py` — `garmin_backup_source.py` added to
+  `SHARED_SCRIPTS` and `SCRIPT_SIGNATURES_BASE`.
+- `app/garmin_app_controller.py` — `get_source_stats(s)` added. INTENTIONAL
+  DIRECT READ: scans `source/` directory, returns `{"total": int, "present": int}`.
+  `total` = all source files on disk (no time limit). `present` = source files
+  within the last 180 calendar days. No `quality_log.json` access required.
+- `app/panel_home.py` — Source status label `_info_source` added to Row 1 of
+  the Archive Status block (inline with fail / Recheck / Missing), separated
+  by `||`. Always displayed as `Source: N days · M/180d`.
+- `app/panel_archive.py` — `_refresh_archive_info()` extended: calls
+  `get_source_stats()`, formats and sets `_info_source` label.
+
+**Invariant refinement:**
+- Previous: `garmin_backup.py` — Sole Owner of `garmin_data/backup/`
+- Revised: `garmin_backup.py` — Sole Owner of `backup/raw/` + `backup/log/`
+           `garmin_backup_source.py` — Sole Owner of `backup/source/`
+
+**Documented Exception added:**
+- `regenerate_raw.py` — reads `quality_log.json` directly and writes via
+  `garmin_writer`. Offline maintenance utility, not a runtime path.
+  Analog to existing exception for `regenerate_summaries.py`.
+
+**Test result:** 344 / 261 / 303 / 136 / 42 — all green, ruff 0 errors
+
+---
+
+## v1.6.0.3 — Source Backfill (Background Timer)
+
+Closes the gap between the `source/` archive introduced in v1.6.0.2 and
+historical API days fetched before v1.6.0.2 was active.
+
+**What is added:**
+- `garmin_collector._run_source_backfill(client, quality_data)` — re-fetches
+  API days passed via `GARMIN_SYNC_DATES` + `GARMIN_SOURCE_BACKFILL=1`. Called
+  at step 5c in `main()` (after login, after device_id backfill). Non-fatal:
+  per-day errors are logged as warnings, loop continues. No-op if `SYNC_DATES`
+  is empty.
+- `app/garmin_app_controller.timer_run_source_backfill(s)` — identifies api-sourced
+  days within the last 180 days that have no `garmin_data/source/` file. Returns
+  sorted list oldest-first. `None` if complete. INTENTIONAL DIRECT READ.
+- `app/panel_timer.py` — `source_backfill` added as fourth timer mode in
+  `_mode_cycle`. Oldest-first pick (`days[:n_days]`), analogous to bulk.
+  `GARMIN_SOURCE_BACKFILL=1` set only when `mode == "source_backfill"`.
+  `_timer_run_source_backfill()` delegate added. Timer button text fixed:
+  `"⏱  Timer: On"` when active (was missing), `"⏱  Syncing · N"` during sync.
+- `compiler/build_manifest.py` — signature check for `_run_source_backfill`.
+
+**Architecture:**
+- Candidates are determined by the Controller (`timer_run_source_backfill`),
+  not by the Collector — consistent with repair / quality / fill / bulk pattern.
+- `_run_source_backfill()` reads `cfg.SYNC_DATES` directly — no internal
+  candidate scan, no new quality log fields.
+- `source/` Sole-Write-Authority unchanged: only `garmin_source_writer.write_source()`
+  writes source files — backfill uses the same call as the live pipeline.
+
+**What does not change:**
+- `garmin_source_writer.py` — untouched
+- `quality_log.json` — no new fields; existing entries updated as normal
+- Regular GUI sync and `daily_update.py` — unaffected
+
+**Test result:** `344 / 261 / 303 / 136 / 42 — all green, ruff 0 errors`
+
+---
+
 ## v1.6.0.2 — Source Archive
 
 Introduces the third data silo: `garmin_data/source/` stores the unmodified

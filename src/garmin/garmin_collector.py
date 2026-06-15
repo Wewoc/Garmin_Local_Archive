@@ -436,6 +436,73 @@ def _run_self_healing(quality_data: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Source backfill
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_source_backfill(client, quality_data: dict) -> None:
+    """
+    Re-fetches API days that have no source/ file — closes the gap between
+    days fetched before v1.6.0.2 (which introduced source/) and the current
+    archive state.
+
+    Runs in the Background Timer source_backfill mode only — triggered by
+    GARMIN_SOURCE_BACKFILL=1 + GARMIN_SYNC_DATES (the timer picks candidates
+    via timer_run_source_backfill() and passes them as GARMIN_SYNC_DATES).
+
+    Each day is re-fetched via _fetch_and_assess() and written via the normal
+    pipeline (_write_assessed + record_attempt). No new fields introduced.
+    Non-fatal: any per-day failure is logged as a warning; the loop continues.
+    Becomes a no-op once source/ is complete for the 180-day window.
+    """
+    if not cfg.SYNC_DATES:
+        log.info("  Source backfill: no GARMIN_SYNC_DATES — nothing to do.")
+        return
+
+    candidates = [d.isoformat() for d in sorted(cfg.SYNC_DATES)]
+    log.info(f"  Source backfill: {len(candidates)} day(s) to re-fetch")
+
+    ok     = 0
+    failed = 0
+    total  = len(candidates)
+
+    with quality.QUALITY_LOCK:
+        for i, date_str in enumerate(candidates, 1):
+            if _is_stopped():
+                log.info(f"  Source backfill: stopped after {ok} days.")
+                break
+            existing = next(
+                (e for e in quality_data.get("days", [])
+                 if e.get("date") == date_str),
+                None,
+            )
+            try:
+                label, normalized, summary, fields, val_result = \
+                    _fetch_and_assess(client, date_str)
+
+                is_downgrade, _, _ = _check_downgrade(label, existing)
+
+                if not is_downgrade:
+                    _write_assessed(normalized, summary, date_str, label)
+
+                quality.record_attempt(
+                    quality_data, date.fromisoformat(date_str), label,
+                    f"Source backfill: {label}",
+                    written=not is_downgrade and _should_write(label),
+                    source="api",
+                    fields=fields,
+                    validator_result=val_result,
+                )
+                log.info(f"  Source backfill [{i}/{total}]: {date_str} — {label}")
+                ok += 1
+
+            except Exception as e:
+                log.warning(f"  Source backfill [{i}/{total}]: {date_str} — error: {e}")
+                failed += 1
+
+    log.info(f"  Source backfill complete: {ok} fetched, {failed} failed.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Schema migration — re-summarize outdated summaries
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -646,6 +713,10 @@ def main(stop_event=None):
             quality.save_device_table(quality_data)
         else:
             log.info("  device_id backfill: no raw files with training_status found")
+
+    # ── 5c. Source backfill — re-fetch API days without source/ file ──────────
+    if os.environ.get("GARMIN_SOURCE_BACKFILL") == "1":
+        _run_source_backfill(client, quality_data)
 
     # ── 6. Set first_day ──────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:

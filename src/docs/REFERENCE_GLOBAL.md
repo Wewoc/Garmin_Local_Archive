@@ -36,6 +36,8 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_CONTEXT_LON` | float | `0.0` | Default longitude for context API collect — set via GUI |
 | `PYTHONUTF8` | str | `"1"` | Forces UTF-8 mode — prevents encoding issues on Windows |
 | `GARMIN_IMPORT_PATH` | str | `""` | Path to Garmin export ZIP or folder — triggers bulk import mode |
+| `GARMIN_SOURCE_BACKFILL` | str | `"0"` | `"1"` = run source backfill in `main()` step 5c — set by timer `source_backfill` mode only |
+| `GARMIN_SCHEMA_MIGRATE` | str | `"0"` | `"1"` = rewrite outdated summary files in `main()` step 3c |
 
 ---
 
@@ -59,6 +61,7 @@ All modules import via `import garmin_config as cfg`.
 | `DATAFORMAT_FILE` | `garmin/garmin_dataformat.json` | Schema for garmin_validator |
 | `SOURCE_DIR` | `GARMIN_DIR/source` | Source archive — unmodified API responses (sole owner: `garmin_source_writer.py`) |
 | `SOURCE_API_LOG` | `LOG_DIR/source_api_log.json` | Per-day fetch metadata: validator status, endpoints, byte size |
+| `SOURCE_BACKUP_DIR` | `BACKUP_DIR/source` | Source backup — sole owner: `garmin_backup_source.py` (v1.6.0.4) |
 | `GARMIN_TOKEN_DIR` | `LOG_DIR/garmin_token` | Temp dir for garminconnect library |
 | `GARMIN_TOKEN_FILE` | `LOG_DIR/garmin_token.enc` | AES-256-GCM encrypted OAuth token |
 | `CONTEXT_DIR` | `BASE_DIR/context_data` | External API data root |
@@ -156,7 +159,9 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   ├── garmin_sync.py
     │   ├── garmin_utils.py
     │   ├── garmin_validator.py
-    │   └── garmin_writer.py
+    │   ├── garmin_writer.py
+    │   ├── garmin_backup_source.py ← Sole Owner backup/source/ (v1.6.0.4)
+    │   └── garmin_extended_anaysis.py
     │
     ├── context/                    ← External API collect pipeline (v1.4+)
     │   ├── __init__.py
@@ -203,7 +208,8 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   └── garmin_mobile_landing.py  ← Mobile landing page generator (v1.5.8.1+)
     │
     ├── export/                     
-    │   └── regenerate_summaries.py
+    │   ├── regenerate_summaries.py
+    │   └── regenerate_raw.py       ← Source Replay — regenerates raw/ from source/ (v1.6.0.4)
     │
     ├── screenshots/                ← GUI screenshots + architecture diagrams
     │
