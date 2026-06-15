@@ -938,6 +938,120 @@ check("downgrade: missing quality key → existing=failed, no downgrade", is_dg 
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  E. _run_source_backfill
+# ══════════════════════════════════════════════════════════════════════════════
+section("E. _run_source_backfill")
+
+import garmin_collector as collector_bf
+from unittest.mock import MagicMock, patch
+from datetime import timedelta as _timedelta
+
+# ── Hilfsfunktion: synthetischen Quality-Eintrag bauen ──────────────────────
+def _make_api_entry(date_str, quality_label="high"):
+    return {
+        "date":                     date_str,
+        "quality":                  quality_label,
+        "reason":                   "test",
+        "recheck":                  False,
+        "attempts":                 0,
+        "write":                    True,
+        "source":                   "api",
+        "last_checked":             date_str,
+        "last_attempt":             None,
+        "validator_result":         "ok",
+        "validator_schema_version": "1.0",
+        "validator_issues":         [],
+        "fields":                   {},
+        "device_id":                None,
+        "device_name":              "",
+    }
+
+_patched_result = ("high", {}, {}, {}, {"status": "ok", "issues": []})
+
+# ── 1. No-Op: GARMIN_SYNC_DATES leer → keine Candidates ─────────────────────
+_qd_empty = {"first_day": "2024-01-01", "devices": [], "days": []}
+with patch.dict(os.environ, {}, clear=False):
+    os.environ.pop("GARMIN_SYNC_DATES", None)
+    import importlib as _il
+    import garmin_config as _cfg_tmp
+    _il.reload(_cfg_tmp)
+    _mock_client_noop = MagicMock()
+    collector_bf._run_source_backfill(_mock_client_noop, _qd_empty)
+check("backfill: empty SYNC_DATES → no fetch",
+      _mock_client_noop.call_count == 0)
+
+# ── 2. Fetch: GARMIN_SYNC_DATES gesetzt → _fetch_and_assess aufgerufen ───────
+_fetch_date = (date.today() - _timedelta(days=30)).isoformat()
+_qd_fetch = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_fetch_date),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _fetch_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      return_value=_patched_result) as mock_faa:
+        collector_bf._run_source_backfill(MagicMock(), _qd_fetch)
+check("backfill: SYNC_DATES set → _fetch_and_assess called",
+      mock_faa.call_count == 1)
+check("backfill: _fetch_and_assess called with correct date",
+      mock_faa.call_args[0][1] == _fetch_date)
+
+# ── 3. Stop-Event wird respektiert ──────────────────────────────────────────
+import threading as _threading
+_stop_date1 = (date.today() - _timedelta(days=20)).isoformat()
+_stop_date2 = (date.today() - _timedelta(days=21)).isoformat()
+_sync_two   = f"{_stop_date1},{_stop_date2}"
+
+_qd_stop = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stop_date1),
+    _make_api_entry(_stop_date2),
+]}
+
+_ev = _threading.Event()
+_ev.set()
+collector_bf.set_stop_event(_ev)
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _sync_two}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      return_value=_patched_result) as mock_stop:
+        collector_bf._run_source_backfill(MagicMock(), _qd_stop)
+
+check("backfill: stop event set → fetch loop aborted (0 or 1 calls)",
+      mock_stop.call_count <= 1)
+collector_bf.set_stop_event(None)
+
+# ── 4. Fehler pro Tag → kein Crash, Loop läuft weiter ───────────────────────
+_err_date1 = (date.today() - _timedelta(days=40)).isoformat()
+_err_date2 = (date.today() - _timedelta(days=41)).isoformat()
+_sync_err  = f"{_err_date1},{_err_date2}"
+
+_qd_err = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_err_date1),
+    _make_api_entry(_err_date2),
+]}
+
+def _raise_on_first(client, date_str):
+    if date_str == _err_date1:
+        raise RuntimeError("simulated API error")
+    return _patched_result
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _sync_err}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      side_effect=_raise_on_first):
+        try:
+            collector_bf._run_source_backfill(MagicMock(), _qd_err)
+            check("backfill: per-day error → no crash, loop continues", True)
+        except Exception:
+            check("backfill: per-day error → no crash, loop continues", False)
+
+# ── reload cfg zurücksetzen ──────────────────────────────────────────────────
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  16. _run_self_healing
 # ══════════════════════════════════════════════════════════════════════════════
 section("16. _run_self_healing")

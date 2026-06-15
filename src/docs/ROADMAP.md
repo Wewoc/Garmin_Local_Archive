@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.0.2**
+**Currently stable — v1.6.0.3**
 
 ---
 
@@ -14,51 +14,64 @@
 
 ---
 
-### v1.6.0.3 — Source Backfill (Background Timer)
- 
-Closes the gap between the `source/` archive introduced in v1.6.0.2 and
-historical API days that were fetched before v1.6.0.2 was active.
- 
-**Problem:** Every API fetch from v1.6.0.2 onward writes a
-`garmin_data/source/garmin_source_YYYY-MM-DD.json` file automatically.
-Days fetched before that have a `raw/` file and a quality log entry
-(`source: api`) — but no `source/` file. The Background Timer never
-re-fetches these days because they carry no `recheck` flag.
-Without intervention, `source/` remains permanently incomplete for the
-pre-v1.6.0.2 history.
- 
-**What is added:**
-- `garmin_collector._run_source_backfill(quality_data)` — scans the last
-  180 days, identifies API days where `garmin_data/source/` has no
-  corresponding file, and flags them for re-fetch. Runs once per session
-  as part of the Background Timer startup sequence, analog to
-  `_run_self_healing()`. Stops flagging once `source/` is complete —
-  becomes a no-op on subsequent runs.
-- `garmin_collector.main()` — `_run_source_backfill()` added to the
-  timer startup path (not the regular GUI sync path).
-**What does not change:**
-- `garmin_source_writer.py` — untouched; backfill uses the same
-  `write_source()` call as the live pipeline
-- `quality_log.json` — no new fields; backfill re-fetches via the
-  existing API path, quality entries are updated as normal
-- Regular GUI sync — unaffected; backfill only runs in the timer path
-**Invariant:**
-- `source/` is populated exclusively from live API responses.
-  Bulk import never writes to `source/` — not even during backfill.
-  Days without a `source/` file after the 180-day window cannot be
-  recovered via backfill (Garmin degrades intraday resolution beyond
-  that boundary).
-**Pre-condition:** v1.6.0.2 (Source Archive) complete and `source/`
-directory established.
+### v1.6.0.4 — Source Complete + Source Replay + Source Backup
+
+**Discovery (v1.6.0.3 session):** `garmin_source_writer.write_source()` currently
+stores only the intraday API response (~240 KB) — one endpoint out of many.
+`garmin_raw_*.json` contains ~460 KB because `garmin_api.fetch_raw()` merges
+all endpoints (sleep, HRV, stress, activity, intraday) into one normalized file.
+Source Replay from partial snapshots cannot reconstruct `raw/` completely.
+Existing source/ files are not wasted — intraday is the most valuable part —
+but they are partial. Documented as `schema_version: 1` (intraday-only).
 
 ---
 
-### v1.6.0.4 — Source Replay + Source Backup
+**Step 0 — Source Complete (`garmin_source_writer.py`):**
+
+Extend `write_source()` to store the full `fetch_raw()` response — all API
+endpoints in one source file, before any normalization. This makes `source/`
+a true immutable record and enables complete replay.
+
+**What changes:**
+- `garmin/garmin_source_writer.py` — `write_source()` receives the full
+  raw dict from `fetch_raw()` instead of only the intraday response.
+  Called after `fetch_raw()`, before `garmin_validator.validate()`.
+- `garmin/garmin_collector.py` — `write_source()` call moves to after
+  `fetch_raw()`.
+- New files written as `schema_version: 2` (full snapshot).
+  Existing `schema_version: 1` files untouched.
+
+**Pre-condition:** None — this is the foundational fix for everything below.
+
+---
+
+**Source Status (Archive Status Block):**
+
+A third line in the Archive Status block (Connection & Archive Status panel)
+showing the current state of the `source/` archive.
+
+**What is added:**
+- `app/garmin_app_controller.py` — `get_source_stats(s)` — INTENTIONAL DIRECT
+  READ: reads `quality_log.json` + scans `garmin_data/source/` to count api-days
+  within 180 days without a corresponding source file. Returns
+  `{"missing": int, "oldest": str | None}`.
+- `app/panel_connection.py` or `panel_home.py` — new label row:
+  `Source: 47 missing · oldest: 2025-03-10` while backfill is running;
+  `Source: complete` once source/ is fully populated for the 180-day window.
+
+**What does not change:**
+- `garmin_source_writer.py` — untouched
+- Existing archive status lines — unchanged
+
+**Motivation:** Provides visibility into backfill progress (v1.6.0.3) and
+serves as the pre-condition check before running Source Replay.
+
+---
 
 **Source Replay (`regenerate_raw.py`):**
 
-Standalone script that regenerates `raw/` and `summary/` from the `source/`
-archive established in v1.6.0.2 — without any API call.
+Standalone script that regenerates `raw/` and `summary/` from the complete
+`source/` archive — without any API call.
 
 **Motivation:** When `garmin_normalizer.py` or the schema changes, historical
 days can be reprocessed from the immutable source record. No re-authentication,
@@ -66,17 +79,16 @@ no dependency on Garmin server availability, no risk of degraded resolution on
 older dates.
 
 **What is added:**
-- `export/regenerate_raw.py` — reads `garmin_data/source/`, runs each day
-  through normalizer → quality.assess → writer. Identical output to a live
-  pipeline run. Analog to `export/regenerate_summaries.py`.
+- `export/regenerate_raw.py` — reads `garmin_data/source/` (schema_version 2
+  files only), runs each day through normalizer → quality.assess → writer.
+  Identical output to a live pipeline run. Analog to `export/regenerate_summaries.py`.
 
 **What does not change:**
-- `garmin_source_writer.py`, `garmin_normalizer.py`, `garmin_writer.py` —
-  untouched; replay uses the same modules as the live pipeline
+- `garmin_normalizer.py`, `garmin_writer.py` — untouched; replay uses the
+  same modules as the live pipeline
 - `quality_log.json` — updated identically to a normal pipeline run
 
-**Pre-condition:** v1.6.0.2 (Source Archive) must be complete and `source/`
-must contain data.
+**Pre-condition:** Step 0 (Source Complete) active. Replay skips schema_version 1 files.
 
 ---
 
@@ -110,7 +122,7 @@ Revised: `garmin_backup.py` — Sole Owner of `backup/raw/` + `backup/log/`
          `garmin_backup_source.py` — Sole Owner of `backup/source/`
 Both documented in `REFERENCE_GARMIN.md` + `MAINTENANCE_GARMIN.md`.
 
-**Pre-condition:** v1.6.0.2 complete. `garmin_backup_source.py` is a
+**Pre-condition:** Step 0 complete. `garmin_backup_source.py` is a
 Leaf-Node — only `garmin_config` + stdlib, no pipeline imports.
 
 ---

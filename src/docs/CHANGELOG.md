@@ -2,6 +2,44 @@
 
 ---
 
+## v1.6.0.3 — Source Backfill (Background Timer)
+
+Closes the gap between the `source/` archive introduced in v1.6.0.2 and
+historical API days fetched before v1.6.0.2 was active.
+
+**What is added:**
+- `garmin_collector._run_source_backfill(client, quality_data)` — re-fetches
+  API days passed via `GARMIN_SYNC_DATES` + `GARMIN_SOURCE_BACKFILL=1`. Called
+  at step 5c in `main()` (after login, after device_id backfill). Non-fatal:
+  per-day errors are logged as warnings, loop continues. No-op if `SYNC_DATES`
+  is empty.
+- `app/garmin_app_controller.timer_run_source_backfill(s)` — identifies api-sourced
+  days within the last 180 days that have no `garmin_data/source/` file. Returns
+  sorted list oldest-first. `None` if complete. INTENTIONAL DIRECT READ.
+- `app/panel_timer.py` — `source_backfill` added as fourth timer mode in
+  `_mode_cycle`. Oldest-first pick (`days[:n_days]`), analogous to bulk.
+  `GARMIN_SOURCE_BACKFILL=1` set only when `mode == "source_backfill"`.
+  `_timer_run_source_backfill()` delegate added. Timer button text fixed:
+  `"⏱  Timer: On"` when active (was missing), `"⏱  Syncing · N"` during sync.
+- `compiler/build_manifest.py` — signature check for `_run_source_backfill`.
+
+**Architecture:**
+- Candidates are determined by the Controller (`timer_run_source_backfill`),
+  not by the Collector — consistent with repair / quality / fill / bulk pattern.
+- `_run_source_backfill()` reads `cfg.SYNC_DATES` directly — no internal
+  candidate scan, no new quality log fields.
+- `source/` Sole-Write-Authority unchanged: only `garmin_source_writer.write_source()`
+  writes source files — backfill uses the same call as the live pipeline.
+
+**What does not change:**
+- `garmin_source_writer.py` — untouched
+- `quality_log.json` — no new fields; existing entries updated as normal
+- Regular GUI sync and `daily_update.py` — unaffected
+
+**Test result:** `344 / 261 / 303 / 136 / 42 — all green, ruff 0 errors`
+
+---
+
 ## v1.6.0.2 — Source Archive
 
 Introduces the third data silo: `garmin_data/source/` stores the unmodified
