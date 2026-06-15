@@ -1,4 +1,4 @@
-![Garmin Local Archive](src/screenshots/Banner_2.png)
+9![Garmin Local Archive](src/screenshots/Banner_2.png)
 
 # Garmin Local Archive
 
@@ -64,16 +64,16 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 | **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
 
-<img src="screenshots/Create_report.jpg" width="800" alt="Garmin Local Archive — Create Report">
+<img src="src/screenshots/Create_report.jpg" width="800" alt="Garmin Local Archive — Create Report">
 <br><sub>Create Reports — select dashboards and export as HTML, Excel or JSON.</sub>
 
-<img src="screenshots/Dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<img src="src/screenshots/Dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
-<img src="screenshots/sleep_dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<img src="src/screenshots/sleep_dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>One row per night — segmented phase bar, duration, sleep score, quality badge, Garmin feedback text, HRV, and Body Battery. Numbers are color-coded against personal reference ranges.</sub>
 
-<img src="screenshots/dashboard_mobile_landscape.jpg" width="800" alt="Garmin Health Analysis Dashboard">
+<img src="src/screenshots/dashboard_mobile_landscape.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
 The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
