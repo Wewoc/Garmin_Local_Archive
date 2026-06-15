@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.0.3
+# Garmin Local Archive — Desktop App v1.6.0.4
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -133,6 +133,7 @@ The top section shows two things at once:
 - **Range** — earliest and latest date in your archive
 - **Coverage** — percentage of days present vs. possible days in the date range
 - **Last API / Last Bulk** — most recent date imported via live sync or bulk import
+- **Source** — total source files archived · files present within the last 180-day window (e.g. `175 days · 180/180d`). The 180-day window reflects Garmin's intraday resolution boundary — days within it can be replayed from source if needed
 
 The panel refreshes automatically after every Sync and Bulk Import.
 

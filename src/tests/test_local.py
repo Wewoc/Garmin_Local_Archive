@@ -1547,6 +1547,106 @@ shutil.rmtree(_mir_src,    ignore_errors=True)
 shutil.rmtree(_mir_parent, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  F. garmin_backup_source (v1.6.0.4)
+# ══════════════════════════════════════════════════════════════════════════════
+section("F. garmin_backup_source (v1.6.0.4)")
+import garmin_backup_source as backup_src
+importlib.reload(backup_src)
+
+# ── Pfad-Ableitung ────────────────────────────────────────────────────────────
+check("backup_src: SOURCE_BACKUP_DIR derived",
+      cfg.SOURCE_BACKUP_DIR == _TMPDIR / "garmin_data" / "backup" / "source")
+
+# ── backup_source: Quelldatei fehlt → False ───────────────────────────────────
+check("backup_source: missing source → False",
+      backup_src.backup_source("1900-01-01") == False)
+
+# ── backup_source: normaler Write → True, Datei in YYYY-MM/ ──────────────────
+_bsrc_date  = "2024-03-15"
+_bsrc_file  = cfg.SOURCE_DIR / f"garmin_source_{_bsrc_date}.json"
+cfg.SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+_bsrc_file.write_text('{"date": "2024-03-15"}', encoding="utf-8")
+
+_bsrc_ok = backup_src.backup_source(_bsrc_date)
+check("backup_source: returns True",
+      _bsrc_ok == True)
+check("backup_source: file in month dir",
+      (cfg.SOURCE_BACKUP_DIR / "2024-03" / f"garmin_source_{_bsrc_date}.json").exists())
+
+# ── consolidate: alter Monat wird gezippt ─────────────────────────────────────
+from datetime import date as _bsrc_date_cls
+_bsrc_current_month = _bsrc_date_cls.today().strftime("%Y-%m")
+_old_src_date = "2024-01-10"
+_old_src_dir  = cfg.SOURCE_BACKUP_DIR / "2024-01"
+_old_src_dir.mkdir(parents=True, exist_ok=True)
+(_old_src_dir / f"garmin_source_{_old_src_date}.json").write_text("{}", encoding="utf-8")
+# Aktuellen Monatsordner anlegen damit consolidate ihn korrekt überspringt
+_cur_src_dir = cfg.SOURCE_BACKUP_DIR / _bsrc_current_month
+_cur_src_dir.mkdir(parents=True, exist_ok=True)
+(_cur_src_dir / f"garmin_source_{_bsrc_current_month}-01.json").write_text("{}", encoding="utf-8")
+backup_src._consolidate_source_months(current_month=_bsrc_current_month)
+check("consolidate: old month zipped",
+      (cfg.SOURCE_BACKUP_DIR / "source_backup_2024-01.zip").exists())
+check("consolidate: old month dir removed",
+      not _old_src_dir.exists())
+check("consolidate: current month not zipped",
+      not (cfg.SOURCE_BACKUP_DIR / f"source_backup_{_bsrc_current_month}.zip").exists())
+
+# ── check_source_backfill_needed ──────────────────────────────────────────────
+# Neue source-Datei ohne Backup → count ≥ 1
+_bsrc_date2 = "2024-03-16"
+_bsrc_file2 = cfg.SOURCE_DIR / f"garmin_source_{_bsrc_date2}.json"
+_bsrc_file2.write_text('{"date": "2024-03-16"}', encoding="utf-8")
+check("backfill_needed: unbackedup file → ≥1",
+      backup_src.check_source_backfill_needed() >= 1)
+
+# ── backfill_source ───────────────────────────────────────────────────────────
+_bfill_result = backup_src.backfill_source()
+check("backfill_source: returns dict",        isinstance(_bfill_result, dict))
+check("backfill_source: ≥1 copied",           _bfill_result["copied"] >= 1)
+check("backfill_source: failed=0",            _bfill_result["failed"] == 0)
+
+# backfill idempotent
+_bfill_result2 = backup_src.backfill_source()
+check("backfill_source: idempotent → copied=0",   _bfill_result2["copied"] == 0)
+check("backfill_source: idempotent → skipped≥1",  _bfill_result2["skipped"] >= 1)
+
+# check_source_backfill_needed → 0 nach Backfill
+check("backfill_needed: after backfill → 0",
+      backup_src.check_source_backfill_needed() == 0)
+
+# ── _zip_contains helper ──────────────────────────────────────────────────────
+check("backup_src: _zip_contains present → True",
+      backup_src._zip_contains(
+          cfg.SOURCE_BACKUP_DIR / "source_backup_2024-01.zip",
+          f"garmin_source_{_old_src_date}.json"))
+check("backup_src: _zip_contains absent → False",
+      not backup_src._zip_contains(
+          cfg.SOURCE_BACKUP_DIR / "source_backup_2024-01.zip",
+          "nonexistent.json"))
+
+# ── Leaf-Node check — keine Pipeline-Imports ──────────────────────────────────
+import ast as _bsrc_ast
+_bsrc_py = Path(__file__).parent.parent / "garmin" / "garmin_backup_source.py"
+if _bsrc_py.exists():
+    _bsrc_tree     = _bsrc_ast.parse(_bsrc_py.read_text(encoding="utf-8"))
+    _bsrc_forbidden = {
+        "garmin_collector", "garmin_quality", "garmin_normalizer",
+        "garmin_writer", "garmin_validator", "garmin_sync", "garmin_api",
+        "garmin_source_writer",
+    }
+    _bsrc_imports = set()
+    for _n in _bsrc_ast.walk(_bsrc_tree):
+        if isinstance(_n, _bsrc_ast.Import):
+            for _a in _n.names:
+                _bsrc_imports.add(_a.name.split(".")[0])
+        elif isinstance(_n, _bsrc_ast.ImportFrom):
+            if _n.module:
+                _bsrc_imports.add(_n.module.split(".")[0])
+    check("backup_src: Leaf-Node — no forbidden pipeline imports",
+          _bsrc_imports.isdisjoint(_bsrc_forbidden))
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
 # ══════════════════════════════════════════════════════════════════════════════
 shutil.rmtree(_TMPDIR, ignore_errors=True)

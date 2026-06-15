@@ -53,8 +53,10 @@ AUTORESTORE_DIR  = BACKUP_DIR / "autorestore"  # defekte Stände vor Auto-Restor
 # Source archive (sole owner: garmin_source_writer.py)
 # Contains unmodified API responses before any pipeline processing.
 # Bulk import never writes here — only live API fetches.
-SOURCE_DIR     = GARMIN_DIR / "source"
-SOURCE_API_LOG = LOG_DIR / "source_api_log.json"
+SOURCE_DIR        = GARMIN_DIR / "source"
+SOURCE_API_LOG    = LOG_DIR / "source_api_log.json"
+# Source backup (sole owner: garmin_backup_source.py)
+SOURCE_BACKUP_DIR = BACKUP_DIR / "source"
 
 # Schema definition for garmin_validator.py
 DATAFORMAT_FILE = Path(__file__).parent / "garmin_dataformat.json"

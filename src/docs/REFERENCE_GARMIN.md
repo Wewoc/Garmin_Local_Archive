@@ -76,11 +76,28 @@ Intentional deviations from the invariants above. Each exception is stable by de
 
 Sole Owner of `garmin_data/source/` and `source_api_log.json`. Leaf-Node — only `garmin_config` + stdlib.
 `garmin_config` imported lazily inside each function (not at module level) — same pattern as `garmin_security.py`.
+After each successful `write_source()`: lazy import of `garmin_backup_source.backup_source()` — non-fatal.
 
 | Function | Purpose |
 |---|---|
-| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Atomic: `.tmp` → `fsync` → `os.replace`. Called before `validator.validate()`. Returns `bool`. Non-fatal |
+| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Atomic: `.tmp` → `fsync` → `os.replace`. Called before `validator.validate()`. Triggers `garmin_backup_source.backup_source()` after success (lazy, non-fatal). Returns `bool`. Non-fatal |
 | `update_log(date_str, val_result, endpoints_fetched, endpoints_failed, size_bytes)` | Upserts entry in `source_api_log.json`. Called after validator critical check — `validator_status` is known. Atomic write. Returns `bool`. Non-fatal |
+
+---
+
+## `garmin_backup_source.py`
+
+Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` + stdlib.
+
+**Invariant refinement (v1.6.0.4):**
+- `garmin_backup.py` — Sole Owner of `backup/raw/` + `backup/log/` (previously: all of `backup/`)
+- `garmin_backup_source.py` — Sole Owner of `backup/source/`
+
+| Function | Purpose |
+|---|---|
+| `backup_source(date_str)` | Copies `garmin_source_YYYY-MM-DD.json` to `backup/source/`. Called by `garmin_source_writer` after write. Returns `bool`. Non-fatal |
+| `backfill_source()` | Copies all source files without a backup copy. One-time operation. Returns `{"copied", "skipped", "failed"}` |
+| `check_source_backfill_needed()` | Returns count of source files without backup. Fast check, no copy |
 
 **Constants:**
 - `SOURCE_LOG_SCHEMA_VERSION = 1` — increment when log entry structure changes

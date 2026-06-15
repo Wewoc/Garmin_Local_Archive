@@ -172,6 +172,13 @@ class PanelArchive(QWidget):
             last_api  = stats["last_api"]  or "—"
             last_bulk = stats["last_bulk"] or "—"
 
+            # Source status — INTENTIONAL DIRECT READ via controller
+            import app.garmin_app_controller as _ctrl
+            src_stats   = _ctrl.get_source_stats(s)
+            src_total   = src_stats.get("total", 0)
+            src_present = src_stats.get("present", 0)
+            source_text = f"Source: {src_total} days · {src_present}/180d"
+
             ph = self._app._panel_home
             integrity_warnings = stats.get("integrity_warnings", [])
             integrity_text = (
@@ -187,6 +194,7 @@ class PanelArchive(QWidget):
                 ph._info_coverage.setText(f"Coverage: {coverage}")
                 ph._info_last_api.setText(f"Last API: {last_api}")
                 ph._info_last_bulk.setText(f"Last Bulk: {last_bulk}")
+                ph._info_source.setText(source_text)
                 ph._integrity_warning_lbl.setText(integrity_text)
 
                 # Device table — __total__ row is in device_table.json but

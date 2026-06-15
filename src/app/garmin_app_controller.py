@@ -127,6 +127,57 @@ def get_archive_stats(base_dir: str | Path) -> dict:
         return {}
 
 
+def get_source_stats(s: dict) -> dict:
+    """
+    Returns source archive status for the Archive Status block.
+
+    INTENTIONAL DIRECT READ: scans source/ directly.
+    Analog to timer_run_repair / timer_run_bulk_recheck — read-only analytical
+    fast-path. No mutation, no QUALITY_LOCK required.
+
+    Two independent values:
+      total   — all garmin_source_*.json files in source/ (no time limit)
+      present — source files whose date falls within the last 180 calendar days
+
+    Parameters
+    ----------
+    s : dict — settings dict from _collect_settings()
+
+    Returns
+    -------
+    dict with keys:
+      total   : int — all source files in source/ (0 if source/ absent)
+      present : int — source files within last 180 calendar days
+    """
+    try:
+        from datetime import date, timedelta
+
+        base_dir   = Path(s.get("base_dir", "")).expanduser()
+        source_dir = base_dir / "garmin_data" / "source"
+
+        if not source_dir.exists():
+            return {"total": 0, "present": 0}
+
+        cutoff  = date.today() - timedelta(days=180)
+        total   = 0
+        present = 0
+
+        for f in source_dir.glob("garmin_source_*.json"):
+            total += 1
+            stem     = f.stem  # garmin_source_YYYY-MM-DD
+            date_str = stem.replace("garmin_source_", "")
+            try:
+                if date.fromisoformat(date_str) >= cutoff:
+                    present += 1
+            except ValueError:
+                pass
+
+        return {"total": total, "present": present}
+
+    except Exception:
+        return {"total": 0, "present": 0}
+
+
 # ── Connection test ────────────────────────────────────────────────────────────
 
 def check_connection(s: dict, callbacks: dict) -> None:
