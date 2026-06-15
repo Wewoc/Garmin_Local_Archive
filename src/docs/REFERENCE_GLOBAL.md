@@ -36,6 +36,8 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_CONTEXT_LON` | float | `0.0` | Default longitude for context API collect — set via GUI |
 | `PYTHONUTF8` | str | `"1"` | Forces UTF-8 mode — prevents encoding issues on Windows |
 | `GARMIN_IMPORT_PATH` | str | `""` | Path to Garmin export ZIP or folder — triggers bulk import mode |
+| `GARMIN_SOURCE_BACKFILL` | str | `"0"` | `"1"` = run source backfill in `main()` step 5c — set by timer `source_backfill` mode only |
+| `GARMIN_SCHEMA_MIGRATE` | str | `"0"` | `"1"` = rewrite outdated summary files in `main()` step 3c |
 
 ---
 

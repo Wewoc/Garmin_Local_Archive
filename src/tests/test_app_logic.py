@@ -611,9 +611,60 @@ check("timer_run_fill: does not include raw-present date",
       _dt.date.fromisoformat(_high_date) not in _fill_result)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  18. Controller — check_integrity (exception-safe contract)
+#  18. Controller — timer_run_source_backfill
 # ══════════════════════════════════════════════════════════════════════════════
-section("18. Controller — check_integrity")
+section("18. Controller — timer_run_source_backfill")
+
+_sbf_no_log = {"base_dir": str(_TMPDIR / "no_such_sbf_dir")}
+check("source_backfill: no log → None",
+      controller_mod.timer_run_source_backfill(_sbf_no_log) is None)
+
+_sbf_base    = _TMPDIR / "sbf_test"
+_sbf_log_dir = _sbf_base / "garmin_data" / "log"
+_sbf_src_dir = _sbf_base / "garmin_data" / "source"
+_sbf_log_dir.mkdir(parents=True, exist_ok=True)
+_sbf_src_dir.mkdir(parents=True, exist_ok=True)
+
+_sbf_recent  = (_dt.date.today() - _dt.timedelta(days=10)).isoformat()
+_sbf_old     = (_dt.date.today() - _dt.timedelta(days=200)).isoformat()
+_sbf_bulk    = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()
+_sbf_has_src = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
+
+(_sbf_src_dir / f"garmin_source_{_sbf_has_src}.json").write_text("{}", encoding="utf-8")
+
+(_sbf_log_dir / "quality_log.json").write_text(json.dumps({"days": [
+    {"date": _sbf_recent,  "source": "api",  "quality": "high"},
+    {"date": _sbf_old,     "source": "api",  "quality": "high"},
+    {"date": _sbf_bulk,    "source": "bulk", "quality": "high"},
+    {"date": _sbf_has_src, "source": "api",  "quality": "high"},
+]}), encoding="utf-8")
+
+_sbf_s      = {"base_dir": str(_sbf_base)}
+_sbf_result = controller_mod.timer_run_source_backfill(_sbf_s)
+
+check("source_backfill: returns list when candidates exist",
+      isinstance(_sbf_result, list) and len(_sbf_result) >= 1)
+check("source_backfill: contains recent api day without source/ file",
+      _sbf_result is not None and
+      _dt.date.fromisoformat(_sbf_recent) in _sbf_result)
+check("source_backfill: excludes day with existing source/ file",
+      _sbf_result is not None and
+      _dt.date.fromisoformat(_sbf_has_src) not in _sbf_result)
+check("source_backfill: excludes bulk-sourced day",
+      _sbf_result is not None and
+      _dt.date.fromisoformat(_sbf_bulk) not in _sbf_result)
+check("source_backfill: excludes day older than 180 days",
+      _sbf_result is not None and
+      _dt.date.fromisoformat(_sbf_old) not in _sbf_result)
+check("source_backfill: result sorted oldest first",
+      _sbf_result is None or _sbf_result == sorted(_sbf_result))
+check("panel_timer: _timer_run_source_backfill defined",
+      "def _timer_run_source_backfill(" in _timer_src_text)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  19. Controller — check_integrity (exception-safe contract)
+# ══════════════════════════════════════════════════════════════════════════════
+section("19. Controller — check_integrity")
 
 # garmin_backup may not be importable in test env (ENV not set) —
 # controller must return safe fallback, never raise.

@@ -332,6 +332,50 @@ def timer_run_quality(s: dict) -> list | None:
         return None
 
 
+def timer_run_source_backfill(s: dict) -> list | None:
+    """Returns API days within last 180 days that have no source/ file. None if empty.
+
+    Called by the Background Timer source_backfill mode. Returns up to 30
+    candidates, oldest first — the timer picks min_days..max_days from this list
+    per cycle via random.sample (same as fill mode).
+
+    INTENTIONAL DIRECT READ — read-only analytical fast-path.
+    No mutation, no ownership transfer, no QUALITY_LOCK required.
+    os.replace() atomicity guarantees reader sees either the old or the
+    new complete file — never a partial write.
+    garmin_quality provides no filtered-list API for these queries;
+    adding one would inflate the module into a query gateway.
+    Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
+    """
+    try:
+        log_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
+        if not log_file.exists():
+            return None
+        source_dir = Path(s["base_dir"]) / "garmin_data" / "source"
+        data   = json.loads(log_file.read_text(encoding="utf-8"))
+        cutoff = date.today() - timedelta(days=180)
+        days = []
+        for e in data.get("days", []):
+            if e.get("source") != "api":
+                continue
+            date_str = e.get("date")
+            if not date_str:
+                continue
+            try:
+                d = date.fromisoformat(date_str)
+            except ValueError:
+                continue
+            if d < cutoff:
+                continue
+            src_file = source_dir / f"garmin_source_{date_str}.json"
+            if not src_file.exists():
+                days.append(d)
+        days.sort()
+        return days if days else None
+    except Exception:
+        return None
+
+
 def timer_run_fill(s: dict) -> list | None:
     """Returns dates completely absent from raw/ between earliest known and yesterday."""
     try:

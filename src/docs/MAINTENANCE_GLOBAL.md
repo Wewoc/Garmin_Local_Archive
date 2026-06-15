@@ -221,7 +221,7 @@ For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_man
 python tests/test_app_logic.py
 ```
 
-**Current count: 128 checks, 18 sections.**
+**Current count: 136 checks, 19 sections.**
 
 ### `tests/test_qt_app.py` — PyQt6 App layer (v1.5.4+)
 
@@ -235,6 +235,8 @@ pytest tests/test_qt_app.py -v
 **Test result v1.6.0:** 316 / 261 / 303 / 128 / 42 / 2 — all green
 
 **Test result v1.6.0.2:** 339 / 261 / 303 / 128 / 42 / 2 — all green
+
+**Test result v1.6.0.3:** 344 / 261 / 303 / 136 / 42 / 2 — all green
 
 Classes:
 - `TestQtSmoke` (4) — QApplication startup, PyQt6 importability, GUI-freedom regression for Settings/Controller, GUI-freedom guard for `scheduler/daily_update.py`
