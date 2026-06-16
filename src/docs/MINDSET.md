@@ -15,8 +15,7 @@ If used in research or publications, please cite as:
 
 # Mindset
 
-*The thinking behind Garmin Local Archive — why it exists, how it was 
-built, and why the architecture looks the way it does.*
+*The thinking behind Garmin Local Archive — why it exists, how it was built, and why the architecture looks the way it does.*
 
 *Current project status: v1.5.4.2*
 
@@ -24,54 +23,29 @@ built, and why the architecture looks the way it does.*
 
 ## Why this exists
 
-I read an article about analyzing Garmin data with AI. Sounded great —
-except I didn't want to send my health data to another cloud service.
-One cloud is already enough.
+I read an article about analyzing Garmin data with AI. Sounded great — except I didn't want to send my health data to another cloud service. One cloud is already enough.
 
-But there's a second problem that's less obvious and harder to recover 
-from: Garmin deletes your intraday data. The fine-grained stuff — 
-second-by-second heart rate, the stress curve from a difficult 
-afternoon, the breathing pattern during a night your HRV dropped — 
-disappears from their servers after roughly six months, based on what's visible in archive data from April 2026. For Garmin, old high-resolution data has no business value. For you, it's
-gone permanently. There's no export that brings it back.
+But there's a second problem that's less obvious and harder to recover from: Garmin deletes your intraday data. The fine-grained stuff — second-by-second heart rate, the stress curve from a difficult afternoon, the breathing pattern during a night your HRV dropped — disappears from their servers after approximately 134 days — measured empirically by comparing API response sizes across 181 consecutive days of archived data (June 2026). The transition is abrupt, not gradual: files older than 134 days drop from ~250 KB to ~20 KB, a factor of roughly 13×. For Garmin, old high-resolution data has no business value. For you, it's gone permanently. There's no export that brings it back.
 
 This tool exists because of both problems.
 
-There is a third problem that only becomes visible when you try to share the
-data with someone else — a doctor, a trainer, a researcher. In mechanical
-engineering, STEP and DXF are universal exchange formats: any CAD system reads
-them. In healthcare, equivalent standards exist for clinical systems — FHIR for
-structured records, DICOM for imaging, HL7 for hospital communication. But for
-consumer wearables, there is no equivalent. Every manufacturer speaks its own
-dialect. Garmin data is Garmin data. It does not travel.
+There is a third problem that only becomes visible when you try to share the data with someone else — a doctor, a trainer, a researcher. In mechanical engineering, STEP and DXF are universal exchange formats: any CAD system reads them. In healthcare, equivalent standards exist for clinical systems — FHIR for structured records, DICOM for imaging, HL7 for hospital communication. But for consumer wearables, there is no equivalent. Every manufacturer speaks its own dialect. Garmin data is Garmin data. It does not travel.
 
-Garmin Local Archive converts proprietary Garmin data into open, documented
-JSON formats — readable by any tool, any AI, any script. That is the closer
-answer to a format question that the healthcare world has not yet solved for
-wearables.
+Garmin Local Archive converts proprietary Garmin data into open, documented JSON formats — readable by any tool, any AI, any script. That is the closer answer to a format question that the healthcare world has not yet solved for wearables.
 
 ---
 
 ## How it was built
 
-I can't write Python. My options were learn it from scratch, pay 
-someone, or find a different way. This is the different way.
+I can't write Python. My options were learn it from scratch, pay someone, or find a different way. This is the different way.
 
-The architecture, module boundaries, data flow, and quality rules came 
-from engineering instinct applied to a software problem — my background
-is mechanical system design. The implementation — every line of Python 
-— came from Claude as coding partner.
+The architecture, module boundaries, data flow, and quality rules came from engineering instinct applied to a software problem — my background is mechanical system design. The implementation — every line of Python — came from Claude as coding partner.
 
 It started with 2–3 scripts and a dashboard. What it became was not the plan.
 
-Roughly half the time went into planning, architecture decisions, and 
-cross-model review — not implementation. No code without a prior 
-design decision.
+Roughly half the time went into planning, architecture decisions, and cross-model review — not implementation. No code without a prior design decision.
 
-The result works because it was treated like any other engineering 
-problem: define responsibilities clearly, keep modules from crossing 
-into each other's territory, test against real data, document decisions
-including the ones not taken.
+The result works because it was treated like any other engineering problem: define responsibilities clearly, keep modules from crossing into each other's territory, test against real data, document decisions including the ones not taken.
 
 *This didn't happen because there was time for it. It happened because stopping wasn't really an option.*
 
@@ -82,30 +56,15 @@ including the ones not taken.
 Three decisions shape everything else.
 
 **One module, one responsibility.**
-Every module owns exactly one thing and cannot touch what belongs to 
-another. `garmin_writer.py` is the only module that writes to `raw/` 
-and `summary/`. Nothing else writes there. This sounds obvious until 
-you see what happens when it isn't true: two modules write the same 
-file, one overwrites the other's work, and the failure is silent.
+Every module owns exactly one thing and cannot touch what belongs to another. `garmin_writer.py` is the only module that writes to `raw/` and `summary/`. Nothing else writes there. This sounds obvious until you see what happens when it isn't true: two modules write the same file, one overwrites the other's work, and the failure is silent.
 
 **The broker layer as the only data access point.**
-Dashboard specialists never read files directly. They ask `field_map` 
-and `context_map` — two routing modules that know where data lives. 
-Adding a new dashboard means writing one new specialist file. No 
-existing code changes. Adding a new data source means extending the 
-broker. All dashboards work automatically.
+Dashboard specialists never read files directly. They ask `field_map` and `context_map` — two routing modules that know where data lives. Adding a new dashboard means writing one new specialist file. No existing code changes. Adding a new data source means extending the broker. All dashboards work automatically.
 
 **Plugins contain no logic.**
-`weather_plugin.py` and `pollen_plugin.py` are metadata only — 
-endpoints, field names, file prefixes. No executable code. Adding a 
-new external data source means writing a new plugin file. The collect 
-and write modules work without modification.
+`weather_plugin.py` and `pollen_plugin.py` are metadata only — endpoints, field names, file prefixes. No executable code. Adding a new external data source means writing a new plugin file. The collect and write modules work without modification.
 
-These patterns have names in software development. I didn't know the 
-names when I made the decisions. I made them because the alternative 
-— modules that do multiple things, direct file access everywhere, 
-logic scattered across plugins — creates failures that are hard to 
-find and harder to fix. **Claude recognized that the solutions had names.**
+These patterns have names in software development. I didn't know the names when I made the decisions. I made them because the alternative — modules that do multiple things, direct file access everywhere, logic scattered across plugins — creates failures that are hard to find and harder to fix. **Claude recognized that the solutions had names.**
 
 ---
 
@@ -194,17 +153,9 @@ All Python implementation. Technical formulation of architecture principles. Spe
 
 ## What this isn't
 
-This is not a commercial product and not a demonstration of what AI 
-can do alone. It's a demonstration that the combination works — 
-domain understanding and engineering instinct from a human, 
-implementation from AI — and that the result can be something neither 
-would have produced independently.
+This is not a commercial product and not a demonstration of what AI can do alone. It's a demonstration that the combination works — domain understanding and engineering instinct from a human, implementation from AI — and that the result can be something neither would have produced independently.
 
-It's maintained when there's time and motivation. No support contract,
-no roadmap commitment. If you want something polished and guaranteed: 
-this isn't that. If you want something that works, that you can 
-inspect, and that keeps your data where it belongs: this might be 
-exactly that.
+It's maintained when there's time and motivation. No support contract, no roadmap commitment. If you want something polished and guaranteed: this isn't that. If you want something that works, that you can inspect, and that keeps your data where it belongs: this might be exactly that.
 
 ---
 
