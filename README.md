@@ -18,6 +18,17 @@ There's a second reason that matters more over time: Garmin degrades intraday da
 
 ---
 
+## Download
+
+| Version | Description | Requires |
+|---|---|---|
+| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
+| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
+
+No install, no terminal. Download, unzip, run.
+
+---
+
 ## What makes this different
 
 This project is as much a statement as it is a tool.
@@ -77,17 +88,6 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 <br><sub>Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
 The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
-
----
-
-## Download
-
-| Version | Description | Requires |
-|---|---|---|
-| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
-| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
-
-No install, no terminal. Download, unzip, run.
 
 ---
 

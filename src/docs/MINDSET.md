@@ -4,7 +4,7 @@
 Licensed under Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
 https://creativecommons.org/licenses/by-nc/4.0/
 
-You are free to share and adapt this material for any non-commercial purpose,
+You are free to share and adapt this material for any non-commercial purpose,| **Dialog** | UI migration sequence: panels as tkinter mixins first, then translate to PyQt6 | Drove the sequencing — extract all panels in tkinter (v1.5.3), then translate panel by panel to PyQt6 (v1.5.4); never change technology and structure simultaneously | Confirmed the failure mode of doing both at once; panel-by-panel translation as the stable path |
 as long as you give appropriate credit.
 
 If used in research or publications, please cite as:
@@ -15,8 +15,7 @@ If used in research or publications, please cite as:
 
 # Mindset
 
-*The thinking behind Garmin Local Archive — why it exists, how it was 
-built, and why the architecture looks the way it does.*
+*The thinking behind Garmin Local Archive — why it exists, how it was built, and why the architecture looks the way it does.*
 
 *Current project status: v1.5.4.2*
 
@@ -24,54 +23,29 @@ built, and why the architecture looks the way it does.*
 
 ## Why this exists
 
-I read an article about analyzing Garmin data with AI. Sounded great —
-except I didn't want to send my health data to another cloud service.
-One cloud is already enough.
+I read an article about analyzing Garmin data with AI. Sounded great — except I didn't want to send my health data to another cloud service. One cloud is already enough.
 
-But there's a second problem that's less obvious and harder to recover 
-from: Garmin deletes your intraday data. The fine-grained stuff — 
-second-by-second heart rate, the stress curve from a difficult 
-afternoon, the breathing pattern during a night your HRV dropped — 
-disappears from their servers after roughly six months, based on what's visible in archive data from April 2026. For Garmin, old high-resolution data has no business value. For you, it's
-gone permanently. There's no export that brings it back.
+But there's a second problem that's less obvious and harder to recover from: Garmin deletes your intraday data. The fine-grained stuff — second-by-second heart rate, the stress curve from a difficult afternoon, the breathing pattern during a night your HRV dropped — disappears from their servers after approximately 134 days — measured empirically by comparing API response sizes across 181 consecutive days of archived data (June 2026). The transition is abrupt, not gradual: files older than 134 days drop from ~250 KB to ~20 KB, a factor of roughly 13×. For Garmin, old high-resolution data has no business value. For you, it's gone permanently. There's no export that brings it back.
 
 This tool exists because of both problems.
 
-There is a third problem that only becomes visible when you try to share the
-data with someone else — a doctor, a trainer, a researcher. In mechanical
-engineering, STEP and DXF are universal exchange formats: any CAD system reads
-them. In healthcare, equivalent standards exist for clinical systems — FHIR for
-structured records, DICOM for imaging, HL7 for hospital communication. But for
-consumer wearables, there is no equivalent. Every manufacturer speaks its own
-dialect. Garmin data is Garmin data. It does not travel.
+There is a third problem that only becomes visible when you try to share the data with someone else — a doctor, a trainer, a researcher. In mechanical engineering, STEP and DXF are universal exchange formats: any CAD system reads them. In healthcare, equivalent standards exist for clinical systems — FHIR for structured records, DICOM for imaging, HL7 for hospital communication. But for consumer wearables, there is no equivalent. Every manufacturer speaks its own dialect. Garmin data is Garmin data. It does not travel.
 
-Garmin Local Archive converts proprietary Garmin data into open, documented
-JSON formats — readable by any tool, any AI, any script. That is the closer
-answer to a format question that the healthcare world has not yet solved for
-wearables.
+Garmin Local Archive converts proprietary Garmin data into open, documented JSON formats — readable by any tool, any AI, any script. That is the closer answer to a format question that the healthcare world has not yet solved for wearables.
 
 ---
 
 ## How it was built
 
-I can't write Python. My options were learn it from scratch, pay 
-someone, or find a different way. This is the different way.
+I can't write Python. My options were learn it from scratch, pay someone, or find a different way. This is the different way.
 
-The architecture, module boundaries, data flow, and quality rules came 
-from engineering instinct applied to a software problem — my background
-is mechanical system design. The implementation — every line of Python 
-— came from Claude as coding partner.
+The architecture, module boundaries, data flow, and quality rules came from engineering instinct applied to a software problem — my background is mechanical system design. The implementation — every line of Python — came from Claude as coding partner.
 
 It started with 2–3 scripts and a dashboard. What it became was not the plan.
 
-Roughly half the time went into planning, architecture decisions, and 
-cross-model review — not implementation. No code without a prior 
-design decision.
+Roughly half the time went into planning, architecture decisions, and cross-model review — not implementation. No code without a prior design decision.
 
-The result works because it was treated like any other engineering 
-problem: define responsibilities clearly, keep modules from crossing 
-into each other's territory, test against real data, document decisions
-including the ones not taken.
+The result works because it was treated like any other engineering problem: define responsibilities clearly, keep modules from crossing into each other's territory, test against real data, document decisions including the ones not taken.
 
 *This didn't happen because there was time for it. It happened because stopping wasn't really an option.*
 
@@ -82,30 +56,15 @@ including the ones not taken.
 Three decisions shape everything else.
 
 **One module, one responsibility.**
-Every module owns exactly one thing and cannot touch what belongs to 
-another. `garmin_writer.py` is the only module that writes to `raw/` 
-and `summary/`. Nothing else writes there. This sounds obvious until 
-you see what happens when it isn't true: two modules write the same 
-file, one overwrites the other's work, and the failure is silent.
+Every module owns exactly one thing and cannot touch what belongs to another. `garmin_writer.py` is the only module that writes to `raw/` and `summary/`. Nothing else writes there. This sounds obvious until you see what happens when it isn't true: two modules write the same file, one overwrites the other's work, and the failure is silent.
 
 **The broker layer as the only data access point.**
-Dashboard specialists never read files directly. They ask `field_map` 
-and `context_map` — two routing modules that know where data lives. 
-Adding a new dashboard means writing one new specialist file. No 
-existing code changes. Adding a new data source means extending the 
-broker. All dashboards work automatically.
+Dashboard specialists never read files directly. They ask `field_map` and `context_map` — two routing modules that know where data lives. Adding a new dashboard means writing one new specialist file. No existing code changes. Adding a new data source means extending the broker. All dashboards work automatically.
 
 **Plugins contain no logic.**
-`weather_plugin.py` and `pollen_plugin.py` are metadata only — 
-endpoints, field names, file prefixes. No executable code. Adding a 
-new external data source means writing a new plugin file. The collect 
-and write modules work without modification.
+`weather_plugin.py` and `pollen_plugin.py` are metadata only — endpoints, field names, file prefixes. No executable code. Adding a new external data source means writing a new plugin file. The collect and write modules work without modification.
 
-These patterns have names in software development. I didn't know the 
-names when I made the decisions. I made them because the alternative 
-— modules that do multiple things, direct file access everywhere, 
-logic scattered across plugins — creates failures that are hard to 
-find and harder to fix. **Claude recognized that the solutions had names.**
+These patterns have names in software development. I didn't know the names when I made the decisions. I made them because the alternative — modules that do multiple things, direct file access everywhere, logic scattered across plugins — creates failures that are hard to find and harder to fix. **Claude recognized that the solutions had names.**
 
 ---
 
@@ -113,7 +72,7 @@ find and harder to fix. **Claude recognized that the solutions had names.**
 
 **Garmin Local Archive** · [github.com/Wewoc/Garmin_Local_Archive](https://github.com/Wewoc/Garmin_Local_Archive)
 
-The following table documents how architectural and design decisions emerged during development (approximately from v0.4 to v1.5.4).
+The following table documents how architectural and design decisions emerged during development (approximately from v0.4 to v1.6.0.4).
 
 It distinguishes between:
 
@@ -143,6 +102,19 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **User** | v1.4 as testbed for v2.0 architecture | *"Could we use v1.4 as a dry run for the architecture?"* — idea to introduce real structure already in v1.4 | Analysed trade-offs, recommended dummy implementation of maps layer |
 | **User** | Dataset merge instead of overwrite (Bulk + API) | *"Take the better part from each source"* — after 429 lockout and bulk import rework | Developed merge logic and field-flagging concept |
 | **User** | Weather + pollen dashboard with toggleable charts | *"A dashboard showing pollen/weather data and sleep/HRV/Body Battery — individual charts can be toggled"* | Evaluated, implemented as Sleep & Recovery Context Dashboard |
+| **User** | Decompose in known technology first, then migrate | *"it has to be stable long-term, not easy short-term"* — explicit sequencing: tkinter panel split (v1.5.3) before PyQt6 migration (v1.5.4) | Confirmed the risk of migrating and restructuring simultaneously |
+| **User** | GUI/Controller separation before GUI migration | *"The coupling between logic and GUI is very tight right now — wouldn't it make sense to separate them?"* — driven by separation of concerns and `daily_update.py` headless requirement | Worked out module boundaries, identified `garmin_app_settings.py` and `garmin_app_controller.py` as extraction targets |
+| **User** | Root folder cleanup as v1.5 structural goal | Identified that root directory grows with every version — explicitly framed as preparation for v2.0 | Assessed scope, sequenced cleanup relative to other v1.5 work |
+| **User** | Multi-session phased build with NOTES handover | Structured v1.5.2 across four chat sessions (A–D) with explicit NOTES documents as continuity mechanism — *"document the notes for session C"* | Carried phase state between sessions, updated NOTES at end of each |
+| **User** | Dry run (Trockenlauf) before every implementation | *"a theoretical dry run — check whether everything has really been accounted for"* — enforced as mandatory step before v1.5.2 and v1.5.3 | Executed dry runs, documented results in refactoring documents |
+| **User** | No release without full review | Decision for separate `dev/v1.5.x` branch — *"I don't want to publish the code before I've fully checked it"* | Branch management strategy and release timing worked out |
+| **User** | Multi-device without cloud: Mirror Import as lock-free solution for time-offset operation | Operational requirement: two devices, one account, no cloud sync | Locking mechanism assessed as overengineering for single-user; Mirror Import architecture worked out |
+| **User** | `standard` labels instead of `medium`/`low` — semantic rename as conceptual correction | Observation: 92% of all entries labelled `medium` is not a quality judgement but a label error | Analysis confirmed: label describes an expectation, not the data — rename to `standard` as conceptual correction |
+| **User** | `source/` as third data silo — immutable truth from the server | *"raw/ is derived — what did the server actually deliver?"* | Architecture worked out: `garmin_source_writer.py` as sole owner, non-fatal, write after validator before normalizer |
+| **User** | 134-day degradation horizon empirically measured and verified | PowerShell analysis of file sizes across 181 days — pattern observed, confirmed in dialog | Analysis script written; threshold set conservatively as `INTRADAY_RETRY_WINDOW_DAYS = 180` |
+| **User** | Architecture check as dedicated process after passing tests | Explicit request: structured check across all architecture invariants after test suite run | Ten categories checked systematically; only real finding: `_should_write` discrepancy between collector and test after v1.5.7 migration |
+| **User** | `--onefile` replaced by `--onedir` for T3.1 | Observation: startup time noticeably affected by `%TEMP%` extraction — problem named | Trade-off analysed: startup speed vs. single-file convenience; `--onedir` confirmed as clear win |
+| **User** | `garmin_app_standalone.py` as deliberate redundancy | *"Scripts for purists — they won't have Python anyway"* — two near-identical files accepted as explicit trade-off for build target T3; never framed as clean, but as pragmatically correct for that user type | Identified non-trivial differences: `_STOP_EVENT` injection, `_register_embedded_packages()`, logging redirect — warned against treating both files as truly identical |
 | **Claude** | Single-owner principle for `quality_log.json` | *"Quality writes quality.json"* — User's idea for responsibility | Formulated it as an architecture principle, applied it consistently |
 | **Claude** | Schema versioning for summary files | — | Proposed `schema_version` field so `regenerate_summaries.py` can work selectively |
 | **Claude** | `NOTES_vX_Y_Z.md` workflow | Adopted immediately, applied in every subsequent session | Proposed: document decisions taken and not taken within a session |
@@ -151,8 +123,13 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **Claude** | Return `None` not `[]` for missing intraday data | — | Rationale: `None` = file missing, `[]` = file empty — semantically distinct |
 | **Claude** | 90-day baseline as reference framework for dashboards | — | Proposed rolling 90-day window values instead of fixed thresholds for HRV, sleep, etc. |
 | **Claude** | Disclaimer block in all dashboards | — | Proposed unified medical disclaimer: *"Informational only — not medical advice"* |
+| **Claude** | `garmin_app_settings.py` as clean extraction boundary | — | Proposed keyring, URL helpers, and settings as separable unit — extractable without touching GUI state machine |
+| **Claude** | `on_sso_required` callback as explicit user confirmation before SSO login | — | Proposed: no silent auth flow in the background; confirmation as UI principle consistent with project stance |
+| **Claude** | Encryption key auto-generated instead of manual setup | — | Insight: manual master password creates barrier for first-time use; auto-generation with Credential Manager preserves security model |
 | **Dialog** | `garmin_writer.py` as separate layer | *"You'd need to put a writer.py alongside it"* | Analysed consequences, showed where it helps for the roadmap |
 | **Dialog** | `correlation_concept.md` | *"Weather data, moon phases"* — then: *"as md, that's too good"* | Esoteric list, including Mercury retrograde with zero explanation |
+| **Dialog** | `scan_critical_deps.py` as pre-build safety net | *"First the scan, then the anchor"* | Proposed the scan/config pattern; Timo enforced it as mandatory |
+| **Dialog** | Airquality plugin as third context source | Decision: OpenWeatherMap Air Pollution API for PM2.5, PM10, NO2 | Architecture: plugin-only, broker extension, no schema change |
 | **Dialog** | Standalone EXE as third build target | *"Scripts for purists, EXE for everyone else"* | Analysed the consequences, worked out the three-target solution |
 | **Dialog** | Module structure (collector / normalizer / quality / writer) | *"If we're touching it anyway, why not do it properly?"* | Technical formulation of boundaries, identified cross-dependencies |
 | **Dialog** | Export range vs. sync range in UI | *"The range in the interface is only for sync, not for the scripts."* — Claude had conflated two separate UI concepts | Corrected, distinction applied throughout |
@@ -166,19 +143,17 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **Dialog** | Context pipeline (Open-Meteo weather + pollen) | Idea: external context data for sleep/recovery analysis | Architecture with `context/`, `weather_plugin.py`, `pollen_plugin.py` — no API key required |
 | **Dialog** | Multi-LLM loop as standard QA process | *"I ran Gemini through the project once — evaluate only, no changes"* | Claude evaluates Gemini/ChatGPT findings critically — architecturally valid points accepted, false positives rejected with reasoning |
 | **Dialog** | Local LLM for isolated single-file tasks | Decision: `qwen2.5-coder:14b` on RTX 4060 Ti for clearly scoped tasks | Formulated rule: architecture, multi-file, project context → Claude; single file without context → local model |
-| **User** | Decompose in known technology first, then migrate | *"it has to be stable long-term, not easy short-term"* — explicit sequencing: tkinter panel split (v1.5.3) before PyQt6 migration (v1.5.4) | Confirmed the risk of migrating and restructuring simultaneously |
-| **User** | GUI/Controller separation before GUI migration | *"The coupling between logic and GUI is very tight right now — wouldn't it make sense to separate them?"* — driven by separation of concerns and `daily_update.py` headless requirement | Worked out module boundaries, identified `garmin_app_settings.py` and `garmin_app_controller.py` as extraction targets |
-| **User** | Root folder cleanup as v1.5 structural goal | Identified that root directory grows with every version — explicitly framed as preparation for v2.0 | Assessed scope, sequenced cleanup relative to other v1.5 work |
-| **User** | Multi-session phased build with NOTES handover | Structured v1.5.2 across four chat sessions (A–D) with explicit NOTES documents as continuity mechanism — *"document the notes for session C"* | Carried phase state between sessions, updated NOTES at end of each |
-| **User** | Dry run (Trockenlauf) before every implementation | *"a theoretical dry run — check whether everything has really been accounted for"* — enforced as mandatory step before v1.5.2 and v1.5.3 | Executed dry runs, documented results in refactoring documents |
-| **Claude** | `garmin_app_settings.py` as clean extraction boundary | — | Proposed keyring, URL helpers, and settings as separable unit — extractable without touching GUI state machine |
 | **Dialog** | PyQt6 via single QWebEngineView, no tab-per-dashboard | *"what is the better option"* — concern about Chromium subprocess proliferation | Identified tab-per-dashboard as resource problem; proposed single QWebEngineView with QComboBox selector |
 | **Dialog** | Garmin SSO change (May 2026) — `garminconnect` breakage | Reported symptoms: login failures — *"garmin login acting up again"* | Identified root cause in upstream library; tracked GitHub issue status, confirmed fix path |
 | **Dialog** | Multi-LLM as structural QA — Gemini generates, Claude checks | *"I let Gemini generate first, then you review"* — named roles explicitly | Evaluated Gemini/ChatGPT outputs critically; accepted valid architectural points, rejected false positives with reasoning |
 | **Dialog** | Garmin blog as free feature backlog | *"Garmin publishes a blog post → you read 5 minutes → feature is built"* — HRV status pattern from Garmin blog directly mapped to sleep dashboard | Connected published metric explanations to existing dashboard capabilities |
-| **User** | `garmin_app_standalone.py` as deliberate redundancy | *"Scripts for purists — they won't have Python anyway"* — two near-identical files accepted as explicit trade-off for build target T3; never framed as clean, but as pragmatically correct for that user type | Identified non-trivial differences: `_STOP_EVENT` injection, `_register_embedded_packages()`, logging redirect — warned against treating both files as truly identical |
 | **Dialog** | `garmin_app_base.py` monolith held until v1.5.3 | Explicit decision to keep the ~2500-line base intact through v1.5.2 — *"v1.5.2 was foundational, not volume reduction"*; volume reduction scoped to v1.5.3 | Identified: ~4800 lines across two near-identical files as active tension; confirmed the monolith was the right call until the architectural foundation was in place |
 | **Dialog** | UI migration sequence: panels as tkinter mixins first, then translate to PyQt6 | Drove the sequencing — extract all panels in tkinter (v1.5.3), then translate panel by panel to PyQt6 (v1.5.4); never change technology and structure simultaneously | Confirmed the failure mode of doing both at once; panel-by-panel translation as the stable path |
+| **Dialog** | `garth` reclassified from dependency to sentinel | Observation: `garth` is transitive, not direct | Formalised as sentinel concept: monitor rather than pin |
+| **Dialog** | Retry logic for `standard` days only on concrete signal (previous day was `high`) | — | Gemini review: O(N²) at bulk import when previous-day lookup in `_upsert_quality` — lookup moved to fetch loop |
+| **Dialog** | `panel_archive._clean_archive()` regression: direct write access to `quality_log.json` | Regression from v1.5.x refactoring — found during architecture check | Delegation to `garmin_quality.cleanup_before_first_day()` identified as correction |
+| **Dialog** | `daily_update.py` refactor: delegation to `garmin_app_settings.load_settings()` instead of local settings copy | Session analysis: silent duplication of `SETTINGS_FILE` and `DEFAULT_SETTINGS` identified | *"More than a bugfix — an architecture clarification"* — explicitly documented which eight keys the scheduler actually needs |
+| **Dialog** | Summary files never transferred in Mirror Import | *"Schema version conflict is structurally eliminated this way"* — generate on target device, always | Confirmed: simpler than import + reject-or-regenerate logic; no schema version mismatch possible |
 
 ---
 
@@ -194,17 +169,9 @@ All Python implementation. Technical formulation of architecture principles. Spe
 
 ## What this isn't
 
-This is not a commercial product and not a demonstration of what AI 
-can do alone. It's a demonstration that the combination works — 
-domain understanding and engineering instinct from a human, 
-implementation from AI — and that the result can be something neither 
-would have produced independently.
+This is not a commercial product and not a demonstration of what AI can do alone. It's a demonstration that the combination works — domain understanding and engineering instinct from a human, implementation from AI — and that the result can be something neither would have produced independently.
 
-It's maintained when there's time and motivation. No support contract,
-no roadmap commitment. If you want something polished and guaranteed: 
-this isn't that. If you want something that works, that you can 
-inspect, and that keeps your data where it belongs: this might be 
-exactly that.
+It's maintained when there's time and motivation. No support contract, no roadmap commitment. If you want something polished and guaranteed: this isn't that. If you want something that works, that you can inspect, and that keeps your data where it belongs: this might be exactly that.
 
 ---
 

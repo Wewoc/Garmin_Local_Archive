@@ -650,7 +650,7 @@ def main(stop_event=None):
     except api.GarminLoginError as e:
         log.error(f"Login failed — aborting session: {e}")
         _close_session_log(_session_fh, _session_path, True, False)
-        return
+        sys.exit(1)
 
     if client is None:
         log.info("Login cancelled by user — aborting session.")
