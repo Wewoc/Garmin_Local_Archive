@@ -45,6 +45,13 @@ The registry closes this before v2.0 begins.
 **Pre-condition:** `dash_plotter_html_complex.py` internal restructuring
 (v1.4.8 pipeline hardening) must be complete — layout paths cleanly separated
 
+**Note (v1.6.0.4):** `backfill_source()` has no automatic trigger in the
+background timer. T3 (Standalone) cannot run `export/backfill_source_backup.py`.
+→ Timer integration: `check_source_backfill_needed() > 0` as trigger for
+`backfill_source()` in the background timer, analog to the existing
+source-backfill check. Self-deactivating once all source files are backed up.
+Target: v1.6.0.5 or v1.6.x.
+
 ---
 
 ### 1.6.1 — Encrypted Dashboards (Optional Export)

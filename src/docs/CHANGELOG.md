@@ -2,6 +2,39 @@
 
 ---
 
+## v1.6.0.4.1 — Login Failure Masking Fix
+
+`daily_update.py` reported success even when the entire Garmin sync failed
+due to a login error (e.g. MFA required in headless mode, or a rate-limited
+token probe after an invalid refresh token). Root cause: `garmin_collector.main()`
+caught `GarminLoginError` and returned silently — no exception, no exit code —
+so every caller saw a normal return and reported success regardless.
+
+**Changed modules:**
+- `garmin/garmin_collector.py` — `main()`: `except api.GarminLoginError` branch
+  now calls `sys.exit(1)` instead of a bare `return`, after the session log is
+  closed exactly as before. Matches the existing pattern already used in the
+  bulk-import branch of the same function.
+- `version.py` — `APP_VERSION` bumped to `1.6.0.4.1`.
+
+**Verified via DEPS-Scan (`v16005_01`):** isolated to this one location —
+`garmin_api.py`'s own `except GarminLoginError: raise` already re-raises
+correctly, no shadow copies elsewhere. All three real callers of `main()`
+already handle a non-zero exit correctly, no changes needed there:
+`daily_update.py` (`except SystemExit`), T1/T2 GUI subprocess
+(`proc.returncode` check), T3 Standalone (`except SystemExit` around
+`module.main(...)`).
+
+**What does not change:**
+- No callback/MFA handling added — headless mode still cannot resolve an
+  MFA challenge interactively. The fix only makes that failure visible
+  (Exit-Code 3, `daily_update.py` log landet unter `log/fail/`) statt stumm.
+- No GUI behaviour change.
+
+**Test result:** _ausstehend — test_local.py / test_app_logic.py vor Merge laufen lassen_
+
+---
+
 ## v1.6.0.4 — Source Replay + Source Status + Source Backup
 
 Closes the source archive triad: replay from source, backup of source,
