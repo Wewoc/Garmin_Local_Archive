@@ -18,17 +18,6 @@ There's a second reason that matters more over time: Garmin degrades intraday da
 
 ---
 
-## Download
-
-| Version | Description | Requires |
-|---|---|---|
-| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
-| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
-
-No install, no terminal. Download, unzip, run.
-
----
-
 ## What makes this different
 
 This project is as much a statement as it is a tool.
@@ -42,6 +31,19 @@ local copy of your Garmin data over time. Your data stays in open formats, reada
 | **Privacy risk** | Medium | High (training data risk) | **Minimal** |
 | **Access** | Online only | Requires subscription | **100% offline** |
 | **History** | Erodes over time | Depends on source | **Permanent local copy** |
+
+---
+
+## Download
+
+| Version | Description | Requires |
+|---|---|---|
+| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
+| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
+
+No install, no terminal. Download, unzip, run.
+
+---
 
 <img src="src/screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Home Tab">
 <br><sub>Home tab — fixed top area with connection status, archive stats by device, and Daily Actions (Sync / Mirror / Timer); dashboard viewer below.</sub>
