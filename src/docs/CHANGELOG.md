@@ -31,8 +31,6 @@ already handle a non-zero exit correctly, no changes needed there:
   (Exit-Code 3, `daily_update.py` log landet unter `log/fail/`) statt stumm.
 - No GUI behaviour change.
 
-**Test result:** _ausstehend — test_local.py / test_app_logic.py vor Merge laufen lassen_
-
 ---
 
 ## v1.6.0.4 — Source Replay + Source Status + Source Backup
