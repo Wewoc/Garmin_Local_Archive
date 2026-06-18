@@ -363,7 +363,7 @@ def _run_dashboards(s: dict) -> bool:
         ]
 
         base     = Path(s["base_dir"])
-        out_dir  = base / "garmin_data" / "dashboards"
+        out_dir  = base / "dashboards"
         out_dir.mkdir(parents=True, exist_ok=True)
 
         # Date range: full archive

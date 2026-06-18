@@ -2,6 +2,42 @@
 
 ---
 
+## v1.6.0.4.2 — Dashboard Output Path Fix
+
+Daily Sync (both GUI and headless `daily_update.py`) wrote dashboard files
+to `garmin_data/dashboards/` instead of `dashboards/`. The Dashboard viewer
+and Create Reports both read from `dashboards/`, so after a Daily Sync the
+viewer showed stale files from the previous manual build — missing the most
+recent day.
+
+Root cause: `_run_all_dashboards()` in `panel_outputs.py` and
+`_run_dashboards()` in `daily_update.py` both used
+`base / "garmin_data" / "dashboards"` as output path. All other consumers
+(`_scan_dashboards`, `_scan_xlsx_files`, `_run_dashboards` manual build,
+`garmin_mobile_landing.py`) already used the correct `base / "dashboards"`.
+
+**Changed modules:**
+- `app/panel_outputs.py` — `_run_all_dashboards()`: output path changed from
+  `base / "garmin_data" / "dashboards"` to `base / "dashboards"`
+- `scheduler/daily_update.py` — `_run_dashboards()`: output path changed from
+  `base / "garmin_data" / "dashboards"` to `base / "dashboards"`
+- `garmin_app_base.py` — `_scan_dashboards()` docstring corrected
+  ("garmin_data/dashboards/" → "dashboards/")
+- `version.py` — `APP_VERSION` bumped to `1.6.0.4.2`
+
+**What does not change:**
+- No archive data affected — `garmin_data/` contents untouched
+- No dashboard rendering logic changed — only the output directory
+- No new dependencies
+
+**Manual cleanup:** Delete `garmin_data/dashboards/` if present — it is no
+longer written to and contains stale files.
+
+**Verified via DEPS-Scan (`v1604_01`):** all dashboard path references checked
+project-wide. The two fixed locations are the only ones using the wrong path.
+
+---
+
 ## v1.6.0.4.1 — Login Failure Masking Fix
 
 `daily_update.py` reported success even when the entire Garmin sync failed
@@ -30,8 +66,6 @@ already handle a non-zero exit correctly, no changes needed there:
   MFA challenge interactively. The fix only makes that failure visible
   (Exit-Code 3, `daily_update.py` log landet unter `log/fail/`) statt stumm.
 - No GUI behaviour change.
-
-**Test result:** _ausstehend — test_local.py / test_app_logic.py vor Merge laufen lassen_
 
 ---
 

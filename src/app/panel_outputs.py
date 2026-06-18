@@ -755,7 +755,7 @@ class PanelOutputs(QWidget):
         date_from = dates[0]  if dates else (today - timedelta(days=90)).isoformat()
         date_to   = dates[-1] if dates else today.isoformat()
 
-        output_dir = base / "garmin_data" / "dashboards"
+        output_dir = base / "dashboards"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         self._app._log("\n▶  Daily Sync — building dashboards ...")
