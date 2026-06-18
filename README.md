@@ -12,20 +12,9 @@ Archive and analyze your Garmin Connect data **locally on your machine** — `cr
 
 I wanted to ask an AI questions about my health data without sending that data to another cloud service. So I built a local alternative instead.
 
-There's a second reason that matters more over time: Garmin degrades intraday data — based on archive data collected in April 2026, full resolution is only available for the most recent ~6 months. Once it's gone, it's gone permanently. This tool exists to capture it while it's still available.
+There's a second reason that matters more over time: Garmin silently degrades intraday data resolution. Empirical analysis of archive data (April 2026) shows the threshold at approximately 135 days. Once full resolution is lost, it's gone permanently. This tool exists to capture it while it's still available.
 
 *→ For the full story, see [MINDSET.md](docs/MINDSET.md).*
-
----
-
-## Download
-
-| Version | Description | Requires |
-|---|---|---|
-| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
-| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
-
-No install, no terminal. Download, unzip, run.
 
 ---
 
@@ -42,6 +31,20 @@ local copy of your Garmin data over time. Your data stays in open formats, reada
 | **Privacy risk** | Medium | High (training data risk) | **Minimal** |
 | **Access** | Online only | Requires subscription | **100% offline** |
 | **History** | Erodes over time | Depends on source | **Permanent local copy** |
+
+---
+
+## Download
+
+| Version | Description | Requires |
+|---|---|---|
+| [Garmin_Local_Archive_Standalone.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | **Recommended — no setup needed** | Nothing |
+| [Garmin_Local_Archive.zip](https://github.com/Wewoc/Garmin_Local_Archive/releases/latest) | Standard version | Python 3.10+ |
+
+No install, no terminal. Download, unzip, run.
+Standard version: install dependencies first — `pip install -r requirements.txt`.
+
+---
 
 <img src="src/screenshots/GUI-Page_1.jpg" width="800" alt="Garmin Local Archive — Home Tab">
 <br><sub>Home tab — fixed top area with connection status, archive stats by device, and Daily Actions (Sync / Mirror / Timer); dashboard viewer below.</sub>
@@ -117,13 +120,9 @@ I can't write Python. The architecture, module boundaries, and decisions are min
 
 ## Recovering your history — Bulk Import
 
-Garmin degrades intraday data after roughly six months rather than deleting it at once. Based on archive data collected in April 2026: the most recent ~6 months deliver full resolution (~500 KB/day); anything older contains only daily aggregates. Once it's gone, the API can't retrieve what's been removed — and the boundary shifts forward over time.
+The GDPR export from Garmin contains your complete daily history — but in our testing, no intraday data was found (no heart rate curves, no stress timelines, no body battery graphs). That resolution appears to be available only through the API, and only for recent days (see above).
 
-The **Bulk Import** feature closes this gap: request your full GDPR data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
-
-> Garmin Connect → Settings → Data Management → Export Data
-
-This is what makes the archive genuinely complete, not just a rolling window.
+The **Bulk Import** feature fills in the rest: request your full data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete daily history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
 
 ---
 
@@ -328,21 +327,23 @@ The project is structured into five focused layers. Each layer has a single resp
 
 Each module is self-contained and designed to be extended. Add new fields, metrics, or dashboard specialists without touching the rest of the system. See `docs/MAINTENANCE_GLOBAL.md` for how.
 
-The desktop app includes a **Background Timer** — fully automatic background sync that repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~6 months), and fills missing days, all while the app is open without any manual intervention.
-
+The desktop app includes a **Background Timer** — fully automatic background sync that repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~135 days), and fills missing days, all while the app is open without any manual intervention.
+ 
 Data is stored in two root folders:
-
+ 
 ```
 garmin_data/
-├── raw/        – complete API dumps (~500 KB/day) — permanent archive
-├── summary/    – compact daily JSONs (~2 KB/day)  — for Ollama / Open WebUI / AnythingLLM
+├── raw/        – complete API dumps (~500 KB/day) — permanent archive / basis for dashboards and analysis
+├── source/     – unmodified API responses (~250 KB/day) — replay-safe intraday backup
+├── summary/    – compact daily JSONs (~2 KB/day)  — basis for dashboards and analysis
 └── log/        – session logs, quality register, encrypted token
-
+ 
 context_data/
 ├── weather/raw/    – daily weather archive (Open-Meteo)
 ├── pollen/raw/     – daily pollen archive (Open-Meteo Air Quality)
 └── brightsky/raw/  – daily weather archive (Brightsky DWD)
 ```
+
 
 ---
 

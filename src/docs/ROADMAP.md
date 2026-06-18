@@ -6,11 +6,40 @@
 
 ---
 
-**Currently stable — v1.6.0.4**
+**Currently stable — v1.6.0.4.2**
 
 ---
 
 ## Planned
+
+---
+
+### v1.6.0.4.3 — Security and Architecture Fixes (small collection)
+
+This is a collection of small, independent fixes.
+Each item remains a separate change with its own DEPS scan; this entry only bundles them as a roadmap item, not as a single build task.
+
+**A — Quick wins (meaningful regardless of scope):**
+- A1 — Add CVE scanning (`pip-audit`/OSV) in addition to the heuristic `scan_critical_deps`.
+- A2 — Bundle Plotly with a fixed hash; remove or hash-check the unchecked runtime fallback.
+- A3 — Perform secret redaction directly in the logging handler instead of only during clipboard copy.
+- A4 — Add a note about cloud folders and OS accounts (in README/SECURITY); optionally, implement NTFS ACLs on `garmin_data/`.
+- A5 — Explicitly harden `QWebEngineSettings`; escape Garmin-specific text before HTML interpolation.
+
+**B — Verification (confirm assumptions from the risk assessment):**
+- B1 — Confirm the code signing status of the EXEs.
+- B2 — Confirm: no log path contains a complete credential.
+- B3 — Confirm: `base_dir` never ends up in a cloud sync folder by default.
+
+**C — Documentation:**
+- C1 — Document the principle "Open Archive over At-Rest Encryption" in `MINDSET.md`.
+- C2 — Add information about the plaintext status of live data and a note about cloud folders in `SECURITY.md`.
+- C3 — Document the release process (release permissions, MFA, branch protection, signed tags).
+
+**Architecture Check (2026-06-15):**
+- 🔴 TODO-1 — `_should_write` discrepancy between code and `test_local.py` — **Status unclear, suspicion of an outdated test file from before the v1.6.0.1 `src/` restructuring, not yet verified.**
+- 🟡 TODO-2 — Rewrite section 5 of `GLA_PROMPT_1_Architecture-Check.md` to reflect the panel composition model (since v1.5.4) — currently, it describes the old mixin model.
+- 🟢 TODO-3 — Add an explanatory comment for the deliberate `_QUALITY_RANK` isolation in `garmin_import_mirror.py`.
 
 ---
 
@@ -484,7 +513,9 @@ Core pipeline is covered by five test suites (218 + 134 + 211 + 80 checks + 8 se
 - Mobile app
 - Automatic data sharing, cloud sync, or social comparison features
 - GUI and EXE are Windows-only and will remain so. The collector scripts work on Linux and macOS but are untested and unsupported — use at your own risk.
-- Code signing or automatic updates
+- Code signing or automatic updates (see `TODO_HARDENING.md` D1 — decision-gated on commercial scope)
+- Generated SBOM + hash-locked dependency lockfile (`TODO_HARDENING.md` D2 — dossier value only, no urgency for a hobby tool)
+- Formal documented vulnerability-handling process beyond the existing `SECURITY.md` disclosure channel (`TODO_HARDENING.md` D3)
 
 ---
 
