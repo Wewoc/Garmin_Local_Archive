@@ -551,7 +551,7 @@ class GarminApp(QMainWindow):
     # ── Dashboard tab helpers ──────────────────────────────────────────────────
 
     def _scan_dashboards(self, auto_load: str = None):
-        """Scan garmin_data/dashboards/ for HTML files and populate Dashboard combo.
+        """Scan dashboards/ for HTML files and populate Dashboard combo.
         Called on startup and after every dashboard build (on_done via _dispatch)."""
         s        = self._panel_settings._collect_settings()
         dash_dir = Path(s.get("base_dir", "")) / "dashboards"
