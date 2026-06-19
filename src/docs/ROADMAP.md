@@ -14,7 +14,7 @@
 
 ---
 
-### v1.6.0.4.3 — Security and Architecture Fixes (small collection)
+### v1.6.0.4.4 — Security and Architecture Fixes (small collection)
 
 This is a collection of small, independent fixes.
 Each item remains a separate change with its own DEPS scan; this entry only bundles them as a roadmap item, not as a single build task.
