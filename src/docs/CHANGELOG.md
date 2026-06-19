@@ -2,6 +2,57 @@
 
 ---
 
+## v1.6.0.4.3 — Global Exception Capture (Crash Visibility)
+
+Forensic analysis of a `Garmin_Local_Archive.exe` Windows crash report
+(`0xc0000409` / `FATAL_APP_EXIT`, Qt6Core.dll) found that uncaught exceptions
+on the GUI's main thread or in background `threading.Thread` workers
+terminated the process via `qFatal`/`abort` with no trace on disk — the GUI
+process had no own file logging; only an active sync session ever wrote to
+`recent/`/`fail/`/`daily/`. This crash class was invisible by design.
+
+**New modules:**
+- `crash_handler.py` — Leaf-Node (stdlib only, no project imports). Installs
+  global crash capture at process start: `sys.excepthook` (main thread,
+  fail-loud — writes crash log, flushes, best-effort message box, `exit(1)`),
+  `threading.excepthook` (daemon workers, fail-isolated — writes crash log,
+  thread dies, GUI stays alive — per the existing worker rule: file-only,
+  never touches widgets), and an optional `qInstallMessageHandler` for Qt's
+  own fatal/critical messages. `QThread` surfaces are intentionally out of
+  scope — the project does not use `QThread` (see architecture decision).
+  A true native segfault remains outside Python's reach — acknowledged limit.
+  Crash logs are written to a **fixed local path**
+  (`%LOCALAPPDATA%\GarminLocalArchive\crash\`, falling back to `%TEMP%` then
+  cwd) — deliberately *not* under the configurable `base_dir/garmin_data/log/`
+  tree, because the crash itself may be caused by `base_dir` being unwritable
+  or unreachable. Rotation: `CRASH_LOG_MAX = 30`, analogous to the existing
+  `LOG_RECENT_MAX` / `LOG_DAILY_MAX` pattern. Entry-point agnostic
+  (`install(log_dir, app_version, exit_on_main)`) so headless entry points
+  (`daily_update.py`, `garmin_collector.main()`) can adopt it in a future step.
+
+**Changed modules:**
+- `garmin_app.py` — `crash_handler.install(...)` called at the top of
+  `__main__`, before `QApplication` is constructed.
+- `garmin_app_standalone.py` — same install, identical placement. Both entry
+  points written out explicitly per project convention.
+- `compiler/build_manifest.py` — `crash_handler.py` added to `SHARED_SCRIPTS`
+  (flat src-root, alongside `version.py` / `garmin_app_base.py`) and to
+  `SCRIPT_SIGNATURES_BASE` (`["def install"]`).
+- `export/backfill_source_backup.py` — two extraneous `f`-string prefixes
+  removed (`F541`, no placeholders present) — unrelated ruff finding caught
+  by the same test run, fixed in passing.
+- `version.py` — `APP_VERSION` bumped to `1.6.0.4.3`.
+
+**What does not change:**
+- No change to `garmin_collector`, `daily_update`, or any pipeline module.
+- The April `AppHang` cluster and the May `RADAR_PRE_LEAK` event found during
+  the same forensic session are separate, unrelated issues and are not
+  addressed here — tracked separately for future investigation.
+
+**Test result:** 361 / 261 / 303 / 136 / 42 — all green, ruff 0 errors
+
+---
+
 ## v1.6.0.4.2 — Dashboard Output Path Fix
 
 Daily Sync (both GUI and headless `daily_update.py`) wrote dashboard files

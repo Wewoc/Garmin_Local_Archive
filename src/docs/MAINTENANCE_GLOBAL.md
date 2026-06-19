@@ -34,6 +34,14 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 `build_all.py` runs both targets sequentially, preceded by the full test suite.
 
+**Crash visibility (v1.6.0.4.3):** `crash_handler.py` is installed at the top
+of `__main__` in both GUI entry points (`garmin_app.py`, `garmin_app_standalone.py`),
+before `QApplication`. It is registered in `SHARED_SCRIPTS` /
+`SCRIPT_SIGNATURES_BASE` in `build_manifest.py` — both Target 2 and Target 3
+bundle it automatically. `daily_update.py` (headless, all targets) does not
+install it yet — `crash_handler.install()` is entry-point-agnostic and can be
+adopted there in a future step; not bundled with this delivery (separate scope).
+
 ---
 
 ## Building a release

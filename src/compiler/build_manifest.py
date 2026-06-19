@@ -26,6 +26,7 @@ SHARED_SCRIPTS = [
     # app base
     "version.py",
     "garmin_app_base.py",
+    "crash_handler.py",
     # garmin pipeline
     "garmin/garmin_config.py",
     "garmin/garmin_utils.py",
@@ -131,6 +132,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_source_writer.py": ["def write_source", "def update_log"],
     "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
+    "crash_handler.py": ["def install"],
 }
 
 # ── Docs ──────────────────────────────────────────────────────────────────────

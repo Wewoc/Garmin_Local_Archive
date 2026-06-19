@@ -231,6 +231,10 @@ class GarminApp(_GarminAppBase):
 
 
 if __name__ == "__main__":
+    import crash_handler
+    from version import APP_VERSION
+    crash_handler.install(app_version=APP_VERSION, exit_on_main=True)
+
     qapp = QApplication(sys.argv)
     qapp.setStyle("Fusion")
 
