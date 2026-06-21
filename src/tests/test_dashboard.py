@@ -324,6 +324,64 @@ check("timeseries specialist found",            ts_spec is not None)
 check("timeseries has html format",             "html" in ts_spec["formats"])
 check("timeseries has description",             ts_spec["description"] != "")
 
+# ── A6: sichtbarer Skip statt stillem Verschwinden ─────────────────────────────
+# Drei Skip-Pfade einzeln getestet — Dummy-Dateien werden direkt in den echten
+# dashboards_dir geschrieben (scan() hat keinen Pfad-Parameter) und sofort
+# wieder entfernt. Vorher/Nachher-Check stellt sicher, dass kein Dummy-File
+# eine bestehende Specialist-Datei überschreibt.
+_dash_dir = _ROOT / "dashboards"
+
+def _scan_with_log():
+    _msgs = []
+    _specs = dash_runner.scan(log=lambda m: _msgs.append(m))
+    return _specs, _msgs
+
+# 1. Ladefehler — Syntaxfehler im Dummy-Specialist
+_bad_load_file = _dash_dir / "zzz_test_bad_load_dash.py"
+_bad_load_file.write_text("def build(:\n    pass\n", encoding="utf-8")
+try:
+    _specs1, _msgs1 = _scan_with_log()
+    check("skip load-error: not in specialists list",
+          not any(_bad_load_file.stem in str(s.get("module")) for s in _specs1))
+    check("skip load-error: logged",
+          any(_bad_load_file.name in m for m in _msgs1))
+finally:
+    _bad_load_file.unlink(missing_ok=True)
+
+# 2. Fehlendes/ungültiges META
+_bad_meta_file = _dash_dir / "zzz_test_bad_meta_dash.py"
+_bad_meta_file.write_text("META = 'not_a_dict'\n\ndef build(a, b, c):\n    return {}\n",
+                          encoding="utf-8")
+try:
+    _specs2, _msgs2 = _scan_with_log()
+    check("skip bad-meta: not in specialists list",
+          not any(s.get("name") == _bad_meta_file.stem for s in _specs2))
+    check("skip bad-meta: logged",
+          any(_bad_meta_file.name in m for m in _msgs2))
+finally:
+    _bad_meta_file.unlink(missing_ok=True)
+
+# 3. Keine passenden Formate — META vorhanden, aber Format-Key nicht registriert
+_bad_fmt_file = _dash_dir / "zzz_test_bad_fmt_dash.py"
+_bad_fmt_file.write_text(
+    "META = {'name': 'zzz_test_bad_fmt', 'description': '', 'source': '',"
+    " 'formats': {'nonexistent_fmt': 'x.foo'}}\n\n"
+    "def build(a, b, c):\n    return {}\n",
+    encoding="utf-8",
+)
+try:
+    _specs3, _msgs3 = _scan_with_log()
+    check("skip no-formats: not in specialists list",
+          not any(s.get("name") == "zzz_test_bad_fmt" for s in _specs3))
+    check("skip no-formats: logged",
+          any(_bad_fmt_file.name in m for m in _msgs3))
+finally:
+    _bad_fmt_file.unlink(missing_ok=True)
+
+# Bestätigung: nach Cleanup wieder im Normalzustand
+check("post-cleanup: timeseries specialist still found",
+      any("Timeseries" in s["name"] for s in dash_runner.scan()))
+
 _out_dir = _TMPDIR / "dashboards_out"
 _out_dir.mkdir()
 

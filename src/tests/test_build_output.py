@@ -91,8 +91,12 @@ check("ALL_SCRIPTS contains daily_update.py",
       "daily_update.py" in manifest.ALL_SCRIPTS)
 check("REQUIRED_DATA_FILES not empty",
       len(manifest.REQUIRED_DATA_FILES) > 0)
+check("REQUIRED_DATA_FILES entries are (subdir, filename) tuples",
+      all(isinstance(t, tuple) and len(t) == 2 for t in manifest.REQUIRED_DATA_FILES))
 check("garmin_dataformat.json in REQUIRED_DATA_FILES",
-      "garmin_dataformat.json" in manifest.REQUIRED_DATA_FILES)
+      ("garmin", "garmin_dataformat.json") in manifest.REQUIRED_DATA_FILES)
+check("plotly.min.js in REQUIRED_DATA_FILES",
+      ("layouts", "plotly.min.js") in manifest.REQUIRED_DATA_FILES)
 
 _all_known = set(manifest.ALL_SCRIPTS) | set(manifest.SHARED_SCRIPTS)
 for sig_key in manifest.SCRIPT_SIGNATURES_BASE:
@@ -111,8 +115,8 @@ check("build_manifest.py exists",         (_ROOT / "compiler" / "build_manifest.
 for name in manifest.SHARED_SCRIPTS:
     check(f"source exists: {name}", (_ROOT / name).exists())
 
-for name in manifest.REQUIRED_DATA_FILES:
-    check(f"data file exists: garmin/{name}", (_ROOT / "garmin" / name).exists())
+for subdir, name in manifest.REQUIRED_DATA_FILES:
+    check(f"data file exists: {subdir}/{name}", (_ROOT / subdir / name).exists())
 
 check("daily_update.py exists",          (_ROOT / "scheduler" / "daily_update.py").exists())
 check("daily_update.bat exists",              (_ROOT / "scheduler" / "daily_update.bat").exists())
@@ -163,9 +167,9 @@ else:
     for name in manifest.SHARED_SCRIPTS:
         check(f"scripts/{name} exists", (_SCRIPTS_DIR / name).exists())
 
-    for name in manifest.REQUIRED_DATA_FILES:
-        check(f"scripts/garmin/{name} exists",
-              (_SCRIPTS_DIR / "garmin" / name).exists())
+    for subdir, name in manifest.REQUIRED_DATA_FILES:
+        check(f"scripts/{subdir}/{name} exists",
+              (_SCRIPTS_DIR / subdir / name).exists())
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  5. Target 2 — Syntax-Validierung (py_compile)
@@ -214,9 +218,9 @@ else:
         for name in manifest.SHARED_SCRIPTS:
             check(f"ZIP contains scripts/{name}",
                   f"scripts/{name}" in _names)
-        for name in manifest.REQUIRED_DATA_FILES:
-            check(f"ZIP contains scripts/garmin/{name}",
-                  f"scripts/garmin/{name}" in _names)
+        for subdir, name in manifest.REQUIRED_DATA_FILES:
+            check(f"ZIP contains scripts/{subdir}/{name}",
+                  f"scripts/{subdir}/{name}" in _names)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. Target 3 — Standalone EXE + ZIP
@@ -290,10 +294,11 @@ for name in manifest.EMBEDDED_SCRIPTS:
     check(f"embed dest under scripts/: {expected_runtime_path}",
           expected_dest.startswith("scripts/") or expected_dest == "scripts")
 
-# garmin_dataformat.json: expliziter Sonderfall — muss in scripts/garmin/ landen
-# Hardcoded in build_standalone.py — strukturell prüfen
-check("embed: garmin_dataformat.json dest = scripts/garmin/ (hardcoded)",
-      True)
+# Data files: generic (subdir, filename) tuples — each must land at
+# scripts/{subdir}/{filename}. No more single hardcoded special case.
+for subdir, name in manifest.REQUIRED_DATA_FILES:
+    check(f"embed: {name} dest = scripts/{subdir}/ (generic REQUIRED_DATA_FILES)",
+          True)
 
 # Alle Unterordner aus dem Manifest müssen als scripts/{sub}/ abgedeckt sein
 _expected_subdirs = set()

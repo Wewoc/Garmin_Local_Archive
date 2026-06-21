@@ -36,6 +36,11 @@ GITHUB_REPOS = [
         "pkg":   "garminconnect",
     },
     {
+        "repo":  "plotly/plotly.js",
+        "type":  "dependency",
+        "label": "Plotly.js (dashboard charts, version pinned in dash_layout_html.py)",
+    },
+    {
         "repo":  "matin/garth",
         "type":  "sentinel",
         "label": "garth (auth layer)",

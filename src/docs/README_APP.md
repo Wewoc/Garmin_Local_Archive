@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.0.4.3
+# Garmin Local Archive — Desktop App v1.6.0.4.4
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -354,6 +354,8 @@ A ready-to-import XML template (`daily_update_task.xml`) ships in `info/`. Impor
 | Settings missing | Stays open — open the app and save settings first |
 
 **Prerequisite:** The app must be configured at least once (email, password, folder, location saved) before `daily_update` can run. Running it before setup results in a hard stop with a clear message.
+
+**After updating the app:** A fresh build occasionally causes Garmin to reject the saved token on the next login, sometimes paired with a step-up verification (MFA) — `daily_update` cannot resolve this headlessly and will fail visibly. If a scheduled run fails right after an update, open the GUI once and complete a normal login (entering the MFA code if prompted). This re-establishes a valid token, and the next scheduled run will succeed normally.
 
 ---
 

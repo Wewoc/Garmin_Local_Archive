@@ -39,6 +39,7 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 import garmin_app_settings as _settings
 import garmin_app_controller as _controller
+import garmin_redact as _redact
 
 from app.panel_settings   import PanelSettings
 from app.panel_connection import PanelConnection
@@ -402,7 +403,7 @@ class GarminApp(QMainWindow):
         """Write to log widget. Main Thread only."""
         if not hasattr(self, "log"):
             return
-        self.log.appendPlainText(text)
+        self.log.appendPlainText(_redact.redact(text))
         self.log.moveCursor(QTextCursor.MoveOperation.End)
 
     def _log_bg(self, text: str):

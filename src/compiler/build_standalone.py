@@ -96,10 +96,10 @@ def validate_scripts(root: Path):
                 errors.append(f"  ✗ Wrong content: {name}  (expected: '{sig}')")
 
     # Required data files
-    for name in manifest.REQUIRED_DATA_FILES:
-        path = root / "garmin" / name
+    for subdir, name in manifest.REQUIRED_DATA_FILES:
+        path = root / subdir / name
         if not path.exists():
-            errors.append(f"  ✗ Missing data file: garmin/{name}")
+            errors.append(f"  ✗ Missing data file: {subdir}/{name}")
 
     if errors:
         print("  Build aborted — validation failed:")
@@ -129,13 +129,19 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
         dest = f"scripts/{subfolder}" if str(subfolder) != "." else "scripts"
         add_data_args += ["--add-data", f"{src}{sep}{dest}"]
 
-    # Embed garmin_dataformat.json
-    dataformat_src = root / "garmin" / "garmin_dataformat.json"
-    if dataformat_src.exists():
-        add_data_args += ["--add-data", f"{dataformat_src}{sep}scripts/garmin"]
-    else:
-        print("  ✗ garmin_dataformat.json not found in garmin/ — aborting build")
-        sys.exit(1)
+    # Embed required data files (generic — was hardcoded to garmin_dataformat.json only)
+    # NOTE: loop variable deliberately named data_name, not name — this function's
+    # own `name` parameter (the PyInstaller --name / EXE filename) was being silently
+    # overwritten by this loop once REQUIRED_DATA_FILES grew to 2+ entries, causing
+    # both T3.1 and T3.2 to be built as "plotly.min.js.exe" instead of their real
+    # names. Found via a real build_all.py run (v1.6.0.4.4).
+    for subdir, data_name in manifest.REQUIRED_DATA_FILES:
+        data_src = root / subdir / data_name
+        if data_src.exists():
+            add_data_args += ["--add-data", f"{data_src}{sep}scripts/{subdir}"]
+        else:
+            print(f"  ✗ {data_name} not found in {subdir}/ — aborting build")
+            sys.exit(1)
 
 
     hidden = [

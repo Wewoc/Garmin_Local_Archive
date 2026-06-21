@@ -182,6 +182,8 @@ class GarminApp(_GarminAppBase):
                 "%(asctime)s %(levelname)s %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
             ))
+            import garmin_redact as _redact
+            q_handler.addFilter(_redact.RedactFilter())
             old_stdout  = sys.stdout
             old_stderr  = sys.stderr
             root_logger = logging.getLogger()

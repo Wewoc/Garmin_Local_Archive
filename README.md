@@ -56,7 +56,9 @@ Standard version: install dependencies first — `pip install -r requirements.tx
 <br><sub>Settings tab — two-column layout: credentials, paths, and sync config on the left; sync controls, timer, mirror, and output options on the right.</sub>
 
 **What this is not:**
-Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
+Garmin Connect is still required — the app pulls data from there via API.
+
+**A note on cloud folders:** the archive itself is stored as plaintext on disk — if `garmin_data/` lives inside a cloud-synced folder, that data gets uploaded automatically. See [SECURITY.md](SECURITY.md#container-security) for details and the encrypted Mirror alternative. This tool does not replace Connect, the Garmin app, or your device sync. It has no cloud component, no remote access, and no sharing features. The GUI and EXE are Windows-only.
 
 ---
 
@@ -591,6 +593,8 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 ## Testing
 
 Six test suites cover the full pipeline — no network, no API required:
+
+
 
 
 ```bash

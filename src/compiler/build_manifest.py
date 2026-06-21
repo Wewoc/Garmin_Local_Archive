@@ -27,6 +27,7 @@ SHARED_SCRIPTS = [
     "version.py",
     "garmin_app_base.py",
     "crash_handler.py",
+    "qwebengine_hardening.py",
     # garmin pipeline
     "garmin/garmin_config.py",
     "garmin/garmin_utils.py",
@@ -41,6 +42,7 @@ SHARED_SCRIPTS = [
     "garmin/quality/_scan.py",
     "garmin/quality/_maint.py",
     "garmin/quality/_stats.py",
+    "garmin/garmin_redact.py",
     "garmin/garmin_sync.py",
     "garmin/garmin_import.py",
     "garmin/garmin_writer.py",
@@ -133,8 +135,9 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
     "crash_handler.py": ["def install"],
+    "qwebengine_hardening.py": ["def harden"],
+    "garmin/garmin_redact.py": ["def redact"],
 }
-
 # ── Docs ──────────────────────────────────────────────────────────────────────
 
 DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
@@ -145,8 +148,13 @@ INFO_INCLUDE_T3 = {"README.md", "README_APP.md", "daily_update_task.xml"}
 # ── Required non-Python files (must be present alongside scripts) ─────────────
 # Paths relative to garmin/ — build scripts prepend the folder.
 
+# Each entry: (subfolder, filename) — subfolder relative to project root.
+# Generic structure (v1.6.0.4.4+) — was a flat list assuming garmin/ for all
+# entries; plotly.min.js lives under layouts/, not garmin/, so the tuple form
+# is required. Both build.py and build_standalone.py iterate this generically.
 REQUIRED_DATA_FILES = [
-    "garmin_dataformat.json",
+    ("garmin",  "garmin_dataformat.json"),
+    ("layouts", "plotly.min.js"),
 ]
 
 

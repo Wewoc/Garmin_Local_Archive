@@ -29,7 +29,7 @@ garmin_app.py (GUI)
 
 | Function | Purpose |
 |---|---|
-| `scan()` | Scans `dashboards/` for all `*_dash.py` files. Returns list of specialist descriptors. Specialists with missing or malformed `META` are skipped. Only formats with a registered plotter are exposed. |
+| `scan(log=None)` | Scans `dashboards/` for all `*_dash.py` files. Returns list of specialist descriptors. Specialists that fail to load, have missing/malformed `META`, or have no formats with a registered plotter are skipped — visibly, not silently. Skip reason is passed to the optional `log` callable (same pattern as `build()`) and collected internally. Only formats with a registered plotter are exposed for specialists that load successfully. |
 | `build(selections, date_from, date_to, settings, output_dir, log)` | Orchestrates dashboard build. Calls `specialist.build()` once per specialist, then `plotter.render()` once per selected format. Returns list of result dicts. |
 | `display_label(fmt)` | Returns human-readable format label for GUI. `html_complex` → `"html"`, `html_mobile` → `"mobile"`, others unchanged. |
 | `_load_plotters()` | Imports registered plotters lazily from `layouts/`. Returns `{format_key: module}`. |
