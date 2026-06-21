@@ -67,6 +67,19 @@ garmin_app.py (GUI)
 8. Add test coverage in `tests/test_dashboard.py`
 9. Update `REFERENCE_DASHBOARD.md` → plotter registry table
 
+**Output safety (v1.6.0.4.4, A5):** any specialist-sourced text field
+(label, unit, date, qualifier, feedback, etc.) must never be interpolated
+raw into an HTML tag or a JS string literal. For HTML context, use
+`html.escape()`. For JS string literals inside generated `<script>` blocks
+(e.g. Plotly `name`/`hovertemplate`), use `json.dumps()` instead of direct
+f-string interpolation — this also produces the correct surrounding quotes.
+For HTML assembled at JS runtime via `innerHTML` (not via Python f-strings),
+use a JS-side escape helper instead — see `_escapeHtml()` in
+`dash_plotter_html_complex.py` for the existing pattern. Avoid naming a
+Python variable `html` in any module that also `import html` — naming
+collisions with the stdlib module raise `UnboundLocalError` (see A5 fix,
+CHANGELOG v1.6.0.4.4).
+
 ---
 
 ## Adding a new format target to an existing specialist
@@ -111,7 +124,7 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 303 checks, 16 sections.**
+**Current count: 310 checks, 16 sections.**
 
 | Section | Coverage |
 |---|---|
@@ -121,7 +134,7 @@ python tests/test_dashboard.py
 | 4 | `dash_layout_html` HTML assets |
 | 5 | `timeseries_garmin` specialist + plotter |
 | 6 | `dash_plotter_html` render |
-| 7 | `dash_runner` scan + build |
+| 7 | `dash_runner` scan + build — incl. 3 visible-skip paths (load error, bad/missing META, no matching formats) |
 | 8 | `dash_plotter_excel` render |
 | 9 | `dash_plotter_json` render |
 | 10 | `health_garmin` specialist |

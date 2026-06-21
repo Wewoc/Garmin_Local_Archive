@@ -14,6 +14,7 @@ Interface:
     render(data: dict, output_path: Path, settings: dict) -> None
 """
 
+import html as html_escape
 import json
 import sys
 from pathlib import Path
@@ -29,14 +30,15 @@ import dash_layout_html as layout_html
 def _build_tabs(fields: list[dict]) -> str:
     tabs = ""
     for i, entry in enumerate(fields):
-        field  = entry["field"]
-        meta   = layout.get_metric_meta(field)
-        label  = meta.get("label", field)
-        active = "active" if i == 0 else ""
+        field      = entry["field"]
+        meta       = layout.get_metric_meta(field)
+        label      = meta.get("label", field)
+        label_safe = html_escape.escape(label)
+        active     = "active" if i == 0 else ""
         tabs += (
             f'<button class="tab-btn {active}" '
             f'onclick="showTab(\'{field}\')" '
-            f'id="btn-{field}">{label}</button>\n'
+            f'id="btn-{field}">{label_safe}</button>\n'
         )
     return tabs
 
@@ -125,22 +127,24 @@ def _build_charts(fields: list[dict]) -> tuple[str, str]:
       fill: 'tonexty', fillcolor: 'rgba(100,180,100,0.12)',
       line: {{width: 0}}, hoverinfo: 'skip'
     }},"""
+            label_json = json.dumps(label)
+            unit_json  = json.dumps(unit)
             if has_baseline:
                 _traces += f"""
     {{
       x: {dates_json}, y: {json.dumps(baselines_clean)},
       type: 'scatter', mode: 'lines', name: '90d baseline',
       line: {{color: '{color}', width: 1.5, dash: 'dash'}},
-      hovertemplate: '%{{x}}<br>90d avg: %{{y:.1f}} {unit}<extra></extra>'
+      hovertemplate: '%{{x}}<br>90d avg: %{{y:.1f}} ' + {unit_json} + '<extra></extra>'
     }},"""
             _traces += f"""
     {{
       x: {dates_json}, y: {values_json},
-      type: 'scatter', mode: 'lines+markers', name: '{label}',
+      type: 'scatter', mode: 'lines+markers', name: {label_json},
       line: {{color: '{color}', width: 2}},
       marker: {{size: {marker_sizes_json}, color: {marker_colors_json}}},
       customdata: {customdata_json},
-      hovertemplate: '%{{x}}<br>{label}: %{{y:.1f}} {unit}<br>%{{customdata[0]}}<extra></extra>'
+      hovertemplate: '%{{x}}<br>' + {label_json} + ': %{{y:.1f}} ' + {unit_json} + '<br>%{{customdata[0]}}<extra></extra>'
     }}"""
 
             js_data += f"""
@@ -156,7 +160,7 @@ def _build_charts(fields: list[dict]) -> tuple[str, str]:
         {{step:'all', label:'All'}}
       ]}}
     }},
-    yaxis: {{title: '{label} ({unit})'}},
+    yaxis: {{title: {label_json} + ' (' + {unit_json} + ')'}},
     legend: {{orientation: 'h', y: -0.25}},
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor:  'rgba(0,0,0,0)',
@@ -171,15 +175,17 @@ def _build_charts(fields: list[dict]) -> tuple[str, str]:
             ts_json    = json.dumps(timestamps)
             val_json   = json.dumps(values)
 
+            label_json = json.dumps(label)
+            unit_json  = json.dumps(unit)
             js_data += f"""
   Plotly.newPlot('plot-{field}', [{{
     x: {ts_json},
     y: {val_json},
     type: 'scatter',
     mode: 'lines',
-    name: '{label}',
+    name: {label_json},
     line: {{ color: '{color}', width: 1.5 }},
-    hovertemplate: '%{{x}}<br>{label}: %{{y}} {unit}<extra></extra>'
+    hovertemplate: '%{{x}}<br>' + {label_json} + ': %{{y}} ' + {unit_json} + '<extra></extra>'
   }}], {{
     margin: {{ t: 40, r: 20, b: 60, l: 60 }},
     xaxis: {{
@@ -195,7 +201,7 @@ def _build_charts(fields: list[dict]) -> tuple[str, str]:
         ]
       }}
     }},
-    yaxis: {{ title: '{label} ({unit})' }},
+    yaxis: {{ title: {label_json} + ' (' + {unit_json} + ')' }},
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor:  'rgba(0,0,0,0)',
     font: {{ family: 'Arial, sans-serif', size: 12 }}
@@ -206,32 +212,8 @@ def _build_charts(fields: list[dict]) -> tuple[str, str]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Plotly — local cache
+#  Plotly — read from local bundle (consolidated in dash_layout_html.py)
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _get_plotly_script(layouts_dir: Path) -> str:
-    """
-    Returns Plotly as an inline <script> tag.
-    On first call: downloads from CDN and caches to layouts/plotly.min.js.
-    On subsequent calls: reads from local cache — no internet required.
-
-    Falls back to CDN <script src> tag if download fails.
-    """
-    import urllib.request
-
-    local = layouts_dir / layout_html.get_plotly_local_filename()
-
-    if not local.exists():
-        try:
-            url = layout_html.get_plotly_cdn()
-            with urllib.request.urlopen(url, timeout=15) as resp:
-                local.write_bytes(resp.read())
-        except Exception:
-            # Download failed — fall back to CDN tag
-            return f'<script src="{layout_html.get_plotly_cdn()}"></script>'
-
-    js = local.read_text(encoding="utf-8")
-    return f"<script>{js}</script>"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -269,7 +251,7 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
     disclaimer_html  = layout_html.build_disclaimer(disclaimer_text)
     footer_html      = layout_html.build_footer(layout.get_footer(html=True))
     css              = layout_html.get_css()
-    plotly_cdn       = _get_plotly_script(Path(__file__).parent)
+    plotly_cdn       = layout_html.get_plotly_script(Path(__file__).parent)
 
     html = (
         "<!DOCTYPE html>\n"

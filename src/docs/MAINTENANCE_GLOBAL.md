@@ -42,6 +42,18 @@ bundle it automatically. `daily_update.py` (headless, all targets) does not
 install it yet — `crash_handler.install()` is entry-point-agnostic and can be
 adopted there in a future step; not bundled with this delivery (separate scope).
 
+**QWebEngine hardening (v1.6.0.4.4, A5):** `qwebengine_hardening.py` is called
+once after each `QWebEngineView()` instantiation — `panel_home.py` (dashboard
+viewer) and `garmin_app_base.py` (XLSX preview). It disables
+`LocalContentCanAccessFileUrls`, `LocalContentCanAccessRemoteUrls`,
+`JavascriptCanOpenWindows`, `PluginsEnabled`, `JavascriptCanAccessClipboard`.
+`JavascriptEnabled` stays enabled — Plotly requires it. Registered in
+`SHARED_SCRIPTS` / `SCRIPT_SIGNATURES_BASE` in `build_manifest.py` — both
+Target 2 and Target 3 bundle it automatically. A second, previously
+undocumented `QWebEngineView` instance (`garmin_app_base.py`, XLSX preview)
+was discovered during the A5 dependency scan — both call sites are now
+covered.
+
 ---
 
 ## Building a release
@@ -176,6 +188,19 @@ Then log `plotters` via `self._log()` in `garmin_app.py` after `dash_runner._loa
 
 Never use `logging.warning()` for build-path diagnostics — it disappears silently.
 
+### Secret redaction in logs
+
+`garmin_redact.py` (Leaf-Node) replaces the live `GARMIN_EMAIL`/`GARMIN_PASSWORD`
+value with `[GARMIN_EMAIL]`/`[GARMIN_PASSWORD]` placeholders — exact-value
+match only, no pattern matching on unknown exception text. Applied at two
+points: `garmin_collector.py._start_session_log()` registers `RedactFilter()`
+on the session `FileHandler` (covers every `log.*()` call from any module,
+including session log files later copied to `log/fail/`); `garmin_app_base.py._log()`
+calls `redact()` directly before writing to the GUI log widget (this path
+does not go through the `logging` module). `panel_outputs.py._copy_last_error_log()`
+needs no separate redaction — the fail-log file it reads is already
+redacted at write time.
+
 ### `__file__` in frozen builds
 
 `Path(__file__).parent` inside a dynamically loaded module (via `importlib.spec_from_file_location`) reflects the path passed to `spec_from_file_location` — not `_MEIPASS`. Verify with `raise RuntimeError(f"DIAG: {__file__!r}")` if path resolution is unclear.
@@ -191,7 +216,7 @@ Never use `logging.warning()` for build-path diagnostics — it disappears silen
 python tests/test_local.py
 ```
 
-**Current count: 316 checks, 19 sections.** No network, no GUI, no API calls. Cleans up after itself.
+**Current count: 361 checks, 19 sections.** No network, no GUI, no API calls. Cleans up after itself.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -211,17 +236,45 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 303 checks, 16 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 310 checks, 16 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
 ### Plotly local cache
 
-`layouts/plotly.min.js` is downloaded automatically on the first dashboard build that produces HTML output. An internet connection is required for this one-time download. After that, all HTML dashboards are fully offline — no CDN dependency.
+`layouts/plotly.min.js` is read by `dash_layout_html.get_plotly_script()` — pure read, no network access (v1.6.0.4.4+). The file must exist before any dashboard render:
 
-If the file needs to be refreshed (e.g. after a Plotly version update), delete `layouts/plotly.min.js` and run any HTML dashboard build once.
+- T1 (dev): `build_all.py.ensure_plotly_bundle()` is the only place in the project that ever downloads Plotly. If you build T1 without ever running `build_all.py`, the file may be missing — rendering then raises `FileNotFoundError` with a clear message, no silent fallback to an unverified CDN tag.
+- T2/T3: bundled at build time via `REQUIRED_DATA_FILES` in `build_manifest.py` — both build scripts iterate this list generically (no longer hardcoded to `garmin/`).
 
-For EXE builds: `plotly.min.js` is listed in `REQUIRED_DATA_FILES` in `build_manifest.py` and is bundled automatically — provided it has been downloaded at least once before building.
+**Version pinning:** `PLOTLY_VERSION` and `PLOTLY_SHA256` in `dash_layout_html.py` are pinned together — the version is never auto-updated to "latest". `ensure_plotly_bundle()` re-downloads only on hash mismatch or missing file, then verifies the download against `PLOTLY_SHA256` before writing it — a CDN response that doesn't match the pinned hash aborts the build rather than silently proceeding.
+
+To upgrade Plotly deliberately: update `PLOTLY_VERSION` and `PLOTLY_CDN` in `dash_layout_html.py`, compute the new file's SHA-256 manually (e.g. via PowerShell `Get-FileHash`), update `PLOTLY_SHA256`, delete the local `layouts/plotly.min.js`, then run `build_all.py`.
+
+Upstream Plotly.js releases are monitored passively via `tests/check_deps.py` (`plotly/plotly.js` entry in `GITHUB_REPOS`) — surfaces new releases on `run_T1.bat` start, decision to upgrade stays manual.
+
+### CVE Whitelist Check
+
+`tests/check_cve_whitelist.py` runs `pip-audit -r requirements.txt`, then matches
+any reported finding against a whitelist of known-safe usage patterns in
+`cve_whitelist.py` (per-package: which functions/modules from the vulnerable
+package are actually used). Pure report, no automatic build-abort criterion —
+`pip-audit` and OSV severity fields are not reliable enough for an automated
+gate (decision, see `NOTES_v1_6_0_4_4.md`).
+
+Three verdicts per finding: `relevant` (direct function-name match — the
+vulnerable code path is in use), `not_relevant` (package whitelisted, no
+matching usage), `unsure` (package not whitelisted, or ambiguous). `unsure`
+findings are additionally checked against a local Ollama model
+(`OLLAMA_MODEL`, default `phi4:14b`) — a short text comparison between the
+CVE description and the package's actual usage in the project. Upgrades to
+`relevant` are marked `(via Ollama)` in the report for traceability.
+
+Integrated into `build_all.py` as the final post-build step — return code is
+logged but never aborts the build. Also runnable standalone via
+`run_cve_check.bat` (plain `.bat`, no PowerShell — chosen after a real
+PowerShell encoding/syntax failure during integration attempts, see
+`NOTES_v1_6_0_4_4.md`).
 
 ### `tests/test_app_logic.py` — App layer
 
@@ -265,7 +318,7 @@ Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_stan
 python tests/test_build_output.py
 ```
 
-**309 checks, 8 sections.** Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest). `build_manifest` is imported from `compiler/`.
+**312 checks without a build / 314 checks after a full build, 8 sections.** Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest). `build_manifest` is imported from `compiler/`. `REQUIRED_DATA_FILES` is a list of `(subdir, filename)` tuples (v1.6.0.4.4+) — generic across both build targets, not hardcoded to `garmin/`. Check count scales with the number of entries in `REQUIRED_DATA_FILES` (sections 1, 2, 4, 8).
 
 Run after: called automatically by `build_all.py` as post-build step. Can also be run standalone to verify source integrity without a build.
 
@@ -276,7 +329,7 @@ Run after: called automatically by `build_all.py` as post-build step. Can also b
 python compiler/build_all.py
 # Pre-build:  test_local → test_local_context → test_dashboard
 # Build:      Target 2 → Target 3
-# Post-build: test_build_output → test_app_logic
+# Post-build: test_build_output → test_app_logic → run_cve_check (report only, never aborts)
 ```
 
 `test_app_logic.py` runs automatically as the final post-build step in `build_all.py`, after `test_build_output.py`. Can also be run standalone after changes to the entry point files.

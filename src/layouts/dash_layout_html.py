@@ -6,9 +6,11 @@ Passive resource — HTML-specific layout assets.
 Provides CSS, header template, and tab structure for HTML plotters.
 
 Rules:
-- No logic, no file I/O, no imports.
+- No logic, no file I/O beyond html_escape.escape() for output safety.
 - Called exclusively by HTML plotters in layouts/.
 """
+
+import html as html_escape
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CSS
@@ -39,6 +41,16 @@ PLOTLY_CDN     = "https://cdn.plot.ly/plotly-2.27.0.min.js"
 PLOTLY_VERSION = "2.27.0"
 PLOTLY_LOCAL   = "plotly.min.js"   # filename only — plotter resolves full path
 
+# SHA-256 of the pinned PLOTLY_VERSION release — verified manually via:
+#   (Invoke-WebRequest -Uri PLOTLY_CDN -OutFile out.js); (Get-FileHash out.js -Algorithm SHA256).Hash.ToLower()
+# Update both PLOTLY_VERSION and this hash together when upgrading Plotly —
+# never one without the other. See check_deps.py for upstream release monitoring.
+PLOTLY_SHA256  = "7f4930eba8f8541dbec28dca5bd5f787f8eef1cde0369ac9657b70bed230b3e0"
+
+
+def get_plotly_sha256() -> str:
+    return PLOTLY_SHA256
+
 
 def get_plotly_cdn() -> str:
     return PLOTLY_CDN
@@ -51,11 +63,43 @@ def get_plotly_version() -> str:
 def get_plotly_local_filename() -> str:
     return PLOTLY_LOCAL
 
+
+def get_plotly_script(layouts_dir) -> str:
+    """
+    Returns Plotly as an inline <script> tag.
+
+    Pure read — no network access here. The file must already exist:
+      - T1 (dev): fetched once by build_all.py, or manually placed.
+      - T2/T3: bundled at build time by build_all.py's pre-build check.
+
+    This replaces the former per-plotter download-and-cache logic
+    (3x duplicated in dash_plotter_html*.py) — single source of truth,
+    no silent unverified-CDN fallback on failure.
+
+    Raises:
+        FileNotFoundError: if layouts/plotly.min.js does not exist.
+                            Surfaces clearly in the GUI log — run a
+                            dashboard build once (T1) or run build_all.py
+                            (T2/T3) to fetch it first.
+    """
+    local = layouts_dir / get_plotly_local_filename()
+
+    if not local.exists():
+        raise FileNotFoundError(
+            f"Plotly JS not found at {local}. Run a dashboard build once "
+            f"(T1) or run build_all.py (T2/T3) to fetch it before rendering."
+        )
+
+    js = local.read_text(encoding="utf-8")
+    return f"<script>{js}</script>"
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Template builders
 # ══════════════════════════════════════════════════════════════════════════════
 
 def build_header(title: str, subtitle: str) -> str:
+    title    = html_escape.escape(title)
+    subtitle = html_escape.escape(subtitle)
     return (
         f"<header>\n"
         f"  <h1>{title}</h1>\n"

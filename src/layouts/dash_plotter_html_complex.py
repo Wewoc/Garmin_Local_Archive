@@ -19,9 +19,9 @@ Interface:
     render(data: dict, output_path: Path, settings: dict) -> None
 """
 
+import html as html_escape
 import json
 import sys
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -30,28 +30,25 @@ import dash_layout_html as layout_html
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Plotly — local cache (shared with dash_plotter_html)
+#  JS runtime escaping — for innerHTML assembly inside generated <script> blocks
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _get_plotly_script(layouts_dir: Path) -> str:
-    """
-    Returns Plotly as an inline <script> tag.
-    On first call: downloads from CDN and caches to layouts/plotly.min.js.
-    On subsequent calls: reads from local cache — no internet required.
-    Falls back to CDN <script src> tag if download fails.
-    """
-    local = layouts_dir / layout_html.get_plotly_local_filename()
+_JS_ESCAPE_HTML_FN = """
+function _escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+"""
 
-    if not local.exists():
-        try:
-            url = layout_html.get_plotly_cdn()
-            with urllib.request.urlopen(url, timeout=15) as resp:
-                local.write_bytes(resp.read())
-        except Exception:
-            return f'<script src="{layout_html.get_plotly_cdn()}"></script>'
 
-    js_content = local.read_text(encoding="utf-8")
-    return f"<script>{js_content}</script>"
+# ══════════════════════════════════════════════════════════════════════════════
+#  Plotly — read from local bundle (consolidated in dash_layout_html.py)
+# ══════════════════════════════════════════════════════════════════════════════
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -138,7 +135,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
   var traces = [
     // Panel A — Y1 (0–100)
     {{
-      x: dates, y: hrv, name: '{meta_hrv.get("label","HRV")}',
+      x: dates, y: hrv, name: {json.dumps(meta_hrv.get("label","HRV"))},
       type: 'scatter', mode: 'lines+markers',
       line: {{color: '{meta_hrv.get("color","#5B8DB8")}', width: 2}},
       marker: {{size: {hrv_sizes_json}, color: {hrv_colors_json}}},
@@ -146,7 +143,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
       hovertemplate: '%{{x}}<br>HRV: %{{y:.0f}} ms<extra></extra>'
     }},
     {{
-      x: dates, y: bb, name: '{meta_bb.get("label","Body Battery")}',
+      x: dates, y: bb, name: {json.dumps(meta_bb.get("label","Body Battery"))},
       type: 'scatter', mode: 'lines+markers',
       line: {{color: '{meta_bb.get("color","#BA7517")}', width: 2}},
       marker: {{size: {bb_sizes_json}, color: {bb_colors_json}}},
@@ -154,7 +151,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
       hovertemplate: '%{{x}}<br>Body Battery: %{{y:.0f}}<extra></extra>'
     }},
     {{
-      x: dates, y: sleep, name: '{meta_sleep.get("label","Sleep")}',
+      x: dates, y: sleep, name: {json.dumps(meta_sleep.get("label","Sleep"))},
       type: 'scatter', mode: 'lines+markers',
       line: {{color: '{meta_sleep.get("color","#7F77DD")}', width: 2, dash: 'dash'}},
       marker: {{size: {slp_sizes_json}, color: {slp_colors_json}}},
@@ -163,7 +160,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
     }},
     // Panel A — Y2 right: Temperature
     {{
-      x: dates, y: temp, name: '{meta_temp.get("label","Temp Max")}',
+      x: dates, y: temp, name: {json.dumps(meta_temp.get("label","Temp Max"))},
       type: 'scatter', mode: 'lines',
       line: {{color: '{meta_temp.get("color","#E85D24")}', width: 1.5}},
       yaxis: 'y2', xaxis: 'x1',
@@ -171,7 +168,7 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
     }},
     // Panel A — Y3 right: Pollen (own axis, scale 0–500+)
     {{
-      x: dates, y: pollen, name: '{meta_poll.get("label","Pollen")}',
+      x: dates, y: pollen, name: {json.dumps(meta_poll.get("label","Pollen"))},
       type: 'scatter', mode: 'lines',
       line: {{color: '{meta_poll.get("color","#A0522D")}', width: 1.5, dash: 'dot'}},
       yaxis: 'y3', xaxis: 'x1',
@@ -179,28 +176,28 @@ def _build_tab1(daily: dict) -> tuple[str, str]:
     }},
     // Panel B — stacked sleep phase bars (Y5)
     {{
-      x: dates, y: deep, name: '{meta_deep.get("label","Deep Sleep")}',
+      x: dates, y: deep, name: {json.dumps(meta_deep.get("label","Deep Sleep"))},
       type: 'bar',
       marker: {{color: '{meta_deep.get("color","#185FA5")}'}},
       yaxis: 'y5', xaxis: 'x2',
       hovertemplate: '%{{x}}<br>Deep: %{{y:.1f}} %<extra></extra>'
     }},
     {{
-      x: dates, y: light, name: '{meta_light.get("label","Light Sleep")}',
+      x: dates, y: light, name: {json.dumps(meta_light.get("label","Light Sleep"))},
       type: 'bar',
       marker: {{color: '{meta_light.get("color","#7F77DD")}'}},
       yaxis: 'y5', xaxis: 'x2',
       hovertemplate: '%{{x}}<br>Light: %{{y:.1f}} %<extra></extra>'
     }},
     {{
-      x: dates, y: rem, name: '{meta_rem.get("label","REM")}',
+      x: dates, y: rem, name: {json.dumps(meta_rem.get("label","REM"))},
       type: 'bar',
       marker: {{color: '{meta_rem.get("color","#1D9E75")}'}},
       yaxis: 'y5', xaxis: 'x2',
       hovertemplate: '%{{x}}<br>REM: %{{y:.1f}} %<extra></extra>'
     }},
     {{
-      x: dates, y: awake, name: '{meta_awake.get("label","Awake")}',
+      x: dates, y: awake, name: {json.dumps(meta_awake.get("label","Awake"))},
       type: 'bar',
       marker: {{color: '{meta_awake.get("color","#BA7517")}'}},
       yaxis: 'y5', xaxis: 'x2',
@@ -355,7 +352,7 @@ function updateIntradayChart(selectedDate) {{
   var traces = [];
 
   if (hr.x.length > 0) traces.push({{
-    x: hr.x, y: hr.y, name: '{meta_hr.get("label","Heart Rate")}',
+    x: hr.x, y: hr.y, name: {json.dumps(meta_hr.get("label","Heart Rate"))},
     type: 'scatter', mode: 'lines',
     line: {{color: '{meta_hr.get("color","#E85D24")}', width: 2}},
     yaxis: 'y1',
@@ -363,7 +360,7 @@ function updateIntradayChart(selectedDate) {{
   }});
 
   if (bb.x.length > 0) traces.push({{
-    x: bb.x, y: bb.y, name: '{meta_bb.get("label","Body Battery")}',
+    x: bb.x, y: bb.y, name: {json.dumps(meta_bb.get("label","Body Battery"))},
     type: 'scatter', mode: 'lines',
     line: {{color: '{meta_bb.get("color","#BA7517")}', width: 2}},
     yaxis: 'y1',
@@ -371,7 +368,7 @@ function updateIntradayChart(selectedDate) {{
   }});
 
   if (st.x.length > 0) traces.push({{
-    x: st.x, y: st.y, name: '{meta_st.get("label","Stress")}',
+    x: st.x, y: st.y, name: {json.dumps(meta_st.get("label","Stress"))},
     type: 'scatter', mode: 'lines',
     line: {{color: '{meta_st.get("color","#1D9E75")}', width: 2}},
     yaxis: 'y2',
@@ -379,7 +376,7 @@ function updateIntradayChart(selectedDate) {{
   }});
 
   if (resp.x.length > 0) traces.push({{
-    x: resp.x, y: resp.y, name: '{meta_resp.get("label","Respiration")}',
+    x: resp.x, y: resp.y, name: {json.dumps(meta_resp.get("label","Respiration"))},
     type: 'scatter', mode: 'lines',
     line: {{color: '{meta_resp.get("color","#7F77DD")}', width: 2}},
     yaxis: 'y2',
@@ -567,10 +564,12 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
         desc = _FIELD_DESCRIPTIONS.get(opt["field"], "")
         if desc:
             label = opt["label"] + (f" ({opt['unit']})" if opt["unit"] else "")
+            label_safe = html_escape.escape(label)
+            desc_safe  = html_escape.escape(desc)
             desc_rows_html += (
                 f'<tr><td style="padding:4px 12px 4px 0;font-weight:500;'
-                f'white-space:nowrap;vertical-align:top;">{label}</td>'
-                f'<td style="padding:4px 0;color:#555;font-size:12px;">{desc}</td></tr>'
+                f'white-space:nowrap;vertical-align:top;">{label_safe}</td>'
+                f'<td style="padding:4px 0;color:#555;font-size:12px;">{desc_safe}</td></tr>'
             )
 
     _FIELD_DESCRIPTIONS = {
@@ -614,10 +613,12 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
         desc = _FIELD_DESCRIPTIONS.get(opt["field"], "")
         if desc:
             label = opt["label"] + (f" ({opt['unit']})" if opt["unit"] else "")
+            label_safe = html_escape.escape(label)
+            desc_safe  = html_escape.escape(desc)
             desc_rows_html += (
                 f'<tr><td style="padding:4px 12px 4px 0;font-weight:500;'
-                f'white-space:nowrap;vertical-align:top;font-size:12px;">{label}</td>'
-                f'<td style="padding:4px 0;color:#555;font-size:12px;">{desc}</td></tr>'
+                f'white-space:nowrap;vertical-align:top;font-size:12px;">{label_safe}</td>'
+                f'<td style="padding:4px 0;color:#555;font-size:12px;">{desc_safe}</td></tr>'
             )
 
     # Air Quality Guide — only shown when airquality fields are in the dataset
@@ -641,10 +642,10 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
     for i in range(4):
         sel_idx = defaults[i] if field_options else 0
         options_html = "\n".join(
-            f'<option value="{o["field"]}"'
+            f'<option value="{html_escape.escape(o["field"])}"'
             f'{" selected" if j == sel_idx else ""}>'
-            f'{o["label"]}'
-            f'{"  (" + o["unit"] + ")" if o["unit"] else ""}'
+            f'{html_escape.escape(o["label"])}'
+            f'{"  (" + html_escape.escape(o["unit"]) + ")" if o["unit"] else ""}'
             f'</option>'
             for j, o in enumerate(field_options)
         )
@@ -834,16 +835,16 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
 
     // Sleep phase stacked bars
     traces.push(
-      {{x: _dates, y: _deep,  name: '{meta_deep.get("label","Deep")}',  type: 'bar',
+      {{x: _dates, y: _deep,  name: {json.dumps(meta_deep.get("label","Deep"))},  type: 'bar',
         marker: {{color: '{meta_deep.get("color","#185FA5")}'}},  yaxis: 'y5', xaxis: 'x2',
         hovertemplate: '%{{x}}<br>Deep: %{{y:.1f}}%<extra></extra>'}},
-      {{x: _dates, y: _light, name: '{meta_light.get("label","Light")}', type: 'bar',
+      {{x: _dates, y: _light, name: {json.dumps(meta_light.get("label","Light"))}, type: 'bar',
         marker: {{color: '{meta_light.get("color","#7F77DD")}'}}, yaxis: 'y5', xaxis: 'x2',
         hovertemplate: '%{{x}}<br>Light: %{{y:.1f}}%<extra></extra>'}},
-      {{x: _dates, y: _rem,   name: '{meta_rem.get("label","REM")}',   type: 'bar',
+      {{x: _dates, y: _rem,   name: {json.dumps(meta_rem.get("label","REM"))},   type: 'bar',
         marker: {{color: '{meta_rem.get("color","#1D9E75")}'}},   yaxis: 'y5', xaxis: 'x2',
         hovertemplate: '%{{x}}<br>REM: %{{y:.1f}}%<extra></extra>'}},
-      {{x: _dates, y: _awake, name: '{meta_awake.get("label","Awake")}', type: 'bar',
+      {{x: _dates, y: _awake, name: {json.dumps(meta_awake.get("label","Awake"))}, type: 'bar',
         marker: {{color: '{meta_awake.get("color","#BA7517")}'}}, yaxis: 'y5', xaxis: 'x2',
         hovertemplate: '%{{x}}<br>Awake: %{{y:.1f}}%<extra></extra>'}}
     );
@@ -863,12 +864,12 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
       if (s.qualifier === 'no_data' && !s.feedback_full) return;
       var bg = s.color + '22';  // 13% opacity background
       rows += '<tr style="border-bottom:1px solid #f0f0f0;">'
-        + '<td style="padding:4px 12px 4px 0;white-space:nowrap;">' + s.date + '</td>'
+        + '<td style="padding:4px 12px 4px 0;white-space:nowrap;">' + _escapeHtml(s.date) + '</td>'
         + '<td style="padding:4px 12px 4px 0;">'
         +   '<span style="background:' + s.color + ';color:#fff;border-radius:3px;'
-        +   'padding:1px 6px;font-size:11px;">' + (s.qualifier || '') + '</span>'
+        +   'padding:1px 6px;font-size:11px;">' + _escapeHtml(s.qualifier || '') + '</span>'
         + '</td>'
-        + '<td style="padding:4px 0;color:#555;">' + (s.feedback_short || '') + '</td>'
+        + '<td style="padding:4px 0;color:#555;">' + _escapeHtml(s.feedback_short || '') + '</td>'
         + '</tr>';
     }});
     tbody.innerHTML = rows || '<tr><td colspan="3" style="color:#999;padding:8px 0;">No sleep quality data available.</td></tr>';
@@ -898,7 +899,7 @@ def _render_explorer(data: dict, output_path: Path) -> None:
     disclaimer_html = layout_html.build_disclaimer(layout.get_disclaimer())
     footer_html     = layout_html.build_footer(layout.get_footer(html=True))
     css             = layout_html.get_css()
-    plotly_cdn      = _get_plotly_script(Path(__file__).parent)
+    plotly_cdn      = layout_html.get_plotly_script(Path(__file__).parent)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -911,6 +912,7 @@ def _render_explorer(data: dict, output_path: Path) -> None:
 </head>
 <body>
 {header_html}{disclaimer_html}{tab1_div}{footer_html}<script>
+{_JS_ESCAPE_HTML_FN}
 {tab1_js}
 </script>
 </body>
@@ -1055,7 +1057,7 @@ def _render_sleep(data: dict, output_path: Path) -> None:
         return (
             f'<span style="background:{bg};color:{fg};padding:2px 7px;'
             f'border-radius:10px;font-size:11px;font-weight:600;">'
-            f'{qualifier}</span>'
+            f'{html_escape.escape(qualifier)}</span>'
         )
 
     def _feedback_text(feedback):
@@ -1064,13 +1066,13 @@ def _render_sleep(data: dict, output_path: Path) -> None:
         # Convert NEGATIVE_LONG_BUT_NOT_ENOUGH_REM → Long / Not Enough REM
         cleaned = feedback.replace("NEGATIVE_", "").replace("POSITIVE_", "")
         parts   = [p.capitalize().replace("_", " ") for p in cleaned.split("_AND_")]
-        return f'<span style="color:#aaa;font-size:12px;">{" · ".join(parts)}</span>'
+        return f'<span style="color:#aaa;font-size:12px;">{html_escape.escape(" · ".join(parts))}</span>'
 
     # ── Build table rows ──────────────────────────────────────────────────────
 
     row_html = ""
     for row in rows:
-        date        = row.get("date", "")
+        date        = html_escape.escape(str(row.get("date", "")))
         duration    = row.get("duration_h")
         score       = row.get("score")
         hrv         = row.get("hrv")
@@ -1186,7 +1188,7 @@ def _render_recovery_context(data: dict, output_path: Path) -> None:
     disclaimer_html = layout_html.build_disclaimer(disclaimer_text)
     footer_html  = layout_html.build_footer(layout.get_footer(html=True))
     css          = layout_html.get_css()
-    plotly_cdn   = _get_plotly_script(Path(__file__).parent)
+    plotly_cdn   = layout_html.get_plotly_script(Path(__file__).parent)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1201,6 +1203,7 @@ def _render_recovery_context(data: dict, output_path: Path) -> None:
 {header_html}{disclaimer_html}<div class="tabs">
 {tab_buttons}</div>
 {tab1_div}{tab2_div}{footer_html}<script>
+{_JS_ESCAPE_HTML_FN}
 {_TAB_SWITCH_JS}
 {tab1_js}
 {tab2_js}

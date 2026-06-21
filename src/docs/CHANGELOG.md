@@ -1,5 +1,118 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.4 — Security and Architecture Fixes (small collection)
+
+A collection of small, independent security and verification fixes —
+each item built and tested separately, bundled here under one version
+number. See `ROADMAP.md` for the original item list (A1–A5, B1–B3, C1–C3).
+
+**A1 — CVE Whitelist Check:**
+- `tests/cve_whitelist.py` + `tests/check_cve_whitelist.py` — new.
+  `pip-audit -r requirements.txt` wrapped with a whitelist-based verdict
+  report (`relevant` / `not_relevant` / `unsure`) — pure report, no
+  build-abort criterion. `unsure` findings additionally classified via
+  local Ollama (`phi4:14b` default) comparing CVE description against
+  actual package usage — upgrades marked `(via Ollama)` for
+  traceability. Integrated as final post-build step in `build_all.py`
+  (return code ignored); also runnable standalone via `run_cve_check.bat`.
+- Real-Ollama verification of the `unsure` path deliberately deferred —
+  no synthetic test run; Timo will verify reactively the first time a
+  real CVE finding triggers an `unsure` classification.
+
+**A2 — Plotly Hash-Pinning + Runtime Consolidation:**
+- Plotly bundling consolidated to a single runtime path with SHA-256
+  hash verification — removes the previously unchecked CDN fallback at
+  runtime. `REQUIRED_DATA_FILES` in `build_manifest.py` generalized to
+  tuples to support the hash alongside the filename.
+- `check_deps.py` extended with Plotly version monitoring against the
+  pinned hash.
+
+**A3 — Secret Redaction in Logs:**
+- `garmin/garmin_redact.py` — new. `redact()` replaces the live
+  `GARMIN_EMAIL`/`GARMIN_PASSWORD` value with
+  `[GARMIN_EMAIL]`/`[GARMIN_PASSWORD]` placeholders — exact-value match
+  only, no pattern matching on exception text. `RedactFilter(logging.Filter)`
+  applies `redact()` to every `LogRecord`, never suppresses a record.
+- `garmin_collector.py._start_session_log()` — `RedactFilter()` registered
+  on the session `FileHandler`.
+- `garmin_app_base.py._log()` — calls `redact()` before writing to the GUI
+  log widget.
+- Registered at the handler level (not the root logger) everywhere it's
+  used — deliberate: avoids filtering log records from unrelated/third-party
+  loggers that may share the root logger.
+- **Follow-up fix (B2, this session):** `daily_update.py._start_daily_log()`
+  and `garmin_app_standalone.py._run()` (Queue handler for the GUI log)
+  were missing the same registration — an oversight, not an intentional
+  scope limit. Both now register `RedactFilter()` on their respective
+  handler, consistent with the `garmin_collector.py` pattern.
+  `garmin_app.py` (subprocess execution model) does not run its own
+  `logging` setup — it already masks `GARMIN_PASSWORD` separately via a
+  dict comprehension before logging the ENV snapshot on a failed exit;
+  left unchanged.
+
+**A4 — Cloud Folder Notice:**
+- `SECURITY.md` — new "Plaintext Archive & Cloud Folders" subsection:
+  the live archive (`raw/`, `summary/`, `context_data/`) is not encrypted
+  by design; placing `garmin_data/` inside a cloud sync folder uploads
+  unencrypted health data automatically — the project cannot detect or
+  prevent this. Points to the Mirror feature for safe cloud backup.
+- `docs/MINDSET.md` — new "Open archive over at-rest encryption"
+  principle explaining the design rationale.
+- `README.md` — short pointer to `SECURITY.md#container-security`.
+- NTFS ACLs on `garmin_data/` deliberately not implemented — pure user
+  responsibility, out of scope.
+
+**A5 — QWebEngineSettings Hardening + HTML/JS Escaping:**
+- `src/qwebengine_hardening.py` — new Leaf-Node. `harden(view)` disables
+  `LocalContentCanAccessFileUrls`, `LocalContentCanAccessRemoteUrls`,
+  `JavascriptCanOpenWindows`, `PluginsEnabled`,
+  `JavascriptCanAccessClipboard` on a `QWebEngineView`.
+  `JavascriptEnabled` stays enabled — Plotly requires it. Called from
+  `panel_home.py` (dashboard viewer) and `garmin_app_base.py` (XLSX
+  preview) after each `QWebEngineView()` instantiation. A second,
+  previously undocumented `QWebEngineView` instance (XLSX preview) was
+  discovered during the dependency scan for this item.
+- `dash_layout_html.py`, `dash_plotter_html.py`,
+  `dash_plotter_html_mobile.py`, `dash_plotter_html_complex.py` —
+  specialist-sourced text fields (labels, units, dates, qualifiers,
+  feedback text) now escaped before HTML interpolation (`html.escape()`,
+  imported as `html_escape` to avoid a naming collision with an existing
+  local variable named `html`) or serialized via `json.dumps()` before
+  JS string-literal interpolation (Plotly trace `name`/`hovertemplate`).
+  A new JS-side `_escapeHtml()` helper covers HTML assembled at JS
+  runtime via `innerHTML` (Explorer sleep quality log).
+
+**B1 — Code Signing Status:**
+- Confirmed: the released EXEs are not code-signed, and this is not
+  planned — a recurring certificate cost doesn't fit a free,
+  single-developer tool. Documented in `SECURITY.md` as an accepted,
+  known state (Windows SmartScreen warning on first run is expected
+  behaviour).
+
+**B2 — Log Path Credential Audit:**
+- Audited all logging entry points for credential exposure. Found and
+  fixed the `RedactFilter` registration gap described under A3 above.
+
+**B3 — `base_dir` Cloud-Sync Verification:**
+- Confirmed: both default sources (`garmin_config.BASE_DIR`,
+  `garmin_app_settings.DEFAULT_SETTINGS["base_dir"]`) resolve to the
+  plain home directory (`~/local_archive`) — never a cloud-sync path by
+  default. No code change required.
+
+**C1 / C2 — Documentation:**
+- `docs/MINDSET.md` — "Open archive over at-rest encryption" principle
+  (see A4 above).
+- `SECURITY.md` — plaintext status of live data + cloud folder note (see
+  A4 above).
+
+**Also verified — ROADMAP "Architecture Check (2026-06-15)" TODO-1:**
+- The reported `_should_write` discrepancy between code and
+  `test_local.py` does not exist — `garmin_collector._should_write()`
+  already returns `label in ("high", "standard")`, matching the test
+  exactly. Closed with no code change.
+
+**Test result:** 361 / 261 / 310 / 136 / 42 / 2 — all green, ruff 0 errors.
+
 ---
 
 ## v1.6.0.4.3 — Global Exception Capture (Crash Visibility)

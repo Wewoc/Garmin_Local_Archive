@@ -29,6 +29,7 @@ import garmin_config as cfg
 import garmin_api as api
 import garmin_normalizer as normalizer
 import garmin_quality as quality
+import garmin_redact as redact
 import garmin_sync as sync
 import garmin_validator as validator
 import garmin_writer as writer
@@ -329,6 +330,7 @@ def _start_session_log() -> tuple:
         "%(asctime)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     ))
+    fh.addFilter(redact.RedactFilter())
     logging.getLogger().addHandler(fh)
     return fh, log_path
 

@@ -58,6 +58,12 @@ The container uses a layered key design:
 
 The container password is not stored anywhere by the application. It must be entered on each Mirror or Import operation.
 
+### Plaintext Archive & Cloud Folders
+
+The protections above cover the Garmin OAuth token and the Mirror container. The main archive itself — `raw/`, `summary/`, and `context_data/` — is **not encrypted**. This is a deliberate design choice (see [MINDSET.md](docs/MINDSET.md) for the "Open Archive over At-Rest Encryption" reasoning), but it has a practical consequence: if `garmin_data/` is placed inside a cloud sync folder (OneDrive, Dropbox, Google Drive, etc.), that sync client will upload your unencrypted health data automatically — this project has no way to detect or prevent that.
+
+If you need cloud storage or off-device backup, use the Mirror feature instead: it packs the entire archive into a single encrypted `.gla` file, which is safe to sync, as described above. For the live working archive, keep `garmin_data/` outside any cloud-synced folder, or accept the plaintext-in-cloud trade-off knowingly.
+
 ---
 
 ## Data Integrity

@@ -108,6 +108,10 @@ def _start_daily_log(base_dir: Path) -> None:
         "%(asctime)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     ))
+    # Lazy import — garmin_redact imports garmin_config, which reads
+    # os.environ at import time (see module docstring on lazy imports).
+    import garmin_redact as _redact
+    _daily_fh.addFilter(_redact.RedactFilter())
     logging.getLogger().addHandler(_daily_fh)
 
     # Rolling: keep only LOG_DAILY_MAX files

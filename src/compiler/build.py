@@ -82,10 +82,10 @@ def validate_scripts(root: Path):
                 errors.append(f"  ✗ Wrong content: {name}  (expected: '{sig}')")
 
     # Required data files
-    for name in manifest.REQUIRED_DATA_FILES:
-        path = root / "garmin" / name
+    for subdir, name in manifest.REQUIRED_DATA_FILES:
+        path = root / subdir / name
         if not path.exists():
-            errors.append(f"  ✗ Missing data file: garmin/{name}")
+            errors.append(f"  ✗ Missing data file: {subdir}/{name}")
 
     # Scheduler files
     for name in ("daily_update.bat", "daily_update.py", "daily_update_task.xml", "Starte_Daily_Sync.bat"):
@@ -164,10 +164,10 @@ def build_zip(root: Path):
                 zf.write(f, f"scripts/{name}")
 
         # Data files
-        for name in manifest.REQUIRED_DATA_FILES:
-            f = root / "garmin" / name
+        for subdir, name in manifest.REQUIRED_DATA_FILES:
+            f = root / subdir / name
             if f.exists():
-                zf.write(f, f"scripts/garmin/{name}")
+                zf.write(f, f"scripts/{subdir}/{name}")
 
         # Scheduler files — preserve scheduler/ subfolder (daily_update.py needs parent.parent = Root)
         for name in ("daily_update.bat", "daily_update.py"):
@@ -216,9 +216,10 @@ def prepare_scripts_dir(root: Path):
             shutil.copy2(src, dst)
 
     # Data files
-    for name in manifest.REQUIRED_DATA_FILES:
-        src = root / "garmin" / name
-        dst = scripts_dir / "garmin" / name
+    for subdir, name in manifest.REQUIRED_DATA_FILES:
+        src = root / subdir / name
+        dst = scripts_dir / subdir / name
+        dst.parent.mkdir(parents=True, exist_ok=True)
         if src.exists():
             shutil.copy2(src, dst)
 
