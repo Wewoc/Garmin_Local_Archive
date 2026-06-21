@@ -21,9 +21,9 @@ Interface:
     render(data: dict, output_path: Path, settings: dict) -> None
 """
 
+import html as html_escape
 import json
 import sys
-import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -33,20 +33,8 @@ import dash_layout_html as layout_html
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Plotly — local cache (shared with other html plotters)
+#  Plotly — read from local bundle (consolidated in dash_layout_html.py)
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _get_plotly_script(layouts_dir: Path) -> str:
-    local = layouts_dir / layout_html.get_plotly_local_filename()
-    if not local.exists():
-        try:
-            url = layout_html.get_plotly_cdn()
-            with urllib.request.urlopen(url, timeout=15) as resp:
-                local.write_bytes(resp.read())
-        except Exception:
-            return f'<script src="{layout_html.get_plotly_cdn()}"></script>'
-    js = local.read_text(encoding="utf-8")
-    return f"<script>{js}</script>"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -190,12 +178,15 @@ def _build_charts(fields: list[dict]) -> tuple[str, str, list[str]]:
         marker_sizes_json  = json.dumps(marker_sizes)
         customdata_json    = json.dumps(customdata)
 
-        plot_id = f"plot-{field}"
+        plot_id    = f"plot-{field}"
+        label_safe = html_escape.escape(label)
+        label_json = json.dumps(label)
+        unit_json  = json.dumps(unit)
         plot_ids.append(plot_id)
 
         sections_html += (
             f'<div class="metric-section">'
-            f'<div class="metric-title">{label}</div>'
+            f'<div class="metric-title">{label_safe}</div>'
             f'<div id="{plot_id}" style="width:100%;height:280px"></div>'
             f'</div>\n'
         )
@@ -220,16 +211,16 @@ def _build_charts(fields: list[dict]) -> tuple[str, str, list[str]]:
       x: {dates_json}, y: {json.dumps(baselines_clean)},
       type: 'scatter', mode: 'lines', name: '90d baseline',
       line: {{color: '{color}', width: 1.5, dash: 'dash'}},
-      hovertemplate: '%{{x}}<br>90d avg: %{{y:.1f}} {unit}<extra></extra>'
+      hovertemplate: '%{{x}}<br>90d avg: %{{y:.1f}} ' + {unit_json} + '<extra></extra>'
     }},"""
         _traces += f"""
     {{
       x: {dates_json}, y: {values_json},
-      type: 'scatter', mode: 'lines+markers', name: '{label}',
+      type: 'scatter', mode: 'lines+markers', name: {label_json},
       line: {{color: '{color}', width: 2}},
       marker: {{size: {marker_sizes_json}, color: {marker_colors_json}}},
       customdata: {customdata_json},
-      hovertemplate: '%{{x}}<br>{label}: %{{y:.1f}} {unit}<br>%{{customdata[0]}}<extra></extra>'
+      hovertemplate: '%{{x}}<br>' + {label_json} + ': %{{y:.1f}} ' + {unit_json} + '<br>%{{customdata[0]}}<extra></extra>'
     }}"""
 
         js_data += f"""
@@ -237,7 +228,7 @@ def _build_charts(fields: list[dict]) -> tuple[str, str, list[str]]:
   ], {{
     margin: {{t: 10, r: 16, b: 50, l: 50}},
     xaxis: {{type: 'date'}},
-    yaxis: {{title: '{unit}'}},
+    yaxis: {{title: {unit_json}}},
     dragmode: false,
     legend: {{orientation: 'h', y: -0.28, font: {{size: 10}}}},
     paper_bgcolor: 'rgba(0,0,0,0)',
@@ -332,7 +323,7 @@ window.addEventListener('load', function() {{ applyRange(0); }});
     header_html     = layout_html.build_header(title, subtitle)
     disclaimer_html = layout_html.build_disclaimer(disclaimer_text)
     footer_html     = layout_html.build_footer(layout.get_footer(html=True))
-    plotly_cdn      = _get_plotly_script(Path(__file__).parent)
+    plotly_cdn      = layout_html.get_plotly_script(Path(__file__).parent)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">

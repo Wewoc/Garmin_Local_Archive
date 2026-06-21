@@ -64,6 +64,9 @@ Dashboard specialists never read files directly. They ask `field_map` and `conte
 **Plugins contain no logic.**
 `weather_plugin.py` and `pollen_plugin.py` are metadata only — endpoints, field names, file prefixes. No executable code. Adding a new external data source means writing a new plugin file. The collect and write modules work without modification.
 
+**Open archive over at-rest encryption.**
+The main archive — `raw/`, `summary/`, `context_data/` — is stored as plain JSON, not encrypted at rest. That's a deliberate trade-off, not an oversight. The whole point of this project is open, inspectable, tool-agnostic data: readable by any script, any local AI, any future format converter, without first needing a password and a decryption step. Encrypting the live archive would work against that goal for the 99% case of normal use, while doing little against the actual threats that matter — someone with full access to your Windows account already has access to everything, encrypted or not. The Garmin token and the Mirror export — both genuinely sensitive in different ways — are encrypted. The archive itself stays open by design.
+
 These patterns have names in software development. I didn't know the names when I made the decisions. I made them because the alternative — modules that do multiple things, direct file access everywhere, logic scattered across plugins — creates failures that are hard to find and harder to fix. **Claude recognized that the solutions had names.**
 
 ---

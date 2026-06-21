@@ -70,14 +70,17 @@ def _load_plotters() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _load_specialist(path: Path):
-    """Load a specialist module from path. Returns module or None on failure."""
+    """
+    Load a specialist module from path.
+    Returns (module, None) on success, (None, error_str) on failure.
+    """
     spec = importlib.util.spec_from_file_location(path.stem, path)
     mod  = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(mod)
-        return mod
-    except Exception:
-        return None
+        return mod, None
+    except Exception as exc:
+        return None, str(exc)
 
 
 def display_label(fmt: str) -> str:
@@ -89,7 +92,7 @@ def display_label(fmt: str) -> str:
     return fmt
 
 
-def scan() -> list[dict]:
+def scan(log=None) -> list[dict]:
     """
     Scan dashboards/ for all *_dash.py files.
     Returns a list of specialist descriptors:
@@ -103,20 +106,31 @@ def scan() -> list[dict]:
         },
         ...
     ]
-    Specialists with missing or malformed META are silently skipped.
+    Specialists that fail to load (import error) or have missing/malformed
+    META are skipped — no longer silently. Skip reason is logged via the
+    optional log callback and collected internally for diagnostics.
+    Mirrors the existing _load_plotters() / {fmt}_err pattern.
     """
+    if log is None:
+        log = lambda msg: None  # noqa: E731
+
     dashboards_dir = Path(__file__).parent
     plotters       = _load_plotters()
     specialists    = []
+    skipped: dict[str, str] = {}
 
     for path in sorted(dashboards_dir.glob("*_dash.py")):
         if path.name == "dash_runner.py":
             continue
-        mod = _load_specialist(path)
+        mod, err = _load_specialist(path)
         if mod is None:
+            skipped[path.name] = err or "unknown load error"
+            log(f"  ✗ Specialist skipped: {path.name} — {skipped[path.name]}")
             continue
         meta = getattr(mod, "META", None)
         if not isinstance(meta, dict):
+            skipped[path.name] = "missing or malformed META"
+            log(f"  ✗ Specialist skipped: {path.name} — {skipped[path.name]}")
             continue
         # Only expose formats that have a registered plotter
         available_formats = {
@@ -130,6 +144,8 @@ def scan() -> list[dict]:
             for fmt, filename in available_formats.items()
         }
         if not available_formats:
+            skipped[path.name] = "no formats with registered plotter"
+            log(f"  ✗ Specialist skipped: {path.name} — {skipped[path.name]}")
             continue
         specialists.append({
             "module":      mod,
@@ -138,6 +154,9 @@ def scan() -> list[dict]:
             "source":      meta.get("source", ""),
             "formats":     available_formats,
         })
+
+    if skipped:
+        log(f"  scan(): {len(skipped)} specialist(s) skipped — see above")
 
     return specialists
 

@@ -59,6 +59,9 @@ All modules import via `import garmin_config as cfg`.
 | `QUALITY_LOG_FILE` | `LOG_DIR/quality_log.json` | Quality register |
 | `DEVICE_TABLE_FILE` | `LOG_DIR/device_table.json` | Device table — written by `garmin_quality` after each sync |
 | `DATAFORMAT_FILE` | `garmin/garmin_dataformat.json` | Schema for garmin_validator |
+| `REQUIRED_DATA_FILES` *(build_manifest.py)* | `[("garmin", "garmin_dataformat.json"), ("layouts", "plotly.min.js")]` | List of `(subdir, filename)` tuples — data files bundled alongside scripts for T2/T3, resolved relative to the given subdir (not hardcoded to `garmin/`, v1.6.0.4.4+) |
+| `PLOTLY_VERSION` / `PLOTLY_SHA256` *(dash_layout_html.py)* | `"2.27.0"` / pinned SHA-256 | Fixed Plotly.js version — update both together when upgrading. Verified by `build_all.py.ensure_plotly_bundle()` before every build; upstream releases monitored via `check_deps.py` (`plotly/plotly.js`) (v1.6.0.4.4+) |
+| `OLLAMA_MODEL` / `OLLAMA_URL` *(check_cve_whitelist.py)* | `"phi4:14b"` / `"http://localhost:11434/api/generate"` | Ollama model + endpoint for `unsure`-classification of CVE whitelist findings — only called when a package is in the whitelist but no direct function-name match exists (v1.6.0.4.4+) |
 | `SOURCE_DIR` | `GARMIN_DIR/source` | Source archive — unmodified API responses (sole owner: `garmin_source_writer.py`) |
 | `SOURCE_API_LOG` | `LOG_DIR/source_api_log.json` | Per-day fetch metadata: validator status, endpoints, byte size |
 | `SOURCE_BACKUP_DIR` | `BACKUP_DIR/source` | Source backup — sole owner: `garmin_backup_source.py` (v1.6.0.4) |
@@ -116,6 +119,16 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │                                  threading.excepthook, qInstallMessageHandler).
     │                                  Installed at the top of both GUI entry points'
     │                                  __main__, before QApplication (v1.6.0.4.3)
+    ├── qwebengine_hardening.py     ← Leaf-Node. harden(view) — disables
+    │                                  LocalContentCanAccessFileUrls,
+    │                                  LocalContentCanAccessRemoteUrls,
+    │                                  JavascriptCanOpenWindows, PluginsEnabled,
+    │                                  JavascriptCanAccessClipboard on a
+    │                                  QWebEngineView. JavascriptEnabled stays
+    │                                  True (Plotly requires JS). Called from
+    │                                  panel_home.py and garmin_app_base.py
+    │                                  after each QWebEngineView() instantiation
+    │                                  (v1.6.0.4.4, A5)
     │
     ├── app/                        ← GUI logic layer (v1.5.2+)
     │   ├── __init__.py
@@ -131,6 +144,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     ├── run_T1.bat
     ├── run_build_all.bat
     ├── run_build_all_-_check_deps.bat
+    ├── run_cve_check.bat           ← Standalone CVE whitelist check — also runs as final post-build step in build_all.py (v1.6.0.4.4+)
     ├── ruff.toml
     │
     ├── compiler/                   ← Build scripts
@@ -161,6 +175,10 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   │   ├── _scan.py
     │   │   ├── _maint.py
     │   │   └── _stats.py
+    │   ├── garmin_redact.py        ← Leaf-Node. Secret redaction for log output —
+    │   │                              redact() + RedactFilter(logging.Filter).
+    │   │                              Used by garmin_collector.py (FileHandler)
+    │   │                              and garmin_app_base.py._log() (v1.6.0.4.4+)
     │   ├── garmin_security.py
     │   ├── garmin_sync.py
     │   ├── garmin_utils.py
@@ -241,6 +259,8 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
         ├── test_build_output.py    ← Build output validation (8 sections)
         ├── test_static.py          ← ruff linting (2 checks, v1.6.0+)
         ├── check_deps.py           ← Ecosystem monitor
+        ├── cve_whitelist.py        ← CVE whitelist data + classify_finding() (v1.6.0.4.4+)
+        ├── check_cve_whitelist.py  ← pip-audit wrapper + Ollama unsure-classification (v1.6.0.4.4+)
         └── support.py              ← Shared test helpers
 ```
 
