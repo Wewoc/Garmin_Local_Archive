@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.0.4.3**
+**Currently stable — v1.6.0.4.4**
 
 ---
 
@@ -14,32 +14,20 @@
 
 ---
 
-### v1.6.0.4.4 — Security and Architecture Fixes (small collection)
+### v1.6.0.4.5 — Reliability Audit follow-up
 
-This is a collection of small, independent fixes.
-Each item remains a separate change with its own DEPS scan; this entry only bundles them as a roadmap item, not as a single build task.
+Picks up the items from the "Architecture Check (2026-06-15)" and "Architecture Check (2026-06-20) — Reliability Audit cross-reference" sections above that were not part of the v1.6.0.4.4 bucket. Each item remains a separate change with its own DEPS scan, per project rule.
 
-**A — Quick wins (meaningful regardless of scope):**
-- A1 — Add CVE scanning (`pip-audit`/OSV) in addition to the heuristic `scan_critical_deps`.
-- A2 — Bundle Plotly with a fixed hash; remove or hash-check the unchecked runtime fallback.
-- A3 — Perform secret redaction directly in the logging handler instead of only during clipboard copy.
-- A4 — Add a note about cloud folders and OS accounts (in README/SECURITY); optionally, implement NTFS ACLs on `garmin_data/`.
-- A5 — Explicitly harden `QWebEngineSettings`; escape Garmin-specific text before HTML interpolation.
+**Doc-only, low risk (recommended first):**
+- TODO-2 — Rewrite section 5 of `GLA_PROMPT_1_Architecture-Check.md` to reflect the panel composition model (since v1.5.4).
+- TODO-3 — Add an explanatory comment for the deliberate `_QUALITY_RANK` isolation in `garmin_import_mirror.py`.
 
-**B — Verification (confirm assumptions from the risk assessment):**
-- B1 — Confirm the code signing status of the EXEs.
-- B2 — Confirm: no log path contains a complete credential.
-- B3 — Confirm: `base_dir` never ends up in a cloud sync folder by default.
+**Touches the live sync loop — Multi-LLM-Review-Gate required before any change:**
+- B4 — `garmin_api.api_call`/`fetch_raw` has no explicit request timeout. Scope already narrowed: T1/T2 (subprocess) already recoverable via `proc.terminate()`; only T3 (in-process) is exposed to an unkillable hang. Decision pending: add explicit timeout + tighten stop-event granularity for T3.
+- TODO-5 — `garmin_collector.main` Step 8 fetch loop saves `quality_log` only at loop-end, not per-day — a hard abort mid-batch leaves orphaned raw files with no quality_log entry that are never revisited. *(Source: Reliability Audit, GP-2 — Bestätigt, Gesamtpriorität: High.)*
 
-**C — Documentation:**
-- C1 — Document the principle "Open Archive over At-Rest Encryption" in `MINDSET.md`.
-- C2 — Add information about the plaintext status of live data and a note about cloud folders in `SECURITY.md`.
-- C3 — Document the release process (release permissions, MFA, branch protection, signed tags).
-
-**Architecture Check (2026-06-15):**
-- 🔴 TODO-1 — `_should_write` discrepancy between code and `test_local.py` — **Status unclear, suspicion of an outdated test file from before the v1.6.0.1 `src/` restructuring, not yet verified.**
-- 🟡 TODO-2 — Rewrite section 5 of `GLA_PROMPT_1_Architecture-Check.md` to reflect the panel composition model (since v1.5.4) — currently, it describes the old mixin model.
-- 🟢 TODO-3 — Add an explanatory comment for the deliberate `_QUALITY_RANK` isolation in `garmin_import_mirror.py`.
+**Sizing decision needed:**
+- TODO-6 — No mechanism detects drift between `source/`, `raw/`, and `quality_log.json`. Proposed: read-only "Silo-Reconciliation-Check" (Leaf-Node, startup daemon). Would also surface TODO-5's orphaned days as a side effect. Assess whether this fits in this bucket or deserves its own small version before starting.
 
 ---
 
