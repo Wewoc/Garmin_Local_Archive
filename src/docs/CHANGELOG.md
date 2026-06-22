@@ -1,5 +1,82 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.5 — Reliability Audit follow-up
+
+Closes the remaining open items from the Reliability Audit (GP-2) and
+Architecture Check (2026-06-20) that were not part of the v1.6.0.4.4 bucket.
+
+**TODO-2 — Panel-Composition documentation:**
+- `docs/GLA_PROMPT_1_Architektur-Check.md` — section "Panel-Mixin-Regeln"
+  replaced by "Panel-Composition-Regeln (seit v1.6.0)": Assembler model
+  documented, `__init__`/MRO rules removed, `setAutoFillBackground` hint added.
+  Analysis section 5 updated to match.
+
+**TODO-3 — _QUALITY_RANK isolation comment:**
+- `src/garmin/garmin_import_mirror.py` — explanatory comment added to the
+  local `_QUALITY_RANK` copy: documents why it is not imported from
+  `quality/_maint` directly (facade principle, no sub-package internals),
+  and flags it for manual sync if labels change.
+
+**TODO-5 — Per-day quality_log save (GP-2, High):**
+- `src/garmin/garmin_collector.py` — `_save_quality_log` now called after
+  every successfully processed day in the fetch loop (Step 8), not only at
+  loop-end (Step 9). `skip_backup=True` in-loop — backup triggered once in
+  Step 9. Save failure aborts the loop immediately (`raise`) — prevents
+  accumulation of orphaned raw files without quality_log entries on hard abort.
+
+**B4 — api_call timeout (T3 hang) — assessed, not implemented:**
+- Verified locally: `garminconnect.Garmin.__init__` has no `timeout` parameter.
+  `curl_cffi.requests.Session.request` supports timeout but is not reachable
+  via the public client API. Thread-wrapper approach rejected (zombie threads,
+  maintenance overhead). Worst-case analysis: no data loss, no corrupt state —
+  atomic write design holds. Parked as ROADMAP note pending library-side support.
+
+**TODO-6 — Silo-Reconciliation-Check — scoped, moved to v1.6.0.4.6:**
+- Full scope defined: `garmin_silo_check.py` (new) — read-only drift detection
+  across all five silos (`raw/`, `source/`, `summary/`, `quality_log.json`,
+  `source_api_log.json`) plus delegation to `regenerate_raw.py` /
+  `regenerate_summaries.py` and GUI integration in `panel_archive.py`.
+  Moved to v1.6.0.4.6 (replaces Dependency Audit as that version's content).
+
+**Changed modules:** `src/garmin/garmin_collector.py`,
+`src/garmin/garmin_import_mirror.py`,
+`docs/GLA_PROMPT_1_Architektur-Check.md`
+
+**Test result:** 361 / 261 / 310 / 136 / 42 / 2 — all green, ruff 0 errors
+
+---
+
+# v1.6.0.4.4.1 — Hotfix: Daily Sync Gap Detection
+ 
+Fixes a regression introduced in v1.6.0.4.4 where the automated Daily Sync
+aborted with "Gap too large — please open the app" despite the archive being
+only 1–2 days behind.
+ 
+## What happened
+ 
+v1.6.0.4.4 added secret redaction (`RedactFilter`) to the daily log file —
+a correct security improvement. However, the filter was registered inside
+`_start_daily_log()`, which runs before the archive path is written to
+`os.environ`. This caused `garmin_config` to be imported with the wrong path,
+which in turn caused gap detection to read the wrong `quality_log.json` and
+report a false gap count, triggering the hard stop.
+ 
+## Fix
+ 
+`RedactFilter` registration is now deferred to a new `_attach_redact_filter()`
+function, called immediately after the archive path is set. Redaction coverage
+is identical at runtime — only the registration timing changes.
+ 
+## Affected versions
+ 
+- v1.6.0.4.4 only
+## Upgrade
+ 
+Replace `scheduler/daily_update.py` and `version.py` with the files from
+this release. No other changes required.
+ 
+---
+
 ## v1.6.0.4.4 — Security and Architecture Fixes (small collection)
 
 A collection of small, independent security and verification fixes —

@@ -34,6 +34,7 @@ garmin_app.py (GUI)
               │     downgrade check                        → skip write if new < existing
               │     garmin_collector._write_assessed()     → skipped on downgrade
               │     garmin_quality.record_attempt()        (upsert + save, atomic)
+              │     garmin_quality._save_quality_log()     (per-day crash-resilience, skip_backup=True)
               └── garmin_quality._save_quality_log()       (final safety-net save after loop)
 ```
 
@@ -68,7 +69,10 @@ or later).
 - `_fetch_and_assess()` always returns `(label, normalized, summary, fields, val_result)` — never raises
 - `_write_assessed()` is only called after downgrade check passes — file never written if API result is inferior
 - Downgrade protection is in `garmin_collector.main()` — not in `_upsert_quality()`
-- `_save_quality_log()` is called after every individual day — every day is an atomic resume point
+- `_save_quality_log()` is called after every successfully processed day in the fetch loop
+  (`skip_backup=True`) and once more at loop-end as final safety-net (`skip_backup=False`).
+  Every day is an atomic resume point — a hard abort cannot leave a raw file without a
+  quality_log entry.
 - No module reads `os.environ` directly — all config via `garmin_config`
 
 ---

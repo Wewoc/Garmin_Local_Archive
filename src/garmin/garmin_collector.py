@@ -857,6 +857,18 @@ def main(stop_event=None):
                     log.info(f"    ✓ Quality: {label}"
                              + (f" [device={device_name or device_id}]" if device_id else ""))
                 ok += 1
+
+                # GP-2 crash-resilience: persist quality_log after each day so a
+                # hard abort (power loss, kill) cannot leave a raw file without a
+                # quality_log entry. skip_backup=True — backup triggered once in
+                # Step 9 after the full batch, not per day.
+                try:
+                    quality._save_quality_log(quality_data, skip_backup=True)
+                except Exception as _save_err:
+                    log.error(f"    quality_log save failed after {day}: {_save_err}")
+                    _session_had_errors = True
+                    raise
+
             except Exception as e:
                 log.error(f"    Error on {day}: {e}")
                 quality.record_attempt(quality_data, day, "failed", str(e), written=False, source="api")

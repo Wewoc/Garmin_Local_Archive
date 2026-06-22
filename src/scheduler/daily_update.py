@@ -60,7 +60,7 @@ if _scripts_early.exists() and str(_scripts_early) not in sys.path:
 #  Constants
 # ══════════════════════════════════════════════════════════════════════════════
 
-from version import APP_VERSION
+from version import APP_VERSION  # v1.6.0.4.4.1
 
 KEYRING_SERVICE = "GarminLocalArchive"
 KEYRING_USER    = "garmin_password"
@@ -94,7 +94,14 @@ _daily_fh: logging.FileHandler | None = None
 
 
 def _start_daily_log(base_dir: Path) -> None:
-    """Open a rolling log file in BASE_DIR/log/daily/."""
+    """Open a rolling log file in BASE_DIR/log/daily/.
+
+    Does NOT register RedactFilter here — garmin_redact imports garmin_config
+    at module level, which reads os.environ at import time. GARMIN_OUTPUT_DIR
+    is not yet set when this function is called (Step 1), so garmin_config
+    would cache the wrong BASE_DIR and corrupt _detect_gap() (Step 6).
+    Call _attach_redact_filter() after Step 3 (GARMIN_OUTPUT_DIR is set).
+    """
     global _daily_fh
     log_dir = base_dir / "garmin_data" / "log" / "daily"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -108,10 +115,6 @@ def _start_daily_log(base_dir: Path) -> None:
         "%(asctime)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     ))
-    # Lazy import — garmin_redact imports garmin_config, which reads
-    # os.environ at import time (see module docstring on lazy imports).
-    import garmin_redact as _redact
-    _daily_fh.addFilter(_redact.RedactFilter())
     logging.getLogger().addHandler(_daily_fh)
 
     # Rolling: keep only LOG_DAILY_MAX files
@@ -121,6 +124,22 @@ def _start_daily_log(base_dir: Path) -> None:
             old.unlink(missing_ok=True)
     except Exception as e:
         log.warning(f"  Could not rotate daily logs: {e}")
+
+
+def _attach_redact_filter() -> None:
+    """Register RedactFilter on the daily FileHandler.
+
+    Must be called after GARMIN_OUTPUT_DIR is set in os.environ (Step 3)
+    so that the garmin_redact → garmin_config import chain resolves the
+    correct BASE_DIR. Safe to call even if _start_daily_log() was not
+    called (no-op when _daily_fh is None).
+    """
+    if _daily_fh is None:
+        return
+    # Lazy import after ENVs are set — garmin_redact imports garmin_config
+    # which reads os.environ at import time.
+    import garmin_redact as _redact
+    _daily_fh.addFilter(_redact.RedactFilter())
 
 
 def _close_daily_log() -> None:
@@ -498,6 +517,14 @@ def main() -> int:
     # Gap detection needs garmin_quality which needs garmin_config which reads ENVs.
     # Set a minimal ENV first so quality log path resolves correctly.
     os.environ["GARMIN_OUTPUT_DIR"] = str(base_dir)
+
+    # ── 3b. RedactFilter — now safe to import garmin_redact ───────────────────
+    # garmin_redact imports garmin_config at module level; garmin_config reads
+    # GARMIN_OUTPUT_DIR at import time. Registering the filter here (after
+    # GARMIN_OUTPUT_DIR is set) prevents garmin_config from caching the wrong
+    # BASE_DIR, which would cause _detect_gap() to read the wrong
+    # quality_log.json and report a false gap count.
+    _attach_redact_filter()
 
     # ── 4. Schema migration check ─────────────────────────────────────────────
     if _check_schema_migration(base_dir):

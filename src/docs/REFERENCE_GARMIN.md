@@ -33,6 +33,7 @@ garmin_app.py (GUI)
               │     downgrade check                        → skip write if new < existing
               │     garmin_collector._write_assessed()     → skipped on downgrade
               │     garmin_quality.record_attempt()        (upsert + save, atomic)
+              │     garmin_quality._save_quality_log()     (per-day crash-resilience, skip_backup=True)
               └── garmin_quality._save_quality_log()       (final safety-net save after loop)
 ```
 
