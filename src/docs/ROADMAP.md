@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.0.4.4.1**
+**Currently stable — v1.6.0.4.5**
 
 ---
 
@@ -14,67 +14,37 @@
 
 ---
 
-### v1.6.0.4.5 — Reliability Audit follow-up
+### v1.6.0.4.6 — Silo-Reconciliation-Check
 
-Picks up the items from the "Architecture Check (2026-06-15)" and "Architecture Check (2026-06-20) — Reliability Audit cross-reference" sections above that were not part of the v1.6.0.4.4 bucket. Each item remains a separate change with its own DEPS scan, per project rule.
+Two tracks, one version.
 
-**Doc-only, low risk (recommended first):**
-- TODO-2 — Rewrite section 5 of `GLA_PROMPT_1_Architecture-Check.md` to reflect the panel composition model (since v1.5.4).
-- TODO-3 — Add an explanatory comment for the deliberate `_QUALITY_RANK` isolation in `garmin_import_mirror.py`.
+**Silo-Reconciliation-Check (`garmin_silo_check.py`, new):**
+- Read-only drift detection across all five silos: `raw/`, `source/`,
+  `summary/`, `quality_log.json`, `source_api_log.json`.
+- Checks both directions: raw without quality_log entry, quality_log entry
+  without raw, source without raw, summary without raw, source_api_log
+  without source file.
+- Delegation to `export/regenerate_raw.py` and `export/regenerate_summaries.py`
+  for repair (functions extracted/adapted as needed).
+- GUI integration in `panel_archive.py`: Befund-Anzeige + Reparieren-Button.
+- Note: `get_local_dates()` semantic extension (raw + source as existence
+  criterion) deferred — requires Altdaten-Migrationsstrategie first.
 
-**Touches the live sync loop — Multi-LLM-Review-Gate required before any change:**
-- B4 — `garmin_api.api_call`/`fetch_raw` has no explicit request timeout. Scope already narrowed: T1/T2 (subprocess) already recoverable via `proc.terminate()`; only T3 (in-process) is exposed to an unkillable hang. Decision pending: add explicit timeout + tighten stop-event granularity for T3.
-- TODO-5 — `garmin_collector.main` Step 8 fetch loop saves `quality_log` only at loop-end, not per-day — a hard abort mid-batch leaves orphaned raw files with no quality_log entry that are never revisited. *(Source: Reliability Audit, GP-2 — Bestätigt, Gesamtpriorität: High.)*
-
-**Sizing decision needed:**
-- TODO-6 — No mechanism detects drift between `source/`, `raw/`, and `quality_log.json`. Proposed: read-only "Silo-Reconciliation-Check" (Leaf-Node, startup daemon). Would also surface TODO-5's orphaned days as a side effect. Assess whether this fits in this bucket or deserves its own small version before starting.
+**B4 — api_call timeout (carried forward):**
+- Re-evaluate when `garminconnect` adds native timeout support.
+  Current status: `Garmin.__init__` has no `timeout` parameter (verified
+  locally); thread-wrapper approach rejected (zombie threads).
 
 ---
 
-### v1.6.0.4.6 — Dependency Map + Maintainability Hardening
+### v1.6.0.4.6 — Dependency Audit + Maintainability Hardening
 
-Distinct from the Security Audit (v1.6.0.4.3 A1–C3) and from the punctual
-Architecture Checks (2026-06-15, 2026-06-20) — this is a systematic
-code-quality / maintainability pass across the codebase. Goal: raise the
-codebase clearly above "typical LLM-generated code" baseline, not just patch
-individual findings.
+- Build a file × connections table: imports, importers, callers, file I/O,
+  Sole-Write-Authority ownership (AST-extracted + manually annotated).
+- Systematic hardening pass based on the map: fragile error classification
+  (e.g. `"429" in err` string-match in `garmin_api.py`), invariants enforced
+  only by convention, cross-module assumptions not tested.
 
-Starts only after v1.6.0.4.5 is complete. Each item remains a separate
-change with its own DEPS scan, per project rule.
-
-**Background — typical LLM-code symptoms this targets:**
-- Local correctness without global coherence (each function works in
-  isolation, but no enforced cross-module contract)
-- Robustness by breadth instead of depth (broad `except Exception` instead
-  of targeted handling for actually expected failure modes)
-- Invariants enforced only by convention/documentation, not by code or test
-- Tests that describe current behaviour rather than verify a contract
-- Drift between documentation and code over time
-
-**Step 1 — Dependency Map (prerequisite for Step 2):**
-- Build a file × connections table: per file — imports, importers, callers,
-  file I/O (read/write), Sole-Write-Authority ownership.
-- Raw data extracted via script (static AST parse of imports/calls) —
-  ownership, invariants, and cross-module assumptions added manually/with
-  Claude afterward; not derivable from AST alone.
-- Open question: standalone artifact in-repo (`DEPENDENCY_MAP.md` or
-  `.json`), kept current going forward, or one-time snapshot.
-
-**Step 2 — Systematic hardening (per file/cluster, based on Step 1):**
-- Identify error-handling patterns that are too optimistic (example already
-  found: `garmin_api.py` error classification via string-matching on
-  exception text, e.g. `"429" in err` — fragile against upstream message
-  changes).
-- Identify invariants enforced only by convention, not by code/test.
-- Identify what would break in module Y if module X changes, using the
-  Dependency Map to make this systematic instead of per-file guesswork.
-
-**Possible first concrete application:** v1.6.0.4.5 TODO-6 (Silo-
-Reconciliation-Check between `source/`, `raw/`, `quality_log.json`) was
-flagged there as a sizing decision — may fit naturally as the first
-real-world test case for the Dependency Map once it exists.
-
-**Pre-condition:** v1.6.0.4.5 complete.
 
 ---
 
