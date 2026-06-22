@@ -37,7 +37,7 @@ Two tracks, one version.
 
 ---
 
-### v1.6.0.4.6 — Dependency Audit + Maintainability Hardening
+### v1.6.0.4.7 — Dependency Audit + Maintainability Hardening
 
 - Build a file × connections table: imports, importers, callers, file I/O,
   Sole-Write-Authority ownership (AST-extracted + manually annotated).
