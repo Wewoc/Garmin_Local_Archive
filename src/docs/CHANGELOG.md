@@ -1,5 +1,36 @@
 # Garmin Local Archive — Changelog
 
+# v1.6.0.4.4.1 — Hotfix: Daily Sync Gap Detection
+ 
+Fixes a regression introduced in v1.6.0.4.4 where the automated Daily Sync
+aborted with "Gap too large — please open the app" despite the archive being
+only 1–2 days behind.
+ 
+## What happened
+ 
+v1.6.0.4.4 added secret redaction (`RedactFilter`) to the daily log file —
+a correct security improvement. However, the filter was registered inside
+`_start_daily_log()`, which runs before the archive path is written to
+`os.environ`. This caused `garmin_config` to be imported with the wrong path,
+which in turn caused gap detection to read the wrong `quality_log.json` and
+report a false gap count, triggering the hard stop.
+ 
+## Fix
+ 
+`RedactFilter` registration is now deferred to a new `_attach_redact_filter()`
+function, called immediately after the archive path is set. Redaction coverage
+is identical at runtime — only the registration timing changes.
+ 
+## Affected versions
+ 
+- v1.6.0.4.4 only
+## Upgrade
+ 
+Replace `scheduler/daily_update.py` and `version.py` with the files from
+this release. No other changes required.
+ 
+---
+
 ## v1.6.0.4.4 — Security and Architecture Fixes (small collection)
 
 A collection of small, independent security and verification fixes —
