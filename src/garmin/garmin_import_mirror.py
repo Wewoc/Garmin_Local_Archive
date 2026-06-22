@@ -65,7 +65,11 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Quality rank for downgrade protection — mirrors quality._maint.QUALITY_RANK (v1.5.7)
+# Quality rank for downgrade protection — intentional local copy of quality._maint.QUALITY_RANK.
+# Not imported from quality._maint directly: this module must not depend on the quality
+# sub-package internals. garmin_quality (the facade) is the only permitted entry point
+# for quality operations; _maint is an internal implementation detail.
+# Keep in sync with quality/_maint.py :: QUALITY_RANK if labels change. (v1.5.7)
 _QUALITY_RANK = {"high": 2, "standard": 1, "failed": 0}
 
 # Context subdirectories to scan (relative to context_data/) — folder fallback
