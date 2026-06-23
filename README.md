@@ -15,7 +15,8 @@
 
 # Garmin Local Archive
 
-Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
+
+Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup and save your data from decay` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
 
 *Privacy first — inspired by European principles.*
 
