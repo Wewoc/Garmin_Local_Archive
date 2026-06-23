@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.0.4.6**
+**Currently stable — v1.6.0.4.7**
 
 ---
 
@@ -14,35 +14,12 @@
 
 ---
 
-### v1.6.0.4.7 — Silo-Reconciliation-Check
-
-Read-only drift detection across the data silos. Concept fully specified in
-`KONZEPT_silo_check.md` — all open decisions resolved, build sequence defined.
-Source Quality Guard (`garmin_source_quality.py`, v1.6.0.4.6) is the required
-precursor and ships first — `source_api_log` now records `intraday_present`
-per day, available as richer metadata for the silo check.
-
-**`garmin_silo_check.py` (new):**
-- Read-only, Leaf-Node. Imports only `garmin_config` + stdlib.
-- Checks #1, #3, #5, #7 (reconstructability principle — see KONZEPT §3):
-  raw without quality_log entry, source without raw, summary without raw,
-  raw without summary.
-- Check #2 (quality_log entry without raw) owned by `check_raw_integrity` —
-  referenced, not re-implemented (Option C, KONZEPT §7).
-- Returns `{"raw_without_quality", "source_without_raw", "summary_without_raw",
-  "raw_without_summary", "checked_at", "totals", "counts"}`.
-- Repair delegates to `regenerate_raw.py` and `regenerate_summaries.py`.
-- GUI: `panel_archive.py` — Silo-Check button, background thread, finding
-  display, repair delegation. Gate: disabled while any pipeline job runs.
+### v1.6.0.4.8 — Dependency Audit + Maintainability Hardening
 
 **B4 — api_call timeout (carried forward):**
 - Re-evaluate when `garminconnect` adds native timeout support.
   Current status: `Garmin.__init__` has no `timeout` parameter (verified
   locally); thread-wrapper approach rejected (zombie threads).
-
----
-
-### v1.6.0.4.8 — Dependency Audit + Maintainability Hardening
 
 - Build a file × connections table: imports, importers, callers, file I/O,
   Sole-Write-Authority ownership (AST-extracted + manually annotated).
