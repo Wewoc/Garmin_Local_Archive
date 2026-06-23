@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.0.4.6
+# Garmin Local Archive — Desktop App v1.6.0.4.7
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -137,8 +137,11 @@ The top section shows two things at once:
 
 The panel refreshes automatically after every Sync and Bulk Import.
 
-### Restore Data
-Appears in the Connection & Archive Status panel. Normally greyed out — becomes active if the app detects raw data files that are registered in the quality log as written but are missing or unreadable on disk.
+### Silo-Check
+Scans your data silos for inconsistencies the live pipeline does not catch — old gaps, interrupted runs, manual file operations, or import errors.
+
+Click **🔍 Silo-Check** to run. The check is read-only and completes in the background. Results appear in the log:
+
 
 - **"⚠ N days missing"** — backup copies exist, click to restore automatically
 - **"⚠ N days missing, N no backup"** — some days have no backup; a dialog lists them so you can re-fetch manually via Sync Data
@@ -402,7 +405,7 @@ python build_standalone.py
 
 **Stress / Body Battery missing from Excel or dashboard** — run `regenerate_summaries.py` once to rebuild all summary files from raw data.
 
-> **Standalone:** Click the Analysis Dashboard once — this regenerates summaries from raw data automatically.
+> **Standalone:** Use the **🔍 Silo-Check** button (Settings tab → Data Management) to detect missing summaries, then click **🔧 Repair** to rebuild them automatically.
 
 **Background timer shows days as `standard` instead of `high`** — this is expected behaviour. `standard` means the API returned full daily data but no intraday detail (heart rate curve, stress curve, etc.). This happens for older dates where Garmin has permanently degraded intraday resolution, or for device eras that never produced intraday data. The timer retries `standard` days only if the previous day had intraday data and the 180-day retry window is still open — after that the label is accepted as final and those days are never touched again.
 

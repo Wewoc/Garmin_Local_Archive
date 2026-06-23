@@ -109,7 +109,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 382 checks, 21 sections.**
+**Current count: 418 checks, 22 sections.**
 
 
 ```bash
@@ -141,6 +141,7 @@ C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container
 D. `garmin_source_writer` + `garmin_source_quality` (v1.6.0.2 / v1.6.0.4.6) — `SOURCE_DIR` + `SOURCE_API_LOG` path derivation, `write_source` round-trip + overwrite + error cases (None/str input), `update_log` round-trip + overwrite + multi-date + `intraday_present`. `assess_source` (5 checks), `compare_source` truth table (6 checks), `assess_source_from_file` (2 checks), `write_source` guard behavior — skip + skip_warn (4 checks), `update_log intraday_present` (3 checks). Leaf-Node AST check migrated to `garmin_source_quality` (stdlib-only).
 E. `garmin_collector._run_source_backfill` (v1.6.0.3) — no-op when `SYNC_DATES` empty, fetch called with correct date when `SYNC_DATES` set, stop event respected, per-day error does not crash loop.
 F. `garmin_backup_source` (v1.6.0.4) — `SOURCE_BACKUP_DIR` path derivation, `backup_source` round-trip + missing source → False, monthly dir write, `_consolidate_source_months` ZIP + skip current month, `backfill_source` copy + idempotent, `check_source_backfill_needed` count, `_zip_contains`, Leaf-Node AST check.
+G. `garmin_silo_check` (v1.6.0.4.7) — result structure (all keys, totals/counts sub-keys, checked_at format), clean-silo baseline (isolated tmpdir), all four check categories (#1 raw without quality, #3 source without raw, #5 summary without raw, #7 raw without summary), counts match list lengths invariant, finding lists contain date objects, Leaf-Node AST check.
 
 ### What is NOT tested
 
@@ -152,7 +153,7 @@ F. `garmin_backup_source` (v1.6.0.4) — `SOURCE_BACKUP_DIR` path derivation, `b
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`.
 
 ---
 

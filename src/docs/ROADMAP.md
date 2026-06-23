@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.0.4.5**
+**Currently stable — v1.6.0.4.7**
 
 ---
 
@@ -14,30 +14,12 @@
 
 ---
 
-### v1.6.0.4.6 — Silo-Reconciliation-Check
-
-Two tracks, one version.
-
-**Silo-Reconciliation-Check (`garmin_silo_check.py`, new):**
-- Read-only drift detection across all five silos: `raw/`, `source/`,
-  `summary/`, `quality_log.json`, `source_api_log.json`.
-- Checks both directions: raw without quality_log entry, quality_log entry
-  without raw, source without raw, summary without raw, source_api_log
-  without source file.
-- Delegation to `export/regenerate_raw.py` and `export/regenerate_summaries.py`
-  for repair (functions extracted/adapted as needed).
-- GUI integration in `panel_archive.py`: Befund-Anzeige + Reparieren-Button.
-- Note: `get_local_dates()` semantic extension (raw + source as existence
-  criterion) deferred — requires Altdaten-Migrationsstrategie first.
+### v1.6.0.4.8 — Dependency Audit + Maintainability Hardening
 
 **B4 — api_call timeout (carried forward):**
 - Re-evaluate when `garminconnect` adds native timeout support.
   Current status: `Garmin.__init__` has no `timeout` parameter (verified
   locally); thread-wrapper approach rejected (zombie threads).
-
----
-
-### v1.6.0.4.7 — Dependency Audit + Maintainability Hardening
 
 - Build a file × connections table: imports, importers, callers, file I/O,
   Sole-Write-Authority ownership (AST-extracted + manually annotated).

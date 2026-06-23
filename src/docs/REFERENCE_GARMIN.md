@@ -54,6 +54,7 @@ garmin_app.py (GUI)
 - `mirror.gla` is written atomically: `mirror.gla.tmp` → `fsync()` → `os.replace()` — interrupted writes never produce a corrupt container
 - Password for `lock()` may be cached in WCM (user opt-in). Password for `unlock_meta()` / `fulfill_order()` is entered via `QFileDialog` file picker — no path configuration required on import device
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
+- `garmin_silo_check.py` is a leaf node — imports only `garmin_config` + stdlib. Read-only. No writes, no imports of write modules (v1.6.0.4.7)
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
 - `_process_day()` returns `(label, written, fields, val_result)` — never raises
@@ -101,7 +102,16 @@ No longer a Leaf-Node (v1.6.0.4.6) — imports `garmin_source_quality` for the w
 
 ---
 
-## `garmin_backup_source.py`
+## `garmin_silo_check.py`
+
+Read-only drift detection across the data silos. **Leaf-Node — `garmin_config` + stdlib only.**
+No writes. No imports of write modules. Repair delegation lives in `panel_archive.py`.
+
+| Function | Purpose |
+|---|---|
+| `check_silos()` | Scans raw/, summary/, source/, quality_log.json for silo inconsistencies. Returns finding lists, totals, counts, checked_at. Read-only. Lockless (atomic writes guarantee complete-file reads, §9a) |
+
+**Result structure:**
 
 Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` + stdlib.
 

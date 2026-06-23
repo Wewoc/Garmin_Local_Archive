@@ -15,8 +15,7 @@
 
 # Garmin Local Archive
 
-
-Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup and save your data from decay` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
+Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
 
 *Privacy first — inspired by European principles.*
 
@@ -294,6 +293,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_source_quality.py` | Source quality assessment — determines whether a raw API response contains intraday data. Guards `source/` files from being overwritten by degraded responses. |
 | `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
 | `garmin_backup_source.py` | Sole owner of `garmin_data/backup/source/` — backs up source files after each write. Provides one-time backfill for existing source files. |
+| `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to existing tools. |
 
 **Context pipeline** — `context/`
 

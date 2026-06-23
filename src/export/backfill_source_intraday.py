@@ -30,8 +30,8 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _SRC_ROOT   = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_SRC_ROOT / "garmin"))
 
-import garmin_config as cfg
-import garmin_source_quality as _sq
+import garmin_config as cfg         # noqa: E402
+import garmin_source_quality as _sq  # noqa: E402
 
 
 def main(dry_run: bool = False) -> None:
@@ -136,10 +136,10 @@ def main(dry_run: bool = False) -> None:
     print()
     print("=" * 60)
     if dry_run:
-        print(f"  DRY RUN complete")
+        print("  DRY RUN complete")
         print(f"  Would patch  : {patched}")
     else:
-        print(f"  Done")
+        print("  Done")
         print(f"  Patched      : {patched}")
     print(f"  Already set  : {already_set}")
     print(f"  No log entry : {no_log_entry}")
