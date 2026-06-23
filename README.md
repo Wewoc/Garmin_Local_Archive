@@ -1,5 +1,18 @@
 ![Garmin Local Archive](src/screenshots/Banner_2.png)
 
+## What you'll find here
+
+**[↓ Why this exists](#why-this-exists)** — the data loss problem that started this  
+**[↓ Download](#download)** — standalone EXE, no setup needed, Windows only  
+**[↓ Dashboards](#how-it-works)** — HRV, sleep, Body Battery, stress, intraday timeseries  
+**[↓ Bulk Import](#recovering-your-history--bulk-import)** — recover your full Garmin history from a GDPR export  
+**[↓ Local AI setup](#step-11--ai-assisted-analysis-optional)** — data ready for Ollama and Open WebUI  
+**[↓ Architecture](#what-is-included)** — pipeline overview, all modules  
+
+**Platform:** Windows · **No cloud** · **No subscription** · **No Python needed** · **Standalone EXE**
+
+---
+
 # Garmin Local Archive
 
 Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
@@ -277,6 +290,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
 | `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive). Writes `mirror_meta.json` on success |
 | `garmin_import_mirror.py` | Mirror import — selective import from a mirror folder into the local archive. Quality-rank delta, dry-run dialog, timer-safe |
+| `garmin_source_quality.py` | Source quality assessment — determines whether a raw API response contains intraday data. Guards `source/` files from being overwritten by degraded responses. |
 | `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
 | `garmin_backup_source.py` | Sole owner of `garmin_data/backup/source/` — backs up source files after each write. Provides one-time backfill for existing source files. |
 

@@ -352,18 +352,16 @@ def _analyse_source_delta_container(
 ) -> list[str]:
     """
     Compares container source file list against local garmin_data/source/.
-    Source archive wins — all container source files are imported.
-    Existing files are overwritten (source/ is immutable API snapshots,
-    overwrite is safe and correct).
+    Returns all container source paths for processing by _import_source_from_bytes().
+    The actual write decision (overwrite vs. skip vs. skip_warn) is made by
+    garmin_source_writer.write_source() via the Conservative guard — existing
+    high-resolution source files are never overwritten by degraded responses.
     Returns list of relative paths to request from fulfill_order().
     """
     order = []
     for rel_path in src_files_in_container:
-        dst = base_dir / rel_path
         order.append(rel_path)
-        if dst.exists():
-            log.debug(f"  import_mirror: source overwrite — {rel_path}")
-    log.info(f"  import_mirror: source delta — {len(order)} file(s) to import")
+    log.info(f"  import_mirror: source delta — {len(order)} file(s) to process")
     return order
 
 
@@ -374,14 +372,16 @@ def _import_source_from_bytes(
 ) -> tuple[int, int]:
     """
     Writes source files from fulfilled bytes dict to garmin_data/source/.
-    Direct write — bytes are immutable API snapshots, no transformation needed.
-    Analog to _import_context_from_bytes().
+    Delegates to garmin_source_writer.write_source() — Sole-Write-Authority
+    for source/ is consolidated here (Option 1, v1.6.0.4.6).
+    The Conservative guard in write_source() protects existing high-resolution
+    files from being overwritten by degraded mirror responses.
     Returns (copied, errors).
     """
+    import garmin_source_writer as _sw
+
     copied = 0
     errors = 0
-
-    dst_dir = base_dir / "garmin_data" / "source"
 
     for rel_path in src_order:
         data_bytes = fulfilled.get(rel_path)
@@ -389,14 +389,29 @@ def _import_source_from_bytes(
             log.warning(f"  import_mirror: source bytes not found: {rel_path}")
             errors += 1
             continue
+
+        # Extract date from filename: garmin_data/source/garmin_source_YYYY-MM-DD.json
         try:
-            dst_dir.mkdir(parents=True, exist_ok=True)
-            dst_path = base_dir / rel_path
-            dst_path.write_bytes(data_bytes)
+            filename = rel_path.split("/")[-1]               # garmin_source_YYYY-MM-DD.json
+            date_str = filename.replace("garmin_source_", "").replace(".json", "")
+        except Exception as e:
+            log.error(f"  import_mirror: source filename parse error {rel_path}: {e}")
+            errors += 1
+            continue
+
+        try:
+            raw_data = json.loads(data_bytes.decode("utf-8"))
+        except Exception as e:
+            log.error(f"  import_mirror: source JSON decode error {rel_path}: {e}")
+            errors += 1
+            continue
+
+        ok = _sw.write_source(raw_data, date_str)
+        if ok:
             copied += 1
             log.debug(f"  import_mirror: source {rel_path}")
-        except Exception as e:
-            log.error(f"  import_mirror: source error {rel_path}: {e}")
+        else:
+            log.error(f"  import_mirror: source write_source failed for {date_str}")
             errors += 1
 
     if src_order:

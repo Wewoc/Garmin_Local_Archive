@@ -109,7 +109,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 344 checks, 21 sections.**
+**Current count: 382 checks, 21 sections.**
 
 
 ```bash
@@ -138,7 +138,7 @@ python tests/test_local.py
 A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
 B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check
 C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
-D. `garmin_source_writer` (v1.6.0.2) — `SOURCE_DIR` + `SOURCE_API_LOG` path derivation, `write_source` round-trip + overwrite + error cases (None/str input), `update_log` round-trip + overwrite + multi-date, Leaf-Node AST check (no forbidden pipeline imports).
+D. `garmin_source_writer` + `garmin_source_quality` (v1.6.0.2 / v1.6.0.4.6) — `SOURCE_DIR` + `SOURCE_API_LOG` path derivation, `write_source` round-trip + overwrite + error cases (None/str input), `update_log` round-trip + overwrite + multi-date + `intraday_present`. `assess_source` (5 checks), `compare_source` truth table (6 checks), `assess_source_from_file` (2 checks), `write_source` guard behavior — skip + skip_warn (4 checks), `update_log intraday_present` (3 checks). Leaf-Node AST check migrated to `garmin_source_quality` (stdlib-only).
 E. `garmin_collector._run_source_backfill` (v1.6.0.3) — no-op when `SYNC_DATES` empty, fetch called with correct date when `SYNC_DATES` set, stop event respected, per-day error does not crash loop.
 F. `garmin_backup_source` (v1.6.0.4) — `SOURCE_BACKUP_DIR` path derivation, `backup_source` round-trip + missing source → False, monthly dir write, `_consolidate_source_months` ZIP + skip current month, `backfill_source` copy + idempotent, `check_source_backfill_needed` count, `_zip_contains`, Leaf-Node AST check.
 

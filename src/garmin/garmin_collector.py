@@ -115,6 +115,7 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
                 endpoints_fetched=list(raw_data.keys()) if isinstance(raw_data, dict) else [],
                 endpoints_failed=failed_endpoints,
                 size_bytes=len(_json.dumps(raw_data).encode()) if isinstance(raw_data, dict) else 0,
+                raw_data=raw_data if isinstance(raw_data, dict) else None,
             )
         except Exception as _e:
             log.warning(f"    source_writer.update_log failed for {date_str}: {_e}")
@@ -130,6 +131,7 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
             endpoints_fetched=list(raw_data.keys()),
             endpoints_failed=failed_endpoints,
             size_bytes=len(_json.dumps(raw_data).encode()),
+            raw_data=raw_data,
         )
     except Exception as _e:
         log.warning(f"    source_writer.update_log failed for {date_str}: {_e}")
