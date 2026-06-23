@@ -1,5 +1,78 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.6 — Source Quality Guard
+
+Introduces `garmin_source_quality.py` as the sole owner of source quality
+assessment logic. Prevents `source/` files from being overwritten by degraded
+API responses — the same sync that correctly protects `raw/` from a degraded
+re-fetch now also protects `source/`. Sole-Write-Authority for `source/` is
+genuinely consolidated: the mirror import path previously bypassed
+`garmin_source_writer` and is now routed through it.
+
+**New modules:**
+- `garmin/garmin_source_quality.py` — Leaf-Node (stdlib only). Sole owner of
+  source quality assessment. Three public functions:
+  `assess_source(raw_data) -> dict` — determines `intraday_present` (bool):
+  at least one of `heartRateValues`, `stressValuesArray`,
+  `bodyBatteryValuesArray` is non-empty/non-null in the raw API response.
+  `assess_source_from_file(source_path) -> dict | None` — reads and assesses
+  an existing source file from disk; returns `None` if absent or unreadable.
+  `compare_source(existing_assessment, new_assessment) -> str` — Conservative
+  guard decision: `"write" | "skip" | "skip_warn"`.
+
+**Guard truth table (Conservative — freeze-when-present):**
+
+| Existing file | New response | Action |
+|---|---|---|
+| none | any | write |
+| intraday absent | present | write |
+| intraday absent | absent | write (refresh, harmless) |
+| intraday present | present | skip (freeze — first good capture wins) |
+| intraday present | absent | skip_warn (degradation blocked — core fix) |
+
+**Changed modules:**
+- `garmin/garmin_source_writer.py` — imports `garmin_source_quality`.
+  `write_source()` reads existing file → `assess_source_from_file` →
+  `assess_source` → `compare_source` → write / skip / skip_warn. Backup
+  triggered only on actual write. Leaf-Node status removed (now depends on
+  `garmin_source_quality`). `update_log()` gains optional `raw_data` parameter;
+  stores `intraday_present` in `source_api_log.json` when provided.
+- `garmin/garmin_import_mirror.py` — `_import_source_from_bytes()` now
+  delegates to `garmin_source_writer.write_source()` (Option 1). Sole-Write-
+  Authority for `source/` is genuinely restored — mirror is no longer a second
+  undocumented writer. `_analyse_source_delta_container()` comment corrected:
+  "overwrite is safe and correct" replaced by correct description.
+- `garmin/garmin_collector.py` — both `update_log()` call sites extended with
+  `raw_data=raw_data` so `intraday_present` is recorded on every live sync.
+- `compiler/build_manifest.py` — `garmin_source_quality.py` in `SHARED_SCRIPTS`
+  and `SCRIPT_SIGNATURES_BASE`.
+- `tests/test_local.py` — Section D extended: `assess_source` (5 checks),
+  `compare_source` truth table (6 checks), `assess_source_from_file` (2 checks),
+  `write_source` guard behavior (4 checks), `update_log intraday_present`
+  (3 checks), `garmin_source_quality` Leaf-Node AST check (1 check).
+  Old `garmin_source_writer` Leaf-Node AST check retired (correct — writer
+  now imports `garmin_source_quality`).
+
+**Architecture:**
+- `garmin_source_quality` is the new Leaf-Node for source quality logic,
+  analogous to the role `garmin_quality` plays for `raw/` quality.
+- Binary `intraday_present` flag is sufficient for the documented degradation
+  cliff (populated arrays → null, ~13× size drop). Numerical scoring is
+  explicitly out of scope.
+- `source_backfill` timer inherits the guard automatically — it routes through
+  `write_source()` unchanged.
+
+**Invariants updated:**
+- `garmin_source_writer.py` is Sole Write Authority for `source/` and
+  `source_api_log.json` — now genuinely true (mirror bypass closed).
+- `source/` files with intraday data are never overwritten by a degraded
+  response, regardless of whether the write originates from a live sync or
+  a mirror import.
+
+**Test result:** 382 / 261 / 310 / 136 / 42 / 2 — all green, ruff 0 errors
+
+---
+
 ## v1.6.0.4.5 — Reliability Audit follow-up
 
 Closes the remaining open items from the Reliability Audit (GP-2) and
