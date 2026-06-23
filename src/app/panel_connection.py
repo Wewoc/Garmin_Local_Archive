@@ -379,8 +379,19 @@ class PanelConnection(QWidget):
         reset_btn = _btn("🔑  Reset Token", self._app.BG3, self._app.TEXT2)
         reset_btn.clicked.connect(self._reset_token)
 
+        self._silo_check_btn = _btn("🔍  Silo-Check", self._app.BG3, self._app.TEXT2)
+        self._silo_check_btn.setEnabled(True)
+        self._silo_check_btn.clicked.connect(
+            lambda: self._app._panel_archive._on_silo_check())
+
+        self._silo_repair_btn = _btn("🔧  Repair", self._app.BG3, self._app.TEXT2)
+        self._silo_repair_btn.setEnabled(False)
+        self._silo_repair_btn.clicked.connect(
+            lambda: self._app._panel_archive._on_silo_repair())
+
         for b in [self._mirror_btn, self._import_mirror_btn,
-                  self._restore_btn, reset_btn]:
+                  self._restore_btn, reset_btn,
+                  self._silo_check_btn, self._silo_repair_btn]:
             conn_row.addWidget(b)
             conn_row.addSpacing(4)
 
@@ -388,7 +399,39 @@ class PanelConnection(QWidget):
         # Archive info widgets (fail/recheck/missing/range/device-table/integrity)
         # live in panel_home — not duplicated here.
 
-    # ── Accessors — sole authorised write-path for mirror/restore buttons ──────
+    # ── Accessors — sole authorised write-path for mirror/restore/silo buttons ─
+
+    def set_silo_check_button_state(self, enabled: bool, text: str = None):
+        """Called from PanelArchive — Main Thread only."""
+        self._silo_check_btn.setEnabled(enabled)
+        if text is not None:
+            self._silo_check_btn.setText(text)
+        fg = self._app.TEXT if enabled else self._app.TEXT2
+        self._silo_check_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
+            f"border: none; padding: 7px 14px; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
+            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
+            f"background: {self._app.BG3}; }}")
+        self._silo_check_btn.style().unpolish(self._silo_check_btn)
+        self._silo_check_btn.style().polish(self._silo_check_btn)
+        self._silo_check_btn.update()
+
+    def set_silo_repair_button_state(self, enabled: bool, text: str = None):
+        """Called from PanelArchive — Main Thread only."""
+        self._silo_repair_btn.setEnabled(enabled)
+        if text is not None:
+            self._silo_repair_btn.setText(text)
+        fg = self._app.TEXT if enabled else self._app.TEXT2
+        self._silo_repair_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
+            f"border: none; padding: 7px 14px; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
+            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
+            f"background: {self._app.BG3}; }}")
+        self._silo_repair_btn.style().unpolish(self._silo_repair_btn)
+        self._silo_repair_btn.style().polish(self._silo_repair_btn)
+        self._silo_repair_btn.update()
 
     def set_mirror_button_state(self, enabled: bool,
                                 text: str = None, color: str = None):
