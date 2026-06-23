@@ -17,11 +17,15 @@ Invariants:
   - Days without a source/ file after the 180-day window cannot be recovered
     (Garmin degrades intraday resolution permanently beyond that boundary).
   - No lock required — sequential, single owner, no concurrent access.
+  - write_source() never overwrites a high-resolution source file with a
+    degraded response (Conservative guard — freeze-when-present, v1.6.0.4.6).
 
-Leaf-Node: imports only garmin_config and stdlib. No pipeline module imports.
+Depends on: garmin_source_quality (guard logic), garmin_config, stdlib.
+No longer a Leaf-Node — imports garmin_source_quality for the write guard.
 
 Called by:
-  garmin/garmin_collector.py — _fetch_and_assess() (two call sites, lazy import)
+  garmin/garmin_collector.py  — _fetch_and_assess() (two call sites, lazy import)
+  garmin/garmin_import_mirror.py — write_source() via Option 1 delegate (v1.6.0.4.6)
 """
 
 import json
@@ -56,6 +60,12 @@ def write_source(raw_data: dict, date_str: str) -> bool:
     Called before garmin_validator — secures raw data even if validator crashes.
     Writes atomically: .tmp → fsync → os.replace.
 
+    Guard (v1.6.0.4.6 — Conservative, freeze-when-present):
+      Reads existing file (if any), assesses intraday presence via
+      garmin_source_quality, and skips the write if the existing file
+      already contains intraday data and the new response does not.
+      "skip" and "skip_warn" both return True — non-fatal, pipeline continues.
+
     Parameters
     ----------
     raw_data : dict — unmodified API response from garmin_api.fetch_raw()
@@ -63,10 +73,11 @@ def write_source(raw_data: dict, date_str: str) -> bool:
 
     Returns
     -------
-    bool — True on success, False on any error (non-fatal)
+    bool — True on success or guarded skip, False on any error (non-fatal)
     """
     try:
         import garmin_config as cfg
+        import garmin_source_quality as _sq
 
         if not isinstance(raw_data, dict):
             log.warning(f"  source_writer.write_source: non-dict input for {date_str} — skipped")
@@ -74,7 +85,25 @@ def write_source(raw_data: dict, date_str: str) -> bool:
 
         cfg.SOURCE_DIR.mkdir(parents=True, exist_ok=True)
 
-        dst     = cfg.SOURCE_DIR / f"{SOURCE_FILE_PREFIX}{date_str}.json"
+        dst = cfg.SOURCE_DIR / f"{SOURCE_FILE_PREFIX}{date_str}.json"
+
+        # ── Downgrade guard ───────────────────────────────────────────────────
+        existing_assessment = _sq.assess_source_from_file(dst)
+        new_assessment      = _sq.assess_source(raw_data)
+        decision            = _sq.compare_source(existing_assessment, new_assessment)
+
+        if decision == "skip":
+            log.debug(f"  source_writer: {date_str} — intraday present, skip (freeze)")
+            return True
+
+        if decision == "skip_warn":
+            log.warning(
+                f"  source_writer: {date_str} — degraded response blocked "
+                f"(existing intraday_present=True, new intraday_present=False)"
+            )
+            return True
+
+        # ── Write (decision == "write") ───────────────────────────────────────
         tmp     = dst.with_suffix(".json.tmp")
         payload = json.dumps(raw_data, ensure_ascii=False, indent=None,
                              separators=(",", ":"))
@@ -114,6 +143,7 @@ def update_log(
     endpoints_fetched: list,
     endpoints_failed: list,
     size_bytes: int,
+    raw_data: dict | None = None,
 ) -> bool:
     """
     Writes or updates the entry for date_str in source_api_log.json.
@@ -123,11 +153,15 @@ def update_log(
 
     Parameters
     ----------
-    date_str          : str  — date in YYYY-MM-DD format
-    val_result        : dict — validator result: {"status", "issues", ...}
-    endpoints_fetched : list — endpoint labels that returned data
-    endpoints_failed  : list — endpoint labels that returned no data
-    size_bytes        : int  — approximate size of raw_data in bytes
+    date_str          : str       — date in YYYY-MM-DD format
+    val_result        : dict      — validator result: {"status", "issues", ...}
+    endpoints_fetched : list      — endpoint labels that returned data
+    endpoints_failed  : list      — endpoint labels that returned no data
+    size_bytes        : int       — approximate size of raw_data in bytes
+    raw_data          : dict|None — unmodified API response; used to assess
+                                    intraday_present via garmin_source_quality.
+                                    Optional — omit to leave intraday_present
+                                    out of the log entry (legacy callers).
 
     Returns
     -------
@@ -161,6 +195,15 @@ def update_log(
             "endpoints_failed":  list(endpoints_failed),
             "size_bytes":        size_bytes,
         }
+
+        # ── intraday_present (v1.6.0.4.6) ────────────────────────────────────
+        if raw_data is not None:
+            try:
+                import garmin_source_quality as _sq
+                assessment = _sq.assess_source(raw_data)
+                entry["intraday_present"] = assessment["intraday_present"]
+            except Exception as _e:
+                log.warning(f"  source_writer.update_log: assess_source failed for {date_str}: {_e}")
 
         existing[date_str] = entry
 

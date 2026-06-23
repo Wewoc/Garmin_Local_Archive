@@ -42,8 +42,9 @@ garmin_app.py (GUI)
 - `garmin_writer.py` is sole write authority for `raw/` and `summary/`
 - `garmin_quality.py` is sole write authority for `quality_log.json`
 - `garmin_backup.py` is sole write authority for `garmin_data/backup/`
-- `garmin_source_writer.py` is sole write authority for `garmin_data/source/` and `source_api_log.json` (v1.6.0.2)
+- `garmin_source_writer.py` is sole write authority for `garmin_data/source/` and `source_api_log.json` (v1.6.0.2 — genuinely enforced since v1.6.0.4.6: mirror bypass closed)
 - `source/` contains exclusively live API responses — bulk import never writes to `source/`, not even during backfill (v1.6.0.2)
+- `source/` files with `intraday_present=True` are never overwritten by a degraded response — Conservative guard in `write_source()` (v1.6.0.4.6)
 - `garmin_collector.py` is the stop-event orchestrator (v1.5.6.3) — `set_stop_event(ev)` registers the event on the collector and distributes it to `garmin_api` in one call. The GUI calls `main(stop_event=ev)`; no module ever reads `_STOP_EVENT` via `globals()`
 - `garmin_mirror.py` is sole owner of the mirror operation — delegates to `garmin_container.py` for container creation. `is_import_ready()` removed (v1.5.6.2) — import source selected via file picker, not stored path
 - `garmin_container.py` is sole owner of `mirror.gla` — no other module reads or writes the container file directly
@@ -73,16 +74,30 @@ Intentional deviations from the invariants above. Each exception is stable by de
 
 ---
 
-## `garmin_source_writer.py`
+## `garmin_source_quality.py`
 
-Sole Owner of `garmin_data/source/` and `source_api_log.json`. Leaf-Node — only `garmin_config` + stdlib.
-`garmin_config` imported lazily inside each function (not at module level) — same pattern as `garmin_security.py`.
-After each successful `write_source()`: lazy import of `garmin_backup_source.backup_source()` — non-fatal.
+Sole Owner of source quality assessment logic. **Leaf-Node — stdlib only** (no `garmin_config`, no pipeline imports).
+Called by `garmin_source_writer` to guard `write_source()` against overwriting high-resolution source files.
 
 | Function | Purpose |
 |---|---|
-| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Atomic: `.tmp` → `fsync` → `os.replace`. Called before `validator.validate()`. Triggers `garmin_backup_source.backup_source()` after success (lazy, non-fatal). Returns `bool`. Non-fatal |
-| `update_log(date_str, val_result, endpoints_fetched, endpoints_failed, size_bytes)` | Upserts entry in `source_api_log.json`. Called after validator critical check — `validator_status` is known. Atomic write. Returns `bool`. Non-fatal |
+| `assess_source(raw_data)` | Assesses whether a raw API response contains intraday data. Checks `heartRateValues`, `stressValuesArray`, `bodyBatteryValuesArray`. Returns `{"intraday_present": bool}` |
+| `assess_source_from_file(source_path)` | Reads existing source file from disk and assesses it. Returns `None` if absent or unreadable. Returns `{"intraday_present": bool}` on success |
+| `compare_source(existing_assessment, new_assessment)` | Conservative guard decision. Returns `"write"` \| `"skip"` \| `"skip_warn"`. See truth table in CHANGELOG v1.6.0.4.6 |
+
+---
+
+## `garmin_source_writer.py`
+
+Sole Owner of `garmin_data/source/` and `source_api_log.json`. Depends on `garmin_source_quality` + `garmin_config` + stdlib.
+`garmin_config` and `garmin_source_quality` imported lazily inside each function — same pattern as `garmin_security.py`.
+After each actual write in `write_source()`: lazy import of `garmin_backup_source.backup_source()` — non-fatal.
+No longer a Leaf-Node (v1.6.0.4.6) — imports `garmin_source_quality` for the write guard.
+
+| Function | Purpose |
+|---|---|
+| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Guard: reads existing file → `assess_source_from_file` → `assess_source` → `compare_source` → write / skip / skip_warn. Atomic: `.tmp` → `fsync` → `os.replace`. Triggers `backup_source()` only on actual write. Returns `bool`. Non-fatal |
+| `update_log(date_str, val_result, endpoints_fetched, endpoints_failed, size_bytes, raw_data=None)` | Upserts entry in `source_api_log.json`. Stores `intraday_present` when `raw_data` provided (via `garmin_source_quality.assess_source()`). Atomic write. Returns `bool`. Non-fatal |
 
 ---
 
