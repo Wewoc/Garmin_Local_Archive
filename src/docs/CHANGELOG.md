@@ -1,5 +1,61 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.7 — Silo-Reconciliation-Check
+
+Read-only drift detection across the data silos. Surfaces inconsistencies
+that the live pipeline does not catch: old gaps, interrupted runs, manual
+file operations, and import errors — across raw/, summary/, source/, and
+quality_log.json. Repair delegates to existing tools; no new write paths.
+
+**New modules:**
+- `garmin/garmin_silo_check.py` — Read-only, Leaf-Node (garmin_config + stdlib
+  only). Single public function `check_silos() -> dict`. Covers four checks
+  based on the reconstructability principle (KONZEPT §3):
+  #1 raw without quality_log entry (orphan — processed but not logged),
+  #3 source without raw (raw rebuildable from existing source via regenerate_raw),
+  #5 summary without raw (orphan summary — source raw gone),
+  #7 raw without summary (derived file missing — rebuildable from raw).
+  Check #2 (quality_log entry without raw) remains with
+  `garmin_backup.check_raw_integrity()` — not re-implemented (Option C).
+  Returns finding lists, totals per silo, counts, and a checked_at timestamp.
+
+**Changed modules:**
+- `app/panel_connection.py` — `_silo_check_btn` and `_silo_repair_btn` added
+  to DATA MANAGEMENT row. Accessor methods `set_silo_check_button_state()` and
+  `set_silo_repair_button_state()` added (same pattern as mirror/restore buttons).
+- `app/panel_archive.py` — `_on_silo_check()` and `_on_silo_repair()` added.
+  Silo-Check runs in background thread; findings written to `_app._log()` stream.
+  Gate: disabled while any pipeline job runs (`_is_running()`, `_ctx_running`,
+  `_timer_active`, `_mirror_running`). Repair re-scans before acting (never on
+  stale findings). Repair delegation:
+  #1 → `garmin_quality._backfill_quality_log()` under QUALITY_LOCK,
+  #3 → subprocess `regenerate_raw.py --date`,
+  #5 → `Path.unlink()` (orphan summary),
+  #7 → inline `garmin_normalizer.summarize()` + `garmin_writer.write_day()`.
+- `compiler/build_manifest.py` — `garmin_silo_check.py` in `SHARED_SCRIPTS`
+  and `SCRIPT_SIGNATURES_BASE`.
+- `export/backfill_source_intraday.py` — pre-existing ruff warnings fixed
+  (E402 `# noqa`, F541 bare f-strings removed).
+- `tests/test_local.py` — Section G added (37 checks): result structure,
+  clean-silo baseline, all four check categories, counts/list consistency,
+  date-object type check, Leaf-Node AST check.
+
+**Architecture:**
+- `garmin_silo_check` is a pure detection layer — no writes, no imports of
+  write modules. Repair stays in `panel_archive` and delegates to existing
+  owners. No new Sole-Write-Authority assignments.
+- Lockless read is safe (§9a): quality_log is written atomically via
+  `os.replace()`, so a concurrent read always sees a complete file.
+- Gate via app state (not file lock): established house pattern from
+  `_on_import_mirror()`.
+- `_extract_date()` implemented inline in `garmin_silo_check` — mirrors
+  `garmin_utils.extract_date_from_filename()` logic without importing it,
+  preserving Leaf-Node isolation.
+
+**Test result:** 418 / 261 / 310 / 136 / 42 / 2 — all green, ruff 0 errors
+
+---
+
 ## v1.6.0.4.6 — Source Quality Guard
 
 Introduces `garmin_source_quality.py` as the sole owner of source quality

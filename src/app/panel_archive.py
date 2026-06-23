@@ -132,7 +132,9 @@ class PanelArchive(QWidget):
         super().__init__()
         self._app = app
         # Owner (D-4)
-        self._mirror_running = False
+        self._mirror_running  = False
+        self._silo_running    = False          # gate flag — silo check in progress
+        self._last_silo_result: dict | None = None  # stale guard for repair
         # No UI widgets owned here — archive info labels live on PanelConnection
         # This panel owns the logic; PanelConnection owns the display labels.
 
@@ -596,6 +598,247 @@ class PanelArchive(QWidget):
             return answer == QMessageBox.StandardButton.Yes
         except Exception:
             return False
+
+    # ── Silo-Check ────────────────────────────────────────────────────────────
+
+    def _on_silo_check(self):
+        """Starts Silo-Check in background thread. Main Thread only."""
+        if self._silo_running:
+            return
+        if self._mirror_running:
+            QMessageBox.warning(self._app, "Silo-Check",
+                "Mirror import is running.\nPlease wait until it finishes.")
+            return
+        if self._app._is_running():
+            QMessageBox.warning(self._app, "Silo-Check",
+                "A Garmin sync is currently running.\nPlease wait until it finishes.")
+            return
+        if self._app._ctx_running:
+            QMessageBox.warning(self._app, "Silo-Check",
+                "Context sync is running.\nPlease wait until it finishes.")
+            return
+        if self._app._timer_active:
+            QMessageBox.warning(self._app, "Silo-Check",
+                "Background timer is active.\nStop the timer before running a silo check.")
+            return
+
+        self._silo_running = True
+        self._last_silo_result = None
+        self._app._dispatch(
+            lambda: self._app._panel_connection.set_silo_check_button_state(
+                False, text="🔍  Checking…"))
+        self._app._dispatch(
+            lambda: self._app._panel_connection.set_silo_repair_button_state(False))
+        self._app._log("🔍  Silo-Check started …")
+
+        def _do_check():
+            try:
+                import garmin_silo_check as _sc
+                result = _sc.check_silos()
+                self._last_silo_result = result
+
+                t = result["totals"]
+                c = result["counts"]
+                total_findings = sum(c.values())
+
+                lines = [
+                    f"🔍  Silo-Check complete — {result['checked_at']}",
+                    f"    raw={t['raw']}  summary={t['summary']}  "
+                    f"source={t['source']}  quality_days={t['quality_days']}",
+                ]
+                if total_findings == 0:
+                    lines.append("    ✓ No inconsistencies found.")
+                else:
+                    if c["raw_without_quality"]:
+                        lines.append(
+                            f"    ⚠ #1 raw without quality_log: "
+                            f"{c['raw_without_quality']} day(s) — "
+                            + ", ".join(d.isoformat()
+                                        for d in result["raw_without_quality"][:5])
+                            + ("…" if c["raw_without_quality"] > 5 else ""))
+                    if c["source_without_raw"]:
+                        lines.append(
+                            f"    ⚠ #3 source without raw: "
+                            f"{c['source_without_raw']} day(s) — "
+                            + ", ".join(d.isoformat()
+                                        for d in result["source_without_raw"][:5])
+                            + ("…" if c["source_without_raw"] > 5 else ""))
+                    if c["summary_without_raw"]:
+                        lines.append(
+                            f"    ⚠ #5 summary without raw: "
+                            f"{c['summary_without_raw']} day(s) — "
+                            + ", ".join(d.isoformat()
+                                        for d in result["summary_without_raw"][:5])
+                            + ("…" if c["summary_without_raw"] > 5 else ""))
+                    if c["raw_without_summary"]:
+                        lines.append(
+                            f"    ⚠ #7 raw without summary: "
+                            f"{c['raw_without_summary']} day(s) — "
+                            + ", ".join(d.isoformat()
+                                        for d in result["raw_without_summary"][:5])
+                            + ("…" if c["raw_without_summary"] > 5 else ""))
+                    lines.append(
+                        "    → Use '🔧 Repair' to fix all findings.")
+
+                for line in lines:
+                    self._app._log_bg(line)
+
+                has_findings = total_findings > 0
+                self._app._dispatch(
+                    lambda hf=has_findings: (
+                        self._app._panel_connection.set_silo_check_button_state(
+                            True, text="🔍  Silo-Check"),
+                        self._app._panel_connection.set_silo_repair_button_state(
+                            hf, text="🔧  Repair"),
+                    ))
+
+            except Exception as e:
+                self._app._log_bg(f"✗ Silo-Check failed: {e}")
+                self._app._dispatch(
+                    lambda: self._app._panel_connection.set_silo_check_button_state(
+                        True, text="🔍  Silo-Check"))
+            finally:
+                self._silo_running = False
+
+        threading.Thread(target=_do_check, daemon=True).start()
+
+    def _on_silo_repair(self):
+        """Repair all silo findings. Main Thread only.
+        Re-runs check_silos() first — never acts on stale findings (§9a)."""
+        if self._silo_running:
+            return
+        if self._last_silo_result is None:
+            self._app._log("✗ Silo-Repair: no check result available. Run Silo-Check first.")
+            return
+        if self._app._is_running() or self._app._ctx_running \
+                or self._app._timer_active or self._mirror_running:
+            QMessageBox.warning(self._app, "Silo-Repair",
+                "A pipeline job is running.\nPlease wait until it finishes.")
+            return
+
+        self._silo_running = True
+        self._app._dispatch(
+            lambda: self._app._panel_connection.set_silo_repair_button_state(
+                False, text="🔧  Repairing…"))
+        self._app._dispatch(
+            lambda: self._app._panel_connection.set_silo_check_button_state(False))
+        self._app._log("🔧  Silo-Repair started — re-scanning first …")
+
+        def _do_repair():
+            import subprocess
+            import sys as _sys
+
+            try:
+                import garmin_silo_check as _sc
+                fresh = _sc.check_silos()
+            except Exception as e:
+                self._app._log_bg(f"✗ Silo-Repair: re-scan failed: {e}")
+                self._app._dispatch(
+                    lambda: (
+                        self._app._panel_connection.set_silo_repair_button_state(
+                            True, text="🔧  Repair"),
+                        self._app._panel_connection.set_silo_check_button_state(True),
+                    ))
+                self._silo_running = False
+                return
+
+            ok = 0
+            failed = 0
+            s        = self._app._panel_settings._collect_settings()
+            base_dir = Path(s.get("base_dir", "")).expanduser()
+
+            # ── #3: source without raw → regenerate_raw.py --date ─────────────
+            for d in fresh["source_without_raw"]:
+                date_str = d.isoformat()
+                try:
+                    regen_script = base_dir.parent / "export" / "regenerate_raw.py"
+                    if not regen_script.exists():
+                        # Try relative to src/
+                        import garmin_config as _cfg
+                        regen_script = Path(_cfg.__file__).parent.parent / "export" / "regenerate_raw.py"
+                    proc = subprocess.run(
+                        [_sys.executable, str(regen_script), "--date", date_str],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    if proc.returncode == 0:
+                        self._app._log_bg(f"  ✓ #3 repaired: {date_str}")
+                        ok += 1
+                    else:
+                        self._app._log_bg(
+                            f"  ✗ #3 repair failed {date_str}: "
+                            f"{proc.stderr.strip()[:200]}")
+                        failed += 1
+                except Exception as e:
+                    self._app._log_bg(f"  ✗ #3 repair error {date_str}: {e}")
+                    failed += 1
+
+            # ── #5: summary without raw → unlink orphan ───────────────────────
+            for d in fresh["summary_without_raw"]:
+                date_str = d.isoformat()
+                try:
+                    import garmin_config as _cfg
+                    orphan = _cfg.SUMMARY_DIR / f"garmin_{date_str}.json"
+                    if orphan.exists():
+                        orphan.unlink()
+                        self._app._log_bg(f"  ✓ #5 orphan removed: {date_str}")
+                        ok += 1
+                    else:
+                        self._app._log_bg(f"  ~ #5 already gone: {date_str}")
+                except Exception as e:
+                    self._app._log_bg(f"  ✗ #5 repair error {date_str}: {e}")
+                    failed += 1
+
+            # ── #7: raw without summary → inline summarize + write_day ─────────
+            for d in fresh["raw_without_summary"]:
+                date_str = d.isoformat()
+                try:
+                    import garmin_config as _cfg
+                    import json as _json
+                    raw_file = _cfg.RAW_DIR / f"garmin_raw_{date_str}.json"
+                    if not raw_file.exists():
+                        self._app._log_bg(f"  ~ #7 raw gone by now: {date_str}")
+                        continue
+                    raw = _json.loads(raw_file.read_text(encoding="utf-8"))
+                    import garmin_normalizer as _norm
+                    import garmin_writer as _writer
+                    summary = _norm.summarize(raw)
+                    _writer.write_day(raw, summary, date_str)
+                    self._app._log_bg(f"  ✓ #7 summary rebuilt: {date_str}")
+                    ok += 1
+                except Exception as e:
+                    self._app._log_bg(f"  ✗ #7 repair error {date_str}: {e}")
+                    failed += 1
+
+            # ── #1: raw without quality_log → _backfill_quality_log ───────────
+            if fresh["raw_without_quality"]:
+                try:
+                    import garmin_quality as _quality
+                    with _quality.QUALITY_LOCK:
+                        qdata = _quality._load_quality_log()
+                        added = _quality._backfill_quality_log(qdata)
+                        if added:
+                            _quality._save_quality_log(qdata)
+                    self._app._log_bg(
+                        f"  ✓ #1 quality_log backfilled: {added} entry(ies) added")
+                    ok += added
+                except Exception as e:
+                    self._app._log_bg(f"  ✗ #1 repair error: {e}")
+                    failed += 1
+
+            self._app._log_bg(
+                f"🔧  Silo-Repair complete — {ok} fixed, {failed} errors")
+
+            self._last_silo_result = None
+            self._app._dispatch(lambda: (
+                self._app._panel_connection.set_silo_check_button_state(
+                    True, text="🔍  Silo-Check"),
+                self._app._panel_connection.set_silo_repair_button_state(
+                    False, text="🔧  Repair"),
+                self._app._panel_archive._refresh_archive_info(),
+            ))
+            self._silo_running = False
+
+        threading.Thread(target=_do_repair, daemon=True).start()
 
     # ── Mirror check ───────────────────────────────────────────────────────────
 
