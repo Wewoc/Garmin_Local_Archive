@@ -109,6 +109,12 @@ if __name__ == "__main__":
         print("\n  ✗ Dashboard tests failed — build aborted.")
         sys.exit(1)
 
+    test_static_path = _root / "tests" / "test_static.py"
+    result_static = subprocess.run([sys.executable, str(test_static_path)])
+    if result_static.returncode != 0:
+        print("\n  ✗ Static analysis failed — build aborted.")
+        sys.exit(1)
+
     print("\n  ✓ All tests passed — starting build.\n")
 
     print("=" * 55)

@@ -273,7 +273,7 @@ def save_device_table(quality_data: dict) -> None:
     # Accumulate per-device stats
     # Entries with device_id=None are grouped under "__unknown__"
     stats = {}  # device_id → {name, dates, days_high, days_standard}
-    unknown = {"name": "unknown", "dates": [], "days_high": 0, "days_standard": 0}
+    unknown = {"dates": [], "days_high": 0, "days_standard": 0, "_names": set()}
     for entry in days:
         dev_id = entry.get("device_id")
         if not dev_id:
@@ -286,6 +286,9 @@ def save_device_table(quality_data: dict) -> None:
                 unknown["days_high"] += 1
             elif q == "standard":
                 unknown["days_standard"] += 1
+            n = (entry.get("device_name") or "").strip()
+            if n:
+                unknown["_names"].add(n)
             continue
         if dev_id not in stats:
             stats[dev_id] = {
@@ -333,9 +336,11 @@ def save_device_table(quality_data: dict) -> None:
     if unknown["dates"]:
         dh  = unknown["days_high"]
         dst = unknown["days_standard"]
+        _names = unknown["_names"]
+        _display_name = next(iter(_names)) if len(_names) == 1 else "unknown"
         rows.append({
             "device_id":     "__unknown__",
-            "name":          "unknown",
+            "name":          _display_name,
             "date_from":     min(unknown["dates"]),
             "date_to":       max(unknown["dates"]),
             "days_high":     dh,

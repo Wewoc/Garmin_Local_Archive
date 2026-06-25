@@ -178,8 +178,11 @@ def update_log(
             try:
                 existing = json.loads(log_path.read_text(encoding="utf-8"))
             except Exception as e:
-                log.warning(f"  source_writer.update_log: could not read log — {e}")
-                existing = {}
+                log.warning(
+                    f"  source_writer.update_log: could not read log — "
+                    f"skipping update to protect existing history ({e})"
+                )
+                return False
 
         # Build entry
         entry = {

@@ -1,5 +1,161 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.9.2 — Security Linting Gate (bandit)
+
+Adds `bandit` as a permanent pre-build security linting gate alongside the
+existing `ruff` linting gate. No pipeline changes, no new features, no user-
+visible behaviour changes.
+
+**Fix — `garmin/garmin_extended_anaysis.py`:**
+Three `hashlib.md5()` calls used for pseudo-deterministic date hashing
+(Easter Egg — no security context) flagged as HIGH severity by bandit.
+Fixed with `usedforsecurity=False` — semantically accurate, silences the
+finding without changing behaviour.
+
+**New gate — `tests/test_static.py`:**
+Section 2 activated: `bandit -r . --severity-level high --confidence-level high`.
+0 HIGH findings required — build aborts on violation. Section 3 slot renamed
+to `(reserved) mypy`. Docstring updated.
+
+**New pre-build step — `compiler/build_all.py`:**
+`test_static.py` runs as the final pre-build step after `test_local`,
+`test_local_context`, and `test_dashboard`. Build aborts if bandit or ruff
+report any findings.
+
+**Changed modules:**
+- `garmin/garmin_extended_anaysis.py` — three `md5()` calls: `usedforsecurity=False` added
+- `tests/test_static.py` — bandit section activated; mypy slot renumbered to 3
+- `compiler/build_all.py` — `test_static.py` added as pre-build gate
+
+**Test result:** 420 / 261 / 310 / 136 / 42 / 2 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
+## v1.6.0.4.9.1 — Bugfix: Device Name Dialog + BAT Folder
+
+Two GUI bugfixes and a structural cleanup. No pipeline changes, no new modules.
+
+**Fix 1 — `app/panel_archive.py`:**
+`_archive_on_device_name_click()` referenced `self._app._panel_connection`
+to retrieve `_info_device_table`. The table was moved to `panel_home` in
+v1.6.0. Double-click on an unknown device row caused an `AttributeError`
+crash. Fix: `_panel_connection` → `_panel_home`.
+
+**Fix 2 — `garmin/quality/_io.py`:**
+After `set_unknown_device_name()` wrote the new name into `quality_log.json`,
+`save_device_table()` still showed `"unknown"` in the device table — the
+display name was hardcoded. Fix: `_names` set accumulated from entries with
+`device_id=None`; if all entries carry the same name, it is used as the
+display name. Mixed or empty → falls back to `"unknown"`.
+
+**Structural — `src/bat/`:**
+Five dev-launcher BAT files moved from `src/` into `src/bat/`. All BATs
+updated with `cd /d "%~dp0.."` so they work on double-click without
+requiring a specific CWD. `run_tests.ps1` stays in `src/` (called via
+relative path from `bat/run_test_all.bat`).
+
+**Changed modules:**
+- `app/panel_archive.py` — `_archive_on_device_name_click()`: panel reference fixed
+- `garmin/quality/_io.py` — `save_device_table()`: unknown row displays actual device name
+- `src/bat/run_T1.bat` — moved + cd fix
+- `src/bat/run_build_all.bat` — moved + cd fix
+- `src/bat/run_build_all_-_check_deps.bat` — moved + cd fix
+- `src/bat/run_cve_check.bat` — moved + cd fix
+- `src/bat/run_test_all.bat` — moved + cd fix
+
+**Test result:** 420 / 261 / 310 / 136 / 42 / 2 — all green
+
+---
+
+## v1.6.0.4.9 — Audit Hardening: Silent-Failure-Fixes (F-1 bis F-5)
+
+Closes all five actionable findings from the Dependency Audit (v1.6.0.4.8).
+Primary lens: Silent Failure. All fixes reflect existing good patterns
+applied to the places they were missing — no new architectural concepts.
+F-6 (source backfill surfacing) is already on the ROADMAP and receives no
+separate Bauauftrag here.
+
+**F-3 (HOCH) — `garmin/garmin_api.py`:**
+Rate-limit detection via substring (`"429" in str(e)`) replaced by typed
+exception check. `GarminConnectTooManyRequestsError` is now caught via
+`isinstance` (primary); substring remains as fallback (Defense-in-Depth).
+Applied to both `api_call()` and `login()` Path 1 Token-Probe.
+`GarminConnectAuthenticationError` deliberately excluded from Stelle B —
+it also covers 401 (token expired), which must still fall through to SSO.
+Multi-LLM review gate passed (Gemini, ChatGPT, Copilot) — intersection
+confirmed the 403-substring fallback must be retained.
+
+**F-1 (MITTEL) — `garmin/garmin_source_writer.py`:**
+`update_log()`: read failure on existing `source_api_log.json` previously
+fell back to `existing = {}`, causing a subsequent write to silently replace
+the entire log history with a single entry. Fix: `return False` on read
+failure — existing file is left untouched. Log message updated to name the
+protection reason explicitly.
+
+**F-5 (NIEDRIG) — `maps/garmin_map.py`:**
+`_read_daily()`, `_read_intraday()`, `_read_raw_pct()`: all three had
+`except (json.JSONDecodeError, OSError): pass` with no logging. A corrupt
+file in the dashboard read path was silently skipped — indistinguishable
+from "data never existed". Fix: `log.warning` added (exact pattern of the
+four Context Maps since v1.5.5.4). `_read_raw_pct` was not named in the
+audit finding — discovered during file read, fixed in the same pass (M-2).
+`import logging` + `log = logging.getLogger(__name__)` added (was missing).
+
+**F-4 (NIEDRIG) — `garmin/garmin_source_quality.py`:**
+`assess_source_from_file()` returned `None` for both absent and unreadable
+files. `compare_source(None, ...) → "write"` always — a degraded API
+response could overwrite an unreadable (potentially high-resolution)
+`source/` file. Fix: unreadable files now return `{"unreadable": True}`;
+`compare_source` handles the new case with `"skip_warn"` (conservative —
+file may contain intraday data that cannot be assessed).
+`garmin_source_writer.write_source()` unchanged — existing `skip_warn`
+handler covers the new case correctly.
+
+**F-2 (NIEDRIG) — `garmin/garmin_collector.py`:**
+`write_source()` return value was discarded in `_fetch_and_assess()`.
+A `source/` write failure was only a `log.warning`, while `raw/` write
+failures surface as `log.error`. Fix: return value captured; `False` →
+`log.error`. Exception path also upgraded from `log.warning` to `log.error`.
+Visibility parity between `source/` and `raw/` write failures established.
+Pipeline remains non-fatal.
+
+**Changed files:**
+- `garmin/garmin_api.py`
+- `garmin/garmin_source_writer.py`
+- `maps/garmin_map.py`
+- `garmin/garmin_source_quality.py`
+- `garmin/garmin_collector.py`
+- `tests/test_local.py` (+2 checks for F-4)
+
+**Test result:** 420 / 261 / 310 / 136 / 42 / 2 — all green, ruff 0 errors
+
+---
+ 
+## v1.6.0.4.8 — Dependency Audit
+ 
+Full systematic dependency audit across all 88 modules (6 clusters).
+Read-only session — no code changes. Produces the findings register
+`AUDIT_FINDINGS_v1_6_0_4_8.md` that drives the v1.6.0.4.9 hardening series.
+ 
+**Methodology:**
+- `build_dep_map.py` Run-04 (2026-06-23) — AST-based full dependency map:
+  imports, importers, exception handlers, file I/O, dynamic imports, caller map.
+- 6 clusters audited: garmin Write-Core, garmin Pipeline, context,
+  maps, layouts + dashboards, app + entry points.
+- Primary lens: Silent Failure (unobservable errors that mask data loss).
+- Each finding classified on two axes: gewollt (by design) × Handlungsbedarf
+  (action required). Only `gewollt=nein + Handlungsbedarf=ja` are fix candidates.
+**Findings: 6 total — 1× HOCH, 1× MITTEL, 4× NIEDRIG.**
+All five actionable findings fixed in v1.6.0.4.9. F-6 carried to ROADMAP v1.6.0.5.
+ 
+**Cross-check patterns identified:**
+- M-1: Aggregat-Writer Read→fallback{}→overwrite — exists only in F-1 (closed).
+- M-2 (dominant signal): good patterns not applied everywhere — 4 of 6 findings
+  are existing hardening measures missing from sibling locations.
+**No changed files** — audit only. No test run.
+
+--- 
+
 ## v1.6.0.4.7 — Silo-Reconciliation-Check
 
 Read-only drift detection across the data silos. Surfaces inconsistencies
@@ -175,7 +331,7 @@ Architecture Check (2026-06-20) that were not part of the v1.6.0.4.4 bucket.
 
 ---
 
-# v1.6.0.4.4.1 — Hotfix: Daily Sync Gap Detection
+## v1.6.0.4.4.1 — Hotfix: Daily Sync Gap Detection
  
 Fixes a regression introduced in v1.6.0.4.4 where the automated Daily Sync
 aborted with "Gap too large — please open the app" despite the archive being

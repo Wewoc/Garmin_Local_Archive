@@ -109,7 +109,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-**Current count: 418 checks, 22 sections.**
+`compare_source` truth table (8 checks — +2 für unreadable→skip_warn, v1.6.0.4.9)
 
 
 ```bash
