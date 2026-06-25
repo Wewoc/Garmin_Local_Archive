@@ -292,7 +292,7 @@ def discretise_delta(value, baseline, bins: int = 10) -> int:
 
 def crystal_energy(date_str: str) -> int:
     """Pseudo-deterministic hash of the date. Consistent. Unexplainable."""
-    h = hashlib.md5(date_str.encode()).hexdigest()
+    h = hashlib.md5(date_str.encode(), usedforsecurity=False).hexdigest()
     return int(h[:8], 16) % 100
 
 
@@ -388,7 +388,7 @@ def schumann_resonance(date_str: str) -> float:
     Daily variation: deterministic, date-seeded.
     Measurement source: classified.
     """
-    h = hashlib.md5((date_str + "schumann").encode()).hexdigest()
+    h = hashlib.md5((date_str + "schumann").encode(), usedforsecurity=False).hexdigest()
     variation = (int(h[:4], 16) % 100 - 50) / 500  # ±0.1 Hz variation
     return round(7.83 + variation, 4)
 
@@ -412,7 +412,7 @@ def sunspot_number(date_str: str) -> int:
     Current data pipeline status: disrupted by Mercury retrograde.
     Current data pipeline fallback: hash of date.
     """
-    h = hashlib.md5((date_str + "sunspot").encode()).hexdigest()
+    h = hashlib.md5((date_str + "sunspot").encode(), usedforsecurity=False).hexdigest()
     # Solar cycle ~11 years, currently Solar Cycle 25 (peak ~2025)
     d    = datetime.strptime(date_str, "%Y-%m-%d").date()
     peak = date(2025, 7, 1)

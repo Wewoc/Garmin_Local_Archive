@@ -9,11 +9,11 @@ Covers static code analysis tools — independent of runtime behaviour.
 Complements the functional test suites (test_local, test_dashboard, etc.).
 
 Tools covered:
-  1. ruff  — linting + style (0 errors required)
+  1. ruff   — linting + style (0 errors required)
+  2. bandit — security linting (HIGH severity, 0 errors required)
 
 Prepared for extension:
-  2. (reserved) mypy  — type checking
-  3. (reserved) bandit — security linting
+  3. (reserved) mypy — type checking
 
 No network, no GUI, no API calls.
 """
@@ -68,16 +68,53 @@ else:
     print("  –  ruff check skipped (ruff not installed)")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  2. (reserved) mypy — type checking
+#  2. bandit — security linting (HIGH severity only)
 # ══════════════════════════════════════════════════════════════════════════════
-# section("2. mypy — type checking")
-# Uncomment and implement when mypy is added to the toolchain.
+section("2. bandit — security linting")
+
+_bandit_available = False
+try:
+    result = subprocess.run(
+        ["bandit", "--version"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=str(_ROOT)
+    )
+    _bandit_available = result.returncode == 0
+    _bandit_version   = result.stdout.splitlines()[0].strip() if _bandit_available else "not found"
+except FileNotFoundError:
+    _bandit_version = "not found"
+
+check(f"bandit is installed ({_bandit_version})", _bandit_available)
+
+if _bandit_available:
+    result = subprocess.run(
+        [
+            "bandit", "-r", ".",
+            "--severity-level", "high",
+            "--confidence-level", "high",
+            "--exclude", ".venv,dist,build",
+            "-q",
+        ],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=str(_ROOT)
+    )
+    _bandit_clean = result.returncode == 0
+
+    if not _bandit_clean:
+        print()
+        for line in result.stdout.splitlines():
+            print(f"    {line}")
+        print()
+
+    check("bandit HIGH severity → 0 issues", _bandit_clean)
+else:
+    print("  –  bandit check skipped (bandit not installed)")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  3. (reserved) bandit — security linting
+#  3. (reserved) mypy — type checking
 # ══════════════════════════════════════════════════════════════════════════════
-# section("3. bandit — security linting")
-# Uncomment and implement when bandit is added to the toolchain.
+# section("3. mypy — type checking")
+# Uncomment and implement when mypy is added to the toolchain.
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 summary()
