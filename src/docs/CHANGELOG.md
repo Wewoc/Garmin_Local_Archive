@@ -1,5 +1,36 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.9.2 — Security Linting Gate (bandit)
+
+Adds `bandit` as a permanent pre-build security linting gate alongside the
+existing `ruff` linting gate. No pipeline changes, no new features, no user-
+visible behaviour changes.
+
+**Fix — `garmin/garmin_extended_anaysis.py`:**
+Three `hashlib.md5()` calls used for pseudo-deterministic date hashing
+(Easter Egg — no security context) flagged as HIGH severity by bandit.
+Fixed with `usedforsecurity=False` — semantically accurate, silences the
+finding without changing behaviour.
+
+**New gate — `tests/test_static.py`:**
+Section 2 activated: `bandit -r . --severity-level high --confidence-level high`.
+0 HIGH findings required — build aborts on violation. Section 3 slot renamed
+to `(reserved) mypy`. Docstring updated.
+
+**New pre-build step — `compiler/build_all.py`:**
+`test_static.py` runs as the final pre-build step after `test_local`,
+`test_local_context`, and `test_dashboard`. Build aborts if bandit or ruff
+report any findings.
+
+**Changed modules:**
+- `garmin/garmin_extended_anaysis.py` — three `md5()` calls: `usedforsecurity=False` added
+- `tests/test_static.py` — bandit section activated; mypy slot renumbered to 3
+- `compiler/build_all.py` — `test_static.py` added as pre-build gate
+
+**Test result:** 420 / 261 / 310 / 136 / 42 / 2 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
 ## v1.6.0.4.9.1 — Bugfix: Device Name Dialog + BAT Folder
 
 Two GUI bugfixes and a structural cleanup. No pipeline changes, no new modules.

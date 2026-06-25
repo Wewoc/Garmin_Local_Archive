@@ -322,12 +322,12 @@ python tests/test_build_output.py
 
 Run after: called automatically by `build_all.py` as post-build step. Can also be run standalone to verify source integrity without a build.
 
-### `tests/test_static.py` — ruff linting (v1.6.0+)
+### `tests/test_static.py` — ruff + bandit linting (v1.6.0 / v1.6.0.4.9.2+)
 
 
 ```bash
 python compiler/build_all.py
-# Pre-build:  test_local → test_local_context → test_dashboard
+# Pre-build:  test_local → test_local_context → test_dashboard → test_static (ruff + bandit)
 # Build:      Target 2 → Target 3
 # Post-build: test_build_output → test_app_logic → run_cve_check (report only, never aborts)
 ```
