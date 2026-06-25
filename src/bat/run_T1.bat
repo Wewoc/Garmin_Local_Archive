@@ -4,6 +4,8 @@
 :: If check_deps detects relevant changes and user aborts: app does not start.
 :: Window stays open after crash or normal exit.
 
+cd /d "%~dp0.."
+
 python tests\check_deps.py
 if errorlevel 1 (
     echo.

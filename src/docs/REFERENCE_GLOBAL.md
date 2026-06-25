@@ -141,11 +141,15 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   ├── panel_timer.py          ← PanelTimer(QWidget) — background timer, loop, controller delegates (v1.5.4+)
     │   └── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers (v1.5.4+)
     │
-    ├── run_T1.bat
-    ├── run_build_all.bat
-    ├── run_build_all_-_check_deps.bat
-    ├── run_cve_check.bat           ← Standalone CVE whitelist check — also runs as final post-build step in build_all.py (v1.6.0.4.4+)
+    ├── run_tests.ps1               ← PowerShell test runner (UTF-8-safe, called by bat/run_test_all.bat)
     ├── ruff.toml
+    │
+    ├── bat/                        ← Dev launcher scripts (Doppelklick, cd .. vor Ausführung)
+    │   ├── run_T1.bat              ← check_deps → garmin_app.py
+    │   ├── run_build_all.bat       ← Qt-Tests → build_all.py
+    │   ├── run_build_all_-_check_deps.bat ← Qt-Tests → check_deps → build_all.py
+    │   ├── run_cve_check.bat       ← Standalone CVE whitelist check (v1.6.0.4.4+)
+    │   └── run_test_all.bat        ← run_tests.ps1 aufrufen
     │
     ├── compiler/                   ← Build scripts
     │   ├── build.py

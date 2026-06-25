@@ -3,6 +3,8 @@
 :: Runs dependency/ecosystem check before build.
 :: If check_deps detects relevant changes and user aborts: build does not start.
 
+cd /d "%~dp0.."
+
 echo Running Qt tests before build...
 pytest tests\test_qt_app.py -v
 if errorlevel 1 (

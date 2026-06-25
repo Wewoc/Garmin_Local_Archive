@@ -1,4 +1,6 @@
 @echo off
+cd /d "%~dp0.."
+
 echo Running Qt tests before build...
 pytest tests\test_qt_app.py -v
 if errorlevel 1 (
