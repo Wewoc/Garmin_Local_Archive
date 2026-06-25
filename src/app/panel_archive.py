@@ -265,8 +265,8 @@ class PanelArchive(QWidget):
     def _archive_on_device_name_click(self, row: int, col: int):
         """Double-click on device table row — opens name dialog for unknown devices.
         Main Thread only (signal always fires on Main Thread)."""
-        pc  = self._app._panel_connection
-        tbl = pc._info_device_table
+        ph  = self._app._panel_home
+        tbl = ph._info_device_table
         name_item = tbl.item(row, 2)
         if name_item is None:
             return

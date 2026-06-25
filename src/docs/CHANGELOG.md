@@ -1,5 +1,41 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.9.1 — Bugfix: Device Name Dialog + BAT Folder
+
+Two GUI bugfixes and a structural cleanup. No pipeline changes, no new modules.
+
+**Fix 1 — `app/panel_archive.py`:**
+`_archive_on_device_name_click()` referenced `self._app._panel_connection`
+to retrieve `_info_device_table`. The table was moved to `panel_home` in
+v1.6.0. Double-click on an unknown device row caused an `AttributeError`
+crash. Fix: `_panel_connection` → `_panel_home`.
+
+**Fix 2 — `garmin/quality/_io.py`:**
+After `set_unknown_device_name()` wrote the new name into `quality_log.json`,
+`save_device_table()` still showed `"unknown"` in the device table — the
+display name was hardcoded. Fix: `_names` set accumulated from entries with
+`device_id=None`; if all entries carry the same name, it is used as the
+display name. Mixed or empty → falls back to `"unknown"`.
+
+**Structural — `src/bat/`:**
+Five dev-launcher BAT files moved from `src/` into `src/bat/`. All BATs
+updated with `cd /d "%~dp0.."` so they work on double-click without
+requiring a specific CWD. `run_tests.ps1` stays in `src/` (called via
+relative path from `bat/run_test_all.bat`).
+
+**Changed modules:**
+- `app/panel_archive.py` — `_archive_on_device_name_click()`: panel reference fixed
+- `garmin/quality/_io.py` — `save_device_table()`: unknown row displays actual device name
+- `src/bat/run_T1.bat` — moved + cd fix
+- `src/bat/run_build_all.bat` — moved + cd fix
+- `src/bat/run_build_all_-_check_deps.bat` — moved + cd fix
+- `src/bat/run_cve_check.bat` — moved + cd fix
+- `src/bat/run_test_all.bat` — moved + cd fix
+
+**Test result:** 420 / 261 / 310 / 136 / 42 / 2 — all green
+
+---
+
 ## v1.6.0.4.9 — Audit Hardening: Silent-Failure-Fixes (F-1 bis F-5)
 
 Closes all five actionable findings from the Dependency Audit (v1.6.0.4.8).
@@ -264,7 +300,7 @@ Architecture Check (2026-06-20) that were not part of the v1.6.0.4.4 bucket.
 
 ---
 
-# v1.6.0.4.4.1 — Hotfix: Daily Sync Gap Detection
+## v1.6.0.4.4.1 — Hotfix: Daily Sync Gap Detection
  
 Fixes a regression introduced in v1.6.0.4.4 where the automated Daily Sync
 aborted with "Gap too large — please open the app" despite the archive being
