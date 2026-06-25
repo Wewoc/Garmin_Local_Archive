@@ -6,27 +6,11 @@
 
 ---
 
-**Currently stable — v1.6.0.4.7**
+**Currently stable — v1.6.0.4.9**
 
 ---
 
 ## Planned
-
----
-
-### v1.6.0.4.8 — Dependency Audit + Maintainability Hardening
-
-**B4 — api_call timeout (carried forward):**
-- Re-evaluate when `garminconnect` adds native timeout support.
-  Current status: `Garmin.__init__` has no `timeout` parameter (verified
-  locally); thread-wrapper approach rejected (zombie threads).
-
-- Build a file × connections table: imports, importers, callers, file I/O,
-  Sole-Write-Authority ownership (AST-extracted + manually annotated).
-- Systematic hardening pass based on the map: fragile error classification
-  (e.g. `"429" in err` string-match in `garmin_api.py`), invariants enforced
-  only by convention, cross-module assumptions not tested.
-
 
 ---
 
