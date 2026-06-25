@@ -25,6 +25,7 @@ Architecture boundary:
 """
 
 import json
+import logging
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -33,6 +34,8 @@ from pathlib import Path
 # This is the one sys.path bridge between maps/ and garmin/
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 import garmin_config as cfg
+
+log = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Field map — single source of truth for all Garmin field definitions
@@ -273,8 +276,8 @@ def _read_raw_pct(field: str, date_from: str, date_to: str) -> dict:
                     total = dto.get(total_key)
                     if part is not None and total and total > 0:
                         value = round(part / total * 100, 1)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                log.warning(f"garmin_map: could not read {f}: {e}")
         values.append({"date": ds, "value": value})
 
     return {"values": values, "source_resolution": "daily"}
@@ -297,8 +300,8 @@ def _read_daily(field: str, date_from: str, date_to: str) -> dict:
                 section_data = data.get(section)
                 if isinstance(section_data, dict):
                     value = _get_nested(section_data, key)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                log.warning(f"garmin_map: could not read {f}: {e}")
         values.append({"date": ds, "value": value})
 
     return {"values": values, "source_resolution": "daily"}
@@ -328,8 +331,8 @@ def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
                         series = _extract_series(arr, section_data, extract)
                 elif isinstance(section_data, list):
                     series = _extract_series(section_data, {}, extract)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                log.warning(f"garmin_map: could not read {f}: {e}")
         values.append({"date": ds, "series": series})
 
     return {"values": values, "source_resolution": "intraday"}

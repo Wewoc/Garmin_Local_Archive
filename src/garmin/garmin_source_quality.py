@@ -97,7 +97,7 @@ def assess_source_from_file(source_path: Path) -> dict | None:
         return assess_source(raw)
     except Exception as e:
         log.warning(f"  source_quality: could not read existing file {source_path.name}: {e}")
-        return None
+        return {"unreadable": True}
 
 
 def compare_source(existing_assessment: dict | None, new_assessment: dict) -> str:
@@ -122,8 +122,13 @@ def compare_source(existing_assessment: dict | None, new_assessment: dict) -> st
     str — "write" | "skip" | "skip_warn"
     """
     if existing_assessment is None:
-        # No existing file — always write
+        # No existing file (absent) — always write
         return "write"
+
+    if existing_assessment.get("unreadable"):
+        # Existing file present but unreadable — conservative: skip_warn
+        # Protects potentially high-resolution data that cannot be assessed
+        return "skip_warn"
 
     existing_present = existing_assessment.get("intraday_present", False)
     new_present      = new_assessment.get("intraday_present", False)

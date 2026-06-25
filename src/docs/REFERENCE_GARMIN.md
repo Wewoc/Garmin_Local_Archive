@@ -83,8 +83,8 @@ Called by `garmin_source_writer` to guard `write_source()` against overwriting h
 | Function | Purpose |
 |---|---|
 | `assess_source(raw_data)` | Assesses whether a raw API response contains intraday data. Checks `heartRateValues`, `stressValuesArray`, `bodyBatteryValuesArray`. Returns `{"intraday_present": bool}` |
-| `assess_source_from_file(source_path)` | Reads existing source file from disk and assesses it. Returns `None` if absent or unreadable. Returns `{"intraday_present": bool}` on success |
-| `compare_source(existing_assessment, new_assessment)` | Conservative guard decision. Returns `"write"` \| `"skip"` \| `"skip_warn"`. See truth table in CHANGELOG v1.6.0.4.6 |
+| `assess_source_from_file(source_path)` | Reads existing source file from disk and assesses it. Returns `None` if absent. Returns `{"unreadable": True}` if file exists but cannot be read/parsed (v1.6.0.4.9). Returns `{"intraday_present": bool}` on success |
+| `compare_source(existing_assessment, new_assessment)` | Conservative guard decision. Returns `"write"` \| `"skip"` \| `"skip_warn"`. Truth table: None (absent) → write; `{"unreadable": True}` → skip_warn (v1.6.0.4.9); intraday absent → write; intraday present + new present → skip; intraday present + new absent → skip_warn |
 
 ---
 

@@ -99,9 +99,10 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
     # write_source() before validator — secures raw data even if validator crashes.
     try:
         import garmin_source_writer as _sw
-        _sw.write_source(raw_data, date_str)
+        if not _sw.write_source(raw_data, date_str):
+            log.error(f"    source_writer.write_source failed for {date_str}")
     except Exception as _e:
-        log.warning(f"    source_writer.write_source failed for {date_str}: {_e}")
+        log.error(f"    source_writer.write_source failed for {date_str}: {_e}")
 
     val_result = validator.validate(raw_data)
     if val_result["status"] == "critical":

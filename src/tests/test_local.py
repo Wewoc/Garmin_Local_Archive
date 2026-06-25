@@ -1521,6 +1521,10 @@ check("compare_source: existing present, new present → skip",
       _sq.compare_source(_sq_present, _sq_present) == "skip")
 check("compare_source: existing present, new absent → skip_warn",
       _sq.compare_source(_sq_present, _sq_absent) == "skip_warn")
+check("compare_source: existing unreadable → skip_warn (F-4)",
+      _sq.compare_source({"unreadable": True}, _sq_present) == "skip_warn")
+check("compare_source: existing unreadable, new absent → skip_warn (F-4)",
+      _sq.compare_source({"unreadable": True}, _sq_absent) == "skip_warn")
 
 # ── garmin_source_quality — assess_source_from_file ──────────────────────────
 _sq_file = cfg.SOURCE_DIR / "garmin_source_2024-05-03.json"
