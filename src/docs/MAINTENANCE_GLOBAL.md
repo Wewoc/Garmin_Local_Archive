@@ -439,6 +439,23 @@ These four questions map to universal engineering invariants:
 | What breaks if I delete this? | Coupling & fragility | Cross-dependency check before every build — mandatory, not optional |
 | When does timing work? | Async & ordering | Thread-lock check for every shared resource access — explicit question in pre-build checklist |
 
+### Sibling-Sweep — mandatory when hardening (M-2)
+
+When a fix introduces or completes a hardening pattern (log.warning on silent
+pass, typed exception, read-guard, conservative return value), ask before
+writing the first anchor:
+
+> "Which sibling modules have the same structure but not yet this pattern?"
+
+Sibling = same reader type, same error handler shape, same ownership class.
+If found → extend SCAN_TARGETS to cover siblings. Fix all in the same pass,
+not in a follow-up session.
+
+Evidence: Dependency Audit v1.6.0.4.8 — 4 of 6 findings were good patterns
+applied in one place but missing from siblings (M-2 dominant signal).
+Concrete case: garmin_map._read_raw_pct was not named in the audit finding
+but discovered during file read — Sibling-Sweep caught it.
+
 ### During every implementation — dependency transparency (mandatory)
 
 List all new or changed dependencies explicitly:

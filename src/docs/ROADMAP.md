@@ -6,50 +6,11 @@
 
 ---
 
-**Currently stable — v1.6.0.4.6**
+**Currently stable — v1.6.0.4.9**
 
 ---
 
 ## Planned
-
----
-
-### v1.6.0.4.7 — Silo-Reconciliation-Check
-
-Read-only drift detection across the data silos. Concept fully specified in
-`KONZEPT_silo_check.md` — all open decisions resolved, build sequence defined.
-Source Quality Guard (`garmin_source_quality.py`, v1.6.0.4.6) is the required
-precursor and ships first — `source_api_log` now records `intraday_present`
-per day, available as richer metadata for the silo check.
-
-**`garmin_silo_check.py` (new):**
-- Read-only, Leaf-Node. Imports only `garmin_config` + stdlib.
-- Checks #1, #3, #5, #7 (reconstructability principle — see KONZEPT §3):
-  raw without quality_log entry, source without raw, summary without raw,
-  raw without summary.
-- Check #2 (quality_log entry without raw) owned by `check_raw_integrity` —
-  referenced, not re-implemented (Option C, KONZEPT §7).
-- Returns `{"raw_without_quality", "source_without_raw", "summary_without_raw",
-  "raw_without_summary", "checked_at", "totals", "counts"}`.
-- Repair delegates to `regenerate_raw.py` and `regenerate_summaries.py`.
-- GUI: `panel_archive.py` — Silo-Check button, background thread, finding
-  display, repair delegation. Gate: disabled while any pipeline job runs.
-
-**B4 — api_call timeout (carried forward):**
-- Re-evaluate when `garminconnect` adds native timeout support.
-  Current status: `Garmin.__init__` has no `timeout` parameter (verified
-  locally); thread-wrapper approach rejected (zombie threads).
-
----
-
-### v1.6.0.4.8 — Dependency Audit + Maintainability Hardening
-
-- Build a file × connections table: imports, importers, callers, file I/O,
-  Sole-Write-Authority ownership (AST-extracted + manually annotated).
-- Systematic hardening pass based on the map: fragile error classification
-  (e.g. `"429" in err` string-match in `garmin_api.py`), invariants enforced
-  only by convention, cross-module assumptions not tested.
-
 
 ---
 
@@ -160,9 +121,10 @@ Extends the sync path with a lightweight live fetch for the current day. The res
 
 - `garmin_data/live/live.json` — snapshot of the current day: Body Battery intraday series, Heart Rate intraday series, steps, stress + sync timestamp
 - `garmin/garmin_live_fetch.py` — lightweight module: fetches today's intraday data via the `garminconnect` API only; no archive write access, no `quality_log` contact
-- `dashboards/live_tracking_html_dash.py` — specialist: reads `live.json` + last sleep entry from the archive, returns a neutral dict
+- `dashboards/live_tracking_html_dash.py` — specialist: reads today's live snapshot + last sleep entry **exclusively via `field_map.get()`**, returns a neutral dict. No direct file access — same broker discipline as every other specialist.
 - `live_tracking.html` — generated dashboard: upper half shows today's progression (Body Battery, HR, steps, stress); lower half shows last night analogous to the Sleep Dashboard
 - `panel_actions.py` — new "Update Live" button in the Life Tracking area (right side); triggers `garmin_live_fetch.py` and re-renders `live_tracking.html`
+- `maps/field_map.py` / `garmin/garmin_map.py` — new live read route: `garmin_map` learns the `garmin_data/live/` silo and serves today's snapshot through the standard broker contract (`values` / `fallback` / `source_resolution`). Missing `live.json` → empty result with `fallback=True`, no crash. The exact parameter mechanism (dedicated resolution vs. date-aware intraday routing) is an implementation decision at build time. The specialist reaches live data and the last sleep entry through this route only.
 
 **Triggers:**
 
@@ -174,11 +136,17 @@ Extends the sync path with a lightweight live fetch for the current day. The res
 
 - Archive pipeline — no access to `quality_log`, `raw/`, `summary/`
 - Existing dashboards — unaffected
-- `field_map.py` — no new broker entry required; `garmin_live_fetch.py` calls the API directly (intraday is not an archived field)
+- `garmin_live_fetch.py` — remains a pure fetcher: calls the `garminconnect` API directly and writes only to `garmin_data/live/`. Fetchers sit below the Broker Layer by design — this is the collector pattern, not a broker bypass. The Broker Layer reads what the fetcher wrote; it never fetches.
 
 **Invariant:** `garmin_live_fetch.py` writes exclusively to `garmin_data/live/`. No write access to any other directory.
 
 **Pre-condition:** none — independent of the v1.6 Render Registry; `live_tracking_html_dash.py` can use the existing HTML plotter path.
+
+**Testing — `tests/test_dashboard.py` extension:**
+
+- Broker live route (extends the broker-contract section): the live read path returns the standard contract dict (`values`, `fallback`, `source_resolution`). Missing `live.json` → empty `values`, `fallback=True`, no exception. Unknown field / invalid resolution honour the existing `KeyError` / `ValueError` rules.
+- Live Tracking specialist (new section, parallel to the existing specialist sections): `live_tracking_html_dash.build()` runs against a synthetic `live.json` + synthetic last-sleep entry and returns a neutral dict with the documented mandatory keys. Asserts the specialist performs **no direct file access** — all data arrives through `field_map`.
+- `test_local_context.py`: live route covered by the same broker-contract assertions applied to `garmin_map` / `field_map`.
 
 ---
 

@@ -128,8 +128,9 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
             log.info("  ✓ Login via saved token")
             return client
         except Exception as e:
+            from garminconnect import GarminConnectTooManyRequestsError
             err = str(e)
-            if "429" in err or "403" in err:
+            if isinstance(e, GarminConnectTooManyRequestsError) or "429" in err or "403" in err:
                 log.warning(f"  Token probe failed ({err[:60]}) — not falling back to SSO to protect IP")
                 garmin_security._clear_token_dir()
                 raise GarminLoginError(f"Token probe failed: {err}")
@@ -188,8 +189,8 @@ def api_call(client, method: str, *args, label: str = ""):
         time.sleep(random.uniform(cfg.REQUEST_DELAY_MIN, cfg.REQUEST_DELAY_MAX))
         return data, True
     except Exception as e:
-        error_msg = str(e)
-        if "429" in error_msg:
+        from garminconnect import GarminConnectTooManyRequestsError
+        if isinstance(e, GarminConnectTooManyRequestsError) or "429" in str(e):
             log.critical("  ✗ RATE LIMIT (429) — stopping immediately to protect IP.")
             if _stop_event is not None:
                 _stop_event.set()
