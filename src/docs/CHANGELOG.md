@@ -1,5 +1,22 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.9.3 — Container Security Tests
+
+Extends `test_local.py` with targeted tests for the encrypted mirror
+container — the most security-critical module with no direct test coverage
+until now. No production code changed.
+
+**Changed modules:**
+- `tests/test_local.py` — three new sections (C2, C3, C4): `unlock_meta`
+  happy path + wrong password + missing file + non-container file + tampered
+  HMAC; `fulfill_order` roundtrip + wrong password + empty order;
+  `detect_source` container / nonexistent / plain folder. 18 new checks.
+- `version.py` — `APP_VERSION` bumped to `1.6.0.4.9.3`
+
+**Test result:** 439 / 261 / 310 / 136 / 42 / 4 — all green
+
+---
+
 ## v1.6.0.4.9.2 — Security Linting Gate (bandit)
 
 Adds `bandit` as a permanent pre-build security linting gate alongside the
@@ -64,6 +81,39 @@ relative path from `bat/run_test_all.bat`).
 - `src/bat/run_test_all.bat` — moved + cd fix
 
 **Test result:** 420 / 261 / 310 / 136 / 42 / 2 — all green
+
+---
+
+## v1.6.0.5 — Dashboard Render Registry
+
+Replaces the `if/elif` dispatch in `dash_plotter_html_complex.py` with a
+render registry pattern. `dash_plotter_html_complex.py` becomes a pure
+facade (67 lines, was 1217): it looks up the renderer for the incoming
+layout key and delegates — no layout-specific logic remains. Adding a new
+dashboard layout now requires one line in the registry, not an edit to the
+plotter. Additionally, `check_source_backfill_needed()` is now called
+automatically at the end of each normal Daily Sync (Step 9b in
+`garmin_collector.main()`) so unbackedup `source/` files are secured
+without any manual script.
+
+**New modules:**
+- `layouts/render/__init__.py` — package marker
+- `layouts/render/recovery_context.py` — Recovery Context renderer: `_build_tab1`, `_build_tab2`, `_render_recovery_context`, tab navigation (530 lines)
+- `layouts/render/sleep.py` — Sleep Dashboard renderer: `_render_sleep` (214 lines)
+- `layouts/render/explorer.py` — Explorer renderer: `_build_explorer_tab1`, `_render_explorer` (520 lines)
+
+**Changed modules:**
+- `layouts/dash_plotter_html_complex.py` — facade only: `_REGISTRY` dict + `render()` dispatcher. Renderer loading via `importlib.util.spec_from_file_location` — robust against `sys.path` context variations. `render/` registered as package in `sys.modules` on first load.
+- `garmin/garmin_collector.py` — Step 9b added after the normal backup cycle: `check_source_backfill_needed() > 0` → `backfill_source()`. Guard: `ok > 0 and GARMIN_SOURCE_BACKFILL != "1"`. Non-fatal (`try/except` → `log.warning`).
+- `compiler/build_manifest.py` — four new entries in `SHARED_SCRIPTS` (`layouts/render/__init__.py`, `layouts/render/recovery_context.py`, `layouts/render/sleep.py`, `layouts/render/explorer.py`) + three entries in `SCRIPT_SIGNATURES_BASE`.
+
+**What does not change:**
+- Neutral dict contract between specialist and plotter — identical
+- `dash_runner.py` — no changes; calls `plotter.render()` as before
+- All `*_dash.py` specialists — no changes; layout key in return dict drives dispatch as before
+- `test_dashboard.py` — no changes; imports `dash_plotter_html_complex` directly, tests pass against new facade
+
+**Test result:** 439 / 261 / 310 / 136 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
 
 ---
 

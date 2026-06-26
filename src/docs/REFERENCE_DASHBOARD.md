@@ -363,10 +363,13 @@ Every plotter in `layouts/` must expose:
 Raises `ValueError` if required data is missing or empty.
 Raises `OSError` if output file cannot be written.
 
-`dash_plotter_html_complex` supports three layout types, detected via `data.get("layout")`:
-- `"explorer"` → Explorer layout (`_render_explorer`)
-- `"sleep"`    → Sleep Dashboard layout (`_render_sleep`) — pure HTML/CSS, no Plotly
-- `None` / any other → Recovery Context layout (`_render_recovery_context`)
+`dash_plotter_html_complex` is a facade — it routes to `layouts/render/` via `_REGISTRY`:
+- `"explorer"` → `layouts/render/explorer.py` (`_render_explorer`)
+- `"sleep"`    → `layouts/render/sleep.py` (`_render_sleep`) — pure HTML/CSS, no Plotly
+- `None` / any other → `layouts/render/recovery_context.py` (`_render_recovery_context`)
+
+Adding a new layout: create `layouts/render/<name>.py` with `render(data, output_path) -> None`,
+add one entry to `_REGISTRY` in `dash_plotter_html_complex.py`, add to `build_manifest.py`.
 
 `dash_plotter_excel` dispatch order: `layout == "sleep"` checked before `"rows" in data` to avoid collision with Overview mode. Sleep phase bar: each of the 20 cells carries a letter label (D=Deep, L=Light, R=REM, A=Awake) in contrast color. Column width 1.0. (v1.5.8+)
 

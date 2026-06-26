@@ -256,7 +256,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   └── CONCEPT_V2-0.md
     │
     └── tests/
-        ├── test_local.py           ← Garmin pipeline (418 checks)
+        ├── test_local.py           ← Garmin pipeline (439 checks)
         ├── test_local_context.py   ← Context pipeline (261 checks)
         ├── test_dashboard.py       ← Dashboard pipeline (303 checks)
         ├── test_app_logic.py       ← App layer (128 checks)
