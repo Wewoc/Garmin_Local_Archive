@@ -1674,6 +1674,122 @@ shutil.rmtree(_mir_src,    ignore_errors=True)
 shutil.rmtree(_mir_parent, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  C2. garmin_container — unlock_meta (happy path + error cases)
+# ══════════════════════════════════════════════════════════════════════════════
+section("C2. garmin_container — unlock_meta")
+
+# Neues Fixture — eigener Temp-Ordner, isoliert von Section C
+_c2_parent = Path(tempfile.mkdtemp(prefix="garmin_c2_"))
+_c2_gla    = _c2_parent / "mirror_c2.gla"
+
+# Quelle mit quality_log.json aufbauen
+_c2_src = Path(tempfile.mkdtemp(prefix="garmin_c2_src_"))
+(_c2_src / "garmin_data" / "log").mkdir(parents=True)
+(_c2_src / "garmin_data" / "raw" / "2024-03-01").mkdir(parents=True)
+(_c2_src / "garmin_data" / "log" / "quality_log.json").write_text(
+    _json.dumps({"days": [{"date": "2024-03-01", "quality": "high"}]}),
+    encoding="utf-8"
+)
+(_c2_src / "garmin_data" / "raw" / "2024-03-01" / "garmin_raw_2024-03-01.json").write_text(
+    _json.dumps({"hr": 55, "source": "api"}), encoding="utf-8"
+)
+mirror.run_mirror(_c2_src, _c2_gla, "correct-pw")
+
+# C2a — Happy Path
+_um_ok = _gc.unlock_meta(_c2_gla, "correct-pw")
+check("unlock_meta: ok=True on correct password",    _um_ok["ok"] == True)
+check("unlock_meta: quality_log is dict",            isinstance(_um_ok.get("quality_log"), dict))
+check("unlock_meta: quality_log has days",           "days" in _um_ok.get("quality_log", {}))
+check("unlock_meta: container_meta not empty",       bool(_um_ok.get("container_meta")))
+check("unlock_meta: error is empty string",          _um_ok.get("error") == "")
+
+# C2b — Falsches Passwort
+_um_bad_pw = _gc.unlock_meta(_c2_gla, "wrong-pw")
+check("unlock_meta: ok=False on wrong password",     _um_bad_pw["ok"] == False)
+check("unlock_meta: quality_log empty on wrong pw",  _um_bad_pw.get("quality_log") == {})
+check("unlock_meta: error string set on wrong pw",   bool(_um_bad_pw.get("error")))
+
+# C2c — Nicht-existente Datei
+_um_missing = _gc.unlock_meta(_c2_parent / "ghost.gla", "correct-pw")
+check("unlock_meta: ok=False on missing file",       _um_missing["ok"] == False)
+
+# C2d — Kein Container (zufälliger Inhalt)
+_c2_junk = _c2_parent / "junk.bin"
+_c2_junk.write_bytes(b"THIS IS NOT A GLA CONTAINER AT ALL")
+_um_junk = _gc.unlock_meta(_c2_junk, "correct-pw")
+check("unlock_meta: ok=False on non-container file", _um_junk["ok"] == False)
+
+# C2e — Tampered Header (HMAC-Bytes überschreiben)
+import shutil as _shutil
+_c2_tampered = _c2_parent / "tampered.gla"
+_shutil.copy2(_c2_gla, _c2_tampered)
+with open(_c2_tampered, "r+b") as _tf:
+    # magic(4) + format_ver(1) + salt(16) = offset 21 → HMAC beginnt hier
+    _tf.seek(4 + 1 + 16)
+    _tf.write(b"\xff" * 32)  # 32 HMAC-Bytes korrumpieren
+_um_tampered = _gc.unlock_meta(_c2_tampered, "correct-pw")
+check("unlock_meta: ok=False on tampered HMAC",      _um_tampered["ok"] == False)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  C3. garmin_container — fulfill_order (happy path + error cases)
+# ══════════════════════════════════════════════════════════════════════════════
+section("C3. garmin_container — fulfill_order")
+
+# C3a — Happy Path: raw-Datei anfordern und Inhalt prüfen
+_fo_order  = {"raw": ["garmin_data/raw/2024-03-01/garmin_raw_2024-03-01.json"]}
+_fo_result = _gc.fulfill_order(_c2_gla, "correct-pw", _fo_order)
+_fo_key    = "garmin_data/raw/2024-03-01/garmin_raw_2024-03-01.json"
+check("fulfill_order: requested key in result",      _fo_key in _fo_result)
+check("fulfill_order: returned value is bytes",      isinstance(_fo_result.get(_fo_key), bytes))
+_fo_parsed = _json.loads(_fo_result[_fo_key]) if _fo_key in _fo_result else {}
+check("fulfill_order: content matches original",     _fo_parsed.get("hr") == 55)
+
+# C3b — Falsches Passwort → leeres dict
+_fo_bad_pw = _gc.fulfill_order(_c2_gla, "wrong-pw", _fo_order)
+check("fulfill_order: empty dict on wrong password", _fo_bad_pw == {})
+
+# C3c — Leere Order → leeres dict (kein Crash)
+_fo_empty = _gc.fulfill_order(_c2_gla, "correct-pw", {})
+check("fulfill_order: empty order → empty dict",     _fo_empty == {})
+
+# Aufräumen C2/C3
+shutil.rmtree(_c2_src,    ignore_errors=True)
+shutil.rmtree(_c2_parent, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  C4. garmin_import_mirror — detect_source
+# ══════════════════════════════════════════════════════════════════════════════
+section("C4. garmin_import_mirror — detect_source")
+import garmin_import_mirror as _import_mirror
+importlib.reload(_import_mirror)
+
+# C4a — Valider Container → "container"
+_c4_parent = Path(tempfile.mkdtemp(prefix="garmin_c4_"))
+_c4_gla    = _c4_parent / "mirror_c4.gla"
+_c4_src    = Path(tempfile.mkdtemp(prefix="garmin_c4_src_"))
+(_c4_src / "garmin_data" / "log").mkdir(parents=True)
+(_c4_src / "garmin_data" / "log" / "quality_log.json").write_text(
+    _json.dumps({"days": []}), encoding="utf-8"
+)
+mirror.run_mirror(_c4_src, _c4_gla, "pw")
+check("detect_source: valid .gla → 'container'",
+      _import_mirror.detect_source(_c4_gla) == "container")
+
+# C4b — Nicht-existenter Pfad → "unknown"
+check("detect_source: nonexistent path → 'unknown'",
+      _import_mirror.detect_source(_c4_parent / "ghost.gla") == "unknown")
+
+# C4c — Normaler Ordner ohne mirror_meta.json → "unknown"
+_c4_plain_dir = Path(tempfile.mkdtemp(prefix="garmin_c4_plain_"))
+check("detect_source: plain dir without mirror_meta → 'unknown'",
+      _import_mirror.detect_source(_c4_plain_dir) == "unknown")
+
+# Aufräumen C4
+shutil.rmtree(_c4_src,       ignore_errors=True)
+shutil.rmtree(_c4_parent,    ignore_errors=True)
+shutil.rmtree(_c4_plain_dir, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  F. garmin_backup_source (v1.6.0.4)
 # ══════════════════════════════════════════════════════════════════════════════
 section("F. garmin_backup_source (v1.6.0.4)")
