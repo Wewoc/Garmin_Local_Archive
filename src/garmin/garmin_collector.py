@@ -888,6 +888,26 @@ def main(stop_event=None):
     log.info(f"Raw data:    {cfg.RAW_DIR}")
     log.info(f"Summaries:   {cfg.SUMMARY_DIR}  ← point Open WebUI Knowledge Base here")
 
+    # ── 9b. Source backup backfill ────────────────────────────────────────────
+    # Runs after the normal backup cycle (Step 9) is complete.
+    # Guard: only in normal sync mode — not during source backfill re-fetch
+    # (GARMIN_SOURCE_BACKFILL=1) and only when at least one day was processed.
+    if ok > 0 and os.environ.get("GARMIN_SOURCE_BACKFILL") != "1":
+        try:
+            import garmin_backup_source as _bsrc
+            _bsrc_needed = _bsrc.check_source_backfill_needed()
+            if _bsrc_needed > 0:
+                log.info(f"  Source backup backfill: {_bsrc_needed} file(s) without backup — running ...")
+                _bsrc_result = _bsrc.backfill_source()
+                log.info(
+                    f"  Source backup backfill done: "
+                    f"{_bsrc_result['copied']} copied, "
+                    f"{_bsrc_result['skipped']} skipped, "
+                    f"{_bsrc_result['failed']} failed."
+                )
+        except Exception as _bsrc_err:
+            log.warning(f"  Source backup backfill failed: {_bsrc_err}")
+
     _close_session_log(_session_fh, _session_path,
                        _session_had_errors, _session_had_incomplete)
 

@@ -8,7 +8,4 @@ PyQt6
 PyQt6-WebEngine
 pytest
 pytest-qt
-pytest-cov
 pip-audit
-ruff
-bandit

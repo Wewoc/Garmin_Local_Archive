@@ -156,7 +156,7 @@ G. `garmin_silo_check` (v1.6.0.4.7) — result structure (all keys, totals/count
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`.
 
 ---
 
