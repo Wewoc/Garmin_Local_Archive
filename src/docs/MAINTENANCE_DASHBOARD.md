@@ -51,7 +51,10 @@ garmin_app.py (GUI)
 
 **Auto-discovery:** `dash_runner.scan()` picks up any `*_dash.py` file automatically — no registration needed in `dash_runner.py`.
 
-**Using `html_complex` with Explorer layout:** set `"layout": "explorer"` in the specialist return dict. `dash_plotter_html_complex.render()` detects the key and dispatches to `_render_explorer()`. No changes to the plotter needed for additional Explorer-style specialists.
+**Using `html_complex` with a new layout:** set `"layout": "<key>"` in the specialist return dict.
+Add one entry to `_REGISTRY` in `dash_plotter_html_complex.py` and create `layouts/render/<key>.py`
+with `render(data, output_path) -> None`. No changes to the plotter's `render()` function needed.
+Existing specialists (`"explorer"`, `"sleep"`, `None`) are unchanged.
 
 ---
 
@@ -140,7 +143,7 @@ python tests/test_dashboard.py
 | 10 | `health_garmin` specialist |
 | 11 | `overview_garmin` specialist |
 | 12 | `health_garmin-weather-pollen` specialist |
-| 13 | `sleep_recovery_context` specialist + complex plotter |
+| 13 | `sleep_recovery_context` specialist + complex plotter (facade + render registry v1.6.0.5) |
 | 14 | `sleep_garmin` specialist + html + excel render — rows carry `hrv_7d_avg` (computed in build, rendered in both plotters). Phase bar cells carry letter labels (D/L/R/A) in contrast color (v1.5.8+) |
 | 15 | `garmin_map` broker contract |
 | 16 | Specialist return contract — alle 6 specialists |

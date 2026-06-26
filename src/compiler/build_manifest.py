@@ -92,6 +92,11 @@ SHARED_SCRIPTS = [
     "layouts/dash_prompt_templates.py",
     "layouts/reference_ranges.py",
     "layouts/garmin_mobile_landing.py",
+    # render sub-package (one module per layout type)
+    "layouts/render/__init__.py",
+    "layouts/render/recovery_context.py",
+    "layouts/render/sleep.py",
+    "layouts/render/explorer.py",
 ]
 # Target 2 (build.py): entry point + shared scripts
 SCRIPTS = ["garmin_app.py"] + SHARED_SCRIPTS
@@ -138,6 +143,9 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
     "garmin/garmin_silo_check.py":    ["def check_silos"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
+    "layouts/render/recovery_context.py": ["def render", "def _render_recovery_context"],
+    "layouts/render/sleep.py":            ["def render", "def _render_sleep"],
+    "layouts/render/explorer.py":         ["def render", "def _render_explorer"],
     "crash_handler.py": ["def install"],
     "qwebengine_hardening.py": ["def harden"],
     "garmin/garmin_redact.py": ["def redact"],

@@ -15,7 +15,7 @@
 
 # Garmin Local Archive
 
-Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
+Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup and save your data from decay` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
 
 *Privacy first — inspired by European principles.*
 
@@ -264,7 +264,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 
 The diagram below shows how all components relate to each other as of v1.5.x — from API ingestion and context collection through the broker layer to dashboard export.
 
-![System Architecture v1.5.x](src/screenshots/data_flow_1-5-x.png)
+![System Architecture v1.6.x](src/screenshots/data_flow.png)
 
 ---
 

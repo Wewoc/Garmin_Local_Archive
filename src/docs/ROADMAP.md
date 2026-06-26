@@ -6,51 +6,11 @@
 
 ---
 
-**Currently stable — v1.6.0.4.9.3**
+**Currently stable — v1.6.0.5**
 
 ---
 
 ## Planned
-
----
-
-### v1.6.0.5 — Dashboard Render Registry
-
-The dashboard render layer currently dispatches layout types via an `if/elif`
-block in `dash_plotter_html_complex.py`. Every new dashboard requires a direct
-edit to this file — the plotter grows as a side effect of new specialists, not
-by its own logic.
-
-v1.7 replaces this with a render registry: each specialist declares its render
-function alongside its `META` and `build()`. `dash_plotter_html_complex.py`
-becomes a pure dispatcher — it routes to the registered renderer without
-knowing anything about layout-specific logic.
-
-**What changes:**
-- `dash_plotter_html_complex.py` — dispatch by registry lookup, not `if/elif`
-- Each `*_dash.py` specialist — declares a `render()` function or a
-  `RENDERER` reference alongside `META` and `build()`
-- Adding a new dashboard no longer requires touching the plotter
-
-**What does not change:**
-- The neutral dict contract between specialist and plotter remains identical
-- `dash_runner.py` — no changes; it calls `plotter.render()` as before
-- Existing specialists — migrated mechanically, no logic changes
-
-**Motivation:** v1.6 introduces a second Garmin source; v2.0 adds external
-sources (Strava, Komoot). Each will bring new dashboard layouts. A growing
-`if/elif` chain is not a sustainable dispatch pattern at that scale.
-The registry closes this before v2.0 begins.
-
-**Pre-condition:** `dash_plotter_html_complex.py` internal restructuring
-(v1.4.8 pipeline hardening) must be complete — layout paths cleanly separated
-
-**Note (v1.6.0.4):** `backfill_source()` has no automatic trigger in the
-background timer. T3 (Standalone) cannot run `export/backfill_source_backup.py`.
-→ Timer integration: `check_source_backfill_needed() > 0` as trigger for
-`backfill_source()` in the background timer, analog to the existing
-source-backfill check. Self-deactivating once all source files are backed up.
-Target: v1.6.0.5 or v1.6.x.
 
 ---
 
