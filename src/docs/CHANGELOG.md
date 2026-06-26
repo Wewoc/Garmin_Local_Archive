@@ -1,5 +1,22 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.4.9.3 — Container Security Tests
+
+Extends `test_local.py` with targeted tests for the encrypted mirror
+container — the most security-critical module with no direct test coverage
+until now. No production code changed.
+
+**Changed modules:**
+- `tests/test_local.py` — three new sections (C2, C3, C4): `unlock_meta`
+  happy path + wrong password + missing file + non-container file + tampered
+  HMAC; `fulfill_order` roundtrip + wrong password + empty order;
+  `detect_source` container / nonexistent / plain folder. 18 new checks.
+- `version.py` — `APP_VERSION` bumped to `1.6.0.4.9.3`
+
+**Test result:** 439 / 261 / 310 / 136 / 42 / 4 — all green
+
+---
+
 ## v1.6.0.4.9.2 — Security Linting Gate (bandit)
 
 Adds `bandit` as a permanent pre-build security linting gate alongside the
