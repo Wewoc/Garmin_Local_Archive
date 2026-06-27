@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QPlainTextEdit,
     QScrollArea, QFrame, QSizePolicy, QMessageBox,
-    QTabWidget, QComboBox,
+    QTabWidget, QComboBox, QApplication,
 )
 from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont, QTextCursor
@@ -123,6 +123,10 @@ class GarminApp(QMainWindow):
         self.setMinimumSize(920, 760)
         self.resize(1100, 900)
         self.setStyleSheet(f"background: {self.BG}; color: {self.TEXT};")
+        QApplication.instance().setStyleSheet(
+            f"QToolTip {{ background: {self.BG3}; color: {self.TEXT}; "
+            f"border: 1px solid {self.ACCENT}; padding: 4px; "
+            f"font-family: 'Segoe UI'; font-size: 9pt; }}")
 
         # ── Build UI ──────────────────────────────────────────────────────────
         self._build_ui()
@@ -307,10 +311,10 @@ class GarminApp(QMainWindow):
         settings_tab_lay.setContentsMargins(0, 0, 0, 0)
         settings_tab_lay.setSpacing(0)
 
-        # Links — Settings-Panel (fix 340px)
+        # Links — Settings-Panel (fix 400px)
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
-        left_scroll.setFixedWidth(340)
+        left_scroll.setFixedWidth(400)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         left_scroll.setStyleSheet(f"background: {self.BG2};")
         left_scroll.setWidget(self._panel_settings)

@@ -331,9 +331,9 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings. PyQt6 QMainWindow. |
 | `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No GUI — importable in any context. |
 | `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No GUI. |
-| `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer). Home tab: Dashboard viewer. (v1.6.0+) |
+| `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer / Documentation). Home tab: Dashboard viewer. (v1.6.0+) |
 | `app/panel_settings.py` | Settings panel — credentials, paths, sync config, context location. |
-| `app/panel_connection.py` | Connection panel — connection test, dialogs, token reset. Indicators delegated to panel_home. |
+| `app/panel_connection.py` | Connection panel — connection test, data management (Export to Mirror / Import from Mirror / Restore / Silo-Check / Repair / Reset Token), dialogs. Indicators delegated to panel_home. |
 | `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
 | `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
 | `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |

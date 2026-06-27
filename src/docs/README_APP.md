@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.0.5
+# Garmin Local Archive — Desktop App v1.6.0.6
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -92,7 +92,7 @@ The app window is divided into two areas:
 - Connection indicators (Token / Login / API Access / Data)
 - Archive status (fail / recheck / missing / range / coverage / last sync)
 - Device table
-- Daily Actions: **Daily Sync**, **Mirror**, **Timer**
+- Daily Actions: **Daily Sync**, **Mirror**, **Timer**, **Documentation**
 
 **Tab area** — three tabs:
 - **Home** — Dashboard viewer (HTML dashboards)
@@ -148,12 +148,15 @@ Click **🔍 Silo-Check** to run. The check is read-only and completes in the ba
 
 The check runs silently in the background at startup and takes a few seconds.
 
-### Data Mirror
-Copies your full archive to the folder configured in **Mirror folder** (Settings). Comparison is by filename and file size — identical files are skipped, deleted files are removed from the target, new or changed files are copied over. `garmin_token` and `__pycache__` are never mirrored.
+### Export to Mirror
+Creates an encrypted backup of your full archive as a single `.gla` container file. The target path is configured under **Mirror target** in Settings. The button opens a dialog with two options: **Export to Mirror** (create or update the backup) and **Import from Mirror** (restore data from an existing container).
 
-The button is greyed out if no mirror folder is configured or the target is unreachable. Disabled automatically while a Sync or Context Sync is running.
+The button is greyed out if no mirror target is configured or the target is unreachable. Disabled automatically while a Sync or Context Sync is running.
 
-**To restore from mirror:** copy the mirror folder contents back to your Data folder manually — no special tool needed. The app detects the restored data automatically on next start.
+Import is non-destructive — existing data with higher quality is never overwritten by the container contents.
+
+### Documentation
+Opens a dialog with three entries: **Quickstart** (first-time setup), **User Guide** (full feature reference), and **README App** (this document). Files open in your default text editor or viewer.
 
 ### Sync Data / Stop
 Downloads missing days from Garmin Connect. Watch the log at the bottom for progress. First run may take a while depending on how far back you go.

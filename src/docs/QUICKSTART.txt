@@ -1,0 +1,44 @@
+═══════════════════════════════════════════════════════════
+  Garmin Local Archive — Quickstart
+═══════════════════════════════════════════════════════════
+
+FIRST-TIME SETUP
+────────────────
+1. Open the Settings tab
+2. Enter your Garmin email and password
+3. Set the Data folder
+   (where the archive will be stored)
+4. Context: paste a Google Maps URL of your location
+   The app extracts the coordinates automatically
+   -> Open Google Maps -> search your location ->
+      copy the URL from the address bar -> paste it
+      -> click "Set location"
+5. Click "Save Settings"
+
+RUN YOUR FIRST SYNC
+────────────────────
+- Click "Daily Sync" (purple button at the top)
+- Downloads recent days including weather and pollen data
+- Green dot top-left = connection successful
+- Progress appears in the log at the bottom
+
+IMPORT YOUR FULL HISTORY (recommended)
+────────────────────────────────────────
+Garmin only provides ~135 days at full resolution via API.
+For the complete history: request a GDPR export from Garmin
+-> https://www.garmin.com/en-US/account/datamanagement/
+This can take several days — request it now.
+Import: Settings -> Data Collection -> "Bulk Import"
+
+OPEN DASHBOARDS
+───────────────
+Home tab: click the Dashboard dropdown (v) -> select a dashboard
+Files tab: Excel overview (v)
+
+BACKUP
+──────
+Settings -> set Mirror target -> "Export to Mirror"
+
+───────────────────────────────────────────────────────────
+  More details: USER_GUIDE.txt
+═══════════════════════════════════════════════════════════

@@ -6,23 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.0.5**
-
----
-
-## Planned
-
----
-
-### 1.6.1 — Encrypted Dashboards (Optional Export)
-
-Introduction of an option to encrypt reports before saving with AES-256-GCM. This allows for the secure transfer of dashboards to third parties (e.g., trainers or doctors) without sending health data in plain text.
-
-- Secure Transfer: Creates a password-protected HTML file that is only decrypted after entering the password in the browser.
-- Privacy: Uses the proven encryption technique already used for securing login tokens in the project.
-- Local Control: The password is set by the user during export; decryption occurs solely on the client side in the browser — no cloud server involved.
-
-Motivation: Extension of the "Local-only" philosophy in case data must leave one's own computer.
+**Currently stable — v1.6.0.6**
 
 ---
 
