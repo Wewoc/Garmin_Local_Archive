@@ -64,12 +64,22 @@ class PanelSettings(QWidget):
         # Garmin Account
         s = self._section("Garmin Account")
         self._email    = self._field(s, "Email")
+        self._email.setToolTip("Your Garmin Connect login email address.")
         self._password = self._field(s, "Password", password=True)
+        self._password.setToolTip(
+            "Your Garmin Connect password.\n"
+            "Stored securely in Windows Credential Manager.")
 
         # Storage
         s2 = self._section("Storage")
         self._base_dir   = self._field_browse(s2, "Data folder",   self._browse_folder)
+        self._base_dir.setToolTip(
+            "Root folder where the archive is stored.\n"
+            "Subfolders (garmin_data/, context_data/) are created automatically.")
         self._mirror_dir = self._field_browse(s2, "Mirror target", self._browse_mirror_file)
+        self._mirror_dir.setToolTip(
+            "Path to the .gla container file for encrypted backup.\n"
+            "Use Export to Mirror to create or update the backup.")
 
         # Sync Mode
         s3 = self._section("Sync Mode")
@@ -83,6 +93,10 @@ class PanelSettings(QWidget):
         self._sync_mode.addItems(["recent", "range", "auto"])
         self._sync_mode.setFixedWidth(120)
         self._sync_mode.setStyleSheet(self._combobox_style())
+        self._sync_mode.setToolTip(
+            "recent — sync the last N days (set Days below)\n"
+            "range  — sync a fixed date range\n"
+            "auto   — sync from fallback date to today")
         self._sync_mode.currentTextChanged.connect(self._on_sync_mode_change)
         mode_row.addWidget(lbl)
         mode_row.addWidget(self._sync_mode)
@@ -90,14 +104,28 @@ class PanelSettings(QWidget):
         s3.addLayout(mode_row)
 
         self._sync_days     = self._field(s3, "Days (recent)",   width=80)
+        self._sync_days.setToolTip(
+            "Number of recent days to check on each sync.\n"
+            "Active in 'recent' mode only.")
         self._sync_from     = self._field(s3, "From (range)",    width=100)
+        self._sync_from.setToolTip("Start date for range sync (YYYY-MM-DD).")
         self._sync_to       = self._field(s3, "To (range)",      width=100)
+        self._sync_to.setToolTip("End date for range sync (YYYY-MM-DD).")
         self._sync_fallback = self._field(s3, "Fallback (auto)", width=100)
+        self._sync_fallback.setToolTip(
+            "Earliest date for auto sync (YYYY-MM-DD).\n"
+            "Syncs from this date to today if no recent data exists.")
 
         # Export Date Range
         s4 = self._section("Export Date Range")
         self._date_from = self._field(s4, "From", width=100)
+        self._date_from.setToolTip(
+            "Start date for Excel/dashboard export (YYYY-MM-DD).\n"
+            "Leave empty — default: 30 days back from today.")
         self._date_to   = self._field(s4, "To",   width=100)
+        self._date_to.setToolTip(
+            "End date for Excel/dashboard export (YYYY-MM-DD).\n"
+            "Leave empty — default: today.")
         hint = QLabel("Leave empty for all available data")
         hint.setFont(QFont("Segoe UI", 7))
         hint.setStyleSheet(f"color: {self._app.TEXT2};")
@@ -106,6 +134,9 @@ class PanelSettings(QWidget):
         # Personal Profile
         s5 = self._section("Personal Profile")
         self._age = self._field(s5, "Age", width=60)
+        self._age.setToolTip(
+            "Your age in years.\n"
+            "Used to calculate HRV reference values in dashboards.")
         sex_row = QHBoxLayout()
         sex_row.setSpacing(8)
         sex_lbl = QLabel("Sex")
@@ -116,6 +147,8 @@ class PanelSettings(QWidget):
         self._sex.addItems(["male", "female"])
         self._sex.setFixedWidth(120)
         self._sex.setStyleSheet(self._combobox_style())
+        self._sex.setToolTip(
+            "Used to calculate HRV reference values in dashboards.")
         sex_row.addWidget(sex_lbl)
         sex_row.addWidget(self._sex)
         sex_row.addStretch()
@@ -124,7 +157,13 @@ class PanelSettings(QWidget):
         # Advanced
         s6 = self._section("Advanced")
         self._delay_min = self._field(s6, "Delay min (s)", width=60)
+        self._delay_min.setToolTip(
+            "Minimum delay between API requests in seconds.\n"
+            "Recommended: 5.0 or higher to avoid rate limiting (HTTP 429).")
         self._delay_max = self._field(s6, "Delay max (s)", width=60)
+        self._delay_max.setToolTip(
+            "Maximum delay between API requests in seconds.\n"
+            "Recommended: 20.0. A random value between min and max is used.")
         warn = QLabel(
             "⚠  Low delay values (< 5s) increase the risk of IP bans (HTTP 429). "
             "Recommended: min 5.0 / max 20.0"
@@ -137,12 +176,18 @@ class PanelSettings(QWidget):
         # Context
         s7 = self._section("Context")
         self._maps_url = self._field(s7, "Maps URL", width=200)
+        self._maps_url.setToolTip(
+            "Paste a Google Maps URL of your location.\n"
+            "Click 'Set Location' to extract latitude and longitude.")
         ctx_row = QHBoxLayout()
         ctx_row.setSpacing(8)
         loc_btn = QPushButton("📍  Set Location")
         loc_btn.setFont(QFont("Segoe UI", 9))
         loc_btn.setStyleSheet(self._btn_style(self._app.BG3, self._app.TEXT))
         loc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        loc_btn.setToolTip(
+            "Extract latitude and longitude from the Maps URL above\n"
+            "and save them as your context location.")
         loc_btn.clicked.connect(self._set_location_from_maps)
         self._ctx_coords_label = QLabel("")
         self._ctx_coords_label.setFont(QFont("Segoe UI", 7))
@@ -166,6 +211,7 @@ class PanelSettings(QWidget):
         save_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         save_btn.setStyleSheet(self._btn_style(self._app.ACCENT2, self._app.TEXT, pady=8))
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setToolTip("Save all settings to disk.")
         save_btn.clicked.connect(self._save)
         self._layout.addWidget(save_btn)
 
@@ -180,6 +226,9 @@ class PanelSettings(QWidget):
         self._log_level_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self._log_level_btn.setStyleSheet(
             self._btn_style(self._app.BG3, self._app.TEXT2, pady=6))
+        self._log_level_btn.setToolTip(
+            "Toggle between Simple (INFO) and Detailed (DEBUG) log output.\n"
+            "Takes effect on the next sync.")
         self._log_level_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._log_level_btn.clicked.connect(self._toggle_log_level)
         self._layout.addWidget(self._log_level_btn)

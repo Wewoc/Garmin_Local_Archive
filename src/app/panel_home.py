@@ -21,6 +21,8 @@ Rules:
 """
 
 import json
+import os
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -244,14 +246,24 @@ class PanelHome(QWidget):
             return b
 
         self._daily_sync_btn = _action_btn("▶  Daily Sync", accent=True)
+        self._daily_sync_btn.setToolTip(
+            "Download missing days from Garmin Connect.\n"
+            "Includes intraday data, daily summaries, weather and pollen.")
         self._daily_sync_btn.clicked.connect(self._on_daily_sync)
         right.addWidget(self._daily_sync_btn)
 
         self._mirror_btn = _action_btn("⬡  Mirror")
+        self._mirror_btn.setToolTip(
+            "Create an encrypted backup of the archive (.gla container).\n"
+            "Also allows importing data from an existing mirror.")
         self._mirror_btn.clicked.connect(self._on_mirror)
         right.addWidget(self._mirror_btn)
 
         self._timer_btn = _action_btn("⏱  Timer: Off")
+        self._timer_btn.setToolTip(
+            "Start the background timer.\n"
+            "Automatically syncs missing days at the configured interval\n"
+            "while the app is open.")
         self._timer_btn.setStyleSheet(
             f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
             f"border: none; padding: 7px 14px; }}"
@@ -259,6 +271,12 @@ class PanelHome(QWidget):
         self._timer_btn.clicked.connect(
             lambda: self._app._panel_timer._toggle_timer())
         right.addWidget(self._timer_btn)
+
+        self._docs_btn = _action_btn("📖  Documentation")
+        self._docs_btn.setToolTip(
+            "Open Quickstart, User Guide or README.")
+        self._docs_btn.clicked.connect(self._home_docs_dialog)
+        right.addWidget(self._docs_btn)
 
         right.addStretch()
         cols.addLayout(right, stretch=1)
@@ -423,6 +441,81 @@ class PanelHome(QWidget):
 
     # ── Mirror ─────────────────────────────────────────────────────────────────
 
+    def _home_docs_dialog(self):
+        """Documentation button handler — opens Quickstart, User Guide or README."""
+        def _open(filename: str):
+            # Dev: src/docs/  |  Build T2/T3: info/ next to EXE
+            if getattr(sys, "frozen", False):
+                base = Path(sys.executable).parent / "info"
+            else:
+                base = Path(__file__).parent.parent / "docs"
+            path = base / filename
+            if not path.exists():
+                QMessageBox.warning(
+                    self._app, "Documentation",
+                    f"File not found:\n{path}")
+                return
+            try:
+                os.startfile(path)
+            except Exception as e:
+                QMessageBox.critical(
+                    self._app, "Documentation",
+                    f"Could not open file:\n{e}")
+
+        dlg = QDialog(self._app)
+        dlg.setWindowTitle("Documentation")
+        dlg.setModal(True)
+        dlg.setFixedWidth(360)
+        dlg.setStyleSheet(
+            f"background: {self._app.BG}; color: {self._app.TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(6)
+
+        title = QLabel("Documentation")
+        title.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {self._app.TEXT};")
+        lay.addWidget(title)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {self._app.ACCENT};")
+        sep.setFixedHeight(1)
+        lay.addWidget(sep)
+
+        for label, filename in [
+            ("📋  Quickstart",  "QUICKSTART.txt"),
+            ("📖  User Guide",  "USER_GUIDE.txt"),
+            ("📄  README App",  "README_APP.md"),
+        ]:
+            btn = QPushButton(label)
+            btn.setFont(QFont("Segoe UI", 9))
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT}; "
+                f"border: none; padding: 8px 14px; text-align: left; }}"
+                f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            _fn = filename
+            btn.clicked.connect(lambda checked, fn=_fn: [dlg.accept(), _open(fn)])
+            lay.addWidget(btn)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {self._app.BG3};")
+        lay.addWidget(sep2)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFont(QFont("Segoe UI", 9))
+        cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
+            f"border: none; padding: 7px 14px; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(dlg.reject)
+        lay.addWidget(cancel_btn)
+
+        dlg.exec()
+
     def _on_mirror(self):
         """Mirror button handler. Main Thread only."""
         s = self._app._panel_settings._collect_settings()
@@ -435,7 +528,7 @@ class PanelHome(QWidget):
     def _home_mirror_dialog_no_target(self):
         """Dialog shown when no mirror target is configured."""
         dlg = QDialog(self._app)
-        dlg.setWindowTitle("Mirror")
+        dlg.setWindowTitle("Export to Mirror")
         dlg.setModal(True)
         dlg.setFixedWidth(460)
         dlg.setStyleSheet(
@@ -549,7 +642,7 @@ class PanelHome(QWidget):
     def _home_mirror_dialog_with_target(self, mirror_dir: str):
         """Dialog shown when mirror target is already configured."""
         dlg = QDialog(self._app)
-        dlg.setWindowTitle("Mirror")
+        dlg.setWindowTitle("Export to Mirror")
         dlg.setModal(True)
         dlg.setFixedWidth(380)
         dlg.setStyleSheet(
@@ -558,7 +651,7 @@ class PanelHome(QWidget):
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(6)
 
-        title = QLabel("Mirror")
+        title = QLabel("Export to Mirror")
         title.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {self._app.TEXT};")
         lay.addWidget(title)

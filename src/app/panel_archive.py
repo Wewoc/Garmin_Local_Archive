@@ -872,7 +872,7 @@ class PanelArchive(QWidget):
 
             self._app._dispatch(
                 lambda: self._app._panel_connection.set_mirror_button_state(
-                    reachable, text="🔁  Data Mirror"))
+                    reachable, text="⬡  Export to Mirror"))
 
         threading.Thread(target=_check, daemon=True).start()
 
@@ -995,21 +995,21 @@ class PanelArchive(QWidget):
         s            = self._app._panel_settings._collect_settings()
         mirror_path  = s.get("mirror_dir", "").strip()
         if not mirror_path:
-            QMessageBox.warning(self._app, "Data Mirror",
+            QMessageBox.warning(self._app, "Export to Mirror",
                                 "No mirror target configured.")
             return
         base_dir = Path(s.get("base_dir", "")).expanduser()
 
         if self._app._is_running():
-            QMessageBox.warning(self._app, "Data Mirror",
+            QMessageBox.warning(self._app, "Export to Mirror",
                 "A Garmin sync is currently running.\nPlease wait until it finishes.")
             return
         if self._app._timer_active:
-            QMessageBox.warning(self._app, "Data Mirror",
+            QMessageBox.warning(self._app, "Export to Mirror",
                 "Background timer is active.\nStop the timer before mirroring.")
             return
         if self._app._ctx_running:
-            QMessageBox.warning(self._app, "Data Mirror",
+            QMessageBox.warning(self._app, "Export to Mirror",
                 "Context sync is running.\nPlease wait until it finishes.")
             return
 
@@ -1044,7 +1044,7 @@ class PanelArchive(QWidget):
                 self._mirror_running = False
                 self._app._dispatch(
                     lambda: self._app._panel_connection.set_mirror_button_state(
-                        True, text="🔁  Data Mirror"))
+                        True, text="⬡  Export to Mirror"))
 
         threading.Thread(target=_do_mirror, daemon=True).start()
 

@@ -154,8 +154,10 @@ SCRIPT_SIGNATURES_BASE = {
 
 DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
 
-INFO_INCLUDE_T2 = {"README.md", "README_APP.md", "daily_update_task.xml"}
-INFO_INCLUDE_T3 = {"README.md", "README_APP.md", "daily_update_task.xml"}
+INFO_INCLUDE_T2 = {"README.md", "README_APP.md", "daily_update_task.xml",
+                   "QUICKSTART.txt", "USER_GUIDE.txt"}
+INFO_INCLUDE_T3 = {"README.md", "README_APP.md", "daily_update_task.xml",
+                   "QUICKSTART.txt", "USER_GUIDE.txt"}
 
 # ── Required non-Python files (must be present alongside scripts) ─────────────
 # Paths relative to garmin/ — build scripts prepend the folder.
