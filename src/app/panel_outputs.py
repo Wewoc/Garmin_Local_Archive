@@ -208,6 +208,7 @@ class PanelOutputs(QWidget):
         lbl = QLabel(text)
         lbl.setFont(QFont("Segoe UI", 8))
         lbl.setStyleSheet(f"color: {self._app.TEXT2};")
+        lbl.setFixedWidth(300)
         return lbl
 
     # ── Sync actions ───────────────────────────────────────────────────────────

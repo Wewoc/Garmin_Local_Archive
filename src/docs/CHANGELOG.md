@@ -1,5 +1,46 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.6 — UI/UX Update: Documentation, Tooltips, Mirror Labels
+
+Adds a Documentation button with in-app access to Quickstart, User Guide and
+README. Introduces tooltips on all buttons and input fields across the Settings
+and Home panels. Unifies Mirror-related button labels throughout the app.
+Widens the Settings left column from 340px to 400px for better readability
+at Full HD. Aligns DATA MANAGEMENT buttons to left with equal width.
+
+**New files:**
+- `src/docs/QUICKSTART.txt` — first-time setup guide (English)
+- `src/docs/USER_GUIDE.txt` — full user guide with all features (English)
+
+**Changed modules:**
+- `app/panel_home.py` — Documentation button + `_home_docs_dialog()` (opens
+  QUICKSTART.txt / USER_GUIDE.txt / README_APP.md via OS file handler);
+  tooltips on Daily Sync, Mirror, Timer, Documentation buttons;
+  Mirror dialog titles unified to "Export to Mirror"
+- `app/panel_connection.py` — DATA MANAGEMENT buttons left-aligned with equal
+  width (`QSizePolicy.Expanding`); `addStretch()` removed; Mirror button
+  renamed "⬡  Export to Mirror"; tooltips on all 6 buttons
+- `app/panel_archive.py` — `set_mirror_button_state()` calls updated to
+  "⬡  Export to Mirror"; all `QMessageBox` titles "Data Mirror" →
+  "Export to Mirror"
+- `app/panel_settings.py` — tooltips on all input fields and buttons
+  (Email, Password, Data folder, Mirror target, Sync Mode, Days/From/To/
+  Fallback, Export Date Range From/To, Age, Sex, Delay min/max, Maps URL,
+  Set Location, Save Settings, Log Level); Export Date Range tooltips include
+  default fallback values (30 days back / today)
+- `app/panel_outputs.py` — `_tip()` label fixed width (300px) so all action
+  buttons render at equal width
+- `garmin_app_base.py` — Settings left column widened 340px → 400px;
+  `QApplication.instance().setStyleSheet()` with `QToolTip` selector added
+  to activate tooltips globally; `QApplication` added to imports
+- `build_manifest.py` — `QUICKSTART.txt` and `USER_GUIDE.txt` added to
+  `INFO_INCLUDE_T2` and `INFO_INCLUDE_T3`
+- `version.py` — `APP_VERSION` bumped to `1.6.0.6`
+
+**Test result:** 439 / 261 / 310 / 136 / 42 / 4 — all green
+
+---
+
 ## v1.6.0.4.9.3 — Container Security Tests
 
 Extends `test_local.py` with targeted tests for the encrypted mirror

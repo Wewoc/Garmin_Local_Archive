@@ -18,7 +18,7 @@ import threading
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDialog, QLineEdit, QFrame,
+    QDialog, QLineEdit, QFrame, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont
@@ -342,11 +342,10 @@ class PanelConnection(QWidget):
 
         # Connection indicators + buttons row
         conn_row = QHBoxLayout()
-        conn_row.setSpacing(0)
+        conn_row.setSpacing(4)
 
         # _conn_indicators lives in panel_home — panel_connection delegates
         # all indicator writes via _set_indicator() → panel_home._conn_indicators.
-        conn_row.addStretch()
 
         def _btn(text, color, fg):
             b = QPushButton(text)
@@ -358,34 +357,53 @@ class PanelConnection(QWidget):
                 f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
                 f"background: {self._app.BG3}; }}")
             b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             return b
 
-        self._mirror_btn = _btn("🔁  Data Mirror", self._app.BG3, self._app.TEXT2)
+        self._mirror_btn = _btn("⬡  Export to Mirror", self._app.BG3, self._app.TEXT2)
         self._mirror_btn.setEnabled(False)
+        self._mirror_btn.setToolTip(
+            "Create an encrypted backup of the archive (.gla container).\n"
+            "Available after a successful connection.")
         self._mirror_btn.clicked.connect(
             lambda: self._app._panel_archive._on_mirror())
 
         self._import_mirror_btn = _btn("📥  Import from Mirror",
                                        self._app.BG3, self._app.TEXT2)
         self._import_mirror_btn.setEnabled(False)
+        self._import_mirror_btn.setToolTip(
+            "Restore data from an existing .gla mirror container.\n"
+            "Existing data with higher quality is not overwritten.")
         self._import_mirror_btn.clicked.connect(
             lambda: self._app._panel_archive._on_import_mirror())
 
         self._restore_btn = _btn("Restore Data", self._app.BG3, self._app.TEXT2)
         self._restore_btn.setEnabled(False)
+        self._restore_btn.setToolTip(
+            "Restore raw data from the backup folder.\n"
+            "Enabled after a Silo-Check detects recoverable files.")
         self._restore_btn.clicked.connect(
             lambda: self._app._panel_archive._on_restore_data())
 
         reset_btn = _btn("🔑  Reset Token", self._app.BG3, self._app.TEXT2)
+        reset_btn.setToolTip(
+            "Delete the saved Garmin session token.\n"
+            "The next sync will require a full SSO login.")
         reset_btn.clicked.connect(self._reset_token)
 
         self._silo_check_btn = _btn("🔍  Silo-Check", self._app.BG3, self._app.TEXT2)
         self._silo_check_btn.setEnabled(True)
+        self._silo_check_btn.setToolTip(
+            "Check raw/, summary/ and source/ for consistency.\n"
+            "Detects missing or mismatched files across silos.")
         self._silo_check_btn.clicked.connect(
             lambda: self._app._panel_archive._on_silo_check())
 
         self._silo_repair_btn = _btn("🔧  Repair", self._app.BG3, self._app.TEXT2)
         self._silo_repair_btn.setEnabled(False)
+        self._silo_repair_btn.setToolTip(
+            "Repair silo inconsistencies found by Silo-Check.\n"
+            "Enabled after a completed check with findings.")
         self._silo_repair_btn.clicked.connect(
             lambda: self._app._panel_archive._on_silo_repair())
 
@@ -393,7 +411,6 @@ class PanelConnection(QWidget):
                   self._restore_btn, reset_btn,
                   self._silo_check_btn, self._silo_repair_btn]:
             conn_row.addWidget(b)
-            conn_row.addSpacing(4)
 
         lay.addLayout(conn_row)
         # Archive info widgets (fail/recheck/missing/range/device-table/integrity)

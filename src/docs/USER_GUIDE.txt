@@ -1,0 +1,225 @@
+═══════════════════════════════════════════════════════════
+  Garmin Local Archive — User Guide
+  Version: see version.py / About
+═══════════════════════════════════════════════════════════
+
+CONTENTS
+────────
+  1. Setup
+  2. First Sync
+  3. Bulk Import (GDPR Export)
+  4. Dashboards & Analysis
+  5. Background Timer
+  6. Mirror / Backup
+  7. Automated Daily Sync via Task Scheduler
+  8. Troubleshooting
+  9. Data Structure
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. SETUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Open the Settings tab. Three fields are required to get started:
+
+GARMIN ACCOUNT
+  Email       Your Garmin Connect login email
+  Password    Your Garmin Connect password
+              (stored in Windows Credential Manager, not in a text file)
+
+DATA FOLDER
+  Folder for the local archive — e.g. C:\Garmin\Data
+  The folder is created automatically on first sync.
+
+CONTEXT (location for weather and pollen data)
+  Open Google Maps in your browser -> search your location
+  -> copy the URL from the address bar -> paste it into
+  the "Google Maps URL" field -> click "Set location".
+  The app extracts latitude and longitude automatically.
+  Without a location, no weather or pollen data will be archived.
+
+Click "Save Settings" — the app is now ready for the first sync.
+
+GDPR EXPORT (request now)
+  Garmin only provides ~135 days at full intraday resolution
+  via the API. For the complete history, request a GDPR export
+  from Garmin — this can take several days, so request it now:
+  -> https://www.garmin.com/en-US/account/datamanagement/
+  Import: Settings -> Data Collection -> "Bulk Import"
+  (details in Section 3)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. FIRST SYNC
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Click "Daily Sync" (purple button at the top) to start the sync.
+The sync downloads all days not yet in the archive,
+starting from today and going backwards.
+
+What gets downloaded:
+  - Intraday data: heart rate, stress, SpO2, Body Battery
+    (minute-level resolution — only available for ~135 days)
+  - Daily summaries: sleep, steps, HRV, ...
+  - Weather and pollen data for your configured location
+
+The log at the bottom shows progress.
+The sync can be stopped at any time with "Stop" —
+it will resume from where it left off on the next run.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. BULK IMPORT (GDPR EXPORT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Garmin's API only provides the last ~135 days at full intraday
+resolution. Older data is available only as daily aggregates
+or not at all.
+
+For the complete history: request a GDPR export from Garmin.
+  -> https://www.garmin.com/en-US/account/datamanagement/
+
+The export arrives as a ZIP file (may take several days).
+
+Import:
+  Settings tab -> Data Collection -> "Bulk Import"
+  Select the ZIP file -> import starts
+  Duration: depends on archive size (minutes to hours)
+
+Bulk Import and Daily Sync complement each other:
+  Bulk Import provides the history, Daily Sync keeps it current.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. DASHBOARDS & ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Home tab: click the Dashboard dropdown (v) -> select a dashboard.
+The dashboard opens directly inside the app window.
+
+Available dashboards (selection):
+  Health Analysis     HRV, RHR, SpO2, sleep, Body Battery,
+                      stress — with personal reference values
+  Timeseries          Intraday data as zoomable time series
+  Daily Overview      All fields as an Excel table
+  Health + Context    Health combined with weather/pollen
+  Sleep Dashboard     Sleep phases, HRV trend, quality score
+
+Files tab: Excel overview of all archived days (v).
+
+Rebuild dashboards:
+  Settings tab -> Outputs -> "Create All Dashboards"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. BACKGROUND TIMER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The timer must be started manually and runs as long as the app
+is open.
+
+Start:
+  Click "Timer: Off" -> set interval -> click "Start Timer"
+
+What the timer does while running:
+  - Checks for missing days and downloads them
+  - Upgrades days that have no intraday data yet (as long as
+    they are still within the ~135-day window)
+  - Runs in the background without blocking the rest of the app
+
+The timer does not start automatically after restarting the app —
+it must be activated manually each time.
+
+Note: Export to Mirror automatically pauses the timer
+and restarts it afterwards.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MIRROR / BACKUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mirror creates an encrypted backup of the complete archive
+as a single .gla container file.
+
+Setup:
+  Settings tab -> Mirror target -> choose a path for the .gla file
+  (e.g. Cloudspace\Backup\archive.gla or a USB drive)
+
+Create backup:
+  "Export to Mirror" — packs the archive into the container
+  Optional: set a password for the container
+
+Restore:
+  "Import from Mirror" — unpacks the container into the archive
+  Existing data is not overwritten if its quality in the archive
+  is already higher than what the container provides
+  (protection against regression).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. AUTOMATED DAILY SYNC VIA WINDOWS TASK SCHEDULER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For fully automated sync without the app open:
+
+Standalone version:  use daily_update.exe directly
+Standard version:    use Starte_Daily_Sync.bat
+
+Setup in Task Scheduler:
+  1. Windows key -> open "Task Scheduler"
+  2. "Create Basic Task"
+  3. Trigger: Daily, at your preferred time
+  4. Action: Start a program
+     Standalone: path to daily_update.exe
+     Standard:   path to Starte_Daily_Sync.bat
+  5. "Run with highest privileges" — not required
+
+The headless sync writes a log to garmin_data/log/daily.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Connection fails
+  -> Check email and password
+  -> Log into Garmin Connect in a browser (MFA may be required)
+  -> Click "Reset Token" in Settings, then reconnect
+
+App asks for MFA code
+  -> Enter the code from Garmin/email — it is saved afterwards
+
+After app update: Garmin rejects the saved token
+  -> Settings -> "Reset Token" -> log in again
+  -> (Garmin server-side security measure for new binaries)
+
+Sync stops / no progress
+  -> Read the log (bottom of the app or garmin_data/log/)
+  -> Common cause: rate limit — wait a moment, then restart
+
+Dashboard shows no data
+  -> Run Daily Sync first
+  -> Then click "Create All Dashboards" in Settings -> Outputs
+
+Context data missing / no weather or pollen
+  -> Settings -> Context: check the Google Maps URL
+  -> Click "Set location" again — coordinates will be shown
+     (lat / lon)
+  -> Then run Daily Sync again
+  -> If coordinates are correct but still no data:
+     Open-Meteo API temporarily unavailable — retry later
+  -> Context data is only loaded for days already in the archive
+     (Garmin sync must run first)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. DATA STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  garmin_data/
+    raw/        Full API dumps (~500 KB/day)
+    source/     Unmodified API responses (intraday backup)
+    summary/    Compact daily JSONs (~2 KB/day)
+    log/        Session logs, quality register, token
+
+  context_data/
+    weather/    Weather data (Open-Meteo)
+    pollen/     Pollen data (Open-Meteo Air Quality)
+    brightsky/  Weather data (Brightsky/DWD)
+
+All data stays local. No cloud, no third-party services.
+
+═══════════════════════════════════════════════════════════
+  Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive
+═══════════════════════════════════════════════════════════
