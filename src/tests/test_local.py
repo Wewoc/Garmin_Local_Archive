@@ -731,10 +731,16 @@ r1 = normalizer.summarize(raw_full)
 r2 = normalizer.summarize(raw_full)
 check("determinism: summarize stable",       r1 == r2)
 
+def _strip_val_timestamp(result: tuple) -> tuple:
+    """Remove timestamp from val_result before comparison — datetime.now() causes flakiness."""
+    label, norm, summ, fields, val = result
+    val_no_ts = {k: v for k, v in val.items() if k != "timestamp"}
+    return (label, norm, summ, fields, val_no_ts)
+
 with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])):
     rd1 = collector._fetch_and_assess(mock_client, "2024-03-15")
     rd2 = collector._fetch_and_assess(mock_client, "2024-03-15")
-check("determinism: fetch_and_assess stable", rd1 == rd2)
+check("determinism: fetch_and_assess stable", _strip_val_timestamp(rd1) == _strip_val_timestamp(rd2))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  12. INVARIANTS

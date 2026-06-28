@@ -186,8 +186,11 @@ class PanelHome(QWidget):
         self._info_device_table.setAlternatingRowColors(True)
         self._info_device_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers)
+        # Qt6/Windows: cellDoubleClicked does not fire with NoSelection.
+        # SingleSelection enables the signal; selection highlight is hidden
+        # via stylesheet ::item:selected so the table appears non-interactive.
         self._info_device_table.setSelectionMode(
-            QTableWidget.SelectionMode.NoSelection)
+            QTableWidget.SelectionMode.SingleSelection)
         self._info_device_table.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._info_device_table.setVerticalScrollBarPolicy(
@@ -203,6 +206,8 @@ class PanelHome(QWidget):
             f"color: {self._app.TEXT}; "
             f"gridline-color: {self._app.BG3}; "
             f"border: none; font-family: 'Segoe UI'; font-size: 8pt; }}"
+            f"QTableWidget::item:selected {{ background: transparent; "
+            f"color: {self._app.TEXT}; }}"
             f"QAbstractScrollArea {{ background: {self._app.BG2}; }}"
             f"QHeaderView::section {{ background: {self._app.BG3}; "
             f"color: {self._app.TEXT2}; border: none; padding: 2px 4px; "
@@ -303,6 +308,10 @@ class PanelHome(QWidget):
         dash_sep.setFixedHeight(1)
         tab_lay.addWidget(dash_sep)
 
+        # Dashboard combo row — combo + ▼ label (Qt6/Windows suppresses native
+        # drop-down arrow when any stylesheet is set; QLabel is reliable fallback)
+        dash_combo_row = QHBoxLayout()
+        dash_combo_row.setSpacing(0)
         self._dash_combo = QComboBox()
         self._dash_combo.setFont(QFont("Segoe UI", 9))
         self._dash_combo.setStyleSheet(
@@ -314,9 +323,18 @@ class PanelHome(QWidget):
             f"selection-background-color: {self._app.ACCENT2}; }}")
         self._dash_combo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._dash_combo.setToolTip("Click to select a dashboard.")
         self._dash_combo.currentIndexChanged.connect(
             self._app._load_selected_dashboard)
-        tab_lay.addWidget(self._dash_combo)
+        dash_arrow = QLabel("▼")
+        dash_arrow.setFont(QFont("Segoe UI", 7))
+        dash_arrow.setStyleSheet(
+            f"color: {self._app.TEXT2}; background: {self._app.BG3}; "
+            f"padding: 0px 6px 0px 0px;")
+        dash_arrow.setFixedWidth(16)
+        dash_combo_row.addWidget(self._dash_combo)
+        dash_combo_row.addWidget(dash_arrow)
+        tab_lay.addLayout(dash_combo_row)
 
         self._dash_view = QWebEngineView()
         self._dash_view.setSizePolicy(
