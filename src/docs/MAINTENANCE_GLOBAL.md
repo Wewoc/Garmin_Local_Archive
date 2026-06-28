@@ -153,6 +153,7 @@ Known hidden imports:
 - `keyring` — WCM backend not auto-detected by PyInstaller; T2 only (v1.5.4.4)
 - `keyring.backends` — required for backend discovery; T2 only (v1.5.4.4)
 - `keyring.backends.Windows` — Windows Credential Manager backend; T2 only (v1.5.4.4)
+- `PyQt6.QtNetwork` — required by `QLocalServer`/`QLocalSocket` (single-instance guard); T2 + T3 (v1.6.0.7)
 
 Note: T3 already had keyring hidden imports since initial standalone build.
 T2 was missing them — password field appeared empty on every start. T2 was missing them — garminconnect showed as "not installed" at runtime despite being installed on the system.

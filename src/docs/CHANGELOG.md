@@ -1,5 +1,48 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.0.7 — Determinism Fix, Dropdown Indicators, Device Table Edit, Single Instance
+
+Fixes a flaky pre-build-gate test, adds visual dropdown indicators to all
+QComboBox widgets, makes the device name field re-editable after initial
+assignment, and prevents multiple simultaneous GLA instances from corrupting
+the archive.
+
+**Changed modules:**
+- `tests/test_local.py` — Section 11: `_strip_val_timestamp()` helper strips
+  `val_result["timestamp"]` (generated via `datetime.now()`) before comparing
+  two `_fetch_and_assess()` calls — eliminates flaky determinism check.
+- `app/panel_home.py` — `_dash_combo`: wrapped in `QHBoxLayout` with `▼` label
+  (Qt6/Windows suppresses native drop-down arrow when any stylesheet is applied);
+  `setSelectionMode` changed from `NoSelection` to `SingleSelection` to enable
+  `cellDoubleClicked` signal on device table; `::item:selected` hidden via
+  stylesheet so table remains visually non-interactive; `setToolTip` added on
+  `_dash_combo`.
+- `garmin_app_base.py` — `_xlsx_combo` and `_sheet_combo`: `▼` labels added
+  after each combo; `self._sheet_arrow` stored as instance attribute so
+  `_scan_xlsx_files()` can mirror its visibility with `_sheet_combo`.
+- `app/panel_archive.py` — `_refresh_archive_info()`: `device_id` stored as
+  `Qt.ItemDataRole.UserRole` on the name item so the edit guard does not rely
+  on display text. `_archive_on_device_name_click()`: guard changed from
+  `text() != "unknown"` to numeric-ID / `__total__` check — rows with
+  non-numeric sentinel IDs (e.g. `__unknown__`) are now re-editable after
+  the first name has been set.
+- `garmin_app.py` — single-instance guard via `QLocalServer`/`QLocalSocket`
+  added before `QApplication` construction: pings named socket, shows warning
+  dialog and exits if another instance responds.
+- `garmin_app_standalone.py` — identical single-instance guard.
+- `compiler/build.py` — `PyQt6.QtNetwork` added as hidden import (required
+  by `QLocalServer`/`QLocalSocket` in PyInstaller T2 builds).
+- `compiler/build_standalone.py` — `PyQt6.QtNetwork` added to hidden list
+  (T3 builds).
+- `docs/USER_GUIDE.txt` — note added at end of Section 1 pointing to
+  Documentation → README App for full `Connection & Archive Status` field
+  reference.
+- `version.py` — `APP_VERSION` bumped to `1.6.0.7`.
+
+**Test result:** 439 / 261 / 310 / 136 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
 ## v1.6.0.6 — UI/UX Update: Documentation, Tooltips, Mirror Labels
 
 Adds a Documentation button with in-app access to Quickstart, User Guide and

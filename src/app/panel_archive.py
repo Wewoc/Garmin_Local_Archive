@@ -210,7 +210,11 @@ class PanelArchive(QWidget):
                     tbl.insertRow(r)
                     tbl.setItem(r, 0, QTableWidgetItem(row.get("date_from") or "—"))
                     tbl.setItem(r, 1, QTableWidgetItem(row.get("date_to")   or "—"))
-                    tbl.setItem(r, 2, QTableWidgetItem(row.get("name")      or row.get("device_id", "?")))
+                    name_item = QTableWidgetItem(row.get("name") or row.get("device_id", "?"))
+                    # Store device_id as UserRole — guard in name dialog uses this,
+                    # not the display text, so renamed devices remain editable.
+                    name_item.setData(Qt.ItemDataRole.UserRole, row.get("device_id"))
+                    tbl.setItem(r, 2, name_item)
                     tbl.setItem(r, 3, QTableWidgetItem(str(row.get("days_high",     0) or "") or ""))
                     tbl.setItem(r, 4, QTableWidgetItem(str(row.get("days_standard", 0))))
                     tbl.setItem(r, 5, QTableWidgetItem(str(row.get("days_total",    0))))
@@ -270,8 +274,12 @@ class PanelArchive(QWidget):
         name_item = tbl.item(row, 2)
         if name_item is None:
             return
-        # Only react to the unknown row (device_id = None → shown as "unknown")
-        if name_item.text() != "unknown":
+        # Editable rows: device_id is None or a non-numeric sentinel like "__unknown__".
+        # Rows with numeric Garmin device IDs or "__total__" are read-only.
+        device_id = name_item.data(Qt.ItemDataRole.UserRole)
+        if device_id is not None and (
+            str(device_id).isdigit() or device_id == "__total__"
+        ):
             return
 
         current = name_item.text()
@@ -279,7 +287,7 @@ class PanelArchive(QWidget):
             self._app,
             "Device Name",
             "Name for unknown device:",
-            text=current if current != "unknown" else "",
+            text=current if current not in ("unknown", "?") else "",
         )
         if not ok or not new_name.strip():
             return
