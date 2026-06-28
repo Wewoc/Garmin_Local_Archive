@@ -65,6 +65,9 @@ The log at the bottom shows progress.
 The sync can be stopped at any time with "Stop" —
 it will resume from where it left off on the next run.
 
+-> For a full explanation of the Connection & Archive Status panel:
+     Documentation button -> README App -> "Connection & Archive Status"
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 3. BULK IMPORT (GDPR EXPORT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

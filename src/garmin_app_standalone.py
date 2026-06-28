@@ -287,6 +287,29 @@ if __name__ == "__main__":
     from version import APP_VERSION
     crash_handler.install(app_version=APP_VERSION, exit_on_main=True)
 
+    # ── Single instance guard ─────────────────────────────────────────────────
+    from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+    _INSTANCE_KEY = "GarminLocalArchive_Instance"
+    _ping = QLocalSocket()
+    _ping.connectToServer(_INSTANCE_KEY)
+    if _ping.waitForConnected(300):
+        _ping.disconnectFromServer()
+        _qapp_check = QApplication(sys.argv)
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.warning(
+            None,
+            "Garmin Local Archive",
+            "Garmin Local Archive is already running.\n\n"
+            "Only one instance can run at a time.",
+        )
+        sys.exit(0)
+    _ping = None
+
+    _instance_server = QLocalServer()
+    QLocalServer.removeServer(_INSTANCE_KEY)
+    _instance_server.listen(_INSTANCE_KEY)
+    # ── End single instance guard ─────────────────────────────────────────────
+
     qapp = QApplication(sys.argv)
     qapp.setStyle("Fusion")
 

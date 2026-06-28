@@ -269,6 +269,15 @@ class GarminApp(QMainWindow):
                                        QSizePolicy.Policy.Fixed)
         self._xlsx_combo.currentIndexChanged.connect(self._load_selected_xlsx)
         xlsx_combo_row.addWidget(self._xlsx_combo)
+        # ▼ label for xlsx_combo — Qt6/Windows suppresses native drop-down arrow
+        # when any QComboBox stylesheet is set; QLabel is reliable fallback.
+        _xlsx_arrow = QLabel("▼")
+        _xlsx_arrow.setFont(QFont("Segoe UI", 7))
+        _xlsx_arrow.setStyleSheet(
+            f"color: {self.TEXT2}; background: {self.BG3}; "
+            f"padding: 0px 6px 0px 0px;")
+        _xlsx_arrow.setFixedWidth(16)
+        xlsx_combo_row.addWidget(_xlsx_arrow)
 
         self._sheet_combo = QComboBox()
         self._sheet_combo.setFont(QFont("Segoe UI", 9))
@@ -285,6 +294,15 @@ class GarminApp(QMainWindow):
         self._sheet_combo.setVisible(False)
         self._sheet_combo.currentIndexChanged.connect(self._on_sheet_changed)
         xlsx_combo_row.addWidget(self._sheet_combo)
+        # ▼ label for sheet_combo — visibility mirrors sheet_combo (hidden for single-sheet)
+        self._sheet_arrow = QLabel("▼")
+        self._sheet_arrow.setFont(QFont("Segoe UI", 7))
+        self._sheet_arrow.setStyleSheet(
+            f"color: {self.TEXT2}; background: {self.BG3}; "
+            f"padding: 0px 6px 0px 0px;")
+        self._sheet_arrow.setFixedWidth(16)
+        self._sheet_arrow.setVisible(False)
+        xlsx_combo_row.addWidget(self._sheet_arrow)
 
         self._xlsx_open_btn = QPushButton("Open File")
         self._xlsx_open_btn.setFont(QFont("Segoe UI", 9))
@@ -666,6 +684,7 @@ class GarminApp(QMainWindow):
             self._sheet_combo.addItem(name)
         self._sheet_combo.setCurrentIndex(0)
         self._sheet_combo.setVisible(len(data_sheets) > 1)
+        self._sheet_arrow.setVisible(len(data_sheets) > 1)
         self._sheet_combo.blockSignals(False)
 
         self._render_sheet(path, data_sheets[0])

@@ -113,7 +113,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
 └── src/                        ← all source files (v1.6.0.1+)
     ├── garmin_app.py               ← Entry Point Target 1+2 (GUI)
     ├── garmin_app_standalone.py    ← Entry Point Target 3 (GUI, Standalone)
-    ├── garmin_app_base.py          ← View layer (GarminApp) — PyQt6 QMainWindow, fixed top (panel_home) + QTabWidget: Home / Files / Settings (v1.6.0+). Settings tab: two-column layout — Settings left (340px), Actions right (flex)
+    ├── garmin_app_base.py          ← View layer (GarminApp) — PyQt6 QMainWindow, fixed top (panel_home) + QTabWidget: Home / Files / Settings (v1.6.0+). Settings tab: two-column layout — Settings left (340px), Actions right (flex). `_sheet_arrow` label mirrors `_sheet_combo` visibility (v1.6.0.7).
     ├── version.py                  ← Single source of truth for APP_VERSION
     ├── crash_handler.py            ← Leaf-Node. Global crash capture (sys.excepthook,
     │                                  threading.excepthook, qInstallMessageHandler).

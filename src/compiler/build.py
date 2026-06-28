@@ -131,6 +131,7 @@ def build_exe(root: Path):
         "--hidden-import", "cryptography.hazmat.primitives.ciphers.aead",
         "--hidden-import", "cryptography.hazmat.primitives.hmac",
         "--hidden-import", "cryptography.hazmat.primitives.hashes",
+        "--hidden-import", "PyQt6.QtNetwork",
         "--distpath", str(root),
         "--workpath", str(root / "build"),
         "--specpath", str(Path(__file__).parent),   # .spec bleibt in compiler/
