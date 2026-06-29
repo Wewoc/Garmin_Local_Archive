@@ -109,6 +109,12 @@ Files tab: Excel overview of all archived days (v).
 Rebuild dashboards:
   Settings tab -> Outputs -> "Create All Dashboards"
 
+Encrypted export (for USB transport):
+  Settings tab -> Outputs -> "Encrypted Dashboards"
+  Enter a password (with confirmation) — never saved.
+  Output: basedir/encrypted/ — files end in _enc.html
+  Opens in any browser, decrypts locally, no internet needed.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 5. BACKGROUND TIMER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -144,7 +150,8 @@ Setup:
 
 Create backup:
   "Export to Mirror" — packs the archive into the container
-  Optional: set a password for the container
+  Enter a password and confirm it — always entered manually,
+  never saved. Prevents silent storage of a mistyped password.
 
 Restore:
   "Import from Mirror" — unpacks the container into the archive

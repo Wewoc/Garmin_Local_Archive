@@ -22,6 +22,7 @@ garmin_app.py (GUI)
 - `maps/` modules are routing-only — no writes, no API calls
 - `dash_layout.py` and `dash_layout_html.py` are passive resources — no logic, no file I/O
 - `layouts/reference_ranges.py` is a passive resource — no file I/O, no imports beyond stdlib
+- `layouts/dash_encryptor.py` is the Sole Owner of HTML encryption logic — Leaf-Node, no project-module imports
 
 ---
 
@@ -389,6 +390,21 @@ table embedded inline as `window.__GLA_STATUS__` — no `fetch()`, works with
 **Sole write authority:** `BASE_DIR/dashboards/index.html`
 **Read-only access:** `quality_log.json`, `device_table.json` (no QUALITY_LOCK needed)
 **Dashboard links:** `health_garmin_mobile.html`, `sleep_garmin_html-xls_dash.html`
+
+---
+
+## `dash_encryptor.py`
+
+Sole Owner of HTML encryption logic for the Encrypted Dashboard Export.
+Leaf-Node — stdlib + cryptography only, no project-module imports.
+
+| Function | Purpose |
+|---|---|
+| `encrypt_html(html_content, password)` | Takes a finished HTML string, returns a self-decrypting HTML. AES-256-GCM, PBKDF2-HMAC-SHA256 (100,000 iterations), random salt + IV. Decrypt dialog and Web Crypto API JS are inline — no external assets. |
+
+**Output:** self-contained HTML with embedded ciphertext + browser-side decryption.
+**Raises:** `ValueError` on empty input or password. `RuntimeError` on encryption failure or missing cryptography library.
+**Called by:** `panel_outputs._run_encrypted_dashboards()` — never by plotters or specialists.
 
 ---
 

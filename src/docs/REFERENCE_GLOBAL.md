@@ -130,9 +130,18 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │                                  after each QWebEngineView() instantiation
     │                                  (v1.6.0.4.4, A5)
     │
-    ├── app/                        ← GUI logic layer (v1.5.2+)
+    ├── layouts/                    ← Format renderers + passive resources
     │   ├── __init__.py
-    │   ├── garmin_app_settings.py  ← Layer 1: settings, keyring, constants (no GUI)
+    │   ├── dash_layout.py
+    │   ├── dash_layout_html.py
+    │   ├── dash_plotter_html.py
+    │   ├── dash_plotter_html_complex.py
+    │   ├── dash_plotter_html_mobile.py
+    │   ├── dash_plotter_excel.py
+    │   ├── dash_plotter_json.py
+    │   ├── dash_prompt_templates.py
+    │   ├── reference_ranges.py
+    │   └── garmin_mobile_landing.py  ← Mobile landing page generator (v1.5.8.1+)
     │   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
     │   ├── panel_home.py           ← PanelHome(QWidget) — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Home tab: Dashboard viewer (v1.6.0+)
     │   ├── panel_settings.py       ← PanelSettings(QWidget) — credentials, paths, sync config (v1.5.4+)
@@ -277,6 +286,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
 BASE_DIR/                       ← user-configured, default: ~/local_archive
 ├── local_config.csv            ← user location config for context collect
 ├── dashboards/                 ← Dashboard output (HTML, Excel, JSON, Markdown)
+├── encrypted/                  ← Encrypted Dashboard Export output (v1.6.1+) — password-protected _enc.html files
 │
 ├── garmin_data/                ← Garmin pipeline data
 │   ├── raw/

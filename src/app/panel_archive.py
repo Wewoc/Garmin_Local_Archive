@@ -21,109 +21,17 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
-    QDialog, QLineEdit, QListWidget, QMessageBox, QFrame, QTableWidgetItem, QInputDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QListWidget, QMessageBox, QFrame, QTableWidgetItem, QInputDialog,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 import garmin_app_controller as _controller
 import garmin_quality as _quality
+from .dialogs import PasswordConfirmDialog
 
 _WCM_MIRROR_KEY = "gla_mirror_password"
-
-
-class MirrorPasswordDialog(QDialog):
-    """
-    Modal dialog for mirror container password entry.
-    Optionally saves the password to Windows Credential Manager.
-    Used for lock() (mirror creation) — not for unlock (import).
-    """
-
-    def __init__(self, parent, show_save_checkbox: bool = True):
-        super().__init__(parent)
-        self._result   = None
-        self._save_pw  = False
-        self.setWindowTitle("Mirror Password")
-        self.setModal(True)
-        self.setFixedWidth(420)
-        app = parent._app
-        bg   = app.BG
-        bg3  = app.BG3
-        text = app.TEXT
-        t2   = app.TEXT2
-        acc  = app.ACCENT
-        self.setStyleSheet(f"background: {bg}; color: {text};")
-        lay = QVBoxLayout(self)
-        lay.setSpacing(8)
-        lay.setContentsMargins(20, 16, 20, 16)
-
-        title = QLabel("Mirror Container Password")
-        title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {text};")
-        lay.addWidget(title)
-
-        body = QLabel(
-            "Enter the password for the mirror container.\n"
-            "This password protects data in transit (USB, NAS, cloud folder)."
-        )
-        body.setFont(QFont("Segoe UI", 9))
-        body.setStyleSheet(f"color: {t2};")
-        body.setWordWrap(True)
-        lay.addWidget(body)
-
-        lay.addWidget(QLabel("Password:", font=QFont("Segoe UI", 9)))
-        self._pw = QLineEdit()
-        self._pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self._pw.setStyleSheet(
-            f"background: {bg3}; color: {text}; border: none; padding: 4px;")
-        lay.addWidget(self._pw)
-
-        self._chk = None
-        if show_save_checkbox:
-            self._chk = QCheckBox("Save password for this device (Windows Credential Manager)")
-            self._chk.setFont(QFont("Segoe UI", 9))
-            self._chk.setStyleSheet(f"color: {t2};")
-            lay.addWidget(self._chk)
-
-        self._err = QLabel("")
-        self._err.setStyleSheet("color: #e94560;")
-        self._err.setFont(QFont("Segoe UI", 9))
-        lay.addWidget(self._err)
-
-        btn_row = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        ok_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        ok_btn.setStyleSheet(
-            f"QPushButton {{ background: {acc}; color: {text}; "
-            f"border: none; padding: 6px 18px; }}")
-        ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ok_btn.clicked.connect(self._on_ok)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        cancel_btn.setStyleSheet(
-            f"QPushButton {{ background: {bg3}; color: {t2}; "
-            f"border: none; padding: 6px 18px; }}")
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(ok_btn)
-        btn_row.addWidget(cancel_btn)
-        lay.addLayout(btn_row)
-
-    def _on_ok(self):
-        pw = self._pw.text()
-        if not pw:
-            self._err.setText("Password cannot be empty.")
-            return
-        self._result  = pw
-        self._save_pw = bool(self._chk and self._chk.isChecked())
-        self.accept()
-
-    def get_result(self) -> str | None:
-        return self._result
-
-    def should_save(self) -> bool:
-        return self._save_pw
 
 
 class PanelArchive(QWidget):
@@ -914,7 +822,15 @@ class PanelArchive(QWidget):
             return
 
         # ── Password dialog — always manual for import ─────────────────────
-        dlg = MirrorPasswordDialog(self, show_save_checkbox=False)
+        dlg = PasswordConfirmDialog(
+            parent      = self,
+            title       = "Mirror Password",
+            heading     = "Mirror Container Password",
+            description = (
+                "Enter the password for the mirror container.\n"
+                "This password protects data in transit (USB, NAS, cloud folder)."
+            ),
+        )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         password = dlg.get_result()
@@ -1021,15 +937,19 @@ class PanelArchive(QWidget):
                 "Context sync is running.\nPlease wait until it finishes.")
             return
 
-        # ── Password: try WCM first, then dialog ────────────────────────────────────────────
-        password = _archive_load_mirror_password()
-        if password is None:
-            dlg = MirrorPasswordDialog(self, show_save_checkbox=True)
-            if dlg.exec() != QDialog.DialogCode.Accepted:
-                return
-            password = dlg.get_result()
-            if dlg.should_save():
-                _archive_save_mirror_password(password)
+        # ── Password: always prompt — no WCM caching ──────────────────────────
+        dlg = PasswordConfirmDialog(
+            parent      = self,
+            title       = "Mirror Password",
+            heading     = "Mirror Container Password",
+            description = (
+                "Enter the password for the mirror container.\n"
+                "This password protects data in transit (USB, NAS, cloud folder)."
+            ),
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        password = dlg.get_result()
 
         self._mirror_running = True
         self._app._panel_connection.set_mirror_button_state(

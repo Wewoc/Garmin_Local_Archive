@@ -262,7 +262,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 
 ## System Architecture
 
-The diagram below shows how all components relate to each other as of v1.5.x — from API ingestion and context collection through the broker layer to dashboard export.
+The diagram below shows how all components relate to each other as of v1.6.x — from API ingestion and context collection through the broker layer to dashboard export.
 
 ![System Architecture v1.6.x](src/screenshots/data_flow.png)
 
