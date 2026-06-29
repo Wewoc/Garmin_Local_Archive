@@ -1126,6 +1126,46 @@ check("contract explorer: field_options is list", isinstance(_ev16["daily"]["fie
 check("contract explorer: has intraday",         "intraday" in _ev16)
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  17. dash_encryptor — encrypt_html()
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("17. dash_encryptor — encrypt_html()")
+
+import importlib.util as _enc_ilu
+_enc_spec = _enc_ilu.spec_from_file_location(
+    "dash_encryptor", _ROOT / "layouts" / "dash_encryptor.py"
+)
+_enc_mod = _enc_ilu.module_from_spec(_enc_spec)
+_enc_spec.loader.exec_module(_enc_mod)
+
+_sample_html = "<html><body><h1>Test Dashboard</h1></body></html>"
+_enc_result  = _enc_mod.encrypt_html(_sample_html, "testpassword123")
+
+check("encrypt_html returns str",               isinstance(_enc_result, str))
+check("output contains DOCTYPE",                "<!DOCTYPE html>" in _enc_result)
+check("output contains GLA_META",              "GLA_META" in _enc_result)
+check("output contains glaDecrypt function",   "glaDecrypt" in _enc_result)
+check("output contains AES-GCM",               "AES-GCM" in _enc_result)
+check("output contains PBKDF2",                "PBKDF2" in _enc_result)
+check("output does not contain plaintext",     _sample_html not in _enc_result)
+check("output is longer than input",           len(_enc_result) > len(_sample_html))
+
+# ValueError on empty input
+try:
+    _enc_mod.encrypt_html("", "password")
+    check("empty html raises ValueError",      False)
+except ValueError:
+    check("empty html raises ValueError",      True)
+
+# ValueError on empty password
+try:
+    _enc_mod.encrypt_html(_sample_html, "")
+    check("empty password raises ValueError",  False)
+except ValueError:
+    check("empty password raises ValueError",  True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

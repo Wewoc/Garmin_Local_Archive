@@ -27,6 +27,7 @@ garmin_app.py (GUI)
 | `dash_layout.py` | Passive: color tokens, metric metadata, disclaimer, footer |
 | `dash_layout_html.py` | Passive: HTML CSS, Plotly CDN, template builders |
 | `reference_ranges.py` | Passive: age/sex/fitness reference range calculations |
+| `dash_encryptor.py` | Sole Owner: HTML encryption for Encrypted Dashboard Export (v1.6.1+) |
 
 ### Invariants
 
@@ -127,7 +128,7 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 310 checks, 16 sections.**
+**Current count: 320 checks, 17 sections.**
 
 | Section | Coverage |
 |---|---|
@@ -147,6 +148,7 @@ python tests/test_dashboard.py
 | 14 | `sleep_garmin` specialist + html + excel render — rows carry `hrv_7d_avg` (computed in build, rendered in both plotters). Phase bar cells carry letter labels (D/L/R/A) in contrast color (v1.5.8+) |
 | 15 | `garmin_map` broker contract |
 | 16 | Specialist return contract — alle 6 specialists |
+| 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards |
 
 **Broker contract (section 15):** `garmin_map.get()` gibt immer `values` (list), `fallback` (bool), `source_resolution` (str) zurück. Unbekanntes Feld → `KeyError`. Ungültige Resolution → `ValueError`. Gilt analog für `weather_map` und `pollen_map` — getestet in `test_local_context.py`.
 
