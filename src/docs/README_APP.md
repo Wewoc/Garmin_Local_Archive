@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.0.7
+# Garmin Local Archive — Desktop App v1.6.1
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -151,6 +151,8 @@ The check runs silently in the background at startup and takes a few seconds.
 ### Export to Mirror
 Creates an encrypted backup of your full archive as a single `.gla` container file. The target path is configured under **Mirror target** in Settings. The button opens a dialog with two options: **Export to Mirror** (create or update the backup) and **Import from Mirror** (restore data from an existing container).
 
+Both operations prompt for a password with confirmation. The password is never saved — it must be entered each time. This prevents the scenario where a typo is silently stored and requires manual cleanup in Windows Credential Manager.
+
 The button is greyed out if no mirror target is configured or the target is unreachable. Disabled automatically while a Sync or Context Sync is running.
 
 Import is non-destructive — existing data with higher quality is never overwritten by the container contents.
@@ -226,6 +228,24 @@ Opens a popup with all available dashboards and their output formats. Select any
 | Sleep & Recovery | ✓ | — | — | — |
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
+
+### Encrypted Dashboards
+
+Builds all HTML dashboards and encrypts each file with a password (AES-256-GCM). Intended for
+transport on USB drives or other removable media — the encrypted file opens in any browser and
+decrypts locally without any server or internet connection.
+
+- Click **🔒 Encrypted Dashboards** in Settings → Export
+- Enter a password and confirm it — the password is never saved
+- All HTML dashboards are built and encrypted automatically
+- Mobile variants are not included
+- Output is written to `BASE_DIR/encrypted/` — the folder opens automatically
+- File names get an `_enc` suffix: e.g. `health_garmin_enc.html`
+
+The encrypted file is self-contained: the password dialog and decryption logic are embedded
+directly in the HTML file. No Python, no server, no external asset required to open it.
+
+**Not triggered by Daily Sync** — encrypted export is always manual.
 
 ### Daily Sync button
 

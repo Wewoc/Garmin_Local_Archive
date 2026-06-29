@@ -31,6 +31,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 import garmin_app_settings as _settings
+from .dialogs import PasswordConfirmDialog
 
 
 class PanelOutputs(QWidget):
@@ -145,6 +146,22 @@ class PanelOutputs(QWidget):
         exp_row.addWidget(
             self._tip("Select dashboards and create as HTML, Excel or JSON"))
         lay.addLayout(exp_row)
+
+        enc_row = QHBoxLayout()
+        enc_row.setContentsMargins(20, 2, 20, 2)
+        enc_row.setSpacing(4)
+        enc_btn = self._action_btn("🔒  Encrypted Dashboards", self._app.BG3,
+                                   self._app.TEXT, self._open_encrypted_dashboard_popup)
+        enc_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                              QSizePolicy.Policy.Fixed)
+        enc_btn.setToolTip(
+            "Build all HTML dashboards and encrypt them with a password.\n"
+            "Output: basedir/encrypted/ — for transport on USB drives.\n"
+            "Not included in Daily Sync.")
+        enc_row.addWidget(enc_btn)
+        enc_row.addWidget(
+            self._tip("Password-protected HTML dashboards for USB transport"))
+        lay.addLayout(enc_row)
 
         # ── Output ───────────────────────────────────────────────────────────
         lay.addWidget(self._section_widget("Output"))
@@ -622,6 +639,180 @@ class PanelOutputs(QWidget):
         btn_row.addWidget(create_btn)
         lay.addLayout(btn_row)
         dlg.exec()
+
+    # ── Encrypted Dashboards ───────────────────────────────────────────────────
+
+    def _open_encrypted_dashboard_popup(self):
+        """Password dialog → build all HTML dashboards → encrypt → basedir/encrypted/."""
+        dlg = PasswordConfirmDialog(
+            parent      = self,
+            title       = "Encrypted Dashboards",
+            heading     = "🔒  Encrypted Dashboards",
+            description = (
+                "Builds all HTML dashboards and encrypts them with AES-256.\n"
+                "Output folder: basedir/encrypted/\n"
+                "Mobile variants are excluded."
+            ),
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.get_result() is None:
+            return
+
+        password = dlg.get_result()
+        self._run_encrypted_dashboards(password)
+        password = None  # Passwort sofort aus dem Speicher
+
+    def _run_encrypted_dashboards(self, password: str):
+        """Build HTML dashboards (excl. mobile), encrypt, write to basedir/encrypted/."""
+        import importlib.util as _ilu
+
+        if not getattr(sys, "frozen", False):
+            root = Path(__file__).parent.parent
+        elif (hasattr(sys, "_MEIPASS") and
+                (Path(sys._MEIPASS) / "scripts").exists()):
+            root = Path(sys._MEIPASS) / "scripts"
+        else:
+            root = Path(sys.executable).parent / "scripts"
+        for p in (root / "dashboards", root / "layouts", root / "maps"):
+            s = str(p)
+            if s not in sys.path:
+                sys.path.insert(0, s)
+
+        try:
+            runner_path = root / "dashboards" / "dash_runner.py"
+            spec = _ilu.spec_from_file_location("dash_runner", runner_path)
+            if spec is None:
+                raise FileNotFoundError(
+                    f"dash_runner.py nicht gefunden: {runner_path}")
+            dash_runner = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(dash_runner)
+        except Exception as exc:
+            self._app._log(f"✗ Dashboard runner konnte nicht geladen werden: {exc}")
+            return
+
+        try:
+            specialists = dash_runner.scan()
+        except Exception as exc:
+            self._app._log(f"✗ scan() fehlgeschlagen: {exc}")
+            return
+        if not specialists:
+            self._app._log("✗ Keine Dashboards gefunden.")
+            return
+
+        # Nur html + html_complex — html_mobile ausgeschlossen
+        _ENCRYPT_FORMATS = {"html", "html_complex"}
+        selections = [
+            (spec["module"], fmt)
+            for spec in specialists
+            for fmt in spec["formats"]
+            if fmt in _ENCRYPT_FORMATS
+        ]
+        if not selections:
+            self._app._log("✗ Keine HTML-Dashboards für Encrypted Export gefunden.")
+            return
+
+        s         = self._app._panel_settings._collect_settings()
+        date_from = s.get("date_from", "").strip()
+        date_to   = s.get("date_to",   "").strip()
+        if not date_from:
+            from datetime import date as _date, timedelta
+            date_from = (_date.today() - timedelta(days=30)).isoformat()
+        if not date_to:
+            from datetime import date as _date
+            date_to = _date.today().isoformat()
+
+        output_dir = Path(s["base_dir"]) / "encrypted"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        self._app._log("\n🔒  Encrypted Dashboards erstellen ...")
+        self._app._log(f"   Output: {output_dir}")
+        self._app._log(f"   Zeitraum: {date_from} → {date_to}")
+
+        def worker():
+            try:
+                import importlib
+                os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
+                import garmin_config as _cfg
+                importlib.reload(_cfg)
+
+                results = dash_runner.build(
+                    selections=selections,
+                    date_from=date_from,
+                    date_to=date_to,
+                    settings=s,
+                    output_dir=output_dir,
+                    log=lambda msg: self._app._dispatch(
+                        lambda m=msg: self._app._log(f"   {m}")),
+                )
+
+                ok  = [r for r in results if r["success"]]
+                err = [r for r in results if not r["success"]]
+
+                if err:
+                    def _log_err():
+                        for r in err:
+                            self._app._log(
+                                f"  ✗ {r['name']} ({r['format']}): "
+                                f"{r.get('error', '')}")
+                    self._app._dispatch(_log_err)
+
+                if not ok:
+                    self._app._dispatch(
+                        lambda: self._app._log("  ✗ Keine Dashboards gebaut."))
+                    return
+
+                # ── Encrypt-Pass ───────────────────────────────────────────────
+                try:
+                    encryptor_path = root / "layouts" / "dash_encryptor.py"
+                    enc_spec = _ilu.spec_from_file_location(
+                        "dash_encryptor", encryptor_path)
+                    if enc_spec is None:
+                        raise FileNotFoundError(
+                            f"dash_encryptor.py nicht gefunden: {encryptor_path}")
+                    dash_encryptor = _ilu.module_from_spec(enc_spec)
+                    enc_spec.loader.exec_module(dash_encryptor)
+                except Exception as exc:
+                    self._app._dispatch(
+                        lambda e=exc: self._app._log(
+                            f"  ✗ dash_encryptor konnte nicht geladen werden: {e}"))
+                    return
+
+                encrypted_count = 0
+                encrypt_errors  = []
+                for r in ok:
+                    html_path = r.get("file")
+                    if not html_path or not html_path.exists():
+                        continue
+                    try:
+                        stem     = html_path.stem
+                        enc_name = f"{stem}_enc.html"
+                        enc_path = output_dir / enc_name
+
+                        html_content = html_path.read_text(encoding="utf-8")
+                        encrypted    = dash_encryptor.encrypt_html(
+                            html_content, password)
+
+                        html_path.unlink()
+                        enc_path.write_text(encrypted, encoding="utf-8")
+                        encrypted_count += 1
+
+                    except Exception as exc:
+                        encrypt_errors.append(f"{html_path.name}: {exc}")
+
+                def _finish():
+                    self._app._log(
+                        f"\n  ✓ {encrypted_count} Dashboard(s) verschlüsselt")
+                    for e in encrypt_errors:
+                        self._app._log(f"  ✗ Encrypt-Fehler: {e}")
+                    self._app._log(f"  📁  {output_dir}")
+                    os.startfile(str(output_dir))
+
+                self._app._dispatch(_finish)
+
+            except Exception as exc:
+                self._app._dispatch(
+                    lambda e=exc: self._app._log(f"  ✗ Fehler: {e}"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _run_dashboards(self, dash_runner, selections):
         """Run dashboard build in background thread, stream progress to log."""

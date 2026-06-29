@@ -15,6 +15,7 @@ No logic, no imports, no side effects — pure data.
 SHARED_SCRIPTS = [
     # app layer
     "app/__init__.py",
+    "app/dialogs.py",
     "app/garmin_app_settings.py",
     "app/garmin_app_controller.py",
     "app/panel_settings.py",
@@ -92,6 +93,7 @@ SHARED_SCRIPTS = [
     "layouts/dash_prompt_templates.py",
     "layouts/reference_ranges.py",
     "layouts/garmin_mobile_landing.py",
+    "layouts/dash_encryptor.py",
     # render sub-package (one module per layout type)
     "layouts/render/__init__.py",
     "layouts/render/recovery_context.py",
@@ -118,7 +120,9 @@ SCRIPT_SIGNATURES_BASE = {
     "app/panel_connection.py":  ["class PanelConnection"],
     "app/panel_archive.py":     ["class PanelArchive"],
     "app/panel_timer.py":       ["class PanelTimer"],
+    "app/dialogs.py":           ["class PasswordConfirmDialog"],
     "app/panel_outputs.py":     ["class PanelOutputs"],
+    "layouts/dash_encryptor.py": ["def encrypt_html"],
     "app/panel_home.py":        ["class PanelHome"],
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],

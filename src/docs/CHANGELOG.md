@@ -1,5 +1,57 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.1 — Encrypted Dashboard Export
+
+Adds password-protected HTML dashboard export for secure transport on USB drives
+or other removable media. All HTML dashboards are built via the standard pipeline
+and then encrypted with AES-256-GCM — the encrypted file is self-contained and
+decrypts fully in the browser via Web Crypto API. No server, no Python callback,
+no external asset required.
+
+**New modules:**
+- `layouts/dash_encryptor.py` — Sole Owner of HTML encryption logic. Leaf-Node
+  (stdlib + cryptography only). `encrypt_html(html_content, password) -> str` —
+  takes a finished HTML string, returns a self-decrypting HTML with inline
+  password dialog and Web Crypto API decrypt logic. AES-256-GCM, PBKDF2-HMAC-SHA256
+  (100,000 iterations), random salt + IV per file.
+- `dialogs.py` — Shared `PasswordConfirmDialog` for Mirror and Encrypted Dashboards.
+  Two password fields with confirmation, QMessageBox validation, Default-Button-Fix
+  (`setAutoDefault(False)`), Enter-flow pw1 → pw2 → OK. Located in `src/` (flat
+  import alongside other project modules).
+
+**Changed modules:**
+- `app/panel_outputs.py` — new "🔒 Encrypted Dashboards" button in the Export
+  section. `_open_encrypted_dashboard_popup()` shows the shared password dialog.
+  `_run_encrypted_dashboards()` builds all HTML dashboards (html + html_complex,
+  html_mobile excluded), encrypts each file in-place, writes to `basedir/encrypted/`
+  with `_enc` suffix (e.g. `health_garmin_enc.html`). Explorer opens automatically.
+  Not triggered by Daily Sync or daily_update.py.
+- `app/panel_archive.py` — `MirrorPasswordDialog` replaced by `PasswordConfirmDialog`.
+  WCM save-checkbox removed — mirror password is always entered manually, never
+  cached. Prevents the WCM corruption scenario (typo → manual WCM cleanup required).
+- `compiler/build_manifest.py` — `dash_encryptor.py` and `dialogs.py` added to
+  `SHARED_SCRIPTS` and `SCRIPT_SIGNATURES_BASE`.
+- `version.py` — `APP_VERSION` bumped to `1.6.1`.
+
+**What does not change:**
+- Normal "Create Reports" flow — unaffected, no encrypt step.
+- Daily Sync / daily_update.py — encrypted export is never triggered automatically.
+- `basedir/dashboards/` — unchanged, encrypted files go to `basedir/encrypted/`.
+- `garmin_mobile_landing.py` — unaffected (not part of encrypted export).
+- All Garmin pipeline modules — unaffected.
+
+**Architecture notes:**
+- `basedir/encrypted/` is an isolated silo — no other module reads or writes it.
+- `dialogs.py` is a flat module in `src/` — imported as `import dialogs`, same
+  pattern as all other project modules. Not in `app/` to avoid package import issues.
+- Mirror password WCM helper functions (`_archive_load_mirror_password`,
+  `_archive_save_mirror_password`) remain in `panel_archive.py` but are no longer
+  called — cleanup deferred.
+
+**Test result:** 439 / 261 / 320 / 136 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
 ## v1.6.0.7 — Determinism Fix, Dropdown Indicators, Device Table Edit, Single Instance
 
 Fixes a flaky pre-build-gate test, adds visual dropdown indicators to all
