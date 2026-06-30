@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2024 Timo (github.com/wewoc)
+# Copyright (C) 2024 Wewoc (github.com/wewoc)
 
 """
 check_cve_whitelist.py — CVE Relevance Filter
