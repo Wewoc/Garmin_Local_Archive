@@ -205,14 +205,17 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
 def build_combined_zip(root: Path):
     """Packs T3.1 (--onedir folder) + T3.2 (--onefile EXE) into a single release ZIP.
 
-    T3.1 layout in ZIP:
-        Garmin_Local_Archive_Standalone/
-            Garmin_Local_Archive_Standalone.exe
-            _internal/
-                ...
-
-    T3.2 layout in ZIP (flat, --onefile):
+    ZIP layout (flat — all contents unpacked directly into the target folder):
+        Garmin_Local_Archive_Standalone.exe
         daily_update.exe
+        _internal/
+            ...
+        info/
+            QUICKSTART.txt
+            USER_GUIDE.txt
+            README.md
+            README_APP.md
+            daily_update_task.xml
     """
     zip_path  = root / "Garmin_Local_Archive_Standalone.zip"
     t31_dir   = root / "Garmin_Local_Archive_Standalone"   # --onedir output folder
@@ -229,23 +232,23 @@ def build_combined_zip(root: Path):
         sys.exit(1)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        # T3.1 — pack entire --onedir folder, preserving structure
+        # T3.1 — pack contents of --onedir folder flat into ZIP root
         for f in sorted(t31_dir.rglob("*")):
             if f.is_file():
-                arcname = f.relative_to(root)   # → Garmin_Local_Archive_Standalone/...
+                arcname = f.relative_to(t31_dir)   # → flat: EXE + _internal/...
                 zf.write(f, arcname)
 
         # T3.2 — flat single EXE in ZIP root
         zf.write(du_exe, "daily_update.exe")
 
-        # Docs
+        # Docs — flat info/ folder in ZIP root
         if info_dir.exists():
             for f in sorted(info_dir.iterdir()):
                 if f.name in INFO_INCLUDE:
                     zf.write(f, f"info/{f.name}")
 
     print(f"  -> {zip_path}")
-    print("  ZIP: Garmin_Local_Archive_Standalone/ (--onedir) + daily_update.exe + info/")
+    print("  ZIP: flat layout — EXE + _internal/ + daily_update.exe + info/")
     print("  Upload Garmin_Local_Archive_Standalone.zip to GitHub release.")
 
 
@@ -263,7 +266,14 @@ def main():
     info_dir = root / "info"
     info_dir.mkdir(exist_ok=True)
     for name in INFO_INCLUDE:
-        src = root.parent / name if (root.parent / name).exists() else root / "scheduler" / name
+        # README.md → Repo-Root, Docs (QUICKSTART/USER_GUIDE/README_APP) → src/docs/,
+        # daily_update_task.xml → src/scheduler/
+        if (root.parent / name).exists():
+            src = root.parent / name
+        elif (root / "docs" / name).exists():
+            src = root / "docs" / name
+        else:
+            src = root / "scheduler" / name
         if src.exists():
             shutil.copy2(src, info_dir / name)
 
