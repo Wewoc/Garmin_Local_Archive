@@ -18,12 +18,15 @@ Public interface:
 """
 
 import html as html_escape
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import dash_layout      as layout
 import dash_layout_html as layout_html
+
+_LAYOUTS_DIR = Path(__file__).parent.parent
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -36,7 +39,7 @@ def render(data: dict, output_path: Path) -> None:
 
 
 def _render_sleep(data: dict, output_path: Path) -> None:
-    """Sleep Dashboard render — one row per night, HTML/CSS table, no Plotly."""
+    """Sleep Dashboard render — one row per night, HTML/CSS table + intraday Plotly explorer."""
     _raw_title = data.get("title", "Sleep Dashboard")
     title      = f"🦄 GARMIN LOCAL ARCHIVE — {_raw_title}"
     subtitle   = data.get("subtitle", "")
@@ -145,7 +148,8 @@ def _render_sleep(data: dict, output_path: Path) -> None:
         hrv_7d_str = f"{hrv_7d:.1f}" if hrv_7d is not None else "—"
 
         row_html += f"""
-<tr>
+<tr onclick="sleepJumpToDay('{date}')" title="Click to jump to intraday view"
+    style="cursor:pointer;">
   <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">{date}</td>
   <td style="padding:6px 10px;min-width:140px;">{_phase_bar(row)}</td>
   <td style="padding:6px 10px;text-align:center;font-weight:700;color:{dur_color};">{dur_str}</td>
@@ -193,6 +197,17 @@ def _render_sleep(data: dict, output_path: Path) -> None:
 </tbody>
 </table>"""
 
+
+    # ── Intraday explorer block ───────────────────────────────────────────────
+    intraday     = data.get("intraday") or {}
+    explorer_div = _build_intraday_explorer(intraday, refs)
+
+    # ── Plotly (only if intraday data present) ────────────────────────────────
+    if intraday:
+        plotly_script = layout_html.get_plotly_script(_LAYOUTS_DIR)
+    else:
+        plotly_script = ""
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -207,6 +222,8 @@ def _render_sleep(data: dict, output_path: Path) -> None:
 <div style="padding:16px 24px;">
 {html_body}
 </div>
+{plotly_script}
+{explorer_div}
 {footer_html}
 </body>
 </html>"""
@@ -214,4 +231,135 @@ def _render_sleep(data: dict, output_path: Path) -> None:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
+
+
+def _build_intraday_explorer(intraday: dict, refs: dict) -> str:
+    """
+    Build the intraday explorer section — date dropdown + Plotly chart.
+    Returns empty string if no intraday data is available.
+    Four fixed traces: Heart Rate, Stress, Body Battery, Respiration.
+    """
+    if not intraday:
+        return ""
+
+    dates = sorted(intraday.keys(), reverse=True)  # newest first in dropdown
+
+    # ── Embed intraday data as JSON ───────────────────────────────────────────
+    intraday_js = {}
+    for d, day in intraday.items():
+        intraday_js[d] = {
+            "heart_rate":   day.get("heart_rate")   or [],
+            "stress":       day.get("stress")        or [],
+            "body_battery": day.get("body_battery")  or [],
+            "respiration":  day.get("respiration")   or [],
+        }
+
+    intraday_json = json.dumps(intraday_js)
+    dates_json    = json.dumps(dates)
+    first_date    = dates[0] if dates else ""
+
+    options_html = "\n".join(
+        f'        <option value="{d}">{d}</option>' for d in dates
+    )
+
+    # ── Colors (fixed, matching dash_layout phase palette) ───────────────────
+    COLOR_HR   = "#E85D24"
+    COLOR_ST   = "#1D9E75"
+    COLOR_BB   = "#185FA5"
+    COLOR_RESP = "#9b7fc7"
+
+    div = f"""
+<div id="sleep-explorer" style="background:#fff;margin:0;padding:16px 24px 24px;">
+  <h2 style="font-size:15px;font-weight:600;color:#1a2a3a;margin-bottom:12px;">
+    Intraday Detail
+  </h2>
+  <div style="padding-bottom:12px;">
+    <label for="sleep-intraday-select"
+           style="font-size:13px;margin-right:8px;color:#555;">Date:</label>
+    <select id="sleep-intraday-select"
+            onchange="sleepUpdateIntraday(this.value)"
+            style="font-size:13px;padding:4px 8px;border-radius:4px;border:1px solid #ccc;">
+{options_html}
+    </select>
+  </div>
+  <div id="sleep-intraday-chart" style="width:100%;height:320px;"></div>
+</div>
+<script>
+(function() {{
+  var _intraday = {intraday_json};
+  var _dates    = {dates_json};
+
+  function _makeSeries(arr) {{
+    if (!arr || arr.length === 0) return {{x: [], y: []}};
+    return {{
+      x: arr.map(function(p) {{ return p.ts; }}),
+      y: arr.map(function(p) {{ return p.value; }})
+    }};
+  }}
+
+  window.sleepUpdateIntraday = function(date) {{
+    var day = _intraday[date] || {{}};
+    var hr   = _makeSeries(day.heart_rate);
+    var st   = _makeSeries(day.stress);
+    var bb   = _makeSeries(day.body_battery);
+    var resp = _makeSeries(day.respiration);
+
+    var traces = [
+      {{ x: hr.x,   y: hr.y,   name: 'Heart Rate',   type: 'scatter', mode: 'lines',
+         line: {{color: '{COLOR_HR}',   width: 1.5}},
+         yaxis: 'y1',
+         hovertemplate: '%{{x}}<br>HR: %{{y:.0f}} bpm<extra></extra>' }},
+      {{ x: st.x,   y: st.y,   name: 'Stress',       type: 'scatter', mode: 'lines',
+         line: {{color: '{COLOR_ST}',   width: 1.5}},
+         yaxis: 'y2',
+         hovertemplate: '%{{x}}<br>Stress: %{{y:.0f}}<extra></extra>' }},
+      {{ x: bb.x,   y: bb.y,   name: 'Body Battery', type: 'scatter', mode: 'lines',
+         line: {{color: '{COLOR_BB}',   width: 1.5}},
+         yaxis: 'y3',
+         hovertemplate: '%{{x}}<br>Body Battery: %{{y:.0f}}<extra></extra>' }},
+      {{ x: resp.x, y: resp.y, name: 'Respiration',  type: 'scatter', mode: 'lines',
+         line: {{color: '{COLOR_RESP}', width: 1.5, dash: 'dot'}},
+         yaxis: 'y4',
+         hovertemplate: '%{{x}}<br>Respiration: %{{y:.1f}} brpm<extra></extra>' }}
+    ];
+
+    var layout = {{
+      margin:     {{t: 20, b: 60, l: 50, r: 50}},
+      height:     320,
+      paper_bgcolor: '#fff',
+      plot_bgcolor:  '#f9f9fb',
+      showlegend: true,
+      legend:     {{orientation: 'h', y: -0.18, font: {{size: 11}}}},
+      xaxis:  {{type: 'date', showgrid: true, gridcolor: '#eee'}},
+      yaxis:  {{title: 'HR (bpm)',  titlefont: {{size: 11, color: '{COLOR_HR}'}},
+                showgrid: false, overlaying: false, side: 'left'}},
+      yaxis2: {{title: 'Stress',    titlefont: {{size: 11, color: '{COLOR_ST}'}},
+                showgrid: false, overlaying: 'y', side: 'right', anchor: 'x'}},
+      yaxis3: {{title: 'Batt.',     titlefont: {{size: 11, color: '{COLOR_BB}'}},
+                showgrid: false, overlaying: 'y', side: 'left',  anchor: 'free', position: 0.0}},
+      yaxis4: {{title: 'Resp.',     titlefont: {{size: 11, color: '{COLOR_RESP}'}},
+                showgrid: false, overlaying: 'y', side: 'right', anchor: 'free', position: 1.0}}
+    }};
+
+    Plotly.react('sleep-intraday-chart', traces, layout, {{responsive: true}});
+  }};
+
+  if (_dates.length > 0) {{
+    sleepUpdateIntraday('{first_date}');
+  }}
+
+  window.sleepJumpToDay = function(date) {{
+    var sel      = document.getElementById('sleep-intraday-select');
+    var explorer = document.getElementById('sleep-explorer');
+    if (!sel || !explorer) return;
+    if (sel.value !== date) {{
+      sel.value = date;
+      sleepUpdateIntraday(date);
+    }}
+    explorer.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+  }};
+}})();
+</script>"""
+
+    return div
 

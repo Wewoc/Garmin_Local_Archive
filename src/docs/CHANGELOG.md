@@ -1,5 +1,48 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.2 — Sleep Dashboard + Intraday Explorer
+
+Extends the Sleep Dashboard with an embedded intraday explorer section.
+Each row in the sleep table carries a click handler — clicking a row jumps
+to the Intraday Detail section below and selects the correct date automatically.
+The explorer shows four fixed intraday traces (Heart Rate, Stress, Body Battery,
+Respiration) rendered inline via Plotly with no companion file required.
+Single self-contained HTML output — no second file, no relative links.
+
+**Changed modules:**
+- `dashboards/sleep_garmin_html-xls_dash.py` — `build()` fetches four intraday
+  fields (heart_rate_series, stress_series, body_battery_series, respiration_series)
+  via `field_map.get(..., resolution="intraday")`. New helper `_intraday_by_date()`.
+  New `_INTRADAY_FIELDS` constant. Return dict gains `"intraday"` key
+  (`{date: {heart_rate, stress, body_battery, respiration}}`). Excel render
+  unaffected — plotter ignores `"intraday"` key.
+- `layouts/render/sleep.py` — `import json` added. `_LAYOUTS_DIR` module constant.
+  `_render_sleep()` extended: calls new `_build_intraday_explorer()`, embeds
+  Plotly inline (conditional — only when intraday data present). Plotly loaded
+  before explorer script to avoid race condition. Row `<tr>` elements carry
+  `onclick="sleepJumpToDay(date)"` for direct navigation. New private function
+  `_build_intraday_explorer()`: Date dropdown, Plotly chart (4 traces, 4 Y-axes),
+  `sleepUpdateIntraday()` + `sleepJumpToDay()` JS functions.
+- `tests/test_dashboard.py` — 12 new checks in Section 14: `"intraday"` key in
+  build return dict, intraday day structure, HTML contains explorer div + chart id
+  + Plotly + JS functions + trace names.
+
+**Architecture note — Plotly load order:**
+`plotly_script` must appear in the HTML **before** `explorer_div`. The explorer
+script calls `Plotly.react()` immediately on load — if Plotly is not yet defined,
+the call fails silently and the chart never renders. Pattern to follow in all
+future renderers that embed Plotly inline.
+
+**What does not change:**
+- `dash_runner.py` — no companion file, no second output, unchanged.
+- `layouts/render/explorer.py` — standalone Explorer unaffected.
+- `dash_plotter_excel.py` — ignores `"intraday"` key, Excel output unchanged.
+- `build_manifest.py` — `layouts/render/sleep.py` already listed, no change.
+
+**Test result:** 439 / 261 / 332 / 136 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
 ## v1.6.1 — Encrypted Dashboard Export
 
 Adds password-protected HTML dashboard export for secure transport on USB drives

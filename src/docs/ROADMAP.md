@@ -6,18 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.1**
-
----
-
-### 1.6.2 Sleep Dashboard → Explorer drill-down
-
-When the Sleep Dashboard is built, an Explorer HTML is automatically generated for the same date range with four preset intraday fields (Heart Rate, Stress, Body Battery, Respiration). Each row in the Sleep Dashboard carries a link to this Explorer file.
-
-- Two output files, not one per row: `sleep_dashboard_RANGE.html` + `sleep_explorer_RANGE.html`
-- Files are relative-linked — both must be in the same output folder
-- The Explorer opens at full range; the user navigates to the relevant day themselves
-- T3-compatible — no Python callback from the browser, no server component
+**Currently stable — v1.6.2**
 
 ---
 
@@ -300,6 +289,53 @@ The backend is a configuration option. GLA takes no position on which LLM the us
 - All existing workflows — GUI, dashboards, export pipeline unaffected
 
 **Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
+
+---
+
+### v1.9.1 — Export Layer
+ 
+A new output layer parallel to `dashboards/` — reads via the Broker Layer,
+writes to external formats and databases. GLA becomes local data infrastructure
+for the broader Garmin ecosystem: other tools consume GLA's archive instead of
+fetching from the Garmin API themselves, gaining access to intraday data that
+would otherwise be lost after ~135 days.
+ 
+**Architecture**
+ 
+The Export Layer sits at the same level as the Dashboard Layer. Both consume
+the Broker Layer — neither has knowledge of pipeline internals.
+ 
+```
+Broker Layer  (field_map / fit_map / context_map)
+        ↓                          ↓
+Dashboard Layer              Export Layer
+dashboards/                  exports/
+layouts/                     export_adapters/
+```
+ 
+**Design principles**
+ 
+- One adapter per target format — no shared state between adapters
+- Adapters are read-only consumers of the Broker Layer
+- No write access to any pipeline component or archive directory
+- Sole-Write-Authority of existing pipeline modules is not affected
+**Candidate adapter formats**
+ 
+- InfluxDB Line Protocol — enables garmin-grafana and similar tools to consume
+  GLA data without fetching from the Garmin API
+- CSV — generic export for Python analysis, Excel, or LLM input
+- Prometheus exposition format — for monitoring / alerting stacks
+No adapter is a commitment. Each is evaluated independently when development begins.
+ 
+**What changes:**
+- `exports/` — new top-level directory, parallel to `dashboards/`
+- `exports/export_runner.py` — orchestration; analogous to `dash_runner.py`
+- `exports/export_adapters/` — one module per target format
+**What does not change:**
+- Broker Layer — `field_map`, `fit_map`, `context_map` unchanged
+- Dashboard Layer — unaffected
+- Pipeline — no access below the Broker Layer
+- Sole owner principle — adapters read via brokers only
 
 ---
  

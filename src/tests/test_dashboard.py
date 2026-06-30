@@ -948,6 +948,21 @@ check("sleep html has table",                    "sleep-table" in _slp_html)
 check("sleep html has date",                     _TEST_DATE in _slp_html)
 check("sleep html has FAIR badge",               "FAIR" in _slp_html)
 check("sleep html has disclaimer",               "medical advice" in _slp_html)
+check("sleep html has intraday explorer",        "sleep-explorer" in _slp_html)
+check("sleep html has intraday chart div",       "sleep-intraday-chart" in _slp_html)
+check("sleep html has plotly",                   "plotly" in _slp_html.lower())
+check("sleep html has sleepUpdateIntraday fn",   "sleepUpdateIntraday" in _slp_html)
+check("sleep html has Heart Rate trace",         "Heart Rate" in _slp_html)
+check("sleep html has Body Battery trace",       "Body Battery" in _slp_html)
+
+# build() intraday key present
+check("sleep build has intraday key",            "intraday" in _slp)
+check("sleep intraday has test date",            _TEST_DATE in _slp.get("intraday", {}))
+_slp_day = _slp["intraday"].get(_TEST_DATE, {})
+check("sleep intraday day has heart_rate",       "heart_rate" in _slp_day)
+check("sleep intraday day has stress",           "stress" in _slp_day)
+check("sleep intraday day has body_battery",     "body_battery" in _slp_day)
+check("sleep intraday day has respiration",      "respiration" in _slp_day)
 
 # Excel render
 _out_slp_xlsx = _TMPDIR / "test_sleep.xlsx"
