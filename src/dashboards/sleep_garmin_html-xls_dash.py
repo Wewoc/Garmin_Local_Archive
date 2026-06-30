@@ -15,6 +15,7 @@ Layout: "sleep" — rendered by dash_plotter_html_complex (_render_sleep)
 Sources:
   - Garmin summary/ via field_map (all fields daily)
   - Garmin raw/     via field_map (sleep phase % from raw seconds)
+  - Garmin raw/     via field_map (intraday HR, Stress, Body Battery, Respiration)
 
 Rules:
 - No direct file access.
@@ -30,6 +31,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from maps.field_map import get as field_get
 from layouts.reference_ranges import fitness_level as _fitness_level
 from layouts.reference_ranges import reference_ranges as _reference_ranges
+
+# ── Intraday fields (raw/) ────────────────────────────────────────────────────
+
+_INTRADAY_FIELDS = [
+    {"field": "heart_rate_series",   "key": "heart_rate"},
+    {"field": "stress_series",       "key": "stress"},
+    {"field": "body_battery_series", "key": "body_battery"},
+    {"field": "respiration_series",  "key": "respiration"},
+]
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -75,6 +85,15 @@ def _values_by_date(result: dict) -> dict:
     garmin = result.get("garmin", {})
     return {
         entry["date"]: entry["value"]
+        for entry in garmin.get("values", [])
+    }
+
+
+def _intraday_by_date(result: dict) -> dict:
+    """Extract {date: series} from a field_map intraday result."""
+    garmin = result.get("garmin", {})
+    return {
+        entry["date"]: entry.get("series")
         for entry in garmin.get("values", [])
     }
 
@@ -210,6 +229,28 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     for r in rows:
         r["hrv_7d_avg"] = hrv_7d.get(r["date"])
 
+    # ── Fetch intraday fields ─────────────────────────────────────────────────
+    intraday_raw = {}
+    for f in _INTRADAY_FIELDS:
+        result = field_get(f["field"], date_from, date_to, resolution="intraday")
+        intraday_raw[f["key"]] = _intraday_by_date(result)
+
+    # ── Build intraday output — only dates with at least one series ───────────
+    intraday_out = {}
+    for d in all_dates:
+        day = {
+            "heart_rate":   intraday_raw["heart_rate"].get(d),
+            "stress":       intraday_raw["stress"].get(d),
+            "body_battery": intraday_raw["body_battery"].get(d),
+            "respiration":  intraday_raw["respiration"].get(d),
+        }
+        has_data = any(
+            day[k] is not None and len(day[k]) > 0
+            for k in ("heart_rate", "stress", "body_battery", "respiration")
+        )
+        if has_data:
+            intraday_out[d] = day
+
     return {
         "layout":    "sleep",
         "title":     "Sleep Dashboard",
@@ -221,5 +262,6 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
             "sleep_duration":   refs["sleep_duration"],
             "body_battery_max": refs["body_battery_max"],
         },
-        "rows": rows,
+        "rows":     rows,
+        "intraday": intraday_out,
     }

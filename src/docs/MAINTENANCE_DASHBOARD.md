@@ -38,9 +38,17 @@ garmin_app.py (GUI)
 
 ---
 
-## Adding a new specialist
+## Known pitfalls
 
-1. Create `dashboards/your_name_dash.py`
+### Plotly load order in inline renderers
+When embedding Plotly inline in a renderer (`layouts/render/*.py`), the
+`plotly_script` block **must appear before** any `<script>` block that calls
+`Plotly.react()` or `Plotly.newPlot()`. The explorer script executes
+immediately on page load — if Plotly is not yet defined at that point, the
+call fails silently and the chart never renders. No error in the console, no
+visual feedback.
+
+Correct order in the HTML assembly f-string:
 2. Define `META` with `name`, `description`, `source`, `formats`
 3. Implement `build(date_from, date_to, settings) -> dict`
 4. Use `field_map.get()` and/or `context_map.get()` — no direct file access
@@ -128,7 +136,7 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 320 checks, 17 sections.**
+**Current count: 332 checks, 17 sections.**
 
 | Section | Coverage |
 |---|---|
