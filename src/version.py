@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2024 Timo (github.com/wewoc)
+# Copyright (C) 2024 Wewoc (github.com/wewoc)
 
 # version.py
 # Garmin Local Archive — Single source of truth for APP_VERSION
