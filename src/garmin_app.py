@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2024 Timo (github.com/wewoc)
+
 """
 garmin_app.py
 Garmin Local Archive — Desktop GUI (Target 1 + Target 2)
