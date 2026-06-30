@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2024 Timo (github.com/wewoc)
+
 """
 build.py
 Builds Garmin_Local_Archive.exe (Target 2 — Python required on target machine).

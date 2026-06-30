@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2024 Timo (github.com/wewoc)
+
 # version.py
 # Garmin Local Archive — Single source of truth for APP_VERSION
 # Imported by garmin_app_base.py and daily_update.py.

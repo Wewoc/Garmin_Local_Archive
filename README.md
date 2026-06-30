@@ -27,6 +27,18 @@ I wanted to ask an AI questions about my health data without sending that data t
 
 There's a second reason that matters more over time: Garmin silently degrades intraday data resolution. Empirical analysis of archive data (April 2026) shows the threshold at approximately 135 days. Once full resolution is lost, it's gone permanently. This tool exists to capture it while it's still available.
 
+What "intraday resolution" actually means in practice:
+
+| Metric | API resolution | Data points / day |
+|---|---|---|
+| Heart Rate | ~1 minute | up to 1,440 |
+| Stress | ~3 minutes | up to 480 |
+| Body Battery | ~15 minutes | up to 96 |
+| SpO2 | ~1 hour | up to 24 |
+| Respiration | variable | variable |
+
+After ~135 days, Garmin stops serving this data entirely. The daily summary (resting HR, average stress, etc.) remains — but the curves, the detail, the full timeline: gone. GLA captures it while it's still there.
+
 *→ For the full story, see [MINDSET.md](docs/MINDSET.md).*
 
 ---
@@ -554,8 +566,6 @@ crontab -e
 ### Step 11 — AI-assisted analysis (optional)
 
 Connect a local AI model to your health data. Both options run entirely on your machine — your data never leaves your PC.
-
-> ⚠️ **Before you start:** The prompt file contains your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service, remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
 
 > ⚠️ **Before you start:** The prompt file contains your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service, remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
 

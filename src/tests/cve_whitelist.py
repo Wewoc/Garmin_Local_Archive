@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2024 Timo (github.com/wewoc)
+
 """
 cve_whitelist.py — Garmin Local Archive
 Known-used functions per package, for A1 CVE relevance filtering.

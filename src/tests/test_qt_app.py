@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2024 Timo (github.com/wewoc)
+
 """
 tests/test_qt_app.py
 Garmin Local Archive — PyQt6 App Layer Test Suite

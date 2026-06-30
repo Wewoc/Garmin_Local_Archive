@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2024 Timo (github.com/wewoc)
+
 """
 check_deps.py — Dependency & Ecosystem Monitor
 Garmin Local Archive · T1 only · standalone (no project imports)

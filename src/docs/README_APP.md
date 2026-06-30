@@ -229,6 +229,20 @@ Opens a popup with all available dashboards and their output formats. Select any
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens automatically after a successful build.
 
+**Intraday data — what the Timeseries dashboard shows**
+
+The Timeseries dashboard renders every data point captured from the API — no aggregation, no downsampling. The number of points per day depends on what Garmin delivered at the time of sync:
+
+| Metric | API resolution | Data points / day |
+|---|---|---|
+| Heart Rate | ~1 minute | up to 1,440 |
+| Stress | ~3 minutes | up to 480 |
+| Body Battery | ~15 minutes | up to 96 |
+| SpO2 | ~1 hour | up to 24 |
+| Respiration | variable | variable |
+
+Days synced within ~135 days of the recording date show full curves. Days beyond that threshold — or days from a GDPR bulk import — contain daily summary values only (`standard` quality). The quality badge in the archive panel shows the breakdown.
+
 ### Encrypted Dashboards
 
 Builds all HTML dashboards and encrypts each file with a password (AES-256-GCM). Intended for
