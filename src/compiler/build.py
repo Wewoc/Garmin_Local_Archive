@@ -231,8 +231,14 @@ def prepare_scripts_dir(root: Path):
     info_dir = root / "info"
     info_dir.mkdir(exist_ok=True)
     for name in INFO_INCLUDE:
-        # README.md liegt im Repo-Root (root.parent), alle anderen in src/
-        src = root.parent / name if (root.parent / name).exists() else root / "scheduler" / name
+        # README.md → Repo-Root, Docs (QUICKSTART/USER_GUIDE/README_APP) → src/docs/,
+        # daily_update_task.xml → src/scheduler/
+        if (root.parent / name).exists():
+            src = root.parent / name
+        elif (root / "docs" / name).exists():
+            src = root / "docs" / name
+        else:
+            src = root / "scheduler" / name
         if src.exists():
             shutil.copy2(src, info_dir / name)
 

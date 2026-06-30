@@ -1,5 +1,28 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.2.1 — Build: T3 ZIP-Struktur + Docs-Pfad
+
+Hotfix für zwei Build-Fehler in T3 (Standalone). Die Dokumentationsdateien
+QUICKSTART.txt, USER_GUIDE.txt und README_APP.md fehlten im T3-Paket, weil
+der Info-Kopier-Pfad src/docs/ nicht bekannt war. Zusätzlich lag info/ nach
+dem Entpacken neben statt im Standalone-Ordner — der Documentation-Button
+konnte die Dateien nicht finden. Beide Fehler behoben.
+
+**Changed modules:**
+- `compiler/build_standalone.py` — Info-Kopier-Schleife: dritter Suchpfad
+  `src/docs/` ergänzt (QUICKSTART.txt, USER_GUIDE.txt, README_APP.md).
+  `build_combined_zip()`: ZIP-Layout auf flat umgestellt
+  (`f.relative_to(t31_dir)` statt `f.relative_to(root)`) — EXE, `_internal/`,
+  `daily_update.exe` und `info/` liegen nach dem Entpacken direkt im Root.
+- `compiler/build.py` — Info-Kopier-Schleife: identischer dritter Suchpfad
+  `src/docs/` ergänzt.
+- `tests/test_build_output.py` — ZIP-Checks Section 7 auf flat-Struktur
+  aktualisiert: EXE + `_internal/` flat im Root, `info/QUICKSTART.txt` geprüft.
+
+**Test result:** 439 / 261 / 332 / 136 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
 ## v1.6.2 — Sleep Dashboard + Intraday Explorer
 
 Extends the Sleep Dashboard with an embedded intraday explorer section.

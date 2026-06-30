@@ -260,16 +260,17 @@ else:
     check("Garmin_Local_Archive_Standalone.zip exists", True)
     with zipfile.ZipFile(_T3_ZIP, "r") as zf:
         _names_sa = set(zf.namelist())
-        # T3.1 folder structure in ZIP
-        _t31_zip_exe = "Garmin_Local_Archive_Standalone/Garmin_Local_Archive_Standalone.exe"
-        _t31_zip_int = "Garmin_Local_Archive_Standalone/_internal/"
-        check("combined ZIP contains Standalone EXE (in subfolder)",
-              _t31_zip_exe in _names_sa)
-        check("combined ZIP contains Standalone _internal/ (--onedir)",
-              any(n.startswith("Garmin_Local_Archive_Standalone/_internal/") for n in _names_sa))
+        # T3.1 — flat layout: EXE + _internal/ directly in ZIP root
+        check("combined ZIP contains Standalone EXE (flat in root)",
+              "Garmin_Local_Archive_Standalone.exe" in _names_sa)
+        check("combined ZIP contains _internal/ (flat, --onedir)",
+              any(n.startswith("_internal/") for n in _names_sa))
         # T3.2 flat in ZIP root
         check("combined ZIP contains daily_update.exe (flat in root)",
               "daily_update.exe" in _names_sa)
+        # info/ flat in ZIP root
+        check("combined ZIP contains info/QUICKSTART.txt",
+              "info/QUICKSTART.txt" in _names_sa)
         _script_entries = [n for n in _names_sa if n.startswith("scripts/")]
         check("combined ZIP has no scripts/ folder (all embedded)",
               len(_script_entries) == 0)
