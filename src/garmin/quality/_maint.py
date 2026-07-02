@@ -35,7 +35,8 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                     validator_result: dict = None,
                     device_id: str | None = None,
                     device_name: str | None = None,
-                    prev_high: bool = False) -> None:
+                    prev_high: bool = False,
+                    backfilled_fields: dict = None) -> None:
     """
     Adds or updates a day entry in the quality log.
       - 'failed':   increments attempts, sets recheck=True
@@ -70,6 +71,13 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
         validator_issues       — list of structured issue dicts (empty if ok)
         validator_schema_version — schema version used for validation
       None = validator was not run (legacy entries, backfill).
+
+    backfilled_fields : dict | None
+      Marks which optional fields were added to an already-archived day via
+      a dedicated backfill pass (e.g. {"steps": "<ISO date>"}). Merged
+      additively into any existing backfilled_fields on the entry — never
+      overwrites a prior marker. None = no field was backfilled this call
+      (the normal case for every regular sync day).
     """
     day_str   = day.isoformat()
     today_str = date.today().isoformat()
@@ -97,6 +105,8 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                 entry["device_name"] = device_name or ""
             if fields is not None:
                 entry["fields"]   = fields
+            if backfilled_fields is not None:
+                entry["backfilled_fields"] = {**entry.get("backfilled_fields", {}), **backfilled_fields}
             if validator_result is not None:
                 entry["validator_result"]         = v_status
                 entry["validator_issues"]         = v_issues
@@ -138,6 +148,8 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
     }
     if fields is not None:
         entry["fields"] = fields
+    if backfilled_fields is not None:
+        entry["backfilled_fields"] = backfilled_fields
     if validator_result is not None:
         entry["validator_result"]         = v_status
         entry["validator_issues"]         = v_issues
@@ -171,23 +183,26 @@ def record_attempt(data: dict, day, label: str, reason: str,
                    validator_result: dict = None,
                    device_id: str | None = None,
                    device_name: str | None = None,
-                   prev_high: bool = False) -> None:
+                   prev_high: bool = False,
+                   backfilled_fields: dict = None) -> None:
     """
     Public API — atomically upserts a quality entry and persists the log.
     Caller must already hold QUALITY_LOCK.
     Replaces the _upsert_quality + _save_quality_log call pattern.
 
-    device_id   : numeric device ID string from training_status, or None.
-    device_name : human-readable device name, or None.
-    prev_high   : True if the previous calendar day has quality == "high".
-                  Used for 'standard' recheck logic — lookup done by caller.
+    device_id         : numeric device ID string from training_status, or None.
+    device_name       : human-readable device name, or None.
+    prev_high         : True if the previous calendar day has quality == "high".
+                        Used for 'standard' recheck logic — lookup done by caller.
+    backfilled_fields : marks fields added via a backfill pass, e.g.
+                        {"steps": "<ISO date>"}. None = no backfill this call.
     """
     from quality._io import _save_quality_log
     _upsert_quality(data, day, label, reason,
                     written=written, source=source,
                     fields=fields, validator_result=validator_result,
                     device_id=device_id, device_name=device_name,
-                    prev_high=prev_high)
+                    prev_high=prev_high, backfilled_fields=backfilled_fields)
     _save_quality_log(data)
 
 

@@ -63,6 +63,40 @@ garmin_app.py (GUI)
 
 ---
 
+## `garmin_app_controller.py`
+
+Layer 3 — no tkinter, no Qt, no GUI imports. Sits between the GUI layer and
+the Garmin pipeline: owns ENV construction, archive stats, connection
+testing, and the Background Timer's candidate logic. No file ownership of
+its own — reads and decides, never writes. See also `GLA_HANDBUCH.md` §14.
+
+| Function | Purpose |
+|---|---|
+| `build_env_dict(s, refresh_failed=False)` | Pure ENV dict builder — no side effects, no `os.environ` write. Caller decides how to apply (`Popen env=` or `os.environ`) |
+| `check_connection(s, callbacks)` | Tests Garmin Connect connectivity in a background thread. Communicates exclusively via callbacks — no GUI access, no `self.after()` |
+| `check_integrity(s)` | Runs `garmin_backup.check_raw_integrity()`. Returns `{"missing_days", "no_backup"}`. Empty lists on any failure |
+| `check_mirror(s)` | Returns `True` if the configured `mirror_dir` is reachable |
+| `get_archive_stats(base_dir)` | Wraps `garmin_quality.get_archive_stats()`. Empty dict on any failure |
+| `get_source_stats(s)` | `{"total", "present"}` — all `source/` files vs. those within the last 180 days. INTENTIONAL DIRECT READ |
+
+**Timer-Modi und ihre Kandidaten-Funktionen** — sechs Modi, Priorität von oben nach unten:
+
+| Modus | Funktion | Kandidaten |
+|---|---|---|
+| Bulk Recheck | `timer_run_bulk_recheck(s)` | `source="bulk"` + `recheck=True` + ≤180 Tage, älteste zuerst |
+| Repair | `timer_run_repair(s)` | `quality="failed"` + `recheck=True` |
+| Quality | `timer_run_quality(s)` | `quality="standard"` + `recheck=True` + `source≠"bulk"` + ≤180 Tage |
+| Fill | `timer_run_fill(s)` | Tage im Datumsbereich ohne Raw-Datei in `raw/` |
+| Source Backfill | `timer_run_source_backfill(s)` | API-Tage (≤180d) ohne `source/`-Datei, kein Bulk |
+| Steps Backfill | `timer_run_steps_backfill(s)` | `quality="high"` + `source="api"` + `"steps" not in fields` + ≤140 Tage (Garmin-Intraday-Degradierungsfenster). Self-terminierend — Kandidat verschwindet automatisch sobald `steps` im `fields`-Dict der Tages-Entry steht (v1.6.3) |
+
+All six candidate functions return a sorted `list[date]` (oldest first) or
+`None` if there is nothing to do. `panel_timer.py`'s `_timer_loop()` cycles
+through them by priority and dispatches the picked batch to
+`garmin_collector.py` via `GARMIN_SYNC_DATES` + a mode-specific ENV flag.
+
+---
+
 ## Documented Exceptions
 
 Intentional deviations from the invariants above. Each exception is stable by design — not a TODO.
@@ -71,7 +105,7 @@ Intentional deviations from the invariants above. Each exception is stable by de
 |---|---|---|
 | `regenerate_summaries.py` writes directly to `summary/` | `export/regenerate_summaries.py` | Maintenance utility — runs offline, outside pipeline. `garmin_writer` is not importable in that context. Acceptable: one-off backfill, not a runtime path. |
 | `garmin_validator.py` imports `garmin_config` | `garmin/garmin_validator.py` | `garmin_config` is a pure constants module with no project-module imports. `garmin_validator` needs `DATAFORMAT_FILE` path. Leaf-node status refers to pipeline modules — `garmin_config` is infrastructure. |
-| Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality`, `timer_run_source_backfill` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
+| Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality`, `timer_run_source_backfill`, `timer_run_steps_backfill` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
 
 ---
 
@@ -136,7 +170,7 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 | `GarminLoginError` | Exception raised on unrecoverable login failure. Replaces `sys.exit(1)` |
 | `login(on_key_required, on_token_expired, on_mfa_required, on_sso_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA via callback. `on_sso_required` blocks Path 3 until user confirms — `None` (headless/standalone) starts SSO automatically. Returns client or `None` if cancelled. Raises `GarminLoginError` on failure |
 | `api_call(client, method, *args, label)` | Single API call with random delay and stop-check. Returns `(data, success)` |
-| `fetch_raw(client, date_str)` | Calls all 14 Garmin API endpoints. Returns `(raw: dict, failed_endpoints: list[str])` |
+| `fetch_raw(client, date_str)` | Calls all 15 Garmin API endpoints. Returns `(raw: dict, failed_endpoints: list[str])` |
 | `get_devices(client)` | Fetches registered device list. Returns sorted list |
 | `set_stop_event(ev)` | Registers the stop event (`threading.Event` or `None`). Same pattern as `garmin_validator.reload_schema()` — explicit setter, no `globals()` injection |
 | `_is_stopped()` | Returns `True` if a registered stop event is set. Safe to call without a registered event |
@@ -487,6 +521,7 @@ Each field in `_FIELD_MAP` uses one of three descriptor types:
 | `spo2_series` | intraday | `spo2.spO2HourlyAverages` | — |
 | `body_battery_series` | intraday | `stress.bodyBatteryValuesArray` | — |
 | `respiration_series` | intraday | `respiration.respirationValuesArray` | — |
+| `steps_series` | intraday | `steps` (bare list at top level, not nested under a sub-key) | 15-min bins, `{"startGMT", "steps"}`. `_read_intraday()` handles this via its existing `isinstance(section_data, list)` branch — no code change needed for this shape |
 
 **Architecture boundary:** Any Garmin-internal key (`section.field`, `dailySleepDTO`, etc.) appearing outside `garmin_map.py` is an architecture violation — detectable by name format alone.
 
@@ -506,6 +541,5 @@ Each field in `_FIELD_MAP` uses one of three descriptor types:
 | `_reset_token()` | Clears encrypted token and resets lamp |
 | `_toggle_log_level()` | Switches GUI log display between INFO and DEBUG |
 | `_toggle_timer()` | Starts or stops background timer |
-| `_timer_loop(generation)` | Main timer loop — Bulk Recheck (priority) → Repair → Quality → Fill cycle |
-| `_timer_run_bulk_recheck(s)` | Returns bulk recheck candidates: `source=bulk` + `recheck=True` + ≤180 days, oldest first. Returns `None` if empty |
+| `_timer_loop(generation)` | Main timer loop, in `panel_timer.py` — six modes, candidate logic delegated to `garmin_app_controller.py` (see its own section below) |
 | `_copy_last_error_log()` | Copies most recent fail log to clipboard |

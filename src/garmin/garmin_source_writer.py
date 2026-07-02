@@ -239,6 +239,104 @@ def update_log(
         return False
 
 
+def patch_source_field(date_str: str, field: str, value) -> bool:
+    """
+    Additively patches a single field into an existing source/ file and
+    annotates the corresponding source_api_log.json entry as backfilled.
+
+    Used exclusively by backfill paths — never by the normal sync path.
+    Does not create a source/ file if none exists: a backfill can only
+    enrich an already-archived day, never originate one. If no file exists,
+    this is a non-fatal no-op (the day predates source/ entirely, or was
+    never successfully fetched — out of scope for a field-level backfill).
+
+    Unlike write_source(), this function never calls compare_source() —
+    additive-only by construction, so the freeze-when-present guard does not
+    apply: nothing here can degrade an existing file, there is nothing to
+    compare against.
+
+    Does not route through update_log(): that function rebuilds the entire
+    day entry from full-sync-shaped parameters (val_result, endpoints_fetched,
+    etc.) that a backfill call does not have. Instead, this function merges
+    only the backfilled_fields marker into the existing log entry, leaving
+    everything else untouched.
+
+    Parameters
+    ----------
+    date_str : str — date in YYYY-MM-DD format
+    field    : str — top-level key to add to the source file
+    value    : any — value to merge in (e.g. the raw get_steps_data() response)
+
+    Returns
+    -------
+    bool — True on success (including the no-source-file no-op case),
+           False on any error (non-fatal — pipeline continues)
+    """
+    try:
+        import garmin_config as cfg
+        import garmin_merge as _merge
+
+        dst = cfg.SOURCE_DIR / f"{SOURCE_FILE_PREFIX}{date_str}.json"
+
+        if not dst.exists():
+            log.debug(
+                f"  source_writer.patch_source_field: no source/ file for "
+                f"{date_str} — nothing to backfill"
+            )
+            return True
+
+        existing_raw = json.loads(dst.read_text(encoding="utf-8"))
+        merged_raw   = _merge.merge_field(existing_raw, field, value)
+
+        tmp     = dst.with_suffix(".json.tmp")
+        payload = json.dumps(merged_raw, ensure_ascii=False, indent=None,
+                             separators=(",", ":"))
+        tmp.write_text(payload, encoding="utf-8")
+        try:
+            with open(tmp, "rb") as f:
+                os.fsync(f.fileno())
+        except OSError:
+            pass  # fsync not supported on all platforms/filesystems (e.g. Windows)
+        os.replace(tmp, dst)
+
+        log.debug(f"  source_writer: patched '{field}' into source/ for {date_str}")
+
+        # ── Annotate source_api_log.json — additive, does not rebuild the entry ──
+        try:
+            log_path = cfg.SOURCE_API_LOG
+            if log_path.exists():
+                log_data = json.loads(log_path.read_text(encoding="utf-8"))
+                entry = log_data.get(date_str)
+                if isinstance(entry, dict):
+                    backfilled = entry.get("backfilled_fields") or {}
+                    backfilled[field] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    entry["backfilled_fields"] = backfilled
+                    log_data[date_str] = entry
+                    log_tmp = log_path.with_suffix(".json.tmp")
+                    log_tmp.write_text(
+                        json.dumps(log_data, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    os.replace(log_tmp, log_path)
+        except Exception as _le:
+            log.warning(
+                f"  source_writer.patch_source_field: log annotation failed "
+                f"for {date_str}: {_le}"
+            )
+            # Non-fatal — the source/ patch itself already succeeded.
+
+        return True
+
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning(f"  source_writer.patch_source_field failed for {date_str}: {e}")
+        try:
+            import garmin_config as _cfg
+            _cleanup_tmp(_cfg.SOURCE_DIR / f"{SOURCE_FILE_PREFIX}{date_str}.json.tmp")
+        except Exception:
+            pass
+        return False
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════

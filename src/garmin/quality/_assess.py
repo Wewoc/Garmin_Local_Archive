@@ -175,6 +175,22 @@ def assess_quality_fields(raw: dict) -> dict:
     else:
         fields["stats"] = "failed"
 
+    # ── steps ──
+    # Intraday array (get_steps_data, 15-min bins) → high.
+    # Daily aggregate only (totalSteps in stats/user_summary, reused from
+    # the stats-block check above) → medium. Present but empty list → low.
+    # Absent entirely → failed. Does not feed assess_quality()'s top-level
+    # label — field-level only, same precedent as spo2/body_battery/respiration.
+    steps_raw = raw.get("steps")
+    if isinstance(steps_raw, list) and len(steps_raw) > 0:
+        fields["steps"] = "high"
+    elif has_steps:
+        fields["steps"] = "medium"
+    elif isinstance(steps_raw, list):
+        fields["steps"] = "low"
+    else:
+        fields["steps"] = "failed"
+
     # ── body_battery ──
     bb = raw.get("body_battery") or {}
     bb_values = bb.get("bodyBatteryValuesArray") if isinstance(bb, dict) else None

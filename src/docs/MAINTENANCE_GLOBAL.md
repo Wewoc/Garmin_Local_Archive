@@ -233,6 +233,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 
 ### `tests/test_dashboard.py` — Dashboard pipeline
 
+
 ```bash
 python tests/test_dashboard.py
 ```
@@ -278,6 +279,7 @@ PowerShell encoding/syntax failure during integration attempts, see
 `NOTES_v1_6_0_4_4.md`).
 
 ### `tests/test_app_logic.py` — App layer
+
 
 ```bash
 python tests/test_app_logic.py

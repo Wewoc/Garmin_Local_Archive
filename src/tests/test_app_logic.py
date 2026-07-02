@@ -665,9 +665,61 @@ check("panel_timer: _timer_run_source_backfill defined",
       "def _timer_run_source_backfill(" in _timer_src_text)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  19. Controller — check_integrity (exception-safe contract)
+#  19. Controller — timer_run_steps_backfill
 # ══════════════════════════════════════════════════════════════════════════════
-section("19. Controller — check_integrity")
+section("19. Controller — timer_run_steps_backfill")
+
+_stb_no_log = {"base_dir": str(_TMPDIR / "no_such_stb_dir")}
+check("steps_backfill: no log → None",
+      controller_mod.timer_run_steps_backfill(_stb_no_log) is None)
+
+_stb_base    = _TMPDIR / "stb_test"
+_stb_log_dir = _stb_base / "garmin_data" / "log"
+_stb_log_dir.mkdir(parents=True, exist_ok=True)
+
+_stb_eligible  = (_dt.date.today() - _dt.timedelta(days=10)).isoformat()
+_stb_has_steps = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()
+_stb_standard  = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
+_stb_bulk      = (_dt.date.today() - _dt.timedelta(days=40)).isoformat()
+_stb_too_old   = (_dt.date.today() - _dt.timedelta(days=150)).isoformat()
+
+(_stb_log_dir / "quality_log.json").write_text(json.dumps({"days": [
+    {"date": _stb_eligible,  "source": "api",  "quality": "high",     "fields": {"heart_rates": "high"}},
+    {"date": _stb_has_steps, "source": "api",  "quality": "high",     "fields": {"heart_rates": "high", "steps": "high"}},
+    {"date": _stb_standard,  "source": "api",  "quality": "standard", "fields": {"heart_rates": "medium"}},
+    {"date": _stb_bulk,      "source": "bulk", "quality": "high",     "fields": {"heart_rates": "high"}},
+    {"date": _stb_too_old,   "source": "api",  "quality": "high",     "fields": {"heart_rates": "high"}},
+]}), encoding="utf-8")
+
+_stb_s      = {"base_dir": str(_stb_base)}
+_stb_result = controller_mod.timer_run_steps_backfill(_stb_s)
+
+check("steps_backfill: returns list when candidates exist",
+      isinstance(_stb_result, list) and len(_stb_result) >= 1)
+check("steps_backfill: contains high-quality api day missing steps",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_eligible) in _stb_result)
+check("steps_backfill: excludes day that already has steps field",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_has_steps) not in _stb_result)
+check("steps_backfill: excludes standard-quality day",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_standard) not in _stb_result)
+check("steps_backfill: excludes bulk-sourced day",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_bulk) not in _stb_result)
+check("steps_backfill: excludes day older than 140 days",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_too_old) not in _stb_result)
+check("steps_backfill: result sorted oldest first",
+      _stb_result is None or _stb_result == sorted(_stb_result))
+check("panel_timer: _timer_run_steps_backfill defined",
+      "def _timer_run_steps_backfill(" in _timer_src_text)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  20. Controller — check_integrity (exception-safe contract)
+# ══════════════════════════════════════════════════════════════════════════════
+section("20. Controller — check_integrity")
 
 # garmin_backup may not be importable in test env (ENV not set) —
 # controller must return safe fallback, never raise.

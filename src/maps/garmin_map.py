@@ -184,6 +184,17 @@ _FIELD_MAP = {
         }),
         "daily": None,
     },
+    "steps_series": {
+        "intraday": ("steps", None, {
+            "ts_index":   None,
+            "val_index":  None,
+            "ts_key":     "startGMT",
+            "val_key":    "steps",
+            "val_min":    None,
+            "offset_key": None,
+        }),
+        "daily": None,
+    },
 }
 
 
