@@ -2,61 +2,38 @@
 
 ## v1.6.3 — Steps Intraday Foundation + Backfill
 
-Ergänzt das Archiv um Steps-Intraday-Daten (15-Minuten-Bins via `get_steps_data`)
-als 15. Endpoint, plus einen sechsten Background-Timer-Modus, der das Feld
-additiv in bereits archivierte `high`-Qualitäts-Tage der letzten 140 Tage
-nachträgt — sowohl in `raw/` als auch in `source/`, ohne Downgrade-Risiko
-und ohne die restlichen 13 Endpoints erneut abzurufen. Ursprünglich als
-Heatmap-Dashboard geplant; während der Session auf Foundation+Backfill
-resequenced, Heatmap auf v1.6.3.1 verschoben (Archive-First-Priorität —
-das Backfill-Fenster läuft, das Dashboard nicht).
+Adds Steps Intraday data (15-minute bins via `get_steps_data`) as the 15th archive endpoint, plus a sixth background timer mode that incrementally backfills this field into already archived high-quality days from the last 140 days. The backfill updates both `raw/` and `source/` without downgrade risk and without re-fetching the other 13 endpoints. Originally planned as part of the Heatmap Dashboard, the feature was resequenced during development into a Foundation + Backfill implementation, while the Heatmap itself was deferred to v1.6.3.1 (Archive-First priority: the backfill window is time-limited, the dashboard is not).
 
-**New modules:**
-- `garmin/garmin_merge.py` — Leaf-Node. `merge_field()`: additive Feld-Merge-Logik,
-  überschreibt nie einen bereits befüllten Wert, mutiert nie den Input.
+New module:
 
-**Changed modules:**
-- `garmin/garmin_api.py` — `fetch_raw()`: neuer Endpoint `get_steps_data` (15. Endpoint).
-- `garmin/garmin_dataformat.json` — neues Feld `steps` (`type: list`, `required: false`),
-  `schema_version` 1.0 → 1.1.
-- `maps/garmin_map.py` — `_FIELD_MAP`-Eintrag `steps_series`, dict-basiertes
-  Intraday-Extract analog `respiration_series`.
-- `garmin/quality/_assess.py` — `assess_quality_fields()`: neuer `steps`-Block
-  (high/medium/low/failed, reuse von `has_steps` aus dem `stats`-Block). Fließt
-  bewusst nicht in `assess_quality()`s Top-Level-Label ein (Präzedenz: SpO2/
-  Body Battery/Respiration).
-- `garmin/garmin_source_writer.py` — neue Funktion `patch_source_field()`:
-  additiver Patch in `source/`, bewusst ohne `compare_source()` (Ganzdatei-
-  Ersetzungslogik passt nicht zum additiven Fall). Annotiert `backfilled_fields`
-  direkt in `source_api_log.json`, ohne über `update_log()` zu gehen.
-- `garmin/quality/_maint.py` — `_upsert_quality()`/`record_attempt()`: neuer
-  optionaler Parameter `backfilled_fields`, additiv gemergt (analog `fields`-Muster).
-- `app/garmin_app_controller.py` — neue Kandidatenfunktion `timer_run_steps_backfill()`:
-  `quality=="high"` + `source=="api"` + `"steps" not in fields` + Datum ≥ heute−140 Tage.
-  Self-terminierend (Kandidat verschwindet automatisch, sobald `steps` im `fields`-Dict steht).
-- `app/panel_timer.py` — sechster Timer-Modus (`steps_backfill`), niedrigste Priorität
-  nach Source Backfill. `_mode_cycle`, Label-Dict, Batch-Auswahl, Delegate-Methode,
-  `env_overrides`-Flag `GARMIN_STEPS_BACKFILL` ergänzt. `% 4` → `% len(_mode_cycle)`
-  an beiden Dispatch-Stellen (Robustheits-Verbesserung nebenbei).
-- `garmin/garmin_collector.py` — neue Funktion `_run_steps_backfill()`: schmaler
-  Worker (1 API-Call pro Tag via `api.api_call()`, nicht 14 wie bei Source Backfill),
-  `read_raw()` → `merge_field()` → `normalize()`+`summarize()` → `write_day()` →
-  `record_attempt()` → `patch_source_field()`. Neuer ENV-Flag `GARMIN_STEPS_BACKFILL`
-  in `main()` (Schritt 5d).
-- `compiler/build_manifest.py` — `garmin_merge.py` in `SHARED_SCRIPTS` +
-  `SCRIPT_SIGNATURES_BASE`; Signatur-Ergänzungen für `garmin_app_controller.py`
-  und `garmin_collector.py`.
+- `garmin/garmin_merge.py` — Leaf node. `merge_field()` implements additive field merge logic that never overwrites an already populated value and never mutates the input object.
 
-**Live-Korrektur während der Session:** `GARMIN_STEPS_BACKFILL`-Flag fehlte initial
-im `env_overrides`-Dict von `panel_timer.py` — im echten Timer-Lauf entdeckt (Kandidaten
-wurden korrekt gefunden, aber der Collector verzweigte nie in den neuen Worker).
-Eine Zeile ergänzt, per Live-Lauf erneut verifiziert.
+Changed modules:
 
-**Bekannter, nicht-blockierender Fund (siehe `NOTES_v1_6_3.md` §9):**
-`_run_steps_backfill()` wertet den Rückgabewert von `patch_source_field()` nicht aus —
-Debugging-Blindspot ohne Datenverlust-Risiko. Fix vorgemerkt für v1.6.3.1.
+- `garmin/garmin_api.py` — `fetch_raw()` adds the new `get_steps_data` endpoint (15th endpoint).
+- `garmin/garmin_dataformat.json` — adds optional `steps` field (`type: list`); schema version updated from 1.0 to 1.1.
+- `maps/garmin_map.py` — adds `_FIELD_MAP` entry `steps_series`, using dictionary-based intraday extraction analogous to `respiration_series`.
+- `garmin/quality/_assess.py` — `assess_quality_fields()` gains a new `steps` block (high/medium/low/failed), reusing `has_steps` from the statistics block. Intentionally excluded from the top-level `assess_quality()` label to preserve the existing precedence of SpO₂, Body Battery, and Respiration.
+- `garmin/garmin_source_writer.py` — adds `patch_source_field()` for additive updates within `source/`. Deliberately bypasses `compare_source()` because full-file replacement semantics are unsuitable for additive patches. Writes `backfilled_fields` directly into `source_api_log.json` without using `update_log()`.
+- `garmin/quality/_maint.py` — `_upsert_quality()` and `record_attempt()` gain an optional `backfilled_fields` parameter, merged additively using the existing `fields` pattern.
+- `app/garmin_app_controller.py` — adds `timer_run_steps_backfill()`, selecting candidates where `quality == "high"`, `source == "api"`, `"steps"` is absent from `fields`, and the date is within the last 140 days. Self-terminating by design: candidates disappear automatically once the `steps` field has been backfilled.
+- `app/panel_timer.py` — introduces a sixth timer mode (`steps_backfill`) with the lowest priority after Source Backfill. Updates `_mode_cycle`, label dictionary, batch selection, delegate dispatch, and adds the `GARMIN_STEPS_BACKFILL` environment override. Replaces `% 4` with `% len(_mode_cycle)` at both dispatch points as an additional robustness improvement.
+- `garmin/garmin_collector.py` — adds `_run_steps_backfill()`, a narrow worker performing one API call per day via `api.api_call()` (instead of the 14 calls used by Source Backfill). Workflow: `read_raw()` → `merge_field()` → `normalize()` + `summarize()` → `write_day()` → `record_attempt()` → `patch_source_field()`. Adds `GARMIN_STEPS_BACKFILL` handling in `main()` (step 5d).
+- `compiler/build_manifest.py` — registers `garmin_merge.py` in `SHARED_SCRIPTS` and `SCRIPT_SIGNATURES_BASE`, and updates signatures for `garmin_app_controller.py` and `garmin_collector.py`.
 
-**Test result:** 468 / 261 / 336 / 145 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+Live correction during development:
+
+- The `GARMIN_STEPS_BACKFILL` flag was initially missing from the `env_overrides` dictionary in `panel_timer.py`. The issue was discovered during an actual timer run: candidates were correctly identified, but the collector never entered the new worker path. A one-line fix was applied and verified successfully in a subsequent live run.
+
+Known non-blocking issue (see `NOTES_v1_6_3.md`, §9):
+
+- `_run_steps_backfill()` currently ignores the return value of `patch_source_field()`. This creates a debugging blind spot but carries no data loss risk. A fix is scheduled for v1.6.3.1.
+
+Test results:
+
+- 468 / 261 / 336 / 145 / 42 / 4 — all green
+- Ruff: 0 errors
+- Bandit: 0 HIGH findings
 
 ---
 
