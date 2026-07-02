@@ -334,6 +334,7 @@ raw_fields_high = {
     "sleep":       {"sleepLevels": [{"level": "deep"}],
                     "dailySleepDTO": {"sleepTimeSeconds": 28800}},
     "activities":  [{"activityName": "Run"}],
+    "steps":       [{"startGMT": "2024-01-01T08:00:00", "steps": 100}],
 }
 f_high = quality.assess_quality_fields(raw_fields_high)
 check("fields high: heart_rates=high",  f_high.get("heart_rates") == "high")
@@ -341,6 +342,7 @@ check("fields high: stress=high",       f_high.get("stress") == "high")
 check("fields high: sleep=high",        f_high.get("sleep") == "high")
 check("fields high: body_battery=high", f_high.get("body_battery") == "high")
 check("fields high: activities=high",   f_high.get("activities") == "high")
+check("fields high: steps=high",        f_high.get("steps") == "high")
 
 raw_fields_medium = {
     "date": "2022-01-01",
@@ -359,12 +361,16 @@ check("fields medium: training_readiness=medium", f_med.get("training_readiness"
 check("fields medium: training_status=medium",    f_med.get("training_status") == "medium")
 check("fields medium: stats=medium",              f_med.get("stats") == "medium")
 check("fields medium: max_metrics=medium",        f_med.get("max_metrics") == "medium")
+# raw_fields_medium carries user_summary.totalSteps (daily aggregate, no
+# intraday array) — same signal the stats-block already reuses via has_steps.
+check("fields medium: steps=medium",              f_med.get("steps") == "medium")
 
 raw_fields_failed = {"date": "2019-01-01"}
 f_fail = quality.assess_quality_fields(raw_fields_failed)
 check("fields failed: heart_rates=failed",        f_fail.get("heart_rates") == "failed")
 check("fields failed: stress=failed",             f_fail.get("stress") == "failed")
 check("fields failed: activities=failed",         f_fail.get("activities") == "failed")
+check("fields failed: steps=failed",              f_fail.get("steps") == "failed")
 
 # _upsert_quality with fields parameter
 data_f = {"first_day": None, "devices": [], "days": []}
@@ -377,6 +383,28 @@ check("upsert fields: updated on existing",   data_f["days"][0].get("fields") ==
 quality._upsert_quality(data_f, date(2024, 5, 2), "medium", "Quality: medium",
                         written=True, source="api")
 check("upsert fields: None → no fields key",  "fields" not in data_f["days"][1])
+
+# _upsert_quality with backfilled_fields parameter
+data_bf = {"first_day": None, "devices": [], "days": []}
+quality._upsert_quality(data_bf, date(2024, 5, 3), "high", "Quality: high",
+                        written=True, source="api", backfilled_fields={"steps": "2026-07-01"})
+check("upsert backfilled_fields: stored on new entry",
+      data_bf["days"][0].get("backfilled_fields") == {"steps": "2026-07-01"})
+quality._upsert_quality(data_bf, date(2024, 5, 3), "high", "Quality: high",
+                        written=True, source="api", backfilled_fields={"other_field": "2026-07-02"})
+check("upsert backfilled_fields: merged additively, not replaced",
+      data_bf["days"][0].get("backfilled_fields") == {"steps": "2026-07-01", "other_field": "2026-07-02"})
+quality._upsert_quality(data_bf, date(2024, 5, 4), "high", "Quality: high",
+                        written=True, source="api")
+check("upsert backfilled_fields: None → no key",
+      "backfilled_fields" not in data_bf["days"][1])
+
+# record_attempt with backfilled_fields — atomic wrapper forwards the parameter
+data_ra = {"first_day": None, "devices": [], "days": []}
+quality.record_attempt(data_ra, date(2024, 5, 5), "high", "Quality: high",
+                        written=True, source="api", backfilled_fields={"steps": "2026-07-01"})
+check("record_attempt: backfilled_fields forwarded",
+      data_ra["days"][0].get("backfilled_fields") == {"steps": "2026-07-01"})
 
 # _upsert_quality with validator_result
 val_ok  = {"status": "ok",      "schema_version": "1.0", "timestamp": "2026-04-06T12:00:00", "issues": []}
@@ -594,7 +622,7 @@ section("9. garmin_validator")
 import garmin_validator as validator_mod
 
 # Schema loaded
-check("validator: schema loaded",          validator_mod.current_version() == "1.0")
+check("validator: schema loaded",          validator_mod.current_version() == "1.1")
 
 # Happy path — all known fields, correct types
 raw_valid = {
@@ -605,7 +633,7 @@ raw_valid = {
 }
 r = validator_mod.validate(raw_valid)
 check("validator ok: status=ok",           r["status"] == "ok")
-check("validator ok: schema_version set",  r["schema_version"] == "1.0")
+check("validator ok: schema_version set",  r["schema_version"] == "1.1")
 check("validator ok: timestamp set",       isinstance(r["timestamp"], str))
 check("validator ok: no critical issues",  not any(i["severity"] == "critical" for i in r["issues"]))
 
@@ -664,7 +692,7 @@ check("validator evil: nonsense date string → ok",   r10["status"] == "ok")
 
 # reload_schema — no crash, version preserved
 validator_mod.reload_schema()
-check("validator reload: version intact",            validator_mod.current_version() == "1.0")
+check("validator reload: version intact",            validator_mod.current_version() == "1.1")
 
 # F6 — Fail-Closed: schema absent → critical (not ok).
 # Simulate empty schema, then restore via reload_schema to avoid state leak.
@@ -676,7 +704,7 @@ check("validator no schema: schema issue present",
       any(i["field"] == "schema" for i in r_noschema["issues"]))
 # Restore — mandatory cleanup, all later validator tests need the real schema
 validator_mod.reload_schema()
-check("validator restored after no-schema test",     validator_mod.current_version() == "1.0")
+check("validator restored after no-schema test",     validator_mod.current_version() == "1.1")
 
 # None input — no crash
 r_none = validator_mod.validate(None)
@@ -1061,6 +1089,116 @@ _il.reload(_cfg_tmp)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  E2. _run_steps_backfill
+# ══════════════════════════════════════════════════════════════════════════════
+section("E2. _run_steps_backfill")
+
+_stb_patched_steps = [{"startGMT": "2024-01-01T08:00:00", "steps": 42}]
+
+# ── 1. No-Op: GARMIN_SYNC_DATES leer → keine Candidates ─────────────────────
+_qd_stb_empty = {"first_day": "2024-01-01", "devices": [], "days": []}
+with patch.dict(os.environ, {}, clear=False):
+    os.environ.pop("GARMIN_SYNC_DATES", None)
+    _il.reload(_cfg_tmp)
+    _mock_client_stb_noop = MagicMock()
+    with patch.object(collector_bf.api, "api_call") as mock_stb_noop:
+        collector_bf._run_steps_backfill(_mock_client_stb_noop, _qd_stb_empty)
+check("steps_backfill: empty SYNC_DATES → no fetch",
+      mock_stb_noop.call_count == 0)
+
+# ── 2. Enrichment: SYNC_DATES gesetzt → Tag wird angereichert ───────────────
+_stb_fetch_date = (date.today() - _timedelta(days=30)).isoformat()
+_stb_raw = {"date": _stb_fetch_date, "heart_rates": {"heartRateValues": [[0, 60]]}}
+writer.write_day(_stb_raw, normalizer.summarize(_stb_raw), _stb_fetch_date)
+
+_qd_stb_fetch = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stb_fetch_date),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _stb_fetch_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      return_value=(_stb_patched_steps, True)) as mock_stb_call:
+        collector_bf._run_steps_backfill(MagicMock(), _qd_stb_fetch)
+
+check("steps_backfill: SYNC_DATES set → api_call invoked once",
+      mock_stb_call.call_count == 1)
+check("steps_backfill: api_call requested get_steps_data",
+      mock_stb_call.call_args[0][1] == "get_steps_data")
+check("steps_backfill: api_call requested correct date",
+      mock_stb_call.call_args[0][2] == _stb_fetch_date)
+
+_stb_raw_after = writer.read_raw(_stb_fetch_date)
+check("steps_backfill: steps merged into raw/",
+      _stb_raw_after.get("steps") == _stb_patched_steps)
+check("steps_backfill: existing field preserved",
+      _stb_raw_after.get("heart_rates", {}).get("heartRateValues") == [[0, 60]])
+
+_stb_entry_after = next(
+    (e for e in _qd_stb_fetch["days"] if e.get("date") == _stb_fetch_date), None
+)
+check("steps_backfill: backfilled_fields recorded",
+      _stb_entry_after is not None and
+      "steps" in (_stb_entry_after.get("backfilled_fields") or {}))
+check("steps_backfill: fields dict includes steps",
+      _stb_entry_after is not None and
+      _stb_entry_after.get("fields", {}).get("steps") == "high")
+
+# ── 3. Stop-Event wird respektiert ──────────────────────────────────────────
+_stb_stop_date1 = (date.today() - _timedelta(days=50)).isoformat()
+_stb_stop_date2 = (date.today() - _timedelta(days=51)).isoformat()
+_stb_sync_two   = f"{_stb_stop_date1},{_stb_stop_date2}"
+
+_qd_stb_stop = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stb_stop_date1),
+    _make_api_entry(_stb_stop_date2),
+]}
+
+_stb_ev = _threading.Event()
+_stb_ev.set()
+collector_bf.set_stop_event(_stb_ev)
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _stb_sync_two}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      return_value=(_stb_patched_steps, True)) as mock_stb_stop:
+        collector_bf._run_steps_backfill(MagicMock(), _qd_stb_stop)
+
+check("steps_backfill: stop event set → loop aborted (0 calls)",
+      mock_stb_stop.call_count == 0)
+collector_bf.set_stop_event(None)
+
+# ── 4. Fehler pro Tag → kein Crash, Loop läuft weiter ───────────────────────
+_stb_err_date1 = (date.today() - _timedelta(days=60)).isoformat()
+_stb_err_date2 = (date.today() - _timedelta(days=61)).isoformat()
+_stb_sync_err  = f"{_stb_err_date1},{_stb_err_date2}"
+
+_qd_stb_err = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stb_err_date1),
+    _make_api_entry(_stb_err_date2),
+]}
+
+def _stb_raise_on_first(client, method, date_str, label=None):
+    if date_str == _stb_err_date1:
+        raise RuntimeError("simulated API error")
+    return (_stb_patched_steps, True)
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _stb_sync_err}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      side_effect=_stb_raise_on_first):
+        try:
+            collector_bf._run_steps_backfill(MagicMock(), _qd_stb_err)
+            check("steps_backfill: per-day error → no crash, loop continues", True)
+        except Exception:
+            check("steps_backfill: per-day error → no crash, loop continues", False)
+
+# ── reload cfg zurücksetzen ──────────────────────────────────────────────────
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  16. _run_self_healing
 # ══════════════════════════════════════════════════════════════════════════════
 section("16. _run_self_healing")
@@ -1379,6 +1517,52 @@ check("SOURCE_DIR derived",
       cfg.SOURCE_DIR == _TMPDIR / "garmin_data" / "source")
 check("SOURCE_API_LOG derived",
       cfg.SOURCE_API_LOG == _TMPDIR / "garmin_data" / "log" / "source_api_log.json")
+
+# ── garmin_merge — additive field merge (v1.6.3 backfill foundation) ────────
+import garmin_merge as _gm
+
+_gm_raw_absent    = {"date": "2024-05-10", "heart_rates": {"restingHeartRate": 55}}
+_gm_merged_absent = _gm.merge_field(_gm_raw_absent, "steps", [{"steps": 100}])
+check("merge_field: absent field → added",        _gm_merged_absent.get("steps") == [{"steps": 100}])
+check("merge_field: does not mutate input",       "steps" not in _gm_raw_absent)
+check("merge_field: other fields preserved",      _gm_merged_absent["heart_rates"]["restingHeartRate"] == 55)
+
+_gm_raw_present    = {"date": "2024-05-10", "steps": [{"steps": 999}]}
+_gm_merged_present = _gm.merge_field(_gm_raw_present, "steps", [{"steps": 1}])
+check("merge_field: existing non-empty → not overwritten",
+      _gm_merged_present.get("steps") == [{"steps": 999}])
+
+_gm_raw_empty    = {"date": "2024-05-10", "steps": []}
+_gm_merged_empty = _gm.merge_field(_gm_raw_empty, "steps", [{"steps": 5}])
+check("merge_field: existing empty list → overwritten",
+      _gm_merged_empty.get("steps") == [{"steps": 5}])
+
+check("merge_field: non-dict input → returned unchanged",
+      _gm.merge_field(None, "steps", []) is None)
+
+# ── patch_source_field — additive backfill into source/ + source_api_log.json ─
+_psf_date = "2024-05-11"
+_psf_raw  = {"date": _psf_date, "heart_rates": {"heartRateValues": [[0, 60]]}}
+source_writer.write_source(_psf_raw, _psf_date)
+source_writer.update_log(_psf_date, {"status": "ok", "issues": []}, ["heart_rates"], [], 100)
+
+_psf_ok = source_writer.patch_source_field(_psf_date, "steps", [{"startGMT": "x", "steps": 42}])
+check("patch_source_field: returns True",          _psf_ok is True)
+
+_psf_file    = cfg.SOURCE_DIR / f"garmin_source_{_psf_date}.json"
+_psf_content = json.loads(_psf_file.read_text(encoding="utf-8"))
+check("patch_source_field: field merged into file", _psf_content.get("steps") == [{"startGMT": "x", "steps": 42}])
+check("patch_source_field: original field preserved",
+      _psf_content.get("heart_rates", {}).get("heartRateValues") == [[0, 60]])
+
+_psf_log = json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))
+check("patch_source_field: backfilled_fields recorded in log",
+      "steps" in _psf_log.get(_psf_date, {}).get("backfilled_fields", {}))
+check("patch_source_field: original log entry preserved",
+      _psf_log.get(_psf_date, {}).get("validator_status") == "ok")
+
+_psf_noop = source_writer.patch_source_field("1900-01-01", "steps", [])
+check("patch_source_field: no source file → True (no-op)", _psf_noop is True)
 
 # ── write_source: normal write ────────────────────────────────────────────────
 _sw_date = "2024-05-01"

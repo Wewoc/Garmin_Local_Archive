@@ -129,6 +129,8 @@ What the timer does while running:
   - Checks for missing days and downloads them
   - Upgrades days that have no intraday data yet (as long as
     they are still within the ~135-day window)
+  - Retroactively adds newly supported data fields (like step
+    count) to days already archived at full quality
   - Runs in the background without blocking the rest of the app
 
 The timer does not start automatically after restarting the app —

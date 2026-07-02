@@ -252,7 +252,7 @@ class PanelTimer(QWidget):
             self._app._dispatch(self._app._log,
                                 "⏱  Connection OK — background timer running.")
 
-        _mode_cycle = ["repair", "quality", "fill", "source_backfill"]
+        _mode_cycle = ["repair", "quality", "fill", "source_backfill", "steps_backfill"]
 
         while not _stale():
             s = self._app._panel_settings._collect_settings()
@@ -278,13 +278,15 @@ class PanelTimer(QWidget):
                     days = self._timer_run_quality(s)
                 elif mode == "source_backfill":
                     days = self._timer_run_source_backfill(s)
+                elif mode == "steps_backfill":
+                    days = self._timer_run_steps_backfill(s)
                 else:
                     days = self._timer_run_fill(s)
                 skipped = days is None
 
             if not skipped:
                 idx = _mode_cycle.index(mode)
-                self._app._timer_next_mode = _mode_cycle[(idx + 1) % 4]
+                self._app._timer_next_mode = _mode_cycle[(idx + 1) % len(_mode_cycle)]
             else:
                 remaining_modes = [m for m in _mode_cycle if m != mode]
                 days = None
@@ -295,13 +297,15 @@ class PanelTimer(QWidget):
                         candidate = self._timer_run_quality(s)
                     elif other_mode == "source_backfill":
                         candidate = self._timer_run_source_backfill(s)
+                    elif other_mode == "steps_backfill":
+                        candidate = self._timer_run_steps_backfill(s)
                     else:
                         candidate = self._timer_run_fill(s)
                     if candidate is not None:
                         days = candidate
                         mode = other_mode
                         idx  = _mode_cycle.index(mode)
-                        self._app._timer_next_mode = _mode_cycle[(idx + 1) % 4]
+                        self._app._timer_next_mode = _mode_cycle[(idx + 1) % len(_mode_cycle)]
                         break
 
                 if days is None:
@@ -313,7 +317,7 @@ class PanelTimer(QWidget):
                     return
 
             n_days         = random.randint(min_days, max_days)
-            days_pick      = (days[:n_days] if mode in ("bulk", "source_backfill")
+            days_pick      = (days[:n_days] if mode in ("bulk", "source_backfill", "steps_backfill")
                               else sorted(random.sample(days, min(n_days, len(days)))))
             sync_dates_str = ",".join(d.isoformat() for d in days_pick)
             days_left      = len(days_pick)
@@ -321,7 +325,8 @@ class PanelTimer(QWidget):
 
             label = {"repair": "Repair", "quality": "Quality",
                      "fill": "Fill", "bulk": "Bulk Recheck",
-                     "source_backfill": "Source Backfill"}.get(mode, mode)
+                     "source_backfill": "Source Backfill",
+                     "steps_backfill": "Steps Backfill"}.get(mode, mode)
             self._app._dispatch(self._app._log,
                 f"⏱  [{label}] Syncing {days_left} days ({queue_total} in queue)")
             self._app._dispatch(
@@ -341,6 +346,7 @@ class PanelTimer(QWidget):
                 "GARMIN_REFRESH_FAILED":     "1" if refresh else "0",
                 "GARMIN_SESSION_LOG_PREFIX": "garmin_background",
                 "GARMIN_SOURCE_BACKFILL":    "1" if mode == "source_backfill" else "0",
+                "GARMIN_STEPS_BACKFILL":     "1" if mode == "steps_backfill" else "0",
             }
             sync_done = threading.Event()
 
@@ -395,3 +401,6 @@ class PanelTimer(QWidget):
 
     def _timer_run_source_backfill(self, s: dict):
         return _controller.timer_run_source_backfill(s)
+
+    def _timer_run_steps_backfill(self, s: dict):
+        return _controller.timer_run_steps_backfill(s)

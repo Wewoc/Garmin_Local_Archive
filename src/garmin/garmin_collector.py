@@ -510,6 +510,94 @@ def _run_source_backfill(client, quality_data: dict) -> None:
     log.info(f"  Source backfill complete: {ok} fetched, {failed} failed.")
 
 
+def _run_steps_backfill(client, quality_data: dict) -> None:
+    """
+    Runs in the Background Timer steps_backfill mode only — triggered by
+    GARMIN_STEPS_BACKFILL=1 + GARMIN_SYNC_DATES (the timer picks candidates
+    via timer_run_steps_backfill() and passes them as GARMIN_SYNC_DATES).
+
+    Unlike _run_source_backfill(), this does NOT re-fetch the full day via
+    _fetch_and_assess() — only the single 'steps' endpoint is called, via
+    api.api_call() directly. Reduces the backlog cost from 14 API calls per
+    day to 1. The result is merged additively into the existing raw/ file
+    (garmin_merge.merge_field) and patched into source/ if present
+    (garmin_source_writer.patch_source_field) — never a full day re-fetch,
+    never a downgrade risk (additive by construction, nothing is replaced).
+
+    Per day: read_raw() → api_call("get_steps_data") → merge_field() →
+    normalize() + summarize() → write_day() (summary/ rewritten too —
+    accepted redundancy, steps does not feed summarize() so the rewrite is
+    byte-identical in substance) → record_attempt() with backfilled_fields
+    → patch_source_field().
+
+    Non-fatal: any per-day failure is logged as a warning; the loop continues.
+    Becomes a no-op once no day in the window is missing 'steps' anymore —
+    the candidate filter in timer_run_steps_backfill() is self-terminating.
+    """
+    if not cfg.SYNC_DATES:
+        log.info("  Steps backfill: no GARMIN_SYNC_DATES — nothing to do.")
+        return
+
+    import garmin_merge as merge
+    import garmin_source_writer as source_writer
+
+    candidates = [d.isoformat() for d in sorted(cfg.SYNC_DATES)]
+    log.info(f"  Steps backfill: {len(candidates)} day(s) to enrich")
+
+    ok     = 0
+    failed = 0
+    total  = len(candidates)
+
+    with quality.QUALITY_LOCK:
+        for i, date_str in enumerate(candidates, 1):
+            if _is_stopped():
+                log.info(f"  Steps backfill: stopped after {ok} days.")
+                break
+            try:
+                existing_raw = writer.read_raw(date_str)
+                if not existing_raw:
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — no raw/ file, skipped")
+                    failed += 1
+                    continue
+
+                steps_data, success = api.api_call(client, "get_steps_data", date_str, label="steps")
+                if not success or steps_data is None:
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — get_steps_data failed")
+                    failed += 1
+                    continue
+
+                merged_raw = merge.merge_field(existing_raw, "steps", steps_data)
+                normalized = normalizer.normalize(merged_raw, source="api")
+                summary    = normalizer.summarize(normalized)
+
+                if not writer.write_day(normalized, summary, date_str):
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — write_day failed")
+                    failed += 1
+                    continue
+
+                fields        = quality.assess_quality_fields(normalized)
+                backfilled_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                quality.record_attempt(
+                    quality_data, date.fromisoformat(date_str),
+                    quality.assess_quality(normalized),
+                    "Steps backfill: field added",
+                    written=True, source="api",
+                    fields=fields,
+                    backfilled_fields={"steps": backfilled_at},
+                )
+
+                source_writer.patch_source_field(date_str, "steps", steps_data)
+
+                log.info(f"  Steps backfill [{i}/{total}]: {date_str} — steps added")
+                ok += 1
+
+            except Exception as e:
+                log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — error: {e}")
+                failed += 1
+
+    log.info(f"  Steps backfill complete: {ok} enriched, {failed} failed.")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Schema migration — re-summarize outdated summaries
 # ══════════════════════════════════════════════════════════════════════════════
@@ -725,6 +813,10 @@ def main(stop_event=None):
     # ── 5c. Source backfill — re-fetch API days without source/ file ──────────
     if os.environ.get("GARMIN_SOURCE_BACKFILL") == "1":
         _run_source_backfill(client, quality_data)
+
+    # ── 5d. Steps backfill — enrich already-archived days with steps field ────
+    if os.environ.get("GARMIN_STEPS_BACKFILL") == "1":
+        _run_steps_backfill(client, quality_data)
 
     # ── 6. Set first_day ──────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:
