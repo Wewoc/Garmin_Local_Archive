@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.2.1
+# Garmin Local Archive — Desktop App v1.6.3
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -202,6 +202,7 @@ The timer works through a priority queue each run:
 3. **Quality** — re-checks `standard` days where the previous day had intraday data and the retry window (180 days) is still open — worth trying again for a quality upgrade
 4. **Fill** — fetches completely missing days between your earliest known date and yesterday
 5. **Source Backfill** *(v1.6.0.3)* — if you were running GLA before v1.6.0.2, some historical days may be missing from the source archive. The timer fills this gap automatically, oldest first, within the 180-day window where Garmin still delivers full intraday resolution. Becomes a no-op once complete — runs invisibly in the background.
+6. **Steps Backfill** *(v1.6.3)* — if you were running GLA before step count intraday support was added, high-quality days already in your archive may be missing this field. The timer adds it retroactively, oldest first, within a 140-day window — only a single lightweight API call per day, no re-fetch of everything else. Becomes a no-op once complete.
 
 When all queues are empty the timer stops automatically and logs "Archive complete".
 

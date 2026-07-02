@@ -430,6 +430,65 @@ def timer_run_source_backfill(s: dict) -> list | None:
         return None
 
 
+def timer_run_steps_backfill(s: dict) -> list | None:
+    """Returns high-quality API days within the Steps backfill window that
+    are missing the 'steps' field. None if empty.
+
+    Called by the Background Timer steps_backfill mode — lowest priority,
+    runs after Bulk Recheck, Repair, Quality, Fill, and Source Backfill are
+    all exhausted. Returns candidates oldest first; the timer picks
+    min_days..max_days per cycle via days[:n_days] (same as source_backfill).
+
+    Window is capped at STEPS_BACKFILL_WINDOW_DAYS (140) — a margin above the
+    ~134-day empirically measured Garmin intraday degradation cutoff. Beyond
+    that window Garmin itself no longer returns intraday data for any field,
+    so there is nothing left to recover regardless of this window's size.
+
+    Self-terminating by construction: once a day is backfilled, "steps"
+    appears in its fields dict and it naturally drops out of this filter on
+    the next scan — no separate completion marker is needed.
+
+    INTENTIONAL DIRECT READ — read-only analytical fast-path.
+    No mutation, no ownership transfer, no QUALITY_LOCK required.
+    os.replace() atomicity guarantees reader sees either the old or the
+    new complete file — never a partial write.
+    garmin_quality provides no filtered-list API for these queries;
+    adding one would inflate the module into a query gateway.
+    Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
+    """
+    STEPS_BACKFILL_WINDOW_DAYS = 140
+
+    try:
+        log_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
+        if not log_file.exists():
+            return None
+        data   = json.loads(log_file.read_text(encoding="utf-8"))
+        cutoff = date.today() - timedelta(days=STEPS_BACKFILL_WINDOW_DAYS)
+        days = []
+        for e in data.get("days", []):
+            if e.get("quality") != "high":
+                continue
+            if e.get("source") != "api":
+                continue
+            fields = e.get("fields") or {}
+            if "steps" in fields:
+                continue
+            date_str = e.get("date")
+            if not date_str:
+                continue
+            try:
+                d = date.fromisoformat(date_str)
+            except ValueError:
+                continue
+            if d < cutoff:
+                continue
+            days.append(d)
+        days.sort()
+        return days if days else None
+    except Exception:
+        return None
+
+
 def timer_run_fill(s: dict) -> list | None:
     """Returns dates completely absent from raw/ between earliest known and yesterday."""
     try:

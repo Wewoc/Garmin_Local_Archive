@@ -86,6 +86,12 @@ _RAW = {
             {"startGMT": "2026-03-01T09:00:00", "respirationValue": 15.0},
         ]
     },
+    "steps": [
+        {"startGMT": "2026-03-01T08:00:00", "steps": 120, "pushes": 0,
+         "primaryActivityLevel": "sedentary", "activityLevelConstant": True},
+        {"startGMT": "2026-03-01T09:00:00", "steps": 450, "pushes": 0,
+         "primaryActivityLevel": "highlyActive", "activityLevelConstant": False},
+    ],
 }
 
 def _write_raw(base_dir: Path):
@@ -170,6 +176,12 @@ resp_series = result_resp["values"][0]["series"]
 check("respiration: series not empty",          len(resp_series) > 0)
 check("respiration: value correct",             resp_series[0]["value"] == 14.5)
 
+result_steps = garmin_map.get("steps_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+steps_series = result_steps["values"][0]["series"]
+check("steps: series not empty",                len(steps_series) > 0)
+check("steps: value correct",                   steps_series[0]["value"] == 120.0)
+check("steps: entry has ts key",                "ts" in steps_series[0])
+
 result_missing = garmin_map.get("heart_rate_series", "2000-01-01", "2000-01-01", resolution="intraday")
 check("missing date: series is None",           result_missing["values"][0]["series"] is None)
 
@@ -190,6 +202,12 @@ check("null spo2: series is None",              result_spo2_null["values"][0]["s
 
 result_resp_null = garmin_map.get("respiration_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null respiration: series is None",       result_resp_null["values"][0]["series"] is None)
+
+# _NULL_RAW has no "steps" key at all — matches the "field never fetched" case,
+# not "fetched but empty". data.get("steps") → None → neither dict nor list →
+# series stays None, same code path as a day predating this feature.
+result_steps_null = garmin_map.get("steps_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+check("null steps: series is None",             result_steps_null["values"][0]["series"] is None)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

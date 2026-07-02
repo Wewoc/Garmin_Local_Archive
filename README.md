@@ -306,6 +306,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
 | `garmin_backup_source.py` | Sole owner of `garmin_data/backup/source/` — backs up source files after each write. Provides one-time backfill for existing source files. |
 | `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to existing tools. |
+| `garmin_merge.py` | Additive field merge for backfill operations — never overwrites an already-populated field. Used to retroactively add newly supported data fields (like step count) to already-archived days. |
 
 **Context pipeline** — `context/`
 
@@ -356,7 +357,7 @@ The project is structured into five focused layers. Each layer has a single resp
 
 Each module is self-contained and designed to be extended. Add new fields, metrics, or dashboard specialists without touching the rest of the system. See `docs/MAINTENANCE_GLOBAL.md` for how.
 
-The desktop app includes a **Background Timer** — fully automatic background sync that repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~135 days), and fills missing days, all while the app is open without any manual intervention.
+The desktop app includes a **Background Timer** — once started, it automatically repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~135 days), fills missing days, keeps a raw API-response backup current, and retroactively adds newly supported data fields (like step count) to already-archived days, with no further manual steps in between. The timer must be started manually and only runs while the app is open — it does not resume automatically after a restart.
  
 Data is stored in two root folders:
  

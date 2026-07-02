@@ -228,6 +228,7 @@ def fetch_raw(client, date_str: str) -> tuple:
         ("get_respiration_data",     (date_str,), "respiration"),
         ("get_spo2_data",            (date_str,), "spo2"),
         ("get_stats",                (date_str,), "stats"),
+        ("get_steps_data",           (date_str,), "steps"),
         ("get_user_summary",         (date_str,), "user_summary"),
         ("get_activities_fordate",   (date_str,), "activities"),
         ("get_training_status",      (date_str,), "training_status"),

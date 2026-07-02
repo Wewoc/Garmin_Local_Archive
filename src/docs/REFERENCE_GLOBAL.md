@@ -199,6 +199,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   ├── garmin_writer.py
     │   ├── garmin_backup_source.py ← Sole Owner backup/source/ (v1.6.0.4)
     │   ├── garmin_silo_check.py    ← Leaf-Node. Read-only silo drift detection. check_silos() → dict (v1.6.0.4.7)
+    │   ├── garmin_merge.py         ← Leaf-Node. Additive field merge for backfill operations. merge_field() (v1.6.3)
     │   └── garmin_extended_anaysis.py
     │
     ├── context/                    ← External API collect pipeline (v1.4+)
@@ -267,8 +268,8 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     └── tests/
         ├── test_local.py           ← Garmin pipeline (439 checks)
         ├── test_local_context.py   ← Context pipeline (261 checks)
-        ├── test_dashboard.py       ← Dashboard pipeline (303 checks)
-        ├── test_app_logic.py       ← App layer (128 checks)
+        ├── test_dashboard.py       ← Dashboard pipeline (336 checks)
+        ├── test_app_logic.py       ← App layer (145 checks)
         ├── test_qt_app.py          ← PyQt6 App layer (42 checks, v1.5.4+)
         ├── test_build_output.py    ← Build output validation (8 sections)
         ├── test_static.py          ← ruff linting (2 checks, v1.6.0+)

@@ -132,6 +132,7 @@ To add a new field:
 
 ## Test suite — `tests/test_dashboard.py`
 
+
 ```bash
 python tests/test_dashboard.py
 ```

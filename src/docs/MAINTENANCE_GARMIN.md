@@ -140,6 +140,18 @@ A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
 B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check
 C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
 C2. `garmin_container` — `unlock_meta`: happy path + wrong password + missing file + non-container + tampered HMAC (10 checks). `fulfill_order`: roundtrip + wrong password + empty order (5 checks). (v1.6.0.4.9.3)
+
+**Steps Intraday Foundation + Backfill (v1.6.3):** `steps_series` in `garmin_map._FIELD_MAP`
+(covered in `test_dashboard.py`, not here — see `MAINTENANCE_DASHBOARD.md`). In this suite:
+`assess_quality_fields()` — `steps` field high/medium/failed (3 checks, Section 4).
+`garmin_merge.merge_field()` — additive merge, no-overwrite, non-dict guard (6 checks).
+`garmin_source_writer.patch_source_field()` — file patch, log annotation, no-op on
+missing source file (6 checks). `_upsert_quality()` / `record_attempt()` —
+`backfilled_fields` parameter, additive merge across calls (4 checks). Section E2:
+`garmin_collector._run_steps_backfill()` — no-op on empty `SYNC_DATES`, correct
+`api.api_call()` invocation, merge result in `raw/`, `backfilled_fields` + `fields`
+recorded, stop-event respected, per-day error resilience (10 checks).
+
 C3. `garmin_import_mirror` — `detect_source`: container / nonexistent path / plain folder (3 checks). (v1.6.0.4.9.3)
 D. `garmin_source_writer` + `garmin_source_quality` (v1.6.0.2 / v1.6.0.4.6) — `SOURCE_DIR` + `SOURCE_API_LOG` path derivation, `write_source` round-trip + overwrite + error cases (None/str input), `update_log` round-trip + overwrite + multi-date + `intraday_present`. `assess_source` (5 checks), `compare_source` truth table (6 checks), `assess_source_from_file` (2 checks), `write_source` guard behavior — skip + skip_warn (4 checks), `update_log intraday_present` (3 checks). Leaf-Node AST check migrated to `garmin_source_quality` (stdlib-only).
 E. `garmin_collector._run_source_backfill` (v1.6.0.3) — no-op when `SYNC_DATES` empty, fetch called with correct date when `SYNC_DATES` set, stop event respected, per-day error does not crash loop.
