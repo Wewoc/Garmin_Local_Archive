@@ -10,18 +10,6 @@
 
 ---
 
-### ~~v1.6.3 — Steps Intraday Foundation + Backfill~~ ✓ released
-
-Adds Steps intraday data (15-minute bins via `get_steps_data`) as the 15th
-endpoint, plus a sixth Background Timer mode that additively backfills the
-field into already-archived `high`-quality days within a 140-day window —
-both in `raw/` and `source/`, without downgrade risk and without re-fetching
-the other 13 endpoints. Originally planned as the Heatmap Dashboard version;
-resequenced mid-session (Archive-First priority — the backfill window is
-time-limited, the dashboard is not). See `CHANGELOG.md` for full detail.
-
----
-
 ### v1.6.3.1 — Heatmap Dashboard
 New specialist: activity and physiological patterns visualized as time-of-day × date heatmaps.
 New:
