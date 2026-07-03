@@ -418,7 +418,7 @@ All paths from caller — no `garmin_config` import.
 
 Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 
-**Current version:** `1.0`
+**Current version:** `1.1`
 
 | Field | Type | Required |
 |---|---|---|
@@ -430,6 +430,7 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 | `respiration` | dict | — |
 | `spo2` | dict | — |
 | `stats` | dict | — |
+| `steps` | list | — |
 | `user_summary` | dict | — |
 | `training_status` | dict | — |
 | `training_readiness` | dict | — |
@@ -518,9 +519,9 @@ Each field in `_FIELD_MAP` uses one of three descriptor types:
 | `sleep_awake_pct` | raw_pct | `sleep.dailySleepDTO`: `awakeSleepSeconds / sleepTimeSeconds * 100` | % |
 | `heart_rate_series` | intraday | `heart_rates.heartRateValues` | `[{"ts", "value"}]` |
 | `stress_series` | intraday | `stress.stressValuesArray` | offset applied |
-| `spo2_series` | intraday | `spo2.spO2HourlyAverages` | — |
+| `spo2_series` | intraday | `spo2.spO2HourlyAverages` | List of `[epoch_ms, value]` pairs — corrected in v1.6.3.1 (previously misread as dict-shaped, series was silently empty for every consumer) |
 | `body_battery_series` | intraday | `stress.bodyBatteryValuesArray` | — |
-| `respiration_series` | intraday | `respiration.respirationValuesArray` | — |
+| `respiration_series` | intraday | `respiration.respirationValuesArray` | List of `[epoch_ms, value]` pairs — same v1.6.3.1 fix as spo2_series. Raw data also contains a newer, parallel `wellnessEpochRespirationDataDTOList` (dict-shaped) — not yet evaluated, see `NOTES_v1_6_3_1.md` §4 |
 | `steps_series` | intraday | `steps` (bare list at top level, not nested under a sub-key) | 15-min bins, `{"startGMT", "steps"}`. `_read_intraday()` handles this via its existing `isinstance(section_data, list)` branch — no code change needed for this shape |
 
 **Architecture boundary:** Any Garmin-internal key (`section.field`, `dailySleepDTO`, etc.) appearing outside `garmin_map.py` is an architecture violation — detectable by name format alone.

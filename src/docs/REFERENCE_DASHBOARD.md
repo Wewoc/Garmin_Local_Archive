@@ -368,6 +368,7 @@ Raises `OSError` if output file cannot be written.
 `dash_plotter_html_complex` is a facade — it routes to `layouts/render/` via `_REGISTRY`:
 - `"explorer"` → `layouts/render/explorer.py` (`_render_explorer`)
 - `"sleep"`    → `layouts/render/sleep.py` (`_render_sleep`) — HTML/CSS table + inline Plotly intraday explorer (v1.6.2+)
+- `"heatmap"`  → `layouts/render/heatmap.py` (`_render_heatmap`) — six Plotly heatmap panels, tab navigation (v1.6.3.1+)
 - `None` / any other → `layouts/render/recovery_context.py` (`_render_recovery_context`)
 
 Adding a new layout: create `layouts/render/<name>.py` with `render(data, output_path) -> None`,

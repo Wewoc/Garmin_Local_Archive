@@ -86,6 +86,7 @@ SHARED_SCRIPTS = [
     "dashboards/sleep_recovery_context_dash.py",
     "dashboards/sleep_garmin_html-xls_dash.py",
     "dashboards/explorer_garmin-context_html_dash.py",
+    "dashboards/heatmap_garmin_html_dash.py",
     # layouts (plotters + passive resources)
     "layouts/dash_layout.py",
     "layouts/dash_layout_html.py",
@@ -103,6 +104,7 @@ SHARED_SCRIPTS = [
     "layouts/render/recovery_context.py",
     "layouts/render/sleep.py",
     "layouts/render/explorer.py",
+    "layouts/render/heatmap.py",
 ]
 # Target 2 (build.py): entry point + shared scripts
 SCRIPTS = ["garmin_app.py"] + SHARED_SCRIPTS

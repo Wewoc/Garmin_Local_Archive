@@ -6,30 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.3**
-
----
-
-### v1.6.3.1 — Heatmap Dashboard
-New specialist: activity and physiological patterns visualized as time-of-day × date heatmaps.
-New:
-
-- `dashboards/heatmap_garmin_html_dash.py` — Specialist: fetches intraday series for N days via `field_map.py`, pivots to hourly bins, returns neutral heatmap dict
-- `dash_plotter_html_complex.py` — `heatmap` chart type added via render registry (v1.6 pre-condition)
-
-Metrics (candidates):
-
-- Heart Rate heatmap (X = time of day 0–24h, Y = date, color = bpm)
-- Steps heatmap (activity regularity) — `steps_series` now available in `garmin_map` (v1.6.3), but coverage for days older than the Steps Backfill's progress may still be incomplete depending on how far the background timer has worked through the 140-day window
-- Stress heatmap
-- Body Battery heatmap
-
-Pre-condition: v1.6 Render Registry must be complete — new specialist registers its own renderer, no `if/elif` edit required.
-
-**Carried over from v1.6.3:** `garmin_collector._run_steps_backfill()` does not
-check the return value of `garmin_source_writer.patch_source_field()` — a
-debugging blind spot with no data-loss risk (see `NOTES_v1_6_3.md` §9).
-One-line fix, take care of before or alongside this session's scope.
+**Currently stable — v1.6.3.1**
 
 ---
 

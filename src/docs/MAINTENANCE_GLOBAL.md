@@ -217,7 +217,7 @@ redacted at write time.
 python tests/test_local.py
 ```
 
-**Current count: 439 checks, 22 sections.** No network, no GUI, no API calls. Cleans up after itself.
+**Current count: 469 checks, 22 sections.** No network, no GUI, no API calls. Cleans up after itself.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -238,7 +238,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 332 checks, 17 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 377 checks, 18 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
@@ -285,7 +285,7 @@ PowerShell encoding/syntax failure during integration attempts, see
 python tests/test_app_logic.py
 ```
 
-**Current count: 136 checks, 19 sections.**
+**Current count: 145 checks, 19 sections.**
 
 ### `tests/test_qt_app.py` — PyQt6 App layer (v1.5.4+)
 
@@ -294,7 +294,7 @@ pytest tests/test_qt_app.py -v
 # or via: tests/run_qt_tests.bat
 ```
 
-**Current count: 42 checks, 7 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
+**Current count: 46 checks, 8 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
 
 **Test result v1.6.0:** 316 / 261 / 303 / 128 / 42 / 2 — all green
 
