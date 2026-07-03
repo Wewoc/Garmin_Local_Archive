@@ -153,8 +153,8 @@ _FIELD_MAP = {
     },
     "spo2_series": {
         "intraday": ("spo2", "spO2HourlyAverages", {
-            "ts_index":   None,
-            "val_index":  None,
+            "ts_index":   0,
+            "val_index":  1,
             "ts_key":     "startGMT",
             "val_key":    "spO2Reading",
             "val_min":    None,
@@ -175,8 +175,8 @@ _FIELD_MAP = {
     },
     "respiration_series": {
         "intraday": ("respiration", "respirationValuesArray", {
-            "ts_index":   None,
-            "val_index":  None,
+            "ts_index":   0,
+            "val_index":  1,
             "ts_key":     "startGMT",
             "val_key":    "respirationValue",
             "val_min":    None,

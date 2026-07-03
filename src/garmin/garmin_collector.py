@@ -544,9 +544,10 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
     candidates = [d.isoformat() for d in sorted(cfg.SYNC_DATES)]
     log.info(f"  Steps backfill: {len(candidates)} day(s) to enrich")
 
-    ok     = 0
-    failed = 0
-    total  = len(candidates)
+    ok                  = 0
+    failed              = 0
+    source_patch_failed = 0
+    total               = len(candidates)
 
     with quality.QUALITY_LOCK:
         for i, date_str in enumerate(candidates, 1):
@@ -586,7 +587,10 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
                     backfilled_fields={"steps": backfilled_at},
                 )
 
-                source_writer.patch_source_field(date_str, "steps", steps_data)
+                if not source_writer.patch_source_field(date_str, "steps", steps_data):
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — "
+                                f"source/ patch failed (raw/summary already written, no data lost)")
+                    source_patch_failed += 1
 
                 log.info(f"  Steps backfill [{i}/{total}]: {date_str} — steps added")
                 ok += 1
@@ -595,7 +599,8 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
                 log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — error: {e}")
                 failed += 1
 
-    log.info(f"  Steps backfill complete: {ok} enriched, {failed} failed.")
+    log.info(f"  Steps backfill complete: {ok} enriched, {failed} failed, "
+             f"{source_patch_failed} source/ patch(es) failed.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -206,7 +206,7 @@ def assess_quality_fields(raw: dict) -> dict:
 
     # ── respiration ──
     resp = raw.get("respiration") or {}
-    resp_values = resp.get("respirationValues") if isinstance(resp, dict) else None
+    resp_values = resp.get("respirationValuesArray") if isinstance(resp, dict) else None
     if isinstance(resp_values, list) and len(resp_values) > 0:
         fields["respiration"] = "high"
     elif isinstance(resp, dict) and resp.get("avgWakingRespirationValue") is not None:

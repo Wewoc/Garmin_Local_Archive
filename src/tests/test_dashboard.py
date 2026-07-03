@@ -76,14 +76,14 @@ _RAW = {
     },
     "spo2": {
         "spO2HourlyAverages": [
-            {"startGMT": "2026-03-01T08:00:00", "spO2Reading": 97},
-            {"startGMT": "2026-03-01T09:00:00", "spO2Reading": 98},
+            [1772352000000, 97],
+            [1772355600000, 98],
         ]
     },
     "respiration": {
         "respirationValuesArray": [
-            {"startGMT": "2026-03-01T08:00:00", "respirationValue": 14.5},
-            {"startGMT": "2026-03-01T09:00:00", "respirationValue": 15.0},
+            [1772352000000, 14.5],
+            [1772355600000, 15.0],
         ]
     },
     "steps": [
@@ -169,7 +169,7 @@ check("body_battery: val_index=2 correct",      bb_series[0]["value"] == 85.0)
 result_spo2 = garmin_map.get("spo2_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 spo2_series = result_spo2["values"][0]["series"]
 check("spo2: series not empty",                 len(spo2_series) > 0)
-check("spo2: dict-based extraction works",      spo2_series[0]["value"] == 97.0)
+check("spo2: list-pair extraction works",       spo2_series[0]["value"] == 97.0)
 
 result_resp = garmin_map.get("respiration_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 resp_series = result_resp["values"][0]["series"]
@@ -1199,6 +1199,69 @@ try:
     check("empty password raises ValueError",  False)
 except ValueError:
     check("empty password raises ValueError",  True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  18. heatmap_garmin specialist — build() + complex plotter
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("18. heatmap_garmin specialist — build() + complex plotter")
+
+_hm_spec = importlib.util.spec_from_file_location(
+    "heatmap_dash",
+    _ROOT / "dashboards" / "heatmap_garmin_html_dash.py"
+)
+_hm_mod = importlib.util.module_from_spec(_hm_spec)
+_hm_spec.loader.exec_module(_hm_mod)
+
+check("heatmap META present",                    hasattr(_hm_mod, "META"))
+check("heatmap META has html_complex",           "html_complex" in _hm_mod.META["formats"])
+
+_hmdata = _hm_mod.build(_TEST_DATE, _TEST_DATE, {})
+check("heatmap build returns dict",              isinstance(_hmdata, dict))
+check("heatmap layout == heatmap",               _hmdata.get("layout") == "heatmap")
+check("heatmap has metrics key",                 "metrics" in _hmdata)
+
+_hm_metrics = _hmdata["metrics"]
+for _hm_key in ("heart_rate", "steps", "stress", "body_battery", "spo2", "respiration"):
+    check(f"heatmap metrics has {_hm_key}",       _hm_key in _hm_metrics)
+    check(f"heatmap {_hm_key} has dates",         "dates" in _hm_metrics[_hm_key])
+    check(f"heatmap {_hm_key} has 24 hours",      len(_hm_metrics[_hm_key].get("hours", [])) == 24)
+    check(f"heatmap {_hm_key} matrix row len 24", len(_hm_metrics[_hm_key]["matrix"][0]) == 24)
+
+# steps aggregation: sum per hour bin — fixture has steps=120@08:00, steps=450@09:00
+_steps_row = _hm_metrics["steps"]["matrix"][0]
+check("heatmap steps: hour 8 == 120.0",           _steps_row[8] == 120.0)
+check("heatmap steps: hour 9 == 450.0",           _steps_row[9] == 450.0)
+check("heatmap steps: hour with no data is None", _steps_row[0] is None)
+
+# spo2 / respiration aggregation: mean per hour bin — one fixture value per
+# hour, so mean == that value
+_spo2_row = _hm_metrics["spo2"]["matrix"][0]
+check("heatmap spo2: hour 8 == 97.0",             _spo2_row[8] == 97.0)
+
+_resp_row = _hm_metrics["respiration"]["matrix"][0]
+check("heatmap respiration: hour 8 == 14.5",      _resp_row[8] == 14.5)
+
+# Complex plotter render
+_out_hm_html = _TMPDIR / "test_heatmap.html"
+plotter_complex.render(_hmdata, _out_hm_html, {})
+check("heatmap render creates file",             _out_hm_html.exists())
+
+_hm_html = _out_hm_html.read_text(encoding="utf-8")
+check("heatmap html not empty",                  _out_hm_html.stat().st_size > 0)
+check("heatmap html has DOCTYPE",                "<!DOCTYPE html>" in _hm_html)
+check("heatmap html has 6 tab buttons",          _hm_html.count("tab-btn") >= 6)
+check("heatmap html has heatmap trace type",     "'heatmap'" in _hm_html)
+check("heatmap html has all 6 chart containers", all(f'id="chart-{k}"' in _hm_html
+                                                       for k in ("heart_rate", "steps", "stress", "body_battery", "spo2", "respiration")))
+
+# render without metrics key raises ValueError
+try:
+    plotter_complex.render({"layout": "heatmap", "title": "x"}, _TMPDIR / "empty_hm.html", {})
+    check("heatmap render missing metrics raises ValueError", False)
+except ValueError:
+    check("heatmap render missing metrics raises ValueError", True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

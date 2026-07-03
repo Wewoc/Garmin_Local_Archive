@@ -6,4 +6,4 @@
 # Imported by garmin_app_base.py and daily_update.py.
 # No third-party imports, no tkinter — safe for all build targets.
 
-APP_VERSION = "1.6.3"
+APP_VERSION = "1.6.3.1"

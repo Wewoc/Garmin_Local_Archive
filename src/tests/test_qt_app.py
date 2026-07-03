@@ -374,6 +374,61 @@ class TestPanelArchive:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  PasswordConfirmDialog — setup vs. unlock mode
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPasswordConfirmDialog:
+
+    @pytest.fixture
+    def app_mock(self):
+        from unittest.mock import MagicMock
+        app = MagicMock()
+        app.BG     = "#12101f"
+        app.BG3    = "#231f38"
+        app.TEXT   = "#eaeaea"
+        app.TEXT2  = "#a0a0b0"
+        app.ACCENT = "#a259f7"
+        return app
+
+    def _fake_parent(self, qtbot, app_mock):
+        from PyQt6.QtWidgets import QWidget
+        parent = QWidget()
+        parent._app = app_mock
+        qtbot.addWidget(parent)
+        return parent
+
+    def test_default_mode_is_setup_with_confirm_field(self, qtbot, app_mock):
+        from app.dialogs import PasswordConfirmDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = PasswordConfirmDialog(parent, "T", "H", "D")
+        qtbot.addWidget(dlg)
+        assert dlg._pw2 is not None
+
+    def test_setup_mode_has_confirm_field(self, qtbot, app_mock):
+        from app.dialogs import PasswordConfirmDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = PasswordConfirmDialog(parent, "T", "H", "D", mode="setup")
+        qtbot.addWidget(dlg)
+        assert dlg._pw2 is not None
+
+    def test_unlock_mode_has_no_confirm_field(self, qtbot, app_mock):
+        from app.dialogs import PasswordConfirmDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = PasswordConfirmDialog(parent, "T", "H", "D", mode="unlock")
+        qtbot.addWidget(dlg)
+        assert dlg._pw2 is None
+
+    def test_unlock_mode_accepts_single_password(self, qtbot, app_mock):
+        from app.dialogs import PasswordConfirmDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = PasswordConfirmDialog(parent, "T", "H", "D", mode="unlock")
+        qtbot.addWidget(dlg)
+        dlg._pw1.setText("mypassword")
+        dlg._on_ok()
+        assert dlg.get_result() == "mypassword"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  5. PanelTimer
 # ══════════════════════════════════════════════════════════════════════════════
 
