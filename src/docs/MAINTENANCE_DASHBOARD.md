@@ -137,7 +137,7 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 332 checks, 17 sections.**
+**Current count: 377 checks, 18 sections.**
 
 | Section | Coverage |
 |---|---|
@@ -158,6 +158,7 @@ python tests/test_dashboard.py
 | 15 | `garmin_map` broker contract |
 | 16 | Specialist return contract — alle 6 specialists |
 | 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards |
+| 18 | `heatmap_garmin` specialist + complex plotter — six metrics pivoted to date×hour matrices, tab navigation, ValueError guard (v1.6.3.1) |
 
 **Broker contract (section 15):** `garmin_map.get()` gibt immer `values` (list), `fallback` (bool), `source_resolution` (str) zurück. Unbekanntes Feld → `KeyError`. Ungültige Resolution → `ValueError`. Gilt analog für `weather_map` und `pollen_map` — getestet in `test_local_context.py`.
 

@@ -99,6 +99,7 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 |---|---|---|
 | **Health Analysis** | HRV, Resting HR, SpO2, Sleep, Body Battery, Stress — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges. Flags days outside range. | HTML, Mobile HTML, JSON + AI prompt |
 | **Timeseries** | Intraday heart rate, stress, SpO2, body battery and respiration as zoomable charts across any date range. | HTML, Excel |
+| **Heatmap** | Six intraday metrics (Heart Rate, Steps, Stress, Body Battery, SpO2, Respiration) as time-of-day × date grids — spot daily rhythms and irregularities at a glance. | HTML |
 | **Daily Overview** | All summary fields in one flat table, one row per day. | Excel |
 | **Health + Context** | Garmin health metrics alongside local weather and pollen data. | HTML, Excel |
 | **Sleep Dashboard** | One row per night — segmented phase bar (Deep / Light / REM / Awake), sleep duration, score, quality badge, feedback label, HRV, Body Battery, and **7-day HRV moving average** (computed from archive, no extra API call). Color-coded numbers via continuous gradient against personal reference ranges. Inspired by [Garmin's own HRV pattern guide](https://www.garmin.com/en-US/blog/fitness/understanding-the-hrv-status-on-your-garmin-smartwatch/). | HTML, Excel |

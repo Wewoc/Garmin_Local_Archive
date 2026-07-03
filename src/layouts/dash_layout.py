@@ -25,6 +25,7 @@ METRIC_META = {
     "spo2_series":         {"label": "SpO2",          "unit": "%",     "color": "#185FA5"},
     "body_battery_series": {"label": "Body Battery",  "unit": "level", "color": "#BA7517"},
     "respiration_series":  {"label": "Respiration",   "unit": "brpm",  "color": "#7F77DD"},
+    "steps_series":        {"label": "Steps",         "unit": "steps", "color": "#4A90D9"},
     # daily fields
     "hrv_last_night":      {"label": "HRV Last Night","unit": "ms",   "color": "#5B8DB8"},
     "sleep_deep_pct":      {"label": "Deep Sleep",    "unit": "%",    "color": "#185FA5"},

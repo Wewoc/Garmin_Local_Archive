@@ -25,11 +25,12 @@ from PyQt6.QtGui import QFont
 
 class PasswordConfirmDialog(QDialog):
     """
-    Modaler Dialog mit zwei Passwort-Feldern (Eingabe + Bestätigung).
+    Modaler Dialog mit Passwort-Eingabe — optional mit Bestätigungsfeld.
 
     Verwendet von:
       - panel_archive.py  — Mirror Container Password
-      - panel_outputs.py  — Encrypted Dashboards
+        (Export: mode="setup", Import: mode="unlock")
+      - panel_outputs.py  — Encrypted Dashboards (mode="setup")
 
     Parameters
     ----------
@@ -37,6 +38,11 @@ class PasswordConfirmDialog(QDialog):
     title       : str     — Fenstertitel
     heading     : str     — Fett gedruckte Überschrift im Dialog
     description : str     — Beschreibungstext unter der Überschrift
+    mode        : str     — "setup" (Standard): zwei Felder, Match-Check —
+                             für neu vergebene Passwörter.
+                             "unlock": ein Feld, kein Confirm — für bereits
+                             existierende Passwörter (z. B. Mirror Import,
+                             wo unlock_meta() das Passwort ohnehin prüft).
 
     Usage
     -----
@@ -46,14 +52,17 @@ class PasswordConfirmDialog(QDialog):
             heading     = "Mirror Container Password",
             description = "Enter the password for the mirror container.\n"
                           "This password protects data in transit.",
+            mode        = "unlock",
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             password = dlg.get_result()
     """
 
-    def __init__(self, parent, title: str, heading: str, description: str):
+    def __init__(self, parent, title: str, heading: str, description: str,
+                 mode: str = "setup"):
         super().__init__(parent)
         self._result = None
+        self._mode = mode
         self.setWindowTitle(title)
         self.setModal(True)
         self.setFixedWidth(420)
@@ -106,12 +115,14 @@ class PasswordConfirmDialog(QDialog):
         self._pw1 = _pw_field("Enter password")
         lay.addWidget(self._pw1)
 
-        pw2_lbl = QLabel("Confirm password")
-        pw2_lbl.setFont(QFont("Segoe UI", 8))
-        pw2_lbl.setStyleSheet(f"color: {t2};")
-        lay.addWidget(pw2_lbl)
-        self._pw2 = _pw_field("Repeat password")
-        lay.addWidget(self._pw2)
+        self._pw2 = None
+        if self._mode == "setup":
+            pw2_lbl = QLabel("Confirm password")
+            pw2_lbl.setFont(QFont("Segoe UI", 8))
+            pw2_lbl.setStyleSheet(f"color: {t2};")
+            lay.addWidget(pw2_lbl)
+            self._pw2 = _pw_field("Repeat password")
+            lay.addWidget(self._pw2)
 
         # Fehleranzeige
         self._err = QLabel("")
@@ -141,9 +152,12 @@ class PasswordConfirmDialog(QDialog):
         cancel_btn.setAutoDefault(False)
         cancel_btn.clicked.connect(self.reject)
 
-        # Enter-Handling: pw1 → pw2 → _on_ok
-        self._pw1.returnPressed.connect(lambda: self._pw2.setFocus())
-        self._pw2.returnPressed.connect(self._on_ok)
+        # Enter-Handling: pw1 → pw2 (falls vorhanden) → _on_ok
+        if self._pw2 is not None:
+            self._pw1.returnPressed.connect(lambda: self._pw2.setFocus())
+            self._pw2.returnPressed.connect(self._on_ok)
+        else:
+            self._pw1.returnPressed.connect(self._on_ok)
 
         btn_row.addWidget(ok_btn)
         btn_row.addWidget(cancel_btn)
@@ -151,23 +165,24 @@ class PasswordConfirmDialog(QDialog):
 
     def _on_ok(self):
         p1 = self._pw1.text()
-        p2 = self._pw2.text()
         if not p1:
             QMessageBox.warning(self, self.windowTitle(),
                                 "Please enter a password.")
             self._pw1.setFocus()
             return
-        if not p2:
-            QMessageBox.warning(self, self.windowTitle(),
-                                "Please confirm your password.")
-            self._pw2.setFocus()
-            return
-        if p1 != p2:
-            QMessageBox.warning(self, self.windowTitle(),
-                                "Passwords do not match.\nPlease try again.")
-            self._pw2.clear()
-            self._pw2.setFocus()
-            return
+        if self._pw2 is not None:
+            p2 = self._pw2.text()
+            if not p2:
+                QMessageBox.warning(self, self.windowTitle(),
+                                    "Please confirm your password.")
+                self._pw2.setFocus()
+                return
+            if p1 != p2:
+                QMessageBox.warning(self, self.windowTitle(),
+                                    "Passwords do not match.\nPlease try again.")
+                self._pw2.clear()
+                self._pw2.setFocus()
+                return
         self._result = p1
         self.accept()
 

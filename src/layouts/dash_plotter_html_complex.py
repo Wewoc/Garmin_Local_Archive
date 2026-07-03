@@ -11,6 +11,7 @@ via a layout registry. No rendering logic lives here.
 Layout key (data.get("layout")):
     "explorer"  → layouts/render/explorer.py
     "sleep"     → layouts/render/sleep.py
+    "heatmap"   → layouts/render/heatmap.py
     None / any  → layouts/render/recovery_context.py  (default)
 
 Adding a new layout:
@@ -65,6 +66,7 @@ def _load_renderer(name: str):
 _REGISTRY: dict = {
     "explorer": _load_renderer("explorer"),
     "sleep":    _load_renderer("sleep"),
+    "heatmap":  _load_renderer("heatmap"),
     None:       _load_renderer("recovery_context"),
 }
 
@@ -80,6 +82,7 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
     Layout type is determined by data.get("layout"):
         "explorer"      → Explorer dashboard (free metric dropdowns)
         "sleep"         → Sleep Dashboard (HTML/CSS table, no Plotly)
+        "heatmap"       → Heatmap dashboard (time-of-day x date, 4 metrics)
         None / any other → Recovery Context dashboard (fixed metrics, tabs)
 
     Raises:

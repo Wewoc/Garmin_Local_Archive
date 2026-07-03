@@ -329,12 +329,13 @@ check("QUALITY_LOCK: blocks second thread", _lock_held_during == [False])
 # assess_quality_fields
 raw_fields_high = {
     "date": "2024-01-01",
-    "heart_rates": {"heartRateValues": [[0, 60]], "restingHeartRate": 55},
-    "stress":      {"stressValuesArray": [[0, 30]], "bodyBatteryValuesArray": [[0, 0, 80]]},
-    "sleep":       {"sleepLevels": [{"level": "deep"}],
+    "heart_rates":  {"heartRateValues": [[0, 60]], "restingHeartRate": 55},
+    "stress":       {"stressValuesArray": [[0, 30]], "bodyBatteryValuesArray": [[0, 0, 80]]},
+    "sleep":        {"sleepLevels": [{"level": "deep"}],
                     "dailySleepDTO": {"sleepTimeSeconds": 28800}},
-    "activities":  [{"activityName": "Run"}],
-    "steps":       [{"startGMT": "2024-01-01T08:00:00", "steps": 100}],
+    "activities":   [{"activityName": "Run"}],
+    "steps":        [{"startGMT": "2024-01-01T08:00:00", "steps": 100}],
+    "respiration":  {"respirationValuesArray": [[0, 15]]},
 }
 f_high = quality.assess_quality_fields(raw_fields_high)
 check("fields high: heart_rates=high",  f_high.get("heart_rates") == "high")
@@ -343,6 +344,7 @@ check("fields high: sleep=high",        f_high.get("sleep") == "high")
 check("fields high: body_battery=high", f_high.get("body_battery") == "high")
 check("fields high: activities=high",   f_high.get("activities") == "high")
 check("fields high: steps=high",        f_high.get("steps") == "high")
+check("fields high: respiration=high",  f_high.get("respiration") == "high")
 
 raw_fields_medium = {
     "date": "2022-01-01",

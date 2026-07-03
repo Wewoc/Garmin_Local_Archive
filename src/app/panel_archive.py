@@ -833,6 +833,7 @@ class PanelArchive(QWidget):
                 "Enter the password for the mirror container.\n"
                 "This password protects data in transit (USB, NAS, cloud folder)."
             ),
+            mode        = "unlock",
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return

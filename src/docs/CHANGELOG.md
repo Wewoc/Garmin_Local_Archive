@@ -1,5 +1,109 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.3.1 — Heatmap Dashboard + spo2/respiration Fix + Mirror Password Mode
+
+Ships the Heatmap dashboard specialist deferred from v1.6.3, and uncovers two
+independent, pre-existing bugs along the way — both found only because the
+new SpO2/Respiration panels stayed empty instead of showing data, reaching
+well beyond the heatmap itself.
+
+**New modules:**
+- `dashboards/heatmap_garmin_html_dash.py` — Specialist. Pivots six intraday
+  fields (Heart Rate, Steps, Stress, Body Battery, SpO2, Respiration) into
+  date × hourly-bin matrices. Aggregation: mean for continuous metrics, sum
+  for Steps (a count metric). Pivot logic deliberately lives in the
+  specialist, not the renderer — it's a data transformation, not a rendering
+  decision, consistent with the existing sleep-phase-percentage pattern.
+- `layouts/render/heatmap.py` — Renderer. One Plotly heatmap panel per
+  metric, tab navigation (analogous to Recovery Context). Colorscales:
+  HR = `RdYlBu` (reversed), Steps = `Viridis`, Body Battery = `RdYlGn` —
+  library scales. Stress/SpO2/Respiration = custom scales derived from each
+  metric's own brand color in `dash_layout.METRIC_META`, for consistency
+  with the rest of the app rather than generic library colors for metrics
+  that already have a fixed color everywhere else.
+
+**Changed modules:**
+- `layouts/dash_plotter_html_complex.py` — one entry `"heatmap"` in
+  `_REGISTRY`. The Render Registry pattern (v1.6.0.5) worked exactly as
+  designed — no `if/elif` edit needed.
+- `layouts/dash_layout.py` — `METRIC_META` entry for `steps_series` added
+  (was missing entirely, even though the field has existed since v1.6.3).
+- `compiler/build_manifest.py` — two new entries in `SHARED_SCRIPTS`.
+- `tests/test_dashboard.py` — new Section 18 (META, `build()` structure,
+  hourly aggregation, HTML render, ValueError guard).
+
+**Bug found #1 — `maps/garmin_map.py`: `spo2_series`/`respiration_series`
+have been returning empty data for every consumer, for an unknown amount of
+time:**
+The real Garmin raw data (`spO2HourlyAverages`, `respirationValuesArray`) is
+a list of `[epoch_ms, value]` pairs — exactly like `heartRateValues`/
+`stressValuesArray`. `_FIELD_MAP` expected a dict structure for both fields
+instead (`ts_index`/`val_index` = `None`). Every item fell through both
+extraction branches in `_extract_series()` and hit `else: continue` — the
+series was empty for every day, for every existing consumer
+(`timeseries_garmin`, `explorer_garmin-context`, `sleep_recovery_context`),
+not just the new heatmap. Went unnoticed because the test fixtures in
+`test_dashboard.py` were themselves built dict-shaped — they validated the
+wrong assumption against itself. No data loss: `raw/` stores the API
+response unmodified, this was a pure read-path bug in the broker.
+- `maps/garmin_map.py` — `ts_index`/`val_index` changed from `None` to
+  `0`/`1` for both fields, matching the already-correct pattern used by
+  `heart_rate_series`/`stress_series`/`body_battery_series`.
+- `tests/test_dashboard.py` — fixtures switched to the real list-pair
+  structure.
+
+**Bug found #2 — `garmin/quality/_assess.py`: wrong key name for
+respiration quality assessment:**
+Caught incidentally by the DEPS scan for bug #1. `assess_quality_fields()`
+reads `resp.get("respirationValues")` — a key that doesn't exist anywhere
+(the real key is `respirationValuesArray`). `resp_values` is therefore
+always `None`, so the respiration field-level label can never become
+`"high"`. Independent of bug #1 (different module, different failure mode —
+a key-name typo, not a structural misassumption). Only affects the
+field-level quality label, does not feed into `assess_quality()`'s
+top-level label (precedent: SpO2/Body Battery/Respiration/Steps) — no
+downgrade risk, but a wrong diagnosis nonetheless.
+- `garmin/quality/_assess.py` — key corrected.
+- `tests/test_local.py` — the `raw_fields_high` fixture had no
+  `respiration` entry at all; added, including a new check.
+
+**Bug found #3 — `app/dialogs.py`: Mirror Import shows a meaningless
+confirm-password field:**
+`_on_import_mirror()` used the same `PasswordConfirmDialog` (password +
+confirm) as `_on_mirror()` (export). But import enters an already-existing
+password — `unlock_meta()` verifies it regardless, so a confirm field
+serves no purpose.
+- `app/dialogs.py` — `PasswordConfirmDialog` gains `mode: str = "setup"`
+  (default preserves existing behavior for export + Encrypted Dashboards).
+  `mode="unlock"` hides the confirm field and the match check. Pattern
+  borrowed from `panel_connection.py`'s encryption-key dialog, which
+  already does this.
+- `app/panel_archive.py` — `_on_import_mirror()` now calls the dialog with
+  `mode="unlock"`.
+- `tests/test_qt_app.py` — new `TestPasswordConfirmDialog` class (4 checks).
+
+**Carry-over from v1.6.3:**
+- `garmin/garmin_collector.py` — `_run_steps_backfill()` now checks the
+  return value of `patch_source_field()`. Separate counter
+  `source_patch_failed` (not counted in `ok`/`failed`, since raw/summary/
+  quality_log had already been written successfully before the patch is
+  attempted) — visibility without skewing the statistics.
+
+**Open, deliberately deferred:** The respiration raw data also contains
+`wellnessEpochRespirationDataDTOList` (dict-shaped) — an apparently newer,
+parallel Garmin structure alongside the still-populated
+`respirationValuesArray`. Not touched, no urgency. Candidate for its own
+analysis session.
+
+**DEPS scans this session:** `v1631_01` (Heatmap render-registry shadow,
+build-manifest, steps_series consumers — clean, one known documented
+exception in `dash_plotter_excel.py`), `v1631_02` (spo2/respiration
+dict-key shadow, consumer-empty-assumption — also caught bug #2).
+
+**Test result:** 469 / 261 / 377 / 145 / 46 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
 ## v1.6.3 — Steps Intraday Foundation + Backfill
 
 Adds Steps Intraday data (15-minute bins via `get_steps_data`) as the 15th archive endpoint, plus a sixth background timer mode that incrementally backfills this field into already archived high-quality days from the last 140 days. The backfill updates both `raw/` and `source/` without downgrade risk and without re-fetching the other 13 endpoints. Originally planned as part of the Heatmap Dashboard, the feature was resequenced during development into a Foundation + Backfill implementation, while the Heatmap itself was deferred to v1.6.3.1 (Archive-First priority: the backfill window is time-limited, the dashboard is not).
