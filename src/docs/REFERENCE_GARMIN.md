@@ -57,7 +57,7 @@ garmin_app.py (GUI)
 - `garmin_silo_check.py` is a leaf node — imports only `garmin_config` + stdlib. Read-only. No writes, no imports of write modules (v1.6.0.4.7)
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
-- `_process_day()` returns `(label, written, fields, val_result)` — never raises
+- `_fetch_and_assess()` returns `(label, normalized, summary, fields, val_result)` — never raises
 - `garmin_backup` must never import `garmin_writer` or `garmin_quality` — avoids circular imports
 - `normalize()` is never called during mirror import — raw in mirror is already normalized
 
@@ -354,18 +354,7 @@ After `_fetch_and_assess()`, `_check_downgrade()` compares the new label against
 | `TrainingReadinessDTO_*.json` | `DI-Connect-Metrics/` | Training readiness |
 | `*_summarizedActivities.json` | `DI-Connect-Fitness/` | Activity summaries |
 
-**Not available in bulk export (API only):** intraday HR, stress curve, body battery curve, SpO2 series, respiration series, HRV details, training status. Bulk data always results in `medium` or `low` quality — never `high`.
-
----
-
-## `garmin_utils.py`
-
-Leaf node — no project-module imports.
-
-| Function | Purpose |
-|---|---|
-| `parse_device_date(val)` | Converts device date to `YYYY-MM-DD`. Handles ISO strings and Unix timestamps |
-| `parse_sync_dates(raw)` | Parses comma-separated date string into sorted list of `date` objects |
+**Not available in bulk export (API only):** intraday HR, stress curve, body battery curve, SpO2 series, respiration series, HRV details, training status. Bulk data always results in `standard` quality — never `high`.
 
 ---
 
@@ -463,7 +452,7 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
       "last_attempt": "2026-03-22T14:32:11",
       "validator_result": "ok",
       "validator_issues": [],
-      "validator_schema_version": "1.0"
+      "validator_schema_version": "1.1"
     }
   ]
 }
