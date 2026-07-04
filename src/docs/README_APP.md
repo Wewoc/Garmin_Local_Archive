@@ -111,8 +111,33 @@ The app window is divided into two areas:
 - **Export date range** — used by all dashboards. Leave empty to use the oldest/newest file in your archive automatically
 - **Age / Sex** — used by the Health Analysis dashboard for reference ranges
 - **Mirror folder** — optional second location for your archive (NAS, USB, external drive). Leave empty to disable. Set once, then use the **Mirror** button to sync.
+- **Delay min / max (s)** — randomized pause between individual Garmin API requests (default: 5 / 20). Garmin Connect has no official public API — this tool uses the same endpoints the mobile app itself calls. A randomized delay within this range keeps request timing within normal usage patterns and helps avoid rate limiting (HTTP 429). Lower values increase the risk of a temporary IP ban — 5/20 is the recommended minimum.
 
 Click **Save Settings** — settings are remembered between sessions.
+
+---
+
+## Password security
+
+Your password is stored in the **Windows Credential Manager** (the same secure vault used by browsers and Windows itself). It is:
+
+- Encrypted by Windows using your login credentials
+- Never written to any file on disk
+- Only readable by your Windows user account
+
+To remove the stored password: open Windows Credential Manager → Windows Credentials → find `GarminLocalArchive` → delete.
+
+---
+
+## Settings file
+
+All settings except the password are saved to:
+
+```
+C:\Users\YourName\.garmin_archive_settings.json
+```
+
+Delete this file to reset all settings to defaults. The password must be cleared separately via the Windows Credential Manager.
 
 ---
 
@@ -217,12 +242,13 @@ When all queues are empty the timer stops automatically and logs "Archive comple
 
 The timer runs its own connection test before the first sync. If successful, the connection indicators in the top panel turn green. Clicking the timer button while a sync is running stops the current download immediately.
 
-### Berichte erstellen
+### Create Reports
 Opens a popup with all available dashboards and their output formats. Select any combination of dashboards and formats, then click **Erstellen**.
 
 | Dashboard | HTML | Mobile HTML | Excel | JSON |
 |---|---|---|---|---|
 | Timeseries | ✓ | — | ✓ | — |
+| Heatmap | ✓ | — | — | — |
 | Health Analysis | ✓ | ✓ | — | ✓ |
 | Daily Overview | — | — | ✓ | — |
 | Health + Context | ✓ | — | ✓ | — |
@@ -314,48 +340,6 @@ If no error logs exist, a message appears in the log area instead.
 
 ---
 
-## Session logs
-
-Every sync automatically writes a detailed log to your data folder:
-
-```
-local_archive/
-  garmin_data/
-    └── log/
-       ├── recent/    – last 30 sync sessions (always full detail)
-       └── fail/      – sessions with errors or incomplete days (kept permanently)
-```
-
-Manual sync sessions are named `garmin_YYYY-MM-DD_HHMMSS.log`. Background timer sessions are named `garmin_background_YYYY-MM-DD_HHMMSS.log`.
-
-These are plain text files — open them in any text editor if you need to diagnose a problem.
-
----
-
-## Password security
-
-Your password is stored in the **Windows Credential Manager** (the same secure vault used by browsers and Windows itself). It is:
-
-- Encrypted by Windows using your login credentials
-- Never written to any file on disk
-- Only readable by your Windows user account
-
-To remove the stored password: open Windows Credential Manager → Windows Credentials → find `GarminLocalArchive` → delete.
-
----
-
-## Settings file
-
-All settings except the password are saved to:
-
-```
-C:\Users\YourName\.garmin_archive_settings.json
-```
-
-Delete this file to reset all settings to defaults. The password must be cleared separately via the Windows Credential Manager.
-
----
-
 ## Daily Sync — automated daily operation
 
 `daily_update` runs the full daily workflow headlessly — no GUI, no manual interaction. Configure the app once, then let `daily_update` handle the rest automatically via Windows Task Scheduler.
@@ -400,23 +384,21 @@ A ready-to-import XML template (`daily_update_task.xml`) ships in `info/`. Impor
 
 ---
 
-## Building from source
+## Session logs
 
-> **Standard version only.**
+Every sync automatically writes a detailed log to your data folder:
 
-To rebuild after modifying scripts:
-
-```bash
-python build.py
+```
+local_archive/
+  garmin_data/
+    └── log/
+       ├── recent/    – last 30 sync sessions (always full detail)
+       └── fail/      – sessions with errors or incomplete days (kept permanently)
 ```
 
-`build.py` will automatically install PyInstaller if missing, move scripts to `scripts/` and docs to `info/`, build the EXE, and create a ZIP ready for distribution.
+Manual sync sessions are named `garmin_YYYY-MM-DD_HHMMSS.log`. Background timer sessions are named `garmin_background_YYYY-MM-DD_HHMMSS.log`.
 
-To build the Standalone version:
-
-```bash
-python build_standalone.py
-```
+These are plain text files — open them in any text editor if you need to diagnose a problem.
 
 ---
 
@@ -448,3 +430,23 @@ python build_standalone.py
 **Background timer shows days as `standard` instead of `high`** — this is expected behaviour. `standard` means the API returned full daily data but no intraday detail (heart rate curve, stress curve, etc.). This happens for older dates where Garmin has permanently degraded intraday resolution, or for device eras that never produced intraday data. The timer retries `standard` days only if the previous day had intraday data and the 180-day retry window is still open — after that the label is accepted as final and those days are never touched again.
 
 **Antivirus flags the EXE** — this is a false positive common with PyInstaller-built executables. The source code is fully open at github.com/Wewoc/Garmin_Local_Archive. You can whitelist the file in your antivirus settings or build the EXE yourself from source.
+
+---
+
+## Building from source
+
+> **Standard version only.**
+
+To rebuild after modifying scripts:
+
+```bash
+python build.py
+```
+
+`build.py` will automatically install PyInstaller if missing, move scripts to `scripts/` and docs to `info/`, build the EXE, and create a ZIP ready for distribution.
+
+To build the Standalone version:
+
+```bash
+python build_standalone.py
+```
