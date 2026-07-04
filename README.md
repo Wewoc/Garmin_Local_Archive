@@ -159,7 +159,7 @@ The **Bulk Import** feature fills in the rest: request your full data export fro
 Local-first, personal use, no enterprise ambitions.
 
 - Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
-- Five local test suites (checks + build output validation) — no CI/CD yet
+- Six local test suites (checks + build output validation) — no CI/CD yet
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Large sync operations are not checkpointed yet
 - Historical data quality depends on Garmin servers

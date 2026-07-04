@@ -66,7 +66,6 @@ All modules import via `import garmin_config as cfg`.
 | `SOURCE_API_LOG` | `LOG_DIR/source_api_log.json` | Per-day fetch metadata: validator status, endpoints, byte size |
 | `SOURCE_BACKUP_DIR` | `BACKUP_DIR/source` | Source backup — sole owner: `garmin_backup_source.py` (v1.6.0.4) |
 | `GARMIN_TOKEN_DIR` | `LOG_DIR/garmin_token` | Temp dir for garminconnect library |
-| `GARMIN_TOKEN_DIR` | `LOG_DIR/garmin_token` | Temp dir for garminconnect library |
 | `GARMIN_TOKEN_FILE` | `LOG_DIR/garmin_token.enc` | AES-256-GCM encrypted OAuth token |
 | `CRASH_LOG_DIR` *(documented exception)* | `%LOCALAPPDATA%\GarminLocalArchive\crash\` → `%TEMP%` → cwd fallback chain | Global crash logs — sole owner: `crash_handler.py` (v1.6.0.4.3). **Deliberately not under `BASE_DIR`**: the crash may itself be caused by `BASE_DIR` being unwritable or unreachable, so the crash logger cannot depend on it. Rotation: `CRASH_LOG_MAX = 30`, analogous to `LOG_RECENT_MAX`/`LOG_DAILY_MAX`. |
 | `CONTEXT_DIR` | `BASE_DIR/context_data` | External API data root |
@@ -130,18 +129,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │                                  after each QWebEngineView() instantiation
     │                                  (v1.6.0.4.4, A5)
     │
-    ├── layouts/                    ← Format renderers + passive resources
-    │   ├── __init__.py
-    │   ├── dash_layout.py
-    │   ├── dash_layout_html.py
-    │   ├── dash_plotter_html.py
-    │   ├── dash_plotter_html_complex.py
-    │   ├── dash_plotter_html_mobile.py
-    │   ├── dash_plotter_excel.py
-    │   ├── dash_plotter_json.py
-    │   ├── dash_prompt_templates.py
-    │   ├── reference_ranges.py
-    │   └── garmin_mobile_landing.py  ← Mobile landing page generator (v1.5.8.1+)
+    ├── app/                        ← Layer 1+3: settings persistence + application logic (v1.5.2+)
     │   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
     │   ├── panel_home.py           ← PanelHome(QWidget) — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Home tab: Dashboard viewer (v1.6.0+)
     │   ├── panel_settings.py       ← PanelSettings(QWidget) — credentials, paths, sync config (v1.5.4+)
@@ -233,18 +221,17 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   ├── sleep_garmin_html-xls_dash.py
     │   └── explorer_garmin-context_html_dash.py
     │
-    ├── layouts/                    ← Format renderers + passive resources
+├── app/                        ← GUI logic layer (v1.5.2+): settings, controller, panel Mixins (v1.5.3+)
     │   ├── __init__.py
-    │   ├── dash_layout.py
-    │   ├── dash_layout_html.py
-    │   ├── dash_plotter_html.py
-    │   ├── dash_plotter_html_complex.py
-    │   ├── dash_plotter_html_mobile.py
-    │   ├── dash_plotter_excel.py
-    │   ├── dash_plotter_json.py
-    │   ├── dash_prompt_templates.py
-    │   ├── reference_ranges.py
-    │   └── garmin_mobile_landing.py  ← Mobile landing page generator (v1.5.8.1+)
+    │   ├── dialogs.py              ← PasswordConfirmDialog(QDialog) — shared password entry/confirm dialog. mode="setup": two fields + match-check (new passwords). mode="unlock": one field, no confirm (existing passwords, e.g. mirror import where unlock_meta() validates anyway). Used by panel_archive.py (Mirror Container) and panel_outputs.py (Encrypted Dashboards). PyQt6-only import, no project-module imports, no business logic
+    │   ├── garmin_app_settings.py  ← Layer 1: settings persistence, keyring helpers, constants (no tkinter/Qt)
+    │   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
+    │   ├── panel_home.py           ← PanelHome(QWidget) — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Home tab: Dashboard viewer (v1.6.0+)
+    │   ├── panel_settings.py       ← PanelSettings(QWidget) — credentials, paths, sync config (v1.5.4+)
+    │   ├── panel_connection.py     ← PanelConnection(QWidget) — connection dialogs, token reset; indicators delegated to panel_home (v1.5.4+)
+    │   ├── panel_archive.py        ← PanelArchive(QWidget) — integrity, mirror, clean, schema migration (v1.5.4+)
+    │   ├── panel_timer.py          ← PanelTimer(QWidget) — background timer, loop, controller delegates (v1.5.4+)
+    │   └── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers (v1.5.4+)
     │
     ├── export/                     
     │   ├── regenerate_summaries.py
