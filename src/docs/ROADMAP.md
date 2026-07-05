@@ -6,24 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.3.1**
-
----
-
-### v1.6.4 — Custom Dashboard Builder
-
-A dialog in `panel_outputs.py` that replaces the fixed specialist list with free field selection. The user picks Garmin and Context fields, sets a date range and output format — the app assembles and renders the result directly, without persisting a specialist file.
-
-**What changes:**
-- `panel_outputs.py` — new "Custom Dashboard" button in the Export section; opens a dialog with field picker (Garmin + Context), date range input, and format selector
-- `dash_runner.py` — accepts an ad-hoc specialist dict (fields + metadata) in addition to file-based specialists; no new file written to disk
-- `field_map.py` / `context_map.py` — `list_fields()` used to populate the picker dynamically
-
-**What does not change:**
-- Plotter stack — called identically to the existing Create Reports flow
-- Existing specialists — unaffected; the fixed list remains available
-
-**Pre-condition:** v1.6 Render Registry stable — field_map.py broker and plotter dispatch finalized before the picker is built against it.
+**Currently stable — v1.6.4**
 
 ---
 

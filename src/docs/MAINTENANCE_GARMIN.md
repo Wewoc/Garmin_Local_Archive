@@ -79,7 +79,7 @@ or later).
 
 ## garmin_app.py (Target 1 + 2)
 
-Desktop GUI built with tkinter. Target 2 is distributed as a PyInstaller `.exe` — `scripts/` must stay next to it at runtime.
+Desktop GUI built with PyQt6. Target 2 is distributed as a PyInstaller `.exe` — `scripts/` must stay next to it at runtime.
 
 ### Key design decisions
 

@@ -1,5 +1,68 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.4 — Custom Dashboard Builder
+
+A dialog in `panel_outputs.py` that replaces the fixed specialist list with
+free field selection. The user picks Garmin and Context daily fields, sets a
+date range and output format, and the app assembles and renders the result
+directly — no specialist file is written to disk. Presets let a chosen field
+selection be saved, reloaded, or deleted by name. An "Encrypt" option reuses
+the existing password/AES-256 flow for the HTML output.
+
+Confirmed during analysis: `dash_runner.build()` requires no changes — it
+only needs an object with `.META`, `.build()`, and `.__name__`, satisfied by
+an in-memory `types.ModuleType`. The file-based assumptions found in
+`dash_runner.scan()` / `_load_specialist()` only apply to the auto-discovery
+checkbox popup ("Create Reports"), which the Custom Dashboard Builder never
+goes through.
+
+**New modules:**
+- `dashboards/custom_dash_builder.py` — Builds an ad-hoc, in-memory
+  specialist from a user field selection. Deliberately not named `*_dash.py`
+  so `dash_runner.scan()`'s glob never picks it up as a real specialist.
+  `list_available_fields()` mirrors the Explorer specialist's Daily-field
+  enumeration (local copy of its exclusion set, by design — specialists are
+  standalone, no cross-specialist imports). Output shape matches the
+  existing `health_garmin-weather-pollen_html-xls_dash` contract
+  (`"fields"` list with `"days"`) — renders via the existing
+  `dash_plotter_html_mobile` and `dash_plotter_excel`, no new plotter, no
+  new `dash_plotter_html_complex` layout key.
+- `app/garmin_dashboard_presets.py` — Sole Owner of the Custom Dashboard
+  preset file (`~/.garmin_dashboard_presets.json`), mirroring the
+  persistence pattern in `garmin_app_settings.py`. `load_presets()` /
+  `save_preset()` / `delete_preset()`. Preset schema includes `"encrypt"`
+  (bool) — the password itself is never persisted, only the on/off
+  preference.
+
+**Changed modules:**
+- `app/panel_outputs.py` — New "🎛 Custom Dashboard" button in the Export
+  section. New `_open_custom_dashboard_popup()`: field picker (Garmin +
+  Context), date range (fixed or relative "days back"), format checkboxes
+  (HTML / Excel), preset load/save/delete. `_run_dashboards()` extended with
+  optional `date_from`/`date_to` parameters (default `None` → unchanged
+  behaviour, falls back to Settings) so the Custom Dashboard can use its own
+  date range without touching the existing Create Reports call site. New
+  `_run_custom_dashboard_encrypted()` — a structural copy of
+  `_run_encrypted_dashboards()`, applied to the ad-hoc module and the
+  dialog's own date range instead of a full specialist scan and the global
+  Settings range; `_run_encrypted_dashboards()` itself is untouched. The
+  "Encrypt" checkbox disables and clears "Excel" while active — the app has
+  no Excel encryption anywhere, made explicit here rather than silently
+  dropped later.
+- `compiler/build_manifest.py` — both new modules added to `SHARED_SCRIPTS`
+  and `SCRIPT_SIGNATURES_BASE`.
+
+**What does not change:**
+- `dash_runner.py`, `dash_plotter_html_mobile.py`, `dash_plotter_excel.py`,
+  `dash_plotter_html_complex.py` — no changes needed
+- Existing specialists and the Create Reports flow — unaffected
+- `_run_encrypted_dashboards()` — unaffected, left as-is
+
+**Test result:** 469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors,
+bandit 0 HIGH
+
+---
+
 ## v1.6.3.1 — Heatmap Dashboard + spo2/respiration Fix + Mirror Password Mode
 
 Ships the Heatmap dashboard specialist deferred from v1.6.3, and uncovers two

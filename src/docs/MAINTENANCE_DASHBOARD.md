@@ -137,7 +137,7 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 377 checks, 18 sections.**
+**Current count: 409 checks, 20 sections.**
 
 | Section | Coverage |
 |---|---|
@@ -156,9 +156,11 @@ python tests/test_dashboard.py
 | 13 | `sleep_recovery_context` specialist + complex plotter (facade + render registry v1.6.0.5) |
 | 14 | `sleep_garmin` specialist + html + excel render — rows carry `hrv_7d_avg` (computed in build, rendered in both plotters). Phase bar cells carry letter labels (D/L/R/A) in contrast color (v1.5.8+) |
 | 15 | `garmin_map` broker contract |
-| 16 | Specialist return contract — alle 6 specialists |
+| 16 | Specialist return contract — alle 7 specialists |
 | 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards |
 | 18 | `heatmap_garmin` specialist + complex plotter — six metrics pivoted to date×hour matrices, tab navigation, ValueError guard (v1.6.3.1) |
+| 19 | `custom_dash_builder` — `list_available_fields()` exclusions, ad-hoc module contract (`.META`/`.build`/`.__name__`), integration with `dash_runner.build()` using no file on disk (v1.6.4) |
+| 20 | `garmin_dashboard_presets` — `load_presets()`/`save_preset()`/`delete_preset()` round-trip, missing-file default, no-op delete (v1.6.4) |
 
 **Broker contract (section 15):** `garmin_map.get()` gibt immer `values` (list), `fallback` (bool), `source_resolution` (str) zurück. Unbekanntes Feld → `KeyError`. Ungültige Resolution → `ValueError`. Gilt analog für `weather_map` und `pollen_map` — getestet in `test_local_context.py`.
 

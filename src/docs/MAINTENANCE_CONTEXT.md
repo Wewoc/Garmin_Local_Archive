@@ -52,6 +52,9 @@ Dashboard specialists
 
 **Check count: 261** (v1.5.6 — `write_file()` is a thin atomic wrapper, tested implicitly via import round-trip; no new sections added)
 
+**Note on count accuracy:** The 261 figure reflects `check()`-based checks inside the 13 numbered sections only. A handful of standalone pytest-style test functions (`test_airquality_plugin_*`, `test_parse_hourly_to_daily_*`) exist after the `summary()` call at file end — these run under `pytest tests/test_local_context.py` but not under the plain `python tests/test_local_context.py` script invocation, so the two invocation modes report different totals.
+
+
 ```bash
 python tests/test_local_context.py
 ```
