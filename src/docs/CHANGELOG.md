@@ -10,7 +10,12 @@ reference file. Documentation-only change — no code touched.
   `context_map.get()`: signatures, request/response contract, error
   behaviour, broker overview table. Field-level internal mappings stay in
   `REFERENCE_GARMIN.md` / `REFERENCE_CONTEXT.md` — referenced, not
-  duplicated. Placeholder section for `fit_map` (v1.7) and `mcp_map` (v1.9).
+  duplicated. Includes a names-only field index across all five registered
+  sources (garmin/weather/pollen/brightsky/airquality) as a quick lookup —
+  not the source of truth, `list_fields()` remains authoritative. Notes the
+  `wind_speed_max` naming collision between `weather` and `brightsky`
+  (independently defined, different internal keys). Placeholder section for
+  `fit_map` (v1.7) and `mcp_map` (v1.9).
 
 **Changed files:**
 - `REFERENCE_DASHBOARD.md` — "Broker interface" section replaced with a
