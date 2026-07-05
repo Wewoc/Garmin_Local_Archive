@@ -2,6 +2,7 @@
 
 Technical reference for the external API collect pipeline (`context/` + `maps/`).
 For shared paths, constants, and project structure see `REFERENCE_GLOBAL.md`.
+For the broker request/response contract (`context_map.get()`) see `REFERENCE_BROKER.md`.
 
 ---
 
