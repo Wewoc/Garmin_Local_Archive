@@ -244,6 +244,7 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   ├── REFERENCE_GARMIN.md
     │   ├── REFERENCE_CONTEXT.md
     │   ├── REFERENCE_DASHBOARD.md
+    │   ├── REFERENCE_BROKER.md
     │   ├── MAINTENANCE_GLOBAL.md
     │   ├── MAINTENANCE_GARMIN.md
     │   ├── MAINTENANCE_CONTEXT.md
