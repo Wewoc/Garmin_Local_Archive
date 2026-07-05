@@ -115,6 +115,52 @@ Unknown source name → `list_fields()` returns `[]` (no exception, no `KeyError
 
 ---
 
+## Field index — all registered fields
+
+Names only, no internal keys/units — for those see `REFERENCE_GARMIN.md`
+(garmin) and `REFERENCE_CONTEXT.md` (weather/pollen/brightsky/airquality).
+This list is a convenience lookup, not the source of truth — `list_fields()`
+in the corresponding `*_map.py` module always reflects the current state.
+Update this list whenever a field is added or removed (see `FINAL_DOKU_PROMPT`).
+
+**`field_map` → `garmin`** (19 fields)
+
+`hrv_last_night`, `resting_heart_rate`, `spo2_avg`, `sleep_duration`,
+`body_battery_max`, `stress_avg`, `vo2max`, `sleep_score_feedback`,
+`sleep_score_qualifier`, `sleep_deep_pct`, `sleep_light_pct`,
+`sleep_rem_pct`, `sleep_awake_pct`, `heart_rate_series`, `stress_series`,
+`spo2_series`, `body_battery_series`, `respiration_series`, `steps_series`
+
+**`context_map` → `weather`** (6 fields)
+
+`temperature_max`, `temperature_min`, `precipitation`, `wind_speed_max`,
+`uv_index_max`, `sunshine_duration`
+
+**`context_map` → `pollen`** (6 fields)
+
+`pollen_birch`, `pollen_grass`, `pollen_alder`, `pollen_mugwort`,
+`pollen_olive`, `pollen_ragweed`
+
+**`context_map` → `brightsky`** (9 fields)
+
+`temperature_avg`, `humidity_avg`, `precipitation_sum`, `sunshine_sum`,
+`wind_speed_max`, `wind_gust_max`, `cloud_cover_avg`, `pressure_avg`,
+`condition`
+
+**`context_map` → `airquality`** (5 fields)
+
+`airquality_pm2_5`, `airquality_pm10`, `airquality_european_aqi`,
+`airquality_nitrogen_dioxide`, `airquality_ozone`
+
+**Naming collision, deliberate:** `weather` and `brightsky` both register a
+field called `wind_speed_max` — same generic name, independently defined in
+each `_FIELD_MAP`, different internal source keys (`wind_speed_10m_max` vs.
+`wind_speed`). A consumer must specify which source it means, not just the
+field name — `context_map.get()` returns both under separate source keys in
+the same response dict when both are queried.
+
+---
+
 ## Future brokers
 
 `fit_map.py` (v1.7) and `mcp_map.py` (v1.9) are planned as peers to
