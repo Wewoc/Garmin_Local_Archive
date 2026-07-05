@@ -1265,6 +1265,121 @@ except ValueError:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  19. custom_dash_builder — ad-hoc specialist + dash_runner.build()
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("19. custom_dash_builder — ad-hoc specialist + dash_runner.build()")
+
+import custom_dash_builder
+
+_available = custom_dash_builder.list_available_fields()
+check("list_available_fields returns garmin list",    isinstance(_available["garmin"], list))
+check("list_available_fields returns context list",   isinstance(_available["context"], list))
+check("list_available_fields excludes sleep phases",  "sleep_deep_pct" not in _available["garmin"])
+check("list_available_fields excludes series fields",
+      not any(f.endswith("_series") for f in _available["garmin"]))
+check("list_available_fields includes hrv_last_night", "hrv_last_night" in _available["garmin"])
+check("list_available_fields includes temperature_max","temperature_max" in _available["context"])
+
+_custom_mod = custom_dash_builder.build_ad_hoc_specialist(
+    name="Test Custom Dashboard",
+    description="2 field(s) selected",
+    garmin_fields=["hrv_last_night"],
+    context_fields=["temperature_max"],
+)
+
+check("ad-hoc module has META",                 hasattr(_custom_mod, "META"))
+check("ad-hoc module META has html_mobile",     "html_mobile" in _custom_mod.META["formats"])
+check("ad-hoc module META has excel",           "excel" in _custom_mod.META["formats"])
+check("ad-hoc module has build",                callable(_custom_mod.build))
+check("ad-hoc module has __name__",             hasattr(_custom_mod, "__name__"))
+
+_custom_data = _custom_mod.build(_TEST_DATE, _TEST_DATE, {})
+check("ad-hoc build returns dict",              isinstance(_custom_data, dict))
+check("ad-hoc build has fields",                "fields" in _custom_data)
+check("ad-hoc build has 2 fields",              len(_custom_data["fields"]) == 2)
+
+_ah_hrv = next((f for f in _custom_data["fields"] if f["field"] == "hrv_last_night"), None)
+check("ad-hoc hrv present",                     _ah_hrv is not None)
+check("ad-hoc hrv has days",                    "days" in _ah_hrv)
+check("ad-hoc hrv day value correct",           _ah_hrv["days"][0]["value"] == 62.0)
+
+_ah_temp = next((f for f in _custom_data["fields"] if f["field"] == "temperature_max"), None)
+check("ad-hoc temperature present",             _ah_temp is not None)
+check("ad-hoc temperature group is weather",    _ah_temp.get("group") == "weather")
+
+# Integration: dash_runner.build() must accept the ad-hoc module unchanged —
+# no file on disk, no spec_from_file_location, contract-only (.META/.build/.__name__)
+import dash_runner
+
+_out_custom_dir = _TMPDIR / "custom_dash_out"
+_out_custom_dir.mkdir()
+
+_custom_results = dash_runner.build(
+    selections=[(_custom_mod, "html_mobile"), (_custom_mod, "excel")],
+    date_from=_TEST_DATE,
+    date_to=_TEST_DATE,
+    settings={},
+    output_dir=_out_custom_dir,
+)
+check("dash_runner.build accepts ad-hoc module",   isinstance(_custom_results, list))
+check("dash_runner.build result count == 2",       len(_custom_results) == 2)
+check("dash_runner.build html_mobile success",
+      any(r["success"] and r["format"] == "html_mobile" for r in _custom_results))
+check("dash_runner.build excel success",
+      any(r["success"] and r["format"] == "excel" for r in _custom_results))
+
+_html_result = next(r for r in _custom_results if r["format"] == "html_mobile")
+check("ad-hoc html file exists",                _html_result["file"].exists())
+_excel_result = next(r for r in _custom_results if r["format"] == "excel")
+check("ad-hoc excel file exists",               _excel_result["file"].exists())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  20. garmin_dashboard_presets — save/load/delete round-trip
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("20. garmin_dashboard_presets — save/load/delete round-trip")
+
+sys.path.insert(0, str(_ROOT / "app"))
+import garmin_dashboard_presets as presets_mod
+from unittest.mock import patch
+
+_presets_file = _TMPDIR / ".garmin_dashboard_presets_test.json"
+
+with patch.object(presets_mod, "PRESETS_FILE", _presets_file):
+    check("load_presets: empty when file missing",  presets_mod.load_presets() == {})
+
+    _preset = {
+        "garmin_fields":  ["hrv_last_night"],
+        "context_fields": ["temperature_max"],
+        "date_mode":      "relative",
+        "days_back":      30,
+        "formats":        ["html_mobile", "excel"],
+    }
+    presets_mod.save_preset("My Preset", _preset)
+    _loaded = presets_mod.load_presets()
+    check("save_preset: preset present after save",  "My Preset" in _loaded)
+    check("save_preset: fields roundtrip correctly",
+          _loaded["My Preset"]["garmin_fields"] == ["hrv_last_night"])
+
+    presets_mod.save_preset("Second Preset", {
+        "garmin_fields": [], "context_fields": [],
+        "date_mode": "fixed", "date_from": "2026-01-01",
+        "date_to": "2026-01-31", "formats": ["excel"],
+    })
+    check("save_preset: two presets present",        len(presets_mod.load_presets()) == 2)
+
+    presets_mod.delete_preset("My Preset")
+    _after_delete = presets_mod.load_presets()
+    check("delete_preset: preset removed",           "My Preset" not in _after_delete)
+    check("delete_preset: other preset unaffected",  "Second Preset" in _after_delete)
+
+    presets_mod.delete_preset("Nonexistent Preset")
+    check("delete_preset: no-op on missing preset (no crash)", True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

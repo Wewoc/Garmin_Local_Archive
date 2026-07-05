@@ -296,6 +296,64 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
 
 `field_options` covers all Garmin daily fields (excluding categorical and phase fields) plus all context fields (weather, pollen, air quality). Sleep score labels are rendered as a vertical Plotly text trace inside the sleep phase panel — one label per day at the position of its bar.
 
+### `custom_dash_builder` — Custom Dashboard Builder (v1.6.4)
+
+Not a specialist file — `dashboards/custom_dash_builder.py` builds an
+in-memory specialist at runtime from a user field selection (Daily Garmin +
+Context fields only, no intraday). Deliberately not named `*_dash.py` so
+`dash_runner.scan()`'s glob never discovers it; the Custom Dashboard dialog
+in `panel_outputs.py` calls `build_ad_hoc_specialist()` directly and passes
+the resulting `types.ModuleType` straight into `dash_runner.build()`.
+
+```python
+build_ad_hoc_specialist(name, description, garmin_fields, context_fields) -> types.ModuleType
+```
+
+Confirmed during v1.6.4 analysis: `dash_runner.build()` needs no changes to
+accept this — it only requires `.META`, `.build(date_from, date_to, settings)`,
+and `.__name__` on the passed object. The file-based assumptions in
+`dash_runner.scan()` / `_load_specialist()` only apply to the auto-discovery
+checkbox popup ("Create Reports"), which the ad-hoc module never goes
+through.
+
+The returned module's `.META["formats"]` always offers `html_mobile` +
+`excel` — no `html_complex`, no new `_REGISTRY` layout key needed. `.build()`
+returns:
+
+```python
+{
+    "title":     str,
+    "subtitle":  str,
+    "date_from": str,
+    "date_to":   str,
+    "fields": [
+        {
+            "field": str,
+            "label": str,
+            "unit":  str,
+            "group": str,    # "garmin" | context source name
+            "days":  [{"date": str, "value": float | None}, ...],
+        },
+        ...
+    ],
+}
+```
+
+Identical shape to `health_garmin-weather-pollen_html-xls_dash` — renders
+via the existing `dash_plotter_html_mobile` (one section per field with
+`"days"`) and `dash_plotter_excel` (`fields`+`days` → Analysis sheet mode).
+No new plotter, no plotter changes.
+
+`list_available_fields()` mirrors Explorer's Daily-field enumeration — a
+local copy of its exclusion set (`_EXCLUDE_FROM_DAILY`), since specialists
+(and this ad-hoc builder) are standalone by design, no cross-specialist
+imports.
+
+**Presets:** `app/garmin_dashboard_presets.py` — `load_presets()` /
+`save_preset()` / `delete_preset()`, file at
+`~/.garmin_dashboard_presets.json`. Schema includes `"encrypt"` (bool) — the
+password itself is never persisted, only the on/off preference.
+
 ---
 
 ## Broker interface

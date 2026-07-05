@@ -105,6 +105,7 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Sleep Dashboard** | One row per night — segmented phase bar (Deep / Light / REM / Awake), sleep duration, score, quality badge, feedback label, HRV, Body Battery, and **7-day HRV moving average** (computed from archive, no extra API call). Color-coded numbers via continuous gradient against personal reference ranges. Inspired by [Garmin's own HRV pattern guide](https://www.garmin.com/en-US/blog/fitness/understanding-the-hrv-status-on-your-garmin-smartwatch/). | HTML, Excel |
 | **Sleep & Recovery** | HRV, Body Battery, Sleep duration and phase breakdown (Deep / Light / REM / Awake) alongside weather and pollen context. Intraday detail per day. | HTML |
 | **Explorer** | Free metric exploration — choose up to 4 metrics from all Garmin daily fields plus weather, pollen, and air quality on a shared time axis. Sleep phase breakdown and sleep quality log included. Built-in field descriptions and air quality interpretation guide. | HTML |
+| **Custom Dashboard** | Pick any combination of Garmin daily fields and Context fields, set a date range, and build a one-off dashboard — no fixed field list, no specialist file written to disk. Field selections can be saved as named presets for reuse. Optional AES-256 encryption for the HTML output. | HTML, Excel |
 
 <img src="src/screenshots/Create_report.jpg" width="800" alt="Garmin Local Archive — Create Report">
 <br><sub>Create Reports — select dashboards and export as HTML, Excel or JSON.</sub>

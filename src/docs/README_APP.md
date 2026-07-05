@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.3.1
+# Garmin Local Archive — Desktop App v1.6.4
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -269,6 +269,24 @@ The Timeseries dashboard renders every data point captured from the API — no a
 | Respiration | variable | variable |
 
 Days synced within ~135 days of the recording date show full curves. Days beyond that threshold — or days from a GDPR bulk import — contain daily summary values only (`standard` quality). The quality badge in the archive panel shows the breakdown.
+
+### Custom Dashboard
+
+Free field selection instead of a fixed dashboard — pick any Garmin daily
+fields and Context fields (weather, pollen, air quality), set a date range,
+and build a one-off dashboard without touching the fixed dashboard list.
+
+- Click **🎛 Custom Dashboard** in Settings → Export
+- Select fields from the two columns (Garmin / Context)
+- Choose a date range — a fixed start/end date, or "days back" from today
+- Choose output format — HTML, Excel, or both
+- Optionally check **🔒 Encrypt** — builds an encrypted HTML file the same
+  way as Encrypted Dashboards (below); Excel is disabled while Encrypt is on
+- **Save Preset** stores the current field selection, date mode, and format
+  choice under a name for reuse — the password itself is never saved, only
+  whether encryption is on
+- Output goes to `BASE_DIR/dashboards/` (or `BASE_DIR/encrypted/` when
+  Encrypt is checked) — same as Create Reports
 
 ### Encrypted Dashboards
 

@@ -110,6 +110,14 @@ Files tab: Excel overview of all archived days (v).
 Rebuild dashboards:
   Settings tab -> Outputs -> "Create All Dashboards"
 
+Custom Dashboard (free field selection):
+  Settings tab -> Outputs -> "Custom Dashboard"
+  Pick any Garmin and Context fields, set a date range
+  (fixed dates or "days back"), choose HTML and/or Excel.
+  Save the selection as a named preset to reuse it later.
+  Optional: check "Encrypt" for a password-protected HTML
+  output — same protection as Encrypted export below.
+
 Encrypted export (for USB transport):
   Settings tab -> Outputs -> "Encrypted Dashboards"
   Enter a password (with confirmation) — never saved.
