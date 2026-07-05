@@ -1,5 +1,37 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.4.1 — Broker Layer Reference
+
+Consolidates the Broker Layer's outward-facing API contract into its own
+reference file. Documentation-only change — no code touched.
+
+**New file:**
+- `docs/REFERENCE_BROKER.md` — single reference for `field_map.get()` and
+  `context_map.get()`: signatures, request/response contract, error
+  behaviour, broker overview table. Field-level internal mappings stay in
+  `REFERENCE_GARMIN.md` / `REFERENCE_CONTEXT.md` — referenced, not
+  duplicated. Placeholder section for `fit_map` (v1.7) and `mcp_map` (v1.9).
+
+**Changed files:**
+- `REFERENCE_DASHBOARD.md` — "Broker interface" section replaced with a
+  pointer to `REFERENCE_BROKER.md`. Plotter interface section unchanged.
+- `REFERENCE_GARMIN.md` — header note added, pointing to
+  `REFERENCE_BROKER.md` for the broker contract.
+- `REFERENCE_CONTEXT.md` — same header note added.
+- `MAINTENANCE_DASHBOARD.md` — header corrected: interface reference split
+  between `REFERENCE_DASHBOARD.md` (specialist/plotter) and
+  `REFERENCE_BROKER.md` (broker contract).
+- `REFERENCE_GLOBAL.md` — `REFERENCE_BROKER.md` added to the documentation
+  file list.
+- `version.py` — `APP_VERSION` bumped to `1.6.4.1`.
+
+**What does not change:**
+- No code touched — `field_map.py`, `context_map.py`, and all `*_map.py`
+  modules are untouched.
+- No test suite impact — documentation-only change.
+
+---
+
 ## v1.6.4 — Custom Dashboard Builder
 
 A dialog in `panel_outputs.py` that replaces the fixed specialist list with

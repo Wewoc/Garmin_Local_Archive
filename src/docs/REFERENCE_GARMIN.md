@@ -2,6 +2,7 @@
 
 Technical reference for the Garmin data pipeline (`garmin/`).
 For shared paths, constants, and project structure see `REFERENCE_GLOBAL.md`.
+For the broker request/response contract (`field_map.get()`) see `REFERENCE_BROKER.md`.
 
 ---
 

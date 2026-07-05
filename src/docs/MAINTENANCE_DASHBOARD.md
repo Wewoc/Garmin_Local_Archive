@@ -2,7 +2,8 @@
 
 Maintenance, extension, and debugging guide for the dashboard pipeline (`dashboards/`, `layouts/`).
 For build and release process see `MAINTENANCE_GLOBAL.md`.
-For complete interface reference see `REFERENCE_DASHBOARD.md`.
+For the specialist/plotter interface reference see `REFERENCE_DASHBOARD.md`.
+For the broker request/response contract see `REFERENCE_BROKER.md`.
 
 ---
 
