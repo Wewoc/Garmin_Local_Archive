@@ -17,11 +17,12 @@ from pathlib import Path
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
 # ── ENV: GARMIN_OUTPUT_DIR aus garmin_settings lesen wenn nicht gesetzt ───────
 import os as _os
 if not _os.environ.get("GARMIN_OUTPUT_DIR"):
-    _settings_file = Path.home() / ".garmin_archive_settings.json"
+    from garmin_app_settings import SETTINGS_FILE as _settings_file
     if _settings_file.exists():
         import json as _json
         try:

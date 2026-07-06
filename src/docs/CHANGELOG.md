@@ -1,5 +1,35 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.4.2 — Settings-Shadow-Copy + Update-Hinweis-Titel
+
+Zwei kleine, in sich abgeschlossene Korrekturen — kein neues Feature.
+
+**Changed modules:**
+- `export/backfill_source_backup.py` — `sys.path` um `app/` erweitert;
+  `SETTINGS_FILE` wird jetzt aus `garmin_app_settings` importiert statt
+  unabhängig hartcodiert (`Path.home() / ".garmin_archive_settings.json"`).
+  Fund aus dem DEPS-Scan der v1.6.4-Session (`settings_persistence_pattern`).
+  Verhalten identisch, nur noch eine Quelle für den Pfad.
+- `garmin_app_base.py` — `_check_version()`: liest zusätzlich das `name`-Feld
+  aus der GitHub-Release-API-Antwort (`title = data.get("name", "").strip()
+  or latest`, Fallback auf `tag_name`). `_show_update_popup()` bekommt einen
+  neuen `title`-Parameter und zeigt den vollen Release-Titel
+  (z. B. "v1.6.4 — Custom Dashboard Builder") statt nur der Versionsnummer.
+  Vergleichslogik unverändert — vergleicht weiterhin gegen `tag_name`.
+  `scheduler/daily_update.py`s eigenständige, headless `_check_version()`-
+  Kopie bleibt bewusst unberührt (kein Popup dort).
+- `version.py` — `APP_VERSION` bumped to `1.6.4.2`.
+
+**What does not change:**
+- Keine Pipeline-Berührung — beide Änderungen liegen im App-/Script-Layer
+- `garmin_config`, `garmin_backup_source`, `daily_update.py` — unverändert
+- Kein neues Feld, keine neue Konstante in REFERENCE_GLOBAL.md nötig
+
+**Test result:** 469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors,
+bandit 0 HIGH
+
+---
+
 ## v1.6.4.1 — Broker Layer Reference
 
 Consolidates the Broker Layer's outward-facing API contract into its own
