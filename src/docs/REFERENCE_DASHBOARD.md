@@ -367,56 +367,6 @@ just the dashboard pipeline.
 
 ## Plotter interface
 
-```python
-from maps.field_map import get as field_get
-
-result = field_get(field, date_from, date_to, resolution="daily")
-# result["garmin"] contains the broker return dict
-```
-
-`result["garmin"]` contract:
-
-```python
-{
-    "values":            list,   # [{"date": str, "value": any}, ...]  — daily
-                                 # [{"date": str, "series": list|None}, ...]  — intraday
-    "fallback":          bool,   # True if requested resolution was unavailable, downgraded
-    "source_resolution": str,    # actual resolution used: "daily" or "intraday"
-}
-```
-
-Raises `KeyError` if field is not registered in `garmin_map._FIELD_MAP`.
-Raises `ValueError` if resolution is not `"daily"` or `"intraday"`.
-
-### `context_map.get()` — external context data
-
-```python
-from maps.context_map import get as context_get
-
-result = context_get(field, date_from, date_to, resolution="daily")
-# result is keyed by source name
-```
-
-`result[source_name]` contract — same structure as `field_map` broker return:
-
-```python
-{
-    "values":            list,
-    "fallback":          bool,
-    "source_resolution": str,
-    "error":             str,    # optional — only present if source failed
-}
-```
-
-Sources that do not know the requested field are silently skipped (`KeyError` caught internally).
-Unknown field with no matching source → empty dict `{}`.
-
-`weather_map.get()` and `pollen_map.get()` follow the same contract as `garmin_map.get()` but raise only `KeyError` (no `ValueError` — resolution is always treated as daily with `fallback=True` for intraday requests). 
-
----
-
-## Plotter interface
-
 Every plotter in `layouts/` must expose:
 
 ### `render(data, output_path, settings) -> None`

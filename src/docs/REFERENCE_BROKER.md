@@ -50,6 +50,8 @@ result = field_get(field, date_from, date_to, resolution="daily")
 # result["garmin"] contains the broker return dict
 ```
 
+`date_from` / `date_to`: ISO-8601 date strings (`YYYY-MM-DD`), inclusive on both ends.
+
 `result["garmin"]` contract:
 
 ```python
@@ -60,6 +62,13 @@ result = field_get(field, date_from, date_to, resolution="daily")
     "source_resolution": str,    # actual resolution used: "daily" or "intraday"
 }
 ```
+
+`values` always contains exactly one entry per day in the requested range —
+a day with no data is represented as `"value": None` (or `"series": None`
+for intraday), never by omitting the day. An empty `values: []` is reserved
+for one specific case: `date_from` after `date_to` silently produces an
+empty range — no exception is raised, there is simply nothing to iterate
+over.
 
 Raises `KeyError` if field is not registered in `garmin_map._FIELD_MAP`.
 Raises `ValueError` if resolution is not `"daily"` or `"intraday"`.
@@ -78,6 +87,8 @@ result = context_get(field, date_from, date_to, resolution="daily")
 # result is keyed by source name
 ```
 
+`date_from` / `date_to`: ISO-8601 date strings (`YYYY-MM-DD`), inclusive on both ends.
+
 `result[source_name]` contract — same structure as `field_map` broker return:
 
 ```python
@@ -88,6 +99,15 @@ result = context_get(field, date_from, date_to, resolution="daily")
     "error":             str,    # optional — only present if source failed
 }
 ```
+
+Three distinct cases produce different `values` states — do not conflate them:
+- **Missing data for a day within a valid range:** the day still gets an
+  entry in `values`, with `"value": None`. Days are never omitted.
+- **`error` present:** the source raised an exception during read (e.g. a
+  corrupt file). Only in this case is `values` an empty list `[]`.
+- **`date_from` after `date_to`:** the underlying date-range helper yields
+  no dates at all. `values` is `[]`, but silently — no `error` key, no
+  exception.
 
 Sources that do not know the requested field are silently skipped (`KeyError` caught internally).
 Unknown field with no matching source → empty dict `{}`.
@@ -123,48 +143,107 @@ This list is a convenience lookup, not the source of truth — `list_fields()`
 in the corresponding `*_map.py` module always reflects the current state.
 Update this list whenever a field is added or removed (see `FINAL_DOKU_PROMPT`).
 
+**Maintenance note:** the "Value" column below duplicates unit information
+that also lives in `REFERENCE_GARMIN.md` and `REFERENCE_CONTEXT.md` — a
+deliberate exception to this file's own "never duplicates, only points to"
+rule, kept for quick readability. When a field's unit changes or a field is
+added/removed, update both places. `list_fields()` in the corresponding
+`*_map.py` module remains the actual source of truth for which fields exist.
+
 **`field_map` → `garmin`** (19 fields)
 
-`hrv_last_night`, `resting_heart_rate`, `spo2_avg`, `sleep_duration`,
-`body_battery_max`, `stress_avg`, `vo2max`, `sleep_score_feedback`,
-`sleep_score_qualifier`, `sleep_deep_pct`, `sleep_light_pct`,
-`sleep_rem_pct`, `sleep_awake_pct`, `heart_rate_series`, `stress_series`,
-`spo2_series`, `body_battery_series`, `respiration_series`, `steps_series`
+| Field | Value | Description |
+|---|---|---|
+| `hrv_last_night` | ms | Heart rate variability, overnight average |
+| `resting_heart_rate` | bpm | Resting heart rate for the day |
+| `spo2_avg` | % | Average blood oxygen saturation, overnight |
+| `sleep_duration` | hours | Total sleep duration |
+| `body_battery_max` | 0–100 | Peak Body Battery energy level for the day |
+| `stress_avg` | 0–100 | Average stress level for the day |
+| `vo2max` | — | VO2max estimate — no fixed unit, device-calculated index |
+| `sleep_score_feedback` | text | Categorical sleep feedback, e.g. `POSITIVE_DEEP` |
+| `sleep_score_qualifier` | text | Categorical sleep quality label, e.g. `FAIR`, `EXCELLENT` |
+| `sleep_deep_pct` | % | Share of deep sleep, calculated from raw seconds |
+| `sleep_light_pct` | % | Share of light sleep, calculated from raw seconds |
+| `sleep_rem_pct` | % | Share of REM sleep, calculated from raw seconds |
+| `sleep_awake_pct` | % | Share of time awake during the sleep window |
+| `heart_rate_series` | bpm per timestamp | Intraday heart rate readings |
+| `stress_series` | 0–100 per timestamp | Intraday stress level readings |
+| `spo2_series` | % per timestamp | Intraday blood oxygen readings, hourly averages |
+| `body_battery_series` | 0–100 per timestamp | Intraday Body Battery readings |
+| `respiration_series` | per timestamp | Intraday respiration readings — unit not fixed in source docs, see `REFERENCE_GARMIN.md` |
+| `steps_series` | steps per 15-min bin | Intraday step counts in 15-minute bins |
 
 **`context_map` → `weather`** (6 fields)
 
-`temperature_max`, `temperature_min`, `precipitation`, `wind_speed_max`,
-`uv_index_max`, `sunshine_duration`
+| Field | Value | Description |
+|---|---|---|
+| `temperature_max` | °C | Daily maximum temperature |
+| `temperature_min` | °C | Daily minimum temperature |
+| `precipitation` | mm | Daily precipitation sum |
+| `wind_speed_max` | km/h | Daily maximum wind speed |
+| `uv_index_max` | index | Daily maximum UV index |
+| `sunshine_duration` | seconds | Daily sunshine duration |
 
 **`context_map` → `pollen`** (6 fields)
 
-`pollen_birch`, `pollen_grass`, `pollen_alder`, `pollen_mugwort`,
-`pollen_olive`, `pollen_ragweed`
+| Field | Value | Description |
+|---|---|---|
+| `pollen_birch` | grains/m³ | Daily max birch pollen concentration |
+| `pollen_grass` | grains/m³ | Daily max grass pollen concentration |
+| `pollen_alder` | grains/m³ | Daily max alder pollen concentration |
+| `pollen_mugwort` | grains/m³ | Daily max mugwort pollen concentration |
+| `pollen_olive` | grains/m³ | Daily max olive pollen concentration |
+| `pollen_ragweed` | grains/m³ | Daily max ragweed pollen concentration |
 
 **`context_map` → `brightsky`** (9 fields)
 
-`temperature_avg`, `humidity_avg`, `precipitation_sum`, `sunshine_sum`,
-`wind_speed_max`, `wind_gust_max`, `cloud_cover_avg`, `pressure_avg`,
-`condition`
+| Field | Value | Description |
+|---|---|---|
+| `temperature_avg` | °C | Daily mean temperature (DWD) |
+| `humidity_avg` | % | Daily mean relative humidity |
+| `precipitation_sum` | mm | Daily precipitation sum |
+| `sunshine_sum` | min | Daily sunshine duration |
+| `wind_speed_max` | km/h | Daily maximum wind speed |
+| `wind_gust_max` | km/h | Daily maximum wind gust speed |
+| `cloud_cover_avg` | % | Daily mean cloud cover |
+| `pressure_avg` | hPa | Daily mean sea-level pressure |
+| `condition` | text | Daily dominant weather condition (mode of hourly values) |
 
 **`context_map` → `airquality`** (5 fields)
 
-`airquality_pm2_5`, `airquality_pm10`, `airquality_european_aqi`,
-`airquality_nitrogen_dioxide`, `airquality_ozone`
+| Field | Value | Description |
+|---|---|---|
+| `airquality_pm2_5` | μg/m³ | Daily mean fine particulate matter (PM2.5) |
+| `airquality_pm10` | μg/m³ | Daily mean particulate matter (PM10) |
+| `airquality_european_aqi` | index | Daily mean European Air Quality Index |
+| `airquality_nitrogen_dioxide` | μg/m³ | Daily mean nitrogen dioxide concentration |
+| `airquality_ozone` | μg/m³ | Daily mean ozone concentration |
 
 **Naming collision, deliberate:** `weather` and `brightsky` both register a
 field called `wind_speed_max` — same generic name, independently defined in
 each `_FIELD_MAP`, different internal source keys (`wind_speed_10m_max` vs.
-`wind_speed`). A consumer must specify which source it means, not just the
-field name — `context_map.get()` returns both under separate source keys in
-the same response dict when both are queried.
+`wind_speed`). There is no `source` parameter to disambiguate at call
+time — `context_map.get()` queries every registered source that recognizes
+the field and returns all of them under separate source keys in the same
+response dict. The consumer distinguishes between them only afterwards, by
+reading the keys of the returned dict, not by choosing one in advance.
 
 ---
 
 ## Future brokers
 
-`fit_map.py` (v1.7) and `mcp_map.py` (v1.9) are planned as peers to
-`field_map.py` and `context_map.py` — same broker principle, new domains.
+`fit_map.py` (v1.7) is planned as a peer to `field_map.py` and
+`context_map.py` — same broker principle (domain-level, routes to
+source-specific `*_map.py` modules below it), new domain (activity data).
+
+`mcp_map.py` (v1.9) is not a peer at this level. It aggregates across the
+full Broker Layer (`field_map`, `fit_map`, `context_map`) rather than
+routing to a source-specific module — architecturally it sits alongside
+the Dashboard Layer and the planned Export Layer, both of which consume
+the Broker Layer the same way, just through a different output channel
+(MCP protocol instead of file/chart).
+
 Full architecture in `ROADMAP.md`. This file gets a dedicated section for
 each once implementation actually starts — no contract is assumed here
 ahead of time.
