@@ -528,17 +528,18 @@ class GarminApp(QMainWindow):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = _json.loads(resp.read().decode())
             latest = data.get("tag_name", "").strip()
+            title  = data.get("name", "").strip() or latest
             if latest and latest.lstrip("vV") != APP_VERSION.lstrip("vV"):
-                self._dispatch(self._show_update_popup, latest)
+                self._dispatch(self._show_update_popup, latest, title)
         except Exception:
             pass
 
-    def _show_update_popup(self, latest: str):
+    def _show_update_popup(self, latest: str, title: str):
         import webbrowser
         dlg = QMessageBox(self)
         dlg.setWindowTitle("Update Available")
         dlg.setText(
-            f"A new version is available: {latest}\n"
+            f"A new version is available: {title}\n"
             f"You are running: {APP_VERSION}"
         )
         dlg.setStyleSheet(f"background: {self.BG}; color: {self.TEXT};")
