@@ -1,32 +1,30 @@
 # Garmin Local Archive — Changelog
 
-## v1.6.4.2 — Settings-Shadow-Copy + Update-Hinweis-Titel
+# v1.6.4.2 — Settings Shadow Copy + Update Notice Title
 
-Zwei kleine, in sich abgeschlossene Korrekturen — kein neues Feature.
+Two small, self-contained fixes — no new feature.
 
-**Changed modules:**
-- `export/backfill_source_backup.py` — `sys.path` um `app/` erweitert;
-  `SETTINGS_FILE` wird jetzt aus `garmin_app_settings` importiert statt
-  unabhängig hartcodiert (`Path.home() / ".garmin_archive_settings.json"`).
-  Fund aus dem DEPS-Scan der v1.6.4-Session (`settings_persistence_pattern`).
-  Verhalten identisch, nur noch eine Quelle für den Pfad.
-- `garmin_app_base.py` — `_check_version()`: liest zusätzlich das `name`-Feld
-  aus der GitHub-Release-API-Antwort (`title = data.get("name", "").strip()
-  or latest`, Fallback auf `tag_name`). `_show_update_popup()` bekommt einen
-  neuen `title`-Parameter und zeigt den vollen Release-Titel
-  (z. B. "v1.6.4 — Custom Dashboard Builder") statt nur der Versionsnummer.
-  Vergleichslogik unverändert — vergleicht weiterhin gegen `tag_name`.
-  `scheduler/daily_update.py`s eigenständige, headless `_check_version()`-
-  Kopie bleibt bewusst unberührt (kein Popup dort).
-- `version.py` — `APP_VERSION` bumped to `1.6.4.2`.
+## Changed modules
 
-**What does not change:**
-- Keine Pipeline-Berührung — beide Änderungen liegen im App-/Script-Layer
-- `garmin_config`, `garmin_backup_source`, `daily_update.py` — unverändert
-- Kein neues Feld, keine neue Konstante in REFERENCE_GLOBAL.md nötig
+**`export/backfill_source_backup.py`**
+`sys.path` extended to include `app/`; `SETTINGS_FILE` is now imported from `garmin_app_settings` instead of being independently hardcoded (`Path.home() / ".garmin_archive_settings.json"`). Finding from the v1.6.4 session's DEPS scan (`settings_persistence_pattern`). Behavior identical, just a single source of truth for the path now.
 
-**Test result:** 469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors,
-bandit 0 HIGH
+**`garmin_app_base.py`**
+`_check_version()`: now additionally reads the `name` field from the GitHub Release API response (`title = data.get("name", "").strip() or latest`, falling back to `tag_name`). `_show_update_popup()` gets a new `title` parameter and displays the full release title (e.g. "v1.6.4 — Custom Dashboard Builder") instead of just the version number. Comparison logic unchanged — still compares against `tag_name`. `scheduler/daily_update.py`'s standalone, headless `_check_version()` copy is deliberately left untouched (no popup there).
+
+**`version.py`**
+`APP_VERSION` bumped to 1.6.4.2.
+
+## What does not change
+
+- No pipeline touched — both changes live in the App/Script layer
+- `garmin_config`, `garmin_backup_source`, `daily_update.py` — unchanged
+- No new field, no new constant needed in `REFERENCE_GLOBAL.md`
+
+## Test result
+
+469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+
 
 ---
 
