@@ -59,7 +59,7 @@ result = field_get(field, date_from, date_to, resolution="daily")
     "values":            list,   # [{"date": str, "value": any}, ...]  — daily
                                  # [{"date": str, "series": list|None}, ...]  — intraday
     "fallback":          bool,   # True if requested resolution was unavailable, downgraded
-    "source_resolution": str,    # actual resolution used: "daily" or "intraday"
+    "source_resolution": str,    # actual resolution used: "daily", "intraday", or "live"
 }
 ```
 
@@ -71,7 +71,14 @@ empty range — no exception is raised, there is simply nothing to iterate
 over.
 
 Raises `KeyError` if field is not registered in `garmin_map._FIELD_MAP`.
-Raises `ValueError` if resolution is not `"daily"` or `"intraday"`.
+Raises `ValueError` if resolution is not `"daily"`, `"intraday"`, or `"live"`.
+
+`resolution="live"` (v1.6.5, `garmin` source only) is a single always-current
+snapshot — `date_from`/`date_to` are ignored, and unlike `"daily"`/`"intraday"`
+(which fall back to each other) it never falls back on a miss. Not every
+field has a live route — fields without one return `fallback=True`, empty
+`values`. Which fields support it and how: see `REFERENCE_GARMIN.md` →
+"Live route".
 
 Field-level table (which generic field maps to which Garmin-internal key):
 see `REFERENCE_GARMIN.md` → "Registered fields".

@@ -158,6 +158,13 @@ E. `garmin_collector._run_source_backfill` (v1.6.0.3) — no-op when `SYNC_DATES
 F. `garmin_backup_source` (v1.6.0.4) — `SOURCE_BACKUP_DIR` path derivation, `backup_source` round-trip + missing source → False, monthly dir write, `_consolidate_source_months` ZIP + skip current month, `backfill_source` copy + idempotent, `check_source_backfill_needed` count, `_zip_contains`, Leaf-Node AST check.
 G. `garmin_silo_check` (v1.6.0.4.7) — result structure (all keys, totals/counts sub-keys, checked_at format), clean-silo baseline (isolated tmpdir), all four check categories (#1 raw without quality, #3 source without raw, #5 summary without raw, #7 raw without summary), counts match list lengths invariant, finding lists contain date objects, Leaf-Node AST check.
 
+H. `garmin_live_fetch` (v1.6.5) — `_ENDPOINTS` structure (8 entries incl. `get_hrv_data`),
+`fetch_live()` success path (all endpoints, `live.json` written correctly), partial-failure
+path (one endpoint fails, rest still written, no crash), three login paths (error,
+cancelled, own-login reusing an existing client), `progress` callback (messages received
+per endpoint + completion, default no-op backward compatible), `_write_live()` directory
+creation. 29 checks total.
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
@@ -168,7 +175,7 @@ G. `garmin_silo_check` (v1.6.0.4.7) — result structure (all keys, totals/count
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`.
 
 ---
 

@@ -61,6 +61,12 @@ SOURCE_API_LOG    = LOG_DIR / "source_api_log.json"
 # Source backup (sole owner: garmin_backup_source.py)
 SOURCE_BACKUP_DIR = BACKUP_DIR / "source"
 
+# Live snapshot (sole owner: garmin_live_fetch.py, planned v1.6.5)
+# Single-file snapshot of the current day — no per-day history, overwritten
+# on every fetch. Not part of the raw/summary archive.
+LIVE_DIR  = GARMIN_DIR / "live"
+LIVE_FILE = LIVE_DIR / "live.json"
+
 # Schema definition for garmin_validator.py
 DATAFORMAT_FILE = Path(__file__).parent / "garmin_dataformat.json"
 

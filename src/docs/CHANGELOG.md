@@ -1,33 +1,121 @@
 # Garmin Local Archive — Changelog
 
-## v1.6.4.2 — Settings-Shadow-Copy + Update-Hinweis-Titel
+## v1.6.5 — Live Tracking Dashboard
 
-Zwei kleine, in sich abgeschlossene Korrekturen — kein neues Feature.
+Adds an always-current snapshot dashboard — today's intraday progression
+(Body Battery, Heart Rate, Steps, Stress) plus last night's sleep summary,
+refreshed automatically after every GUI Sync Garmin and on demand via a new
+"Update Live" button. Introduces a new, lightweight live-fetch path
+alongside the existing daily archive pipeline — deliberately separate, no
+shared file access, no shared write authority.
+
+**New modules:**
+- `garmin/garmin_live_fetch.py` — Worker, sole write authority over
+  `garmin_data/live/live.json`. Fetches sleep + HRV + all six intraday
+  endpoints for the current calendar day via the existing `garmin_api`
+  (reused login/api_call, no second auth path, no own 429 handling).
+  Single-file snapshot, no history, overwritten on every fetch. Optional
+  `progress` callback for GUI-visible fetch progress (deliberately not
+  named `log` — the module already has a `log = logging.getLogger(...)`
+  a same-named parameter would shadow).
+- `dashboards/live_tracking_html_dash.py` — Specialist. Fetches exclusively
+  via `field_map.get(..., resolution="live")`. Precedence rule for the
+  sleep block: a single representative field (`sleep_score`) decides the
+  source — falls back to the full archive block if live is unavailable,
+  never mixes live and archive data for the same night. Steps summed as a
+  cumulative counter, not read as a single intraday point.
+- `layouts/render/live.py` — Render module for the new `"live"` layout key.
+  Deliberately diverges from the shared renderer pattern: dark theme
+  matching the app's own palette (not the shared light-theme dashboard
+  CSS), no Plotly (inline SVG sparklines — four small charts don't justify
+  the full bundle), self-built header/disclaimer/footer markup (disclaimer
+  text still sourced from `dash_layout.get_disclaimer()`, only its wrapper
+  markup is local).
 
 **Changed modules:**
-- `export/backfill_source_backup.py` — `sys.path` um `app/` erweitert;
-  `SETTINGS_FILE` wird jetzt aus `garmin_app_settings` importiert statt
-  unabhängig hartcodiert (`Path.home() / ".garmin_archive_settings.json"`).
-  Fund aus dem DEPS-Scan der v1.6.4-Session (`settings_persistence_pattern`).
-  Verhalten identisch, nur noch eine Quelle für den Pfad.
-- `garmin_app_base.py` — `_check_version()`: liest zusätzlich das `name`-Feld
-  aus der GitHub-Release-API-Antwort (`title = data.get("name", "").strip()
-  or latest`, Fallback auf `tag_name`). `_show_update_popup()` bekommt einen
-  neuen `title`-Parameter und zeigt den vollen Release-Titel
-  (z. B. "v1.6.4 — Custom Dashboard Builder") statt nur der Versionsnummer.
-  Vergleichslogik unverändert — vergleicht weiterhin gegen `tag_name`.
-  `scheduler/daily_update.py`s eigenständige, headless `_check_version()`-
-  Kopie bleibt bewusst unberührt (kein Popup dort).
-- `version.py` — `APP_VERSION` bumped to `1.6.4.2`.
+- `garmin/garmin_config.py` — `LIVE_DIR` / `LIVE_FILE` path constants,
+  analogous to the existing `SOURCE_DIR` pattern.
+- `maps/garmin_map.py` — new `resolution="live"` value, bypasses the
+  daily/intraday fallback logic entirely (analogous to the existing
+  `raw_pct` bypass). Three new internal descriptor types: `"live"`
+  (intraday series, six fields), `"live_pct"` (percentage math against the
+  live snapshot, four sleep-phase fields), `"live_nested"` (dotted-path
+  lookup with an optional fallback chain and optional divisor, five
+  fields: `hrv_last_night`, `sleep_score`, `sleep_score_feedback`,
+  `sleep_score_qualifier`, `sleep_duration`). Missing `live.json` or
+  missing field → `fallback=True`, empty values, never an exception.
+- `layouts/dash_plotter_html_complex.py` — one `_REGISTRY` entry for the
+  new `"live"` layout key, same pattern as the Heatmap dashboard. No
+  change to existing dispatch logic.
+- `app/panel_outputs.py` — `_run_collector()`'s `_internal_done()` now
+  fires `_run_live_fetch()` after every GUI Sync Garmin (headless
+  `daily_update.py` deliberately excluded — a headless run has no one
+  watching a "live" view). New method `_run_live_fetch()`: background
+  thread, fetches, builds only the Live Tracking specialist via the
+  regular `dash_runner.scan()`/`build()` path, then auto-loads it into the
+  dashboard viewer. Fire-and-forget — any failure is logged and swallowed,
+  never affects the rest of the sync chain.
+- `app/panel_home.py` — new "Update Live" button, next to "Daily Sync".
+  Handler calls the same `panel_outputs._run_live_fetch()` used by the
+  automatic sync hook — no separate fetch/build logic.
+- `tests/test_local.py` — new Section H: `garmin_live_fetch.py` coverage
+  (`_ENDPOINTS` structure, fetch success/partial-failure/login paths,
+  `_write_live()`, `progress` callback). +29 checks (469 → 498).
+- `tests/test_dashboard.py` — Section 15 extended (`garmin_map`'s new
+  live-route descriptor types, including the HRV fallback chain and
+  missing-file behaviour) and new Section 15b (`layouts/render/live.py` —
+  structure, formatting, archive-fallback note, error handling). +36
+  checks (409 → 445).
+- `version.py` — `APP_VERSION` bumped to `1.6.5`.
 
 **What does not change:**
-- Keine Pipeline-Berührung — beide Änderungen liegen im App-/Script-Layer
-- `garmin_config`, `garmin_backup_source`, `daily_update.py` — unverändert
-- Kein neues Feld, keine neue Konstante in REFERENCE_GLOBAL.md nötig
+- No archive silo touched — `raw/`, `summary/`, `source/` untouched by the
+  live-fetch path.
+- `daily_update.py` / headless T3.2 path — completely untouched, no live
+  fetch triggered there.
+- `field_map.py` — untouched. Pure passthrough already supported the new
+  `resolution="live"` value without modification.
 
-**Test result:** 469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors,
+**Known follow-ups (see NOTES_v1_6_5.md):**
+- Live Tracking currently also appears in the manual "Create Reports"
+  dialog (auto-discovery doesn't yet exclude it) — a dedicated trigger was
+  the design intent.
+- Connection-status indicators (Token/Login/API Access/Data) don't react
+  to the in-process live fetch — deferred to v1.6.5.1.
+- `fetch_live(client=None)` in the GUI path triggers a second, independent
+  login shortly after the Sync Garmin subprocess's own login (subprocess
+  architecture prevents client reuse) — structurally the same concern as
+  the open T3.2 MFA-cascade investigation, not resolved here.
+
+**Test result:** 498 / 261 / 445 / 145 / 46 / 4 — all green, ruff 0 errors,
 bandit 0 HIGH
 
+---
+
+# v1.6.4.2 — Settings Shadow Copy + Update Notice Title
+
+Two small, self-contained fixes — no new feature.
+
+## Changed modules
+
+**`export/backfill_source_backup.py`**
+`sys.path` extended to include `app/`; `SETTINGS_FILE` is now imported from `garmin_app_settings` instead of being independently hardcoded (`Path.home() / ".garmin_archive_settings.json"`). Finding from the v1.6.4 session's DEPS scan (`settings_persistence_pattern`). Behavior identical, just a single source of truth for the path now.
+
+**`garmin_app_base.py`**
+`_check_version()`: now additionally reads the `name` field from the GitHub Release API response (`title = data.get("name", "").strip() or latest`, falling back to `tag_name`). `_show_update_popup()` gets a new `title` parameter and displays the full release title (e.g. "v1.6.4 — Custom Dashboard Builder") instead of just the version number. Comparison logic unchanged — still compares against `tag_name`. `scheduler/daily_update.py`'s standalone, headless `_check_version()` copy is deliberately left untouched (no popup there).
+
+**`version.py`**
+`APP_VERSION` bumped to 1.6.4.2.
+
+## What does not change
+
+- No pipeline touched — both changes live in the App/Script layer
+- `garmin_config`, `garmin_backup_source`, `daily_update.py` — unchanged
+- No new field, no new constant needed in `REFERENCE_GLOBAL.md`
+
+## Test result
+
+469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors, bandit 0 HIGH
 ---
 
 ## v1.6.4.1 — Broker Layer Reference

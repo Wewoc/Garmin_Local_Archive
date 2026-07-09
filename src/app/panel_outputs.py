@@ -329,6 +329,7 @@ class PanelOutputs(QWidget):
         def _internal_done():
             self._app._panel_timer._timer_resume_after_sync(timer_was_active)
             self._app._panel_archive._refresh_archive_info()
+            self._run_live_fetch()
             if on_done:
                 on_done()
 
@@ -348,6 +349,78 @@ class PanelOutputs(QWidget):
                 env_overrides=env_extra,
                 on_done=_internal_done,
             ))
+
+    def _run_live_fetch(self):
+        """Fetch + render Live Tracking in a background thread after Sync
+        Garmin (GUI path only — daily_update.py/T3.2 deliberately excluded,
+        a headless run has no one watching a "live" view).
+
+        Fire-and-forget: any failure here (login unavailable, specialist
+        missing, render error) is logged and swallowed — Live Tracking is a
+        non-critical, best-effort feature and must never affect the rest of
+        the Sync Garmin chain.
+        """
+        def worker():
+            try:
+                s = self._app._panel_settings._collect_settings()
+                os.environ["GARMIN_OUTPUT_DIR"] = s.get("base_dir", "")
+
+                root = Path(__file__).parent.parent
+                for p in (root / "garmin", root / "dashboards",
+                          root / "layouts", root / "maps"):
+                    sp = str(p)
+                    if sp not in sys.path:
+                        sys.path.insert(0, sp)
+
+                import importlib
+                import garmin_config as _cfg
+                importlib.reload(_cfg)
+                import garmin_live_fetch
+                importlib.reload(garmin_live_fetch)
+
+                result = garmin_live_fetch.fetch_live(
+                    progress=lambda msg: self._app._log_bg(f"  {msg}"))
+                if not result.get("ok"):
+                    self._app._log_bg(
+                        "\u2139  Live Tracking: fetch skipped (login unavailable)")
+                    return
+
+                import importlib.util as _ilu
+                runner_path = root / "dashboards" / "dash_runner.py"
+                spec = _ilu.spec_from_file_location("dash_runner", runner_path)
+                dash_runner = _ilu.module_from_spec(spec)
+                spec.loader.exec_module(dash_runner)
+
+                specialists = dash_runner.scan()
+                live_spec = next(
+                    (sp for sp in specialists if sp["name"] == "Live Tracking"),
+                    None)
+                if live_spec is None:
+                    self._app._log_bg(
+                        "\u2139  Live Tracking: specialist not found")
+                    return
+
+                out_dir = Path(s["base_dir"]) / "dashboards"
+                out_dir.mkdir(parents=True, exist_ok=True)
+
+                results = dash_runner.build(
+                    selections=[(live_spec["module"], "html")],
+                    date_from="", date_to="",
+                    settings=s, output_dir=out_dir,
+                )
+                ok_result = next((r for r in results if r.get("success")), None)
+                if ok_result:
+                    self._app._dispatch(
+                        lambda: self._app._scan_dashboards(
+                            auto_load=str(ok_result["file"])))
+                    self._app._log_bg("\u2713 Live Tracking updated")
+                else:
+                    err = results[0].get("error", "unknown") if results else "no result"
+                    self._app._log_bg(f"\u2139  Live Tracking render skipped: {err}")
+            except Exception as exc:
+                self._app._log_bg(f"\u2139  Live Tracking update skipped: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _run_import(self):
         """Open file dialog and run bulk import."""
