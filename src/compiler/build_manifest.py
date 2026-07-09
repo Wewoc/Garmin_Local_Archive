@@ -61,6 +61,7 @@ SHARED_SCRIPTS = [
     "garmin/garmin_merge.py",
     "garmin/garmin_backup_source.py",
     "garmin/garmin_silo_check.py",
+    "garmin/garmin_live_fetch.py",
     "garmin/garmin_extended_anaysis.py",
     # maps (routing only)
     "maps/field_map.py",
@@ -88,6 +89,7 @@ SHARED_SCRIPTS = [
     "dashboards/sleep_garmin_html-xls_dash.py",
     "dashboards/explorer_garmin-context_html_dash.py",
     "dashboards/heatmap_garmin_html_dash.py",
+    "dashboards/live_tracking_html_dash.py",
     "dashboards/custom_dash_builder.py",
     # layouts (plotters + passive resources)
     "layouts/dash_layout.py",
@@ -107,6 +109,7 @@ SHARED_SCRIPTS = [
     "layouts/render/sleep.py",
     "layouts/render/explorer.py",
     "layouts/render/heatmap.py",
+    "layouts/render/live.py",
 ]
 # Target 2 (build.py): entry point + shared scripts
 SCRIPTS = ["garmin_app.py"] + SHARED_SCRIPTS
@@ -157,10 +160,12 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_source_writer.py": ["def write_source", "def update_log"],
     "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
     "garmin/garmin_silo_check.py":    ["def check_silos"],
+    "garmin/garmin_live_fetch.py":    ["def fetch_live"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
     "layouts/render/recovery_context.py": ["def render", "def _render_recovery_context"],
     "layouts/render/sleep.py":            ["def render", "def _render_sleep"],
     "layouts/render/explorer.py":         ["def render", "def _render_explorer"],
+    "layouts/render/live.py":             ["def render"],
     "crash_handler.py": ["def install"],
     "qwebengine_hardening.py": ["def harden"],
     "garmin/garmin_redact.py": ["def redact"],

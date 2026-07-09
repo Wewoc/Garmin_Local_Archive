@@ -138,7 +138,7 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 409 checks, 20 sections.**
+**Current count: 445 checks, 21 sections.**
 
 | Section | Coverage |
 |---|---|
@@ -156,7 +156,8 @@ python tests/test_dashboard.py
 | 12 | `health_garmin-weather-pollen` specialist |
 | 13 | `sleep_recovery_context` specialist + complex plotter (facade + render registry v1.6.0.5) |
 | 14 | `sleep_garmin` specialist + html + excel render — rows carry `hrv_7d_avg` (computed in build, rendered in both plotters). Phase bar cells carry letter labels (D/L/R/A) in contrast color (v1.5.8+) |
-| 15 | `garmin_map` broker contract |
+| 15 | `garmin_map` broker contract — incl. `live`/`live_pct`/`live_nested` routes (v1.6.5): percentage math, nested lookup + HRV fallback chain + divisor, missing-file behaviour for both types, field-without-live-route negative case |
+| 15b | `layouts/render/live.py` — Live Tracking renderer (v1.6.5): structure (DOCTYPE, title, disclaimer, footer), no-Plotly check, integer formatting (no stray `.0`), qualifier badge, feedback label, phase-bar legend, dark-theme token, archive-fallback note, `ValueError` on missing `today`/`last_night` |
 | 16 | Specialist return contract — alle 7 specialists |
 | 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards |
 | 18 | `heatmap_garmin` specialist + complex plotter — six metrics pivoted to date×hour matrices, tab navigation, ValueError guard (v1.6.3.1) |
@@ -167,7 +168,7 @@ python tests/test_dashboard.py
 
 **Specialist return contract (section 16):** Jeder `build()`-Call wird mit synthetischen Daten ausgeführt. Pflicht-Keys pro Specialist: siehe REFERENCE_DASHBOARD.md → Specialist return dicts.
 
-Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`, `reference_ranges.py`.
+Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py`, `reference_ranges.py`, `garmin_live_fetch.py` (via the live-route sections above).
 
 ---
 

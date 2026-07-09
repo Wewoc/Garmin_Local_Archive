@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.4.2
+# Garmin Local Archive — Desktop App v1.6.5
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -313,8 +313,13 @@ One-click daily workflow. Detects the gap since your last sync, then runs in seq
 1. Garmin Sync — downloads missing days
 2. Context Sync — updates weather and pollen data
 3. Create All — rebuilds all dashboards
+4. Live Tracking — fetches today's snapshot and refreshes the Live Tracking dashboard in the background (v1.6.5, does not block or delay the steps above)
 
 If the gap is larger than 7 days a confirmation dialog appears before starting. The button is disabled while running. Progress is shown in the log at the bottom.
+
+### Update Live button
+
+*(v1.6.5)* Fetches today's intraday data (Body Battery, Heart Rate, Steps, Stress) and last night's sleep summary, then refreshes the Live Tracking dashboard — without running a full Daily Sync. Takes about 30–60 seconds; progress appears line by line in the log. Also runs automatically after every Daily Sync — use this button to check in between, without re-running the full sync.
 
 ### Dashboard tab
 

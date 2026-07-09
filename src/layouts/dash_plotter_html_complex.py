@@ -12,6 +12,7 @@ Layout key (data.get("layout")):
     "explorer"  → layouts/render/explorer.py
     "sleep"     → layouts/render/sleep.py
     "heatmap"   → layouts/render/heatmap.py
+    "live"      → layouts/render/live.py
     None / any  → layouts/render/recovery_context.py  (default)
 
 Adding a new layout:
@@ -67,6 +68,7 @@ _REGISTRY: dict = {
     "explorer": _load_renderer("explorer"),
     "sleep":    _load_renderer("sleep"),
     "heatmap":  _load_renderer("heatmap"),
+    "live":     _load_renderer("live"),
     None:       _load_renderer("recovery_context"),
 }
 
@@ -83,6 +85,7 @@ def render(data: dict, output_path: Path, settings: dict) -> None:
         "explorer"      → Explorer dashboard (free metric dropdowns)
         "sleep"         → Sleep Dashboard (HTML/CSS table, no Plotly)
         "heatmap"       → Heatmap dashboard (time-of-day x date, 4 metrics)
+        "live"          → Live Tracking dashboard (today + last night, no Plotly)
         None / any other → Recovery Context dashboard (fixed metrics, tabs)
 
     Raises:

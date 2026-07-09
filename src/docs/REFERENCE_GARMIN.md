@@ -61,6 +61,7 @@ garmin_app.py (GUI)
 - `_fetch_and_assess()` returns `(label, normalized, summary, fields, val_result)` — never raises
 - `garmin_backup` must never import `garmin_writer` or `garmin_quality` — avoids circular imports
 - `normalize()` is never called during mirror import — raw in mirror is already normalized
+- `garmin_live_fetch.py` is sole write authority for `garmin_data/live/` (v1.6.5) — single-file snapshot of the current day, no history, overwritten on every fetch. No `quality_log.json` contact, no validator/normalizer
 
 ---
 
@@ -474,21 +475,38 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 
 ---
 
+## `garmin_live_fetch.py`
+
+Worker — sole write authority over `garmin_data/live/live.json` (v1.6.5). Depends on `garmin_api` (reuses `login()` / `api_call()` — no second auth path, no own 429 handling).
+Single-file snapshot of the current calendar day ("heute Nacht bis jetzt") — no history, overwritten on every fetch. No archive write access, no `quality_log.json` contact, no validator/normalizer — data is written as-is.
+
+| Function | Purpose |
+|---|---|
+| `fetch_live(client=None, progress=None)` | Fetches sleep + HRV + all six intraday endpoints for today. `client=None` logs in headless (or reuses an already-authenticated client, e.g. right after a Daily Sync run). `progress`: optional `callable(str) -> None` for GUI-visible fetch progress — deliberately not named `log`, which would shadow the module logger. Returns `{"ok": bool, "failed_endpoints": list[str]}`. `ok=False` only on login failure/unavailability — individual endpoint failures never abort the fetch |
+| `_write_live(live_data)` | Writes the snapshot to `cfg.LIVE_FILE`. Plain write, no atomic tmp/fsync/replace sequence — `live.json` has no history to protect |
+
+---
+
 ## `garmin_map.py`
 
 Field resolver for the dashboard broker architecture. Called exclusively by `field_map.py` — never directly by specialists.
 
 ### `_FIELD_MAP` — descriptor types
 
-Each field in `_FIELD_MAP` uses one of three descriptor types:
+Each field in `_FIELD_MAP` uses one of six descriptor types:
 
 | Type | Key | Resolution | Source |
 |---|---|---|---|
 | `daily` | `("section", "key")` | daily | `summary/garmin_YYYY-MM-DD.json` |
 | `intraday` | `("section", "array_key", extract_dict)` | intraday | `raw/garmin_raw_YYYY-MM-DD.json` |
 | `raw_pct` | `("section", "dto_key", "seconds_key", "total_key")` | daily | `raw/garmin_raw_YYYY-MM-DD.json` |
+| `live` | `("section", "array_key", extract_dict)` | live | `garmin_data/live/live.json` |
+| `live_pct` | `("section", "dto_key", "seconds_key", "total_key")` | live | `garmin_data/live/live.json` |
+| `live_nested` | `[("section", "dotted_key"), ...]` — each candidate may also be a 3-tuple `("section", "dotted_key", divisor)` | live | `garmin_data/live/live.json` |
 
 `raw_pct` is used for fields that require percentage calculation from two seconds-based values in the raw file. `get()` detects `raw_pct` and bypasses the standard daily/intraday resolution fallback logic.
+
+The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single always-current snapshot, no archive equivalent to fall back to, `date_from`/`date_to` are ignored. `live` mirrors the `intraday` array-extraction logic against `live.json` instead of a dated `raw/` file. `live_pct` mirrors `raw_pct`'s percentage math. `live_nested` resolves a dotted key path, trying each candidate in an ordered fallback chain until one is non-`None`; an optional divisor divides the raw value (e.g. `sleepTimeSeconds / 3600` → hours). Missing `live.json` or no field/candidate found → `fallback=True`, empty `values`, never an exception — handled directly inside `garmin_map.py` (`_read_live`/`_read_live_pct`/`_read_live_nested`), not via `field_map`'s generic exception catch.
 
 ### Registered fields
 
@@ -513,6 +531,10 @@ Each field in `_FIELD_MAP` uses one of three descriptor types:
 | `body_battery_series` | intraday | `stress.bodyBatteryValuesArray` | — |
 | `respiration_series` | intraday | `respiration.respirationValuesArray` | List of `[epoch_ms, value]` pairs — same v1.6.3.1 fix as spo2_series. Raw data also contains a newer, parallel `wellnessEpochRespirationDataDTOList` (dict-shaped) — not yet evaluated, see `NOTES_v1_6_3_1.md` §4 |
 | `steps_series` | intraday | `steps` (bare list at top level, not nested under a sub-key) | 15-min bins, `{"startGMT", "steps"}`. `_read_intraday()` handles this via its existing `isinstance(section_data, list)` branch — no code change needed for this shape |
+
+**Live route (v1.6.5):** 15 of the fields above also support `resolution="live"` (reads `garmin_data/live/live.json`, written by `garmin_live_fetch.py`, instead of the archive): `heart_rate_series`, `stress_series`, `spo2_series`, `body_battery_series`, `respiration_series`, `steps_series` (via `live`); `sleep_deep_pct`, `sleep_light_pct`, `sleep_rem_pct`, `sleep_awake_pct` (via `live_pct`); `hrv_last_night`, `sleep_score_feedback`, `sleep_score_qualifier`, `sleep_duration` (via `live_nested`). Fields with no live route (`resting_heart_rate`, `spo2_avg`, `body_battery_max`, `stress_avg`, `vo2max`) return `fallback=True`, empty `values`, for `resolution="live"`. Consumer: `dashboards/live_tracking_html_dash.py`.
+
+*Note: `sleep_score` (the numeric score itself, distinct from its `_feedback`/`_qualifier` companions) is missing from the Registered fields table above — a pre-existing gap, not introduced in v1.6.5. It does have a `live_nested` route (`sleep.dailySleepDTO.sleepScores.overall.value`) and a `daily` route (`sleep.score`); only its own table row is absent.*
 
 **Architecture boundary:** Any Garmin-internal key (`section.field`, `dailySleepDTO`, etc.) appearing outside `garmin_map.py` is an architecture violation — detectable by name format alone.
 
