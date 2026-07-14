@@ -6,31 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5**
-
----
-
-### v1.6.5.1 — Live Tracking Follow-ups
-
-Small, deferred loose ends from v1.6.5 — not new features, cleanup and
-polish around the Live Tracking dashboard shipped in v1.6.5. Full detail
-on what v1.6.5 itself shipped: `CHANGELOG.md`.
-
-**What is planned:**
-
-- Exclude the Live Tracking specialist from the manual "Create Reports"
-  dialog — auto-discovery currently lists it there too, though a dedicated
-  trigger ("Update Live" button, automatic after Sync Garmin) was always
-  the intent.
-- Connection-status indicators (Token / Login / API Access / Data) don't
-  react when `fetch_live()` runs in-process via the GUI thread — they are
-  currently only driven by the `garmin_collector.py` subprocess's stdout
-  parsing. Needs a second trigger path, not yet designed.
-- `fetch_live(client=None)` in the GUI path performs a second, independent
-  login shortly after the Sync Garmin subprocess's own login, because the
-  subprocess architecture prevents client reuse across process boundaries.
-  Structurally the same concern as the open T3.2 MFA-cascade investigation
-  — tracked together, not solved in isolation.
+**Currently stable — v1.6.5.1**
 
 ---
 

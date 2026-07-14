@@ -378,8 +378,14 @@ class PanelOutputs(QWidget):
                 import garmin_live_fetch
                 importlib.reload(garmin_live_fetch)
 
+                def _on_state(key, state):
+                    pc = self._app._panel_connection
+                    self._app._dispatch(lambda: pc._set_indicator(key, state))
+
                 result = garmin_live_fetch.fetch_live(
-                    progress=lambda msg: self._app._log_bg(f"  {msg}"))
+                    progress=lambda msg: self._app._log_bg(f"  {msg}"),
+                    state_cb=_on_state)
+
                 if not result.get("ok"):
                     self._app._log_bg(
                         "\u2139  Live Tracking: fetch skipped (login unavailable)")

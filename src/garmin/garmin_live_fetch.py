@@ -83,7 +83,7 @@ def _write_live(live_data: dict) -> None:
 #  Public interface
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fetch_live(client=None, progress=None) -> dict:
+def fetch_live(client=None, progress=None, state_cb=None) -> dict:
     """
     Fetches sleep + HRV + all intraday endpoints for the current calendar day
     and writes the result to cfg.LIVE_FILE.
@@ -99,6 +99,19 @@ def fetch_live(client=None, progress=None) -> dict:
                   the module logger (`log`) used for file/console logging —
                   a same-named parameter would shadow it within this
                   function. Default: no-op, existing callers unaffected.
+        state_cb: Optional callable(key: str, state: str) -> None for GUI
+                  connection-status indicators (token/login/api/data ×
+                  ok/fail). Fired at two points: right after login succeeds
+                  or fails (token+login), then immediately via a
+                  lightweight probe (api = get_user_profile(), data =
+                  get_stats(today)) before the real endpoint loop starts —
+                  same probe pattern as
+                  garmin_app_controller.check_connection(). Gives fast
+                  visual feedback instead of waiting for the full
+                  ~30-60s fetch; probe result is independent of the
+                  endpoint loop's own failed_endpoints tracking, which
+                  covers the 8 real endpoints separately (see "Returns").
+                  Default: no-op, existing callers unaffected.
 
     Returns:
         {"ok": bool, "failed_endpoints": list[str]}
@@ -108,6 +121,8 @@ def fetch_live(client=None, progress=None) -> dict:
     """
     if progress is None:
         progress = lambda msg: None  # noqa: E731
+    if state_cb is None:
+        state_cb = lambda key, state: None  # noqa: E731
 
     if client is None:
         progress("Logging in to Garmin Connect ...")
@@ -116,13 +131,35 @@ def fetch_live(client=None, progress=None) -> dict:
         except garmin_api.GarminLoginError as e:
             log.error(f"  Live fetch: login failed — {e}")
             progress(f"\u2717 Login failed: {e}")
+            state_cb("token", "fail")
+            state_cb("login", "fail")
             return {"ok": False, "failed_endpoints": []}
         if client is None:
             log.info("  Live fetch: login cancelled or unavailable.")
             progress("Login cancelled or unavailable.")
+            state_cb("token", "fail")
+            state_cb("login", "fail")
             return {"ok": False, "failed_endpoints": []}
 
+    state_cb("token", "ok")
+    state_cb("login", "ok")
+
     today = date.today().isoformat()
+
+    try:
+        client.get_user_profile()
+        state_cb("api", "ok")
+    except Exception as e:
+        log.warning(f"  Live fetch: api probe failed — {e}")
+        state_cb("api", "fail")
+
+    try:
+        client.get_stats(today)
+        state_cb("data", "ok")
+    except Exception as e:
+        log.warning(f"  Live fetch: data probe failed — {e}")
+        state_cb("data", "fail")
+
     live_data = {
         "date":       today,
         "synced_at":  datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
