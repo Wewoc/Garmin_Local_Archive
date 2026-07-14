@@ -482,7 +482,7 @@ Single-file snapshot of the current calendar day ("heute Nacht bis jetzt") — n
 
 | Function | Purpose |
 |---|---|
-| `fetch_live(client=None, progress=None)` | Fetches sleep + HRV + all six intraday endpoints for today. `client=None` logs in headless (or reuses an already-authenticated client, e.g. right after a Daily Sync run). `progress`: optional `callable(str) -> None` for GUI-visible fetch progress — deliberately not named `log`, which would shadow the module logger. Returns `{"ok": bool, "failed_endpoints": list[str]}`. `ok=False` only on login failure/unavailability — individual endpoint failures never abort the fetch |
+| `fetch_live(client=None, progress=None, state_cb=None)` | Fetches sleep + HRV + all six intraday endpoints for today. `client=None` logs in headless (or reuses an already-authenticated client, e.g. right after a Daily Sync run). `progress`: optional `callable(str) -> None` for GUI-visible fetch progress — deliberately not named `log`, which would shadow the module logger. `state_cb` (v1.6.5.1): optional `callable(key: str, state: str) -> None` for GUI connection-status indicators (token/login/api/data × ok/fail) — fires token+login right after the login step, then api+data via a lightweight probe (`client.get_user_profile()` / `client.get_stats(today)`, same pattern as `garmin_app_controller.check_connection()`) immediately after, independent of the endpoint loop's own per-endpoint tracking. Returns `{"ok": bool, "failed_endpoints": list[str]}`. `ok=False` only on login failure/unavailability — individual endpoint failures never abort the fetch |
 | `_write_live(live_data)` | Writes the snapshot to `cfg.LIVE_FILE`. Plain write, no atomic tmp/fsync/replace sequence — `live.json` has no history to protect |
 
 ---

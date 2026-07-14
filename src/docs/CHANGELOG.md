@@ -1,5 +1,28 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.1 — Live Tracking Follow-ups
+
+Three follow-ups to the v1.6.5 Live Tracking Dashboard, all confined to
+`garmin_live_fetch.py` and `panel_outputs.py`. Live-fetch connection-status
+indicators — the app-wide Token/Login/API Access/Data dots didn't react at
+all when triggered via `fetch_live()` (only via the Daily Sync path).
+
+**Changed modules:**
+- `garmin/garmin_live_fetch.py` — new optional `state_cb(key, state)`
+  parameter on `fetch_live()`, default no-op (backward compatible). Fires
+  token/login right after login succeeds or fails. Fires api/data via a
+  lightweight probe (`client.get_user_profile()` / `client.get_stats(today)`)
+  immediately after login — same probe pattern as
+  `garmin_app_controller.check_connection()` — instead of waiting for the
+  full ~30-60s, 8-endpoint fetch to complete. Probe result is independent of
+  the endpoint loop's own `failed_endpoints` tracking.
+- `app/panel_outputs.py` — `_run_live_fetch()` wires `state_cb` into the
+  same `self._app._dispatch(...)` pattern already established in
+  `panel_timer.py` for background-thread → GUI updates. No new dispatch
+  mechanism introduced.
+
+**Test result:** 1399 / 1399 — all green (498 + 261 + 445 + 145 + 46 + 4).
+
 ## v1.6.5 — Live Tracking Dashboard
 
 Adds an always-current snapshot dashboard — today's intraday progression
