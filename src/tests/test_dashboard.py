@@ -1065,6 +1065,182 @@ check("broker list_fields: not empty",           len(_lf) > 0)
 check("broker list_fields: all strings",         all(isinstance(f, str) for f in _lf))
 check("broker list_fields: hrv_last_night in list", "hrv_last_night" in _lf)
 
+# ── Live-Route: live_pct + live_nested Deskriptor-Typen ───────────────────────
+_LIVE_SNAPSHOT = {
+    "date":       "2026-07-07",
+    "synced_at":  "2026-07-07T10:00:00Z",
+    "sleep": {
+        "dailySleepDTO": {
+            "sleepTimeSeconds":  27000,
+            "deepSleepSeconds":  5400,
+            "lightSleepSeconds": 13500,
+            "remSleepSeconds":   6750,
+            "awakeSleepSeconds": 1350,
+            "sleepScores":       {"overall": {"value": 82, "qualifierKey": "GOOD"}},
+            "sleepScoreFeedback": "POSITIVE_DEEP",
+        }
+    },
+    "hrv": {
+        "hrvSummary": {"lastNight": 45},
+    },
+}
+cfg.LIVE_DIR.mkdir(parents=True, exist_ok=True)
+cfg.LIVE_FILE.write_text(json.dumps(_LIVE_SNAPSHOT), encoding="utf-8")
+
+# live_pct — percentage math against the live snapshot
+_bc_live_deep = garmin_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_pct: deep value correct",       _bc_live_deep["values"][0]["value"] == 20.0)
+check("broker live_pct: fallback = False",         _bc_live_deep["fallback"] is False)
+check("broker live_pct: source_resolution = live", _bc_live_deep["source_resolution"] == "live")
+
+_bc_live_light = garmin_map.get("sleep_light_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_pct: light value correct",      _bc_live_light["values"][0]["value"] == 50.0)
+
+_bc_live_rem = garmin_map.get("sleep_rem_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_pct: rem value correct",        _bc_live_rem["values"][0]["value"] == 25.0)
+
+_bc_live_awake = garmin_map.get("sleep_awake_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_pct: awake value correct",      _bc_live_awake["values"][0]["value"] == 5.0)
+
+# live_nested — sleep score fields
+_bc_live_score = garmin_map.get("sleep_score", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_nested: sleep_score value correct",
+      _bc_live_score["values"][0]["value"] == 82)
+check("broker live_nested: sleep_score fallback = False",
+      _bc_live_score["fallback"] is False)
+check("broker live_nested: sleep_score source_resolution = live",
+      _bc_live_score["source_resolution"] == "live")
+
+_bc_live_feedback = garmin_map.get("sleep_score_feedback", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_nested: sleep_score_feedback value correct",
+      _bc_live_feedback["values"][0]["value"] == "POSITIVE_DEEP")
+
+_bc_live_qualifier = garmin_map.get("sleep_score_qualifier", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_nested: sleep_score_qualifier value correct",
+      _bc_live_qualifier["values"][0]["value"] == "GOOD")
+
+# live_nested — hrv_last_night, primary candidate present
+_bc_live_hrv = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_nested: hrv_last_night value correct",
+      _bc_live_hrv["values"][0]["value"] == 45)
+
+# live_nested — sleep_duration, divisor support (seconds → hours)
+_bc_live_duration = garmin_map.get("sleep_duration", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_nested: sleep_duration value correct (divisor applied)",
+      _bc_live_duration["values"][0]["value"] == 7.5)
+check("broker live_nested: sleep_duration fallback = False",
+      _bc_live_duration["fallback"] is False)
+check("broker live_nested: sleep_duration source_resolution = live",
+      _bc_live_duration["source_resolution"] == "live")
+
+# live_nested — hrv fallback chain: primary key absent, second candidate used
+_LIVE_SNAPSHOT_HRV_FALLBACK = dict(_LIVE_SNAPSHOT)
+_LIVE_SNAPSHOT_HRV_FALLBACK["hrv"] = {"hrvSummary": {"lastNight5MinHigh": 38}}
+cfg.LIVE_FILE.write_text(json.dumps(_LIVE_SNAPSHOT_HRV_FALLBACK), encoding="utf-8")
+_bc_live_hrv_fb = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_nested: hrv fallback chain uses second candidate",
+      _bc_live_hrv_fb["values"][0]["value"] == 38)
+
+# live route — missing LIVE_FILE → fallback=True, empty values, no exception
+cfg.LIVE_FILE.unlink(missing_ok=True)
+_bc_live_missing = garmin_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_pct: missing LIVE_FILE → fallback = True",
+      _bc_live_missing["fallback"] is True)
+check("broker live_pct: missing LIVE_FILE → empty values",
+      _bc_live_missing["values"] == [])
+
+_bc_live_nested_missing = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live_nested: missing LIVE_FILE → fallback = True",
+      _bc_live_nested_missing["fallback"] is True)
+check("broker live_nested: missing LIVE_FILE → empty values",
+      _bc_live_nested_missing["values"] == [])
+
+# live route — field without any live descriptor (e.g. vo2max) → fallback=True
+_bc_live_none = garmin_map.get("vo2max", _TEST_DATE, _TEST_DATE, resolution="live")
+check("broker live: field without live descriptor → fallback = True",
+      _bc_live_none["fallback"] is True)
+check("broker live: field without live descriptor → empty values",
+      _bc_live_none["values"] == [])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  15b. layouts/render/live.py — Live Tracking renderer
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("15b. layouts/render/live.py")
+
+import importlib.util as _ilu_live
+_live_render_spec = _ilu_live.spec_from_file_location(
+    "live_render", _ROOT / "layouts" / "render" / "live.py")
+live_render = _ilu_live.module_from_spec(_live_render_spec)
+_live_render_spec.loader.exec_module(live_render)
+
+_LIVE_RENDER_DATA = {
+    "layout":   "live",
+    "title":    "Live Tracking",
+    "subtitle": "2026-07-08 \u00b7 heute Nacht bis jetzt",
+    "today": {
+        "body_battery": {"current": 40.0, "series": [
+            {"ts": "2026-07-08T06:00:00", "value": 55.0},
+            {"ts": "2026-07-08T12:00:00", "value": 40.0},
+        ]},
+        "heart_rate": {"current": 82.0, "series": [
+            {"ts": "2026-07-08T06:00:00", "value": 60.0},
+            {"ts": "2026-07-08T12:00:00", "value": 82.0},
+        ]},
+        "steps": {"current": 4520.0, "series": [
+            {"ts": "2026-07-08T06:00:00", "value": 2000.0},
+            {"ts": "2026-07-08T12:00:00", "value": 2520.0},
+        ]},
+        "stress": {"current": 27.0, "series": [
+            {"ts": "2026-07-08T06:00:00", "value": 20.0},
+            {"ts": "2026-07-08T12:00:00", "value": 27.0},
+        ]},
+    },
+    "last_night": {
+        "score": 76, "qualifier": "FAIR",
+        "feedback": "NEGATIVE_LONG_BUT_NOT_ENOUGH_DEEP",
+        "duration_h": 6.6, "hrv": 63, "hrv_7d_avg": 57.7,
+        "phases": {"deep": 20, "light": 50, "rem": 25, "awake": 5},
+        "source": "live",
+    },
+}
+
+_live_out = _TMPDIR / "live_tracking_test.html"
+live_render.render(_LIVE_RENDER_DATA, _live_out)
+check("live render: file created",        _live_out.exists())
+_live_html = _live_out.read_text(encoding="utf-8")
+
+check("live render: contains DOCTYPE",           "<!DOCTYPE html>" in _live_html)
+check("live render: contains title",             "Live Tracking" in _live_html)
+check("live render: contains disclaimer",        "medical advice" in _live_html)
+check("live render: contains footer link",       "github.com" in _live_html.lower())
+check("live render: no Plotly script",           "plotly" not in _live_html.lower())
+check("live render: integer formatting, no .0",
+      "40.0" not in _live_html and "82.0" not in _live_html and "27.0" not in _live_html)
+check("live render: body battery value present", ">40<" in _live_html)
+check("live render: qualifier badge present",    "FAIR" in _live_html)
+check("live render: feedback label present",     "Long but not enough deep" in _live_html)
+check("live render: phase bar segments present", "Deep 20%" in _live_html)
+check("live render: dark background token",      "#12101f" in _live_html)
+
+# archive fallback note
+_live_data_archive = dict(_LIVE_RENDER_DATA)
+_live_data_archive["last_night"] = dict(_LIVE_RENDER_DATA["last_night"])
+_live_data_archive["last_night"]["source"] = "archive"
+_live_out2 = _TMPDIR / "live_tracking_archive_test.html"
+live_render.render(_live_data_archive, _live_out2)
+_live_html2 = _live_out2.read_text(encoding="utf-8")
+check("live render: archive note shown when source=archive",
+      "No live snapshot for last night yet" in _live_html2)
+
+# missing today/last_night raises ValueError
+try:
+    live_render.render({"title": "x"}, _TMPDIR / "live_empty.html")
+    check("live render: missing data raises ValueError", False)
+except ValueError:
+    check("live render: missing data raises ValueError", True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  16. Specialist-Return-Contract — alle build()
 # ══════════════════════════════════════════════════════════════════════════════

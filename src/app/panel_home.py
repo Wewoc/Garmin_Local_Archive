@@ -260,6 +260,14 @@ class PanelHome(QWidget):
         self._daily_sync_btn.clicked.connect(self._on_daily_sync)
         right.addWidget(self._daily_sync_btn)
 
+        self._update_live_btn = _action_btn("🔄  Update Live")
+        self._update_live_btn.setToolTip(
+            "Fetch today's intraday data (Body Battery, Heart Rate, Steps,\n"
+            "Stress) and last night's sleep summary, then refresh the\n"
+            "Live Tracking dashboard. Takes about 30-60 seconds.")
+        self._update_live_btn.clicked.connect(self._on_update_live)
+        right.addWidget(self._update_live_btn)
+
         self._mirror_btn = _action_btn("⬡  Mirror")
         self._mirror_btn.setToolTip(
             "Create an encrypted backup of the archive (.gla container).\n"
@@ -382,6 +390,15 @@ class PanelHome(QWidget):
             return (date.today() - last_date).days
         except Exception:
             return 0
+
+    # ── Update Live ──────────────────────────────────────────────────────────────
+
+    def _on_update_live(self):
+        """Update Live button handler. Fires fetch_live() in a background
+        thread (panel_outputs._run_live_fetch()) — immediate log feedback
+        since the fetch itself takes 30-60s."""
+        self._app._log("🔄  Updating Live Tracking ...")
+        self._app._panel_outputs._run_live_fetch()
 
     # ── Daily Sync ─────────────────────────────────────────────────────────────
 

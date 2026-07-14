@@ -119,6 +119,8 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 <img src="src/screenshots/dashboard_mobile_landscape.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
+**Live Tracking** (v1.6.5) — a separate, always-current view: today's progression (Body Battery, Heart Rate, Steps, Stress) plus last night's sleep summary, refreshed automatically after every sync and on demand via an "Update Live" button in the Home tab. Not part of the Create Reports selection above — it has its own trigger, by design.
+
 The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
 
 ---
@@ -307,6 +309,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | `garmin_source_quality.py` | Source quality assessment — determines whether a raw API response contains intraday data. Guards `source/` files from being overwritten by degraded responses. |
 | `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
 | `garmin_backup_source.py` | Sole owner of `garmin_data/backup/source/` — backs up source files after each write. Provides one-time backfill for existing source files. |
+| `garmin_live_fetch.py` | Sole owner of `garmin_data/live/` — lightweight fetch of today's intraday data + last night's sleep for the Live Tracking view. Single-file snapshot, no history, overwritten on every fetch. (v1.6.5) |
 | `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to existing tools. |
 | `garmin_merge.py` | Additive field merge for backfill operations — never overwrites an already-populated field. Used to retroactively add newly supported data fields (like step count) to already-archived days. |
 

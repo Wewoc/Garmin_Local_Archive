@@ -58,26 +58,34 @@ _FIELD_MAP = {
     "hrv_last_night": {
         "intraday": None,
         "daily":    ("sleep",     "hrv_last_night_ms"),
+        "live_nested": [
+            ("hrv", "hrvSummary.lastNight"),
+            ("hrv", "hrvSummary.lastNight5MinHigh"),
+        ],
     },
     "sleep_deep_pct": {
         "intraday": None,
         "daily":    None,
         "raw_pct":  ("sleep", "dailySleepDTO", "deepSleepSeconds",  "sleepTimeSeconds"),
+        "live_pct": ("sleep", "dailySleepDTO", "deepSleepSeconds",  "sleepTimeSeconds"),
     },
     "sleep_light_pct": {
         "intraday": None,
         "daily":    None,
         "raw_pct":  ("sleep", "dailySleepDTO", "lightSleepSeconds", "sleepTimeSeconds"),
+        "live_pct": ("sleep", "dailySleepDTO", "lightSleepSeconds", "sleepTimeSeconds"),
     },
     "sleep_rem_pct": {
         "intraday": None,
         "daily":    None,
         "raw_pct":  ("sleep", "dailySleepDTO", "remSleepSeconds",   "sleepTimeSeconds"),
+        "live_pct": ("sleep", "dailySleepDTO", "remSleepSeconds",   "sleepTimeSeconds"),
     },
     "sleep_awake_pct": {
         "intraday": None,
         "daily":    None,
         "raw_pct":  ("sleep", "dailySleepDTO", "awakeSleepSeconds", "sleepTimeSeconds"),
+        "live_pct": ("sleep", "dailySleepDTO", "awakeSleepSeconds", "sleepTimeSeconds"),
     },
     "resting_heart_rate": {
         "intraday": None,
@@ -90,6 +98,9 @@ _FIELD_MAP = {
     "sleep_duration": {
         "intraday": None,
         "daily":    ("sleep",     "duration_h"),
+        "live_nested": [
+            ("sleep", "dailySleepDTO.sleepTimeSeconds", 3600),
+        ],
     },
     "body_battery_max": {
         "intraday": None,
@@ -107,14 +118,23 @@ _FIELD_MAP = {
     "sleep_score": {
         "intraday": None,
         "daily":    ("sleep", "score"),
+        "live_nested": [
+            ("sleep", "dailySleepDTO.sleepScores.overall.value"),
+        ],
     },
     "sleep_score_feedback": {
         "intraday": None,
         "daily":    ("sleep", "sleep_score_feedback"),
+        "live_nested": [
+            ("sleep", "dailySleepDTO.sleepScoreFeedback"),
+        ],
     },
     "sleep_score_qualifier": {
         "intraday": None,
         "daily":    ("sleep", "sleep_score_qualifier"),
+        "live_nested": [
+            ("sleep", "dailySleepDTO.sleepScores.overall.qualifierKey"),
+        ],
     },
 
     # ── Intraday fields (raw/) ────────────────────────────────────────────────
@@ -138,10 +158,26 @@ _FIELD_MAP = {
             "val_min":    None,
             "offset_key": None,
         }),
+        "live": ("heart_rates", "heartRateValues", {
+            "ts_index":   0,
+            "val_index":  1,
+            "ts_key":     "startGMT",
+            "val_key":    "heartRate",
+            "val_min":    None,
+            "offset_key": None,
+        }),
         "daily": None,
     },
     "stress_series": {
         "intraday": ("stress", "stressValuesArray", {
+            "ts_index":   0,
+            "val_index":  1,
+            "ts_key":     "startGMT",
+            "val_key":    "stressLevel",
+            "val_min":    0,
+            "offset_key": "stressChartValueOffset",
+        }),
+        "live": ("stress", "stressValuesArray", {
             "ts_index":   0,
             "val_index":  1,
             "ts_key":     "startGMT",
@@ -160,10 +196,26 @@ _FIELD_MAP = {
             "val_min":    None,
             "offset_key": None,
         }),
+        "live": ("spo2", "spO2HourlyAverages", {
+            "ts_index":   0,
+            "val_index":  1,
+            "ts_key":     "startGMT",
+            "val_key":    "spO2Reading",
+            "val_min":    None,
+            "offset_key": None,
+        }),
         "daily": None,
     },
     "body_battery_series": {
         "intraday": ("stress", "bodyBatteryValuesArray", {
+            "ts_index":   0,
+            "val_index":  2,
+            "ts_key":     "startGMT",
+            "val_key":    "bodyBatteryLevel",
+            "val_min":    None,
+            "offset_key": None,
+        }),
+        "live": ("stress", "bodyBatteryValuesArray", {
             "ts_index":   0,
             "val_index":  2,
             "ts_key":     "startGMT",
@@ -182,10 +234,26 @@ _FIELD_MAP = {
             "val_min":    None,
             "offset_key": None,
         }),
+        "live": ("respiration", "respirationValuesArray", {
+            "ts_index":   0,
+            "val_index":  1,
+            "ts_key":     "startGMT",
+            "val_key":    "respirationValue",
+            "val_min":    None,
+            "offset_key": None,
+        }),
         "daily": None,
     },
     "steps_series": {
         "intraday": ("steps", None, {
+            "ts_index":   None,
+            "val_index":  None,
+            "ts_key":     "startGMT",
+            "val_key":    "steps",
+            "val_min":    None,
+            "offset_key": None,
+        }),
+        "live": ("steps", None, {
             "ts_index":   None,
             "val_index":  None,
             "ts_key":     "startGMT",
@@ -352,6 +420,128 @@ def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
     return {"values": values, "source_resolution": "intraday"}
 
 
+def _read_live(field: str) -> dict:
+    """
+    Read an intraday series from the live snapshot (cfg.LIVE_FILE).
+    Same array-extraction logic as _read_intraday(), single always-current
+    source instead of a dated file — date_from/date_to are not used.
+    Returns {"values": [{"date": str, "series": list}],
+             "fallback": bool, "source_resolution": "live"}.
+    Missing LIVE_FILE or missing field in the snapshot → fallback=True,
+    empty values, never an exception.
+    """
+    section, array_key, extract = _FIELD_MAP[field]["live"]
+
+    series = None
+    snapshot_date = None
+    if cfg.LIVE_FILE.exists():
+        try:
+            data          = json.loads(cfg.LIVE_FILE.read_text(encoding="utf-8"))
+            snapshot_date = data.get("date")
+            section_data  = data.get(section)
+            if isinstance(section_data, dict):
+                arr = section_data.get(array_key)
+                if isinstance(arr, list):
+                    series = _extract_series(arr, section_data, extract)
+            elif isinstance(section_data, list):
+                series = _extract_series(section_data, {}, extract)
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"garmin_map: could not read {cfg.LIVE_FILE}: {e}")
+
+    if series is None:
+        return {"values": [], "fallback": True, "source_resolution": "live"}
+
+    return {
+        "values":            [{"date": snapshot_date, "series": series}],
+        "fallback":          False,
+        "source_resolution": "live",
+    }
+
+
+def _read_live_pct(field: str) -> dict:
+    """
+    Read a percentage value from the live snapshot (cfg.LIVE_FILE) by
+    dividing seconds_key by total_key. Same math as _read_raw_pct(), single
+    always-current source instead of a dated file.
+    Returns {"values": [{"date": str, "value": float}],
+             "fallback": bool, "source_resolution": "live"}.
+    Missing LIVE_FILE, missing section, or total <= 0 → fallback=True,
+    empty values, never an exception.
+    """
+    section, dto_key, seconds_key, total_key = _FIELD_MAP[field]["live_pct"]
+
+    value = None
+    snapshot_date = None
+    if cfg.LIVE_FILE.exists():
+        try:
+            data          = json.loads(cfg.LIVE_FILE.read_text(encoding="utf-8"))
+            snapshot_date = data.get("date")
+            dto           = data.get(section, {}).get(dto_key, {})
+            if isinstance(dto, dict):
+                part  = dto.get(seconds_key)
+                total = dto.get(total_key)
+                if part is not None and total and total > 0:
+                    value = round(part / total * 100, 1)
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"garmin_map: could not read {cfg.LIVE_FILE}: {e}")
+
+    if value is None:
+        return {"values": [], "fallback": True, "source_resolution": "live"}
+
+    return {
+        "values":            [{"date": snapshot_date, "value": value}],
+        "fallback":          False,
+        "source_resolution": "live",
+    }
+
+
+def _read_live_nested(field: str) -> dict:
+    """
+    Read a single nested value from the live snapshot (cfg.LIVE_FILE) via a
+    dotted key path, trying each candidate in order until one resolves to a
+    non-None value. Uses the existing _get_nested() helper against a fixed
+    live source with a fallback chain instead of a single path.
+
+    Candidates are 2-tuples (section, dotted_key) or 3-tuples (section,
+    dotted_key, divisor) — divisor divides the raw value before it is
+    returned (e.g. sleepTimeSeconds / 3600 → hours). Omit for values used
+    as-is.
+
+    Returns {"values": [{"date": str, "value": any}],
+             "fallback": bool, "source_resolution": "live"}.
+    Missing LIVE_FILE or no candidate resolves → fallback=True, empty
+    values, never an exception.
+    """
+    candidates = _FIELD_MAP[field]["live_nested"]
+
+    value = None
+    snapshot_date = None
+    if cfg.LIVE_FILE.exists():
+        try:
+            data          = json.loads(cfg.LIVE_FILE.read_text(encoding="utf-8"))
+            snapshot_date = data.get("date")
+            for candidate in candidates:
+                section, dotted_key = candidate[0], candidate[1]
+                divisor = candidate[2] if len(candidate) > 2 else None
+                section_data = data.get(section)
+                if isinstance(section_data, dict):
+                    raw = _get_nested(section_data, dotted_key)
+                    if raw is not None:
+                        value = round(raw / divisor, 1) if divisor else raw
+                        break
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"garmin_map: could not read {cfg.LIVE_FILE}: {e}")
+
+    if value is None:
+        return {"values": [], "fallback": True, "source_resolution": "live"}
+
+    return {
+        "values":            [{"date": snapshot_date, "value": value}],
+        "fallback":          False,
+        "source_resolution": "live",
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Public interface — called exclusively by field_map.py
 # ══════════════════════════════════════════════════════════════════════════════
@@ -365,8 +555,11 @@ def get(field: str, date_from: str, date_to: str,
         field:       Generic field name (dashboard-side). Must exist in _FIELD_MAP.
         date_from:   Start date ISO string (YYYY-MM-DD), inclusive.
         date_to:     End date ISO string (YYYY-MM-DD), inclusive.
-        resolution:  "daily" or "intraday". Fallback applied if requested
-                     resolution is unavailable for this field.
+        resolution:  "daily", "intraday", or "live". Fallback applied if
+                     requested "daily"/"intraday" resolution is unavailable
+                     for this field. "live" bypasses fallback entirely —
+                     single always-current snapshot, no archive equivalent
+                     to swap to.
 
     Returns:
         {
@@ -377,14 +570,27 @@ def get(field: str, date_from: str, date_to: str,
 
     Raises:
         KeyError:   if field is not registered in _FIELD_MAP.
-        ValueError: if resolution is not "daily" or "intraday".
+        ValueError: if resolution is not "daily", "intraday", or "live".
     """
     if field not in _FIELD_MAP:
         raise KeyError(f"garmin_map: unknown field '{field}'")
-    if resolution not in ("daily", "intraday"):
+    if resolution not in ("daily", "intraday", "live"):
         raise ValueError(f"garmin_map: invalid resolution '{resolution}'")
 
     definition = _FIELD_MAP[field]
+
+    # live fields bypass the daily/intraday fallback logic entirely — single
+    # always-current snapshot, date_from/date_to are ignored, no archive
+    # equivalent to swap to on a miss. Three live descriptor sub-types,
+    # checked in order — a field registers at most one.
+    if resolution == "live":
+        if definition.get("live") is not None:
+            return _read_live(field)
+        if definition.get("live_pct") is not None:
+            return _read_live_pct(field)
+        if definition.get("live_nested") is not None:
+            return _read_live_nested(field)
+        return {"values": [], "fallback": True, "source_resolution": "live"}
 
     # raw_pct fields bypass the standard daily/intraday resolution logic
     if definition.get("raw_pct") is not None:

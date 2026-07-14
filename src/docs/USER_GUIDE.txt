@@ -105,6 +105,12 @@ Available dashboards (selection):
   Health + Context    Health combined with weather/pollen
   Sleep Dashboard     Sleep phases, HRV trend, quality score
 
+Live Tracking (v1.6.5): today's Body Battery, Heart Rate, Steps and Stress
+plus last night's sleep summary — always current. Not part of the dashboard
+list above; it refreshes automatically after every Daily Sync, or on demand
+via the "Update Live" button (purple button area, next to Daily Sync).
+Takes about 30-60 seconds; progress shown in the log.
+
 Files tab: Excel overview of all archived days (v).
 
 Rebuild dashboards:

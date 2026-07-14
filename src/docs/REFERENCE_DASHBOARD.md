@@ -267,7 +267,8 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
 }
 ```
 
-### `explorer_garmin-context_html_dash` — Explorer
+### `live_tracking_html_dash` — Live Tracking (v1.6.5)
+
 
 ```python
 {
@@ -384,6 +385,7 @@ Raises `OSError` if output file cannot be written.
 - `"explorer"` → `layouts/render/explorer.py` (`_render_explorer`)
 - `"sleep"`    → `layouts/render/sleep.py` (`_render_sleep`) — HTML/CSS table + inline Plotly intraday explorer (v1.6.2+)
 - `"heatmap"`  → `layouts/render/heatmap.py` (`_render_heatmap`) — six Plotly heatmap panels, tab navigation (v1.6.3.1+)
+- `"live"`     → `layouts/render/live.py` (`render`) — today's progression + last night, dark theme matching the app's own palette (not the shared light-theme dashboard CSS), inline SVG sparklines instead of Plotly (v1.6.5+)
 - `None` / any other → `layouts/render/recovery_context.py` (`_render_recovery_context`)
 
 Adding a new layout: create `layouts/render/<name>.py` with `render(data, output_path) -> None`,

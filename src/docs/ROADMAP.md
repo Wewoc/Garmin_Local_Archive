@@ -6,44 +6,53 @@
 
 ---
 
-**Currently stable — v1.6.4.2**
+**Currently stable — v1.6.5.1**
 
 ---
 
-### v1.6.5 — Live Tracking Dashboard
+### v1.6.5.2 — Headless Login Hardening
 
-Extends the sync path with a lightweight live fetch for the current day. The result is stored in `garmin_data/live/live.json` and rendered as a standalone dashboard in the Dashboards tab — not part of Create Reports.
+Reduces the automated login-cascade risk that both `daily_update.py` (headless)
+and the GUI sync subprocess run into when the saved token has expired. Follows
+directly from the session analysis in `ANALYSE_headless_mfa_login_2026-07-08.md`.
 
-**What is new:**
+**Background:** `garmin_api.login()` triggers the `garminconnect` library's
+built-in 5-strategy cascade (`mobile+cffi` × 3 impersonations, `mobile+requests`,
+`widget+cffi`) with no delay and no backoff whenever the saved token is rejected.
+In the GUI this risk is masked by the mandatory `_connection_verified` gate
+ahead of the sync subprocess — interactive callbacks resolve token/SSO/MFA
+issues before the subprocess ever runs. Headless has no equivalent gate and
+cannot resolve an MFA challenge if one occurs (see CHANGELOG v1.6.0.4.1).
 
-- `garmin_data/live/live.json` — snapshot of the current day: Body Battery intraday series, Heart Rate intraday series, steps, stress + sync timestamp
-- `garmin/garmin_live_fetch.py` — lightweight module: fetches today's intraday data via the `garminconnect` API only; no archive write access, no `quality_log` contact
-- `dashboards/live_tracking_html_dash.py` — specialist: reads today's live snapshot + last sleep entry **exclusively via `field_map.get()`**, returns a neutral dict. No direct file access — same broker discipline as every other specialist.
-- `live_tracking.html` — generated dashboard: upper half shows today's progression (Body Battery, HR, steps, stress); lower half shows last night analogous to the Sleep Dashboard
-- `panel_actions.py` — new "Update Live" button in the Life Tracking area (right side); triggers `garmin_live_fetch.py` and re-renders `live_tracking.html`
-- `maps/field_map.py` / `garmin/garmin_map.py` — new live read route: `garmin_map` learns the `garmin_data/live/` silo and serves today's snapshot through the standard broker contract (`values` / `fallback` / `source_resolution`). Missing `live.json` → empty result with `fallback=True`, no crash. The exact parameter mechanism (dedicated resolution vs. date-aware intraday routing) is an implementation decision at build time. The specialist reaches live data and the last sleep entry through this route only.
+**What is new (proposed — pending Bauauftrag):**
 
-**Triggers:**
-
-- End of "Sync Garmin" → live fetch appended automatically
-- "Update Live" button → live fetch only, no archive sync
-- "Create Reports" → Live Tracking is **not** included
+- `garmin_api.py` — `login()` sets `client.skip_strategies` before calling
+  `Garmin.login()`, restricting the cascade to a reduced, defined strategy set
+  instead of all five in series (exact set to be decided from DEPS-scan
+  findings and real-world reliability of `widget+cffi` vs. `mobile+*`)
+- `garmin_collector.py` (or a shared state helper) — retry lock: after a
+  `GarminLoginError` (in particular MFA-triggered failures), the next
+  automatic headless login attempt is suspended for a defined cooldown period
+  instead of retrying on the next scheduled run
 
 **What does not change:**
 
-- Archive pipeline — no access to `quality_log`, `raw/`, `summary/`
-- Existing dashboards — unaffected
-- `garmin_live_fetch.py` — remains a pure fetcher: calls the `garminconnect` API directly and writes only to `garmin_data/live/`. Fetchers sit below the Broker Layer by design — this is the collector pattern, not a broker bypass. The Broker Layer reads what the fetcher wrote; it never fetches.
+- GUI login flow — `garmin_app_controller.check_connection()` and its
+  dialogs remain untouched
+- Token storage / encryption (`garmin_security.py`) — unaffected
+- Headless invariant — no interactive prompt is introduced into
+  `daily_update.py`; MFA remains unresolved when it occurs, only its
+  likelihood/frequency is targeted
 
-**Invariant:** `garmin_live_fetch.py` writes exclusively to `garmin_data/live/`. No write access to any other directory.
+**Explicitly not addressed:** the root cause of why Garmin triggers MFA on
+this account is not fully confirmed — no proven causal link between the
+cascade pattern and the MFA trigger (see analysis, Section 3). This version
+treats the cascade as the most likely contributing factor, not a certainty.
 
-**Pre-condition:** none — independent of the v1.6 Render Registry; `live_tracking_html_dash.py` can use the existing HTML plotter path.
-
-**Testing — `tests/test_dashboard.py` extension:**
-
-- Broker live route (extends the broker-contract section): the live read path returns the standard contract dict (`values`, `fallback`, `source_resolution`). Missing `live.json` → empty `values`, `fallback=True`, no exception. Unknown field / invalid resolution honour the existing `KeyError` / `ValueError` rules.
-- Live Tracking specialist (new section, parallel to the existing specialist sections): `live_tracking_html_dash.build()` runs against a synthetic `live.json` + synthetic last-sleep entry and returns a neutral dict with the documented mandatory keys. Asserts the specialist performs **no direct file access** — all data arrives through `field_map`.
-- `test_local_context.py`: live route covered by the same broker-contract assertions applied to `garmin_map` / `field_map`.
+*Pre-condition: DEPS-Scan `v164_01` (`garmin_login_callers`,
+`garmin_client_instantiation`, `connection_verified_usage`,
+`garmin_login_error_handling`) completed and reviewed. Bauauftrag not yet
+issued.*
 
 ---
 
