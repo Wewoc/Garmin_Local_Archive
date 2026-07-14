@@ -262,7 +262,7 @@ def run_import(path, progress_callback=None, stop_event=None) -> dict:
                 else:
                     written = False
 
-                reason = (f"Quality: {label} — bulk import" if label in ("high", "medium")
+                reason = (f"Quality: {label} — bulk import" if label in ("high", "standard")
                           else f"Quality: {label} — insufficient data in bulk export")
 
                 try:
