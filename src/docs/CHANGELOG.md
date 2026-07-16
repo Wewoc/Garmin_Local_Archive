@@ -1,5 +1,41 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.2 — Token Lifecycle Log
+
+Observation-only addition, triggered by an unresolved MFA login failure in the
+headless path (analysis: `ANALYSE_headless_mfa_login_2026-07-08.md`). Before
+deciding whether to throttle the login cascade, actual token lifetime needed
+to be measurable instead of guessed. No existing behaviour changes — four new
+log calls at already-existing call sites, one new observation-only file.
+
+**Changed modules:**
+- `garmin/garmin_security.py` — new function `log_token_event(event, trigger,
+  **extra)`, sole write authority for the new `garmin_token_log.json` (in
+  `LOG_DIR`). Best-effort, catches all exceptions internally — a logging
+  failure must never affect the login flow. Records only metadata (timestamp,
+  event/trigger type, `app_version`, exception type name, truncated detail
+  string) — no credentials, no token content. `save_token()` calls it on
+  success (`"created"`, `"sso_login"`).
+- `garmin/garmin_api.py` — `login()`: three new call sites. Path 1 rate-limit
+  branch logs `"blocked"`/`"rate_limited"` (token is deliberately *not*
+  deleted there, kept separate from `"invalidated"` to avoid skewing
+  lifetime analysis). Path 1 genuine rejection logs `"invalidated"`/
+  `"rejected_by_garmin"`. Path 3b (encryption key missing from WCM) logs
+  `"invalidated"`/`"enc_key_missing_wcm"`.
+- `app/panel_connection.py` — `_reset_token()` logs `"invalidated"`/
+  `"manual_reset"`.
+
+**What does not change:**
+- No existing function signature or return value changed.
+- No new dependency, no `build_manifest.py` entry needed — no new module,
+  only additions inside three already-listed files.
+- `skip_strategies` / retry-lock on the login cascade — considered during
+  this session's analysis, deliberately deferred, not implemented here (see
+  `ANALYSE_headless_mfa_login_2026-07-08.md`, Section 6).
+
+**Test result:** 1399 / 1399 — all green (498 + 261 + 445 + 145 + 46 + 4),
+ruff 0 errors, bandit 0 HIGH.
+
 ## v1.6.5.1 — Live Tracking Follow-ups
 
 Three follow-ups to the v1.6.5 Live Tracking Dashboard, all confined to

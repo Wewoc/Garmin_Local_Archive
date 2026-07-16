@@ -115,6 +115,7 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
         garmin_security.generate_enc_key()
         # Existing token was encrypted with the old key — cannot be decrypted.
         # Clear it so Path 3 (SSO) runs cleanly and re-encrypts with the new key.
+        garmin_security.log_token_event("invalidated", "enc_key_missing_wcm")
         garmin_security.clear_token()
         log.warning("  Saved token cleared — re-login required")
 
@@ -135,9 +136,13 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
             err = str(e)
             if isinstance(e, GarminConnectTooManyRequestsError) or "429" in err or "403" in err:
                 log.warning(f"  Token probe failed ({err[:60]}) — not falling back to SSO to protect IP")
+                garmin_security.log_token_event("blocked", "rate_limited",
+                                                 exception_type=type(e).__name__, detail=err[:100])
                 garmin_security._clear_token_dir()
                 raise GarminLoginError(f"Token probe failed: {err}")
             log.warning(f"  Saved token rejected by Garmin — token expired ({type(e).__name__}: {e})")
+            garmin_security.log_token_event("invalidated", "rejected_by_garmin",
+                                             exception_type=type(e).__name__, detail=str(e)[:100])
             garmin_security._clear_token_dir()
             garmin_security.clear_token()
 
