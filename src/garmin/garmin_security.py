@@ -29,10 +29,12 @@ Token format (garminconnect >= 0.2.40):
 No GUI logic. No direct calls to garmin_api or other project modules.
 """
 
+import json
 import logging
 import os
 import shutil
 import time
+from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
@@ -160,6 +162,7 @@ def save_token() -> bool:
         cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
         cfg.GARMIN_TOKEN_FILE.write_bytes(salt + nonce + ciphertext)
         log.info("  ✓ Token encrypted and saved")
+        log_token_event("created", "sso_login")
         return True
 
     except Exception as e:
@@ -228,3 +231,53 @@ def clear_token() -> None:
         log.info("  Encryption key removed from WCM")
     except Exception as e:
         log.warning(f"  Could not remove enc_key from WCM: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Token event log — observation only, never affects the login flow
+# ══════════════════════════════════════════════════════════════════════════════
+
+def log_token_event(event: str, trigger: str, **extra) -> None:
+    """
+    Appends one entry to garmin_token_log.json (LOG_DIR). Best-effort — a
+    logging failure must never affect the login flow itself, so all errors
+    are caught and merely warned about.
+
+    event   : "created" | "invalidated" | "blocked"
+              "blocked" does not mean the token was deleted — used for the
+              429/403 rate-limit case, where the token is deliberately kept
+              (see garmin_api.py Path 1). Keeping this separate from
+              "invalidated" avoids skewing token-lifetime analysis.
+    trigger : "sso_login" | "rejected_by_garmin" | "enc_key_missing_wcm" |
+              "manual_reset" | "rate_limited"
+    extra   : optional additional fields, e.g. exception_type=..., detail=...
+              (detail should already be truncated by the caller — this
+              function does not truncate).
+
+    app_version is read from version.py if importable; falls back to
+    "unknown" rather than raising, since this module has no other
+    dependency on the app's version module.
+    """
+    import garmin_config as cfg
+    try:
+        import version
+        app_version = version.APP_VERSION
+    except Exception:
+        app_version = "unknown"
+
+    entry = {
+        "ts":          datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "event":       event,
+        "trigger":     trigger,
+        "app_version": app_version,
+        **extra,
+    }
+
+    try:
+        log_file = cfg.LOG_DIR / "garmin_token_log.json"
+        data = json.loads(log_file.read_text()) if log_file.exists() else {"events": []}
+        data["events"].append(entry)
+        cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_file.write_text(json.dumps(data, indent=2))
+    except Exception as e:
+        log.warning(f"  Token event log write failed: {e}")

@@ -172,6 +172,11 @@ creation. 29 checks total.
 - `garmin_import` — requires actual Garmin GDPR export ZIP
 - Export scripts in `export/`
 - Full end-to-end with real API data
+- `garmin_security.log_token_event()` (v1.6.5.2) — no dedicated test coverage yet;
+  existing Section 7 checks (`save_token`/`load_token`/`clear_token`) confirmed
+  passing alongside it (1399/1399), but the function itself — event/trigger
+  values, `garmin_token_log.json` append behaviour, best-effort exception
+  handling — is unverified by the test suite
 
 ### When to run
 

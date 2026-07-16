@@ -6,53 +6,48 @@
 
 ---
 
-**Currently stable — v1.6.5.1**
+**Currently stable — v1.6.5.2**
 
 ---
 
-### v1.6.5.2 — Headless Login Hardening
+### v1.6.5.3 — Intraday Timestamp Timezone Bug
 
-Reduces the automated login-cascade risk that both `daily_update.py` (headless)
-and the GUI sync subprocess run into when the saved token has expired. Follows
-directly from the session analysis in `ANALYSE_headless_mfa_login_2026-07-08.md`.
+Intraday series timestamps (`heart_rate_series`, `stress_series`, `body_battery_series`,
+`spo2_series`, `respiration_series`, `steps_series`) are displayed in GMT/UTC instead
+of local time across all consuming dashboards.
 
-**Background:** `garmin_api.login()` triggers the `garminconnect` library's
-built-in 5-strategy cascade (`mobile+cffi` × 3 impersonations, `mobile+requests`,
-`widget+cffi`) with no delay and no backoff whenever the saved token is rejected.
-In the GUI this risk is masked by the mandatory `_connection_verified` gate
-ahead of the sync subprocess — interactive callbacks resolve token/SSO/MFA
-issues before the subprocess ever runs. Headless has no equivalent gate and
-cannot resolve an MFA challenge if one occurs (see CHANGELOG v1.6.0.4.1).
+**Root cause:** `garmin_map.py` — `_FIELD_MAP` intraday descriptors use
+`"ts_key": "startGMT"` for all six series. `_ts_to_iso()` correctly converts the
+epoch value to UTC, but the resulting ISO string is passed downstream unchanged —
+no reconversion to local time happens anywhere in the chain. Confirmed via user
+report: a 9:00 AM CEST activity appeared as 07:00 in the heart rate curve
+(UTC+2 offset, matches DE summer time exactly).
 
-**What is new (proposed — pending Bauauftrag):**
+**Distinct from:** `garmin_import.py` → `_timestamp_to_date()`, which deliberately
+interprets `startTimeLocal` as UTC — that's a date-bucketing trick with no display
+impact, unaffected by this bug.
 
-- `garmin_api.py` — `login()` sets `client.skip_strategies` before calling
-  `Garmin.login()`, restricting the cascade to a reduced, defined strategy set
-  instead of all five in series (exact set to be decided from DEPS-scan
-  findings and real-world reliability of `widget+cffi` vs. `mobile+*`)
-- `garmin_collector.py` (or a shared state helper) — retry lock: after a
-  `GarminLoginError` (in particular MFA-triggered failures), the next
-  automatic headless login attempt is suspended for a defined cooldown period
-  instead of retrying on the next scheduled run
+**Affected — confirmed via cross-check, not yet verified in code:**
+- Heatmap Dashboard (`heatmap_garmin_html_dash.py`, v1.6.3)
+- Sleep Intraday Explorer (`layouts/render/sleep.py`, v1.6.2)
+- Custom Dashboard Builder (v1.6.4) — when intraday fields selected
+- Live Tracking Dashboard (v1.6.5) — separate path via `garmin_live_fetch.py`,
+  needs own check whether it shares `_ts_to_iso()` or has independent logic
+- Any Excel export path carrying intraday timestamps
 
-**What does not change:**
+**Fix options (to be evaluated in Analyse step):**
+1. Use `startLocal` instead of `startGMT` as `ts_key` — simplest, but depends on
+   Garmin reliably supplying `startLocal` for every series (unverified)
+2. Keep `startGMT`, add explicit offset correction in `_ts_to_iso()` using
+   `zoneinfo` (requires a reference timezone — device-local vs. system-local
+   question resurfaces)
+3. Fixed manual offset — rejected outright, breaks across DST transitions
 
-- GUI login flow — `garmin_app_controller.check_connection()` and its
-  dialogs remain untouched
-- Token storage / encryption (`garmin_security.py`) — unaffected
-- Headless invariant — no interactive prompt is introduced into
-  `daily_update.py`; MFA remains unresolved when it occurs, only its
-  likelihood/frequency is targeted
+**Scope note:** Sibling-Sweep required — single fix point likely in `garmin_map.py`
+(`_ts_to_iso()` / `_extract_series()`), but every downstream renderer needs
+verification that it doesn't do its own timestamp handling.
 
-**Explicitly not addressed:** the root cause of why Garmin triggers MFA on
-this account is not fully confirmed — no proven causal link between the
-cascade pattern and the MFA trigger (see analysis, Section 3). This version
-treats the cascade as the most likely contributing factor, not a certainty.
-
-*Pre-condition: DEPS-Scan `v164_01` (`garmin_login_callers`,
-`garmin_client_instantiation`, `connection_verified_usage`,
-`garmin_login_error_handling`) completed and reviewed. Bauauftrag not yet
-issued.*
+*Pre-condition: none — can be scheduled independently of v1.6.5 open items.*
 
 ---
 

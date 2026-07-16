@@ -179,10 +179,12 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 
 **Auth token flow:**
 
-- Path 1 (token valid): `load_token()` → `Garmin()` + `login(token_dir)` → `_clear_token_dir()` → probe call — 429/403 on probe → `GarminLoginError` (no SSO fallback)
+- Path 1 (token valid): `load_token()` → `Garmin()` + `login(token_dir)` → `_clear_token_dir()` → probe call — 429/403 on probe → `log_token_event("blocked", "rate_limited")` → `GarminLoginError` (no SSO fallback); other probe failure → `log_token_event("invalidated", "rejected_by_garmin")` → `clear_token()`
 - Path 2 (token expired): `clear_token()` → `on_token_expired()` → Path 3
-- Path 3 (SSO): `on_sso_required()` → confirm → `generate_enc_key()` (auto, no dialog) → `Garmin(email, pw, prompt_mfa=on_mfa_required)` → `login(token_dir)` → `save_token()` (garminconnect ≥ 0.3.0)
-- Path 3b (key missing): `on_key_required()` → store key → retry Path 1
+- Path 3 (SSO): `on_sso_required()` → confirm → `generate_enc_key()` (auto, no dialog) → `Garmin(email, pw, prompt_mfa=on_mfa_required)` → `login(token_dir)` → `save_token()` → `log_token_event("created", "sso_login")` (garminconnect ≥ 0.3.0)
+- Path 3b (key missing): `log_token_event("invalidated", "enc_key_missing_wcm")` → `on_key_required()` → store key → retry Path 1
+
+**Manual reset** (`panel_connection.py::_reset_token()`): `clear_token()` → `log_token_event("invalidated", "manual_reset")` — outside the `login()` flow, GUI button only.
 
 ---
 
@@ -202,10 +204,10 @@ avoiding stale paths when `GARMIN_OUTPUT_DIR` is set after the module was first 
 | `clear_token()` | Removes `.enc`, `GARMIN_TOKEN_DIR`, and enc_key from WCM |
 | `_clear_token_dir()` | Removes `GARMIN_TOKEN_DIR`. Called after token login and on failure |
 | `_derive_aes_key(enc_key, salt)` | PBKDF2-HMAC-SHA256, 600k iterations, 32-byte key |
+| `log_token_event(event, trigger, **extra)` | Appends one entry to `garmin_token_log.json` (`LOG_DIR`). Best-effort — catches all exceptions internally, never raises. `event`: `created` \| `invalidated` \| `blocked`. `trigger`: `sso_login` \| `rejected_by_garmin` \| `enc_key_missing_wcm` \| `manual_reset` \| `rate_limited`. Records timestamp, `app_version` (read from `version.py`, falls back to `"unknown"`), and optional `exception_type`/`detail` — no credentials, no token content (v1.6.5.2) |
 
----
+**`garmin_token_log.json`** (v1.6.5.2) — observation-only file in `LOG_DIR`, sole write authority `garmin_security.py::log_token_event()`. Introduced to measure actual token lifetime empirically instead of guessing — see `ANALYSE_headless_mfa_login_2026-07-08.md`. Structure:
 
-## `garmin_validator.py`
 
 | Function | Purpose |
 |---|---|
