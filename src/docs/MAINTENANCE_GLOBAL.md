@@ -415,7 +415,10 @@ Two words. No further context needed. Resets the session to the last confirmed s
 
 ---
 
-### Notes file
+### Pre-build gate — DEPS scan + scope snapshot (mandatory)
+
+No build order without both of the following in hand:
+
 
 Create `NOTES_vX_Y_Z.md` at session start. Update after every delivery. Three blocks:
 
@@ -627,6 +630,7 @@ Docs are updated to current state, not extended. Stale entries do not survive se
 | Prompt patterns | `docs/WORKFLOW_TEMPLATE.md` |
 | Session closing checklist | `docs/FINAL_DOKU_PROMPT.md` |
 | Version-specific session notes | `docs/NOTES_vX_Y_Z.md` |
+| Pre-build tooling (scan, dependency map, scope snapshot) | [`GLA-NeedfulThings`](https://github.com/Wewoc/GLA-NeedfulThings) — `scanner/`, `build_dep_map/`, `scope_snapshot/` |
 
 ---
 

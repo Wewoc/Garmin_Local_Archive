@@ -10,7 +10,51 @@
 
 ---
 
-### v1.6.5.3 — Intraday Timestamp Timezone Bug
+## v1.6.5.3 — Standalone Parity: Quick Fixes
+
+Four independent findings from the Standalone Parity Audit (see
+`docs/AUDIT_FINDINGS_standalone_parity_v1652.md`), low risk, no
+sibling-sweep required:
+- Add hidden imports `curl_cffi`, `curl_cffi.requests`, `ua_generator`,
+  `openpyxl.cell._writer` to `build_standalone.py` (P3-01, build-breaking —
+  garminconnect transport currently unprotected in T3)
+- Make package `__init__.py` listing in `SHARED_SCRIPTS` consistent (P2-01)
+- Remove dead code `_find_script()` from `garmin_app_base.py` (P1-03)
+- Explicitly document the headless scope of `daily_update.py` — no
+  maintenance-timer equivalent (repair/quality/fill/backfill), deliberate
+  or feature candidate (P6-01)
+- Addendum: verify QtWebEngine resources (`panel_home.py`,
+  `garmin_app_base.py`, `qwebengine_hardening.py`) live in the T3 build
+  built for this point anyway (P3-03, diagnosis rather than fix — effort
+  only known afterward)
+
+---
+
+## v1.6.5.4 — Frozen-Path Centralization
+
+The non-centralized 3-way root branch in `panel_outputs.py` (6× identical:
+Create Reports, All-Dashboards, Encrypted Export, Custom-Dashboard-Encrypt,
+Context-Sync) gets pulled into a shared helper; T2/T3 distinguisher
+unified to the canonical `dash_runner.py` check (P1-01, P1-02).
+Optional: fold in the `info/` path logic (`panel_home.py`,
+`panel_outputs.py`) (P1-04). Requires a sibling-sweep across all five
+affected actions, verified in T1 and in an actual T3 build.
+
+---
+
+## v1.6.5.5 — Hidden-Import Consolidation + Test
+
+Shared `HIDDEN_IMPORTS` list in `build_manifest.py`, with `build.py` and
+`build_standalone.py` switched over to it (P3-02) — fixes the structural
+root cause of P3-01. Followed by a new test asserting known lazy deps
+(`curl_cffi`, `ua_generator`) are present (P7-03). Optional: replace the
+`test_build_output.py` §8 embed-destination tautology with a real
+assertion (P7-01/P7-02). Order within this point is binding:
+consolidation before test.
+
+---
+
+## v1.6.5.6 — Intraday Timestamp Timezone Bug
 
 Intraday series timestamps (`heart_rate_series`, `stress_series`, `body_battery_series`,
 `spo2_series`, `respiration_series`, `steps_series`) are displayed in GMT/UTC instead
@@ -46,8 +90,6 @@ impact, unaffected by this bug.
 **Scope note:** Sibling-Sweep required — single fix point likely in `garmin_map.py`
 (`_ts_to_iso()` / `_extract_series()`), but every downstream renderer needs
 verification that it doesn't do its own timestamp handling.
-
-*Pre-condition: none — can be scheduled independently of v1.6.5 open items.*
 
 ---
 
