@@ -6,27 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.2**
-
----
-
-## v1.6.5.3 — Standalone Parity: Quick Fixes
-
-Four independent findings from the Standalone Parity Audit (see
-`docs/AUDIT_FINDINGS_standalone_parity_v1652.md`), low risk, no
-sibling-sweep required:
-- Add hidden imports `curl_cffi`, `curl_cffi.requests`, `ua_generator`,
-  `openpyxl.cell._writer` to `build_standalone.py` (P3-01, build-breaking —
-  garminconnect transport currently unprotected in T3)
-- Make package `__init__.py` listing in `SHARED_SCRIPTS` consistent (P2-01)
-- Remove dead code `_find_script()` from `garmin_app_base.py` (P1-03)
-- Explicitly document the headless scope of `daily_update.py` — no
-  maintenance-timer equivalent (repair/quality/fill/backfill), deliberate
-  or feature candidate (P6-01)
-- Addendum: verify QtWebEngine resources (`panel_home.py`,
-  `garmin_app_base.py`, `qwebengine_hardening.py`) live in the T3 build
-  built for this point anyway (P3-03, diagnosis rather than fix — effort
-  only known afterward)
+**Currently stable — v1.6.5.3**
 
 ---
 

@@ -34,6 +34,7 @@ SHARED_SCRIPTS = [
     "crash_handler.py",
     "qwebengine_hardening.py",
     # garmin pipeline
+    "garmin/__init__.py",
     "garmin/garmin_config.py",
     "garmin/garmin_utils.py",
     "garmin/garmin_api.py",
@@ -64,6 +65,7 @@ SHARED_SCRIPTS = [
     "garmin/garmin_live_fetch.py",
     "garmin/garmin_extended_anaysis.py",
     # maps (routing only)
+    "maps/__init__.py",
     "maps/field_map.py",
     "maps/garmin_map.py",
     "maps/context_map.py",
@@ -72,6 +74,7 @@ SHARED_SCRIPTS = [
     "maps/brightsky_map.py",
     "maps/airquality_map.py",
     # context pipeline
+    "context/__init__.py",
     "context/context_collector.py",
     "context/context_api.py",
     "context/context_writer.py",
@@ -80,6 +83,7 @@ SHARED_SCRIPTS = [
     "context/brightsky_plugin.py",
     "context/airquality_plugin.py",
     # dashboards (specialists + runner)
+    "dashboards/__init__.py",
     "dashboards/dash_runner.py",
     "dashboards/timeseries_garmin_html-xls_dash.py",
     "dashboards/health_garmin_html-json_dash.py",
@@ -92,6 +96,7 @@ SHARED_SCRIPTS = [
     "dashboards/live_tracking_html_dash.py",
     "dashboards/custom_dash_builder.py",
     # layouts (plotters + passive resources)
+    "layouts/__init__.py",
     "layouts/dash_layout.py",
     "layouts/dash_layout_html.py",
     "layouts/dash_plotter_html.py",

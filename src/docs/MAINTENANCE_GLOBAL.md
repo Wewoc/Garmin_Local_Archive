@@ -42,6 +42,15 @@ bundle it automatically. `daily_update.py` (headless, all targets) does not
 install it yet — `crash_handler.install()` is entry-point-agnostic and can be
 adopted there in a future step; not bundled with this delivery (separate scope).
 
+**Headless scope (v1.6.5.3):** `daily_update.py` performs the daily sync only —
+it has no equivalent to the GUI Timer's maintenance modes (`repair`, `quality`,
+`fill`, `source_backfill`, `steps_backfill`, `bulk_recheck`, `check_integrity`).
+This is a deliberate scope boundary, not an oversight: these modes are
+interventions on the archive that benefit from someone watching and able to
+abort — the same reasoning behind excluding `_run_live_fetch()` from headless
+(`panel_outputs.py`, v1.6.5). Maintenance stays GUI-only; automate the daily
+sync, run maintenance manually when needed.
+
 **QWebEngine hardening (v1.6.0.4.4, A5):** `qwebengine_hardening.py` is called
 once after each `QWebEngineView()` instantiation — `panel_home.py` (dashboard
 viewer) and `garmin_app_base.py` (XLSX preview). It disables
@@ -217,7 +226,7 @@ redacted at write time.
 python tests/test_local.py
 ```
 
-**Current count: 469 checks, 22 sections.** No network, no GUI, no API calls. Cleans up after itself.
+**Current count: 498 checks, 22 sections.** No network, no GUI, no API calls. Cleans up after itself.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -238,7 +247,7 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 336 checks, 18 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+**Current count: 445 checks, 18 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
 
 Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`.
 
@@ -321,7 +330,7 @@ Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_stan
 python tests/test_build_output.py
 ```
 
-**313 checks without a build / 315 checks after a full build, 8 sections.** Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest). `build_manifest` is imported from `compiler/`. `REQUIRED_DATA_FILES` is a list of `(subdir, filename)` tuples (v1.6.0.4.4+) — generic across both build targets, not hardcoded to `garmin/`. Check count scales with the number of entries in `REQUIRED_DATA_FILES` (sections 1, 2, 4, 8).
+**656 checks after a full build, 8 sections.** Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest). `build_manifest` is imported from `compiler/`. `REQUIRED_DATA_FILES` is a list of `(subdir, filename)` tuples (v1.6.0.4.4+) — generic across both build targets, not hardcoded to `garmin/`. Check count scales with the number of entries in `REQUIRED_DATA_FILES` (sections 1, 2, 4, 8) and with `SHARED_SCRIPTS` (sections 1, 2, 4, 8 — one check per listed script/package-init; v1.6.5.3 added the five package `__init__.py` entries, 631 → 656).
 
 Run after: called automatically by `build_all.py` as post-build step. Can also be run standalone to verify source integrity without a build.
 
