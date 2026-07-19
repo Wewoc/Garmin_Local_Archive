@@ -26,7 +26,6 @@ v1.5.4 — PyQt6 migration
   Shared state remains on GarminApp with Owner-Matrix (D-4).
 """
 
-import sys
 import threading
 from pathlib import Path
 
@@ -559,14 +558,6 @@ class GarminApp(QMainWindow):
     def _run_extended_analysis(self):
         """Subclass (garmin_app.py) overrides with _find_python() access."""
         pass
-
-    def _find_script(self, name: str):
-        candidates = [
-            Path(sys.executable).parent / "scripts" / name,
-            Path(__file__).parent / "garmin" / name,
-            Path(__file__).parent / name,
-        ]
-        return next((p for p in candidates if p.exists()), None)
 
     # ── Tab switch ────────────────────────────────────────────────────────────
 

@@ -1,5 +1,58 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.3 — Standalone Parity: Quick Fixes
+
+Four independent, low-risk fixes from the v1.6.5.2 standalone-parity audit
+(`docs/AUDIT_FINDINGS_standalone_parity_v1652.md`), each confined to its own
+file. No shared scope between them — each shipped as its own anchor and
+verified independently.
+
+**Changed modules:**
+- `compiler/build_standalone.py` — four hidden-import entries missing
+  against `build.py` (T2) added to the `hidden` list: `curl_cffi`,
+  `curl_cffi.requests`, `ua_generator` (garminconnect transport, lazy
+  imported by the library itself), `openpyxl.cell._writer` (Excel write
+  internals). Build-breaking in the sense that `ImportError` on these four
+  only surfaces at runtime — on the first real API call or the first `.xlsx`
+  export — never in the PyInstaller build log. Verified via a real T3 build
+  with an actual Garmin login/sync and four Excel-format dashboard exports;
+  both succeeded.
+- `compiler/build_manifest.py` — five package `__init__.py` files were
+  present on disk but missing from `SHARED_SCRIPTS`
+  (`context/`, `dashboards/`, `garmin/`, `layouts/`, `maps/` — only
+  `app/__init__.py`, `garmin/quality/__init__.py`, and
+  `layouts/render/__init__.py` were listed). All eight are code-free;
+  decision was to list all eight rather than leave the omission
+  undocumented, since `build_manifest.py` is the single source of truth for
+  script lists. `SCRIPTS`, `EMBEDDED_SCRIPTS`, `ALL_SCRIPTS` update
+  automatically (all three are derived from `SHARED_SCRIPTS`).
+- `garmin_app_base.py` — removed `_find_script()`, dead code confirmed via a
+  project-wide reference scan (exactly one match: the definition itself, no
+  callers). Removing it left `import sys` unused (`sys.executable` was its
+  only use in the file) — removed in the same fix, caught by the
+  `test_static.py` ruff gate before the build proceeded.
+- `docs/MAINTENANCE_GLOBAL.md` — documented that `daily_update.py`
+  intentionally has no equivalent to the GUI Timer's maintenance modes
+  (`repair`, `quality`, `fill`, `source_backfill`, `steps_backfill`,
+  `bulk_recheck`, `check_integrity`). Same reasoning already applied to
+  excluding `_run_live_fetch()` from headless (v1.6.5): these are
+  interventions on the archive that benefit from someone watching and able
+  to abort.
+
+**Not in scope (deferred):**
+- Frozen-path centralization (P1-01, P1-02, P1-04) — v1.6.5.4.
+- Hidden-import consolidation + tests (P3-02, P7-01–03) — v1.6.5.5.
+- `garmin_map.py` / `startGMT` timezone bug — v1.6.5.6.
+- New finding surfaced during T3 verification: `dash_runner.py` path
+  resolution fails in the frozen Standalone EXE (`_internal/dashboards/
+  dash_runner.py` not found, Live Tracking update silently skipped) — same
+  category as the deferred frozen-path work, logged in
+  `docs/AUDIT_FINDINGS_standalone_parity_v1652.md` for v1.6.5.4, not fixed
+  here.
+
+**Test result:** 1399 / 1399 — all green (498 + 261 + 445 + 145 + 46 + 4),
+test_build_output 656 / 656, ruff 0 errors, bandit 0 HIGH.
+
 ## v1.6.5.2 — Token Lifecycle Log
 
 Observation-only addition, triggered by an unresolved MFA login failure in the
