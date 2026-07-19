@@ -189,6 +189,14 @@ Then log `plotters` via `self._log()` in `garmin_app.py` after `dash_runner._loa
 | `sys._MEIPASS` | exists (temp, EXE only) | exists (temp, all scripts) |
 | Distinguish via | `(_MEIPASS / "scripts" / "dashboards" / "dash_runner.py").exists()` → False | same check → True |
 
+Centralized since v1.6.5.4 in `frozen_paths.scripts_root()` — the six
+previously independent copies in `panel_outputs.py` and the three `info/`
+lookups in `panel_outputs.py`/`panel_home.py` (`frozen_paths.doc_path()`)
+now share this one implementation. `garmin_app.py`/`garmin_app_standalone.py`'s
+own `script_dir()`/`script_path()` are a separate, unrelated concept (point
+at `garmin/` in dev mode, not the project root) and were not folded in —
+see `frozen_paths.py` section below for the boundary.
+
 ### Logging in frozen builds
 
 `logging.warning()` is never visible in the GUI log. For frozen-build diagnostics always use:
@@ -214,6 +222,42 @@ redacted at write time.
 ### `__file__` in frozen builds
 
 `Path(__file__).parent` inside a dynamically loaded module (via `importlib.spec_from_file_location`) reflects the path passed to `spec_from_file_location` — not `_MEIPASS`. Verify with `raise RuntimeError(f"DIAG: {__file__!r}")` if path resolution is unclear.
+
+### `frozen_paths.py` — centralized path resolution (v1.6.5.4)
+
+Leaf-Node in `src/`, alongside `crash_handler.py` / `qwebengine_hardening.py`.
+Three deliberately separate functions — no single function with a hidden
+side effect:
+
+- `scripts_root() -> Path` — seiteneffektfrei. Dev: `Path(__file__).parent`
+  (i.e. `src/`, since the module itself lives at `src/frozen_paths.py`).
+  Frozen: canonical T2/T3 distinguisher (see table above).
+- `add_to_path(root, *subs) -> None` — explicit `sys.path` mutation.
+  Without `subs`, inserts `root` itself. Kept separate from `scripts_root()`
+  because one call site (`_run_custom_dashboard_encrypted` in
+  `panel_outputs.py`) needs the root without touching `sys.path` at all —
+  folding the mutation into the root getter would have needed an opt-out
+  flag there.
+- `doc_path(filename) -> Path | None` — mirrors
+  `compiler/build.py::prepare_scripts_dir()`'s search order for shipped
+  docs (`README_APP.md`, `QUICKSTART.txt`, `USER_GUIDE.txt`,
+  `daily_update_task.xml`): frozen → `info/` next to the EXE; dev → repo
+  root → `src/docs/` → `src/scheduler/`. Returns `None` if nothing is
+  found — callers must handle that, no silent fallback path is invented.
+
+**Scope boundary — what is *not* covered by this module:**
+
+- `garmin_app.py` / `garmin_app_standalone.py`'s own `script_dir()` /
+  `script_path()` — different root concept, see
+  "script_path() resolution (EXE targets)" above. Deliberately untouched.
+- `dashboards/dash_runner.py::_load_plotters()` and
+  `layouts/dash_plotter_html_complex.py` — both resolve paths
+  `__file__`-relative *within their own package*, a structurally different
+  and already-safe case (crossing a package boundary is what makes the
+  centralized cases risky, not `__file__`-relative resolution itself).
+- `scheduler/daily_update.py::_setup_paths()` — its own, independent,
+  already-consistent implementation. Reviewed as a sibling during v1.6.5.4,
+  left as-is.
 
 ---
 

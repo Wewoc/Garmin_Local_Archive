@@ -35,6 +35,7 @@ from PyQt6.QtGui import QFont
 
 import garmin_app_settings as _settings
 import garmin_dashboard_presets as _presets
+import frozen_paths
 from .dialogs import PasswordConfirmDialog
 
 
@@ -96,13 +97,7 @@ class PanelOutputs(QWidget):
         exp_link.setCursor(Qt.CursorShape.PointingHandCursor)
         exp_link.mousePressEvent = lambda e: _settings._open_url(_EXPORT_URL)
 
-        _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
-                    else Path(__file__).parent)
-        _readme_candidates = [
-            _exe_dir / "info" / "README_APP.md",
-            Path(__file__).parent / "docs" / "README_APP.md",
-        ]
-        _readme = next((p for p in _readme_candidates if p.exists()), None)
+        _readme = frozen_paths.doc_path("README_APP.md")
         readme_link = QLabel("→ Open README")
         readme_link.setFont(QFont("Segoe UI", 8))
         readme_link.setStyleSheet(
@@ -365,12 +360,9 @@ class PanelOutputs(QWidget):
                 s = self._app._panel_settings._collect_settings()
                 os.environ["GARMIN_OUTPUT_DIR"] = s.get("base_dir", "")
 
-                root = Path(__file__).parent.parent
-                for p in (root / "garmin", root / "dashboards",
-                          root / "layouts", root / "maps"):
-                    sp = str(p)
-                    if sp not in sys.path:
-                        sys.path.insert(0, sp)
+                root = frozen_paths.scripts_root()
+                frozen_paths.add_to_path(
+                    root, "garmin", "dashboards", "layouts", "maps")
 
                 import importlib
                 import garmin_config as _cfg
@@ -500,15 +492,8 @@ class PanelOutputs(QWidget):
 
         def run():
             try:
-                if not getattr(sys, "frozen", False):
-                    _root = Path(__file__).parent.parent
-                elif (hasattr(sys, "_MEIPASS") and
-                        (Path(sys._MEIPASS) / "scripts").exists()):
-                    _root = Path(sys._MEIPASS) / "scripts"
-                else:
-                    _root = Path(sys.executable).parent / "scripts"
-                if str(_root) not in sys.path:
-                    sys.path.insert(0, str(_root))
+                _root = frozen_paths.scripts_root()
+                frozen_paths.add_to_path(_root)
                 from context import context_collector
                 result  = context_collector.run(
                     settings=s,
@@ -550,17 +535,8 @@ class PanelOutputs(QWidget):
         """Scan specialists, show selection dialog, build selected dashboards."""
         import importlib.util as _ilu
 
-        if not getattr(sys, "frozen", False):
-            root = Path(__file__).parent.parent
-        elif (hasattr(sys, "_MEIPASS") and
-                (Path(sys._MEIPASS) / "scripts").exists()):
-            root = Path(sys._MEIPASS) / "scripts"
-        else:
-            root = Path(sys.executable).parent / "scripts"
-        for p in (root / "dashboards", root / "layouts", root / "maps"):
-            s = str(p)
-            if s not in sys.path:
-                sys.path.insert(0, s)
+        root = frozen_paths.scripts_root()
+        frozen_paths.add_to_path(root, "dashboards", "layouts", "maps")
 
         try:
             runner_path = root / "dashboards" / "dash_runner.py"
@@ -748,17 +724,8 @@ class PanelOutputs(QWidget):
         """
         import importlib.util as _ilu
 
-        if not getattr(sys, "frozen", False):
-            root = Path(__file__).parent.parent
-        elif (hasattr(sys, "_MEIPASS") and
-                (Path(sys._MEIPASS) / "scripts").exists()):
-            root = Path(sys._MEIPASS) / "scripts"
-        else:
-            root = Path(sys.executable).parent / "scripts"
-        for p in (root / "dashboards", root / "layouts", root / "maps"):
-            sp = str(p)
-            if sp not in sys.path:
-                sys.path.insert(0, sp)
+        root = frozen_paths.scripts_root()
+        frozen_paths.add_to_path(root, "dashboards", "layouts", "maps")
 
         try:
             runner_path = root / "dashboards" / "dash_runner.py"
@@ -1212,17 +1179,8 @@ class PanelOutputs(QWidget):
         """Build HTML dashboards (excl. mobile), encrypt, write to basedir/encrypted/."""
         import importlib.util as _ilu
 
-        if not getattr(sys, "frozen", False):
-            root = Path(__file__).parent.parent
-        elif (hasattr(sys, "_MEIPASS") and
-                (Path(sys._MEIPASS) / "scripts").exists()):
-            root = Path(sys._MEIPASS) / "scripts"
-        else:
-            root = Path(sys.executable).parent / "scripts"
-        for p in (root / "dashboards", root / "layouts", root / "maps"):
-            s = str(p)
-            if s not in sys.path:
-                sys.path.insert(0, s)
+        root = frozen_paths.scripts_root()
+        frozen_paths.add_to_path(root, "dashboards", "layouts", "maps")
 
         try:
             runner_path = root / "dashboards" / "dash_runner.py"
@@ -1373,13 +1331,7 @@ class PanelOutputs(QWidget):
         """
         import importlib.util as _ilu
 
-        if not getattr(sys, "frozen", False):
-            root = Path(__file__).parent.parent
-        elif (hasattr(sys, "_MEIPASS") and
-                (Path(sys._MEIPASS) / "scripts").exists()):
-            root = Path(sys._MEIPASS) / "scripts"
-        else:
-            root = Path(sys.executable).parent / "scripts"
+        root = frozen_paths.scripts_root()
 
         selections = [(custom_mod, "html_mobile")]
 
@@ -1562,17 +1514,8 @@ class PanelOutputs(QWidget):
         """
         import importlib.util as _ilu
 
-        if not getattr(sys, "frozen", False):
-            root = Path(__file__).parent.parent
-        elif (hasattr(sys, "_MEIPASS") and
-                (Path(sys._MEIPASS) / "scripts").exists()):
-            root = Path(sys._MEIPASS) / "scripts"
-        else:
-            root = Path(sys.executable).parent / "scripts"
-        for p in (root / "dashboards", root / "layouts", root / "maps"):
-            _s = str(p)
-            if _s not in sys.path:
-                sys.path.insert(0, _s)
+        root = frozen_paths.scripts_root()
+        frozen_paths.add_to_path(root, "dashboards", "layouts", "maps")
 
         try:
             runner_path = root / "dashboards" / "dash_runner.py"
@@ -1755,16 +1698,16 @@ class PanelOutputs(QWidget):
 
         _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
                     else Path(__file__).parent.parent)
-        _candidates = [
-            _exe_dir / "info" / "daily_update_task.xml",
-            Path(__file__).parent.parent / "scheduler" / "daily_update_task.xml",
-        ]
-        template_path = next((p for p in _candidates if p.exists()), None)
+
+        _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+                    else Path(__file__).parent.parent)
+
+        template_path = frozen_paths.doc_path("daily_update_task.xml")
         if template_path is None:
             QMessageBox.critical(
                 self._app, "Task Scheduler XML",
                 "Template file 'daily_update_task.xml' not found.\n"
-                "Expected in docs/ (dev) or info/ (build).",
+                "Expected in scheduler/ (dev) or info/ (build).",
             )
             return
 

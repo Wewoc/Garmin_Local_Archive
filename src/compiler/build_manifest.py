@@ -33,6 +33,7 @@ SHARED_SCRIPTS = [
     "garmin_app_base.py",
     "crash_handler.py",
     "qwebengine_hardening.py",
+    "frozen_paths.py",
     # garmin pipeline
     "garmin/__init__.py",
     "garmin/garmin_config.py",
@@ -173,6 +174,7 @@ SCRIPT_SIGNATURES_BASE = {
     "layouts/render/live.py":             ["def render"],
     "crash_handler.py": ["def install"],
     "qwebengine_hardening.py": ["def harden"],
+    "frozen_paths.py": ["def scripts_root", "def add_to_path", "def doc_path"],
     "garmin/garmin_redact.py": ["def redact"],
 }
 # ── Docs ──────────────────────────────────────────────────────────────────────
