@@ -33,6 +33,15 @@ The Garmin OAuth token grants access to your Garmin Connect account and is treat
 | Tampered token file | ✅ Yes — detected on load |
 | Attacker with full Windows account access | ❌ No — system-level boundary |
 
+### Token Event Log (v1.6.5.2)
+
+`garmin_token_log.json` records when and why a token was created or invalidated
+(timestamp, event/trigger type, app version, exception type name, a truncated
+error string) — introduced to measure actual token lifetime instead of guessing
+it. This file is **not encrypted and not a protected asset** in the sense of
+the table above, by design: it contains no credentials, no token content, and
+no data that grants account access. Sole write authority: `garmin_security.py`.
+
 ---
 
 ## Container Security

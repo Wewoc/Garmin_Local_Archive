@@ -6,53 +6,70 @@
 
 ---
 
-**Currently stable — v1.6.5.1**
+**Currently stable — v1.6.5.3**
 
 ---
 
-### v1.6.5.2 — Headless Login Hardening
+## v1.6.5.4 — Frozen-Path Centralization
 
-Reduces the automated login-cascade risk that both `daily_update.py` (headless)
-and the GUI sync subprocess run into when the saved token has expired. Follows
-directly from the session analysis in `ANALYSE_headless_mfa_login_2026-07-08.md`.
+The non-centralized 3-way root branch in `panel_outputs.py` (6× identical:
+Create Reports, All-Dashboards, Encrypted Export, Custom-Dashboard-Encrypt,
+Context-Sync) gets pulled into a shared helper; T2/T3 distinguisher
+unified to the canonical `dash_runner.py` check (P1-01, P1-02).
+Optional: fold in the `info/` path logic (`panel_home.py`,
+`panel_outputs.py`) (P1-04). Requires a sibling-sweep across all five
+affected actions, verified in T1 and in an actual T3 build.
 
-**Background:** `garmin_api.login()` triggers the `garminconnect` library's
-built-in 5-strategy cascade (`mobile+cffi` × 3 impersonations, `mobile+requests`,
-`widget+cffi`) with no delay and no backoff whenever the saved token is rejected.
-In the GUI this risk is masked by the mandatory `_connection_verified` gate
-ahead of the sync subprocess — interactive callbacks resolve token/SSO/MFA
-issues before the subprocess ever runs. Headless has no equivalent gate and
-cannot resolve an MFA challenge if one occurs (see CHANGELOG v1.6.0.4.1).
+---
 
-**What is new (proposed — pending Bauauftrag):**
+## v1.6.5.5 — Hidden-Import Consolidation + Test
 
-- `garmin_api.py` — `login()` sets `client.skip_strategies` before calling
-  `Garmin.login()`, restricting the cascade to a reduced, defined strategy set
-  instead of all five in series (exact set to be decided from DEPS-scan
-  findings and real-world reliability of `widget+cffi` vs. `mobile+*`)
-- `garmin_collector.py` (or a shared state helper) — retry lock: after a
-  `GarminLoginError` (in particular MFA-triggered failures), the next
-  automatic headless login attempt is suspended for a defined cooldown period
-  instead of retrying on the next scheduled run
+Shared `HIDDEN_IMPORTS` list in `build_manifest.py`, with `build.py` and
+`build_standalone.py` switched over to it (P3-02) — fixes the structural
+root cause of P3-01. Followed by a new test asserting known lazy deps
+(`curl_cffi`, `ua_generator`) are present (P7-03). Optional: replace the
+`test_build_output.py` §8 embed-destination tautology with a real
+assertion (P7-01/P7-02). Order within this point is binding:
+consolidation before test.
 
-**What does not change:**
+---
 
-- GUI login flow — `garmin_app_controller.check_connection()` and its
-  dialogs remain untouched
-- Token storage / encryption (`garmin_security.py`) — unaffected
-- Headless invariant — no interactive prompt is introduced into
-  `daily_update.py`; MFA remains unresolved when it occurs, only its
-  likelihood/frequency is targeted
+## v1.6.5.6 — Intraday Timestamp Timezone Bug
 
-**Explicitly not addressed:** the root cause of why Garmin triggers MFA on
-this account is not fully confirmed — no proven causal link between the
-cascade pattern and the MFA trigger (see analysis, Section 3). This version
-treats the cascade as the most likely contributing factor, not a certainty.
+Intraday series timestamps (`heart_rate_series`, `stress_series`, `body_battery_series`,
+`spo2_series`, `respiration_series`, `steps_series`) are displayed in GMT/UTC instead
+of local time across all consuming dashboards.
 
-*Pre-condition: DEPS-Scan `v164_01` (`garmin_login_callers`,
-`garmin_client_instantiation`, `connection_verified_usage`,
-`garmin_login_error_handling`) completed and reviewed. Bauauftrag not yet
-issued.*
+**Root cause:** `garmin_map.py` — `_FIELD_MAP` intraday descriptors use
+`"ts_key": "startGMT"` for all six series. `_ts_to_iso()` correctly converts the
+epoch value to UTC, but the resulting ISO string is passed downstream unchanged —
+no reconversion to local time happens anywhere in the chain. Confirmed via user
+report: a 9:00 AM CEST activity appeared as 07:00 in the heart rate curve
+(UTC+2 offset, matches DE summer time exactly).
+
+**Distinct from:** `garmin_import.py` → `_timestamp_to_date()`, which deliberately
+interprets `startTimeLocal` as UTC — that's a date-bucketing trick with no display
+impact, unaffected by this bug.
+
+**Affected — confirmed via cross-check, not yet verified in code:**
+- Heatmap Dashboard (`heatmap_garmin_html_dash.py`, v1.6.3)
+- Sleep Intraday Explorer (`layouts/render/sleep.py`, v1.6.2)
+- Custom Dashboard Builder (v1.6.4) — when intraday fields selected
+- Live Tracking Dashboard (v1.6.5) — separate path via `garmin_live_fetch.py`,
+  needs own check whether it shares `_ts_to_iso()` or has independent logic
+- Any Excel export path carrying intraday timestamps
+
+**Fix options (to be evaluated in Analyse step):**
+1. Use `startLocal` instead of `startGMT` as `ts_key` — simplest, but depends on
+   Garmin reliably supplying `startLocal` for every series (unverified)
+2. Keep `startGMT`, add explicit offset correction in `_ts_to_iso()` using
+   `zoneinfo` (requires a reference timezone — device-local vs. system-local
+   question resurfaces)
+3. Fixed manual offset — rejected outright, breaks across DST transitions
+
+**Scope note:** Sibling-Sweep required — single fix point likely in `garmin_map.py`
+(`_ts_to_iso()` / `_extract_series()`), but every downstream renderer needs
+verification that it doesn't do its own timestamp handling.
 
 ---
 
