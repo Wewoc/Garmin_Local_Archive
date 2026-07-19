@@ -6,19 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.3**
-
----
-
-## v1.6.5.4 — Frozen-Path Centralization
-
-The non-centralized 3-way root branch in `panel_outputs.py` (6× identical:
-Create Reports, All-Dashboards, Encrypted Export, Custom-Dashboard-Encrypt,
-Context-Sync) gets pulled into a shared helper; T2/T3 distinguisher
-unified to the canonical `dash_runner.py` check (P1-01, P1-02).
-Optional: fold in the `info/` path logic (`panel_home.py`,
-`panel_outputs.py`) (P1-04). Requires a sibling-sweep across all five
-affected actions, verified in T1 and in an actual T3 build.
+**Currently stable — v1.6.5.4**
 
 ---
 

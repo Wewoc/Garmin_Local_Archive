@@ -1,5 +1,75 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.4 — Frozen-Path Centralization
+
+Closes P1-01, P1-02, P1-04 from the v1.6.5.2 standalone-parity audit
+(`docs/AUDIT_FINDINGS_standalone_parity_v1652.md`), plus a fifth,
+previously unlisted finding (P1-05) that surfaced while re-reading
+`_run_live_fetch()` for this session. Five deliveries, each independently
+verified — the isolated bug fix (P1-05) shipped before the six-site
+sweep, so the new helper had a real proof point before being applied
+everywhere else.
+
+**New modules:**
+- `frozen_paths.py` — new Leaf-Node in `src/`, alongside `crash_handler.py`
+  and `qwebengine_hardening.py`. Three deliberately separate functions:
+  `scripts_root()` (seiteneffektfrei, canonical T2/T3 distinguisher —
+  checks `dash_runner.py` under `scripts/dashboards/`, not just `scripts/`
+  itself, resolving the P1-02 doc-drift against `MAINTENANCE_GLOBAL.md`),
+  `add_to_path(root, *subs)` (explicit `sys.path` mutation, kept separate
+  since one call site needs the root without any path insertion),
+  `doc_path(filename)` (mirrors `compiler/build.py::prepare_scripts_dir()`'s
+  three-step search chain: repo root → `src/docs/` → `src/scheduler/`).
+
+**Changed modules:**
+- `compiler/build_manifest.py` — `frozen_paths.py` added to `SHARED_SCRIPTS`
+  and `SCRIPT_SIGNATURES_BASE`.
+- `app/panel_outputs.py` — P1-05: `_run_live_fetch()` had no frozen branch
+  at all (`root = Path(__file__).parent.parent` unconditionally) — broke
+  silently in T3 (`ℹ Live Tracking update skipped: ...`). Verified broken,
+  then fixed via `frozen_paths.scripts_root()` in an actual T3 build (log
+  now shows `✓ Live Tracking updated`) before touching any other call site.
+  P1-01/P1-02: all six copies of the non-centralized 3-way root branch
+  (Context-Sync, Create Reports, Encrypted Export, Custom-Dashboard-Encrypt,
+  Custom-Dashboard-Encrypted-ad-hoc, All-Dashboards) replaced with
+  `frozen_paths.scripts_root()` + `frozen_paths.add_to_path()`. Three
+  different loop-variable names (`s`/`sp`/`_s`) across the copies — itself
+  evidence of the drift P1-01 described — removed along with the
+  duplication. One site (`_run_custom_dashboard_encrypted`) never added to
+  `sys.path` in the original; that difference is preserved, not
+  harmonized. P1-04: README-link lookup (bug fix — dev-mode fallback used
+  `Path(__file__).parent / "docs"`, resolving to `src/app/docs/` instead of
+  `src/docs/`; link was silently dead in T1) and Task-Scheduler-XML
+  template lookup both replaced with `frozen_paths.doc_path()`. A follow-up
+  correction restored a locally-scoped `_exe_dir` variable inside
+  `_create_task_scheduler_xml()` that is still used by `_default_path()`
+  for T2/T3 entry-point defaults — unrelated to the doc lookup, missed on
+  first read of the function.
+- `app/panel_home.py` — P1-04: `_home_docs_dialog._open()`'s two-way
+  branch (no fallback chain) replaced with `frozen_paths.doc_path()` —
+  gains the same three-step chain as the other two sites. Was previously
+  the only hard frozen-branch without a candidate list (audit note).
+  `import sys` removed (dead after the replacement).
+- `docs/AUDIT_FINDINGS_standalone_parity_v1652.md` — P1-01, P1-02, P1-04,
+  P1-05 marked resolved.
+
+**What does not change:**
+- `garmin_app.py` / `garmin_app_standalone.py` — their own `script_dir()`/
+  `script_path()` helpers are a different root concept (point at
+  `garmin/` in dev mode, not the project root) and were deliberately left
+  untouched — no scope creep onto functioning code.
+- `dashboards/dash_runner.py::_load_plotters()` and
+  `layouts/dash_plotter_html_complex.py` — both use `__file__`-relative
+  resolution within their own package boundary, a structurally different
+  and already-safe case. Reviewed, not touched.
+- `scheduler/daily_update.py::_setup_paths()` — reviewed as a sibling,
+  left as its own, already-consistent implementation.
+
+**Test result:** 1399 / 1399 — all green (498 + 261 + 445 + 145 + 46 + 4),
+test_build_output 665 / 665, ruff 0 errors, bandit 0 HIGH.
+
+---
+
 ## v1.6.5.3 — Standalone Parity: Quick Fixes
 
 Four independent, low-risk fixes from the v1.6.5.2 standalone-parity audit

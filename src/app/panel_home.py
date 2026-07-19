@@ -25,9 +25,10 @@ Rules:
 
 import json
 import os
-import sys
 from datetime import date
 from pathlib import Path
+
+import frozen_paths
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -482,16 +483,11 @@ class PanelHome(QWidget):
     def _home_docs_dialog(self):
         """Documentation button handler — opens Quickstart, User Guide or README."""
         def _open(filename: str):
-            # Dev: src/docs/  |  Build T2/T3: info/ next to EXE
-            if getattr(sys, "frozen", False):
-                base = Path(sys.executable).parent / "info"
-            else:
-                base = Path(__file__).parent.parent / "docs"
-            path = base / filename
-            if not path.exists():
+            path = frozen_paths.doc_path(filename)
+            if path is None:
                 QMessageBox.warning(
                     self._app, "Documentation",
-                    f"File not found:\n{path}")
+                    f"File not found: {filename}")
                 return
             try:
                 os.startfile(path)
