@@ -6,19 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.4**
-
----
-
-## v1.6.5.5 — Hidden-Import Consolidation + Test
-
-Shared `HIDDEN_IMPORTS` list in `build_manifest.py`, with `build.py` and
-`build_standalone.py` switched over to it (P3-02) — fixes the structural
-root cause of P3-01. Followed by a new test asserting known lazy deps
-(`curl_cffi`, `ua_generator`) are present (P7-03). Optional: replace the
-`test_build_output.py` §8 embed-destination tautology with a real
-assertion (P7-01/P7-02). Order within this point is binding:
-consolidation before test.
+**Currently stable — v1.6.5.5**
 
 ---
 
@@ -58,6 +46,52 @@ impact, unaffected by this bug.
 **Scope note:** Sibling-Sweep required — single fix point likely in `garmin_map.py`
 (`_ts_to_iso()` / `_extract_series()`), but every downstream renderer needs
 verification that it doesn't do its own timestamp handling.
+
+---
+
+## v1.6.5.7 — T3.1 Silent-Failure Investigation
+
+Two-session arc — Session 1 Analyse, Session 2 Bauauftrag. Not a
+single-session fix: the underlying architecture question (can T3.1 run
+any pipeline action headless at all, and does `silo_repair` get a
+headless-callable core) has to be answered before any implementation —
+reversing that order was exactly the mistake v1.6.5.5 deliberately avoided
+when P1-07 surfaced this finding.
+
+**Trigger:** concrete, confirmed instance found during v1.6.5.5 (while
+tracing P1-07) — `_on_silo_repair()`'s repair path #3 (source without raw)
+calls `subprocess.run([sys.executable, str(regen_script), ...])` directly.
+In any frozen build, `sys.executable` is the EXE itself, not a Python
+interpreter — the call cannot work as written, in T2 or T3.
+`garmin_app.py` has `_find_python()` for exactly this reason;
+`panel_archive.py` (shared code) doesn't use it. Worse for T3:
+`garmin_app_standalone.py` has no subprocess execution model at all —
+`_run_module()` uses `importlib` in-process. This is the concrete
+mechanism behind the already-noted "`silo_repair` has no headless-callable
+core" finding.
+
+**Session 1 — Analyse:**
+- Confirm whether T3.1 (`--onedir` GUI) can run any pipeline action
+  headless at all — currently open, blocking.
+- Three-net test concept: Netz 1 (module loadability), Netz 2
+  (fixture-based headless functional tests), Netz 3 (error audibility for
+  high-risk write paths — `silo_repair` is the concrete case).
+- Review `test_build_output.py` before designing Netz 1 — avoid duplicate
+  maintenance with existing build-output checks.
+- Sibling-Sweep: which other GUI actions besides `_on_silo_repair()` use
+  `sys.executable` directly instead of `_find_python()` or T3's
+  `importlib` pattern? Not assumed — checked.
+- Output of Session 1 is an architecture decision (real headless-callable
+  core for `silo_repair`, vs. GUI-T2-only with an explicit, visible T3
+  limitation) — not code.
+
+**Session 2 — Bauauftrag:**
+- Implements whatever Session 1 decided, plus the three-net tests
+  themselves.
+- No fix without the Session 1 decision in hand.
+
+**Explicitly not assumed:** that the fix is "swap `sys.executable` for
+`_find_python()`". That only helps T2. Session 1 decides the real scope.
 
 ---
 
