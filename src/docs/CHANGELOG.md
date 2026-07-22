@@ -1,5 +1,83 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.5 — Hidden-Import Consolidation + Test + P1-07
+
+Closes P3-02, P7-03, and (as a bonus, combined with P7-02) P7-01 from the
+v1.6.5.2 standalone-parity audit (`docs/AUDIT_FINDINGS_standalone_parity_v1652.md`),
+plus P1-07 in a deliberately narrow scope. Order was binding: consolidation
+before test, since a test against a still-duplicated list would have tested
+the wrong target.
+
+**Changed modules:**
+- `compiler/build_manifest.py` — new `HIDDEN_IMPORTS_COMMON` (19 entries,
+  needed by the GUI build T2, Python required on target) and
+  `HIDDEN_IMPORTS_T3_EXTRA` (10 entries, only needed by T3's full embed —
+  `openpyxl.styles/chart/utils`, `cryptography` + three submodules,
+  `requests`, `lxml` + `lxml.etree`). Deliberately not a single merged
+  list: a fresh diff showed `build.py`'s 19 entries are already a full
+  subset of `build_standalone.py`'s current 29 — merging them would give
+  T2 ten unverified hidden-imports it has never needed, an unrelated
+  behaviour change outside this session's scope. Also new: `embed_dest()`
+  (see below) — new `SHARED_SCRIPTS` entry `export/regenerate_raw.py`
+  (P1-07, see below).
+- `compiler/build.py` — the 19 literal `--hidden-import` pairs in
+  `build_exe()`'s `cmd` list replaced by a loop over
+  `manifest.HIDDEN_IMPORTS_COMMON`. Identical resulting PyInstaller
+  command.
+- `compiler/build_standalone.py` — the 29-entry literal `hidden` list in
+  `build_exe()` replaced by `manifest.HIDDEN_IMPORTS_COMMON +
+  manifest.HIDDEN_IMPORTS_T3_EXTRA`. New function `embed_dest(subfolder)`
+  — single source of truth for the `--add-data` destination path under
+  `scripts/`, used both by `build_exe()` itself (for `EMBEDDED_SCRIPTS`
+  and `REQUIRED_DATA_FILES`) and imported directly by
+  `tests/test_build_output.py` §8 (P7-02) instead of being reconstructed
+  there as a private, drift-prone copy.
+- `tests/test_build_output.py` — §1: seven new checks guarding
+  `HIDDEN_IMPORTS_COMMON`/`_T3_EXTRA` against silent drift (not empty, no
+  internal duplicates, no overlap between the two lists, and the four
+  known lazy deps — `curl_cffi`, `curl_cffi.requests`, `ua_generator`,
+  `openpyxl.cell._writer` — explicitly present in `HIDDEN_IMPORTS_COMMON`).
+  Closes P7-03: previously no test asserted anything about the
+  hidden-import lists at all. §8: now imports `embed_dest` from
+  `build_standalone` instead of reconstructing the destination logic
+  locally (P7-02); the `REQUIRED_DATA_FILES` check that used to be a bare
+  `check(..., True)` tautology (P7-01) now asserts the real computed
+  destination equals the expected `scripts/{subdir}` path. P7-01 could not
+  be fixed independently of P7-02 — `REQUIRED_DATA_FILES`'s destination
+  has no non-trivial transform of its own to test against; the file's
+  existence is already verified in §2, so the only meaningful fix was
+  testing against the real function.
+- `compiler/build_manifest.py` — P1-07: `export/regenerate_raw.py` added
+  to `SHARED_SCRIPTS`. It is called via `subprocess` from
+  `app/panel_archive.py::_on_silo_repair()` but was entirely missing from
+  the manifest, so T2's `prepare_scripts_dir()` never copied it to
+  `scripts/export/` — Silo-Repair finding #3 (source without raw) would
+  fail against a built T2 EXE. Verified via a real `build_all.py` run:
+  `scripts/export/regenerate_raw.py` now present in the T2 `scripts/`
+  folder and ZIP, and embedded in T3.
+
+**Found but deliberately not fixed here:**
+- While tracing P1-07, `_on_silo_repair()`'s repair path was found to use
+  `subprocess.run([sys.executable, str(regen_script), ...])` directly,
+  bypassing the established `_find_python()` pattern `garmin_app.py` uses
+  elsewhere for exactly this reason. In a frozen build, `sys.executable`
+  is the EXE itself, not a Python interpreter — the call cannot work as
+  written in either T2 or T3. Worse for T3: `garmin_app_standalone.py` has
+  no subprocess execution model at all (`_run_module()` uses `importlib`
+  in-process) — this is the concrete architecture gap already flagged as
+  "`silo_repair` has no headless-callable core" for the T3.1
+  silent-failure investigation. Fixing it here would have pre-empted that
+  investigation's own Netz 1–3 work without using it; fed into that
+  investigation instead, not fixed in this session.
+- P7-01/P7-02 optional split (per the session prompt) — done together, see
+  above; treated as one combined change rather than two independent ones.
+
+**Test result:** 498 / 261 / 445 / 4 — all green, ruff 0 errors, bandit 0
+HIGH. `test_build_output.py`: 679 / 679 after a full `build_all.py` run
+(T2 + T3, both verified). `test_app_logic.py`: 145 / 145.
+
+---
+
 ## v1.6.5.4 — Frozen-Path Centralization
 
 Closes P1-01, P1-02, P1-04 from the v1.6.5.2 standalone-parity audit

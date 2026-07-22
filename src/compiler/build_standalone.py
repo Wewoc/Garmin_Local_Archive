@@ -116,6 +116,18 @@ def validate_scripts(root: Path):
         print(f"  ✓ Embed: {s}")
 
 
+def embed_dest(subfolder) -> str:
+    """Compute the --add-data destination folder under scripts/ for a given
+    subfolder (str or Path). '.' or '' means scripts/ root itself.
+    Single source of truth for both EMBEDDED_SCRIPTS and REQUIRED_DATA_FILES
+    destination paths — imported directly by test_build_output.py §8 (P7-02,
+    v1.6.5.5) instead of being reconstructed there."""
+    subfolder = str(subfolder)
+    if subfolder in (".", ""):
+        return "scripts"
+    return f"scripts/{subfolder}"
+
+
 def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
               onedir: bool = False):
     print(f"\n  Building {name}.exe ...")
@@ -129,7 +141,7 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
     for script in EMBEDDED_SCRIPTS:
         src = root / script
         subfolder = Path(script).parent
-        dest = f"scripts/{subfolder}" if str(subfolder) != "." else "scripts"
+        dest = embed_dest(subfolder)
         add_data_args += ["--add-data", f"{src}{sep}{dest}"]
 
     # Embed required data files (generic — was hardcoded to garmin_dataformat.json only)
@@ -141,43 +153,13 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
     for subdir, data_name in manifest.REQUIRED_DATA_FILES:
         data_src = root / subdir / data_name
         if data_src.exists():
-            add_data_args += ["--add-data", f"{data_src}{sep}scripts/{subdir}"]
+            add_data_args += ["--add-data", f"{data_src}{sep}{embed_dest(subdir)}"]
         else:
             print(f"  ✗ {data_name} not found in {subdir}/ — aborting build")
             sys.exit(1)
 
 
-    hidden = [
-        "garminconnect",
-        "curl_cffi",
-        "curl_cffi.requests",
-        "ua_generator",
-        "openpyxl",
-        "openpyxl.styles",
-        "openpyxl.chart",
-        "openpyxl.utils",
-        "openpyxl.cell._writer",
-        "keyring",
-        "keyring.backends",
-        "keyring.backends.Windows",
-        "cryptography",
-        "cryptography.hazmat.primitives",
-        "cryptography.hazmat.primitives.kdf.pbkdf2",
-        "cryptography.hazmat.primitives.kdf.hkdf",
-        "cryptography.hazmat.primitives.hashes",
-        "cryptography.hazmat.primitives.hmac",
-        "cryptography.hazmat.primitives.ciphers.aead",
-        "cryptography.hazmat.backends",
-        "cryptography.exceptions",
-        "PyQt6.QtNetwork",
-        "requests",
-        "lxml",
-        "lxml.etree",
-        "tkinter.filedialog",
-        "tkinter.messagebox",
-        "tkinter.ttk",
-        "tkinter.scrolledtext",
-    ]
+    hidden = manifest.HIDDEN_IMPORTS_COMMON + manifest.HIDDEN_IMPORTS_T3_EXTRA
     hidden_args = []
     for h in hidden:
         hidden_args += ["--hidden-import", h]

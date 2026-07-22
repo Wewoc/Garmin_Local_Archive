@@ -106,6 +106,22 @@ for sig_key in manifest.SCRIPT_SIGNATURES_BASE:
     check(f"SCRIPT_SIGNATURES_BASE key exists in manifest: {sig_key}",
           sig_key in _all_known)
 
+# ── Hidden imports (P7-03, v1.6.5.5) ───────────────────────────────────────────
+# Guards the consolidated HIDDEN_IMPORTS_COMMON/_T3_EXTRA (P3-02) against
+# silent drift — same failure class as the four missing hidden imports
+# fixed in v1.6.5.3 (P3-01).
+check("HIDDEN_IMPORTS_COMMON not empty",
+      len(manifest.HIDDEN_IMPORTS_COMMON) > 0)
+check("No duplicates in HIDDEN_IMPORTS_COMMON",
+      len(manifest.HIDDEN_IMPORTS_COMMON) == len(set(manifest.HIDDEN_IMPORTS_COMMON)))
+check("No duplicates in HIDDEN_IMPORTS_T3_EXTRA",
+      len(manifest.HIDDEN_IMPORTS_T3_EXTRA) == len(set(manifest.HIDDEN_IMPORTS_T3_EXTRA)))
+check("HIDDEN_IMPORTS_COMMON and HIDDEN_IMPORTS_T3_EXTRA don't overlap",
+      set(manifest.HIDDEN_IMPORTS_COMMON).isdisjoint(set(manifest.HIDDEN_IMPORTS_T3_EXTRA)))
+for _dep in ("curl_cffi", "curl_cffi.requests", "ua_generator", "openpyxl.cell._writer"):
+    check(f"HIDDEN_IMPORTS_COMMON contains known lazy dep: {_dep}",
+          _dep in manifest.HIDDEN_IMPORTS_COMMON)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  2. Source-Integrität — alle Manifest-Scripts vorhanden
 # ══════════════════════════════════════════════════════════════════════════════
@@ -277,32 +293,29 @@ else:
 
 section("8. Target 3 — Embed-Vollständigkeit (add-data Rekonstruktion)")
 
-# Rekonstruiert die --add-data Zielpfade exakt wie build_standalone.py sie aufbaut.
-# Prüft die Zielpfad-Logik ohne EXE-Start — fängt falsche Subfolder-Zuordnung
-# beim Einbetten (v1.4.2-Bug-Typ: garmin_collector.py → scripts/ statt scripts/garmin/).
-# Quelle: build_exe() in build_standalone.py
-
-def _expected_embed_dest(script_name: str) -> str:
-    """Rekonstruiert den --add-data Zielpfad wie build_standalone.py ihn aufbaut."""
-    subfolder = Path(script_name).parent
-    if str(subfolder) == ".":
-        return "scripts"
-    return f"scripts/{subfolder}"
+# Importiert die reale Zielpfad-Funktion aus build_standalone.py statt sie
+# hier nachzubilden (P7-02, v1.6.5.5) — Test läuft gegen den echten Code,
+# kein Rate-Duplikat mehr, das aus dem Takt laufen kann.
+# Fängt weiterhin falsche Subfolder-Zuordnung beim Einbetten (v1.4.2-Bug-Typ:
+# garmin_collector.py → scripts/ statt scripts/garmin/).
+from build_standalone import embed_dest
 
 # Zielpfad-Struktur für alle EMBEDDED_SCRIPTS korrekt
 for name in manifest.EMBEDDED_SCRIPTS:
-    expected_dest = _expected_embed_dest(name)
+    expected_dest = embed_dest(Path(name).parent)
     filename = Path(name).name
     expected_runtime_path = f"{expected_dest}/{filename}"
     # Pfad muss scripts/ als Präfix haben — nie flach im Root
     check(f"embed dest under scripts/: {expected_runtime_path}",
           expected_dest.startswith("scripts/") or expected_dest == "scripts")
 
-# Data files: generic (subdir, filename) tuples — each must land at
-# scripts/{subdir}/{filename}. No more single hardcoded special case.
+# Data files: generic (subdir, filename) tuples — jetzt echte Prüfung gegen
+# embed_dest() statt True-Tautologie (P7-01, v1.6.5.5). Existenz der
+# Quelldatei bleibt in §2 geprüft, hier geht es nur um den Zielpfad.
 for subdir, name in manifest.REQUIRED_DATA_FILES:
-    check(f"embed: {name} dest = scripts/{subdir}/ (generic REQUIRED_DATA_FILES)",
-          True)
+    expected_dest = embed_dest(subdir)
+    check(f"embed: {name} dest = {expected_dest}/ (real embed_dest())",
+          expected_dest == f"scripts/{subdir}")
 
 # Alle Unterordner aus dem Manifest müssen als scripts/{sub}/ abgedeckt sein
 _expected_subdirs = set()

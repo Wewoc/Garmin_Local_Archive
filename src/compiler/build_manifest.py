@@ -65,6 +65,12 @@ SHARED_SCRIPTS = [
     "garmin/garmin_silo_check.py",
     "garmin/garmin_live_fetch.py",
     "garmin/garmin_extended_anaysis.py",
+    # export / repair tooling (P1-07, v1.6.5.5 — called via subprocess from
+    # panel_archive.py::_on_silo_repair(), was missing from this manifest;
+    # the underlying sys.executable/no-subprocess-in-T3 execution bug this
+    # call also has is tracked separately in the T3.1 silent-failure
+    # investigation, not fixed here)
+    "export/regenerate_raw.py",
     # maps (routing only)
     "maps/__init__.py",
     "maps/field_map.py",
@@ -207,4 +213,47 @@ RUNTIME_DEPS = [
     "keyring",
     "cryptography",
     "requests",
+]
+
+
+# ── Hidden imports (PyInstaller --hidden-import, both targets) ────────────────
+# COMMON: needed by the GUI build (T2, Python required on target). Kept
+# narrow deliberately — no unverified additions for T2 in this consolidation
+# (v1.6.5.5). T2 = COMMON only.
+# T3_EXTRA: additional modules only T3 (fully embedded, no Python on target)
+# needs PyInstaller to detect. T3 = COMMON + T3_EXTRA.
+
+HIDDEN_IMPORTS_COMMON = [
+    "openpyxl",
+    "openpyxl.cell._writer",
+    "tkinter.filedialog",
+    "tkinter.messagebox",
+    "tkinter.ttk",
+    "tkinter.scrolledtext",
+    "garminconnect",
+    "curl_cffi",
+    "curl_cffi.requests",
+    "ua_generator",
+    "keyring",
+    "keyring.backends",
+    "keyring.backends.Windows",
+    "cryptography.hazmat.primitives.kdf.pbkdf2",
+    "cryptography.hazmat.primitives.kdf.hkdf",
+    "cryptography.hazmat.primitives.ciphers.aead",
+    "cryptography.hazmat.primitives.hmac",
+    "cryptography.hazmat.primitives.hashes",
+    "PyQt6.QtNetwork",
+]
+
+HIDDEN_IMPORTS_T3_EXTRA = [
+    "openpyxl.styles",
+    "openpyxl.chart",
+    "openpyxl.utils",
+    "cryptography",
+    "cryptography.hazmat.primitives",
+    "cryptography.hazmat.backends",
+    "cryptography.exceptions",
+    "requests",
+    "lxml",
+    "lxml.etree",
 ]
