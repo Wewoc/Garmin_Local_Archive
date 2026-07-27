@@ -540,10 +540,16 @@ List all new or changed dependencies explicitly:
 - [ ] GUI text in README_APP current?
 - [ ] Version number in README updated?
 
+**Doc automation (after tests are green):**
+- [ ] `tools/generate_metrics.py` run — `docs/METRICS.md` current (test counts, module count, version)?
+- [ ] `tools/doc_guard.py` run — `docs/DOC_DRIFT_REPORT.md` reviewed, every finding triaged (real gap vs. intentional architecture/scope exception)?
+- [ ] `docs/DOC_DRIFT_REPORT.md` stays local — not committed to the repo
+
 ### Documentation closure order
 
 CHANGELOG → ROADMAP → REFERENCE_GLOBAL → REFERENCE_GARMIN → REFERENCE_CONTEXT →
 MAINTENANCE_GLOBAL → MAINTENANCE_GARMIN → MAINTENANCE_CONTEXT →
+Doc automation (generate_metrics.py + doc_guard.py) →
 README → README_APP → WORKFLOW_TEMPLATE (if process changed) →
 START_PROMPT for next session
 

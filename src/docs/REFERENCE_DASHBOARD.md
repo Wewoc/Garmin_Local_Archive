@@ -267,6 +267,42 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
 }
 ```
 
+### `heatmap_garmin_html_dash` — Activity & Physiology Heatmaps
+
+Six intraday metrics pivoted to an hour-of-day × date matrix: Heart Rate,
+Steps, Stress, Body Battery, SpO2, Respiration. Hour is read directly from
+each sample's ISO timestamp (`ts[11:13]`), not recomputed via datetime
+parsing. A missing day still gets a full 24-value row of `None` — same
+shape as a day with data, so the renderer never special-cases row length.
+
+**Aggregation per hourly bin:** mean for continuous values (Heart Rate,
+Stress, Body Battery, SpO2, Respiration); sum for Steps (a count metric —
+summing 15-minute bins per hour is more meaningful than averaging them).
+
+````python
+{
+    "layout":    "heatmap",
+    "title":     str,
+    "subtitle":  str,
+    "date_from": str,
+    "date_to":   str,
+    "metrics": {
+        "heart_rate":   {"dates": [str, ...], "hours": [0..23], "matrix": [[float | None, ...], ...]},
+        "steps":        {...},   # same shape, agg: sum
+        "stress":       {...},
+        "body_battery": {...},
+        "spo2":         {...},
+        "respiration":  {...},
+    },
+}
+````
+
+Each metric dict's `matrix` is `dates x hours` — one row per date in
+`metrics[key]["dates"]`, 24 columns (`hours: [0..23]`). Source fields via
+`field_map.get(..., resolution="intraday")`: `heart_rate_series`,
+`steps_series`, `stress_series`, `body_battery_series`, `spo2_series`,
+`respiration_series`.
+
 ### `live_tracking_html_dash` — Live Tracking (v1.6.5)
 
 
@@ -459,6 +495,22 @@ Shared age/sex/fitness-adjusted reference range logic. Used by specialists — n
 | `reference_ranges(age, sex, fitness)` | `dict` — `{field_key: (low, high), ...}` |
 
 **Fields covered:** `hrv_last_night`, `resting_heart_rate`, `spo2_avg`, `sleep_duration`, `body_battery_max`, `stress_avg`.
+
+---
+
+### `dash_prompt_templates.py`
+
+Passive resource — Markdown prompt templates for JSON plotter output. No
+file I/O, no imports beyond stdlib string formatting. One template function
+per specialist type, called exclusively by `dash_plotter_json.py`.
+
+| Function | Purpose |
+|---|---|
+| `get(template_key)` | Returns the template function for `template_key`. Raises `KeyError` if not registered. |
+| `list_templates()` | Returns all registered template keys as `list[str]`. |
+| `health_analysis(data)` | Template for `health_garmin_*_dash.py` specialists — profile, metric summary table, flagged-days block, assistant instructions. Returns a ready-to-use Markdown string for Open WebUI / Ollama context. |
+
+**Registry:** `TEMPLATES = {"health_analysis": health_analysis, ...}` — extended with one entry per template as new specialist types are added.
 
 ---
 

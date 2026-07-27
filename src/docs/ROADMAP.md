@@ -47,6 +47,14 @@ impact, unaffected by this bug.
 (`_ts_to_iso()` / `_extract_series()`), but every downstream renderer needs
 verification that it doesn't do its own timestamp handling.
 
+**Evaluate while the file is open:** `REFERENCE_GARMIN.md` (respiration_series)
+notes a second, parallel structure Garmin ships alongside
+`respirationValuesArray` — `wellnessEpochRespirationDataDTOList`, dict-shaped,
+marked "not yet evaluated" since v1.6.3.1. Same series, same descriptor, same
+file. Decide whether it carries anything the array form doesn't; assessment
+only, no implementation implied. If it turns out to matter, it becomes its own
+scope — not a rider on the timezone fix.
+
 ---
 
 ## v1.6.5.7 — T3.1 Silent-Failure Investigation
@@ -78,9 +86,27 @@ core" finding.
   high-risk write paths — `silo_repair` is the concrete case).
 - Review `test_build_output.py` before designing Netz 1 — avoid duplicate
   maintenance with existing build-output checks.
-- Sibling-Sweep: which other GUI actions besides `_on_silo_repair()` use
-  `sys.executable` directly instead of `_find_python()` or T3's
-  `importlib` pattern? Not assumed — checked.
+- Netz 2 overlaps v1.8 (Integration Test Suite) by design — decide the cut
+  here, before either is built: Netz 2 covers the Health path only and v1.8
+  extends it to FIT/Context/Output, or Netz 2 stays diagnostic and v1.8
+  owns the fixtures. Deciding this after the fact is the hidden-import
+  duplicate-maintenance problem again, with test suites.
+- `os.environ` mutation in worker threads (finding F5, v1.5.6.3 — an
+  analysis session was required and never happened). 13 mutation sites,
+  several inside `worker()` functions (`panel_outputs.py`) and the timer
+  thread (`panel_timer.py`). In T1/T2 each script runs as a subprocess with
+  its own environment snapshot, so a race stays harmless; T3's
+  `_run_module()` loads via `importlib` **in-process**, where every thread
+  shares one `os.environ` — and `garmin_config` reads it at import time.
+  Same silent-in-T3-only family as the `sys.executable` finding, which is
+  why it belongs in this session rather than its own.
+- P3-03 verification (standalone-parity audit, still the only open finding):
+  open the Dashboard tab and the XLSX preview in the T3.1 build that this
+  session produces anyway. `NOTES_v1653.md` records that QtWebEngine showed
+  no empty view during the v1.6.5.3 T3 run, but that was an observation in
+  passing, not a targeted test of both views. If both render, close the
+  finding; if not, `--collect-all PyQt6` or a targeted collect is the next
+  step.
 - Output of Session 1 is an architecture decision (real headless-callable
   core for `silo_repair`, vs. GUI-T2-only with an explicit, visible T3
   limitation) — not code.
@@ -92,6 +118,55 @@ core" finding.
 
 **Explicitly not assumed:** that the fix is "swap `sys.executable` for
 `_find_python()`". That only helps T2. Session 1 decides the real scope.
+
+**Carried along in Session 2** — small items in files this session opens
+anyway. None of them justifies opening a file on its own; all three have been
+sitting in NOTES without a home:
+
+- `app/panel_archive.py` — remove `_clean_archive()` (line 303). Dead code,
+  no caller project-wide, noted as removable since v1.5.6. Same class as
+  P1-03 (`_find_script()`), removed in v1.6.5.3 for the same reason: a set
+  trap for whoever wires it up later. `_on_silo_repair()` is in this file.
+- `compiler/build_manifest.py` — add the missing `layouts/render/heatmap.py`
+  entry to `SCRIPT_SIGNATURES_BASE`. The other four render modules
+  (`recovery_context`, `sleep`, `explorer`, `live`) have one; `heatmap` does
+  not, and unlike `garmin_extended_anaysis.py` there is no explicit
+  exclusion comment. Found in the v1.6.5 sibling sweep, never pulled through.
+- `scheduler/daily_update.py` — adopt `crash_handler.install()`.
+  `MAINTENANCE_GLOBAL.md` records this as deliberately deferred ("can be
+  adopted there in a future step; separate scope") and it has had no home
+  since. `install()` is entry-point-agnostic; headless is exactly the target
+  where an uncaught crash is least visible.
+
+---
+
+## v1.6.5.8 — Headless Login Hardening
+
+`skip_strategies` / retry-lock on the login cascade. Considered during the
+v1.6.5.2 token-lifecycle analysis and deliberately deferred there (see
+`ANALYSE_headless_mfa_login_2026-07-08.md` §6, CHANGELOG v1.6.5.2) — the
+token-event logging shipped first, on purpose, so that the cascade's actual
+behaviour could be observed before changing it. That logging has been in place
+since; the deferral has not been revisited.
+
+Related but distinct, already noted in the v1.6.5.2 audit: headless login has
+no `_connection_verified` gate. Both concern the same cascade — scope them
+together in the Analyse step, decide separately.
+
+Own entry rather than a rider: this touches the login path, which is not
+something that happens in passing.
+
+---
+
+## v1.6.5.9 — Auto-size Rollout
+
+Auto-size is implemented for the Health specialist only (v1.4.6). The other
+specialists were deferred to "a separate session" because the implementation
+is not identical across them — which is precisely why it never became a
+by-product of another change.
+
+Not urgent, never harmful. Scope: work out which specialists need which
+variant, then apply per specialist rather than as one sweeping change.
 
 ---
 
@@ -226,6 +301,20 @@ the pipeline actually runs inside the bundle — not just that files are present
 
 In the same pass: harden existing test suites — close gaps that have grown
 since v1.3.
+
+**Scope boundary vs. v1.6.5.7:** Netz 2 (fixture-based headless functional
+tests) covers the same ground. The cut is decided in v1.6.5.7 Session 1,
+before either is built — see there.
+
+**Chaos tests** — noted in v1.3.4 as a known gap, earmarked for v1.5, never
+built. The corrupted-JSON case above covers part of it; disk full and a
+corrupt keyring do not appear anywhere in the current suites. Both are
+failure modes where a local-first archiving tool must not lose data silently.
+
+**Specialist tests for `explorer_garmin-context_html_dash`** — deferred in
+v1.4.7.1 with a roadmap note in `MAINTENANCE_DASHBOARD.md` that is no longer
+findable there. Pulled in here rather than left orphaned; drop it in this pass
+if it is no longer wanted.
 
 ---
 
@@ -486,6 +575,7 @@ Core pipeline is covered by five test suites (218 + 134 + 211 + 80 checks + 8 se
 - Code signing or automatic updates (see `TODO_HARDENING.md` D1 — decision-gated on commercial scope)
 - Generated SBOM + hash-locked dependency lockfile (`TODO_HARDENING.md` D2 — dossier value only, no urgency for a hobby tool)
 - Formal documented vulnerability-handling process beyond the existing `SECURITY.md` disclosure channel (`TODO_HARDENING.md` D3)
+- Removing the Sync Garmin / Sync Context / Create Reports buttons — discussed and analysed twice (v1.6.0), decided against: the Stop button for both sync paths hangs off the same widgets, so removal would take Stop functionality with it, and the CSV button belongs to the Context section thematically. Low benefit, real risk of silent side effects. Recorded here as a decision taken, not as a pending item — it sat on a parking list without a target version and was never one.
 
 ---
 
