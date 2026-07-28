@@ -290,23 +290,100 @@ def _get_nested(obj: dict, key: str):
     return obj
 
 
-def _ts_to_iso(ts) -> str:
-    """Normalize a Garmin timestamp (ms epoch or ISO string) to ISO-8601."""
+# ── Device offset resolution — v1.6.5.6 Intraday Timestamp Timezone Bug ────────
+#
+#  Garmin's raw/live sections carry both a GMT and a Local timestamp for the
+#  start and end of the covered period (e.g. startTimestampGMT/Local,
+#  endTimestampGMT/Local). The difference is the device's UTC offset for
+#  that day — derived from the data itself, no zoneinfo, no system clock.
+#
+#  If start-offset and end-offset differ, the day crosses a DST transition
+#  (see NOTES v1.6.5.6 / A5). This is detected, not corrected — the offset
+#  used remains the start-of-day value, consistent with how Garmin itself
+#  renders the day (A6).
+
+_OFFSET_SOURCE_SECTIONS = ("heart_rates", "stress", "respiration", "spo2")
+
+
+def _parse_naive(ts: str) -> datetime:
+    """Parse a Garmin ISO timestamp string (naive, ignores sub-second digits)."""
+    return datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")
+
+
+def _section_offset(section_data: dict) -> tuple[float, float] | None:
+    """
+    Compute (start_offset_hours, end_offset_hours) from a section's
+    Start/End Timestamp GMT/Local pair. Returns None if either pair is
+    missing or malformed.
+    """
+    s_gmt = section_data.get("startTimestampGMT")
+    s_loc = section_data.get("startTimestampLocal")
+    e_gmt = section_data.get("endTimestampGMT")
+    e_loc = section_data.get("endTimestampLocal")
+    if not all(isinstance(x, str) for x in (s_gmt, s_loc, e_gmt, e_loc)):
+        return None
+    try:
+        start_off = (_parse_naive(s_loc) - _parse_naive(s_gmt)).total_seconds() / 3600
+        end_off   = (_parse_naive(e_loc) - _parse_naive(e_gmt)).total_seconds() / 3600
+        return start_off, end_off
+    except ValueError:
+        return None
+
+
+def _device_offset(data: dict) -> tuple[float, bool]:
+    """
+    Determine the device UTC offset (hours) for a raw/live snapshot day.
+    Tries _OFFSET_SOURCE_SECTIONS in fixed order, first complete GMT/Local
+    pair wins. Returns (offset_hours, dst_transition) — dst_transition is
+    True when start-of-day and end-of-day offset differ (day crosses a
+    DST change). Returns (0.0, False) if no section has a usable pair,
+    with a warning — never a silent UTC fallback, never an exception.
+    """
+    for section_name in _OFFSET_SOURCE_SECTIONS:
+        section_data = data.get(section_name)
+        if not isinstance(section_data, dict):
+            continue
+        offsets = _section_offset(section_data)
+        if offsets is None:
+            continue
+        start_off, end_off = offsets
+        return start_off, (start_off != end_off)
+    log.warning("garmin_map: no usable GMT/Local offset pair found for this day — defaulting to UTC (0h)")
+    return 0.0, False
+
+
+def _ts_to_iso(ts, offset_hours: float = 0.0) -> str:
+    """
+    Normalize a Garmin timestamp (ms epoch or ISO string) to ISO-8601,
+    shifted by offset_hours (device UTC offset — see _device_offset()).
+    Stays naive, without an offset suffix, by design (E9, NOTES v1.6.5.6) —
+    downstream Plotly consumers would otherwise re-apply the browser's own
+    timezone and reintroduce the offset error at a different layer.
+    """
     if ts is None:
         return ""
     try:
         if isinstance(ts, (int, float)):
-            return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-        return str(ts)[:19]
+            dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).replace(tzinfo=None)
+        else:
+            dt = _parse_naive(str(ts))
+        dt += timedelta(hours=offset_hours)
+        return dt.strftime("%Y-%m-%dT%H:%M:%S")
     except Exception:
         return str(ts)
 
 
-def _extract_series(arr: list, section_data: dict, extract: dict) -> list:
+def _extract_series(arr: list, section_data: dict, extract: dict,
+                     offset_hours: float = 0.0) -> list:
     """
     Normalize a raw Garmin array to [{"ts": str, "value": float}, ...].
     Uses the extract descriptor from _FIELD_MAP to handle field-specific
     array structures without leaking Garmin internals to callers.
+
+    offset_hours: device UTC offset for this day (see _device_offset()),
+    applied to every timestamp via _ts_to_iso(). Not to be confused with
+    `offset` below, which is Garmin's own value-offset (e.g.
+    stressChartValueOffset) subtracted from the measurement value.
     """
     offset = 0
     if extract["offset_key"]:
@@ -332,7 +409,7 @@ def _extract_series(arr: list, section_data: dict, extract: dict) -> list:
             v = float(val) - offset
             if extract["val_min"] is not None and v < extract["val_min"]:
                 continue
-            result.append({"ts": _ts_to_iso(ts), "value": v})
+            result.append({"ts": _ts_to_iso(ts, offset_hours), "value": v})
         except (TypeError, ValueError, IndexError):
             continue
     return result
@@ -392,10 +469,17 @@ def _read_daily(field: str, date_from: str, date_to: str) -> dict:
 def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
     """
     Read intraday series from raw/.
-    Normalizes each day's array to [{"ts": str, "value": float}, ...].
-    Returns {"values": [{"date": str, "series": list|None}, ...], "source_resolution": "intraday"}.
+    Normalizes each day's array to [{"ts": str, "value": float}, ...],
+    timestamps shifted to the device's local time for that day
+    (see _device_offset(), NOTES v1.6.5.6).
+    Returns {"values": [{"date": str, "series": list|None, "dst_transition": bool}, ...],
+             "source_resolution": "intraday"}.
     series is None if the file is missing or the field is absent.
     series is [] if the file exists but the array is empty after normalization.
+    dst_transition is True if this day's device offset changes between the
+    start and end of the covered period — the series is still built using
+    the start-of-day offset (A6), the flag only signals the caller that
+    this day is affected. Always False when series is None.
     """
     section, array_key, extract = _FIELD_MAP[field]["intraday"]
 
@@ -403,19 +487,21 @@ def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
     for ds in _date_range(date_from, date_to):
         f = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
         series = None
+        dst_transition = False
         if f.exists():
             try:
                 data         = json.loads(f.read_text(encoding="utf-8"))
+                offset_hours, dst_transition = _device_offset(data)
                 section_data = data.get(section)
                 if isinstance(section_data, dict):
                     arr = section_data.get(array_key)
                     if isinstance(arr, list):
-                        series = _extract_series(arr, section_data, extract)
+                        series = _extract_series(arr, section_data, extract, offset_hours)
                 elif isinstance(section_data, list):
-                    series = _extract_series(section_data, {}, extract)
+                    series = _extract_series(section_data, {}, extract, offset_hours)
             except (json.JSONDecodeError, OSError) as e:
                 log.warning(f"garmin_map: could not read {f}: {e}")
-        values.append({"date": ds, "series": series})
+        values.append({"date": ds, "series": series, "dst_transition": dst_transition})
 
     return {"values": values, "source_resolution": "intraday"}
 
@@ -425,7 +511,9 @@ def _read_live(field: str) -> dict:
     Read an intraday series from the live snapshot (cfg.LIVE_FILE).
     Same array-extraction logic as _read_intraday(), single always-current
     source instead of a dated file — date_from/date_to are not used.
-    Returns {"values": [{"date": str, "series": list}],
+    Timestamps are shifted to the device's local time
+    (see _device_offset(), NOTES v1.6.5.6).
+    Returns {"values": [{"date": str, "series": list, "dst_transition": bool}],
              "fallback": bool, "source_resolution": "live"}.
     Missing LIVE_FILE or missing field in the snapshot → fallback=True,
     empty values, never an exception.
@@ -434,17 +522,19 @@ def _read_live(field: str) -> dict:
 
     series = None
     snapshot_date = None
+    dst_transition = False
     if cfg.LIVE_FILE.exists():
         try:
             data          = json.loads(cfg.LIVE_FILE.read_text(encoding="utf-8"))
             snapshot_date = data.get("date")
+            offset_hours, dst_transition = _device_offset(data)
             section_data  = data.get(section)
             if isinstance(section_data, dict):
                 arr = section_data.get(array_key)
                 if isinstance(arr, list):
-                    series = _extract_series(arr, section_data, extract)
+                    series = _extract_series(arr, section_data, extract, offset_hours)
             elif isinstance(section_data, list):
-                series = _extract_series(section_data, {}, extract)
+                series = _extract_series(section_data, {}, extract, offset_hours)
         except (json.JSONDecodeError, OSError) as e:
             log.warning(f"garmin_map: could not read {cfg.LIVE_FILE}: {e}")
 
@@ -452,7 +542,7 @@ def _read_live(field: str) -> dict:
         return {"values": [], "fallback": True, "source_resolution": "live"}
 
     return {
-        "values":            [{"date": snapshot_date, "series": series}],
+        "values":            [{"date": snapshot_date, "series": series, "dst_transition": dst_transition}],
         "fallback":          False,
         "source_resolution": "live",
     }

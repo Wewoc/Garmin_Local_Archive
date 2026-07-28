@@ -133,6 +133,63 @@ def _write_null_raw(base_dir: Path):
     f.write_text(json.dumps(_NULL_RAW), encoding="utf-8")
 
 
+# ── v1.6.5.6 — device offset shift ──────────────────────────────────────────────
+# GMT/Local metadata pair present, constant +1h offset, no DST transition.
+
+_OFFSET_DATE = "2026-03-15"
+
+_OFFSET_RAW = {
+    "date": _OFFSET_DATE,
+    "heart_rates": {
+        "startTimestampGMT":   "2026-03-14T23:00:00.0",
+        "startTimestampLocal": "2026-03-15T00:00:00.0",
+        "endTimestampGMT":     "2026-03-15T23:00:00.0",
+        "endTimestampLocal":   "2026-03-16T00:00:00.0",
+        "heartRateValues": [
+            [1773529200000, 58],
+            [1773529500000, 60],
+        ],
+    },
+    "steps": [
+        {"startGMT": "2026-03-14T23:15:00", "steps": 77, "pushes": 0,
+         "primaryActivityLevel": "sedentary", "activityLevelConstant": True},
+    ],
+}
+
+def _write_offset_raw(base_dir: Path):
+    raw_dir = base_dir / "garmin_data" / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    f = raw_dir / f"garmin_raw_{_OFFSET_DATE}.json"
+    f.write_text(json.dumps(_OFFSET_RAW), encoding="utf-8")
+
+
+# ── v1.6.5.6 — DST transition detection ─────────────────────────────────────────
+# 2026-03-29 is the real EU spring-forward Sunday. Start-of-day offset +1h,
+# end-of-day offset +2h — dst_transition must fire, series must still use
+# the start-of-day offset (A6 — Garmin itself does not correct mid-day).
+
+_DST_DATE = "2026-03-29"
+
+_DST_RAW = {
+    "date": _DST_DATE,
+    "heart_rates": {
+        "startTimestampGMT":   "2026-03-28T23:00:00.0",
+        "startTimestampLocal": "2026-03-29T00:00:00.0",
+        "endTimestampGMT":     "2026-03-29T22:00:00.0",
+        "endTimestampLocal":   "2026-03-30T00:00:00.0",
+        "heartRateValues": [
+            [1774738800000, 55],
+        ],
+    },
+}
+
+def _write_dst_raw(base_dir: Path):
+    raw_dir = base_dir / "garmin_data" / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    f = raw_dir / f"garmin_raw_{_DST_DATE}.json"
+    f.write_text(json.dumps(_DST_RAW), encoding="utf-8")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  1. garmin_map — intraday normalization
 # ══════════════════════════════════════════════════════════════════════════════
@@ -208,6 +265,33 @@ check("null respiration: series is None",       result_resp_null["values"][0]["s
 # series stays None, same code path as a day predating this feature.
 result_steps_null = garmin_map.get("steps_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null steps: series is None",             result_steps_null["values"][0]["series"] is None)
+
+# ── v1.6.5.6 — offset shift (E1/E2/E7) ───────────────────────────────────────
+_write_offset_raw(_TMPDIR)
+importlib.reload(cfg)
+
+result_offset_hr = garmin_map.get("heart_rate_series", _OFFSET_DATE, _OFFSET_DATE, resolution="intraday")
+offset_hr_series = result_offset_hr["values"][0]["series"]
+check("offset: heart_rate ts shifted +1h",       offset_hr_series[0]["ts"] == "2026-03-15T00:00:00")
+check("offset: heart_rate dst_transition=False", result_offset_hr["values"][0]["dst_transition"] is False)
+
+result_offset_steps = garmin_map.get("steps_series", _OFFSET_DATE, _OFFSET_DATE, resolution="intraday")
+offset_steps_series = result_offset_steps["values"][0]["series"]
+check("offset: steps ts shifted +1h",            offset_steps_series[0]["ts"] == "2026-03-15T00:15:00")
+
+# ── v1.6.5.6 — DST transition detection (E3/A5) ──────────────────────────────
+_write_dst_raw(_TMPDIR)
+importlib.reload(cfg)
+
+result_dst = garmin_map.get("heart_rate_series", _DST_DATE, _DST_DATE, resolution="intraday")
+check("dst: dst_transition=True on transition day", result_dst["values"][0]["dst_transition"] is True)
+check("dst: series still uses start-of-day offset", result_dst["values"][0]["series"][0]["ts"] == "2026-03-29T00:00:00")
+
+# ── v1.6.5.6 — no GMT/Local metadata at all → safe UTC fallback (E7) ────────
+# _RAW (section 1's original fixture) carries no timestamp metadata in any
+# section — exercises the _device_offset() fallback-with-warning path.
+result_no_meta = garmin_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+check("no metadata: dst_transition=False",       result_no_meta["values"][0]["dst_transition"] is False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1038,6 +1122,10 @@ _bc_intra = garmin_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resoluti
 check("broker intraday: values is list",         isinstance(_bc_intra["values"], list))
 check("broker intraday: fallback = False",       _bc_intra["fallback"] is False)
 check("broker intraday: source_resolution = intraday", _bc_intra["source_resolution"] == "intraday")
+
+# v1.6.5.6 — dst_transition ist Teil des Intraday-Antwort-Vertrags (E8)
+check("broker intraday: values entry has dst_transition key", "dst_transition" in _bc_intra["values"][0])
+check("broker intraday: dst_transition is bool", isinstance(_bc_intra["values"][0]["dst_transition"], bool))
 
 # daily-only-Feld mit resolution=intraday → Fallback auf daily
 _bc_fb = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="intraday")

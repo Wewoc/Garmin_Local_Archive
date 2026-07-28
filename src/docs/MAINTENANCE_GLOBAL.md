@@ -270,7 +270,7 @@ side effect:
 python tests/test_local.py
 ```
 
-**Current count: 498 checks, 22 sections.** No network, no GUI, no API calls. Cleans up after itself.
+No network, no GUI, no API calls. Cleans up after itself. Check and section totals are tracked in `docs/METRICS.md` (`test_local.py`) — not restated here to avoid drift.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -280,7 +280,7 @@ Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `g
 python tests/test_local_context.py
 ```
 
-**Current count: 261 checks, 13 sections.** No network — Open-Meteo API is mocked. Cleans up after itself.
+No network — Open-Meteo API is mocked. Cleans up after itself. Check and section totals are tracked in `docs/METRICS.md` (`test_local_context.py`) — not restated here to avoid drift.
 
 Run after any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `weather_map`, `pollen_map`, `context_map`.
 
@@ -291,9 +291,9 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-**Current count: 445 checks, 18 sections.** No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner.
+No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner. Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift.
 
-Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`.
+Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py` renderer.
 
 ### Plotly local cache
 

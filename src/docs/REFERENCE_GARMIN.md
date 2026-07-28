@@ -62,6 +62,7 @@ garmin_app.py (GUI)
 - `garmin_backup` must never import `garmin_writer` or `garmin_quality` — avoids circular imports
 - `normalize()` is never called during mirror import — raw in mirror is already normalized
 - `garmin_live_fetch.py` is sole write authority for `garmin_data/live/` (v1.6.5) — single-file snapshot of the current day, no history, overwritten on every fetch. No `quality_log.json` contact, no validator/normalizer
+- `garmin_map.py` shifts every intraday timestamp to the recording device's local time, derived per-day from Garmin's own `startTimestampGMT`/`Local` section metadata — never the system clock, never a hardcoded `zoneinfo` zone (v1.6.5.6, see "Timestamp handling" below)
 
 ---
 
@@ -235,7 +236,7 @@ Shared utilities — leaf node. No project-module imports.
 
 | Function | Purpose |
 |---|---|
-| `parse_device_date(val)` | Converts device date value to `YYYY-MM-DD`. Handles ISO strings, ms timestamps, s timestamps. Returns `None` on failure |
+| `parse_device_date(val)` | Converts device date value to `YYYY-MM-DD`. Handles ISO strings, ms timestamps, s timestamps. Returns `None` on failure. Internally uses `datetime.utcfromtimestamp()`, deprecated since Python 3.12 — found during the v1.6.5.6 sibling-sweep, not fixed there (see `ROADMAP.md`) |
 | `parse_sync_dates(raw)` | Parses comma-separated `YYYY-MM-DD` string. Returns sorted `list[date]` or `None` |
 | `extract_date_from_filename(path, prefix)` | Extracts `date` from filename like `garmin_raw_YYYY-MM-DD.json`. Default prefix `"garmin_raw_"`. Returns `None` on invalid format — no exception propagation |
 
@@ -532,12 +533,37 @@ The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single
 | `stress_series` | intraday | `stress.stressValuesArray` | offset applied |
 | `spo2_series` | intraday | `spo2.spO2HourlyAverages` | List of `[epoch_ms, value]` pairs — corrected in v1.6.3.1 (previously misread as dict-shaped, series was silently empty for every consumer) |
 | `body_battery_series` | intraday | `stress.bodyBatteryValuesArray` | — |
-| `respiration_series` | intraday | `respiration.respirationValuesArray` | List of `[epoch_ms, value]` pairs — same v1.6.3.1 fix as spo2_series. Raw data also contains a newer, parallel `wellnessEpochRespirationDataDTOList` (dict-shaped) — not yet evaluated, see `NOTES_v1_6_3_1.md` §4 |
+| `respiration_series` | intraday | `respiration.respirationValuesArray` | List of `[epoch_ms, value]` pairs — same v1.6.3.1 fix as spo2_series. Raw data also contains a newer, parallel `wellnessEpochRespirationDataDTOList` (dict-shaped) — absent in all 4 raw files sampled during v1.6.5.6 (2024-03-07, 2025-03-10, 2025-03-30, 2026-07-01/27); not conclusive, still not evaluated as a data source, see `NOTES_v1656.md` |
 | `steps_series` | intraday | `steps` (bare list at top level, not nested under a sub-key) | 15-min bins, `{"startGMT", "steps"}`. `_read_intraday()` handles this via its existing `isinstance(section_data, list)` branch — no code change needed for this shape |
 
 **Live route (v1.6.5):** 15 of the fields above also support `resolution="live"` (reads `garmin_data/live/live.json`, written by `garmin_live_fetch.py`, instead of the archive): `heart_rate_series`, `stress_series`, `spo2_series`, `body_battery_series`, `respiration_series`, `steps_series` (via `live`); `sleep_deep_pct`, `sleep_light_pct`, `sleep_rem_pct`, `sleep_awake_pct` (via `live_pct`); `hrv_last_night`, `sleep_score_feedback`, `sleep_score_qualifier`, `sleep_duration` (via `live_nested`). Fields with no live route (`resting_heart_rate`, `spo2_avg`, `body_battery_max`, `stress_avg`, `vo2max`) return `fallback=True`, empty `values`, for `resolution="live"`. Consumer: `dashboards/live_tracking_html_dash.py`.
 
 *Note: `sleep_score` (the numeric score itself, distinct from its `_feedback`/`_qualifier` companions) is missing from the Registered fields table above — a pre-existing gap, not introduced in v1.6.5. It does have a `live_nested` route (`sleep.dailySleepDTO.sleepScores.overall.value`) and a `daily` route (`sleep.score`); only its own table row is absent.*
+
+### Timestamp handling (v1.6.5.6)
+
+Intraday timestamps returned by `_extract_series()` are shifted to the
+device's local time — not the system clock's timezone, not a hardcoded
+reference zone. The offset is derived per raw/live file from Garmin's own
+section metadata; no `zoneinfo`, no new hidden-import.
+
+| Function | Purpose |
+|---|---|
+| `_device_offset(data)` | Returns `(offset_hours, dst_transition)` for one raw/live file's `data` dict. Tries `_OFFSET_SOURCE_SECTIONS` in order (`heart_rates → stress → respiration → spo2`), first section with a complete `startTimestampGMT/Local` + `endTimestampGMT/Local` pair wins. `dst_transition=True` when start-of-day and end-of-day offset differ (day crosses a DST change) — the offset used is always the start-of-day value, matching how Garmin Connect itself renders the day (it does not correct mid-day either). No usable section → `(0.0, False)` with a `log.warning` — never a silent UTC fallback, never an exception |
+| `_section_offset(section_data)` | Computes `(start_offset_hours, end_offset_hours)` from one section's GMT/Local timestamp pair. Returns `None` if either pair is missing or malformed |
+| `_parse_naive(ts)` | Parses a Garmin ISO timestamp string to a naive `datetime`, ignoring sub-second digits (`ts[:19]`) |
+| `_ts_to_iso(ts, offset_hours=0.0)` | Normalizes an epoch-ms value or ISO string to an ISO-8601 string, shifted by `offset_hours`. Stays naive — no offset suffix. A suffix would be reapplied by Plotly's `xaxis: {type:'date'}` in the browser's own timezone, reintroducing the original bug at a different layer |
+| `_extract_series(arr, section_data, extract, offset_hours=0.0)` | Extraction logic unchanged; `offset_hours` passed straight through to `_ts_to_iso()`. Not to be confused with `extract["offset_key"]` — Garmin's own *value* offset (e.g. `stressChartValueOffset`), a different concept entirely |
+
+`_OFFSET_SOURCE_SECTIONS = ("heart_rates", "stress", "respiration", "spo2")`
+— deliberately excludes `body_battery`: Body Battery data lives inside the
+`stress` section's `bodyBatteryValuesArray` (see `body_battery_series`
+above); there is no separate `body_battery` section that `garmin_map.py`
+itself reads.
+
+`_read_intraday()` and `_read_live()` both call `_device_offset()` once per
+file and add `"dst_transition": bool` to every entry in `values` — part of
+the broker response contract, see `REFERENCE_BROKER.md`.
 
 **Architecture boundary:** Any Garmin-internal key (`section.field`, `dailySleepDTO`, etc.) appearing outside `garmin_map.py` is an architecture violation — detectable by name format alone.
 

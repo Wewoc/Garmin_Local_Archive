@@ -57,7 +57,8 @@ result = field_get(field, date_from, date_to, resolution="daily")
 ```python
 {
     "values":            list,   # [{"date": str, "value": any}, ...]  — daily
-                                 # [{"date": str, "series": list|None}, ...]  — intraday
+                                 # [{"date": str, "series": list|None,
+                                 #   "dst_transition": bool}, ...]  — intraday/live
     "fallback":          bool,   # True if requested resolution was unavailable, downgraded
     "source_resolution": str,    # actual resolution used: "daily", "intraday", or "live"
 }

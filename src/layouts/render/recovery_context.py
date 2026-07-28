@@ -501,7 +501,7 @@ def _render_recovery_context(data: dict, output_path: Path) -> None:
     tab2_div, tab2_js = _build_tab2(intraday)
 
     tab_buttons  = _build_tab_buttons()
-    header_html  = layout_html.build_header(title, subtitle)
+    header_html  = layout_html.build_header(title, subtitle, layout.get_time_basis_note())
     disclaimer_html = layout_html.build_disclaimer(disclaimer_text)
     footer_html  = layout_html.build_footer(layout.get_footer(html=True))
     css          = layout_html.get_css()
