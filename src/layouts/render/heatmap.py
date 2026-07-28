@@ -179,7 +179,7 @@ def _render_heatmap(data: dict, output_path: Path) -> None:
         panels_html += div_html
         js_blocks   += js
 
-    header_html     = layout_html.build_header(title, subtitle)
+    header_html     = layout_html.build_header(title, subtitle, layout.get_time_basis_note())
     disclaimer_html = layout_html.build_disclaimer(layout.get_disclaimer())
     footer_html     = layout_html.build_footer(layout.get_footer(html=True))
     css             = layout_html.get_css()

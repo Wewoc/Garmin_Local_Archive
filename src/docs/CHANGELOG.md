@@ -1,5 +1,84 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.6 — Intraday Timestamp Timezone Bug
+
+Intraday series timestamps were rendered in GMT/UTC instead of the recording
+device's local time, across two independent code paths inside `garmin_map.py`.
+Fixed by deriving the device's UTC offset from each day's own archived
+GMT/Local timestamp metadata — no `zoneinfo`, no system clock — with
+DST-transition days detected and flagged rather than silently mis-rendered.
+
+**Changed modules:**
+- `maps/garmin_map.py` — new `_OFFSET_SOURCE_SECTIONS`, `_parse_naive()`,
+  `_section_offset()`, `_device_offset()`: derives the day's device UTC
+  offset from the first available section's `startTimestampGMT/Local` +
+  `endTimestampGMT/Local` pair (priority `heart_rates → stress →
+  respiration → spo2`), and flags `dst_transition` when start-of-day and
+  end-of-day offset differ. `_ts_to_iso()` and `_extract_series()` gained
+  an `offset_hours` parameter (default `0.0`, backward compatible);
+  timestamps stay naive (no offset suffix) — Plotly's `xaxis:
+  {type:'date'}` would otherwise reapply the browser's own timezone and
+  reintroduce the bug one layer up. `_read_intraday()` / `_read_live()`
+  now compute the offset once per file and add `dst_transition: bool` to
+  every `values` entry in the intraday/live response contract. Root
+  cause: the five array-based series (`heart_rate_series`,
+  `stress_series`, `spo2_series`, `body_battery_series`,
+  `respiration_series`) never actually read `"ts_key": "startGMT"` (dead
+  configuration — `ts_index` is set, so `_extract_series()`'s dict-branch
+  was unreachable); `steps_series` used the dict-branch and inherited the
+  same UTC bug through a different mechanism.
+- `layouts/dash_layout.py` — new `TIME_BASIS_NOTE` constant +
+  `get_time_basis_note()` getter, alongside `DISCLAIMER`/`FOOTER`.
+- `layouts/dash_layout_html.py` — `build_header()` gained an optional
+  `time_basis_note` parameter (default `None`, backward compatible);
+  renders as an extra `<p class="time-basis">` line when provided. New
+  `.time-basis` CSS rule.
+- `layouts/render/heatmap.py`, `layouts/render/sleep.py`,
+  `layouts/render/recovery_context.py` — pass
+  `dash_layout.get_time_basis_note()` into `build_header()`.
+- `layouts/render/live.py` — own dark-theme markup line for the same note
+  text (this renderer never used `dash_layout_html.build_header()` — see
+  module docstring), sourced from the same getter.
+- `tests/test_dashboard.py` — 8 new checks: offset shift on a synthetic
+  day with real GMT/Local metadata (epoch-ms and GMT-string paths both),
+  `dst_transition` detection on 2026-03-29 (real EU spring-forward date)
+  with the series still using the start-of-day offset, `dst_transition =
+  False` fallback on a day with no offset metadata at all, and two
+  `dst_transition`-key checks added to the Broker-Contract section.
+
+**Found but deliberately not fixed here** (see `docs/NOTES_v1656.md` for
+full detail):
+- `context/context_api.py`'s hourly-to-daily aggregation was checked as
+  part of the sibling-sweep — confirmed unaffected, both Open-Meteo and
+  Brightsky requests specify localized timestamps at the API level
+  (`timezone: "auto"` / `tz: "Europe/Berlin"`).
+- `garmin_utils.py::parse_device_date()` uses the same UTC-epoch-to-string
+  pattern via the deprecated (Python 3.12+) `datetime.utcfromtimestamp()`
+  — a day-level sibling of this bug, out of this session's scope, carried
+  to ROADMAP.
+- Duplicate intraday chart code between `layouts/render/recovery_context.py`
+  and `layouts/dash_plotter_html_complex.py` (M-2 pattern) — found during
+  the sibling-sweep, unrelated to the bug itself.
+- Timestamp-metadata field naming drift (`Z`-suffixed UTC strings vs.
+  naive `datetime.now()`) across five write-time-stamping modules —
+  cosmetic, carried to ROADMAP.
+
+**Also in this session (out of original scope, approved ad hoc):**
+`MAINTENANCE_CONTEXT.md`, `MAINTENANCE_DASHBOARD.md`, and the three
+`MAINTENANCE_GLOBAL.md` sections for `test_local.py` /
+`test_local_context.py` / `test_dashboard.py` no longer restate hardcoded
+"Current count: N checks" numbers — brought in line with the convention
+`MAINTENANCE_GARMIN.md` already used, after the count mismatch this
+session's own doc updates produced (445 vs. 453) surfaced the duplication
+risk directly. `docs/METRICS.md` is now the single stated source for these
+three files too; `tools/doc_guard.py` required no change — it already
+treats an absent count line as `no_count_claimed`, not drift.
+
+**Test result:** 498 / 261 / 453 / 145 / 46 / 4 — all green, ruff 0
+errors, bandit 0 HIGH.
+
+---
+
 ## v1.6.5.5 — Hidden-Import Consolidation + Test + P1-07
 
 Closes P3-02, P7-03, and (as a bonus, combined with P7-02) P7-01 from the

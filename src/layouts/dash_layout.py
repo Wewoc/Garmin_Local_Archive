@@ -91,6 +91,15 @@ FOOTER_PLAIN = (
     "github.com/Wewoc/Garmin_Local_Archive · GNU GPL v3"
 )
 
+# v1.6.5.6 — shown only on dashboards displaying intraday timestamps
+# (heatmap, recovery_context, sleep, live). Not shown on explorer (no
+# intraday tab) or any non-HTML output. See NOTES v1.6.5.6 / E6, E9.
+TIME_BASIS_NOTE = (
+    "🕒 Timestamps reflect the recording device's local time, not "
+    "necessarily this screen's time zone. On the two annual clock-change "
+    "days, the whole day uses the offset in effect at its start."
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Public getters
@@ -113,3 +122,9 @@ def get_disclaimer() -> str:
 def get_footer(html: bool = True) -> str:
     """Return footer text. html=True includes anchor tag, html=False plain text."""
     return FOOTER if html else FOOTER_PLAIN
+
+
+def get_time_basis_note() -> str:
+    """Return the intraday time-basis note (v1.6.5.6, E6). Plain string,
+    no markup — callers wrap it as needed (see build_header())."""
+    return TIME_BASIS_NOTE

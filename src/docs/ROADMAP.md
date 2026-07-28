@@ -6,54 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.5**
-
----
-
-## v1.6.5.6 — Intraday Timestamp Timezone Bug
-
-Intraday series timestamps (`heart_rate_series`, `stress_series`, `body_battery_series`,
-`spo2_series`, `respiration_series`, `steps_series`) are displayed in GMT/UTC instead
-of local time across all consuming dashboards.
-
-**Root cause:** `garmin_map.py` — `_FIELD_MAP` intraday descriptors use
-`"ts_key": "startGMT"` for all six series. `_ts_to_iso()` correctly converts the
-epoch value to UTC, but the resulting ISO string is passed downstream unchanged —
-no reconversion to local time happens anywhere in the chain. Confirmed via user
-report: a 9:00 AM CEST activity appeared as 07:00 in the heart rate curve
-(UTC+2 offset, matches DE summer time exactly).
-
-**Distinct from:** `garmin_import.py` → `_timestamp_to_date()`, which deliberately
-interprets `startTimeLocal` as UTC — that's a date-bucketing trick with no display
-impact, unaffected by this bug.
-
-**Affected — confirmed via cross-check, not yet verified in code:**
-- Heatmap Dashboard (`heatmap_garmin_html_dash.py`, v1.6.3)
-- Sleep Intraday Explorer (`layouts/render/sleep.py`, v1.6.2)
-- Custom Dashboard Builder (v1.6.4) — when intraday fields selected
-- Live Tracking Dashboard (v1.6.5) — separate path via `garmin_live_fetch.py`,
-  needs own check whether it shares `_ts_to_iso()` or has independent logic
-- Any Excel export path carrying intraday timestamps
-
-**Fix options (to be evaluated in Analyse step):**
-1. Use `startLocal` instead of `startGMT` as `ts_key` — simplest, but depends on
-   Garmin reliably supplying `startLocal` for every series (unverified)
-2. Keep `startGMT`, add explicit offset correction in `_ts_to_iso()` using
-   `zoneinfo` (requires a reference timezone — device-local vs. system-local
-   question resurfaces)
-3. Fixed manual offset — rejected outright, breaks across DST transitions
-
-**Scope note:** Sibling-Sweep required — single fix point likely in `garmin_map.py`
-(`_ts_to_iso()` / `_extract_series()`), but every downstream renderer needs
-verification that it doesn't do its own timestamp handling.
-
-**Evaluate while the file is open:** `REFERENCE_GARMIN.md` (respiration_series)
-notes a second, parallel structure Garmin ships alongside
-`respirationValuesArray` — `wellnessEpochRespirationDataDTOList`, dict-shaped,
-marked "not yet evaluated" since v1.6.3.1. Same series, same descriptor, same
-file. Decide whether it carries anything the array form doesn't; assessment
-only, no implementation implied. If it turns out to matter, it becomes its own
-scope — not a rider on the timezone fix.
+**Currently stable — v1.6.5.6**
 
 ---
 
@@ -167,6 +120,21 @@ by-product of another change.
 
 Not urgent, never harmful. Scope: work out which specialists need which
 variant, then apply per specialist rather than as one sweeping change.
+
+---
+
+## v1.6.6 — In-App Ollama Chat Panel
+
+Direct, local Ollama chat panel inside GLA — independent of the MCP query
+layer (v1.9). Full concept in `docs/KONZEPT_ollama_chat_panel.md`.
+
+**What changes:** `app/panel_chat.py` (new), `garmin/ollama_client.py`
+(new), `garmin_app_base.py` (panel wired in), `compiler/build_manifest.py`,
+`requirements.txt`.
+
+**What does not change:** `health_garmin_html-json_dash.py` /
+`dash_plotter_json.py` / `dash_prompt_templates.py` — consumed as-is.
+Broker Layer untouched.
 
 ---
 
@@ -561,6 +529,24 @@ Training load, activity volume and sport-specific metrics (swim/bike/run) visual
 
 **Test suite & CI/CD**
 Core pipeline is covered by five test suites (218 + 134 + 211 + 80 checks + 8 sections for build output). Build integrity is covered by `validate_scripts()` in both build scripts and `test_build_output.py` as post-build gate. Full CI/CD with GitHub Actions for automated builds and release packaging is intentionally deferred — no timeline, no commitment, but the intention is there.
+
+**Device-time vs. viewer-time display mode**
+v1.6.5.6 chose device-local time (from `startTimestampGMT`/`Local`, archived every day) as the intraday display basis — reisetreu by construction, but it means a day recorded while traveling shows in the device's time zone, not the viewer's current one. A toggle to show viewer-clock time instead (system clock, DST-correct year-round, loses device-time fidelity for travel days) would be a small, independent add-on if it's ever wanted. GPS-derived time zone (from FIT activities) would only close the remaining gap — a travel day that also happens to be a DST transition day — and isn't worth building ahead of the FIT pipeline. Natural anchor point: the travel block already planned for `quality_context.json` (v1.7.2).
+
+**Dashboard header time-basis detail**
+v1.6.5.6 added a static, fixed-text note to the header of every dashboard showing intraday timestamps. Showing the *actual* per-day offset instead would need a new key in the broker response contract, threaded through every specialist and plotter — bigger than the fix that prompted it, deliberately deferred.
+
+**Duplicate intraday chart code**
+`layouts/render/recovery_context.py` and `layouts/dash_plotter_html_complex.py` carry the same intraday chart block (`_makeIntradaySeries`/`updateIntradayChart`) near-verbatim. Found during the v1.6.5.6 sibling-sweep — an M-2 pattern, not a bug, but a maintenance-cost duplication worth collapsing into one shared source at some point.
+
+**Timestamp-metadata field naming drift**
+Several modules stamp "when this record was written" two different ways — some as `datetime.now(timezone.utc)` with a `Z` suffix (`context_writer`, `garmin_security`, `garmin_silo_check`, `garmin_source_writer`, `garmin_live_fetch`), others as naive `datetime.now()` with neither timezone nor suffix (`garmin/quality/_maint.py`, `garmin_collector.py`). Found during v1.6.5.6, unrelated to it — cosmetic, not a correctness issue.
+
+**`garmin_utils.py` deprecation**
+`parse_device_date()` uses `datetime.utcfromtimestamp()`, deprecated since Python 3.12. Currently harmless (project targets 3.10+), but worth a one-line swap to `datetime.fromtimestamp(ts, tz=timezone.utc)` before the deprecation becomes a removal.
+
+**Disclaimer shadow-copy in `dash_prompt_templates.py`**
+This module holds its own copy of the disclaimer text instead of calling `dash_layout.get_disclaimer()` — a second, un-flagged M-2 pattern found during the v1.6.5.6 sibling-sweep, next to the duplicate intraday chart code above. Same fix shape: collapse to the shared getter.
 
 ---
 
