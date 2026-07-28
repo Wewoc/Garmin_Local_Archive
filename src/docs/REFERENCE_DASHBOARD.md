@@ -272,8 +272,11 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
 Six intraday metrics pivoted to an hour-of-day × date matrix: Heart Rate,
 Steps, Stress, Body Battery, SpO2, Respiration. Hour is read directly from
 each sample's ISO timestamp (`ts[11:13]`), not recomputed via datetime
-parsing. A missing day still gets a full 24-value row of `None` — same
-shape as a day with data, so the renderer never special-cases row length.
+parsing — since v1.6.5.6 that timestamp is already shifted to the
+recording device's local time (see `REFERENCE_GARMIN.md` → `garmin_map.py`
+→ "Timestamp handling"), so the hour shown is local, not GMT. A missing
+day still gets a full 24-value row of `None` — same shape as a day with
+data, so the renderer never special-cases row length.
 
 **Aggregation per hourly bin:** mean for continuous values (Heart Rate,
 Stress, Body Battery, SpO2, Respiration); sum for Steps (a count metric —
@@ -473,6 +476,7 @@ Leaf-Node — stdlib + cryptography only, no project-module imports.
 | `get_excel_row_color(field)` | Hex color string for Excel row shading |
 | `get_disclaimer()` | Shared disclaimer string (plain text) |
 | `get_footer(html)` | Footer string — HTML anchor if `html=True`, plain text otherwise |
+| `get_time_basis_note()` | Static intraday time-basis note (v1.6.5.6) — plain text, no markup |
 
 ### `dash_layout_html.py`
 
@@ -481,7 +485,7 @@ Leaf-Node — stdlib + cryptography only, no project-module imports.
 | `get_css()` | Shared CSS string |
 | `get_plotly_cdn()` | Plotly CDN URL string |
 | `get_plotly_local_filename()` | Local cache filename (`"plotly.min.js"`) |
-| `build_header(title, subtitle)` | HTML `<header>` block |
+| `build_header(title, subtitle, time_basis_note=None)` | HTML `<header>` block — optional third line (`<p class="time-basis">`) when `time_basis_note` is given (v1.6.5.6). `None`/omitted → unchanged from pre-v1.6.5.6 output |
 | `build_disclaimer(text)` | HTML disclaimer `<div>` |
 | `build_footer(text)` | HTML `<footer>` block |
 

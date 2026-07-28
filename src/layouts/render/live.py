@@ -217,10 +217,21 @@ def render(data: dict, output_path: Path) -> None:
             f'No live snapshot for last night yet — showing archived data.</div>'
         )
 
+    # v1.6.5.6 (E6) — time-basis note, own markup like disclaimer/footer
+    # above (see module docstring: header/disclaimer/footer are NOT built
+    # via dash_layout_html — dark-theme body clashes with the shared
+    # light-theme CSS those emit). Text sourced from the same plain-string
+    # getter the other three intraday renderers pass into build_header().
+    time_basis_html = (
+        f'<div style="font-size:11px;color:{_TEXT2};opacity:0.7;margin-top:2px;">'
+        f'{html_escape.escape(layout.get_time_basis_note())}</div>'
+    )
+
     header_html = f"""
 <div style="background:{_BG3};padding:16px 20px;">
   <div style="font-size:16px;font-weight:600;color:{_TEXT};">{html_escape.escape(title)}</div>
   <div style="font-size:12px;color:{_TEXT2};margin-top:2px;">{html_escape.escape(subtitle)}</div>
+  {time_basis_html}
 </div>"""
 
     disclaimer_html = (

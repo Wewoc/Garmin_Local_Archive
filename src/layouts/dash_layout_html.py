@@ -25,6 +25,7 @@ CSS = """
   header { background: #231f38; color: #fff; padding: 16px 24px; }
   header h1 { font-size: 20px; font-weight: 600; }
   header p  { font-size: 13px; opacity: 0.75; margin-top: 4px; }
+  header .time-basis { font-size: 11px; opacity: 0.55; margin-top: 2px; }
   .disclaimer { font-size: 11px; color: #888; padding: 8px 24px 0; background: #fff; }
   .tabs { display: flex; gap: 4px; padding: 12px 24px 0; background: #fff;
           border-bottom: 1px solid #ddd; flex-wrap: wrap; }
@@ -100,13 +101,22 @@ def get_plotly_script(layouts_dir) -> str:
 #  Template builders
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_header(title: str, subtitle: str) -> str:
+def build_header(title: str, subtitle: str, time_basis_note: str | None = None) -> str:
+    """
+    time_basis_note: optional (v1.6.5.6, E6) — pass
+    dash_layout.get_time_basis_note() from renderers that display intraday
+    timestamps. None/omitted → no line rendered, existing callers unchanged.
+    """
     title    = html_escape.escape(title)
     subtitle = html_escape.escape(subtitle)
+    note_html = ""
+    if time_basis_note:
+        note_html = f'  <p class="time-basis">{html_escape.escape(time_basis_note)}</p>\n'
     return (
         f"<header>\n"
         f"  <h1>{title}</h1>\n"
         f"  <p>{subtitle}</p>\n"
+        f"{note_html}"
         f"</header>\n"
     )
 

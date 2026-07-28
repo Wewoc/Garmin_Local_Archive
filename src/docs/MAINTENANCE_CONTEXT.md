@@ -48,11 +48,9 @@ Dashboard specialists
 
 ## `test_local_context.py`
 
-**Current count: 13 sections.**
+Check and section totals are tracked in `docs/METRICS.md` (`test_local_context.py`) — not restated here to avoid drift. `write_file()` (v1.5.6) is a thin atomic wrapper, tested implicitly via import round-trip; no dedicated section.
 
-**Check count: 261** (v1.5.6 — `write_file()` is a thin atomic wrapper, tested implicitly via import round-trip; no new sections added)
-
-**Note on count accuracy:** The 261 figure reflects `check()`-based checks inside the 13 numbered sections only. A handful of standalone pytest-style test functions (`test_airquality_plugin_*`, `test_parse_hourly_to_daily_*`) exist after the `summary()` call at file end — these run under `pytest tests/test_local_context.py` but not under the plain `python tests/test_local_context.py` script invocation, so the two invocation modes report different totals.
+**Note on invocation mode:** the `docs/METRICS.md` figure reflects `check()`-based checks inside the numbered sections only, via the plain `python tests/test_local_context.py` invocation. A handful of standalone pytest-style test functions (`test_airquality_plugin_*`, `test_parse_hourly_to_daily_*`) exist after the `summary()` call at file end and run under `pytest tests/test_local_context.py` but not under the plain script invocation — the two invocation modes report different totals. This is unrelated to `docs/METRICS.md` accuracy.
 
 
 ```bash

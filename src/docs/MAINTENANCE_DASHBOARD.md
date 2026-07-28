@@ -138,11 +138,11 @@ To add a new field:
 python tests/test_dashboard.py
 ```
 
-**Current count: 445 checks, 21 sections.**
+Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift (same convention as `MAINTENANCE_GARMIN.md`).
 
 | Section | Coverage |
 |---|---|
-| 1 | `garmin_map` intraday normalization |
+| 1 | `garmin_map` intraday normalization — incl. device-offset shift and DST-transition detection (v1.6.5.6): offset applied to both the epoch-ms and GMT-string extraction paths, `dst_transition` flag on a real transition day (2026-03-29), safe `dst_transition=False` fallback with no offset metadata present |
 | 2 | `field_map` routing |
 | 3 | `dash_layout` design tokens |
 | 4 | `dash_layout_html` HTML assets |
@@ -156,7 +156,7 @@ python tests/test_dashboard.py
 | 12 | `health_garmin-weather-pollen` specialist |
 | 13 | `sleep_recovery_context` specialist + complex plotter (facade + render registry v1.6.0.5) |
 | 14 | `sleep_garmin` specialist + html + excel render — rows carry `hrv_7d_avg` (computed in build, rendered in both plotters). Phase bar cells carry letter labels (D/L/R/A) in contrast color (v1.5.8+) |
-| 15 | `garmin_map` broker contract — incl. `live`/`live_pct`/`live_nested` routes (v1.6.5): percentage math, nested lookup + HRV fallback chain + divisor, missing-file behaviour for both types, field-without-live-route negative case |
+| 15 | `garmin_map` broker contract — incl. `live`/`live_pct`/`live_nested` routes (v1.6.5): percentage math, nested lookup + HRV fallback chain + divisor, missing-file behaviour for both types, field-without-live-route negative case. `dst_transition` key present and boolean in the intraday contract (v1.6.5.6) |
 | 15b | `layouts/render/live.py` — Live Tracking renderer (v1.6.5): structure (DOCTYPE, title, disclaimer, footer), no-Plotly check, integer formatting (no stray `.0`), qualifier badge, feedback label, phase-bar legend, dark-theme token, archive-fallback note, `ValueError` on missing `today`/`last_night` |
 | 16 | Specialist return contract — alle 7 specialists |
 | 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards |

@@ -71,6 +71,20 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 | `AGGREGATION_MAP` | dict[str, str] | Optional — field-specific aggregation (`{"temperature": "mean", "precipitation": "sum", ...}`). Used when aggregation differs per field. Triggers `_parse_hourly_to_daily()` in `context_api.py` for Open-Meteo hourly plugins. For Brightsky, requires `FETCH_ADAPTER = "brightsky"` |
 | `FETCH_ADAPTER` | str | Optional — adapter key for `context_api.py`. Omit for Open-Meteo plugins (default). Set to `"brightsky"` for Brightsky DWD |
 
+**Invariant — hourly plugins must request localized timestamps (v1.6.5.6):**
+for `API_RESOLUTION = "hourly"` plugins, the API request must ask for
+timestamps in the location's local time, not UTC.
+`_parse_hourly_to_daily_max()` / `_parse_hourly_to_daily()` bucket each
+hourly value into a day via `ts[:10]` — a UTC response would misfile the
+day's last few hours into the following day and silently bias any daily
+aggregate (max/mean/sum) computed from the shifted window. Both existing
+hourly adapters already do this correctly: Open-Meteo requests
+`"timezone": "auto"` (zone derived from the request's own coordinates —
+same principle as `garmin_map.py`'s device-derived offset, see
+`REFERENCE_GARMIN.md`); Brightsky requests `"tz": "Europe/Berlin"`
+explicitly. A new hourly plugin must do the same. Daily plugins are
+unaffected — they receive one value per calendar day directly from the API.
+
 ### Registered plugins
 
 | Plugin | NAME | API | Resolution | Aggregation |
