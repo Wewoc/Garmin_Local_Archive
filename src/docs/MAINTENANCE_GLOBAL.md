@@ -338,7 +338,7 @@ PowerShell encoding/syntax failure during integration attempts, see
 python tests/test_app_logic.py
 ```
 
-**Current count: 145 checks, 19 sections.**
+Check and section totals are tracked in `docs/METRICS.md` (`test_app_logic.py`) — not restated here to avoid drift (same convention as `MAINTENANCE_GARMIN.md`).
 
 ### `tests/test_qt_app.py` — PyQt6 App layer (v1.5.4+)
 

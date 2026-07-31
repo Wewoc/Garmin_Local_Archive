@@ -165,8 +165,9 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
             log.warning("  Auto-generate enc_key failed — falling back to manual entry")
             if on_key_required:
                 enc_key = on_key_required()
-                if enc_key:
-                    garmin_security.store_enc_key(enc_key)
+                if enc_key and not garmin_security.store_enc_key(enc_key):
+                    log.warning("  Manually entered enc_key could not be stored in WCM — "
+                                "token save will likely fail")
 
     try:
         cfg.GARMIN_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
@@ -174,7 +175,9 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
         client.login(str(cfg.GARMIN_TOKEN_DIR))
 
         log.info("  ✓ Login successful (SSO)")
-        garmin_security.save_token()
+        if not garmin_security.save_token():
+            log.warning("  Login succeeded but token could not be saved — "
+                        "next run will require a new login")
         return client
 
     except GarminLoginError:

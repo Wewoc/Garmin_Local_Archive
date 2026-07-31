@@ -36,7 +36,6 @@ import garmin_redact as redact
 import garmin_sync as sync
 import garmin_validator as validator
 import garmin_writer as writer
-from garmin_quality import QUALITY_RANK
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Logging setup
@@ -182,7 +181,7 @@ def _check_downgrade(new_label: str, existing_entry: dict | None) -> tuple:
 
     existing_label  = existing_entry.get("quality", "failed")
     existing_source = existing_entry.get("source", "api")
-    is_downgrade    = QUALITY_RANK.get(new_label, 0) < QUALITY_RANK.get(existing_label, 0)
+    is_downgrade    = quality.is_downgrade(new_label, existing_label)
     return is_downgrade, existing_label, existing_source
 
 def _write_assessed(normalized, summary, date_str: str, label: str) -> bool:
@@ -275,6 +274,13 @@ def run_import(path, progress_callback=None, stop_event=None) -> dict:
                 quality._upsert_quality(quality_data, day, label, reason,
                                         written=written, source="bulk", fields=fields,
                                         validator_result=val_result)
+
+                # GP-2 crash-resilience: persist quality_log after each day so a
+                # hard abort cannot leave a raw file without a quality_log entry.
+                # skip_backup=True — backup triggered once after the full batch
+                # (see final _save_quality_log() call below), not per day.
+                quality._save_quality_log(quality_data, skip_backup=True)
+
                 ok += 1
                 log.info(f"  import [{i}]: {date_str} — {label}")
 
@@ -587,9 +593,25 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
                     backfilled_fields={"steps": backfilled_at},
                 )
 
-                if not source_writer.patch_source_field(date_str, "steps", steps_data):
+                patch_ok = source_writer.patch_source_field(date_str, "steps", steps_data)
+                if not patch_ok:
                     log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — "
-                                f"source/ patch failed (raw/summary already written, no data lost)")
+                                f"source/ patch failed, retrying once ...")
+                    patch_ok = source_writer.patch_source_field(date_str, "steps", steps_data)
+
+                if not patch_ok:
+                    # Retry exhausted. raw/summary/quality_log already reflect "steps"
+                    # as present (write_day + record_attempt already ran above) — no
+                    # data loss for the archive itself. But source/ stays out of sync
+                    # for this day, and the candidate filter in timer_run_steps_backfill()
+                    # checks 'fields' (from raw/), not source/ — this day will NOT be
+                    # retried automatically on a future run. Logged at error level for
+                    # higher visibility than a warning — does NOT by itself land in
+                    # log/fail/, since _run_steps_backfill() has no had_errors flag
+                    # back to main() (out of scope for this fix).
+                    log.error(f"  Steps backfill [{i}/{total}]: {date_str} — "
+                              f"source/ patch failed after retry — source/ permanently "
+                              f"out of sync for this day (raw/summary/quality_log unaffected)")
                     source_patch_failed += 1
 
                 log.info(f"  Steps backfill [{i}/{total}]: {date_str} — steps added")
@@ -629,6 +651,7 @@ def _run_schema_migration(quality_data: dict) -> None:
             continue
         summary = writer.read_summary(date_str)
         if not summary:
+            log.warning(f"  Schema migration: {date_str} — no summary file, skipped")
             continue
         if summary.get("schema_version", 0) < current:
             candidates.append(date_str)

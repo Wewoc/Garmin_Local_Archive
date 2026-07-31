@@ -49,14 +49,24 @@ _TOKEN_JSON = "garmin_tokens.json"
 #  WCM helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_enc_key() -> str | None:
-    """Read encryption key from Windows Credential Manager. Returns None if not found."""
+def get_enc_key_status() -> tuple[str | None, str | None]:
+    """Read encryption key from Windows Credential Manager.
+    Returns (key, None) on success or genuine absence, (None, error_detail) on
+    a WCM read failure. Sole implementation of the WCM read — get_enc_key()
+    below is a thin wrapper, kept for the five existing presence-only callers.
+    """
     try:
         import keyring
-        return keyring.get_password(KEYRING_SERVICE, KEYRING_ENC_USER) or None
+        return keyring.get_password(KEYRING_SERVICE, KEYRING_ENC_USER) or None, None
     except Exception as e:
         log.warning(f"  Could not read enc_key from WCM: {e}")
-        return None
+        return None, str(e)
+
+
+def get_enc_key() -> str | None:
+    """Read encryption key from Windows Credential Manager. Returns None if not found."""
+    value, _ = get_enc_key_status()
+    return value
 
 
 def store_enc_key(enc_key: str) -> bool:
@@ -213,15 +223,21 @@ def load_token() -> bool:
         return False
 
 
-def clear_token() -> None:
-    """Removes garmin_token.enc, GARMIN_TOKEN_DIR, and the enc_key from WCM."""
+def clear_token() -> bool:
+    """Removes garmin_token.enc, GARMIN_TOKEN_DIR, and the enc_key from WCM.
+    Returns True if both removal steps completed without error, False if
+    either step failed (detail already logged at the failure site).
+    """
     import garmin_config as cfg
+    ok = True
+
     try:
         if cfg.GARMIN_TOKEN_FILE.exists():
             cfg.GARMIN_TOKEN_FILE.unlink()
             log.info("  Token file removed")
     except Exception as e:
         log.warning(f"  Could not remove token file: {e}")
+        ok = False
 
     _clear_token_dir()
 
@@ -231,6 +247,9 @@ def clear_token() -> None:
         log.info("  Encryption key removed from WCM")
     except Exception as e:
         log.warning(f"  Could not remove enc_key from WCM: {e}")
+        ok = False
+
+    return ok
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -262,8 +281,9 @@ def log_token_event(event: str, trigger: str, **extra) -> None:
     try:
         import version
         app_version = version.APP_VERSION
-    except Exception:
+    except Exception as e:
         app_version = "unknown"
+        log.debug(f"  Could not read app_version from version.py: {e}")
 
     entry = {
         "ts":          datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

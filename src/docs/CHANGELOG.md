@@ -1,5 +1,189 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.7 — T3.1 Silent-Failure Investigation (Netz 0/1/3/4 + Silo-Repair-Kern-Extraktion)
+
+Trigger: `_on_silo_repair()`'s repair path #3 called
+`subprocess.run([sys.executable, ...])` directly — in any frozen build,
+`sys.executable` is the EXE itself, not a Python interpreter. Found while
+tracing P1-07 (v1.6.5.5). Investigated via a three-net concept: Netz 1
+(module loadability self-test), Netz 3 (error audibility for the four
+highest-risk write paths), Netz 4 (crash-resilience for quality_log.json
+writes), Netz 0 (static-analysis regression guards) — Netz 2
+(fixture-based headless functional tests) split off as its own arc,
+`v1.6.5.8`. Session 1's architecture decision: `silo_repair` gets a real
+headless-callable core (`garmin_silo_repair.py`) rather than staying a
+GUI-T2-only limitation.
+
+**Changed modules — Netz 1 (Laufzeit-Selbsttest):**
+- `garmin_app_standalone.py` — new `_run_self_test()`, called via
+  `--self-test` before any GUI initialisation. Loads every module in
+  `build_manifest.SHARED_SCRIPTS` directly from disk via
+  `importlib.util.spec_from_file_location()` — the same technique already
+  used by `dash_runner._load_specialist()`. Exercises the real runtime
+  import machinery, not a parallel one. `_import_family_submodule()`
+  handles the two coexisting import conventions for `app/`, `context/`,
+  `maps/`, `dashboards/`, `layouts/` (flat vs. package-qualified for the
+  six `panel_*.py` files and `dialogs.py`) — tries flat first, falls back
+  to dotted, found via a real self-test run rather than assumed. `_out()`
+  is a best-effort console print (never raises — `--windowed` builds may
+  have no usable `sys.stdout`), independent of the actual pass/fail signal
+  (`failures` list + return code).
+- `compiler/build_all.py` — self-test wired into the build gate (Session 1
+  Schritt 3).
+
+**Changed modules — Netz 3 (Fehler-Hörbarkeit, vier Kandidaten):**
+- **Kandidat 1 — Mirror-Import:** `garmin_import_mirror.py` — `run_import_mirror()`
+  and `mirror()` gain an `error` field on hard-stop failures (unrecognised
+  source, `unlock_meta()` failure, unreadable `mirror_meta.json`/quality_log)
+  — absent when `ok=False` comes from per-item errors during processing
+  instead, which are individually logged and counted. `garmin_mirror.py`
+  — same `error` field when the mirror cannot start at all (missing
+  source directory). `app/panel_archive.py` — dry-run failures show the
+  actual cause instead of a generic "check log for details"; the live-run
+  message now shows ✓/⚠/✗ depending on outcome instead of always ✓.
+- **Kandidat 2 — Backup/Restore:** `garmin_backup.py` — three previously
+  silent `except: pass`/bare-except handlers now log
+  (`_consolidate_log_years`, the unreadable-raw-file branch in
+  `check_raw_integrity`, `check_raw_backfill_needed`); `restore_raw_days()`
+  gains an `errors: dict[str, str]` (date → reason) alongside the existing
+  `failed` list; `check_raw_integrity()` gains an `error` field for when
+  the check itself could not complete (e.g. unreadable quality_log), kept
+  distinct from "checked, nothing missing". `app/garmin_app_controller.py`
+  — `check_integrity()` passes the new `error` field through instead of
+  swallowing every failure into empty lists. `app/panel_archive.py` — the
+  startup integrity check logs a failed check explicitly instead of
+  looking identical to a clean archive; the restore-data flow lists each
+  failed date's reason (capped at 10, with a count for the rest).
+- **Kandidat 3 — Security:** `garmin_security.py` — `log_token_event()`'s
+  `version.py` import fallback now logs at debug; new
+  `get_enc_key_status()` is the sole WCM-read implementation, returning
+  `(key, None)` on success/genuine absence or `(None, error_detail)` on a
+  WCM read failure — `get_enc_key()` becomes a thin wrapper kept for its
+  five existing presence-only callers; `clear_token()` now returns `bool`
+  instead of `None`. `app/panel_connection.py` — `_reset_token()` surfaces
+  an incomplete `clear_token()` instead of always claiming success.
+  `app/garmin_app_controller.py` — connection check distinguishes "key
+  genuinely absent" from "WCM read failed", with the specific reason in
+  the log line. `garmin_api.py` — a failed `store_enc_key()` or
+  `save_token()` now logs a warning instead of silently proceeding as if
+  the token were safely persisted.
+- **Kandidat 4 — Writer:** `garmin_writer.py` — `read_summary()` now logs
+  a missing-file case the same way `read_raw()` already did.
+  `garmin_collector.py` — the schema-migration loop logs when a day is
+  skipped for having no summary file at all, instead of silently
+  continuing.
+
+**Changed modules — Silo-Repair-Kern-Extraktion (KONZEPT-Schritt 5, Blocker):**
+- `garmin/quality/_maint.py` — new `is_downgrade()`, the canonical
+  downgrade-rank comparison, re-exported via `garmin_quality.py`. Replaces
+  duplicated logic in `garmin_collector.py::_check_downgrade()` and
+  `export/regenerate_raw.py`'s `_rank()`/`_existing_label()` pair — both
+  now call the shared helper (sibling-sweep finding).
+- `app/panel_archive.py` — repair path #3 (source without raw) rewritten
+  in-process (`normalize()` → `summarize()` → `assess_quality()` →
+  `write_day()` → `record_attempt()`), replacing the `subprocess.run([sys.
+  executable, ...])` call that triggered this whole investigation. A
+  missing `garmin_quality` import introduced during this rewrite was
+  caught and fixed in the same session (F-823-style scan finding).
+- **New module `garmin/garmin_silo_repair.py`** — `repair_silos(fresh:
+  dict) -> dict`, headless-callable, Qt-free. Holds the four repair
+  categories (#1/#3/#5/#7) that previously lived only as a Qt-bound
+  closure inside `panel_archive.py::_on_silo_repair()`, with no entry
+  point callable without a live `PanelArchive`/`QApplication` instance.
+  This supersedes the v1.6.0.4.7 decision ("Repair stays in
+  `panel_archive` and delegates to existing owners") — a deliberate
+  architecture change, not an oversight; that decision predates the T3.1
+  headless-callable-core requirement. `panel_archive.py::_do_repair()` now
+  only formats the structured result for the GUI log.
+- `compiler/build_manifest.py` — `garmin_silo_repair.py` added to
+  `SHARED_SCRIPTS` and `SCRIPT_SIGNATURES_BASE`.
+
+**Changed modules — Netz 4 (Umsetzung, GP-2-Muster + Steps-Backfill-Retry):**
+- `garmin_collector.py::run_import()` and
+  `garmin_import_mirror.py::run_import_mirror()` (both the container path
+  and the deprecated folder fallback) now persist `quality_log.json` after
+  every processed day (`skip_backup=True`), not only once after the whole
+  batch — matching `main()`'s existing per-day pattern. A bulk import or
+  mirror import aborted mid-run no longer leaves already-written raw
+  files invisible to `quality_log.json`. `_run_source_backfill()` and
+  `_run_steps_backfill()` already had this pattern via `record_attempt()`
+  — confirmed by reading the current files, not assumed from the original
+  KONZEPT Bestandsaufnahme, which had over-counted this as four affected
+  functions instead of two.
+- `garmin_collector.py::_run_steps_backfill()` — one automatic retry for a
+  failed `patch_source_field()` call; logs at `error` level (not
+  `warning`) if the retry also fails, since `source/` will not be
+  auto-retried on a future run (the candidate filter checks `fields` from
+  `raw/`, which is already correct after `write_day()`).
+
+**Changed modules — Netz 0 (vier neue Regeln in `tests/test_static.py`):**
+- SHARED_SCRIPTS-Manifest-Vollständigkeit, bidirektional: jeder gelistete
+  Pfad existiert; jede `.py`-Datei in den vollständig erfassten Ordnern
+  (`app`, `garmin`, `garmin/quality`, `context`, `maps`, `dashboards`,
+  `layouts`, `layouts/render`, `export`) ist gelistet, mit einer
+  Ausnahmeliste für bewusst nicht gebaute Dev-/Maintenance-Skripte
+  (`export/backfill_source_backup.py`, `export/backfill_source_intraday.py`,
+  `export/regenerate_summaries.py`, `garmin_app_screenshot.py`).
+- AST-basierter Regressions-Wächter für stille `except: pass`-Handler in
+  den vier Netz-3-Kandidatenmodulen, mit gemessener Baseline statt
+  Nullforderung (5/0/0/2).
+- Verbotene Importmuster: Leaf-Node-Invariante für `garmin_utils.py` und
+  `garmin_validator.py` (mit dokumentierter Ausnahme `garmin_config` für
+  Letzteres — steht in dessen eigenem Docstring); Lazy-Import-Pflicht für
+  `garmin_config` in `garmin_security.py`.
+- AST-basierter Regressions-Wächter für `spec_from_file_location`-Fundstellen
+  in `SHARED_SCRIPTS`, Baseline 10 (alle mit berechnetem statt
+  literalem Zielpfad — echter Manifest-Abgleich bereits über die erste
+  Regel abgedeckt).
+
+**Precondition-Fix (vor der Doku-Kette gefunden, nicht Teil der ursprünglichen
+KONZEPT-Liste):**
+- `garmin_silo_repair.py::repair_silos()` — Kategorie #3 hielt
+  `QUALITY_LOCK` nur für den initialen Load, gab ihn danach frei und
+  re-acquired ihn nur pro Tag für den jeweiligen `record_attempt()`-Save.
+  Ein konkurrierender `quality_log`-Schreiber in diesem Fenster hätte
+  seine Änderungen durch die veraltete In-Memory-Kopie dieser Schleife
+  überschrieben bekommen — gefunden während der Architektur-Precondition,
+  nicht während des ursprünglichen Bauauftrags. Jetzt ein durchgehender
+  Lock-Hold für den gesamten Load-Modify-Save-Zyklus, wie überall sonst in
+  der Pipeline (`main()`, `run_import()`, `_run_source_backfill()`,
+  `_run_steps_backfill()`, sowie Kategorie #1 direkt daneben in derselben
+  Datei).
+- `template/build_dep_map/build_dep_map_config.py` /
+  `build_dep_map.py` (GLA-NeedfulThings, nicht Teil dieses Repos) — neue
+  `ACCEPTED_GEKIPPT`-Whitelist für zwei Fälle, in denen die
+  Klassifikations-Heuristik (nur `raise`/Reraise gilt als „ok") ein
+  bewusst gewähltes Muster — Fehler über strukturierten Rückgabewert statt
+  Exception — fälschlich als Regression einstuft. Bleibt im Delta-Report
+  sichtbar, zählt aber nicht mehr in die Blocker-Summe.
+
+**Found but deliberately not fixed here:**
+- Testlücken in `garmin_silo_repair.py` — #1 fehlt
+  (`_backfill_quality_log()`s interner Kontrakt nicht gelesen), #3/#7
+  fehlen (bräuchten eine `normalize()`-taugliche Rohdaten-Fixture).
+  Kandidat für `v1.6.5.8` (Netz 2).
+- `main()`'s Fetch-Loop: `record_attempt()` (löst bereits einen Backup pro
+  Tag aus) gefolgt von einem expliziten
+  `_save_quality_log(..., skip_backup=True)` sieht nach doppeltem Save pro
+  Tag aus — nur vermerkt, nicht untersucht.
+- `_run_steps_backfill()`s Retry deckt nur transiente
+  `patch_source_field()`-Fehler ab. Eine dauerhafte Lösung (feldbasierte
+  Candidate-Erkennung statt reiner `fields`-Prüfung) bräuchte
+  `garmin_app_controller.py` — eigener Bauauftrag, nicht Teil dieser
+  Session.
+- P3-03-Verifikation (Dashboard-Tab + XLSX-Preview im T3.1-Build öffnen),
+  `os.environ`-Mutation in Worker-Threads (Finding F5, 13 Stellen),
+  `panel_archive.py::_clean_archive()` (toter Code), fehlender
+  `layouts/render/heatmap.py`-Signatureintrag in `build_manifest.py`, und
+  `scheduler/daily_update.py`'s `crash_handler.install()`-Adoption — alle
+  ursprünglich für diese Session vorgesehen, nicht angefasst, laut NOTES
+  weiterhin offen. Verschoben zu `v1.6.5.8`.
+
+**Test result:** 536 / 265 / 453 / 145 / 46 / 15 — all green, ruff 0
+errors, bandit 0 HIGH.
+
+---
+
 ## v1.6.5.6 — Intraday Timestamp Timezone Bug
 
 Intraday series timestamps were rendered in GMT/UTC instead of the recording

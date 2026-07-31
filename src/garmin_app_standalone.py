@@ -126,6 +126,121 @@ def script_path(name: str) -> Path:
     return base / name
 
 
+# ── Self-test (Netz 1 — Ladbarkeit) ─────────────────────────────────────────────
+
+def _run_self_test() -> int:
+    """
+    Netz 1 — Ladbarkeit. Loads every module listed in
+    build_manifest.SHARED_SCRIPTS directly from disk via
+    importlib.util.spec_from_file_location() — the same technique already
+    used by dash_runner._load_specialist() / dash_plotter_html_complex.
+    _load_renderer(). Only the entry load bypasses normal import statements;
+    any import *inside* a loaded module (e.g. 'from quality._maint import
+    QUALITY_LOCK') still resolves via the real sys.path that
+    _register_embedded_packages() sets up above — this exercises the actual
+    runtime import machinery, not a parallel one.
+
+    Called via '--self-test' before any GUI initialization. T3.1 is a
+    --windowed build — sys.stdout may be unavailable; output is best-effort
+    and never raises.
+
+    Returns 0 if every module loaded, 1 on any failure (including if
+    build_manifest.py itself cannot be loaded).
+    """
+    def _out(text: str) -> None:
+        if sys.stdout is not None:
+            try:
+                print(text)
+            except Exception:
+                pass
+
+    if getattr(sys, "frozen", False):
+        base          = Path(sys._MEIPASS) / "scripts"
+        manifest_path = base / "build_manifest.py"
+    else:
+        base          = Path(__file__).parent
+        manifest_path = base / "compiler" / "build_manifest.py"
+
+    try:
+        _spec     = importlib.util.spec_from_file_location(
+            "build_manifest", manifest_path)
+        _manifest = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_manifest)
+    except Exception as e:
+        _out(f"✗ Self-test: cannot load build_manifest.py ({manifest_path}) — {e}")
+        return 1
+
+    def _import_family_submodule(rel_path: str):
+        """
+        Imports a real submodule of app/, context/, maps/, dashboards/, or
+        layouts/ the way production code actually reaches it. Two import
+        conventions coexist for files in these folders: most are imported
+        flat by garmin_app_base.py (e.g. 'import garmin_app_settings'),
+        but the six panel_*.py modules and dialogs.py are imported
+        package-qualified ('from app.panel_archive import PanelArchive')
+        because they use relative imports internally and need real
+        __package__ context to resolve them.
+
+        Tries flat first — matches most files in these folders — and
+        falls back to the dotted '<folder>.<name>' form only if flat
+        import fails. This adapts per file automatically instead of
+        hardcoding which of the two conventions each specific file needs
+        (that hardcoded assumption — 'everything under app/ is dotted' —
+        was tried first and was wrong for exactly two files: found via a
+        real --self-test run, not guessed).
+        """
+        parts       = rel_path[:-3].split("/")
+        flat_name   = parts[-1]
+        dotted_name = ".".join(parts)
+        try:
+            importlib.import_module(flat_name)
+        except Exception as flat_err:
+            try:
+                importlib.import_module(dotted_name)
+            except Exception as dotted_err:
+                raise ImportError(
+                    f"flat '{flat_name}' failed ({type(flat_err).__name__}: "
+                    f"{flat_err}); dotted '{dotted_name}' failed "
+                    f"({type(dotted_err).__name__}: {dotted_err})"
+                ) from dotted_err
+
+    failures = []
+    for rel_path in _manifest.SHARED_SCRIPTS:
+        parts   = rel_path[:-3].split("/")
+        is_init = parts[-1] == "__init__"
+        top     = parts[0]
+        try:
+            if not is_init and top in ("app", "context", "maps", "dashboards", "layouts"):
+                # __init__.py stays on the file-path path deliberately —
+                # the four virtual packages already have near-empty
+                # stand-ins in sys.modules via _register_embedded_packages()
+                # above; importing them by name would only hit that cache
+                # and never execute their real file content.
+                _import_family_submodule(rel_path)
+            else:
+                file_path = base / rel_path
+                mod_name  = "_selftest_" + rel_path.replace("/", "_").replace(
+                    "-", "_").replace(".py", "")
+                spec = importlib.util.spec_from_file_location(mod_name, file_path)
+                if spec is None or spec.loader is None:
+                    raise ImportError(f"no loader for {file_path}")
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+        except Exception as e:
+            tb = traceback.format_exc()
+            failures.append(f"{rel_path}: {type(e).__name__}: {e}\n{tb}")
+
+    if failures:
+        _out(f"✗ Self-test: {len(failures)}/{len(_manifest.SHARED_SCRIPTS)} "
+             f"module(s) failed to load:")
+        for f in failures:
+            _out(f"    {f}")
+        return 1
+
+    _out(f"✓ Self-test: all {len(_manifest.SHARED_SCRIPTS)} modules loaded successfully.")
+    return 0
+
+
 # ── Main application ───────────────────────────────────────────────────────────
 
 class GarminApp(_GarminAppBase):
@@ -286,6 +401,10 @@ class GarminApp(_GarminAppBase):
 
 
 if __name__ == "__main__":
+    # ── Netz 1 — Ladbarkeit: Selbsttest vor jeder GUI-Initialisierung ────────
+    if "--self-test" in sys.argv:
+        sys.exit(_run_self_test())
+
     import crash_handler
     from version import APP_VERSION
     crash_handler.install(app_version=APP_VERSION, exit_on_main=True)

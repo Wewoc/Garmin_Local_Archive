@@ -63,13 +63,14 @@ SHARED_SCRIPTS = [
     "garmin/garmin_merge.py",
     "garmin/garmin_backup_source.py",
     "garmin/garmin_silo_check.py",
+    "garmin/garmin_silo_repair.py",
     "garmin/garmin_live_fetch.py",
     "garmin/garmin_extended_anaysis.py",
-    # export / repair tooling (P1-07, v1.6.5.5 — called via subprocess from
-    # panel_archive.py::_on_silo_repair(), was missing from this manifest;
-    # the underlying sys.executable/no-subprocess-in-T3 execution bug this
-    # call also has is tracked separately in the T3.1 silent-failure
-    # investigation, not fixed here)
+    # export / repair tooling — regenerate_raw.py remains a standalone CLI
+    # tool ("Source Replay", referenced by garmin_backup_source.py) but is
+    # no longer called from panel_archive.py::_on_silo_repair(); that path
+    # was moved in-process in v1.6.5.7 and the repair logic itself was
+    # extracted to garmin_silo_repair.py above in the same session arc.
     "export/regenerate_raw.py",
     # maps (routing only)
     "maps/__init__.py",
@@ -172,6 +173,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_source_writer.py": ["def write_source", "def update_log"],
     "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
     "garmin/garmin_silo_check.py":    ["def check_silos"],
+    "garmin/garmin_silo_repair.py":   ["def repair_silos"],
     "garmin/garmin_live_fetch.py":    ["def fetch_live"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
     "layouts/render/recovery_context.py": ["def render", "def _render_recovery_context"],

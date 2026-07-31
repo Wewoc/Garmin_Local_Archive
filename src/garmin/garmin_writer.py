@@ -144,6 +144,7 @@ def read_summary(date_str: str) -> dict:
     summary_path = cfg.SUMMARY_DIR / f"garmin_{date_str}.json"
 
     if not summary_path.exists():
+        log.debug(f"  Writer.read_summary: file not found for {date_str}")
         return {}
 
     try:

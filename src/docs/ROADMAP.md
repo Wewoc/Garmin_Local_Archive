@@ -6,94 +6,61 @@
 
 ---
 
-**Currently stable — v1.6.5.6**
+**Currently stable — v1.6.5.7**
 
 ---
 
-## v1.6.5.7 — T3.1 Silent-Failure Investigation
+## v1.6.5.8 — Netz 2 — Fixtures + Tests
 
-Two-session arc — Session 1 Analyse, Session 2 Bauauftrag. Not a
-single-session fix: the underlying architecture question (can T3.1 run
-any pipeline action headless at all, and does `silo_repair` get a
-headless-callable core) has to be answered before any implementation —
-reversing that order was exactly the mistake v1.6.5.5 deliberately avoided
-when P1-07 surfaced this finding.
+Split off from `v1.6.5.7` once that arc's Netz 0/1/3/4 work and the
+Silo-Repair-Kern-Extraktion closed as a clean unit — Netz 2 (fixture-based
+headless functional tests) is its own standalone sub-project per
+`KONZEPT_fehlersichtbarkeit_v2.md`'s ordering, not a single-session task.
+Two-step arc — fixtures first, tests second.
 
-**Trigger:** concrete, confirmed instance found during v1.6.5.5 (while
-tracing P1-07) — `_on_silo_repair()`'s repair path #3 (source without raw)
-calls `subprocess.run([sys.executable, str(regen_script), ...])` directly.
-In any frozen build, `sys.executable` is the EXE itself, not a Python
-interpreter — the call cannot work as written, in T2 or T3.
-`garmin_app.py` has `_find_python()` for exactly this reason;
-`panel_archive.py` (shared code) doesn't use it. Worse for T3:
-`garmin_app_standalone.py` has no subprocess execution model at all —
-`_run_module()` uses `importlib` in-process. This is the concrete
-mechanism behind the already-noted "`silo_repair` has no headless-callable
-core" finding.
+**Step 7 — Fixtures:** a mini-archive covering several error states —
+wrong password, corrupt `.gla` container header, missing file, version
+mismatch, an archive with silo inconsistencies, corrupted JSON. Storage
+location and versioning still open — its own Analyse phase at session
+start, before any fixture is built.
 
-**Session 1 — Analyse:**
-- Confirm whether T3.1 (`--onedir` GUI) can run any pipeline action
-  headless at all — currently open, blocking.
-- Three-net test concept: Netz 1 (module loadability), Netz 2
-  (fixture-based headless functional tests), Netz 3 (error audibility for
-  high-risk write paths — `silo_repair` is the concrete case).
-- Review `test_build_output.py` before designing Netz 1 — avoid duplicate
-  maintenance with existing build-output checks.
-- Netz 2 overlaps v1.8 (Integration Test Suite) by design — decide the cut
-  here, before either is built: Netz 2 covers the Health path only and v1.8
-  extends it to FIT/Context/Output, or Netz 2 stays diagnostic and v1.8
-  owns the fixtures. Deciding this after the fact is the hidden-import
-  duplicate-maintenance problem again, with test suites.
-- `os.environ` mutation in worker threads (finding F5, v1.5.6.3 — an
-  analysis session was required and never happened). 13 mutation sites,
-  several inside `worker()` functions (`panel_outputs.py`) and the timer
-  thread (`panel_timer.py`). In T1/T2 each script runs as a subprocess with
-  its own environment snapshot, so a race stays harmless; T3's
-  `_run_module()` loads via `importlib` **in-process**, where every thread
-  shares one `os.environ` — and `garmin_config` reads it at import time.
-  Same silent-in-T3-only family as the `sys.executable` finding, which is
-  why it belongs in this session rather than its own.
-- P3-03 verification (standalone-parity audit, still the only open finding):
-  open the Dashboard tab and the XLSX preview in the T3.1 build that this
-  session produces anyway. `NOTES_v1653.md` records that QtWebEngine showed
-  no empty view during the v1.6.5.3 T3 run, but that was an observation in
-  passing, not a targeted test of both views. If both render, close the
-  finding; if not, `--collect-all PyQt6` or a targeted collect is the next
-  step.
-- Output of Session 1 is an architecture decision (real headless-callable
-  core for `silo_repair`, vs. GUI-T2-only with an explicit, visible T3
-  limitation) — not code.
+**Step 8 — Tests:** headless-runnable functional tests against these
+fixtures. Also closes the test gaps left open by the Silo-Repair-Kern-
+Extraktion in `garmin_silo_repair.py`: #1's remaining edge case
+(`_backfill_quality_log()`'s internal contract was never read), #3/#7
+(both need a `normalize()`-capable raw-data fixture — a direct dependency
+on Step 7).
 
-**Session 2 — Bauauftrag:**
-- Implements whatever Session 1 decided, plus the three-net tests
-  themselves.
-- No fix without the Session 1 decision in hand.
+**Overlap decision with v1.8 (Integration Test Suite) still open:** either
+Netz 2 covers the Health path only and v1.8 extends it to
+FIT/Context/Output, or Netz 2 stays diagnostic and v1.8 owns the fixtures.
+Decide before the first fixture Bauauftrag, not after.
 
-**Explicitly not assumed:** that the fix is "swap `sys.executable` for
-`_find_python()`". That only helps T2. Session 1 decides the real scope.
+**Carried forward from v1.6.5.7** — per NOTES, not done, still without a
+home:
 
-**Carried along in Session 2** — small items in files this session opens
-anyway. None of them justifies opening a file on its own; all three have been
-sitting in NOTES without a home:
-
-- `app/panel_archive.py` — remove `_clean_archive()` (line 303). Dead code,
-  no caller project-wide, noted as removable since v1.5.6. Same class as
-  P1-03 (`_find_script()`), removed in v1.6.5.3 for the same reason: a set
-  trap for whoever wires it up later. `_on_silo_repair()` is in this file.
-- `compiler/build_manifest.py` — add the missing `layouts/render/heatmap.py`
-  entry to `SCRIPT_SIGNATURES_BASE`. The other four render modules
-  (`recovery_context`, `sleep`, `explorer`, `live`) have one; `heatmap` does
-  not, and unlike `garmin_extended_anaysis.py` there is no explicit
-  exclusion comment. Found in the v1.6.5 sibling sweep, never pulled through.
-- `scheduler/daily_update.py` — adopt `crash_handler.install()`.
-  `MAINTENANCE_GLOBAL.md` records this as deliberately deferred ("can be
-  adopted there in a future step; separate scope") and it has had no home
-  since. `install()` is entry-point-agnostic; headless is exactly the target
-  where an uncaught crash is least visible.
+- P3-03 verification (standalone-parity audit) — open the Dashboard tab
+  and the XLSX preview in the T3.1 build. `NOTES_v1653.md` records only a
+  passing observation from the v1.6.5.3 session, not a targeted test. If
+  both render, close the finding; if not, `--collect-all PyQt6` or a
+  targeted collect is the next step.
+- `os.environ` mutation in worker threads (finding F5, v1.5.6.3) — 13
+  sites, several inside `worker()` (`panel_outputs.py`) and the timer
+  thread (`panel_timer.py`). T3's `_run_module()` shares one `os.environ`
+  across all threads — `garmin_config` reads it at import time. Same
+  silent-in-T3-only family as the `sys.executable` finding that triggered
+  this whole investigation.
+- `app/panel_archive.py` — remove `_clean_archive()` (dead code, no caller
+  project-wide, removable since v1.5.6).
+- `compiler/build_manifest.py` — missing `layouts/render/heatmap.py` entry
+  in `SCRIPT_SIGNATURES_BASE` (the other four render modules have one).
+- `scheduler/daily_update.py` — adopt `crash_handler.install()`
+  (`MAINTENANCE_GLOBAL.md` records this as deliberately deferred since
+  v1.6.5.5, still without a home).
 
 ---
 
-## v1.6.5.8 — Headless Login Hardening
+## v1.6.5.9 — Headless Login Hardening
 
 `skip_strategies` / retry-lock on the login cascade. Considered during the
 v1.6.5.2 token-lifecycle analysis and deliberately deferred there (see
@@ -111,7 +78,7 @@ something that happens in passing.
 
 ---
 
-## v1.6.5.9 — Auto-size Rollout
+## v1.6.5.10 — Auto-size Rollout
 
 Auto-size is implemented for the Health specialist only (v1.4.6). The other
 specialists were deferred to "a separate session" because the implementation
@@ -405,6 +372,24 @@ No adapter is a commitment. Each is evaluated independently when development beg
 - Dashboard Layer — unaffected
 - Pipeline — no access below the Broker Layer
 - Sole owner principle — adapters read via brokers only
+
+---
+
+### v1.9.2 — Docker / Linux Accessibility (Idea)
+
+> **Status: Idea, unverified — no build order, no architecture decision.**
+> Details in `KONZEPT_linux_zugang.md`.
+
+Headless sync (`daily_update.py`, already GUI-free) as a Docker image for
+Linux systems (NAS, server, homelab) — complements the Windows EXE, does not
+replace it. Write access goes through the existing Mirror feature: `.gla` as
+a Docker-owned, protected intermediate container; import into the main
+archive stays a manual GUI step with existing downgrade protection. Mirror
+password and token encryption key via Docker Secrets instead of Windows
+Credential Manager.
+
+Open: whether `garmin_mirror.py` is GUI-free, `.gla` merge behaviour,
+behaviour under parallel token access (Windows GUI + container).
 
 ---
  
