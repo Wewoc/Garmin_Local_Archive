@@ -22,10 +22,13 @@ Callback contract (v1.5.3-ready):
 """
 
 import json
+import logging
 import os
 import threading
 from datetime import date, timedelta
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 # ── ENV construction ───────────────────────────────────────────────────────────
@@ -229,13 +232,17 @@ def check_connection(s: dict, callbacks: dict) -> None:
             return
 
         token_file_exists = cfg.GARMIN_TOKEN_FILE.exists()
-        enc_key_present   = garmin_security.get_enc_key() is not None
+        enc_key_value, enc_key_error = garmin_security.get_enc_key_status()
+        enc_key_present   = enc_key_value is not None
 
         if not token_file_exists:
             _cb("on_token", "reset")
         elif token_file_exists and not enc_key_present:
             _cb("on_token", "fail")
-            _cb("on_log", "  ⚠ Encryption key missing — re-entry required")
+            if enc_key_error:
+                _cb("on_log", f"  ⚠ Encryption key could not be read from WCM: {enc_key_error}")
+            else:
+                _cb("on_log", "  ⚠ Encryption key missing — re-entry required")
         else:
             _cb("on_token", "pending")
 
@@ -533,8 +540,9 @@ def timer_run_fill(s: dict) -> list | None:
 def check_integrity(s: dict) -> dict:
     """
     Runs garmin_backup.check_raw_integrity().
-    Returns result dict with 'missing_days' and 'no_backup' keys.
-    Returns empty lists on any failure.
+    Returns result dict with 'missing_days', 'no_backup', 'total_checked',
+    and 'error' keys. Returns empty lists and an 'error' reason on failure
+    (either from this wrapper or passed through from check_raw_integrity()).
 
     Sets GARMIN_OUTPUT_DIR from s["base_dir"] and reloads garmin_config
     before the check — garmin_backup uses cfg.RAW_DIR / cfg.RAW_BACKUP_DIR
@@ -550,8 +558,10 @@ def check_integrity(s: dict) -> dict:
         importlib.reload(cfg)
         import garmin_backup as _backup
         return _backup.check_raw_integrity()
-    except Exception:
-        return {"missing_days": [], "no_backup": []}
+    except Exception as e:
+        reason = f"check_integrity: setup or check failed: {e}"
+        log.warning(f"  {reason}")
+        return {"missing_days": [], "no_backup": [], "total_checked": 0, "error": reason}
 
 
 def check_mirror(s: dict) -> bool:

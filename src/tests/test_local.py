@@ -462,6 +462,9 @@ check("write_day: raw date correct",       json.loads(raw_p.read_text())["date"]
 check("write_day: generated_by normalizer",
       json.loads(sum_p.read_text()).get("generated_by") == "garmin_normalizer.py")
 
+# read_summary — missing file → {}
+check("read_summary: missing file → {}",   writer.read_summary("1900-01-01") == {})
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  6. garmin_collector internals
 # ══════════════════════════════════════════════════════════════════════════════
@@ -518,6 +521,18 @@ with patch("garmin_collector.api.fetch_raw", return_value=({"date": 99999}, []))
     check("_fetch_and_assess failed: fields is dict",       isinstance(fields2, dict))
     check("_fetch_and_assess failed: val_result is dict",   isinstance(val_result2, dict))
 
+# _run_schema_migration — missing summary file → skipped without crash
+qd_migrate = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        {"date": "1900-02-02", "quality": "high"},
+    ]
+}
+try:
+    collector._run_schema_migration(qd_migrate)
+    check("_run_schema_migration: missing summary → no crash", True)
+except Exception:
+    check("_run_schema_migration: missing summary → no crash", False)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. garmin_security (crypto layer only)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -532,6 +547,23 @@ k3 = security._derive_aes_key("other_key",  _test_salt)
 check("_derive_aes_key: 32 bytes",       len(k1) == 32)
 check("_derive_aes_key: deterministic",  k1 == k2)
 check("_derive_aes_key: unique per key", k1 != k3)
+
+# get_enc_key_status — WCM success and failure, get_enc_key() wrapper unaffected
+mock_kr_ok = MagicMock()
+mock_kr_ok.get_password.return_value = "some_enc_key"
+with patch.dict("sys.modules", {"keyring": mock_kr_ok}):
+    status_val, status_err = security.get_enc_key_status()
+    check("get_enc_key_status: success value",     status_val == "some_enc_key")
+    check("get_enc_key_status: success no error",  status_err is None)
+    check("get_enc_key: wrapper returns value",     security.get_enc_key() == "some_enc_key")
+
+mock_kr_fail = MagicMock()
+mock_kr_fail.get_password.side_effect = Exception("WCM read error")
+with patch.dict("sys.modules", {"keyring": mock_kr_fail}):
+    status_val, status_err = security.get_enc_key_status()
+    check("get_enc_key_status: WCM failure → None",       status_val is None)
+    check("get_enc_key_status: WCM failure → error text", status_err == "WCM read error")
+    check("get_enc_key: wrapper still None on failure",   security.get_enc_key() is None)
 
 # save_token + load_token round-trip
 cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -564,9 +596,16 @@ with patch("garmin_security.get_enc_key", return_value=None):
 # clear_token
 mock_kr = MagicMock()
 with patch.dict("sys.modules", {"keyring": mock_kr}):
-    security.clear_token()
+    ok_clear = security.clear_token()
+check("clear_token: returns True",          ok_clear == True)
 check("clear_token: enc file removed",      not cfg.GARMIN_TOKEN_FILE.exists())
 check("clear_token: token dir removed",     not cfg.GARMIN_TOKEN_DIR.exists())
+
+# clear_token — WCM delete fails → False (file/dir already clean from above)
+mock_kr_clear_fail = MagicMock()
+mock_kr_clear_fail.delete_password.side_effect = Exception("WCM delete error")
+with patch.dict("sys.modules", {"keyring": mock_kr_clear_fail}):
+    check("clear_token: WCM failure → False", security.clear_token() == False)
 
 with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
     check("load_token: no file → False",     security.load_token() == False)
@@ -1449,11 +1488,25 @@ check("check_raw_integrity: missing day detected",
       _missing_date in _integrity2["missing_days"])
 check("check_raw_integrity: no backup for missing day",
       _missing_date in _integrity2["no_backup"])
+check("check_raw_integrity: error is None on success",
+      _integrity2.get("error") is None)
+
+# check_raw_integrity — kaputtes quality_log.json → error gesetzt (Kandidat 2, Fehlersichtbarkeit)
+_corrupt_qlog_backup = cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8")
+cfg.QUALITY_LOG_FILE.write_text("{not valid json", encoding="utf-8")
+_integrity_corrupt = backup.check_raw_integrity()
+check("check_raw_integrity: error set on corrupt quality_log",
+      _integrity_corrupt.get("error") is not None)
+check("check_raw_integrity: empty missing_days on corrupt quality_log",
+      _integrity_corrupt["missing_days"] == [])
+cfg.QUALITY_LOG_FILE.write_text(_corrupt_qlog_backup, encoding="utf-8")
 
 # restore_raw_days — kein Backup → landed in failed
 _restore_result = backup.restore_raw_days([_missing_date])
 check("restore_raw_days: no backup → failed",
       _missing_date in _restore_result.get("failed", []))
+check("restore_raw_days: errors has reason for no-backup case",
+      _restore_result.get("errors", {}).get(_missing_date) == "no backup found")
 
 # restore_raw_days — Backup vorhanden → restored
 _restore_month_dir = cfg.RAW_BACKUP_DIR / "2024-06"
@@ -1821,6 +1874,9 @@ _bad_src = _TMPDIR / "nonexistent_source"
 _result_bad = mirror.run_mirror(_bad_src, _mir_gla, "test-pw")
 check("run_mirror: missing source → ok=False",  _result_bad["ok"] == False)
 check("run_mirror: missing source → errors=1",  _result_bad["errors"] == 1)
+# v1.6.5.7 — Netz 3: Ursache muss im Rückgabewert stehen, nicht nur im Log
+check("run_mirror: missing source → error field present",
+      bool(_result_bad.get("error")))
 
 # run_mirror — echte Quelle → Container entsteht
 # sys.modules stubs: version + garmin_normalizer liegen nicht im garmin/-Path
@@ -1978,6 +2034,33 @@ check("detect_source: nonexistent path → 'unknown'",
 _c4_plain_dir = Path(tempfile.mkdtemp(prefix="garmin_c4_plain_"))
 check("detect_source: plain dir without mirror_meta → 'unknown'",
       _import_mirror.detect_source(_c4_plain_dir) == "unknown")
+
+# C4d — run_import_mirror: falsches Passwort → "error"-Feld (v1.6.5.7,
+# Netz 3 Kandidat 1 — der belegte Fall, der die Untersuchung ausgelöst hat)
+_c4_base = Path(tempfile.mkdtemp(prefix="garmin_c4_base_"))
+_c4_wrongpw = _import_mirror.run_import_mirror(
+    mirror_path=_c4_gla, base_dir=_c4_base, password="wrong-pw", dry_run=True,
+)
+check("run_import_mirror: wrong password → ok=False",
+      _c4_wrongpw["ok"] == False)
+check("run_import_mirror: wrong password → error field present",
+      bool(_c4_wrongpw.get("error")))
+check("run_import_mirror: wrong password → error is not the old generic text",
+      _c4_wrongpw.get("error") != "Could not read mirror data.")
+
+# C4e — run_import_mirror: unbekannte Quelle → "error"-Feld
+_c4_unknown = _import_mirror.run_import_mirror(
+    mirror_path=_c4_parent / "ghost.gla", base_dir=_c4_base,
+    password="pw", dry_run=True,
+)
+check("run_import_mirror: unknown source → ok=False",
+      _c4_unknown["ok"] == False)
+check("run_import_mirror: unknown source → error field present",
+      bool(_c4_unknown.get("error")))
+check("run_import_mirror: unknown source → error mentions path",
+      str(_c4_parent / "ghost.gla") in _c4_unknown.get("error", ""))
+
+shutil.rmtree(_c4_base, ignore_errors=True)
 
 # Aufräumen C4
 shutil.rmtree(_c4_src,       ignore_errors=True)
@@ -2389,6 +2472,75 @@ check("live_fetch: LIVE_DIR removed for test", not cfg.LIVE_DIR.exists())
 live_fetch._write_live({"date": "2026-07-07", "synced_at": "2026-07-07T12:00:00Z"})
 check("_write_live: creates LIVE_DIR",  cfg.LIVE_DIR.exists())
 check("_write_live: creates LIVE_FILE", cfg.LIVE_FILE.exists())
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  I. garmin_silo_repair (v1.6.5.7)
+# ══════════════════════════════════════════════════════════════════════════════
+section("I. garmin_silo_repair (v1.6.5.7)")
+import garmin_silo_repair as silo_repair
+importlib.reload(silo_repair)
+
+# First delivery, deliberately scoped to what's safely testable without
+# reading further internals: return structure, and the #5 (orphan-unlink)
+# round trip. #1 depends on _backfill_quality_log()'s internal contract
+# (not read this session) and #3/#7 need a normalize()-safe raw fixture
+# (not built this session) — both deferred, not silently skipped.
+
+_sr_empty_fresh = {
+    "raw_without_quality": [], "source_without_raw": [],
+    "summary_without_raw": [], "raw_without_summary": [],
+}
+
+# ── empty fresh dict → no-op, structured return present ──────────────────────
+_sr_empty_result = silo_repair.repair_silos(_sr_empty_fresh)
+check("silo_repair: returns dict",
+      isinstance(_sr_empty_result, dict))
+check("silo_repair: key ok present",
+      "ok" in _sr_empty_result)
+check("silo_repair: key failed present",
+      "failed" in _sr_empty_result)
+check("silo_repair: key items present",
+      "items" in _sr_empty_result)
+check("silo_repair: empty fresh → ok=0",
+      _sr_empty_result["ok"] == 0)
+check("silo_repair: empty fresh → failed=0",
+      _sr_empty_result["failed"] == 0)
+check("silo_repair: empty fresh → items=[]",
+      _sr_empty_result["items"] == [])
+
+# ── #5: orphan summary → unlink round trip ────────────────────────────────────
+_sr5_sum_dir = _TMPDIR / "garmin_data" / "summary"
+_sr5_sum_dir.mkdir(parents=True, exist_ok=True)
+_sr5_date = "2024-11-10"
+_sr5_file = _sr5_sum_dir / f"garmin_{_sr5_date}.json"
+_sr5_file.write_text('{"date": "2024-11-10"}', encoding="utf-8")
+check("silo_repair: #5 fixture — orphan file exists before repair",
+      _sr5_file.exists())
+
+_sr5_fresh = {**_sr_empty_fresh, "summary_without_raw": [date.fromisoformat(_sr5_date)]}
+_sr5_result = silo_repair.repair_silos(_sr5_fresh)
+
+check("silo_repair: #5 orphan removed from disk",
+      not _sr5_file.exists())
+check("silo_repair: #5 result ok=1",
+      _sr5_result["ok"] == 1)
+check("silo_repair: #5 result failed=0",
+      _sr5_result["failed"] == 0)
+check("silo_repair: #5 item category=5",
+      _sr5_result["items"][0]["category"] == "5")
+check("silo_repair: #5 item status=repaired",
+      _sr5_result["items"][0]["status"] == "repaired")
+check("silo_repair: #5 item date matches",
+      _sr5_result["items"][0]["date"] == _sr5_date)
+
+# ── #5: already gone → status=gone, not counted as ok or failed ──────────────
+_sr5b_result = silo_repair.repair_silos(_sr5_fresh)  # same date, file now gone
+check("silo_repair: #5 already-gone → status=gone",
+      _sr5b_result["items"][0]["status"] == "gone")
+check("silo_repair: #5 already-gone → ok=0",
+      _sr5b_result["ok"] == 0)
+check("silo_repair: #5 already-gone → failed=0",
+      _sr5b_result["failed"] == 0)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results

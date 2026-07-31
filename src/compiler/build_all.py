@@ -143,6 +143,31 @@ if __name__ == "__main__":
     print("\n  ✓ Build output validated successfully.")
 
     print("\n" + "=" * 55)
+    print("  Post-build: Netz 1 — T3.1 self-test (module loadability) ...")
+    print("=" * 55)
+
+    # Runs the built T3.1 EXE with --self-test, which imports every module
+    # listed in build_manifest.SHARED_SCRIPTS inside the frozen process
+    # itself (garmin_app_standalone.py::_run_self_test()), before any GUI
+    # initialization. Catches modules that are present on disk (verified
+    # above by test_build_output) but fail to actually import in the
+    # frozen environment — a class of failure static validation cannot see.
+    # Real gate, unlike check_cve_whitelist below: returncode aborts the
+    # build, T3.1 is not shipped with an artifact that fails its own
+    # loadability check.
+    t31_exe = _root / "Garmin_Local_Archive_Standalone" / "Garmin_Local_Archive_Standalone.exe"
+    if t31_exe.exists():
+        result_selftest = subprocess.run([str(t31_exe), "--self-test"])
+        if result_selftest.returncode != 0:
+            print("\n  ✗ T3.1 self-test failed — a module in SHARED_SCRIPTS "
+                  "could not be loaded in the frozen process.")
+            sys.exit(1)
+        print("\n  ✓ T3.1 self-test passed — all SHARED_SCRIPTS modules load.")
+    else:
+        print(f"\n  ✗ T3.1 self-test skipped — EXE not found: {t31_exe}")
+        sys.exit(1)
+
+    print("\n" + "=" * 55)
     print("  Post-build: running app logic tests ...")
     print("=" * 55)
 

@@ -647,8 +647,12 @@ class PanelConnection(QWidget):
 
     def _reset_token(self):
         import garmin_security
-        garmin_security.clear_token()
+        ok = garmin_security.clear_token()
         garmin_security.log_token_event("invalidated", "manual_reset")
         self._app._panel_home._set_indicator("token", "reset")
         self._app._connection_verified = False
-        self._app._log("🔑  Token reset — next sync will require a new login.")
+        if ok:
+            self._app._log("🔑  Token reset — next sync will require a new login.")
+        else:
+            self._app._log("⚠️  Token reset incomplete — check log for details. "
+                            "Next sync may prompt unexpectedly.")

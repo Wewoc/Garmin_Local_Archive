@@ -184,7 +184,8 @@ def _consolidate_log_years(current_year: int) -> None:
     for p in cfg.LOG_BACKUP_DIR.glob("quality_log_????-??.zip"):
         try:
             yr = int(p.stem.split("_")[-1][:4])
-        except (ValueError, IndexError):
+        except (ValueError, IndexError) as e:
+            log.warning(f"  _consolidate_log_years: could not parse year from {p.name}: {e}")
             continue
         if yr >= current_year:
             continue
@@ -255,22 +256,24 @@ def check_raw_integrity() -> dict:
     and readable raw files. Run at app startup in a background thread.
 
     Returns dict:
-      missing_days   list[str]  — dates in quality_log write=True but no raw file
-      no_backup      list[str]  — missing days that also have no backup copy
-      total_checked  int        — number of write=True entries examined
+      missing_days   list[str]     — dates in quality_log write=True but no raw file
+      no_backup      list[str]     — missing days that also have no backup copy
+      total_checked  int           — number of write=True entries examined
+      error          str | None    — reason the check could not complete, if any
     """
     missing_days = []
     no_backup    = []
 
     if not cfg.QUALITY_LOG_FILE.exists():
-        return {"missing_days": [], "no_backup": [], "total_checked": 0}
+        return {"missing_days": [], "no_backup": [], "total_checked": 0, "error": None}
 
     try:
         data    = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
         entries = [e for e in data.get("days", []) if e.get("write") is True]
     except Exception as e:
-        log.warning(f"  check_raw_integrity: could not read quality_log: {e}")
-        return {"missing_days": [], "no_backup": [], "total_checked": 0}
+        reason = f"could not read quality_log: {e}"
+        log.warning(f"  check_raw_integrity: {reason}")
+        return {"missing_days": [], "no_backup": [], "total_checked": 0, "error": reason}
 
     for entry in entries:
         date_str = entry.get("date", "")
@@ -282,8 +285,9 @@ def check_raw_integrity() -> dict:
                 with open(raw_file, encoding="utf-8") as f:
                     json.load(f)
                 continue          # file present and readable — OK
-            except Exception:
-                pass              # unreadable — treat as missing
+            except Exception as e:
+                log.warning(f"  check_raw_integrity: {date_str} raw file present but unreadable: {e}")
+                # unreadable — treat as missing
 
         missing_days.append(date_str)
 
@@ -307,6 +311,7 @@ def check_raw_integrity() -> dict:
         "missing_days":  missing_days,
         "no_backup":     no_backup,
         "total_checked": len(entries),
+        "error":         None,
     }
 
 
@@ -316,18 +321,21 @@ def restore_raw_days(date_strs: list[str]) -> dict:
     Tries open month directory first, then monthly ZIP.
 
     Returns dict:
-      restored  list[str] — dates successfully restored
-      failed    list[str] — dates where restore failed (no backup or error)
+      restored  list[str]      — dates successfully restored
+      failed    list[str]      — dates where restore failed (no backup or error)
+      errors    dict[str, str] — date → reason, one entry per date in 'failed'
     """
     restored = []
     failed   = []
+    errors   = {}
 
     cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     for date_str in date_strs:
-        month    = date_str[:7]
-        filename = f"garmin_raw_{date_str}.json"
-        dst      = cfg.RAW_DIR / filename
+        month      = date_str[:7]
+        filename   = f"garmin_raw_{date_str}.json"
+        dst        = cfg.RAW_DIR / filename
+        last_error = None
 
         # 1. Try open month directory
         dir_src = cfg.RAW_BACKUP_DIR / month / filename
@@ -339,6 +347,7 @@ def restore_raw_days(date_strs: list[str]) -> dict:
                 continue
             except Exception as e:
                 log.error(f"  restore_raw: dir copy failed for {date_str}: {e}")
+                last_error = f"dir copy failed: {e}"
 
         # 2. Try monthly ZIP
         zip_path = cfg.RAW_BACKUP_DIR / f"raw_backup_{month}.zip"
@@ -352,11 +361,13 @@ def restore_raw_days(date_strs: list[str]) -> dict:
                 continue
             except Exception as e:
                 log.error(f"  restore_raw: zip restore failed for {date_str}: {e}")
+                last_error = f"zip restore failed: {e}"
 
         failed.append(date_str)
+        errors[date_str] = last_error or "no backup found"
         log.warning(f"  restore_raw: no backup found for {date_str}")
 
-    return {"restored": restored, "failed": failed}
+    return {"restored": restored, "failed": failed, "errors": errors}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -387,8 +398,8 @@ def check_raw_backfill_needed() -> int:
             in_zip = zip_path.exists() and _zip_contains(zip_path, raw_file.name)
             if not dir_path.exists() and not in_zip:
                 count += 1
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"  check_raw_backfill_needed: failed for {raw_file.name}: {e}")
     return count
 
 

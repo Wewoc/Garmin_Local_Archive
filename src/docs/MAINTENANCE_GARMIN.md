@@ -165,6 +165,27 @@ cancelled, own-login reusing an existing client), `progress` callback (messages 
 per endpoint + completion, default no-op backward compatible), `_write_live()` directory
 creation. 29 checks total.
 
+I. `garmin_silo_repair` (v1.6.5.7) — return structure (`ok`/`failed`/`items`),
+empty-`fresh`-dict no-op, category #5 (orphan summary) full round-trip:
+file present → unlinked + `status: "repaired"`, file already gone →
+`status: "gone"`. Deliberately scoped to what's safely testable without
+reading further internals — category #1's remaining edge case and #3/#7
+need a `normalize()`-capable raw-data fixture, both deferred to `v1.6.5.8`
+(Netz 2).
+
+**Netz 3 (v1.6.5.7) — error-visibility regression tests, folded into
+existing sections rather than new ones** (see `CHANGELOG.md` v1.6.5.7 for
+the full module-by-module list): Section C — `run_import_mirror()`
+wrong-password and unknown-source cases now assert an `error` field is
+present, not just `ok=False`. Section B — `check_raw_integrity()` asserts
+`error is None` on success and set on a corrupt `quality_log.json`;
+`restore_raw_days()` asserts the new `errors` dict carries a reason.
+Section 10 — `get_enc_key_status()` mocked WCM success/failure, `get_enc_key()`
+wrapper behaviour unaffected; `clear_token()` mocked WCM failure asserts
+`False` instead of the previous unconditional success. Section 6 —
+`read_summary()` missing-file case; `_run_schema_migration()` missing-summary
+case asserts no crash.
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release

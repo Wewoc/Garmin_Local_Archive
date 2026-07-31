@@ -77,11 +77,6 @@ def _existing_label(quality_data: dict, date_str: str) -> str | None:
     return None
 
 
-def _rank(label: str | None) -> int:
-    """Returns numeric rank for downgrade comparison."""
-    return quality.QUALITY_RANK.get(label or "failed", 0)
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  Main
 # ══════════════════════════════════════════════════════════════════════════════
@@ -185,7 +180,7 @@ def main() -> None:
         # source/ for days >180 days old may be degraded. The original high-
         # quality raw is the ground truth — replay cannot improve on it.
         existing = _existing_label(quality_data, date_str)
-        if _rank(existing) > _rank(new_label):
+        if quality.is_downgrade(new_label, existing):
             print(f"  ~ {date_str}: skipped (existing {existing} > replay {new_label})")
             skipped += 1
             continue

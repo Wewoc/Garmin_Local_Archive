@@ -25,6 +25,20 @@ log = logging.getLogger(__name__)
 QUALITY_RANK = {"high": 2, "standard": 1, "failed": 0}
 
 
+def is_downgrade(new_label: str | None, existing_label: str | None) -> bool:
+    """
+    Returns True if new_label ranks lower than existing_label — writing
+    new_label would downgrade already-stored data. Missing/unknown labels
+    rank as lowest (matches the QUALITY_RANK.get(..., 0) fallback used
+    throughout this module).
+
+    Canonical downgrade-rank comparison — v1.6.5.7 sibling-sweep finding.
+    Previously duplicated in garmin_collector.py::_check_downgrade() and
+    export/regenerate_raw.py::_rank()/_existing_label(); both now call this.
+    """
+    return QUALITY_RANK.get(new_label, 0) < QUALITY_RANK.get(existing_label, 0)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Upsert
 # ══════════════════════════════════════════════════════════════════════════════

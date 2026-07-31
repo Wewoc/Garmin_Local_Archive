@@ -77,7 +77,7 @@ its own — reads and decides, never writes. See also `GLA_HANDBUCH.md` §14.
 |---|---|
 | `build_env_dict(s, refresh_failed=False)` | Pure ENV dict builder — no side effects, no `os.environ` write. Caller decides how to apply (`Popen env=` or `os.environ`) |
 | `check_connection(s, callbacks)` | Tests Garmin Connect connectivity in a background thread. Communicates exclusively via callbacks — no GUI access, no `self.after()` |
-| `check_integrity(s)` | Runs `garmin_backup.check_raw_integrity()`. Returns `{"missing_days", "no_backup"}`. Empty lists on any failure |
+| `check_integrity(s)` | Runs `garmin_backup.check_raw_integrity()`. Returns `{"missing_days", "no_backup", "total_checked", "error"}` — `error` passed through verbatim from `check_raw_integrity()` or set locally if the ENV/config setup itself fails (v1.6.5.7, Netz 3 Kandidat 2) |
 | `check_mirror(s)` | Returns `True` if the configured `mirror_dir` is reachable |
 | `get_archive_stats(base_dir)` | Wraps `garmin_quality.get_archive_stats()`. Empty dict on any failure |
 | `get_source_stats(s)` | `{"total", "present"}` — all `source/` files vs. those within the last 180 days. INTENTIONAL DIRECT READ |
@@ -190,6 +190,38 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 
 ---
 
+## `garmin_silo_repair.py`
+
+Headless-callable core for the four repair paths `garmin_silo_check.check_silos()`
+detects. Extracted from `panel_archive.py::_on_silo_repair()` (v1.6.5.7) — the
+repair logic previously lived only as a Qt-bound closure, uncallable without a
+live `PanelArchive`/`QApplication` instance. Not a Leaf-Node — imports the
+sole-write-authority modules it delegates to (`garmin_writer`, `garmin_quality`,
+`garmin_normalizer`). Never writes files directly itself.
+
+| Function | Purpose |
+|---|---|
+| `repair_silos(fresh)` | Repairs all four silo-drift categories from `fresh` (the return value of `check_silos()` — caller must re-scan immediately before calling, never act on stale findings). Returns `{"ok", "failed", "items"}` — `items` is one dict per processed date/action (`category`, `date`, `status`, plus category/status-specific extra keys) |
+
+**Delegation per category:**
+
+| # | Finding | Repair |
+|---|---|---|
+| 1 | `raw_without_quality` | `garmin_quality._backfill_quality_log()` under `QUALITY_LOCK` |
+| 3 | `source_without_raw` | In-process replay: `normalize()` → `summarize()` → `assess_quality()` → `write_day()` → `record_attempt()`, under one continuous `QUALITY_LOCK` hold (v1.6.5.7 precondition fix — previously released the lock between load and per-day save, see `CHANGELOG.md`) |
+| 5 | `summary_without_raw` | `Path.unlink()` — removes the orphan summary |
+| 7 | `raw_without_summary` | Inline `summarize()` + `write_day()` |
+
+`panel_archive.py::_do_repair()` only formats this structured result for the
+GUI log — no pipeline logic remains in the panel.
+
+**Known test gaps (v1.6.5.7):** only category #1's structure and the full #5
+round-trip (orphan-summary-unlink) are covered in `test_local.py` Section I.
+#1's remaining edge case and #3/#7 need a `normalize()`-capable raw-data
+fixture — deferred to `v1.6.5.8` (Netz 2).
+
+---
+
 ## `garmin_security.py`
 
 **Design note:** `garmin_config` is imported lazily inside each function (not at module level).
@@ -198,12 +230,13 @@ avoiding stale paths when `GARMIN_OUTPUT_DIR` is set after the module was first 
 
 | Function | Purpose |
 |---|---|
-| `get_enc_key()` | Reads encryption key from Windows Credential Manager. Returns `None` if not found |
+| `get_enc_key_status()` | Sole implementation of the WCM read. Returns `(key, None)` on success or genuine absence, `(None, error_detail)` on a WCM read failure (v1.6.5.7, Netz 3 Kandidat 3) |
+| `get_enc_key()` | Thin wrapper around `get_enc_key_status()`, kept for its five existing presence-only callers. Returns `None` if not found (absence or WCM failure — indistinguishable at this level) |
 | `store_enc_key(enc_key)` | Writes encryption key to WCM. Returns `bool` |
 | `generate_enc_key()` | Generates a random 256-bit key via `os.urandom(32)`, stores as hex string in WCM. Called automatically on first setup (Path 3). Returns `bool` |
 | `save_token()` | Reads `garmin_tokens.json` from `GARMIN_TOKEN_DIR`, encrypts AES-256-GCM, writes `.enc`, removes dir. Returns `bool` |
 | `load_token()` | Decrypts `.enc`, writes `garmin_tokens.json` to `GARMIN_TOKEN_DIR`. Returns `bool` |
-| `clear_token()` | Removes `.enc`, `GARMIN_TOKEN_DIR`, and enc_key from WCM |
+| `clear_token()` | Removes `.enc`, `GARMIN_TOKEN_DIR`, and enc_key from WCM. Returns `bool` — `True` only if both removal steps completed without error (v1.6.5.7, Netz 3 Kandidat 3) |
 | `_clear_token_dir()` | Removes `GARMIN_TOKEN_DIR`. Called after token login and on failure |
 | `_derive_aes_key(enc_key, salt)` | PBKDF2-HMAC-SHA256, 600k iterations, 32-byte key |
 | `log_token_event(event, trigger, **extra)` | Appends one entry to `garmin_token_log.json` (`LOG_DIR`). Best-effort — catches all exceptions internally, never raises. `event`: `created` \| `invalidated` \| `blocked`. `trigger`: `sso_login` \| `rejected_by_garmin` \| `enc_key_missing_wcm` \| `manual_reset` \| `rate_limited`. Records timestamp, `app_version` (read from `version.py`, falls back to `"unknown"`), and optional `exception_type`/`detail` — no credentials, no token content (v1.6.5.2) |
@@ -239,6 +272,34 @@ Shared utilities — leaf node. No project-module imports.
 | `parse_device_date(val)` | Converts device date value to `YYYY-MM-DD`. Handles ISO strings, ms timestamps, s timestamps. Returns `None` on failure. Internally uses `datetime.utcfromtimestamp()`, deprecated since Python 3.12 — found during the v1.6.5.6 sibling-sweep, not fixed there (see `ROADMAP.md`) |
 | `parse_sync_dates(raw)` | Parses comma-separated `YYYY-MM-DD` string. Returns sorted `list[date]` or `None` |
 | `extract_date_from_filename(path, prefix)` | Extracts `date` from filename like `garmin_raw_YYYY-MM-DD.json`. Default prefix `"garmin_raw_"`. Returns `None` on invalid format — no exception propagation |
+
+---
+
+## `garmin_merge.py`
+
+Leaf-Node — additive field merge for backfill operations. Used exclusively
+by backfill paths (Steps Backfill and any future case retrofitting an
+optional field into an already-archived day).
+
+| Function | Purpose |
+|---|---|
+| `merge_field(raw, field, value)` | Additively merges a single field into a raw dict — only sets `raw[field]` if absent or currently empty (`None`/`[]`/`{}`/`""`/`0`/`False`). Never overwrites an existing non-empty value — by construction incapable of downgrading already-archived content. Never mutates the input; returns a new dict. Returns the input unchanged (not a copy) if it is not a dict |
+
+---
+
+## `garmin_redact.py`
+
+Leaf-Node — secret redaction for log output. Replaces the live
+`GARMIN_EMAIL`/`GARMIN_PASSWORD` values with readable placeholders before
+text reaches any log sink (file, GUI widget, clipboard). Reads
+`garmin_config` fresh on every call — no caching, follows
+`importlib.reload(cfg)` automatically. Exact-value match only — no pattern
+matching on unknown text.
+
+| Function / Class | Purpose |
+|---|---|
+| `redact(text)` | Replaces the current `GARMIN_EMAIL`/`GARMIN_PASSWORD` value (if non-empty) with `[GARMIN_EMAIL]`/`[GARMIN_PASSWORD]` |
+| `RedactFilter` | `logging.Filter` — redacts both values from every `LogRecord`'s `msg` and string `args` as they pass through. Always returns `True` — never suppresses a record, only mutates its text |
 
 ---
 
@@ -319,7 +380,8 @@ Each quality log entry stores `device_id` (str) and `device_name` (str) — set 
 |---|---|
 | `main()` | Full sync orchestration: dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → login → devices → device_id backfill → source backfill (5c) → first_day → date resolution → fetch loop → save |
 | `_fetch_and_assess(client, date_str)` | Fetch → validate → normalize → assess. No file writes. Returns `(label, normalized, summary, fields, val_result)` |
-| `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)` |
+| `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)`. Delegates the actual rank comparison to `quality.is_downgrade()` (v1.6.5.7 — canonical location, also used by `export/regenerate_raw.py` and `garmin_silo_repair.py`; previously duplicated in each) |
+| `_run_steps_backfill(client, quality_data)` | Backfills `steps_series` for existing high-quality API days. Per day: `api_call()` → `merge_field()` → `normalize()`/`summarize()` → `write_day()` → `record_attempt()` (with `backfilled_fields`) → `patch_source_field()`. On `patch_source_field()` failure: one automatic retry, then `log.error()` (not `warning`) if it still fails — `source/` will not be auto-retried on a future run, since the candidate filter checks `fields` from `raw/`, already correct at that point (v1.6.5.7) |
 | `_write_assessed(normalized, summary, date_str, label)` | Writes pre-assessed day to disk. Returns `bool` |
 | `run_import(path, progress_callback)` | Bulk import orchestration via `garmin_import.load_bulk()`. Returns `{"ok", "skipped", "failed"}` |
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
@@ -364,7 +426,36 @@ After `_fetch_and_assess()`, `_check_downgrade()` compares the new label against
 
 ---
 
-## `garmin_backup.py`
+## `garmin_import_mirror.py`
+
+Import path for `.gla` mirror containers (encrypted, produced by
+`garmin_mirror.py`) and — deprecated, folder-fallback only — a plain
+mirror folder. Container path is primary; folder fallback is scheduled
+for removal.
+
+| Function | Purpose |
+|---|---|
+| `run_import_mirror(mirror_path, base_dir, password, dry_run)` | Entry point. Detects source type; dry-run previews counts; live-run copies raw + context + source, one `quality_log.json` save per processed day (v1.6.5.7 GP-2 fix — previously saved once at the end of the whole import) |
+| `detect_source(mirror_path)` | Returns `"container"`, `"folder"`, or `"unknown"` |
+| `_run_import_container(...)` / `_run_import_folder(...)` | Per-source-type orchestration, both under `QUALITY_LOCK` |
+| `_import_raw_from_bytes(...)` / `_import_raw_folder(...)` | Per-day raw import — `_upsert_quality()` per day, `_save_quality_log(skip_backup=True)` per day (v1.6.5.7), one final save (with backup) after the loop |
+
+**Return contract — `run_import_mirror()`:**
+```python
+{
+    "raw_copied":     int,
+    "raw_skipped":    int,
+    "context_copied": int,
+    "errors":         int,
+    "ok":             bool,
+    "error":          str,   # v1.6.5.7 — present only on early hard-stop
+                              # failures (unrecognised source, unlock_meta
+                              # failure, unreadable mirror_meta.json/
+                              # quality_log). Absent when "ok" is False due
+                              # to per-item errors during processing —
+                              # those are individually logged, "errors" is
+                              # their count.
+}
 
 Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_quality`.
 
@@ -373,8 +464,8 @@ Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_
 | `backup_raw(date_str)` | Copies `garmin_raw_YYYY-MM-DD.json` into `backup/raw/YYYY-MM/`. Triggers `_consolidate_raw_months()`. Returns `bool` |
 | `backup_quality_log()` | Creates monthly snapshot of `quality_log.json` as `quality_log_YYYY-MM.zip`. Triggers yearly consolidation |
 | `restore_quality_log()` | Restores from latest valid monthly ZIP. Returns loaded `dict` or `None` |
-| `check_raw_integrity()` | Compares `write=True` quality log entries vs. existing raw files. Returns `{"missing_days", "no_backup", "total_checked"}`. Called via `garmin_app_controller.check_integrity()` which sets `GARMIN_OUTPUT_DIR` first |
-| `restore_raw_days(date_strs)` | Restores raw files from backup (dir first, then ZIP). Returns `{"restored", "failed"}` |
+| `check_raw_integrity()` | Compares `write=True` quality log entries vs. existing raw files. Returns `{"missing_days", "no_backup", "total_checked", "error"}` — `error` is `None` on success, set if `quality_log.json` itself could not be read (v1.6.5.7, Netz 3 Kandidat 2). Called via `garmin_app_controller.check_integrity()` which sets `GARMIN_OUTPUT_DIR` first |
+| `restore_raw_days(date_strs)` | Restores raw files from backup (dir first, then ZIP). Returns `{"restored", "failed", "errors"}` — `errors` is `dict[str, str]`, one reason per date in `failed` (v1.6.5.7, Netz 3 Kandidat 2) |
 | `_consolidate_raw_months(current_month)` | ZIPs completed month dirs, deletes dir after ZIP verified |
 | `_consolidate_log_years(current_year)` | Creates `quality_log_YYYY.zip` for completed years without yearly ZIP |
 | `_zip_contains(zip_path, filename)` | Returns `True` if filename exists in ZIP. Silent on error |

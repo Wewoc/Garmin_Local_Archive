@@ -39,7 +39,7 @@ What "intraday resolution" actually means in practice:
 
 After ~135 days, Garmin stops serving this data entirely. The daily summary (resting HR, average stress, etc.) remains — but the curves, the detail, the full timeline: gone. GLA captures it while it's still there.
 
-*→ For the full story, see [MINDSET.md](docs/MINDSET.md).*
+*→ For the full story, see [MINDSET.md](src/docs/MINDSET.md).*
 
 ---
 
@@ -129,7 +129,7 @@ The AI itself is not included. How to set one up — including a ready-to-use sy
 
 I can't write Python. The architecture, module boundaries, and decisions are mine. Every line of code is Claude's.
 
-*→ How this collaboration actually worked — who had which idea, where Claude was wrong — is documented in [MINDSET.md](docs/MINDSET.md).*
+*→ How this collaboration actually worked — who had which idea, where Claude was wrong — is documented in [MINDSET.md](src/docs/MINDSET.md).*
 
 ---
 

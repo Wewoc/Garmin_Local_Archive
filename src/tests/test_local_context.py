@@ -986,6 +986,18 @@ _integrity = backup.check_raw_integrity()
 check("check_raw_integrity: returns dict",       isinstance(_integrity, dict))
 check("check_raw_integrity: keys present",
       all(k in _integrity for k in ("missing_days", "no_backup", "total_checked")))
+check("check_raw_integrity: error is None on success",
+      _integrity.get("error") is None)
+
+# check_raw_integrity — kaputtes quality_log.json → error gesetzt (Kandidat 2, Fehlersichtbarkeit)
+_corrupt_qlog_backup = cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8")
+cfg.QUALITY_LOG_FILE.write_text("{not valid json", encoding="utf-8")
+_integrity_corrupt = backup.check_raw_integrity()
+check("check_raw_integrity: error set on corrupt quality_log",
+      _integrity_corrupt.get("error") is not None)
+check("check_raw_integrity: empty missing_days on corrupt quality_log",
+      _integrity_corrupt["missing_days"] == [])
+cfg.QUALITY_LOG_FILE.write_text(_corrupt_qlog_backup, encoding="utf-8")
 
 # check_raw_integrity — write=True Eintrag ohne Raw-Datei → missing
 _missing_date = "2024-06-01"
@@ -1008,6 +1020,8 @@ check("check_raw_integrity: no backup for missing day",
 _restore_result = backup.restore_raw_days([_missing_date])
 check("restore_raw_days: no backup → failed",
       _missing_date in _restore_result.get("failed", []))
+check("restore_raw_days: errors has reason for no-backup case",
+      _restore_result.get("errors", {}).get(_missing_date) == "no backup found")
 
 # restore_raw_days — Backup vorhanden → restored
 _restore_month_dir = cfg.RAW_BACKUP_DIR / "2024-06"

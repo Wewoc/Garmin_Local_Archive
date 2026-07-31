@@ -51,6 +51,14 @@ Returns (run_import_mirror):
       "context_copied": int,   # context files imported
       "errors":         int,   # errors encountered
       "ok":             bool,  # True if errors == 0
+      "error":          str,   # present only on early hard-stop failures
+                                # (unrecognised source, unlock_meta failure,
+                                # unreadable mirror_meta.json/quality_log) —
+                                # names the specific cause. Absent when "ok"
+                                # is False due to per-item errors during
+                                # processing — those are individually logged,
+                                # "errors" is their count, no single cause
+                                # applies. (v1.6.5.7 — Netz 3 Kandidat 1)
   }
 
 Dry-run mode returns:
@@ -59,6 +67,7 @@ Dry-run mode returns:
       "context_to_copy":  int,
       "version_warning":  str,   # empty string if versions match
       "ok":               bool,
+      "error":            str,   # present only on early hard-stop failures — see above
   }
 """
 
@@ -129,12 +138,13 @@ def run_import_mirror(
 
     source_type = detect_source(mirror_path)
     if source_type == "unknown":
-        log.error(f"  import_mirror: unrecognised source: {mirror_path}")
+        error_msg = f"Not a recognised mirror source: {mirror_path}"
+        log.error(f"  import_mirror: {error_msg}")
         if dry_run:
             return {"raw_to_copy": 0, "context_to_copy": 0,
-                    "version_warning": "", "ok": False}
+                    "version_warning": "", "ok": False, "error": error_msg}
         return {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0,
-                "errors": 1, "ok": False}
+                "errors": 1, "ok": False, "error": error_msg}
 
     if source_type == "folder":
         log.warning(
@@ -162,9 +172,10 @@ def _run_import_container(
         log.error(f"  import_mirror: {meta_result['error']}")
         if dry_run:
             return {"raw_to_copy": 0, "context_to_copy": 0,
-                    "version_warning": "", "ok": False}
+                    "version_warning": "", "ok": False,
+                    "error": meta_result["error"]}
         return {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0,
-                "errors": 1, "ok": False}
+                "errors": 1, "ok": False, "error": meta_result["error"]}
 
     container_meta  = meta_result["container_meta"]
     quality_src     = meta_result["quality_log"]
@@ -550,6 +561,13 @@ def _import_raw_from_bytes(
                 device_id=device_id,
                 device_name=device_name,
             )
+
+            # GP-2 crash-resilience: persist quality_log after each day so a
+            # hard abort cannot leave a raw file without a quality_log entry.
+            # skip_backup=True — backup triggered once after the full import
+            # (see _save_quality_log() call in the caller), not per day.
+            quality._save_quality_log(quality_dst, skip_backup=True)
+
             copied += 1
             log.debug(f"  import_mirror: raw {date_str} — {label}")
 
@@ -653,12 +671,13 @@ def _run_import_folder(
         except Exception:
             pass
     except Exception as e:
-        log.error(f"  import_mirror (folder): cannot read mirror_meta.json — {e}")
+        error_msg = f"cannot read mirror_meta.json — {e}"
+        log.error(f"  import_mirror (folder): {error_msg}")
         if dry_run:
             return {"raw_to_copy": 0, "context_to_copy": 0,
-                    "version_warning": "", "ok": False}
+                    "version_warning": "", "ok": False, "error": error_msg}
         return {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0,
-                "errors": 1, "ok": False}
+                "errors": 1, "ok": False, "error": error_msg}
 
     # Load quality logs
     rel_path  = Path("garmin_data") / "log" / "quality_log.json"
@@ -666,12 +685,14 @@ def _run_import_folder(
     try:
         quality_src = json.loads(qlog_path.read_text(encoding="utf-8"))
     except Exception as e:
-        log.error(f"  import_mirror (folder): cannot read mirror quality_log: {e}")
+        error_msg = f"cannot read mirror quality_log: {e}"
+        log.error(f"  import_mirror (folder): {error_msg}")
         if dry_run:
             return {"raw_to_copy": 0, "context_to_copy": 0,
-                    "version_warning": version_warning, "ok": False}
+                    "version_warning": version_warning, "ok": False,
+                    "error": error_msg}
         return {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0,
-                "errors": 1, "ok": False}
+                "errors": 1, "ok": False, "error": error_msg}
 
     with quality.QUALITY_LOCK:
         quality_dst = quality._load_quality_log()
@@ -752,6 +773,13 @@ def _import_raw_folder(
                 device_id=device_id,
                 device_name=device_name,
             )
+
+            # GP-2 crash-resilience: persist quality_log after each day so a
+            # hard abort cannot leave a raw file without a quality_log entry.
+            # skip_backup=True — backup triggered once after the full import
+            # (see _save_quality_log() call in the caller), not per day.
+            quality._save_quality_log(quality_dst, skip_backup=True)
+
             copied += 1
         except Exception as e:
             log.error(f"  import_mirror (folder): pipeline error {date_str}: {e}")
