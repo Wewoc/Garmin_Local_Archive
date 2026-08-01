@@ -211,6 +211,7 @@ class PanelTimer(QWidget):
                     os.environ["GARMIN_OUTPUT_DIR"] = s2["base_dir"]
                     os.environ["GARMIN_EMAIL"]      = s2["email"]
                     os.environ["GARMIN_PASSWORD"]   = s2["password"]
+                    os.environ["GARMIN_SESSION_LOG_PREFIX"] = "timer_connection_test"
                     import importlib
                     import garmin_config as cfg
                     importlib.reload(cfg)

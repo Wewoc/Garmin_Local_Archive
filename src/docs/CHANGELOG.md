@@ -1,5 +1,46 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.7.1 — Token Log: valid Event + Mixed Serialization
+
+Adds the previously missing silent success path to `garmin_token_log.json`
+(Path 1 in `garmin_api.py::login()` — token still valid, no SSO needed),
+switches serialization to a mixed format: `valid` events collapse to a
+single compact line, while all other events (`created`/`invalidated`/
+`blocked`) keep the existing multi-line `indent=2` format unchanged, and
+adds a `caller` field identifying which of the six login entry points
+(GUI Sync, Bulk Import, Daily Sync, Background Timer, GUI Test Connection,
+Live Update) produced a given event. A pure observation-layer extension for
+the open causality question from `ANALYSE_headless_mfa_login_2026-07-08.md`
+— no effect on the login flow itself.
+
+**Changed modules:**
+- `garmin/garmin_api.py` — `login()` Path 1: new call
+  `garmin_security.log_token_event("valid", "token_reused")` right before
+  `return client`, after the successful probe (`get_user_summary()`).
+- `garmin/garmin_security.py` — `log_token_event()`: new local
+  `_format_event()` — serializes `valid` events compactly
+  (`json.dumps(e, separators=(",", ":"))`), all other events still with
+  `indent=2`, both forms assembled manually into one shared JSON array.
+  New `caller` field, read directly from the `GARMIN_SESSION_LOG_PREFIX`
+  ENV var (not `cfg.SESSION_LOG_PREFIX` — the latter is a module-level
+  constant computed once at import time and would go stale in T3's shared
+  process). Reuses the four values already set for that ENV elsewhere
+  (`garmin`, `garmin_bulk`, `garmin_background`, `daily`) at no extra cost.
+- `garmin/garmin_live_fetch.py` — `fetch_live()`: sets
+  `GARMIN_SESSION_LOG_PREFIX = "live_update"` before its own `login()` call.
+  New `import os` (previously unused in this module).
+- `app/garmin_app_controller.py` — `check_connection()`'s worker: sets
+  `GARMIN_SESSION_LOG_PREFIX = "test_connection"` alongside the existing
+  ENV assignments, before its own `login()` call.
+- `app/panel_timer.py` — `_timer_loop()`'s one-time connection test: sets
+  `GARMIN_SESSION_LOG_PREFIX = "timer_connection_test"` alongside the
+  existing ENV assignments, before its own `login()` call.
+
+**Test result:** 536 / 265 / 453 / 145 / 46 / 15 — all green, ruff 0
+errors, bandit 0 HIGH.
+
+---
+
 ## v1.6.5.7 — T3.1 Silent-Failure Investigation (Netz 0/1/3/4 + Silo-Repair-Kern-Extraktion)
 
 Trigger: `_on_silo_repair()`'s repair path #3 called

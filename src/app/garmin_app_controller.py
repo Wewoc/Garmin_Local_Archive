@@ -219,6 +219,7 @@ def check_connection(s: dict, callbacks: dict) -> None:
         os.environ["GARMIN_OUTPUT_DIR"] = s["base_dir"]
         os.environ["GARMIN_EMAIL"]      = s["email"]
         os.environ["GARMIN_PASSWORD"]   = s["password"]
+        os.environ["GARMIN_SESSION_LOG_PREFIX"] = "test_connection"
 
         import importlib
         import garmin_config as cfg

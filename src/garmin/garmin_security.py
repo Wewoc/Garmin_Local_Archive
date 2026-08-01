@@ -262,16 +262,23 @@ def log_token_event(event: str, trigger: str, **extra) -> None:
     logging failure must never affect the login flow itself, so all errors
     are caught and merely warned about.
 
-    event   : "created" | "invalidated" | "blocked"
+    event   : "created" | "invalidated" | "blocked" | "valid"
               "blocked" does not mean the token was deleted — used for the
               429/403 rate-limit case, where the token is deliberately kept
               (see garmin_api.py Path 1). Keeping this separate from
-              "invalidated" avoids skewing token-lifetime analysis.
+              "invalidated" avoids skewing token-lifetime analysis. "valid"
+              covers the silent success path — token still valid, no SSO
+              needed (v1.6.5.7.1).
     trigger : "sso_login" | "rejected_by_garmin" | "enc_key_missing_wcm" |
-              "manual_reset" | "rate_limited"
+              "manual_reset" | "rate_limited" | "token_reused"
     extra   : optional additional fields, e.g. exception_type=..., detail=...
               (detail should already be truncated by the caller — this
               function does not truncate).
+
+    caller is read automatically from the GARMIN_SESSION_LOG_PREFIX ENV var
+    (set by garmin_collector.main()'s various entry points, or explicitly
+    by the three direct login() callers) — not a parameter, since every
+    existing call site would otherwise need updating (v1.6.5.7.2).
 
     app_version is read from version.py if importable; falls back to
     "unknown" rather than raising, since this module has no other
@@ -285,11 +292,19 @@ def log_token_event(event: str, trigger: str, **extra) -> None:
         app_version = "unknown"
         log.debug(f"  Could not read app_version from version.py: {e}")
 
+    # Read directly from os.environ, not cfg.SESSION_LOG_PREFIX — the latter
+    # is a module-level constant computed once at import time and would go
+    # stale in T3 (shared process) without a matching importlib.reload(cfg)
+    # at exactly the right moment. A direct read always reflects the
+    # current process environment (v1.6.5.7.2).
+    caller = os.environ.get("GARMIN_SESSION_LOG_PREFIX", "unknown")
+
     entry = {
         "ts":          datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "event":       event,
         "trigger":     trigger,
         "app_version": app_version,
+        "caller":      caller,
         **extra,
     }
 
@@ -298,6 +313,21 @@ def log_token_event(event: str, trigger: str, **extra) -> None:
         data = json.loads(log_file.read_text()) if log_file.exists() else {"events": []}
         data["events"].append(entry)
         cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
-        log_file.write_text(json.dumps(data, indent=2))
+
+        # v1.6.5.8 — mixed serialization: "valid" events (routine, no error
+        # payload) collapse to one compact line so a quick scan shows the
+        # baseline at a glance. Every other event (created/invalidated/
+        # blocked) keeps the original indent=2 multi-line block unchanged —
+        # that multi-line shape is itself the visual break when something
+        # other than a routine valid login shows up in the log.
+        def _format_event(e: dict) -> str:
+            if e.get("event") == "valid":
+                return json.dumps(e, separators=(",", ":"))
+            lines = json.dumps(e, indent=2).split("\n")
+            return "\n".join([lines[0]] + ["    " + ln for ln in lines[1:]])
+
+        event_blocks = [_format_event(e) for e in data["events"]]
+        log_text = "{\n  \"events\": [\n    " + ",\n    ".join(event_blocks) + "\n  ]\n}"
+        log_file.write_text(log_text)
     except Exception as e:
         log.warning(f"  Token event log write failed: {e}")
