@@ -197,7 +197,11 @@ case asserts no crash.
   existing Section 7 checks (`save_token`/`load_token`/`clear_token`) confirmed
   passing alongside it (1399/1399), but the function itself — event/trigger
   values, `garmin_token_log.json` append behaviour, best-effort exception
-  handling — is unverified by the test suite
+  handling — is unverified by the test suite. Same gap now also covers the
+  `valid`/`token_reused` event pair, `_format_event()`'s mixed
+  compact/`indent=2` serialization, and the new `caller` field (all added in
+  v1.6.5.7.1) — existing Section 7 checks confirmed passing alongside it
+  (536/536), but none of these three additions have dedicated coverage
 
 ### When to run
 

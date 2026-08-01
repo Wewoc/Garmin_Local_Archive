@@ -130,6 +130,7 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
             from datetime import date
             client.get_user_summary(date.today().isoformat())
             log.info("  ✓ Login via saved token")
+            garmin_security.log_token_event("valid", "token_reused")
             return client
         except Exception as e:
             from garminconnect import GarminConnectTooManyRequestsError
