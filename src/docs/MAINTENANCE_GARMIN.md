@@ -165,6 +165,27 @@ cancelled, own-login reusing an existing client), `progress` callback (messages 
 per endpoint + completion, default no-op backward compatible), `_write_live()` directory
 creation. 29 checks total.
 
+I. `garmin_silo_repair` (v1.6.5.7) — return structure (`ok`/`failed`/`items`),
+empty-`fresh`-dict no-op, category #5 (orphan summary) full round-trip:
+file present → unlinked + `status: "repaired"`, file already gone →
+`status: "gone"`. Deliberately scoped to what's safely testable without
+reading further internals — category #1's remaining edge case and #3/#7
+need a `normalize()`-capable raw-data fixture, both deferred to `v1.6.5.8`
+(Netz 2).
+
+**Netz 3 (v1.6.5.7) — error-visibility regression tests, folded into
+existing sections rather than new ones** (see `CHANGELOG.md` v1.6.5.7 for
+the full module-by-module list): Section C — `run_import_mirror()`
+wrong-password and unknown-source cases now assert an `error` field is
+present, not just `ok=False`. Section B — `check_raw_integrity()` asserts
+`error is None` on success and set on a corrupt `quality_log.json`;
+`restore_raw_days()` asserts the new `errors` dict carries a reason.
+Section 10 — `get_enc_key_status()` mocked WCM success/failure, `get_enc_key()`
+wrapper behaviour unaffected; `clear_token()` mocked WCM failure asserts
+`False` instead of the previous unconditional success. Section 6 —
+`read_summary()` missing-file case; `_run_schema_migration()` missing-summary
+case asserts no crash.
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
@@ -176,7 +197,11 @@ creation. 29 checks total.
   existing Section 7 checks (`save_token`/`load_token`/`clear_token`) confirmed
   passing alongside it (1399/1399), but the function itself — event/trigger
   values, `garmin_token_log.json` append behaviour, best-effort exception
-  handling — is unverified by the test suite
+  handling — is unverified by the test suite. Same gap now also covers the
+  `valid`/`token_reused` event pair, `_format_event()`'s mixed
+  compact/`indent=2` serialization, and the new `caller` field (all added in
+  v1.6.5.7.1) — existing Section 7 checks confirmed passing alongside it
+  (536/536), but none of these three additions have dedicated coverage
 
 ### When to run
 

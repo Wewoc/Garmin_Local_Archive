@@ -234,9 +234,16 @@ class PanelArchive(QWidget):
         result = _controller.check_integrity(s)
         missing = result.get("missing_days", [])
         no_bkup = result.get("no_backup", [])
+        error   = result.get("error")
 
         def _update():
             pc = self._app._panel_connection
+            if error:
+                # Check itself failed — distinct from "checked, nothing missing".
+                # Without this, a failed check silently looks identical to a clean archive.
+                self._app._log(f"✗ Integrity check failed: {error}")
+                pc.set_restore_button_state(False, text="Restore Data")
+                return
             if not missing:
                 pc.set_restore_button_state(False, text="Restore Data")
                 return
@@ -286,10 +293,16 @@ class PanelArchive(QWidget):
                 result   = _backup.restore_raw_days(restorable)
                 restored = result.get("restored", [])
                 failed   = result.get("failed", [])
+                errors   = result.get("errors", {})
                 self._app._log_bg(
                     f"✓ Restore complete: {len(restored)} restored"
                     + (f", {len(failed)} failed" if failed else "")
                 )
+                for date_str in failed[:10]:
+                    reason = errors.get(date_str, "unknown reason")
+                    self._app._log_bg(f"    ✗ {date_str}: {reason}")
+                if len(failed) > 10:
+                    self._app._log_bg(f"    … and {len(failed) - 10} more")
                 self._app._dispatch(
                     lambda: self._app._panel_connection.set_restore_button_state(
                         False, text="Restore Data"))
@@ -644,9 +657,6 @@ class PanelArchive(QWidget):
         self._app._log("🔧  Silo-Repair started — re-scanning first …")
 
         def _do_repair():
-            import subprocess
-            import sys as _sys
-
             try:
                 import garmin_silo_check as _sc
                 fresh = _sc.check_silos()
@@ -661,91 +671,48 @@ class PanelArchive(QWidget):
                 self._silo_running = False
                 return
 
-            ok = 0
-            failed = 0
-            s        = self._app._panel_settings._collect_settings()
-            base_dir = Path(s.get("base_dir", "")).expanduser()
+            # Repair logic lives in garmin_silo_repair.py (v1.6.5.7 —
+            # extracted so it is callable without a live Qt app; see
+            # KONZEPT_fehlersichtbarkeit_v2.md, Schritt 5). This method now
+            # only formats the structured result for the GUI log.
+            import garmin_silo_repair as _sr
+            result = _sr.repair_silos(fresh)
 
-            # ── #3: source without raw → regenerate_raw.py --date ─────────────
-            for d in fresh["source_without_raw"]:
-                date_str = d.isoformat()
-                try:
-                    regen_script = base_dir.parent / "export" / "regenerate_raw.py"
-                    if not regen_script.exists():
-                        # Try relative to src/
-                        import garmin_config as _cfg
-                        regen_script = Path(_cfg.__file__).parent.parent / "export" / "regenerate_raw.py"
-                    proc = subprocess.run(
-                        [_sys.executable, str(regen_script), "--date", date_str],
-                        capture_output=True, text=True, timeout=120,
-                    )
-                    if proc.returncode == 0:
-                        self._app._log_bg(f"  ✓ #3 repaired: {date_str}")
-                        ok += 1
-                    else:
+            for item in result["items"]:
+                cat, date_str, status = item["category"], item.get("date"), item["status"]
+                if cat == "1":
+                    if status == "backfilled":
                         self._app._log_bg(
-                            f"  ✗ #3 repair failed {date_str}: "
-                            f"{proc.stderr.strip()[:200]}")
-                        failed += 1
-                except Exception as e:
-                    self._app._log_bg(f"  ✗ #3 repair error {date_str}: {e}")
-                    failed += 1
-
-            # ── #5: summary without raw → unlink orphan ───────────────────────
-            for d in fresh["summary_without_raw"]:
-                date_str = d.isoformat()
-                try:
-                    import garmin_config as _cfg
-                    orphan = _cfg.SUMMARY_DIR / f"garmin_{date_str}.json"
-                    if orphan.exists():
-                        orphan.unlink()
-                        self._app._log_bg(f"  ✓ #5 orphan removed: {date_str}")
-                        ok += 1
+                            f"  ✓ #1 quality_log backfilled: {item['count']} entry(ies) added")
                     else:
+                        self._app._log_bg(f"  ✗ #1 repair error: {item['reason']}")
+                elif cat == "3":
+                    if status == "repaired":
+                        self._app._log_bg(f"  ✓ #3 repaired: {date_str} ({item['label']})")
+                    elif status == "skipped":
+                        self._app._log_bg(
+                            f"  ~ #3 skipped {date_str}: existing {item['existing']} > replay {item['new']}")
+                    elif status == "no_source":
+                        self._app._log_bg(f"  ✗ #3 no source file for {date_str}")
+                    else:
+                        self._app._log_bg(f"  ✗ #3 repair error {date_str}: {item['reason']}")
+                elif cat == "5":
+                    if status == "repaired":
+                        self._app._log_bg(f"  ✓ #5 orphan removed: {date_str}")
+                    elif status == "gone":
                         self._app._log_bg(f"  ~ #5 already gone: {date_str}")
-                except Exception as e:
-                    self._app._log_bg(f"  ✗ #5 repair error {date_str}: {e}")
-                    failed += 1
-
-            # ── #7: raw without summary → inline summarize + write_day ─────────
-            for d in fresh["raw_without_summary"]:
-                date_str = d.isoformat()
-                try:
-                    import garmin_config as _cfg
-                    import json as _json
-                    raw_file = _cfg.RAW_DIR / f"garmin_raw_{date_str}.json"
-                    if not raw_file.exists():
+                    else:
+                        self._app._log_bg(f"  ✗ #5 repair error {date_str}: {item['reason']}")
+                elif cat == "7":
+                    if status == "repaired":
+                        self._app._log_bg(f"  ✓ #7 summary rebuilt: {date_str}")
+                    elif status == "gone":
                         self._app._log_bg(f"  ~ #7 raw gone by now: {date_str}")
-                        continue
-                    raw = _json.loads(raw_file.read_text(encoding="utf-8"))
-                    import garmin_normalizer as _norm
-                    import garmin_writer as _writer
-                    summary = _norm.summarize(raw)
-                    _writer.write_day(raw, summary, date_str)
-                    self._app._log_bg(f"  ✓ #7 summary rebuilt: {date_str}")
-                    ok += 1
-                except Exception as e:
-                    self._app._log_bg(f"  ✗ #7 repair error {date_str}: {e}")
-                    failed += 1
-
-            # ── #1: raw without quality_log → _backfill_quality_log ───────────
-            if fresh["raw_without_quality"]:
-                try:
-                    import garmin_quality as _quality
-                    with _quality.QUALITY_LOCK:
-                        qdata = _quality._load_quality_log()
-                        added = _quality._backfill_quality_log(qdata)
-                        if added:
-                            _quality._save_quality_log(qdata)
-                    self._app._log_bg(
-                        f"  ✓ #1 quality_log backfilled: {added} entry(ies) added")
-                    ok += added
-                except Exception as e:
-                    self._app._log_bg(f"  ✗ #1 repair error: {e}")
-                    failed += 1
+                    else:
+                        self._app._log_bg(f"  ✗ #7 repair error {date_str}: {item['reason']}")
 
             self._app._log_bg(
-                f"🔧  Silo-Repair complete — {ok} fixed, {failed} errors")
+                f"🔧  Silo-Repair complete — {result['ok']} fixed, {result['failed']} errors")
 
             self._last_silo_result = None
             self._app._dispatch(lambda: (
@@ -854,8 +821,9 @@ class PanelArchive(QWidget):
             return
 
         if not dry.get("ok"):
+            cause = dry.get("error", "Unknown cause — check log for details.")
             QMessageBox.critical(self._app, "Import from Mirror",
-                "Could not read mirror data.\nCheck log for details.")
+                f"Could not read mirror data:\n{cause}")
             return
 
         raw_n    = dry.get("raw_to_copy", 0)
@@ -895,15 +863,22 @@ class PanelArchive(QWidget):
                     password=password,
                     dry_run=False,
                 )
-                msg = (
-                    f"✓ Mirror import complete: "
-                    f"{result['raw_copied']} raw day(s) imported, "
-                    f"{result['raw_skipped']} skipped, "
-                    f"{result['context_copied']} context file(s) imported"
-                )
-                if result["errors"]:
-                    msg += f", {result['errors']} error(s)"
-                self._app._log_bg(msg)
+                if result.get("error"):
+                    # Hard-stop failure — nothing was processed at all.
+                    self._app._log_bg(f"✗ Mirror import failed: {result['error']}")
+                else:
+                    # Ran (fully or partially) — reflect that in the prefix
+                    # instead of always showing ✓ even when errors occurred.
+                    prefix = "✓" if result["ok"] else "⚠"
+                    msg = (
+                        f"{prefix} Mirror import complete: "
+                        f"{result['raw_copied']} raw day(s) imported, "
+                        f"{result['raw_skipped']} skipped, "
+                        f"{result['context_copied']} context file(s) imported"
+                    )
+                    if result["errors"]:
+                        msg += f", {result['errors']} error(s)"
+                    self._app._log_bg(msg)
             except Exception as e:
                 self._app._log_bg(f"✗ Mirror import failed: {e}")
             finally:

@@ -144,6 +144,16 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
         dest = embed_dest(subfolder)
         add_data_args += ["--add-data", f"{src}{sep}{dest}"]
 
+    # build_manifest.py — embedded separately at scripts root (A1, v1.6.5.7).
+    # Not part of EMBEDDED_SCRIPTS/SHARED_SCRIPTS: it is compiler/-only,
+    # pure data (no imports, no side effects — see its own docstring), and
+    # deliberately lands at "scripts" root — same destination as version.py/
+    # garmin_app_base.py — not "scripts/compiler", so garmin_app_standalone.py's
+    # Netz-1 self-test can load it exactly like the other root-level modules
+    # instead of needing a second sys.path registration for compiler/.
+    _manifest_src = Path(__file__).parent / "build_manifest.py"
+    add_data_args += ["--add-data", f"{_manifest_src}{sep}scripts"]
+
     # Embed required data files (generic — was hardcoded to garmin_dataformat.json only)
     # NOTE: loop variable deliberately named data_name, not name — this function's
     # own `name` parameter (the PyInstaller --name / EXE filename) was being silently

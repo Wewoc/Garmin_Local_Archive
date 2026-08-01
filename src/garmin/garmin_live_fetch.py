@@ -29,6 +29,7 @@ Daily Sync run (existing client passed in — no second login).
 
 import json
 import logging
+import os
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -126,6 +127,7 @@ def fetch_live(client=None, progress=None, state_cb=None) -> dict:
 
     if client is None:
         progress("Logging in to Garmin Connect ...")
+        os.environ["GARMIN_SESSION_LOG_PREFIX"] = "live_update"
         try:
             client = garmin_api.login()
         except garmin_api.GarminLoginError as e:

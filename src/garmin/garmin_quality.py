@@ -60,6 +60,7 @@ from quality._scan import (
 
 from quality._maint import (
     QUALITY_RANK,
+    is_downgrade,
     _upsert_quality,
     _set_first_day,
     cleanup_before_first_day,

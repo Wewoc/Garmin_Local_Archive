@@ -130,6 +130,12 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │                                  panel_home.py and garmin_app_base.py
     │                                  after each QWebEngineView() instantiation
     │                                  (v1.6.0.4.4, A5)
+    ├── frozen_paths.py             ← Leaf-Node. Central frozen-path resolution —
+    │                                  scripts_root(), add_to_path(), doc_path().
+    │                                  Replaces duplicated sys.frozen/_MEIPASS/
+    │                                  executable branches across panel_outputs.py
+    │                                  (6x), panel_home.py, the garmin_live_fetch
+    │                                  call site, and doc lookups (v1.6.0.4.3)
     │
     ├── app/                        ← Layer 1+3: settings persistence + application logic (v1.5.2+)
     │   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
@@ -256,18 +262,40 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   └── CONCEPT_V2-0.md
     │
     └── tests/
-        ├── test_local.py           ← Garmin pipeline (468 checks)
-        ├── test_local_context.py   ← Context pipeline (261 checks)
-        ├── test_dashboard.py       ← Dashboard pipeline (336 checks)
-        ├── test_app_logic.py       ← App layer (145 checks)
-        ├── test_qt_app.py          ← PyQt6 App layer (42 checks, v1.5.4+)
+        ├── test_local.py           ← Garmin pipeline
+        ├── test_local_context.py   ← Context pipeline
+        ├── test_dashboard.py       ← Dashboard pipeline
+        ├── test_app_logic.py       ← App layer
+        ├── test_qt_app.py          ← PyQt6 App layer (v1.5.4+)
         ├── test_build_output.py    ← Build output validation (8 sections)
-        ├── test_static.py          ← ruff linting (2 checks, v1.6.0+)
+        ├── test_static.py          ← ruff + bandit linting (v1.6.0 / v1.6.0.4.9.2+)
         ├── check_deps.py           ← Ecosystem monitor
         ├── cve_whitelist.py        ← CVE whitelist data + classify_finding() (v1.6.0.4.4+)
         ├── check_cve_whitelist.py  ← pip-audit wrapper + Ollama unsure-classification (v1.6.0.4.4+)
         └── support.py              ← Shared test helpers
 ```
+
+---
+
+## Module reference — App Layer & Shared Leaf-Nodes
+
+Compact reference for app-layer and shared leaf-node modules with no
+dedicated per-domain reference file. Full inline detail also lives in the
+Project Structure tree above — this table exists so these modules are
+findable by heading/table search (see `DOC_DRIFT_REPORT.md`, Punkt B).
+
+| Module | Role |
+|---|---|
+| `app/dialogs.py` | `PasswordConfirmDialog(QDialog)` — shared password entry/confirm dialog. `mode="setup"`: two fields + match-check (new passwords). `mode="unlock"`: one field, no confirm (existing passwords — e.g. mirror import, where `unlock_meta()` validates anyway). Used by `panel_archive.py` (Mirror Container) and `panel_outputs.py` (Encrypted Dashboards). PyQt6-only import, no project-module imports, no business logic. |
+| `app/panel_connection.py` | `PanelConnection(QWidget)` — connection dialogs, token reset; indicators delegated to `panel_home.py` (v1.5.4+). |
+| `app/panel_home.py` | `PanelHome(QWidget)` — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Home tab: Dashboard viewer (v1.6.0+). |
+| `garmin_app_base.py` | View layer (`GarminApp`) — PyQt6 `QMainWindow`, fixed top (`panel_home`) + `QTabWidget`: Home / Files / Settings (v1.6.0+). Settings tab: two-column layout — Settings left (340px), Actions right (flex). `_sheet_arrow` label mirrors `_sheet_combo` visibility (v1.6.0.7). |
+| `qwebengine_hardening.py` | Leaf-Node. `harden(view)` — disables `LocalContentCanAccessFileUrls`, `LocalContentCanAccessRemoteUrls`, `JavascriptCanOpenWindows`, `PluginsEnabled`, `JavascriptCanAccessClipboard` on a `QWebEngineView`. `JavascriptEnabled` stays `True` — Plotly dashboards require it. Idempotent — safe to call multiple times on the same view. Called from `panel_home.py` and `garmin_app_base.py` after each `QWebEngineView()` instantiation. |
+| `frozen_paths.py` | Leaf-Node. Central frozen-path resolution — replaces previously duplicated `sys.frozen`/`sys._MEIPASS`/`sys.executable` branches (`panel_outputs.py` ×6, `panel_home.py`, the `garmin_live_fetch` call site, doc lookups). Three side-effect-separated functions: `scripts_root()` (root for `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` — T3 verified via canonical distinguisher: `dash_runner.py` must actually exist under `scripts/dashboards/`, not just `scripts/` itself), `add_to_path(root, *subs)` (mutates `sys.path` as an explicit, separate step), `doc_path(filename)` (finds bundled docs — `info/` next to the EXE when frozen, three-step dev chain otherwise: repo root → `src/docs/` → `src/scheduler/`; returns `None` if not found, never guesses). |
+
+`app/panel_settings.py`, `app/panel_archive.py`, `app/panel_timer.py`,
+`app/panel_outputs.py` already carry sufficient inline detail in the
+Project Structure tree above and are not duplicated here.
 
 ---
 

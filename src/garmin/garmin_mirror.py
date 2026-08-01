@@ -48,10 +48,15 @@ def run_mirror(source_dir: Path, container_path: Path, password: str) -> dict:
       files_packed  int  — files added to container
       errors        int  — files that could not be read
       ok            bool — True if errors == 0
+      error         str  — present only when the mirror could not start at
+                            all (source_dir missing); absent when ok=False
+                            due to per-file errors during packing (see log
+                            for those). (v1.6.5.7 — Netz 3 Kandidat 1)
     """
     if not source_dir.exists() or not source_dir.is_dir():
-        log.error(f"  mirror: source not found or not a directory: {source_dir}")
-        return {"files_packed": 0, "errors": 1, "ok": False}
+        error_msg = f"source not found or not a directory: {source_dir}"
+        log.error(f"  mirror: {error_msg}")
+        return {"files_packed": 0, "errors": 1, "ok": False, "error": error_msg}
 
     log.info(f"  mirror: {source_dir} → {container_path}")
 
