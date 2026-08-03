@@ -1,5 +1,116 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.8 — Netz 2: Fixtures + Tests, Sessionende-Fixes
+
+Closes the last open item from the `v1.6.5.7` KONZEPT-Reihenfolge — Netz 2
+(fixture-based headless functional tests), full scope (all six Class-I
+actions from `BESTANDSAUFNAHME_schadensklassen.md`, not just the
+Mirror-Container subset originally listed in `KONZEPT_fehlersichtbarkeit_v2.md`).
+Diagnosis-first workflow throughout: a non-asserting `gla-netz2/` workshop
+(external, not part of this repo) observed each error state against the
+real core functions before any assertion was written — avoiding the
+v1.6.3.1 failure mode where a test fixture itself was wrongly shaped and
+never verified against real data.
+
+**Four priorities diagnosed, two with full regression coverage:**
+
+- **Priority 1 — Mirror-Container + Silo-Repair (#1/#3/#7):** Mirror-Import
+  error states turned out already covered by `v1.6.5.7`'s Netz-3-Kandidat-1
+  work (wrong password, missing file, junk file, tampered HMAC, unknown
+  source) — only a version-mismatch gutfall check was missing, added.
+  Silo-Repair's three remaining test gaps (`#1` backfill edge case,
+  `#3`/`#7` replay path) closed with real fixtures derived from an actual
+  archive file, not invented shapes.
+- **Priority 2 — Source-/Steps-Backfill:** the GP-2 integrity gap assumed
+  in the original Bestandsaufnahme did not exist — both functions already
+  call `record_attempt()` per day (confirmed in `v1.6.5.7`'s own Netz-4
+  correction). Actual remaining points: Steps-Backfill's `raw/`/`source/`
+  silo-async state on a permanently failing `patch_source_field()` (now
+  empirically confirmed, including that the candidate filter correctly
+  excludes the day on the next run), and mid-loop abort atomicity for both
+  functions (confirmed clean — no partial writes, no corrupted
+  `quality_log.json`).
+- **Priority 3 — Restore Data:** `restore_raw_days()` had no protection of
+  its own against overwriting an already-current, high-quality file with
+  an older backup — the only observed protection was an accidental
+  side-effect of `write_day()` → `backup_raw()` timing, not a real
+  mechanism. Diagnosed, then fixed (see below).
+- **Priority 4 — Import Bulk Export:** the suspected `sys.executable`
+  subprocess issue (same class as the `v1.6.5.7` trigger) does not apply —
+  already fixed years earlier in `v1.3.0b` via delegated entry points.
+  Actual finding: `run_import()`'s `ok`/`skipped`/`failed` counting did
+  not reflect a day's actual quality outcome. Diagnosed, then fixed (see
+  below).
+
+**Three silent-failure fixes, found during diagnosis, closed at session
+end:**
+
+**F8 — `assess_quality_fields()` field-level parseability guard:**
+- `garmin/quality/_assess.py` — the per-field `"high"` check for
+  `heart_rates`, `stress`, `spo2`, `respiration`, `body_battery` required
+  only a non-empty intraday array — a structurally malformed array (e.g. a
+  flat list instead of `[ts,val]` pairs) still passed, silently degrading
+  a derived value (e.g. `avg_bpm`) to `None` while keeping the label
+  `"high"`. Now reuses `garmin_normalizer._parse_list_values()` to verify
+  the array actually yields parseable values before labeling `"high"`; on
+  failure the label falls through the existing tier chain instead of
+  staying `"high"` on unusable data. `body_battery` checks whichever of
+  its two possible raw-form sources actually holds data (verified against
+  a real archived raw file, not assumed).
+- `garmin/quality/_maint.py` — new `entry["field_downgrades"]` in
+  `quality_log.json`, additive, carries a short per-field reason when a
+  downgrade occurred; removed again on a clean re-assessment.
+- Found but deliberately not fixed: `raw["body_battery"]`'s top-level
+  fallback path (both in `_assess.py` and `garmin_normalizer.summarize()`)
+  expects a shape real Garmin data never has — pre-existing, inert,
+  independent of this fix.
+- Deliberately not retroactive: days already labeled `"high"` under the
+  old, incorrect check are not re-assessed by this fix.
+
+**Fix 2 — `restore_raw_days()` own downgrade guard:**
+- `garmin/garmin_backup.py` — reads `quality_log.json` directly (same
+  pattern as `check_raw_integrity()`, no `garmin_quality` import, avoiding
+  the circular import this module deliberately does not have) and skips a
+  date into the new `skipped_already_current` return key if a raw file
+  already exists for it and its logged quality is already `"high"`.
+  Restore Data's original purpose — filling in a genuinely missing file —
+  is unaffected; only `"standard"`/no-entry cases are left unblocked.
+- `app/panel_archive.py` — `_do_restore()` surfaces the new category in
+  its log line.
+
+**Fix 3 — `run_import()` quality-failed counting:**
+- `garmin/garmin_collector.py` — a day with `quality: "failed"`
+  (deliberately not written, insufficient data) previously counted as
+  `"ok"` in the return value, even though `quality_log.json` already
+  recorded it correctly. Now counted in `failed`. `main()`'s delegated
+  exit code for bulk-import mode follows this more honest count — a GDPR
+  export with even one low-quality day now returns exit 1, even if the
+  rest imported cleanly (confirmed acceptable, not decoupled).
+- Found but deliberately not unified: two structurally identical error
+  cases (a missing endpoint for one day) are handled inconsistently — one
+  variant drops the day entirely, the other writes it with a gap. Left
+  as-is, no unilateral behavior change.
+
+**New/changed test files:**
+- `tests/fixtures_netz2.py` — new, laufzeit-generierte Fixture-Generatoren
+  für Netz 2, keine eingecheckten Fixture-Dateien (Staleness-Risiko,
+  siehe v1.6.3.1). Erste Health-Pipeline-Bausteine, strukturell offen für
+  spätere Andockung durch `v1.7.0.1` (FIT) und `v1.8` (Context/Output).
+- `tests/test_local.py` — new checks across Sections C/E/E2/I for all four
+  priorities plus the three fixes above.
+
+**External tooling, not part of this repo:** `gla-netz2/` — non-asserting
+diagnosis workshop, five `run_netz2_*.py` scenario scripts, reports under
+`gla-netz2/output/`. `netz2_delta.py` (change-detection for the six Netz-2
+core modules, analogous to `build_dep_map.py`'s delta feature) scoped and
+deferred to its own session, to avoid growing this one further.
+
+**Test result:** 621 / 265 / 453 / 145 / 46 / 15 — all green (baseline at
+session start: 536 / 265 / 453 / 145 / 46 / 15), ruff 0 errors, bandit 0
+HIGH.
+
+---
+
 ## v1.6.5.7.1 — Token Log: valid Event + Mixed Serialization
 
 Adds the previously missing silent success path to `garmin_token_log.json`

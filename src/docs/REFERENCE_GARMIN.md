@@ -215,10 +215,15 @@ sole-write-authority modules it delegates to (`garmin_writer`, `garmin_quality`,
 `panel_archive.py::_do_repair()` only formats this structured result for the
 GUI log — no pipeline logic remains in the panel.
 
-**Known test gaps (v1.6.5.7):** only category #1's structure and the full #5
-round-trip (orphan-summary-unlink) are covered in `test_local.py` Section I.
-#1's remaining edge case and #3/#7 need a `normalize()`-capable raw-data
-fixture — deferred to `v1.6.5.8` (Netz 2).
+**Test coverage (v1.6.5.8, Netz 2):** all four repair categories now covered
+in `test_local.py` Section I — category #1's remaining edge case
+(`_backfill_quality_log()` with a non-empty `raw_without_quality`, including
+the silent-skip behaviour on a corrupt raw file and the true-error path on a
+failed `_save_quality_log()`), and #3/#7's replay path against a
+`normalize()`-capable raw-data fixture derived from a real archive file (not
+an invented shape — see `KONZEPT_broker_uebersetzungshandbuch.md` for why
+that distinction matters). Diagnosed empirically first via the external
+`gla-netz2/` workshop before any assertion was written.
 
 ---
 
@@ -335,7 +340,7 @@ matching on unknown text.
 
 | `QUALITY_LOCK` | `threading.Lock()` — acquire around all load-modify-save sequences |
 | `assess_quality(raw)` | Returns `"high"` / `"standard"` / `"failed"`. Pure function |
-| `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function |
+| `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function. Reuses `garmin_normalizer._parse_list_values()` to verify an intraday array actually parses into `[ts,val]` pairs (`[ts,status,val]` for `body_battery`, `val_index=2`) before labeling a field `"high"` — a structurally malformed array falls through to the next applicable tier instead (v1.6.5.8, F8). Downgrade reasons are collected under a reserved key inside the returned dict, extracted by `_maint.py` into `entry["field_downgrades"]` — never present in the dict actually stored as `entry["fields"]` |
 | `record_attempt(data, day, label, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Public API — atomically calls `_upsert_quality` + `_save_quality_log`. Caller must hold `QUALITY_LOCK`. |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Adds or updates day entry. Downgrade protection: `high` stays `high`. Stores `device_id` + `device_name` per entry. |
 | `save_device_table(quality_data)` | Builds and writes `device_table.json`. Called after each sync and after device_id backfill. Groups entries by `device_id`; entries with `device_id=None` appear as `__unknown__` row. Sole write authority: `garmin_quality`. |
@@ -383,7 +388,7 @@ Each quality log entry stores `device_id` (str) and `device_name` (str) — set 
 | `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)`. Delegates the actual rank comparison to `quality.is_downgrade()` (v1.6.5.7 — canonical location, also used by `export/regenerate_raw.py` and `garmin_silo_repair.py`; previously duplicated in each) |
 | `_run_steps_backfill(client, quality_data)` | Backfills `steps_series` for existing high-quality API days. Per day: `api_call()` → `merge_field()` → `normalize()`/`summarize()` → `write_day()` → `record_attempt()` (with `backfilled_fields`) → `patch_source_field()`. On `patch_source_field()` failure: one automatic retry, then `log.error()` (not `warning`) if it still fails — `source/` will not be auto-retried on a future run, since the candidate filter checks `fields` from `raw/`, already correct at that point (v1.6.5.7) |
 | `_write_assessed(normalized, summary, date_str, label)` | Writes pre-assessed day to disk. Returns `bool` |
-| `run_import(path, progress_callback)` | Bulk import orchestration via `garmin_import.load_bulk()`. Returns `{"ok", "skipped", "failed"}` |
+| `run_import(path, progress_callback, stop_event)` | Bulk import orchestration via `garmin_import.load_bulk()`. Returns `{"ok", "skipped", "failed"}` — a day with `quality: "failed"` now counts in `failed`, not `ok` (v1.6.5.8, Fix 3; previously only an actual exception in the loop incremented `failed`). `main()`'s delegated exit code for the import mode (`sys.exit(0 if result["failed"] == 0 else 1)`) follows this count |
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
 | `_run_schema_migration(quality_data)` | Rewrites outdated summary files from raw when `GARMIN_SCHEMA_MIGRATE=1`. No API call. Raw files unchanged. Log output per day `[i/total]` |
 | `_run_source_backfill(client, quality_data)` | Re-fetches API days from `cfg.SYNC_DATES` that have no `source/` file. Step 5c in `main()` — after login, triggered by `GARMIN_SOURCE_BACKFILL=1`. Non-fatal per-day errors. No-op if `SYNC_DATES` empty (v1.6.0.3) |
@@ -465,7 +470,7 @@ Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_
 | `backup_quality_log()` | Creates monthly snapshot of `quality_log.json` as `quality_log_YYYY-MM.zip`. Triggers yearly consolidation |
 | `restore_quality_log()` | Restores from latest valid monthly ZIP. Returns loaded `dict` or `None` |
 | `check_raw_integrity()` | Compares `write=True` quality log entries vs. existing raw files. Returns `{"missing_days", "no_backup", "total_checked", "error"}` — `error` is `None` on success, set if `quality_log.json` itself could not be read (v1.6.5.7, Netz 3 Kandidat 2). Called via `garmin_app_controller.check_integrity()` which sets `GARMIN_OUTPUT_DIR` first |
-| `restore_raw_days(date_strs)` | Restores raw files from backup (dir first, then ZIP). Returns `{"restored", "failed", "errors"}` — `errors` is `dict[str, str]`, one reason per date in `failed` (v1.6.5.7, Netz 3 Kandidat 2) |
+| `restore_raw_days(date_strs)` | Restores raw files from backup (dir first, then ZIP). Returns `{"restored", "skipped_already_current", "failed", "errors"}` — `errors` is `dict[str, str]`, one reason per date in `failed` (v1.6.5.7, Netz 3 Kandidat 2). Own downgrade guard (v1.6.5.8, Fix 2): a date is skipped into `skipped_already_current` if a raw file already exists for it and its `quality_log` entry is already `"high"` — reads `quality_log.json` directly, same pattern as `check_raw_integrity()`, no `garmin_quality` import (this module deliberately has none) |
 | `_consolidate_raw_months(current_month)` | ZIPs completed month dirs, deletes dir after ZIP verified |
 | `_consolidate_log_years(current_year)` | Creates `quality_log_YYYY.zip` for completed years without yearly ZIP |
 | `_zip_contains(zip_path, filename)` | Returns `True` if filename exists in ZIP. Silent on error |

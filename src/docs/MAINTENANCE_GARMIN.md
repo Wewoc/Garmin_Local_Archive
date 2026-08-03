@@ -46,6 +46,17 @@ within the quality package; neither should import the other. If this redundancy 
 a maintenance concern, `garmin_utils.py` is the correct consolidation point (v1.5.5.3
 or later).
 
+**Known scope boundary — no cross-field plausibility check:** the quality system
+checks presence (structural intraday data, `garmin_source_quality.py`) and range
+(value against fixed schema bounds, `garmin_validator.py` `out_of_range`). It does
+not check internal consistency between two values from the same response (e.g.
+finalized resting HR vs. intraday HR minimum). This check class is not relevant for
+the current collection path: GLA is API-first, with bulk import as a documented
+fallback — both paths receive already-finalized values via `garminconnect`. The
+specific failure mode this check class would catch (provisional on-device value
+vs. finalized value) only arises with direct on-device FIT reading, which is out
+of scope.
+
 | Module | Sole write authority |
 |---|---|
 | `garmin_writer.py` | `raw/` and `summary/` |
@@ -122,9 +133,9 @@ python tests/test_local.py
 1. `garmin_config` — ENV parsing, path derivation, constants
 2. `garmin_sync` — all three sync modes, `date_range()`, `get_local_dates()`
 3. `garmin_normalizer` — `normalize()`, `safe_get()`, `_parse_list_values()`, `summarize()`
-4. `garmin_quality` — `high`/`standard`/`failed` labels (v1.5.7), upsert, round-trip, migrations, thread safety, device_id fields
+4. `garmin_quality` — `high`/`standard`/`failed` labels (v1.5.7), upsert, round-trip, migrations, thread safety, device_id fields, field-level parseability guard (F8, v1.6.5.8 — malformed intraday arrays no longer labeled `high`; `field_downgrades` recorded and removed again on clean re-assessment)
 5. `garmin_writer` — `write_day()`, file content, `read_raw()`
-6. `garmin_collector` internals — `_fetch_and_assess()` tuple, `val_result` structure, `set_stop_event()` distribution to `garmin_api` and bilateral clearing (v1.5.6.3)
+6. `garmin_collector` internals — `_fetch_and_assess()` tuple, `val_result` structure, `set_stop_event()` distribution to `garmin_api` and bilateral clearing (v1.5.6.3), `run_import()` quality-failed counting (Fix 3, v1.6.5.8 — `quality: "failed"` days counted in `failed`, not `ok`; tested via mocked `garmin_import.load_bulk()`)
 7. `garmin_validator` — schema load, all issue types, status escalation
 8. `garmin_writer` — `read_raw()` edge cases, `_should_write()`, `_is_stopped()`
 9. `garmin_validator` — schema load, all issue types, status escalation, Fail-Closed when schema absent (v1.5.6.3)
@@ -137,7 +148,7 @@ python tests/test_local.py
 15. `_check_downgrade` — all edge cases
 16. `_run_self_healing` — schema version bump, status improvement
 A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
-B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check
+B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check, own downgrade guard in `restore_raw_days()` (Fix 2, v1.6.5.8 — `skipped_already_current` when an existing file is already at `"high"` quality)
 C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
 C2. `garmin_container` — `unlock_meta`: happy path + wrong password + missing file + non-container + tampered HMAC (10 checks). `fulfill_order`: roundtrip + wrong password + empty order (5 checks). (v1.6.0.4.9.3)
 
@@ -165,13 +176,15 @@ cancelled, own-login reusing an existing client), `progress` callback (messages 
 per endpoint + completion, default no-op backward compatible), `_write_live()` directory
 creation. 29 checks total.
 
-I. `garmin_silo_repair` (v1.6.5.7) — return structure (`ok`/`failed`/`items`),
-empty-`fresh`-dict no-op, category #5 (orphan summary) full round-trip:
-file present → unlinked + `status: "repaired"`, file already gone →
-`status: "gone"`. Deliberately scoped to what's safely testable without
-reading further internals — category #1's remaining edge case and #3/#7
-need a `normalize()`-capable raw-data fixture, both deferred to `v1.6.5.8`
-(Netz 2).
+I. `garmin_silo_repair` (v1.6.5.7, extended v1.6.5.8) — return structure
+(`ok`/`failed`/`items`), empty-`fresh`-dict no-op, category #5 (orphan
+summary) full round-trip: file present → unlinked + `status: "repaired"`,
+file already gone → `status: "gone"`. Category #1's remaining edge case
+(non-empty `raw_without_quality`, silent-skip on a corrupt raw file, true
+error on a failed `_save_quality_log()`) and #3/#7's replay path (against a
+`normalize()`-capable raw-data fixture derived from a real archive file)
+closed in v1.6.5.8 (Netz 2) — see `tests/fixtures_netz2.py` for the fixture
+generators and `NOTES_v1658.md` for the full diagnosis history.
 
 **Netz 3 (v1.6.5.7) — error-visibility regression tests, folded into
 existing sections rather than new ones** (see `CHANGELOG.md` v1.6.5.7 for
