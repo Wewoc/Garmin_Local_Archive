@@ -281,8 +281,21 @@ def run_import(path, progress_callback=None, stop_event=None) -> dict:
                 # (see final _save_quality_log() call below), not per day.
                 quality._save_quality_log(quality_data, skip_backup=True)
 
-                ok += 1
-                log.info(f"  import [{i}]: {date_str} — {label}")
+                # v1.6.5.8, Fix 3 — a day with quality "failed" (deliberately
+                # not written, insufficient data) now counts in "failed", not
+                # "ok". Previously only actual exceptions in this loop
+                # incremented "failed" — a day silently dropped for
+                # insufficient quality still counted as "ok" here even though
+                # quality_log.json already had it correctly as "failed".
+                # main()'s delegated exit code (sys.exit(0 if
+                # result["failed"] == 0 else 1)) now follows this more honest
+                # count — confirmed acceptable, not decoupled.
+                if label == "failed":
+                    failed += 1
+                    log.warning(f"  import [{i}]: {date_str} — quality failed, not written")
+                else:
+                    ok += 1
+                    log.info(f"  import [{i}]: {date_str} — {label}")
 
             except Exception as e:
                 log.error(f"  import [{i}]: {date_str} — error: {e}")

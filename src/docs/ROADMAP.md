@@ -6,57 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.7.1**
-
----
-
-## v1.6.5.8 — Netz 2 — Fixtures + Tests
-
-Split off from `v1.6.5.7` once that arc's Netz 0/1/3/4 work and the
-Silo-Repair-Kern-Extraktion closed as a clean unit — Netz 2 (fixture-based
-headless functional tests) is its own standalone sub-project per
-`KONZEPT_fehlersichtbarkeit_v2.md`'s ordering, not a single-session task.
-Two-step arc — fixtures first, tests second.
-
-**Step 7 — Fixtures:** a mini-archive covering several error states —
-wrong password, corrupt `.gla` container header, missing file, version
-mismatch, an archive with silo inconsistencies, corrupted JSON. Storage
-location and versioning still open — its own Analyse phase at session
-start, before any fixture is built.
-
-**Step 8 — Tests:** headless-runnable functional tests against these
-fixtures. Also closes the test gaps left open by the Silo-Repair-Kern-
-Extraktion in `garmin_silo_repair.py`: #1's remaining edge case
-(`_backfill_quality_log()`'s internal contract was never read), #3/#7
-(both need a `normalize()`-capable raw-data fixture — a direct dependency
-on Step 7).
-
-**Overlap decision with v1.8 (Integration Test Suite) still open:** either
-Netz 2 covers the Health path only and v1.8 extends it to
-FIT/Context/Output, or Netz 2 stays diagnostic and v1.8 owns the fixtures.
-Decide before the first fixture Bauauftrag, not after.
-
-**Carried forward from v1.6.5.7** — per NOTES, not done, still without a
-home:
-
-- P3-03 verification (standalone-parity audit) — open the Dashboard tab
-  and the XLSX preview in the T3.1 build. `NOTES_v1653.md` records only a
-  passing observation from the v1.6.5.3 session, not a targeted test. If
-  both render, close the finding; if not, `--collect-all PyQt6` or a
-  targeted collect is the next step.
-- `os.environ` mutation in worker threads (finding F5, v1.5.6.3) — 13
-  sites, several inside `worker()` (`panel_outputs.py`) and the timer
-  thread (`panel_timer.py`). T3's `_run_module()` shares one `os.environ`
-  across all threads — `garmin_config` reads it at import time. Same
-  silent-in-T3-only family as the `sys.executable` finding that triggered
-  this whole investigation.
-- `app/panel_archive.py` — remove `_clean_archive()` (dead code, no caller
-  project-wide, removable since v1.5.6).
-- `compiler/build_manifest.py` — missing `layouts/render/heatmap.py` entry
-  in `SCRIPT_SIGNATURES_BASE` (the other four render modules have one).
-- `scheduler/daily_update.py` — adopt `crash_handler.install()`
-  (`MAINTENANCE_GLOBAL.md` records this as deliberately deferred since
-  v1.6.5.5, still without a home).
+**Currently stable — v1.6.5.8**
 
 ---
 

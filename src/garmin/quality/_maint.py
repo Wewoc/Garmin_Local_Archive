@@ -118,7 +118,12 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                 entry["device_id"]   = device_id
                 entry["device_name"] = device_name or ""
             if fields is not None:
+                _downgrades = fields.pop("_downgrade_reasons", None)
                 entry["fields"]   = fields
+                if _downgrades:
+                    entry["field_downgrades"] = _downgrades
+                elif "field_downgrades" in entry:
+                    del entry["field_downgrades"]  # re-assessed clean — drop stale marker
             if backfilled_fields is not None:
                 entry["backfilled_fields"] = {**entry.get("backfilled_fields", {}), **backfilled_fields}
             if validator_result is not None:
@@ -161,7 +166,10 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
         "device_name":  device_name or "",
     }
     if fields is not None:
+        _downgrades = fields.pop("_downgrade_reasons", None)
         entry["fields"] = fields
+        if _downgrades:
+            entry["field_downgrades"] = _downgrades
     if backfilled_fields is not None:
         entry["backfilled_fields"] = backfilled_fields
     if validator_result is not None:

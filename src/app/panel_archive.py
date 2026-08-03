@@ -290,14 +290,17 @@ class PanelArchive(QWidget):
         def _do_restore():
             try:
                 import garmin_backup as _backup
-                result   = _backup.restore_raw_days(restorable)
-                restored = result.get("restored", [])
-                failed   = result.get("failed", [])
-                errors   = result.get("errors", {})
-                self._app._log_bg(
-                    f"✓ Restore complete: {len(restored)} restored"
-                    + (f", {len(failed)} failed" if failed else "")
-                )
+                result                  = _backup.restore_raw_days(restorable)
+                restored                = result.get("restored", [])
+                skipped_already_current = result.get("skipped_already_current", [])
+                failed                  = result.get("failed", [])
+                errors                  = result.get("errors", {})
+                msg = f"✓ Restore complete: {len(restored)} restored"
+                if skipped_already_current:
+                    msg += f", {len(skipped_already_current)} already current"
+                if failed:
+                    msg += f", {len(failed)} failed"
+                self._app._log_bg(msg)
                 for date_str in failed[:10]:
                     reason = errors.get(date_str, "unknown reason")
                     self._app._log_bg(f"    ✗ {date_str}: {reason}")
