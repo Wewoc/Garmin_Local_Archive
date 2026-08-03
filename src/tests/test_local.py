@@ -372,6 +372,45 @@ f_fail = quality.assess_quality_fields(raw_fields_failed)
 check("fields failed: heart_rates=failed",        f_fail.get("heart_rates") == "failed")
 check("fields failed: stress=failed",             f_fail.get("stress") == "failed")
 check("fields failed: activities=failed",         f_fail.get("activities") == "failed")
+
+# F8 — malformed intraday arrays (flat list instead of [ts,val] pairs) —
+# array present but not parseable → falls through instead of "high",
+# field_downgrades recorded with a short reason.
+raw_fields_malformed = {
+    "date": "2026-07-27",
+    "heart_rates": {"heartRateValues": [60, 62, 58], "restingHeartRate": 55},
+    "stress":      {"stressValuesArray": [30, 32], "averageStressLevel": 28,
+                    "bodyBatteryValuesArray": [80, 82]},
+    "spo2":        {"spO2HourlyAverages": [97, 98], "averageSpO2": 96},
+    "respiration": {"respirationValuesArray": [14, 15], "avgWakingRespirationValue": 13},
+}
+f_mal = quality.assess_quality_fields(raw_fields_malformed)
+check("f8: heart_rates falls to medium",   f_mal.get("heart_rates") == "medium")
+check("f8: stress falls to medium",        f_mal.get("stress") == "medium")
+check("f8: spo2 falls to medium",          f_mal.get("spo2") == "medium")
+check("f8: respiration falls to medium",   f_mal.get("respiration") == "medium")
+check("f8: body_battery falls to failed",  f_mal.get("body_battery") == "failed")
+check("f8: downgrade reasons recorded",    len(f_mal.get("_downgrade_reasons", {})) == 5)
+
+# Good case unaffected — real [ts,val] pairs still reach "high", no downgrade marker
+f8_good = quality.assess_quality_fields(raw_fields_high)
+check("f8: good case still high",          f8_good.get("heart_rates") == "high")
+check("f8: good case no downgrade marker", "_downgrade_reasons" not in f8_good)
+
+# field_downgrades — stored only when a downgrade actually occurred
+data_f8 = {"first_day": None, "devices": [], "days": []}
+quality._upsert_quality(data_f8, date(2026, 7, 27), "standard", "Quality: standard",
+                        written=True, source="api", fields=f_mal)
+check("f8: field_downgrades stored on new entry",
+      len(data_f8["days"][0].get("field_downgrades", {})) == 5)
+check("f8: fields dict clean, no leaked internal key",
+      "_downgrade_reasons" not in data_f8["days"][0]["fields"])
+
+# Re-assessment with clean data removes the stale marker
+quality._upsert_quality(data_f8, date(2026, 7, 27), "standard", "Quality: standard",
+                        written=True, source="api", fields=f8_good)
+check("f8: stale field_downgrades removed on clean re-assessment",
+      "field_downgrades" not in data_f8["days"][0])
 check("fields failed: steps=failed",              f_fail.get("steps") == "failed")
 
 # _upsert_quality with fields parameter
@@ -919,6 +958,30 @@ check("e2e: read_raw date correct",   read_e2e.get("date") == "2024-07-15")
 check("e2e: read_raw content intact", read_e2e.get("heart_rates", {}).get("restingHeartRate") == 58)
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Fix 3 (v1.6.5.8) — run_import() quality-failed counting
+# ══════════════════════════════════════════════════════════════════════════════
+import garmin_collector as _f3_collector
+import garmin_import as _f3_importer
+from unittest import mock as _mock
+
+def _f3_fake_load_bulk(path):
+    yield {"date": "2026-05-01", "user_summary": {"totalSteps": 8000}, "stats": {"totalSteps": 8000}}
+    yield {"date": "2026-05-02"}  # no usable data at all → quality "failed"
+
+with _mock.patch.object(_f3_importer, "load_bulk", _f3_fake_load_bulk):
+    _f3_result = _f3_collector.run_import("/fake/path/does/not/matter")
+
+check("f3: standard-quality day counted as ok",           _f3_result["ok"] == 1)
+check("f3: quality-failed day counted as failed, not ok", _f3_result["failed"] == 1)
+check("f3: skipped stays 0",                              _f3_result["skipped"] == 0)
+
+_f3_qlog  = quality._load_quality_log()
+_f3_entry = next((e for e in _f3_qlog["days"] if e.get("date") == "2026-05-02"), None)
+check("f3: quality_log entry for failed day exists",  _f3_entry is not None)
+check("f3: quality_log entry quality=failed",         _f3_entry.get("quality") == "failed")
+check("f3: quality_log entry write=False",            _f3_entry.get("write") is False)
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  14. v1.4.3 — VALUE RANGE VALIDATION
 # ══════════════════════════════════════════════════════════════════════════════
 section("14. v1.4.3 — VALUE RANGE VALIDATION")
@@ -1240,6 +1303,278 @@ _il.reload(_cfg_tmp)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  E3. Steps-Backfill — Silo-Async-Zustand (Priorität 2 Punkt 2)
+# ══════════════════════════════════════════════════════════════════════════════
+section("E3. Steps-Backfill — Silo-Async-Zustand (Punkt 2)")
+
+import fixtures_netz2 as fx_netz2
+
+# ── Gutfall: patch_source_field() gelingt ───────────────────────────────────
+_e3_ok_date = (date.today() - _timedelta(days=90)).isoformat()
+_e3_raw_ok  = {"date": _e3_ok_date, "heart_rates": {"heartRateValues": [[0, 60]]}}
+writer.write_day(_e3_raw_ok, normalizer.summarize(_e3_raw_ok), _e3_ok_date)
+fx_netz2.write_source_file(cfg.SOURCE_DIR, _e3_ok_date, dict(_e3_raw_ok))
+
+_qd_e3_ok = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_e3_ok_date),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _e3_ok_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      return_value=(_stb_patched_steps, True)):
+        with patch.object(collector_bf.log, "error") as mock_e3_ok_err:
+            collector_bf._run_steps_backfill(MagicMock(), _qd_e3_ok)
+
+check("silo_async Gutfall: raw/ hat steps",
+      writer.read_raw(_e3_ok_date).get("steps") == _stb_patched_steps)
+_e3_ok_source_after = json.loads(
+    (cfg.SOURCE_DIR / f"garmin_source_{_e3_ok_date}.json").read_text(encoding="utf-8"))
+check("silo_async Gutfall: source/ hat steps",
+      _e3_ok_source_after.get("steps") == _stb_patched_steps)
+check("silo_async Gutfall: kein ERROR-Log",
+      mock_e3_ok_err.call_count == 0)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+# ── Schlechtfall: source/ vorhanden, aber korrupt (JSONDecodeError-Pfad) ────
+_e3_bad_date = (date.today() - _timedelta(days=91)).isoformat()
+_e3_raw_bad  = {"date": _e3_bad_date, "heart_rates": {"heartRateValues": [[0, 61]]}}
+writer.write_day(_e3_raw_bad, normalizer.summarize(_e3_raw_bad), _e3_bad_date)
+fx_netz2.write_corrupt_source_file(cfg.SOURCE_DIR, _e3_bad_date)
+_e3_corrupt_before = (cfg.SOURCE_DIR / f"garmin_source_{_e3_bad_date}.json").read_text(encoding="utf-8")
+
+_qd_e3_bad = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_e3_bad_date),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _e3_bad_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      return_value=(_stb_patched_steps, True)):
+        with patch.object(collector_bf.log, "warning") as mock_e3_bad_warn, \
+             patch.object(collector_bf.log, "error")   as mock_e3_bad_err:
+            collector_bf._run_steps_backfill(MagicMock(), _qd_e3_bad)
+
+check("silo_async Schlechtfall: raw/ hat steps trotz source/-Fehlschlag",
+      writer.read_raw(_e3_bad_date).get("steps") == _stb_patched_steps)
+check("silo_async Schlechtfall: source/ bleibt unverändert (weiterhin korrupt)",
+      (cfg.SOURCE_DIR / f"garmin_source_{_e3_bad_date}.json").read_text(encoding="utf-8")
+      == _e3_corrupt_before)
+check("silo_async Schlechtfall: WARNING beim ersten Fehlschlag ('retrying once')",
+      any("retrying once" in str(c) for c in mock_e3_bad_warn.call_args_list))
+check("silo_async Schlechtfall: ERROR nach Retry-Erschöpfung ('permanently out of sync')",
+      any("permanently out of sync" in str(c) for c in mock_e3_bad_err.call_args_list))
+
+_e3_bad_entry = next(
+    (e for e in _qd_e3_bad["days"] if e.get("date") == _e3_bad_date), None
+)
+check("silo_async Schlechtfall: fields['steps']='high' trotz source/-Fehlschlag",
+      _e3_bad_entry is not None and _e3_bad_entry.get("fields", {}).get("steps") == "high")
+check("silo_async Schlechtfall: backfilled_fields enthält 'steps' trotz source/-Fehlschlag",
+      _e3_bad_entry is not None and "steps" in (_e3_bad_entry.get("backfilled_fields") or {}))
+
+# ── Zweiter Lauf: echter Controller-Kandidatenfilter liefert den Tag nicht erneut ──
+quality._save_quality_log(_qd_e3_bad, skip_backup=True)
+
+_app_dir_e3 = str(Path(__file__).parent.parent / "app")
+if _app_dir_e3 not in sys.path:
+    sys.path.insert(0, _app_dir_e3)
+import garmin_app_controller as controller_e3
+
+_e3_candidates_after = controller_e3.timer_run_steps_backfill({"base_dir": str(_TMPDIR)})
+_e3_still_candidate = (
+    _e3_candidates_after is not None
+    and date.fromisoformat(_e3_bad_date) in _e3_candidates_after
+)
+check("silo_async: Kandidatenfilter liefert den asynchronen Tag nicht erneut (dauerhaft)",
+      not _e3_still_candidate)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  E4. Abbruch-Atomarität — Steps-/Source-Backfill (Priorität 2 Punkt 3)
+# ══════════════════════════════════════════════════════════════════════════════
+section("E4. Abbruch-Atomarität — Steps-/Source-Backfill (Punkt 3)")
+
+# Mechanismus (siehe NETZ2_BEFUND_stop_abort_v1658_02.md): Stop-Event wird als
+# Seiteneffekt des gemockten API-Aufrufs für Tag 1 gesetzt — Tag 1s eigener
+# _is_stopped()-Check liegt zu diesem Zeitpunkt bereits dahinter, läuft also
+# normal durch. Erst der Iterationsstart für Tag 2 sieht das gesetzte Event
+# und bricht davor ab. Tag 3 bleibt dadurch ebenfalls unberührt.
+
+_app_dir_e4 = str(Path(__file__).parent.parent / "app")
+if _app_dir_e4 not in sys.path:
+    sys.path.insert(0, _app_dir_e4)
+import garmin_app_controller as controller_e4
+
+# ── E4a. Steps-Backfill ──────────────────────────────────────────────────────
+_e4stb_d1 = (date.today() - _timedelta(days=102)).isoformat()
+_e4stb_d2 = (date.today() - _timedelta(days=101)).isoformat()
+_e4stb_d3 = (date.today() - _timedelta(days=100)).isoformat()
+_e4stb_sync = f"{_e4stb_d1},{_e4stb_d2},{_e4stb_d3}"
+
+for _d in (_e4stb_d1, _e4stb_d2, _e4stb_d3):
+    _e4stb_raw = {"date": _d, "heart_rates": {"heartRateValues": [[0, 60]]}}
+    writer.write_day(_e4stb_raw, normalizer.summarize(_e4stb_raw), _d)
+
+_qd_e4stb = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_e4stb_d1),
+    _make_api_entry(_e4stb_d2),
+    _make_api_entry(_e4stb_d3),
+]}
+_e4stb_entry_d2_before = json.loads(json.dumps(
+    next(e for e in _qd_e4stb["days"] if e["date"] == _e4stb_d2)))
+_e4stb_entry_d3_before = json.loads(json.dumps(
+    next(e for e in _qd_e4stb["days"] if e["date"] == _e4stb_d3)))
+
+_e4stb_stop_ev = _threading.Event()
+
+def _e4stb_side_effect(client, method, date_str, label=None):
+    if date_str == _e4stb_d1:
+        _e4stb_stop_ev.set()
+    return (_stb_patched_steps, True)
+
+collector_bf.set_stop_event(_e4stb_stop_ev)
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _e4stb_sync}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      side_effect=_e4stb_side_effect):
+        collector_bf._run_steps_backfill(MagicMock(), _qd_e4stb)
+collector_bf.set_stop_event(None)
+
+check("abort steps: Tag 1 vollständig — raw/ hat steps",
+      writer.read_raw(_e4stb_d1).get("steps") == _stb_patched_steps)
+check("abort steps: Tag 2 (Abbruchpunkt) — raw/ unverändert",
+      writer.read_raw(_e4stb_d2).get("steps") is None)
+check("abort steps: Tag 3 — raw/ unverändert",
+      writer.read_raw(_e4stb_d3).get("steps") is None)
+
+_e4stb_entry_d2_after = next(e for e in _qd_e4stb["days"] if e["date"] == _e4stb_d2)
+_e4stb_entry_d3_after = next(e for e in _qd_e4stb["days"] if e["date"] == _e4stb_d3)
+check("abort steps: Tag 2 quality_log-Eintrag byte-identisch zum Ausgangszustand",
+      _e4stb_entry_d2_after == _e4stb_entry_d2_before)
+check("abort steps: Tag 3 quality_log-Eintrag byte-identisch zum Ausgangszustand",
+      _e4stb_entry_d3_after == _e4stb_entry_d3_before)
+
+try:
+    json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
+    check("abort steps: quality_log.json nach Abbruch valide (kein Parse-Fehler)", True)
+except Exception:
+    check("abort steps: quality_log.json nach Abbruch valide (kein Parse-Fehler)", False)
+
+# ── zweiter, ungestörter Lauf — echter Controller-Kandidatenfilter ──────────
+_e4stb_candidates = controller_e4.timer_run_steps_backfill({"base_dir": str(_TMPDIR)})
+check("abort steps: Lauf 2 — Kandidatenliste enthält genau die zwei verbliebenen Tage",
+      _e4stb_candidates is not None and
+      set(_e4stb_candidates) == {date.fromisoformat(_e4stb_d2), date.fromisoformat(_e4stb_d3)})
+
+_e4stb_sync2 = ",".join(d.isoformat() for d in (_e4stb_candidates or []))
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _e4stb_sync2}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      return_value=(_stb_patched_steps, True)):
+        collector_bf._run_steps_backfill(MagicMock(), _qd_e4stb)
+
+check("abort steps: Lauf 2 — Tag 2 nachgeholt",
+      writer.read_raw(_e4stb_d2).get("steps") == _stb_patched_steps)
+check("abort steps: Lauf 2 — Tag 3 nachgeholt",
+      writer.read_raw(_e4stb_d3).get("steps") == _stb_patched_steps)
+
+quality._save_quality_log(_qd_e4stb, skip_backup=True)
+_e4stb_candidates_final = controller_e4.timer_run_steps_backfill({"base_dir": str(_TMPDIR)})
+check("abort steps: Lauf 2 — Kandidatenliste danach leer",
+      _e4stb_candidates_final is None)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+# ── E4b. Source-Backfill ─────────────────────────────────────────────────────
+_e4src_d1 = (date.today() - _timedelta(days=112)).isoformat()
+_e4src_d2 = (date.today() - _timedelta(days=111)).isoformat()
+_e4src_d3 = (date.today() - _timedelta(days=110)).isoformat()
+_e4src_sync = f"{_e4src_d1},{_e4src_d2},{_e4src_d3}"
+
+_qd_e4src = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_e4src_d1),
+    _make_api_entry(_e4src_d2),
+    _make_api_entry(_e4src_d3),
+]}
+_e4src_entry_d2_before = json.loads(json.dumps(
+    next(e for e in _qd_e4src["days"] if e["date"] == _e4src_d2)))
+_e4src_entry_d3_before = json.loads(json.dumps(
+    next(e for e in _qd_e4src["days"] if e["date"] == _e4src_d3)))
+
+_e4src_stop_ev = _threading.Event()
+
+def _e4src_fetch_raw_side_effect(client, date_str):
+    _e4src_raw = {"date": date_str, "heart_rates": {"heartRateValues": [[0, 60], [60000, 62]]}}
+    if date_str == _e4src_d1:
+        _e4src_stop_ev.set()
+    return _e4src_raw, []
+
+collector_bf.set_stop_event(_e4src_stop_ev)
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _e4src_sync}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "fetch_raw",
+                      side_effect=_e4src_fetch_raw_side_effect):
+        collector_bf._run_source_backfill(MagicMock(), _qd_e4src)
+collector_bf.set_stop_event(None)
+
+check("abort source: Tag 1 vollständig — source/ geschrieben",
+      (cfg.SOURCE_DIR / f"garmin_source_{_e4src_d1}.json").exists())
+check("abort source: Tag 2 (Abbruchpunkt) — source/ NICHT geschrieben",
+      not (cfg.SOURCE_DIR / f"garmin_source_{_e4src_d2}.json").exists())
+check("abort source: Tag 3 — source/ NICHT geschrieben",
+      not (cfg.SOURCE_DIR / f"garmin_source_{_e4src_d3}.json").exists())
+
+_e4src_entry_d2_after = next(e for e in _qd_e4src["days"] if e["date"] == _e4src_d2)
+_e4src_entry_d3_after = next(e for e in _qd_e4src["days"] if e["date"] == _e4src_d3)
+check("abort source: Tag 2 quality_log-Eintrag byte-identisch zum Ausgangszustand",
+      _e4src_entry_d2_after == _e4src_entry_d2_before)
+check("abort source: Tag 3 quality_log-Eintrag byte-identisch zum Ausgangszustand",
+      _e4src_entry_d3_after == _e4src_entry_d3_before)
+
+try:
+    json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
+    check("abort source: quality_log.json nach Abbruch valide (kein Parse-Fehler)", True)
+except Exception:
+    check("abort source: quality_log.json nach Abbruch valide (kein Parse-Fehler)", False)
+
+# ── zweiter, ungestörter Lauf ────────────────────────────────────────────────
+_e4src_candidates = controller_e4.timer_run_source_backfill({"base_dir": str(_TMPDIR)})
+check("abort source: Lauf 2 — Kandidatenliste enthält genau die zwei verbliebenen Tage",
+      _e4src_candidates is not None and
+      set(_e4src_candidates) == {date.fromisoformat(_e4src_d2), date.fromisoformat(_e4src_d3)})
+
+def _e4src_fetch_raw_undisturbed(client, date_str):
+    return {"date": date_str, "heart_rates": {"heartRateValues": [[0, 60], [60000, 62]]}}, []
+
+_e4src_sync2 = ",".join(d.isoformat() for d in (_e4src_candidates or []))
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _e4src_sync2}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "fetch_raw",
+                      side_effect=_e4src_fetch_raw_undisturbed):
+        collector_bf._run_source_backfill(MagicMock(), _qd_e4src)
+
+check("abort source: Lauf 2 — Tag 2 nachgeholt",
+      (cfg.SOURCE_DIR / f"garmin_source_{_e4src_d2}.json").exists())
+check("abort source: Lauf 2 — Tag 3 nachgeholt",
+      (cfg.SOURCE_DIR / f"garmin_source_{_e4src_d3}.json").exists())
+
+quality._save_quality_log(_qd_e4src, skip_backup=True)
+_e4src_candidates_final = controller_e4.timer_run_source_backfill({"base_dir": str(_TMPDIR)})
+check("abort source: Lauf 2 — Kandidatenliste danach leer",
+      _e4src_candidates_final is None)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  16. _run_self_healing
 # ══════════════════════════════════════════════════════════════════════════════
 section("16. _run_self_healing")
@@ -1518,6 +1853,53 @@ check("restore_raw_days: from dir → restored",
       _missing_date in _restore_result2.get("restored", []))
 check("restore_raw_days: file exists after restore",
       (cfg.RAW_DIR / f"garmin_raw_{_missing_date}.json").exists())
+
+# Fix 2 — Gutfall: file exists but quality is "standard" (not "high") →
+# guard does NOT block, restore proceeds as before.
+_restore_std_date = "2024-06-15"
+_qlog_std = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        {"date": _restore_std_date, "quality": "standard", "reason": "ok",
+         "write": True, "source": "api", "recheck": False,
+         "attempts": 0, "last_checked": _restore_std_date, "last_attempt": None, "fields": {}}
+    ]
+}
+quality_bsec._save_quality_log(_qlog_std, skip_backup=True)
+(cfg.RAW_DIR / f"garmin_raw_{_restore_std_date}.json").write_text(
+    json.dumps({"date": _restore_std_date, "stale": True}), encoding="utf-8")
+_restore_std_month_dir = cfg.RAW_BACKUP_DIR / "2024-06"
+(_restore_std_month_dir / f"garmin_raw_{_restore_std_date}.json").write_text(
+    json.dumps({"date": _restore_std_date, "from_backup": True}), encoding="utf-8")
+_restore_std_result = backup.restore_raw_days([_restore_std_date])
+check("f2: standard quality does not block restore",
+      _restore_std_date in _restore_std_result.get("restored", []))
+check("f2: standard quality — file overwritten from backup",
+      json.loads((cfg.RAW_DIR / f"garmin_raw_{_restore_std_date}.json").read_text()).get("from_backup") is True)
+
+# Fix 2 — Schlechtfall: file exists AND quality is "high" → guard blocks,
+# restore is skipped, existing file untouched.
+_restore_high_date = "2024-06-20"
+_qlog_high = {
+    "first_day": "2024-01-01", "devices": [], "days": [
+        {"date": _restore_high_date, "quality": "high", "reason": "ok",
+         "write": True, "source": "api", "recheck": False,
+         "attempts": 0, "last_checked": _restore_high_date, "last_attempt": None, "fields": {}}
+    ]
+}
+quality_bsec._save_quality_log(_qlog_high, skip_backup=True)
+(cfg.RAW_DIR / f"garmin_raw_{_restore_high_date}.json").write_text(
+    json.dumps({"date": _restore_high_date, "current": True}), encoding="utf-8")
+_restore_high_month_dir = cfg.RAW_BACKUP_DIR / "2024-06"
+(_restore_high_month_dir / f"garmin_raw_{_restore_high_date}.json").write_text(
+    json.dumps({"date": _restore_high_date, "from_backup": True}), encoding="utf-8")
+_restore_high_result = backup.restore_raw_days([_restore_high_date])
+check("f2: high quality blocks restore",
+      _restore_high_date in _restore_high_result.get("skipped_already_current", []))
+check("f2: high quality — file not overwritten",
+      json.loads((cfg.RAW_DIR / f"garmin_raw_{_restore_high_date}.json").read_text()).get("current") is True)
+check("f2: high quality — not counted as restored or failed",
+      _restore_high_date not in _restore_high_result.get("restored", []) and
+      _restore_high_date not in _restore_high_result.get("failed", []))
 
 # check_raw_backfill_needed — alle bestehenden Raw-Dateien zuerst sichern
 # damit der Zähler auf 0 steht, dann neue Datei hinzufügen
@@ -2062,6 +2444,44 @@ check("run_import_mirror: unknown source → error mentions path",
 
 shutil.rmtree(_c4_base, ignore_errors=True)
 
+# C4f — run_import_mirror: gla_version im Container weicht von APP_VERSION
+# ab → version_warning enthält beide Versionsnummern, ok bleibt
+# unbeeinflusst (v1.6.5.8, Netz 2 Priorität 1 — Mirror-Versions-Ergänzung).
+# Container wird mit einer abweichenden gestubten APP_VERSION gepackt,
+# dann vor dem Import auf den regulären Stub-Wert zurückgesetzt — der
+# Mismatch muss aus dem Container kommen, nicht aus einer noch gepatchten
+# lokalen Version.
+_c4f_orig_version = _ver_stub.APP_VERSION
+_ver_stub.APP_VERSION = "9.9.9"
+
+_c4f_parent = Path(tempfile.mkdtemp(prefix="garmin_c4f_"))
+_c4f_gla    = _c4f_parent / "mirror_c4f.gla"
+_c4f_src    = Path(tempfile.mkdtemp(prefix="garmin_c4f_src_"))
+(_c4f_src / "garmin_data" / "log").mkdir(parents=True)
+(_c4f_src / "garmin_data" / "log" / "quality_log.json").write_text(
+    _json.dumps({"days": []}), encoding="utf-8"
+)
+mirror.run_mirror(_c4f_src, _c4f_gla, "pw")
+
+_ver_stub.APP_VERSION = _c4f_orig_version
+
+_c4f_base = Path(tempfile.mkdtemp(prefix="garmin_c4f_base_"))
+_c4f_result = _import_mirror.run_import_mirror(
+    mirror_path=_c4f_gla, base_dir=_c4f_base, password="pw", dry_run=True,
+)
+check("run_import_mirror: version mismatch → ok=True (import proceeds anyway)",
+      _c4f_result["ok"] == True)
+check("run_import_mirror: version mismatch → version_warning present",
+      bool(_c4f_result.get("version_warning")))
+check("run_import_mirror: version mismatch → warning contains container version",
+      "9.9.9" in _c4f_result.get("version_warning", ""))
+check("run_import_mirror: version mismatch → warning contains local version",
+      _c4f_orig_version in _c4f_result.get("version_warning", ""))
+
+shutil.rmtree(_c4f_src,    ignore_errors=True)
+shutil.rmtree(_c4f_parent, ignore_errors=True)
+shutil.rmtree(_c4f_base,   ignore_errors=True)
+
 # Aufräumen C4
 shutil.rmtree(_c4_src,       ignore_errors=True)
 shutil.rmtree(_c4_parent,    ignore_errors=True)
@@ -2541,6 +2961,181 @@ check("silo_repair: #5 already-gone → ok=0",
       _sr5b_result["ok"] == 0)
 check("silo_repair: #5 already-gone → failed=0",
       _sr5b_result["failed"] == 0)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  I2. garmin_silo_repair — Netz 2 Priorität 1 (v1.6.5.8)
+#      Testlücken #1/#3/#7 — isolierter Tmpdir, analog dem Section-G-Muster
+#      (silo_check "clean silo"-Isolation) — vermeidet Kontamination durch
+#      raw/-Dateien anderer Sektionen (z. B. Section 5, PIPELINE_E2E), die
+#      ohne quality_log-Eintrag im gemeinsamen _TMPDIR liegen bleiben und
+#      #1s exakte ok==N-Erwartung sonst verfälschen würden.
+# ══════════════════════════════════════════════════════════════════════════════
+section("I2. garmin_silo_repair — Netz 2 Priorität 1 (v1.6.5.8)")
+import fixtures_netz2 as fx
+
+_i2_orig_env = os.environ["GARMIN_OUTPUT_DIR"]
+_i2_dir      = Path(tempfile.mkdtemp(prefix="garmin_i2_"))
+os.environ["GARMIN_OUTPUT_DIR"] = str(_i2_dir)
+importlib.reload(cfg)
+importlib.reload(silo_repair)
+
+_i2_empty_fresh = {
+    "raw_without_quality": [], "source_without_raw": [],
+    "summary_without_raw": [], "raw_without_summary": [],
+}
+
+# ── #1a: Gutfall — N valide Raw-Dateien ohne quality_log-Eintrag ────────────
+_i2_dates = ["2025-01-10", "2025-01-11", "2025-01-12"]
+for _d in _i2_dates:
+    fx.write_raw_file(cfg.RAW_DIR, _d)
+
+_i2_1a_fresh  = {**_i2_empty_fresh,
+                 "raw_without_quality": [date.fromisoformat(_d) for _d in _i2_dates]}
+_i2_1a_result = silo_repair.repair_silos(_i2_1a_fresh)
+
+check("silo_repair: #1 gutfall → ok == N",
+      _i2_1a_result["ok"] == len(_i2_dates))
+check("silo_repair: #1 gutfall → failed == 0",
+      _i2_1a_result["failed"] == 0)
+check("silo_repair: #1 gutfall → item[0] == erwartete Struktur",
+      _i2_1a_result["items"][0] == {"category": "1", "date": None,
+                                     "status": "backfilled", "count": len(_i2_dates)})
+
+for _d in _i2_dates:
+    (cfg.RAW_DIR / f"garmin_raw_{_d}.json").unlink(missing_ok=True)
+
+# ── #1b: Schlechtfall A — eine korrupte Raw-Datei zusätzlich zu validen ─────
+# _backfill_quality_log() fängt (OSError, JSONDecodeError) intern mit pass
+# ab — kein Fehler in repair_silos(), added-Count einfach niedriger
+# (stilles Skip-Verhalten, kein Bug — siehe NOTES_v1658.md).
+_i2_1b_valid = ["2025-02-10", "2025-02-11"]
+for _d in _i2_1b_valid:
+    fx.write_raw_file(cfg.RAW_DIR, _d)
+fx.write_corrupt_raw_file(cfg.RAW_DIR, "2025-02-12")
+
+_i2_1b_fresh  = {**_i2_empty_fresh, "raw_without_quality": [date(2025, 2, 10)]}
+_i2_1b_result = silo_repair.repair_silos(_i2_1b_fresh)
+
+check("silo_repair: #1 schlechtfall A → kein Fehler trotz kaputter Datei",
+      _i2_1b_result["failed"] == 0)
+check("silo_repair: #1 schlechtfall A → nur valide Dateien gezählt",
+      _i2_1b_result["items"][0]["count"] == len(_i2_1b_valid))
+
+for _d in _i2_1b_valid:
+    (cfg.RAW_DIR / f"garmin_raw_{_d}.json").unlink(missing_ok=True)
+(cfg.RAW_DIR / "garmin_raw_2025-02-12.json").unlink(missing_ok=True)
+
+# ── #1c: Schlechtfall B — _save_quality_log() schlägt fehl ─────────────────
+# Einziger Pfad, der für Kategorie #1 tatsächlich in repair_silos()s
+# eigenem except Exception landet (siehe NOTES_v1658.md).
+fx.write_raw_file(cfg.RAW_DIR, "2025-03-10")
+_i2_1c_fresh = {**_i2_empty_fresh, "raw_without_quality": [date(2025, 3, 10)]}
+
+with patch.object(silo_repair.quality, "_save_quality_log",
+                  side_effect=OSError("disk full (simuliert)")):
+    _i2_1c_result = silo_repair.repair_silos(_i2_1c_fresh)
+
+check("silo_repair: #1 schlechtfall B → failed=1",
+      _i2_1c_result["failed"] == 1)
+check("silo_repair: #1 schlechtfall B → item status=error",
+      _i2_1c_result["items"][0]["status"] == "error")
+check("silo_repair: #1 schlechtfall B → item category=1",
+      _i2_1c_result["items"][0]["category"] == "1")
+check("silo_repair: #1 schlechtfall B → reason gesetzt",
+      bool(_i2_1c_result["items"][0].get("reason")))
+
+(cfg.RAW_DIR / "garmin_raw_2025-03-10.json").unlink(missing_ok=True)
+
+# ── #3a: Gutfall — source_without_raw, valide heartRateValues ──────────────
+_i2_3a_date = "2025-04-01"
+fx.write_source_file(cfg.SOURCE_DIR, _i2_3a_date, fx.source_raw_good(_i2_3a_date))
+
+_i2_3a_fresh  = {**_i2_empty_fresh, "source_without_raw": [date.fromisoformat(_i2_3a_date)]}
+_i2_3a_result = silo_repair.repair_silos(_i2_3a_fresh)
+
+check("silo_repair: #3 gutfall → ok=1",
+      _i2_3a_result["ok"] == 1)
+check("silo_repair: #3 gutfall → item category=3",
+      _i2_3a_result["items"][0]["category"] == "3")
+check("silo_repair: #3 gutfall → item status=repaired",
+      _i2_3a_result["items"][0]["status"] == "repaired")
+check("silo_repair: #3 gutfall → item label=high",
+      _i2_3a_result["items"][0]["label"] == "high")
+check("silo_repair: #3 gutfall → raw-Datei geschrieben",
+      (cfg.RAW_DIR / f"garmin_raw_{_i2_3a_date}.json").exists())
+
+_i2_3a_summary = json.loads((cfg.SUMMARY_DIR / f"garmin_{_i2_3a_date}.json").read_text())
+check("silo_repair: #3 gutfall → avg_bpm korrekt berechnet",
+      _i2_3a_summary["heartrate"]["avg_bpm"] is not None)
+
+_i2_3a_qdata = quality._load_quality_log()
+_i2_3a_entry = next((e for e in _i2_3a_qdata["days"] if e["date"] == _i2_3a_date), None)
+check("silo_repair: #3 gutfall → quality_log Eintrag vorhanden, Label high",
+      _i2_3a_entry is not None and _i2_3a_entry.get("quality") == "high")
+
+# ── #3b: Schlechtfall — heartRateValues strukturell falsch geformt (F8) ────
+# Dokumentiert den AKTUELLEN Ist-Zustand — repaired, Label high, avg_bpm
+# null. Bekannter Fund F8, siehe NOTES_v1658.md — kein korrigierter
+# Erwartungswert, da sonst Test von Anfang an rot. Nicht als akzeptables
+# Verhalten misszuverstehen.
+_i2_3b_date = "2025-04-02"
+fx.write_source_file(cfg.SOURCE_DIR, _i2_3b_date, fx.source_raw_malformed_heartrate(_i2_3b_date))
+
+_i2_3b_fresh  = {**_i2_empty_fresh, "source_without_raw": [date.fromisoformat(_i2_3b_date)]}
+_i2_3b_result = silo_repair.repair_silos(_i2_3b_fresh)
+
+check("silo_repair: #3 schlechtfall (F8) → ok=1 (kein Crash)",
+      _i2_3b_result["ok"] == 1)
+check("silo_repair: #3 schlechtfall (F8) → item status=repaired (kein error)",
+      _i2_3b_result["items"][0]["status"] == "repaired")
+check("silo_repair: #3 schlechtfall (F8) → item label=high trotz kaputtem Inhalt",
+      _i2_3b_result["items"][0]["label"] == "high")
+
+_i2_3b_summary = json.loads((cfg.SUMMARY_DIR / f"garmin_{_i2_3b_date}.json").read_text())
+check("silo_repair: #3 schlechtfall (F8) → avg_bpm ist null (bekannt, nicht behoben)",
+      _i2_3b_summary["heartrate"]["avg_bpm"] is None)
+check("silo_repair: #3 schlechtfall (F8) → resting_bpm bleibt korrekt (separates Feld)",
+      _i2_3b_summary["heartrate"]["resting_bpm"] == 55)
+
+# ── #7a: Gutfall — raw_without_summary ──────────────────────────────────────
+_i2_7a_date = "2025-05-01"
+fx.write_raw_file(cfg.RAW_DIR, _i2_7a_date)
+
+_i2_7a_fresh  = {**_i2_empty_fresh, "raw_without_summary": [date.fromisoformat(_i2_7a_date)]}
+_i2_7a_result = silo_repair.repair_silos(_i2_7a_fresh)
+
+check("silo_repair: #7 gutfall → ok=1",
+      _i2_7a_result["ok"] == 1)
+check("silo_repair: #7 gutfall → item category=7",
+      _i2_7a_result["items"][0]["category"] == "7")
+check("silo_repair: #7 gutfall → item status=repaired",
+      _i2_7a_result["items"][0]["status"] == "repaired")
+check("silo_repair: #7 gutfall → summary-Datei geschrieben",
+      (cfg.SUMMARY_DIR / f"garmin_{_i2_7a_date}.json").exists())
+
+# ── #7b: Schlechtfall — raw ohne 'date'-Feld ────────────────────────────────
+_i2_7b_date = "2025-05-02"
+fx.write_raw_file(cfg.RAW_DIR, _i2_7b_date, fx.raw_without_date_field())
+
+_i2_7b_fresh  = {**_i2_empty_fresh, "raw_without_summary": [date.fromisoformat(_i2_7b_date)]}
+_i2_7b_result = silo_repair.repair_silos(_i2_7b_fresh)
+
+check("silo_repair: #7 schlechtfall → ok=1 (kein Crash trotz fehlendem date)",
+      _i2_7b_result["ok"] == 1)
+check("silo_repair: #7 schlechtfall → item status=repaired",
+      _i2_7b_result["items"][0]["status"] == "repaired")
+check("silo_repair: #7 schlechtfall → Dateiname kommt aus dem Finding, nicht aus dem Inhalt",
+      (cfg.SUMMARY_DIR / f"garmin_{_i2_7b_date}.json").exists())
+
+_i2_7b_summary = json.loads((cfg.SUMMARY_DIR / f"garmin_{_i2_7b_date}.json").read_text())
+check("silo_repair: #7 schlechtfall → summary['date'] ist null",
+      _i2_7b_summary.get("date") is None)
+
+# ── Aufräumen I2 — isolierte Umgebung zurücksetzen ──────────────────────────
+os.environ["GARMIN_OUTPUT_DIR"] = _i2_orig_env
+importlib.reload(cfg)
+importlib.reload(silo_repair)
+shutil.rmtree(_i2_dir, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results

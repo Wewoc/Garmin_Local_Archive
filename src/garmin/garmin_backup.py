@@ -320,22 +320,55 @@ def restore_raw_days(date_strs: list[str]) -> dict:
     Restores raw files for the given date strings from backup.
     Tries open month directory first, then monthly ZIP.
 
+    Own downgrade guard (v1.6.5.8, Fix 2): if a raw file already exists for
+    a date AND its quality_log entry is already "high" — the best tier a
+    day can have — the restore is skipped for that date. A backup copy
+    cannot improve on "high"; the protection previously observed here was
+    only a side effect of write_day() -> backup_raw() timing, not a
+    guarantee of its own. Restore Data's original purpose — filling in a
+    genuinely missing file — is unaffected; this only catches the case
+    where the file has since reappeared at the best possible quality.
+    Reads quality_log.json directly (same pattern as check_raw_integrity())
+    rather than importing garmin_quality — avoids the circular import this
+    module deliberately does not have. Best-effort: if the log can't be
+    read, no date is treated as "already high" and every date proceeds
+    through the normal restore path below.
+
     Returns dict:
-      restored  list[str]      — dates successfully restored
-      failed    list[str]      — dates where restore failed (no backup or error)
-      errors    dict[str, str] — date → reason, one entry per date in 'failed'
+      restored                list[str]      — dates successfully restored
+      skipped_already_current list[str]      — dates skipped: file already
+                                                present at "high" quality
+      failed                  list[str]      — dates where restore failed (no backup or error)
+      errors                  dict[str, str] — date → reason, one entry per date in 'failed'
     """
-    restored = []
-    failed   = []
-    errors   = {}
+    restored                 = []
+    skipped_already_current  = []
+    failed                   = []
+    errors                   = {}
 
     cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+
+    _quality_by_date = {}
+    try:
+        _qlog = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
+        _quality_by_date = {
+            e.get("date"): e.get("quality")
+            for e in _qlog.get("days", []) if e.get("date")
+        }
+    except Exception as e:
+        log.warning(f"  restore_raw_days: could not read quality_log for downgrade guard: {e}")
 
     for date_str in date_strs:
         month      = date_str[:7]
         filename   = f"garmin_raw_{date_str}.json"
         dst        = cfg.RAW_DIR / filename
         last_error = None
+
+        # Own downgrade guard — file already present at the best quality tier.
+        if dst.exists() and _quality_by_date.get(date_str) == "high":
+            skipped_already_current.append(date_str)
+            log.info(f"  restore_raw: {date_str} — already present at high quality, skipped")
+            continue
 
         # 1. Try open month directory
         dir_src = cfg.RAW_BACKUP_DIR / month / filename
@@ -367,7 +400,8 @@ def restore_raw_days(date_strs: list[str]) -> dict:
         errors[date_str] = last_error or "no backup found"
         log.warning(f"  restore_raw: no backup found for {date_str}")
 
-    return {"restored": restored, "failed": failed, "errors": errors}
+    return {"restored": restored, "skipped_already_current": skipped_already_current,
+            "failed": failed, "errors": errors}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
