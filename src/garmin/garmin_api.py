@@ -66,6 +66,33 @@ def _is_stopped() -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Login helpers (v1.6.5.9)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _is_mfa_no_callback_error(e: Exception) -> bool:
+    """True if e is garminconnect's exact 'MFA required but no prompt_mfa
+    mechanism supplied' failure — raised by resolve_mfa() in client.py when
+    prompt_mfa is falsy and every login strategy ends up requiring MFA.
+    Extracted as its own function (rather than an inline substring check
+    in login()'s except-block) so the detection logic is unit-testable
+    with a synthetic exception, without mocking a real Garmin() client."""
+    return "MFA Required but no prompt_mfa mechanism supplied" in str(e)
+
+
+def _cause_fields(e: Exception) -> dict:
+    """Best-effort extraction of the chained root cause (e.__cause__) for
+    log_token_event()'s optional extra fields. Returns {} if no cause is
+    present. garminconnect sometimes masks the real failure behind a
+    generic wrapper message (e.g. _load_profile_and_settings()'s "Failed
+    to retrieve social profile" after 3 retries, raised via "from e") — the
+    chained cause often holds the actual reason."""
+    cause = e.__cause__
+    if cause is None:
+        return {}
+    return {"cause_type": type(cause).__name__, "cause_detail": str(cause)[:100]}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Login
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -138,12 +165,14 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
             if isinstance(e, GarminConnectTooManyRequestsError) or "429" in err or "403" in err:
                 log.warning(f"  Token probe failed ({err[:60]}) — not falling back to SSO to protect IP")
                 garmin_security.log_token_event("blocked", "rate_limited",
-                                                 exception_type=type(e).__name__, detail=err[:100])
+                                                 exception_type=type(e).__name__, detail=err[:100],
+                                                 **_cause_fields(e))
                 garmin_security._clear_token_dir()
                 raise GarminLoginError(f"Token probe failed: {err}")
             log.warning(f"  Saved token rejected by Garmin — token expired ({type(e).__name__}: {e})")
             garmin_security.log_token_event("invalidated", "rejected_by_garmin",
-                                             exception_type=type(e).__name__, detail=str(e)[:100])
+                                             exception_type=type(e).__name__, detail=str(e)[:100],
+                                             **_cause_fields(e))
             garmin_security._clear_token_dir()
             garmin_security.clear_token()
 
@@ -161,6 +190,16 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
             log.info("  SSO login cancelled by user")
             return None
 
+    # ── Path 3 headless guard — unresolved MFA block (v1.6.5.9) ───────────────
+    # Only applies when no interactive MFA callback is available — an
+    # interactive caller (on_mfa_required set) can resolve MFA itself and
+    # is exactly how the block gets cleared (a real created/sso_login event).
+    if on_mfa_required is None and garmin_security.has_unresolved_mfa_block():
+        log.error("  SSO blocked — unresolved MFA flag in token log. "
+                  "Run Test Connection in the GUI to resolve.")
+        raise GarminLoginError(
+            "SSO blocked: unresolved MFA flag — run Test Connection in the GUI first")
+
     if garmin_security.get_enc_key() is None:
         if not garmin_security.generate_enc_key():
             log.warning("  Auto-generate enc_key failed — falling back to manual entry")
@@ -170,9 +209,24 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
                     log.warning("  Manually entered enc_key could not be stored in WCM — "
                                 "token save will likely fail")
 
+    def _logged_mfa_prompt():
+        """Wraps on_mfa_required to log the MFA event with its outcome,
+        without changing the callback contract (str | None still returned).
+        try/finally so a crash inside the callback itself is still logged
+        as a presented challenge (v1.6.5.9)."""
+        mfa_code = None
+        try:
+            mfa_code = on_mfa_required()
+            return mfa_code
+        finally:
+            garmin_security.log_token_event(
+                "mfa", "challenge_presented",
+                solved="yes" if mfa_code else "no")
+
     try:
         cfg.GARMIN_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-        client = Garmin(cfg.GARMIN_EMAIL, cfg.GARMIN_PASSWORD, prompt_mfa=on_mfa_required)
+        client = Garmin(cfg.GARMIN_EMAIL, cfg.GARMIN_PASSWORD,
+                         prompt_mfa=_logged_mfa_prompt if on_mfa_required else None)
         client.login(str(cfg.GARMIN_TOKEN_DIR))
 
         log.info("  ✓ Login successful (SSO)")
@@ -184,6 +238,11 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
     except GarminLoginError:
         raise
     except Exception as e:
+        if _is_mfa_no_callback_error(e):
+            garmin_security.log_token_event("blocked", "mfa_required_no_callback")
+            log.error("  Login failed: MFA required, no interactive callback available")
+            raise GarminLoginError(
+                "MFA required — no interactive callback available") from e
         log.error(f"Login failed: {e}")
         raise GarminLoginError(f"Login failed: {e}") from e
 

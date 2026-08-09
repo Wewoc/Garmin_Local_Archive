@@ -1,5 +1,73 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.9 — Headless Login Hardening
+
+Closes the deferred `skip_strategies`/retry-lock item from `v1.6.5.2`'s
+token-lifecycle analysis — reframed after reading the actual
+`garminconnect` source: headless callers (`garmin_collector.py`'s
+subprocess and Daily Sync paths) never had an interactive MFA callback to
+begin with, so the real risk was a doomed automatic SSO retry on every
+subsequent run once an account requires MFA. Fixed with a token-log-based
+marker instead of a generic failure counter, plus GUI-side MFA observation
+and richer rejection-cause logging found along the way.
+
+**Changed modules:**
+- `garmin/garmin_security.py` — new `has_unresolved_mfa_block()`,
+  read-side counterpart to `log_token_event()`. Fail-open: unreadable or
+  malformed `garmin_token_log.json` → `False` (no block). Scans events
+  newest-first; `blocked`/`mfa_required_no_callback` blocks further
+  headless SSO until a `created`/`sso_login` event (necessarily
+  interactive) appears after it. Deliberately not cleared by
+  `clear_token()`/manual reset — a deleted token says nothing about
+  whether the MFA problem itself is resolved.
+- `garmin/garmin_api.py` — `login()`: new guard before Path 3, active
+  only when `on_mfa_required is None` (covers both the headless Daily
+  Sync path and the GUI's own background sync subprocess — neither has
+  ever had a way to resolve MFA interactively, confirmed via DEPS scan of
+  all real `login()` callers). New `_is_mfa_no_callback_error(e)` —
+  detects garminconnect's exact `"MFA Required but no prompt_mfa
+  mechanism supplied"` message (`client.py::resolve_mfa()`, raised only
+  once every login strategy in the 5-strategy chain has required MFA)
+  and logs `"blocked"/"mfa_required_no_callback"` instead of falling
+  through to the generic failure path. Interactive callers
+  (`on_mfa_required` set) now go through a `_logged_mfa_prompt()`
+  wrapper that logs `"mfa"/"challenge_presented"` with the
+  resolved/cancelled outcome (`solved="yes"|"no"`) in a single entry,
+  try/finally so a crash inside the callback itself still gets logged.
+  New `_cause_fields(e)` — extracts `e.__cause__` (Python exception
+  chaining) for `log_token_event()`'s optional extra fields; applied to
+  both existing Path-1 exception sites (`rate_limited`,
+  `rejected_by_garmin`). Motivation: `garminconnect`'s
+  `_load_profile_and_settings()` masks the real cause behind a fixed
+  `"Failed to retrieve social profile"` string after three retries — all
+  four historical `invalidated` entries in the token log carried this
+  same uninformative detail regardless of the actual underlying failure.
+- `tests/test_local.py` — 4 new checks for `has_unresolved_mfa_block()`
+  (Section 7), new Section J (6 checks) for the two new pure
+  `garmin_api.py` helpers — no live Garmin Connect credentials required
+  for either.
+
+**What does not change:**
+- No existing function signature changed. `login()`'s callback contract
+  (`on_key_required`/`on_token_expired`/`on_mfa_required`/`on_sso_required`)
+  is unchanged.
+- `garminconnect`'s own native `skip_strategies` attribute (found while
+  reading `client.py` for this session) is a separate, unrelated
+  mechanism — not used here, scoped to its own roadmap entry
+  (`v1.6.6.1`) instead.
+
+**Found but not fixed here:** `panel_timer.py`'s own connection test runs
+with `caller="timer_connection_test"` — a seventh value missing from
+`REFERENCE_GARMIN.md`'s previous six-value list. Pure doc gap, corrected
+in the same documentation pass (see `REFERENCE_GARMIN.md`), not a code
+change.
+
+**Test result:** 631 / 265 / 453 / 145 / 46 / 15 — all green (baseline at
+session start: 621 / 265 / 453 / 145 / 46 / 15), ruff 0 errors, bandit 0
+HIGH.
+
+---
+
 ## v1.6.5.8 — Netz 2: Fixtures + Tests, Sessionende-Fixes
 
 Closes the last open item from the `v1.6.5.7` KONZEPT-Reihenfolge — Netz 2
