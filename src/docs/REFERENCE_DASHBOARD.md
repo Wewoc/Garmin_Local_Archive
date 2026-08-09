@@ -22,6 +22,7 @@ garmin_app.py (GUI)
 - `maps/` modules are routing-only — no writes, no API calls
 - `dash_layout.py` and `dash_layout_html.py` are passive resources — no logic, no file I/O
 - `layouts/reference_ranges.py` is a passive resource — no file I/O, no imports beyond stdlib
+- `layouts/dash_autosize.py` is a passive resource — no file I/O, no imports beyond stdlib
 - `layouts/dash_encryptor.py` is the Sole Owner of HTML encryption logic — Leaf-Node, no project-module imports
 
 ---
@@ -499,6 +500,26 @@ Shared age/sex/fitness-adjusted reference range logic. Used by specialists — n
 | `reference_ranges(age, sex, fitness)` | `dict` — `{field_key: (low, high), ...}` |
 
 **Fields covered:** `hrv_last_night`, `resting_heart_rate`, `spo2_avg`, `sleep_duration`, `body_battery_max`, `stress_avg`.
+
+---
+
+### `layouts/dash_autosize.py` (v1.6.5.10)
+
+Sole owner of the auto-size boundary calculation shared by dashboard
+specialists. Used by six of eight specialists — `explorer_garmin-context_html_dash.py`
+and `heatmap_garmin_html_dash.py` not yet migrated (deferred, different
+underlying data shape). Used by specialists — never by plotters.
+
+| Function | Returns |
+|---|---|
+| `compute_autosize_bounds(dates, date_from, date_to)` | `dict` — `{"actual_first": str\|None, "actual_last": str\|None, "adjusted_from": str\|None, "adjusted_to": str\|None}`. `adjusted_from`/`adjusted_to` set only if the actual data boundary is narrower than the requested range on that end. |
+| `autosize_note(bounds, date_from, date_to)` | `str` — the recurring subtitle fragment `" · adjusted to available data (requested: X → Y)"`, or `""` if no adjustment occurred. Takes the return value of `compute_autosize_bounds()`. |
+
+**Called by:** `health_garmin-weather-pollen_html-xls_dash.py`, `health_garmin_html-json_dash.py`,
+`overview_garmin_xls_dash.py`, `sleep_garmin_html-xls_dash.py`, `sleep_recovery_context_dash.py`,
+`timeseries_garmin_html-xls_dash.py`. `health_garmin_html-json_dash.py` uses only
+`compute_autosize_bounds()` — its subtitle has its own prefix text and is
+assembled independently via `autosize_note()`'s fragment appended at the end.
 
 ---
 

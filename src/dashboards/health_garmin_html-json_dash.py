@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from maps.field_map import get as field_get
 from layouts.reference_ranges import fitness_level as _fitness_level
 from layouts.reference_ranges import reference_ranges as _reference_ranges
+from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -155,17 +156,11 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
             if v is not None and ds >= date_from and ds <= date_to:
                 all_dates_with_data.add(ds)
 
-    adjusted_from = None
-    adjusted_to   = None
-    if all_dates_with_data:
-        actual_first = min(all_dates_with_data)
-        actual_last  = max(all_dates_with_data)
-        if actual_first > date_from:
-            adjusted_from = date_from
-            d_from        = date.fromisoformat(actual_first)
-        if actual_last < date_to:
-            adjusted_to = date_to
-            d_to        = date.fromisoformat(actual_last)
+    _bounds = compute_autosize_bounds(all_dates_with_data, date_from, date_to)
+    if _bounds["adjusted_from"] is not None:
+        d_from = date.fromisoformat(_bounds["actual_first"])
+    if _bounds["adjusted_to"] is not None:
+        d_to = date.fromisoformat(_bounds["actual_last"])
 
     # Build display date range
     display_dates = [
@@ -224,7 +219,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         "title":           "Garmin Health Analysis",
         "subtitle":        (
             f"{d_from.isoformat()} \u2192 {d_to.isoformat()} \u00b7 90-day baseline \u00b7 Age/fitness-adjusted ranges"
-            + (f" \u00b7 adjusted to available data (requested: {adjusted_from} \u2192 {adjusted_to or date_to})" if adjusted_from or adjusted_to else "")
+            + autosize_note(_bounds, date_from, date_to)
         ),
         "date_from":       date_from,
         "date_to":         date_to,
