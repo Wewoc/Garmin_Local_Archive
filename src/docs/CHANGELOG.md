@@ -1,6 +1,49 @@
 # Garmin Local Archive — Changelog
 
-## v1.6.5.9 — Headless Login Hardening
+## v1.6.5.10 — Auto-size Helper-Extract
+
+Extracts the auto-size boundary logic — duplicated near-identically across
+six dashboard specialists since v1.4.6 — into a shared `layouts/dash_autosize.py`
+helper. Pure refactor for five of the six call sites; `health_garmin_html-json_dash.py`
+additionally gets a latent bug fix found during the extraction (see below).
+Rollout to the two specialists still without auto-size (`explorer_garmin-context_html_dash.py`,
+`heatmap_garmin_html_dash.py`) deferred to a separate session — different
+underlying data shape (matrix vs. flat series), not a drop-in of this helper.
+
+**New modules:**
+- `layouts/dash_autosize.py` — Leaf-Node (stdlib only), analogous to
+  `layouts/reference_ranges.py`. Two functions, deliberately separate:
+  `compute_autosize_bounds(dates, date_from, date_to)` — pure boundary
+  calculation, identical across all six call sites, no text formatting.
+  `autosize_note(bounds, date_from, date_to)` — optional formatting helper
+  for the recurring `" · adjusted to available data (requested: X → Y)"`
+  subtitle fragment. Called by specialists — never by plotters.
+
+**Changed modules:**
+- `dashboards/health_garmin-weather-pollen_html-xls_dash.py` — boundary
+  calculation + subtitle assembly now via `dash_autosize`. No behaviour change.
+- `dashboards/overview_garmin_xls_dash.py` — same.
+- `dashboards/sleep_garmin_html-xls_dash.py` — same.
+- `dashboards/sleep_recovery_context_dash.py` — same.
+- `dashboards/timeseries_garmin_html-xls_dash.py` — same.
+- `dashboards/health_garmin_html-json_dash.py` — same, plus bugfix:
+  the previous subtitle fragment used `{adjusted_from}` without an
+  `or date_from` fallback, unlike the other five specialists. When only
+  the end of the range was clipped (`adjusted_to` set, `adjusted_from`
+  still `None`), the subtitle rendered the literal text `requested: None →
+  ...`. `autosize_note()` closes this — the fallback is now identical
+  across all six specialists by construction, not by convention.
+- `compiler/build_manifest.py` — `layouts/dash_autosize.py` added to
+  `SHARED_SCRIPTS`.
+
+**What does not change:**
+- `explorer_garmin-context_html_dash.py`, `heatmap_garmin_html_dash.py` —
+  still no auto-size, unchanged, deferred (see above).
+- `custom_dash_builder.py` — not evaluated this session.
+- No specialist's return dict shape or public `build()` signature changed.
+
+**Test result:** 631 / 265 / 453 / 145 / 46 / 15 — all green, ruff 0 errors,
+bandit 0 HIGH.
 
 Closes the deferred `skip_strategies`/retry-lock item from `v1.6.5.2`'s
 token-lifecycle analysis — reframed after reading the actual

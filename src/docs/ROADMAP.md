@@ -6,19 +6,22 @@
 
 ---
 
-**Currently stable — v1.6.5.9**
+**Currently stable — v1.6.5.10**
 
 ---
 
-## v1.6.5.10 — Auto-size Rollout
+## v1.6.5.11 — Auto-size Rollout (Explorer + Heatmap)
 
-Auto-size is implemented for the Health specialist only (v1.4.6). The other
-specialists were deferred to "a separate session" because the implementation
-is not identical across them — which is precisely why it never became a
-by-product of another change.
+Auto-size now runs via a shared `layouts/dash_autosize.py` helper for six of
+eight specialists (v1.6.5.10). Two remain without it: `explorer_garmin-context_html_dash.py`
+and `heatmap_garmin_html_dash.py` — deferred because their underlying data
+shape differs from the other six (matrix vs. flat date series), so the
+existing helper doesn't drop in as-is.
 
-Not urgent, never harmful. Scope: work out which specialists need which
-variant, then apply per specialist rather than as one sweeping change.
+Not urgent, never harmful. Scope: work out whether `compute_autosize_bounds()`
+extends cleanly to a matrix shape (heatmap) and to a free multi-field
+selection (explorer), or whether each needs its own small adaptation before
+calling it.
 
 ---
 

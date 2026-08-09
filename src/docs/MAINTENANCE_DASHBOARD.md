@@ -28,6 +28,7 @@ garmin_app.py (GUI)
 | `dash_layout.py` | Passive: color tokens, metric metadata, disclaimer, footer |
 | `dash_layout_html.py` | Passive: HTML CSS, Plotly CDN, template builders |
 | `reference_ranges.py` | Passive: age/sex/fitness reference range calculations |
+| `dash_autosize.py` | Passive: auto-size boundary calculation (v1.6.5.10) — used by 6 of 8 specialists |
 | `dash_encryptor.py` | Sole Owner: HTML encryption for Encrypted Dashboard Export (v1.6.1+) |
 
 ### Invariants
@@ -35,6 +36,7 @@ garmin_app.py (GUI)
 - `specialist.build()` called once per specialist — data fetched once, rendered N times
 - Plotters import only from `dash_layout` and `dash_layout_html` — never from specialists or brokers
 - `reference_ranges.py` has no imports beyond stdlib — safe to import anywhere
+- `dash_autosize.py` has no imports beyond stdlib — safe to import anywhere (v1.6.5.10)
 - `maps/` modules: no writes, no API calls, routing only
 
 ---

@@ -114,6 +114,7 @@ SHARED_SCRIPTS = [
     "layouts/dash_plotter_json.py",
     "layouts/dash_prompt_templates.py",
     "layouts/reference_ranges.py",
+    "layouts/dash_autosize.py",
     "layouts/garmin_mobile_landing.py",
     "layouts/dash_encryptor.py",
     # render sub-package (one module per layout type)
@@ -149,6 +150,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/dialogs.py":           ["class PasswordConfirmDialog"],
     "app/panel_outputs.py":     ["class PanelOutputs"],
     "layouts/dash_encryptor.py": ["def encrypt_html"],
+    "layouts/dash_autosize.py": ["def compute_autosize_bounds", "def autosize_note"],
     "app/panel_home.py":        ["class PanelHome"],
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],
