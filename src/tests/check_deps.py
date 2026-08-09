@@ -78,12 +78,16 @@ PYPI_API   = "https://pypi.org/pypi"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+_FETCH_ERRORS: list[str] = []
+
+
 def _get(url: str, timeout: int = 8) -> dict | list | None:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "check_deps/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
-    except Exception:
+    except Exception as e:
+        _FETCH_ERRORS.append(f"{type(e).__name__}: {url}")
         return None
 
 
@@ -355,6 +359,12 @@ def main() -> int:
     warn_findings = [f for f in all_findings if f["level"] == "warn"]
     info_findings = [f for f in all_findings if f["level"] == "info"]
 
+    if _FETCH_ERRORS:
+        print()
+        print(f"⚠ {len(_FETCH_ERRORS)} check(s) could not be completed (network/API error):")
+        for err in _FETCH_ERRORS:
+            print(f"  ✗  {err}")
+
     # ── Silent pass ───────────────────────────────────────────────────────────
     if not warn_findings:
         if info_findings:
@@ -362,7 +372,10 @@ def main() -> int:
             for f in info_findings:
                 print(f"  i  {f['msg']}")
         print()
-        print("✓ No significant changes detected. Starting app...")
+        if _FETCH_ERRORS:
+            print("~ No changes detected in reachable sources — but not all checks could run (see above).")
+        else:
+            print("✓ No significant changes detected. Starting app...")
         print()
         return 0
 

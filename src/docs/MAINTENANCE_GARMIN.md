@@ -202,7 +202,11 @@ case asserts no crash.
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
-- `garmin_api` — requires live Garmin Connect credentials
+- `garmin_api` — requires live Garmin Connect credentials for the login
+  cascade itself (`login()`, `api_call()`, `fetch_raw()`, `get_devices()`).
+  Exception: `_is_mfa_no_callback_error()` and `_cause_fields()` (v1.6.5.9)
+  are pure helpers, no credentials needed — dedicated coverage in Section J
+  (`test_local.py`)
 - `garmin_import` — requires actual Garmin GDPR export ZIP
 - Export scripts in `export/`
 - Full end-to-end with real API data
@@ -214,11 +218,16 @@ case asserts no crash.
   `valid`/`token_reused` event pair, `_format_event()`'s mixed
   compact/`indent=2` serialization, and the new `caller` field (all added in
   v1.6.5.7.1) — existing Section 7 checks confirmed passing alongside it
-  (536/536), but none of these three additions have dedicated coverage
+  (536/536), but none of these three additions have dedicated coverage.
+  Same gap now also covers the `mfa`/`challenge_presented` event and the
+  `cause_type`/`cause_detail`/`solved` extra fields (v1.6.5.9) — logged but
+  not asserted. `has_unresolved_mfa_block()` (v1.6.5.9), the read-side
+  counterpart, DOES have dedicated coverage (Section 7, 4 checks) — the
+  write side (`log_token_event()` itself) remains the open gap
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`.
 
 ---
 

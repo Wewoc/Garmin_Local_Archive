@@ -331,3 +331,37 @@ def log_token_event(event: str, trigger: str, **extra) -> None:
         log_file.write_text(log_text)
     except Exception as e:
         log.warning(f"  Token event log write failed: {e}")
+
+
+def has_unresolved_mfa_block() -> bool:
+    """
+    Read-side counterpart to log_token_event() — fail-open by design: an
+    unreadable or malformed garmin_token_log.json returns False (no block)
+    rather than blocking a login attempt over an observation-log problem,
+    same best-effort principle as log_token_event() itself (v1.6.5.9).
+
+    Scans events newest-first (the log is append-only, so reversed() is
+    chronological-descending). Returns True if the most recent relevant
+    event is a "blocked"/"mfa_required_no_callback" entry — a headless SSO
+    attempt hit MFA with no interactive callback available — and no
+    "created"/"sso_login" event (necessarily interactive, since that's the
+    only way MFA gets resolved) has happened since. clear_token()/
+    manual_reset does NOT clear this — a deleted token says nothing about
+    whether the MFA problem itself is resolved; only a real successful SSO
+    proves that.
+    """
+    import garmin_config as cfg
+    try:
+        log_file = cfg.LOG_DIR / "garmin_token_log.json"
+        if not log_file.exists():
+            return False
+        data = json.loads(log_file.read_text())
+        for entry in reversed(data.get("events", [])):
+            if entry.get("event") == "created" and entry.get("trigger") == "sso_login":
+                return False
+            if entry.get("event") == "blocked" and entry.get("trigger") == "mfa_required_no_callback":
+                return True
+        return False
+    except Exception as e:
+        log.warning(f"  Token event log read failed — treating as no block: {e}")
+        return False
