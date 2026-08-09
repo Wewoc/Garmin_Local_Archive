@@ -6,25 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.8**
-
----
-
-## v1.6.5.9 — Headless Login Hardening
-
-`skip_strategies` / retry-lock on the login cascade. Considered during the
-v1.6.5.2 token-lifecycle analysis and deliberately deferred there (see
-`ANALYSE_headless_mfa_login_2026-07-08.md` §6, CHANGELOG v1.6.5.2) — the
-token-event logging shipped first, on purpose, so that the cascade's actual
-behaviour could be observed before changing it. That logging has been in place
-since; the deferral has not been revisited.
-
-Related but distinct, already noted in the v1.6.5.2 audit: headless login has
-no `_connection_verified` gate. Both concern the same cascade — scope them
-together in the Analyse step, decide separately.
-
-Own entry rather than a rider: this touches the login path, which is not
-something that happens in passing.
+**Currently stable — v1.6.5.9**
 
 ---
 
@@ -52,6 +34,40 @@ layer (v1.9). Full concept in `docs/KONZEPT_ollama_chat_panel.md`.
 **What does not change:** `health_garmin_html-json_dash.py` /
 `dash_plotter_json.py` / `dash_prompt_templates.py` — consumed as-is.
 Broker Layer untouched.
+
+---
+
+## v1.6.6.1 — Headless Login Cascade Quality
+
+Two previously separate items, merged — both concern the quality/
+reliability of the headless login cascade around the token log, distinct
+from the MFA block already shipped (v1.6.5.9):
+
+1. **`skip_strategies` (library feature).** garminconnect (≥0.3.x) offers
+   a native `skip_strategies` attribute on the Garmin client
+   (`client.skip_strategies: set[str]`) — filters named login strategies
+   out of the 5-strategy cascade (`mobile+cffi`, `mobile+requests`,
+   `widget+cffi`, `portal+cffi`, `portal+requests`) before `login()` runs.
+   Found while reading the login cascade source for v1.6.5.9. Candidate:
+   exclude `widget+cffi` for headless contexts (no `on_mfa_required`) —
+   per the library's own docstring, its MFA signal is the least
+   trustworthy (OTP delivery can't be confirmed from scraped HTML, no JS
+   execution) and the library itself already shelves it behind the other
+   four strategies. Open question: does this actually reduce failures, or
+   just shift the cascade onto strategies with their own weaknesses?
+
+2. **Headless `_connection_verified` gate.** Split off from the original
+   v1.6.5.9 note — headless login still has no equivalent to the GUI's
+   `_connection_verified` flag, so every headless run re-attempts a full
+   connection check even when a previous run in the same window already
+   confirmed one. Distinct from the MFA block — this is about avoiding
+   redundant checks, not about MFA.
+
+Both items touch the same login-cascade/token-log territory without
+touching each other's code directly — analysed together in one session
+rather than two separate ones. Needs its own Analyse step before any
+Bauauftrag; nothing implemented yet.
+
 
 ---
 

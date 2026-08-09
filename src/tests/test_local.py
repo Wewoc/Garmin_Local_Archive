@@ -663,6 +663,33 @@ with patch("garmin_security.get_enc_key", return_value=TEST_KEY):
     check("save_token: no tokens.json → False", security.save_token() == False)
 shutil.rmtree(cfg.GARMIN_TOKEN_DIR, ignore_errors=True)
 
+# has_unresolved_mfa_block (v1.6.5.9)
+_mfa_log_file = cfg.LOG_DIR / "garmin_token_log.json"
+_mfa_log_file.unlink(missing_ok=True)
+
+check("has_unresolved_mfa_block: no file → False",
+      security.has_unresolved_mfa_block() == False)
+
+_mfa_log_file.write_text(json.dumps({"events": [
+    {"event": "created", "trigger": "sso_login"},
+    {"event": "blocked", "trigger": "mfa_required_no_callback"},
+]}))
+check("has_unresolved_mfa_block: blocked last → True",
+      security.has_unresolved_mfa_block() == True)
+
+_mfa_log_file.write_text(json.dumps({"events": [
+    {"event": "blocked", "trigger": "mfa_required_no_callback"},
+    {"event": "created", "trigger": "sso_login"},
+]}))
+check("has_unresolved_mfa_block: cleared by later sso_login → False",
+      security.has_unresolved_mfa_block() == False)
+
+_mfa_log_file.write_text("not valid json{{{")
+check("has_unresolved_mfa_block: corrupt file → False (fail-open)",
+      security.has_unresolved_mfa_block() == False)
+
+_mfa_log_file.unlink(missing_ok=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  8. garmin_utils
@@ -3136,6 +3163,40 @@ os.environ["GARMIN_OUTPUT_DIR"] = _i2_orig_env
 importlib.reload(cfg)
 importlib.reload(silo_repair)
 shutil.rmtree(_i2_dir, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  J. garmin_api (pure helpers only — no live Garmin Connect credentials
+#     required; the rest of garmin_api.py remains untested, see
+#     MAINTENANCE_GARMIN.md)
+# ══════════════════════════════════════════════════════════════════════════════
+section("J. garmin_api (pure helpers)")
+import garmin_api as api
+
+# _is_mfa_no_callback_error
+check("_is_mfa_no_callback_error: exact library message → True",
+      api._is_mfa_no_callback_error(
+          Exception("MFA Required but no prompt_mfa mechanism supplied")) == True)
+check("_is_mfa_no_callback_error: unrelated message → False",
+      api._is_mfa_no_callback_error(Exception("Some other login failure")) == False)
+check("_is_mfa_no_callback_error: empty message → False",
+      api._is_mfa_no_callback_error(Exception("")) == False)
+
+# _cause_fields
+_no_cause = Exception("plain error")
+check("_cause_fields: no __cause__ → empty dict",
+      api._cause_fields(_no_cause) == {})
+
+try:
+    try:
+        raise ValueError("original network timeout")
+    except ValueError as _root:
+        raise RuntimeError("wrapper message") from _root
+except RuntimeError as _chained:
+    _fields = api._cause_fields(_chained)
+    check("_cause_fields: cause_type captured",
+          _fields.get("cause_type") == "ValueError")
+    check("_cause_fields: cause_detail captured",
+          _fields.get("cause_detail") == "original network timeout")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
