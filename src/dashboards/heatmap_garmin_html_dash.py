@@ -30,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from maps.field_map import get as field_get
+from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -120,6 +121,21 @@ def _build_metric_matrix(field: str, agg: str, date_from: str, date_to: str) -> 
     return {"dates": dates, "hours": _HOURS, "matrix": matrix}
 
 
+def _dates_with_data(metric: dict) -> set:
+    """
+    Subset of metric['dates'] whose matrix row contains at least one
+    non-None value. Needed because 'dates' itself is padded — every
+    requested day gets a row regardless of data presence (see
+    _build_metric_matrix docstring), so a day with no actual raw data
+    still shows up there with an all-None row. Auto-size needs the
+    narrower "has real data" set, not the padded request range.
+    """
+    return {
+        d for d, row in zip(metric["dates"], metric["matrix"])
+        if any(v is not None for v in row)
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Build
 # ══════════════════════════════════════════════════════════════════════════════
@@ -153,10 +169,24 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     for m in _METRICS:
         metrics[m["key"]] = _build_metric_matrix(m["field"], m["agg"], date_from, date_to)
 
+    # Auto-size: pool "has data" dates across all six metrics (a day counts
+    # if any metric has a real sample that hour) — same pooling approach as
+    # sleep_recovery_context_dash.py combining multiple field sources.
+    garmin_dates = set()
+    for metric in metrics.values():
+        garmin_dates |= _dates_with_data(metric)
+
+    _bounds = compute_autosize_bounds(garmin_dates, date_from, date_to)
+    _note   = autosize_note(_bounds, date_from, date_to)
+    if _note:
+        subtitle = f"{_bounds['actual_first']} \u2192 {_bounds['actual_last']}{_note}"
+    else:
+        subtitle = f"{date_from} \u2192 {date_to}"
+
     return {
         "layout":    "heatmap",
         "title":     "Activity & Physiology Heatmaps",
-        "subtitle":  f"{date_from} to {date_to}",
+        "subtitle":  subtitle,
         "date_from": date_from,
         "date_to":   date_to,
         "metrics":   metrics,

@@ -1,5 +1,52 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.5.11 — Auto-size Rollout (Explorer + Heatmap)
+
+Closes the rollout deferred in v1.6.5.10: the last two of eight dashboard
+specialists now use `layouts/dash_autosize.py` instead of a fixed
+`date_from → date_to` subtitle. Both needed a small adaptation rather than
+a drop-in — their date data isn't a simple `{date: value}` dict like the
+original six call sites.
+
+**Changed modules:**
+- `dashboards/explorer_garmin-context_html_dash.py` — new `garmin_dates`
+  set (Garmin daily fields + sleep phases + sleep score feedback/qualifier,
+  filtered to `v is not None`), fed to `compute_autosize_bounds()`/
+  `autosize_note()`. Context fields excluded from the boundary, same
+  rationale as `health-weather-pollen`/`sleep_recovery_context`. `build()`
+  return shape unchanged.
+- `dashboards/heatmap_garmin_html_dash.py` — new `_dates_with_data(metric)`
+  helper: a metric's padded `dates` list (every requested day gets a row,
+  see `_build_metric_matrix()`) filtered down to dates whose matrix row has
+  at least one non-`None` value. Pooled (union) across all six metrics
+  into `garmin_dates` before the bounds call. Subtitle base case also
+  switched from the literal word `"to"` to `→`, matching the other
+  seven specialists — incidental to the same line being rewritten, not a
+  separate pass.
+
+**What does not change:**
+- `layouts/dash_autosize.py` — untouched, both new call sites use the
+  existing `compute_autosize_bounds()`/`autosize_note()` signatures as-is.
+- No specialist's public `build()` signature or return dict shape changed.
+- `layouts/render/heatmap.py` / `layouts/render/explorer.py` — verified via
+  DEPS-Scan that neither parses the `subtitle` string; both pass it through
+  verbatim to `layout_html.build_header()`. Confirms the subtitle content
+  change is safe.
+
+**Known gap found, not fixed this session:** `overview_garmin_xls_dash.py`
+builds its `all_dates` set without filtering `v is not None` — unlike the
+other seven `dash_autosize` call sites. Since `field_get(resolution="daily")`
+pads every requested day with an entry regardless of data presence,
+`all_dates` there always equals the full requested range, so its auto-size
+call never actually adjusts the boundary. Latent, harmless. See
+`docs/REFERENCE_DASHBOARD.md` → `dash_autosize.py` → "Known gap".
+
+**Test result:** 631 / 265 / 453 / 145 / 46 / 15 — all green (1555/1555 total,
+`docs/METRICS.md`), ruff/bandit unchanged. `dep_map_delta.md` (Precondition
+Teil B): 0 NEU / 0 WEG / 0 GEKIPPT-Regression against v1.6.5.10 baseline.
+Netz-2 hash check (`NETZ2_DELTA_v16511_01.md`): all six core modules
+unchanged — expected, this session never touched them.
+
 ## v1.6.5.10 — Auto-size Helper-Extract
 
 Extracts the auto-size boundary logic — duplicated near-identically across
