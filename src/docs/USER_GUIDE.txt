@@ -14,6 +14,7 @@ CONTENTS
   7. Automated Daily Sync via Task Scheduler
   8. Troubleshooting
   9. Data Structure
+  10. Ollama Chat
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. SETUP
@@ -246,6 +247,51 @@ Context data missing / no weather or pollen
     brightsky/  Weather data (Brightsky/DWD)
 
 All data stays local. No cloud, no third-party services.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. OLLAMA CHAT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Native chat against a local Ollama instance, directly inside the app —
+no external tool required for quick questions about your data.
+
+Requirements:
+  - Ollama installed and running: https://ollama.com/download
+    (started via "ollama serve", or runs automatically after install)
+  - At least one model pulled -- sizing guide (rule of thumb: VRAM in GB
+    minus 2 = usable model size) is in README.md, "Option A -- Built-in
+    Chat"
+
+The chat runs against your existing Health Analysis export -- it does
+not generate data itself. Build one first: Home tab -> "Create Reports",
+or Settings -> Outputs -> "Create All Dashboards" (see Section 4).
+
+Using it:
+  Open the "Ollama-Chat" tab -> click "Start"
+  The tab shows the age of your current Health Analysis export and
+  a quick Ollama-reachability check before you click Start -- no
+  request is sent until you do. If it shows "not found", the chat can
+  still be started, but has no data to answer questions about.
+
+  Once started: pick a model from the dropdown, type a question,
+  press Enter or click Send. Larger models can take a while to
+  respond -- a counter shows elapsed time.
+
+  "Neuer Chat" clears the conversation and reloads context.
+  Switching the model does the same automatically.
+
+Limitation:
+  Currently, the chat only works against summary data -- full
+  intraday resolution will be added in version 1.9 (mcp_map.py).
+
+Troubleshooting:
+  -> "Ollama: not reachable" -- make sure Ollama is running
+     (ollama serve), then reopen the tab
+  -> No models in the dropdown -- pull one first: ollama pull <model>
+  -> "health_garmin.json: not found" -- no Health Analysis export exists
+     yet; build one first (see "Using it" above), then reopen the tab
+  -> Errors during a chat appear directly in the chat window --
+     no separate log file needed
 
 ═══════════════════════════════════════════════════════════
   Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive

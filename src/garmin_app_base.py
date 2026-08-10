@@ -49,6 +49,7 @@ from app.panel_archive    import PanelArchive
 from app.panel_timer      import PanelTimer
 from app.panel_outputs    import PanelOutputs
 from app.panel_home       import PanelHome
+from app.panel_chat       import PanelChat
 
 # ── Settings — re-exported for garmin_app.py / garmin_app_standalone.py ───────
 SETTINGS_FILE    = _settings.SETTINGS_FILE
@@ -231,11 +232,12 @@ class GarminApp(QMainWindow):
         self._panel_outputs    = PanelOutputs(self)
         self._panel_archive    = PanelArchive(self)
         self._panel_home       = PanelHome(self)
+        self._panel_chat       = PanelChat(self)
 
         # ── Fixed top (Connection & Archive Status + Daily Actions) ───────────
         root_lay.addWidget(self._panel_home)
 
-        # ── QTabWidget: Tab 0 Dashboard, Tab 1 Files, Tab 2 Settings ──────────
+        # ── QTabWidget: Tab 0 Dashboard, Tab 1 Files, Tab 2 Settings, Tab 3 Chat
         self._right_tabs = QTabWidget()
         right_tabs = self._right_tabs
         right_tabs.setStyleSheet(
@@ -368,6 +370,9 @@ class GarminApp(QMainWindow):
         settings_tab_lay.addWidget(right_scroll, stretch=1)
 
         right_tabs.addTab(settings_tab, "Settings")
+
+        # ── Tab 3: Chat ───────────────────────────────────────────────────────
+        right_tabs.addTab(self._panel_chat, "Ollama-Chat")
 
         right_tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -562,9 +567,14 @@ class GarminApp(QMainWindow):
     # ── Tab switch ────────────────────────────────────────────────────────────
 
     def _on_tab_changed(self, index: int):
-        """Refresh Files tab on switch — catches XLSX files built since startup."""
+        """Refresh Files tab on switch — catches XLSX files built since startup.
+        Chat tab (3): refresh context-file age display + lightweight Ollama
+        reachability ping — no active chat prep, that stays behind the
+        panel's own Start button (KONZEPT_ollama_chat_panel.md §5)."""
         if index == 1:
             self._scan_xlsx_files()
+        elif index == 3:
+            self._panel_chat._chat_on_tab_open()
 
     # ── Dashboard tab helpers ──────────────────────────────────────────────────
 

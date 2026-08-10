@@ -40,5 +40,6 @@ BACKUP
 Settings -> set Mirror target -> "Export to Mirror"
 
 ───────────────────────────────────────────────────────────
+  For the built-in Ollama Chat: see USER_GUIDE.txt, Section 10.
   More details: USER_GUIDE.txt
 ═══════════════════════════════════════════════════════════

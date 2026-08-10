@@ -6,7 +6,7 @@
 **[↓ Download](#download)** — standalone EXE, no setup needed, Windows only  
 **[↓ Dashboards](#how-it-works)** — HRV, sleep, Body Battery, stress, intraday timeseries  
 **[↓ Bulk Import](#recovering-your-history--bulk-import)** — recover your full Garmin history from a GDPR export  
-**[↓ Local AI setup](#step-11--ai-assisted-analysis-optional)** — data ready for Ollama and Open WebUI  
+**[↓ AI chat](#step-11--ai-assisted-analysis-optional)** — built-in Ollama chat, plus Open WebUI / AnythingLLM for advanced RAG  
 **[↓ Architecture](#what-is-included)** — pipeline overview, all modules  
 
 **Platform:** Windows · **No cloud** · **No subscription** · **No Python needed** · **Standalone EXE**
@@ -121,7 +121,7 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 
 **Live Tracking** (v1.6.5) — a separate, always-current view: today's progression (Body Battery, Heart Rate, Steps, Stress) plus last night's sleep summary, refreshed automatically after every sync and on demand via an "Update Live" button in the Home tab. Not part of the Create Reports selection above — it has its own trigger, by design.
 
-The AI itself is not included. How to set one up — including a ready-to-use system prompt for health data analysis — is explained in the [local AI guide](#step-11--ai-assisted-analysis-optional) below.
+A native chat panel is built directly into the app (**Ollama-Chat** tab, v1.6.6) — no separate setup beyond having Ollama itself installed and a model pulled. It currently works against summary data only; full intraday resolution is planned for v1.9. For more advanced workflows — document upload, knowledge-base RAG — the external options below (Open WebUI, AnythingLLM) are still available and explained in the [local AI guide](#step-11--ai-assisted-analysis-optional).
 
 ---
 
@@ -346,7 +346,7 @@ The project is structured into five focused layers. Each layer has a single resp
 
 | Script | What it does |
 |---|---|
-| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings. PyQt6 QMainWindow. |
+| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings / Ollama-Chat. PyQt6 QMainWindow. |
 | `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No GUI — importable in any context. |
 | `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No GUI. |
 | `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer / Documentation). Home tab: Dashboard viewer. (v1.6.0+) |
@@ -355,6 +355,8 @@ The project is structured into five focused layers. Each layer has a single resp
 | `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
 | `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
 | `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
+| `app/panel_chat.py` | Ollama-Chat panel — native chat against a local Ollama instance, no external tool required. Model dropdown, chat history, "Neuer Chat" reset. (v1.6.6) |
+| `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — used exclusively by `app/panel_chat.py`. (v1.6.6) |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation |
@@ -571,11 +573,38 @@ crontab -e
 
 ### Step 11 — AI-assisted analysis (optional)
 
-Connect a local AI model to your health data. Both options run entirely on your machine — your data never leaves your PC.
+Connect a local AI model to your health data. All options run entirely on your machine — your data never leaves your PC.
 
-> ⚠️ **Before you start:** The prompt file contains your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service, remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
+> ⚠️ **Before you start:** Both the built-in chat and the prompt file used by the external options contain your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service, remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
 
-#### Option A — Open WebUI
+#### Option A — Built-in Chat (simplest, no separate setup)
+
+1. Install Ollama: https://ollama.com/download
+2. Pull a model that fits your GPU (see table below)
+3. Open the **Ollama-Chat** tab in the app, click **Start**
+
+That's it — no Docker, no separate desktop app. The panel loads the same
+health-analysis system prompt used by the external options below.
+Currently works against summary data only; full intraday resolution is
+planned for v1.9. For document upload / knowledge-base RAG across your
+whole archive, use Open WebUI or AnythingLLM below instead.
+
+**Which model fits your GPU?** Rule of thumb: **VRAM in GB − 2 = usable
+model size** (Q4 quantization, Ollama's default). Rough guide, not a
+guarantee — actual headroom depends on context length and what else is
+using the GPU.
+
+| VRAM | Rule of thumb | Example |
+|---|---|---|
+| 8 GB | ~6B | `qwen2.5:7b` |
+| 16 GB | ~14B | `qwen3:14b` |
+| 24 GB | ~22B (next common tier: ~30–32B) | — |
+| 48 GB | ~46B (next common tier: ~70B) | — |
+
+No dedicated GPU / CPU-only also works — just noticeably slower per reply,
+the panel's elapsed-time counter is there for exactly this case.
+
+#### Option B — Open WebUI
 
 1. Install Ollama: https://ollama.com/download
 2. Pull a model: `ollama pull qwen2.5:14b`
@@ -592,7 +621,7 @@ docker run -d -p 3000:8080 --gpus all \
 4. Open http://localhost:3000 → Workspace → **Knowledge** → **+ New** → point to `local_archive/garmin_data/summary`
 5. In chat: type `#` → select the knowledge base
 
-#### Option B — AnythingLLM
+#### Option C — AnythingLLM
 
 1. Download AnythingLLM Desktop: https://anythingllm.com
 2. Connect Ollama (Settings → LLM → Ollama)
@@ -600,12 +629,12 @@ docker run -d -p 3000:8080 --gpus all \
 
 #### Which one to choose?
 
-| | Open WebUI | AnythingLLM |
-|---|---|---|
-| Setup effort | Medium (Docker) | Low (desktop app) |
-| Chat interface | Full-featured | Clean, focused |
-| Document/RAG quality | Good | Very good |
-| Best for | General AI assistant + health data | Primarily health data Q&A |
+| | Built-in Chat | Open WebUI | AnythingLLM |
+|---|---|---|---|
+| Setup effort | None (Ollama only) | Medium (Docker) | Low (desktop app) |
+| Chat interface | Basic, in-app | Full-featured | Clean, focused |
+| Document/RAG quality | None — summary data only | Good | Very good |
+| Best for | Quick questions without leaving the app | General AI assistant + health data | Primarily health data Q&A |
 
 **Tip:** upload `garmin_analysis.json` directly into a chat for targeted analysis — it contains pre-processed comparisons against your personal baseline and reference ranges.
 

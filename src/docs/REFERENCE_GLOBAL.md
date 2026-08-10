@@ -239,7 +239,17 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │   ├── panel_connection.py     ← PanelConnection(QWidget) — connection dialogs, token reset; indicators delegated to panel_home (v1.5.4+)
     │   ├── panel_archive.py        ← PanelArchive(QWidget) — integrity, mirror, clean, schema migration (v1.5.4+)
     │   ├── panel_timer.py          ← PanelTimer(QWidget) — background timer, loop, controller delegates (v1.5.4+)
-    │   └── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers (v1.5.4+)
+    │   ├── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers (v1.5.4+)
+    │   └── panel_chat.py           ← PanelChat(QWidget) — In-App Ollama Chat, Tab 3 "Ollama-Chat" (v1.6.6)
+    │
+    ├── clients/                    ← External tool/service clients (v1.6.6) — no data silo, no
+    │   │                              Sole-Write-Authority, distinct from garmin/'s pipeline scope.
+    │   │                              Flat imports like garmin/, app/ — no sys.modules package
+    │   │                              registration (no relative imports inside clients/)
+    │   ├── __init__.py
+    │   └── ollama_client.py        ← Leaf-Node. Wraps Ollama HTTP API (localhost:11434),
+    │                                  non-streaming POST /api/chat. See Module reference
+    │                                  table below.
     │
     ├── export/                     
     │   ├── regenerate_summaries.py
@@ -289,7 +299,9 @@ findable by heading/table search (see `DOC_DRIFT_REPORT.md`, Punkt B).
 | `app/dialogs.py` | `PasswordConfirmDialog(QDialog)` — shared password entry/confirm dialog. `mode="setup"`: two fields + match-check (new passwords). `mode="unlock"`: one field, no confirm (existing passwords — e.g. mirror import, where `unlock_meta()` validates anyway). Used by `panel_archive.py` (Mirror Container) and `panel_outputs.py` (Encrypted Dashboards). PyQt6-only import, no project-module imports, no business logic. |
 | `app/panel_connection.py` | `PanelConnection(QWidget)` — connection dialogs, token reset; indicators delegated to `panel_home.py` (v1.5.4+). |
 | `app/panel_home.py` | `PanelHome(QWidget)` — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Home tab: Dashboard viewer (v1.6.0+). |
-| `garmin_app_base.py` | View layer (`GarminApp`) — PyQt6 `QMainWindow`, fixed top (`panel_home`) + `QTabWidget`: Home / Files / Settings (v1.6.0+). Settings tab: two-column layout — Settings left (340px), Actions right (flex). `_sheet_arrow` label mirrors `_sheet_combo` visibility (v1.6.0.7). |
+| `app/panel_chat.py` | `PanelChat(QWidget)` — In-App Ollama Chat panel (v1.6.6), fourth tab ("Ollama-Chat"). Composition, no Mixin. Status box (context-file age + Ollama reachability + Start button) always visible; model dropdown/chat history/input unlock only after "Start" — no active chat prep beyond a lightweight reachability ping on tab-open (`garmin_app_base.py::_on_tab_changed`, `index == 3`). Non-streaming requests via `clients/ollama_client.py`. "Neuer Chat" / model switch reset history + system prompt. Full concept: `docs/KONZEPT_ollama_chat_panel.md`. |
+| `clients/ollama_client.py` | Leaf-Node (v1.6.6). Wraps the local Ollama HTTP API (`http://localhost:11434`) — `GET /api/tags`, non-streaming `POST /api/chat`. Typed exceptions per failure mode (`OllamaUnreachable`, `OllamaTimeout`, `OllamaModelNotFound`, `OllamaContextLimitExceeded`, generic `OllamaError`). No project-internal imports beyond stdlib/`requests`. Used exclusively by `app/panel_chat.py`. |
+| `garmin_app_base.py` | View layer (`GarminApp`) — PyQt6 `QMainWindow`, fixed top (`panel_home`) + `QTabWidget`: Home / Files / Settings / Ollama-Chat (v1.6.0+, fourth tab added v1.6.6). Settings tab: two-column layout — Settings left (340px), Actions right (flex). `_sheet_arrow` label mirrors `_sheet_combo` visibility (v1.6.0.7). |
 | `qwebengine_hardening.py` | Leaf-Node. `harden(view)` — disables `LocalContentCanAccessFileUrls`, `LocalContentCanAccessRemoteUrls`, `JavascriptCanOpenWindows`, `PluginsEnabled`, `JavascriptCanAccessClipboard` on a `QWebEngineView`. `JavascriptEnabled` stays `True` — Plotly dashboards require it. Idempotent — safe to call multiple times on the same view. Called from `panel_home.py` and `garmin_app_base.py` after each `QWebEngineView()` instantiation. |
 | `frozen_paths.py` | Leaf-Node. Central frozen-path resolution — replaces previously duplicated `sys.frozen`/`sys._MEIPASS`/`sys.executable` branches (`panel_outputs.py` ×6, `panel_home.py`, the `garmin_live_fetch` call site, doc lookups). Three side-effect-separated functions: `scripts_root()` (root for `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` — T3 verified via canonical distinguisher: `dash_runner.py` must actually exist under `scripts/dashboards/`, not just `scripts/` itself), `add_to_path(root, *subs)` (mutates `sys.path` as an explicit, separate step), `doc_path(filename)` (finds bundled docs — `info/` next to the EXE when frozen, three-step dev chain otherwise: repo root → `src/docs/` → `src/scheduler/`; returns `None` if not found, never guesses). |
 
