@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" scale="2" border="0">
   <diagram name="Seite-1" id="RPL2icu10nPAo5XJjMad">
-    <mxGraphModel dx="4282" dy="1423" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="5319" dy="1850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -574,6 +574,12 @@
         </mxCell>
         <mxCell id="EP-Spr3hEFqaO590QCiZ-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_token_log" vertex="1">
           <mxGeometry height="36" width="102" x="110" y="1220" as="geometry" />
+        </mxCell>
+        <mxCell id="1Q1bXPoM9Q1tqc8O4_5U-2" edge="1" parent="1" source="1Q1bXPoM9Q1tqc8O4_5U-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="vd-nSFv1NCBuESIK3q7a-115">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="1Q1bXPoM9Q1tqc8O4_5U-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=10;fontStyle=1;arcSize=30;" value="reference_ranges" vertex="1">
+          <mxGeometry height="36" width="120" x="1012.5" y="668" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

@@ -23,12 +23,14 @@ if getattr(sys, "frozen", False):
     for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         sys.path.insert(0, str(_scripts / _sub))
     sys.path.insert(0, str(_scripts / "app"))
+    sys.path.insert(0, str(_scripts / "clients"))
     sys.path.insert(0, str(_scripts))
 else:
     _root = Path(__file__).parent
     for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         sys.path.insert(0, str(_root / _sub))
     sys.path.insert(0, str(_root / "app"))
+    sys.path.insert(0, str(_root / "clients"))
 
 from PyQt6.QtWidgets import QApplication
 

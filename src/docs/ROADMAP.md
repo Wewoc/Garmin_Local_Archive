@@ -6,22 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.11**
-
----
-
-## v1.6.6 — In-App Ollama Chat Panel
-
-Direct, local Ollama chat panel inside GLA — independent of the MCP query
-layer (v1.9). Full concept in `docs/KONZEPT_ollama_chat_panel.md`.
-
-**What changes:** `app/panel_chat.py` (new), `garmin/ollama_client.py`
-(new), `garmin_app_base.py` (panel wired in), `compiler/build_manifest.py`,
-`requirements.txt`.
-
-**What does not change:** `health_garmin_html-json_dash.py` /
-`dash_plotter_json.py` / `dash_prompt_templates.py` — consumed as-is.
-Broker Layer untouched.
+**Currently stable — v1.6.6**
 
 ---
 
@@ -64,6 +49,24 @@ Bauauftrag; nothing implemented yet.
   (a) Add a timestamp prefix to the `log_callback` itself (small change, no architectural change),
   (b) Migrate the Context/Dashboard pipeline to use the `logging` module (larger change, many call sites).
   The preferred approach is (a).
+
+4. **Context data (weather/pollen) in the Ollama-Chat JSON export.**
+   Carried over from v1.6.6: `health_garmin.json`/`health_garmin_prompt.md`
+   (consumed by `app/panel_chat.py`) currently ship Garmin daily fields
+   only — no weather/pollen, even though
+   `health_garmin-weather-pollen_html-xls_dash.py` already produces exactly
+   that combination for HTML/Excel (just no `json` format). Unlike the
+   intraday question deferred to v1.9 (see the note there), there's no
+   context-window argument against this — weather/pollen are daily
+   aggregates, the same order of magnitude as the Garmin daily fields
+   already included. Two paths identified, neither trivial: (a) extend
+   the `health_garmin-weather-pollen` specialist with a `json` format (new
+   `context_map` access inside a specialist that doesn't currently do
+   that), or (b) extend `health_garmin_html-json_dash.py` itself with
+   optional context fields (architecturally shakier — the name currently
+   implies Garmin-only). Needs its own Analyse step (broker access,
+   `dash_prompt_templates.py` changes for the Markdown output) — no
+   decision yet between (a)/(b).
 
 
 
@@ -289,6 +292,18 @@ The backend is a configuration option. GLA takes no position on which LLM the us
 - All existing workflows — GUI, dashboards, export pipeline unaffected
 
 **Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
+
+---
+
+**Note for Roadmap – Intraday Data for Ollama Chat Context**
+
+Idea: The `health_garmin.json`/`health_garmin_prompt.md` files (consumed by `app/panel_chat.py`, v1.6.6) currently only provide daily aggregates. For more detailed chat responses (e.g., heart rate history for a specific night), intraday resolution is missing in the model's context.
+
+Why not now: `/api/chat` is stateless – the entire system message is resent with each message. Intraday resolution would significantly increase the amount of data per request and exacerbate the context limit problem, which v1.6.6 has only recently addressed through the "New Chat" reset. The broker already provides intraday data (`garmin_map.py`, `source_resolution=intraday`) – only the `health_garmin` component currently retrieves daily values. The appropriate solution is not a second export file in the current format, but an on-demand query via `mcp_map.py`: the model would specifically request intraday data when the chat history requires it, instead of including it unsolicited in every system message.
+
+Open questions: Should the data be queried directly via `mcp_map.py`, or first via the SQLite proxy (`KONZEPT_mcp_sqlite_proxy.md`)? Does `panel_chat.py` need a tool/function-calling interface for this purpose with Ollama, or will it remain limited to pure text context – this would be a real extension beyond the current sync request/response pattern.
+
+No action until: `mcp_map.py` is implemented and the server/client roles defined in `KONZEPT_mcp_sqlite_proxy.md` are clarified.
 
 ---
 

@@ -28,6 +28,7 @@ SHARED_SCRIPTS = [
     "app/panel_timer.py",
     "app/panel_outputs.py",
     "app/panel_home.py",
+    "app/panel_chat.py",
     # app base
     "version.py",
     "garmin_app_base.py",
@@ -72,6 +73,11 @@ SHARED_SCRIPTS = [
     # was moved in-process in v1.6.5.7 and the repair logic itself was
     # extracted to garmin_silo_repair.py above in the same session arc.
     "export/regenerate_raw.py",
+    # clients (external tool/service integrations — e.g. Ollama; flat
+    # imports like garmin/ and app/, no relative imports inside the
+    # package, no sys.modules registration needed)
+    "clients/__init__.py",
+    "clients/ollama_client.py",
     # maps (routing only)
     "maps/__init__.py",
     "maps/field_map.py",
@@ -186,6 +192,8 @@ SCRIPT_SIGNATURES_BASE = {
     "qwebengine_hardening.py": ["def harden"],
     "frozen_paths.py": ["def scripts_root", "def add_to_path", "def doc_path"],
     "garmin/garmin_redact.py": ["def redact"],
+    "app/panel_chat.py": ["class PanelChat"],
+    "clients/ollama_client.py": ["def chat", "def list_models", "def is_reachable"],
 }
 # ── Docs ──────────────────────────────────────────────────────────────────────
 
