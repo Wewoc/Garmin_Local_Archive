@@ -401,11 +401,16 @@ All source folders are Python packages with `__init__.py`:
 - `dashboards/` — dashboard specialists (v1.4+)
 - `layouts/` — format renderers (v1.4+)
 - `app/` — GUI logic layer (v1.5.2+): settings, controller, panel Mixins (v1.5.3+)
+- `clients/` — external tool/service clients (v1.6.6): no data silo, no
+  Sole-Write-Authority, distinct from `garmin/`'s pipeline scope. Flat
+  imports like `garmin/`/`app/`, not registered as a `sys.modules` package
+  (no relative imports inside `clients/`)
 
 **Import pattern:**
 - Entry points (`garmin_app.py`, `tests/`) use `sys.path.insert` to reach `garmin/`
 - Within packages, use relative imports (`from . import module`)
 - `maps/` and `context/` modules that need `garmin_config` use `sys.path.insert` to bridge to `garmin/`
+- `clients/` modules have no such bridge need — no dependency on `garmin_config` (v1.6.6)
 
 ---
 
@@ -413,19 +418,21 @@ All source folders are Python packages with `__init__.py`:
 
 | Location | sys.path setup |
 |---|---|
-| `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `app/` |
-| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); subfolder loop from `parent.parent` incl. `app/`; `context` additionally registered as `types.ModuleType` in `sys.modules` |
-| `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` + `scripts/app/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`) |
-| `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE |
-| `garmin_app_standalone.py` — Dev | same subfolder loop (incl. `app/`) |
-| `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; others via package registration |
+| `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `app/`, `clients/` (v1.6.6) |
+| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); subfolder loop from `parent.parent` incl. `app/`; `context` additionally registered as `types.ModuleType` in `sys.modules`. **`clients/` deliberately excluded** — Ollama Chat is a GUI-only feature, never reached from the headless entry point (v1.6.6) |
+| `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` + `scripts/app/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`). `clients/` excluded here too, same reasoning as Dev/T2 above |
+| `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE, incl. `clients/` (v1.6.6) |
+| `garmin_app_standalone.py` — Dev | same subfolder loop (incl. `app/`, `clients/`) |
+| `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; `clients/` the same way, flat `sys.path.insert` alongside `garmin_dir`/`app_dir` (v1.6.6) — not the `sys.modules` package-registration loop used by `context/`/`maps/`/`dashboards/`/`layouts/`; others via package registration |
 | `tests/test_local.py` | `sys.path.insert(0, .../garmin)` |
 | `tests/test_local_context.py` | `sys.path.insert(0, .../garmin)` + `sys.path.insert(0, root)` |
 | `maps/garmin_map.py` | `sys.path.insert(0, .../garmin)` — bridge between packages |
 | `context/` plugins | `sys.path.insert(0, .../garmin)` — for `garmin_config` |
+| `app/panel_chat.py` | `frozen_paths.add_to_path(root, "clients")` inside a lazy import helper — not at module top-level, so `panel_chat.py` stays importable before `sys.path` is fully wired up (v1.6.6) |
 | All modules inside `garmin/` | None — `sys.path.insert` removed in v1.4 |
+| All modules inside `clients/` | None — flat, no internal relative imports (v1.6.6) |
 
-⚠ When adding a new subfolder: add it to the `sys.path` loop in both entry points **and** to `_register_embedded_packages()` in `garmin_app_standalone.py`.
+⚠ When adding a new subfolder: add it to the `sys.path` loop in both entry points **and** to `_register_embedded_packages()` in `garmin_app_standalone.py`. Worked example: `clients/` (v1.6.6) — added to both entry points' loops, added as a flat `sys.path.insert` in `_register_embedded_packages()`, deliberately **not** added to `scheduler/daily_update.py` (no headless use case) and **not** added to `garmin_app.py::script_path()` (never subprocess-launched).
 
 ---
 

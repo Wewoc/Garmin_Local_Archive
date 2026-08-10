@@ -42,6 +42,7 @@ else:
     for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
         sys.path.insert(0, str(_root / _sub))
     sys.path.insert(0, str(_root / "app"))
+    sys.path.insert(0, str(_root / "clients"))
 
 
 def _register_embedded_packages():
@@ -56,6 +57,9 @@ def _register_embedded_packages():
     app_dir = scripts / "app"
     if app_dir.exists():
         sys.path.insert(0, str(app_dir))
+    clients_dir = scripts / "clients"
+    if clients_dir.exists():
+        sys.path.insert(0, str(clients_dir))
     for pkg in ("context", "maps", "dashboards", "layouts"):
         pkg_dir = scripts / pkg
         if pkg_dir.exists() and pkg not in sys.modules:

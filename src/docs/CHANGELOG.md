@@ -1,5 +1,95 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.6 — In-App Ollama Chat Panel
+
+Native chat panel against a local Ollama instance, directly inside the GUI —
+no external tool (Open WebUI/AnythingLLM) required for the existing
+Health-Analysis-Prompt exports. Fourth tab ("Ollama-Chat"), non-streaming
+requests only (`"stream": false`) — one request/response cycle per message,
+fits the existing Worker-Thread + `_dispatch()` pattern without a new
+threading concept. Full concept: `docs/KONZEPT_ollama_chat_panel.md`.
+
+**Currently, the chat only works against summary data - full intraday resolution will be added in version 1.9 mcp_map.py.**
+
+**New modules:**
+- `clients/__init__.py` — package marker for a new top-level package,
+  dedicated to stateless external tool/service clients (no data silo, no
+  Sole-Write-Authority) — distinct from `garmin/`'s Garmin-pipeline scope
+  and from the `context/`-plugin data-source meaning reserved for v2.0.
+  Flat-import style like `garmin/`/`app/`, no `sys.modules` package
+  registration (no relative imports inside `clients/`).
+- `clients/ollama_client.py` — Leaf-Node. Wraps `POST /api/chat` and
+  `GET /api/tags` against `http://localhost:11434`. Typed exceptions for
+  all six documented failure modes (unreachable, no models, timeout,
+  model not found, context-limit exceeded, generic HTTP error). Known,
+  documented trade-off: context-limit detection uses a substring check on
+  the HTTP 400 body — Ollama exposes no dedicated status code for this —
+  flagged in-code and in `NOTES_v1.6.6.md` as a case for the next
+  architecture scan, not a clean finding.
+- `app/panel_chat.py` — `PanelChat(QWidget)`, Composition (no Mixin, D-1).
+  Status box (context-file age + Ollama reachability + Start button)
+  always visible; model dropdown, chat history, input only unlock after
+  "Start" — no active chat prep or network traffic beyond a lightweight
+  reachability ping on tab-open. "Neuer Chat" resets history + system
+  prompt; model switch does the same automatically (different models,
+  different context limits). Own design decision, not concept-mandated: a
+  failed send removes the just-appended user message from history again,
+  so a retry doesn't duplicate it.
+
+**Changed modules:**
+- `garmin_app_base.py` — `PanelChat` imported and instantiated
+  (`self._panel_chat`), added as fourth tab ("Ollama-Chat", index 3, no
+  reindexing of existing tabs). `_on_tab_changed()` gains an `elif index
+  == 3` branch — same pattern as the existing Files-tab branch, no new
+  tab-change mechanism.
+- `garmin_app.py` — `clients/` added to both `sys.path` setup loops
+  (frozen + dev). `script_path()` deliberately left untouched —
+  `ollama_client.py` is never subprocess-launched.
+- `garmin_app_standalone.py` — `clients/` added to the dev-mode loop and
+  to `_register_embedded_packages()` (frozen), flat `sys.path.insert`
+  alongside `garmin_dir`/`app_dir` — not the `sys.modules` package loop.
+- `compiler/build_manifest.py` — new `clients` block in `SHARED_SCRIPTS`
+  (`__init__.py` + `ollama_client.py`), `app/panel_chat.py` added to
+  `SHARED_SCRIPTS`, both modules added to `SCRIPT_SIGNATURES_BASE`.
+- `requirements.txt` — `requests` added explicitly. Cosmetic, not a build
+  fix: `RUNTIME_DEPS` and `HIDDEN_IMPORTS_T3_EXTRA` in `build_manifest.py`
+  already covered it, `requirements.txt` was the only place missing it.
+
+**What does not change:**
+- `dash_plotter_json.py` / `dash_prompt_templates.py` /
+  `health_garmin_html-json_dash.py` — unchanged, consumed as-is by the new
+  panel (`health_garmin.json` / `health_garmin_prompt.md` age display +
+  system-prompt load). Broker layer untouched.
+- `daily_update.py` — deliberately not wired to `clients/`; chat is a
+  GUI-only feature, never needed headless.
+
+**Found but deliberately not fixed here:**
+- Precondition Teil B (Drift-Check) flagged one broad `except Exception`
+  in `panel_chat.py::_chat_refresh_age_display` — narrowed to `(OSError,
+  ValueError, AttributeError)` in the same session (confirmed by a
+  follow-up `dep_map_delta.md` run: broad → ok, clean swap, no
+  side-effect). A second flagged handler
+  (`ollama_client.py::is_reachable`, tool risk-class "critical") was
+  reviewed and left as-is — documented with reasoning in
+  `AUDIT_FINDINGS_v166.md` rather than changed.
+- Dedicated test coverage for `clients/ollama_client.py` and
+  `app/panel_chat.py` — deliberately deferred, own Bewerten-round
+  documented in `NOTES_v1.6.6.md`. Decision: no new test file, extend
+  `test_app_logic.py` (mocked `requests`, analogous to the existing
+  `context_api — fetch (mocked)` section) and `test_qt_app.py`
+  (`TestPanelChat`, analogous to `TestPanelOutputs`/`TestPanelTimer`).
+  Test depth (smoke-level vs. full worker-thread flows) still open.
+- Intraday data in the Ollama chat context (`health_garmin.json` currently
+  daily-aggregate only) — roadmap note added, explicitly deferred to the
+  v1.9 `mcp_map.py` on-demand query model rather than a static second
+  export file, to avoid worsening the context-window problem this session
+  just addressed. See `ROADMAP.md`.
+
+**Test result:** 631 / 265 / 453 / 145 / 46 / 15 — all green, ruff 0
+errors, bandit 0 HIGH. `dep_map_delta.md` (Precondition Teil B): 1 NEU / 1
+WEG / 0 GEKIPPT-Regression against the pre-narrowing baseline of this same
+session (broad-exception fix, see above).
+
 ## v1.6.5.11 — Auto-size Rollout (Explorer + Heatmap)
 
 Closes the rollout deferred in v1.6.5.10: the last two of eight dashboard

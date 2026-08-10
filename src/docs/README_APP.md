@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.5.9
+# Garmin Local Archive — Desktop App v1.6.6
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -94,10 +94,11 @@ The app window is divided into two areas:
 - Device table
 - Daily Actions: **Daily Sync**, **Mirror**, **Timer**, **Documentation**
 
-**Tab area** — three tabs:
+**Tab area** — four tabs:
 - **Home** — Dashboard viewer (HTML dashboards)
 - **Files** — Excel viewer
 - **Settings** — all configuration panels
+- **Ollama-Chat** — native chat against a local Ollama instance (v1.6.6)
 
 ---
 
@@ -343,6 +344,44 @@ The **Sleep & Recovery** dashboard shows HRV, Body Battery, and Sleep duration a
 
 > Reference ranges (Health Analysis) are based on published guidelines (AHA, ACSM, Garmin/Firstbeat) — informational only, not medical advice.
 > Dashboard values from consumer wearables are indicative only — not medical-grade.
+
+### Ollama-Chat tab
+
+*(v1.6.6)* Native chat against a local Ollama instance, directly inside the
+app — no external tool required for quick questions about your data.
+
+**Requirements:** Ollama installed and running (`ollama serve`), at least
+one model pulled. Rough sizing guide (rule of thumb: VRAM in GB − 2 =
+usable model size) is in `README.md`, "Option A — Built-in Chat".
+
+The chat runs against your existing **Health Analysis** export — it does
+not generate data itself. Build one first via **Create Reports** (Home
+tab) or **Create All Dashboards** (Settings → Outputs) — see "Dashboards
+& Analysis" above.
+
+**Opening the tab** shows the age of your current Health Analysis export
+(`health_garmin.json` / `health_garmin_prompt.md`) and a lightweight
+reachability check against Ollama — no chat request is sent yet at this
+point. If it shows **"not found"**, the chat can still be started, but
+has no data to answer questions about — build a Health Analysis export
+first.
+
+**Start** loads the model list and the health-analysis system prompt, then
+unlocks the model dropdown and the chat input. Requests are non-streaming —
+for larger models the reply can take anywhere from a few seconds to
+several minutes; a running counter shows elapsed time while waiting.
+
+**Neuer Chat** clears the conversation and reloads the system prompt.
+Switching the model does the same automatically — different models have
+different context limits, so carrying history across a model switch isn't
+supported.
+
+**Currently, the chat only works against summary data — full intraday
+resolution will be added in version 1.9 (`mcp_map.py`).**
+
+If Ollama isn't running, no model is installed, or a request times out,
+the panel shows the error directly in the chat window — no separate log
+lookup needed.
 
 ### Log: Simple / Log: Detailed
 Toggles the log output level in the GUI. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.

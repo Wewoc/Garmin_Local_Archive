@@ -2,6 +2,7 @@ garminconnect
 openpyxl
 keyring
 cryptography
+requests
 
 # Development / testing only
 PyQt6
