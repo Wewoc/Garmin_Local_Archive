@@ -283,6 +283,14 @@ data, so the renderer never special-cases row length.
 Stress, Body Battery, SpO2, Respiration); sum for Steps (a count metric —
 summing 15-minute bins per hour is more meaningful than averaging them).
 
+**Auto-size (v1.6.5.11):** `_dates_with_data(metric) -> set` filters a
+metric's padded `dates` list down to only the dates whose matrix row has
+at least one non-`None` value — the raw `dates` list itself always spans
+the full requested range regardless of data presence, so it can't be fed
+to `compute_autosize_bounds()` directly. The six metrics' "has data" sets
+are pooled (union) into `garmin_dates` before the bounds call — a date
+counts if *any* metric has a real sample that hour.
+
 ````python
 {
     "layout":    "heatmap",
@@ -336,6 +344,16 @@ Each metric dict's `matrix` is `dates x hours` — one row per date in
 ```
 
 `field_options` covers all Garmin daily fields (excluding categorical and phase fields) plus all context fields (weather, pollen, air quality). Sleep score labels are rendered as a vertical Plotly text trace inside the sleep phase panel — one label per day at the position of its bar.
+
+**Auto-size (v1.6.5.11):** bounds computed from Garmin fields only (daily
+fields + sleep phases + sleep score feedback/qualifier) — context fields
+excluded, same rationale as the other multi-source specialists
+(`health-weather-pollen`, `sleep_recovery_context`): context coverage can
+be narrower than Garmin's and would needlessly shrink the display range.
+`build()` returns data for all fields regardless of the 4-field dropdown
+selection (selection happens client-side), so bounds cannot be scoped to
+"selected fields" at build time — this matches the existing precedent for
+multi-source specialists, which also don't scope bounds per-selection.
 
 ### `custom_dash_builder` — Custom Dashboard Builder (v1.6.4)
 
@@ -506,9 +524,11 @@ Shared age/sex/fitness-adjusted reference range logic. Used by specialists — n
 ### `layouts/dash_autosize.py` (v1.6.5.10)
 
 Sole owner of the auto-size boundary calculation shared by dashboard
-specialists. Used by six of eight specialists — `explorer_garmin-context_html_dash.py`
-and `heatmap_garmin_html_dash.py` not yet migrated (deferred, different
-underlying data shape). Used by specialists — never by plotters.
+specialists. Used by all eight specialists (v1.6.5.11 — `explorer_garmin-context_html_dash.py`
+and `heatmap_garmin_html_dash.py` were the last two, rollout complete).
+Used by specialists — never by plotters. Function signatures unchanged by
+the rollout — both new call sites feed it a pre-filtered `set` of dates,
+same contract as the original six.
 
 | Function | Returns |
 |---|---|
@@ -517,9 +537,21 @@ underlying data shape). Used by specialists — never by plotters.
 
 **Called by:** `health_garmin-weather-pollen_html-xls_dash.py`, `health_garmin_html-json_dash.py`,
 `overview_garmin_xls_dash.py`, `sleep_garmin_html-xls_dash.py`, `sleep_recovery_context_dash.py`,
-`timeseries_garmin_html-xls_dash.py`. `health_garmin_html-json_dash.py` uses only
+`timeseries_garmin_html-xls_dash.py`, `explorer_garmin-context_html_dash.py` (v1.6.5.11),
+`heatmap_garmin_html_dash.py` (v1.6.5.11, via `_dates_with_data()` pre-filter — see
+"Auto-size" note in that specialist's section above). `health_garmin_html-json_dash.py` uses only
 `compute_autosize_bounds()` — its subtitle has its own prefix text and is
 assembled independently via `autosize_note()`'s fragment appended at the end.
+
+**Known gap (not fixed, v1.6.5.11):** `overview_garmin_xls_dash.py`'s
+`all_dates` set is populated unconditionally from every `field_get()`
+entry, without an `is not None` filter (unlike the other seven call
+sites). Since `field_get(resolution="daily")` pads every requested day
+with an entry regardless of data presence, `all_dates` there always equals
+the full requested range — `compute_autosize_bounds()` never returns an
+adjusted boundary for this specialist. Latent, harmless (no crash, no
+wrong data — just an auto-size that silently never triggers). Flagged
+during the v1.6.5.11 DEPS-Scan review, not in scope for that session.
 
 ---
 
@@ -541,10 +573,10 @@ per specialist type, called exclusively by `dash_plotter_json.py`.
 
 ## Auto-size behaviour
 
-All specialists implement auto-size: if the requested date range exceeds available data, the display range is adjusted to actual data boundaries. The subtitle shows the adjusted range and the original request.
+All eight specialists implement auto-size (rollout completed v1.6.5.11): if the requested date range exceeds available data, the display range is adjusted to actual data boundaries. The subtitle shows the adjusted range and the original request. (Exception: `overview_garmin_xls_dash.py` has the call site but a filtering gap makes it a no-op in practice — see "Known gap" under `dash_autosize.py` above.)
 
-- Garmin-only specialists: boundaries from all loaded fields
-- Multi-source specialists (`health-weather-pollen`, `sleep_recovery_context`): boundaries from Garmin fields only — context data is excluded to avoid narrowing the range unnecessarily
+- Garmin-only specialists: boundaries from all loaded fields. `heatmap_garmin_html_dash.py` (v1.6.5.11) is a variant of this: "loaded" means a matrix row with at least one non-`None` value, not just an entry in the padded per-day list — see its "Auto-size" note above.
+- Multi-source specialists (`health-weather-pollen`, `sleep_recovery_context`, `explorer_garmin-context_html_dash` since v1.6.5.11): boundaries from Garmin fields only — context data is excluded to avoid narrowing the range unnecessarily
 
 `date_from` / `date_to` in the return dict always reflect the **original request** — not the adjusted range.
 

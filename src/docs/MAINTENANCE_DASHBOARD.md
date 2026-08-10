@@ -28,7 +28,7 @@ garmin_app.py (GUI)
 | `dash_layout.py` | Passive: color tokens, metric metadata, disclaimer, footer |
 | `dash_layout_html.py` | Passive: HTML CSS, Plotly CDN, template builders |
 | `reference_ranges.py` | Passive: age/sex/fitness reference range calculations |
-| `dash_autosize.py` | Passive: auto-size boundary calculation (v1.6.5.10) — used by 6 of 8 specialists |
+| `dash_autosize.py` | Passive: auto-size boundary calculation (v1.6.5.10) — used by all 8 specialists (v1.6.5.11) |
 | `dash_encryptor.py` | Sole Owner: HTML encryption for Encrypted Dashboard Export (v1.6.1+) |
 
 ### Invariants
