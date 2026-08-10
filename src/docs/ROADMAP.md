@@ -6,22 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.5.10**
-
----
-
-## v1.6.5.11 — Auto-size Rollout (Explorer + Heatmap)
-
-Auto-size now runs via a shared `layouts/dash_autosize.py` helper for six of
-eight specialists (v1.6.5.10). Two remain without it: `explorer_garmin-context_html_dash.py`
-and `heatmap_garmin_html_dash.py` — deferred because their underlying data
-shape differs from the other six (matrix vs. flat date series), so the
-existing helper doesn't drop in as-is.
-
-Not urgent, never harmful. Scope: work out whether `compute_autosize_bounds()`
-extends cleanly to a matrix shape (heatmap) and to a free multi-field
-selection (explorer), or whether each needs its own small adaptation before
-calling it.
+**Currently stable — v1.6.5.11**
 
 ---
 
@@ -65,11 +50,21 @@ from the MFA block already shipped (v1.6.5.9):
    connection check even when a previous run in the same window already
    confirmed one. Distinct from the MFA block — this is about avoiding
    redundant checks, not about MFA.
-
+  
 Both items touch the same login-cascade/token-log territory without
 touching each other's code directly — analysed together in one session
 rather than two separate ones. Needs its own Analyse step before any
 Bauauftrag; nothing implemented yet.
+
+3. **Log timestamp consistency in the Context/Dashboard pipeline**
+  The Garmin page uses the `logging` module (timestamp and log level are automatically added).
+  The Context/Dashboard page (`context_collector.py`, `dash_runner.py`) uses
+  only the `log_callback(str)` function without timestamps, resulting in an inconsistent
+  console output. This is not a functional bug, but a purely cosmetic issue. Two possible solutions:
+  (a) Add a timestamp prefix to the `log_callback` itself (small change, no architectural change),
+  (b) Migrate the Context/Dashboard pipeline to use the `logging` module (larger change, many call sites).
+  The preferred approach is (a).
+
 
 
 ---

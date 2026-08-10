@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from maps.field_map    import get as field_get, list_fields as garmin_list_fields
 from maps.context_map  import get as context_get, list_fields as context_list_fields
 from layouts.dash_layout import get_metric_meta
+from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -197,12 +198,35 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         ],
     }
 
-    # ── 7. Subtitle ───────────────────────────────────────────────────────────
-    subtitle = (
-        f"{date_from} \u2192 {date_to} · "
-        f"{len(daily_garmin_fields)} Garmin fields · "
-        f"{len(context_fields)} context fields"
+    # ── 7. Auto-size + subtitle — bounds from Garmin fields only ─────────────
+    # Context data is excluded from boundary detection (same rationale as
+    # health-weather-pollen / sleep_recovery_context): context coverage can
+    # be narrower than Garmin's and would needlessly shrink the display range.
+    garmin_dates = set(
+        d
+        for src in (
+            [daily_series[f] for f in daily_garmin_fields]
+            + list(phase_raw.values())
+            + [score_feedback_by_date, score_qualifier_by_date]
+        )
+        for d, v in src.items()
+        if v is not None
     )
+
+    _bounds = compute_autosize_bounds(garmin_dates, date_from, date_to)
+    _note   = autosize_note(_bounds, date_from, date_to)
+    if _note:
+        subtitle = (
+            f"{_bounds['actual_first']} \u2192 {_bounds['actual_last']} · "
+            f"{len(daily_garmin_fields)} Garmin fields · "
+            f"{len(context_fields)} context fields{_note}"
+        )
+    else:
+        subtitle = (
+            f"{date_from} \u2192 {date_to} · "
+            f"{len(daily_garmin_fields)} Garmin fields · "
+            f"{len(context_fields)} context fields"
+        )
 
     return {
         "layout":    "explorer",
