@@ -347,7 +347,7 @@ pytest tests/test_qt_app.py -v
 # or via: tests/run_qt_tests.bat
 ```
 
-**Current count: 46 checks, 8 classes.** Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
+Check and class totals are tracked in `docs/METRICS.md` (`test_qt_app.py`) — not restated here to avoid drift (same convention as `MAINTENANCE_GARMIN.md` / `test_app_logic.py` above). Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
 
 **Test result v1.6.0:** 316 / 261 / 303 / 128 / 42 / 2 — all green
 

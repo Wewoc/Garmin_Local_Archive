@@ -226,7 +226,7 @@ _PROJECT_MODULE_NAMES = {
     Path(p).stem for p in build_manifest.SHARED_SCRIPTS
     if Path(p).stem != "__init__"
 }
-_LEAF_NODES = ["garmin/garmin_utils.py", "garmin/garmin_validator.py"]
+_LEAF_NODES = ["garmin/garmin_utils.py", "garmin/garmin_validator.py", "log_utils.py"]
 
 # garmin_validator.py's own docstring documents this exception explicitly:
 # "No imports from other project modules except garmin_config (leaf-node

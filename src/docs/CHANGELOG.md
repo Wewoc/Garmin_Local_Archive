@@ -1,5 +1,75 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.6.1 — Log Timestamp Consistency (Context/Dashboard Pipeline)
+
+Closes Punkt 3 from the v1.6.6.1 candidate list (`ROADMAP.md`) — the Garmin
+page uses the `logging` module (timestamp added automatically), while the
+Context/Dashboard pipeline (`context_collector.py`, `dash_runner.py`) used
+only `log_callback(str)`/`log(str)` with no timestamp, producing
+inconsistent console output when both appear in the same GUI log widget
+(e.g. during Daily Sync). Purely cosmetic, no functional bug. Implements a
+refined version of the two options the roadmap entry weighed: option (a)
+(timestamp prefix at the callback) without touching each individual
+`log(...)` call site individually — the callback is wrapped once, at
+function entry, instead.
+
+**New modules:**
+- `log_utils.py` — new Leaf-Node in `src/`, alongside `frozen_paths.py`,
+  `crash_handler.py`, `qwebengine_hardening.py`. One function,
+  `with_timestamp(log_fn)`: wraps a log callback so every message gets a
+  `"%Y-%m-%d %H:%M:%S "` prefix, matching the format `logging.Formatter`
+  already uses everywhere else in the project. Pass-through — returns
+  `None` unchanged if `log_fn` is `None`, so existing `if log is None:`
+  guards in callers keep working without modification.
+
+**Changed modules:**
+- `context/context_collector.py` — `run()`: `log_callback` wrapped via
+  `log_utils.with_timestamp()` once at function entry — applies to every
+  message emitted through the callback without touching the single
+  `log_callback(...)` call site itself. New `sys.path.insert()` (reaching
+  `src/`, alongside the existing insert for `src/garmin/`) + `import
+  log_utils`.
+- `dashboards/dash_runner.py` — `scan()` and `build()`: same wrap
+  pattern, applied before the existing `if log is None: log = lambda msg:
+  None` fallback so the headless no-op path is unaffected. New `sys.path`
+  anchor + `import log_utils` — the module previously had zero
+  project-module imports.
+- `compiler/build_manifest.py` — `log_utils.py` added to `SHARED_SCRIPTS`
+  (next to `frozen_paths.py`) and to `SCRIPT_SIGNATURES_BASE`
+  (`["def with_timestamp"]`).
+
+**Architecture note:** deliberately not added to `garmin/garmin_utils.py`
+despite that module's own "no project-module imports" Leaf-Node
+docstring — `dashboards/` has zero project-module imports today by
+design (kept independent of `garmin/`), and importing `garmin_utils`
+from there would have created exactly the cross-domain dependency the
+project avoids elsewhere (see the `clients/` vs. `garmin/` boundary,
+v1.6.6). Follows the `frozen_paths.py` precedent instead — a
+domain-less Leaf-Node at the `src/` root, importable by any package
+without creating a domain dependency.
+
+**Deliberately not touched:**
+- `scheduler/daily_update.py` — its headless `dash_runner.build()` call
+  already wraps `log=` with `log.info(f"  {msg}")` (the `logging`
+  module, timestamped by its own `Formatter`). Wrapping the source as
+  well means headless `log/daily/*.log` lines now carry two timestamps
+  back-to-back for dashboard-build messages — cosmetic only, never
+  visible in the GUI, accepted rather than adding special-case logic to
+  strip it.
+
+**Known open item:** verified against `test_local.py` /
+`test_local_context.py` / `test_dashboard.py` / `test_app_logic.py` /
+`test_qt_app.py` / `test_static.py` (T1/Dev) — a T2/T3 `build_all.py` run
+has not yet confirmed `log_utils.py` resolves cleanly via `dash_runner.py`'s
+new `sys.path` anchor inside a frozen build (`_load_plotters()` elsewhere
+in the same file notes `__file__` can point into a `_MEIPASS` temp path in
+T3 — same class of risk, not yet ruled out for this change).
+
+**Test result:** 631 / 265 / 453 / 145 / 46 / 15 — all green, ruff 0
+errors, bandit 0 HIGH.
+
+---
+
 ## v1.6.6 — In-App Ollama Chat Panel
 
 Native chat panel against a local Ollama instance, directly inside the GUI —
@@ -89,6 +159,11 @@ threading concept. Full concept: `docs/KONZEPT_ollama_chat_panel.md`.
 errors, bandit 0 HIGH. `dep_map_delta.md` (Precondition Teil B): 1 NEU / 1
 WEG / 0 GEKIPPT-Regression against the pre-narrowing baseline of this same
 session (broad-exception fix, see above).
+
+**Dependency review (post-release, 2026-08-11):**
+- `garminconnect` 0.3.6 → 0.3.9: Breaking changes check performed (no code changed – purely an evaluation triggered by a `check_deps.py` notification).
+  Result: low risk. Issue #386 (widget/MFA login strategy) fully resolved with versions 0.3.7+0.3.9. No impact on GLAs used endpoints. The `requirements.txt` file is intentionally unpinned – the update was performed outside the repository (`pip install --upgrade`).
+  Details: `NOTES_token_log_observation.md`, commit 3b.
 
 ## v1.6.5.11 — Auto-size Rollout (Explorer + Heatmap)
 
