@@ -27,8 +27,10 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import garmin_config as cfg
 import garmin_quality as quality
+import log_utils
 
 from . import context_api
 from . import context_writer
@@ -215,6 +217,7 @@ def run(settings: dict = None, stop_event=None,
                       every PROGRESS_LOG_INTERVAL days written. None = headless.
     """
     log.info("context_collector: starting API sync")
+    log_callback = log_utils.with_timestamp(log_callback)
     _PROGRESS_LOG_INTERVAL = 25
     global _CSV_FILE
     if settings and settings.get("base_dir"):

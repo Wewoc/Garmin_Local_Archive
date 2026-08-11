@@ -35,6 +35,7 @@ SHARED_SCRIPTS = [
     "crash_handler.py",
     "qwebengine_hardening.py",
     "frozen_paths.py",
+    "log_utils.py",
     # garmin pipeline
     "garmin/__init__.py",
     "garmin/garmin_config.py",
@@ -191,6 +192,7 @@ SCRIPT_SIGNATURES_BASE = {
     "crash_handler.py": ["def install"],
     "qwebengine_hardening.py": ["def harden"],
     "frozen_paths.py": ["def scripts_root", "def add_to_path", "def doc_path"],
+    "log_utils.py": ["def with_timestamp"],
     "garmin/garmin_redact.py": ["def redact"],
     "app/panel_chat.py": ["class PanelChat"],
     "clients/ollama_client.py": ["def chat", "def list_models", "def is_reachable"],

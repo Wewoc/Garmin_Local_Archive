@@ -22,6 +22,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import log_utils
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Plotter registry — maps format key to plotter module
 #  Add new plotters here as layouts/ grows.
@@ -114,6 +117,7 @@ def scan(log=None) -> list[dict]:
     optional log callback and collected internally for diagnostics.
     Mirrors the existing _load_plotters() / {fmt}_err pattern.
     """
+    log = log_utils.with_timestamp(log)
     if log is None:
         log = lambda msg: None  # noqa: E731
 
@@ -200,6 +204,7 @@ def build(
             ...
         ]
     """
+    log = log_utils.with_timestamp(log)
     if log is None:
         log = lambda msg: None  # noqa: E731
 
