@@ -136,6 +136,13 @@ Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — 
     │                                  executable branches across panel_outputs.py
     │                                  (6x), panel_home.py, the garmin_live_fetch
     │                                  call site, and doc lookups (v1.6.0.4.3)
+    ├── log_utils.py                ← Leaf-Node. with_timestamp(log_fn) — prefixes
+    │                                  log-callback messages with a timestamp
+    │                                  matching logging.Formatter's format.
+    │                                  Domain-less, alongside frozen_paths.py —
+    │                                  imported by context_collector.py and
+    │                                  dash_runner.py without creating a
+    │                                  dependency on garmin/ (v1.6.6.1)
     │
     ├── app/                        ← Layer 1+3: settings persistence + application logic (v1.5.2+)
     │   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
@@ -304,6 +311,7 @@ findable by heading/table search (see `DOC_DRIFT_REPORT.md`, Punkt B).
 | `garmin_app_base.py` | View layer (`GarminApp`) — PyQt6 `QMainWindow`, fixed top (`panel_home`) + `QTabWidget`: Home / Files / Settings / Ollama-Chat (v1.6.0+, fourth tab added v1.6.6). Settings tab: two-column layout — Settings left (340px), Actions right (flex). `_sheet_arrow` label mirrors `_sheet_combo` visibility (v1.6.0.7). |
 | `qwebengine_hardening.py` | Leaf-Node. `harden(view)` — disables `LocalContentCanAccessFileUrls`, `LocalContentCanAccessRemoteUrls`, `JavascriptCanOpenWindows`, `PluginsEnabled`, `JavascriptCanAccessClipboard` on a `QWebEngineView`. `JavascriptEnabled` stays `True` — Plotly dashboards require it. Idempotent — safe to call multiple times on the same view. Called from `panel_home.py` and `garmin_app_base.py` after each `QWebEngineView()` instantiation. |
 | `frozen_paths.py` | Leaf-Node. Central frozen-path resolution — replaces previously duplicated `sys.frozen`/`sys._MEIPASS`/`sys.executable` branches (`panel_outputs.py` ×6, `panel_home.py`, the `garmin_live_fetch` call site, doc lookups). Three side-effect-separated functions: `scripts_root()` (root for `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` — T3 verified via canonical distinguisher: `dash_runner.py` must actually exist under `scripts/dashboards/`, not just `scripts/` itself), `add_to_path(root, *subs)` (mutates `sys.path` as an explicit, separate step), `doc_path(filename)` (finds bundled docs — `info/` next to the EXE when frozen, three-step dev chain otherwise: repo root → `src/docs/` → `src/scheduler/`; returns `None` if not found, never guesses). |
+| `log_utils.py` | Leaf-Node (v1.6.6.1). One function: `with_timestamp(log_fn)` — wraps a log callback so every message gets a `"%Y-%m-%d %H:%M:%S "` prefix, matching the format `logging.Formatter` uses elsewhere in the project. Pass-through — returns `None` unchanged if `log_fn` is `None`. Deliberately not placed in `garmin/garmin_utils.py` despite that module's own Leaf-Node status — `dashboards/` has zero project-module imports by design, kept independent of `garmin/`; `log_utils.py` sits at the `src/` root instead, alongside `frozen_paths.py`, so `context/context_collector.py` and `dashboards/dash_runner.py` can both import it without creating a cross-domain dependency. Used to fix inconsistent console-log timestamps between the Garmin page (`logging` module) and the Context/Dashboard pipeline (`log_callback(str)`). |
 
 `app/panel_settings.py`, `app/panel_archive.py`, `app/panel_timer.py`,
 `app/panel_outputs.py` already carry sufficient inline detail in the
