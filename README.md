@@ -80,6 +80,9 @@ Standard version: install dependencies first — `pip install -r requirements.tx
 <img src="src/screenshots/GUI-Page_3.jpg" width="800" alt="Garmin Local Archive — Settings Tab">
 <br><sub>Settings tab — two-column layout: credentials, paths, and sync config on the left; sync controls, timer, mirror, and output options on the right.</sub>
 
+<img src="src/screenshots/GUI-Page_4.jpg" width="800" alt="Garmin Local Archive — Ollama-Chat Tab">
+<br><sub>Ollama-Chat tab — native chat against a local Ollama model, working from your archived daily summary data (HRV, sleep, Body Battery, resting HR). Minute-level intraday detail is planned for v1.9.</sub>
+
 **What this is not:**
 Garmin Connect is still required — the app pulls data from there via API.
 
