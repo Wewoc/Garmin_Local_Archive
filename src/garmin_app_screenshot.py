@@ -266,6 +266,7 @@ class ScreenshotApp(GarminApp):
         self._load_demo_settings()
         self._set_connection_indicators_green()
         self._write_demo_log()
+        self._load_demo_chat()
         self._disable_all_buttons()
         self.setWindowTitle("Garmin Local Archive  [SCREENSHOT MODE]")
         # Delay so table widget is fully laid out before we insert rows
@@ -374,6 +375,44 @@ class ScreenshotApp(GarminApp):
     def _write_demo_log(self):
         for line in DEMO_LOG:
             self._log(line)
+
+    def _load_demo_chat(self):
+        """Populate the Ollama-Chat tab (panel_chat.py) with demo state —
+        no live Ollama call, no file I/O. Two exchanges: one answerable
+        from current summary data, one that surfaces the current
+        summary-only limitation (full intraday resolution planned for v1.9)."""
+        pc = self._panel_chat
+        pc._age_label.setText("Context files: health_garmin.json — 2026-06-06 (today)")
+        pc._reach_label.setText("Ollama: reachable")
+        pc._model_combo.blockSignals(True)
+        pc._model_combo.clear()
+        pc._model_combo.addItems(["qwen2.5:14b", "llama3.1:8b"])
+        pc._model_combo.blockSignals(False)
+        pc._model_combo.setEnabled(True)
+        pc._new_chat_btn.setEnabled(True)
+        pc._input.setEnabled(True)
+        pc._send_btn.setEnabled(True)
+        pc._start_btn.setEnabled(False)
+
+        pc._chat_append_line(
+            "You",
+            "How was my sleep and HRV over the past week?")
+        pc._chat_append_line(
+            "Assistant",
+            "Your HRV averaged 61 ms, slightly above your 90-day baseline "
+            "of 58 ms. Sleep averaged 7.4h at mostly \"high\" quality, "
+            "except Tuesday (6.1h, \"standard\"). Resting HR stayed stable "
+            "between 51 and 54 bpm all week.")
+        pc._chat_append_line(
+            "You",
+            "Can you show me my heart rate curve minute-by-minute for yesterday?")
+        pc._chat_append_line(
+            "Assistant",
+            "I currently only have access to your daily summary data — "
+            "resting HR, sleep duration, HRV, Body Battery, etc. "
+            "Minute-level intraday values aren't wired in yet; that's "
+            "planned for v1.9. For yesterday I can tell you: resting HR "
+            "52 bpm, HRV 58 ms, sleep 7.6h at \"high\" quality.")
 
     def _disable_all_buttons(self):
         """Walk every QPushButton and replace command with no-op."""
