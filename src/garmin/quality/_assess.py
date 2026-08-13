@@ -224,7 +224,7 @@ def assess_quality_fields(raw: dict) -> dict:
     bb_has_array = (isinstance(bb_values, list) and len(bb_values) > 0) or \
                    (isinstance(stress_bb, list) and len(stress_bb) > 0)
     # val_index=2 — bodyBatteryValuesArray is a [ts, status, value] triplet
-    # (garmin_map._FIELD_MAP canonical form), not a [ts, value] pair.
+    # (garmin_health_map._FIELD_MAP canonical form), not a [ts, value] pair.
     bb_parseable = (
         (isinstance(stress_bb, list) and len(_parse_list_values(stress_bb, 2)) > 0) or
         (isinstance(bb_values, list) and len(_parse_list_values(bb_values, 2)) > 0)

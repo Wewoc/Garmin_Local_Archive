@@ -10,7 +10,7 @@ Metrics: Heart Rate, Steps, Stress, Body Battery, SpO2, Respiration —
          time-of-day (hourly bins) x date, pivoted from intraday series.
 
 Sources:
-  - Garmin raw/ via field_map (intraday): heart_rate_series, steps_series,
+  - Garmin raw/ via health_map (intraday): heart_rate_series, steps_series,
     stress_series, body_battery_series, spo2_series, respiration_series
 
 Aggregation per hourly bin:
@@ -21,7 +21,7 @@ Aggregation per hourly bin:
 Rules:
 - No direct file access.
 - No source-internal field names outside this module.
-- Calls field_map.get() only.
+- Calls health_map.get() only.
 - Returns neutral dict for dash_plotter_html_complex ("layout": "heatmap").
 """
 
@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map import get as field_get
+from maps.health_map import get as health_get
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -39,7 +39,7 @@ from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 META = {
     "name":        "Heatmap",
     "description": "Time-of-day x date heatmaps — Heart Rate, Steps, Stress, Body Battery, SpO2, Respiration",
-    "source":      "Garmin raw/ via field_map (intraday)",
+    "source":      "Garmin raw/ via health_map (intraday)",
     "formats": {
         "html_complex": "heatmap_garmin.html",
     },
@@ -67,7 +67,7 @@ def _bucket_hourly(series, agg: str) -> list:
     """
     Buckets a [{'ts': iso-str, 'value': float}, ...] series into 24 hourly
     bins (0-23). Hour is read directly from the ISO timestamp string
-    (positions 11:13 — ts is always "%Y-%m-%dT%H:%M:%S" per garmin_map's
+    (positions 11:13 — ts is always "%Y-%m-%dT%H:%M:%S" per garmin_health_map's
     _ts_to_iso()). Returns a list of 24 values, None where no data fell
     into that hour.
 
@@ -109,7 +109,7 @@ def _build_metric_matrix(field: str, agg: str, date_from: str, date_to: str) -> 
     row — same shape as a day with data, so the renderer never has to
     special-case row length.
     """
-    result = field_get(field, date_from, date_to, resolution="intraday")
+    result = health_get(field, date_from, date_to, resolution="intraday")
     garmin = result.get("garmin", {})
 
     dates  = []
@@ -142,7 +142,7 @@ def _dates_with_data(metric: dict) -> set:
 
 def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
-    Fetch all six intraday metrics via field_map and pivot each to a
+    Fetch all six intraday metrics via health_map and pivot each to a
     date x hourly-bin matrix.
 
     Args:

@@ -9,13 +9,13 @@ Specialist: Garmin health metrics combined with weather and pollen context.
 Shows daily HRV, Stress, Body Battery alongside temperature, UV, pollen load.
 
 Sources:
-  - Garmin summary/ via field_map  (HRV, Stress, Body Battery)
+  - Garmin summary/ via health_map  (HRV, Stress, Body Battery)
   - context_data/   via context_map (Temperature, UV Index, Pollen Birch)
 
 Rules:
 - No direct file access.
 - No source-internal field names outside this module.
-- Calls field_map.get() and context_map.get() only.
+- Calls health_map.get() and context_map.get() only.
 - Returns neutral dict for plotters — no rendering logic.
 """
 
@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map    import get as field_get
+from maps.health_map    import get as health_get
 from maps.context_map  import get as context_get
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 
@@ -41,7 +41,7 @@ META = {
     },
 }
 
-# Garmin fields — via field_map
+# Garmin fields — via health_map
 _GARMIN_FIELDS = [
     {"field": "hrv_last_night",   "label": "HRV",          "unit": "ms",    "group": "garmin"},
     {"field": "stress_avg",       "label": "Stress",        "unit": "level", "group": "garmin"},
@@ -90,7 +90,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
 
     # ── Garmin fields ─────────────────────────────────────────────────────────
     for f in _GARMIN_FIELDS:
-        result = field_get(f["field"], date_from, date_to, resolution="daily")
+        result = health_get(f["field"], date_from, date_to, resolution="daily")
         garmin = result.get("garmin", {})
         days   = [
             {"date": entry["date"], "value": entry["value"]}

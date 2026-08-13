@@ -3,69 +3,47 @@
 # Copyright (C) 2024 Wewoc (github.com/wewoc)
 
 """
-context_map.py
+health_map.py
 
-Single entry point for all context archive data requests from specialists.
+Single entry point for all local archive data requests from specialists.
 
-Structurally identical to health_map.py — same broker principle, different domain.
-Knows which *_map.py modules are registered for context sources,
+Routing layer only — knows which *_map.py modules are registered,
 but knows nothing about how any source stores its data.
 
-Registered sources: weather_map, pollen_map, brightsky_map, airquality_map.
-Interface is designed to accept additional sources without modification.
+In v1.4: only garmin_map is registered.
+Interface is designed to accept a second source in v2.0 without modification.
 
 Usage (from a specialist):
-    from maps.context_map import get, list_fields, list_sources
-    result = get("temperature_max", "2026-01-01", "2026-03-31")
-    result = get("pollen_birch",    "2026-01-01", "2026-03-31")
-    result = get("temperature_avg", "2026-01-01", "2026-03-31")
+    from maps.health_map import get, list_fields, list_sources
+    result = get("hrv_last_night", "2026-01-01", "2026-03-31")
+    result = get("heart_rate_series", "2026-01-01", "2026-03-31",
+                 resolution="intraday")
 
 Return structure:
     {
-        "weather": {
-            "values":            [{"date": str, "value": float|None}, ...],
-            "fallback":          bool,
-            "source_resolution": str,
-            "error":             str,   # optional — only present if source failed
-        },
-        "pollen": {
-            "values":            [{"date": str, "value": float|None}, ...],
-            "fallback":          bool,
-            "source_resolution": str,
-            "error":             str,   # optional — only present if source failed
-        },
-        "brightsky": {
-            "values":            [{"date": str, "value": float|str|None}, ...],
+        "garmin": {
+            "values":            [...],
             "fallback":          bool,
             "source_resolution": str,
             "error":             str,   # optional — only present if source failed
         }
+        # v2.0: additional source keys added here
     }
-
-Note: External data must be collected before dashboard build.
-context_map reads local files — never calls live APIs at build time.
-The collect step is triggered by the "API Sync" button in the GUI.
 """
 
-from . import weather_map
-from . import pollen_map
-from . import brightsky_map
-from . import airquality_map
+from . import garmin_health_map
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Source registry — weather + pollen + brightsky
+#  Source registry — v1.4: garmin only
 #
-#  To add a source:
+#  To add a source in v2.0:
 #    1. Drop the *_map.py module into maps/
 #    2. Import it here with a relative import
 #    3. Add it to _SOURCES with its key name
 # ══════════════════════════════════════════════════════════════════════════════
 
 _SOURCES = {
-    "weather":    weather_map,
-    "pollen":     pollen_map,
-    "brightsky":  brightsky_map,
-    "airquality": airquality_map,
+    "garmin": garmin_health_map,
 }
 
 
@@ -76,22 +54,23 @@ _SOURCES = {
 def get(field: str, date_from: str, date_to: str,
         resolution: str = "daily") -> dict:
     """
-    Request a field from all registered external API sources.
+    Request a field from all registered sources.
 
     Args:
         field:      Generic field name (dashboard-side).
         date_from:  Start date ISO string (YYYY-MM-DD), inclusive.
         date_to:    End date ISO string (YYYY-MM-DD), inclusive.
-        resolution: "daily" or "intraday". External sources are always daily —
-                    "intraday" triggers fallback=True in the source result.
+        resolution: "daily" or "intraday". Each source applies its own
+                    fallback logic if the requested resolution is unavailable.
 
     Returns:
-        Dict keyed by source name. Sources that do not know the requested
-        field are silently skipped. Error entries include an "error" key.
+        Dict keyed by source name. Each value is the result from that
+        source's *_map.get() call, or an error entry if the source failed.
+        Sources that do not know the requested field are silently skipped.
 
     Example:
         {
-            "weather": {
+            "garmin": {
                 "values":            [...],
                 "fallback":          False,
                 "source_resolution": "daily",
@@ -105,8 +84,10 @@ def get(field: str, date_from: str, date_to: str,
                 field, date_from, date_to, resolution
             )
         except KeyError:
+            # This source does not know this field — skip silently
             pass
         except Exception as exc:
+            # Source failed — degrade gracefully, never hard-stop
             result[source_name] = {
                 "values":            [],
                 "fallback":          False,
@@ -116,10 +97,10 @@ def get(field: str, date_from: str, date_to: str,
     return result
 
 
-def list_fields(source: str = "weather") -> list[str]:
+def list_fields(source: str = "garmin") -> list[str]:
     """
     Return all field names registered for a given source.
-    Defaults to weather. Returns empty list for unknown source.
+    Defaults to garmin. Returns empty list for unknown source.
     """
     source_map = _SOURCES.get(source)
     if source_map is None:

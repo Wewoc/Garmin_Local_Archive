@@ -8,7 +8,7 @@ dashboards/live_tracking_html_dash.py
 Specialist — Live Tracking dashboard.
 
 Fetches today's intraday progression (Body Battery, Heart Rate, Steps,
-Stress) and last night's sleep summary via field_map — resolution="live"
+Stress) and last night's sleep summary via health_map — resolution="live"
 throughout, with an archive fallback for the entire sleep block.
 
 No direct file access — same broker discipline as every other specialist.
@@ -30,12 +30,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map import get as field_get
+from maps.health_map import get as health_get
 
 META = {
     "name":        "Live Tracking",
     "description": "Today's progression + last night, always-current snapshot",
-    "source":      "garmin_data/live/live.json via field_map (live), archive fallback for sleep",
+    "source":      "garmin_data/live/live.json via health_map (live), archive fallback for sleep",
     "formats": {
         "html_complex": "live_tracking.html",
     },
@@ -72,7 +72,7 @@ def _fetch_today(today: str) -> dict:
     """Today's intraday progression, resolution='live' throughout."""
     out = {}
     for key, field in _TODAY_FIELDS.items():
-        result = field_get(field, today, today, resolution="live")
+        result = health_get(field, today, today, resolution="live")
         values = result.get("garmin", {}).get("values") or []
         series = (values[0].get("series") if values else None) or []
 
@@ -90,13 +90,13 @@ def _fetch_sleep_block(today: str, resolution: str) -> dict:
     """Fetch the full sleep block from a single resolution — never mixed."""
     block = {}
     for key, field in _SLEEP_FIELDS.items():
-        result = field_get(field, today, today, resolution=resolution)
+        result = health_get(field, today, today, resolution=resolution)
         values = result.get("garmin", {}).get("values") or []
         block[key] = values[0].get("value") if values else None
 
     phases = {}
     for key, field in _PHASE_FIELDS.items():
-        result = field_get(field, today, today, resolution=resolution)
+        result = health_get(field, today, today, resolution=resolution)
         values = result.get("garmin", {}).get("values") or []
         phases[key] = values[0].get("value") if values else None
     block["phases"] = phases
@@ -108,7 +108,7 @@ def _hrv_7d_avg(today: str) -> float | None:
     """Average of hrv_last_night over the trailing 7 days — archive only,
     no live equivalent for a multi-day average makes sense."""
     week_ago = (date.fromisoformat(today) - timedelta(days=6)).isoformat()
-    result = field_get("hrv_last_night", week_ago, today, resolution="daily")
+    result = health_get("hrv_last_night", week_ago, today, resolution="daily")
     values = result.get("garmin", {}).get("values") or []
     nums = [v["value"] for v in values if v.get("value") is not None]
     if not nums:
@@ -134,7 +134,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     today_data = _fetch_today(today)
 
     # Precedence: one representative field decides the whole sleep block's source
-    probe          = field_get("sleep_score", today, today, resolution="live")
+    probe          = health_get("sleep_score", today, today, resolution="live")
     probe_fallback = probe.get("garmin", {}).get("fallback", True)
     source         = "archive" if probe_fallback else "live"
 

@@ -32,6 +32,7 @@ sys.path.insert(0, str(_ROOT / "layouts"))
 sys.path.insert(0, str(_ROOT / "garmin"))
 sys.path.insert(0, str(_ROOT / "context"))
 sys.path.insert(0, str(_ROOT / "app"))
+sys.path.insert(0, str(_ROOT / "clients"))
 logging.disable(logging.CRITICAL)
 
 # ── Suppress tkinter at import time ───────────────────────────────────────────
@@ -730,6 +731,169 @@ check("check_integrity: missing_days key present",   "missing_days" in _integrit
 check("check_integrity: no_backup key present",      "no_backup" in _integrity_result)
 check("check_integrity: missing_days is list",       isinstance(_integrity_result["missing_days"], list))
 check("check_integrity: no_backup is list",          isinstance(_integrity_result["no_backup"], list))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  21. clients/ollama_client.py — HTTP interface (mocked requests)
+# ══════════════════════════════════════════════════════════════════════════════
+section("21. clients/ollama_client.py — HTTP interface (mocked)")
+
+import requests
+import ollama_client
+
+
+def _mock_resp(status_code=200, json_data=None, text="", raise_http_error=False):
+    """Build a MagicMock standing in for a requests.Response."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = text
+    if json_data is None:
+        resp.json.side_effect = ValueError("no JSON")
+    else:
+        resp.json.return_value = json_data
+    if raise_http_error:
+        resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            f"{status_code} error")
+    else:
+        resp.raise_for_status.return_value = None
+    return resp
+
+
+# ── is_reachable() ───────────────────────────────────────────────────────────
+
+with patch("requests.get", return_value=_mock_resp(200)):
+    check("is_reachable: 200 -> True", ollama_client.is_reachable() is True)
+
+with patch("requests.get", return_value=_mock_resp(500)):
+    check("is_reachable: non-200 -> False", ollama_client.is_reachable() is False)
+
+with patch("requests.get", side_effect=requests.exceptions.ConnectionError()):
+    check("is_reachable: connection error -> False", ollama_client.is_reachable() is False)
+
+
+# ── list_models() ────────────────────────────────────────────────────────────
+
+_models_payload = {"models": [{"name": "qwen3:14b"}, {"name": "phi4:14b"}]}
+with patch("requests.get", return_value=_mock_resp(200, _models_payload)):
+    _models = ollama_client.list_models()
+check("list_models: returns list",    isinstance(_models, list))
+check("list_models: 2 models parsed", _models == ["qwen3:14b", "phi4:14b"])
+
+_models_empty_payload = {"models": []}
+with patch("requests.get", return_value=_mock_resp(200, _models_empty_payload)):
+    _models_empty = ollama_client.list_models()
+check("list_models: empty list is valid, not error", _models_empty == [])
+
+_models_missing_name = {"models": [{"name": "qwen3:14b"}, {}]}
+with patch("requests.get", return_value=_mock_resp(200, _models_missing_name)):
+    _models_filtered = ollama_client.list_models()
+check("list_models: entries without name filtered out", _models_filtered == ["qwen3:14b"])
+
+with patch("requests.get", side_effect=requests.exceptions.ConnectionError()):
+    try:
+        ollama_client.list_models()
+        check("list_models: connection error raises OllamaUnreachable", False)
+    except ollama_client.OllamaUnreachable:
+        check("list_models: connection error raises OllamaUnreachable", True)
+
+# HTTPError is a RequestException subclass — caught by the same except-clause
+with patch("requests.get", return_value=_mock_resp(500, raise_http_error=True)):
+    try:
+        ollama_client.list_models()
+        check("list_models: HTTP error status also raises OllamaUnreachable", False)
+    except ollama_client.OllamaUnreachable:
+        check("list_models: HTTP error status also raises OllamaUnreachable", True)
+
+
+# ── chat() — success paths ───────────────────────────────────────────────────
+
+_chat_payload = {"message": {"content": "Hello back"}}
+with patch("requests.post", return_value=_mock_resp(200, _chat_payload)):
+    _reply = ollama_client.chat("qwen3:14b", [{"role": "user", "content": "hi"}])
+check("chat success: returns content string", _reply == "Hello back")
+
+with patch("requests.post", return_value=_mock_resp(200, {})):
+    _reply_empty = ollama_client.chat("qwen3:14b", [])
+check("chat success: missing message/content -> empty string", _reply_empty == "")
+
+
+# ── chat() — error paths ─────────────────────────────────────────────────────
+
+with patch("requests.post", side_effect=requests.exceptions.Timeout()):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: Timeout raises OllamaTimeout", False)
+    except ollama_client.OllamaTimeout:
+        check("chat: Timeout raises OllamaTimeout", True)
+
+with patch("requests.post", side_effect=requests.exceptions.ConnectionError()):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: connection error raises OllamaUnreachable", False)
+    except ollama_client.OllamaUnreachable:
+        check("chat: connection error raises OllamaUnreachable", True)
+
+with patch("requests.post", return_value=_mock_resp(404)):
+    try:
+        ollama_client.chat("nonexistent-model", [])
+        check("chat: 404 raises OllamaModelNotFound", False)
+    except ollama_client.OllamaModelNotFound:
+        check("chat: 404 raises OllamaModelNotFound", True)
+
+# 400 + "context" in body -> OllamaContextLimitExceeded
+with patch("requests.post", return_value=_mock_resp(
+        400, {"error": "context length exceeded"})):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: 400 'context' body raises OllamaContextLimitExceeded", False)
+    except ollama_client.OllamaContextLimitExceeded:
+        check("chat: 400 'context' body raises OllamaContextLimitExceeded", True)
+
+# 400 + "too long" in body, mixed case -> OllamaContextLimitExceeded
+with patch("requests.post", return_value=_mock_resp(
+        400, {"error": "Message TOO LONG for model"})):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: 400 'too long' body (mixed case) raises OllamaContextLimitExceeded", False)
+    except ollama_client.OllamaContextLimitExceeded:
+        check("chat: 400 'too long' body (mixed case) raises OllamaContextLimitExceeded", True)
+
+# 400 without context/too-long substring -> generic OllamaError
+with patch("requests.post", return_value=_mock_resp(
+        400, {"error": "some other bad request"})):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: 400 without context substring raises generic OllamaError", False)
+    except ollama_client.OllamaContextLimitExceeded:
+        check("chat: 400 without context substring raises generic OllamaError", False)
+    except ollama_client.OllamaError:
+        check("chat: 400 without context substring raises generic OllamaError", True)
+
+# 400, body not valid JSON -> falls back to resp.text, same substring check
+with patch("requests.post", return_value=_mock_resp(
+        400, json_data=None, text="context window exceeded")):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: 400 non-JSON body falls back to resp.text", False)
+    except ollama_client.OllamaContextLimitExceeded:
+        check("chat: 400 non-JSON body falls back to resp.text", True)
+
+# 400, empty error field -> fallback message, still generic OllamaError
+with patch("requests.post", return_value=_mock_resp(400, {"error": ""}, text="")):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: 400 empty body raises generic OllamaError", False)
+    except ollama_client.OllamaContextLimitExceeded:
+        check("chat: 400 empty body raises generic OllamaError", False)
+    except ollama_client.OllamaError:
+        check("chat: 400 empty body raises generic OllamaError", True)
+
+# other HTTP error status (e.g. 500) -> generic OllamaError via raise_for_status
+with patch("requests.post", return_value=_mock_resp(500, raise_http_error=True)):
+    try:
+        ollama_client.chat("qwen3:14b", [])
+        check("chat: 500 raises generic OllamaError", False)
+    except ollama_client.OllamaError:
+        check("chat: 500 raises generic OllamaError", True)
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 shutil.rmtree(_TMPDIR, ignore_errors=True)

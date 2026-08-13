@@ -7,7 +7,7 @@ health_garmin_html-json_dash.py
 
 Specialist: Garmin daily health analysis.
 Metrics: HRV, Resting HR, SpO2, Sleep, Body Battery, Stress.
-Source: garmin_data/summary/ via field_map.
+Source: garmin_data/summary/ via health_map.
 
 Provides:
 - Daily values with 90-day rolling baseline
@@ -17,7 +17,7 @@ Provides:
 Rules:
 - No direct file access.
 - No Garmin-internal field names outside this module.
-- Calls field_map.get() only.
+- Calls health_map.get() only.
 - Returns neutral dict for plotters — no rendering logic.
 """
 
@@ -27,7 +27,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map import get as field_get
+from maps.health_map import get as health_get
 from layouts.reference_ranges import fitness_level as _fitness_level
 from layouts.reference_ranges import reference_ranges as _reference_ranges
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
@@ -77,7 +77,7 @@ def _rolling_avg(values: dict, d: date, window: int) -> float | None:
 
 def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
-    Fetch daily health metrics via field_map.
+    Fetch daily health metrics via health_map.
     Computes 90-day rolling baseline and reference ranges.
     Returns neutral dict for plotters.
 
@@ -130,7 +130,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     # Fetch all fields — extended window for baseline
     raw = {}
     for f in _FIELDS:
-        result = field_get(f["field"], base_from, date_to, resolution="daily")
+        result = health_get(f["field"], base_from, date_to, resolution="daily")
         garmin = result.get("garmin", {})
         raw[f["field"]] = {
             entry["date"]: entry["value"]
@@ -140,7 +140,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     # Auto-detect VO2max from most recent non-null value
     vo2max  = None
     vo2_raw = raw.get("vo2max", {})  # not in _FIELDS but fetched separately below  # noqa: F841
-    result_vo2 = field_get("vo2max", base_from, date_to, resolution="daily")
+    result_vo2 = health_get("vo2max", base_from, date_to, resolution="daily")
     for entry in reversed(result_vo2.get("garmin", {}).get("values", [])):
         if entry["value"] is not None:
             vo2max = entry["value"]

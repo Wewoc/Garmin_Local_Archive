@@ -13,7 +13,7 @@ For the broker request/response contract see `REFERENCE_BROKER.md`.
 garmin_app.py (GUI)
   └── dash_runner.build()
         ├── specialist.build()     ← once per specialist
-        │     ├── field_map.get()
+        │     ├── health_map.get()
         │     └── context_map.get()
         └── plotter.render()       ← once per format
 ```
@@ -54,7 +54,7 @@ visual feedback.
 Correct order in the HTML assembly f-string:
 2. Define `META` with `name`, `description`, `source`, `formats`
 3. Implement `build(date_from, date_to, settings) -> dict`
-4. Use `field_map.get()` and/or `context_map.get()` — no direct file access
+4. Use `health_map.get()` and/or `context_map.get()` — no direct file access
 5. Return neutral dict — no rendering logic
 6. Add to `build_manifest.py` → `SHARED_SCRIPTS`
 7. Add test section in `tests/test_dashboard.py`
@@ -144,8 +144,9 @@ Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) 
 
 | Section | Coverage |
 |---|---|
-| 1 | `garmin_map` intraday normalization — incl. device-offset shift and DST-transition detection (v1.6.5.6): offset applied to both the epoch-ms and GMT-string extraction paths, `dst_transition` flag on a real transition day (2026-03-29), safe `dst_transition=False` fallback with no offset metadata present |
-| 2 | `field_map` routing |
+| 1 | `garmin_health_map` intraday normalization — incl. device-offset shift and DST-transition detection (v1.6.5.6): offset applied to both the epoch-ms and GMT-string extraction paths, `dst_transition` flag on a real transition day (2026-03-29), safe `dst_transition=False` fallback with no offset metadata present |
+| 2 | `health_map` routing to `garmin_health_map` |
+| 2b | `gateway_map` routing to `health_map`/`context_map` — pass-through contract, reserved `fit` domain key, unknown-domain `ValueError`, `list_domains()` (v1.6.7) |
 | 3 | `dash_layout` design tokens |
 | 4 | `dash_layout_html` HTML assets |
 | 5 | `timeseries_garmin` specialist + plotter |
@@ -158,7 +159,7 @@ Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) 
 | 12 | `health_garmin-weather-pollen` specialist |
 | 13 | `sleep_recovery_context` specialist + complex plotter (facade + render registry v1.6.0.5) |
 | 14 | `sleep_garmin` specialist + html + excel render — rows carry `hrv_7d_avg` (computed in build, rendered in both plotters). Phase bar cells carry letter labels (D/L/R/A) in contrast color (v1.5.8+) |
-| 15 | `garmin_map` broker contract — incl. `live`/`live_pct`/`live_nested` routes (v1.6.5): percentage math, nested lookup + HRV fallback chain + divisor, missing-file behaviour for both types, field-without-live-route negative case. `dst_transition` key present and boolean in the intraday contract (v1.6.5.6) |
+| 15 | `garmin_health_map` broker contract — incl. `live`/`live_pct`/`live_nested` routes (v1.6.5): percentage math, nested lookup + HRV fallback chain + divisor, missing-file behaviour for both types, field-without-live-route negative case. `dst_transition` key present and boolean in the intraday contract (v1.6.5.6) |
 | 15b | `layouts/render/live.py` — Live Tracking renderer (v1.6.5): structure (DOCTYPE, title, disclaimer, footer), no-Plotly check, integer formatting (no stray `.0`), qualifier badge, feedback label, phase-bar legend, dark-theme token, archive-fallback note, `ValueError` on missing `today`/`last_night` |
 | 16 | Specialist return contract — alle 7 specialists |
 | 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards |
@@ -166,11 +167,13 @@ Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) 
 | 19 | `custom_dash_builder` — `list_available_fields()` exclusions, ad-hoc module contract (`.META`/`.build`/`.__name__`), integration with `dash_runner.build()` using no file on disk (v1.6.4) |
 | 20 | `garmin_dashboard_presets` — `load_presets()`/`save_preset()`/`delete_preset()` round-trip, missing-file default, no-op delete (v1.6.4) |
 
-**Broker contract (section 15):** `garmin_map.get()` gibt immer `values` (list), `fallback` (bool), `source_resolution` (str) zurück. Unbekanntes Feld → `KeyError`. Ungültige Resolution → `ValueError`. Gilt analog für `weather_map` und `pollen_map` — getestet in `test_local_context.py`.
+**Broker contract (section 15):** `garmin_health_map.get()` gibt immer `values` (list), `fallback` (bool), `source_resolution` (str) zurück. Unbekanntes Feld → `KeyError`. Ungültige Resolution → `ValueError`. Gilt analog für `weather_map` und `pollen_map` — getestet in `test_local_context.py`.
+
+**Gateway contract (section 2b):** `gateway_map.get()` reicht die Domain-Broker-Rückgabe unverändert durch — kein Unwrapping. Unbekannter `domain`-String → `ValueError`. Bekannte, aber unregistrierte Domain (aktuell `"fit"`) → Degraded-Result `{"error": "domain not yet available"}`. Details: `REFERENCE_BROKER.md` → `gateway_map.get()`.
 
 **Specialist return contract (section 16):** Jeder `build()`-Call wird mit synthetischen Daten ausgeführt. Pflicht-Keys pro Specialist: siehe REFERENCE_DASHBOARD.md → Specialist return dicts.
 
-Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py`, `reference_ranges.py`, `garmin_live_fetch.py` (via the live-route sections above).
+Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gateway_map`, `dash_layout`, `dash_layout_html`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py`, `reference_ranges.py`, `garmin_live_fetch.py` (via the live-route sections above).
 
 ---
 

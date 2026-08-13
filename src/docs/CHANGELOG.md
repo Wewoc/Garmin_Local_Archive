@@ -1,5 +1,90 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.7 — Broker Layer Restructuring (health_map / garmin_health_map / gateway_map)
+
+Prepares the Broker Layer for the v1.7 FIT Pipeline: `field_map.py` and
+`garmin_map.py` become true domain-prefixed peers to the upcoming
+`fit_map.py`/`garmin_fit_map.py`, and a new `gateway_map.py` broker adds a
+selective cross-domain entry point for future consumers (`mcp_map`, v1.9)
+without rerouting any existing named specialist. Alongside this, full test
+coverage was added for the v1.6.6 Ollama Chat interface. Four sub-sessions,
+each with its own DEPS-Scan + Scope-Snapshot pair.
+
+**New modules:**
+- `maps/health_map.py` — renamed from `maps/field_map.py`. Functional code
+  unchanged, docstring references updated. True peer to `context_map.py`
+  and the future `fit_map.py`.
+- `maps/garmin_health_map.py` — renamed from `maps/garmin_map.py`.
+  Domain-prefix convention established: sources that can plausibly serve
+  multiple domains (device/platform vendors — Garmin, Apple, Fitbit) get
+  the prefix from day one; single-domain external APIs (Weather, Pollen,
+  Brightsky) do not. `_FIELD_MAP` and all functional code unchanged.
+- `maps/gateway_map.py` — new broker, pass-through routing over
+  `_DOMAIN_BROKERS` (`{"health": health_map, "fit": None, "context":
+  context_map}`, `fit` key reserved for v1.7). Unknown domain string →
+  `ValueError`; known but unregistered domain → degraded result with an
+  `error` key, never a hard fail on a broker exception. No unwrapping —
+  passes each domain broker's return value through unchanged
+  (`result[domain][source] = {"values", "fallback",
+  "source_resolution", "error"?}`). `list_domains()` added, analogous to
+  `list_sources()` in `health_map`/`context_map`. Scope is deliberately
+  selective, not universal — named specialists keep importing their
+  domain broker directly; `gateway_map` exists for future cross-domain
+  consumers only.
+
+**Changed modules:**
+- `compiler/build_manifest.py` — `SHARED_SCRIPTS`: `maps/field_map.py` →
+  `maps/health_map.py`, `maps/garmin_map.py` → `maps/garmin_health_map.py`,
+  new entry `maps/gateway_map.py` added.
+- `maps/context_map.py` — comment fix ("Structurally identical to
+  health_map.py").
+- 11 dashboard/test files — import line + all `field_get` call sites
+  renamed to `health_get` (full rename, no alias):
+  `custom_dash_builder.py`, `explorer_garmin-context_html_dash.py`,
+  `health_garmin-weather-pollen_html-xls_dash.py`,
+  `health_garmin_html-json_dash.py`, `heatmap_garmin_html_dash.py`,
+  `live_tracking_html_dash.py`, `overview_garmin_xls_dash.py`,
+  `sleep_garmin_html-xls_dash.py`, `sleep_recovery_context_dash.py`,
+  `timeseries_garmin_html-xls_dash.py`, `tests/test_dashboard.py`.
+- `garmin/quality/_assess.py`, `garmin/garmin_config.py`,
+  `garmin/garmin_live_fetch.py`, `dashboards/heatmap_garmin_html_dash.py`
+  — comment-only references to `garmin_map` updated to
+  `garmin_health_map`.
+- `tests/test_dashboard.py` — import line, 3 section headers, and all
+  `garmin_map.get(...)`/`.list_fields()` call sites renamed (39 anchors);
+  new section "2b. gateway_map — routing" added (11 checks: `domain=None`
+  fan-out, single-domain queries, unknown-domain `ValueError`,
+  `list_domains()`).
+- `tests/test_app_logic.py` — new Section 21: full-depth coverage for
+  `clients/ollama_client.py` (`is_reachable()`, `list_models()`, `chat()`
+  — 2 success + 9 error paths). First `requests`-mocking pattern in the
+  test tree (`unittest.mock.patch`).
+- `tests/test_qt_app.py` — new `TestPanelChat` class (13 smoke-level
+  tests), inserted before `TestGarminAppBase`.
+
+**Documentation:**
+- `REFERENCE_BROKER.md` — broker table gains `gateway_map.py`, `mcp_map.py`
+  row corrected (protocol translation, not aggregator), new
+  `gateway_map.get()` contract section, "Future brokers" section
+  corrected (third correction of this section).
+- `REFERENCE_GARMIN.md`, `REFERENCE_DASHBOARD.md` — rename references
+  updated.
+- `GLA_HANDBUCH.md` — architecture diagram (§2), Broker-Pattern text (§3),
+  hard-rule line (§4) updated to `health_map`; new paragraph on
+  `gateway_map`.
+- `MAINTENANCE_DASHBOARD.md`, `MAINTENANCE_GLOBAL.md` — pipeline
+  diagrams, "Run after any change to" lists, test section tables updated.
+
+**Test result:** 631 / 265 / 464 / 165 / 59 / 16 — all green, ruff 0
+errors, bandit 0 HIGH. `test_dashboard.py` 453 → 464 (+11, exactly the new
+`gateway_map` checks — no silent loss/gain elsewhere). Drift-check
+(`build_dep_map.py`, 2026-08-13 vs. 2026-08-11 baseline): 0 GEKIPPT-
+Regression, all NEU/WEG entries traced to the `garmin_map`→
+`garmin_health_map` rename plus one genuinely new, intentional broad
+exception handler in `gateway_map.get()`.
+
+---
+
 ## v1.6.6.1 — Log Timestamp Consistency (Context/Dashboard Pipeline)
 
 Closes Punkt 3 from the v1.6.6.1 candidate list (`ROADMAP.md`) — the Garmin

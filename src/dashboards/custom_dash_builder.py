@@ -13,7 +13,7 @@ scan()'s glob("*_dash.py") must never pick this up as a real specialist file.
 This module is not a specialist itself; it manufactures one at runtime.
 
 Rules:
-- No direct file access — calls field_map.get() / context_map.get() only.
+- No direct file access — calls health_map.get() / context_map.get() only.
 - Returns a types.ModuleType with META + build(), consumable by
   dash_runner.build() exactly like a file-based specialist. Verified:
   build() only requires .META, .build(date_from, date_to, settings) and
@@ -30,7 +30,7 @@ import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map      import get as field_get, list_fields as garmin_list_fields
+from maps.health_map      import get as health_get, list_fields as garmin_list_fields
 from maps.context_map    import get as context_get, list_fields as context_list_fields
 from layouts.dash_layout import get_metric_meta
 
@@ -113,7 +113,7 @@ def build_ad_hoc_specialist(name: str, description: str,
         fields_out = []
 
         for f in garmin_fields:
-            result = field_get(f, date_from, date_to, resolution="daily")
+            result = health_get(f, date_from, date_to, resolution="daily")
             meta   = get_metric_meta(f)
             days = [
                 {"date": entry["date"], "value": entry["value"]}

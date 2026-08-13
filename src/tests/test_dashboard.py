@@ -191,17 +191,17 @@ def _write_dst_raw(base_dir: Path):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  1. garmin_map — intraday normalization
+#  1. garmin_health_map — intraday normalization
 # ══════════════════════════════════════════════════════════════════════════════
 
-section("1. garmin_map — intraday normalization")
+section("1. garmin_health_map — intraday normalization")
 
 _write_raw(_TMPDIR)
 importlib.reload(cfg)
 
-from maps import garmin_map
+from maps import garmin_health_map
 
-result_hr = garmin_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+result_hr = garmin_health_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 hr_series = result_hr["values"][0]["series"]
 
 check("heart_rate: result has values",          isinstance(result_hr["values"], list))
@@ -213,69 +213,69 @@ check("heart_rate: ts is ISO string",           isinstance(hr_series[0]["ts"], s
 check("heart_rate: value is float",             isinstance(hr_series[0]["value"], float))
 check("heart_rate: value correct",              hr_series[0]["value"] == 58.0)
 
-result_stress = garmin_map.get("stress_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+result_stress = garmin_health_map.get("stress_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 stress_series = result_stress["values"][0]["series"]
 check("stress: series not empty",               len(stress_series) > 0)
 check("stress: value is float",                 isinstance(stress_series[0]["value"], float))
 
-result_bb = garmin_map.get("body_battery_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+result_bb = garmin_health_map.get("body_battery_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 bb_series = result_bb["values"][0]["series"]
 check("body_battery: series not empty",         len(bb_series) > 0)
 check("body_battery: val_index=2 correct",      bb_series[0]["value"] == 85.0)
 
-result_spo2 = garmin_map.get("spo2_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+result_spo2 = garmin_health_map.get("spo2_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 spo2_series = result_spo2["values"][0]["series"]
 check("spo2: series not empty",                 len(spo2_series) > 0)
 check("spo2: list-pair extraction works",       spo2_series[0]["value"] == 97.0)
 
-result_resp = garmin_map.get("respiration_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+result_resp = garmin_health_map.get("respiration_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 resp_series = result_resp["values"][0]["series"]
 check("respiration: series not empty",          len(resp_series) > 0)
 check("respiration: value correct",             resp_series[0]["value"] == 14.5)
 
-result_steps = garmin_map.get("steps_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+result_steps = garmin_health_map.get("steps_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 steps_series = result_steps["values"][0]["series"]
 check("steps: series not empty",                len(steps_series) > 0)
 check("steps: value correct",                   steps_series[0]["value"] == 120.0)
 check("steps: entry has ts key",                "ts" in steps_series[0])
 
-result_missing = garmin_map.get("heart_rate_series", "2000-01-01", "2000-01-01", resolution="intraday")
+result_missing = garmin_health_map.get("heart_rate_series", "2000-01-01", "2000-01-01", resolution="intraday")
 check("missing date: series is None",           result_missing["values"][0]["series"] is None)
 
 # null-Wert-Robustheit (F + K) — separates raw-File
 _write_null_raw(_TMPDIR)
 
-result_hr_null = garmin_map.get("heart_rate_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+result_hr_null = garmin_health_map.get("heart_rate_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null heart_rate: series is None",        result_hr_null["values"][0]["series"] is None)
 
-result_stress_null = garmin_map.get("stress_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+result_stress_null = garmin_health_map.get("stress_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null stress: series is None",            result_stress_null["values"][0]["series"] is None)
 
-result_bb_null = garmin_map.get("body_battery_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+result_bb_null = garmin_health_map.get("body_battery_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null body_battery: series is None",      result_bb_null["values"][0]["series"] is None)
 
-result_spo2_null = garmin_map.get("spo2_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+result_spo2_null = garmin_health_map.get("spo2_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null spo2: series is None",              result_spo2_null["values"][0]["series"] is None)
 
-result_resp_null = garmin_map.get("respiration_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+result_resp_null = garmin_health_map.get("respiration_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null respiration: series is None",       result_resp_null["values"][0]["series"] is None)
 
 # _NULL_RAW has no "steps" key at all — matches the "field never fetched" case,
 # not "fetched but empty". data.get("steps") → None → neither dict nor list →
 # series stays None, same code path as a day predating this feature.
-result_steps_null = garmin_map.get("steps_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
+result_steps_null = garmin_health_map.get("steps_series", _NULL_DATE, _NULL_DATE, resolution="intraday")
 check("null steps: series is None",             result_steps_null["values"][0]["series"] is None)
 
 # ── v1.6.5.6 — offset shift (E1/E2/E7) ───────────────────────────────────────
 _write_offset_raw(_TMPDIR)
 importlib.reload(cfg)
 
-result_offset_hr = garmin_map.get("heart_rate_series", _OFFSET_DATE, _OFFSET_DATE, resolution="intraday")
+result_offset_hr = garmin_health_map.get("heart_rate_series", _OFFSET_DATE, _OFFSET_DATE, resolution="intraday")
 offset_hr_series = result_offset_hr["values"][0]["series"]
 check("offset: heart_rate ts shifted +1h",       offset_hr_series[0]["ts"] == "2026-03-15T00:00:00")
 check("offset: heart_rate dst_transition=False", result_offset_hr["values"][0]["dst_transition"] is False)
 
-result_offset_steps = garmin_map.get("steps_series", _OFFSET_DATE, _OFFSET_DATE, resolution="intraday")
+result_offset_steps = garmin_health_map.get("steps_series", _OFFSET_DATE, _OFFSET_DATE, resolution="intraday")
 offset_steps_series = result_offset_steps["values"][0]["series"]
 check("offset: steps ts shifted +1h",            offset_steps_series[0]["ts"] == "2026-03-15T00:15:00")
 
@@ -283,29 +283,62 @@ check("offset: steps ts shifted +1h",            offset_steps_series[0]["ts"] ==
 _write_dst_raw(_TMPDIR)
 importlib.reload(cfg)
 
-result_dst = garmin_map.get("heart_rate_series", _DST_DATE, _DST_DATE, resolution="intraday")
+result_dst = garmin_health_map.get("heart_rate_series", _DST_DATE, _DST_DATE, resolution="intraday")
 check("dst: dst_transition=True on transition day", result_dst["values"][0]["dst_transition"] is True)
 check("dst: series still uses start-of-day offset", result_dst["values"][0]["series"][0]["ts"] == "2026-03-29T00:00:00")
 
 # ── v1.6.5.6 — no GMT/Local metadata at all → safe UTC fallback (E7) ────────
 # _RAW (section 1's original fixture) carries no timestamp metadata in any
 # section — exercises the _device_offset() fallback-with-warning path.
-result_no_meta = garmin_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+result_no_meta = garmin_health_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 check("no metadata: dst_transition=False",       result_no_meta["values"][0]["dst_transition"] is False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  2. field_map — routing
+#  2. health_map — routing
 # ══════════════════════════════════════════════════════════════════════════════
 
-section("2. field_map — routing to garmin_map")
+section("2. health_map — routing to garmin_health_map")
 
-from maps import field_map
+from maps import health_map
 
-result_fm = field_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
-check("field_map: garmin key in result",        "garmin" in result_fm)
-check("field_map: values present",              len(result_fm["garmin"]["values"]) > 0)
-check("field_map: fallback key present",        "fallback" in result_fm["garmin"])
+result_fm = health_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+check("health_map: garmin key in result",        "garmin" in result_fm)
+check("health_map: values present",              len(result_fm["garmin"]["values"]) > 0)
+check("health_map: fallback key present",        "fallback" in result_fm["garmin"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  2b. gateway_map — routing
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("2b. gateway_map — routing to health_map/context_map")
+
+from maps import gateway_map
+
+result_gw = gateway_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+check("gateway_map: health key in result",       "health" in result_gw)
+check("gateway_map: fit key in result",          "fit" in result_gw)
+check("gateway_map: context key in result",      "context" in result_gw)
+check("gateway_map: health = health_map result", result_gw["health"] == health_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday"))
+check("gateway_map: fit not yet available",      result_gw["fit"] == {"error": "domain not yet available"})
+check("gateway_map: context is dict",            isinstance(result_gw["context"], dict))
+
+result_gw_health_only = gateway_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday", domain="health")
+check("gateway_map domain=health: only health key", list(result_gw_health_only.keys()) == ["health"])
+
+result_gw_fit_only = gateway_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, domain="fit")
+check("gateway_map domain=fit: degraded result", result_gw_fit_only == {"fit": {"error": "domain not yet available"}})
+
+try:
+    gateway_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, domain="banana")
+    check("gateway_map: unknown domain raises ValueError", False)
+except ValueError:
+    check("gateway_map: unknown domain raises ValueError", True)
+
+_gw_domains = gateway_map.list_domains()
+check("gateway_map: list_domains has 3 entries", len(_gw_domains) == 3)
+check("gateway_map: list_domains has health/fit/context", set(_gw_domains) == {"health", "fit", "context"})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1095,13 +1128,13 @@ except ValueError:
 importlib.reload(cfg)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  15. garmin_map — Broker-Contract
+#  15. garmin_health_map — Broker-Contract
 # ══════════════════════════════════════════════════════════════════════════════
 
-section("15. garmin_map — Broker-Contract")
+section("15. garmin_health_map — Broker-Contract")
 
 # Contract: bekanntes daily-Feld → values (list), fallback (bool), source_resolution (str)
-_bc = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="daily")
+_bc = garmin_health_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="daily")
 check("broker: result is dict",                  isinstance(_bc, dict))
 check("broker: values is list",                  isinstance(_bc["values"], list))
 check("broker: fallback is bool",                isinstance(_bc["fallback"], bool))
@@ -1111,14 +1144,14 @@ check("broker: source_resolution = daily",       _bc["source_resolution"] == "da
 check("broker: values entry has date key",       len(_bc["values"]) > 0 and "date" in _bc["values"][0])
 
 # raw_pct-Feld — gleicher Contract
-_bc_pct = garmin_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="daily")
+_bc_pct = garmin_health_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="daily")
 check("broker raw_pct: values is list",          isinstance(_bc_pct["values"], list))
 check("broker raw_pct: fallback is bool",        isinstance(_bc_pct["fallback"], bool))
 check("broker raw_pct: source_resolution is str",isinstance(_bc_pct["source_resolution"], str))
 check("broker raw_pct: fallback = False",        _bc_pct["fallback"] is False)
 
 # intraday-Feld mit resolution=intraday → kein Fallback
-_bc_intra = garmin_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
+_bc_intra = garmin_health_map.get("heart_rate_series", _TEST_DATE, _TEST_DATE, resolution="intraday")
 check("broker intraday: values is list",         isinstance(_bc_intra["values"], list))
 check("broker intraday: fallback = False",       _bc_intra["fallback"] is False)
 check("broker intraday: source_resolution = intraday", _bc_intra["source_resolution"] == "intraday")
@@ -1128,26 +1161,26 @@ check("broker intraday: values entry has dst_transition key", "dst_transition" i
 check("broker intraday: dst_transition is bool", isinstance(_bc_intra["values"][0]["dst_transition"], bool))
 
 # daily-only-Feld mit resolution=intraday → Fallback auf daily
-_bc_fb = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="intraday")
+_bc_fb = garmin_health_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="intraday")
 check("broker fallback: fallback = True",        _bc_fb["fallback"] is True)
 check("broker fallback: source_resolution = daily", _bc_fb["source_resolution"] == "daily")
 
 # unbekanntes Feld → KeyError
 try:
-    garmin_map.get("nonexistent_field", _TEST_DATE, _TEST_DATE)
+    garmin_health_map.get("nonexistent_field", _TEST_DATE, _TEST_DATE)
     check("broker: unknown field raises KeyError", False)
 except KeyError:
     check("broker: unknown field raises KeyError", True)
 
 # ungültige Resolution → ValueError
 try:
-    garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="weekly")
+    garmin_health_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="weekly")
     check("broker: invalid resolution raises ValueError", False)
 except ValueError:
     check("broker: invalid resolution raises ValueError", True)
 
 # list_fields()
-_lf = garmin_map.list_fields()
+_lf = garmin_health_map.list_fields()
 check("broker list_fields: is list",             isinstance(_lf, list))
 check("broker list_fields: not empty",           len(_lf) > 0)
 check("broker list_fields: all strings",         all(isinstance(f, str) for f in _lf))
@@ -1176,22 +1209,22 @@ cfg.LIVE_DIR.mkdir(parents=True, exist_ok=True)
 cfg.LIVE_FILE.write_text(json.dumps(_LIVE_SNAPSHOT), encoding="utf-8")
 
 # live_pct — percentage math against the live snapshot
-_bc_live_deep = garmin_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_deep = garmin_health_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_pct: deep value correct",       _bc_live_deep["values"][0]["value"] == 20.0)
 check("broker live_pct: fallback = False",         _bc_live_deep["fallback"] is False)
 check("broker live_pct: source_resolution = live", _bc_live_deep["source_resolution"] == "live")
 
-_bc_live_light = garmin_map.get("sleep_light_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_light = garmin_health_map.get("sleep_light_pct", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_pct: light value correct",      _bc_live_light["values"][0]["value"] == 50.0)
 
-_bc_live_rem = garmin_map.get("sleep_rem_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_rem = garmin_health_map.get("sleep_rem_pct", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_pct: rem value correct",        _bc_live_rem["values"][0]["value"] == 25.0)
 
-_bc_live_awake = garmin_map.get("sleep_awake_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_awake = garmin_health_map.get("sleep_awake_pct", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_pct: awake value correct",      _bc_live_awake["values"][0]["value"] == 5.0)
 
 # live_nested — sleep score fields
-_bc_live_score = garmin_map.get("sleep_score", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_score = garmin_health_map.get("sleep_score", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_nested: sleep_score value correct",
       _bc_live_score["values"][0]["value"] == 82)
 check("broker live_nested: sleep_score fallback = False",
@@ -1199,21 +1232,21 @@ check("broker live_nested: sleep_score fallback = False",
 check("broker live_nested: sleep_score source_resolution = live",
       _bc_live_score["source_resolution"] == "live")
 
-_bc_live_feedback = garmin_map.get("sleep_score_feedback", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_feedback = garmin_health_map.get("sleep_score_feedback", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_nested: sleep_score_feedback value correct",
       _bc_live_feedback["values"][0]["value"] == "POSITIVE_DEEP")
 
-_bc_live_qualifier = garmin_map.get("sleep_score_qualifier", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_qualifier = garmin_health_map.get("sleep_score_qualifier", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_nested: sleep_score_qualifier value correct",
       _bc_live_qualifier["values"][0]["value"] == "GOOD")
 
 # live_nested — hrv_last_night, primary candidate present
-_bc_live_hrv = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_hrv = garmin_health_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_nested: hrv_last_night value correct",
       _bc_live_hrv["values"][0]["value"] == 45)
 
 # live_nested — sleep_duration, divisor support (seconds → hours)
-_bc_live_duration = garmin_map.get("sleep_duration", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_duration = garmin_health_map.get("sleep_duration", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_nested: sleep_duration value correct (divisor applied)",
       _bc_live_duration["values"][0]["value"] == 7.5)
 check("broker live_nested: sleep_duration fallback = False",
@@ -1225,26 +1258,26 @@ check("broker live_nested: sleep_duration source_resolution = live",
 _LIVE_SNAPSHOT_HRV_FALLBACK = dict(_LIVE_SNAPSHOT)
 _LIVE_SNAPSHOT_HRV_FALLBACK["hrv"] = {"hrvSummary": {"lastNight5MinHigh": 38}}
 cfg.LIVE_FILE.write_text(json.dumps(_LIVE_SNAPSHOT_HRV_FALLBACK), encoding="utf-8")
-_bc_live_hrv_fb = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_hrv_fb = garmin_health_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_nested: hrv fallback chain uses second candidate",
       _bc_live_hrv_fb["values"][0]["value"] == 38)
 
 # live route — missing LIVE_FILE → fallback=True, empty values, no exception
 cfg.LIVE_FILE.unlink(missing_ok=True)
-_bc_live_missing = garmin_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_missing = garmin_health_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_pct: missing LIVE_FILE → fallback = True",
       _bc_live_missing["fallback"] is True)
 check("broker live_pct: missing LIVE_FILE → empty values",
       _bc_live_missing["values"] == [])
 
-_bc_live_nested_missing = garmin_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_nested_missing = garmin_health_map.get("hrv_last_night", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live_nested: missing LIVE_FILE → fallback = True",
       _bc_live_nested_missing["fallback"] is True)
 check("broker live_nested: missing LIVE_FILE → empty values",
       _bc_live_nested_missing["values"] == [])
 
 # live route — field without any live descriptor (e.g. vo2max) → fallback=True
-_bc_live_none = garmin_map.get("vo2max", _TEST_DATE, _TEST_DATE, resolution="live")
+_bc_live_none = garmin_health_map.get("vo2max", _TEST_DATE, _TEST_DATE, resolution="live")
 check("broker live: field without live descriptor → fallback = True",
       _bc_live_none["fallback"] is True)
 check("broker live: field without live descriptor → empty values",
