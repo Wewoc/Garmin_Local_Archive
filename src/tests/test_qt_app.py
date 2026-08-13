@@ -627,7 +627,163 @@ class TestPanelOutputs:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  7. GarminApp (Base)
+#  7. PanelChat
+# ══════════════════════════════════════════════════════════════════════════════
+# Smoke-level only — no real threading.Thread runs (would hit the real
+# Ollama HTTP client). Worker-callback methods (_chat_on_reply/_chat_on_error/
+# etc.) are called directly instead of via the background thread, mirroring
+# the pattern already used for TestPanelOutputs/TestPanelTimer.
+
+class TestPanelChat:
+
+    @pytest.fixture
+    def app_mock(self):
+        from unittest.mock import MagicMock
+        app = MagicMock()
+        app.BG      = "#12101f"
+        app.BG2     = "#1a1729"
+        app.BG3     = "#231f38"
+        app.ACCENT  = "#a259f7"
+        app.ACCENT2 = "#6e3fcf"
+        app.TEXT    = "#eaeaea"
+        app.TEXT2   = "#a0a0b0"
+        app.YELLOW  = "#f5a623"
+        app._panel_settings._collect_settings.return_value = {
+            "base_dir": "",
+        }
+        return app
+
+    def test_panel_instantiates(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        assert panel is not None
+
+    def test_input_and_send_disabled_before_start(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        assert not panel._input.isEnabled()
+        assert not panel._send_btn.isEnabled()
+        assert not panel._model_combo.isEnabled()
+        assert not panel._new_chat_btn.isEnabled()
+
+    def test_send_noop_on_empty_input(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._input.setText("   ")
+        panel._chat_on_send()
+        assert panel._history == []
+        assert panel._request_running is False
+
+    def test_send_noop_while_request_running(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._input.setText("hello")
+        panel._chat_on_send()
+        assert panel._history == []
+
+    def test_chat_on_reply_resets_state_and_appends_history(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._send_btn.setEnabled(False)
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_on_reply("hello back")
+        assert panel._request_running is False
+        assert panel._send_btn.isEnabled()
+        assert panel._history[-1] == {"role": "assistant", "content": "hello back"}
+
+    def test_chat_on_error_pops_trailing_user_message(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_on_error(Exception("boom"))
+        assert panel._request_running is False
+        assert panel._history == []
+
+    def test_chat_on_error_no_pop_when_history_not_ending_in_user(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [{"role": "system", "content": "sys"},
+                           {"role": "assistant", "content": "ok"}]
+        panel._chat_on_error(Exception("boom"))
+        assert panel._history == [{"role": "system", "content": "sys"},
+                                   {"role": "assistant", "content": "ok"}]
+
+    def test_chat_on_error_no_crash_on_empty_history(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = []
+        panel._chat_on_error(Exception("boom"))
+        assert panel._history == []
+
+    def test_refresh_age_display_file_missing(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_refresh_age_display()
+        assert "not found" in panel._age_label.text()
+
+    def test_refresh_age_display_no_crash_on_corrupt_json(self, qtbot, app_mock, tmp_path):
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)
+        }
+        dash_dir = tmp_path / "dashboards"
+        dash_dir.mkdir()
+        (dash_dir / "health_garmin.json").write_text("{not valid json", encoding="utf-8")
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_refresh_age_display()
+        assert "age unknown" in panel._age_label.text()
+
+    def test_new_chat_resets_history_and_clears_view(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._system_prompt = "You are helpful."
+        panel._history = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
+        panel._chat_on_new_chat()
+        assert panel._history == [{"role": "system", "content": "You are helpful."}]
+
+    def test_new_chat_no_system_prompt(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._system_prompt = None
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_on_new_chat()
+        assert panel._history == []
+
+    def test_model_changed_triggers_new_chat_only_when_enabled(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._model_combo.setEnabled(False)
+        panel._chat_on_model_changed(0)
+        assert panel._history == [{"role": "user", "content": "hi"}]
+
+        panel._model_combo.setEnabled(True)
+        panel._chat_on_model_changed(0)
+        assert panel._history == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  8. GarminApp (Base)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestGarminAppBase:

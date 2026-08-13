@@ -236,10 +236,10 @@ The token is encrypted at rest. Details on the encryption design and threat mode
  [ garmin_data/ ]   [ context_data/ ]
         │                  │
         ▼                  ▼
-[ field_map /      [ context_map /
-   garmin_map ]       weather_map /
-                       pollen_map /
-                       brightsky_map ]
+[ health_map /             [ context_map /
+   garmin_health_map ]        weather_map /
+                               pollen_map /
+                               brightsky_map ]
         │                  │
         └─────────┬─────────┘
                   ▼
@@ -281,7 +281,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 
 ## System Architecture
 
-The diagram below shows how all components relate to each other as of v1.6.x — from API ingestion and context collection through the broker layer to dashboard export.
+The diagram below shows how all components relate to each other as of v1.6.x — from API ingestion and context collection through the broker layer to dashboard export. The broker layer also includes `gateway_map` (v1.6.7), a cross-domain routing layer for future consumers such as the planned local MCP server (v1.9) — existing dashboards are unaffected and continue to query `health_map`/`context_map` directly.
 
 ![System Architecture v1.6.x](src/screenshots/data_flow.png)
 
@@ -332,8 +332,14 @@ The project is structured into five focused layers. Each layer has a single resp
 
 | Script | What it does |
 |---|---|
-| `field_map.py` + `garmin_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
+| `health_map.py` + `garmin_health_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
 | `context_map.py` + `weather_map.py` + `pollen_map.py` + `brightsky_map.py` + `airquality_map.py` | Routes dashboard requests to context archive — reads `context_data/` |
+| `gateway_map.py` | Cross-domain routing broker (v1.6.7) — pass-through to `health_map`/`context_map` (and the future `fit_map`, v1.7) for consumers that need more than one domain in a single query, e.g. the planned MCP server (v1.9). Not used by any of the named dashboard specialists above — they query their domain broker directly. |
+
+**Building your own tool on top of your archive?** `gateway_map.py` is the
+recommended entry point — a single import instead of learning the
+`health_map`/`context_map` contracts separately. Request/response reference
+and usage examples: [`docs/REFERENCE_BROKER.md`](docs/REFERENCE_BROKER.md).
 
 **Dashboard layer** — `dashboards/` + `layouts/`
 

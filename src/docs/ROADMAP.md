@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.6.6.1**
+**Currently stable — v1.6.7**
 
 ---
 
@@ -24,7 +24,7 @@ parallel pipeline alongside it. Full concept in `docs/KONZEPT_fit_pipeline.md`.
   `fit_quality.py`, `fit_writer.py`
 - `garmin_data/fit/` — own directory: `raw/` (.fit originals), `summary/` (JSON),
   `tracks/` (GeoJSON, GPS only on demand), `log/`
-- `fit_map.py` — peer broker alongside `field_map.py` and `context_map.py`;
+- `fit_map.py` — peer broker alongside `health_map.py` and `context_map.py`;
   `garmin_fit_map.py` registered beneath it
 - Two entry points: Bulk Import (manual .fit files) + Sync (Garmin Connect API)
 - Both paths merge at `fit_parser.py` — identical pipeline from there onward
@@ -185,19 +185,30 @@ Exposes GLA data to local LLMs via the Model Context Protocol. Allows natural-la
 
 **Architecture**
 
-A new `mcp_map.py` module sits alongside the existing brokers in the Broker Layer as a dedicated MCP entry point. It receives queries from the MCP Server and distributes them across the full Broker Layer (`field_map`, `fit_map`, `context_map`). The MCP Server itself has no knowledge of GLA's internal structure — `mcp_map` owns that translation.
+`gateway_map.py` (v1.6.7) already provides the cross-domain routing layer this
+feature needs — pass-through queries across `health_map`, `fit_map`, and
+`context_map` behind a single entry point. `mcp_map.py` sits on top of
+`gateway_map.py` as a thin MCP protocol translator: it no longer aggregates
+or routes itself, that responsibility moved to `gateway_map` when it was
+built. `mcp_map` accepts structured tool calls from the MCP Server, forwards
+them to `gateway_map`, and shapes the response into the MCP tool-call format.
+The MCP Server itself has no knowledge of GLA's internal structure —
+`mcp_map` owns that translation.
 
 ```
 MCP Server (external)
     ↓
-mcp_map.py  ←→  Broker Layer (field_map / fit_map / context_map)
+mcp_map.py  ←→  gateway_map.py  ←→  health_map / fit_map / context_map
     ↓
 [Pipeline untouched]
 ```
 
 **`garmin/mcp_map.py` — new module**
 
-Sole Owner of MCP query translation. Accepts structured tool calls from the MCP Server and routes them to the appropriate broker. Returns normalized response dicts. No write access to any pipeline component — read-only by design.
+Sole Owner of MCP protocol translation. Accepts structured tool calls from
+the MCP Server and forwards them to `gateway_map.get()`. Returns normalized
+response dicts. No write access to any pipeline component — read-only by
+design, and no routing logic of its own — that lives in `gateway_map`.
 
 **`mcp_server.py` — new module**
 
@@ -218,15 +229,15 @@ The backend is a configuration option. GLA takes no position on which LLM the us
 - `get_archive_stats()` — archive health overview (coverage, quality distribution)
 
 **What changes:**
-- `garmin/mcp_map.py` — new module; read-only broker aggregator
+- `garmin/mcp_map.py` — new module; read-only MCP protocol translator on top of `gateway_map`
 - `mcp_server.py` — new standalone MCP server process
 - `local_config` — two new fields: `MCP_ENABLED` (on/off), `MCP_LLM_BACKEND` (ollama / claude-api)
 - `garmin_app_base.py` — optional "Start MCP Server" toggle in Settings panel
 
 **What does not change:**
-- Broker Layer internals — `field_map`, `fit_map`, `context_map` unchanged
+- Broker Layer internals — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
 - Pipeline — no access below the Broker Layer
-- Sole owner principle — `mcp_map` reads via brokers only, never directly from archive files
+- Sole owner principle — `mcp_map` reads via `gateway_map` only, never directly from archive files or the domain brokers
 - All existing workflows — GUI, dashboards, export pipeline unaffected
 
 **Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
@@ -237,7 +248,7 @@ The backend is a configuration option. GLA takes no position on which LLM the us
 
 Idea: The `health_garmin.json`/`health_garmin_prompt.md` files (consumed by `app/panel_chat.py`, v1.6.6) currently only provide daily aggregates. For more detailed chat responses (e.g., heart rate history for a specific night), intraday resolution is missing in the model's context.
 
-Why not now: `/api/chat` is stateless – the entire system message is resent with each message. Intraday resolution would significantly increase the amount of data per request and exacerbate the context limit problem, which v1.6.6 has only recently addressed through the "New Chat" reset. The broker already provides intraday data (`garmin_map.py`, `source_resolution=intraday`) – only the `health_garmin` component currently retrieves daily values. The appropriate solution is not a second export file in the current format, but an on-demand query via `mcp_map.py`: the model would specifically request intraday data when the chat history requires it, instead of including it unsolicited in every system message.
+Why not now: `/api/chat` is stateless – the entire system message is resent with each message. Intraday resolution would significantly increase the amount of data per request and exacerbate the context limit problem, which v1.6.6 has only recently addressed through the "New Chat" reset. The broker already provides intraday data (`garmin_health_map.py`, `source_resolution=intraday`) – only the `health_garmin` component currently retrieves daily values. The appropriate solution is not a second export file in the current format, but an on-demand query via `mcp_map.py`: the model would specifically request intraday data when the chat history requires it, instead of including it unsolicited in every system message.
 
 Open questions: Should the data be queried directly via `mcp_map.py`, or first via the SQLite proxy (`KONZEPT_mcp_sqlite_proxy.md`)? Does `panel_chat.py` need a tool/function-calling interface for this purpose with Ollama, or will it remain limited to pure text context – this would be a real extension beyond the current sync request/response pattern.
 
@@ -259,12 +270,18 @@ The Export Layer sits at the same level as the Dashboard Layer. Both consume
 the Broker Layer — neither has knowledge of pipeline internals.
  
 ```
-Broker Layer  (field_map / fit_map / context_map)
+Broker Layer  (health_map / fit_map / context_map)
         ↓                          ↓
 Dashboard Layer              Export Layer
 dashboards/                  exports/
 layouts/                     export_adapters/
 ```
+
+Export adapters are planned to read via `gateway_map.py` rather than
+querying individual domain brokers directly (decided in the v1.6.7
+`gateway_map` session) — one cross-domain entry point instead of each
+adapter importing `health_map`/`fit_map`/`context_map` separately. Not yet
+built; noted here for when this layer is implemented.
  
 **Design principles**
  
@@ -285,7 +302,7 @@ No adapter is a commitment. Each is evaluated independently when development beg
 - `exports/export_runner.py` — orchestration; analogous to `dash_runner.py`
 - `exports/export_adapters/` — one module per target format
 **What does not change:**
-- Broker Layer — `field_map`, `fit_map`, `context_map` unchanged
+- Broker Layer — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
 - Dashboard Layer — unaffected
 - Pipeline — no access below the Broker Layer
 - Sole owner principle — adapters read via brokers only
@@ -401,7 +418,7 @@ Extension to support multiple data sources (Strava, Komoot, ...) alongside Garmi
 
 **Architecture principle — plugin modules:** Global actors (`writer`, `normalizer`, `sync`, `security`) remain source-agnostic. Each source provides a `*_master.py` plugin that delivers source-specific details on demand — paths, formats, validation rules, token location. Adding a new source means writing a new plugin and its source-specific actors (`*_api.py`, `*_quality.py`). All global actors work without modification.
 
-**Translation layer:** `field_map.py` is the single point of truth for mapping fields between sources and the common schema. Dashboard and export scripts have no knowledge of source details — they only query `field_map`. Adding a new source means extending `field_map` — all scripts work automatically.
+**Translation layer:** `health_map.py` is the single point of truth for mapping fields between sources and the common schema. Dashboard and export scripts have no knowledge of source details — they only query `health_map`. Adding a new source means extending `health_map` — all scripts work automatically.
 
 ---
 

@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Endpoints — sleep + HRV + all six intraday fields registered in garmin_map.py
+#  Endpoints — sleep + HRV + all six intraday fields registered in garmin_health_map.py
 # ══════════════════════════════════════════════════════════════════════════════
 
 # (client method, args-template, key in live_data)

@@ -81,8 +81,9 @@ SHARED_SCRIPTS = [
     "clients/ollama_client.py",
     # maps (routing only)
     "maps/__init__.py",
-    "maps/field_map.py",
-    "maps/garmin_map.py",
+    "maps/health_map.py",
+    "maps/garmin_health_map.py",
+    "maps/gateway_map.py",
     "maps/context_map.py",
     "maps/weather_map.py",
     "maps/pollen_map.py",

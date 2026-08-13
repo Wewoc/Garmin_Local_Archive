@@ -7,7 +7,7 @@ context_map.py
 
 Single entry point for all context archive data requests from specialists.
 
-Structurally identical to field_map.py — same broker principle, different domain.
+Structurally identical to health_map.py — same broker principle, different domain.
 Knows which *_map.py modules are registered for context sources,
 but knows nothing about how any source stores its data.
 

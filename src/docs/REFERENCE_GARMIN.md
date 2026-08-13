@@ -62,7 +62,7 @@ garmin_app.py (GUI)
 - `garmin_backup` must never import `garmin_writer` or `garmin_quality` — avoids circular imports
 - `normalize()` is never called during mirror import — raw in mirror is already normalized
 - `garmin_live_fetch.py` is sole write authority for `garmin_data/live/` (v1.6.5) — single-file snapshot of the current day, no history, overwritten on every fetch. No `quality_log.json` contact, no validator/normalizer
-- `garmin_map.py` shifts every intraday timestamp to the recording device's local time, derived per-day from Garmin's own `startTimestampGMT`/`Local` section metadata — never the system clock, never a hardcoded `zoneinfo` zone (v1.6.5.6, see "Timestamp handling" below)
+- `garmin_health_map.py` shifts every intraday timestamp to the recording device's local time, derived per-day from Garmin's own `startTimestampGMT`/`Local` section metadata — never the system clock, never a hardcoded `zoneinfo` zone (v1.6.5.6, see "Timestamp handling" below)
 
 ---
 
@@ -591,9 +591,9 @@ Single-file snapshot of the current calendar day ("heute Nacht bis jetzt") — n
 
 ---
 
-## `garmin_map.py`
+## `garmin_health_map.py`
 
-Field resolver for the dashboard broker architecture. Called exclusively by `field_map.py` — never directly by specialists.
+Field resolver for the dashboard broker architecture. Called exclusively by `health_map.py` — never directly by specialists.
 
 ### `_FIELD_MAP` — descriptor types
 
@@ -610,7 +610,7 @@ Each field in `_FIELD_MAP` uses one of six descriptor types:
 
 `raw_pct` is used for fields that require percentage calculation from two seconds-based values in the raw file. `get()` detects `raw_pct` and bypasses the standard daily/intraday resolution fallback logic.
 
-The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single always-current snapshot, no archive equivalent to fall back to, `date_from`/`date_to` are ignored. `live` mirrors the `intraday` array-extraction logic against `live.json` instead of a dated `raw/` file. `live_pct` mirrors `raw_pct`'s percentage math. `live_nested` resolves a dotted key path, trying each candidate in an ordered fallback chain until one is non-`None`; an optional divisor divides the raw value (e.g. `sleepTimeSeconds / 3600` → hours). Missing `live.json` or no field/candidate found → `fallback=True`, empty `values`, never an exception — handled directly inside `garmin_map.py` (`_read_live`/`_read_live_pct`/`_read_live_nested`), not via `field_map`'s generic exception catch.
+The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single always-current snapshot, no archive equivalent to fall back to, `date_from`/`date_to` are ignored. `live` mirrors the `intraday` array-extraction logic against `live.json` instead of a dated `raw/` file. `live_pct` mirrors `raw_pct`'s percentage math. `live_nested` resolves a dotted key path, trying each candidate in an ordered fallback chain until one is non-`None`; an optional divisor divides the raw value (e.g. `sleepTimeSeconds / 3600` → hours). Missing `live.json` or no field/candidate found → `fallback=True`, empty `values`, never an exception — handled directly inside `garmin_health_map.py` (`_read_live`/`_read_live_pct`/`_read_live_nested`), not via `field_map`'s generic exception catch.
 
 ### Registered fields
 
@@ -658,14 +658,14 @@ section metadata; no `zoneinfo`, no new hidden-import.
 `_OFFSET_SOURCE_SECTIONS = ("heart_rates", "stress", "respiration", "spo2")`
 — deliberately excludes `body_battery`: Body Battery data lives inside the
 `stress` section's `bodyBatteryValuesArray` (see `body_battery_series`
-above); there is no separate `body_battery` section that `garmin_map.py`
+above); there is no separate `body_battery` section that `garmin_health_map.py`
 itself reads.
 
 `_read_intraday()` and `_read_live()` both call `_device_offset()` once per
 file and add `"dst_transition": bool` to every entry in `values` — part of
 the broker response contract, see `REFERENCE_BROKER.md`.
 
-**Architecture boundary:** Any Garmin-internal key (`section.field`, `dailySleepDTO`, etc.) appearing outside `garmin_map.py` is an architecture violation — detectable by name format alone.
+**Architecture boundary:** Any Garmin-internal key (`section.field`, `dailySleepDTO`, etc.) appearing outside `garmin_health_map.py` is an architecture violation — detectable by name format alone.
 
 ---
 

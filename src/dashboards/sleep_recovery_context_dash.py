@@ -11,15 +11,15 @@ Metrics: HRV, Body Battery, Sleep (daily) + sleep phase composition
 Intraday: Heart Rate, Stress, Body Battery, Respiration (per day, Tab 2).
 
 Sources:
-  - Garmin summary/ via field_map  (HRV, Body Battery, Sleep duration)
-  - Garmin raw/     via field_map  (sleep phases: Deep, Light, REM, Awake)
-  - Garmin raw/     via field_map  (intraday HR, Stress, Body Battery, Respiration)
+  - Garmin summary/ via health_map  (HRV, Body Battery, Sleep duration)
+  - Garmin raw/     via health_map  (sleep phases: Deep, Light, REM, Awake)
+  - Garmin raw/     via health_map  (intraday HR, Stress, Body Battery, Respiration)
   - context_data/   via context_map (temperature, pollen)
 
 Rules:
 - No direct file access.
 - No source-internal field names outside this module.
-- Calls field_map.get() and context_map.get() only.
+- Calls health_map.get() and context_map.get() only.
 - Returns neutral dict for plotters — no rendering logic.
 """
 
@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map   import get as field_get
+from maps.health_map   import get as health_get
 from maps.context_map import get as context_get
 from layouts.reference_ranges import fitness_level as _fitness_level
 from layouts.reference_ranges import reference_ranges as _reference_ranges
@@ -85,7 +85,7 @@ _CONTEXT_FIELDS = [
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _values_by_date(result: dict) -> dict:
-    """Extract {date: value} from a field_map result (garmin source)."""
+    """Extract {date: value} from a health_map result (garmin source)."""
     garmin = result.get("garmin", {})
     return {
         entry["date"]: entry["value"]
@@ -103,7 +103,7 @@ def _context_by_date(result: dict) -> dict:
 
 
 def _intraday_by_date(result: dict) -> dict:
-    """Extract {date: series} from a field_map intraday result."""
+    """Extract {date: series} from a health_map intraday result."""
     garmin = result.get("garmin", {})
     return {
         entry["date"]: entry.get("series")
@@ -117,7 +117,7 @@ def _intraday_by_date(result: dict) -> dict:
 
 def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
-    Fetch all fields via field_map and context_map.
+    Fetch all fields via health_map and context_map.
     Returns neutral dict for dash_plotter_html_complex.
 
     Args:
@@ -167,7 +167,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         age = 35
     sex     = settings.get("sex") or "male"
     vo2max  = None
-    result_vo2 = field_get("vo2max", date_from, date_to, resolution="daily")
+    result_vo2 = health_get("vo2max", date_from, date_to, resolution="daily")
     for entry in reversed(result_vo2.get("garmin", {}).get("values", [])):
         if entry["value"] is not None:
             vo2max = entry["value"]
@@ -178,13 +178,13 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     # ── Fetch daily Garmin fields ─────────────────────────────────────────────
     daily_raw = {}
     for f in _DAILY_FIELDS:
-        result = field_get(f["field"], date_from, date_to, resolution="daily")
+        result = health_get(f["field"], date_from, date_to, resolution="daily")
         daily_raw[f["key"]] = _values_by_date(result)
 
     # ── Fetch sleep phase fields ──────────────────────────────────────────────
     phase_raw = {}
     for f in _PHASE_FIELDS:
-        result = field_get(f["field"], date_from, date_to, resolution="daily")
+        result = health_get(f["field"], date_from, date_to, resolution="daily")
         phase_raw[f["key"]] = _values_by_date(result)
 
     # ── Fetch context fields ──────────────────────────────────────────────────
@@ -196,7 +196,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     # ── Fetch intraday fields ─────────────────────────────────────────────────
     intraday_raw = {}
     for f in _INTRADAY_FIELDS:
-        result = field_get(f["field"], date_from, date_to, resolution="intraday")
+        result = health_get(f["field"], date_from, date_to, resolution="intraday")
         intraday_raw[f["key"]] = _intraday_by_date(result)
 
     # ── Collect all dates from daily data ─────────────────────────────────────

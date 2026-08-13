@@ -15,13 +15,13 @@ Page 1 (Summary):
   - Sleep score labels: vertical text trace per day inside sleep phase panel
 
 Sources:
-  - Garmin summary/ via field_map  (all daily Garmin fields)
-  - Garmin raw/     via field_map  (sleep phases)
+  - Garmin summary/ via health_map  (all daily Garmin fields)
+  - Garmin raw/     via health_map  (sleep phases)
   - context_data/   via context_map (weather, pollen, air quality)
 
 Rules:
 - No direct file access.
-- Calls field_map.get() and context_map.get() only.
+- Calls health_map.get() and context_map.get() only.
 - Returns neutral dict for dash_plotter_html_complex ("layout": "explorer").
 """
 
@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map    import get as field_get, list_fields as garmin_list_fields
+from maps.health_map    import get as health_get, list_fields as garmin_list_fields
 from maps.context_map  import get as context_get, list_fields as context_list_fields
 from layouts.dash_layout import get_metric_meta
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
@@ -104,7 +104,7 @@ def _build_field_options(fields: list) -> list:
 
 def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
-    Fetch all fields via field_map and context_map.
+    Fetch all fields via health_map and context_map.
     Returns neutral dict for dash_plotter_html_complex with layout="explorer".
 
     Args:
@@ -146,7 +146,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     daily_series: dict = {}
 
     for f in daily_garmin_fields:
-        result = field_get(f, date_from, date_to, resolution="daily")
+        result = health_get(f, date_from, date_to, resolution="daily")
         daily_series[f] = _values_by_date(result, "garmin")
 
     for f in context_fields:
@@ -161,12 +161,12 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     # ── 4. Fetch sleep phase fields ───────────────────────────────────────────
     phase_raw: dict = {}
     for f in _PHASE_FIELDS:
-        result = field_get(f["field"], date_from, date_to, resolution="daily")
+        result = health_get(f["field"], date_from, date_to, resolution="daily")
         phase_raw[f["key"]] = _values_by_date(result, "garmin")
 
     # ── 5. Fetch sleep score fields ───────────────────────────────────────────
-    r_fb = field_get("sleep_score_feedback",  date_from, date_to, resolution="daily")
-    r_qq = field_get("sleep_score_qualifier", date_from, date_to, resolution="daily")
+    r_fb = health_get("sleep_score_feedback",  date_from, date_to, resolution="daily")
+    r_qq = health_get("sleep_score_qualifier", date_from, date_to, resolution="daily")
     score_feedback_by_date  = _values_by_date(r_fb, "garmin")
     score_qualifier_by_date = _values_by_date(r_qq, "garmin")
 

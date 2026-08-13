@@ -386,7 +386,7 @@ class ScreenshotApp(GarminApp):
         pc._reach_label.setText("Ollama: reachable")
         pc._model_combo.blockSignals(True)
         pc._model_combo.clear()
-        pc._model_combo.addItems(["qwen2.5:14b", "llama3.1:8b"])
+        pc._model_combo.addItems(["qwen3:14b", "llama3.1:8b"])
         pc._model_combo.blockSignals(False)
         pc._model_combo.setEnabled(True)
         pc._new_chat_btn.setEnabled(True)
