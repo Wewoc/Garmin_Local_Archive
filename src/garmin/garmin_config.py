@@ -47,6 +47,9 @@ LOG_FAIL_DIR   = LOG_DIR / "fail"
 QUALITY_LOG_FILE  = LOG_DIR / "quality_log.json"
 DEVICE_TABLE_FILE = LOG_DIR / "device_table.json"
 
+# API Capability Scan config (sole owner: garmin_api_capability.py)
+CAPABILITY_CONFIG_FILE = LOG_DIR / "garmin_api_capability_config.json"
+
 # Backup directories (sole owner: garmin_backup.py)
 BACKUP_DIR       = GARMIN_DIR / "backup"
 LOG_BACKUP_DIR   = BACKUP_DIR / "log"    # quality_log ZIPs (monatlich + jährlich)
@@ -70,7 +73,7 @@ LIVE_FILE = LIVE_DIR / "live.json"
 # Schema definition for garmin_validator.py
 DATAFORMAT_FILE = Path(__file__).parent / "garmin_dataformat.json"
 
-# File name prefixes — used by garmin_map.py to locate daily and raw files
+# File name prefixes — used by garmin_health_map.py to locate daily and raw files
 SUMMARY_FILE_PREFIX = "garmin_"
 RAW_FILE_PREFIX     = "garmin_raw_"
 

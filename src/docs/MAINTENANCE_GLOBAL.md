@@ -291,9 +291,9 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-No network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner. Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift.
+No network, no GUI. Covers full pipeline: `garmin_health_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner. Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift.
 
-Run after any change to: `garmin_map`, `field_map`, `context_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py` renderer.
+Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gateway_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py` renderer.
 
 ### Plotly local cache
 
@@ -355,6 +355,10 @@ Check and class totals are tracked in `docs/METRICS.md` (`test_qt_app.py`) — n
 
 **Test result v1.6.0.3:** 344 / 261 / 303 / 136 / 42 / 2 — all green
 
+**Test result v1.6.7 Teil B (2026-08-12):** 631 / 265 / 453 / 165 / 59 / 16 — all green
+
+**Test result v1.6.7 gateway_map (2026-08-12):** 631 / 265 / 464 / 165 / 59 / 16 — all green
+
 Classes:
 - `TestQtSmoke` (4) — QApplication startup, PyQt6 importability, GUI-freedom regression for Settings/Controller, GUI-freedom guard for `scheduler/daily_update.py`
 - `TestPanelSettings` (5) — instantiation, `_collect_settings()` keys, sync mode switching, location extraction
@@ -362,9 +366,16 @@ Classes:
 - `TestPanelArchive` (5) — instantiation, mirror guard, archive info no-crash, failed-days popup
 - `TestPanelTimer` (7) — instantiation, field load/read, toggle on/off, resume logic
 - `TestPanelOutputs` (7) — instantiation, context sync state, stop event, no-crash helpers
+- `TestPanelChat` (13, v1.6.7 Teil B) — instantiation, disabled-before-start state, send no-op on empty input / while request running, `_chat_on_reply`/`_chat_on_error` state reset + history handling (trailing-user pop, no-pop, empty-history no-crash), age-display file-missing + corrupt-JSON no-crash, `_chat_on_new_chat` with/without system prompt, `_chat_on_model_changed` gated by combo enabled-state. Smoke-level only — no test starts a real `threading.Thread`; worker-callback methods are called directly instead, since a real thread would hit the live Ollama HTTP client. Full worker-thread-flow testing deliberately out of scope (see `NOTES_v167_B_01.md`).
 - `TestGarminAppBase` (4) — app instantiation, all panels created, log widget write, timer fields in collect_settings
 
-Run after any change to: `app/panel_*.py`, `garmin_app_base.py` (Qt version). Built panel-by-panel alongside the v1.5.4 migration. No network, no GUI, no build required. Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides), `app/panel_timer.py` (timer_run_bulk_recheck functional test). Includes v1.4.2 regression check for frozen path resolution. Section 14: `_timer_run_bulk_recheck` tested against `PanelTimerMixin` directly (v1.5.3). Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
+Run after any change to: `app/panel_*.py`, `garmin_app_base.py` (Qt version). Built panel-by-panel alongside the v1.5.4 migration. No network, no GUI, no build required.
+
+`clients/ollama_client.py` is covered separately in `test_app_logic.py`
+(Section 21, v1.6.7 Teil B) — pure HTTP-wrapper functions, no Qt/threading
+involved, mocked via `unittest.mock.patch("requests.get"/"requests.post")`.
+Full depth (all typed-exception paths) rather than smoke-level, since the
+functions are cheap to exercise exhaustively and have no thread-timing risk.Tests `app/garmin_app_settings.py` (settings persistence, keyring helpers, OSError handling), `app/garmin_app_controller.py` (build_env_dict, timer functions, check_integrity), `garmin_app_base.py` (hook implementation, delegation), `garmin_app.py` and `garmin_app_standalone.py` (script path resolution in dev and frozen mode, hook overrides), `app/panel_timer.py` (timer_run_bulk_recheck functional test). Includes v1.4.2 regression check for frozen path resolution. Section 14: `_timer_run_bulk_recheck` tested against `PanelTimerMixin` directly (v1.5.3). Section 15: AST-test verifies tkinter/Qt-freedom of app/garmin_app_settings.py and app/garmin_app_controller.py.
 
 Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_standalone.py` (module-level functions only). Not part of the automated pre-build gate — run manually.
 
@@ -426,7 +437,7 @@ All source folders are Python packages with `__init__.py`:
 | `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; `clients/` the same way, flat `sys.path.insert` alongside `garmin_dir`/`app_dir` (v1.6.6) — not the `sys.modules` package-registration loop used by `context/`/`maps/`/`dashboards/`/`layouts/`; others via package registration |
 | `tests/test_local.py` | `sys.path.insert(0, .../garmin)` |
 | `tests/test_local_context.py` | `sys.path.insert(0, .../garmin)` + `sys.path.insert(0, root)` |
-| `maps/garmin_map.py` | `sys.path.insert(0, .../garmin)` — bridge between packages |
+| `maps/garmin_health_map.py` | `sys.path.insert(0, .../garmin)` — bridge between packages |
 | `context/` plugins | `sys.path.insert(0, .../garmin)` — for `garmin_config` |
 | `app/panel_chat.py` | `frozen_paths.add_to_path(root, "clients")` inside a lazy import helper — not at module top-level, so `panel_chat.py` stays importable before `sys.path` is fully wired up (v1.6.6) |
 | All modules inside `garmin/` | None — `sys.path.insert` removed in v1.4 |

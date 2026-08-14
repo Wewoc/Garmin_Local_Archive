@@ -7,12 +7,12 @@ timeseries_garmin_html-xls_dash.py
 
 Specialist: Garmin intraday timeseries.
 Metrics: Heart Rate, Stress, SpO2, Body Battery, Respiration.
-Source: garmin_data/raw/ via field_map.
+Source: garmin_data/raw/ via health_map.
 
 Rules:
 - No direct file access.
 - No Garmin-internal field names outside this module.
-- Calls field_map.get() only — no knowledge of raw/ structure.
+- Calls health_map.get() only — no knowledge of raw/ structure.
 - Returns neutral dict for plotters — no rendering logic.
 """
 
@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map import get as field_get
+from maps.health_map import get as health_get
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -51,7 +51,7 @@ _FIELDS = [
 
 def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
-    Fetch intraday data for all fields via field_map.
+    Fetch intraday data for all fields via health_map.
     Returns neutral dict for plotters.
 
     Args:
@@ -75,7 +75,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
     fields = []
     for field in _FIELDS:
-        result = field_get(field, date_from, date_to, resolution="intraday")
+        result = health_get(field, date_from, date_to, resolution="intraday")
         garmin = result.get("garmin", {})
 
         # Flatten per-day series into one list

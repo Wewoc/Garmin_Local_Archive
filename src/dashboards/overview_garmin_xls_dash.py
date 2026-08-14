@@ -7,12 +7,12 @@ overview_garmin_xls_dash.py
 
 Specialist: Garmin daily overview — broad flat table.
 All summary fields + Activities sheet.
-Source: garmin_data/summary/ via field_map.
+Source: garmin_data/summary/ via health_map.
 
 Rules:
 - No direct file access.
 - No Garmin-internal field names outside this module.
-- Calls field_map.get() only.
+- Calls health_map.get() only.
 - Returns neutral dict for plotters — no rendering logic.
 """
 
@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from maps.field_map import get as field_get
+from maps.health_map import get as health_get
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -54,7 +54,7 @@ _COLUMNS = [
 
 def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
-    Fetch daily summary fields via field_map.
+    Fetch daily summary fields via health_map.
     Returns neutral dict for plotters.
 
     Returns:
@@ -71,7 +71,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     all_dates    = set()
 
     for col in _COLUMNS:
-        result = field_get(col["field"], date_from, date_to, resolution="daily")
+        result = health_get(col["field"], date_from, date_to, resolution="daily")
         garmin = result.get("garmin", {})
         field_values[col["field"]] = {}
         for entry in garmin.get("values", []):

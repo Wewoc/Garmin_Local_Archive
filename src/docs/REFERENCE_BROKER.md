@@ -27,12 +27,13 @@ underlying rule ("Spezialisten lesen nie direkt aus dem Dateisystem").
 
 | Broker | Domain | Routes to | Registered via |
 |---|---|---|---|
-| `field_map.py` | Garmin health data | `garmin_map` | `_SOURCES = {"garmin": garmin_map}` |
+| `health_map.py` | Garmin health data | `garmin_health_map` | `_SOURCES = {"garmin": garmin_health_map}` |
 | `context_map.py` | External context data | `weather_map`, `pollen_map`, `brightsky_map`, `airquality_map` | `_SOURCES = {"weather": ..., "pollen": ..., "brightsky": ..., "airquality": ...}` |
+| `gateway_map.py` | Cross-domain routing for external/aggregate consumers | `health_map`, `fit_map` *(planned)*, `context_map` | `_DOMAIN_BROKERS = {"health": health_map, "fit": None, "context": context_map}` |
 | `fit_map.py` *(planned, v1.7)* | Activity data (Garmin FIT, later Strava) | `garmin_fit_map`, future `strava_fit_map` | see `ROADMAP.md` → v1.7 FIT Pipeline |
-| `mcp_map.py` *(planned, v1.9)* | Aggregator for MCP Server queries | all of the above | see `ROADMAP.md` → v1.9 MCP Server |
+| `mcp_map.py` *(planned, v1.9)* | MCP protocol translation | `gateway_map` | see `ROADMAP.md` → v1.9 MCP Server |
 
-Both `field_map.py` and `context_map.py` are structurally identical — same
+Both `health_map.py` and `context_map.py` are structurally identical — same
 broker principle, different domain and source registry. Both register their
 sources via relative imports (`from . import <source>_map`) — this pattern
 is invisible to naive static import scanners (confirmed against
@@ -41,12 +42,12 @@ Verify against the actual source file, not a dependency map, when in doubt.
 
 ---
 
-## `field_map.get()` — Garmin data
+## `health_map.get()` — Garmin data
 
 ```python
-from maps.field_map import get as field_get
+from maps.health_map import get as health_get
 
-result = field_get(field, date_from, date_to, resolution="daily")
+result = health_get(field, date_from, date_to, resolution="daily")
 # result["garmin"] contains the broker return dict
 ```
 
@@ -71,7 +72,7 @@ for one specific case: `date_from` after `date_to` silently produces an
 empty range — no exception is raised, there is simply nothing to iterate
 over.
 
-Raises `KeyError` if field is not registered in `garmin_map._FIELD_MAP`.
+Raises `KeyError` if field is not registered in `garmin_health_map._FIELD_MAP`.
 Raises `ValueError` if resolution is not `"daily"`, `"intraday"`, or `"live"`.
 
 `resolution="live"` (v1.6.5, `garmin` source only) is a single always-current
@@ -86,6 +87,29 @@ see `REFERENCE_GARMIN.md` → "Registered fields".
 
 ---
 
+## `health_map.get_raw()` — raw passthrough (v1.6.8 Session 4)
+
+```python
+from maps.health_map import get_raw as health_get_raw, list_raw_fields as health_list_raw_fields
+
+result = health_get_raw(field, date_from, date_to, source="garmin")
+# result == {"values": [{"date": str, "raw": any|None}, ...], "source_resolution": "raw"}
+```
+
+Separate from `get()`/`list_fields()` by design — see `REFERENCE_GARMIN.md`
+→ "Raw-passthrough fields" for the rationale. Returns the archived `raw/`
+payload for a Capability-Scan endpoint **unprocessed** — no `"value"`
+extraction, the caller interprets the structure itself. `source` defaults
+to `"garmin"`, the only source currently registered for raw-passthrough.
+
+`list_raw_fields(source="garmin")` returns the registered raw-field names
+for a source — `[]` for sources without raw-passthrough support.
+
+Raises `KeyError` if `field` is not registered, or if `source` has no
+raw-passthrough support at all.
+
+---
+
 ## `context_map.get()` — external context data
 
 ```python
@@ -97,7 +121,7 @@ result = context_get(field, date_from, date_to, resolution="daily")
 
 `date_from` / `date_to`: ISO-8601 date strings (`YYYY-MM-DD`), inclusive on both ends.
 
-`result[source_name]` contract — same structure as `field_map` broker return:
+`result[source_name]` contract — same structure as `health_map` broker return:
 
 ```python
 {
@@ -121,7 +145,7 @@ Sources that do not know the requested field are silently skipped (`KeyError` ca
 Unknown field with no matching source → empty dict `{}`.
 
 `weather_map.get()`, `pollen_map.get()`, `brightsky_map.get()`, and
-`airquality_map.get()` follow the same contract as `garmin_map.get()` but
+`airquality_map.get()` follow the same contract as `garmin_health_map.get()` but
 raise only `KeyError` (no `ValueError` — resolution is always treated as
 daily, with `fallback=True` for intraday requests).
 
@@ -130,14 +154,90 @@ Field-level tables (generic field → internal key, per source): see
 
 ---
 
-## `list_fields()` / `list_sources()`
+## `gateway_map.get()` — cross-domain routing
+
+```python
+from maps.gateway_map import get as gateway_get
+
+result = gateway_get(field, date_from, date_to, resolution="daily", domain=None)
+```
+
+Local API boundary (in-process, not a network endpoint) for consumers that
+do not know in advance which domain broker owns a field — e.g. `mcp_map`
+(v1.9). Not a replacement for direct domain-broker imports: named
+specialists with a fixed domain need continue to import `health_map`/
+`fit_map`/`context_map` directly (v1.6.7 scope decision).
+
+`domain`: `None` (default) → queries all three domain keys (`"health"`,
+`"fit"`, `"context"`). Set to one of those three → queries only that
+domain.
+
+Pass-through by design — `gateway_map` does not reshape or unwrap what a
+domain broker returns:
+
+```python
+{
+    "health":  ...,   # exactly what health_map.get() returned
+    "fit":     ...,   # exactly what fit_map.get() would return, once it exists
+    "context": ...,   # exactly what context_map.get() returned
+}
+```
+
+`"fit"` is a reserved domain key ahead of `fit_map.py` (v1.7) — until that
+broker exists, `result["fit"]` is a degraded single entry,
+`{"error": "domain not yet available"}`, never a hard failure.
+
+Error behaviour:
+- Unknown `domain` string (not `"health"`/`"fit"`/`"context"`/`None`) →
+  `ValueError`. Caller error, not a data-availability problem.
+- Known domain whose broker is not yet registered → degraded result,
+  `{"error": "domain not yet available"}` under that domain key.
+- A registered domain broker raising unexpectedly → degraded result,
+  `{"error": str(exc)}` under that domain key. No hard-fail — same
+  degraded-mode principle the domain brokers already use for their own
+  sources.
+
+`list_domains()` returns all known domain keys regardless of registration
+state, currently `["health", "fit", "context"]`.
+
+`get_raw(field, date_from, date_to, domain=None)` / `list_raw_fields(domain=None)`
+(v1.6.8 Session 4) — same fan-out shape as `get()`/`list_domains()`, for
+raw-passthrough fields. Currently only `"health"` supports raw-passthrough;
+other domains degrade to `{"error": "domain has no raw-passthrough support"}`
+(or `[]` for `list_raw_fields()`) rather than hard-failing — same principle
+as the `"fit"`-not-yet-available case above.
+
+### Building your own tool against a local archive
+
+`gateway_map.get()` is the recommended entry point if you're writing your
+own script or tool against a local GLA installation rather than modifying
+GLA itself — one import, one contract, instead of learning `health_map`'s
+and `context_map`'s contracts separately. It is a plain Python function
+call (`from maps.gateway_map import get`), not a network endpoint — your
+tool needs to run in the same Python environment/`sys.path` as the archive,
+same as any other module in this repo.
+
+**Single domain, one field:**
+
+```python
+from maps.gateway_map import get as gateway_get
+
+result = gateway_get("resting_heart_rate", "2026-08-01", "2026-08-07",
+                      resolution="daily", domain="health")
+# result == {"health": {"garmin": {"values": [...], "fallback": False,
+#                                   "source_resolution": "daily"}}}
 
 Both brokers expose the same auxiliary functions:
 
-| Function | `field_map` default | `context_map` default |
+| Function | `health_map` default | `context_map` default |
 |---|---|---|
-| `list_fields(source=...)` | `"garmin"` | `"weather"` |
+| `list_fields(source=..., active_only=...)` | `source="garmin"`, `active_only=False` | `source="weather"` — `active_only` ignored, `context_map` has no capability concept |
 | `list_sources()` | returns `["garmin"]` | returns `["weather", "pollen", "brightsky", "airquality"]` |
+| `list_raw_fields(source=...)` (v1.6.8 Session 4) | `source="garmin"` — 13 fields | not supported, always `[]` |
+
+`active_only=True` (health_map/garmin only) excludes API-Capability-Scan
+candidate fields whose endpoint is not `enabled_by_user` — used by the
+Custom Dashboard field picker and Explorer (v1.6.8 Session 4, "Governance B").
 
 Unknown source name → `list_fields()` returns `[]` (no exception, no `KeyError`).
 
@@ -158,7 +258,7 @@ rule, kept for quick readability. When a field's unit changes or a field is
 added/removed, update both places. `list_fields()` in the corresponding
 `*_map.py` module remains the actual source of truth for which fields exist.
 
-**`field_map` → `garmin`** (19 fields)
+**`health_map` → `garmin`** (25 fields)
 
 | Field | Value | Description |
 |---|---|---|
@@ -181,6 +281,36 @@ added/removed, update both places. `list_fields()` in the corresponding
 | `body_battery_series` | 0–100 per timestamp | Intraday Body Battery readings |
 | `respiration_series` | per timestamp | Intraday respiration readings — unit not fixed in source docs, see `REFERENCE_GARMIN.md` |
 | `steps_series` | steps per 15-min bin | Intraday step counts in 15-minute bins |
+| `body_weight` | grams | Body weight, from API-Capability-Scan candidate `get_body_composition` — first candidate wired into the broker (v1.6.8 pilot), unit unverified against real scale data |
+| `calories_resting` | kcal | Resting/basal calories, from API-Capability-Scan candidate `get_calories_daily` — second candidate wired into the broker (v1.6.8 pilot) |
+| `hydration_ml` | ml | Daily fluid intake, from API-Capability-Scan candidate `get_hydration_data` — only `valueInML` adopted (v1.6.8 Session 4) |
+| `endurance_score` | index | Endurance Score, from API-Capability-Scan candidate `get_endurance_score` — device-calculated index, checked against `vo2max` for redundancy, none found (v1.6.8 Session 4) |
+| `hill_score` | index | Hill Score, from API-Capability-Scan candidate `get_hill_score` — not to be confused with that same endpoint's own internal `enduranceScore` sub-field (v1.6.8 Session 4) |
+| `fitness_age` | years | Fitness Age, from API-Capability-Scan candidate `get_fitnessage_data` — only `fitnessAge` adopted (v1.6.8 Session 4) |
+
+**`health_map` → `garmin` raw-passthrough** (13 fields, v1.6.8 Session 4)
+
+Not part of `list_fields()`/`get()` — a deliberately separate access path,
+see `health_map.get_raw()` above and `REFERENCE_GARMIN.md` →
+"Raw-passthrough fields" for the rationale. No unit/description column —
+these are unprocessed Garmin payloads, structure varies per endpoint, the
+caller interprets them.
+
+| Field | Source endpoint |
+|---|---|
+| `daily_weigh_ins` | `get_daily_weigh_ins` |
+| `blood_pressure` | `get_blood_pressure` |
+| `menstrual_calendar_data` | `get_menstrual_calendar_data` |
+| `pregnancy_summary` | `get_pregnancy_summary` |
+| `lifestyle_logging_data` | `get_lifestyle_logging_data` |
+| `nutrition_daily_food_log` | `get_nutrition_daily_food_log` |
+| `nutrition_daily_meals` | `get_nutrition_daily_meals` |
+| `nutrition_daily_settings` | `get_nutrition_daily_settings` |
+| `floors` | `get_floors` |
+| `intensity_minutes_data` | `get_intensity_minutes_data` |
+| `body_battery_events` | `get_body_battery_events` |
+| `lactate_threshold` | `get_lactate_threshold` |
+| `running_tolerance` | `get_running_tolerance` |
 
 **`context_map` → `weather`** (6 fields)
 
@@ -241,16 +371,22 @@ reading the keys of the returned dict, not by choosing one in advance.
 
 ## Future brokers
 
-`fit_map.py` (v1.7) is planned as a peer to `field_map.py` and
+`fit_map.py` (v1.7) is planned as a peer to `health_map.py` and
 `context_map.py` — same broker principle (domain-level, routes to
 source-specific `*_map.py` modules below it), new domain (activity data).
+`gateway_map.py` is already prepared for it — the `"fit"` domain key
+exists in `_DOMAIN_BROKERS` ahead of the broker itself (see
+`gateway_map.get()` above).
 
-`mcp_map.py` (v1.9) is not a peer at this level. It aggregates across the
-full Broker Layer (`field_map`, `fit_map`, `context_map`) rather than
-routing to a source-specific module — architecturally it sits alongside
-the Dashboard Layer and the planned Export Layer, both of which consume
-the Broker Layer the same way, just through a different output channel
-(MCP protocol instead of file/chart).
+`mcp_map.py` (v1.9) is not a peer at this level, and — unlike the original
+plan — it no longer aggregates the Broker Layer itself. That role belongs
+to `gateway_map.py` (v1.6.7), which is a peer within the Broker Layer,
+providing cross-domain routing across `health_map`/`fit_map`/`context_map`
+for consumers that don't know in advance which domain owns a field.
+`mcp_map` shrinks to pure protocol translation (MCP ↔ `gateway_map`) —
+architecturally it sits alongside the Dashboard Layer and the planned
+Export Layer, both of which consume the Broker Layer the same way, just
+through a different output channel (MCP protocol instead of file/chart).
 
 Full architecture in `ROADMAP.md`. This file gets a dedicated section for
 each once implementation actually starts — no contract is assumed here

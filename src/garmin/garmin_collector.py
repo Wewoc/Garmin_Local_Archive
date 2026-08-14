@@ -30,6 +30,7 @@ from pathlib import Path
 
 import garmin_config as cfg
 import garmin_api as api
+import garmin_api_capability as capability
 import garmin_normalizer as normalizer
 import garmin_quality as quality
 import garmin_redact as redact
@@ -80,9 +81,22 @@ def _should_write(label: str) -> bool:
     return label in ("high", "standard")
 
 
-def _fetch_and_assess(client, date_str: str) -> tuple:
+def _fetch_and_assess(client, date_str: str, enabled_candidates: list | None = None) -> tuple:
     """
     Fetches and assesses a single day — no file writes.
+
+    Parameters
+    ----------
+    enabled_candidates : list[str] | None
+        Optional API-Capability-Scan candidate method names (v1.6.8) —
+        already filtered by the caller for enabled_by_user + status ==
+        "found". Read once per sync run as an immutable snapshot (see
+        main()'s Fetch-loop section), not re-read per day. Turned into
+        (method, (date_str,), method) tuples here and passed to
+        api.fetch_raw() as extra_endpoints. None (default) — no candidates
+        added — is what _run_source_backfill() uses: that path
+        intentionally does not take part in the Capability-Scan for now
+        (scope boundary, v1.6.8).
 
     Returns
     -------
@@ -93,7 +107,11 @@ def _fetch_and_assess(client, date_str: str) -> tuple:
       fields     — per-field quality dict
       val_result — validator result dict
     """
-    raw_data, failed_endpoints = api.fetch_raw(client, date_str)
+    extra_endpoints = (
+        [(ep, capability.build_args(ep, date_str), ep) for ep in enabled_candidates]
+        if enabled_candidates else None
+    )
+    raw_data, failed_endpoints = api.fetch_raw(client, date_str, extra_endpoints=extra_endpoints)
     if failed_endpoints:
         log.warning(f"    ⚠ {len(failed_endpoints)} endpoint(s) failed: {', '.join(failed_endpoints)}")
 
@@ -639,6 +657,110 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  API Capability Scan — probes optional health endpoints (v1.6.8)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_capability_scan(client, window_days: int = 7) -> dict:
+    """
+    Probes each of the 19 optional health-endpoint candidates (see
+    garmin_api_capability.CANDIDATE_ENDPOINTS) against the last
+    `window_days` days, to discover which ones return real data for this
+    Garmin account. User-initiated, not part of the regular sync.
+
+    Runs under quality.QUALITY_LOCK — the same lock the regular sync and
+    both backfill functions above hold for their whole duration. Reused
+    deliberately, not layered with a second, purpose-built lock: this
+    function writes nothing to quality_data/quality_log.json (so it does
+    not need the lock for that reason), but it shares the same Garmin
+    client as the sync, and the two must never run concurrently (see
+    NOTES_v168.md — Race zwischen Scan und regulärem Sync). QUALITY_LOCK
+    already serialises every code path that talks to the client via this
+    module, so holding it here for the scan's duration blocks it out
+    against any sync run and vice versa, at zero extra cost. Naming is
+    slightly imprecise (a "quality" lock guarding a non-quality operation)
+    — documented here explicitly so the reuse is legible, not accidental.
+
+    No file writes to raw/, summary/, source/, or quality_log.json. Each
+    api_call() payload is discarded immediately after the empty/non-empty
+    check — only the tri-state result is persisted, via
+    garmin_api_capability.update_endpoint()/save_config() (bewusste
+    Entscheidung, NOTES_v168.md — Scan-Daten werden verworfen).
+
+    Per-candidate isolation: the whole per-candidate block (all days in
+    the window) is wrapped in one try/except, mirroring
+    _run_source_backfill() above — one candidate's failure is logged and
+    counted as "error", the loop continues with the next candidate. A
+    failing optional endpoint can never abort the scan of the others.
+
+    Discovery result is tri-state, not binary (Multi-LLM-Konsens,
+    NOTES_v168.md):
+      found        — at least one day in the window returned non-empty data
+      not_observed — every attempted day succeeded but returned nothing
+      error        — at least one day failed/raised and "found" was never
+                     reached (avoids treating a transient API error as
+                     proof of a missing capability)
+
+    Returns
+    -------
+    dict — {"scanned": int, "found": int, "not_observed": int, "error": int}
+    """
+    config = capability.load_config()
+    dates  = [(date.today() - timedelta(days=d)).isoformat() for d in range(window_days)]
+    total  = len(capability.CANDIDATE_ENDPOINTS)
+
+    counts = {"scanned": 0, "found": 0, "not_observed": 0, "error": 0}
+
+    with quality.QUALITY_LOCK:
+        for i, endpoint in enumerate(capability.CANDIDATE_ENDPOINTS, 1):
+            if _is_stopped():
+                log.info(f"  Capability scan: stopped after {counts['scanned']} endpoint(s).")
+                break
+
+            now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            try:
+                status     = "not_observed"
+                had_error  = False
+                found_date = None
+
+                for date_str in dates:
+                    args = capability.build_args(endpoint, date_str)
+                    data, success = api.api_call(client, endpoint, *args, label="capability_scan")
+                    if not success:
+                        had_error = True
+                        continue
+                    if data:
+                        status     = "found"
+                        found_date = date_str
+                        break
+
+                if status == "not_observed" and had_error:
+                    status = "error"
+
+                meta = {"last_scan": now_iso}
+                if status == "found":
+                    meta["discovered_at"]       = now_iso
+                    meta["last_seen_with_data"] = found_date
+
+                config = capability.update_endpoint(config, endpoint, status, **meta)
+                counts[status]     += 1
+                counts["scanned"]  += 1
+                log.info(f"  Capability scan [{i}/{total}]: {endpoint} — {status}")
+
+            except Exception as e:
+                log.warning(f"  Capability scan [{i}/{total}]: {endpoint} — error: {e}")
+                config = capability.update_endpoint(config, endpoint, "error", last_scan=now_iso)
+                counts["error"]    += 1
+                counts["scanned"]  += 1
+
+        capability.save_config(config)
+
+    log.info(f"Capability scan complete: {counts['scanned']} scanned, "
+             f"{counts['found']} found, {counts['not_observed']} not observed, "
+             f"{counts['error']} error.")
+    return counts
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Schema migration — re-summarize outdated summaries
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -718,6 +840,29 @@ def main(stop_event=None):
     # (v2.0) if strava_path:
     # (v2.0)     result = run_strava_import(strava_path)
     # (v2.0)     sys.exit(0 if result["failed"] == 0 else 1)
+
+    # ── 0b. Capability Scan mode — delegated entry point (v1.6.8) ──────────────
+    # Same shape as Import mode above: a fully separate path, bypasses the
+    # regular sync flow entirely — this branch never reaches step 4's login
+    # below. Own, independent login here. User-initiated, not part of daily
+    # sync; run_capability_scan() itself is the only thing touching
+    # quality_log.json (via QUALITY_LOCK), nothing else in this branch does.
+    # Triggered exclusively by panel_outputs.py's "Start Scan" action via
+    # self._app._run("garmin_collector.py", env_overrides={...}) — the same
+    # subprocess mechanism as a normal Sync Garmin run, just different env
+    # vars, so no separate login/UI code was needed on the panel side.
+    if os.environ.get("GARMIN_CAPABILITY_SCAN") == "1":
+        try:
+            client = api.login()
+        except api.GarminLoginError as e:
+            log.error(f"Login failed — aborting capability scan: {e}")
+            sys.exit(1)
+        if client is None:
+            log.info("Login cancelled by user — aborting capability scan.")
+            return
+        window_days = int(os.environ.get("GARMIN_CAPABILITY_WINDOW_DAYS", "7"))
+        result = run_capability_scan(client, window_days=window_days)
+        sys.exit(0 if result["error"] == 0 else 1)
 
     # ── 1. Dirs ───────────────────────────────────────────────────────────────
     cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -914,6 +1059,20 @@ def main(stop_event=None):
     ok, failed = 0, 0
 
     with quality.QUALITY_LOCK:
+        # ── API-Capability-Scan candidates (v1.6.8) ─────────────────────────────
+        # Read once per sync run, inside the same lock the scan itself holds
+        # while saving — an immutable snapshot for the whole run, not re-read
+        # per day (race-safety vs. a concurrent capability scan, see
+        # NOTES_v168.md). Baseline-15 are never affected either way.
+        _capability_config = capability.load_config()
+        enabled_candidates = [
+            ep for ep in capability.CANDIDATE_ENDPOINTS
+            if _capability_config["endpoints"].get(ep, {}).get("status") == "found"
+            and _capability_config["endpoints"].get(ep, {}).get("enabled_by_user")
+        ]
+        if enabled_candidates:
+            log.info(f"  Capability-enabled endpoints this run: {len(enabled_candidates)}")
+
         for i, day in enumerate(batch, 1):
             if _is_stopped():
                 log.info(f"  Stopped after {ok} days saved.")
@@ -921,7 +1080,8 @@ def main(stop_event=None):
             log.info(f"  [{i}/{len(batch)}] {day}")
             date_str = day.isoformat()
             try:
-                label, normalized, summary, fields, val_result = _fetch_and_assess(client, date_str)
+                label, normalized, summary, fields, val_result = _fetch_and_assess(
+                    client, date_str, enabled_candidates=enabled_candidates)
 
                 # ── downgrade protection ──────────────────────────────────────
                 existing_entry = next(
