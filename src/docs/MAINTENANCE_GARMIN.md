@@ -114,15 +114,24 @@ of scope.
   `enabled_by_user` (`list_fields(active_only=True)`, "Governance B"). See
   `REFERENCE_GARMIN.md` → "Raw-passthrough fields" and `NOTES_v168_D_01.md`/
   `NOTES_v168_D_02.md` for the full session history.
-- **Known gap — no automated test coverage yet (v1.6.8):** `garmin_api_capability.py`,
-  `run_capability_scan()`, and the `main()` step-0b entry point were verified
-  manually (live scans against a real Garmin account, plus an isolated
-  read-only fetch/validator smoke test) but have no `test_local.py` coverage.
-  Same gap now also covers, from Session 4: `list_fields(active_only=True)`,
-  `garmin_health_map.get_raw()`/`list_raw_fields()`, and
-  `health_map`/`gateway_map`'s passthroughs of both. Planned as a separate,
-  dedicated follow-up Bauauftrag — do not assume these paths are covered by
-  the green test suite until that lands.
+- **Resolved (v1.6.8 Session F, 2026-08-14):** dedicated test coverage
+  added for `garmin_api_capability.py` (`load_config()`/`save_config()`/
+  `update_endpoint()`/`reset_config()`/`build_args()`), `run_capability_scan()`,
+  the `main()` step-0b entry point, `fetch_raw()`'s `extra_endpoints`
+  param, `_fetch_and_assess()`'s `enabled_candidates` → `extra_endpoints`
+  construction, `list_fields(active_only=True)`, `garmin_health_map`'s
+  `get_raw()`/`list_raw_fields()`, and `health_map`/`gateway_map`'s
+  passthroughs of both. `test_local.py` 631→696, `test_dashboard.py`
+  464→496. See `NOTES_v168_F_01.md`.
+- **Known gap — inline double-gate filter not unit-tested (v1.6.8):** the
+  candidate-selection logic itself (`enabled_by_user == True` **and**
+  `status == "found"`) sits inline in `garmin_collector.py::main()`'s
+  fetch-loop section, not in its own function. Unlike the pieces resolved
+  above, this isn't isolable without invoking the rest of `main()`
+  (login, session log, quality-log cycle) or extracting it — extraction is
+  a small production-code change, out of scope for a pure test session.
+  Planned together with its test, see
+  `START_PROMPT_v1681_doppel_gate_fix.md` (v1.6.8.1).
 
 ---
 

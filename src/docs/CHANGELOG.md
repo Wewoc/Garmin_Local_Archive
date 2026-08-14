@@ -106,9 +106,6 @@ candidates), lives outside `src/`, not part of the build.
 - No dedicated `NETZ 2` core module touched at any point in this arc.
 
 **Known open points, carried forward (not part of this entry):**
-- Dedicated test coverage for `garmin_api_capability.py`, `active_only`,
-  and both `get_raw()`/`list_raw_fields()` levels — own test Bauauftrag,
-  see `MAINTENANCE_GARMIN.md`.
 - GitHub issue + feedback template for the 13 raw-passthrough fields
   (community input on aggregation/display, real filled examples needed).
 - Suspected duplicate `get_body_composition` / `get_daily_weigh_ins` and
@@ -120,13 +117,23 @@ candidates), lives outside `src/`, not part of the build.
   the capability-scan changes to `garmin_collector.py` (baseline
   `v167_01` predates them) — hash-confirmed change, no regression
   expected, re-run not scheduled for this release.
+- Inline double-gate candidate-filter logic in `garmin_collector.py::main()`
+  (fetch-loop section) has no independent unit coverage — would require
+  extracting it out of `main()` first. Planned as its own small fix+test
+  follow-up, see `MAINTENANCE_GARMIN.md`.
 
-**Test result:** 631 / 265 / 464 / 165 / 59 / 16 — all green, ruff 0
-errors, bandit 0 HIGH. Test count unchanged vs. v1.6.7 — new production
-paths from this arc are not yet independently covered (see open points
-above). Drift-check clean throughout (final delta `2026-08-14_Run-01` →
-`Run-02`: 4 NEU / 0 WEG / 0 GEKIPPT-Regression, all traced to the
-raw-passthrough addition).
+**Test coverage addendum (Session F, 2026-08-14):** dedicated test
+Bauauftrag for this arc's new paths completed post-release —
+`garmin_api_capability.py`, `run_capability_scan()`, the `main()` step-0b
+entry point, `fetch_raw()`'s `extra_endpoints`, `list_fields(active_only=True)`,
+and both `get_raw()`/`list_raw_fields()` broker levels are now covered
+(`test_local.py` 631→696, `test_dashboard.py` 464→496). See
+`NOTES_v168_F_01.md`. One narrower gap remains, carried forward above.
+
+**Test result:** 696 / 265 / 496 / 165 / 59 / 16 — all green, ruff 0
+errors, bandit 0 HIGH. Drift-check clean throughout (final delta
+`2026-08-14_Run-01` → `Run-02`: 4 NEU / 0 WEG / 0 GEKIPPT-Regression, all
+traced to the raw-passthrough addition).
 
 ---
 
