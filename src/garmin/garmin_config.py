@@ -47,6 +47,9 @@ LOG_FAIL_DIR   = LOG_DIR / "fail"
 QUALITY_LOG_FILE  = LOG_DIR / "quality_log.json"
 DEVICE_TABLE_FILE = LOG_DIR / "device_table.json"
 
+# API Capability Scan config (sole owner: garmin_api_capability.py)
+CAPABILITY_CONFIG_FILE = LOG_DIR / "garmin_api_capability_config.json"
+
 # Backup directories (sole owner: garmin_backup.py)
 BACKUP_DIR       = GARMIN_DIR / "backup"
 LOG_BACKUP_DIR   = BACKUP_DIR / "log"    # quality_log ZIPs (monatlich + jährlich)

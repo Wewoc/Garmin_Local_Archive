@@ -172,7 +172,8 @@ check("_parse_list_values: ts,val pairs", normalizer._parse_list_values([[0, 55]
 s = normalizer.summarize({"date": "2024-03-15"})
 check("summarize: returns dict",            isinstance(s, dict))
 check("summarize: date correct",            s["date"] == "2024-03-15")
-check("summarize: schema_version = 2",      s["schema_version"] == 2)
+check(f"summarize: schema_version = {normalizer.CURRENT_SCHEMA_VERSION}",
+      s["schema_version"] == normalizer.CURRENT_SCHEMA_VERSION)
 check("summarize: generated_by normalizer", s["generated_by"] == "garmin_normalizer.py")
 check("summarize: has sleep",               "sleep" in s)
 check("summarize: has heartrate",           "heartrate" in s)
@@ -571,6 +572,173 @@ try:
     check("_run_schema_migration: missing summary → no crash", True)
 except Exception:
     check("_run_schema_migration: missing summary → no crash", False)
+
+# ── _fetch_and_assess() — extra_endpoints construction from enabled_candidates
+#    (v1.6.8) ──────────────────────────────────────────────────────────────
+import garmin_api_capability as capability
+
+with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])) as _mock_fetch_extra:
+    collector._fetch_and_assess(mock_client, "2024-03-15",
+                                 enabled_candidates=["get_body_composition", "get_hydration_data"])
+    _extra_kwargs = _mock_fetch_extra.call_args.kwargs
+    check("_fetch_and_assess: extra_endpoints built from enabled_candidates",
+          _extra_kwargs.get("extra_endpoints") == [
+              ("get_body_composition",
+               capability.build_args("get_body_composition", "2024-03-15"),
+               "get_body_composition"),
+              ("get_hydration_data",
+               capability.build_args("get_hydration_data", "2024-03-15"),
+               "get_hydration_data"),
+          ])
+
+with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])) as _mock_fetch_none:
+    collector._fetch_and_assess(mock_client, "2024-03-15")
+    check("_fetch_and_assess: extra_endpoints=None when enabled_candidates=None",
+          _mock_fetch_none.call_args.kwargs.get("extra_endpoints") is None)
+
+with patch("garmin_collector.api.fetch_raw", return_value=(raw_full, [])) as _mock_fetch_empty:
+    collector._fetch_and_assess(mock_client, "2024-03-15", enabled_candidates=[])
+    check("_fetch_and_assess: extra_endpoints=None when enabled_candidates=[]",
+          _mock_fetch_empty.call_args.kwargs.get("extra_endpoints") is None)
+
+# ── run_capability_scan() (v1.6.8) ───────────────────────────────────────────
+
+# all not_observed
+with patch("garmin_collector.api.api_call", side_effect=lambda *a, **k: (None, True)), \
+     patch("garmin_collector.capability.save_config") as _mock_save_a:
+    _rcs_a = collector.run_capability_scan(mock_client, window_days=1)
+check("run_capability_scan: all not_observed — counts",
+      _rcs_a == {"scanned": 19, "found": 0, "not_observed": 19, "error": 0})
+check("run_capability_scan: save_config called exactly once",
+      _mock_save_a.call_count == 1)
+
+# mixed: one found, one error (API call failure), rest not_observed
+def _rcs_mixed_side_effect(client_arg, endpoint, *args, label=None):
+    if endpoint == "get_body_composition":
+        return ({"weight": 70}, True)
+    if endpoint == "get_daily_weigh_ins":
+        return (None, False)
+    return (None, True)
+
+with patch("garmin_collector.api.api_call", side_effect=_rcs_mixed_side_effect), \
+     patch("garmin_collector.capability.save_config"):
+    _rcs_b = collector.run_capability_scan(mock_client, window_days=1)
+check("run_capability_scan: mixed result — counts",
+      _rcs_b == {"scanned": 19, "found": 1, "not_observed": 17, "error": 1})
+
+# per-candidate error isolation — one candidate raises, rest still scanned
+def _rcs_raise_side_effect(client_arg, endpoint, *args, label=None):
+    if endpoint == "get_blood_pressure":
+        raise Exception("boom (simuliert)")
+    return (None, True)
+
+with patch("garmin_collector.api.api_call", side_effect=_rcs_raise_side_effect), \
+     patch("garmin_collector.capability.save_config"):
+    _rcs_c = collector.run_capability_scan(mock_client, window_days=1)
+check("run_capability_scan: exception isolation — all 19 still scanned",
+      _rcs_c["scanned"] == 19)
+check("run_capability_scan: exception isolation — raising candidate counted as error",
+      _rcs_c["error"] == 1)
+check("run_capability_scan: exception isolation — rest not_observed",
+      _rcs_c["not_observed"] == 18)
+
+# _is_stopped() respected — breaks before first candidate
+_rcs_stop_ev = threading.Event()
+_rcs_stop_ev.set()
+collector.set_stop_event(_rcs_stop_ev)
+with patch("garmin_collector.api.api_call", side_effect=lambda *a, **k: (None, True)), \
+     patch("garmin_collector.capability.save_config"):
+    _rcs_d = collector.run_capability_scan(mock_client, window_days=1)
+check("run_capability_scan: stopped before first candidate — scanned=0",
+      _rcs_d["scanned"] == 0)
+collector.set_stop_event(None)
+
+# QUALITY_LOCK held during scan — second acquire (non-blocking) must fail
+_rcs_lock_results = []
+def _rcs_lock_side_effect(client_arg, endpoint, *args, label=None):
+    _acquired = quality.QUALITY_LOCK.acquire(blocking=False)
+    _rcs_lock_results.append(_acquired)
+    if _acquired:
+        quality.QUALITY_LOCK.release()
+    return (None, True)
+
+with patch("garmin_collector.api.api_call", side_effect=_rcs_lock_side_effect), \
+     patch("garmin_collector.capability.save_config"):
+    collector.run_capability_scan(mock_client, window_days=1)
+check("run_capability_scan: QUALITY_LOCK held during scan",
+      len(_rcs_lock_results) == 19 and all(a is False for a in _rcs_lock_results))
+
+# cleanup — leave capability config file as Section K found it
+capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
+
+# ── main() — 0b. Capability Scan entry point (v1.6.8) ────────────────────────
+
+_orig_capscan_env   = os.environ.get("GARMIN_CAPABILITY_SCAN")
+_orig_capwindow_env = os.environ.get("GARMIN_CAPABILITY_WINDOW_DAYS")
+
+os.environ["GARMIN_CAPABILITY_SCAN"]        = "1"
+os.environ["GARMIN_CAPABILITY_WINDOW_DAYS"] = "3"
+
+# Case 1 — success (error=0) → sys.exit(0), window_days passed through
+with patch("garmin_collector.api.login", return_value=MagicMock()), \
+     patch("garmin_collector.run_capability_scan",
+           return_value={"scanned": 19, "found": 5, "not_observed": 14, "error": 0}) as _mock_scan_ok, \
+     patch("garmin_collector.sys.exit", side_effect=SystemExit) as _mock_exit_ok:
+    try:
+        collector.main()
+        check("main() 0b: raises SystemExit (success)", False)
+    except SystemExit:
+        check("main() 0b: raises SystemExit (success)", True)
+    check("main() 0b: window_days passed through from ENV",
+          _mock_scan_ok.call_args.kwargs.get("window_days") == 3)
+    check("main() 0b: sys.exit(0) on error=0",
+          _mock_exit_ok.call_args.args == (0,))
+
+# Case 2 — partial failure (error>0) → sys.exit(1)
+with patch("garmin_collector.api.login", return_value=MagicMock()), \
+     patch("garmin_collector.run_capability_scan",
+           return_value={"scanned": 19, "found": 3, "not_observed": 14, "error": 2}), \
+     patch("garmin_collector.sys.exit", side_effect=SystemExit) as _mock_exit_err:
+    try:
+        collector.main()
+    except SystemExit:
+        pass
+    check("main() 0b: sys.exit(1) on error>0",
+          _mock_exit_err.call_args.args == (1,))
+
+# Case 3 — login raises GarminLoginError → sys.exit(1), scan never reached
+with patch("garmin_collector.api.login",
+           side_effect=collector.api.GarminLoginError("bad creds (simuliert)")), \
+     patch("garmin_collector.run_capability_scan") as _mock_scan_noreach, \
+     patch("garmin_collector.sys.exit", side_effect=SystemExit) as _mock_exit_login:
+    try:
+        collector.main()
+    except SystemExit:
+        pass
+    check("main() 0b: login failure → sys.exit(1)",
+          _mock_exit_login.call_args.args == (1,))
+    check("main() 0b: login failure → scan never called",
+          not _mock_scan_noreach.called)
+
+# Case 4 — login cancelled (client is None) → plain return, no sys.exit
+with patch("garmin_collector.api.login", return_value=None), \
+     patch("garmin_collector.run_capability_scan") as _mock_scan_cancel, \
+     patch("garmin_collector.sys.exit") as _mock_exit_cancel:
+    collector.main()
+    check("main() 0b: login cancelled → no sys.exit call",
+          not _mock_exit_cancel.called)
+    check("main() 0b: login cancelled → scan never called",
+          not _mock_scan_cancel.called)
+
+# restore ENV
+if _orig_capscan_env is None:
+    os.environ.pop("GARMIN_CAPABILITY_SCAN", None)
+else:
+    os.environ["GARMIN_CAPABILITY_SCAN"] = _orig_capscan_env
+if _orig_capwindow_env is None:
+    os.environ.pop("GARMIN_CAPABILITY_WINDOW_DAYS", None)
+else:
+    os.environ["GARMIN_CAPABILITY_WINDOW_DAYS"] = _orig_capwindow_env
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. garmin_security (crypto layer only)
@@ -1537,7 +1705,7 @@ _e4src_entry_d3_before = json.loads(json.dumps(
 
 _e4src_stop_ev = _threading.Event()
 
-def _e4src_fetch_raw_side_effect(client, date_str):
+def _e4src_fetch_raw_side_effect(client, date_str, extra_endpoints=None):
     _e4src_raw = {"date": date_str, "heart_rates": {"heartRateValues": [[0, 60], [60000, 62]]}}
     if date_str == _e4src_d1:
         _e4src_stop_ev.set()
@@ -1577,7 +1745,7 @@ check("abort source: Lauf 2 — Kandidatenliste enthält genau die zwei verblieb
       _e4src_candidates is not None and
       set(_e4src_candidates) == {date.fromisoformat(_e4src_d2), date.fromisoformat(_e4src_d3)})
 
-def _e4src_fetch_raw_undisturbed(client, date_str):
+def _e4src_fetch_raw_undisturbed(client, date_str, extra_endpoints=None):
     return {"date": date_str, "heart_rates": {"heartRateValues": [[0, 60], [60000, 62]]}}, []
 
 _e4src_sync2 = ",".join(d.isoformat() for d in (_e4src_candidates or []))
@@ -3165,9 +3333,10 @@ importlib.reload(silo_repair)
 shutil.rmtree(_i2_dir, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  J. garmin_api (pure helpers only — no live Garmin Connect credentials
-#     required; the rest of garmin_api.py remains untested, see
-#     MAINTENANCE_GARMIN.md)
+#  J. garmin_api (pure helpers + fetch_raw() extra_endpoints — no live Garmin
+#     Connect credentials required, api_call() is mocked throughout; the
+#     rest of garmin_api.py — login(), the 15-baseline api_call() path
+#     itself — remains untested, see MAINTENANCE_GARMIN.md)
 # ══════════════════════════════════════════════════════════════════════════════
 section("J. garmin_api (pure helpers)")
 import garmin_api as api
@@ -3194,9 +3363,220 @@ try:
 except RuntimeError as _chained:
     _fields = api._cause_fields(_chained)
     check("_cause_fields: cause_type captured",
-          _fields.get("cause_type") == "ValueError")
-    check("_cause_fields: cause_detail captured",
-          _fields.get("cause_detail") == "original network timeout")
+      _fields.get("cause_type") == "ValueError")
+check("_cause_fields: cause_detail captured",
+      _fields.get("cause_detail") == "original network timeout")
+
+# ── fetch_raw() — extra_endpoints construction (v1.6.8) ──────────────────────
+# api.api_call() mocked throughout — no live Garmin Connect credentials
+# needed. time.sleep() also patched — fetch_raw()'s end-of-loop sleep
+# (random.uniform(10, 20)) would otherwise stall the test suite for real.
+
+with patch("garmin_api.api_call", return_value=(None, True)) as _mock_api_call_baseline, \
+     patch("garmin_api.time.sleep"):
+    api.fetch_raw(MagicMock(), "2024-01-01")
+check("fetch_raw: extra_endpoints=None → 15 baseline calls only",
+      _mock_api_call_baseline.call_count == 15)
+
+with patch("garmin_api.api_call", return_value=(None, True)) as _mock_api_call_extra, \
+     patch("garmin_api.time.sleep"):
+    api.fetch_raw(MagicMock(), "2024-01-01",
+                   extra_endpoints=[("get_body_composition", ("2024-01-01",), "body_weight_raw")])
+check("fetch_raw: extra_endpoints appended → 16 calls total",
+      _mock_api_call_extra.call_count == 16)
+_fr_last_call = _mock_api_call_extra.call_args_list[-1]
+check("fetch_raw: extra endpoint called with correct method",
+      _fr_last_call.args[1] == "get_body_composition")
+check("fetch_raw: extra endpoint called with correct date arg",
+      _fr_last_call.args[2] == "2024-01-01")
+check("fetch_raw: extra endpoint called with correct label",
+      _fr_last_call.kwargs.get("label") == "body_weight_raw")
+
+_fr_methods_seen = [c.args[1] for c in _mock_api_call_extra.call_args_list]
+check("fetch_raw: baseline endpoint still called alongside extra",
+      "get_sleep_data" in _fr_methods_seen)
+
+# config-blind — zero-arg extra endpoint tuple accepted without special-casing
+with patch("garmin_api.api_call", return_value=({"x": 1}, True)) as _mock_api_call_blind, \
+     patch("garmin_api.time.sleep"):
+    api.fetch_raw(MagicMock(), "2024-01-01",
+                   extra_endpoints=[("get_pregnancy_summary", (), "get_pregnancy_summary")])
+_fr_blind_last = _mock_api_call_blind.call_args_list[-1]
+check("fetch_raw: config-blind — zero-arg extra endpoint, no date appended",
+      len(_fr_blind_last.args) == 2 and _fr_blind_last.args[1] == "get_pregnancy_summary")
+
+# extra endpoint data lands in raw dict under its own key
+def _fr_data_side_effect(client_arg, method, *args, label=""):
+    if method == "get_body_composition":
+        return ({"weight": 70000}, True)
+    return (None, True)
+
+with patch("garmin_api.api_call", side_effect=_fr_data_side_effect), \
+     patch("garmin_api.time.sleep"):
+    _fr_raw, _fr_failed = api.fetch_raw(
+        MagicMock(), "2024-01-01",
+        extra_endpoints=[("get_body_composition", ("2024-01-01",), "get_body_composition")])
+check("fetch_raw: extra endpoint data lands in raw dict under its key",
+      _fr_raw.get("get_body_composition") == {"weight": 70000})
+check("fetch_raw: return type — raw is dict", isinstance(_fr_raw, dict))
+check("fetch_raw: return type — failed_endpoints is list", isinstance(_fr_failed, list))
+
+# failed extra endpoint tracked in failed_endpoints, same as baseline
+def _fr_fail_side_effect(client_arg, method, *args, label=""):
+    if method == "get_hydration_data":
+        return (None, False)
+    return (None, True)
+
+with patch("garmin_api.api_call", side_effect=_fr_fail_side_effect), \
+     patch("garmin_api.time.sleep"):
+    _fr_raw_fail, _fr_failed_list = api.fetch_raw(
+        MagicMock(), "2024-01-01",
+        extra_endpoints=[("get_hydration_data", ("2024-01-01",), "get_hydration_data")])
+check("fetch_raw: failed extra endpoint tracked in failed_endpoints",
+      "get_hydration_data" in _fr_failed_list)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  K. garmin_api_capability (v1.6.8 — API-Capability-Scan config, Leaf-Node)
+# ══════════════════════════════════════════════════════════════════════════════
+section("K. garmin_api_capability (Leaf-Node)")
+import garmin_api_capability as capability
+
+check("cfg: CAPABILITY_CONFIG_FILE derived",
+      capability.cfg.CAPABILITY_CONFIG_FILE == cfg.LOG_DIR / "garmin_api_capability_config.json")
+
+# ── load_config() ────────────────────────────────────────────────────────────
+
+capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
+
+# missing file → fresh default, all 19 candidates not_observed
+_cap_cfg_missing = capability.load_config()
+check("load_config: missing file → schema_version present",
+      _cap_cfg_missing.get("schema_version") == capability.SCHEMA_VERSION)
+check("load_config: missing file → 19 endpoints",
+      len(_cap_cfg_missing["endpoints"]) == 19)
+check("load_config: missing file → all not_observed",
+      all(e["status"] == "not_observed" for e in _cap_cfg_missing["endpoints"].values()))
+check("load_config: missing file → all disabled",
+      all(e["enabled_by_user"] is False for e in _cap_cfg_missing["endpoints"].values()))
+
+# corrupt JSON → default, no exception
+capability.cfg.CAPABILITY_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+capability.cfg.CAPABILITY_CONFIG_FILE.write_text("{not valid json", encoding="utf-8")
+try:
+    _cap_cfg_corrupt = capability.load_config()
+    check("load_config: corrupt JSON → no exception", True)
+    check("load_config: corrupt JSON → default returned",
+          len(_cap_cfg_corrupt["endpoints"]) == 19)
+except Exception:
+    check("load_config: corrupt JSON → no exception", False)
+    check("load_config: corrupt JSON → default returned", False)
+
+# valid JSON, wrong top-level structure (list instead of dict) → default
+capability.cfg.CAPABILITY_CONFIG_FILE.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+_cap_cfg_wrong_shape = capability.load_config()
+check("load_config: wrong structure (list) → default",
+      len(_cap_cfg_wrong_shape["endpoints"]) == 19)
+
+# valid dict but missing 'endpoints' key → default
+capability.cfg.CAPABILITY_CONFIG_FILE.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+_cap_cfg_no_endpoints_key = capability.load_config()
+check("load_config: missing 'endpoints' key → default",
+      len(_cap_cfg_no_endpoints_key["endpoints"]) == 19)
+
+# valid file → parsed content returned unchanged
+_cap_cfg_valid = capability.update_endpoint(capability._default_config(),
+                                             "get_body_composition", "found",
+                                             enabled_by_user=True)
+capability.cfg.CAPABILITY_CONFIG_FILE.write_text(json.dumps(_cap_cfg_valid), encoding="utf-8")
+_cap_cfg_loaded = capability.load_config()
+check("load_config: valid file → status found preserved",
+      _cap_cfg_loaded["endpoints"]["get_body_composition"]["status"] == "found")
+check("load_config: valid file → enabled_by_user preserved",
+      _cap_cfg_loaded["endpoints"]["get_body_composition"]["enabled_by_user"] is True)
+
+# ── save_config() ────────────────────────────────────────────────────────────
+
+capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
+_cap_save_ok = capability.save_config(capability._default_config())
+check("save_config: success → True", _cap_save_ok is True)
+check("save_config: file exists after save",
+      capability.cfg.CAPABILITY_CONFIG_FILE.exists())
+
+_cap_roundtrip = capability.load_config()
+check("save_config round-trip: 19 endpoints",
+      len(_cap_roundtrip["endpoints"]) == 19)
+
+# simulated write failure (os.replace raises) → False, no crash
+with patch.object(capability.os, "replace", side_effect=OSError("disk full (simuliert)")):
+    try:
+        _cap_save_fail = capability.save_config(capability._default_config())
+        check("save_config: OSError on replace → False, no crash", _cap_save_fail is False)
+    except Exception:
+        check("save_config: OSError on replace → False, no crash", False)
+
+# ── update_endpoint() ────────────────────────────────────────────────────────
+
+_cap_base = capability._default_config()
+_cap_updated = capability.update_endpoint(_cap_base, "get_hydration_data", "found",
+                                           enabled_by_user=True,
+                                           last_scan="2026-08-14T10:00:00")
+check("update_endpoint: pure function — original config unchanged",
+      _cap_base["endpoints"]["get_hydration_data"]["status"] == "not_observed")
+check("update_endpoint: target endpoint updated",
+      _cap_updated["endpoints"]["get_hydration_data"]["status"] == "found")
+check("update_endpoint: enabled_by_user set",
+      _cap_updated["endpoints"]["get_hydration_data"]["enabled_by_user"] is True)
+check("update_endpoint: last_scan set",
+      _cap_updated["endpoints"]["get_hydration_data"]["last_scan"] == "2026-08-14T10:00:00")
+check("update_endpoint: other endpoints untouched",
+      _cap_updated["endpoints"]["get_floors"]["status"] == "not_observed")
+
+for _cap_status in ("found", "not_observed", "error"):
+    _cap_status_result = capability.update_endpoint(_cap_base, "get_floors", _cap_status)
+    check(f"update_endpoint: status={_cap_status} accepted",
+          _cap_status_result["endpoints"]["get_floors"]["status"] == _cap_status)
+
+# invalid status → config unchanged, no exception
+_cap_invalid_status = capability.update_endpoint(_cap_base, "get_floors", "banana")
+check("update_endpoint: invalid status → config unchanged",
+      _cap_invalid_status["endpoints"]["get_floors"]["status"] == "not_observed")
+
+# unknown endpoint → config unchanged, no exception
+_cap_unknown_ep = capability.update_endpoint(_cap_base, "get_nonexistent_endpoint", "found")
+check("update_endpoint: unknown endpoint → config unchanged",
+      "get_nonexistent_endpoint" not in _cap_unknown_ep["endpoints"])
+
+# ── reset_config() ───────────────────────────────────────────────────────────
+
+capability.save_config(_cap_updated)  # non-default state on disk first
+_cap_before_reset = capability.cfg.CAPABILITY_CONFIG_FILE.read_text(encoding="utf-8")
+_cap_reset = capability.reset_config()
+check("reset_config: returns 19 endpoints", len(_cap_reset["endpoints"]) == 19)
+check("reset_config: all not_observed",
+      all(e["status"] == "not_observed" for e in _cap_reset["endpoints"].values()))
+check("reset_config: all disabled",
+      all(e["enabled_by_user"] is False for e in _cap_reset["endpoints"].values()))
+_cap_after_reset = capability.cfg.CAPABILITY_CONFIG_FILE.read_text(encoding="utf-8")
+check("reset_config: no side effect — file on disk unchanged",
+      _cap_before_reset == _cap_after_reset)
+
+# ── build_args() / ENDPOINT_ARGS ─────────────────────────────────────────────
+
+check("build_args: single_date default (unlisted endpoint)",
+      capability.build_args("get_body_composition", "2026-08-14") == ("2026-08-14",))
+check("build_args: no_args → get_pregnancy_summary",
+      capability.build_args("get_pregnancy_summary", "2026-08-14") == ())
+check("build_args: no_args → get_lactate_threshold",
+      capability.build_args("get_lactate_threshold", "2026-08-14") == ())
+check("build_args: date_range → get_menstrual_calendar_data",
+      capability.build_args("get_menstrual_calendar_data", "2026-08-14") == ("2026-08-14", "2026-08-14"))
+check("build_args: date_range → get_calories_daily",
+      capability.build_args("get_calories_daily", "2026-08-14") == ("2026-08-14", "2026-08-14"))
+check("build_args: date_range → get_running_tolerance",
+      capability.build_args("get_running_tolerance", "2026-08-14") == ("2026-08-14", "2026-08-14"))
+
+# cleanup
+capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results

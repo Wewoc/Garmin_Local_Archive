@@ -87,6 +87,29 @@ see `REFERENCE_GARMIN.md` → "Registered fields".
 
 ---
 
+## `health_map.get_raw()` — raw passthrough (v1.6.8 Session 4)
+
+```python
+from maps.health_map import get_raw as health_get_raw, list_raw_fields as health_list_raw_fields
+
+result = health_get_raw(field, date_from, date_to, source="garmin")
+# result == {"values": [{"date": str, "raw": any|None}, ...], "source_resolution": "raw"}
+```
+
+Separate from `get()`/`list_fields()` by design — see `REFERENCE_GARMIN.md`
+→ "Raw-passthrough fields" for the rationale. Returns the archived `raw/`
+payload for a Capability-Scan endpoint **unprocessed** — no `"value"`
+extraction, the caller interprets the structure itself. `source` defaults
+to `"garmin"`, the only source currently registered for raw-passthrough.
+
+`list_raw_fields(source="garmin")` returns the registered raw-field names
+for a source — `[]` for sources without raw-passthrough support.
+
+Raises `KeyError` if `field` is not registered, or if `source` has no
+raw-passthrough support at all.
+
+---
+
 ## `context_map.get()` — external context data
 
 ```python
@@ -177,6 +200,13 @@ Error behaviour:
 `list_domains()` returns all known domain keys regardless of registration
 state, currently `["health", "fit", "context"]`.
 
+`get_raw(field, date_from, date_to, domain=None)` / `list_raw_fields(domain=None)`
+(v1.6.8 Session 4) — same fan-out shape as `get()`/`list_domains()`, for
+raw-passthrough fields. Currently only `"health"` supports raw-passthrough;
+other domains degrade to `{"error": "domain has no raw-passthrough support"}`
+(or `[]` for `list_raw_fields()`) rather than hard-failing — same principle
+as the `"fit"`-not-yet-available case above.
+
 ### Building your own tool against a local archive
 
 `gateway_map.get()` is the recommended entry point if you're writing your
@@ -201,8 +231,13 @@ Both brokers expose the same auxiliary functions:
 
 | Function | `health_map` default | `context_map` default |
 |---|---|---|
-| `list_fields(source=...)` | `"garmin"` | `"weather"` |
+| `list_fields(source=..., active_only=...)` | `source="garmin"`, `active_only=False` | `source="weather"` — `active_only` ignored, `context_map` has no capability concept |
 | `list_sources()` | returns `["garmin"]` | returns `["weather", "pollen", "brightsky", "airquality"]` |
+| `list_raw_fields(source=...)` (v1.6.8 Session 4) | `source="garmin"` — 13 fields | not supported, always `[]` |
+
+`active_only=True` (health_map/garmin only) excludes API-Capability-Scan
+candidate fields whose endpoint is not `enabled_by_user` — used by the
+Custom Dashboard field picker and Explorer (v1.6.8 Session 4, "Governance B").
 
 Unknown source name → `list_fields()` returns `[]` (no exception, no `KeyError`).
 
@@ -223,7 +258,7 @@ rule, kept for quick readability. When a field's unit changes or a field is
 added/removed, update both places. `list_fields()` in the corresponding
 `*_map.py` module remains the actual source of truth for which fields exist.
 
-**`health_map` → `garmin`** (19 fields)
+**`health_map` → `garmin`** (25 fields)
 
 | Field | Value | Description |
 |---|---|---|
@@ -246,6 +281,36 @@ added/removed, update both places. `list_fields()` in the corresponding
 | `body_battery_series` | 0–100 per timestamp | Intraday Body Battery readings |
 | `respiration_series` | per timestamp | Intraday respiration readings — unit not fixed in source docs, see `REFERENCE_GARMIN.md` |
 | `steps_series` | steps per 15-min bin | Intraday step counts in 15-minute bins |
+| `body_weight` | grams | Body weight, from API-Capability-Scan candidate `get_body_composition` — first candidate wired into the broker (v1.6.8 pilot), unit unverified against real scale data |
+| `calories_resting` | kcal | Resting/basal calories, from API-Capability-Scan candidate `get_calories_daily` — second candidate wired into the broker (v1.6.8 pilot) |
+| `hydration_ml` | ml | Daily fluid intake, from API-Capability-Scan candidate `get_hydration_data` — only `valueInML` adopted (v1.6.8 Session 4) |
+| `endurance_score` | index | Endurance Score, from API-Capability-Scan candidate `get_endurance_score` — device-calculated index, checked against `vo2max` for redundancy, none found (v1.6.8 Session 4) |
+| `hill_score` | index | Hill Score, from API-Capability-Scan candidate `get_hill_score` — not to be confused with that same endpoint's own internal `enduranceScore` sub-field (v1.6.8 Session 4) |
+| `fitness_age` | years | Fitness Age, from API-Capability-Scan candidate `get_fitnessage_data` — only `fitnessAge` adopted (v1.6.8 Session 4) |
+
+**`health_map` → `garmin` raw-passthrough** (13 fields, v1.6.8 Session 4)
+
+Not part of `list_fields()`/`get()` — a deliberately separate access path,
+see `health_map.get_raw()` above and `REFERENCE_GARMIN.md` →
+"Raw-passthrough fields" for the rationale. No unit/description column —
+these are unprocessed Garmin payloads, structure varies per endpoint, the
+caller interprets them.
+
+| Field | Source endpoint |
+|---|---|
+| `daily_weigh_ins` | `get_daily_weigh_ins` |
+| `blood_pressure` | `get_blood_pressure` |
+| `menstrual_calendar_data` | `get_menstrual_calendar_data` |
+| `pregnancy_summary` | `get_pregnancy_summary` |
+| `lifestyle_logging_data` | `get_lifestyle_logging_data` |
+| `nutrition_daily_food_log` | `get_nutrition_daily_food_log` |
+| `nutrition_daily_meals` | `get_nutrition_daily_meals` |
+| `nutrition_daily_settings` | `get_nutrition_daily_settings` |
+| `floors` | `get_floors` |
+| `intensity_minutes_data` | `get_intensity_minutes_data` |
+| `body_battery_events` | `get_body_battery_events` |
+| `lactate_threshold` | `get_lactate_threshold` |
+| `running_tolerance` | `get_running_tolerance` |
 
 **`context_map` → `weather`** (6 fields)
 

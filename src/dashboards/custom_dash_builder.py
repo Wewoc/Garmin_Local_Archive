@@ -66,7 +66,7 @@ def list_available_fields() -> dict:
         }
     """
     garmin_fields = [
-        f for f in garmin_list_fields()
+        f for f in garmin_list_fields(active_only=True)
         if not f.endswith(_SERIES_SUFFIX) and f not in _EXCLUDE_FROM_DAILY
     ]
     context_fields = []

@@ -296,6 +296,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | Script | What it does |
 |---|---|
 | `garmin_collector.py` | Orchestrator — decides, delegates, coordinates the full pipeline |
+| `garmin_api_capability.py` | Sole owner of the API capability scan config — discovers which optional Garmin endpoints (beyond the standard fields) return real data for your account, and lets you selectively enable them. (v1.6.8) |
 | `garmin_config.py` | All configuration — ENV variables, paths, constants |
 | `garmin_utils.py` | Shared utilities — date parsing, no project-module dependencies |
 | `garmin_api.py` | Login and all Garmin Connect API calls |

@@ -1,5 +1,135 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.8 — API Capability Scan + Broker Extension
+
+Detects per-user which of 19 additional Garmin health endpoints — beyond
+the 15 hardcoded baseline `fetch_raw()` endpoints — actually return real
+data, and wires the confirmed ones into the archive and broker layer.
+Baseline-15 stay unconditional (Archive-First: a scan false-negative must
+never disable an existing capture). Six sub-sessions.
+
+**New modules:**
+- `garmin/garmin_api_capability.py` — Sole-Write-Authority for the new
+  `garmin_api_capability_config.json`. Leaf module (`garmin_config` +
+  stdlib only). `CANDIDATE_ENDPOINTS` (19 names), `load_config()` /
+  `save_config()` (atomic write), `update_endpoint()`, `reset_config()`,
+  `ENDPOINT_ARGS` + `build_args()` (5 endpoints need `no_args`/
+  `date_range` instead of the default single-date signature).
+
+**Changed modules:**
+- `garmin/garmin_config.py` — new `CAPABILITY_CONFIG_FILE` path constant.
+- `garmin/garmin_collector.py` — `run_capability_scan(client,
+  window_days=7)`: per-candidate isolated try/except, three-valued result
+  (`found`/`not_observed`/`error`), runs under the existing
+  `quality.QUALITY_LOCK` (no separate lock needed — mutual exclusion with
+  the regular sync already guaranteed). New "0b. Capability Scan mode"
+  entry point in `main()` (`GARMIN_CAPABILITY_SCAN=1`,
+  `GARMIN_CAPABILITY_WINDOW_DAYS`). `_fetch_and_assess()`: new
+  `enabled_candidates` param, config read once per sync run as an
+  immutable snapshot inside the existing `QUALITY_LOCK` block, filtered by
+  double-gate (`enabled_by_user == True` **and** `status == "found"`).
+- `garmin/garmin_api.py` — `fetch_raw()`: new `extra_endpoints` param,
+  appended to the fixed 15-endpoint baseline list. Stays config-blind.
+- `garmin/garmin_dataformat.json` — 19 new optional fields
+  (`{"type": "any", "required": false}`), `schema_version` unchanged
+  (`"1.1"`) — no re-validation wave for already-archived days.
+- `garmin/garmin_normalizer.py` — `CURRENT_SCHEMA_VERSION` 2 → 3.
+  `summarize()` extended for 6 of the 19 candidates: `s["day"]
+  ["calories_resting"]`, `s["body_composition"]["weight_g"]`,
+  `s["hydration"]["hydration_ml"]`, `s["training"]["endurance_score"]`,
+  `s["training"]["hill_score"]`, `s["fitness_age"]`. Remaining 13
+  candidates stay archive-only (structurally not day-values, or unclear
+  schema) — reachable via the new raw-passthrough path below, no
+  `summarize()` interpretation.
+- `maps/garmin_health_map.py` — 6 new `_FIELD_MAP` entries (existing
+  `"daily"` descriptor, no new broker mechanism). New
+  `_CAPABILITY_FIELDS` whitelist + `list_fields(active_only=False)` —
+  filters capability-derived fields by `enabled_by_user` when `True`;
+  baseline fields always visible; default unchanged. New
+  `_RAW_PASSTHROUGH_FIELDS` dict (separate from `_FIELD_MAP`) +
+  `list_raw_fields()`/`get_raw()` for the remaining 13 candidates — reads
+  directly from `raw/`, no interpretation, existing `get()`/`list_fields()`
+  contracts untouched.
+- `maps/health_map.py` — `list_fields(source, active_only=False)` and new
+  `get_raw()`/`list_raw_fields()` pass `active_only`/raw-access through to
+  `source="garmin"` only (sole source with a capability concept); other
+  sources unaffected.
+- `maps/gateway_map.py` — `get_raw()`/`list_raw_fields()` added,
+  symmetric to `get()`/`list_domains()` (unknown domain → `ValueError`,
+  unregistered/unsupported domain → degraded `{"error": ...}` result).
+  Cross-domain raw access for the future MCP server (v1.9).
+- `app/panel_outputs.py` — new "🔍 API Scan" button in DATA COLLECTION,
+  popup with Start Scan / Edit Config / Clear Config
+  (`_open_capability_scan_popup()` + three dialogs). Start Scan reuses the
+  existing subprocess mechanism (`self._app._run("garmin_collector.py",
+  env_overrides={...})`); Edit/Clear Config run in-process. Edit Config
+  only offers confirmed `found` candidates (double-gate holds). Two call
+  sites (`garmin_list_fields()`) switched to `active_only=True` —
+  governance decision: Custom Dashboard / Explorer show only
+  user-activated capability fields, no new import into `dashboards/`
+  (the `active_only` param travels through the existing broker path
+  instead).
+- `custom_dash_builder.py`, `explorer_garmin-context_html_dash.py` — one
+  line each, `garmin_list_fields(active_only=True)`.
+- `tests/test_local.py` — schema-version check now dynamic
+  (`normalizer.CURRENT_SCHEMA_VERSION`, no longer hardcoded `== 2`); two
+  outdated E4b mock signatures fixed (`extra_endpoints=None` added — a
+  pre-existing gap from Bauauftrag 03, unrelated to the pilot itself, hit
+  by chance in this session's test run).
+
+**External tooling, not part of this repo:** `test_capability_fetch.py` —
+ad-hoc diagnostic script (real-account payload inspection across all 19
+candidates), lives outside `src/`, not part of the build.
+
+**Documentation:**
+- `REFERENCE_GARMIN.md` — broker-visibility invariant (6 interpreted / 13
+  raw, deduplicated from an earlier "2 wired / 17 open" note),
+  `active_only` invariant, new "Raw-passthrough fields" section (13
+  entries, open-GitHub-issue status note), Summary-JSON table
+  (`hydration` new, `training` extended).
+- `REFERENCE_BROKER.md` — new `health_map.get_raw()` section, Auxiliary
+  Functions table extended (`active_only`/`list_raw_fields`),
+  `gateway_map` section extended (`get_raw()`/`list_raw_fields()`), field
+  index 21 → 25 registered fields + new 13-field raw-passthrough table.
+- `MAINTENANCE_GARMIN.md` — known-open-point resolved,
+  `get_fitnessAge()`/`get_fitnessage_data()` naming-collision quirk
+  clarified, test-gap notes for the four untested new paths
+  (`active_only`, `get_raw()`/`list_raw_fields()` at both broker levels).
+- `GLA_HANDBUCH.md` — Broker-Pattern section (§3): raw-passthrough noted
+  as a documented, deliberate exception.
+
+**What does not change:**
+- Baseline 15 `fetch_raw()` endpoints — always run, regardless of scan
+  result.
+- `garmin_live_fetch.py` — separate 8-field live-snapshot path for the
+  Ollama Chat panel, explicitly out of scope, not touched.
+- No dedicated `NETZ 2` core module touched at any point in this arc.
+
+**Known open points, carried forward (not part of this entry):**
+- Dedicated test coverage for `garmin_api_capability.py`, `active_only`,
+  and both `get_raw()`/`list_raw_fields()` levels — own test Bauauftrag,
+  see `MAINTENANCE_GARMIN.md`.
+- GitHub issue + feedback template for the 13 raw-passthrough fields
+  (community input on aggregation/display, real filled examples needed).
+- Suspected duplicate `get_body_composition` / `get_daily_weigh_ins` and
+  the assumed gram unit for `weight_g` — both only verifiable by a user
+  with a real Garmin-compatible scale, to be raised in the GitHub issue
+  above, not resolved here.
+- Netz-2 diagnosis for `run_netz2_steps_async.py` /
+  `run_netz2_stop_abort.py` / `run_netz2_bulk_import.py` not re-run since
+  the capability-scan changes to `garmin_collector.py` (baseline
+  `v167_01` predates them) — hash-confirmed change, no regression
+  expected, re-run not scheduled for this release.
+
+**Test result:** 631 / 265 / 464 / 165 / 59 / 16 — all green, ruff 0
+errors, bandit 0 HIGH. Test count unchanged vs. v1.6.7 — new production
+paths from this arc are not yet independently covered (see open points
+above). Drift-check clean throughout (final delta `2026-08-14_Run-01` →
+`Run-02`: 4 NEU / 0 WEG / 0 GEKIPPT-Regression, all traced to the
+raw-passthrough addition).
+
+---
+
 ## v1.6.7 — Broker Layer Restructuring (health_map / garmin_health_map / gateway_map)
 
 Prepares the Broker Layer for the v1.7 FIT Pipeline: `field_map.py` and

@@ -38,6 +38,16 @@ garmin_app.py (GUI)
               └── garmin_quality._save_quality_log()       (final safety-net save after loop)
 ```
 
+**API-Capability-Scan (v1.6.8) — separate delegated entry, not part of the diagram above:**
+`main()` step 0b, triggered by `GARMIN_CAPABILITY_SCAN=1`, bypasses the entire
+regular sync flow with its own login and its own exit. See `REFERENCE_GARMIN.md`
+→ `garmin_api_capability.py` / `run_capability_scan()` for the full contract.
+Persistence (`garmin_api_capability_config.json`) is read once per *regular*
+sync run too — inside the fetch loop's `QUALITY_LOCK`, before the per-day
+loop — so the diagram above is accurate for the regular sync path, this note
+only covers the scan's own separate entry.
+```
+
 ### garmin/quality/ — known design decisions
 
 `_safe_get()` is defined separately in both `_io.py` and `_assess.py` — intentional
@@ -68,6 +78,7 @@ of scope.
 | `garmin_mirror.py` | mirror operation — delegates to `garmin_container.py` |
 | `garmin_container.py` | `mirror.gla` — sole owner, no other module touches the container file |
 | `garmin_import_mirror.py` | mirror import operation — orchestrates only |
+| `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 
 ### Invariants
 
@@ -85,6 +96,33 @@ of scope.
   Every day is an atomic resume point — a hard abort cannot leave a raw file without a
   quality_log entry.
 - No module reads `os.environ` directly — all config via `garmin_config`
+- **API-Capability-Scan (v1.6.8):** the 15 baseline `fetch_raw()` endpoints
+  always run — the capability config can only add optional candidates, never
+  disable a baseline endpoint. Candidates are double-gated before joining a
+  sync run (`enabled_by_user == True` **and** `status == "found"`), so a
+  hand-edited config file cannot activate an unconfirmed endpoint.
+  `run_capability_scan()` reuses `quality.QUALITY_LOCK` rather than a second,
+  purpose-built lock — it never writes `quality_log.json` itself, but shares
+  the Garmin client with the regular sync, and the two must never run
+  concurrently.
+- **Resolved (v1.6.8 Session 4):** all 19 capability-scan candidate fields
+  are now broker-reachable — 6 interpreted into `summary/` fields
+  (`body_weight`, `calories_resting`, `hydration_ml`, `endurance_score`,
+  `hill_score`, `fitness_age`) via `get()`/`list_fields()`, the remaining
+  13 exposed unprocessed via the new `get_raw()`/`list_raw_fields()` path.
+  Custom Dashboard/Explorer additionally gate the 6 interpreted fields by
+  `enabled_by_user` (`list_fields(active_only=True)`, "Governance B"). See
+  `REFERENCE_GARMIN.md` → "Raw-passthrough fields" and `NOTES_v168_D_01.md`/
+  `NOTES_v168_D_02.md` for the full session history.
+- **Known gap — no automated test coverage yet (v1.6.8):** `garmin_api_capability.py`,
+  `run_capability_scan()`, and the `main()` step-0b entry point were verified
+  manually (live scans against a real Garmin account, plus an isolated
+  read-only fetch/validator smoke test) but have no `test_local.py` coverage.
+  Same gap now also covers, from Session 4: `list_fields(active_only=True)`,
+  `garmin_health_map.get_raw()`/`list_raw_fields()`, and
+  `health_map`/`gateway_map`'s passthroughs of both. Planned as a separate,
+  dedicated follow-up Bauauftrag — do not assume these paths are covered by
+  the green test suite until that lands.
 
 ---
 
@@ -296,7 +334,11 @@ Garmin stores intraday detail for ~1–2 years. Older data returns daily aggrega
 
 ## Known Garmin API quirks
 
-- `get_fitnessAge()` does not exist in current `garminconnect` versions — removed.
+- `get_fitnessAge()` (camelCase, no `_data` suffix) does not exist in
+  current `garminconnect` versions — removed. Not to be confused with
+  `get_fitnessage_data()` (the actual API-Capability-Scan candidate, wired
+  into the broker as `fitness_age` in v1.6.8 Session 4) — different method,
+  confirmed present and functional.
 - `get_devices()` may return non-dict entries — filtered with `isinstance(d, dict)`.
 - **Stress data:** `stress.stressValuesArray` as `[ts_ms, value]` pairs. Subtract `stressChartValueOffset` if present. Negative = unmeasured, filtered out.
 - **Body Battery:** `stress.bodyBatteryValuesArray` as `[ts_ms, "MEASURED", level, version]`. Level at index 2.
