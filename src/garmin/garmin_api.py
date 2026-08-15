@@ -275,9 +275,20 @@ def api_call(client, method: str, *args, label: str = ""):
 #  Raw data fetch
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fetch_raw(client, date_str: str) -> tuple:
+def fetch_raw(client, date_str: str, extra_endpoints: list | None = None) -> tuple:
     """
     Fetches all available Garmin API endpoints and returns raw data.
+
+    Parameters
+    ----------
+    extra_endpoints : list[tuple] | None
+        Optional additional (method, args, key) tuples, appended to the
+        15 baseline endpoints below before the fetch loop runs. Used by
+        garmin_collector to fetch user-enabled API-Capability-Scan
+        candidates (v1.6.8) — this function stays config-blind, it only
+        ever receives a ready-made tuple list in the same shape as the
+        baseline entries. Baseline endpoints always run, regardless of
+        what (if anything) is passed here.
 
     Returns
     -------
@@ -305,6 +316,9 @@ def fetch_raw(client, date_str: str) -> tuple:
         ("get_race_predictions",     (),          "race_predictions"),
         ("get_max_metrics",          (date_str,), "max_metrics"),
     ]
+
+    if extra_endpoints:
+        endpoints = endpoints + list(extra_endpoints)
 
     for method, args, key in endpoints:
         if _is_stopped():

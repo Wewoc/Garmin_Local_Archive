@@ -63,6 +63,12 @@ garmin_app.py (GUI)
 - `normalize()` is never called during mirror import — raw in mirror is already normalized
 - `garmin_live_fetch.py` is sole write authority for `garmin_data/live/` (v1.6.5) — single-file snapshot of the current day, no history, overwritten on every fetch. No `quality_log.json` contact, no validator/normalizer
 - `garmin_health_map.py` shifts every intraday timestamp to the recording device's local time, derived per-day from Garmin's own `startTimestampGMT`/`Local` section metadata — never the system clock, never a hardcoded `zoneinfo` zone (v1.6.5.6, see "Timestamp handling" below)
+- `garmin_api_capability.py` is sole write authority for `garmin_api_capability_config.json` — leaf node, imports only `garmin_config` + stdlib (v1.6.8)
+- The 15 baseline `fetch_raw()` endpoints always run — the API-Capability-Scan config can never disable them, only add optional candidates (v1.6.8, Archive-First)
+- API-Capability-Scan candidates are double-gated before joining a sync run: `enabled_by_user == True` **and** `status == "found"` — a hand-edited config file can never activate an endpoint that was never confirmed present (v1.6.8)
+- Capability config is read once per sync run as an immutable snapshot, inside the same `QUALITY_LOCK` the sync loop already holds — `run_capability_scan()` reuses this same lock rather than introducing a second one: it never writes `quality_log.json` itself, but does share the Garmin client with the sync, and the two must never run concurrently (v1.6.8)
+- API-Capability-Scan candidates reach `summary/` — and therefore `get()`/`list_fields()` — only if `garmin_normalizer.summarize()` is explicitly extended for that candidate; landing in `raw/` alone is not sufficient, `summarize()` is a fixed field list, not a generic passthrough. Six candidates are wired this way: `body_weight`, `calories_resting` (v1.6.8 pilot), `hydration_ml`, `endurance_score`, `hill_score`, `fitness_age` (v1.6.8 Session 4). The remaining 13 are exposed unprocessed via `get_raw()`/`list_raw_fields()` instead — see "Raw-passthrough fields" below — rather than left archived-but-unreachable
+- `list_fields(active_only=True)` additionally excludes API-Capability-Scan candidate fields whose endpoint is not `enabled_by_user` in the capability config — used by the Custom Dashboard field picker and Explorer (v1.6.8 Session 4, "Governance B"). Baseline fields and raw-passthrough fields are unaffected: baseline fields are absent from the gating dict by design, raw-passthrough fields aren't part of `list_fields()`'s registry at all
 
 ---
 
@@ -174,7 +180,7 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 | `GarminLoginError` | Exception raised on unrecoverable login failure. Replaces `sys.exit(1)` |
 | `login(on_key_required, on_token_expired, on_mfa_required, on_sso_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA via callback. `on_sso_required` blocks Path 3 until user confirms — `None` (headless/standalone) starts SSO automatically. Returns client or `None` if cancelled. Raises `GarminLoginError` on failure |
 | `api_call(client, method, *args, label)` | Single API call with random delay and stop-check. Returns `(data, success)` |
-| `fetch_raw(client, date_str)` | Calls all 15 Garmin API endpoints. Returns `(raw: dict, failed_endpoints: list[str])` |
+| `fetch_raw(client, date_str, extra_endpoints=None)` | Calls all 15 Garmin API endpoints, plus any `(method, args, key)` tuples passed via `extra_endpoints`. Stays config-blind — only ever receives a ready-made tuple list. `extra_endpoints` (v1.6.8) — used by `garmin_collector` to append user-enabled API-Capability-Scan candidates; baseline 15 always run regardless. Returns `(raw: dict, failed_endpoints: list[str])` |
 | `get_devices(client)` | Fetches registered device list. Returns sorted list |
 | `set_stop_event(ev)` | Registers the stop event (`threading.Event` or `None`). Same pattern as `garmin_validator.reload_schema()` — explicit setter, no `globals()` injection |
 | `_is_stopped()` | Returns `True` if a registered stop event is set. Safe to call without a registered event |
@@ -387,8 +393,9 @@ Each quality log entry stores `device_id` (str) and `device_name` (str) — set 
 
 | Function | Purpose |
 |---|---|
-| `main()` | Full sync orchestration: dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → login → devices → device_id backfill → source backfill (5c) → first_day → date resolution → fetch loop → save |
-| `_fetch_and_assess(client, date_str)` | Fetch → validate → normalize → assess. No file writes. Returns `(label, normalized, summary, fields, val_result)` |
+| `main()` | Full sync orchestration: import mode (0) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → login → devices → device_id backfill → source backfill (5c) → first_day → date resolution → fetch loop → save |
+| `_fetch_and_assess(client, date_str, enabled_candidates=None)` | Fetch → validate → normalize → assess. No file writes. Returns `(label, normalized, summary, fields, val_result)`. `enabled_candidates` (v1.6.8) — optional list of API-Capability-Scan candidate method names, pre-filtered by the caller (double-gate); turned into `extra_endpoints` for `api.fetch_raw()`. `None` (default) — used by `_run_source_backfill()`, which does not take part in the Capability Scan (scope boundary, v1.6.8) |
+| `run_capability_scan(client, window_days=7)` | Probes the 19 optional health-endpoint candidates (`garmin_api_capability.CANDIDATE_ENDPOINTS`) over the last `window_days` days. Runs entirely under `quality.QUALITY_LOCK` (reused, not a new lock — see Invariants). Per-candidate try/except — one failing candidate never aborts the rest. Payload discarded, only the tri-state result (`found`/`not_observed`/`error`) persisted via `garmin_api_capability.update_endpoint()`/`save_config()`. Returns `{"scanned", "found", "not_observed", "error"}` (v1.6.8) |
 | `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)`. Delegates the actual rank comparison to `quality.is_downgrade()` (v1.6.5.7 — canonical location, also used by `export/regenerate_raw.py` and `garmin_silo_repair.py`; previously duplicated in each) |
 | `_run_steps_backfill(client, quality_data)` | Backfills `steps_series` for existing high-quality API days. Per day: `api_call()` → `merge_field()` → `normalize()`/`summarize()` → `write_day()` → `record_attempt()` (with `backfilled_fields`) → `patch_source_field()`. On `patch_source_field()` failure: one automatic retry, then `log.error()` (not `warning`) if it still fails — `source/` will not be auto-retried on a future run, since the candidate filter checks `fields` from `raw/`, already correct at that point (v1.6.5.7) |
 | `_write_assessed(normalized, summary, date_str, label)` | Writes pre-assessed day to disk. Returns `bool` |
@@ -412,6 +419,37 @@ After `_fetch_and_assess()`, `_check_downgrade()` compares the new label against
 **Resume safety:**
 
 `_save_quality_log()` is called after every individual day — in all paths (upgrade, downgrade, error). Every successfully processed day is an atomic resume point. Stopping mid-run resumes from the next unprocessed day on the next start.
+
+---
+
+## `garmin_api_capability.py`
+
+Sole Owner of `garmin_api_capability_config.json` (`cfg.CAPABILITY_CONFIG_FILE`).
+Leaf-Node — imports only `garmin_config` + stdlib. No pipeline imports
+(`garmin_collector`, `garmin_api`, `garmin_quality`, ...). (v1.6.8)
+
+| Function | Purpose |
+|---|---|
+| `CANDIDATE_ENDPOINTS` | Module-level list of the 19 optional health-endpoint method names |
+| `ENDPOINT_ARGS` | Maps a subset of `CANDIDATE_ENDPOINTS` to their non-default argument shape (`"no_args"` / `"date_range"`) — discovered empirically from real `TypeError`s during the first live scan, not from library docs |
+| `build_args(endpoint, date_str)` | Returns the correct positional-args tuple for a candidate. Defaults to `"single_date"` `(date_str,)` for endpoints not listed in `ENDPOINT_ARGS` |
+| `load_config()` | Loads the config JSON. Returns a fresh default (all 19 candidates at `not_observed`) if the file is missing or corrupt — never raises |
+| `save_config(config)` | Atomic write (`.tmp → fsync → os.replace`). Returns `bool` |
+| `update_endpoint(config, endpoint, status, **meta)` | Pure function — returns a new config dict with one entry updated, does not save itself. `status` must be one of `"found"` / `"not_observed"` / `"error"` |
+| `reset_config()` | Returns a fresh default config. Does not save — public entry point for UI "Clear Config", so callers never need to reach into the private `_default_config()` |
+
+**Config entry shape** (per candidate, keyed by method name):
+```json
+{
+  "status": "found",
+  "last_scan": "2026-08-13T18:20:22",
+  "discovered_at": "2026-08-13T18:20:22",
+  "last_seen_with_data": "2026-08-13",
+  "enabled_by_user": false
+}
+```
+
+**Discovery result is tri-state, not binary:** `found` (non-empty data returned at least once in the scan window), `not_observed` (every attempt succeeded but returned nothing), `error` (at least one attempt failed/raised and `found` was never reached) — avoids treating a transient API error as proof of a missing capability.
 
 ---
 
@@ -513,7 +551,8 @@ All paths from caller — no `garmin_config` import.
 
 Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 
-**Current version:** `1.1`
+**Current version:** `1.1` (unchanged by v1.6.8 — field-only addition, see below;
+no re-validation wave needed for already-archived days)
 
 | Field | Type | Required |
 |---|---|---|
@@ -533,6 +572,41 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 | `race_predictions` | dict | — |
 | `max_metrics` | dict | — |
 | `activities` | list | — |
+
+**API-Capability-Scan candidate fields (v1.6.8):** 19 fields, all `type: any`,
+`required: false`. Keyed by raw method name (not a short label like the 15
+above — `CANDIDATE_ENDPOINTS` defines no short-name convention yet).
+
+| Field |
+|---|
+| `get_body_composition` |
+| `get_daily_weigh_ins` |
+| `get_blood_pressure` |
+| `get_hydration_data` |
+| `get_menstrual_calendar_data` |
+| `get_pregnancy_summary` |
+| `get_lifestyle_logging_data` |
+| `get_nutrition_daily_food_log` |
+| `get_nutrition_daily_meals` |
+| `get_nutrition_daily_settings` |
+| `get_calories_daily` |
+| `get_floors` |
+| `get_intensity_minutes_data` |
+| `get_body_battery_events` |
+| `get_endurance_score` |
+| `get_fitnessage_data` |
+| `get_hill_score` |
+| `get_lactate_threshold` |
+| `get_running_tolerance` |
+
+As of v1.6.8 Session 4, all 19 are broker-reachable in some form: 6 are
+interpreted into `summary/` fields (`body_weight`, `calories_resting`,
+`hydration_ml`, `endurance_score`, `hill_score`, `fitness_age`), the
+remaining 13 are exposed unprocessed via `get_raw()`/`list_raw_fields()`
+— see "Raw-passthrough fields" below. `get_daily_weigh_ins` is a
+suspected duplicate of `get_body_composition` (both empty/identical at
+the pilot account) — see `NOTES_v168_C_01.md`, unresolved pending real
+scale data.
 
 ---
 
@@ -573,8 +647,10 @@ Schema for `garmin_validator.py`. Located at `garmin/garmin_dataformat.json`.
 | `sleep` | Duration, stages, score, SpO2, HRV, sleep_score_feedback, sleep_score_qualifier |
 | `heartrate` | Resting, max, min, average BPM |
 | `stress` | Stress average/max, Body Battery max/min/end |
-| `day` | Steps, calories, intensity minutes, distance |
-| `training` | Readiness, status, load, VO2max |
+| `day` | Steps, calories (active/total/resting), intensity minutes, distance |
+| `body_composition` | Body weight in grams, raw from `get_body_composition` (v1.6.8 capability-scan pilot, unit unverified against real scale data) |
+| `hydration` | Fluid intake in ml, raw from `get_hydration_data` (v1.6.8 Session 4) |
+| `training` | Readiness, status, load, VO2max, Endurance Score, Hill Score, Fitness Age (v1.6.8 Session 4) |
 | `activities` | List of activity objects |
 
 ---
@@ -635,10 +711,61 @@ The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single
 | `body_battery_series` | intraday | `stress.bodyBatteryValuesArray` | — |
 | `respiration_series` | intraday | `respiration.respirationValuesArray` | List of `[epoch_ms, value]` pairs — same v1.6.3.1 fix as spo2_series. Raw data also contains a newer, parallel `wellnessEpochRespirationDataDTOList` (dict-shaped) — absent in all 4 raw files sampled during v1.6.5.6 (2024-03-07, 2025-03-10, 2025-03-30, 2026-07-01/27); not conclusive, still not evaluated as a data source, see `NOTES_v1656.md` |
 | `steps_series` | intraday | `steps` (bare list at top level, not nested under a sub-key) | 15-min bins, `{"startGMT", "steps"}`. `_read_intraday()` handles this via its existing `isinstance(section_data, list)` branch — no code change needed for this shape |
+| `body_weight` | daily | `body_composition.weight_g` | grams, raw/unconverted — Garmin's gram convention assumed but not verified against real data (no scale connected during pilot). First API-Capability-Scan candidate wired into the broker (v1.6.8) |
+| `calories_resting` | daily | `day.calories_resting` | kcal — resting/basal calories from `get_calories_daily`, distinct from `calories_active`/`calories_total` (sourced from `user_summary`, unrelated raw section, likely redundant with this candidate's own `active`/`total` fields — only `resting` was adopted). Second API-Capability-Scan candidate wired into the broker (v1.6.8) |
+| `hydration_ml` | daily | `hydration.value_ml` | ml, from `get_hydration_data` — only `valueInML` adopted, `goalInML` (a user-set target, not a measurement) intentionally excluded (v1.6.8 Session 4) |
+| `endurance_score` | daily | `training.endurance_score` | index, from `get_endurance_score` — checked against `vo2max` for redundancy (Multi-LLM hint), none found — distinct, device-calculated index (v1.6.8 Session 4) |
+| `hill_score` | daily | `training.hill_score` | index, from `get_hill_score` — not to be confused with that same endpoint's own internal `enduranceScore` sub-field, unrelated to the `endurance_score` field above (v1.6.8 Session 4) |
+| `fitness_age` | daily | `training.fitness_age` | years, from `get_fitnessage_data` — only `fitnessAge` adopted; `chronologicalAge`/`achievableFitnessAge`/`previousFitnessAge`/`components` intentionally excluded (v1.6.8 Session 4) |
 
 **Live route (v1.6.5):** 15 of the fields above also support `resolution="live"` (reads `garmin_data/live/live.json`, written by `garmin_live_fetch.py`, instead of the archive): `heart_rate_series`, `stress_series`, `spo2_series`, `body_battery_series`, `respiration_series`, `steps_series` (via `live`); `sleep_deep_pct`, `sleep_light_pct`, `sleep_rem_pct`, `sleep_awake_pct` (via `live_pct`); `hrv_last_night`, `sleep_score_feedback`, `sleep_score_qualifier`, `sleep_duration` (via `live_nested`). Fields with no live route (`resting_heart_rate`, `spo2_avg`, `body_battery_max`, `stress_avg`, `vo2max`) return `fallback=True`, empty `values`, for `resolution="live"`. Consumer: `dashboards/live_tracking_html_dash.py`.
 
 *Note: `sleep_score` (the numeric score itself, distinct from its `_feedback`/`_qualifier` companions) is missing from the Registered fields table above — a pre-existing gap, not introduced in v1.6.5. It does have a `live_nested` route (`sleep.dailySleepDTO.sleepScores.overall.value`) and a `daily` route (`sleep.score`); only its own table row is absent.*
+
+### Raw-passthrough fields (v1.6.8 Session 4)
+
+13 of the 19 original API-Capability-Scan candidates have no known
+daily-value extraction — list-of-entries structure, empty/unknown schema
+at the pilot account, or event-log structure (see `NOTES_v168_D_02.md`
+"Blocker-Typen" for the per-field reasoning). Rather than leave them
+archived-but-broker-invisible, `garmin_health_map.py` exposes them
+unprocessed via a second, deliberately separate access path — kept
+entirely out of `_FIELD_MAP`/`get()`/`list_fields()` so existing
+dashboards (which all assume the scalar `{"values": [{"date", "value"}]}`
+shape) are structurally unaffected:
+
+```python
+def get_raw(field: str, date_from: str, date_to: str) -> dict:
+    # Returns {"values": [{"date": str, "raw": any|None}, ...],
+    #          "source_resolution": "raw"}
+```
+
+Unlike `get()`, there is no `"value"` extraction — the caller receives
+exactly what Garmin returned for that day and is responsible for
+interpreting it. `raw` is `None` if the day's `raw/` file is missing or
+does not contain that endpoint's key. `health_map.py`/`gateway_map.py`
+provide thin passthroughs — see `REFERENCE_BROKER.md`.
+
+**Status:** open for community feedback — GitHub issue with a feedback
+template pending (v1.6.8 doc-closure). Any of the 13 fields with a
+concrete aggregation/display proposal backed by real filled data can move
+to a proper `summarize()` field later, same as the six already wired.
+
+| Field | Source endpoint |
+|---|---|
+| `daily_weigh_ins` | `get_daily_weigh_ins` |
+| `blood_pressure` | `get_blood_pressure` |
+| `menstrual_calendar_data` | `get_menstrual_calendar_data` |
+| `pregnancy_summary` | `get_pregnancy_summary` |
+| `lifestyle_logging_data` | `get_lifestyle_logging_data` |
+| `nutrition_daily_food_log` | `get_nutrition_daily_food_log` |
+| `nutrition_daily_meals` | `get_nutrition_daily_meals` |
+| `nutrition_daily_settings` | `get_nutrition_daily_settings` |
+| `floors` | `get_floors` |
+| `intensity_minutes_data` | `get_intensity_minutes_data` |
+| `body_battery_events` | `get_body_battery_events` |
+| `lactate_threshold` | `get_lactate_threshold` |
+| `running_tolerance` | `get_running_tolerance` |
 
 ### Timestamp handling (v1.6.5.6)
 

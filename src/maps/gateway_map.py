@@ -164,3 +164,90 @@ def get(field: str, date_from: str, date_to: str,
 def list_domains() -> list[str]:
     """Return all known domain keys, whether their broker is registered yet or not."""
     return list(_DOMAIN_BROKERS.keys())
+
+
+def get_raw(field: str, date_from: str, date_to: str,
+            domain: str | None = None) -> dict:
+    """
+    Request a raw-passthrough field from one or all registered domain
+    brokers. Same fan-out shape as get(), but for unprocessed data — see
+    garmin_health_map.get_raw() for the rationale (v1.6.8). Only "health"
+    currently supports raw-passthrough; other domains degrade gracefully
+    rather than hard-failing, same principle as get()'s "fit" handling.
+
+    Args:
+        field:      Generic raw-field name (consumer-side).
+        date_from:  Start date ISO string (YYYY-MM-DD), inclusive.
+        date_to:    End date ISO string (YYYY-MM-DD), inclusive.
+        domain:     None -> query all registered domain keys. Set to one
+                    of those -> query only that domain.
+
+    Returns:
+        Dict keyed by domain name. Each value is exactly what that
+        domain's *_map.get_raw() returned, or a degraded {"error": ...}
+        entry if the domain's broker is not yet registered or has no
+        raw-passthrough support.
+
+    Raises:
+        ValueError: if domain is set to a string that is not a known
+                    domain key.
+    """
+    if domain is not None and domain not in _DOMAIN_BROKERS:
+        raise ValueError(
+            f"Unknown domain {domain!r} — expected one of "
+            f"{sorted(_DOMAIN_BROKERS)} or None"
+        )
+
+    domains_to_query = [domain] if domain is not None else list(_DOMAIN_BROKERS)
+
+    result = {}
+    for domain_name in domains_to_query:
+        broker = _DOMAIN_BROKERS[domain_name]
+        if broker is None:
+            result[domain_name] = {"error": "domain not yet available"}
+            continue
+        try:
+            result[domain_name] = broker.get_raw(field, date_from, date_to)
+        except AttributeError:
+            result[domain_name] = {"error": "domain has no raw-passthrough support"}
+        except Exception as exc:
+            # Domain broker failed unexpectedly — degrade gracefully,
+            # never hard-stop the whole gateway request.
+            result[domain_name] = {"error": str(exc)}
+    return result
+
+
+def list_raw_fields(domain: str | None = None) -> dict[str, list[str]]:
+    """
+    Return raw-passthrough field names per domain. Unlike list_domains(),
+    keyed by domain — domains without raw-passthrough support (or not yet
+    registered) return an empty list under their key rather than being
+    omitted, so the shape is stable regardless of which domains support it.
+
+    Args:
+        domain: None -> all registered domain keys. Set to one -> only
+                that domain's raw fields.
+
+    Raises:
+        ValueError: if domain is set to a string that is not a known
+                    domain key.
+    """
+    if domain is not None and domain not in _DOMAIN_BROKERS:
+        raise ValueError(
+            f"Unknown domain {domain!r} — expected one of "
+            f"{sorted(_DOMAIN_BROKERS)} or None"
+        )
+
+    domains_to_query = [domain] if domain is not None else list(_DOMAIN_BROKERS)
+
+    result = {}
+    for domain_name in domains_to_query:
+        broker = _DOMAIN_BROKERS[domain_name]
+        if broker is None:
+            result[domain_name] = []
+            continue
+        try:
+            result[domain_name] = broker.list_raw_fields()
+        except AttributeError:
+            result[domain_name] = []
+    return result

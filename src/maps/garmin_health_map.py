@@ -37,6 +37,7 @@ from pathlib import Path
 # This is the one sys.path bridge between maps/ and garmin/
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 import garmin_config as cfg
+import garmin_api_capability as capability
 
 log = logging.getLogger(__name__)
 
@@ -135,6 +136,18 @@ _FIELD_MAP = {
         "live_nested": [
             ("sleep", "dailySleepDTO.sleepScores.overall.qualifierKey"),
         ],
+    },
+    "hydration_ml": {
+        "intraday": None,
+        "daily":    ("hydration", "value_ml"),
+    },
+    "endurance_score": {
+        "intraday": None,
+        "daily":    ("training", "endurance_score"),
+    },
+    "hill_score": {
+        "intraday": None,
+        "daily":    ("training", "hill_score"),
     },
 
     # ── Intraday fields (raw/) ────────────────────────────────────────────────
@@ -263,6 +276,52 @@ _FIELD_MAP = {
         }),
         "daily": None,
     },
+
+    # ── Capability-Scan pilot fields (v1.6.8) — flat daily values from
+    #    summary/, same "daily" descriptor as the baseline fields above ──
+
+    "body_weight": {
+        "intraday": None,
+        "daily":    ("body_composition", "weight_g"),
+    },
+    "calories_resting": {
+        "intraday": None,
+        "daily":    ("day", "calories_resting"),
+    },
+    "fitness_age": {
+        "intraday": None,
+        "daily":    ("training", "fitness_age"),
+    },
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Raw-passthrough fields (v1.6.8) — deliberately NOT part of _FIELD_MAP.
+#
+#  These 13 Capability-Scan candidates have no known daily-value extraction
+#  (list-of-entries structure, empty/unknown schema at Timo's account, or
+#  event-log structure) — see NOTES_v168_D_01.md "Blocker-Typen" for the
+#  per-field reasoning. Rather than leave them archived-but-unreachable,
+#  they are exposed unprocessed via get_raw()/list_raw_fields() — separate
+#  from get()/list_fields() so existing dashboards (which assume a scalar
+#  "value") are structurally unaffected. Interpretation is the caller's
+#  responsibility. Status: open for community feedback, see GitHub issue
+#  (linked in REFERENCE_BROKER.md "Raw-Passthrough-Felder").
+# ══════════════════════════════════════════════════════════════════════════════
+
+_RAW_PASSTHROUGH_FIELDS = {
+    "daily_weigh_ins":          "get_daily_weigh_ins",
+    "blood_pressure":           "get_blood_pressure",
+    "menstrual_calendar_data":  "get_menstrual_calendar_data",
+    "pregnancy_summary":        "get_pregnancy_summary",
+    "lifestyle_logging_data":   "get_lifestyle_logging_data",
+    "nutrition_daily_food_log": "get_nutrition_daily_food_log",
+    "nutrition_daily_meals":    "get_nutrition_daily_meals",
+    "nutrition_daily_settings": "get_nutrition_daily_settings",
+    "floors":                   "get_floors",
+    "intensity_minutes_data":   "get_intensity_minutes_data",
+    "body_battery_events":      "get_body_battery_events",
+    "lactate_threshold":        "get_lactate_threshold",
+    "running_tolerance":        "get_running_tolerance",
 }
 
 
@@ -715,6 +774,83 @@ def get(field: str, date_from: str, date_to: str,
     return result
 
 
-def list_fields() -> list[str]:
-    """Return all registered generic field names."""
-    return list(_FIELD_MAP.keys())
+# Capability-Scan-Kandidaten, die über den Broker sichtbar sind — Zuordnung
+# generischer Feldname → Garmin-Capability-Endpoint. Baseline-Felder fehlen
+# hier absichtlich (= immer sichtbar, kein Gate). Wächst mit jedem weiteren
+# verdrahteten Kandidaten (v1.6.8).
+_CAPABILITY_FIELDS = {
+    "body_weight":      "get_body_composition",
+    "calories_resting": "get_calories_daily",
+    "hydration_ml":     "get_hydration_data",
+    "endurance_score":  "get_endurance_score",
+    "hill_score":       "get_hill_score",
+    "fitness_age":      "get_fitnessage_data",
+}
+
+
+def list_fields(active_only: bool = False) -> list[str]:
+    """
+    Return all registered generic field names.
+
+    active_only=True additionally excludes Capability-Scan candidate fields
+    whose endpoint is not enabled_by_user in the capability config — for
+    dynamic field pickers (Custom Dashboard, Explorer). Baseline fields are
+    never affected — they are absent from _CAPABILITY_FIELDS by design.
+    Default False preserves the full registry (e.g. for tests that assert
+    a fixed field count).
+    """
+    fields = list(_FIELD_MAP.keys())
+    if not active_only:
+        return fields
+
+    config = capability.load_config()
+    return [
+        f for f in fields
+        if f not in _CAPABILITY_FIELDS
+        or config.get("endpoints", {}).get(_CAPABILITY_FIELDS[f], {}).get("enabled_by_user")
+    ]
+
+
+def list_raw_fields() -> list[str]:
+    """Return all registered raw-passthrough field names."""
+    return list(_RAW_PASSTHROUGH_FIELDS.keys())
+
+
+def get_raw(field: str, date_from: str, date_to: str) -> dict:
+    """
+    Return the unprocessed raw/ payload for a Capability-Scan endpoint,
+    without interpretation. Unlike get(), there is no "value" extraction —
+    the caller receives exactly what Garmin returned for that day, and is
+    responsible for interpreting it. See REFERENCE_BROKER.md
+    "Raw-Passthrough-Felder" for the rationale.
+
+    Args:
+        field:      Generic raw-field name. Must exist in _RAW_PASSTHROUGH_FIELDS.
+        date_from:  Start date ISO string (YYYY-MM-DD), inclusive.
+        date_to:    End date ISO string (YYYY-MM-DD), inclusive.
+
+    Returns:
+        {"values": [{"date": str, "raw": any|None}, ...], "source_resolution": "raw"}
+        raw is None if the day's raw/ file is missing or does not contain
+        this endpoint's key.
+
+    Raises:
+        KeyError: if field is not registered in _RAW_PASSTHROUGH_FIELDS.
+    """
+    if field not in _RAW_PASSTHROUGH_FIELDS:
+        raise KeyError(f"garmin_health_map: unknown raw field '{field}'")
+    endpoint = _RAW_PASSTHROUGH_FIELDS[field]
+
+    values = []
+    for ds in _date_range(date_from, date_to):
+        f = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
+        payload = None
+        if f.exists():
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                payload = data.get(endpoint)
+            except (json.JSONDecodeError, OSError) as e:
+                log.warning(f"garmin_health_map: could not read {f}: {e}")
+        values.append({"date": ds, "raw": payload})
+
+    return {"values": values, "source_resolution": "raw"}

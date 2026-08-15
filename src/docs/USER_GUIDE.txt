@@ -91,6 +91,35 @@ Bulk Import and Daily Sync complement each other:
   Bulk Import provides the history, Daily Sync keeps it current.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+API CAPABILITY SCAN (optional)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Your Garmin account may provide more health data than the ~15 fields
+synced by default — depending on which devices and features you use
+(smart scale, blood pressure monitor, menstrual tracking, ...).
+
+Settings -> Data Collection -> "API Scan" opens a dialog with three
+actions:
+
+Start Scan
+  Checks which additional fields your account has actually used in the
+  last few days (7 by default, adjustable). Nothing is archived during
+  the scan -- it only detects which fields return real data.
+
+Edit Config
+  Shows only the fields the scan found. Enable the ones you want synced
+  going forward. Each future Daily Sync then fetches them alongside your
+  regular data.
+
+Clear Config
+  Resets the scan results (asks for confirmation). Your archived data is
+  never affected.
+
+Enabled fields with a recognized health value show up automatically in
+Custom Dashboard. Your existing daily sync data and dashboards are
+unaffected either way -- this is a purely additive, opt-in feature.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 4. DASHBOARDS & ANALYSIS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

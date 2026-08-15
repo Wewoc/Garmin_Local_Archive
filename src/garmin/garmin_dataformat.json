@@ -29,6 +29,26 @@
     "hrv":                { "type": "dict", "required": false },
     "race_predictions":   { "type": "dict", "required": false },
     "max_metrics":        { "type": "any",  "required": false },
-    "activities":         { "type": "any",  "required": false }
+    "activities":         { "type": "any",  "required": false },
+
+    "get_body_composition":         { "type": "any", "required": false },
+    "get_daily_weigh_ins":          { "type": "any", "required": false },
+    "get_blood_pressure":           { "type": "any", "required": false },
+    "get_hydration_data":           { "type": "any", "required": false },
+    "get_menstrual_calendar_data":  { "type": "any", "required": false },
+    "get_pregnancy_summary":        { "type": "any", "required": false },
+    "get_lifestyle_logging_data":   { "type": "any", "required": false },
+    "get_nutrition_daily_food_log": { "type": "any", "required": false },
+    "get_nutrition_daily_meals":    { "type": "any", "required": false },
+    "get_nutrition_daily_settings": { "type": "any", "required": false },
+    "get_calories_daily":           { "type": "any", "required": false },
+    "get_floors":                   { "type": "any", "required": false },
+    "get_intensity_minutes_data":   { "type": "any", "required": false },
+    "get_body_battery_events":      { "type": "any", "required": false },
+    "get_endurance_score":          { "type": "any", "required": false },
+    "get_fitnessage_data":          { "type": "any", "required": false },
+    "get_hill_score":               { "type": "any", "required": false },
+    "get_lactate_threshold":        { "type": "any", "required": false },
+    "get_running_tolerance":        { "type": "any", "required": false }
   }
 }

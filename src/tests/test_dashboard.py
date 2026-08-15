@@ -307,6 +307,29 @@ check("health_map: garmin key in result",        "garmin" in result_fm)
 check("health_map: values present",              len(result_fm["garmin"]["values"]) > 0)
 check("health_map: fallback key present",        "fallback" in result_fm["garmin"])
 
+# ── active_only passthrough + get_raw()/list_raw_fields() (v1.6.8 Session 4) ─
+
+check("health_map list_fields: active_only passthrough for garmin",
+      len(health_map.list_fields(source="garmin", active_only=True)) ==
+      len(garmin_health_map.list_fields(active_only=True)))
+check("health_map list_fields: unknown source → empty list",
+      health_map.list_fields(source="nonexistent_source") == [])
+
+check("health_map list_raw_fields: garmin → 13 fields",
+      len(health_map.list_raw_fields(source="garmin")) == 13)
+check("health_map list_raw_fields: unknown source → empty list",
+      health_map.list_raw_fields(source="nonexistent_source") == [])
+
+_hm_gr = health_map.get_raw("floors", "2000-01-01", "2000-01-01", source="garmin")
+check("health_map get_raw: garmin delegates to garmin_health_map",
+      _hm_gr["source_resolution"] == "raw")
+
+try:
+    health_map.get_raw("floors", "2000-01-01", "2000-01-01", source="nonexistent_source")
+    check("health_map get_raw: unknown source raises KeyError", False)
+except KeyError:
+    check("health_map get_raw: unknown source raises KeyError", True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  2b. gateway_map — routing
@@ -339,6 +362,50 @@ except ValueError:
 _gw_domains = gateway_map.list_domains()
 check("gateway_map: list_domains has 3 entries", len(_gw_domains) == 3)
 check("gateway_map: list_domains has health/fit/context", set(_gw_domains) == {"health", "fit", "context"})
+
+# ── get_raw() / list_raw_fields() — symmetric to get()/list_domains() (v1.6.8) ─
+
+_gw_raw_health = gateway_map.get_raw("floors", "2000-01-01", "2000-01-01", domain="health")
+check("gateway_map get_raw domain=health: delegates to health_map",
+      _gw_raw_health == {"health": health_map.get_raw("floors", "2000-01-01", "2000-01-01")})
+
+_gw_raw_fit = gateway_map.get_raw("floors", "2000-01-01", "2000-01-01", domain="fit")
+check("gateway_map get_raw domain=fit: degraded result (broker not registered)",
+      _gw_raw_fit == {"fit": {"error": "domain not yet available"}})
+
+try:
+    gateway_map.get_raw("floors", "2000-01-01", "2000-01-01", domain="banana")
+    check("gateway_map get_raw: unknown domain raises ValueError", False)
+except ValueError:
+    check("gateway_map get_raw: unknown domain raises ValueError", True)
+
+_gw_raw_all = gateway_map.get_raw("floors", "2000-01-01", "2000-01-01")
+check("gateway_map get_raw domain=None: all three keys present",
+      set(_gw_raw_all.keys()) == {"health", "fit", "context"})
+check("gateway_map get_raw domain=None: context degrades (no raw-passthrough)",
+      _gw_raw_all["context"] == {"error": "domain has no raw-passthrough support"})
+
+_gw_lrf_health = gateway_map.list_raw_fields(domain="health")
+check("gateway_map list_raw_fields domain=health: 13 fields",
+      len(_gw_lrf_health["health"]) == 13)
+
+_gw_lrf_fit = gateway_map.list_raw_fields(domain="fit")
+check("gateway_map list_raw_fields domain=fit: empty list (broker not registered)",
+      _gw_lrf_fit == {"fit": []})
+
+try:
+    gateway_map.list_raw_fields(domain="banana")
+    check("gateway_map list_raw_fields: unknown domain raises ValueError", False)
+except ValueError:
+    check("gateway_map list_raw_fields: unknown domain raises ValueError", True)
+
+_gw_lrf_all = gateway_map.list_raw_fields()
+check("gateway_map list_raw_fields domain=None: all three domain keys present",
+      set(_gw_lrf_all.keys()) == {"health", "fit", "context"})
+check("gateway_map list_raw_fields domain=None: fit is empty (not registered)",
+      _gw_lrf_all["fit"] == [])
+check("gateway_map list_raw_fields domain=None: context degrades to empty (no raw-passthrough)",
+      _gw_lrf_all["context"] == [])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1185,6 +1252,70 @@ check("broker list_fields: is list",             isinstance(_lf, list))
 check("broker list_fields: not empty",           len(_lf) > 0)
 check("broker list_fields: all strings",         all(isinstance(f, str) for f in _lf))
 check("broker list_fields: hrv_last_night in list", "hrv_last_night" in _lf)
+
+# ── active_only=True — Governance B (v1.6.8 Session 4) ───────────────────────
+import garmin_api_capability as capability
+
+capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
+_lf_default_count   = len(_lf)
+_lf_active_default  = garmin_health_map.list_fields(active_only=True)
+check("list_fields active_only: excludes disabled capability fields by default",
+      len(_lf_active_default) == _lf_default_count - 6)
+check("list_fields active_only: baseline field always present",
+      "hrv_last_night" in _lf_active_default)
+check("list_fields active_only: disabled capability field excluded",
+      "body_weight" not in _lf_active_default)
+
+_lf_cfg = capability.load_config()
+_lf_cfg = capability.update_endpoint(_lf_cfg, "get_body_composition", "found", enabled_by_user=True)
+capability.save_config(_lf_cfg)
+_lf_active_enabled = garmin_health_map.list_fields(active_only=True)
+check("list_fields active_only: enabled capability field included",
+      "body_weight" in _lf_active_enabled)
+check("list_fields active_only: still-disabled capability field excluded",
+      "calories_resting" not in _lf_active_enabled)
+
+check("list_fields default: unaffected by capability config",
+      len(garmin_health_map.list_fields()) == _lf_default_count)
+
+capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
+
+# ── get_raw() / list_raw_fields() — garmin_health_map (v1.6.8 Session 4) ────
+
+_lrf = garmin_health_map.list_raw_fields()
+check("list_raw_fields: 13 fields",              len(_lrf) == 13)
+check("list_raw_fields: floors present",         "floors" in _lrf)
+check("list_raw_fields: all strings",            all(isinstance(f, str) for f in _lrf))
+
+_raw_floors_date    = "2026-04-01"
+_raw_no_floors_date = "2026-04-02"
+(cfg.RAW_DIR / f"garmin_raw_{_raw_floors_date}.json").write_text(
+    json.dumps({"date": _raw_floors_date, "get_floors": {"floorsValueDescriptorList": ["x"]}}),
+    encoding="utf-8")
+(cfg.RAW_DIR / f"garmin_raw_{_raw_no_floors_date}.json").write_text(
+    json.dumps({"date": _raw_no_floors_date}), encoding="utf-8")
+
+_gr = garmin_health_map.get_raw("floors", _raw_floors_date, _raw_floors_date)
+check("get_raw: source_resolution = raw",        _gr["source_resolution"] == "raw")
+check("get_raw: values entry has date",          _gr["values"][0]["date"] == _raw_floors_date)
+check("get_raw: values entry has raw payload",
+      _gr["values"][0]["raw"] == {"floorsValueDescriptorList": ["x"]})
+
+_gr_missing = garmin_health_map.get_raw("floors", "2000-01-01", "2000-01-01")
+check("get_raw: missing raw file → raw is None", _gr_missing["values"][0]["raw"] is None)
+
+_gr_no_key = garmin_health_map.get_raw("floors", _raw_no_floors_date, _raw_no_floors_date)
+check("get_raw: raw file without endpoint key → raw is None",
+      _gr_no_key["values"][0]["raw"] is None)
+
+try:
+    garmin_health_map.get_raw("nonexistent_raw_field", _raw_floors_date, _raw_floors_date)
+    check("get_raw: unknown field raises KeyError", False)
+except KeyError:
+    check("get_raw: unknown field raises KeyError", True)
+
+(cfg.RAW_DIR / f"garmin_raw_{_raw_floors_date}.json").unlink(missing_ok=True)
+(cfg.RAW_DIR / f"garmin_raw_{_raw_no_floors_date}.json").unlink(missing_ok=True)
 
 # ── Live-Route: live_pct + live_nested Deskriptor-Typen ───────────────────────
 _LIVE_SNAPSHOT = {

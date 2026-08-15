@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.6.7
+# Garmin Local Archive — Desktop App v1.6.8
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -215,6 +215,33 @@ Downloads weather and pollen data for your full archive date range — free, no 
 **Setting your location:** Settings → CONTEXT → paste a Google Maps URL → click **📍 Set Location**. The app extracts latitude and longitude automatically. To get a URL: open Google Maps, navigate to your location, and copy the URL from the address bar.
 
 **CSV button:** Opens `local_config.csv` directly in Excel. This file lets you define different coordinates for specific date ranges — useful if you travel or have relocated. It is created automatically on first Sync Context. For a fixed home location, the Settings entry is sufficient.
+
+### API Scan
+Discovers additional Garmin health data your account provides beyond the
+standard fields — device- or feature-dependent data such as body weight
+(smart scale), blood pressure, or menstrual tracking. Optional and
+additive: nothing is enabled without your confirmation, and the standard
+fields are never affected.
+
+Click **🔍 API Scan** (below Sync Context, Settings tab) to open a dialog
+with three actions:
+
+- **Start Scan** — checks which of the candidate fields your account has
+  actually used in the last N days (default 7, adjustable). Nothing is
+  written to your archive during the scan itself — it only checks which
+  endpoints return real data.
+- **Edit Config** — shows only the fields the scan actually found. Enable
+  the ones you want archived going forward; each future Daily Sync then
+  fetches them alongside your standard data. Nothing is offered here
+  until you've run Start Scan at least once.
+- **Clear Config** — resets the scan results back to the initial state
+  (asks for confirmation first). Only clears the scan configuration,
+  never touches already-archived data.
+
+Enabled fields with a recognized health value (e.g. body weight, resting
+calories) appear automatically in Custom Dashboard. A number of fields are
+archived but have no dedicated interpretation yet — they're stored for
+future use.
 
 ### Background Timer
 Automatically repairs and fills your archive in the background while the app is open — no manual intervention needed.

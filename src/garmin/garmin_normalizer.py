@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 
 # Version of the summary schema produced by summarize().
 # Increment when fields are added, removed, or renamed in the summary dict.
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -209,21 +209,38 @@ def summarize(raw: dict) -> dict:
     # ── Daily stats ──
     us = raw.get("user_summary", {}) or {}
     st = raw.get("stats", {}) or {}
+    cd = raw.get("get_calories_daily") or []
     s["day"] = {
         "steps":                  safe_get(us, "totalSteps") or safe_get(st, "totalSteps"),
         "steps_goal":             safe_get(us, "dailyStepGoal"),
         "calories_active":        safe_get(us, "activeKilocalories"),
         "calories_total":         safe_get(us, "totalKilocalories"),
+        "calories_resting":       safe_get(cd[0], "resting") if cd else None,
         "intensity_min_moderate": safe_get(us, "moderateIntensityMinutes"),
         "intensity_min_vigorous": safe_get(us, "vigorousIntensityMinutes"),
         "floors_climbed":         safe_get(us, "floorsAscended"),
         "distance_km":            round((safe_get(us, "totalDistanceMeters") or 0) / 1000, 2) or None,
     }
 
+    # ── Body composition (v1.6.8 capability-scan pilot) ──
+    bc = raw.get("get_body_composition") or {}
+    s["body_composition"] = {
+        "weight_g": safe_get(bc, "totalAverage", "weight"),
+    }
+
+    # ── Hydration (v1.6.8 Gruppe 1) ──
+    hy = raw.get("get_hydration_data") or {}
+    s["hydration"] = {
+        "value_ml": safe_get(hy, "valueInML"),
+    }
+
     # ── Training ──
     tr = raw.get("training_readiness", {}) or {}
     ts = raw.get("training_status", {}) or {}
     mm = raw.get("max_metrics", {}) or {}
+    es = raw.get("get_endurance_score") or {}
+    hs = raw.get("get_hill_score") or {}
+    fa = raw.get("get_fitnessage_data") or {}
     s["training"] = {
         "readiness_score":    safe_get(tr, "score") or safe_get(tr, "trainingReadinessScore"),
         "readiness_level":    safe_get(tr, "level") or safe_get(tr, "trainingReadinessLevel"),
@@ -231,6 +248,9 @@ def summarize(raw: dict) -> dict:
         "training_status":    safe_get(ts, "latestTrainingStatus") or safe_get(ts, "trainingStatus"),
         "training_load_7d":   safe_get(ts, "trainingLoadBalance", "sevenDayTrainingLoad"),
         "vo2max":             safe_get(mm, "vo2MaxPreciseValue") or safe_get(mm, "generic", "vo2MaxPreciseValue"),
+        "endurance_score":    safe_get(es, "overallScore"),
+        "hill_score":         safe_get(hs, "overallScore"),
+        "fitness_age":        safe_get(fa, "fitnessAge"),
     }
 
     # ── Activities (compact) ──

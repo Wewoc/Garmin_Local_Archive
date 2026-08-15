@@ -130,7 +130,7 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     """
 
     # ── 1. Identify daily fields for dropdowns ────────────────────────────────
-    all_garmin = garmin_list_fields()
+    all_garmin = garmin_list_fields(active_only=True)
     daily_garmin_fields = [
         f for f in all_garmin
         if not f.endswith(_SERIES_SUFFIX) and f not in _EXCLUDE_FROM_DAILY

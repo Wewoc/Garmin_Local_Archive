@@ -39,6 +39,13 @@ BACKUP
 ──────
 Settings -> set Mirror target -> "Export to Mirror"
 
+DISCOVER MORE DATA (optional)
+──────────────────────────────
+Settings -> Data Collection -> "API Scan" checks if your account
+provides additional health data (e.g. from a connected smart scale).
+-> Details: USER_GUIDE.txt ("API Capability Scan") and README_APP.md
+   ("API Scan")
+
 ───────────────────────────────────────────────────────────
   For the built-in Ollama Chat: see USER_GUIDE.txt, Section 10.
   More details: USER_GUIDE.txt

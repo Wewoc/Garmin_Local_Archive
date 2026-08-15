@@ -132,6 +132,19 @@ class PanelOutputs(QWidget):
         ctx_row.addWidget(self._tip("Fetch weather & pollen from Open-Meteo"))
         lay.addLayout(ctx_row)
 
+        # API Scan row
+        scan_row = QHBoxLayout()
+        scan_row.setContentsMargins(20, 2, 20, 2)
+        scan_row.setSpacing(4)
+        scan_btn = self._action_btn("🔍  API Scan", self._app.BG3,
+                                    self._app.TEXT2, self._open_capability_scan_popup)
+        scan_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                               QSizePolicy.Policy.Fixed)
+        scan_row.addWidget(scan_btn)
+        scan_row.addWidget(
+            self._tip("Discover optional Garmin API endpoints for your account"))
+        lay.addLayout(scan_row)
+
         # ── Export ────────────────────────────────────────────────────────────
         lay.addWidget(self._section_widget("Export"))
         exp_row = QHBoxLayout()
@@ -528,6 +541,313 @@ class PanelOutputs(QWidget):
         self._ctx_btn.setEnabled(True)
         self._ctx_stop_btn.setEnabled(False)
         self._app._ctx_running = False
+
+    # ── Capability Scan popup (v1.6.8) ──────────────────────────────────────────
+
+    def _open_capability_scan_popup(self):
+        """API Capability Scan — chooser dialog: Start Scan / Edit Config / Clear Config."""
+        dlg = QDialog(self._app)
+        dlg.setWindowTitle("API Capability Scan")
+        dlg.setModal(True)
+        dlg.setFixedWidth(420)
+        dlg.setStyleSheet(f"background: {self._app.BG}; color: {self._app.TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(8)
+
+        title = QLabel("API CAPABILITY SCAN")
+        title.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(title)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(sep)
+
+        body = QLabel(
+            "Discovers which of 19 optional Garmin health endpoints return\n"
+            "real data for this account. The 15 standard endpoints always\n"
+            "run — this only adds extra fields you opt in to.")
+        body.setFont(QFont("Segoe UI", 8))
+        body.setStyleSheet(f"color: {self._app.TEXT2};")
+        body.setWordWrap(True)
+        lay.addWidget(body)
+
+        def _action(fn):
+            dlg.accept()
+            fn()
+
+        start_btn = self._action_btn(
+            "▶  Start Scan", self._app.ACCENT, self._app.TEXT,
+            lambda: _action(self._capability_start_scan_dialog))
+        edit_btn = self._action_btn(
+            "☑  Edit Config", self._app.BG3, self._app.TEXT,
+            lambda: _action(self._capability_edit_config_dialog))
+        clear_btn = self._action_btn(
+            "🗑  Clear Config", self._app.BG3, self._app.TEXT2,
+            lambda: _action(self._capability_clear_config_dialog))
+        for b in (start_btn, edit_btn, clear_btn):
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            lay.addWidget(b)
+
+        close_btn = QPushButton("Close")
+        close_btn.setFont(QFont("Segoe UI", 9))
+        close_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
+            f"border: none; padding: 6px 14px; }}")
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.clicked.connect(dlg.reject)
+        lay.addWidget(close_btn)
+
+        dlg.exec()
+
+    def _capability_start_scan_dialog(self):
+        """Scan-window input, then runs garmin_collector.py in Capability Scan
+        mode via the same subprocess mechanism as Sync Garmin (self._app._run)
+        — no separate login/UI code needed here, garmin_collector.py's own
+        '0b. Capability Scan mode' branch handles login independently."""
+        dlg = QDialog(self._app)
+        dlg.setWindowTitle("Start Capability Scan")
+        dlg.setModal(True)
+        dlg.setFixedWidth(360)
+        dlg.setStyleSheet(f"background: {self._app.BG}; color: {self._app.TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(8)
+
+        title = QLabel("START CAPABILITY SCAN")
+        title.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(title)
+
+        body = QLabel(
+            "Probes each candidate endpoint over the last N days.\n"
+            "Payload is discarded — only found/not found is kept.")
+        body.setFont(QFont("Segoe UI", 8))
+        body.setStyleSheet(f"color: {self._app.TEXT2};")
+        body.setWordWrap(True)
+        lay.addWidget(body)
+
+        win_row = QHBoxLayout()
+        win_lbl = QLabel("Scan window (days):")
+        win_lbl.setFont(QFont("Segoe UI", 9))
+        win_lbl.setStyleSheet(f"color: {self._app.TEXT};")
+        win_row.addWidget(win_lbl)
+        spin = QSpinBox()
+        spin.setRange(1, 30)
+        spin.setValue(7)
+        spin.setStyleSheet(
+            f"background: {self._app.BG3}; color: {self._app.TEXT}; "
+            f"border: none; padding: 3px;")
+        win_row.addWidget(spin)
+        win_row.addStretch()
+        lay.addLayout(win_row)
+
+        def _start():
+            window_days = spin.value()
+            dlg.accept()
+            self._app._log(
+                f"🔍  API Capability Scan starting — window {window_days} day(s) ...")
+
+            def _on_done():
+                self._app._log(
+                    "✓ API Capability Scan finished — see console/log for per-endpoint results.")
+
+            self._app._run(
+                "garmin_collector.py", enable_stop=True,
+                env_overrides={
+                    "GARMIN_CAPABILITY_SCAN": "1",
+                    "GARMIN_CAPABILITY_WINDOW_DAYS": str(window_days),
+                },
+                on_done=_on_done,
+            )
+
+        run_btn = QPushButton("Run Scan")
+        run_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        run_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.ACCENT}; color: {self._app.TEXT}; "
+            f"border: none; padding: 7px 16px; }}")
+        run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        run_btn.clicked.connect(_start)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
+            f"border: none; padding: 7px 16px; }}")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(run_btn)
+        btn_row.addWidget(cancel_btn)
+        lay.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _capability_edit_config_dialog(self):
+        """Checkbox list of confirmed ('found') candidates — toggle
+        enabled_by_user, then save. Only endpoints already confirmed present
+        for this account are shown; nothing here can enable an endpoint that
+        was never confirmed (garmin_collector's double-gate — enabled_by_user
+        AND status == 'found' — relies on that)."""
+        try:
+            s = self._app._panel_settings._collect_settings()
+            os.environ["GARMIN_OUTPUT_DIR"] = s.get("base_dir", "")
+            import importlib
+            import garmin_config as _cfg
+            importlib.reload(_cfg)
+            import garmin_api_capability as capability
+            config = capability.load_config()
+        except Exception as exc:
+            QMessageBox.critical(self._app, "Edit Config", f"Could not read config:\n{exc}")
+            return
+
+        found = [
+            ep for ep in capability.CANDIDATE_ENDPOINTS
+            if config.get("endpoints", {}).get(ep, {}).get("status") == "found"
+        ]
+
+        dlg = QDialog(self._app)
+        dlg.setWindowTitle("Edit Capability Config")
+        dlg.setModal(True)
+        dlg.setFixedWidth(420)
+        dlg.setStyleSheet(f"background: {self._app.BG}; color: {self._app.TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(8)
+
+        title = QLabel("EDIT CAPABILITY CONFIG")
+        title.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(title)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(sep)
+
+        if not found:
+            empty = QLabel("No confirmed endpoints yet — run Start Scan first.")
+            empty.setFont(QFont("Segoe UI", 9))
+            empty.setStyleSheet(f"color: {self._app.TEXT2};")
+            empty.setWordWrap(True)
+            lay.addWidget(empty)
+            close_btn = QPushButton("Close")
+            close_btn.setFont(QFont("Segoe UI", 9))
+            close_btn.setStyleSheet(
+                f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
+                f"border: none; padding: 6px 14px; }}")
+            close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            close_btn.clicked.connect(dlg.reject)
+            lay.addWidget(close_btn)
+            dlg.exec()
+            return
+
+        check_vars = {}
+        list_widget = QWidget()
+        list_widget.setStyleSheet(f"background: {self._app.BG};")
+        list_lay = QVBoxLayout(list_widget)
+        list_lay.setSpacing(4)
+        for ep in found:
+            row = QHBoxLayout()
+            cb = QCheckBox()
+            cb.setChecked(bool(config["endpoints"][ep].get("enabled_by_user")))
+            cb.setStyleSheet(
+                f"QCheckBox {{ background: transparent; }}"
+                f"QCheckBox::indicator {{ width: 14px; height: 14px; "
+                f"background: {self._app.BG3}; border: 1px solid {self._app.TEXT2}; }}"
+                f"QCheckBox::indicator:checked {{ background: {self._app.ACCENT}; "
+                f"border: 1px solid {self._app.ACCENT}; }}"
+                f"QCheckBox::indicator:hover {{ border: 1px solid {self._app.TEXT}; }}")
+            lbl = QLabel(ep)
+            lbl.setFont(QFont("Segoe UI", 8))
+            lbl.setStyleSheet(f"color: {self._app.TEXT};")
+            row.addWidget(cb)
+            row.addWidget(lbl)
+            row.addStretch()
+            list_lay.addLayout(row)
+            check_vars[ep] = cb
+
+        scroll = QScrollArea()
+        scroll.setWidget(list_widget)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(f"background: {self._app.BG}; border: none;")
+        scroll.setMaximumHeight(260)
+        lay.addWidget(scroll)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {self._app.ACCENT};")
+        lay.addWidget(sep2)
+
+        def _save():
+            updated = config
+            for ep, cb in check_vars.items():
+                updated = capability.update_endpoint(
+                    updated, ep, "found", enabled_by_user=cb.isChecked())
+            if capability.save_config(updated):
+                enabled_count = sum(1 for cb in check_vars.values() if cb.isChecked())
+                self._app._log(
+                    f"✓ Capability config saved — {enabled_count} endpoint(s) enabled")
+                dlg.accept()
+            else:
+                QMessageBox.critical(dlg, "Edit Config", "Could not save config — see log.")
+
+        save_btn = QPushButton("Save")
+        save_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        save_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.ACCENT}; color: {self._app.TEXT}; "
+            f"border: none; padding: 7px 16px; }}")
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.clicked.connect(_save)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
+            f"border: none; padding: 7px 16px; }}")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(cancel_btn)
+        lay.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _capability_clear_config_dialog(self):
+        """Confirm, then reset the capability config to defaults. The 15
+        baseline endpoints are never touched — this only clears optional-
+        endpoint discovery data via garmin_api_capability.reset_config()."""
+        answer = QMessageBox.question(
+            self._app, "Clear Capability Config",
+            "This resets all 19 candidate endpoints to their default state\n"
+            "(not observed, disabled). The 15 standard endpoints are never\n"
+            "affected — this only clears optional-endpoint discovery data.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            s = self._app._panel_settings._collect_settings()
+            os.environ["GARMIN_OUTPUT_DIR"] = s.get("base_dir", "")
+            import importlib
+            import garmin_config as _cfg
+            importlib.reload(_cfg)
+            import garmin_api_capability as capability
+            ok = capability.save_config(capability.reset_config())
+        except Exception as exc:
+            QMessageBox.critical(self._app, "Clear Config", f"Could not reset config:\n{exc}")
+            return
+
+        if ok:
+            self._app._log("✓ Capability config cleared — all candidates reset to defaults")
+        else:
+            QMessageBox.critical(self._app, "Clear Config", "Could not save config — see log.")
 
     # ── Dashboard popup ────────────────────────────────────────────────────────
 

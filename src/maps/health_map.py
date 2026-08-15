@@ -97,17 +97,53 @@ def get(field: str, date_from: str, date_to: str,
     return result
 
 
-def list_fields(source: str = "garmin") -> list[str]:
+def list_fields(source: str = "garmin", active_only: bool = False) -> list[str]:
     """
     Return all field names registered for a given source.
     Defaults to garmin. Returns empty list for unknown source.
+
+    active_only: passed through to garmin_health_map.list_fields() only —
+    excludes Capability-Scan candidate fields not enabled_by_user. Ignored
+    for sources without a capability concept (context_map's sources).
     """
     source_map = _SOURCES.get(source)
     if source_map is None:
         return []
+    if source == "garmin":
+        return source_map.list_fields(active_only=active_only)
     return source_map.list_fields()
 
 
 def list_sources() -> list[str]:
     """Return all registered source names."""
     return list(_SOURCES.keys())
+
+
+def list_raw_fields(source: str = "garmin") -> list[str]:
+    """
+    Return all raw-passthrough field names registered for a given source.
+    Unlike list_fields(), these are not interpreted — see
+    garmin_health_map.get_raw() docstring. Only "garmin" currently
+    supports raw-passthrough; other sources return an empty list.
+    """
+    source_map = _SOURCES.get(source)
+    if source_map is None or source != "garmin":
+        return []
+    return source_map.list_raw_fields()
+
+
+def get_raw(field: str, date_from: str, date_to: str,
+            source: str = "garmin") -> dict:
+    """
+    Request a raw-passthrough field from a single source. Unlike get(),
+    this is not multi-source fan-out — raw-passthrough is Garmin-specific
+    for now, caller must pick a source explicitly.
+
+    Raises:
+        KeyError: if the source has no raw-passthrough support, or the
+                  field is not registered for that source.
+    """
+    source_map = _SOURCES.get(source)
+    if source_map is None or source != "garmin":
+        raise KeyError(f"health_map: source '{source}' has no raw-passthrough support")
+    return source_map.get_raw(field, date_from, date_to)
