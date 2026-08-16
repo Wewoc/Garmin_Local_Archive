@@ -3,19 +3,19 @@
 
 # METRICS
 
-Generated: 2026-08-14 13:04 UTC · Version: 1.6.8
+Generated: 2026-08-16 13:42 UTC · Version: 1.6.8.1
 
 ## Test Counts
 
 | Suite | Checks | Passed | Failed |
 |---|---|---|---|
-| test_local.py | 696 | 696 | 0 |
+| test_local.py | 703 | 703 | 0 |
 | test_local_context.py | 265 | 265 | 0 |
 | test_dashboard.py | 496 | 496 | 0 |
 | test_app_logic.py | 165 | 165 | 0 |
 | test_qt_app.py | 59 | 59 | 0 |
 | test_static.py | 16 | 16 | 0 |
-| **Total** | **1697** | **1697** | **0** |
+| **Total** | **1704** | **1704** | **0** |
 
 ## Modules
 

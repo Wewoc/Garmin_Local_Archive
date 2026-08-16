@@ -198,6 +198,32 @@ def reset_config() -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Candidate selection for a sync run (v1.6.8.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_enabled_candidates(config: dict) -> list[str]:
+    """
+    Returns the subset of CANDIDATE_ENDPOINTS that are double-gated as
+    enabled for a sync run: status == "found" AND enabled_by_user == True.
+
+    Pure function — takes an already-loaded config snapshot, does not call
+    load_config() itself. Caller controls when/under which lock the config
+    is read (see garmin_collector.main()'s fetch-loop section, which reads
+    the snapshot once per sync run inside quality.QUALITY_LOCK for
+    race-safety against a concurrent capability scan — see NOTES_v168.md).
+
+    Extracted from garmin_collector.py::main() (v1.6.8.1) — was inline in
+    the fetch-loop section, not unit-testable without invoking the rest of
+    main(). Behavior unchanged from the original inline logic.
+    """
+    return [
+        ep for ep in CANDIDATE_ENDPOINTS
+        if config.get("endpoints", {}).get(ep, {}).get("status") == "found"
+        and config.get("endpoints", {}).get(ep, {}).get("enabled_by_user")
+    ]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Argument shape per candidate (discovered empirically, first live scan
 #  2026-08-13 — see NOTES_v168.md)
 # ══════════════════════════════════════════════════════════════════════════════

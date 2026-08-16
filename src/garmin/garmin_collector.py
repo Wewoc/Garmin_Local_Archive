@@ -1065,11 +1065,7 @@ def main(stop_event=None):
         # per day (race-safety vs. a concurrent capability scan, see
         # NOTES_v168.md). Baseline-15 are never affected either way.
         _capability_config = capability.load_config()
-        enabled_candidates = [
-            ep for ep in capability.CANDIDATE_ENDPOINTS
-            if _capability_config["endpoints"].get(ep, {}).get("status") == "found"
-            and _capability_config["endpoints"].get(ep, {}).get("enabled_by_user")
-        ]
+        enabled_candidates = capability.get_enabled_candidates(_capability_config)
         if enabled_candidates:
             log.info(f"  Capability-enabled endpoints this run: {len(enabled_candidates)}")
 
