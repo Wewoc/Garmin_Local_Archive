@@ -1,5 +1,52 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.8.2 — Standalone Log Order Fix
+
+Fixes a display-order bug found in the Standalone build (T3): the
+`on_done`/`on_success` callbacks of `_run()` were dispatched directly via
+the inherited `_dispatch()` (Qt queued signal, near-immediate delivery),
+while regular log output from the running script went through
+`_log_queue` + `_poll_log_queue()` (100ms polling). When a callback itself
+produced log text — as in the API Capability Scan's "finished" message —
+it could overtake log lines still waiting on the next poll tick, showing
+the callback's text before lines that logically preceded it. Confirmed via
+code reading (both delivery paths in `garmin_app_standalone.py`), not
+guessed from the log symptom alone. No data-integrity issue — Standalone
+and Target 2 (`garmin_app.py`) produced identical, correct scan results;
+only the on-screen line order in the Standalone log widget was affected.
+Target 2 was never affected — it has no `_log_queue`/polling architecture,
+so no competing delivery path exists there.
+
+**Changed modules:**
+- `garmin_app_standalone.py` — `worker()`'s `finally` block: `on_success`
+  and `on_done` are now enqueued via `q.put(...)` instead of dispatched
+  directly via `self._dispatch(...)`, so they run after any log lines
+  already ahead of them in the queue. `_poll_log_queue()` extended to
+  handle both queue item types — log-line strings (unchanged path) and
+  zero-arg callables (new: invoked directly instead of passed to
+  `self._log()`). The `enable_stop`-related `_dispatch()` call (button
+  enable/disable, no text output) is unaffected and left unchanged.
+
+**Investigated, not changed:** the `on_done`/`_dispatch()` pattern also
+appears in `panel_outputs.py::_run_all_dashboards()` /
+`_run_dashboards()` and in the shared `_run()` signature across
+`garmin_app.py` / `garmin_app_base.py` / `garmin_app_standalone.py` (DEPS
+scan `v1682_01`, confirmed via Scope-Snapshot). Read in full:
+`panel_home.py`'s Daily-Sync callback chain (`_on_garmin_done` →
+`_on_context_done` → `_on_all_done`) produces no log text of its own, only
+chains the next step and re-enables a button — not affected by the
+display-order symptom, no change needed. `garmin_app_base.py._dispatch()`
+itself (Qt `pyqtSignal` queued connection) is correct and shared by
+Target 2, which has no competing queue — left unchanged.
+
+**Test result:** 703 / 265 / 496 / 165 / 59 / 16 — all green, drift-check
+clean (`dep_map_delta.md`, 2026-08-16 Run-01 → Run-02: 0 NEU / 0 WEG / 0
+GEKIPPT-Regression — no code in `garmin/`·`context/`·`maps/`·
+`dashboards/`·`layouts/` changed this session, scan run anyway for extra
+confidence).
+
+---
+
 ## v1.6.8.1 — Doppel-Gate Filter Extraction + Test Coverage
 
 Closes the one test gap deliberately carried forward from v1.6.8 Session F:

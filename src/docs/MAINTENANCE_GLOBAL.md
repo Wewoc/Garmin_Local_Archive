@@ -63,6 +63,20 @@ undocumented `QWebEngineView` instance (`garmin_app_base.py`, XLSX preview)
 was discovered during the A5 dependency scan — both call sites are now
 covered.
 
+**Standalone log delivery order (v1.6.8.2):** `garmin_app_standalone.py`'s
+`_run()` has two delivery paths into the same log widget — regular log
+text goes through `_log_queue` + `_poll_log_queue()` (100ms polling),
+while `on_done`/`on_success` callbacks used to go through the inherited
+`_dispatch()` (Qt queued signal, near-immediate). Since v1.6.8.2, both
+`on_done` and `on_success` are enqueued via `q.put(...)` instead —
+`_poll_log_queue()` distinguishes log-line strings from zero-arg
+callables and invokes the latter directly. This guarantees delivery order
+matches log order. Rule for any future `_run()` caller in
+`garmin_app_standalone.py`: an `on_done`/`on_success` callback that itself
+produces log text must not be dispatched via `self._dispatch()` directly
+— it will race ahead of queued log lines. Target 2 (`garmin_app.py`) has
+no `_log_queue`/polling architecture and is not affected by this pattern.
+
 ---
 
 ## Building a release
