@@ -8,8 +8,12 @@ shared, backed up, or accidentally committed. Block B never stores
 credentials in this file at all — see below.
 
 A small standalone diagnostic tool for Garmin Local Archive. Attempts
-**exactly one** Garmin Connect login and reports `LOGIN OK` or
-`LOGIN FAILED` — nothing else.
+a single login pass — one call into the login flow — and reports
+`LOGIN OK` or `LOGIN FAILED`. That one call can still involve multiple
+requests internally (e.g. a token probe, then an SSO attempt that
+itself tries several strategies inside the `garminconnect` library) —
+"one pass" means the tool calls the login flow exactly once, not that
+exactly one HTTP request happens on the wire.
 
 ## Why this exists
 
@@ -27,7 +31,22 @@ touching your main account at all.
 - No data sync, no bulk API calls beyond the login step itself
 - No changes to `garmin_api.py`, `garmin_security.py`, or
   `garmin_config.py` in your GLA install — it only calls into them
-- Block A (see below) never reads or writes your saved token
+- Block A never reads or writes your saved token
+
+## What Block B *can* change
+
+Block A is a fully isolated probe — no token access at all. Block B is
+not: it runs the exact same login flow a normal GLA sync uses, so it
+can change your local login state the same way a normal sync would.
+
+Specifically, if your saved token has expired or is rejected by
+Garmin, Block B's login flow deletes it and — if the following SSO
+attempt succeeds — saves a new one. That's the same behavior you'd get
+from a regular sync hitting an expired token, not something extra this
+tool does. But it means Block B is a diagnostic *and recovery* probe
+for your GLA login state, not a read-only check the way Block A is.
+If you want a check that's guaranteed not to touch your main account
+at all, use Block A instead.
 
 ## Setup
 
