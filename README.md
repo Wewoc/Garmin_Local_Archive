@@ -569,6 +569,8 @@ A ready-to-import XML template (`daily_update_task.xml`) ships in `info/` (Stand
 
 `daily_update` handles gap detection automatically: gaps up to 7 days are healed without intervention, larger gaps trigger a hard stop with a clear message to open the app.
 
+**Troubleshooting a failed login:** Garmin occasionally rate-limits or blocks login attempts (`429` / `403`), independent of GLA itself. If a sync fails with a login error, `support-tools/login-probe/` attempts a single isolated login and reports OK/failed — useful for telling "Garmin is currently blocking logins" apart from "something's wrong with my setup," without running a full sync. See its own README for setup.
+
 **Linux / macOS** (daily at 07:00):
 
 > ⚠️ **Linux / macOS note:** The collector scripts should work on any system with Python 3.10+. The GUI and EXE are Windows-only. Credential storage via `keyring` works on most desktop systems but may need an additional backend on Linux (e.g. `pip install secretstorage`). Headless environments (no desktop session) do not support keyring — store credentials via environment variables instead (`GARMIN_EMAIL`, `GARMIN_PASSWORD`).
