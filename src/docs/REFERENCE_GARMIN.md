@@ -178,7 +178,7 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 | Function / Symbol | Purpose |
 |---|---|
 | `GarminLoginError` | Exception raised on unrecoverable login failure. Replaces `sys.exit(1)` |
-| `login(on_key_required, on_token_expired, on_mfa_required, on_sso_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA via callback. `on_sso_required` blocks Path 3 until user confirms — `None` (headless/standalone) starts SSO automatically. Returns client or `None` if cancelled. Raises `GarminLoginError` on failure |
+| `login(on_key_required, on_token_expired, on_mfa_required, on_sso_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA via callback. `on_sso_required` blocks Path 3 until user confirms — `None` (headless/standalone) starts SSO automatically. Returns client or `None` if cancelled. Raises `GarminLoginError` on failure. **Note:** `support-tools/garmin-login-probe/garmin_login_probe.py` calls this directly with `on_sso_required=lambda: True` — a signature change here requires updating that tool too |
 | `api_call(client, method, *args, label)` | Single API call with random delay and stop-check. Returns `(data, success)` |
 | `fetch_raw(client, date_str, extra_endpoints=None)` | Calls all 15 Garmin API endpoints, plus any `(method, args, key)` tuples passed via `extra_endpoints`. Stays config-blind — only ever receives a ready-made tuple list. `extra_endpoints` (v1.6.8) — used by `garmin_collector` to append user-enabled API-Capability-Scan candidates; baseline 15 always run regardless. Returns `(raw: dict, failed_endpoints: list[str])` |
 | `get_devices(client)` | Fetches registered device list. Returns sorted list |
