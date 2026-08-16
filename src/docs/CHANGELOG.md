@@ -1,5 +1,47 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.8.1 — Doppel-Gate Filter Extraction + Test Coverage
+
+Closes the one test gap deliberately carried forward from v1.6.8 Session F:
+the API-Capability-Scan candidate-selection filter
+(`enabled_by_user == True` **and** `status == "found"`) sat inline in
+`garmin_collector.py::main()`'s fetch-loop section, not independently unit
+testable without invoking the rest of `main()`. Pure refactoring — no
+behavior change, no new feature.
+
+**Changed modules:**
+- `garmin/garmin_api_capability.py` — new `get_enabled_candidates(config)`,
+  placed between `reset_config()` and the `ENDPOINT_ARGS` block (sync-time
+  helper, alongside `build_args()`). Pure function, `config.get("endpoints",
+  {})` defensive access consistent with the rest of the module's
+  never-raise contract. No new import — Leaf-Node status unchanged.
+- `garmin/garmin_collector.py` — `main()`'s fetch-loop section now calls
+  `capability.get_enabled_candidates(_capability_config)` instead of
+  inlining the double-gate list comprehension. `load_config()` stays in
+  `main()`, still read once per sync run inside `quality.QUALITY_LOCK` —
+  the race-safety snapshot semantics are unchanged, only the filter step
+  moved.
+- `tests/test_local.py` — 7 new checks for `get_enabled_candidates()`
+  (Section K): both gates satisfied, `status`-only, `enabled_by_user`-only,
+  missing endpoint key (no `KeyError`), empty `endpoints` dict, multiple
+  enabled candidates, return order follows `CANDIDATE_ENDPOINTS`. No mocks
+  needed — pure dict fixtures via `_default_config()`/`update_endpoint()`.
+
+**Investigated, not a fix:** DEPS scan flagged `app/panel_outputs.py`
+(Edit Config dialog) as a possible shadow-copy of the double-gate filter.
+Confirmed false positive after reading the file — it's a single-gate
+display filter (`status == "found"` only, decides which endpoints appear
+as checkboxes), not a reconstruction of the sync-time double-gate. No
+change made.
+
+**Test result:** 703 / 265 / 496 / 165 / 59 / 16 — all green, ruff 0
+errors, bandit 0 HIGH. Drift-check clean (`2026-08-14_Run-02` →
+`2026-08-16_Run-01`: 3 NEU / 0 WEG / 0 GEKIPPT-Regression, all traced to
+`support-tools/login-probe/garmin_login_probe.py` — a standalone
+diagnostic tool outside the GLA package tree, unrelated to this session).
+
+---
+
 ## v1.6.8 — API Capability Scan + Broker Extension
 
 Detects per-user which of 19 additional Garmin health endpoints — beyond
