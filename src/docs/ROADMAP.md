@@ -6,17 +6,250 @@
 
 ---
 
-**Currently stable — v1.6.8**
+**Currently stable — v1.6.8.1**
 
 ---
 
 ## Planned — v1.7
 
-### v1.7 — FIT Pipeline
+### v1.7 — MCP Server
+
+Exposes GLA data to local LLMs via the Model Context Protocol. Allows natural-language queries against the full archive — health data and context data, FIT activities once the FIT pipeline exists — without manual export or file upload.
+
+**Reordering note (2026-08-16):** Originally planned as v1.9, moved ahead of the FIT Pipeline. `mcp_map.py` and the SQLite Proxy build entirely on infrastructure that already exists (`gateway_map.py`, `quality_log.json`, `context_api.py`/`context_writer.py`) and carry none of the FIT Pipeline's four not-cheaply-reversible gate decisions. Full LLM access to the archive is a large, low-risk value-add on its own — see `docs/KONZEPT_mcp_sqlite_proxy_V2.md` and `NOTES_v1.9-eval_mcp-proxy-reihenfolge.md` for the full evaluation.
+
+**Architecture**
+
+`gateway_map.py` (v1.6.7) already provides the cross-domain routing layer this
+feature needs — pass-through queries across `health_map`, `fit_map`, and
+`context_map` behind a single entry point. `mcp_map.py` sits on top of
+`gateway_map.py` as a thin MCP protocol translator: it no longer aggregates
+or routes itself, that responsibility moved to `gateway_map` when it was
+built. `mcp_map` accepts structured tool calls from the MCP Server, forwards
+them to `gateway_map`, and shapes the response into the MCP tool-call format.
+The MCP Server itself has no knowledge of GLA's internal structure —
+`mcp_map` owns that translation.
+
+```
+MCP Server (external)
+    ↓
+mcp_map.py  ←→  gateway_map.py  ←→  health_map / fit_map / context_map
+    ↓
+[Pipeline untouched]
+```
+
+**FIT stub:** the FIT Pipeline is not built yet at this point (see v1.8).
+`gateway_map.py` already returns a degraded `{"error": ...}` result for
+unregistered domains — a `query_fit_activities()` call is therefore safe to
+expose now; it simply answers "not available yet" until `fit_map.py` exists.
+No FIT-specific code, no FIT skeleton, no config pre-decision happens here —
+see `docs/KONZEPT_mcp_sqlite_proxy_V2.md`, section "FIT-Anbindung", for the
+reasoning.
+
+**`garmin/mcp_map.py` — new module**
+
+Sole Owner of MCP protocol translation. Accepts structured tool calls from
+the MCP Server and forwards them to `gateway_map.get()`. Returns normalized
+response dicts. No write access to any pipeline component — read-only by
+design, and no routing logic of its own — that lives in `gateway_map`.
+
+**`mcp_server.py` — new module**
+
+Standalone MCP server process. Implements the MCP tool definitions and delegates all data access to `mcp_map`. Can be started independently of the main GUI. Configurable via `local_config` — enabled/disabled, port, LLM backend.
+
+**LLM backend support**
+
+- Ollama (default, recommended) — fully local, no data leaves the machine
+- Claude API — optional, user's choice; no default
+
+The backend is a configuration option. GLA takes no position on which LLM the user runs.
+
+**Example tools exposed via MCP**
+
+- `query_day(date)` — full summary for a single day across all active sources
+- `query_range(start, end, fields)` — aggregated data for a date range
+- `query_fit_activities(start, end)` — FIT activity list with key metrics (returns "not available" until v1.8)
+- `get_archive_stats()` — archive health overview (coverage, quality distribution)
+
+**What changes:**
+- `garmin/mcp_map.py` — new module; read-only MCP protocol translator on top of `gateway_map`
+- `mcp_server.py` — new standalone MCP server process
+- `local_config` — two new fields: `MCP_ENABLED` (on/off), `MCP_LLM_BACKEND` (ollama / claude-api)
+- `garmin_app_base.py` — optional "Start MCP Server" toggle in Settings panel
+
+**What does not change:**
+- Broker Layer internals — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
+- Pipeline — no access below the Broker Layer
+- Sole owner principle — `mcp_map` reads via `gateway_map` only, never directly from archive files or the domain brokers
+- All existing workflows — GUI, dashboards, export pipeline unaffected
+
+**Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
+
+---
+
+### v1.7.1 — SQLite Proxy
+
+Aggregation cache in front of `mcp_map.py` — turns range/trend questions
+("average sleep last month") from an O(archive size) file-iteration into a
+fast local SQL query. Full concept: `docs/KONZEPT_mcp_sqlite_proxy_V2.md`.
+
+**Architecture**
+
+```
+LLM (Ollama/Open WebUI/Claude via MCP-Client)
+        │
+        ▼
+  SQLite-Proxy   ← aggregation cache, MCP server/client
+        │
+        ▼
+   mcp_map.py    ← pure protocol translator
+        │
+        ▼
+   gateway_map.py
+```
+
+Standalone, upstream tool — not part of the broker chain itself, no new
+responsibility for `mcp_map.py`. The proxy is always a derived, reproducible
+cache — never written to independently, always rebuildable from the existing
+silos. **Invariant: SQLite is always consumer, never source.** Backup and
+Mirror do not need to know the SQLite file exists; losing it forces a
+full rebuild, not data loss.
+
+**Trigger model:** sync on process start, plus a manually callable sync tool
+(`refresh_cache()`, working name) alongside `query_day`/`query_range` — same
+delta mechanism, additional caller. Lets a long-running MCP server (e.g. in a
+private network via Open WebUI) catch up without a restart. Reads only —
+triggers no Garmin API call; a chat-triggered Daily Sync was evaluated and
+explicitly rejected (would require a persistent background process and break
+the "MCP Server cannot modify the archive" invariant).
+
+**Delta interface:** targeted "what changed since timestamp X" query against
+`quality_log.json` via the broker, not a full-file read-and-filter.
+
+**Routing switch — point query vs. aggregation:** the Proxy itself decides,
+per request, whether to pass it straight through to `mcp_map.py` (point
+query — one day, one field) or answer it from SQLite (aggregation over a
+range). The client never sees this — it always talks to the Proxy alone.
+Built in from the start, not deferred: without it, every point query (e.g.
+the in-app chat asking "how did I sleep today") would take the full SQLite
+detour after data was just mirrored there — pure overhead, no speed gain.
+
+**Schema:** simple per-source daily tables (Health, Context; FIT once it
+exists), live SQL aggregation (`AVG(...) WHERE date BETWEEN ...`) — no
+pre-aggregated weekly/monthly tables. Decided against the archive's real size
+(2,797 days total as of 2026-08-16) — live aggregation is effectively
+instant at this scale; pre-aggregation would add complexity without
+measurable benefit.
+
+**Scope:** Health and Context, not just Garmin — the combination is GLA's
+actual value-add over a plain Garmin mirror. Context has no change-log of its
+own (`context_api.py` never writes); the proxy mirrors the completeness check
+`context_writer.already_written()` already uses internally (file exists for
+day X → yes/no), verified against the real code. FIT joins later via the
+same `gateway_map` mechanism, no rework needed here.
+
+**Storage location:** `BASE_DIR/sqlite/mcp_cache.db` (working name) —
+sibling to `garmin_data/`, `context_data/`, `dashboards/`.
+
+*Pre-condition: v1.7 MCP Server stable.*
+
+---
+
+### v1.7.2 — Ollama Chat Tool-Calling Integration
+
+Connects the existing in-app Ollama chat panel (`app/panel_chat.py`, v1.6.6)
+to the Proxy, replacing the current daily-aggregate-only context export.
+
+**Current limitation:** `panel_chat.py` currently reads `health_garmin.json`/
+`health_garmin_prompt.md` — daily aggregates only, to avoid blowing the
+context window on a stateless `/api/chat` call that resends the full system
+message every turn. Intraday resolution (e.g. heart rate history for a
+specific night) is missing from the model's context as a result.
+
+**What changes:** instead of a second, larger static export file, the model
+queries on demand via the Proxy when the chat history actually requires
+intraday detail — the same single entry point external MCP clients (Ollama,
+Open WebUI) use. The routing switch (v1.7.1) means most in-app chat queries
+are point queries and get answered directly via `mcp_map.py`, with no SQLite
+detour — `panel_chat.py` doesn't need to know or care. Requires
+`panel_chat.py` to gain a tool/function-calling
+interface against Ollama — a real extension beyond the current sync
+request/response pattern, not a config change.
+
+*Pre-condition: v1.7 + v1.7.1 stable.*
+
+---
+
+### v1.7.3 — Export Layer
+ 
+A new output layer parallel to `dashboards/` — reads via the Broker Layer,
+writes to external formats and databases. GLA becomes local data infrastructure
+for the broader Garmin ecosystem: other tools consume GLA's archive instead of
+fetching from the Garmin API themselves, gaining access to intraday data that
+would otherwise be lost after ~135 days.
+ 
+**Architecture**
+ 
+The Export Layer sits at the same level as the Dashboard Layer. Both consume
+the Broker Layer — neither has knowledge of pipeline internals.
+ 
+```
+Broker Layer  (health_map / fit_map / context_map)
+        ↓                          ↓
+Dashboard Layer              Export Layer
+dashboards/                  exports/
+layouts/                     export_adapters/
+```
+ 
+Export adapters are planned to read via `gateway_map.py` rather than
+querying individual domain brokers directly (decided in the v1.6.7
+`gateway_map` session) — one cross-domain entry point instead of each
+adapter importing `health_map`/`fit_map`/`context_map` separately. Not yet
+built; noted here for when this layer is implemented.
+ 
+**Design principles**
+ 
+- One adapter per target format — no shared state between adapters
+- Adapters are read-only consumers of the Broker Layer
+- No write access to any pipeline component or archive directory
+- Sole-Write-Authority of existing pipeline modules is not affected
+
+**Candidate adapter formats**
+ 
+- InfluxDB Line Protocol — enables garmin-grafana and similar tools to consume
+  GLA data without fetching from the Garmin API
+- CSV — generic export for Python analysis, Excel, or LLM input
+- Prometheus exposition format — for monitoring / alerting stacks
+
+No adapter is a commitment. Each is evaluated independently when development begins.
+ 
+**What changes:**
+- `exports/` — new top-level directory, parallel to `dashboards/`
+- `exports/export_runner.py` — orchestration; analogous to `dash_runner.py`
+- `exports/export_adapters/` — one module per target format
+
+**What does not change:**
+- Broker Layer — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
+- Dashboard Layer — unaffected
+- Pipeline — no access below the Broker Layer
+- Sole owner principle — adapters read via brokers only
+
+---
+
+## Planned — v1.8
+
+### v1.8 — FIT Pipeline
 
 Standalone plugin pipeline for Garmin activity data (.fit files). The existing
 Health pipeline is not modified — the FIT pipeline runs as an independent,
-parallel pipeline alongside it. Full concept in `docs/KONZEPT_fit_pipeline.md`.
+parallel pipeline alongside it. Full concept in `docs/KONZEPT_fit_pipeline_V2.md`.
+
+**Reordering note (2026-08-16):** Originally planned as v1.7, moved behind
+MCP Server / SQLite Proxy / Export Layer. Four gate decisions from the FIT
+concept (activity ID, orchestrator, config ownership, backup scope) are not
+cheaply reversible once made — deliberately not rushed ahead of a
+lower-risk, immediately useful MCP/Proxy build. See
+`NOTES_v1.9-eval_mcp-proxy-reihenfolge.md`.
 
 **Architecture:**
 - `garmin/fit/` — isolated pipeline: `fit_master.py`, `fit_api.py`, `fit_import.py`,
@@ -25,6 +258,7 @@ parallel pipeline alongside it. Full concept in `docs/KONZEPT_fit_pipeline.md`.
 - `garmin_data/fit/` — own directory: `raw/` (.fit originals), `summary/` (JSON),
   `tracks/` (GeoJSON, GPS only on demand), `log/`
 - `fit_map.py` — peer broker alongside `health_map.py` and `context_map.py`;
+  already reachable via `gateway_map.py`'s degraded-domain path since v1.7 —
   `garmin_fit_map.py` registered beneath it
 - Two entry points: Bulk Import (manual .fit files) + Sync (Garmin Connect API)
 - Both paths merge at `fit_parser.py` — identical pipeline from there onward
@@ -42,7 +276,7 @@ created with first module and maintained in every session that touches FIT modul
 
 ---
 
-### v1.7.1 — FIT GUI Integration
+### v1.8.1 — FIT GUI Integration
 
 Import and Sync control elements for the FIT pipeline added to `panel_outputs.py`.
 Steuerungslogik only — no activity view, no dashboards, no map display.
@@ -62,11 +296,11 @@ Those follow after PyQt6 migration is stable and the pipeline is proven.
 - `scheduler/daily_update.py` — FIT Sync path must be fully headless;
   no GUI dependency allowed
 
-*Pre-condition: v1.7 FIT Pipeline stable.*
+*Pre-condition: v1.8 FIT Pipeline stable.*
 
 ---
 
-### v1.7.2 — Context Integration & Location Fallback
+### v1.8.2 — Context Integration & Location Fallback
 
 Location-aware context collection extended with GPS data from FIT activities
 and a formal state tracking layer (`quality_context.json`).
@@ -98,11 +332,11 @@ not into `context_data/`. Implemented via `activity_context_plugin.py`
 (same APIs as context pipeline, output only differs).
 Historical data available without time limit (Open-Meteo) — no urgency.
 
-*Pre-condition: v1.7.1 stable. FIT pipeline delivering GPS tracks reliably.*
+*Pre-condition: v1.8.1 stable. FIT pipeline delivering GPS tracks reliably.*
 
 ---
 
-### v1.7.3 — PDF Report
+### v1.8.3 — PDF Report
 
 A standalone workflow for generating a formatted health report as PDF — separate from the Create Reports pipeline. Triggered via a dedicated **PDF Report** button in the Outputs section of the GUI (not via the Create Reports dialog, to avoid collision with Daily Update and the existing report workflow).
 
@@ -125,7 +359,9 @@ A standalone workflow for generating a formatted health report as PDF — separa
 
 ---
 
-### v1.8 — Integration Test Suite (Post-FIT)
+## Planned — v1.9
+
+### v1.9 — Integration Test Suite (Post-FIT)
 
 Full integration test suite against the built EXE using synthetic fixture data.
 Four suites parallel to the pipeline structure:
@@ -179,137 +415,9 @@ no active harm.
 
 ---
 
-### v1.9 — MCP Server
+## Planned — v1.10
 
-Exposes GLA data to local LLMs via the Model Context Protocol. Allows natural-language queries against the full archive — health data, FIT activities, and context data — without manual export or file upload.
-
-**Architecture**
-
-`gateway_map.py` (v1.6.7) already provides the cross-domain routing layer this
-feature needs — pass-through queries across `health_map`, `fit_map`, and
-`context_map` behind a single entry point. `mcp_map.py` sits on top of
-`gateway_map.py` as a thin MCP protocol translator: it no longer aggregates
-or routes itself, that responsibility moved to `gateway_map` when it was
-built. `mcp_map` accepts structured tool calls from the MCP Server, forwards
-them to `gateway_map`, and shapes the response into the MCP tool-call format.
-The MCP Server itself has no knowledge of GLA's internal structure —
-`mcp_map` owns that translation.
-
-```
-MCP Server (external)
-    ↓
-mcp_map.py  ←→  gateway_map.py  ←→  health_map / fit_map / context_map
-    ↓
-[Pipeline untouched]
-```
-
-**`garmin/mcp_map.py` — new module**
-
-Sole Owner of MCP protocol translation. Accepts structured tool calls from
-the MCP Server and forwards them to `gateway_map.get()`. Returns normalized
-response dicts. No write access to any pipeline component — read-only by
-design, and no routing logic of its own — that lives in `gateway_map`.
-
-**`mcp_server.py` — new module**
-
-Standalone MCP server process. Implements the MCP tool definitions and delegates all data access to `mcp_map`. Can be started independently of the main GUI. Configurable via `local_config` — enabled/disabled, port, LLM backend.
-
-**LLM backend support**
-
-- Ollama (default, recommended) — fully local, no data leaves the machine
-- Claude API — optional, user's choice; no default
-
-The backend is a configuration option. GLA takes no position on which LLM the user runs.
-
-**Example tools exposed via MCP**
-
-- `query_day(date)` — full summary for a single day across all active sources
-- `query_range(start, end, fields)` — aggregated data for a date range
-- `query_fit_activities(start, end)` — FIT activity list with key metrics
-- `get_archive_stats()` — archive health overview (coverage, quality distribution)
-
-**What changes:**
-- `garmin/mcp_map.py` — new module; read-only MCP protocol translator on top of `gateway_map`
-- `mcp_server.py` — new standalone MCP server process
-- `local_config` — two new fields: `MCP_ENABLED` (on/off), `MCP_LLM_BACKEND` (ollama / claude-api)
-- `garmin_app_base.py` — optional "Start MCP Server" toggle in Settings panel
-
-**What does not change:**
-- Broker Layer internals — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
-- Pipeline — no access below the Broker Layer
-- Sole owner principle — `mcp_map` reads via `gateway_map` only, never directly from archive files or the domain brokers
-- All existing workflows — GUI, dashboards, export pipeline unaffected
-
-**Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
-
----
-
-**Note for Roadmap – Intraday Data for Ollama Chat Context**
-
-Idea: The `health_garmin.json`/`health_garmin_prompt.md` files (consumed by `app/panel_chat.py`, v1.6.6) currently only provide daily aggregates. For more detailed chat responses (e.g., heart rate history for a specific night), intraday resolution is missing in the model's context.
-
-Why not now: `/api/chat` is stateless – the entire system message is resent with each message. Intraday resolution would significantly increase the amount of data per request and exacerbate the context limit problem, which v1.6.6 has only recently addressed through the "New Chat" reset. The broker already provides intraday data (`garmin_health_map.py`, `source_resolution=intraday`) – only the `health_garmin` component currently retrieves daily values. The appropriate solution is not a second export file in the current format, but an on-demand query via `mcp_map.py`: the model would specifically request intraday data when the chat history requires it, instead of including it unsolicited in every system message.
-
-Open questions: Should the data be queried directly via `mcp_map.py`, or first via the SQLite proxy (`KONZEPT_mcp_sqlite_proxy.md`)? Does `panel_chat.py` need a tool/function-calling interface for this purpose with Ollama, or will it remain limited to pure text context – this would be a real extension beyond the current sync request/response pattern.
-
-No action until: `mcp_map.py` is implemented and the server/client roles defined in `KONZEPT_mcp_sqlite_proxy.md` are clarified.
-
----
-
-### v1.9.1 — Export Layer
- 
-A new output layer parallel to `dashboards/` — reads via the Broker Layer,
-writes to external formats and databases. GLA becomes local data infrastructure
-for the broader Garmin ecosystem: other tools consume GLA's archive instead of
-fetching from the Garmin API themselves, gaining access to intraday data that
-would otherwise be lost after ~135 days.
- 
-**Architecture**
- 
-The Export Layer sits at the same level as the Dashboard Layer. Both consume
-the Broker Layer — neither has knowledge of pipeline internals.
- 
-```
-Broker Layer  (health_map / fit_map / context_map)
-        ↓                          ↓
-Dashboard Layer              Export Layer
-dashboards/                  exports/
-layouts/                     export_adapters/
-```
-
-Export adapters are planned to read via `gateway_map.py` rather than
-querying individual domain brokers directly (decided in the v1.6.7
-`gateway_map` session) — one cross-domain entry point instead of each
-adapter importing `health_map`/`fit_map`/`context_map` separately. Not yet
-built; noted here for when this layer is implemented.
- 
-**Design principles**
- 
-- One adapter per target format — no shared state between adapters
-- Adapters are read-only consumers of the Broker Layer
-- No write access to any pipeline component or archive directory
-- Sole-Write-Authority of existing pipeline modules is not affected
-**Candidate adapter formats**
- 
-- InfluxDB Line Protocol — enables garmin-grafana and similar tools to consume
-  GLA data without fetching from the Garmin API
-- CSV — generic export for Python analysis, Excel, or LLM input
-- Prometheus exposition format — for monitoring / alerting stacks
-No adapter is a commitment. Each is evaluated independently when development begins.
- 
-**What changes:**
-- `exports/` — new top-level directory, parallel to `dashboards/`
-- `exports/export_runner.py` — orchestration; analogous to `dash_runner.py`
-- `exports/export_adapters/` — one module per target format
-**What does not change:**
-- Broker Layer — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
-- Dashboard Layer — unaffected
-- Pipeline — no access below the Broker Layer
-- Sole owner principle — adapters read via brokers only
-
----
-
-### v1.9.2 — Docker / Linux Accessibility (Idea)
+### v1.10 — Docker / Linux Accessibility (Idea)
 
 > **Status: Idea, unverified — no build order, no architecture decision.**
 > Details in `KONZEPT_linux_zugang.md`.
@@ -327,7 +435,7 @@ behaviour under parallel token access (Windows GUI + container).
 
 ---
  
-### v1.10 — Calendar Context (Concept)
+### v1.11 — Calendar Context (Concept)
  
 > **Status: Concept only — no implementation decision made.**
 > Visualisation concept confirmed; data source and auth path not yet decided.
@@ -351,6 +459,7 @@ lives in a different silo.
 - *Intraday dashboards:* time spans as overlay bands — e.g. a 14:00–16:00
   meeting block rendered as a shaded region over the Stress or Heart Rate trace.
   Opt-in per chart, not applied globally. Plotly `vrect` handles this natively.
+
 **Candidate sources — research status**
  
 - Google Calendar API — **effectively ruled out.** Refresh tokens expire after
@@ -369,6 +478,7 @@ lives in a different silo.
   GLA. **Not yet evaluated — architecturally clean.**
 - Manual `.ics` import — no auth, no cloud dependency; manual export from any
   calendar app. Remains valid as a fallback or first implementation step.
+
 **Open questions (to resolve before any build decision)**
  
 - Auth / source path: CalDAV and OS-level calendar not yet technically evaluated.
@@ -379,8 +489,9 @@ lives in a different silo.
   would be needed.
 - Scope boundary: which charts get intraday overlays, and how is that configured?
   Not every intraday chart warrants a calendar layer.
+
 **Pre-condition:** none from a pipeline perspective. Source and auth path decision
-required before any architecture work. Not before v1.9.
+required before any architecture work. Not before v1.10.
  
 ---
 
@@ -450,7 +561,7 @@ Training load, activity volume and sport-specific metrics (swim/bike/run) visual
 Core pipeline is covered by five test suites (218 + 134 + 211 + 80 checks + 8 sections for build output). Build integrity is covered by `validate_scripts()` in both build scripts and `test_build_output.py` as post-build gate. Full CI/CD with GitHub Actions for automated builds and release packaging is intentionally deferred — no timeline, no commitment, but the intention is there.
 
 **Device-time vs. viewer-time display mode**
-v1.6.5.6 chose device-local time (from `startTimestampGMT`/`Local`, archived every day) as the intraday display basis — reisetreu by construction, but it means a day recorded while traveling shows in the device's time zone, not the viewer's current one. A toggle to show viewer-clock time instead (system clock, DST-correct year-round, loses device-time fidelity for travel days) would be a small, independent add-on if it's ever wanted. GPS-derived time zone (from FIT activities) would only close the remaining gap — a travel day that also happens to be a DST transition day — and isn't worth building ahead of the FIT pipeline. Natural anchor point: the travel block already planned for `quality_context.json` (v1.7.2).
+v1.6.5.6 chose device-local time (from `startTimestampGMT`/`Local`, archived every day) as the intraday display basis — reisetreu by construction, but it means a day recorded while traveling shows in the device's time zone, not the viewer's current one. A toggle to show viewer-clock time instead (system clock, DST-correct year-round, loses device-time fidelity for travel days) would be a small, independent add-on if it's ever wanted. GPS-derived time zone (from FIT activities) would only close the remaining gap — a travel day that also happens to be a DST transition day — and isn't worth building ahead of the FIT pipeline. Natural anchor point: the travel block already planned for `quality_context.json` (v1.8.2).
 
 **Dashboard header time-basis detail**
 v1.6.5.6 added a static, fixed-text note to the header of every dashboard showing intraday timestamps. Showing the *actual* per-day offset instead would need a new key in the broker response contract, threaded through every specialist and plotter — bigger than the fix that prompted it, deliberately deferred.

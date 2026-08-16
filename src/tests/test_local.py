@@ -3575,6 +3575,54 @@ check("build_args: date_range → get_calories_daily",
 check("build_args: date_range → get_running_tolerance",
       capability.build_args("get_running_tolerance", "2026-08-14") == ("2026-08-14", "2026-08-14"))
 
+# ── get_enabled_candidates() (v1.6.8.1 — extracted from garmin_collector's
+#    fetch-loop double-gate filter, see NOTES_v1681_01.md) ───────────────────
+
+_gec_base = capability._default_config()
+
+# both gates satisfied → endpoint included
+_gec_both = capability.update_endpoint(_gec_base, "get_hydration_data", "found",
+                                        enabled_by_user=True)
+check("get_enabled_candidates: both gates satisfied → included",
+      "get_hydration_data" in capability.get_enabled_candidates(_gec_both))
+
+# status == "found" but enabled_by_user missing/False → excluded
+_gec_found_only = capability.update_endpoint(_gec_base, "get_hydration_data", "found")
+check("get_enabled_candidates: found but not enabled_by_user → excluded",
+      "get_hydration_data" not in capability.get_enabled_candidates(_gec_found_only))
+
+# enabled_by_user == True but status != "found" → excluded
+_gec_enabled_only = capability.update_endpoint(_gec_base, "get_hydration_data", "not_observed",
+                                                enabled_by_user=True)
+check("get_enabled_candidates: enabled_by_user but not found → excluded",
+      "get_hydration_data" not in capability.get_enabled_candidates(_gec_enabled_only))
+
+# endpoint missing from endpoints dict entirely → excluded, no KeyError
+_gec_missing = dict(_gec_base)
+_gec_missing["endpoints"] = {k: v for k, v in _gec_base["endpoints"].items()
+                              if k != "get_hydration_data"}
+try:
+    _gec_missing_result = capability.get_enabled_candidates(_gec_missing)
+    check("get_enabled_candidates: endpoint missing from dict → no crash",
+          "get_hydration_data" not in _gec_missing_result)
+except Exception:
+    check("get_enabled_candidates: endpoint missing from dict → no crash", False)
+
+# empty endpoints dict → empty list, no crash
+_gec_empty = dict(_gec_base)
+_gec_empty["endpoints"] = {}
+check("get_enabled_candidates: empty endpoints dict → empty list",
+      capability.get_enabled_candidates(_gec_empty) == [])
+
+# multiple enabled candidates → order follows CANDIDATE_ENDPOINTS
+_gec_multi = capability.update_endpoint(_gec_base, "get_floors", "found", enabled_by_user=True)
+_gec_multi = capability.update_endpoint(_gec_multi, "get_hydration_data", "found", enabled_by_user=True)
+_gec_multi_result = capability.get_enabled_candidates(_gec_multi)
+check("get_enabled_candidates: multiple enabled → both included",
+      "get_hydration_data" in _gec_multi_result and "get_floors" in _gec_multi_result)
+check("get_enabled_candidates: order follows CANDIDATE_ENDPOINTS",
+      _gec_multi_result == [ep for ep in capability.CANDIDATE_ENDPOINTS if ep in _gec_multi_result])
+
 # cleanup
 capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
 

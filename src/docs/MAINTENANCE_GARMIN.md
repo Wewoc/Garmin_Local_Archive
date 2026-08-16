@@ -123,15 +123,20 @@ of scope.
   `get_raw()`/`list_raw_fields()`, and `health_map`/`gateway_map`'s
   passthroughs of both. `test_local.py` 631→696, `test_dashboard.py`
   464→496. See `NOTES_v168_F_01.md`.
-- **Known gap — inline double-gate filter not unit-tested (v1.6.8):** the
-  candidate-selection logic itself (`enabled_by_user == True` **and**
-  `status == "found"`) sits inline in `garmin_collector.py::main()`'s
-  fetch-loop section, not in its own function. Unlike the pieces resolved
-  above, this isn't isolable without invoking the rest of `main()`
-  (login, session log, quality-log cycle) or extracting it — extraction is
-  a small production-code change, out of scope for a pure test session.
-  Planned together with its test, see
-  `START_PROMPT_v1681_doppel_gate_fix.md` (v1.6.8.1).
+- **Resolved (v1.6.8.1, 2026-08-16):** the inline double-gate
+  candidate-selection filter (`enabled_by_user == True` **and**
+  `status == "found"`) is extracted into
+  `garmin_api_capability.get_enabled_candidates(config)` — a pure
+  function, same double-gate condition, no behavior change.
+  `garmin_collector.py::main()`'s fetch-loop section now calls it instead
+  of inlining the filter; `load_config()` stays in `main()`, still read
+  once per sync run inside `quality.QUALITY_LOCK`. 7 new checks added
+  (`test_local.py` Section K): both gates satisfied, each gate alone,
+  missing endpoint key, empty `endpoints` dict, multiple candidates,
+  return order. `test_local.py` 696→703. DEPS scan also flagged
+  `app/panel_outputs.py` as a possible shadow-copy — confirmed false
+  positive (single-gate display filter, not the sync-time double-gate),
+  no change made there. See `NOTES_v1681_01.md`.
 
 ---
 

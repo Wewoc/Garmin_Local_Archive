@@ -437,6 +437,7 @@ Leaf-Node — imports only `garmin_config` + stdlib. No pipeline imports
 | `save_config(config)` | Atomic write (`.tmp → fsync → os.replace`). Returns `bool` |
 | `update_endpoint(config, endpoint, status, **meta)` | Pure function — returns a new config dict with one entry updated, does not save itself. `status` must be one of `"found"` / `"not_observed"` / `"error"` |
 | `reset_config()` | Returns a fresh default config. Does not save — public entry point for UI "Clear Config", so callers never need to reach into the private `_default_config()` |
+| `get_enabled_candidates(config)` | Returns the subset of `CANDIDATE_ENDPOINTS` double-gated as enabled for a sync run (`status == "found"` **and** `enabled_by_user`). Pure function — takes an already-loaded config snapshot, does not call `load_config()` itself. Extracted from `garmin_collector.py::main()`'s fetch-loop section (v1.6.8.1) — see `NOTES_v1681_01.md` |
 
 **Config entry shape** (per candidate, keyed by method name):
 ```json
