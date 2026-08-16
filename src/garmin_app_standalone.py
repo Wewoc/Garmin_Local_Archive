@@ -373,10 +373,10 @@ class GarminApp(_GarminAppBase):
                 elif success:
                     q.put("✓ Done. — please update context")
                     if on_success:
-                        self._dispatch(on_success)
+                        q.put(on_success)
 
                 if on_done:
-                    self._dispatch(on_done)
+                    q.put(on_done)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -394,11 +394,23 @@ class GarminApp(_GarminAppBase):
             self._log("⏹  Stop requested — waiting for current operation ...")
 
     def _poll_log_queue(self):
-        """Drain the log queue into the GUI log widget. Reschedules itself."""
+        """Drain the log queue into the GUI log widget. Reschedules itself.
+
+        Queue items are either log-line strings or zero-arg callables
+        (on_done/on_success from _run()). Callables are queued instead of
+        dispatched directly so they run after any log lines already ahead
+        of them — otherwise a callable dispatched via self._dispatch()
+        (Qt queued signal, near-immediate) could overtake log lines still
+        waiting on this 100ms poll, showing e.g. a "finished" callback
+        message before the log lines that logically precede it.
+        """
         try:
             while True:
-                line = self._log_queue.get_nowait()
-                self._log(line)
+                item = self._log_queue.get_nowait()
+                if callable(item):
+                    item()
+                else:
+                    self._log(item)
         except queue.Empty:
             pass
         QTimer.singleShot(100, self._poll_log_queue)
