@@ -17,8 +17,7 @@ dashboard layer, context pipeline, test suite), consolidated in
 `REVIEW_GESAMTAUSWERTUNG.md` and prioritized in `REVIEW_PRIO_TOP3.md`.
 
 Goal: close the findings with actual data-damage or escalation potential
-before v1.7 (FIT pipeline) and v1.7.1 (MCP/SQLite proxy) build on top of the
-same code areas. Everything without current data impact moves to
+before v1.7 (MCP/SQLite proxy) build on top of the same code areas. Everything without current data impact moves to
 `KNOWN_ISSUES.md` (backlog, checked automatically on file touch — see scope
 snapshot extension).
 
