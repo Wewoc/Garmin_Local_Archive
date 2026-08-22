@@ -30,6 +30,7 @@ underlying rule ("Spezialisten lesen nie direkt aus dem Dateisystem").
 | `health_map.py` | Garmin health data | `garmin_health_map` | `_SOURCES = {"garmin": garmin_health_map}` |
 | `context_map.py` | External context data | `weather_map`, `pollen_map`, `brightsky_map`, `airquality_map` | `_SOURCES = {"weather": ..., "pollen": ..., "brightsky": ..., "airquality": ...}` |
 | `gateway_map.py` | Cross-domain routing for external/aggregate consumers | `health_map`, `fit_map` *(planned)*, `context_map` | `_DOMAIN_BROKERS = {"health": health_map, "fit": None, "context": context_map}` |
+| `metadata_map.py` *(v1.6.9.1)* | Archive-state introspection (not time-series) | — reads archive files directly, catch-all for data outside health/fit/context | routed via `gateway_map.get_metadata()`, not `_DOMAIN_BROKERS` — see below |
 | `fit_map.py` *(planned, v1.7)* | Activity data (Garmin FIT, later Strava) | `garmin_fit_map`, future `strava_fit_map` | see `ROADMAP.md` → v1.7 FIT Pipeline |
 | `mcp_map.py` *(planned, v1.9)* | MCP protocol translation | `gateway_map` | see `ROADMAP.md` → v1.9 MCP Server |
 
@@ -369,7 +370,13 @@ reading the keys of the returned dict, not by choosing one in advance.
 
 ---
 
-## Future brokers
+## `gateway_map.get_metadata()` — archive-state introspection (v1.6.9.1)
+
+```python
+from maps.gateway_map import get_metadata
+
+result = get_metadata("stats")
+# result == {"data": {...}, "error": None}
 
 `fit_map.py` (v1.7) is planned as a peer to `health_map.py` and
 `context_map.py` — same broker principle (domain-level, routes to

@@ -6,11 +6,9 @@
 
 ---
 
-**Currently stable — v1.6.9**
+**Currently stable — v1.6.9.1**
 
 ---
-
-## Planned — v1.7
 
 ### v1.7 — MCP Server
 

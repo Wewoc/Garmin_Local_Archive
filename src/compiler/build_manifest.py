@@ -90,6 +90,7 @@ SHARED_SCRIPTS = [
     "maps/pollen_map.py",
     "maps/brightsky_map.py",
     "maps/airquality_map.py",
+    "maps/metadata_map.py",
     # context pipeline
     "context/__init__.py",
     "context/context_collector.py",

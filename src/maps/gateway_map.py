@@ -33,6 +33,14 @@ Domain registry, v1.6.7:
                  so the contract does not change shape when it lands
     "context" -> context_map   (registered)
 
+Metadata registry, v1.6.9.1 — separate from the domain registry above.
+get_metadata(kind) routes to metadata_map.py, an introspection broker for
+archive-state artefacts (coverage stats, device table, quality log, raw
+logs, token event log, capability config) that do not fit the
+time-series get()/domain concept. See metadata_map.py's own docstring
+for the full rationale. Nine kinds currently registered — see
+_METADATA_KINDS.
+
 Usage (from a cross-domain consumer):
     from maps.gateway_map import get as gateway_get
     result = gateway_get("hrv_last_night", "2026-01-01", "2026-03-31")
@@ -84,6 +92,7 @@ Error behavior:
 
 from . import health_map
 from . import context_map
+from . import metadata_map
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Domain registry — health + fit + context
@@ -103,6 +112,32 @@ _DOMAIN_BROKERS = {
     "health":  health_map,
     "fit":     None,          # garmin_fit_map.py, v1.7
     "context": context_map,
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Metadata registry — archive-state introspection, v1.6.9.1
+#
+#  Separate from _DOMAIN_BROKERS on purpose: metadata_map's nine functions
+#  are not time-series based (no field/date_from/date_to/resolution), so
+#  they cannot be dispatched through get()'s domain-broker fan-out. Each
+#  key maps directly to one metadata_map function.
+#
+#  To add a metadata kind:
+#    1. Add the function to metadata_map.py
+#    2. Add it here with its key name
+# ══════════════════════════════════════════════════════════════════════════════
+
+_METADATA_KINDS = {
+    "stats":              metadata_map.get_stats,
+    "device_table":       metadata_map.get_device_table,
+    "quality_log":        metadata_map.get_quality_log,
+    "source_api_log":     metadata_map.get_source_api_log,
+    "token_log":          metadata_map.get_token_log,
+    "capability_config":  metadata_map.get_capability_config,
+    "daily_logs":         metadata_map.get_daily_logs,
+    "fail_logs":          metadata_map.get_fail_logs,
+    "recent_logs":        metadata_map.get_recent_logs,
 }
 
 
@@ -164,6 +199,42 @@ def get(field: str, date_from: str, date_to: str,
 def list_domains() -> list[str]:
     """Return all known domain keys, whether their broker is registered yet or not."""
     return list(_DOMAIN_BROKERS.keys())
+
+
+def get_metadata(kind: str) -> dict:
+    """
+    Request an archive-state metadata artefact from metadata_map.
+
+    Separate entry point from get() because metadata_map's data is not
+    time-series based — there is no field/date_from/date_to/resolution
+    concept for archive-state snapshots (coverage stats, device table,
+    raw logs, etc.).
+
+    Args:
+        kind: One of the registered metadata kinds — see _METADATA_KINDS.
+
+    Returns:
+        Whatever the corresponding metadata_map function returned:
+        {"data": ..., "error": str | None}. metadata_map never raises —
+        read/parse failures are already degraded into this shape before
+        they reach gateway_map.
+
+    Raises:
+        ValueError: if kind is not a known metadata kind. This is a
+                    caller error, same principle as get()'s domain
+                    validation.
+    """
+    if kind not in _METADATA_KINDS:
+        raise ValueError(
+            f"Unknown metadata kind {kind!r} — expected one of "
+            f"{sorted(_METADATA_KINDS)}"
+        )
+    return _METADATA_KINDS[kind]()
+
+
+def list_metadata_kinds() -> list[str]:
+    """Return all known metadata kind keys."""
+    return list(_METADATA_KINDS.keys())
 
 
 def get_raw(field: str, date_from: str, date_to: str,

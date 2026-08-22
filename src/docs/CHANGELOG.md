@@ -1,5 +1,78 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.9.1 — metadata_map Broker
+
+Dritter Domain-Broker in der Broker-Ebene (`maps/`), gleichrangig zu
+`health_map`/`context_map`: Archiv-Metadaten (Coverage-Stats, Device-Table,
+Quality-Log, Token-Event-Log, Capability-Config, Rohlogs) sind jetzt über
+die Broker-Ebene statt über vier verstreute direkte Importpfade abfragbar.
+Vorgezogen aus einer v1.9-Roadmap-Notiz (siehe `KNOWN_ISSUES.md`,
+Block 1b), weil `gateway_map.py` der geplante v1.9-MCP-Andockpunkt ist —
+ohne diesen Broker blieben Archiv-Metadaten für einen künftigen MCP-Client
+unerreichbar. Design von einem Multi-LLM-Review-Gate (Gemini, ChatGPT,
+Copilot, Le Chat) gegengeprüft; Sicherheitsfilter und Fehlerverhalten
+entsprechend der Rückmeldungen angepasst.
+
+**New modules:**
+- `maps/metadata_map.py` — Introspection-Broker, neun benannte Funktionen
+  (`get_stats`, `get_device_table`, `get_quality_log`, `get_source_api_log`,
+  `get_token_log`, `get_capability_config`, `get_daily_logs`,
+  `get_fail_logs`, `get_recent_logs`). Nicht zeitreihen-basiert — jede
+  Funktion liest genau eine bekannte Archiv-Datei bzw. einen Rohlog-Ordner.
+  Einheitliche Rückgabe-Envelope `{"data": ..., "error": str | None}`,
+  nie werfend (Lese-/Parse-Fehler werden intern abgefangen und degradiert
+  zurückgegeben — analog zu `health_map`/`context_map`). Harte
+  Ausschlussgrenze: `GARMIN_TOKEN_FILE` (`garmin_token.enc`) wird an
+  keiner Stelle referenziert. Die drei Rohlog-Funktionen filtern jede
+  Zeile durch `_sanitize_line()` — erkanntes Auth-Material (JWT/Base64-
+  Fragmente, Bearer/Authorization-Header, Token-Keywords, Passwort-
+  Fragmente, Cookies) wird verworfen, erkannte PII (E-Mail, IPv4,
+  GPS-Koordinaten) wird maskiert statt entfernt, um Diagnosewert zu
+  erhalten.
+
+**Changed modules:**
+- `maps/gateway_map.py` — neue, von `get()` getrennte Funktion
+  `get_metadata(kind: str) -> dict`, da Archiv-Metadaten strukturell
+  nicht in das zeitreihen-basierte `field`/`date_from`/`date_to`/
+  `resolution`-Schema von `get()` passen. `_METADATA_KINDS`-Dispatch-Dict
+  (neun Einträge, 1:1 zu `metadata_map`), `ValueError` bei unbekanntem
+  `kind` — gleiches Stabilitätsmuster wie das bestehende `domain`-Handling
+  in `get()`. Neue Funktion `list_metadata_kinds()`. Docstring-Kopf um
+  die Metadata-Registry ergänzt (bisher nur Domain-Registry dokumentiert).
+- `garmin/garmin_config.py` — neue Konstante `LOG_DAILY_DIR`, additiv
+  neben den bestehenden `LOG_RECENT_DIR`/`LOG_FAIL_DIR`.
+- `compiler/build_manifest.py` — `maps/metadata_map.py` in
+  `SHARED_SCRIPTS` ergänzt.
+
+**Bewusst nicht umgesetzt:**
+- Migration der vier bestehenden direkten `get_archive_stats()`-Aufrufer
+  (`garmin_app_controller.py`, `panel_archive.py`, `context_collector.py`,
+  `garmin_mobile_landing.py`) — bleiben unverändert, `app/`-Schicht hat
+  keinen direkten Bezug zur Broker-Ebene. `garmin_mobile_landing.py`
+  bleibt zusätzlich dokumentierter Sonderfall (siehe `KNOWN_ISSUES.md`
+  Cluster A), wird bei nächster inhaltlicher Berührung angepasst.
+- `get_schema_versions()` (aus dem Multi-LLM-Review vorgeschlagen) —
+  zurückgestellt: `garmin_normalizer.py`s `CURRENT_SCHEMA_VERSION` ist nur
+  die Soll-Version im Code, das Modul hat laut eigenem Docstring keinen
+  Datei-/Archivzugriff. Eine echte Ist-Zustand-Funktion hätte `SUMMARY_DIR`
+  durchsuchen müssen — anderer Charakter als die neun Einzeldatei-
+  Funktionen, nicht ohne weitere Analyse gebaut.
+- Testabdeckung für `metadata_map.py`/`gateway_map.get_metadata()` —
+  zurückgestellt auf v1.6.9.2, zusammen mit einer geplanten Auslagerung
+  aller Broker-Tests aus `test_dashboard.py` in eine eigene Testdatei.
+
+**Drift-Check (`build_dep_map.py`, 2026-08-22_Run-01 → Run-02):**
+10 NEU exceptions + 5 NEU fileio, alle in `maps/metadata_map.py` — neun
+`broad Exception`-Handler (architektonisch beabsichtigt, siehe "nie
+werfend" oben) + ein enger `OSError`-Handler in `_read_log_dir()`, sowie
+fünf fileio-Fundstellen in den beiden internen Lese-Helfern
+(`_read_json_file`, `_read_log_dir`). 0 WEG, 0 GEKIPPT-Regression.
+
+**Test result:** 716 / 265 / 496 / 165 / 59 / 16 — all green, ruff 0
+errors, bandit 0 HIGH.
+
+---
+
 ## v1.6.9 — Review-Nachsorge / v1.6-Abschluss
 
 Schließt die Funde mit echtem Datenschaden-/Eskalationspotenzial aus den

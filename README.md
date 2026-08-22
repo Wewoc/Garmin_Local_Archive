@@ -336,6 +336,7 @@ The project is structured into five focused layers. Each layer has a single resp
 | `health_map.py` + `garmin_health_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
 | `context_map.py` + `weather_map.py` + `pollen_map.py` + `brightsky_map.py` + `airquality_map.py` | Routes dashboard requests to context archive — reads `context_data/` |
 | `gateway_map.py` | Cross-domain routing broker (v1.6.7) — pass-through to `health_map`/`context_map` (and the future `fit_map`, v1.7) for consumers that need more than one domain in a single query, e.g. the planned MCP server (v1.9). Not used by any of the named dashboard specialists above — they query their domain broker directly. |
+| `metadata_map.py` | Archive-state introspection broker (v1.6.9.1) — coverage stats, device table, quality log, token event log, capability config, and session logs, reached via `gateway_map.get_metadata()`. Deliberately separate from the time-series brokers above — archive-state snapshots have no `date_from`/`date_to`/`resolution` concept. Reads its own files directly rather than routing to sibling `*_map.py` modules. Session-log reads pass through a sanitizer first — recognized secrets are dropped, recognized personal data (email, IP, GPS) is masked. |
 
 **Building your own tool on top of your archive?** `gateway_map.py` is the
 recommended entry point — a single import instead of learning the
