@@ -42,6 +42,7 @@ LOG_DIR     = GARMIN_DIR / "log"
 # Session log sub-directories
 LOG_RECENT_DIR = LOG_DIR / "recent"
 LOG_FAIL_DIR   = LOG_DIR / "fail"
+LOG_DAILY_DIR  = LOG_DIR / "daily"
 
 # Quality log
 QUALITY_LOG_FILE  = LOG_DIR / "quality_log.json"

@@ -58,6 +58,7 @@ All modules import via `import garmin_config as cfg`.
 | `LOG_DIR` | `GARMIN_DIR/log` | Session logs, quality log, token |
 | `LOG_RECENT_DIR` | `LOG_DIR/recent` | Rolling session logs (max 30) |
 | `LOG_FAIL_DIR` | `LOG_DIR/fail` | Error session logs (kept permanently) |
+| `LOG_DAILY_DIR` | `LOG_DIR/daily` | Rolling daily-sync session logs (v1.6.9.1 — added for `metadata_map.py`, path itself pre-existing since `daily_update.py`'s own `_start_daily_log()`) |
 | `QUALITY_LOG_FILE` | `LOG_DIR/quality_log.json` | Quality register |
 | `DEVICE_TABLE_FILE` | `LOG_DIR/device_table.json` | Device table — written by `garmin_quality` after each sync |
 | `DATAFORMAT_FILE` | `garmin/garmin_dataformat.json` | Schema for garmin_validator |
@@ -339,6 +340,7 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 │       ├── quality_log.json
 │       ├── device_table.json
 │       ├── garmin_token.enc
+│       ├── daily/
 │       ├── recent/
 │       └── fail/
 │

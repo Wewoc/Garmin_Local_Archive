@@ -307,7 +307,7 @@ python tests/test_dashboard.py
 
 No network, no GUI. Covers full pipeline: `garmin_health_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner. Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift.
 
-Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gateway_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py` renderer.
+Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gateway_map`, `metadata_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py` renderer.
 
 ### Plotly local cache
 
