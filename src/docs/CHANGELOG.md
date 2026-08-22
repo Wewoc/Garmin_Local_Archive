@@ -1,5 +1,85 @@
 # Garmin Local Archive — Changelog
 
+## v1.6.9 — Review-Nachsorge / v1.6-Abschluss
+
+Schließt die Funde mit echtem Datenschaden-/Eskalationspotenzial aus den
+Code-Review-Sessions 1–6 (`REVIEW_GESAMTAUSWERTUNG.md`), bevor v1.7
+(FIT-Pipeline) und v1.7.1 (MCP/SQLite-Proxy) auf denselben Code-Bereichen
+aufbauen. Vier Blöcke, wie in `v1.6.9_ROADMAP_EINTRAG.md` geplant.
+Zusätzlich: `garminconnect`-Dependency-Update auf 0.3.11, T3 neu gebaut.
+
+**Block 1a — E2E-Test für den täglichen Sync-Fetch-Loop:**
+- `tests/test_local.py` — neuer Testblock, führt `garmin_collector.main()`
+  über drei feste Tage durch den echten Fetch-Loop (Steps 1–9) statt nur
+  über den Capability-Scan-Zweig: sauberer Tag (`high`), Validator-`critical`
+  (`failed`, `recheck=True`), Downgrade-Ablehnung (`high`/`bulk` bleibt
+  gegen einen frischeren, niedriger bewerteten Fetch bestehen). 13 neue
+  Checks, `test_local.py` 703→716.
+
+**Block 1b — `quality/_stats.py::get_archive_stats()` device_table-Fix:**
+- `garmin/quality/_stats.py` — toter `device_table`-Aufbau entfernt
+  (Dead-Code-Block + kompletter Matching-Zweig gegen `device_rank`, das
+  seit der v1.5.7-Migration pro Tageseintrag nicht mehr gesetzt wird).
+  `"device_table"`-Key aus dem Rückgabewert entfernt. Alle vier realen
+  Aufrufer nutzen bereits `_io.py::save_device_table()` bzw. lesen
+  `device_table.json` direkt — kein Konsument betroffen.
+- `garmin/garmin_quality.py` — Docstring-Korrektur (Facade-Doku erwähnte
+  `device_table` noch als Teil von `get_archive_stats()`).
+
+**Block 2 — QUALITY_LOCK-Zugriff aus `panel_archive.py`:**
+- `app/garmin_app_controller.py` — neue Funktion
+  `rename_unknown_device(s, new_name)`, kapselt den vollständigen
+  Load-Modify-Save-Zyklus unter `QUALITY_LOCK`, wirft nie.
+- `app/panel_archive.py` — `_archive_on_device_name_click()` delegiert jetzt
+  an den Controller statt `QUALITY_LOCK` direkt zu akquirieren und private
+  Fassadenfunktionen aufzurufen. Dritter, undokumentierter Zugriffspfad
+  damit geschlossen.
+- `GLA_HANDBUCH.md` §10/§14 — vollständige Aufzählung aller sechs
+  tatsächlichen Lock-Halter nachgezogen (Doku nannte zuvor nur zwei);
+  `garmin_app_controller`-Schreibzugriff dokumentiert.
+
+**Block 3 — Ein-Zeiler-Aufräum-Batch (8 Funde):**
+- `layouts/garmin_mobile_landing.py` — falscher erwarteter Dateiname für
+  das Sleep-Dashboard-Embed (`sleep_garmin_html-xls_dash.html`) korrigiert
+  auf den tatsächlichen Spezialisten-Output (`sleep_dashboard.html`) —
+  `_read_dash()`-Aufruf, Docstring und sichtbares HTML-Label, alle drei
+  Stellen. Bewirkte, dass das Embed auf der Mobile Landing Page dauerhaft
+  leer blieb, ohne geloggten Fehler.
+- `garmin/garmin_config.py` — doppelte `LOCAL_CONFIG_FILE`-Zuweisung entfernt.
+- `garmin/garmin_mirror.py` — doppelte, komplett ungenutzte
+  `EXCLUDE_DIRS`-Konstante entfernt (beide Vorkommen; `garmin_container.py`
+  nutzt eine eigene, unabhängige `_EXCLUDE_DIRS`).
+- `app/panel_outputs.py` — doppelte `_exe_dir`-Zuweisung in
+  `_create_task_scheduler_xml()` entfernt.
+- `maps/pollen_map.py` — auskommentiertes `_FILE_PREFIX`-Duplikat über
+  `_FIELD_MAP` entfernt.
+- `garmin/quality/_assess.py` — redundanter `elif`-Zweig
+  (`training_readiness`, field-level) entfernt; verbleibender Zweig deckt
+  denselben Fall bereits ab.
+- `dashboards/health_garmin_html-json_dash.py` — toter `vo2_raw`-Ausdruck
+  entfernt (unbenutzt, `# noqa: F841`-stillgelegt statt korrekt entfernt).
+- `dashboards/dash_runner.py` — unerreichbarer Defensiv-Check in `scan()`
+  entfernt (`dash_runner.py` kann das `*_dash.py`-Glob strukturell nie
+  matchen).
+- `docs/REFERENCE_DASHBOARD.md` — „Dashboard links"-Zeile nachgezogen
+  (nannte denselben falschen Sleep-Dashboard-Dateinamen wie der Code-Fund).
+
+**Dependency:**
+- `garminconnect` — Update auf Release 0.3.11.
+- `version.py` — `APP_VERSION` auf `1.6.9` gesetzt, T3 Standalone neu gebaut.
+
+**Drift-Check (`build_dep_map.py`, Baseline 2026-08-16 → 2026-08-22):**
+1 NEU exception + 1 NEU fileio (beide `garmin_app_controller.py::
+rename_unknown_device`, architektonisch beabsichtigt — kapselt den
+Load-Modify-Save-Zyklus, wirft nie), 1 WEG exception (der entfernte
+`QUALITY_LOCK`-Block in `panel_archive.py`, durch die Controller-Delegation
+abgelöst — Verbesserung, keine Lücke). 0 GEKIPPT-Regression.
+
+**Test result:** 716 / 265 / 496 / 165 / 59 / 16 — all green, ruff 0 errors,
+bandit 0 HIGH.
+
+---
+
 ## v1.6.8.2 — Standalone Log Order Fix
 
 Fixes a display-order bug found in the Standalone build (T3): the

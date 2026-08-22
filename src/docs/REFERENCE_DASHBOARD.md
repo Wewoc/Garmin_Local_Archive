@@ -466,7 +466,7 @@ table embedded inline as `window.__GLA_STATUS__` — no `fetch()`, works with
 
 **Sole write authority:** `BASE_DIR/dashboards/index.html`
 **Read-only access:** `quality_log.json`, `device_table.json` (no QUALITY_LOCK needed)
-**Dashboard links:** `health_garmin_mobile.html`, `sleep_garmin_html-xls_dash.html`
+**Dashboard links:** `health_garmin_mobile.html`, `sleep_dashboard.html`
 
 ---
 

@@ -132,7 +132,7 @@ def write_index_html(base_dir: Path | None = None) -> bool:
             return ""
 
         dash_mobile = _read_dash("health_garmin_mobile.html")
-        dash_sleep  = _read_dash("sleep_garmin_html-xls_dash.html")
+        dash_sleep  = _read_dash("sleep_dashboard.html")
 
         # ── Render and write index.html atomically ────────────────────────────
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -176,7 +176,7 @@ def _render_html(status: dict, dash_mobile: str = "", dash_sleep: str = "") -> s
     """Renders index.html with status data and dashboard content embedded inline.
 
     dash_mobile: full HTML content of health_garmin_mobile.html, or "" if not found.
-    dash_sleep:  full HTML content of sleep_garmin_html-xls_dash.html, or "" if not found.
+    dash_sleep:  full HTML content of sleep_dashboard.html, or "" if not found.
     Both are embedded as hidden <div> blocks — no external file references needed.
     Works with file:// protocol (OneDrive mobile viewer compatible).
     """
@@ -362,7 +362,7 @@ window.__GLA_STATUS__ = __STATUS_JSON_PLACEHOLDER__;
           <span class="dash-icon">🌙</span>
           <div>
             <div class="dash-name">Sleep Dashboard</div>
-            <div class="dash-file" id="lbl-sleep">sleep_garmin_html-xls_dash.html</div>
+            <div class="dash-file" id="lbl-sleep">sleep_dashboard.html</div>
           </div>
         </div>
         <button class="dash-btn" id="btn-sleep" onclick="showDash('sleep')">▶ öffnen</button>

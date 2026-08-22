@@ -209,20 +209,17 @@ class PanelArchive(QWidget):
         if not log_path.exists():
             return
 
-        try:
-            with _quality.QUALITY_LOCK:
-                data = _quality._load_quality_log()
-                updated = _quality.set_unknown_device_name(data, new_name.strip())
-                if updated == 0:
-                    return
-                _quality._save_quality_log(data)
-                _quality.save_device_table(data)
-            self._app._log(
-                f"✓ Device name set: '{new_name.strip()}' ({updated} entries updated)"
-            )
-        except Exception as e:
-            self._app._log(f"✗ Device name update failed: {e}")
+        result  = _controller.rename_unknown_device(s, new_name.strip())
+        error   = result.get("error")
+        if error:
+            self._app._log(f"✗ Device name update failed: {error}")
             return
+        updated = result.get("updated", 0)
+        if updated == 0:
+            return
+        self._app._log(
+            f"✓ Device name set: '{new_name.strip()}' ({updated} entries updated)"
+        )
 
         self._refresh_archive_info()
 
