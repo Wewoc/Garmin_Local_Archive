@@ -26,7 +26,7 @@ Implementation is split across garmin/quality/ sub-modules:
   _scan.py   — get_low_quality_dates, _backfill_quality_log
   _maint.py  — QUALITY_RANK, _upsert_quality, _set_first_day,
                cleanup_before_first_day, update_device_rank_config
-  _stats.py  — get_archive_stats (incl. device_table)
+  _stats.py  — get_archive_stats
 
 This facade re-exports all public symbols — callers remain unchanged.
 """

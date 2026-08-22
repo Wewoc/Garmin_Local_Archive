@@ -740,6 +740,103 @@ if _orig_capwindow_env is None:
 else:
     os.environ["GARMIN_CAPABILITY_WINDOW_DAYS"] = _orig_capwindow_env
 
+# ── main() — regular sync fetch loop (v1.6.9, Block 1a) ──────────────────────
+# Runs main() through the actual Step 1-9 fetch loop instead of the
+# Capability-Scan branch (0b) — closes the E2E gap noted in
+# REVIEW_GESAMTAUSWERTUNG.md / v1.6.9_ROADMAP_EINTRAG.md Block 1a.
+# Uses the file's existing _TMPDIR sandbox (already active as BASE_DIR since
+# Section 1) — no separate tmp mechanism. Three fixed dates cover ok/failed/
+# downgrade in one pass. api.login / api.get_devices / api.fetch_raw are
+# mocked; everything else (quality_log, writer, validator, sync) runs for
+# real against files under _TMPDIR.
+
+_e2e_d1, _e2e_d2, _e2e_d3 = "2025-06-01", "2025-06-02", "2025-06-03"
+
+# Day 3 raw payload — raw_full plus the extra sub_fields needed to push
+# out_of_range_count > 3 in _fetch_and_assess() (high → standard downgrade),
+# while staying a "warning" (not "critical") validator status so the day
+# is still fetched, just at lower quality than the pre-existing log entry.
+_e2e_raw_downgrade = {
+    **raw_full,
+    "date": _e2e_d3,
+    "heart_rates": {"restingHeartRate": 400, "maxHeartRate": 500,
+                     "heartRateValues": [[0, 52], [60, 55]]},
+    "stress": {"averageStressLevel": 500},
+    "respiration": {"avgWakingRespirationValue": 900},
+}
+
+def _e2e_fetch_raw_side_effect(client, date_str, extra_endpoints=None):
+    if date_str == _e2e_d1:
+        return {**raw_full, "date": _e2e_d1}, []
+    if date_str == _e2e_d2:
+        return {"date": 99999}, []  # required field wrong type → validator critical
+    if date_str == _e2e_d3:
+        return _e2e_raw_downgrade, []
+    raise AssertionError(f"unexpected date in E2E fetch loop: {date_str}")
+
+# Pre-existing high/bulk entry for day 3 — the fresh fetch above must rank
+# lower (standard), so the fetch loop's downgrade guard must reject it and
+# keep this entry unchanged.
+with quality.QUALITY_LOCK:
+    _e2e_qd = quality._load_quality_log()
+    quality._upsert_quality(_e2e_qd, date.fromisoformat(_e2e_d3), "high",
+                            "Quality: high (pre-existing, simuliert)",
+                            written=True, source="bulk")
+    quality._save_quality_log(_e2e_qd)
+
+os.environ["GARMIN_SYNC_DATES"]     = f"{_e2e_d1},{_e2e_d2},{_e2e_d3}"
+os.environ["GARMIN_REFRESH_FAILED"] = "1"
+importlib.reload(cfg)
+# garmin_collector imported cfg by reference — reload() updates the same
+# module object collector.cfg points to, no separate patch needed there.
+
+with patch("garmin_collector.api.login", return_value=MagicMock()), \
+     patch("garmin_collector.api.get_devices", return_value=[]), \
+     patch("garmin_collector.api.fetch_raw", side_effect=_e2e_fetch_raw_side_effect):
+    collector.main()
+
+os.environ["GARMIN_SYNC_DATES"]     = ""
+os.environ["GARMIN_REFRESH_FAILED"] = "0"
+importlib.reload(cfg)
+
+_e2e_qd_after = quality._load_quality_log()
+_e2e_entries  = {e["date"]: e for e in _e2e_qd_after["days"] if e.get("date") in (_e2e_d1, _e2e_d2, _e2e_d3)}
+
+check("main() fetch loop: all 3 days present in quality_log",
+      set(_e2e_entries) == {_e2e_d1, _e2e_d2, _e2e_d3})
+
+check("main() fetch loop: day1 quality=high",   _e2e_entries.get(_e2e_d1, {}).get("quality") == "high")
+check("main() fetch loop: day1 write=True",     _e2e_entries.get(_e2e_d1, {}).get("write")   == True)
+check("main() fetch loop: day1 raw/ written",   (cfg.RAW_DIR / f"garmin_raw_{_e2e_d1}.json").exists())
+check("main() fetch loop: day1 summary/ written", (cfg.SUMMARY_DIR / f"garmin_{_e2e_d1}.json").exists())
+
+check("main() fetch loop: day2 quality=failed", _e2e_entries.get(_e2e_d2, {}).get("quality") == "failed")
+check("main() fetch loop: day2 write=False",    _e2e_entries.get(_e2e_d2, {}).get("write")   == False)
+check("main() fetch loop: day2 recheck=True",   _e2e_entries.get(_e2e_d2, {}).get("recheck") == True)
+check("main() fetch loop: day2 raw/ not written", not (cfg.RAW_DIR / f"garmin_raw_{_e2e_d2}.json").exists())
+
+check("main() fetch loop: day3 downgrade rejected — quality stays high",
+      _e2e_entries.get(_e2e_d3, {}).get("quality") == "high")
+check("main() fetch loop: day3 downgrade rejected — source stays bulk",
+      _e2e_entries.get(_e2e_d3, {}).get("source") == "bulk")
+check("main() fetch loop: day3 reason mentions downgrade rejection",
+      "downgrade rejected" in _e2e_entries.get(_e2e_d3, {}).get("reason", ""))
+check("main() fetch loop: day3 raw/ not overwritten (no summary/ file)",
+      not (cfg.SUMMARY_DIR / f"garmin_{_e2e_d3}.json").exists())
+
+# ── Cleanup — remove all 3 E2E days from quality_log + any written files so
+#    later sections sharing the same _TMPDIR are not affected. ──────────────
+with quality.QUALITY_LOCK:
+    _e2e_qd_cleanup = quality._load_quality_log()
+    _e2e_qd_cleanup["days"] = [
+        e for e in _e2e_qd_cleanup["days"] if e.get("date") not in (_e2e_d1, _e2e_d2, _e2e_d3)
+    ]
+    quality._save_quality_log(_e2e_qd_cleanup)
+
+for _e2e_d in (_e2e_d1, _e2e_d2, _e2e_d3):
+    (cfg.RAW_DIR / f"garmin_raw_{_e2e_d}.json").unlink(missing_ok=True)
+    (cfg.SUMMARY_DIR / f"garmin_{_e2e_d}.json").unlink(missing_ok=True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. garmin_security (crypto layer only)
 # ══════════════════════════════════════════════════════════════════════════════

@@ -38,7 +38,6 @@ import garmin_config as cfg
 #  Field map
 #
 #  Generic name → internal key in the "fields" dict of pollen_YYYY-MM-DD.json
-# _FILE_PREFIX = "pollen_"
 
 _FIELD_MAP = {
     "pollen_birch":   "birch_pollen",

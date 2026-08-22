@@ -24,8 +24,6 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Directories excluded from mirroring (by name, any depth)
-EXCLUDE_DIRS = {"__pycache__", "garmin_token"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -87,9 +85,3 @@ def is_reachable(container_path: str | Path) -> bool:
 
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  Internal helpers
-# ══════════════════════════════════════════════════════════════════════════════
-
-# EXCLUDE_DIRS retained for reference — actual exclusion handled by garmin_container
-EXCLUDE_DIRS = {"__pycache__", "garmin_token"}

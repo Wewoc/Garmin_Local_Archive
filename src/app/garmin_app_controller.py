@@ -184,6 +184,42 @@ def get_source_stats(s: dict) -> dict:
         return {"total": 0, "present": 0}
 
 
+def rename_unknown_device(s: dict, new_name: str) -> dict:
+    """
+    Renames all quality_log entries with device_id=None to new_name and
+    persists quality_log.json + device_table.json.
+
+    Acquires QUALITY_LOCK for the full load-modify-save cycle — GUI-triggered
+    Write delegation for the Device-Rename feature (panel_archive.py).
+    Structurally analogous to the read-only timer candidate functions above
+    (GUI -> Controller instead of GUI -> garmin_quality direct), but a
+    genuine Write through the real garmin_quality API rather than an
+    INTENTIONAL DIRECT READ — no filtered-list bypass here, the mutation
+    goes through set_unknown_device_name() / save_device_table() as intended.
+
+    Returns {"updated": int} on success (0 if quality_log.json is missing
+    or no entry matched), or {"updated": 0, "error": str} on failure.
+    Never raises — caller (View) decides what to do with the result.
+    """
+    try:
+        import garmin_quality as quality
+        base_dir = Path(s.get("base_dir", "")).expanduser()
+        log_path = base_dir / "garmin_data" / "log" / "quality_log.json"
+        if not log_path.exists():
+            return {"updated": 0}
+
+        with quality.QUALITY_LOCK:
+            data    = quality._load_quality_log()
+            updated = quality.set_unknown_device_name(data, new_name)
+            if updated:
+                quality._save_quality_log(data)
+                quality.save_device_table(data)
+
+        return {"updated": updated}
+    except Exception as e:
+        return {"updated": 0, "error": str(e)}
+
+
 # ── Connection test ────────────────────────────────────────────────────────────
 
 def check_connection(s: dict, callbacks: dict) -> None:

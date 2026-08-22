@@ -274,8 +274,6 @@ def assess_quality_fields(raw: dict) -> dict:
     tr = raw.get("training_readiness") or {}
     if isinstance(tr, dict) and (tr.get("score") is not None or tr.get("trainingReadinessScore") is not None):
         fields["training_readiness"] = "medium"
-    elif isinstance(tr, dict) and tr.get("level") is not None:
-        fields["training_readiness"] = "low"
     elif isinstance(tr, dict) and tr:
         fields["training_readiness"] = "low"
     else:

@@ -6,85 +6,11 @@
 
 ---
 
-**Currently stable — v1.6.8.2**
+**Currently stable — v1.6.9**
 
 ---
 
-# v1.6.9 — Review Follow-Up
-
-Basis: Code review sessions 1–6 (Garmin pipeline, GUI code, broker layer,
-dashboard layer, context pipeline, test suite), consolidated in
-`REVIEW_GESAMTAUSWERTUNG.md` and prioritized in `REVIEW_PRIO_TOP3.md`.
-
-Goal: close the findings with actual data-damage or escalation potential
-before v1.7 (MCP/SQLite proxy) build on top of the same code areas. Everything without current data impact moves to
-`KNOWN_ISSUES.md` (backlog, checked automatically on file touch — see scope
-snapshot extension).
-
-## Block 1 — Critical cluster: sync loop + device_table
-
-Handle together: Block 1a provides the test coverage that would have caught
-Block 1b as an active bug.
-
-- **1a — E2E test for the daily sync fetch loop.** `garmin_collector.main()`
-  is currently only exercised via the capability-scan branch across the
-  entire test suite, never via the regular fetch loop (steps 1–9). Affects
-  `test_local.py`.
-- **1b — `quality/_stats.py::get_archive_stats()` device_table fix.**
-  `device_rank` has been dropped from every entry since the v1.5.7 migration
-  in `_io.py`; `_stats.py` still reads `entry.get("device_rank")` and
-  therefore returns an empty/incorrect `device_table` for every migrated
-  archive. Clarify first whether this function is still actively used or has
-  already been superseded by the `device_table.json` approach
-  (`_io.py::save_device_table()`) before building the fix.
-
-## Block 2 — QUALITY_LOCK access from panel_archive.py
-
-Pulled forward ahead of v1.7.1 (MCP/SQLite proxy moves closer to
-`quality_log.json` — this finding should be resolved beforehand).
-
-- The device-rename function (`_archive_on_device_name_click`) acquires
-  `QUALITY_LOCK` directly and calls private facade functions
-  (`_load_quality_log()`/`_save_quality_log()`). A third, undocumented
-  access path alongside orchestrator-writes and controller-reads. Goal:
-  delegate through `garmin_app_controller.py`, consistent with all other
-  timer candidate functions.
-
-## Block 3 — One-line cleanup batch
-
-Self-contained pass — low risk, no test impact, can be completed in a single
-session with several small anchors.
-
-| # | Finding | File |
-|---|---|---|
-| 1 | Wrong filename for sleep dashboard embed | `layouts/garmin_mobile_landing.py` |
-| 2 | `LOCAL_CONFIG_FILE` defined twice | `garmin_config.py` |
-| 3 | `EXCLUDE_DIRS` defined twice | `garmin_mirror.py` |
-| 4 | `_exe_dir` assigned twice identically | `app/panel_outputs.py` |
-| 5 | Commented-out duplicate above `_FIELD_MAP` | `maps/pollen_map.py` |
-| 6 | Redundant `elif` branch (training_readiness) | `garmin/quality/_assess.py` |
-| 7 | Dead `vo2_raw` expression | `dashboards/health_garmin_html-json_dash.py` |
-| 8 | Unreachable defensive check | `dashboards/dash_runner.py` |
-
-## Not in v1.6.9 — deliberately deferred
-
-All remaining findings from the six review sessions (patterns A–G, remaining
-medium/cosmetic individual findings) carry no current data impact and move
-to `KNOWN_ISSUES.md`. They will be checked automatically whenever the
-respective file(s) are touched in the future, rather than being worked
-through as a dedicated build task in v1.6.9.
-
-## Suggested order within v1.6.9
-
-1. Block 1a (test first, so 1b isn't fixed without coverage)
-2. Block 1b
-3. Block 2
-4. Block 3 (independent, can run before/after/in parallel)
-
-Each block follows the normal workflow (Bewerten → Analyse → Bauauftrag,
-DEPS scan + scope snapshot before the first Bauauftrag per block).
-
----
+## Planned — v1.7
 
 ### v1.7 — MCP Server
 

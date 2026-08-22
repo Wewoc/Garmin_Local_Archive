@@ -137,6 +137,19 @@ of scope.
   `app/panel_outputs.py` as a possible shadow-copy — confirmed false
   positive (single-gate display filter, not the sync-time double-gate),
   no change made there. See `NOTES_v1681_01.md`.
+- **Resolved (v1.6.9, Block 1a, 2026-08-21):** `garmin_collector.main()`'s
+  regular sync fetch loop (Steps 1–9) now has dedicated end-to-end coverage —
+  previously `main()` was only exercised via the step-0b Capability-Scan
+  branch, never through the actual daily fetch path. New test runs `main()`
+  against three fixed dates inside the existing `_TMPDIR` sandbox (`api.login`/
+  `api.get_devices`/`api.fetch_raw` mocked, everything else — quality log,
+  writer, validator, sync — real), covering all three outcomes in one pass:
+  a clean `high` day (write confirmed on disk), a validator-`critical` `failed`
+  day (write confirmed skipped, `recheck=True`), and a downgrade rejection
+  (pre-existing `high`/`bulk` entry kept over a fresh, lower-ranked fetch) —
+  the first test to exercise the downgrade guard (line 93 above) inside the
+  real fetch loop rather than via the isolated `_check_downgrade()` unit
+  tests (Section 15). `test_local.py` 703→716. See `NOTES_v169_01.md`.
 
 ---
 
@@ -187,7 +200,7 @@ python tests/test_local.py
 3. `garmin_normalizer` — `normalize()`, `safe_get()`, `_parse_list_values()`, `summarize()`
 4. `garmin_quality` — `high`/`standard`/`failed` labels (v1.5.7), upsert, round-trip, migrations, thread safety, device_id fields, field-level parseability guard (F8, v1.6.5.8 — malformed intraday arrays no longer labeled `high`; `field_downgrades` recorded and removed again on clean re-assessment)
 5. `garmin_writer` — `write_day()`, file content, `read_raw()`
-6. `garmin_collector` internals — `_fetch_and_assess()` tuple, `val_result` structure, `set_stop_event()` distribution to `garmin_api` and bilateral clearing (v1.5.6.3), `run_import()` quality-failed counting (Fix 3, v1.6.5.8 — `quality: "failed"` days counted in `failed`, not `ok`; tested via mocked `garmin_import.load_bulk()`)
+6. `garmin_collector` internals — `_fetch_and_assess()` tuple, `val_result` structure, `set_stop_event()` distribution to `garmin_api` and bilateral clearing (v1.5.6.3), `run_import()` quality-failed counting (Fix 3, v1.6.5.8 — `quality: "failed"` days counted in `failed`, not `ok`; tested via mocked `garmin_import.load_bulk()`). `main()`'s regular Steps 1–9 fetch loop — ok/failed/downgrade in one pass, mocked `api.login`/`api.get_devices`/`api.fetch_raw` against the real quality log + writer inside `_TMPDIR` (v1.6.9, Block 1a — see Invariants below)
 7. `garmin_validator` — schema load, all issue types, status escalation
 8. `garmin_writer` — `read_raw()` edge cases, `_should_write()`, `_is_stopped()`
 9. `garmin_validator` — schema load, all issue types, status escalation, Fail-Closed when schema absent (v1.5.6.3)
