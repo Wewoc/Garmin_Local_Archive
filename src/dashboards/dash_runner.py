@@ -127,8 +127,6 @@ def scan(log=None) -> list[dict]:
     skipped: dict[str, str] = {}
 
     for path in sorted(dashboards_dir.glob("*_dash.py")):
-        if path.name == "dash_runner.py":
-            continue
         mod, err = _load_specialist(path)
         if mod is None:
             skipped[path.name] = err or "unknown load error"

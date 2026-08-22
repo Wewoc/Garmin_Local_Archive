@@ -2019,9 +2019,6 @@ class PanelOutputs(QWidget):
         _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
                     else Path(__file__).parent.parent)
 
-        _exe_dir = (Path(sys.executable).parent if getattr(sys, "frozen", False)
-                    else Path(__file__).parent.parent)
-
         template_path = frozen_paths.doc_path("daily_update_task.xml")
         if template_path is None:
             QMessageBox.critical(

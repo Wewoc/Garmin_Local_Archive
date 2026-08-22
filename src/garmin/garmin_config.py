@@ -95,8 +95,6 @@ CONTEXT_AIRQUALITY_DIR = CONTEXT_DIR / "airquality" / "raw"
 CONTEXT_LATITUDE  = float(os.environ.get("GARMIN_CONTEXT_LAT",  "0.0"))
 CONTEXT_LONGITUDE = float(os.environ.get("GARMIN_CONTEXT_LON",  "0.0"))
 
-# User-editable location config — opened via GUI button
-LOCAL_CONFIG_FILE = BASE_DIR / "local_config.csv"
 
 # Token (AES-256-GCM encrypted — managed exclusively by garmin_security.py)
 GARMIN_TOKEN_DIR  = LOG_DIR / "garmin_token"        # temp working dir for library
