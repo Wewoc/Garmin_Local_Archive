@@ -145,8 +145,6 @@ Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) 
 | Section | Coverage |
 |---|---|
 | 1 | `garmin_health_map` intraday normalization — incl. device-offset shift and DST-transition detection (v1.6.5.6): offset applied to both the epoch-ms and GMT-string extraction paths, `dst_transition` flag on a real transition day (2026-03-29), safe `dst_transition=False` fallback with no offset metadata present |
-| 2 | `health_map` routing to `garmin_health_map` |
-| 2b | `gateway_map` routing to `health_map`/`context_map` — pass-through contract, reserved `fit` domain key, unknown-domain `ValueError`, `list_domains()` (v1.6.7) |
 | 3 | `dash_layout` design tokens |
 | 4 | `dash_layout_html` HTML assets |
 | 5 | `timeseries_garmin` specialist + plotter |
@@ -169,7 +167,7 @@ Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) 
 
 **Broker contract (section 15):** `garmin_health_map.get()` gibt immer `values` (list), `fallback` (bool), `source_resolution` (str) zurück. Unbekanntes Feld → `KeyError`. Ungültige Resolution → `ValueError`. Gilt analog für `weather_map` und `pollen_map` — getestet in `test_local_context.py`.
 
-**Gateway contract (section 2b):** `gateway_map.get()` reicht die Domain-Broker-Rückgabe unverändert durch — kein Unwrapping. Unbekannter `domain`-String → `ValueError`. Bekannte, aber unregistrierte Domain (aktuell `"fit"`) → Degraded-Result `{"error": "domain not yet available"}`. Details: `REFERENCE_BROKER.md` → `gateway_map.get()`.
+**Gateway contract:** `gateway_map.get()` passes the domain-broker return through unchanged — no unwrapping. Unknown `domain` string → `ValueError`. Known but unregistered domain (currently `"fit"`) → degraded result `{"error": "domain not yet available"}`. Tested in `tests/test_broker.py` (moved out of `test_dashboard.py` in v1.6.9.2, see Section 2 there). Details: `REFERENCE_BROKER.md` → `gateway_map.get()`.
 
 **Specialist return contract (section 16):** Jeder `build()`-Call wird mit synthetischen Daten ausgeführt. Pflicht-Keys pro Specialist: siehe REFERENCE_DASHBOARD.md → Specialist return dicts.
 
