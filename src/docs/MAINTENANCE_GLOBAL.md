@@ -305,9 +305,20 @@ Run after any change to: `context_collector`, `context_api`, `context_writer`, `
 python tests/test_dashboard.py
 ```
 
-No network, no GUI. Covers full pipeline: `garmin_health_map` intraday normalization → brokers → layout resources → all specialists → all plotters → runner. Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift.
+No network, no GUI. Covers full pipeline: `garmin_health_map` intraday normalization → layout resources → all specialists → all plotters → runner. Broker-routing-contract checks (`health_map`/`gateway_map`) moved to `tests/test_broker.py` (v1.6.9.2) — see below. Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift.
 
 Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gateway_map`, `metadata_map`, `dash_layout`, `dash_layout_html`, `reference_ranges`, any `*_dash.py` specialist, any `dash_plotter_*`, any `layouts/render/*.py` renderer.
+
+### `tests/test_broker.py` — Broker layer
+
+
+```bash
+python tests/test_broker.py
+```
+
+No network, no GUI, no API calls. Routing-contract checks for `health_map` and `gateway_map` — moved out of `test_dashboard.py` (v1.6.9.2), where they sat mixed in with Dashboard-specific specialist/plotter tests. `context_map`'s own fan-out routing (multi-source `get()`, KeyError-skip, per-source exception degrade, `list_fields()`/`list_sources()`) gained dedicated coverage in Section 1b — closes the gap noted above. Check and section totals are tracked in `docs/METRICS.md` (`tests/test_broker.py`) — not restated here to avoid drift.
+
+Run after any change to: `health_map`, `context_map`, `gateway_map`, `garmin_health_map` (routing target), `weather_map`/`pollen_map`/`brightsky_map`/`airquality_map` (context_map's own routing targets).
 
 ### Plotly local cache
 
@@ -408,7 +419,7 @@ Run after: called automatically by `build_all.py` as post-build step. Can also b
 
 ```bash
 python compiler/build_all.py
-# Pre-build:  test_local → test_local_context → test_dashboard → test_static (ruff + bandit)
+# Pre-build:  test_local → test_local_context → test_dashboard → test_broker → test_static (ruff + bandit)
 # Build:      Target 2 → Target 3
 # Post-build: test_build_output → test_app_logic → run_cve_check (report only, never aborts)
 ```
