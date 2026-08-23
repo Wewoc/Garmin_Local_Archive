@@ -112,6 +112,12 @@ if __name__ == "__main__":
         print("\n  ✗ Dashboard tests failed — build aborted.")
         sys.exit(1)
 
+    test_broker_path = _root / "tests" / "test_broker.py"
+    result_broker = subprocess.run([sys.executable, str(test_broker_path)])
+    if result_broker.returncode != 0:
+        print("\n  ✗ Broker tests failed — build aborted.")
+        sys.exit(1)
+
     test_static_path = _root / "tests" / "test_static.py"
     result_static = subprocess.run([sys.executable, str(test_static_path)])
     if result_static.returncode != 0:

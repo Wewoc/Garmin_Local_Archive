@@ -665,20 +665,20 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-Six test suites cover the full pipeline — no network, no API required:
-
-
-
+Seven test suites cover the full pipeline — no network, no API required:
 
 ```bash
 python tests/test_local.py          # Garmin pipeline
 python tests/test_local_context.py  # Context pipeline (external APIs mocked)
 python tests/test_dashboard.py      # Dashboard pipeline
+python tests/test_broker.py         # Broker layer (health_map / gateway_map routing, metadata_map)
 python tests/test_app_logic.py      # App layer (entry points, path resolution)
+pytest tests/test_qt_app.py         # PyQt6 App layer
+python tests/test_static.py         # ruff + bandit + regression guards
 python tests/test_build_output.py   # Build output validation (run after build)
 ```
 
-`build_all.py` runs the first three before starting either build — a failing test aborts the build. `test_build_output.py` runs automatically after both builds complete as a post-build gate. `test_app_logic.py` is run manually after changes to the entry point files.
+`build_all.py` runs `test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_broker.py`, and `test_static.py` as pre-build gates — a failing test aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` is run manually via `pytest`.
 
 GUI changes are verified manually before release. Full CI/CD with automated builds and release packaging is planned for a later version.
 
