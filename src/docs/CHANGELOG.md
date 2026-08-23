@@ -2,156 +2,86 @@
 
 ## v1.6.9.1 — metadata_map Broker
 
-Dritter Domain-Broker in der Broker-Ebene (`maps/`), gleichrangig zu
-`health_map`/`context_map`: Archiv-Metadaten (Coverage-Stats, Device-Table,
-Quality-Log, Token-Event-Log, Capability-Config, Rohlogs) sind jetzt über
-die Broker-Ebene statt über vier verstreute direkte Importpfade abfragbar.
-Vorgezogen aus einer v1.9-Roadmap-Notiz (siehe `KNOWN_ISSUES.md`,
-Block 1b), weil `gateway_map.py` der geplante v1.9-MCP-Andockpunkt ist —
-ohne diesen Broker blieben Archiv-Metadaten für einen künftigen MCP-Client
-unerreichbar. Design von einem Multi-LLM-Review-Gate (Gemini, ChatGPT,
-Copilot, Le Chat) gegengeprüft; Sicherheitsfilter und Fehlerverhalten
-entsprechend der Rückmeldungen angepasst.
+A third domain broker has been added to the broker layer (`maps/`), equal to `health_map`/`context_map`: Archive metadata (coverage statistics, device table, quality log, token event log, capability configuration, raw logs) can now be queried via the broker layer instead of through four separate direct import paths. This was prioritized from a v1.9 roadmap note (see `KNOWN_ISSUES.md`, Block 1b) because `gateway_map.py` is the planned v1.9 MCP attachment point — without this broker, archive metadata would remain inaccessible to a future MCP client. The design was reviewed by a multi-LLM review panel (Gemini, ChatGPT, Copilot, Le Chat); security filters and error handling have been adjusted based on the feedback.
 
 **New modules:**
-- `maps/metadata_map.py` — Introspection-Broker, neun benannte Funktionen
-  (`get_stats`, `get_device_table`, `get_quality_log`, `get_source_api_log`,
-  `get_token_log`, `get_capability_config`, `get_daily_logs`,
-  `get_fail_logs`, `get_recent_logs`). Nicht zeitreihen-basiert — jede
-  Funktion liest genau eine bekannte Archiv-Datei bzw. einen Rohlog-Ordner.
-  Einheitliche Rückgabe-Envelope `{"data": ..., "error": str | None}`,
-  nie werfend (Lese-/Parse-Fehler werden intern abgefangen und degradiert
-  zurückgegeben — analog zu `health_map`/`context_map`). Harte
-  Ausschlussgrenze: `GARMIN_TOKEN_FILE` (`garmin_token.enc`) wird an
-  keiner Stelle referenziert. Die drei Rohlog-Funktionen filtern jede
-  Zeile durch `_sanitize_line()` — erkanntes Auth-Material (JWT/Base64-
-  Fragmente, Bearer/Authorization-Header, Token-Keywords, Passwort-
-  Fragmente, Cookies) wird verworfen, erkannte PII (E-Mail, IPv4,
-  GPS-Koordinaten) wird maskiert statt entfernt, um Diagnosewert zu
-  erhalten.
+- `maps/metadata_map.py` — Introspection broker, with nine named functions (`get_stats`, `get_device_table`, `get_quality_log`, `get_source_api_log`, `get_token_log`, `get_capability_config`, `get_daily_logs`, `get_fail_logs`, `get_recent_logs`). Not time-series based — each function reads exactly one known archive file or raw log directory. A unified return envelope `{"data": ..., "error": str | None}` is used; no exceptions are raised (read/parse errors are caught internally and returned as errors — analogous to `health_map`/`context_map`). A hard exclusion: the `GARMIN_TOKEN_FILE` (`garmin_token.enc`) is not referenced anywhere. The three raw log functions filter each line through `_sanitize_line()` — recognized authentication material (JWT/Base64 fragments, Bearer/Authorization headers, token keywords, password fragments, cookies) is discarded, recognized PII (email, IPv4, GPS coordinates) is masked instead of removed to preserve diagnostic value.
 
 **Changed modules:**
-- `maps/gateway_map.py` — neue, von `get()` getrennte Funktion
-  `get_metadata(kind: str) -> dict`, da Archiv-Metadaten strukturell
-  nicht in das zeitreihen-basierte `field`/`date_from`/`date_to`/
-  `resolution`-Schema von `get()` passen. `_METADATA_KINDS`-Dispatch-Dict
-  (neun Einträge, 1:1 zu `metadata_map`), `ValueError` bei unbekanntem
-  `kind` — gleiches Stabilitätsmuster wie das bestehende `domain`-Handling
-  in `get()`. Neue Funktion `list_metadata_kinds()`. Docstring-Kopf um
-  die Metadata-Registry ergänzt (bisher nur Domain-Registry dokumentiert).
-- `garmin/garmin_config.py` — neue Konstante `LOG_DAILY_DIR`, additiv
-  neben den bestehenden `LOG_RECENT_DIR`/`LOG_FAIL_DIR`.
-- `compiler/build_manifest.py` — `maps/metadata_map.py` in
-  `SHARED_SCRIPTS` ergänzt.
+- `maps/gateway_map.py` — A new function `get_metadata(kind: str) -> dict` has been added, separate from `get()`, because archive metadata is not structurally compatible with the time-series `field`/`date_from`/`date_to`/`resolution` schema of `get()`. A `_METADATA_KINDS` dispatch dictionary (nine entries, 1:1 with `metadata_map`), `ValueError` for unknown `kind` — the same stability pattern as the existing `domain` handling in `get()`. A new function `list_metadata_kinds()` has been added. The docstring header has been extended to include the metadata registry (previously only the domain registry was documented).
+- `garmin/garmin_config.py` — A new constant `LOG_DAILY_DIR` has been added, in addition to the existing `LOG_RECENT_DIR`/`LOG_FAIL_DIR`.
+- `compiler/build_manifest.py` — `maps/metadata_map.py` has been added to `SHARED_SCRIPTS`.
 
-**Bewusst nicht umgesetzt:**
-- Migration der vier bestehenden direkten `get_archive_stats()`-Aufrufer
-  (`garmin_app_controller.py`, `panel_archive.py`, `context_collector.py`,
-  `garmin_mobile_landing.py`) — bleiben unverändert, `app/`-Schicht hat
-  keinen direkten Bezug zur Broker-Ebene. `garmin_mobile_landing.py`
-  bleibt zusätzlich dokumentierter Sonderfall (siehe `KNOWN_ISSUES.md`
-  Cluster A), wird bei nächster inhaltlicher Berührung angepasst.
-- `get_schema_versions()` (aus dem Multi-LLM-Review vorgeschlagen) —
-  zurückgestellt: `garmin_normalizer.py`s `CURRENT_SCHEMA_VERSION` ist nur
-  die Soll-Version im Code, das Modul hat laut eigenem Docstring keinen
-  Datei-/Archivzugriff. Eine echte Ist-Zustand-Funktion hätte `SUMMARY_DIR`
-  durchsuchen müssen — anderer Charakter als die neun Einzeldatei-
-  Funktionen, nicht ohne weitere Analyse gebaut.
-- Testabdeckung für `metadata_map.py`/`gateway_map.get_metadata()` —
-  zurückgestellt auf v1.6.9.2, zusammen mit einer geplanten Auslagerung
-  aller Broker-Tests aus `test_dashboard.py` in eine eigene Testdatei.
+**Intentionally not implemented:**
+- Migration of the four existing direct `get_archive_stats()` calls (`garmin_app_controller.py`, `panel_archive.py`, `context_collector.py`, `garmin_mobile_landing.py`) — these remain unchanged; the `app/` layer has no direct connection to the broker layer. `garmin_mobile_landing.py` remains a documented special case (see `KNOWN_ISSUES.md` Cluster A) and will be adjusted during the next content update.
+- `get_schema_versions()` (suggested by the multi-LLM review) — postponed: `garmin_normalizer.py`'s `CURRENT_SCHEMA_VERSION` is only the intended version in the code; according to its own docstring, the module does not have file/archive access. A true "as-is" function would have had to scan `SUMMARY_DIR` — this is a different purpose than the nine single-file functions and would not have been built without further analysis.
+- Test coverage for `metadata_map.py`/`gateway_map.get_metadata()` — postponed to v1.6.9.2, along with a planned extraction of all broker tests from `test_dashboard.py` into a separate test file.
 
-**Drift-Check (`build_dep_map.py`, 2026-08-22_Run-01 → Run-02):**
-10 NEU exceptions + 5 NEU fileio, alle in `maps/metadata_map.py` — neun
-`broad Exception`-Handler (architektonisch beabsichtigt, siehe "nie
-werfend" oben) + ein enger `OSError`-Handler in `_read_log_dir()`, sowie
-fünf fileio-Fundstellen in den beiden internen Lese-Helfern
-(`_read_json_file`, `_read_log_dir`). 0 WEG, 0 GEKIPPT-Regression.
+**Drift check (`build_dep_map.py`, 2026-08-22_Run-01 → Run-02):**
+10 NEW exceptions + 5 NEW fileio, all in `maps/metadata_map.py` — nine `broad Exception` handlers (architecturally intended, see "does not raise" above) + a specific `OSError` handler in `_read_log_dir()`, as well as five `fileio` instances in the two internal helper functions (`_read_json_file`, `_read_log_dir`). 0 REMOVED, 0 REVERTED.
 
-**Test result:** 716 / 265 / 496 / 165 / 59 / 16 — all green, ruff 0
-errors, bandit 0 HIGH.
+**Test result:** 716 / 265 / 496 / 165 / 59 / 16 — all green, ruff 0 errors, bandit 0 HIGH.
 
 ---
 
-## v1.6.9 — Review-Nachsorge / v1.6-Abschluss
+## v1.6.9 — Review follow-up / v1.6 final
 
-Schließt die Funde mit echtem Datenschaden-/Eskalationspotenzial aus den
-Code-Review-Sessions 1–6 (`REVIEW_GESAMTAUSWERTUNG.md`), bevor v1.7
-(FIT-Pipeline) und v1.7.1 (MCP/SQLite-Proxy) auf denselben Code-Bereichen
-aufbauen. Vier Blöcke, wie in `v1.6.9_ROADMAP_EINTRAG.md` geplant.
-Zusätzlich: `garminconnect`-Dependency-Update auf 0.3.11, T3 neu gebaut.
+This resolves findings with real data leakage/escalation potential from code review sessions 1–6 (`REVIEW_GESAMTAUSWERTUNG.md`) before v1.7 (FIT pipeline) and v1.7.1 (MCP/SQLite proxy) build on the same code areas. Four blocks, as planned in `v1.6.9_ROADMAP_EINTRAG.md`. Additionally: `garminconnect` dependency updated to 0.3.11, T3 rebuilt.
 
-**Block 1a — E2E-Test für den täglichen Sync-Fetch-Loop:**
-- `tests/test_local.py` — neuer Testblock, führt `garmin_collector.main()`
-  über drei feste Tage durch den echten Fetch-Loop (Steps 1–9) statt nur
-  über den Capability-Scan-Zweig: sauberer Tag (`high`), Validator-`critical`
-  (`failed`, `recheck=True`), Downgrade-Ablehnung (`high`/`bulk` bleibt
-  gegen einen frischeren, niedriger bewerteten Fetch bestehen). 13 neue
-  Checks, `test_local.py` 703→716.
+**Block 1a — E2E test for the daily sync-fetch loop:**
+- `tests/test_local.py` — A new test block that runs `garmin_collector.main()` through the real fetch loop (Steps 1–9) for three fixed days, instead of just through the capability scan branch: clean day (`high`), validator-`critical` (`failed`, `recheck=True`), downgrade rejection (`high`/`bulk` persists against a fresher, lower-rated fetch). 13 new checks, `test_local.py` 703→716.
 
-**Block 1b — `quality/_stats.py::get_archive_stats()` device_table-Fix:**
-- `garmin/quality/_stats.py` — toter `device_table`-Aufbau entfernt
-  (Dead-Code-Block + kompletter Matching-Zweig gegen `device_rank`, das
-  seit der v1.5.7-Migration pro Tageseintrag nicht mehr gesetzt wird).
-  `"device_table"`-Key aus dem Rückgabewert entfernt. Alle vier realen
-  Aufrufer nutzen bereits `_io.py::save_device_table()` bzw. lesen
-  `device_table.json` direkt — kein Konsument betroffen.
-- `garmin/garmin_quality.py` — Docstring-Korrektur (Facade-Doku erwähnte
-  `device_table` noch als Teil von `get_archive_stats()`).
+**Block 1b — `quality/_stats.py::get_archive_stats()` device_table fix:**
+- `garmin/quality/_stats.py` — Dead `device_table` construction removed (dead code block + complete matching branch against `device_rank`, which has not been set for each daily entry since the v1.5.7 migration). The `"device_table"` key has been removed from the return value. All four real callers already use `_io.py::save_device_table()` or read `device_table.JavaScript Object Notation` directly — no consumers are affected.
+- `garmin/garmin_quality.py` — Docstring correction (the facade documentation mentioned `device_table` as part of `get_archive_stats()`).
 
-**Block 2 — QUALITY_LOCK-Zugriff aus `panel_archive.py`:**
-- `app/garmin_app_controller.py` — neue Funktion
-  `rename_unknown_device(s, new_name)`, kapselt den vollständigen
-  Load-Modify-Save-Zyklus unter `QUALITY_LOCK`, wirft nie.
-- `app/panel_archive.py` — `_archive_on_device_name_click()` delegiert jetzt
-  an den Controller statt `QUALITY_LOCK` direkt zu akquirieren und private
-  Fassadenfunktionen aufzurufen. Dritter, undokumentierter Zugriffspfad
-  damit geschlossen.
-- `GLA_HANDBUCH.md` §10/§14 — vollständige Aufzählung aller sechs
-  tatsächlichen Lock-Halter nachgezogen (Doku nannte zuvor nur zwei);
-  `garmin_app_controller`-Schreibzugriff dokumentiert.
+**Block 2 — QUALITY_LOCK Access from `panel_archive.py`:**
+- `app/garmin_app_controller.py` — new function
+  `rename_unknown_device(s, new_name)`, encapsulates the complete
+  load-modify-save cycle under `QUALITY_LOCK`, never throws an exception.
+- `app/panel_archive.py` — `_archive_on_device_name_click()` now
+  delegates to the controller instead of directly acquiring `QUALITY_LOCK` and calling private
+  facade functions. Third, undocumented access path closed.
+- `GLA_HANDBOOK.md` §10/§14 — updated the complete listing of all six
+  actual lock holders (documentation previously mentioned only two);
+  `garmin_app_controller` write access documented.
 
-**Block 3 — Ein-Zeiler-Aufräum-Batch (8 Funde):**
-- `layouts/garmin_mobile_landing.py` — falscher erwarteter Dateiname für
-  das Sleep-Dashboard-Embed (`sleep_garmin_html-xls_dash.html`) korrigiert
-  auf den tatsächlichen Spezialisten-Output (`sleep_dashboard.html`) —
-  `_read_dash()`-Aufruf, Docstring und sichtbares HTML-Label, alle drei
-  Stellen. Bewirkte, dass das Embed auf der Mobile Landing Page dauerhaft
-  leer blieb, ohne geloggten Fehler.
-- `garmin/garmin_config.py` — doppelte `LOCAL_CONFIG_FILE`-Zuweisung entfernt.
-- `garmin/garmin_mirror.py` — doppelte, komplett ungenutzte
-  `EXCLUDE_DIRS`-Konstante entfernt (beide Vorkommen; `garmin_container.py`
-  nutzt eine eigene, unabhängige `_EXCLUDE_DIRS`).
-- `app/panel_outputs.py` — doppelte `_exe_dir`-Zuweisung in
-  `_create_task_scheduler_xml()` entfernt.
-- `maps/pollen_map.py` — auskommentiertes `_FILE_PREFIX`-Duplikat über
-  `_FIELD_MAP` entfernt.
-- `garmin/quality/_assess.py` — redundanter `elif`-Zweig
-  (`training_readiness`, field-level) entfernt; verbleibender Zweig deckt
-  denselben Fall bereits ab.
-- `dashboards/health_garmin_html-json_dash.py` — toter `vo2_raw`-Ausdruck
-  entfernt (unbenutzt, `# noqa: F841`-stillgelegt statt korrekt entfernt).
-- `dashboards/dash_runner.py` — unerreichbarer Defensiv-Check in `scan()`
-  entfernt (`dash_runner.py` kann das `*_dash.py`-Glob strukturell nie
-  matchen).
-- `docs/REFERENCE_DASHBOARD.md` — „Dashboard links"-Zeile nachgezogen
-  (nannte denselben falschen Sleep-Dashboard-Dateinamen wie der Code-Fund).
+**Block 3 — One-liner Cleanup Batch (8 findings):**
+- `layouts/garmin_mobile_landing.py` — corrected the incorrect expected filename for the
+  sleep dashboard embed (`sleep_garmin_html-xls_dash.Hypertext Markup Language`) to the actual specialist output (`sleep_dashboard.Hypertext Markup Language`) —
+  `_read_dash()` call, docstring, and visible Hypertext Markup Language label, all three
+  locations.  This caused the embed to permanently remain blank on the mobile landing page without logging any errors.
+- `garmin/garmin_config.py` — removed duplicate `LOCAL_CONFIG_FILE` assignment.
+- `garmin/garmin_mirror.py` — removed duplicate, completely unused
+  `EXCLUDE_DIRS` constant (both occurrences; `garmin_container.py`
+  uses its own, independent `_EXCLUDE_DIRS`).
+- `app/panel_outputs.py` — removed duplicate `_exe_dir` assignment in
+  `_create_task_scheduler_xml()`.
+- `maps/pollen_map.py` — removed commented-out duplicate `_FILE_PREFIX` above
+  `_FIELD_MAP`.
+- `garmin/quality/_assess.py` — removed redundant `elif` branch
+  (`training_readiness`, field-level); the remaining branch already covers
+  the same case.
+- `dashboards/health_garmin_html-json_dash.py` — removed dead `vo2_raw` expression
+  (unused, silenced with `# noqa: F841` instead of being correctly removed).
+- `dashboards/dash_runner.py` — removed unreachable defensive check in `scan()`
+  (`dash_runner.py` can structurally never match the `*_dash.py` glob).
+- `docs/REFERENCE_DASHBOARD.md` — updated the "Dashboard links" line
+  (previously mentioned the same incorrect sleep dashboard filename as the code finding).
 
-**Dependency:**
-- `garminconnect` — Update auf Release 0.3.11.
-- `version.py` — `APP_VERSION` auf `1.6.9` gesetzt, T3 Standalone neu gebaut.
+**Dependencies:**
+- `garminconnect` — Updated to release 0.3.11.
+- `version.py` — `APP_VERSION` set to `1.6.9`, T3 standalone rebuilt.
 
-**Drift-Check (`build_dep_map.py`, Baseline 2026-08-16 → 2026-08-22):**
-1 NEU exception + 1 NEU fileio (beide `garmin_app_controller.py::
-rename_unknown_device`, architektonisch beabsichtigt — kapselt den
-Load-Modify-Save-Zyklus, wirft nie), 1 WEG exception (der entfernte
-`QUALITY_LOCK`-Block in `panel_archive.py`, durch die Controller-Delegation
-abgelöst — Verbesserung, keine Lücke). 0 GEKIPPT-Regression.
+**Drift Check (`build_dep_map.py`, Baseline 2026-08-16 → 2026-08-22):**
+1 NEW exception + 1 NEW fileio (both in `garmin_app_controller.py::
+rename_unknown_device`, architecturally intended — encapsulates the
+load-modify-save cycle, never throws an exception), 1 REMOVED exception (the removed
+`QUALITY_LOCK` block in `panel_archive.py`, replaced by controller delegation
+— improvement, no gap). 0 SKIPPED regressions.
 
 **Test result:** 716 / 265 / 496 / 165 / 59 / 16 — all green, ruff 0 errors,
 bandit 0 HIGH.
-
----
 
 ## v1.6.8.2 — Standalone Log Order Fix
 
