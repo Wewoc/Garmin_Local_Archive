@@ -12,65 +12,6 @@
 
 ### v1.7.1 — SQLite Proxy
 
-```
-MCP Server (external)
-    ↓
-mcp_map.py  ←→  gateway_map.py  ←→  health_map / fit_map / context_map
-    ↓
-[Pipeline untouched]
-```
-
-**FIT stub:** the FIT Pipeline is not built yet at this point (see v1.8).
-`gateway_map.py` already returns a degraded `{"error": ...}` result for
-unregistered domains — a `query_fit_activities()` call is therefore safe to
-expose now; it simply answers "not available yet" until `fit_map.py` exists.
-No FIT-specific code, no FIT skeleton, no config pre-decision happens here —
-see `docs/KONZEPT_mcp_sqlite_proxy_V2.md`, section "FIT-Anbindung", for the
-reasoning.
-
-**`garmin/mcp_map.py` — new module**
-
-Sole Owner of MCP protocol translation. Accepts structured tool calls from
-the MCP Server and forwards them to `gateway_map.get()`. Returns normalized
-response dicts. No write access to any pipeline component — read-only by
-design, and no routing logic of its own — that lives in `gateway_map`.
-
-**`mcp_server.py` — new module**
-
-Standalone MCP server process. Implements the MCP tool definitions and delegates all data access to `mcp_map`. Can be started independently of the main GUI. Configurable via `local_config` — enabled/disabled, port, LLM backend.
-
-**LLM backend support**
-
-- Ollama (default, recommended) — fully local, no data leaves the machine
-- Claude API — optional, user's choice; no default
-
-The backend is a configuration option. GLA takes no position on which LLM the user runs.
-
-**Example tools exposed via MCP**
-
-- `query_day(date)` — full summary for a single day across all active sources
-- `query_range(start, end, fields)` — aggregated data for a date range
-- `query_fit_activities(start, end)` — FIT activity list with key metrics (returns "not available" until v1.8)
-- `get_archive_stats()` — archive health overview (coverage, quality distribution)
-
-**What changes:**
-- `garmin/mcp_map.py` — new module; read-only MCP protocol translator on top of `gateway_map`
-- `mcp_server.py` — new standalone MCP server process
-- `local_config` — two new fields: `MCP_ENABLED` (on/off), `MCP_LLM_BACKEND` (ollama / claude-api)
-- `garmin_app_base.py` — optional "Start MCP Server" toggle in Settings panel
-
-**What does not change:**
-- Broker Layer internals — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
-- Pipeline — no access below the Broker Layer
-- Sole owner principle — `mcp_map` reads via `gateway_map` only, never directly from archive files or the domain brokers
-- All existing workflows — GUI, dashboards, export pipeline unaffected
-
-**Invariant:** `mcp_map.py` has no write access. The MCP Server cannot modify the archive.
-
----
-
-### v1.7.1 — SQLite Proxy
-
 Aggregation cache in front of `mcp_map.py` — turns range/trend questions
 ("average sleep last month") from an O(archive size) file-iteration into a
 fast local SQL query. Full concept: `docs/KONZEPT_mcp_sqlite_proxy_V2.md`.
