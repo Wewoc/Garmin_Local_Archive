@@ -31,8 +31,8 @@ underlying rule ("Spezialisten lesen nie direkt aus dem Dateisystem").
 | `context_map.py` | External context data | `weather_map`, `pollen_map`, `brightsky_map`, `airquality_map` | `_SOURCES = {"weather": ..., "pollen": ..., "brightsky": ..., "airquality": ...}` |
 | `gateway_map.py` | Cross-domain routing for external/aggregate consumers | `health_map`, `fit_map` *(planned)*, `context_map` | `_DOMAIN_BROKERS = {"health": health_map, "fit": None, "context": context_map}` |
 | `metadata_map.py` *(v1.6.9.1)* | Archive-state introspection (not time-series) | — reads archive files directly, catch-all for data outside health/fit/context | routed via `gateway_map.get_metadata()`, not `_DOMAIN_BROKERS` — see below |
-| `fit_map.py` *(planned, v1.7)* | Activity data (Garmin FIT, later Strava) | `garmin_fit_map`, future `strava_fit_map` | see `ROADMAP.md` → v1.7 FIT Pipeline |
-| `mcp_map.py` *(planned, v1.9)* | MCP protocol translation | `gateway_map` | see `ROADMAP.md` → v1.9 MCP Server |
+| `fit_map.py` *(planned, v1.8)* | Activity data (Garmin FIT, later Strava) | `garmin_fit_map`, future `strava_fit_map` | see `ROADMAP.md` → v1.8 FIT Pipeline |
+| `mcp_map.py` *(v1.7)* | MCP protocol translation | `gateway_map` | pure delegation, no `_SOURCES`/`_DOMAIN_BROKERS` registry of its own — see `mcp_map.py` contract section below |
 
 Both `health_map.py` and `context_map.py` are structurally identical — same
 broker principle, different domain and source registry. Both register their
@@ -227,6 +227,7 @@ result = gateway_get("resting_heart_rate", "2026-08-01", "2026-08-07",
                       resolution="daily", domain="health")
 # result == {"health": {"garmin": {"values": [...], "fallback": False,
 #                                   "source_resolution": "daily"}}}
+```
 
 Both brokers expose the same auxiliary functions:
 
@@ -377,30 +378,114 @@ from maps.gateway_map import get_metadata
 
 result = get_metadata("stats")
 # result == {"data": {...}, "error": None}
+```
 
-`fit_map.py` (v1.7) is planned as a peer to `health_map.py` and
+`fit_map.py` (v1.8) is planned as a peer to `health_map.py` and
 `context_map.py` — same broker principle (domain-level, routes to
 source-specific `*_map.py` modules below it), new domain (activity data).
 `gateway_map.py` is already prepared for it — the `"fit"` domain key
 exists in `_DOMAIN_BROKERS` ahead of the broker itself (see
 `gateway_map.get()` above).
 
-`mcp_map.py` (v1.9) is not a peer at this level, and — unlike the original
-plan — it no longer aggregates the Broker Layer itself. That role belongs
-to `gateway_map.py` (v1.6.7), which is a peer within the Broker Layer,
-providing cross-domain routing across `health_map`/`fit_map`/`context_map`
-for consumers that don't know in advance which domain owns a field.
-`mcp_map` shrinks to pure protocol translation (MCP ↔ `gateway_map`) —
-architecturally it sits alongside the Dashboard Layer and the planned
-Export Layer, both of which consume the Broker Layer the same way, just
-through a different output channel (MCP protocol instead of file/chart).
-
-Full architecture in `ROADMAP.md`. This file gets a dedicated section for
-each once implementation actually starts — no contract is assumed here
-ahead of time.
+`mcp_map.py` is not a peer at this level — it does not aggregate the
+Broker Layer itself. That role belongs to `gateway_map.py` (v1.6.7),
+which is a peer within the Broker Layer, providing cross-domain routing
+across `health_map`/`fit_map`/`context_map` for consumers that don't know
+in advance which domain owns a field. `mcp_map` is pure protocol
+translation (MCP ↔ `gateway_map`) — architecturally it sits alongside the
+Dashboard Layer and the planned Export Layer, both of which consume the
+Broker Layer the same way, just through a different output channel (MCP
+protocol instead of file/chart).
 
 ---
 
-*Source of truth for the Broker Layer's outward-facing contract. Per-field
-internal mappings live in the per-domain reference files — this file never
-duplicates them, only points to them.*
+## `mcp_map.py` — MCP protocol translation (v1.7)
+
+```python
+from maps.mcp_map import query_health, query_context, query_fit_activities, \
+    query_raw, get_archive_metadata, list_available_fields
+```
+
+Thin delegation to `gateway_map.get()`/`get_raw()`/`get_metadata()` —
+`mcp_map.py` owns no data, no state, no MCP-SDK dependency, and is fully
+testable without a running MCP server (`tests/test_mcp.py`). Tool
+granularity is domain-named, not a 1:1 wrapper around `gateway_map`
+parameters — one function per domain (`query_health`/`query_context`/
+`query_fit_activities`) rather than a single generic `query(domain=...)`,
+so a domain typo is a Python-level caller error (wrong function name)
+instead of a silent runtime string mismatch.
+
+```python
+query_health(field, date_from, date_to, resolution="daily") -> dict
+# {"health": <gateway_map.get(..., domain="health")["health"]>, "_meta": {...}}
+
+query_context(field, date_from, date_to, resolution="daily") -> dict
+# {"context": <gateway_map.get(..., domain="context")["context"]>, "_meta": {...}}
+
+query_fit_activities(field, date_from, date_to, resolution="daily") -> dict
+# {"fit": <gateway_map.get(..., domain="fit")["fit"]>, "_meta": {...}}
+# until garmin_fit_map.py lands (v1.8): {"fit": {"error": "domain not yet
+# available"}, "_meta": {...}} — gateway_map's existing unregistered-domain
+# handling, no FIT-specific code path here (see
+# KONZEPT_mcp_sqlite_proxy_V2.md, "FIT-Anbindung: Stöpsel statt
+# Vollintegration")
+
+query_raw(field, date_from, date_to, domain=None) -> dict
+# gateway_map.get_raw() result + "_meta" key added
+
+get_archive_metadata(kind) -> dict
+# gateway_map.get_metadata(kind) result, unchanged — no "_meta": metadata_map's
+# data is not date-range based, nothing to build a weekday table from
+
+list_available_fields(domain=None) -> dict
+# {"domains": [...], "metadata_kinds": [...],
+#  "fields": {"health": {...}, "context": {...}, "fit": []}}
+```
+
+**`_meta` block** — attached to every date-ranged query response
+(`query_health`/`query_context`/`query_fit_activities`/`query_raw`), built
+by `_build_meta(date_from, date_to)`:
+
+```python
+{
+    "date_from_iso":      str,   # "2026-08-01"
+    "date_from_readable": str,   # "August 01, 2026"
+    "date_to_iso":         str,
+    "date_to_readable":    str,
+    "weekdays": {                # one entry per calendar day in range
+        "2026-08-01": "Saturday",
+        "2026-08-02": "Sunday",
+        # ...
+    },
+}
+```
+
+Deliberately one entry per calendar day, not per data point — at intraday
+resolution the latter would repeat the same weekday string thousands of
+times. Addresses a documented LLM failure mode (miscalculating weekdays
+from a bare ISO date) found during reference analysis ahead of the v1.7
+build (`NOTES_v1.7-vorbereitung.md`).
+
+**Error behaviour** — identical principle to `gateway_map.py`, never
+raises for data-availability reasons:
+- Degraded `{"error": ...}` results from `gateway_map` are passed through
+  unchanged, nested under the domain/result key — a normal successful
+  return with an `error` field in the payload, not an exception.
+- `gateway_map.get()`'s `ValueError` for a genuinely unknown domain string
+  cannot occur via `query_health`/`query_context`/`query_fit_activities` —
+  domain is fixed per function, not caller-supplied.
+- `query_raw()` raises `ValueError` if `domain` is set to an unknown
+  string — passed through unchanged from `gateway_map.get_raw()`.
+- `get_archive_metadata()` raises `ValueError` if `kind` is not a known
+  metadata kind — passed through unchanged from `gateway_map.get_metadata()`.
+
+**Consumer:** `clients/mcp_server.py` (v1.7 Teilbauauftrag b) — standalone
+MCP server process, stdio transport (`mcp>=1.28,<2`). Registers all six
+functions above as MCP tools via `@mcp.tool()`, same names, same
+signatures. No error-translation code in `mcp_server.py` itself — the MCP
+SDK automatically converts any uncaught exception raised inside a
+`@mcp.tool()`-decorated function into `CallToolResult(isError=True, ...)`
+with `str(exception)` as the message, so the two `ValueError` cases above
+reach the MCP client without `mcp_map.py` or `mcp_server.py` doing any
+translation work. Degraded `{"error": ...}` results are ordinary tool
+payloads — `isError` stays `False`.

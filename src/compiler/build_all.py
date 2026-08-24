@@ -118,6 +118,12 @@ if __name__ == "__main__":
         print("\n  ✗ Broker tests failed — build aborted.")
         sys.exit(1)
 
+    test_mcp_path = _root / "tests" / "test_mcp.py"
+    result_mcp = subprocess.run([sys.executable, str(test_mcp_path)])
+    if result_mcp.returncode != 0:
+        print("\n  ✗ MCP tests failed — build aborted.")
+        sys.exit(1)
+
     test_static_path = _root / "tests" / "test_static.py"
     result_static = subprocess.run([sys.executable, str(test_static_path)])
     if result_static.returncode != 0:

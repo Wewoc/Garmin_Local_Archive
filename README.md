@@ -90,6 +90,32 @@ Garmin Connect is still required — the app pulls data from there via API.
 
 ---
 
+## MCP Server — local LLM access to your archive
+
+Garmin Local Archive exposes your archive to local LLMs via the [Model
+Context Protocol](https://modelcontextprotocol.io/) — ask an LLM about your
+health and context data directly, without exporting files or copy-pasting
+into a chat window. Runs as its own standalone process, independent of the
+main app.
+
+Two ways to run it: a **▶️ Start MCP Server** button on the app's own
+**MCP Server** tab (uses the same archive path and settings as the rest of
+the app), or the standalone `mcp_server.exe` — a self-contained tool with
+its own small window, usable even without the main app installed.
+
+<img src="src/screenshots/GUI-Page_5.jpg" width="800" alt="Garmin Local Archive — MCP Server Tab">
+<br><sub>MCP Server tab — backend and model selection, Save Settings and Start MCP Server buttons.</sub>
+
+<img src="src/screenshots/GUI-MCP_1.jpg" width="500" alt="Garmin Local Archive — Standalone MCP Server">
+<br><sub>Standalone MCP server window (<code>mcp_server.exe</code>) — runs independently of the main app, with its own archive path, backend selection, and live log.</sub>
+
+Works with Ollama (fully local, default) or an optional cloud LLM backend —
+your choice, no default push toward either. Point your MCP-compatible
+client (Claude Desktop, Open WebUI, or similar) at the server and start
+asking questions.
+
+---
+
 ## How it works
 
 The app works in two modes: **live sync** pulls recent data directly from Garmin Connect via API; **Bulk Import** loads your complete history from a Garmin GDPR export ZIP — this is the primary path for recovering years of data that the API no longer serves.
@@ -281,7 +307,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 
 ## System Architecture
 
-The diagram below shows how all components relate to each other as of v1.6.x — from API ingestion and context collection through the broker layer to dashboard export. The broker layer also includes `gateway_map` (v1.6.7), a cross-domain routing layer for future consumers such as the planned local MCP server (v1.9) — existing dashboards are unaffected and continue to query `health_map`/`context_map` directly.
+The diagram below shows how all components relate to each other as of v1.6.x — from API ingestion and context collection through the broker layer to dashboard export. The broker layer also includes `gateway_map` (v1.6.7), a cross-domain routing layer used by the local MCP server (v1.7, see above) among other consumers — existing dashboards are unaffected and continue to query `health_map`/`context_map` directly.
 
 ![System Architecture v1.6.x](src/screenshots/data_flow.png)
 
@@ -335,7 +361,7 @@ The project is structured into five focused layers. Each layer has a single resp
 |---|---|
 | `health_map.py` + `garmin_health_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
 | `context_map.py` + `weather_map.py` + `pollen_map.py` + `brightsky_map.py` + `airquality_map.py` | Routes dashboard requests to context archive — reads `context_data/` |
-| `gateway_map.py` | Cross-domain routing broker (v1.6.7) — pass-through to `health_map`/`context_map` (and the future `fit_map`, v1.7) for consumers that need more than one domain in a single query, e.g. the planned MCP server (v1.9). Not used by any of the named dashboard specialists above — they query their domain broker directly. |
+| `gateway_map.py` | Cross-domain routing broker (v1.6.7) — pass-through to `health_map`/`context_map` (and the future `fit_map`, v1.8) for consumers that need more than one domain in a single query, e.g. the MCP server (v1.7, see above). Not used by any of the named dashboard specialists above — they query their domain broker directly. |
 | `metadata_map.py` | Archive-state introspection broker (v1.6.9.1) — coverage stats, device table, quality log, token event log, capability config, and session logs, reached via `gateway_map.get_metadata()`. Deliberately separate from the time-series brokers above — archive-state snapshots have no `date_from`/`date_to`/`resolution` concept. Reads its own files directly rather than routing to sibling `*_map.py` modules. Session-log reads pass through a sanitizer first — recognized secrets are dropped, recognized personal data (email, IP, GPS) is masked. |
 
 **Building your own tool on top of your archive?** `gateway_map.py` is the
@@ -357,7 +383,7 @@ and usage examples: [`docs/REFERENCE_BROKER.md`](docs/REFERENCE_BROKER.md).
 
 | Script | What it does |
 |---|---|
-| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings / Ollama-Chat. PyQt6 QMainWindow. |
+| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings / Ollama-Chat / MCP Server. PyQt6 QMainWindow. |
 | `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No GUI — importable in any context. |
 | `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No GUI. |
 | `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer / Documentation). Home tab: Dashboard viewer. (v1.6.0+) |
@@ -368,6 +394,10 @@ and usage examples: [`docs/REFERENCE_BROKER.md`](docs/REFERENCE_BROKER.md).
 | `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
 | `app/panel_chat.py` | Ollama-Chat panel — native chat against a local Ollama instance, no external tool required. Model dropdown, chat history, "Neuer Chat" reset. (v1.6.6) |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — used exclusively by `app/panel_chat.py`. (v1.6.6) |
+| `app/panel_mcp.py` | MCP Server panel — backend and model selection, Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
+| `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
+| `clients/mcp_server.py` | Standalone MCP server process (stdio transport) — can run independently of the main app. (v1.7) |
+| `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart. (v1.7) |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation |
@@ -665,13 +695,14 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-Seven test suites cover the full pipeline — no network, no API required:
+Eight test suites cover the full pipeline — no network, no API required:
 
 ```bash
 python tests/test_local.py          # Garmin pipeline
 python tests/test_local_context.py  # Context pipeline (external APIs mocked)
 python tests/test_dashboard.py      # Dashboard pipeline
 python tests/test_broker.py         # Broker layer (health_map / gateway_map routing, metadata_map)
+python tests/test_mcp.py            # MCP layer (mcp_map protocol translation)
 python tests/test_app_logic.py      # App layer (entry points, path resolution)
 pytest tests/test_qt_app.py         # PyQt6 App layer
 python tests/test_static.py         # ruff + bandit + regression guards

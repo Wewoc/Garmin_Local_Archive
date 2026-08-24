@@ -320,6 +320,99 @@ No network, no GUI, no API calls. Routing-contract checks for `health_map` and `
 
 Run after any change to: `health_map`, `context_map`, `gateway_map`, `garmin_health_map` (routing target), `weather_map`/`pollen_map`/`brightsky_map`/`airquality_map` (context_map's own routing targets).
 
+### `tests/test_mcp.py` — MCP layer
+
+```bash
+python tests/test_mcp.py
+```
+
+No network, no GUI, no MCP server process — verifies only what `maps/mcp_map.py`
+adds on top of the routing correctness already covered by `test_broker.py`:
+delegation to `gateway_map`, `_meta`-block construction (ISO + human-readable
+dates, per-calendar-day weekday table), and the clean FIT-degraded path.
+Deliberately named `test_mcp.py`, not `test_mcp_map.py` — a growing
+collection file for the whole MCP layer, since `clients/mcp_server.py`
+(v1.7 Teilbauauftrag b) and the v1.7.1 SQLite Proxy are expected to add
+their own sections here rather than spawning further narrowly-named test
+files. Check and section totals are tracked in `docs/METRICS.md`
+(`test_mcp.py`) — not restated here to avoid drift.
+
+Run after any change to: `maps/mcp_map.py`, `gateway_map` (routing target),
+`garmin_config.py` (Section 8 mocks `clients/mcp_server.py`, which now
+imports `garmin_config` — v1.7 Teilbauauftrag c).
+
+`clients/mcp_server.py` (v1.7 Teilbauauftrag b) has dedicated automated
+coverage as `test_mcp.py` Section 8 (registration + delegation, nine
+checks) — added within the same session as the Teilbauauftrag (b) build,
+not a separate follow-up. End-to-end tool-call verification (a real MCP
+client or the MCP Inspector invoking each of the six registered tools) is
+still open — tracked as a follow-up, not a blocker.
+
+`clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
+(c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in
+`main()`) — the only `clients/` module with this dependency, see Package
+structure / Import pattern below. `main()` stopped reading `MCP_ENABLED`
+in Teil (f) (the standalone process always opens `clients/
+mcp_server_gui.py`'s Tkinter window, "the window is the server"), and
+the underlying `garmin_config.MCP_ENABLED` constant itself was removed
+in Teil (g) — the "Enable MCP server" checkbox it backed had no
+functional effect once the flag was ignored, and the new "Start MCP
+Server" button replaced the manual-start workflow it used to describe.
+`test_mcp.py` Section 8's `MCP_ENABLED` mocking, if any remained, should
+be checked against current behaviour in the next session touching that
+file — not re-verified as part of this doc pass.
+
+`app/panel_mcp.py` (v1.7 Teilbauauftrag d) is the GUI-side settings
+counterpart — fifth tab "MCP Server", reachable via a new "MCP-Settings"
+button in `panel_home.py`'s Daily Actions (`self._app._right_tabs.setCurrentIndex(4)`).
+Since v1.7 Teilbauauftrag (g) this panel does launch
+`clients/mcp_server.py` directly — a "Start MCP Server" button
+(`_mcp_start_server()`) resolves a build-context-aware launch command
+(T1: `sys.executable` + script path; T2: `clients/Starte_MCP_Server.bat`
+next to the frozen EXE; T3.3: `mcp_server.exe` next to the frozen EXE)
+and calls `subprocess.Popen()` directly — no ENV-write bridge, still no
+in-process thread, but the prior "GUI never starts the subprocess"
+decision (Teil b/c) no longer holds for this one button. A PID lockfile
+(`garmin_config.MCP_SERVER_LOCK_FILE`) written by `mcp_server.py` at
+startup backs a `tasklist`-based liveness check before the button
+starts a new process. Since v1.7 Teilbauauftrag (f) the panel also
+mirrors its MCP settings fields (`mcp_llm_backend`, `base_dir`,
+`mcp_ollama_model` — reduced from four to three in Teil g, `mcp_enabled`
+removed) into a new, independent file, `garmin_config.
+MCP_SERVER_CONFIG_FILE` (`~/.garmin_mcp_server_config.json`) — a second
+writer of that file is `clients/mcp_server_gui.py` in the standalone
+case (documented Sole-Write-Authority exception, see that file's
+docstring). T2 (loose-script launcher `clients/Starte_MCP_Server.bat`)
+and T3.3 (`mcp_server.exe`, `--onefile`) build integration completed in
+Teilbauauftrag e/f; both launch targets real-build-tested for the Start
+button in Teilbauauftrag g.
+
+`clients/mcp_server_gui.py` gained a "🔄 Restart Server" button in v1.7
+Teilbauauftrag (h) — addresses the gap left by Teil (g): a changed
+`base_dir`/backend saved via this window's own "💾 Save" only updated
+`MCP_SERVER_CONFIG_FILE`, with no way to apply it to the already-running
+`mcp.run()` thread short of manually closing (including the known
+shutdown crash) and restarting from outside. Option C (session decision,
+NOTES_v1.7_teilh.md) was chosen over a plain self-relaunch (old window
+closes immediately, new one opens — real-tested and found too abrupt: a
+visible gap with no server running, lost log widget history, PyInstaller
+cold-start delay under T3.3) and over an in-process thread reload
+(rejected — `mcp.run(transport="stdio")` binds `sys.stdin`/`stdout`; no
+cancel API exists, so a second reader on the same stdio handle would be
+an unspecified, hard-to-reproduce risk). Under Option C the window
+enters a transitional state (Restart button disabled, status label)
+while the old process's lock-file unlink is attempted, the new process
+is started via `_resolve_mcp_server_launch_command()` (a shortened,
+standalone copy of `panel_mcp.py`'s function of the same name — `clients/`
+does not import from `app/`), and `root.after(500, ...)` polls
+`MCP_SERVER_LOCK_FILE` for a new PID (12s timeout) before this window
+closes itself. Real-tested on T1: successful restart in ~700ms,
+shutdown crash still occurs but stays hidden behind the already-open
+new window. **Known limitation, documented not fixed** (real-tested):
+the poll only confirms a new PID was written, not that the new process
+is healthy — `_write_lock_file()` runs before `base_dir` validation, so
+a restart with an invalid `base_dir` still reports success.
+
 ### Plotly local cache
 
 `layouts/plotly.min.js` is read by `dash_layout_html.get_plotly_script()` — pure read, no network access (v1.6.0.4.4+). The file must exist before any dashboard render:
@@ -392,6 +485,7 @@ Classes:
 - `TestPanelTimer` (7) — instantiation, field load/read, toggle on/off, resume logic
 - `TestPanelOutputs` (7) — instantiation, context sync state, stop event, no-crash helpers
 - `TestPanelChat` (13, v1.6.7 Teil B) — instantiation, disabled-before-start state, send no-op on empty input / while request running, `_chat_on_reply`/`_chat_on_error` state reset + history handling (trailing-user pop, no-pop, empty-history no-crash), age-display file-missing + corrupt-JSON no-crash, `_chat_on_new_chat` with/without system prompt, `_chat_on_model_changed` gated by combo enabled-state. Smoke-level only — no test starts a real `threading.Thread`; worker-callback methods are called directly instead, since a real thread would hit the live Ollama HTTP client. Full worker-thread-flow testing deliberately out of scope (see `NOTES_v167_B_01.md`).
+- `TestPanelMcp` (13, v1.7 Teilbauauftrag d) — instantiation, default/switched backend-box visibility (`isVisibleTo(panel)`, not `isVisible()` — the latter depends on the whole parent chain up to a shown top-level window, which these tests never create), `get_mcp_settings()`/`load_mcp_settings()` round-trip incl. missing-key defaults (v1.7 Teilbauauftrag f: `get_mcp_settings()` gained a fourth field, `mcp_ollama_model`; Teilbauauftrag g removed the `mcp_enabled` field again once the checkbox backing it was deleted — `test_get_mcp_settings_reflects_checkbox_and_backend`/`test_load_mcp_settings_populates_fields`/`test_load_mcp_settings_defaults_when_keys_missing` updated accordingly both times, not regression fixes), Ollama model-list callback (populated / unreachable-error / empty-no-error — smoke-level only, same reasoning as `TestPanelChat` above, no real `threading.Thread`), three cloud-config-file tests (write, empty-key-keeps-existing, missing-required-field warns without writing) — all via `tmp_path` + `unittest.mock.patch("garmin_config.MCP_LLM_CONFIG_FILE", ...)`, never touching the real `~/.garmin_mcp_llm_config.json`. `_mcp_save_server_config()` (v1.7 Teilbauauftrag f, mirrors into `MCP_SERVER_CONFIG_FILE`) and `_mcp_start_server()`/`_resolve_mcp_server_launch_command()`/`_mcp_server_is_running()` (v1.7 Teilbauauftrag g, the Start button's launch/liveness logic) not yet covered by dedicated tests — flagged for a follow-up session; verified manually via real T1/T2/T3.3 builds instead (see NOTES_v1.7_teilg.md).
 - `TestGarminAppBase` (4) — app instantiation, all panels created, log widget write, timer fields in collect_settings
 
 Run after any change to: `app/panel_*.py`, `garmin_app_base.py` (Qt version). Built panel-by-panel alongside the v1.5.4 migration. No network, no GUI, no build required.
@@ -440,13 +534,23 @@ All source folders are Python packages with `__init__.py`:
 - `clients/` — external tool/service clients (v1.6.6): no data silo, no
   Sole-Write-Authority, distinct from `garmin/`'s pipeline scope. Flat
   imports like `garmin/`/`app/`, not registered as a `sys.modules` package
-  (no relative imports inside `clients/`)
+  (no relative imports inside `clients/`). Two residents: `ollama_client.py`
+  (v1.6.6, HTTP client, no state, no own `sys.path` handling — reached only
+  via `app/panel_chat.py`'s `frozen_paths.add_to_path()` lazy import) and
+  `mcp_server.py` (v1.7 Teilbauauftrag b, standalone stdio server process,
+  own `sys.path` root anchor analogous to `scheduler/daily_update.py` since
+  it is never launched from a running GUI process)
 
 **Import pattern:**
 - Entry points (`garmin_app.py`, `tests/`) use `sys.path.insert` to reach `garmin/`
 - Within packages, use relative imports (`from . import module`)
 - `maps/` and `context/` modules that need `garmin_config` use `sys.path.insert` to bridge to `garmin/`
-- `clients/` modules have no such bridge need — no dependency on `garmin_config` (v1.6.6)
+- `clients/ollama_client.py` has no such bridge need — no dependency on
+  `garmin_config` (v1.6.6). `clients/mcp_server.py` is the exception since
+  v1.7 Teilbauauftrag (c): it originally read `garmin_config.MCP_ENABLED`/
+  `MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` (the first constant later
+  removed in Teil g, see below), so it bridges to `garmin/` the same way
+  `maps/`/`context/` do — see Module path resolution below.
 
 ---
 
@@ -466,7 +570,8 @@ All source folders are Python packages with `__init__.py`:
 | `context/` plugins | `sys.path.insert(0, .../garmin)` — for `garmin_config` |
 | `app/panel_chat.py` | `frozen_paths.add_to_path(root, "clients")` inside a lazy import helper — not at module top-level, so `panel_chat.py` stays importable before `sys.path` is fully wired up (v1.6.6) |
 | All modules inside `garmin/` | None — `sys.path.insert` removed in v1.4 |
-| All modules inside `clients/` | None — flat, no internal relative imports (v1.6.6) |
+| `clients/ollama_client.py` | None — flat, no internal relative imports, no `garmin_config` dependency (v1.6.6) |
+| `clients/mcp_server.py` | `_SRC_ROOT` (`src/`, for `from maps import mcp_map`) **and** `_SRC_ROOT/garmin` (for the flat `import garmin_config` — same bridge need as `maps/`/`context/` modules, added v1.7 Teilbauauftrag c). Not `frozen_paths.add_to_path()` — that helper is GUI-context-bound, this is a standalone subprocess. Frozen case (`_register_embedded_packages()`) additionally registers `scripts/clients` (v1.7 Teilbauauftrag f) — `main()` now imports `clients/mcp_server_gui.py` (`from mcp_server_gui import run_gui`), which resolves for free under T1/Dev via Python's automatic `sys.path[0] = script directory`, but needed an explicit entry once frozen (T3.3), same reasoning as the `garmin_dir` entry beside it. |
 
 ⚠ When adding a new subfolder: add it to the `sys.path` loop in both entry points **and** to `_register_embedded_packages()` in `garmin_app_standalone.py`. Worked example: `clients/` (v1.6.6) — added to both entry points' loops, added as a flat `sys.path.insert` in `_register_embedded_packages()`, deliberately **not** added to `scheduler/daily_update.py` (no headless use case) and **not** added to `garmin_app.py::script_path()` (never subprocess-launched).
 
