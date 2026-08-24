@@ -15,6 +15,8 @@ CONTENTS
   8. Troubleshooting
   9. Data Structure
   10. Ollama Chat
+  11. MCP Server
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. SETUP
@@ -311,7 +313,8 @@ Using it:
 
 Limitation:
   Currently, the chat only works against summary data -- full
-  intraday resolution will be added in version 1.9 (mcp_map.py).
+  intraday resolution via the MCP layer (mcp_map.py, built in v1.7)
+  is planned for v1.7.2.
 
 Troubleshooting:
   -> "Ollama: not reachable" -- make sure Ollama is running
@@ -321,6 +324,44 @@ Troubleshooting:
      yet; build one first (see "Using it" above), then reopen the tab
   -> Errors during a chat appear directly in the chat window --
      no separate log file needed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. MCP SERVER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Exposes your archive to local LLMs via the Model Context Protocol
+(MCP) -- lets an MCP-compatible client (Claude Desktop, Open WebUI,
+or similar) query your health and context data directly, without
+exporting files.
+
+Using it (from the main app):
+  Open the "MCP Server" tab -> choose LLM backend (ollama or cloud)
+  -> click "Save Settings" -> click "Start MCP Server"
+
+  ollama backend (default, fully local):
+    pick a model from the dropdown, or click "Refresh" to list
+    your locally installed Ollama models
+
+  cloud backend (optional):
+    enter provider / API key / model
+    Note: the key is stored in plaintext on disk -- a warning is
+    shown on screen. Not re-loaded back into the field after saving.
+
+  If a server is already running, a dialog shows its process ID
+  instead of starting a second one.
+
+Running without the main app:
+  Standalone version:  mcp_server.exe
+  Standard version:     clients/Starte_MCP_Server.bat
+
+  Opens its own small window -- archive path, backend, model,
+  and a live log. Useful for running the server on a machine or
+  user session where the main app isn't installed.
+
+  "Restart Server" in that window applies a changed archive path
+  or backend without closing the window by hand -- the new process
+  starts in the background, the window switches over automatically
+  once it's confirmed running.
 
 ═══════════════════════════════════════════════════════════
   Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive

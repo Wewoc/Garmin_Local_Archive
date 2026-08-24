@@ -29,6 +29,7 @@ SHARED_SCRIPTS = [
     "app/panel_outputs.py",
     "app/panel_home.py",
     "app/panel_chat.py",
+    "app/panel_mcp.py",
     # app base
     "version.py",
     "garmin_app_base.py",
@@ -75,11 +76,13 @@ SHARED_SCRIPTS = [
     # was moved in-process in v1.6.5.7 and the repair logic itself was
     # extracted to garmin_silo_repair.py above in the same session arc.
     "export/regenerate_raw.py",
-    # clients (external tool/service integrations — e.g. Ollama; flat
-    # imports like garmin/ and app/, no relative imports inside the
-    # package, no sys.modules registration needed)
+    # clients (external tool/service integrations — e.g. Ollama, the MCP
+    # server; flat imports like garmin/ and app/, no relative imports
+    # inside the package, no sys.modules registration needed)
     "clients/__init__.py",
     "clients/ollama_client.py",
+    "clients/mcp_server.py",
+    "clients/mcp_server_gui.py",
     # maps (routing only)
     "maps/__init__.py",
     "maps/health_map.py",
@@ -91,6 +94,7 @@ SHARED_SCRIPTS = [
     "maps/brightsky_map.py",
     "maps/airquality_map.py",
     "maps/metadata_map.py",
+    "maps/mcp_map.py",
     # context pipeline
     "context/__init__.py",
     "context/context_collector.py",
@@ -199,7 +203,10 @@ SCRIPT_SIGNATURES_BASE = {
     "log_utils.py": ["def with_timestamp"],
     "garmin/garmin_redact.py": ["def redact"],
     "app/panel_chat.py": ["class PanelChat"],
+    "app/panel_mcp.py": ["class PanelMcp"],
     "clients/ollama_client.py": ["def chat", "def list_models", "def is_reachable"],
+    "clients/mcp_server.py": ["def main"],
+    "clients/mcp_server_gui.py": ["def run_gui"],
 }
 # ── Docs ──────────────────────────────────────────────────────────────────────
 
@@ -231,6 +238,25 @@ RUNTIME_DEPS = [
     "keyring",
     "cryptography",
     "requests",
+    # MCP server SDK chain (v1.7 Teil e) — must be installed on the build
+    # machine so PyInstaller can bundle them into T3.3 (mcp_server.exe).
+    # Exact versions verified via pip freeze — see requirements.txt for
+    # pinning rationale.
+    "mcp",
+    "anyio",
+    "httpx",
+    "httpx-sse",
+    "jsonschema",
+    "pydantic",
+    "pydantic-settings",
+    "pyjwt",
+    "python-multipart",
+    "pywin32",
+    "sse-starlette",
+    "starlette",
+    "typing-extensions",
+    "typing-inspection",
+    "uvicorn",
 ]
 
 
@@ -274,4 +300,24 @@ HIDDEN_IMPORTS_T3_EXTRA = [
     "requests",
     "lxml",
     "lxml.etree",
+    # MCP server SDK chain (v1.7 Teil e) — T3.3 (mcp_server.exe) only,
+    # T2 does not need these (loose scripts, resolved via requirements.txt
+    # + normal site-packages at runtime, not PyInstaller hidden-imports).
+    "mcp",
+    "mcp.server.fastmcp",
+    "anyio",
+    "httpx",
+    "httpx_sse",
+    "jsonschema",
+    "pydantic",
+    "pydantic_settings",
+    "jwt",
+    "multipart",
+    "win32api",
+    "win32con",
+    "sse_starlette",
+    "starlette",
+    "typing_extensions",
+    "typing_inspection",
+    "uvicorn",
 ]

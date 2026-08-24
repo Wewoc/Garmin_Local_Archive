@@ -36,6 +36,7 @@ SCRIPT_SIGNATURES = {
     **manifest.SCRIPT_SIGNATURES_BASE,
     "garmin_app_standalone.py": ["class GarminApp"],
     "daily_update.py":          ["def main"],
+    "mcp_server.py":            ["def main"],
 }
 
 
@@ -74,10 +75,12 @@ def validate_scripts(root: Path):
     _ep_paths = {
         "garmin_app_standalone.py": root / "garmin_app_standalone.py",
         "daily_update.py":          root / "scheduler" / "daily_update.py",
+        "mcp_server.py":            root / "clients" / "mcp_server.py",
     }
     for ep, sig in [
         ("garmin_app_standalone.py", "class GarminApp"),
         ("daily_update.py",          "def main"),
+        ("mcp_server.py",            "def main"),
     ]:
         entry = _ep_paths[ep]
         if not entry.exists():
@@ -216,15 +219,19 @@ def build_combined_zip(root: Path):
     zip_path  = root / "Garmin_Local_Archive_Standalone.zip"
     t31_dir   = root / "Garmin_Local_Archive_Standalone"   # --onedir output folder
     du_exe    = root / "daily_update.exe"
+    mcp_exe   = root / "mcp_server.exe"
     info_dir  = root / "info"
 
-    print("\n  Creating Garmin_Local_Archive_Standalone.zip (T3.1 + T3.2) ...")
+    print("\n  Creating Garmin_Local_Archive_Standalone.zip (T3.1 + T3.2 + T3.3) ...")
 
     if not t31_dir.exists():
         print(f"  ✗ T3.1 folder not found: {t31_dir}")
         sys.exit(1)
     if not du_exe.exists():
         print(f"  ✗ T3.2 EXE not found: {du_exe}")
+        sys.exit(1)
+    if not mcp_exe.exists():
+        print(f"  ✗ T3.3 EXE not found: {mcp_exe}")
         sys.exit(1)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -237,6 +244,9 @@ def build_combined_zip(root: Path):
         # T3.2 — flat single EXE in ZIP root
         zf.write(du_exe, "daily_update.exe")
 
+        # T3.3 — flat single EXE in ZIP root
+        zf.write(mcp_exe, "mcp_server.exe")
+
         # Docs — flat info/ folder in ZIP root
         if info_dir.exists():
             for f in sorted(info_dir.iterdir()):
@@ -244,7 +254,7 @@ def build_combined_zip(root: Path):
                     zf.write(f, f"info/{f.name}")
 
     print(f"  -> {zip_path}")
-    print("  ZIP: flat layout — EXE + _internal/ + daily_update.exe + info/")
+    print("  ZIP: flat layout — EXE + _internal/ + daily_update.exe + mcp_server.exe + info/")
     print("  Upload Garmin_Local_Archive_Standalone.zip to GitHub release.")
 
 
@@ -287,6 +297,26 @@ def main():
     build_exe(root,
               name="daily_update",
               entry_point=root / "scheduler" / "daily_update.py",
+              windowed=False,
+              onedir=False)
+    # --- T3.3: MCP Server — --onefile (standalone process, no Python
+    # required on target — mcp_server.py must run fully independently of
+    # GLA's GUI, e.g. as a data source for an external MCP client).
+    # windowed=False (v1.7 Teilbauauftrag f, corrected after a real T3.3
+    # build test) — mcp.run(transport="stdio") needs real sys.stdin/
+    # sys.stdout with a .buffer attribute for the binary stdio wire
+    # protocol. windowed=True was tried first to avoid an unused second
+    # window alongside the Tkinter GUI, but that leaves sys.stdin = None
+    # under Windows (no console = no standard streams) — the server
+    # thread failed immediately ("'NoneType' object has no attribute
+    # 'buffer'"). windowed=False keeps the console reserved (technically
+    # required for stdio to function) even though it stays visually
+    # unused behind the Tkinter window — the working stdio transport
+    # takes priority over a cosmetically cleaner single-window layout. ---
+    print("\n  --- T3.3: mcp_server.exe (--onefile) ---")
+    build_exe(root,
+              name="mcp_server",
+              entry_point=root / "clients" / "mcp_server.py",
               windowed=False,
               onedir=False)
 

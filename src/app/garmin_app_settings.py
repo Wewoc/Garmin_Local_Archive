@@ -44,6 +44,8 @@ DEFAULT_SETTINGS = {
     "context_longitude":         "0.0",
     "mirror_dir":                "",
     "backup_raw_backfill_asked": False,
+    "mcp_enabled":                False,
+    "mcp_llm_backend":            "ollama",
 }
 
 

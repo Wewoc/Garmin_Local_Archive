@@ -4,6 +4,32 @@ keyring
 cryptography
 requests
 
+# MCP server (v1.7) — pinned exact versions, not >=/no-pin like the rest
+# of this file. Reason: mcp_server.py's FastMCP/tool-decorator usage was
+# built and tested against exactly these versions (verified via pip freeze,
+# 2026-08-23). Unlike garminconnect (deliberately unpinned — API changes
+# tracked by always installing latest), this SDK chain includes packages
+# that recently crossed major version boundaries after years on ZeroVer
+# (e.g. starlette 1.0.0, released 2026) — an unpinned install here risks
+# pulling an incompatible future release. mcp itself keeps its existing
+# range pin (>=1.28,<2) as the primary compatibility guard; the rest of
+# the chain is exact-pinned since it has no equivalent range guard.
+mcp>=1.28,<2
+anyio==4.13.0
+httpx==0.28.1
+httpx-sse==0.4.3
+jsonschema==4.26.0
+pydantic==2.12.5
+pydantic-settings==2.12.0
+PyJWT==2.13.0
+python-multipart==0.0.32
+pywin32==311
+sse-starlette==3.4.8
+starlette==1.0.0
+typing-extensions==4.15.0
+typing-inspection==0.4.2
+uvicorn==0.46.0
+
 # Development / testing only
 PyQt6
 PyQt6-WebEngine

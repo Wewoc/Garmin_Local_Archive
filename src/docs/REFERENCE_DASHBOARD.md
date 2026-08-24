@@ -419,8 +419,8 @@ password itself is never persisted, only the on/off preference.
 
 Routing, request/response contract, and error behaviour for `health_map.get()`
 and `context_map.get()` are documented in `REFERENCE_BROKER.md` — the broker
-contract is shared by all future consumers (Export Layer, MCP Server), not
-just the dashboard pipeline.
+contract is shared by other consumers as well (MCP Server, and the future
+Export Layer), not just the dashboard pipeline.
 
 ---
 

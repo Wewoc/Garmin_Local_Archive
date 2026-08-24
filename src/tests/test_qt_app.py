@@ -783,7 +783,188 @@ class TestPanelChat:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  8. GarminApp (Base)
+#  8. PanelMcp
+# ══════════════════════════════════════════════════════════════════════════════
+# Smoke-level only — no real threading.Thread runs (would hit the real
+# Ollama HTTP client). Worker-callback methods (_mcp_on_ollama_models_loaded)
+# are called directly instead of via the background thread, mirroring the
+# pattern already used for TestPanelChat. Cloud config file I/O uses
+# tmp_path + a patched garmin_config.MCP_LLM_CONFIG_FILE instead of the
+# real ~/.garmin_mcp_llm_config.json.
+
+class TestPanelMcp:
+
+    @pytest.fixture
+    def app_mock(self):
+        from unittest.mock import MagicMock
+        app = MagicMock()
+        app.BG      = "#12101f"
+        app.BG2     = "#1a1729"
+        app.BG3     = "#231f38"
+        app.ACCENT  = "#a259f7"
+        app.ACCENT2 = "#6e3fcf"
+        app.TEXT    = "#eaeaea"
+        app.TEXT2   = "#a0a0b0"
+        app.YELLOW  = "#f5a623"
+        app.GREEN   = "#4ecca3"
+        return app
+
+    def test_panel_instantiates(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        assert panel is not None
+
+    def test_default_backend_is_ollama_box_visible(self, qtbot, app_mock):
+        # Korrektur: isVisible() checks the entire parent chain up to a
+        # shown top-level window — panel.show() is never called here, so
+        # even a correctly-set-visible child reports False. isVisibleTo()
+        # checks visibility relative to a given ancestor instead, which is
+        # what setVisible()'s own flag actually controls.
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_on_backend_changed()
+        assert panel._mcp_ollama_box.isVisibleTo(panel)
+        assert not panel._mcp_cloud_box.isVisibleTo(panel)
+
+    def test_backend_switch_to_cloud_swaps_visible_box(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_backend.setCurrentText("cloud")
+        assert panel._mcp_cloud_box.isVisibleTo(panel)
+        assert not panel._mcp_ollama_box.isVisibleTo(panel)
+
+    def test_get_mcp_settings_reflects_checkbox_and_backend(self, qtbot, app_mock):
+        # "checkbox" in the test name is now historical — the Enable MCP
+        # server checkbox was removed in v1.7 Teilbauauftrag g (had no
+        # functional effect once main() stopped gating on it). Name kept
+        # unchanged to avoid pure cosmetic churn; the test still covers
+        # get_mcp_settings()'s remaining backend/model behaviour.
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_backend.setCurrentText("cloud")
+        s = panel.get_mcp_settings()
+        # mcp_ollama_model added in v1.7 Teilbauauftrag f — empty string
+        # here since the combo box starts empty until "Refresh" is
+        # clicked (see module docstring: no automatic Ollama call on
+        # tab-open).
+        assert s == {
+            "mcp_llm_backend":  "cloud",
+            "mcp_ollama_model": "",
+        }
+
+    def test_load_mcp_settings_populates_fields(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({"mcp_llm_backend": "cloud"})
+        assert panel._mcp_backend.currentText() == "cloud"
+        assert panel._mcp_cloud_box.isVisibleTo(panel)
+
+    def test_load_mcp_settings_defaults_when_keys_missing(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        assert panel._mcp_backend.currentText() == "ollama"
+
+    def test_ollama_models_loaded_populates_combo(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_on_ollama_models_loaded(["qwen3:14b", "phi4:14b"], None)
+        items = [panel._mcp_ollama_model.itemText(i)
+                 for i in range(panel._mcp_ollama_model.count())]
+        assert items == ["qwen3:14b", "phi4:14b"]
+        assert "2 model(s) found" in panel._mcp_ollama_status.text()
+
+    def test_ollama_models_loaded_error_shows_message_no_crash(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_on_ollama_models_loaded([], "not reachable")
+        assert "not reachable" in panel._mcp_ollama_status.text()
+
+    def test_ollama_models_loaded_empty_no_error_shows_hint(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_on_ollama_models_loaded([], None)
+        assert "ollama pull" in panel._mcp_ollama_status.text()
+
+    def test_cloud_config_status_no_file(self, qtbot, app_mock, tmp_path):
+        from unittest.mock import patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", tmp_path / "missing.json"):
+            panel._mcp_refresh_cloud_key_status()
+        assert "No cloud config file" in panel._mcp_cloud_key_status.text()
+
+    def test_save_cloud_config_writes_file_and_clears_key_field(
+            self, qtbot, app_mock, tmp_path):
+        from unittest.mock import patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        cfg_file = tmp_path / "cloud.json"
+        panel._mcp_cloud_provider.setText("anthropic")
+        panel._mcp_cloud_key.setText("sk-test-123")
+        panel._mcp_cloud_model.setText("claude-sonnet-4-6")
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file):
+            panel._mcp_save_cloud_config()
+        import json
+        saved = json.loads(cfg_file.read_text(encoding="utf-8"))
+        assert saved == {
+            "provider": "anthropic",
+            "api_key": "sk-test-123",
+            "model": "claude-sonnet-4-6",
+        }
+        assert panel._mcp_cloud_key.text() == ""
+
+    def test_save_cloud_config_empty_key_keeps_existing(
+            self, qtbot, app_mock, tmp_path):
+        from unittest.mock import patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        cfg_file = tmp_path / "cloud.json"
+        import json
+        cfg_file.write_text(json.dumps({
+            "provider": "anthropic", "api_key": "existing-key",
+            "model": "old-model",
+        }), encoding="utf-8")
+        panel._mcp_cloud_provider.setText("anthropic")
+        panel._mcp_cloud_key.setText("")  # leave empty — keep existing
+        panel._mcp_cloud_model.setText("new-model")
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file):
+            panel._mcp_save_cloud_config()
+        saved = json.loads(cfg_file.read_text(encoding="utf-8"))
+        assert saved["api_key"] == "existing-key"
+        assert saved["model"] == "new-model"
+
+    def test_save_cloud_config_missing_required_field_warns_no_write(
+            self, qtbot, app_mock, tmp_path):
+        from unittest.mock import patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        cfg_file = tmp_path / "cloud.json"
+        panel._mcp_cloud_provider.setText("")  # missing
+        panel._mcp_cloud_key.setText("sk-test")
+        panel._mcp_cloud_model.setText("some-model")
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \
+             patch("PyQt6.QtWidgets.QMessageBox.warning") as mock_warn:
+            panel._mcp_save_cloud_config()
+        mock_warn.assert_called_once()
+        assert not cfg_file.exists()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  9. GarminApp (Base)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestGarminAppBase:
