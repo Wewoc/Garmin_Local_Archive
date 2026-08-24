@@ -6,27 +6,11 @@
 
 ---
 
-**Currently stable — v1.6.9.2**
+**Currently stable — v1.7.0**
 
 ---
 
-### v1.7 — MCP Server
-
-Exposes GLA data to local LLMs via the Model Context Protocol. Allows natural-language queries against the full archive — health data and context data, FIT activities once the FIT pipeline exists — without manual export or file upload.
-
-**Reordering note (2026-08-16):** Originally planned as v1.9, moved ahead of the FIT Pipeline. `mcp_map.py` and the SQLite Proxy build entirely on infrastructure that already exists (`gateway_map.py`, `quality_log.json`, `context_api.py`/`context_writer.py`) and carry none of the FIT Pipeline's four not-cheaply-reversible gate decisions. Full LLM access to the archive is a large, low-risk value-add on its own — see `docs/KONZEPT_mcp_sqlite_proxy_V2.md` and `NOTES_v1.9-eval_mcp-proxy-reihenfolge.md` for the full evaluation.
-
-**Architecture**
-
-`gateway_map.py` (v1.6.7) already provides the cross-domain routing layer this
-feature needs — pass-through queries across `health_map`, `fit_map`, and
-`context_map` behind a single entry point. `mcp_map.py` sits on top of
-`gateway_map.py` as a thin MCP protocol translator: it no longer aggregates
-or routes itself, that responsibility moved to `gateway_map` when it was
-built. `mcp_map` accepts structured tool calls from the MCP Server, forwards
-them to `gateway_map`, and shapes the response into the MCP tool-call format.
-The MCP Server itself has no knowledge of GLA's internal structure —
-`mcp_map` owns that translation.
+### v1.7.1 — SQLite Proxy
 
 ```
 MCP Server (external)

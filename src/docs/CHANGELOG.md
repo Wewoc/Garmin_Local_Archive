@@ -1,5 +1,31 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.0 — MCP Server
+
+Exposes GLA's archive to local LLMs via the Model Context Protocol — natural-language queries against health and context data without manual export or file upload. Runs as an independent standalone process, fully decoupled from the main GUI.
+
+**New modules:**
+- `maps/mcp_map.py` — thin, stateless protocol translator on top of `gateway_map`. Three domain-separated query functions (`query_health`, `query_context`, `query_fit_activities` — deliberately not a single generic `query(domain=...)`, so a misspelled domain name fails as a Python error, not a silent string mismatch) for time-series data, plus `query_raw` for direct broker pass-through, `get_archive_metadata` (archive-level introspection via `gateway_map`'s metadata registry — coverage stats, device table, quality log, capability config, raw logs; not time-series, one function per known archive file/folder), and `list_available_fields` as a discovery/overview helper across domains and metadata kinds. Every date-bound response carries a `_meta` block with explicit weekday tables, addressing an LLM weekday-hallucination risk identified during design. No write access, no MCP-SDK import — testable in isolation.
+- `clients/mcp_server.py` — standalone MCP server process (stdio transport, `mcp>=1.28,<2`). Always opens a Tkinter configuration/log window (`clients/mcp_server_gui.py`) rather than running headless — the window owns the server thread (`mcp.run()` in a daemon thread), live Ollama model refresh, cloud-LLM backend fields, boot/operational log with rotation, and a Start/Restart control surface.
+- `app/panel_mcp.py` — new standalone GUI tab (`PanelMcp`), mirroring archive path and backend choice into the same config file the standalone process reads. Includes a "▶️ Start MCP Server" button with PID-lockfile-based duplicate-instance protection, resolving the correct launch target per build (T1 script / T2 batch launcher / T3.3 executable).
+- `clients/mcp_server_gui.py` — "🔄 Restart Server" button using a self-relaunch pattern: the new process starts, the old window stays responsive until the new PID is confirmed in the lockfile, then hands over. Avoids a dual-stdio-reader conflict inherent to in-process reloading.
+
+**Configuration:**
+- New per-user config file (`~/.garmin_mcp_server_config.json`) holding archive path, LLM backend choice, and Ollama model — written by both `panel_mcp.py` (GUI mirror) and `mcp_server_gui.py` (standalone edits), each aware of the other.
+- Optional cloud-LLM backend via a separate plaintext config file (`~/.garmin_mcp_llm_config.json`, provider/api_key/model) — Ollama remains the default and requires no configuration.
+
+**Build integration:**
+- New build target T3.3 — standalone `mcp_server.exe`, `--onefile`, no Python required, independent of the main GLA executable. Console window intentionally retained despite the Tkinter GUI: `mcp.run(transport="stdio")` requires real `stdin`/`stdout` streams, unavailable under PyInstaller's windowed mode.
+- T2 gains `clients/Starte_MCP_Server.bat` as a loose-script launcher.
+
+**Deliberately not implemented:**
+- Health-check on restart — the restart poll confirms a new PID appears in the lockfile, not that the new process is actually operational (e.g. a misconfigured archive path at restart time is not caught). Documented, not fixed — a real health check would need a stdio handshake and is a larger, separate piece of work.
+- Cloud-LLM API calls (config storage only; the actual backend integration is v1.7.2), WCM-encrypted cloud credentials (plaintext + on-screen warning is the deliberate v1.7.x choice).
+
+**Test result:** 1846 / 1846 checks across all eight suites — all green (test_local / test_local_context / test_dashboard / test_broker / test_mcp / test_app_logic / test_qt_app / test_static).
+
+---
+
 ## v1.6.9.2 — Broker Test Suite (Split + metadata_map Coverage)
 
 Two-part follow-up to v1.6.9.1: the broker-layer routing-contract tests that

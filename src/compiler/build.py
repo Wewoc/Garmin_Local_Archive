@@ -96,6 +96,13 @@ def validate_scripts(root: Path):
         if not path.exists():
             errors.append(f"  ✗ Missing scheduler file: scheduler/{name}")
 
+    # MCP server launcher (v1.7 Teilbauauftrag f) — analog to the
+    # scheduler files above, but lives in clients/ alongside mcp_server.py
+    # rather than scheduler/, since it starts a different entry point.
+    mcp_launcher = root / "clients" / "Starte_MCP_Server.bat"
+    if not mcp_launcher.exists():
+        errors.append("  ✗ Missing MCP launcher file: clients/Starte_MCP_Server.bat")
+
     if errors:
         print("  Build aborted — validation failed:")
         for e in errors:
@@ -171,6 +178,16 @@ def build_zip(root: Path):
         launcher = root / "scheduler" / "Starte_Daily_Sync.bat"
         if launcher.exists():
             zf.write(launcher, "Starte_Daily_Sync.bat")
+
+        # MCP server launcher in ZIP root (v1.7 Teilbauauftrag f) — calls
+        # scripts/clients/mcp_server.py, same "%~dp0<subfolder>" pattern
+        # as the scheduler launcher above, just pointed at clients/
+        # instead of scheduler/.
+        mcp_launcher = root / "clients" / "Starte_MCP_Server.bat"
+        if mcp_launcher.exists():
+            zf.write(mcp_launcher, "Starte_MCP_Server.bat")
+        else:
+            print("  ⚠ Warning: clients/Starte_MCP_Server.bat not found — skipped in ZIP")
 
         # Docs
         if info_dir.exists():

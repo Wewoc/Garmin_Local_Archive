@@ -44,6 +44,7 @@ import garmin_app_controller as _controller
 import garmin_redact as _redact
 
 from app.panel_settings   import PanelSettings
+from app.panel_mcp        import PanelMcp
 from app.panel_connection import PanelConnection
 from app.panel_archive    import PanelArchive
 from app.panel_timer      import PanelTimer
@@ -137,6 +138,7 @@ class GarminApp(QMainWindow):
         # ── Load settings into panels ─────────────────────────────────────────
         self._panel_settings.load_settings_to_ui()
         self._panel_timer.load_timer_settings(self.settings)
+        self._panel_mcp.load_mcp_settings(self.settings)
 
         # ── Startup ───────────────────────────────────────────────────────────
         QTimer.singleShot(0,   self._check_migration)
@@ -233,6 +235,7 @@ class GarminApp(QMainWindow):
         self._panel_archive    = PanelArchive(self)
         self._panel_home       = PanelHome(self)
         self._panel_chat       = PanelChat(self)
+        self._panel_mcp        = PanelMcp(self)
 
         # ── Fixed top (Connection & Archive Status + Daily Actions) ───────────
         root_lay.addWidget(self._panel_home)
@@ -374,6 +377,24 @@ class GarminApp(QMainWindow):
         # ── Tab 3: Chat ───────────────────────────────────────────────────────
         right_tabs.addTab(self._panel_chat, "Ollama-Chat")
 
+        # ── Tab 4: MCP Server ────────────────────────────────────────────────
+        # Korrektur: panel_mcp.py has no QScrollArea wrapper of its own
+        # (unlike PanelSettings' left_scroll/right_scroll) and, unlike
+        # PanelChat, holds several stacked frames (status row, cloud
+        # credentials block, how-to-start box) — at low window heights
+        # the tab compressed everything toward zero height instead of
+        # scrolling. Same wrapper pattern as PanelSettings' left column
+        # (QScrollArea + setWidgetResizable(True)): the panel keeps its
+        # natural sizeHint-driven height, a scrollbar appears only when
+        # the available height is actually smaller than that — no fixed
+        # minimum height imposed, no wasted space at normal window sizes.
+        mcp_scroll = QScrollArea()
+        mcp_scroll.setWidgetResizable(True)
+        mcp_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        mcp_scroll.setStyleSheet(f"background: {self.BG};")
+        mcp_scroll.setWidget(self._panel_mcp)
+        right_tabs.addTab(mcp_scroll, "MCP Server")
+
         right_tabs.currentChanged.connect(self._on_tab_changed)
 
         root_lay.addWidget(right_tabs, stretch=1)
@@ -446,9 +467,11 @@ class GarminApp(QMainWindow):
 
     def _collect_settings(self) -> dict:
         """Central settings reader — delegates to PanelSettings.
-        Timer fields are merged from PanelTimer. Called by Controller and panels."""
+        Timer fields are merged from PanelTimer, MCP fields from PanelMcp.
+        Called by Controller and panels."""
         s = self._panel_settings._collect_settings()
         s.update(self._panel_timer.get_timer_settings())
+        s.update(self._panel_mcp.get_mcp_settings())
         return s
 
     def _safe_save(self, s: dict = None):

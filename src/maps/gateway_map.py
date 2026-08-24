@@ -9,14 +9,14 @@ Single entry point for cross-domain / external consumers that do not know
 in advance which domain broker (health_map, fit_map, context_map) owns a
 given field. This is a local API boundary — an in-process Python interface,
 not a network endpoint. Network exposure happens separately and exclusively
-via mcp_server.py (v1.9).
+via mcp_server.py (v1.7).
 
 Not a replacement for direct domain-broker imports. Named specialists with
 a fixed domain need (dashboards) continue to import health_map/fit_map/
 context_map directly — that keeps them coupled to only what they actually
 use, per the broker pattern. gateway_map exists for consumers that decide
-at runtime which domain(s) they need (mcp_map v1.9, potentially an export
-adapter in v1.9.1).
+at runtime which domain(s) they need (mcp_map v1.7, potentially an export
+adapter in v1.7.3).
 
 Routing layer only — knows which domain brokers are registered, but knows
 nothing about how any source within a domain stores its data. Pass-through

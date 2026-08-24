@@ -26,7 +26,7 @@ never write, never migrate, never interpret beyond raw passthrough.
 Hard exclusion: GARMIN_TOKEN_FILE (garmin_token.enc) is never referenced
 anywhere in this module. The encrypted token itself must never become
 reachable through this broker, since this broker is designed to
-eventually sit behind gateway_map.py and, later, an MCP server (v1.9).
+eventually sit behind gateway_map.py and, later, an MCP server (v1.7).
 
 Error behavior: consistent with health_map.py / context_map.py — never
 raises. Read/parse failures are caught internally and returned as a

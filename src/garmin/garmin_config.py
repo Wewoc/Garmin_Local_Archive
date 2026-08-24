@@ -17,6 +17,7 @@ garmin_config at module level — so _apply_env() always runs first.
 No special load-order handling needed.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -165,3 +166,129 @@ MAX_DAYS_PER_SESSION = int(os.environ.get("GARMIN_MAX_DAYS_PER_SESSION", "30"))
 # Days processed per chunk before quality_log.json is flushed to disk
 # 0 = no chunking (single pass). Default: 10
 SYNC_CHUNK_SIZE = int(os.environ.get("GARMIN_SYNC_CHUNK_SIZE", "10"))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MCP (v1.7)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Enabled-flag for clients/mcp_server.py — pattern analogous to REFRESH_FAILED.
+# ENV name keeps the GARMIN_ namespace prefix for consistency with every
+# other ENV variable in this file, even though MCP itself is not
+# Garmin-specific — deliberately not special-cased here, revisit as a whole
+# if a v2.0 naming restructure ever happens (see NOTES_v1.7_teilc.md).
+# Server-config file (v1.7 Teilbauauftrag f) — mcp_enabled, mcp_llm_backend,
+# base_dir (mirrored). Enables clients/mcp_server.py to run fully standalone,
+# without a GLA installation — see clients/mcp_server_gui.py, the Tkinter
+# window that reads/writes this file directly for that case. Two writers
+# exist for this file by design, not by oversight: app/panel_mcp.py (GLA
+# context — mirrors the live GUI values on every MCP settings save) and
+# clients/mcp_server_gui.py (standalone context — direct user input, no
+# GLA instance to mirror from). The two never run against the same file
+# at the same time in practice (a machine either runs GLA or runs the
+# server standalone against a config written elsewhere), so this is not
+# treated as a Sole-Write-Authority violation — but it is a deliberate,
+# documented exception to that pattern, not an oversight.
+MCP_SERVER_CONFIG_FILE = Path.home() / ".garmin_mcp_server_config.json"
+
+# PID lockfile (v1.7 Teilbauauftrag g) — used by app/panel_mcp.py's new
+# "Start MCP Server" button to check whether a clients/mcp_server.py
+# process is already running before launching a new one, and by
+# clients/mcp_server.py/mcp_server_gui.py to record/clear that state.
+# Deliberately NOT a QLocalServer/QLocalSocket guard (unlike
+# garmin_app.py's single-instance guard) — that mechanism requires a
+# running QApplication, which mcp_server.py/mcp_server_gui.py
+# intentionally does not have (Tkinter, not PyQt6 — see
+# mcp_server_gui.py's module docstring). A plain PID file matches this
+# process's actual runtime model instead of forcing a Qt dependency onto
+# an otherwise Qt-free standalone process. Written by
+# clients/mcp_server.py::main() at startup, removed by
+# clients/mcp_server_gui.py's clean-shutdown path
+# (_on_close()) — see NOTES_v1.7_teilg.md for the liveness-check details
+# on the panel_mcp.py side (a stale file from a crashed process is
+# expected and handled there, not here).
+MCP_SERVER_LOCK_FILE = Path.home() / ".garmin_mcp_server.lock"
+
+
+def _read_mcp_server_config() -> dict:
+    """Reads MCP_SERVER_CONFIG_FILE, returns {} if missing/empty/corrupt —
+    never raises. Deliberate, narrow exception to this module's "no logic,
+    no functions" rule: MCP_ENABLED/MCP_LLM_BACKEND/MCP_BASE_DIR below all
+    need the same three-way fallback (ENV > file > default), and repeating
+    a try/except json.load inline three times would be worse than one
+    small, obviously-scoped helper. Does not become a precedent for
+    broader logic in this file — this function does nothing but read and
+    return a dict."""
+    try:
+        return json.loads(MCP_SERVER_CONFIG_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+_mcp_server_config = _read_mcp_server_config()
+
+# MCP_ENABLED removed (v1.7 Teilbauauftrag g) — the "Enable MCP server"
+# checkbox and this flag it fed had no functional effect: main() in
+# clients/mcp_server.py stopped reading it back in Teil (f) ("the window
+# is the server" — no on/off gate exists anymore). Since Teil (g)
+# introduced a real "Start MCP Server" button that launches the process
+# directly, keeping a checkbox and a config field that influenced
+# nothing would only mislead — full removal instead of leaving a dead
+# constant with the appearance of live configuration. The
+# "mcp_enabled" key may still linger in old, previously-written
+# ~/.garmin_mcp_server_config.json files on disk — harmless, simply
+# ignored, no migration needed (see _read_mcp_server_config() above,
+# unchanged: unknown keys are never validated against a schema).
+
+# Backend for MCP tool-calling (v1.7.2) — "ollama" (default) or "cloud".
+# No validation here, same as SYNC_MODE — an unrecognized value is a
+# consumer-side concern, not garmin_config.py's. Same ENV > file > default
+# precedence as MCP_ENABLED above.
+if "GARMIN_MCP_LLM_BACKEND" in os.environ:
+    MCP_LLM_BACKEND = os.environ["GARMIN_MCP_LLM_BACKEND"]
+else:
+    MCP_LLM_BACKEND = _mcp_server_config.get("mcp_llm_backend", "ollama")
+
+# Server-owned archive path (v1.7 Teilbauauftrag f) — deliberately NOT the
+# same constant as BASE_DIR above. BASE_DIR remains the pipeline's sole
+# archive-path source, unchanged by this session, and is resolved once at
+# module import from GARMIN_OUTPUT_DIR alone. MCP_BASE_DIR exists only for
+# clients/mcp_server.py's own use when it runs without a GLA process ahead
+# of it setting that ENV var — reuses the SAME "GARMIN_OUTPUT_DIR" ENV name
+# as BASE_DIR (deliberate: when GLA and the MCP server share an environment,
+# they should agree on one archive by default; a separate ENV for "point
+# MCP at a different archive than GLA" was considered and deferred — no
+# real request for it yet, and it can be added later without breaking this
+# fallback chain). Falls back to MCP_SERVER_CONFIG_FILE's "base_dir" key
+# (written either by panel_mcp.py's mirror-on-save, or entered directly in
+# clients/mcp_server_gui.py's standalone window). Same ultimate default as
+# BASE_DIR if neither ENV nor file provides a value.
+if "GARMIN_OUTPUT_DIR" in os.environ:
+    MCP_BASE_DIR = Path(os.environ["GARMIN_OUTPUT_DIR"]).expanduser()
+else:
+    MCP_BASE_DIR = Path(
+        _mcp_server_config.get("base_dir") or "~/local_archive"
+    ).expanduser()
+
+# Ollama model preference (v1.7 Teilbauauftrag f) — fourth field in
+# MCP_SERVER_CONFIG_FILE, deliberately file-only, no ENV override (unlike
+# MCP_ENABLED/MCP_LLM_BACKEND/MCP_BASE_DIR above). Session decision:
+# "das was am stabilsten ist" — this is a pure convenience default (which
+# locally installed Ollama model to preselect), not a value anyone would
+# reasonably override per shell session or deployment the way base_dir or
+# the enabled-flag might be. Populated by the "Refresh" button in both
+# app/panel_mcp.py and clients/mcp_server_gui.py (a live client.list_models()
+# call against Ollama), then saved alongside the other three fields.
+MCP_OLLAMA_MODEL = _mcp_server_config.get("mcp_ollama_model", "")
+
+# Separate plaintext config file for cloud LLM credentials (MCP_LLM_BACKEND
+# = "cloud"). Path.home()-based like SETTINGS_FILE (app/garmin_app_settings.py)
+# — credentials are machine-bound, not archive-bound, so BASE_DIR would be
+# the wrong anchor. Deliberately separate from LOCAL_CONFIG_FILE (that is
+# the context-plugin location/time-window CSV, an unrelated mechanism
+# despite the similar name). Missing or empty file = cloud backend simply
+# not usable, not an error — no forced setup. Plaintext with an explicit
+# warning (Option B, v1.7) — WCM/AES encryption deliberately deferred to a
+# later v1.7.x roadmap item, see NOTES_v1.7-vorbereitung.md.
+# Existence/completeness check itself lives in clients/mcp_server.py, not
+# here — this file defines paths and reads ENV only, no logic.
+MCP_LLM_CONFIG_FILE = Path.home() / ".garmin_mcp_llm_config.json"
