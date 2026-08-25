@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.0
+# Garmin Local Archive — Desktop App v1.7.0.1
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -414,34 +414,45 @@ lookup needed.
 
 ### MCP Server tab
 
-*(v1.7)* Exposes your archive to local LLMs via the Model Context
-Protocol — lets an MCP-compatible client (Claude Desktop, Open WebUI, or
-similar) query your health and context data directly.
+*(v1.7, HTTP transport since v1.7.0.1)* Exposes your archive to local
+LLMs via the Model Context Protocol — lets an MCP-compatible client
+(Claude Desktop, Open WebUI, or similar) query your health and context
+data directly over `http://127.0.0.1:<port>` (not reachable from other
+machines, by design).
 
 **LLM backend** — choose **ollama** (default, fully local) or **cloud**
-(optional, your own API key). Selecting **ollama** shows a model dropdown
-with a **Refresh** button that lists your locally installed models.
-Selecting **cloud** shows provider/API key/model fields instead — the key
-is stored in plaintext on disk (`~/.garmin_mcp_llm_config.json`), a
-plaintext warning is shown on screen. The key field is never re-loaded
-back into the form after saving, for the same reason.
+(optional, your own API key). Selecting **cloud** shows provider/API
+key/model fields instead — the key is stored in plaintext on disk
+(`~/.garmin_mcp_llm_config.json`), a plaintext warning is shown on
+screen. The key field is never re-loaded back into the form after
+saving, for the same reason.
 
-**Save Settings** writes your backend and archive-path choice to a config
-file the standalone server (below) also reads and writes.
+**Port** — the local port the server listens on (default `8756`).
+**Headless starten (ohne Fenster)** — off by default: a normal start
+opens the server's own small window (below), which owns the server for
+as long as it stays open (closing the window stops the server, exactly
+like closing the main app). Check this to skip the window entirely and
+run the server directly in the background instead — meant for
+automation/scheduled use, not the everyday case. Takes effect on the
+*next* start, not the currently running instance.
+
+**Save Settings** writes your backend, port and archive-path choice to a
+config file the standalone server (below) also reads and writes.
 
 **Start MCP Server** launches the server as its own process. If a server
-is already running, a dialog shows its process ID instead of starting a
-second one.
+is already running, a dialog names the port it's already using instead
+of starting a second one.
 
 **Running without the main app:** `mcp_server.exe` (or, for the Standard
 version, `clients/Starte_MCP_Server.bat`) starts the same server as a
-fully standalone tool, with its own small configuration window — archive
-path, backend, model, and a live log. Useful for running the server on a
-machine or under a user session where the main app isn't installed.
-**🔄 Restart Server** in that window applies a changed archive path or
-backend without closing the window by hand — the new process starts in
-the background, and the window switches over automatically once it's
-confirmed running.
+fully standalone tool, with its own small window — archive path,
+backend, port, the same Headless checkbox as above, and a live log.
+Useful for running the server on a machine or under a user session where
+the main app isn't installed.
+**🔄 Restart Server** in that window applies a changed archive path,
+backend or port without closing the window by hand — the new process
+starts in the background, and the window switches over automatically
+once it's confirmed running.
 
 ### Log: Simple / Log: Detailed
 Toggles the log output level in the GUI. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.

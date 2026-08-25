@@ -302,17 +302,18 @@ def main():
     # --- T3.3: MCP Server — --onefile (standalone process, no Python
     # required on target — mcp_server.py must run fully independently of
     # GLA's GUI, e.g. as a data source for an external MCP client).
-    # windowed=False (v1.7 Teilbauauftrag f, corrected after a real T3.3
-    # build test) — mcp.run(transport="stdio") needs real sys.stdin/
-    # sys.stdout with a .buffer attribute for the binary stdio wire
-    # protocol. windowed=True was tried first to avoid an unused second
-    # window alongside the Tkinter GUI, but that leaves sys.stdin = None
-    # under Windows (no console = no standard streams) — the server
-    # thread failed immediately ("'NoneType' object has no attribute
-    # 'buffer'"). windowed=False keeps the console reserved (technically
-    # required for stdio to function) even though it stays visually
-    # unused behind the Tkinter window — the working stdio transport
-    # takes priority over a cosmetically cleaner single-window layout. ---
+    # windowed=False left UNCHANGED (v1.7.0.1) — the original reason
+    # (mcp.run(transport="stdio") needing a real sys.stdin/sys.stdout
+    # with a .buffer attribute) no longer applies now that the server
+    # uses streamable-http (a TCP socket, not stdio), so windowed=True
+    # is no longer blocked by that specific crash. It was deliberately
+    # NOT flipped in this Bauauftrag anyway: --windowed can leave
+    # sys.stderr invalid/None under Windows, and logging.basicConfig()
+    # in clients/mcp_server.py writes to sys.stderr before any log
+    # handler exists — an untested risk in this environment (no Windows
+    # build available here). Flip to windowed=True only after Timo
+    # confirms on a real Windows T3.3 build that logging still starts
+    # cleanly with no console. ---
     print("\n  --- T3.3: mcp_server.exe (--onefile) ---")
     build_exe(root,
               name="mcp_server",

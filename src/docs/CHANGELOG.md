@@ -1,5 +1,42 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.0.1 — MCP HTTP Transport
+
+Migrates the MCP server from stdio to streamable-http transport. The window/server coupling from v1.7.0's Teil (f) — "the window is the server" — is deliberately KEPT as the default (session decision, `NOTES_v1.7.0.1vorbereitung.md` Eckpunkt 6); a new config field adds an explicit, opt-in headless mode for automation instead. Also removes the Ollama model preference field, architecturally misplaced in `garmin_config.py` (no remaining consumer once local-model auto-discovery was dropped from scope).
+
+**Transport:**
+- `clients/mcp_server.py`: `mcp.run(transport="streamable-http")` replaces `transport="stdio"`. `FastMCP(..., host="127.0.0.1", port=cfg.MCP_HTTP_PORT)` — host is hardcoded, never configurable; only the port varies.
+- New `garmin_config.MCP_HTTP_PORT` — ENV (`GARMIN_MCP_HTTP_PORT`) > `MCP_SERVER_CONFIG_FILE`'s `mcp_http_port` field > default `8756`, same precedence pattern as `MCP_LLM_BACKEND`.
+- PID lockfile liveness (`MCP_SERVER_LOCK_FILE`, `tasklist` parsing) removed entirely — replaced by an `OSError` catch at `mcp.run()`'s bind call (start-guard case) and a TCP-connect probe against `127.0.0.1:MCP_HTTP_PORT` (restart-confirmation / health-check case), used in `app/panel_mcp.py::_mcp_server_is_running()` and `clients/mcp_server_gui.py::_is_server_reachable()`. The Restart button's Option C self-relaunch shape (v1.7 Teilbauauftrag h) is otherwise unchanged — only its health-check mechanism moved from lockfile-PID-poll to this TCP probe.
+
+**Headless mode (new, opt-in — NOT the new default):**
+- New `garmin_config.MCP_HEADLESS` (bool) — ENV (`GARMIN_MCP_HEADLESS`, `"1"`/`"true"`/`"yes"`) > `MCP_SERVER_CONFIG_FILE`'s `mcp_headless` field > default `False`. Default `False` means `clients/mcp_server.py::main()` still opens `clients/mcp_server_gui.py::run_gui()` by default, coupled to the server exactly as before (window closed = process closed) — only when `MCP_HEADLESS` is true does `main()` route to the new `_run_headless()` instead, running the server directly with no window at all, analogous to `scheduler/daily_update.py`.
+- Settable from both `app/panel_mcp.py` (new checkbox, mirrored on save) and `clients/mcp_server_gui.py` itself (new checkbox — takes effect on the *next* start, not the running instance).
+- The operational log start (`_start_operational_log()`, `LOG_MCP_MAX = 30`) now lives in `clients/mcp_server.py` (moved out of `mcp_server_gui.py`) since both the headless and windowed paths need it; passed into `run_gui()` as a callable to avoid a circular import.
+
+**Removed:**
+- `garmin_config.MCP_OLLAMA_MODEL` and the Ollama model dropdown + "Refresh" button in both `app/panel_mcp.py` and `clients/mcp_server_gui.py`.
+- `garmin_config.MCP_SERVER_LOCK_FILE` (see Transport above).
+
+**Configuration:**
+- `MCP_SERVER_CONFIG_FILE`'s field set changes from `mcp_llm_backend`/`base_dir`/`mcp_ollama_model` (three fields) to `mcp_llm_backend`/`base_dir`/`mcp_http_port`/`mcp_headless` (four fields) — one field swapped, one added. Both documented writers (`app/panel_mcp.py`, `clients/mcp_server_gui.py`) updated together.
+
+**Build integration:**
+- T3.3 (`mcp_server.exe`) `windowed=False` deliberately left unchanged in this Bauauftrag — the original reason (stdio needing real console `stdin`/`stdout`) no longer applies under streamable-http, but flipping it risks `sys.stderr` being invalid under `--windowed`, crashing `logging.basicConfig()` before any log handler exists. Untestable in this environment (no Windows build available) — flip only after a real Windows T3.3 build confirms logging still starts cleanly with no console.
+
+**Deliberately not implemented:**
+- `windowed=True` for T3.3 (see Build integration above) — left for Timo to test and decide on a real Windows build.
+
+**Tests:**
+- `tests/test_mcp.py` Section 8 grew from nine to eighteen checks — nine new checks for `MCP_HTTP_PORT`/`MCP_HEADLESS` ENV > file > default precedence and for the `MCP_SERVER_LOCK_FILE`/`MCP_OLLAMA_MODEL` removal.
+- `tests/test_qt_app.py::TestPanelMcp` — six tests corrected to match the new `panel_mcp.py` UI (Ollama model dropdown + Refresh button removed, Port + Headless checkbox added): the two backend-visibility tests no longer assert on the removed `_mcp_ollama_box`, `test_get_mcp_settings_reflects_checkbox_and_backend` now expects `mcp_http_port`/`mcp_headless` instead of `mcp_ollama_model`, and the three `_mcp_on_ollama_models_loaded()` tests were removed outright (tested functionality that no longer exists). 72→69 checks. Found via a full `test_all` run after the initial anchor delivery — not part of the original Bauauftrag scope, fixed in the same session once discovered.
+
+**Precondition Teil B (Drift-Check):** PFLICHT this session — `garmin/garmin_config.py` was changed. Confirmed via `dep_map_delta.md` (`build_dep_map.py`, 2026-08-24_Run-03 → 2026-08-25_Run-01): 12 NEU, 19 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung. All 12 NEU handlers reviewed individually: either the new TCP-probe/form-validation patterns this Bauauftrag introduces (`_mcp_server_is_running`, `_is_server_reachable`, the port-field `ValueError` guards in `run_gui`) or a pure relocation of `_start_operational_log()` from `mcp_server_gui.py` into `mcp_server.py` (visible as a matching WEG entry in its old location) — no undocumented risk, no Handlungsbedarf. All 19 WEG entries are the expected removal of the lockfile/`tasklist` liveness code and the Ollama-refresh worker, plus that same relocation. New `dep_map_records.json` committed to `docs/` as the baseline for the next session.
+
+**Test result:** 716 / 265 / 465 / 107 / 49 / 165 / 69 / 16 — all green (test_local / test_local_context / test_dashboard / test_broker / test_mcp / test_app_logic / test_qt_app / test_static), ruff 0 errors, bandit 0 HIGH.
+
+---
+
 ## v1.7.0 — MCP Server
 
 Exposes GLA's archive to local LLMs via the Model Context Protocol — natural-language queries against health and context data without manual export or file upload. Runs as an independent standalone process, fully decoupled from the main GUI.
