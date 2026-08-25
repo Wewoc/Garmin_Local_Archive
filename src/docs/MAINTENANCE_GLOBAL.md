@@ -347,7 +347,18 @@ checks) — added within the same session as the Teilbauauftrag (b) build,
 not a separate follow-up. v1.7.0.1 added nine more checks to the same
 section — `garmin_config.MCP_HTTP_PORT`/`MCP_HEADLESS` ENV > file > default
 precedence, plus regression guards confirming `MCP_SERVER_LOCK_FILE`/
-`MCP_OLLAMA_MODEL` are gone — eighteen checks total. End-to-end tool-call
+`MCP_OLLAMA_MODEL` are gone — eighteen checks total. v1.7.0.2 added fifteen
+more, split into two new subsections: 8f (ten checks — `_parse_extra_hosts()`
+edge cases plus `MCP_EXTRA_ALLOWED_HOSTS(_ENABLED/_RAW)` ENV > file > default
+precedence) and 8g (five checks — the actual `transport_security` wiring on
+`mcp_server.mcp.settings`, both enabled and disabled) — thirty-three checks
+total, covering the Docker-reachability fix (`host.docker.internal` past the
+SDK's default DNS-rebinding host allowlist). Two of 8f/8g's checks needed
+`Path.home()` isolated to the test's own `_TMPDIR` for their reload — the
+real `~/.garmin_mcp_server_config.json` can carry `mcp_extra_hosts_enabled:
+true` from a previous manual GUI session (exactly what happened during this
+session's own live Open WebUI testing), which a naive "default is False"
+assertion would otherwise read straight through. End-to-end tool-call
 verification (a real MCP client or the MCP Inspector invoking each of the
 six registered tools) is still open — tracked as a follow-up, not a
 blocker.
@@ -522,7 +533,7 @@ Classes:
 - `TestPanelTimer` (7) — instantiation, field load/read, toggle on/off, resume logic
 - `TestPanelOutputs` (7) — instantiation, context sync state, stop event, no-crash helpers
 - `TestPanelChat` (13, v1.6.7 Teil B) — instantiation, disabled-before-start state, send no-op on empty input / while request running, `_chat_on_reply`/`_chat_on_error` state reset + history handling (trailing-user pop, no-pop, empty-history no-crash), age-display file-missing + corrupt-JSON no-crash, `_chat_on_new_chat` with/without system prompt, `_chat_on_model_changed` gated by combo enabled-state. Smoke-level only — no test starts a real `threading.Thread`; worker-callback methods are called directly instead, since a real thread would hit the live Ollama HTTP client. Full worker-thread-flow testing deliberately out of scope (see `NOTES_v167_B_01.md`).
-- `TestPanelMcp` (13, v1.7 Teilbauauftrag d) — instantiation, default/switched backend-box visibility (`isVisibleTo(panel)`, not `isVisible()` — the latter depends on the whole parent chain up to a shown top-level window, which these tests never create), `get_mcp_settings()`/`load_mcp_settings()` round-trip incl. missing-key defaults (v1.7 Teilbauauftrag f: `get_mcp_settings()` gained a fourth field, `mcp_ollama_model`; Teilbauauftrag g removed the `mcp_enabled` field again once the checkbox backing it was deleted — `test_get_mcp_settings_reflects_checkbox_and_backend`/`test_load_mcp_settings_populates_fields`/`test_load_mcp_settings_defaults_when_keys_missing` updated accordingly both times, not regression fixes), Ollama model-list callback (populated / unreachable-error / empty-no-error — smoke-level only, same reasoning as `TestPanelChat` above, no real `threading.Thread`), three cloud-config-file tests (write, empty-key-keeps-existing, missing-required-field warns without writing) — all via `tmp_path` + `unittest.mock.patch("garmin_config.MCP_LLM_CONFIG_FILE", ...)`, never touching the real `~/.garmin_mcp_llm_config.json`. `_mcp_save_server_config()` (v1.7 Teilbauauftrag f, mirrors into `MCP_SERVER_CONFIG_FILE`) and `_mcp_start_server()`/`_resolve_mcp_server_launch_command()`/`_mcp_server_is_running()` (v1.7 Teilbauauftrag g, the Start button's launch/liveness logic) not yet covered by dedicated tests — flagged for a follow-up session; verified manually via real T1/T2/T3.3 builds instead (see NOTES_v1.7_teilg.md).
+- `TestPanelMcp` (17, v1.7 Teilbauauftrag d) — instantiation, default/switched backend-box visibility (`isVisibleTo(panel)`, not `isVisible()` — the latter depends on the whole parent chain up to a shown top-level window, which these tests never create), `get_mcp_settings()`/`load_mcp_settings()` round-trip incl. missing-key defaults (v1.7.0.1 removed the Ollama-model dropdown and its three dedicated tests outright — `get_mcp_settings()`/`load_mcp_settings()` now cover `mcp_http_port`/`mcp_headless` instead of the old `mcp_ollama_model`, and the earlier `mcp_enabled` field is likewise gone), three cloud-config-file tests (write, empty-key-keeps-existing, missing-required-field warns without writing) — all via `tmp_path` + `unittest.mock.patch("garmin_config.MCP_LLM_CONFIG_FILE", ...)`, never touching the real `~/.garmin_mcp_llm_config.json`. v1.7.0.2 added four more — checkbox enables/dims the "Extra allowed hosts" field, live preview reflects the parsed host list, preview shows the disabled message when unchecked, `get_mcp_settings()` includes both new keys — plus extended the existing settings-dict-equality tests with the same two keys. `_mcp_save_server_config()` (v1.7 Teilbauauftrag f, mirrors into `MCP_SERVER_CONFIG_FILE`) and `_mcp_start_server()`/`_resolve_mcp_server_launch_command()`/`_mcp_server_is_running()` (v1.7 Teilbauauftrag g, the Start button's launch/liveness logic) not yet covered by dedicated tests — flagged for a follow-up session; verified manually via real T1/T2/T3.3 builds instead (see NOTES_v1.7_teilg.md).
 - `TestGarminAppBase` (4) — app instantiation, all panels created, log widget write, timer fields in collect_settings
 
 Run after any change to: `app/panel_*.py`, `garmin_app_base.py` (Qt version). Built panel-by-panel alongside the v1.5.4 migration. No network, no GUI, no build required.

@@ -8,7 +8,12 @@ garmin_config.py
 Central configuration for Garmin Local Archive.
 Reads all GARMIN_* environment variables, sets defaults, and derives paths.
 
-No logic, no functions, no dependencies on other project modules.
+No business logic. A small number of narrowly-scoped parsing helpers exist
+where the same fallback shape is needed in multiple places below (see
+_read_mcp_server_config(), _parse_extra_hosts()) — deliberate, documented
+exceptions, not a precedent for broader logic in this file. One
+project-internal import exists: garmin_utils, used only for SYNC_DATES
+(_utils.parse_sync_dates()).
 All other modules import this module — no module reads os.environ directly.
 
 Standalone note: _apply_env() in garmin_app_standalone.py sets os.environ
@@ -266,6 +271,56 @@ if "GARMIN_MCP_HEADLESS" in os.environ:
     MCP_HEADLESS = os.environ["GARMIN_MCP_HEADLESS"].strip().lower() in ("1", "true", "yes")
 else:
     MCP_HEADLESS = bool(_mcp_server_config.get("mcp_headless", False))
+
+
+def _parse_extra_hosts(raw: str) -> list[str]:
+    """Splits a comma-separated host list into transport_security
+    allowed_hosts-style entries — each becomes '<host>:*' (any port)
+    unless it already has an explicit ':port' suffix. Empty/whitespace-
+    only entries are dropped. Pure parsing, no I/O — deliberate, narrow
+    exception to this module's "no business logic" rule, same reasoning
+    as _read_mcp_server_config() above. Shared by this module (building
+    MCP_EXTRA_ALLOWED_HOSTS below) and both MCP settings UIs
+    (app/panel_mcp.py, clients/mcp_server_gui.py), which call it directly
+    for a live preview — guarantees the preview always matches exactly
+    what gets applied, never a diverging reimplementation."""
+    hosts = []
+    for part in raw.split(","):
+        host = part.strip()
+        if not host:
+            continue
+        if ":" not in host:
+            host = f"{host}:*"
+        hosts.append(host)
+    return hosts
+
+
+# Extra allowed hosts for the MCP server's transport_security check
+# (v1.7.0.2) — opt-in escape hatch for the SDK's built-in DNS-rebinding
+# protection, which by default only allows Host headers of
+# 127.0.0.1/localhost/::1 (see clients/mcp_server.py's FastMCP(...) call).
+# Lets a reverse-proxied or containerized MCP client (e.g. Open WebUI
+# running in Docker, connecting via host.docker.internal) reach the
+# server. Off by default — zero behaviour change for every install that
+# never touches this. Same ENV > file > default precedence as
+# MCP_HEADLESS above.
+if "GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED" in os.environ:
+    MCP_EXTRA_ALLOWED_HOSTS_ENABLED = os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED"].strip().lower() in ("1", "true", "yes")
+else:
+    MCP_EXTRA_ALLOWED_HOSTS_ENABLED = bool(_mcp_server_config.get("mcp_extra_hosts_enabled", False))
+
+# Raw comma-separated host list — real default "host.docker.internal"
+# (Timo's own Open-WebUI-in-Docker use case), same ENV > file > default
+# precedence as MCP_HTTP_PORT above; "mcp_extra_hosts" key in
+# MCP_SERVER_CONFIG_FILE, same dual-writer exception documented above
+# MCP_SERVER_CONFIG_FILE. Only actually applied when
+# MCP_EXTRA_ALLOWED_HOSTS_ENABLED is True — see clients/mcp_server.py.
+if "GARMIN_MCP_EXTRA_ALLOWED_HOSTS" in os.environ:
+    MCP_EXTRA_ALLOWED_HOSTS_RAW = os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS"]
+else:
+    MCP_EXTRA_ALLOWED_HOSTS_RAW = _mcp_server_config.get("mcp_extra_hosts") or "host.docker.internal"
+
+MCP_EXTRA_ALLOWED_HOSTS = _parse_extra_hosts(MCP_EXTRA_ALLOWED_HOSTS_RAW)
 
 # Server-owned archive path (v1.7 Teilbauauftrag f) — deliberately NOT the
 # same constant as BASE_DIR above. BASE_DIR remains the pipeline's sole

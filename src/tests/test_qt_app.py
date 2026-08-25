@@ -856,11 +856,15 @@ class TestPanelMcp:
         # v1.7.0.1 and replaced by mcp_http_port/mcp_headless — both
         # empty/False here since the panel never received
         # load_mcp_settings() input (Port QLineEdit starts empty,
-        # Headless QCheckBox starts unchecked).
+        # Headless QCheckBox starts unchecked). mcp_extra_hosts_enabled/
+        # mcp_extra_hosts (v1.7.0.2) are False/empty for the same reason —
+        # the pre-filled default only appears via load_mcp_settings().
         assert s == {
             "mcp_llm_backend": "cloud",
             "mcp_http_port":   "",
             "mcp_headless":    False,
+            "mcp_extra_hosts_enabled": False,
+            "mcp_extra_hosts":         "",
         }
 
     def test_load_mcp_settings_populates_fields(self, qtbot, app_mock):
@@ -877,6 +881,49 @@ class TestPanelMcp:
         qtbot.addWidget(panel)
         panel.load_mcp_settings({})
         assert panel._mcp_backend.currentText() == "ollama"
+        # v1.7.0.2 — extra-allowed-hosts defaults: checkbox off, field
+        # disabled but pre-filled with the real default (garmin_config.
+        # MCP_EXTRA_ALLOWED_HOSTS_RAW), preview reflects the disabled state.
+        import garmin_config as cfg
+        assert panel._mcp_extra_hosts_enabled.isChecked() is False
+        assert panel._mcp_extra_hosts_field.isEnabled() is False
+        assert panel._mcp_extra_hosts_field.text() == cfg.MCP_EXTRA_ALLOWED_HOSTS_RAW
+        assert "Disabled" in panel._mcp_extra_hosts_preview.text()
+
+    def test_extra_hosts_checkbox_enables_field(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        assert panel._mcp_extra_hosts_field.isEnabled() is False
+        panel._mcp_extra_hosts_enabled.setChecked(True)
+        assert panel._mcp_extra_hosts_field.isEnabled() is True
+
+    def test_extra_hosts_preview_reflects_parsed_hosts(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_extra_hosts_enabled.setChecked(True)
+        panel._mcp_extra_hosts_field.setText("host.docker.internal, myhost:9000")
+        assert panel._mcp_extra_hosts_preview.text() == \
+            "Recognized: host.docker.internal:*, myhost:9000"
+
+    def test_extra_hosts_preview_shows_disabled_message_when_unchecked(
+            self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_extra_hosts_field.setText("host.docker.internal")
+        assert "Disabled" in panel._mcp_extra_hosts_preview.text()
+
+    def test_get_mcp_settings_includes_extra_hosts_fields(self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel._mcp_extra_hosts_enabled.setChecked(True)
+        panel._mcp_extra_hosts_field.setText("host.docker.internal")
+        s = panel.get_mcp_settings()
+        assert s["mcp_extra_hosts_enabled"] is True
+        assert s["mcp_extra_hosts"] == "host.docker.internal"
 
     def test_cloud_config_status_no_file(self, qtbot, app_mock, tmp_path):
         from unittest.mock import patch

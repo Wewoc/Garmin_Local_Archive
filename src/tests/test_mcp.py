@@ -385,6 +385,105 @@ importlib.reload(cfg)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  8f. garmin_config.py — MCP_EXTRA_ALLOWED_HOSTS(_ENABLED) (v1.7.0.2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# _parse_extra_hosts() — pure parsing, no ENV/config-file involvement.
+check("garmin_config: _parse_extra_hosts — single host gets :* appended",
+      cfg._parse_extra_hosts("host.docker.internal") == ["host.docker.internal:*"])
+check("garmin_config: _parse_extra_hosts — explicit port kept as-is",
+      cfg._parse_extra_hosts("myhost:9000") == ["myhost:9000"])
+check("garmin_config: _parse_extra_hosts — comma-separated, whitespace stripped",
+      cfg._parse_extra_hosts(" host.docker.internal , myhost:9000 ") ==
+      ["host.docker.internal:*", "myhost:9000"])
+check("garmin_config: _parse_extra_hosts — empty entries dropped",
+      cfg._parse_extra_hosts("host.docker.internal,,  ,") == ["host.docker.internal:*"])
+check("garmin_config: _parse_extra_hosts — empty string yields empty list",
+      cfg._parse_extra_hosts("") == [])
+
+# MCP_EXTRA_ALLOWED_HOSTS_ENABLED — default False, ENV overrides.
+# The "default" assertion needs Path.home() isolated to _TMPDIR for its
+# reload: unlike MCP_HTTP_PORT above (deliberately untested at the file
+# layer), this field is meant to be toggled and saved for real via the
+# GUI checkbox — the real ~/.garmin_mcp_server_config.json can already
+# carry mcp_extra_hosts_enabled=true from an earlier manual session
+# (exactly what happened here after live-testing against Open WebUI this
+# session), which would make this assertion depend on machine state
+# instead of code behaviour. ENV-override below is unaffected either way
+# — ENV always wins regardless of what the file holds.
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED", None)
+with patch("pathlib.Path.home", return_value=_TMPDIR):
+    importlib.reload(cfg)
+    check("garmin_config: MCP_EXTRA_ALLOWED_HOSTS_ENABLED default is False",
+          cfg.MCP_EXTRA_ALLOWED_HOSTS_ENABLED is False)
+importlib.reload(cfg)
+os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED"] = "true"
+importlib.reload(cfg)
+check("garmin_config: MCP_EXTRA_ALLOWED_HOSTS_ENABLED — ENV 'true' overrides default",
+      cfg.MCP_EXTRA_ALLOWED_HOSTS_ENABLED is True)
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED", None)
+importlib.reload(cfg)
+
+# MCP_EXTRA_ALLOWED_HOSTS — real default is "host.docker.internal", not empty.
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS", None)
+importlib.reload(cfg)
+check("garmin_config: MCP_EXTRA_ALLOWED_HOSTS_RAW default is host.docker.internal",
+      cfg.MCP_EXTRA_ALLOWED_HOSTS_RAW == "host.docker.internal")
+check("garmin_config: MCP_EXTRA_ALLOWED_HOSTS default is parsed to one wildcard entry",
+      cfg.MCP_EXTRA_ALLOWED_HOSTS == ["host.docker.internal:*"])
+
+# ENV override wins over the default — same precedence pattern as MCP_HTTP_PORT.
+os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS"] = "other-host:1234"
+importlib.reload(cfg)
+check("garmin_config: MCP_EXTRA_ALLOWED_HOSTS — ENV overrides default",
+      cfg.MCP_EXTRA_ALLOWED_HOSTS == ["other-host:1234"])
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS", None)
+importlib.reload(cfg)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  8g. clients/mcp_server.py — transport_security wiring (v1.7.0.2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Disabled (default) — transport_security is still the SDK's own
+# localhost-only default (None passed through unchanged), no extra host.
+# Same Path.home() isolation as the MCP_EXTRA_ALLOWED_HOSTS_ENABLED
+# default check above, and for the same reason — the real config file
+# can carry the checkbox saved as on from a previous manual session.
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED", None)
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS", None)
+with patch("pathlib.Path.home", return_value=_TMPDIR):
+    importlib.reload(cfg)
+    importlib.reload(mcp_server)
+    _ts_off = mcp_server.mcp.settings.transport_security
+    check("mcp_server: transport_security present (SDK default) when disabled",
+          _ts_off is not None)
+    check("mcp_server: no extra host present when disabled",
+          "host.docker.internal:*" not in _ts_off.allowed_hosts)
+importlib.reload(cfg)
+importlib.reload(mcp_server)
+
+# Enabled — extra host present, three SDK-default hosts still present too.
+os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED"] = "true"
+os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS"] = "host.docker.internal"
+importlib.reload(cfg)
+importlib.reload(mcp_server)
+_ts_on = mcp_server.mcp.settings.transport_security
+check("mcp_server: transport_security includes extra host when enabled",
+      "host.docker.internal:*" in _ts_on.allowed_hosts)
+check("mcp_server: transport_security still includes the three SDK-default hosts",
+      {"127.0.0.1:*", "localhost:*", "[::1]:*"}.issubset(set(_ts_on.allowed_hosts)))
+check("mcp_server: transport_security still includes the three SDK-default origins",
+      {"http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"}.issubset(
+          set(_ts_on.allowed_origins)))
+
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED", None)
+os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS", None)
+importlib.reload(cfg)
+importlib.reload(mcp_server)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

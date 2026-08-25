@@ -336,6 +336,14 @@ def run_gui(mcp_instance, logger: logging.Logger,
     root.title("Garmin Local Archive — MCP Server")
     root.geometry("700x560")
 
+    # ── Header (mirrors the unicorn label in app/garmin_app_base.py —
+    # same emoji + text, no color/theme changes; that part stays out of
+    # scope per session decision) ────────────────────────────────────────
+    ttk.Label(
+        root, text="🦄  GARMIN LOCAL ARCHIVE",
+        font=("Segoe UI", 13, "bold"),
+    ).pack(anchor="w", padx=10, pady=(10, 0))
+
     saved = _load_server_config()
     saved_cloud = _load_cloud_config()
 
@@ -381,13 +389,57 @@ def run_gui(mcp_instance, logger: logging.Logger,
 
     headless_var = tk.BooleanVar(value=bool(saved.get("mcp_headless", False)))
     ttk.Checkbutton(
-        config_frame, text="Headless starten (ohne Fenster)",
+        config_frame, text="Start headless (no window)",
         variable=headless_var,
     ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
     ttk.Label(
         config_frame,
-        text="Wirkt erst beim nächsten Start — nicht auf diese laufende Instanz.",
+        text="Takes effect on next start — not on this running instance.",
     ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+    # ── Extra allowed hosts (v1.7.0.2 — MCP transport_security) ─────────────
+    # Same checkbox-gates-field model as app/panel_mcp.py — off by default,
+    # content preserved when disabled (session decision).
+    extra_hosts_enabled_var = tk.BooleanVar(
+        value=bool(saved.get("mcp_extra_hosts_enabled", False)))
+    extra_hosts_var = tk.StringVar(
+        value=str(saved.get("mcp_extra_hosts") or cfg.MCP_EXTRA_ALLOWED_HOSTS_RAW))
+    extra_hosts_preview_var = tk.StringVar(value="")
+
+    def _refresh_extra_hosts_preview(*_args):
+        """Live preview via garmin_config._parse_extra_hosts() — same
+        helper clients/mcp_server.py applies at startup, so this always
+        shows exactly what would be used, never a diverging guess."""
+        if not extra_hosts_enabled_var.get():
+            extra_hosts_preview_var.set(
+                "Disabled — default hosts remain unchanged.")
+            return
+        parsed = cfg._parse_extra_hosts(extra_hosts_var.get())
+        extra_hosts_preview_var.set(
+            "Recognized: " + ", ".join(parsed) if parsed
+            else "Recognized: — (no valid entries)")
+
+    def _on_extra_hosts_toggle():
+        extra_hosts_entry.configure(
+            state="normal" if extra_hosts_enabled_var.get() else "disabled")
+        _refresh_extra_hosts_preview()
+
+    ttk.Checkbutton(
+        config_frame, text="Extra allowed hosts",
+        variable=extra_hosts_enabled_var, command=_on_extra_hosts_toggle,
+    ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+    ttk.Label(config_frame, text="Hosts:").grid(
+        row=7, column=0, sticky="w", pady=(4, 0))
+    extra_hosts_entry = ttk.Entry(
+        config_frame, textvariable=extra_hosts_var, width=50)
+    extra_hosts_entry.grid(row=7, column=1, sticky="we", pady=(4, 0))
+
+    ttk.Label(config_frame, textvariable=extra_hosts_preview_var).grid(
+        row=8, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+    extra_hosts_var.trace_add("write", _refresh_extra_hosts_preview)
+    _on_extra_hosts_toggle()  # initial enabled/disabled state + preview text
 
     config_frame.columnconfigure(1, weight=1)
 
@@ -467,6 +519,8 @@ def run_gui(mcp_instance, logger: logging.Logger,
             "base_dir":        base_dir_var.get().strip(),
             "mcp_http_port":   port,
             "mcp_headless":    headless_var.get(),
+            "mcp_extra_hosts_enabled": extra_hosts_enabled_var.get(),
+            "mcp_extra_hosts":         extra_hosts_var.get().strip(),
         }
         _save_server_config(data, logger)
         messagebox.showinfo(

@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.0.1
+# Garmin Local Archive — Desktop App v1.7.0.2
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -428,13 +428,21 @@ screen. The key field is never re-loaded back into the form after
 saving, for the same reason.
 
 **Port** — the local port the server listens on (default `8756`).
-**Headless starten (ohne Fenster)** — off by default: a normal start
+**Start headless (no window)** — off by default: a normal start
 opens the server's own small window (below), which owns the server for
 as long as it stays open (closing the window stops the server, exactly
 like closing the main app). Check this to skip the window entirely and
 run the server directly in the background instead — meant for
 automation/scheduled use, not the everyday case. Takes effect on the
 *next* start, not the currently running instance.
+
+**Extra allowed hosts** — off by default. Check this if your MCP client
+runs inside Docker (e.g. Open WebUI) and needs to reach the server as
+something other than `127.0.0.1`/`localhost` — a comma-separated field
+unlocks, pre-filled with the common case, `host.docker.internal`, and a
+line below it shows exactly what was recognized from what you typed.
+Leave unchecked for a normal local setup; unchecking again dims the
+field but keeps whatever you typed, in case you turn it back on later.
 
 **Save Settings** writes your backend, port and archive-path choice to a
 config file the standalone server (below) also reads and writes.
