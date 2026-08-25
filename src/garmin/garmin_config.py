@@ -8,7 +8,12 @@ garmin_config.py
 Central configuration for Garmin Local Archive.
 Reads all GARMIN_* environment variables, sets defaults, and derives paths.
 
-No logic, no functions, no dependencies on other project modules.
+No business logic. A small number of narrowly-scoped parsing helpers exist
+where the same fallback shape is needed in multiple places below (see
+_read_mcp_server_config(), _parse_extra_hosts()) — deliberate, documented
+exceptions, not a precedent for broader logic in this file. One
+project-internal import exists: garmin_utils, used only for SYNC_DATES
+(_utils.parse_sync_dates()).
 All other modules import this module — no module reads os.environ directly.
 
 Standalone note: _apply_env() in garmin_app_standalone.py sets os.environ
@@ -190,24 +195,6 @@ SYNC_CHUNK_SIZE = int(os.environ.get("GARMIN_SYNC_CHUNK_SIZE", "10"))
 # documented exception to that pattern, not an oversight.
 MCP_SERVER_CONFIG_FILE = Path.home() / ".garmin_mcp_server_config.json"
 
-# PID lockfile (v1.7 Teilbauauftrag g) — used by app/panel_mcp.py's new
-# "Start MCP Server" button to check whether a clients/mcp_server.py
-# process is already running before launching a new one, and by
-# clients/mcp_server.py/mcp_server_gui.py to record/clear that state.
-# Deliberately NOT a QLocalServer/QLocalSocket guard (unlike
-# garmin_app.py's single-instance guard) — that mechanism requires a
-# running QApplication, which mcp_server.py/mcp_server_gui.py
-# intentionally does not have (Tkinter, not PyQt6 — see
-# mcp_server_gui.py's module docstring). A plain PID file matches this
-# process's actual runtime model instead of forcing a Qt dependency onto
-# an otherwise Qt-free standalone process. Written by
-# clients/mcp_server.py::main() at startup, removed by
-# clients/mcp_server_gui.py's clean-shutdown path
-# (_on_close()) — see NOTES_v1.7_teilg.md for the liveness-check details
-# on the panel_mcp.py side (a stale file from a crashed process is
-# expected and handled there, not here).
-MCP_SERVER_LOCK_FILE = Path.home() / ".garmin_mcp_server.lock"
-
 
 def _read_mcp_server_config() -> dict:
     """Reads MCP_SERVER_CONFIG_FILE, returns {} if missing/empty/corrupt —
@@ -248,6 +235,93 @@ if "GARMIN_MCP_LLM_BACKEND" in os.environ:
 else:
     MCP_LLM_BACKEND = _mcp_server_config.get("mcp_llm_backend", "ollama")
 
+# HTTP port for the MCP server's streamable-http transport (v1.7.0.1).
+# Host is deliberately NOT configurable here or anywhere — always
+# 127.0.0.1, hardcoded at the FastMCP() call site in clients/mcp_server.py.
+# Only the port varies. Same ENV > file > default precedence as
+# MCP_LLM_BACKEND above; "mcp_http_port" key in MCP_SERVER_CONFIG_FILE,
+# written by app/panel_mcp.py (mirror-on-save) and
+# clients/mcp_server_gui.py (standalone context) — same dual-writer
+# exception documented above MCP_SERVER_CONFIG_FILE.
+if "GARMIN_MCP_HTTP_PORT" in os.environ:
+    MCP_HTTP_PORT = int(os.environ["GARMIN_MCP_HTTP_PORT"])
+else:
+    try:
+        MCP_HTTP_PORT = int(_mcp_server_config.get("mcp_http_port") or 8756)
+    except (TypeError, ValueError):
+        # Corrupt/non-numeric value in the config file — fail open to the
+        # default rather than crashing this module's import (an explicit
+        # bad ENV override above is NOT caught the same way: that's a
+        # deliberate user action, a crash there is the right diagnostic).
+        MCP_HTTP_PORT = 8756
+
+# Headless mode (v1.7.0.1) — when true, clients/mcp_server.py::main()
+# skips the Tkinter window entirely and runs the HTTP server directly
+# on the calling thread, analogous to scheduler/daily_update.py.
+# Default false: a normal start still opens the window, which owns the
+# server exactly as it did under the stdio transport (window closed =
+# process closed, "the window is the server") — only the transport and
+# the restart-health-check mechanism changed (see MCP_HTTP_PORT above),
+# not this coupling (session decision, NOTES_v1.7.0.1vorbereitung.md
+# Eckpunkt 6). Settable from both app/panel_mcp.py and
+# clients/mcp_server_gui.py (the latter takes effect on the next start,
+# not the running instance). Same ENV > file > default precedence as
+# the fields above.
+if "GARMIN_MCP_HEADLESS" in os.environ:
+    MCP_HEADLESS = os.environ["GARMIN_MCP_HEADLESS"].strip().lower() in ("1", "true", "yes")
+else:
+    MCP_HEADLESS = bool(_mcp_server_config.get("mcp_headless", False))
+
+
+def _parse_extra_hosts(raw: str) -> list[str]:
+    """Splits a comma-separated host list into transport_security
+    allowed_hosts-style entries — each becomes '<host>:*' (any port)
+    unless it already has an explicit ':port' suffix. Empty/whitespace-
+    only entries are dropped. Pure parsing, no I/O — deliberate, narrow
+    exception to this module's "no business logic" rule, same reasoning
+    as _read_mcp_server_config() above. Shared by this module (building
+    MCP_EXTRA_ALLOWED_HOSTS below) and both MCP settings UIs
+    (app/panel_mcp.py, clients/mcp_server_gui.py), which call it directly
+    for a live preview — guarantees the preview always matches exactly
+    what gets applied, never a diverging reimplementation."""
+    hosts = []
+    for part in raw.split(","):
+        host = part.strip()
+        if not host:
+            continue
+        if ":" not in host:
+            host = f"{host}:*"
+        hosts.append(host)
+    return hosts
+
+
+# Extra allowed hosts for the MCP server's transport_security check
+# (v1.7.0.2) — opt-in escape hatch for the SDK's built-in DNS-rebinding
+# protection, which by default only allows Host headers of
+# 127.0.0.1/localhost/::1 (see clients/mcp_server.py's FastMCP(...) call).
+# Lets a reverse-proxied or containerized MCP client (e.g. Open WebUI
+# running in Docker, connecting via host.docker.internal) reach the
+# server. Off by default — zero behaviour change for every install that
+# never touches this. Same ENV > file > default precedence as
+# MCP_HEADLESS above.
+if "GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED" in os.environ:
+    MCP_EXTRA_ALLOWED_HOSTS_ENABLED = os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED"].strip().lower() in ("1", "true", "yes")
+else:
+    MCP_EXTRA_ALLOWED_HOSTS_ENABLED = bool(_mcp_server_config.get("mcp_extra_hosts_enabled", False))
+
+# Raw comma-separated host list — real default "host.docker.internal"
+# (Timo's own Open-WebUI-in-Docker use case), same ENV > file > default
+# precedence as MCP_HTTP_PORT above; "mcp_extra_hosts" key in
+# MCP_SERVER_CONFIG_FILE, same dual-writer exception documented above
+# MCP_SERVER_CONFIG_FILE. Only actually applied when
+# MCP_EXTRA_ALLOWED_HOSTS_ENABLED is True — see clients/mcp_server.py.
+if "GARMIN_MCP_EXTRA_ALLOWED_HOSTS" in os.environ:
+    MCP_EXTRA_ALLOWED_HOSTS_RAW = os.environ["GARMIN_MCP_EXTRA_ALLOWED_HOSTS"]
+else:
+    MCP_EXTRA_ALLOWED_HOSTS_RAW = _mcp_server_config.get("mcp_extra_hosts") or "host.docker.internal"
+
+MCP_EXTRA_ALLOWED_HOSTS = _parse_extra_hosts(MCP_EXTRA_ALLOWED_HOSTS_RAW)
+
 # Server-owned archive path (v1.7 Teilbauauftrag f) — deliberately NOT the
 # same constant as BASE_DIR above. BASE_DIR remains the pipeline's sole
 # archive-path source, unchanged by this session, and is resolved once at
@@ -268,17 +342,6 @@ else:
     MCP_BASE_DIR = Path(
         _mcp_server_config.get("base_dir") or "~/local_archive"
     ).expanduser()
-
-# Ollama model preference (v1.7 Teilbauauftrag f) — fourth field in
-# MCP_SERVER_CONFIG_FILE, deliberately file-only, no ENV override (unlike
-# MCP_ENABLED/MCP_LLM_BACKEND/MCP_BASE_DIR above). Session decision:
-# "das was am stabilsten ist" — this is a pure convenience default (which
-# locally installed Ollama model to preselect), not a value anyone would
-# reasonably override per shell session or deployment the way base_dir or
-# the enabled-flag might be. Populated by the "Refresh" button in both
-# app/panel_mcp.py and clients/mcp_server_gui.py (a live client.list_models()
-# call against Ollama), then saved alongside the other three fields.
-MCP_OLLAMA_MODEL = _mcp_server_config.get("mcp_ollama_model", "")
 
 # Separate plaintext config file for cloud LLM credentials (MCP_LLM_BACKEND
 # = "cloud"). Path.home()-based like SETTINGS_FILE (app/garmin_app_settings.py)

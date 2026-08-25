@@ -1,5 +1,75 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.0.2 — MCP Transport Security (Docker Reachability)
+
+Fixes MCP server reachability for MCP clients running inside Docker (e.g. Open WebUI's own container connecting via `host.docker.internal`) — the `mcp` Python SDK's built-in DNS-rebinding protection rejects any `Host` header outside `127.0.0.1`/`localhost`/`::1` by default, which silently blocked exactly this case. Verified live end-to-end against a real Open WebUI Docker container after the fix, including a real MCP tool call reaching the archive.
+
+**Transport security:**
+- `clients/mcp_server.py`: `FastMCP(...)` now passes an explicit `transport_security=TransportSecuritySettings(...)` when the new opt-in is enabled — built from the SDK's own three default hosts/origins (`127.0.0.1`/`localhost`/`::1`, verified directly against the installed `mcp==1.29.0` source, since passing any explicit `TransportSecuritySettings` skips the SDK's own auto-default branch entirely) plus the configured extra host(s). Disabled (default): `transport_security=None`, unchanged SDK auto-default behavior.
+- New `garmin_config._parse_extra_hosts(raw)` helper (comma-separated, whitespace-stripped, bare hostnames get `:*` appended so any port matches) plus three new constants — `MCP_EXTRA_ALLOWED_HOSTS_ENABLED` (bool, ENV `GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED` > `MCP_SERVER_CONFIG_FILE`'s `mcp_extra_hosts_enabled` > default `False`), `MCP_EXTRA_ALLOWED_HOSTS_RAW` (str, same precedence, default `"host.docker.internal"` — a real default, not just a UI placeholder, per session decision), `MCP_EXTRA_ALLOWED_HOSTS` (the parsed list). Same ENV > file > default idiom as `MCP_HTTP_PORT`/`MCP_HEADLESS`.
+- `allowed_origins` deliberately left at the SDK's own three defaults, not extended — a server-to-server HTTP client (e.g. Open WebUI's backend) typically sends no `Origin` header at all, and the SDK's own `_validate_origin()` passes automatically when the header is absent. Revisit only if a real `Invalid Origin header` rejection is observed in the log.
+
+**UI (both `app/panel_mcp.py` and `clients/mcp_server_gui.py`):**
+- New checkbox ("Extra allowed hosts") gates a comma-separated text field (pre-filled with the real default, `host.docker.internal`) plus a read-only live preview of the parsed entries below it — same `_parse_extra_hosts()` helper drives both the preview and the actual server wiring, so the preview never diverges from what would actually be used. Unchecking the box dims/locks the field but preserves its content (session decision) rather than clearing it.
+- Same-session bug found and fixed: `app/panel_mcp.py`'s new field defaulted to `enabled=True` (Qt's own `QLineEdit` default) on construction, regardless of the checkbox's unchecked starting state — only `load_mcp_settings()` explicitly synced the two, so a freshly-constructed panel (before any settings load) showed an active field next to an unchecked box. Fixed by explicitly setting the initial enabled/preview state once at construction time, mirroring the checkbox's own starting value.
+
+**Docs/branding:**
+- The small set of German UI strings in these two files translated to English — one pre-existing from v1.7.0.1 (`"Headless starten (ohne Fenster)"` → `"Start headless (no window)"`, both files) and the five introduced by this session's own Extra-Hosts feature (checkbox label, placeholder text, and the two preview messages). `tests/test_qt_app.py`'s three assertions on the old German preview text updated to match.
+- `clients/mcp_server_gui.py` gained a `"🦄  GARMIN LOCAL ARCHIVE"` header label above its config section, matching `garmin_app_base.py`'s branding — text/font only, deliberately not the full color-theme parity (would require switching the window's `ttk` theme away from the native Windows look, a bigger, separate change) or a custom titlebar icon (no icon asset exists anywhere in this codebase yet; would need one created and wired into the PyInstaller build).
+
+**Tests:**
+- `tests/test_mcp.py` Section 8 grew from eighteen to thirty-three checks: ten new for `_parse_extra_hosts()` edge cases and the `MCP_EXTRA_ALLOWED_HOSTS(_ENABLED/_RAW)` ENV > file > default precedence (8f), five new for the actual `transport_security` wiring on `mcp_server.mcp.settings` itself, enabled and disabled (8g).
+- Two of those fifteen new checks initially failed on a real run once the "Extra allowed hosts" checkbox had actually been saved on this machine via live GUI testing — the real `~/.garmin_mcp_server_config.json` then carried `mcp_extra_hosts_enabled: true`, which the "default is False" assertions read straight through (unlike the deliberately file-layer-untested `MCP_HTTP_PORT`/`MCP_HEADLESS` checks above them). Fixed by isolating `Path.home()` to the test's own `_TMPDIR` for just those two reloads, leaving the real config file untouched.
+- `tests/test_qt_app.py::TestPanelMcp` grew from 13 to 17 tests — four new (checkbox enables/dims the field, preview reflects parsed hosts, preview shows the disabled message, `get_mcp_settings()` includes both new keys) plus the existing settings-dict-equality tests extended with the two new keys.
+
+**Precondition Teil B (Drift-Check):** PFLICHT this session — `garmin/garmin_config.py` was changed. Confirmed via `dep_map_delta.md` (`build_dep_map.py`, 2026-08-25_Run-01 → 2026-08-25_Run-02): 0 NEU, 0 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung — clean.
+
+**Deliberately not implemented:**
+- Full `ttk` color-theme parity for `clients/mcp_server_gui.py` (would need `ttk.Style().theme_use("clam")` since the native Windows theme mostly ignores custom widget colors — a bigger, separate change) and a custom titlebar icon (no icon asset exists in this codebase; would also need a `build_manifest.py`/PyInstaller bundling entry) — both scoped out this session, "just the unicorn" (text label only).
+- `allowed_origins` extension — see Transport security above.
+- KNOWN_ISSUES Cluster F ("verstreute lokale Konstanten-Kopien ohne gemeinsame Quelle") — the new `MCP_EXTRA_ALLOWED_HOSTS`/`_ENABLED`/`_RAW` trio technically adds to this existing pattern (same as `MCP_HTTP_PORT`/`MCP_HEADLESS` before them) but wasn't newly introduced by this session — left with the rest of the cluster, unscanned, for its own future session.
+
+**Test result:** 716 / 265 / 465 / 107 / 64 / 165 / 73 / 16 — all green (test_local / test_local_context / test_dashboard / test_broker / test_mcp / test_app_logic / test_qt_app / test_static), Total 1871 (`docs/METRICS.md`).
+
+---
+
+## v1.7.0.1 — MCP HTTP Transport
+
+Migrates the MCP server from stdio to streamable-http transport. The window/server coupling from v1.7.0's Teil (f) — "the window is the server" — is deliberately KEPT as the default (session decision, `NOTES_v1.7.0.1vorbereitung.md` Eckpunkt 6); a new config field adds an explicit, opt-in headless mode for automation instead. Also removes the Ollama model preference field, architecturally misplaced in `garmin_config.py` (no remaining consumer once local-model auto-discovery was dropped from scope).
+
+**Transport:**
+- `clients/mcp_server.py`: `mcp.run(transport="streamable-http")` replaces `transport="stdio"`. `FastMCP(..., host="127.0.0.1", port=cfg.MCP_HTTP_PORT)` — host is hardcoded, never configurable; only the port varies.
+- New `garmin_config.MCP_HTTP_PORT` — ENV (`GARMIN_MCP_HTTP_PORT`) > `MCP_SERVER_CONFIG_FILE`'s `mcp_http_port` field > default `8756`, same precedence pattern as `MCP_LLM_BACKEND`.
+- PID lockfile liveness (`MCP_SERVER_LOCK_FILE`, `tasklist` parsing) removed entirely — replaced by an `OSError` catch at `mcp.run()`'s bind call (start-guard case) and a TCP-connect probe against `127.0.0.1:MCP_HTTP_PORT` (restart-confirmation / health-check case), used in `app/panel_mcp.py::_mcp_server_is_running()` and `clients/mcp_server_gui.py::_is_server_reachable()`. The Restart button's Option C self-relaunch shape (v1.7 Teilbauauftrag h) is otherwise unchanged — only its health-check mechanism moved from lockfile-PID-poll to this TCP probe.
+
+**Headless mode (new, opt-in — NOT the new default):**
+- New `garmin_config.MCP_HEADLESS` (bool) — ENV (`GARMIN_MCP_HEADLESS`, `"1"`/`"true"`/`"yes"`) > `MCP_SERVER_CONFIG_FILE`'s `mcp_headless` field > default `False`. Default `False` means `clients/mcp_server.py::main()` still opens `clients/mcp_server_gui.py::run_gui()` by default, coupled to the server exactly as before (window closed = process closed) — only when `MCP_HEADLESS` is true does `main()` route to the new `_run_headless()` instead, running the server directly with no window at all, analogous to `scheduler/daily_update.py`.
+- Settable from both `app/panel_mcp.py` (new checkbox, mirrored on save) and `clients/mcp_server_gui.py` itself (new checkbox — takes effect on the *next* start, not the running instance).
+- The operational log start (`_start_operational_log()`, `LOG_MCP_MAX = 30`) now lives in `clients/mcp_server.py` (moved out of `mcp_server_gui.py`) since both the headless and windowed paths need it; passed into `run_gui()` as a callable to avoid a circular import.
+
+**Removed:**
+- `garmin_config.MCP_OLLAMA_MODEL` and the Ollama model dropdown + "Refresh" button in both `app/panel_mcp.py` and `clients/mcp_server_gui.py`.
+- `garmin_config.MCP_SERVER_LOCK_FILE` (see Transport above).
+
+**Configuration:**
+- `MCP_SERVER_CONFIG_FILE`'s field set changes from `mcp_llm_backend`/`base_dir`/`mcp_ollama_model` (three fields) to `mcp_llm_backend`/`base_dir`/`mcp_http_port`/`mcp_headless` (four fields) — one field swapped, one added. Both documented writers (`app/panel_mcp.py`, `clients/mcp_server_gui.py`) updated together.
+
+**Build integration:**
+- T3.3 (`mcp_server.exe`) `windowed=False` deliberately left unchanged in this Bauauftrag — the original reason (stdio needing real console `stdin`/`stdout`) no longer applies under streamable-http, but flipping it risks `sys.stderr` being invalid under `--windowed`, crashing `logging.basicConfig()` before any log handler exists. Untestable in this environment (no Windows build available) — flip only after a real Windows T3.3 build confirms logging still starts cleanly with no console.
+
+**Deliberately not implemented:**
+- `windowed=True` for T3.3 (see Build integration above) — left for Timo to test and decide on a real Windows build.
+
+**Tests:**
+- `tests/test_mcp.py` Section 8 grew from nine to eighteen checks — nine new checks for `MCP_HTTP_PORT`/`MCP_HEADLESS` ENV > file > default precedence and for the `MCP_SERVER_LOCK_FILE`/`MCP_OLLAMA_MODEL` removal.
+- `tests/test_qt_app.py::TestPanelMcp` — six tests corrected to match the new `panel_mcp.py` UI (Ollama model dropdown + Refresh button removed, Port + Headless checkbox added): the two backend-visibility tests no longer assert on the removed `_mcp_ollama_box`, `test_get_mcp_settings_reflects_checkbox_and_backend` now expects `mcp_http_port`/`mcp_headless` instead of `mcp_ollama_model`, and the three `_mcp_on_ollama_models_loaded()` tests were removed outright (tested functionality that no longer exists). 72→69 checks. Found via a full `test_all` run after the initial anchor delivery — not part of the original Bauauftrag scope, fixed in the same session once discovered.
+
+**Precondition Teil B (Drift-Check):** PFLICHT this session — `garmin/garmin_config.py` was changed. Confirmed via `dep_map_delta.md` (`build_dep_map.py`, 2026-08-24_Run-03 → 2026-08-25_Run-01): 12 NEU, 19 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung. All 12 NEU handlers reviewed individually: either the new TCP-probe/form-validation patterns this Bauauftrag introduces (`_mcp_server_is_running`, `_is_server_reachable`, the port-field `ValueError` guards in `run_gui`) or a pure relocation of `_start_operational_log()` from `mcp_server_gui.py` into `mcp_server.py` (visible as a matching WEG entry in its old location) — no undocumented risk, no Handlungsbedarf. All 19 WEG entries are the expected removal of the lockfile/`tasklist` liveness code and the Ollama-refresh worker, plus that same relocation. New `dep_map_records.json` committed to `docs/` as the baseline for the next session.
+
+**Test result:** 716 / 265 / 465 / 107 / 49 / 165 / 69 / 16 — all green (test_local / test_local_context / test_dashboard / test_broker / test_mcp / test_app_logic / test_qt_app / test_static), ruff 0 errors, bandit 0 HIGH.
+
+---
+
 ## v1.7.0 — MCP Server
 
 Exposes GLA's archive to local LLMs via the Model Context Protocol — natural-language queries against health and context data without manual export or file upload. Runs as an independent standalone process, fully decoupled from the main GUI.
