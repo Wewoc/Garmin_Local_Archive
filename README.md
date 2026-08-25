@@ -104,10 +104,11 @@ the app), or the standalone `mcp_server.exe` — a self-contained tool with
 its own small window, usable even without the main app installed.
 
 <img src="src/screenshots/GUI-Page_5.jpg" width="800" alt="Garmin Local Archive — MCP Server Tab">
-<br><sub>MCP Server tab — backend and model selection, Save Settings and Start MCP Server buttons.</sub>
+<br><sub>MCP Server tab — backend, port and headless-mode selection, Save Settings and Start MCP Server buttons.</sub>
 
 <img src="src/screenshots/GUI-MCP_1.jpg" width="500" alt="Garmin Local Archive — Standalone MCP Server">
 <br><sub>Standalone MCP server window (<code>mcp_server.exe</code>) — runs independently of the main app, with its own archive path, backend selection, and live log.</sub>
+
 
 Works with Ollama (fully local, default) or an optional cloud LLM backend —
 your choice, no default push toward either. Point your MCP-compatible
@@ -394,9 +395,9 @@ and usage examples: [`docs/REFERENCE_BROKER.md`](docs/REFERENCE_BROKER.md).
 | `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
 | `app/panel_chat.py` | Ollama-Chat panel — native chat against a local Ollama instance, no external tool required. Model dropdown, chat history, "Neuer Chat" reset. (v1.6.6) |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — used exclusively by `app/panel_chat.py`. (v1.6.6) |
-| `app/panel_mcp.py` | MCP Server panel — backend and model selection, Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
+| `app/panel_mcp.py` | MCP Server panel — backend, port and headless-mode selection, Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
 | `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
-| `clients/mcp_server.py` | Standalone MCP server process (stdio transport) — can run independently of the main app. (v1.7) |
+| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. (v1.7) |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart. (v1.7) |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |

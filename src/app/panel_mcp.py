@@ -41,13 +41,6 @@ pure file-persistence step, same as the SETTINGS_FILE write beside it.
 A write failure here is logged, not shown as a blocking dialog — see
 _mcp_save() below.
 
-Ollama model list: reuses the same lazy-import helper pattern as
-app/panel_chat.py (_load_ollama_client(), clients/ollama_client.py) — a
-lightweight background-thread call to list_models(), populating a
-QComboBox. Not started automatically on tab-open (unlike Chat's
-reachability ping) — only on explicit "Refresh" click, since this tab has
-no other reason to touch the network on open.
-
 Cloud LLM config file: this panel is the first and only writer of
 garmin_config.MCP_LLM_CONFIG_FILE (~/.garmin_mcp_llm_config.json,
 Teil c). Same three required fields mcp_server.py's
@@ -60,29 +53,19 @@ A status label shows whether a key is currently on disk without
 displaying it.
 """
 
+import socket
 import subprocess
 import sys
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QLineEdit, QFrame, QSizePolicy, QMessageBox,
+    QComboBox, QLineEdit, QCheckBox, QFrame, QSizePolicy, QMessageBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
-import frozen_paths
 import garmin_config as cfg
-
-
-def _load_ollama_client():
-    """Lazy import — identical pattern to app/panel_chat.py's helper of
-    the same name. Not imported at module top-level so panel_mcp.py stays
-    importable before sys.path is fully wired up."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import ollama_client
-    return ollama_client
 
 
 def _resolve_mcp_server_launch_command() -> list[str] | None:
@@ -131,32 +114,21 @@ def _resolve_mcp_server_launch_command() -> list[str] | None:
     return None
 
 
-def _mcp_server_is_running() -> int | None:
-    """Reads garmin_config.MCP_SERVER_LOCK_FILE and checks via `tasklist`
-    whether that PID is still alive. Returns the PID if a live process
-    holds it, None otherwise — covers both "no lock file" and "lock file
-    present but stale" (the expected common case after a normal window
-    close, see clients/mcp_server_gui.py's module docstring on the
-    interpreter-shutdown crash that prevents reliable unlink()) as the
-    same "not running" outcome. Stdlib-only (subprocess + tasklist
-    parsing) — no psutil dependency, session decision (NOTES_v1.7_teilg.md)."""
+def _mcp_server_is_running() -> bool:
+    """TCP-connect probe against 127.0.0.1:MCP_HTTP_PORT (v1.7.0.1) —
+    replaces the PID-lockfile + `tasklist` check this button used under
+    the stdio transport. The server now listens on a real socket, so a
+    successful connect is a direct, unambiguous liveness signal — no
+    stale-file interpretation needed (the old code's "no lock file" and
+    "lock file present but stale" cases collapse into one: connect
+    fails, socket closed cleanly either way). Short timeout — this only
+    needs to catch "already running", not tolerate a slow remote host
+    (there is none, host is always 127.0.0.1)."""
     try:
-        pid_text = cfg.MCP_SERVER_LOCK_FILE.read_text(encoding="utf-8").strip()
-        pid = int(pid_text)
-    except (FileNotFoundError, ValueError):
-        return None
-
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        # Can't determine liveness — fail open (allow start) rather than
-        # block the button on an unrelated tasklist failure.
-        return None
-
-    return pid if str(pid) in result.stdout else None
+        with socket.create_connection(("127.0.0.1", cfg.MCP_HTTP_PORT), timeout=0.3):
+            return True
+    except OSError:
+        return False
 
 
 class PanelMcp(QWidget):
@@ -214,48 +186,31 @@ class PanelMcp(QWidget):
         outer.addLayout(backend_row)
         outer.addSpacing(10)
 
-        # ── Ollama model row (visible when backend == "ollama") ──────────────
-        self._mcp_ollama_box = QFrame()
-        ollama_lay = QVBoxLayout(self._mcp_ollama_box)
-        ollama_lay.setContentsMargins(0, 0, 0, 0)
-        ollama_lay.setSpacing(6)
 
-        ollama_row = QHBoxLayout()
-        ollama_row.setSpacing(8)
-        ollama_lbl = QLabel("Ollama model")
-        ollama_lbl.setFixedWidth(120)
-        ollama_lbl.setFont(QFont("Segoe UI", 9))
-        ollama_lbl.setStyleSheet(f"color: {self._app.TEXT2};")
-        self._mcp_ollama_model = QComboBox()
-        self._mcp_ollama_model.setFixedWidth(200)
-        self._mcp_ollama_model.setStyleSheet(
-            f"QComboBox {{ background: {self._app.BG3}; color: {self._app.TEXT}; "
-            f"border: none; padding: 5px 10px; }}"
-            f"QComboBox::drop-down {{ border: none; }}"
-            f"QComboBox QAbstractItemView {{ background: {self._app.BG3}; "
-            f"color: {self._app.TEXT}; "
-            f"selection-background-color: {self._app.ACCENT2}; }}")
-        self._mcp_ollama_refresh_btn = QPushButton("🔄  Refresh")
-        self._mcp_ollama_refresh_btn.setFont(QFont("Segoe UI", 9))
-        self._mcp_ollama_refresh_btn.setStyleSheet(
-            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT}; "
-            f"border: none; padding: 5px 12px; }}"
-            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
-            f"QPushButton:disabled {{ color: {self._app.TEXT2}; }}")
-        self._mcp_ollama_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._mcp_ollama_refresh_btn.clicked.connect(self._mcp_refresh_ollama_models)
-        ollama_row.addWidget(ollama_lbl)
-        ollama_row.addWidget(self._mcp_ollama_model)
-        ollama_row.addWidget(self._mcp_ollama_refresh_btn)
-        ollama_row.addStretch()
-        ollama_lay.addLayout(ollama_row)
+        # ── Port row (v1.7.0.1 — streamable-http transport) ──────────────────
+        port_row = QHBoxLayout()
+        port_row.setSpacing(8)
+        port_lbl = QLabel("Port")
+        port_lbl.setFixedWidth(120)
+        port_lbl.setFont(QFont("Segoe UI", 9))
+        port_lbl.setStyleSheet(f"color: {self._app.TEXT2};")
+        self._mcp_port = QLineEdit()
+        self._mcp_port.setFixedWidth(80)
+        self._mcp_port.setFont(QFont("Segoe UI", 9))
+        self._mcp_port.setStyleSheet(
+            f"background: {self._app.BG3}; color: {self._app.TEXT}; "
+            f"border: none; padding: 5px 10px;")
+        port_row.addWidget(port_lbl)
+        port_row.addWidget(self._mcp_port)
+        port_row.addStretch()
+        outer.addLayout(port_row)
+        outer.addSpacing(10)
 
-        self._mcp_ollama_status = QLabel("")
-        self._mcp_ollama_status.setFont(QFont("Segoe UI", 8))
-        self._mcp_ollama_status.setStyleSheet(f"color: {self._app.TEXT2};")
-        ollama_lay.addWidget(self._mcp_ollama_status)
-
-        outer.addWidget(self._mcp_ollama_box)
+        # ── Headless row (v1.7.0.1) ───────────────────────────────────────────
+        self._mcp_headless = QCheckBox("Headless starten (ohne Fenster)")
+        self._mcp_headless.setFont(QFont("Segoe UI", 9))
+        self._mcp_headless.setStyleSheet(f"color: {self._app.TEXT2};")
+        outer.addWidget(self._mcp_headless)
         outer.addSpacing(10)
 
         # ── Cloud credentials block (visible when backend == "cloud") ────────
@@ -366,29 +321,18 @@ class PanelMcp(QWidget):
     def get_mcp_settings(self) -> dict:
         """Returns current MCP field values. Called by _collect_settings."""
         return {
-            "mcp_llm_backend":  self._mcp_backend.currentText(),
-            "mcp_ollama_model": self._mcp_ollama_model.currentText(),
+            "mcp_llm_backend": self._mcp_backend.currentText(),
+            "mcp_http_port":   self._mcp_port.text().strip(),
+            "mcp_headless":    self._mcp_headless.isChecked(),
         }
 
     def load_mcp_settings(self, s: dict):
         """Populates MCP fields from settings dict. Called by GarminApp
-        after construction.
-
-        mcp_ollama_model (v1.7 Teilbauauftrag f): the combo box is empty
-        until "Refresh" is clicked (no Ollama call happens automatically
-        on tab-open — see module docstring), so the saved value is
-        inserted as a single placeholder entry rather than requiring a
-        live Ollama connection just to restore the last selection. A
-        later Refresh click repopulates the list from live models and
-        findText() re-selects the same string if it's still installed
-        (see _mcp_on_ollama_models_loaded's existing current-selection
-        preservation logic)."""
+        after construction."""
         idx = self._mcp_backend.findText(s.get("mcp_llm_backend", "ollama"))
         self._mcp_backend.setCurrentIndex(max(0, idx))
-        saved_model = s.get("mcp_ollama_model", "")
-        if saved_model:
-            self._mcp_ollama_model.addItem(saved_model)
-            self._mcp_ollama_model.setCurrentText(saved_model)
+        self._mcp_port.setText(str(s.get("mcp_http_port") or cfg.MCP_HTTP_PORT))
+        self._mcp_headless.setChecked(bool(s.get("mcp_headless", False)))
         self._mcp_on_backend_changed()
         self._mcp_refresh_cloud_key_status()
 
@@ -404,53 +348,11 @@ class PanelMcp(QWidget):
         layout's activate() force an immediate re-layout instead of
         waiting for the next paint/resize event to pick it up.
         """
-        is_ollama = self._mcp_backend.currentText() == "ollama"
-        self._mcp_ollama_box.setVisible(is_ollama)
-        self._mcp_cloud_box.setVisible(not is_ollama)
-        self._mcp_ollama_box.adjustSize()
+        is_cloud = self._mcp_backend.currentText() == "cloud"
+        self._mcp_cloud_box.setVisible(is_cloud)
         self._mcp_cloud_box.adjustSize()
         self.layout().activate()
         self.adjustSize()
-
-    # ── Ollama model list ────────────────────────────────────────────────────
-
-    def _mcp_refresh_ollama_models(self):
-        """Background-thread model fetch — mirrors panel_chat.py's worker
-        pattern (D-5: workers never touch widgets directly)."""
-        self._mcp_ollama_refresh_btn.setEnabled(False)
-        self._mcp_ollama_status.setText("Loading models …")
-
-        def worker():
-            client = _load_ollama_client()
-            try:
-                models = client.list_models()
-                error = None
-            except client.OllamaError as e:
-                models, error = [], str(e)
-            self._app._dispatch(
-                lambda: self._mcp_on_ollama_models_loaded(models, error))
-
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _mcp_on_ollama_models_loaded(self, models: list, error: str):
-        self._mcp_ollama_refresh_btn.setEnabled(True)
-        if error:
-            self._mcp_ollama_status.setText(f"Ollama not reachable: {error}")
-            return
-        if not models:
-            self._mcp_ollama_status.setText(
-                "No models installed — `ollama pull <model>` and refresh.")
-            return
-
-        current = self._mcp_ollama_model.currentText()
-        self._mcp_ollama_model.blockSignals(True)
-        self._mcp_ollama_model.clear()
-        self._mcp_ollama_model.addItems(models)
-        idx = self._mcp_ollama_model.findText(current)
-        self._mcp_ollama_model.setCurrentIndex(max(0, idx))
-        self._mcp_ollama_model.blockSignals(False)
-        self._mcp_ollama_status.setText(f"{len(models)} model(s) found.")
 
     # ── Cloud config file (garmin_config.MCP_LLM_CONFIG_FILE) ───────────────
 
@@ -537,9 +439,10 @@ class PanelMcp(QWidget):
         import garmin_config as cfg
 
         data = {
-            "mcp_llm_backend":  s.get("mcp_llm_backend", "ollama"),
-            "base_dir":         s.get("base_dir", ""),
-            "mcp_ollama_model": s.get("mcp_ollama_model", ""),
+            "mcp_llm_backend": s.get("mcp_llm_backend", "ollama"),
+            "base_dir":        s.get("base_dir", ""),
+            "mcp_http_port":   s.get("mcp_http_port", ""),
+            "mcp_headless":    s.get("mcp_headless", False),
         }
         try:
             cfg.MCP_SERVER_CONFIG_FILE.write_text(
@@ -558,11 +461,11 @@ class PanelMcp(QWidget):
         settings save. Fire-and-forget — no health check after Popen,
         matches the already-established "start it yourself, e.g. from a
         terminal" spirit of this panel, just automated."""
-        running_pid = _mcp_server_is_running()
-        if running_pid is not None:
+        if _mcp_server_is_running():
             QMessageBox.warning(
                 self, "MCP Server",
-                f"MCP server already appears to be running (PID {running_pid}).\n\n"
+                f"MCP server already appears to be running on port "
+                f"{cfg.MCP_HTTP_PORT}.\n\n"
                 "Close that instance first if you want to start a new one.")
             return
 

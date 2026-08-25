@@ -322,6 +322,69 @@ check("mcp_server.query_health: return value passed through unchanged",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  8d. garmin_config.py — MCP_HTTP_PORT (v1.7.0.1, replaces stdio transport)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Default — no ENV override set.
+os.environ.pop("GARMIN_MCP_HTTP_PORT", None)
+importlib.reload(cfg)
+check("garmin_config: MCP_HTTP_PORT is an int", isinstance(cfg.MCP_HTTP_PORT, int))
+check("garmin_config: MCP_HTTP_PORT default is 8756", cfg.MCP_HTTP_PORT == 8756)
+
+# ENV override wins over the default — same precedence pattern already
+# exercised for GARMIN_OUTPUT_DIR/MCP_LLM_BACKEND elsewhere in this file.
+# Deliberately NOT testing the MCP_SERVER_CONFIG_FILE (file-layer)
+# precedence step here — that file lives at a fixed Path.home() location,
+# not inside _TMPDIR/GARMIN_OUTPUT_DIR's sandbox, and no existing test in
+# this file writes to it either (same scoping choice already made for
+# mcp_llm_backend's file-layer precedence — ENV-only coverage).
+os.environ["GARMIN_MCP_HTTP_PORT"] = "9999"
+importlib.reload(cfg)
+check("garmin_config: MCP_HTTP_PORT — ENV overrides default",
+      cfg.MCP_HTTP_PORT == 9999)
+os.environ.pop("GARMIN_MCP_HTTP_PORT", None)
+importlib.reload(cfg)
+
+# Regression guards — v1.7.0.1 removed these two fields outright (the
+# stdio-era PID-lockfile liveness check and the Ollama-model config-file
+# field); a reappearance here would mean a stale merge or a reverted
+# anchor.
+check("garmin_config: MCP_SERVER_LOCK_FILE no longer exists",
+      not hasattr(cfg, "MCP_SERVER_LOCK_FILE"))
+check("garmin_config: MCP_OLLAMA_MODEL no longer exists",
+      not hasattr(cfg, "MCP_OLLAMA_MODEL"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  8e. garmin_config.py — MCP_HEADLESS (v1.7.0.1, Eckpunkt 6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Default — no ENV override, no config-file key set. Session decision
+# (NOTES_v1.7.0.1vorbereitung.md): the window stays the default, so this
+# must default to False, not True — a regression here would silently
+# flip every existing standalone/GLA install to headless-by-default on
+# next start.
+os.environ.pop("GARMIN_MCP_HEADLESS", None)
+importlib.reload(cfg)
+check("garmin_config: MCP_HEADLESS is a bool", isinstance(cfg.MCP_HEADLESS, bool))
+check("garmin_config: MCP_HEADLESS default is False", cfg.MCP_HEADLESS is False)
+
+# ENV override wins over the default — same "1"/"true"/"yes"
+# case-insensitive parsing the implementation uses, checked from both
+# directions (a truthy string flips it, an unrelated string does not).
+os.environ["GARMIN_MCP_HEADLESS"] = "true"
+importlib.reload(cfg)
+check("garmin_config: MCP_HEADLESS — ENV 'true' overrides default",
+      cfg.MCP_HEADLESS is True)
+os.environ["GARMIN_MCP_HEADLESS"] = "0"
+importlib.reload(cfg)
+check("garmin_config: MCP_HEADLESS — ENV '0' resolves to False",
+      cfg.MCP_HEADLESS is False)
+os.environ.pop("GARMIN_MCP_HEADLESS", None)
+importlib.reload(cfg)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

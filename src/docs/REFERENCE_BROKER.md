@@ -480,7 +480,8 @@ raises for data-availability reasons:
   metadata kind — passed through unchanged from `gateway_map.get_metadata()`.
 
 **Consumer:** `clients/mcp_server.py` (v1.7 Teilbauauftrag b) — standalone
-MCP server process, stdio transport (`mcp>=1.28,<2`). Registers all six
+MCP server process, streamable-http transport (`mcp>=1.28,<2`, v1.7.0.1 —
+replaces the earlier stdio transport). Registers all six
 functions above as MCP tools via `@mcp.tool()`, same names, same
 signatures. No error-translation code in `mcp_server.py` itself — the MCP
 SDK automatically converts any uncaught exception raised inside a

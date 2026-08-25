@@ -4,10 +4,11 @@
 
 """
 clients/mcp_server.py
-Garmin Local Archive — MCP Server (v1.7 Teilbauauftrag b)
+Garmin Local Archive — MCP Server (v1.7.0.1 — HTTP transport)
 
-Standalone MCP server process, stdio transport. Registers the six
-maps/mcp_map.py functions (query_health, query_context,
+Standalone MCP server process, streamable-http transport (v1.7.0.1,
+replacing the original stdio transport from v1.7 Teilbauauftrag b).
+Registers the six maps/mcp_map.py functions (query_health, query_context,
 query_fit_activities, query_raw, get_archive_metadata,
 list_available_fields) as MCP tools via the official mcp SDK
 (mcp>=1.28,<2, verified against mcp==1.29.0).
@@ -37,23 +38,58 @@ frozen_paths.add_to_path() lazy-import helper from app/panel_chat.py —
 that pattern is GUI-context-bound (mounts clients/ into a running Qt
 process) and does not apply to a standalone script invocation.
 
-stdio note: stdout is the protocol channel for stdio transport — never
-print() here, never let a dependency write to stdout. All logging goes
-to stderr.
+Transport (v1.7.0.1): mcp.run(transport="streamable-http"), host/port
+set on the FastMCP constructor — host/port are constructor arguments for
+this SDK, not run() arguments (verify against the installed mcp package
+version with `pip show mcp` before relying on this if the SDK is ever
+upgraded — see NOTES_v1.7.0.1vorbereitung.md, Eckpunkt 1). Host is
+hardcoded "127.0.0.1", not configurable — a deliberate security boundary
+(see garmin_config.py's MCP_HTTP_PORT comment). Port is
+garmin_config.MCP_HTTP_PORT (ENV > config file > default 8756). stdout
+is no longer a reserved protocol channel under HTTP — the "never
+print()" rule from the stdio era is no longer a correctness requirement,
+but all logging still goes to stderr regardless (no reason to change a
+working, harmless convention).
 
-Standalone GUI (v1.7 Teilbauauftrag f): main() always opens a Tkinter
-window (clients/mcp_server_gui.py::run_gui()) — there is no headless/
-console mode anymore and no enabled/disabled startup gate. Session
-decision, Timo's framing: "the window is the server" — starting
-mcp_server.exe means the server runs, full stop, no separate on/off
-process state to reason about. garmin_config.MCP_ENABLED itself was
-removed in Teil (g) once the "Start MCP Server" button replaced the
-manual-start workflow the flag used to describe — no longer even a
-dead config-file field, fully gone.
+Startup mode (v1.7.0.1 — corrected after an initial misreading of
+Eckpunkt 6, see NOTES_v1.7.0.1vorbereitung.md): the window stays the
+DEFAULT entry point, coupled to the server exactly as under v1.7
+Teilbauauftrag f's "the window is the server" (window closed = process
+closed) — Timo's explicit decision was to keep that coupling, only the
+transport and the restart-health-check mechanism change. main() opens
+clients/mcp_server_gui.py::run_gui(), which starts the HTTP server in a
+daemon thread and blocks in Tkinter's mainloop() on this thread, unless
+garmin_config.MCP_HEADLESS is true (new config field, ENV/config-file
+driven, NOT a CLI flag) — in that case main() calls _run_headless()
+below instead: no window at all, mcp.run() blocks directly on this
+thread, analogous to scheduler/daily_update.py. MCP_HEADLESS is
+settable from both app/panel_mcp.py (GLA-integrated case) and this
+window itself (clients/mcp_server_gui.py — takes effect on the next
+start, not the running instance; primarily for the standalone case,
+mcp_server.exe with no GLA installation present).
+
+No process-liveness lockfile anymore (v1.7.0.1 — garmin_config.
+MCP_SERVER_LOCK_FILE removed). A second instance now fails naturally
+with OSError when it cannot bind 127.0.0.1:MCP_HTTP_PORT — caught in
+_run_headless() below (and inside run_gui()'s server thread for the
+windowed case) and logged, no separate pre-flight check needed
+(Eckpunkt 4a, Fall 1: "AddressInUse ersetzt Lockfile"). This also
+replaces the mcp_server_gui.py restart-confirmation poll, which now
+does a TCP-connect-ping loop against the port instead of watching a
+lockfile for a new PID (Eckpunkt 4a, Fall 2).
+
 Boot-log setup (_setup_boot_log()) runs before anything else in main(),
 including before the cloud-config check below, so import-time failures
-in garmin_config or the MCP SDK are still captured somewhere on disk even
-if the Tkinter window itself never manages to open.
+in garmin_config or the MCP SDK are still captured somewhere on disk.
+The operational log (inside the archive, rotating —
+_start_operational_log() below) replaces the boot log once
+MCP_BASE_DIR is confirmed reachable — no permanent duplication between
+the two, same "one active destination at a time" rule as before. This
+function lives here (not in mcp_server_gui.py, unlike pre-v1.7.0.1)
+because BOTH the headless and windowed paths need it now; it is passed
+into run_gui() as a plain callable rather than imported back from
+mcp_server_gui.py, to avoid a circular import (this module already
+imports mcp_server_gui.py to call run_gui()).
 
 Cloud LLM config (garmin_config.MCP_LLM_CONFIG_FILE) is checked
 informationally when MCP_LLM_BACKEND="cloud" — an incomplete/missing file
@@ -61,12 +97,12 @@ is never a startup blocker, only a log line; Ollama remains the default
 and stays available regardless.
 
 Usage (T1, dev):
-    python clients/mcp_server.py
+    python clients/mcp_server.py     # opens the window (default) or runs
+                                      # headless, per garmin_config.MCP_HEADLESS
 """
 
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -123,13 +159,14 @@ def _register_embedded_packages() -> None:
     dashboards/, layouts/, none of which mcp_server.py touches. A
     standalone copy, not a shared import — see comment above.
 
-    clients/ added (v1.7 Teilbauauftrag f): main() now imports
-    mcp_server_gui (from mcp_server_gui import run_gui) — under T1/dev
-    this resolves for free via Python's automatic sys.path[0] = script
-    directory, which does not apply once frozen (sys.argv[0] points at
-    the PyInstaller bootloader temp path, not the source tree). Same
-    flat-import treatment as garmin_dir below — mcp_server_gui.py sits
-    directly in scripts/clients/, not nested as its own package."""
+    clients/ added (v1.7 Teilbauauftrag f): main() imports mcp_server_gui
+    (from mcp_server_gui import run_gui, lazily, in the non-headless
+    branch — the default) — under T1/dev this resolves for free via
+    Python's automatic sys.path[0] = script directory, which does not
+    apply once frozen (sys.argv[0] points at the PyInstaller bootloader
+    temp path, not the source tree). Same flat-import treatment as
+    garmin_dir below — mcp_server_gui.py sits directly in
+    scripts/clients/, not nested as its own package."""
     if not getattr(sys, "frozen", False):
         return
     import types
@@ -151,11 +188,11 @@ def _register_embedded_packages() -> None:
 _register_embedded_packages()
 
 # ── Logging — stderr only ────────────────────────────────────────────────
-# stdio transport uses stdout as the wire protocol channel. Any stray
-# print() or stdout-bound log line corrupts the MCP message stream from
-# the client's perspective. logging is configured to stderr before any
-# other project import runs, in case an imported module logs at import
-# time.
+# HTTP transport does not reserve stdout as a wire protocol channel the
+# way stdio did (v1.7.0.1) — but logging stays on stderr regardless, a
+# harmless, working convention with no reason to change. logging is
+# configured before any other project import runs, in case an imported
+# module logs at import time.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -178,9 +215,9 @@ def _setup_boot_log() -> logging.FileHandler:
     over. No rotation: each run overwrites the previous boot attempt —
     only the most recent start matters for diagnosing a failed launch,
     unlike the operational log's rolling history. Returns the handler so
-    the caller (main(), then later mcp_server_gui.py once the operational
-    log is up) can remove it — no permanent duplication between boot log
-    and operational log, per session decision (v1.7 Teilbauauftrag f)."""
+    the caller (main()) can remove it once the operational log is up —
+    no permanent duplication between boot log and operational log, per
+    session decision (v1.7 Teilbauauftrag f)."""
     boot_log_path = cfg.MCP_SERVER_CONFIG_FILE.parent / ".garmin_mcp_server_boot.log"
     handler = logging.FileHandler(boot_log_path, mode="w", encoding="utf-8")
     handler.setFormatter(
@@ -189,22 +226,50 @@ def _setup_boot_log() -> logging.FileHandler:
     return handler
 
 
-def _write_lock_file() -> None:
-    """Writes this process's PID to garmin_config.MCP_SERVER_LOCK_FILE —
-    lets app/panel_mcp.py's "Start MCP Server" button check whether an
-    instance is already running before launching a new one (v1.7
-    Teilbauauftrag g). Deliberately no exception handling beyond a log
-    line: a failed write here means the liveness check on the
-    panel_mcp.py side will simply find no lock file and allow a start —
-    the same fail-open behaviour as a missing file for any other reason
-    (first run, file manually deleted). Not a security boundary, just a
-    best-effort convenience check — see module note in garmin_config.py
-    for why this is a plain PID file rather than a Qt-based guard."""
+LOG_MCP_MAX = 30  # rolling log file limit, same convention as
+                  # garmin_config.LOG_RECENT_MAX / daily_update.LOG_DAILY_MAX
+
+
+def _start_operational_log(base_dir: Path) -> logging.FileHandler | None:
+    """Creates <base_dir>/garmin_data/log/mcp/mcp_YYYY-MM-DD_HHMMSS.log,
+    attaches a FileHandler to the root logger, and prunes older files
+    beyond LOG_MCP_MAX — same rotation shape as daily_update.py's
+    _start_daily_log(). Returns None (not an error) if base_dir is not
+    writable — the boot log remains the only destination in that case;
+    the caller decides whether to warn.
+
+    Lives here rather than in mcp_server_gui.py (unlike pre-v1.7.0.1)
+    because both the headless path (_run_headless() below) and the
+    windowed path (mcp_server_gui.py::run_gui()) need it — passed into
+    run_gui() as a plain callable to avoid a circular import (this
+    module already imports mcp_server_gui.py to call run_gui())."""
+    import datetime
+
+    log_dir = base_dir / "garmin_data" / "log" / "mcp"
     try:
-        cfg.MCP_SERVER_LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Could not write lock file %s: %s",
-                        cfg.MCP_SERVER_LOCK_FILE, exc)
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    log_path = log_dir / f"mcp_{timestamp}.log"
+    try:
+        handler = logging.FileHandler(log_path, encoding="utf-8")
+    except OSError:
+        return None
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(handler)
+
+    # Prune — oldest first, same glob+mtime pattern as daily_update.py.
+    logs = sorted(log_dir.glob("mcp_*.log"), key=lambda f: f.stat().st_mtime)
+    for old in logs[:-LOG_MCP_MAX] if len(logs) > LOG_MCP_MAX else []:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+    return handler
 
 
 def _cloud_llm_config_available() -> bool:
@@ -220,7 +285,7 @@ def _cloud_llm_config_available() -> bool:
         and bool(data.get("model"))
 
 
-mcp = FastMCP("Garmin Local Archive")
+mcp = FastMCP("Garmin Local Archive", host="127.0.0.1", port=cfg.MCP_HTTP_PORT)
 
 # Tool names are aliased 1:1 to mcp_map.py's function names (no "_tool"
 # suffix, no technical wrapper naming) — the MCP tool name is what the LLM
@@ -285,12 +350,43 @@ def list_available_fields(domain: str | None = None) -> dict:
     return mcp_map.list_available_fields(domain)
 
 
+def _run_headless(boot_handler: logging.FileHandler) -> None:
+    """garmin_config.MCP_HEADLESS=true path (v1.7.0.1) — no Tkinter
+    window at all, the server runs directly on this thread. Analogous
+    to scheduler/daily_update.py's headless model. Split out of main()
+    so the windowed branch there stays a two-line dispatch — both
+    branches need the same operational-log handoff and the same
+    OSError-on-bind handling; this function does it for the headless
+    case, mcp_server_gui.py::run_gui() does the equivalent for the
+    windowed case (same _start_operational_log() callable, passed in
+    there instead of called directly, see that function's docstring)."""
+    op_handler = _start_operational_log(cfg.MCP_BASE_DIR)
+    if op_handler is not None:
+        logging.getLogger().removeHandler(boot_handler)
+        boot_handler.close()
+        logger.info("Operational log started under %s — boot log closed",
+                    cfg.MCP_BASE_DIR)
+    else:
+        logger.warning(
+            "Could not start operational log under %s — boot log stays "
+            "active for this session", cfg.MCP_BASE_DIR)
+
+    logger.info("Starting Garmin Local Archive MCP server (headless) on "
+                "http://127.0.0.1:%d", cfg.MCP_HTTP_PORT)
+    try:
+        mcp.run(transport="streamable-http")
+    except OSError as exc:
+        logger.error(
+            "Could not start MCP server on 127.0.0.1:%d — port already in "
+            "use (a second instance already running?) or not permitted: "
+            "%s", cfg.MCP_HTTP_PORT, exc)
+        sys.exit(1)
+
+
 def main() -> None:
     boot_handler = _setup_boot_log()
     logger.info("mcp_server.exe starting — boot log at %s",
                 cfg.MCP_SERVER_CONFIG_FILE.parent / ".garmin_mcp_server_boot.log")
-
-    _write_lock_file()
 
     if cfg.MCP_LLM_BACKEND == "cloud" and not _cloud_llm_config_available():
         logger.warning(
@@ -299,12 +395,19 @@ def main() -> None:
             cfg.MCP_LLM_CONFIG_FILE,
         )
 
-    # Lazy import — mcp_server_gui.py needs this module's sys.path setup
-    # (T1 anchor / _register_embedded_packages()) to already have run,
-    # same reasoning as garmin_config/mcp/maps imports above being
-    # deferred past the logging setup.
+    if cfg.MCP_HEADLESS:
+        _run_headless(boot_handler)
+        return
+
+    # Windowed (default, session decision — NOTES_v1.7.0.1vorbereitung.md
+    # Eckpunkt 6): the window owns the server the same way it did under
+    # the stdio-era "the window is the server" model. Lazy import —
+    # mcp_server_gui.py needs this module's sys.path setup (T1 anchor /
+    # _register_embedded_packages()) to already have run, same reasoning
+    # as garmin_config/mcp/maps imports above being deferred past the
+    # logging setup.
     from mcp_server_gui import run_gui
-    run_gui(mcp, logger, boot_handler)
+    run_gui(mcp, logger, boot_handler, _start_operational_log)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.0**
+**Currently stable — v1.7.0.1**
 
 ---
 
@@ -98,8 +98,6 @@ detour — `panel_chat.py` doesn't need to know or care. Requires
 `panel_chat.py` to gain a tool/function-calling
 interface against Ollama — a real extension beyond the current sync
 request/response pattern, not a config change.
-
-*Pre-condition: v1.7 + v1.7.1 stable.*
 
 ---
 

@@ -4,89 +4,98 @@
 
 """
 clients/mcp_server_gui.py
-Garmin Local Archive — MCP Server Standalone Window (v1.7 Teilbauauftrag f)
+Garmin Local Archive — MCP Server Window (v1.7.0.1)
 
-The window IS the server — starting mcp_server.exe means the server
-runs, no separate on/off state, no --configure flag, no headless mode.
-Session decision (Timo): "das Fenster ist der Server — wie das intern am
-besten läuft, überlasse ich dir." No Enabled checkbox exists in this
-window for that same reason — it would have had no function.
+Role (v1.7.0.1, corrected after an initial misreading of Eckpunkt 6 —
+see NOTES_v1.7.0.1vorbereitung.md): this window stays the default entry
+point, exactly as it was under v1.7 Teilbauauftrag f's "the window is
+the server" — Timo's explicit decision was to KEEP that coupling
+(window closed = process closed), not to make the server headless by
+default. What actually changes with the streamable-http transport is
+narrower: run_gui() (renamed from the transport-era-agnostic name this
+function has always had) starts mcp.run(transport="streamable-http")
+in a daemon thread instead of transport="stdio", and the Restart
+button's health-check switches from polling garmin_config.
+MCP_SERVER_LOCK_FILE for a new PID to a plain TCP-connect probe against
+garmin_config.MCP_HTTP_PORT (Eckpunkt 4a, Fall 2 — the lockfile itself
+is gone, see garmin_config.py).
 
-Tkinter, not PyQt6 — deliberate (session decision): PyQt6 in GLA proper
-is tied to the WebEngine dashboard view, which this window has no need
-for. tkinter.filedialog/messagebox/ttk/scrolledtext are already in
-HIDDEN_IMPORTS_COMMON (compiler/build_manifest.py), so this adds no new
-bundling weight for T3.3.
+Headless mode (v1.7.0.1, new): garmin_config.MCP_HEADLESS, settable
+from a checkbox in THIS window (a "next start" setting — checking it
+here does not affect the already-running server this same window
+started, only a subsequent launch) and from app/panel_mcp.py's Port row
+for the GLA-integrated case. When set, clients/mcp_server.py::main()
+skips this window entirely and runs the server directly on the calling
+thread (see that module's _run_headless()) — analogous to
+scheduler/daily_update.py. This window is never required for the
+server to run; it is simply the default when MCP_HEADLESS is false.
 
-Threading model: Tkinter's mainloop() is main-thread-bound on Windows —
-this is the fixed point, not a choice. mcp.run(transport="stdio")
-therefore runs in a daemon thread instead (threading.Thread(...,
-daemon=True)) — no cancel API exists on mcp.run() to stop it cleanly
-from outside, and none is needed: the process interpreter kills the
-daemon thread automatically on exit, and a stdio responder holds no
-transactional state to lose mid-request (see Session analysis, Eckpunkt
-4). A single informational log line is written just before the window
-closes — cosmetic only, not a blocking shutdown handshake.
+Tkinter, not PyQt6 — deliberate (session decision, unchanged from v1.7):
+PyQt6 in GLA proper is tied to the WebEngine dashboard view, which this
+window has no need for. tkinter.filedialog/messagebox/ttk/scrolledtext
+are already in HIDDEN_IMPORTS_COMMON (compiler/build_manifest.py), so
+this adds no new bundling weight for T3.3.
 
-Log architecture (Eckpunkt 7): two file logs, sequential, never both
-active — boot_handler (already attached by mcp_server.py::main() before
-this module is even imported) covers everything up to this window
-opening; the moment the operational log (inside the archive, rotating,
-mirrors scheduler/daily_update.py::_start_daily_log()'s pattern) is
-successfully attached, boot_handler is removed from the root logger.
-No permanent duplication. A third destination, the Tkinter log widget,
-runs continuously via a queue-based logging.Handler (this module's own
-implementation — no existing Tkinter precedent in the project;
-garmin_app_standalone.py's _QueueWriter/_QueueHandler/_poll_log_queue
-trio is the architectural model, ported from PyQt6's QTimer.singleShot
-to Tkinter's root.after()). File handlers always stay at DEBUG
-regardless of the widget toggle below — only the widget's effective
-verbosity changes.
+Restart (v1.7.0.1, replacing the v1.7 Teilbauauftrag h button of the
+same intent): unlike the server start itself, which now happens
+automatically the moment this window opens (no separate "Start" click
+needed — Timo's corrected Eckpunkt 6), the "🔄 Restart Server" button
+still exists for the same reason it did before: a config change (port,
+archive path, backend, headless) needs a new process to take effect,
+and there is still no clean-stop API on a running mcp.run() call under
+either transport (Eckpunkt 4b, re-confirmed for streamable-http — an
+open FastMCP/uvicorn upstream issue tracks exactly this gap). Self-
+Relaunch via subprocess.Popen (Option C reasoning from Teilbauauftrag h
+retained): launches a new process with current on-disk settings
+(Save first, then Restart — same two-step as before), polls
+_is_server_reachable() against the (possibly changed) target port, and
+on success calls root.destroy() — which ends THIS process, and with it
+the daemon thread holding the old server, completing the handover. A
+timeout leaves the old server running untouched and re-enables the
+button. If the saved settings switched MCP_HEADLESS to true, the new
+process comes up without a window at all, but is still TCP-reachable on
+its port the same way — the restart flow does not need to special-case
+that transition.
 
-Log level toggle: mirrors app/panel_settings.py's "📋 Log: Simple" /
-"📋 Log: Detailed" button, same wording, same meaning (INFO vs DEBUG).
-Unlike that panel's version there is no "takes effect on next sync"
-caveat — this process has no comparable in-flight-operation concept,
-the toggle sets logging.getLogger().setLevel(...) immediately.
+Log display: unchanged in shape from v1.7 — since the server runs in
+this same process again (daemon thread), its log records reach this
+window's root logger exactly like this window's own log lines do, both
+via the single _QueueLogHandler + root.after(100, ...) poll loop
+(architectural port of garmin_app_standalone.py's PyQt6
+_QueueWriter/_QueueHandler/_poll_log_queue trio). No file-tailing, no
+cross-process log mechanism needed — that only existed in the
+(corrected-away) headless-by-default draft of this Bauauftrag.
 
-Lock file reliability (v1.7 Teilbauauftrag g, real test finding
-2026-08-24): a normal window close reliably triggers a
-"Fatal Python error: _enter_buffered_busy" during interpreter shutdown
-— the mcp.run(transport="stdio") daemon thread's blocking stdin read
-cannot be cleanly interrupted (no cancel API, see above). This happens
-after _on_close()'s log line but appears to prevent the lock-file
-unlink() from reliably completing before the crash — the stale lock
-file is the expected normal outcome after closing this window, not an
-edge case limited to hard kills. app/panel_mcp.py's liveness check must
-treat a present-but-stale lock file as the common case. No fix attempted
-here — not a quick change (would need os._exit() or explicit stdin/
-stdout closure ahead of the thread join), deferred, see
-NOTES_v1.7_teilg.md.
-
-Persistence — two separate files, mirroring app/panel_mcp.py's split:
+Persistence — two separate files, unchanged in shape from v1.7:
   - garmin_config.MCP_SERVER_CONFIG_FILE (mcp_llm_backend, base_dir,
-    mcp_ollama_model) — this window is a second, independent writer
+    mcp_http_port, mcp_headless as of v1.7.0.1 — mcp_ollama_model
+    removed, see below) — this window is a second, independent writer
     alongside panel_mcp.py's mirror-on-save (documented as a deliberate
     Sole-Write-Authority exception in garmin_config.py's docstring: the
     two writers serve mutually exclusive operating modes and never run
     against the file at the same time in practice). base_dir here is a
     real, user-editable field (no GLA instance to mirror from), unlike
-    panel_mcp.py's read-only mirror value. A fourth field, mcp_enabled,
-    existed here through Teil (f) but was removed in Teil (g) — the
-    "Enable MCP server" checkbox it backed had no functional effect
-    once main() stopped gating on it, and the "Start MCP Server" button
-    made the whole on/off concept moot.
+    panel_mcp.py's read-only mirror value.
   - garmin_config.MCP_LLM_CONFIG_FILE (provider, api_key, model) — cloud
     LLM credentials, same file panel_mcp.py's Cloud Config section
     already owns; this window is simply a second writer with the same
     read-merge-write shape (_save_cloud_config() below mirrors
     panel_mcp.py::_mcp_save_cloud_config() field-for-field).
+
+Ollama model selection removed (v1.7.0.1, Zusatzpunkt from
+NOTES_v1.7.0.1vorbereitung.md): MCP itself never calls an LLM — the MCP
+host (Ollama, Open WebUI, Claude Desktop, ...) decides which model runs
+and this server never sees that choice. mcp_ollama_model was architected
+into the wrong process; it is gone from this window, from
+MCP_SERVER_CONFIG_FILE, and from garmin_config.py entirely. The
+mcp_llm_backend choice itself (ollama vs. cloud) is unrelated and stays
+— it still gates whether the cloud-credentials block below is shown.
 """
 
 import json
 import logging
-import os
 import queue
+import socket
 import subprocess
 import sys
 import threading
@@ -99,20 +108,20 @@ import garmin_config as cfg
 # ── Queue-based log forwarding ───────────────────────────────────────────
 # Architectural model: garmin_app_standalone.py's _QueueWriter/
 # _QueueHandler/_poll_log_queue trio, ported from PyQt6 (QTimer.singleShot)
-# to Tkinter (root.after()). No existing Tkinter precedent in the project
-# to copy from — this is a new implementation of an established pattern,
-# not a shared import (consistent with this module's overall "standalone
-# copy, not shared code" stance — see clients/mcp_server.py's docstring on
-# why T3.1/T3.3 never share bootstrap code).
+# to Tkinter (root.after()). Feeds from BOTH this window's own log lines
+# (config load/save, launch attempts) and the server's own log records —
+# both go through the same root logger, since the server runs in this
+# same process (daemon thread) once run_gui() has started it.
 
 
 class _QueueLogHandler(logging.Handler):
     """logging.Handler that pushes formatted records onto a queue.Queue
     instead of writing anywhere directly — Tkinter widgets may only be
-    touched from the main thread, and log records can originate from the
-    daemon thread running mcp.run(). The queue is the thread-safe handoff
-    point; _poll_log_queue() (main-thread-only, via root.after()) is the
-    sole consumer."""
+    touched from the main thread, and the server's own log records
+    arrive from the daemon thread running mcp.run(), so this handler is
+    genuinely thread-safety-load-bearing here (not just a defensive
+    habit) — root.after() picks records off the queue on the main
+    thread only."""
 
     def __init__(self, log_queue: queue.Queue):
         super().__init__()
@@ -123,52 +132,27 @@ class _QueueLogHandler(logging.Handler):
             self._queue.put_nowait(self.format(record))
         except Exception:
             # A full or broken queue must never raise out of logging
-            # machinery — silently drop rather than crash the server
-            # thread over a GUI display concern.
+            # machinery — silently drop rather than crash over a GUI
+            # display concern.
             pass
 
 
-# ── Operational (archive) log — analogous to
-# scheduler/daily_update.py::_start_daily_log() ─────────────────────────
+# ── Server reachability — TCP connect probe (v1.7.0.1) ──────────────────
+# Replaces the v1.7 lockfile/PID mechanism (garmin_config.
+# MCP_SERVER_LOCK_FILE, removed). A short-timeout connect is enough to
+# know "something is listening on this port" — no MCP protocol handshake
+# needed, same "best-effort convenience check, not a security boundary"
+# reasoning the lockfile carried before it. Standalone copy, not a
+# shared helper — clients/ does not import from app/, and app/panel_mcp.py
+# has its own copy of the same few lines (module boundary, SESSION_BASE.md).
 
-LOG_MCP_MAX = 30  # rolling log file limit, same convention as
-                  # garmin_config.LOG_RECENT_MAX / daily_update.LOG_DAILY_MAX
 
-
-def _start_operational_log(base_dir: Path) -> logging.FileHandler | None:
-    """Creates <base_dir>/garmin_data/log/mcp/mcp_YYYY-MM-DD_HHMMSS.log,
-    attaches a FileHandler to the root logger, and prunes older files
-    beyond LOG_MCP_MAX — same rotation shape as daily_update.py's
-    _start_daily_log(). Returns None (not an error) if base_dir is not
-    writable — the boot log and the widget remain the only destinations
-    in that case; the caller decides whether to warn."""
-    import datetime
-
-    log_dir = base_dir / "garmin_data" / "log" / "mcp"
+def _is_server_reachable(port: int, timeout: float = 0.3) -> bool:
     try:
-        log_dir.mkdir(parents=True, exist_ok=True)
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
     except OSError:
-        return None
-
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    log_path = log_dir / f"mcp_{timestamp}.log"
-    try:
-        handler = logging.FileHandler(log_path, encoding="utf-8")
-    except OSError:
-        return None
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    logging.getLogger().addHandler(handler)
-
-    # Prune — oldest first, same glob+mtime pattern as daily_update.py.
-    logs = sorted(log_dir.glob("mcp_*.log"), key=lambda f: f.stat().st_mtime)
-    for old in logs[:-LOG_MCP_MAX] if len(logs) > LOG_MCP_MAX else []:
-        try:
-            old.unlink()
-        except OSError:
-            pass
-
-    return handler
+        return False
 
 
 # ── Server config persistence — direct read/write, standalone case ──────
@@ -176,10 +160,11 @@ def _start_operational_log(base_dir: Path) -> logging.FileHandler | None:
 
 def _load_server_config() -> dict:
     """Raw read of MCP_SERVER_CONFIG_FILE for form pre-fill — deliberately
-    not via garmin_config.MCP_LLM_BACKEND/MCP_BASE_DIR/MCP_OLLAMA_MODEL
-    (those already fold in ENV precedence, which this form does not need
-    to display or respect; the form edits the file directly). Returns {}
-    if missing/corrupt, same fallback as garmin_config._read_mcp_server_config()."""
+    not via garmin_config.MCP_LLM_BACKEND/MCP_BASE_DIR/MCP_HTTP_PORT/
+    MCP_HEADLESS (those already fold in ENV precedence, which this form
+    does not need to display or respect; the form edits the file
+    directly). Returns {} if missing/corrupt, same fallback as
+    garmin_config._read_mcp_server_config()."""
     try:
         return json.loads(cfg.MCP_SERVER_CONFIG_FILE.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
@@ -190,11 +175,7 @@ def _save_server_config(data: dict, logger: logging.Logger) -> None:
     """Direct write of MCP_SERVER_CONFIG_FILE — second writer alongside
     app/panel_mcp.py's mirror-on-save, see module docstring. Write
     failure is logged only, not shown as a blocking dialog — same
-    reasoning as panel_mcp.py::_mcp_save_server_config(). mcp_enabled is
-    preserved as-is from whatever panel_mcp.py last wrote (or omitted if
-    never written) — this window has no checkbox to derive a new value
-    from and must not silently erase or reset that field for the GLA
-    side's benefit."""
+    reasoning as panel_mcp.py::_mcp_save_server_config()."""
     existing = _load_server_config()
     existing.update(data)
     try:
@@ -242,35 +223,22 @@ def _save_cloud_config(provider: str, model: str, new_key: str,
     return True, "Cloud credentials saved."
 
 
-# ── Ollama model list — same worker pattern as
-# app/panel_mcp.py::_mcp_refresh_ollama_models() ─────────────────────────
-
-
-def _load_ollama_client():
-    """Lazy import — same reasoning as panel_mcp.py's helper of the same
-    name: keeps this module importable before sys.path is fully wired,
-    and avoids importing the Ollama client at all in the (Session-
-    confirmed-common) case where the backend is set to cloud."""
-    from clients import ollama_client
-    return ollama_client
-
-
-# ── Restart — launch command resolution (v1.7 Teilbauauftrag h) ─────────
+# ── Launch command resolution (v1.7 Teilbauauftrag h, unchanged shape) ──
 # Shortened copy of app/panel_mcp.py::_resolve_mcp_server_launch_command()
 # — not imported, since clients/ does not import from app/ (module
 # boundary, SESSION_BASE.md). Kept in sync manually if the build-artefact
 # layout ever changes; see panel_mcp.py for the canonical, fully
-# commented version and the real-build test history behind the T2/T3.3
-# path decisions (Starte_MCP_Server.bat sits next to the main EXE, not
-# under a clients/ subfolder — corrected after a real T2 build test in
-# Teil g).
+# commented version. Launches mcp_server.py/mcp_server.exe with no extra
+# arguments — windowed vs. headless is entirely config-driven
+# (garmin_config.MCP_HEADLESS), not a launch-time CLI flag, so the same
+# command is correct for both outcomes.
 
 
 def _resolve_mcp_server_launch_command() -> list[str] | None:
-    """Build-context-aware launch command for the Restart button (v1.7
-    Teilbauauftrag h). Returns a Popen-ready argv list, or None if no
-    valid launch target exists at the resolved path (caller shows the
-    warning — this function does not touch the GUI).
+    """Build-context-aware launch command for the Restart button.
+    Returns a Popen-ready argv list, or None if no valid launch target
+    exists at the resolved path (caller shows the warning — this
+    function does not touch the GUI).
 
     T1 (sys.frozen False): [sys.executable, <path to this script>] — this
     script (mcp_server_gui.py) is imported by mcp_server.py, which is the
@@ -308,11 +276,61 @@ def _resolve_mcp_server_launch_command() -> list[str] | None:
 
 
 def run_gui(mcp_instance, logger: logging.Logger,
-            boot_handler: logging.FileHandler) -> None:
-    """Opens the always-on Tkinter window and starts the stdio server in
-    a daemon thread. Blocks until the window is closed (Tkinter's
-    mainloop() runs on this, the main, thread) — this is the new main()
-    body for clients/mcp_server.py, called once, unconditionally."""
+            boot_handler: logging.FileHandler,
+            start_operational_log) -> None:
+    """Opens the MCP server window and starts the server together
+    (v1.7.0.1 default entry point — Timo decision, NOTES_
+    v1.7.0.1vorbereitung.md Eckpunkt 6: the window stays coupled to the
+    server exactly as under the stdio-era "the window is the server"
+    model; only the transport and the restart-health-check mechanism
+    changed). Called only from clients/mcp_server.py::main() when
+    garmin_config.MCP_HEADLESS is False (the default) — see that
+    module's _run_headless() for the alternative path.
+
+    start_operational_log is passed in rather than imported to avoid a
+    circular import (clients/mcp_server.py imports this module to call
+    run_gui(); this module must not import clients/mcp_server.py back) —
+    it is clients/mcp_server.py::_start_operational_log(), the exact
+    same function the headless path calls, so both paths hand off from
+    the boot log to the operational log identically.
+
+    mcp_instance.run(transport="streamable-http") runs in a daemon=True
+    thread; root.mainloop() blocks the main thread until the window
+    closes. Closing the window ends this process, which ends the daemon
+    thread with it — same shutdown model as v1.7's stdio version (no
+    clean-stop API exists on a running mcp.run() call under either
+    transport, see NOTES Eckpunkt 4b). Whether streamable-http's daemon
+    thread (an anyio/uvicorn event loop) shuts down as quietly as this
+    at process exit, or produces its own version of the stdio transport's
+    old interpreter-shutdown warning, is untested in this environment —
+    verify on a real Windows run."""
+
+    op_handler = start_operational_log(cfg.MCP_BASE_DIR)
+    if op_handler is not None:
+        logging.getLogger().removeHandler(boot_handler)
+        boot_handler.close()
+        logger.info("Operational log started under %s — boot log closed",
+                    cfg.MCP_BASE_DIR)
+    else:
+        logger.warning(
+            "Could not start operational log under %s — boot log stays "
+            "active for this session", cfg.MCP_BASE_DIR)
+
+    server_state = {"error": None}
+
+    def _run_server():
+        logger.info("Starting Garmin Local Archive MCP server on "
+                    "http://127.0.0.1:%d", cfg.MCP_HTTP_PORT)
+        try:
+            mcp_instance.run(transport="streamable-http")
+        except OSError as exc:
+            server_state["error"] = exc
+            logger.error(
+                "Could not start MCP server on 127.0.0.1:%d — port already "
+                "in use (a second instance already running?) or not "
+                "permitted: %s", cfg.MCP_HTTP_PORT, exc)
+
+    threading.Thread(target=_run_server, daemon=True).start()
 
     root = tk.Tk()
     root.title("Garmin Local Archive — MCP Server")
@@ -350,51 +368,28 @@ def run_gui(mcp_instance, logger: logging.Logger,
     ttk.Button(config_frame, text="…", width=3, command=_browse_base_dir).grid(
         row=1, column=2, sticky="w", padx=(4, 0), pady=(6, 0))
 
+    ttk.Label(config_frame, text="Port:").grid(
+        row=2, column=0, sticky="w", pady=(6, 0))
+    port_var = tk.StringVar(
+        value=str(saved.get("mcp_http_port") or cfg.MCP_HTTP_PORT))
+    ttk.Entry(config_frame, textvariable=port_var, width=8).grid(
+        row=2, column=1, sticky="w", pady=(6, 0))
+    ttk.Label(
+        config_frame,
+        text="127.0.0.1 only — not remotely reachable, by design.",
+    ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+    headless_var = tk.BooleanVar(value=bool(saved.get("mcp_headless", False)))
+    ttk.Checkbutton(
+        config_frame, text="Headless starten (ohne Fenster)",
+        variable=headless_var,
+    ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+    ttk.Label(
+        config_frame,
+        text="Wirkt erst beim nächsten Start — nicht auf diese laufende Instanz.",
+    ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
     config_frame.columnconfigure(1, weight=1)
-
-    # ── Ollama backend fields — shown only when backend == "ollama" ────
-    ollama_frame = ttk.Frame(root, padding=(10, 4))
-    ttk.Label(ollama_frame, text="Ollama model:").grid(row=0, column=0, sticky="w")
-    ollama_model_var = tk.StringVar(value=saved.get("mcp_ollama_model", ""))
-    ollama_model_combo = ttk.Combobox(
-        ollama_frame, textvariable=ollama_model_var, state="readonly", width=30)
-    if saved.get("mcp_ollama_model"):
-        ollama_model_combo["values"] = [saved["mcp_ollama_model"]]
-    ollama_model_combo.grid(row=0, column=1, sticky="w", padx=(4, 0))
-    ollama_status_var = tk.StringVar(value="")
-    ttk.Label(ollama_frame, textvariable=ollama_status_var).grid(
-        row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
-
-    def _on_ollama_models_loaded(models: list, error: str):
-        if error:
-            ollama_status_var.set(f"Ollama not reachable: {error}")
-            return
-        if not models:
-            ollama_status_var.set(
-                "No models installed — `ollama pull <model>` and refresh.")
-            return
-        current = ollama_model_var.get()
-        ollama_model_combo["values"] = models
-        if current not in models and models:
-            ollama_model_var.set(models[0])
-        ollama_status_var.set(f"{len(models)} model(s) found.")
-
-    def _refresh_ollama_models():
-        ollama_status_var.set("Loading models …")
-
-        def worker():
-            client = _load_ollama_client()
-            try:
-                models = client.list_models()
-                error = None
-            except client.OllamaError as e:
-                models, error = [], str(e)
-            root.after(0, lambda: _on_ollama_models_loaded(models, error))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    ttk.Button(ollama_frame, text="Refresh", command=_refresh_ollama_models).grid(
-        row=0, column=2, padx=(6, 0))
 
     # ── Cloud backend fields — shown only when backend == "cloud" ──────
     cloud_frame = ttk.Frame(root, padding=(10, 4))
@@ -446,52 +441,56 @@ def run_gui(mcp_instance, logger: logging.Logger,
         row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
     def _on_backend_changed(*_args):
-        if backend_var.get() == "ollama":
-            cloud_frame.pack_forget()
-            ollama_frame.pack(fill="x", after=config_frame)
-        else:
-            ollama_frame.pack_forget()
+        if backend_var.get() == "cloud":
             cloud_frame.pack(fill="x", after=config_frame)
+        else:
+            cloud_frame.pack_forget()
 
     backend_combo.bind("<<ComboboxSelected>>", _on_backend_changed)
     _on_backend_changed()
 
-    # ── Save (server config: backend, base_dir, ollama model) ──────────
+    # ── Save (server config: backend, base_dir, port, headless) ────────
     def _on_save():
+        port_text = port_var.get().strip()
+        try:
+            port = int(port_text)
+            if not (1 <= port <= 65535):
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning(
+                "Garmin Local Archive — MCP Server",
+                f"'{port_text}' is not a valid port number (1-65535).")
+            return
+
         data = {
-            "mcp_llm_backend":  backend_var.get(),
-            "base_dir":         base_dir_var.get().strip(),
-            "mcp_ollama_model": ollama_model_var.get(),
+            "mcp_llm_backend": backend_var.get(),
+            "base_dir":        base_dir_var.get().strip(),
+            "mcp_http_port":   port,
+            "mcp_headless":    headless_var.get(),
         }
         _save_server_config(data, logger)
         messagebox.showinfo(
             "Garmin Local Archive — MCP Server",
             "Config saved. Restart the server for a changed archive "
-            "path to take effect.",
+            "path, port, or headless setting to take effect.",
         )
 
     ttk.Button(root, text="💾 Save", command=_on_save).pack(
         anchor="w", padx=10, pady=(4, 0))
 
-    # ── Restart (v1.7 Teilbauauftrag h) ─────────────────────────────────
-    # Self-Relaunch with a transitional window state (Option C, session
-    # decision) — the current process is not killed outright; a new
-    # process is started first, and this window only closes once the new
-    # process confirms it is up (via a new PID in MCP_SERVER_LOCK_FILE).
-    # Deliberately a separate button from Save (Eckpunkt 3) — Save has no
-    # diff check and fires on every click, coupling would trigger a
-    # disruptive restart on routine saves too.
-    _this_pid = os.getpid()
+    # ── Restart (v1.7.0.1) ───────────────────────────────────────────────
+    # The server itself is already running by the time this window is
+    # visible (started above, before root = tk.Tk()) — this button only
+    # ever restarts, it never does an initial "start". Self-Relaunch via
+    # subprocess.Popen (Option C reasoning from v1.7 Teilbauauftrag h
+    # retained), confirmed via a TCP probe on the configured port rather
+    # than a lockfile PID poll; on success this window (and with it, the
+    # old server's daemon thread) is torn down, handing over to the new
+    # process.
     RESTART_POLL_MS = 500
     RESTART_TIMEOUT_MS = 12_000
 
     def _set_transition_state(active: bool):
-        """Disables the Restart button itself during the wait — prevents
-        a second, overlapping restart attempt, which is the actual
-        purpose of this guard. Save/Browse are deliberately left alone
-        (both are anonymous ttk.Button() calls with no variable to
-        reference, and neither is unsafe to use mid-transition: Save
-        only rewrites the config file, no process is touched)."""
         restart_btn.configure(state="disabled" if active else "normal")
         status_var.set("Restarting — please wait …" if active else "")
 
@@ -501,35 +500,27 @@ def run_gui(mcp_instance, logger: logging.Logger,
             messagebox.showwarning(
                 "Garmin Local Archive — MCP Server",
                 "Could not find clients/mcp_server.py, mcp_server.exe, or "
-                "Starte_MCP_Server.bat — check the installation. "
-                "The current server keeps running.",
+                "Starte_MCP_Server.bat — check the installation.",
             )
             return
 
+        try:
+            target_port = int(port_var.get().strip())
+        except ValueError:
+            target_port = cfg.MCP_HTTP_PORT
+
         confirmed = messagebox.askyesno(
             "Garmin Local Archive — MCP Server",
-            "This will restart the MCP server process to apply the "
-            "current settings. The window will briefly show a "
-            "restarting state, then reopen automatically.\n\n"
-            "Continue?",
+            "This starts a new MCP server process with the saved "
+            "settings and closes this window (and the server it is "
+            "currently running) once the new one answers on its port. "
+            "Save first if you just changed something.\n\nContinue?",
         )
         if not confirmed:
             return
 
         _set_transition_state(True)
         logger.info("Restart requested — launch command: %s", cmd)
-
-        # Unlink attempt for the OLD process's lock file is triggered
-        # first, before the new process starts — per NOTES_v1.7_teilh.md
-        # ordering decision. This mirrors _on_close()'s unlink step but
-        # does NOT destroy the window here (that only happens once the
-        # new process is confirmed running, see _poll_for_new_process
-        # below). Best-effort, same fail-open reasoning as _on_close().
-        try:
-            cfg.MCP_SERVER_LOCK_FILE.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("Could not remove lock file %s: %s",
-                            cfg.MCP_SERVER_LOCK_FILE, exc)
 
         try:
             subprocess.Popen(cmd)
@@ -538,46 +529,39 @@ def run_gui(mcp_instance, logger: logging.Logger,
             _set_transition_state(False)
             messagebox.showwarning(
                 "Garmin Local Archive — MCP Server",
-                f"Could not start the new server process:\n{exc}\n\n"
-                "The previous server may no longer be reachable — check "
-                "the log above.",
+                f"Could not start the server process:\n{exc}",
             )
             return
 
         _elapsed = {"ms": 0}
 
-        def _poll_for_new_process():
-            try:
-                pid_text = cfg.MCP_SERVER_LOCK_FILE.read_text(
-                    encoding="utf-8").strip()
-                new_pid = int(pid_text)
-            except (FileNotFoundError, ValueError):
-                new_pid = None
-
-            if new_pid is not None and new_pid != _this_pid:
+        def _poll_reachable():
+            if _is_server_reachable(target_port):
                 logger.info(
-                    "Restart confirmed — new process PID %d, closing "
-                    "this window", new_pid)
+                    "New server confirmed reachable on 127.0.0.1:%d — "
+                    "closing this window", target_port)
                 root.destroy()
                 return
 
             _elapsed["ms"] += RESTART_POLL_MS
             if _elapsed["ms"] >= RESTART_TIMEOUT_MS:
                 logger.error(
-                    "Restart timed out after %d ms — no new PID seen "
-                    "in lock file", RESTART_TIMEOUT_MS)
+                    "Restart: no response on 127.0.0.1:%d after %d ms — "
+                    "old server left running", target_port,
+                    RESTART_TIMEOUT_MS)
                 _set_transition_state(False)
                 messagebox.showwarning(
                     "Garmin Local Archive — MCP Server",
-                    "Restart failed — the new server process did not "
-                    "start in time. The previous server keeps running "
-                    "in this window (check the log above for details).",
+                    "The new server did not become reachable in time — "
+                    "the old one is still running. Check the archive "
+                    "path/port and the boot log "
+                    "(~/.garmin_mcp_server_boot.log).",
                 )
                 return
 
-            root.after(RESTART_POLL_MS, _poll_for_new_process)
+            root.after(RESTART_POLL_MS, _poll_reachable)
 
-        root.after(RESTART_POLL_MS, _poll_for_new_process)
+        root.after(RESTART_POLL_MS, _poll_reachable)
 
     restart_btn = ttk.Button(
         root, text="🔄 Restart Server", command=_on_restart)
@@ -587,7 +571,20 @@ def run_gui(mcp_instance, logger: logging.Logger,
     ttk.Label(root, textvariable=status_var).pack(
         anchor="w", padx=10, pady=(2, 0))
 
-    # ── Log section — analogous to garmin_app_base.py's log widget ─────
+    def _check_bind_result():
+        if server_state["error"] is not None:
+            status_var.set("Server not running — port bind failed, see log.")
+            messagebox.showwarning(
+                "Garmin Local Archive — MCP Server",
+                f"The server could not bind 127.0.0.1:{cfg.MCP_HTTP_PORT} — "
+                f"{server_state['error']}\n\nAnother instance may already "
+                "be running. This window stays open for configuration, "
+                "but no server is currently listening.",
+            )
+
+    root.after(300, _check_bind_result)
+
+    # ── Log section ──────────────────────────────────────────────────────
     log_bar = ttk.Frame(root, padding=(10, 4))
     log_bar.pack(fill="x")
     ttk.Label(log_bar, text="LOG", font=("Segoe UI", 8, "bold")).pack(side="left")
@@ -619,7 +616,14 @@ def run_gui(mcp_instance, logger: logging.Logger,
         background="#0a0a1a", foreground="#33ff66")
     log_widget.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-    # ── Queue-based log wiring ──────────────────────────────────────────
+    def _append_log_line(line: str):
+        log_widget.configure(state="normal")
+        log_widget.insert(tk.END, line + "\n")
+        log_widget.see(tk.END)
+        log_widget.configure(state="disabled")
+
+    # ── Queue-based log wiring — this window's own AND the server's log
+    # lines, since the server runs in this same process (daemon thread) ─
     log_queue: queue.Queue = queue.Queue()
     queue_handler = _QueueLogHandler(log_queue)
     queue_handler.setFormatter(
@@ -630,52 +634,16 @@ def run_gui(mcp_instance, logger: logging.Logger,
     def _poll_log_queue():
         try:
             while True:
-                line = log_queue.get_nowait()
-                log_widget.configure(state="normal")
-                log_widget.insert(tk.END, line + "\n")
-                log_widget.see(tk.END)
-                log_widget.configure(state="disabled")
+                _append_log_line(log_queue.get_nowait())
         except queue.Empty:
             pass
         root.after(100, _poll_log_queue)
 
     root.after(100, _poll_log_queue)
 
-    # ── Operational log — replaces boot log now that base_dir is known ──
-    op_base_dir = Path(base_dir_var.get()).expanduser()
-    op_handler = _start_operational_log(op_base_dir)
-    if op_handler is not None:
-        logging.getLogger().removeHandler(boot_handler)
-        boot_handler.close()
-        logger.info("Operational log started under %s — boot log closed",
-                    op_base_dir)
-    else:
-        logger.warning(
-            "Could not start operational log under %s — boot log stays "
-            "active for this session", op_base_dir)
-
-    # ── Server thread — daemon, no cancel handshake (see module docstring) ──
-    def _server_thread():
-        logger.info("Starting Garmin Local Archive MCP server (stdio transport)")
-        try:
-            mcp_instance.run(transport="stdio")
-        except Exception as exc:  # pragma: no cover — last-resort visibility
-            # mcp.run() failures here have nowhere else to surface once
-            # stdout is reserved as the protocol channel — log it so the
-            # widget/log files show *something* instead of a silent thread
-            # death. The daemon thread ending does not close the window.
-            logger.error("MCP server thread ended: %s", exc)
-
-    threading.Thread(target=_server_thread, daemon=True).start()
-
     def _on_close():
-        logger.info("mcp_server.exe window closing — server thread will "
-                    "end with the process")
-        try:
-            cfg.MCP_SERVER_LOCK_FILE.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("Could not remove lock file %s: %s",
-                            cfg.MCP_SERVER_LOCK_FILE, exc)
+        logger.info("Window closing — the server (daemon thread) ends "
+                    "with this process, same as the v1.7 stdio model.")
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _on_close)

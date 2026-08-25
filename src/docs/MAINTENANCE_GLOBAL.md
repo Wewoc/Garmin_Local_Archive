@@ -344,9 +344,13 @@ imports `garmin_config` — v1.7 Teilbauauftrag c).
 `clients/mcp_server.py` (v1.7 Teilbauauftrag b) has dedicated automated
 coverage as `test_mcp.py` Section 8 (registration + delegation, nine
 checks) — added within the same session as the Teilbauauftrag (b) build,
-not a separate follow-up. End-to-end tool-call verification (a real MCP
-client or the MCP Inspector invoking each of the six registered tools) is
-still open — tracked as a follow-up, not a blocker.
+not a separate follow-up. v1.7.0.1 added nine more checks to the same
+section — `garmin_config.MCP_HTTP_PORT`/`MCP_HEADLESS` ENV > file > default
+precedence, plus regression guards confirming `MCP_SERVER_LOCK_FILE`/
+`MCP_OLLAMA_MODEL` are gone — eighteen checks total. End-to-end tool-call
+verification (a real MCP client or the MCP Inspector invoking each of the
+six registered tools) is still open — tracked as a follow-up, not a
+blocker.
 
 `clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
 (c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in
@@ -372,18 +376,21 @@ Since v1.7 Teilbauauftrag (g) this panel does launch
 next to the frozen EXE; T3.3: `mcp_server.exe` next to the frozen EXE)
 and calls `subprocess.Popen()` directly — no ENV-write bridge, still no
 in-process thread, but the prior "GUI never starts the subprocess"
-decision (Teil b/c) no longer holds for this one button. A PID lockfile
-(`garmin_config.MCP_SERVER_LOCK_FILE`) written by `mcp_server.py` at
-startup backs a `tasklist`-based liveness check before the button
-starts a new process. Since v1.7 Teilbauauftrag (f) the panel also
-mirrors its MCP settings fields (`mcp_llm_backend`, `base_dir`,
-`mcp_ollama_model` — reduced from four to three in Teil g, `mcp_enabled`
-removed) into a new, independent file, `garmin_config.
-MCP_SERVER_CONFIG_FILE` (`~/.garmin_mcp_server_config.json`) — a second
-writer of that file is `clients/mcp_server_gui.py` in the standalone
-case (documented Sole-Write-Authority exception, see that file's
-docstring). T2 (loose-script launcher `clients/Starte_MCP_Server.bat`)
-and T3.3 (`mcp_server.exe`, `--onefile`) build integration completed in
+decision (Teil b/c) no longer holds for this one button. Liveness check
+(v1.7.0.1) is now a TCP-connect probe against `127.0.0.1:MCP_HTTP_PORT`
+— the PID lockfile (`garmin_config.MCP_SERVER_LOCK_FILE`) and its
+`tasklist` parsing described in earlier sessions are gone entirely, see
+the v1.7.0.1 paragraph below. Since v1.7 Teilbauauftrag (f) the panel
+also mirrors its MCP settings fields into a new, independent file,
+`garmin_config.MCP_SERVER_CONFIG_FILE` (`~/.garmin_mcp_server_config.json`)
+— now `mcp_llm_backend`, `base_dir`, `mcp_http_port`, `mcp_headless`
+(v1.7.0.1: `mcp_ollama_model` swapped for `mcp_http_port`, `mcp_headless`
+added new — four fields total, `mcp_enabled` removed back in Teil g) —
+a second writer of that file is
+`clients/mcp_server_gui.py` in the standalone case (documented
+Sole-Write-Authority exception, see that file's docstring). T2
+(loose-script launcher `clients/Starte_MCP_Server.bat`) and T3.3
+(`mcp_server.exe`, `--onefile`) build integration completed in
 Teilbauauftrag e/f; both launch targets real-build-tested for the Start
 button in Teilbauauftrag g.
 
@@ -399,19 +406,49 @@ visible gap with no server running, lost log widget history, PyInstaller
 cold-start delay under T3.3) and over an in-process thread reload
 (rejected — `mcp.run(transport="stdio")` binds `sys.stdin`/`stdout`; no
 cancel API exists, so a second reader on the same stdio handle would be
-an unspecified, hard-to-reproduce risk). Under Option C the window
-enters a transitional state (Restart button disabled, status label)
-while the old process's lock-file unlink is attempted, the new process
-is started via `_resolve_mcp_server_launch_command()` (a shortened,
-standalone copy of `panel_mcp.py`'s function of the same name — `clients/`
-does not import from `app/`), and `root.after(500, ...)` polls
-`MCP_SERVER_LOCK_FILE` for a new PID (12s timeout) before this window
-closes itself. Real-tested on T1: successful restart in ~700ms,
-shutdown crash still occurs but stays hidden behind the already-open
-new window. **Known limitation, documented not fixed** (real-tested):
-the poll only confirms a new PID was written, not that the new process
-is healthy — `_write_lock_file()` runs before `base_dir` validation, so
-a restart with an invalid `base_dir` still reports success.
+an unspecified, hard-to-reproduce risk). **Health-check mechanism
+updated in v1.7.0.1** (see below) — the Option C reasoning itself
+(self-relaunch over plain relaunch, self-relaunch over in-process
+reload) is unchanged and still applies; only the lockfile-PID-poll this
+paragraph describes is replaced by a TCP-connect probe.
+
+### v1.7.0.1 — MCP HTTP transport
+
+`clients/mcp_server.py` switched from stdio to streamable-http transport
+(`mcp.run(transport="streamable-http")`, host hardcoded `127.0.0.1`, port
+`garmin_config.MCP_HTTP_PORT`). This removed the entire PID-lockfile
+liveness mechanism (`garmin_config.MCP_SERVER_LOCK_FILE`, the `tasklist`
+checks in `app/panel_mcp.py` and `clients/mcp_server_gui.py`, the Restart
+button's poll-for-a-new-PID loop described above) in favour of two plain
+signals a TCP server already provides for free: an `OSError` at bind time
+inside `mcp.run()` if the port is already taken (caught and logged, no
+crash), and a TCP-connect probe
+(`socket.create_connection(("127.0.0.1", port), ...)`) everywhere a
+liveness or restart-confirmation check is needed — including the Restart
+button above, which otherwise keeps its Option C shape (self-relaunch,
+`root.destroy()` on confirmation) unchanged.
+
+Note what did **not** change here, since it was raised and explicitly
+decided against in this Bauauftrag's preparation
+(`NOTES_v1.7.0.1vorbereitung.md`, Eckpunkt 6): the window stays the
+DEFAULT entry point — `clients/mcp_server.py::main()` still opens
+`mcp_server_gui.py::run_gui()` by default, which still starts the server
+in a daemon thread coupled to the window exactly as under the stdio-era
+"the window is the server" model (window closed = process closed). A
+new config field, `garmin_config.MCP_HEADLESS` (ENV `GARMIN_MCP_HEADLESS`
+> `MCP_SERVER_CONFIG_FILE`'s `mcp_headless` key > default `False`), opts
+a given install OUT of the window for the automation/scheduled case —
+settable from both `app/panel_mcp.py` and `clients/mcp_server_gui.py`
+itself (the latter only on the next start). Since the window and server
+still share a process by default, the log widget keeps receiving server
+log records via the existing in-process `_QueueLogHandler` — no
+cross-process log-tailing mechanism was needed.
+
+`garmin_config.MCP_OLLAMA_MODEL` was also removed in this pass (local
+Ollama model auto-discovery had no remaining consumer once the "Refresh"
+button was dropped from both `app/panel_mcp.py` and
+`clients/mcp_server_gui.py`) — not a transport-related change, bundled
+into the same Bauauftrag as a small, separately-decided cleanup.
 
 ### Plotly local cache
 
@@ -537,9 +574,10 @@ All source folders are Python packages with `__init__.py`:
   (no relative imports inside `clients/`). Two residents: `ollama_client.py`
   (v1.6.6, HTTP client, no state, no own `sys.path` handling — reached only
   via `app/panel_chat.py`'s `frozen_paths.add_to_path()` lazy import) and
-  `mcp_server.py` (v1.7 Teilbauauftrag b, standalone stdio server process,
-  own `sys.path` root anchor analogous to `scheduler/daily_update.py` since
-  it is never launched from a running GUI process)
+  `mcp_server.py` (v1.7 Teilbauauftrag b, standalone streamable-http server
+  process since v1.7.0.1 — stdio originally, see `docs/CHANGELOG.md`), own
+  `sys.path` root anchor analogous to `scheduler/daily_update.py` since it
+  is never launched from a running GUI process)
 
 **Import pattern:**
 - Entry points (`garmin_app.py`, `tests/`) use `sys.path.insert` to reach `garmin/`
@@ -571,7 +609,7 @@ All source folders are Python packages with `__init__.py`:
 | `app/panel_chat.py` | `frozen_paths.add_to_path(root, "clients")` inside a lazy import helper — not at module top-level, so `panel_chat.py` stays importable before `sys.path` is fully wired up (v1.6.6) |
 | All modules inside `garmin/` | None — `sys.path.insert` removed in v1.4 |
 | `clients/ollama_client.py` | None — flat, no internal relative imports, no `garmin_config` dependency (v1.6.6) |
-| `clients/mcp_server.py` | `_SRC_ROOT` (`src/`, for `from maps import mcp_map`) **and** `_SRC_ROOT/garmin` (for the flat `import garmin_config` — same bridge need as `maps/`/`context/` modules, added v1.7 Teilbauauftrag c). Not `frozen_paths.add_to_path()` — that helper is GUI-context-bound, this is a standalone subprocess. Frozen case (`_register_embedded_packages()`) additionally registers `scripts/clients` (v1.7 Teilbauauftrag f) — `main()` now imports `clients/mcp_server_gui.py` (`from mcp_server_gui import run_gui`), which resolves for free under T1/Dev via Python's automatic `sys.path[0] = script directory`, but needed an explicit entry once frozen (T3.3), same reasoning as the `garmin_dir` entry beside it. |
+| `clients/mcp_server.py` | `_SRC_ROOT` (`src/`, for `from maps import mcp_map`) **and** `_SRC_ROOT/garmin` (for the flat `import garmin_config` — same bridge need as `maps/`/`context/` modules, added v1.7 Teilbauauftrag c). Not `frozen_paths.add_to_path()` — that helper is GUI-context-bound, this is a standalone subprocess. Frozen case (`_register_embedded_packages()`) additionally registers `scripts/clients` (v1.7 Teilbauauftrag f) — `main()` imports `clients/mcp_server_gui.py` (`from mcp_server_gui import run_gui`, unchanged name in v1.7.0.1, called by default unless `garmin_config.MCP_HEADLESS` is set), which resolves for free under T1/Dev via Python's automatic `sys.path[0] = script directory`, but needed an explicit entry once frozen (T3.3), same reasoning as the `garmin_dir` entry beside it. |
 
 ⚠ When adding a new subfolder: add it to the `sys.path` loop in both entry points **and** to `_register_embedded_packages()` in `garmin_app_standalone.py`. Worked example: `clients/` (v1.6.6) — added to both entry points' loops, added as a flat `sys.path.insert` in `_register_embedded_packages()`, deliberately **not** added to `scheduler/daily_update.py` (no headless use case) and **not** added to `garmin_app.py::script_path()` (never subprocess-launched).
 

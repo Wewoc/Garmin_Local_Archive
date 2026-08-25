@@ -331,37 +331,41 @@ Troubleshooting:
 
 Exposes your archive to local LLMs via the Model Context Protocol
 (MCP) -- lets an MCP-compatible client (Claude Desktop, Open WebUI,
-or similar) query your health and context data directly, without
-exporting files.
+or similar) query your health and context data directly over
+http://127.0.0.1:<port> (not reachable from other machines, by
+design), without exporting files.
 
 Using it (from the main app):
-  Open the "MCP Server" tab -> choose LLM backend (ollama or cloud)
-  -> click "Save Settings" -> click "Start MCP Server"
-
-  ollama backend (default, fully local):
-    pick a model from the dropdown, or click "Refresh" to list
-    your locally installed Ollama models
+  Open the "MCP Server" tab -> choose LLM backend (ollama or cloud),
+  set the port if needed -> click "Save Settings" -> click
+  "Start MCP Server"
 
   cloud backend (optional):
     enter provider / API key / model
     Note: the key is stored in plaintext on disk -- a warning is
     shown on screen. Not re-loaded back into the field after saving.
 
-  If a server is already running, a dialog shows its process ID
-  instead of starting a second one.
+  Headless checkbox (off by default): skips the server's own window
+  entirely and runs it straight in the background -- for
+  automation/scheduled use, not the everyday case. Takes effect on
+  the next start, not the one already running.
+
+  If a server is already running, a dialog names the port it's
+  already using instead of starting a second one.
 
 Running without the main app:
   Standalone version:  mcp_server.exe
   Standard version:     clients/Starte_MCP_Server.bat
 
-  Opens its own small window -- archive path, backend, model,
-  and a live log. Useful for running the server on a machine or
-  user session where the main app isn't installed.
+  Opens its own small window -- archive path, backend, port, the
+  same Headless checkbox as above, and a live log. Useful for
+  running the server on a machine or user session where the main
+  app isn't installed.
 
-  "Restart Server" in that window applies a changed archive path
-  or backend without closing the window by hand -- the new process
-  starts in the background, the window switches over automatically
-  once it's confirmed running.
+  "Restart Server" in that window applies a changed archive path,
+  backend or port without closing the window by hand -- the new
+  process starts in the background, the window switches over
+  automatically once it's confirmed running.
 
 ═══════════════════════════════════════════════════════════
   Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive
