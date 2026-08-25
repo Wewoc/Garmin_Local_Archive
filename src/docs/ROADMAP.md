@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.0.1**
+**Currently stable — v1.7.0.2**
 
 ---
 
@@ -498,6 +498,15 @@ Several modules stamp "when this record was written" two different ways — some
 
 **Disclaimer shadow-copy in `dash_prompt_templates.py`**
 This module holds its own copy of the disclaimer text instead of calling `dash_layout.get_disclaimer()` — a second, un-flagged M-2 pattern found during the v1.6.5.6 sibling-sweep, next to the duplicate intraday chart code above. Same fix shape: collapse to the shared getter.
+
+**`clients/mcp_server_gui.py` color-theme parity**
+v1.7.0.2 added a GLA-branded text header (`"🦄  GARMIN LOCAL ARCHIVE"`) but deliberately stopped there — the window still runs Tkinter's native "vista" theme, which mostly ignores custom widget colors for `ttk` controls (Checkbutton, Entry, Button). Real color parity with the PyQt6 app's dark/purple palette would need `ttk.Style().theme_use("clam")` first, which also changes the whole widget look away from native Windows rendering — a bigger, separate change, deferred by choice ("just the unicorn" this session).
+
+**MCP server window/taskbar icon**
+No icon asset exists anywhere in this codebase yet — the titlebar "feather" seen on `clients/mcp_server_gui.py`'s window is Tkinter's own stock default, not a GLA icon gone missing. A real icon would need an asset created (or sourced under a free license, e.g. Twemoji/OpenMoji), wired in via `root.iconphoto()`, and — for the standalone build — a `build_manifest.py`/PyInstaller bundling entry so `mcp_server.exe` ships it too.
+
+**MCP transport_security — `allowed_origins` extension**
+v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left `allowed_origins` at the SDK's own three defaults — a server-to-server HTTP client typically sends no `Origin` header at all, and the SDK's own validator passes automatically when it's absent. Revisit only if a real `Invalid Origin header` rejection shows up in the log for some other MCP client.
 
 ---
 

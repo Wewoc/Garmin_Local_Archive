@@ -110,6 +110,12 @@ its own small window, usable even without the main app installed.
 <br><sub>Standalone MCP server window (<code>mcp_server.exe</code>) — runs independently of the main app, with its own archive path, backend selection, and live log.</sub>
 
 
+Running Open WebUI (or any other MCP client) inside Docker? An opt-in
+"Extra allowed hosts" field on the MCP Server tab (v1.7.0.2) lets you add
+`host.docker.internal` — pre-filled by default — to the server's allowed-
+host list, since the underlying MCP SDK otherwise rejects connections
+that don't arrive as `127.0.0.1`/`localhost`.
+
 Works with Ollama (fully local, default) or an optional cloud LLM backend —
 your choice, no default push toward either. Point your MCP-compatible
 client (Claude Desktop, Open WebUI, or similar) at the server and start
@@ -395,10 +401,10 @@ and usage examples: [`docs/REFERENCE_BROKER.md`](docs/REFERENCE_BROKER.md).
 | `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
 | `app/panel_chat.py` | Ollama-Chat panel — native chat against a local Ollama instance, no external tool required. Model dropdown, chat history, "Neuer Chat" reset. (v1.6.6) |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — used exclusively by `app/panel_chat.py`. (v1.6.6) |
-| `app/panel_mcp.py` | MCP Server panel — backend, port and headless-mode selection, Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
+| `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
 | `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
-| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. (v1.7) |
-| `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart. (v1.7) |
+| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). (v1.7) |
+| `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation |

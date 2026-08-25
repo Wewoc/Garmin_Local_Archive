@@ -51,6 +51,28 @@ print()" rule from the stdio era is no longer a correctness requirement,
 but all logging still goes to stderr regardless (no reason to change a
 working, harmless convention).
 
+Extra allowed hosts (v1.7.0.2): the DNS-rebinding allowed_hosts/
+allowed_origins check below is a separate mechanism from the hardcoded
+bind host above — it validates the incoming Host/Origin headers, not
+which network interface this process listens on; 127.0.0.1 stays the
+only bind address either way, unaffected by this. garmin_config.
+MCP_EXTRA_ALLOWED_HOSTS_ENABLED (off by default, opt-in via
+app/panel_mcp.py or clients/mcp_server_gui.py) adds garmin_config.
+MCP_EXTRA_ALLOWED_HOSTS on top of the SDK's own 127.0.0.1/localhost/::1
+defaults — added for Open WebUI running in Docker, reachable only via
+host.docker.internal (not 127.0.0.1) from inside its container (real
+"Invalid Host header: host.docker.internal:<port>" rejection observed
+in clients/mcp_server_gui.py's log — see NOTES_v1.7.0.2.md). When the
+flag is off, transport_security=None is passed unchanged, so the SDK's
+own localhost-only default branch still applies exactly as before —
+zero behaviour change for any install that never enables this. Origin-
+header handling deliberately not extended alongside this (see
+NOTES_v1.7.0.2.md) — Section 8's _validate_origin() passes any request
+with no Origin header at all, which a server-to-server client like Open
+WebUI's backend is not expected to send; revisit only if a real Origin
+rejection shows up in the log, same evidence-first approach as this
+whole fix.
+
 Startup mode (v1.7.0.1 — corrected after an initial misreading of
 Eckpunkt 6, see NOTES_v1.7.0.1vorbereitung.md): the window stays the
 DEFAULT entry point, coupled to the server exactly as under v1.7
@@ -203,6 +225,7 @@ logger = logging.getLogger(__name__)
 import garmin_config as cfg  # noqa: E402 — after path/logging setup
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402 — after path/logging setup
+from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
 
 from maps import mcp_map  # noqa: E402 — after path/logging setup
 
@@ -285,7 +308,31 @@ def _cloud_llm_config_available() -> bool:
         and bool(data.get("model"))
 
 
-mcp = FastMCP("Garmin Local Archive", host="127.0.0.1", port=cfg.MCP_HTTP_PORT)
+# Same three localhost patterns the mcp SDK (mcp.server.fastmcp.server,
+# verified against the installed mcp==1.29.0 source) builds automatically
+# when transport_security=None and host is 127.0.0.1/localhost/::1 —
+# passing an explicit TransportSecuritySettings below skips that
+# automatic branch entirely, so these three are duplicated here
+# deliberately (no SDK-exposed constant to import instead). Recheck
+# against the SDK source if the installed mcp package version ever
+# changes (see module docstring's existing "pip show mcp" note).
+_DEFAULT_ALLOWED_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_DEFAULT_ALLOWED_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+
+mcp = FastMCP(
+    "Garmin Local Archive",
+    host="127.0.0.1",
+    port=cfg.MCP_HTTP_PORT,
+    transport_security=(
+        TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=_DEFAULT_ALLOWED_HOSTS + cfg.MCP_EXTRA_ALLOWED_HOSTS,
+            allowed_origins=_DEFAULT_ALLOWED_ORIGINS,
+        )
+        if cfg.MCP_EXTRA_ALLOWED_HOSTS_ENABLED
+        else None
+    ),
+)
 
 # Tool names are aliased 1:1 to mcp_map.py's function names (no "_tool"
 # suffix, no technical wrapper naming) — the MCP tool name is what the LLM

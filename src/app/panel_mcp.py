@@ -207,10 +207,55 @@ class PanelMcp(QWidget):
         outer.addSpacing(10)
 
         # ── Headless row (v1.7.0.1) ───────────────────────────────────────────
-        self._mcp_headless = QCheckBox("Headless starten (ohne Fenster)")
+        self._mcp_headless = QCheckBox("Start headless (no window)")
         self._mcp_headless.setFont(QFont("Segoe UI", 9))
         self._mcp_headless.setStyleSheet(f"color: {self._app.TEXT2};")
         outer.addWidget(self._mcp_headless)
+        outer.addSpacing(10)
+
+        # ── Extra allowed hosts (v1.7.0.2 — MCP transport_security) ──────────
+        # Checkbox gates the field (dimmed/locked, content preserved when
+        # off — session decision) instead of an empty string meaning
+        # "disabled", so a saved-but-inactive value survives a toggle.
+        self._mcp_extra_hosts_enabled = QCheckBox("Extra allowed hosts")
+        self._mcp_extra_hosts_enabled.setFont(QFont("Segoe UI", 9))
+        self._mcp_extra_hosts_enabled.setStyleSheet(f"color: {self._app.TEXT2};")
+        self._mcp_extra_hosts_enabled.toggled.connect(self._mcp_on_extra_hosts_toggled)
+        outer.addWidget(self._mcp_extra_hosts_enabled)
+
+        extra_hosts_row = QHBoxLayout()
+        extra_hosts_row.setSpacing(8)
+        extra_hosts_lbl = QLabel("Hosts")
+        extra_hosts_lbl.setFixedWidth(120)
+        extra_hosts_lbl.setFont(QFont("Segoe UI", 9))
+        extra_hosts_lbl.setStyleSheet(f"color: {self._app.TEXT2};")
+        self._mcp_extra_hosts_field = QLineEdit()
+        self._mcp_extra_hosts_field.setPlaceholderText(
+            "comma-separated, e.g. host.docker.internal, otherhost")
+        self._mcp_extra_hosts_field.setMinimumWidth(200)
+        self._mcp_extra_hosts_field.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._mcp_extra_hosts_field.setFont(QFont("Segoe UI", 9))
+        self._mcp_extra_hosts_field.setStyleSheet(
+            f"background: {self._app.BG3}; color: {self._app.TEXT}; "
+            f"border: none; padding: 5px 10px;")
+        self._mcp_extra_hosts_field.textChanged.connect(
+            self._mcp_refresh_extra_hosts_preview)
+        extra_hosts_row.addWidget(extra_hosts_lbl)
+        extra_hosts_row.addWidget(self._mcp_extra_hosts_field)
+        outer.addLayout(extra_hosts_row)
+
+        self._mcp_extra_hosts_preview = QLabel("")
+        self._mcp_extra_hosts_preview.setFont(QFont("Segoe UI", 8))
+        self._mcp_extra_hosts_preview.setStyleSheet(f"color: {self._app.TEXT2};")
+        self._mcp_extra_hosts_preview.setWordWrap(True)
+        outer.addWidget(self._mcp_extra_hosts_preview)
+        # Initial state: checkbox starts unchecked (default), so the field
+        # must be disabled and the preview set to its "disabled" message
+        # right away — otherwise QLineEdit's own default (enabled=True)
+        # wins until load_mcp_settings() runs once.
+        self._mcp_extra_hosts_field.setEnabled(self._mcp_extra_hosts_enabled.isChecked())
+        self._mcp_refresh_extra_hosts_preview()
         outer.addSpacing(10)
 
         # ── Cloud credentials block (visible when backend == "cloud") ────────
@@ -324,6 +369,8 @@ class PanelMcp(QWidget):
             "mcp_llm_backend": self._mcp_backend.currentText(),
             "mcp_http_port":   self._mcp_port.text().strip(),
             "mcp_headless":    self._mcp_headless.isChecked(),
+            "mcp_extra_hosts_enabled": self._mcp_extra_hosts_enabled.isChecked(),
+            "mcp_extra_hosts":         self._mcp_extra_hosts_field.text().strip(),
         }
 
     def load_mcp_settings(self, s: dict):
@@ -333,6 +380,10 @@ class PanelMcp(QWidget):
         self._mcp_backend.setCurrentIndex(max(0, idx))
         self._mcp_port.setText(str(s.get("mcp_http_port") or cfg.MCP_HTTP_PORT))
         self._mcp_headless.setChecked(bool(s.get("mcp_headless", False)))
+        self._mcp_extra_hosts_enabled.setChecked(bool(s.get("mcp_extra_hosts_enabled", False)))
+        self._mcp_extra_hosts_field.setText(
+            str(s.get("mcp_extra_hosts") or cfg.MCP_EXTRA_ALLOWED_HOSTS_RAW))
+        self._mcp_on_extra_hosts_toggled(self._mcp_extra_hosts_enabled.isChecked())
         self._mcp_on_backend_changed()
         self._mcp_refresh_cloud_key_status()
 
@@ -353,6 +404,30 @@ class PanelMcp(QWidget):
         self._mcp_cloud_box.adjustSize()
         self.layout().activate()
         self.adjustSize()
+
+    # ── Extra allowed hosts (v1.7.0.2) ───────────────────────────────────────
+
+    def _mcp_on_extra_hosts_toggled(self, checked: bool):
+        """Dims/locks the extra-hosts field when the checkbox is off —
+        content is preserved, not cleared (session decision, so a saved
+        value survives a toggle)."""
+        self._mcp_extra_hosts_field.setEnabled(checked)
+        self._mcp_refresh_extra_hosts_preview()
+
+    def _mcp_refresh_extra_hosts_preview(self):
+        """Live preview of the parsed host list — uses the same
+        garmin_config._parse_extra_hosts() helper clients/mcp_server.py
+        applies at startup, so this always shows exactly what would be
+        used, never a diverging guess."""
+        if not self._mcp_extra_hosts_enabled.isChecked():
+            self._mcp_extra_hosts_preview.setText(
+                "Disabled — default hosts remain unchanged.")
+            return
+        parsed = cfg._parse_extra_hosts(self._mcp_extra_hosts_field.text())
+        if not parsed:
+            self._mcp_extra_hosts_preview.setText("Recognized: — (no valid entries)")
+        else:
+            self._mcp_extra_hosts_preview.setText("Recognized: " + ", ".join(parsed))
 
     # ── Cloud config file (garmin_config.MCP_LLM_CONFIG_FILE) ───────────────
 
@@ -443,6 +518,8 @@ class PanelMcp(QWidget):
             "base_dir":        s.get("base_dir", ""),
             "mcp_http_port":   s.get("mcp_http_port", ""),
             "mcp_headless":    s.get("mcp_headless", False),
+            "mcp_extra_hosts_enabled": s.get("mcp_extra_hosts_enabled", False),
+            "mcp_extra_hosts":         s.get("mcp_extra_hosts", ""),
         }
         try:
             cfg.MCP_SERVER_CONFIG_FILE.write_text(

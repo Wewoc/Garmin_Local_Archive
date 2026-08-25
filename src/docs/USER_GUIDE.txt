@@ -350,6 +350,13 @@ Using it (from the main app):
   automation/scheduled use, not the everyday case. Takes effect on
   the next start, not the one already running.
 
+  Extra allowed hosts checkbox (off by default): for MCP clients
+  running inside Docker (e.g. Open WebUI) that need to reach the
+  server as something other than 127.0.0.1/localhost. Unlocks a
+  comma-separated field pre-filled with the common case,
+  host.docker.internal, plus a line showing exactly what was
+  recognized. Unchecking dims the field but keeps its content.
+
   If a server is already running, a dialog names the port it's
   already using instead of starting a second one.
 
