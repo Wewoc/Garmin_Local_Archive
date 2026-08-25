@@ -1,5 +1,25 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.0.3 — MCP Server Archive-Path Fix
+
+Fixes silently wrong archive-data reads in the standalone MCP server — `clients/mcp_server.py` resolved `garmin_config.BASE_DIR` (and everything derived from it: `LOG_DIR`, `RAW_DIR`, `SUMMARY_DIR`, `CONTEXT_DIR`) to its hardcoded default (`~/local_archive`) instead of the configured archive path, because `GARMIN_OUTPUT_DIR` was never set before `garmin_config` was imported when running standalone (no GLA process ahead of it to set that ENV var). `garmin_config.MCP_BASE_DIR` — used only for this module's own operational-log path and the GUI's Archive-path display — resolved correctly from the same config file the whole time, producing a silent divergence between what the server showed and what it actually read. First surfaced through a real Open WebUI session: `device_table` queries failed outright (`[Errno 2] No such file or directory` against the wrong path), while health/context queries degraded quietly to `null`/empty values instead of erroring.
+
+**Fix:**
+- `clients/mcp_server.py`: new ENV setup block, placed before `import garmin_config as cfg` — reads `MCP_SERVER_CONFIG_FILE` (`~/.garmin_mcp_server_config.json`) directly and sets `os.environ["GARMIN_OUTPUT_DIR"]` from its `base_dir` field if the ENV var is not already set. Mirrors the same caching-at-import-time workaround `scheduler/daily_update.py` already documents and applies at its own Schritt 3. `import os` added (was missing from this module entirely). Single eight-line duplication of `garmin_config._read_mcp_server_config()`'s fallback shape — unavoidable, since `garmin_config` is not importable yet at the point this code runs.
+- No other module changed — `garmin_config.py`, `clients/mcp_server_gui.py`, `maps/metadata_map.py`, `maps/health_map.py`, `maps/context_map.py`, `maps/garmin_health_map.py`, `maps/weather_map.py`, `maps/pollen_map.py`, `maps/brightsky_map.py`, `maps/airquality_map.py` were all confirmed as downstream consumers of `BASE_DIR` (nine files, `DEPS_CRITICAL_v1703_01.md`) but the root cause was isolated entirely to `mcp_server.py`'s import-order — fixing it there resolves all nine transitively, with zero changes to the broker chain.
+- `_run_headless()` path explicitly checked: `cfg.MCP_HEADLESS` is read only after `garmin_config` is already fully imported, so both the headless and windowed startup paths share the identical bootstrap sequence — one fix location covers both. The `subprocess.Popen`-based Restart button (`clients/mcp_server_gui.py::_on_restart()`) always launches a fresh process through the same `main()` entry point — no in-process reload path exists that could bypass this fix.
+
+**Verified live:** after applying the fix and restarting the server, `get_archive_metadata`, `query_health`, and `query_context` all returned correct, plausible values through Open WebUI (qwen3:14b) against the real `D:/Garmin_Data` archive — all three previously affected tool categories confirmed working.
+
+**Deliberately not implemented:**
+- Unifying `BASE_DIR` and `MCP_BASE_DIR` in `garmin_config.py` (e.g. extending `BASE_DIR`'s own fallback to read `MCP_SERVER_CONFIG_FILE`) — considered as an alternative, but would have weakened the deliberately documented separation ("`BASE_DIR` remains the pipeline's sole archive-path source") for no added benefit over the chosen ENV-before-import fix. Left as a possible future architecture discussion, not a bug.
+
+**Precondition Teil B (Drift-Check):** not run this session — scope was an isolated bootstrap-order fix in a single file, no architecture change.
+
+**Test result:** 716 / 265 / 465 / 107 / 64 / 165 / 73 / 16 — all green (test_local / test_local_context / test_dashboard / test_broker / test_mcp / test_app_logic / test_qt_app / test_static), Total 1871 (`docs/METRICS.md`).
+
+---
+
 ## v1.7.0.2 — MCP Transport Security (Docker Reachability)
 
 Fixes MCP server reachability for MCP clients running inside Docker (e.g. Open WebUI's own container connecting via `host.docker.internal`) — the `mcp` Python SDK's built-in DNS-rebinding protection rejects any `Host` header outside `127.0.0.1`/`localhost`/`::1` by default, which silently blocked exactly this case. Verified live end-to-end against a real Open WebUI Docker container after the fix, including a real MCP tool call reaching the archive.
