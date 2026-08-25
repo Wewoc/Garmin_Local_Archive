@@ -125,6 +125,7 @@ Usage (T1, dev):
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -222,7 +223,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-import garmin_config as cfg  # noqa: E402 — after path/logging setup
+# ── ENV setup — before garmin_config import (v1.7.0.3) ───────────────────
+# garmin_config.BASE_DIR (and everything derived from it: LOG_DIR, RAW_DIR,
+# SUMMARY_DIR, CONTEXT_DIR, ...) is resolved once at import time from
+# GARMIN_OUTPUT_DIR alone — same caching-at-import-time behaviour
+# scheduler/daily_update.py already documents and works around at its own
+# Schritt 3 ("Gap detection needs garmin_quality which needs garmin_config
+# which reads ENVs. Set a minimal ENV first so quality log path resolves
+# correctly."). Without this, a standalone mcp_server.exe (no GLA process
+# ahead of it to set GARMIN_OUTPUT_DIR) falls through to BASE_DIR's
+# hardcoded default (~/local_archive) for every archive read — while
+# garmin_config.MCP_BASE_DIR (used only for this module's own operational-
+# log path and the GUI's Archive-path display, see mcp_server_gui.py)
+# resolves correctly from the same config file, producing a silent
+# divergence between what is shown and what is actually read
+# (NOTES_v1.7.0.3.md — device_table read failure was the first symptom
+# that surfaced this).
+#
+# Reads MCP_SERVER_CONFIG_FILE directly rather than importing garmin_config
+# first and reading cfg.MCP_BASE_DIR — the whole point is to set the ENV
+# var *before* that import, not after. This narrowly duplicates three
+# lines of garmin_config._read_mcp_server_config()'s fallback shape;
+# unavoidable, since garmin_config is not importable yet at this point.
+# Guarded by "not already set" so an external GARMIN_OUTPUT_DIR (e.g. a
+# future in-process/shared-environment scenario) always wins over the
+# config file, same ENV > file > default precedence used everywhere else
+# in this project.
+if "GARMIN_OUTPUT_DIR" not in os.environ:
+    _mcp_config_path = Path.home() / ".garmin_mcp_server_config.json"
+    try:
+        _saved_config = json.loads(_mcp_config_path.read_text(encoding="utf-8"))
+        _saved_base_dir = _saved_config.get("base_dir")
+        if _saved_base_dir:
+            os.environ["GARMIN_OUTPUT_DIR"] = _saved_base_dir
+    except (FileNotFoundError, ValueError):
+        pass
+
+import garmin_config as cfg  # noqa: E402 — after path/logging/ENV setup
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402 — after path/logging setup
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
