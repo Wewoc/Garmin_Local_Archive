@@ -378,6 +378,12 @@ from maps.gateway_map import get_metadata
 
 result = get_metadata("stats")
 # result == {"data": {...}, "error": None}
+
+result = get_metadata("quality_log", date_from="2026-08-01", date_to="2026-08-27")
+# result == {"data": {...filtered...}, "error": None}
+# (v1.7.0.4) date_from/date_to only affect five of the nine kinds — see
+# mcp_map.py's get_archive_metadata() below for the full list and the
+# 30-day default behaviour when neither is given.
 ```
 
 `fit_map.py` (v1.8) is planned as a peer to `health_map.py` and
@@ -433,9 +439,18 @@ query_fit_activities(field, date_from, date_to, resolution="daily") -> dict
 query_raw(field, date_from, date_to, domain=None) -> dict
 # gateway_map.get_raw() result + "_meta" key added
 
-get_archive_metadata(kind) -> dict
-# gateway_map.get_metadata(kind) result, unchanged — no "_meta": metadata_map's
-# data is not date-range based, nothing to build a weekday table from
+get_archive_metadata(kind, date_from=None, date_to=None) -> dict
+# gateway_map.get_metadata(kind, date_from, date_to) result, unchanged —
+# no "_meta" weekday block here either way, that concept is specific to
+# the time-series query_*() functions above. date_from/date_to (v1.7.0.4)
+# are a plain date-RANGE FILTER, not the same thing as a time-series
+# "resolution" — only five of the nine kinds honor them ("quality_log",
+# "source_api_log", "daily_logs", "fail_logs", "recent_logs"); the other
+# four ("stats", "device_table", "token_log", "capability_config")
+# silently ignore both arguments. Omitting both on a filterable kind
+# returns the last 30 days (anchored on the latest available date, not
+# on today) plus a "note" field in the result explaining that, rather
+# than the previous unfiltered full-archive dump.
 
 list_available_fields(domain=None) -> dict
 # {"domains": [...], "metadata_kinds": [...],
