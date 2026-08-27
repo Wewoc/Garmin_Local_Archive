@@ -359,6 +359,23 @@ class PanelMcp(QWidget):
         save_row.addStretch()
         outer.addLayout(save_row)
 
+        # v1.7.1 — first-start hint. The SQLite proxy syncs synchronously
+        # before the server becomes reachable (clients/mcp_update.py::
+        # sync_all(), called from clients/mcp_server.py's
+        # _run_startup_sync()) — on the very first start, or after a long
+        # idle period with a large pending delta, this can take a while.
+        # Static text rather than conditional on archive size — this
+        # panel has no cheap way to know the pending delta size before
+        # the server process itself computes it.
+        first_start_hint = QLabel(
+            "First start (or a long gap since the last one) may take a "
+            "while — the server builds/updates its local SQLite cache before "
+            "it starts answering.")
+        first_start_hint.setFont(QFont("Segoe UI", 8))
+        first_start_hint.setStyleSheet(f"color: {self._app.TEXT};")
+        first_start_hint.setWordWrap(True)
+        outer.addWidget(first_start_hint)
+
         outer.addStretch()
 
     # ── Settings passthrough ─────────────────────────────────────────────────
@@ -564,3 +581,7 @@ class PanelMcp(QWidget):
             return
 
         self._app._log(f"✓ MCP server starting ({' '.join(cmd)}).")
+        self._app._log(
+            "  First start (or a long gap since the last one) may take "
+            "a while — the server is building/updating its local cache "
+            "before it starts answering.")

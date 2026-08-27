@@ -331,37 +331,38 @@ adds on top of the routing correctness already covered by `test_broker.py`:
 delegation to `gateway_map`, `_meta`-block construction (ISO + human-readable
 dates, per-calendar-day weekday table), and the clean FIT-degraded path.
 Deliberately named `test_mcp.py`, not `test_mcp_map.py` — a growing
-collection file for the whole MCP layer, since `clients/mcp_server.py`
-(v1.7 Teilbauauftrag b) and the v1.7.1 SQLite Proxy are expected to add
-their own sections here rather than spawning further narrowly-named test
-files. Check and section totals are tracked in `docs/METRICS.md`
-(`test_mcp.py`) — not restated here to avoid drift.
+collection file for the whole MCP layer; `clients/mcp_server.py`
+(v1.7 Teilbauauftrag b) and the v1.7.1 SQLite Proxy (`clients/mcp_sql.py`,
+`clients/mcp_update.py`) both added their sections here rather than
+spawning further narrowly-named test files, as anticipated. Check and
+section totals are tracked in `docs/METRICS.md` (`test_mcp.py`) — not
+restated here to avoid drift.
 
-Run after any change to: `maps/mcp_map.py`, `gateway_map` (routing target),
-`garmin_config.py` (Section 8 mocks `clients/mcp_server.py`, which now
-imports `garmin_config` — v1.7 Teilbauauftrag c).
+Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
+`gateway_map` (routing targets), `clients/mcp_sql.py`,
+`clients/mcp_update.py` (v1.7.1 — `test_mcp.py` mocks
+`mcp_update.sync_all` in its `refresh_cache()` delegation check, does not
+exercise a real SQLite connection), `garmin_config.py` (Section 8 mocks
+`clients/mcp_server.py`, which now imports `garmin_config` — v1.7
+Teilbauauftrag c).
 
 `clients/mcp_server.py` (v1.7 Teilbauauftrag b) has dedicated automated
-coverage as `test_mcp.py` Section 8 (registration + delegation, nine
-checks) — added within the same session as the Teilbauauftrag (b) build,
-not a separate follow-up. v1.7.0.1 added nine more checks to the same
-section — `garmin_config.MCP_HTTP_PORT`/`MCP_HEADLESS` ENV > file > default
-precedence, plus regression guards confirming `MCP_SERVER_LOCK_FILE`/
-`MCP_OLLAMA_MODEL` are gone — eighteen checks total. v1.7.0.2 added fifteen
-more, split into two new subsections: 8f (ten checks — `_parse_extra_hosts()`
-edge cases plus `MCP_EXTRA_ALLOWED_HOSTS(_ENABLED/_RAW)` ENV > file > default
-precedence) and 8g (five checks — the actual `transport_security` wiring on
-`mcp_server.mcp.settings`, both enabled and disabled) — thirty-three checks
-total, covering the Docker-reachability fix (`host.docker.internal` past the
-SDK's default DNS-rebinding host allowlist). Two of 8f/8g's checks needed
-`Path.home()` isolated to the test's own `_TMPDIR` for their reload — the
-real `~/.garmin_mcp_server_config.json` can carry `mcp_extra_hosts_enabled:
-true` from a previous manual GUI session (exactly what happened during this
-session's own live Open WebUI testing), which a naive "default is False"
-assertion would otherwise read straight through. End-to-end tool-call
-verification (a real MCP client or the MCP Inspector invoking each of the
-six registered tools) is still open — tracked as a follow-up, not a
-blocker.
+coverage as `test_mcp.py` Section 8 (registration + delegation) — added
+within the same session as the Teilbauauftrag (b) build, not a separate
+follow-up, and grown incrementally since (port/headless precedence,
+extra-allowed-hosts wiring, and — v1.7.1 — the seventh tool,
+`refresh_cache()`, plus a new Section 6b covering `mcp_map.py`'s three
+filename-only functions used exclusively by `clients/mcp_update.py`'s
+sync, deliberately not registered as MCP tools). Exact check counts:
+see `docs/METRICS.md`, not restated here. Two of the extra-allowed-hosts
+checks needed `Path.home()` isolated to the test's own `_TMPDIR` for
+their reload — the real `~/.garmin_mcp_server_config.json` can carry
+`mcp_extra_hosts_enabled: true` from a previous manual GUI session
+(exactly what happened during that session's own live Open WebUI
+testing), which a naive "default is False" assertion would otherwise
+read straight through. End-to-end tool-call verification (a real MCP
+client or the MCP Inspector invoking each of the seven registered tools)
+is still open — tracked as a follow-up, not a blocker.
 
 `clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
 (c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in

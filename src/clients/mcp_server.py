@@ -266,6 +266,20 @@ from mcp.server.transport_security import TransportSecuritySettings  # noqa: E40
 
 from maps import mcp_map  # noqa: E402 — after path/logging setup
 
+# Absolute import, not "from . import mcp_update" (v1.7.1 fix) —
+# mcp_server.py is invoked as a standalone script
+# (python clients/mcp_server.py, or mcp_server.exe under T3.3), not
+# imported as part of a package, so __package__ is empty at this point
+# and a relative import raises "attempted relative import with no
+# known parent package" (confirmed via test_all run, 2026-08-27). The
+# clients/ directory is already reachable on sys.path — the same
+# implicit sys.path[0] = script-directory mechanism the module
+# docstring already documents for mcp_server_gui.py's own lazy import
+# further down (see "Startup mode" in the module docstring above) —
+# so a flat "import mcp_update" resolves the same way, no additional
+# path setup needed.
+import mcp_update  # noqa: E402 — after path/logging setup, v1.7.1
+
 
 def _setup_boot_log() -> logging.FileHandler:
     """Attaches a FileHandler next to MCP_SERVER_CONFIG_FILE
@@ -343,6 +357,34 @@ def _cloud_llm_config_available() -> bool:
         return False
     return bool(data.get("provider")) and bool(data.get("api_key")) \
         and bool(data.get("model"))
+
+
+def _run_startup_sync() -> None:
+    """
+    SQLite proxy boot sync (v1.7.1) — runs synchronously, blocking,
+    before mcp.run() is reached on either startup path (headless or
+    windowed). A single named function called once from main(), before
+    the MCP_HEADLESS branch — both _run_headless() below and
+    mcp_server_gui.py::run_gui() (called from the windowed branch) then
+    proceed unchanged afterwards, so this logic lives in exactly one
+    place rather than being duplicated into mcp_server_gui.py (Timo
+    decision, NOTES_v1.7.1_session2.md).
+
+    Result is logged only — the LLM is not connected yet at this point
+    in either startup path (mcp.run() has not been reached). The same
+    mcp_update.sync_all() mechanism, called again later via the
+    refresh_cache() tool below, returns its result directly to the LLM
+    instead — one mechanism, two callers, no second code path (binding
+    decision from NOTES_v1.7.1_vorbereitung.md).
+
+    A failure here is not caught — an unusable SQLite cache at boot is
+    surfaced immediately in the boot log rather than silently starting
+    an MCP server whose refresh_cache() tool would then also fail on
+    first use.
+    """
+    logger.info("Starting SQLite proxy boot sync...")
+    result = mcp_update.sync_all()
+    logger.info("Boot sync complete: %s", result)
 
 
 # Same three localhost patterns the mcp SDK (mcp.server.fastmcp.server,
@@ -445,6 +487,17 @@ def list_available_fields(domain: str | None = None) -> dict:
     return mcp_map.list_available_fields(domain)
 
 
+@mcp.tool()
+def refresh_cache() -> dict:
+    """Manually trigger a SQLite cache sync against the archive — use
+    this if recent archive changes (a sync just run, a backfill/recheck
+    just completed) might not yet be reflected in query results. Runs
+    the same sync the server already performs automatically at startup.
+    May take a while on a large pending delta (long idle period since
+    the last sync) — this call blocks until the sync finishes."""
+    return mcp_update.sync_all()
+
+
 def _run_headless(boot_handler: logging.FileHandler) -> None:
     """garmin_config.MCP_HEADLESS=true path (v1.7.0.1) — no Tkinter
     window at all, the server runs directly on this thread. Analogous
@@ -489,6 +542,12 @@ def main() -> None:
             "cloud backend not usable, Ollama remains the fallback",
             cfg.MCP_LLM_CONFIG_FILE,
         )
+
+    # v1.7.1 — SQLite proxy boot sync. Runs before either startup path
+    # below (headless or windowed) reaches mcp.run() — see
+    # _run_startup_sync()'s own docstring for why this sits here rather
+    # than inside _run_headless() or mcp_server_gui.py::run_gui().
+    _run_startup_sync()
 
     if cfg.MCP_HEADLESS:
         _run_headless(boot_handler)

@@ -247,6 +247,35 @@ def _filter_log_files(dir_path: Path, date_from: str | None,
     return result, note
 
 
+def _list_filtered_log_filenames(dir_path: Path, date_from: str | None,
+                                  date_to: str | None) -> tuple[list[dict], str | None]:
+    """
+    Shared implementation for list_daily_log_filenames/
+    list_fail_log_filenames/list_recent_log_filenames (v1.7.1) — sibling
+    to _read_filtered_log_dir() below, same _filter_log_files() filtering
+    core, but returns filenames + their parsed filename-date instead of
+    reading and sanitizing file contents. Intended for internal sync
+    bookkeeping (clients/mcp_update.py's SQLite proxy), which needs to
+    know which log files exist without paying the cost of reading and
+    sanitizing every line of every file on each sync pass.
+
+    Returns (entries, note) — note is None unless the 30-day default
+    was applied (see _filter_log_files()). entries is a list of
+    {"filename": str, "log_date": str} dicts, one per matching file,
+    in the same filename-sorted order _filter_log_files() already
+    produces — log_date is the filename-encoded date already extracted
+    by _filter_log_files() internally, not the file's mtime (mtime could
+    be altered by a mirror/restore operation; the filename-encoded date
+    cannot).
+    """
+    files, note = _filter_log_files(dir_path, date_from, date_to)
+    entries = [
+        {"filename": f.name, "log_date": _LOG_FILENAME_DATE_RE.search(f.name).group(1)}
+        for f in files
+    ]
+    return entries, note
+
+
 def _read_filtered_log_dir(dir_path: Path, date_from: str | None,
                             date_to: str | None) -> tuple[list[str], str | None]:
     """
@@ -433,6 +462,81 @@ def get_recent_logs(date_from: str | None = None,
     """
     try:
         data, note = _read_filtered_log_dir(cfg.LOG_RECENT_DIR, date_from, date_to)
+        result = {"data": data, "error": None}
+        if note is not None:
+            result["note"] = note
+        return result
+    except Exception as exc:
+        return {"data": None, "error": str(exc)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Filename-only introspection — internal sync use (v1.7.1), not part of
+#  the nine LLM-facing functions above. NOT registered as an MCP tool —
+#  clients/mcp_update.py (SQLite proxy sync) calls these via
+#  maps/mcp_map.py as plain Python functions to learn which log files
+#  exist without reading their content, so it can diff its own SQLite
+#  cache's known filenames against the archive's actual ones. See
+#  KONZEPT_mcp_sqlite_proxy_V2.md / NOTES_v1.7.1_session2.md for the
+#  full rationale (get_daily_logs() etc. return a flat sanitized line
+#  list with no per-file attribution, which is not enough to populate a
+#  filename-keyed SQLite table).
+# ══════════════════════════════════════════════════════════════════════════════
+
+def list_daily_log_filenames(date_from: str | None = None,
+                              date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of *.log files in
+    garmin_data/log/daily/, optionally narrowed to a date range — same
+    file-level filtering as get_daily_logs(), see
+    _list_filtered_log_filenames(). date_from/date_to are ISO
+    "YYYY-MM-DD", inclusive on both ends. With neither given, defaults
+    to the last 30 days and adds a "note" field — see module docstring.
+    Content-free by design: use get_daily_logs() to read the actual
+    sanitized lines once a relevant filename has been identified.
+    """
+    try:
+        data, note = _list_filtered_log_filenames(cfg.LOG_DAILY_DIR, date_from, date_to)
+        result = {"data": data, "error": None}
+        if note is not None:
+            result["note"] = note
+        return result
+    except Exception as exc:
+        return {"data": None, "error": str(exc)}
+
+
+def list_fail_log_filenames(date_from: str | None = None,
+                             date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of *.log files in
+    garmin_data/log/fail/, optionally narrowed to a date range — same
+    file-level filtering as get_fail_logs(), see
+    _list_filtered_log_filenames(). date_from/date_to are ISO
+    "YYYY-MM-DD", inclusive on both ends. With neither given, defaults
+    to the last 30 days and adds a "note" field — see module docstring.
+    """
+    try:
+        data, note = _list_filtered_log_filenames(cfg.LOG_FAIL_DIR, date_from, date_to)
+        result = {"data": data, "error": None}
+        if note is not None:
+            result["note"] = note
+        return result
+    except Exception as exc:
+        return {"data": None, "error": str(exc)}
+
+
+def list_recent_log_filenames(date_from: str | None = None,
+                               date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of *.log files in
+    garmin_data/log/recent/, optionally narrowed to a date range — same
+    file-level filtering as get_recent_logs(), see
+    _list_filtered_log_filenames(). date_from/date_to are ISO
+    "YYYY-MM-DD", inclusive on both ends. With neither given, defaults
+    to the last 30 days and adds a "note" field — see module docstring.
+    """
+    try:
+        data, note = _list_filtered_log_filenames(cfg.LOG_RECENT_DIR, date_from, date_to)
         result = {"data": data, "error": None}
         if note is not None:
             result["note"] = note

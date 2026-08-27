@@ -149,15 +149,28 @@ _METADATA_KINDS = {
     "daily_logs":         metadata_map.get_daily_logs,
     "fail_logs":          metadata_map.get_fail_logs,
     "recent_logs":        metadata_map.get_recent_logs,
+    # v1.7.1 — filename-only introspection for the SQLite proxy's
+    # internal sync (clients/mcp_update.py). Not part of the original
+    # nine LLM-facing kinds; registered here anyway so the single
+    # broker entry point (mcp_map -> gateway_map -> metadata_map,
+    # see NOTES_v1.7.1_session2.md) is not bypassed even for an
+    # internal-only consumer. See metadata_map.py's own docstring on
+    # these three functions for the full rationale.
+    "daily_log_filenames":  metadata_map.list_daily_log_filenames,
+    "fail_log_filenames":   metadata_map.list_fail_log_filenames,
+    "recent_log_filenames": metadata_map.list_recent_log_filenames,
 }
 
-# Kinds whose metadata_map function accepts date_from/date_to (v1.7.0.4).
-# Kept as an explicit set here, rather than giving all nine functions the
-# same parameter, so the four unaffected functions (stats, device_table,
-# token_log, capability_config) keep their original, parameterless
-# signature exactly as-is — see module docstring.
+# Kinds whose metadata_map function accepts date_from/date_to (v1.7.0.4;
+# extended v1.7.1 for the three filename-only kinds above, which take
+# the identical date_from/date_to range filter as their get_*_logs()
+# siblings). Kept as an explicit set here, rather than giving every
+# function the same parameter, so the four unaffected functions (stats,
+# device_table, token_log, capability_config) keep their original,
+# parameterless signature exactly as-is — see module docstring.
 _DATE_FILTERABLE_KINDS = {
     "quality_log", "source_api_log", "daily_logs", "fail_logs", "recent_logs",
+    "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
 }
 
 
