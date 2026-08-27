@@ -378,6 +378,26 @@ from maps.gateway_map import get_metadata
 
 result = get_metadata("stats")
 # result == {"data": {...}, "error": None}
+
+result = get_metadata("quality_log", date_from="2026-08-01", date_to="2026-08-27")
+# result == {"data": {...filtered...}, "error": None}
+# (v1.7.0.4) date_from/date_to only affect eight of the twelve kinds — see
+# mcp_map.py's get_archive_metadata() below for the full list and the
+# 30-day default behaviour when neither is given.
+
+# v1.7.1 — three filename-only kinds, internal sync use only, never
+# exposed as their own MCP tool: "daily_log_filenames",
+# "fail_log_filenames", "recent_log_filenames". Same
+# {"data": [{"filename": str, "log_date": str}, ...], "error": ...}
+# envelope and date-range-filter/30-day-default behaviour as their
+# get_daily_logs()/get_fail_logs()/get_recent_logs() content-reading
+# siblings — content-free by design, used exclusively by
+# clients/mcp_update.py's SQLite proxy sync to learn which log files
+# exist without reading them. Reachable via mcp_map.py's own
+# list_daily_log_filenames()/list_fail_log_filenames()/
+# list_recent_log_filenames() wrappers (see mcp_map.py section below),
+# not through get_archive_metadata() — that MCP tool intentionally still
+# only exposes the original nine kinds to the LLM.
 ```
 
 `fit_map.py` (v1.8) is planned as a peer to `health_map.py` and
@@ -433,13 +453,36 @@ query_fit_activities(field, date_from, date_to, resolution="daily") -> dict
 query_raw(field, date_from, date_to, domain=None) -> dict
 # gateway_map.get_raw() result + "_meta" key added
 
-get_archive_metadata(kind) -> dict
-# gateway_map.get_metadata(kind) result, unchanged — no "_meta": metadata_map's
-# data is not date-range based, nothing to build a weekday table from
+get_archive_metadata(kind, date_from=None, date_to=None) -> dict
+# gateway_map.get_metadata(kind, date_from, date_to) result, unchanged —
+# no "_meta" weekday block here either way, that concept is specific to
+# the time-series query_*() functions above. date_from/date_to (v1.7.0.4)
+# are a plain date-RANGE FILTER, not the same thing as a time-series
+# "resolution" — only five of the nine kinds honor them ("quality_log",
+# "source_api_log", "daily_logs", "fail_logs", "recent_logs"); the other
+# four ("stats", "device_table", "token_log", "capability_config")
+# silently ignore both arguments. Omitting both on a filterable kind
+# returns the last 30 days (anchored on the latest available date, not
+# on today) plus a "note" field in the result explaining that, rather
+# than the previous unfiltered full-archive dump.
 
 list_available_fields(domain=None) -> dict
 # {"domains": [...], "metadata_kinds": [...],
 #  "fields": {"health": {...}, "context": {...}, "fit": []}}
+
+# v1.7.1 — internal sync use only, NOT registered as MCP tools in
+# clients/mcp_server.py (deliberately — clients/mcp_update.py is the
+# only intended caller, an LLM has no use for a raw filename list). Same
+# thin-delegation, no-"_meta"-block pattern as get_archive_metadata()
+# above.
+list_daily_log_filenames(date_from=None, date_to=None) -> dict
+# gateway_map.get_metadata("daily_log_filenames", date_from, date_to)
+
+list_fail_log_filenames(date_from=None, date_to=None) -> dict
+# gateway_map.get_metadata("fail_log_filenames", date_from, date_to)
+
+list_recent_log_filenames(date_from=None, date_to=None) -> dict
+# gateway_map.get_metadata("recent_log_filenames", date_from, date_to)
 ```
 
 **`_meta` block** — attached to every date-ranged query response
@@ -479,14 +522,23 @@ raises for data-availability reasons:
 - `get_archive_metadata()` raises `ValueError` if `kind` is not a known
   metadata kind — passed through unchanged from `gateway_map.get_metadata()`.
 
-**Consumer:** `clients/mcp_server.py` (v1.7 Teilbauauftrag b) — standalone
-MCP server process, streamable-http transport (`mcp>=1.28,<2`, v1.7.0.1 —
-replaces the earlier stdio transport). Registers all six
-functions above as MCP tools via `@mcp.tool()`, same names, same
-signatures. No error-translation code in `mcp_server.py` itself — the MCP
-SDK automatically converts any uncaught exception raised inside a
-`@mcp.tool()`-decorated function into `CallToolResult(isError=True, ...)`
-with `str(exception)` as the message, so the two `ValueError` cases above
-reach the MCP client without `mcp_map.py` or `mcp_server.py` doing any
-translation work. Degraded `{"error": ...}` results are ordinary tool
-payloads — `isError` stays `False`.
+**Consumer:** `clients/mcp_server.py` (v1.7 Teilbauauftrag b, extended
+v1.7.1) — standalone MCP server process, streamable-http transport
+(`mcp>=1.28,<2`, v1.7.0.1 — replaces the earlier stdio transport).
+Registers the original six functions above as MCP tools via
+`@mcp.tool()`, same names, same signatures, plus a seventh,
+`refresh_cache()` (v1.7.1, manual SQLite-proxy sync trigger — see
+`KONZEPT_mcp_sqlite_proxy_V2.md`), which does not live in `mcp_map.py`
+at all — it delegates directly to `clients/mcp_update.py::sync_all()`.
+The three `list_*_log_filenames()` functions immediately above are
+**not** part of either group — `mcp_map.py` exposes them for
+`clients/mcp_update.py`'s own internal use, but `mcp_server.py`
+deliberately does not register them as MCP tools (nine `mcp_map.py`
+functions total; seven MCP tools total). No error-translation code in
+`mcp_server.py` itself — the MCP SDK automatically converts any
+uncaught exception raised inside a `@mcp.tool()`-decorated function into
+`CallToolResult(isError=True, ...)` with `str(exception)` as the message,
+so the two `ValueError` cases above reach the MCP client without
+`mcp_map.py` or `mcp_server.py` doing any translation work. Degraded
+`{"error": ...}` results are ordinary tool payloads — `isError` stays
+`False`.

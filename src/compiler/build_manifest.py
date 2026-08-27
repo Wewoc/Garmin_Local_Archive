@@ -83,6 +83,8 @@ SHARED_SCRIPTS = [
     "clients/ollama_client.py",
     "clients/mcp_server.py",
     "clients/mcp_server_gui.py",
+    "clients/mcp_sql.py",
+    "clients/mcp_update.py",
     # maps (routing only)
     "maps/__init__.py",
     "maps/health_map.py",
@@ -207,6 +209,8 @@ SCRIPT_SIGNATURES_BASE = {
     "clients/ollama_client.py": ["def chat", "def list_models", "def is_reachable"],
     "clients/mcp_server.py": ["def main"],
     "clients/mcp_server_gui.py": ["def run_gui"],
+    "clients/mcp_sql.py": ["def init_db", "def get_connection"],
+    "clients/mcp_update.py": ["def sync_all"],
 }
 # ── Docs ──────────────────────────────────────────────────────────────────────
 

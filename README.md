@@ -7,7 +7,8 @@
 **[↓ Dashboards](#how-it-works)** — HRV, sleep, Body Battery, stress, intraday timeseries  
 **[↓ Bulk Import](#recovering-your-history--bulk-import)** — recover your full Garmin history from a GDPR export  
 **[↓ AI chat](#step-11--ai-assisted-analysis-optional)** — built-in Ollama chat, plus Open WebUI / AnythingLLM for advanced RAG  
-**[↓ Architecture](#what-is-included)** — pipeline overview, all modules  
+**[↓ MCP Server](#mcp-server)** — local LLM tool access via Claude Desktop, Open WebUI, or any MCP client — query your archive directly, no export step  
+**[↓ Architecture](#what-is-included)** — pipeline overview, all modules
 
 **Platform:** Windows · **No cloud** · **No subscription** · **No Python needed** · **Standalone EXE**
 
@@ -403,8 +404,10 @@ and usage examples: [`docs/REFERENCE_BROKER.md`](docs/REFERENCE_BROKER.md).
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — used exclusively by `app/panel_chat.py`. (v1.6.6) |
 | `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
 | `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
-| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). (v1.7) |
+| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
+| `clients/mcp_sql.py` | SQLite aggregation-cache access layer for the MCP server (v1.7.1) — a local, always-reconstructible cache that speeds up date-range queries over the archive. Pure consumer, never a source: `garmin_backup.py`/`garmin_mirror.py` never touch it, and a lost cache file just triggers a rebuild on the next sync. |
+| `clients/mcp_update.py` | Delta-sync logic for the SQLite cache above (v1.7.1) — runs automatically at server startup and on demand via the `refresh_cache()` MCP tool, so an LLM can ask for fresher data without restarting the server. |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation |

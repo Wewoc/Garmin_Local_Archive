@@ -143,19 +143,99 @@ def query_raw(field: str, date_from: str, date_to: str,
     return result
 
 
-def get_archive_metadata(kind: str) -> dict:
+def get_archive_metadata(kind: str, date_from: str | None = None,
+                          date_to: str | None = None) -> dict:
     """
     Request an archive-state metadata artefact (coverage stats, device
     table, quality log, raw logs, etc.). Thin delegation to
-    gateway_map.get_metadata(kind). No "_meta" timestamp block here —
-    metadata_map's data is not date-range based, there is nothing to
-    build a weekday table from.
+    gateway_map.get_metadata(kind, date_from, date_to). No "_meta"
+    timestamp/weekday block here — that block is built for time-series
+    query results (query_health/query_context/query_fit_activities/
+    query_raw), which is a different concept from the plain date-range
+    filter five of the nine metadata kinds gained in v1.7.0.4 (see
+    gateway_map.get_metadata()'s docstring).
+
+    Use "stats" for a quick overview of archive coverage/quality
+    (total/high/standard/failed counts, date range, coverage percentage)
+    — "quality_log" returns the full per-day register instead, which
+    even filtered to a date range is the wrong tool for a "how big is
+    my archive" or "how healthy is my data overall" question.
+
+    Args:
+        kind:       One of gateway_map.list_metadata_kinds().
+        date_from:  Optional ISO "YYYY-MM-DD", inclusive. Only affects
+                    "quality_log", "source_api_log", "daily_logs",
+                    "fail_logs", "recent_logs" — silently ignored for
+                    the other four kinds. Omitting both date_from and
+                    date_to on one of the five date-filterable kinds
+                    returns the last 30 days plus a "note" field, not
+                    the full unfiltered archive.
+        date_to:    Optional ISO "YYYY-MM-DD", inclusive. Same rule as
+                    date_from.
 
     Raises:
         ValueError: if kind is not a known metadata kind — passed
                     through unchanged from gateway_map.get_metadata().
     """
-    return gateway_map.get_metadata(kind)
+    return gateway_map.get_metadata(kind, date_from=date_from, date_to=date_to)
+
+
+def list_daily_log_filenames(date_from: str | None = None,
+                              date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of daily-sync log files —
+    internal sync bookkeeping (v1.7.1), NOT registered as an MCP tool
+    in clients/mcp_server.py. Thin delegation to
+    gateway_map.get_metadata("daily_log_filenames", date_from, date_to).
+    Same no-"_meta" reasoning as get_archive_metadata() above — a plain
+    date-range filter, not a time-series query.
+
+    Used exclusively by clients/mcp_update.py's SQLite proxy sync to
+    learn which log files exist in garmin_data/log/daily/ without
+    reading their content, so it can diff its own cache's known
+    filenames against the archive's actual ones — see
+    metadata_map.py's list_daily_log_filenames() for the full
+    rationale (get_daily_logs() alone returns a flat sanitized line
+    list with no per-file attribution, insufficient for this purpose).
+
+    Args:
+        date_from:  Optional ISO "YYYY-MM-DD", inclusive. Omitting both
+                    date_from and date_to returns the last 30 days plus
+                    a "note" field, not the full archive history.
+        date_to:    Optional ISO "YYYY-MM-DD", inclusive. Same rule as
+                    date_from.
+
+    Raises:
+        ValueError: passed through unchanged from
+                    gateway_map.get_metadata() — not expected in
+                    practice since "daily_log_filenames" is always a
+                    known kind.
+    """
+    return gateway_map.get_metadata("daily_log_filenames", date_from=date_from, date_to=date_to)
+
+
+def list_fail_log_filenames(date_from: str | None = None,
+                             date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of fail-log files — internal
+    sync bookkeeping (v1.7.1), NOT registered as an MCP tool. Same
+    rationale and shape as list_daily_log_filenames() above, only
+    dir_path differs (garmin_data/log/fail/). Thin delegation to
+    gateway_map.get_metadata("fail_log_filenames", date_from, date_to).
+    """
+    return gateway_map.get_metadata("fail_log_filenames", date_from=date_from, date_to=date_to)
+
+
+def list_recent_log_filenames(date_from: str | None = None,
+                               date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of recent-log files — internal
+    sync bookkeeping (v1.7.1), NOT registered as an MCP tool. Same
+    rationale and shape as list_daily_log_filenames() above, only
+    dir_path differs (garmin_data/log/recent/). Thin delegation to
+    gateway_map.get_metadata("recent_log_filenames", date_from, date_to).
+    """
+    return gateway_map.get_metadata("recent_log_filenames", date_from=date_from, date_to=date_to)
 
 
 def list_available_fields(domain: str | None = None) -> dict:

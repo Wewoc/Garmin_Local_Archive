@@ -214,6 +214,37 @@ check("list_available_fields domain=health: only health key in fields",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  6b. list_*_log_filenames() — v1.7.1, internal sync use only
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("mcp_map 6b. list_*_log_filenames() — delegation, not registered as tools")
+
+# These three exist solely for clients/mcp_update.py's internal sync
+# bookkeeping (see metadata_map.py's own docstring) and are deliberately
+# NOT registered as MCP tools in clients/mcp_server.py (verified
+# separately in Section 8a's exact-seven-tools check) — this section
+# only confirms mcp_map.py's own thin-wrapper delegation, same pattern
+# as Section 5's get_archive_metadata() coverage above.
+
+check("list_daily_log_filenames: returns data/error envelope",
+      isinstance(mcp_map.list_daily_log_filenames(), dict) and
+      "data" in mcp_map.list_daily_log_filenames() and
+      "error" in mcp_map.list_daily_log_filenames())
+check("list_daily_log_filenames: delegates unchanged to gateway_map",
+      mcp_map.list_daily_log_filenames() ==
+      gateway_map.get_metadata("daily_log_filenames"))
+check("list_fail_log_filenames: delegates unchanged to gateway_map",
+      mcp_map.list_fail_log_filenames() ==
+      gateway_map.get_metadata("fail_log_filenames"))
+check("list_recent_log_filenames: delegates unchanged to gateway_map",
+      mcp_map.list_recent_log_filenames() ==
+      gateway_map.get_metadata("recent_log_filenames"))
+check("list_daily_log_filenames: date_from/date_to forwarded",
+      mcp_map.list_daily_log_filenames(date_from="2026-06-15", date_to="2026-06-16") ==
+      gateway_map.get_metadata("daily_log_filenames", date_from="2026-06-15", date_to="2026-06-16"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  7. _build_meta() — weekday table correctness
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -264,11 +295,16 @@ import asyncio
 _registered_tools = asyncio.run(mcp_server.mcp.list_tools())
 _registered_names = {t.name for t in _registered_tools}
 
-check("mcp_server: exactly six tools registered", len(_registered_tools) == 6)
-check("mcp_server: registered tool names match mcp_map.py 1:1",
+# v1.7.1 — refresh_cache() added as a seventh tool (SQLite proxy manual
+# sync trigger). list_daily_log_filenames()/list_fail_log_filenames()/
+# list_recent_log_filenames() are deliberately NOT registered here —
+# internal sync-only functions, see NOTES_v1.7.1_session2.md.
+check("mcp_server: exactly seven tools registered", len(_registered_tools) == 7)
+check("mcp_server: registered tool names match mcp_map.py 1:1, plus refresh_cache",
       _registered_names == {
           "query_health", "query_context", "query_fit_activities",
           "query_raw", "get_archive_metadata", "list_available_fields",
+          "refresh_cache",
       })
 
 # ── 8b. Delegation — each wrapper calls the matching mcp_map function ─────────
@@ -303,10 +339,33 @@ with patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}) a
     _m.assert_called_once_with("floors", "2000-01-01", "2000-01-01", domain="health")
 check("mcp_server.query_raw: delegates to mcp_map.query_raw unchanged", True)
 
+# v1.7.1 — refresh_cache() delegates to mcp_update.sync_all(), mocked
+# here rather than exercised for real: a real call would open a live
+# SQLite connection and bind garmin_config.MCP_HTTP_PORT
+# (clients/mcp_sql.py / clients/mcp_update.py's own concern, out of
+# scope for this delegation-only test — see NOTES_v1.7.1_session2.md's
+# "mcp_sql.py throws, mcp_update.py catches" split for where that
+# behaviour is actually tested).
+with patch("mcp_update.sync_all", return_value={"health_days_updated": 3}) as _m:
+    _result = mcp_server.refresh_cache()
+    _m.assert_called_once_with()
+check("mcp_server.refresh_cache: delegates to mcp_update.sync_all unchanged",
+      _result == {"health_days_updated": 3})
+
+# v1.7.0.4: mcp_server.get_archive_metadata() now always forwards
+# date_from/date_to as keyword arguments (None when the caller omitted
+# them) — the assertion below reflects that, rather than the bare
+# single-argument call this wrapper made before date-range filtering
+# existed.
 with patch("maps.mcp_map.get_archive_metadata", return_value={"data": {}, "error": None}) as _m:
     mcp_server.get_archive_metadata("stats")
-    _m.assert_called_once_with("stats")
+    _m.assert_called_once_with("stats", date_from=None, date_to=None)
 check("mcp_server.get_archive_metadata: delegates to mcp_map.get_archive_metadata unchanged", True)
+
+with patch("maps.mcp_map.get_archive_metadata", return_value={"data": {}, "error": None}) as _m:
+    mcp_server.get_archive_metadata("quality_log", date_from="2026-06-01", date_to="2026-06-30")
+    _m.assert_called_once_with("quality_log", date_from="2026-06-01", date_to="2026-06-30")
+check("mcp_server.get_archive_metadata: forwards explicit date_from/date_to unchanged", True)
 
 with patch("maps.mcp_map.list_available_fields", return_value={"domains": [], "metadata_kinds": [], "fields": {}}) as _m:
     mcp_server.list_available_fields(domain="health")
