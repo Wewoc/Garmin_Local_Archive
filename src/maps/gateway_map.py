@@ -41,6 +41,17 @@ time-series get()/domain concept. See metadata_map.py's own docstring
 for the full rationale. Nine kinds currently registered — see
 _METADATA_KINDS.
 
+Date-range filtering (v1.7.0.4): five of the nine kinds (quality_log,
+source_api_log, daily_logs, fail_logs, recent_logs) accept optional
+date_from/date_to, passed through to the corresponding metadata_map
+function. The other four (stats, device_table, token_log,
+capability_config) do not — see _DATE_FILTERABLE_KINDS below, which
+get_metadata() consults to decide whether to pass the date arguments
+through or call the function the original, parameterless way. This
+keeps the four unaffected functions' call signature completely
+untouched rather than giving every metadata_map function a date_from/
+date_to parameter it would silently ignore.
+
 Usage (from a cross-domain consumer):
     from maps.gateway_map import get as gateway_get
     result = gateway_get("hrv_last_night", "2026-01-01", "2026-03-31")
@@ -140,6 +151,15 @@ _METADATA_KINDS = {
     "recent_logs":        metadata_map.get_recent_logs,
 }
 
+# Kinds whose metadata_map function accepts date_from/date_to (v1.7.0.4).
+# Kept as an explicit set here, rather than giving all nine functions the
+# same parameter, so the four unaffected functions (stats, device_table,
+# token_log, capability_config) keep their original, parameterless
+# signature exactly as-is — see module docstring.
+_DATE_FILTERABLE_KINDS = {
+    "quality_log", "source_api_log", "daily_logs", "fail_logs", "recent_logs",
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Public interface
@@ -201,23 +221,38 @@ def list_domains() -> list[str]:
     return list(_DOMAIN_BROKERS.keys())
 
 
-def get_metadata(kind: str) -> dict:
+def get_metadata(kind: str, date_from: str | None = None,
+                  date_to: str | None = None) -> dict:
     """
     Request an archive-state metadata artefact from metadata_map.
 
     Separate entry point from get() because metadata_map's data is not
-    time-series based — there is no field/date_from/date_to/resolution
-    concept for archive-state snapshots (coverage stats, device table,
-    raw logs, etc.).
+    time-series based — there is no field/resolution concept for
+    archive-state snapshots (coverage stats, device table, raw logs,
+    etc.). Five kinds do support an optional date_from/date_to RANGE
+    FILTER (v1.7.0.4) — see _DATE_FILTERABLE_KINDS — which is a
+    different thing from the time-series "resolution" concept get()
+    uses; no "_meta" weekday block is built here either way.
 
     Args:
-        kind: One of the registered metadata kinds — see _METADATA_KINDS.
+        kind:       One of the registered metadata kinds — see
+                    _METADATA_KINDS.
+        date_from:  Optional ISO "YYYY-MM-DD", inclusive. Only used if
+                    kind is in _DATE_FILTERABLE_KINDS — silently ignored
+                    otherwise (same as passing it to a function that
+                    never asked for it would be, just made explicit
+                    here instead of raising a TypeError from a mismatched
+                    call).
+        date_to:    Optional ISO "YYYY-MM-DD", inclusive. Same rule as
+                    date_from.
 
     Returns:
         Whatever the corresponding metadata_map function returned:
-        {"data": ..., "error": str | None}. metadata_map never raises —
-        read/parse failures are already degraded into this shape before
-        they reach gateway_map.
+        {"data": ..., "error": str | None} — plus an optional "note"
+        key on the five date-filterable kinds when neither date_from
+        nor date_to was given (the 30-day default range was applied).
+        metadata_map never raises — read/parse failures are already
+        degraded into this shape before they reach gateway_map.
 
     Raises:
         ValueError: if kind is not a known metadata kind. This is a
@@ -229,6 +264,8 @@ def get_metadata(kind: str) -> dict:
             f"Unknown metadata kind {kind!r} — expected one of "
             f"{sorted(_METADATA_KINDS)}"
         )
+    if kind in _DATE_FILTERABLE_KINDS:
+        return _METADATA_KINDS[kind](date_from=date_from, date_to=date_to)
     return _METADATA_KINDS[kind]()
 
 

@@ -143,19 +143,41 @@ def query_raw(field: str, date_from: str, date_to: str,
     return result
 
 
-def get_archive_metadata(kind: str) -> dict:
+def get_archive_metadata(kind: str, date_from: str | None = None,
+                          date_to: str | None = None) -> dict:
     """
     Request an archive-state metadata artefact (coverage stats, device
     table, quality log, raw logs, etc.). Thin delegation to
-    gateway_map.get_metadata(kind). No "_meta" timestamp block here —
-    metadata_map's data is not date-range based, there is nothing to
-    build a weekday table from.
+    gateway_map.get_metadata(kind, date_from, date_to). No "_meta"
+    timestamp/weekday block here — that block is built for time-series
+    query results (query_health/query_context/query_fit_activities/
+    query_raw), which is a different concept from the plain date-range
+    filter five of the nine metadata kinds gained in v1.7.0.4 (see
+    gateway_map.get_metadata()'s docstring).
+
+    Use "stats" for a quick overview of archive coverage/quality
+    (total/high/standard/failed counts, date range, coverage percentage)
+    — "quality_log" returns the full per-day register instead, which
+    even filtered to a date range is the wrong tool for a "how big is
+    my archive" or "how healthy is my data overall" question.
+
+    Args:
+        kind:       One of gateway_map.list_metadata_kinds().
+        date_from:  Optional ISO "YYYY-MM-DD", inclusive. Only affects
+                    "quality_log", "source_api_log", "daily_logs",
+                    "fail_logs", "recent_logs" — silently ignored for
+                    the other four kinds. Omitting both date_from and
+                    date_to on one of the five date-filterable kinds
+                    returns the last 30 days plus a "note" field, not
+                    the full unfiltered archive.
+        date_to:    Optional ISO "YYYY-MM-DD", inclusive. Same rule as
+                    date_from.
 
     Raises:
         ValueError: if kind is not a known metadata kind — passed
                     through unchanged from gateway_map.get_metadata().
     """
-    return gateway_map.get_metadata(kind)
+    return gateway_map.get_metadata(kind, date_from=date_from, date_to=date_to)
 
 
 def list_available_fields(domain: str | None = None) -> dict:

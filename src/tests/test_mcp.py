@@ -303,10 +303,20 @@ with patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}) a
     _m.assert_called_once_with("floors", "2000-01-01", "2000-01-01", domain="health")
 check("mcp_server.query_raw: delegates to mcp_map.query_raw unchanged", True)
 
+# v1.7.0.4: mcp_server.get_archive_metadata() now always forwards
+# date_from/date_to as keyword arguments (None when the caller omitted
+# them) — the assertion below reflects that, rather than the bare
+# single-argument call this wrapper made before date-range filtering
+# existed.
 with patch("maps.mcp_map.get_archive_metadata", return_value={"data": {}, "error": None}) as _m:
     mcp_server.get_archive_metadata("stats")
-    _m.assert_called_once_with("stats")
+    _m.assert_called_once_with("stats", date_from=None, date_to=None)
 check("mcp_server.get_archive_metadata: delegates to mcp_map.get_archive_metadata unchanged", True)
+
+with patch("maps.mcp_map.get_archive_metadata", return_value={"data": {}, "error": None}) as _m:
+    mcp_server.get_archive_metadata("quality_log", date_from="2026-06-01", date_to="2026-06-30")
+    _m.assert_called_once_with("quality_log", date_from="2026-06-01", date_to="2026-06-30")
+check("mcp_server.get_archive_metadata: forwards explicit date_from/date_to unchanged", True)
 
 with patch("maps.mcp_map.list_available_fields", return_value={"domains": [], "metadata_kinds": [], "fields": {}}) as _m:
     mcp_server.list_available_fields(domain="health")

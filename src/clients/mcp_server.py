@@ -420,10 +420,21 @@ def query_raw(field: str, date_from: str, date_to: str,
 
 
 @mcp.tool()
-def get_archive_metadata(kind: str) -> dict:
-    """Request archive-state metadata — not a time series. kind selects
-    the artefact (e.g. coverage stats, device table, quality log)."""
-    return mcp_map.get_archive_metadata(kind)
+def get_archive_metadata(kind: str, date_from: str | None = None,
+                          date_to: str | None = None) -> dict:
+    """Request archive-state metadata. kind selects the artefact:
+    "stats" (coverage/quality overview — use this for "how big/healthy
+    is my archive" questions), "device_table", "quality_log",
+    "source_api_log", "token_log", "capability_config", "daily_logs",
+    "fail_logs", "recent_logs".
+
+    date_from/date_to (ISO "YYYY-MM-DD", inclusive) optionally narrow
+    "quality_log", "source_api_log", "daily_logs", "fail_logs", and
+    "recent_logs" to a date range — ignored for the other four kinds.
+    Omit both to get the last 30 days of that kind rather than the full
+    archive history; the response then includes a "note" field saying
+    so. Pass both explicitly for a specific or wider range."""
+    return mcp_map.get_archive_metadata(kind, date_from=date_from, date_to=date_to)
 
 
 @mcp.tool()
