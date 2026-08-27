@@ -180,6 +180,64 @@ def get_archive_metadata(kind: str, date_from: str | None = None,
     return gateway_map.get_metadata(kind, date_from=date_from, date_to=date_to)
 
 
+def list_daily_log_filenames(date_from: str | None = None,
+                              date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of daily-sync log files —
+    internal sync bookkeeping (v1.7.1), NOT registered as an MCP tool
+    in clients/mcp_server.py. Thin delegation to
+    gateway_map.get_metadata("daily_log_filenames", date_from, date_to).
+    Same no-"_meta" reasoning as get_archive_metadata() above — a plain
+    date-range filter, not a time-series query.
+
+    Used exclusively by clients/mcp_update.py's SQLite proxy sync to
+    learn which log files exist in garmin_data/log/daily/ without
+    reading their content, so it can diff its own cache's known
+    filenames against the archive's actual ones — see
+    metadata_map.py's list_daily_log_filenames() for the full
+    rationale (get_daily_logs() alone returns a flat sanitized line
+    list with no per-file attribution, insufficient for this purpose).
+
+    Args:
+        date_from:  Optional ISO "YYYY-MM-DD", inclusive. Omitting both
+                    date_from and date_to returns the last 30 days plus
+                    a "note" field, not the full archive history.
+        date_to:    Optional ISO "YYYY-MM-DD", inclusive. Same rule as
+                    date_from.
+
+    Raises:
+        ValueError: passed through unchanged from
+                    gateway_map.get_metadata() — not expected in
+                    practice since "daily_log_filenames" is always a
+                    known kind.
+    """
+    return gateway_map.get_metadata("daily_log_filenames", date_from=date_from, date_to=date_to)
+
+
+def list_fail_log_filenames(date_from: str | None = None,
+                             date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of fail-log files — internal
+    sync bookkeeping (v1.7.1), NOT registered as an MCP tool. Same
+    rationale and shape as list_daily_log_filenames() above, only
+    dir_path differs (garmin_data/log/fail/). Thin delegation to
+    gateway_map.get_metadata("fail_log_filenames", date_from, date_to).
+    """
+    return gateway_map.get_metadata("fail_log_filenames", date_from=date_from, date_to=date_to)
+
+
+def list_recent_log_filenames(date_from: str | None = None,
+                               date_to: str | None = None) -> dict:
+    """
+    Filenames (+ filename-encoded date) of recent-log files — internal
+    sync bookkeeping (v1.7.1), NOT registered as an MCP tool. Same
+    rationale and shape as list_daily_log_filenames() above, only
+    dir_path differs (garmin_data/log/recent/). Thin delegation to
+    gateway_map.get_metadata("recent_log_filenames", date_from, date_to).
+    """
+    return gateway_map.get_metadata("recent_log_filenames", date_from=date_from, date_to=date_to)
+
+
 def list_available_fields(domain: str | None = None) -> dict:
     """
     Convenience overview for an MCP consumer that does not yet know

@@ -374,6 +374,17 @@ Running without the main app:
   process starts in the background, the window switches over
   automatically once it's confirmed running.
 
+  Local cache: the server keeps a small local cache
+  (sqlite/mcp_cache.db in your archive folder) so date-range
+  questions ("how has my sleep been over the last three months")
+  answer quickly even as the archive grows -- nothing to configure.
+  It builds/updates itself automatically every time the server
+  starts, so starting it after a long break may take a little
+  longer than usual the first time. If your LLM client supports it,
+  it can also ask the server to refresh the cache on demand -- useful
+  right after a sync if you want the very latest data available
+  immediately instead of waiting for the next restart.
+
 ═══════════════════════════════════════════════════════════
   Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive
 ═══════════════════════════════════════════════════════════

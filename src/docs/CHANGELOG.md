@@ -1,5 +1,138 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.0 — SQLite Aggregation Proxy
+
+First working version of the SQLite proxy planned since v1.7.0.4
+(`KONZEPT_mcp_sqlite_proxy_V2.md`) — a local aggregation cache in front
+of `gateway_map.get()`, sitting alongside `mcp_server.py`'s existing
+six MCP tools rather than inside the broker chain itself. SQLite is a
+pure consumer throughout: every cached row is reconstructible from the
+archive via `maps/mcp_map.py`, never the other way round — a lost or
+corrupt `mcp_cache.db` forces a full rebuild on the next sync, not data
+loss. `garmin_backup.py`/`garmin_mirror.py` remain entirely unaware the
+cache file exists.
+
+**New modules:**
+- `clients/mcp_sql.py` — pure SQLite data-access layer. Seven tables
+  covering all three data shapes already established by
+  `maps/metadata_map.py`/`maps/gateway_map.py`: `mcp_health_days`/
+  `mcp_context_days`/`mcp_fit_days` (placeholder, stub pattern
+  mirroring `gateway_map._DOMAIN_BROKERS['fit': None]`)/`mcp_day_status`
+  for daily time series, `mcp_snapshots` for point-in-time archive
+  metadata (`stats`/`device_table`/`token_log`/`capability_config`,
+  always fully re-fetched, no delta concept), `mcp_structured_logs`/
+  `mcp_recent_logs` for `quality_log`/`source_api_log` and the three
+  raw-log directories. Single module-level, long-lived connection
+  (`check_same_thread=False`, WAL journal mode) — correct for the
+  single-process model (only `mcp_server.py` ever opens this database).
+  Every function raises on failure rather than degrading internally —
+  `clients/mcp_update.py` is responsible for catching and logging
+  per-unit failures, so one bad row does not abort an entire sync pass.
+  Database file: `BASE_DIR/sqlite/mcp_cache.db`, a new top-level sibling
+  to `garmin_data/`/`context_data/`.
+- `clients/mcp_update.py` — delta/sync logic, `sync_all()` as the single
+  mechanism called both from `mcp_server.py`'s boot sequence and from
+  the new `refresh_cache()` MCP tool (result only logged at boot, since
+  the LLM is not connected yet at that point; returned directly to the
+  LLM as the tool's answer otherwise) — one mechanism, two callers, no
+  second code path. Health delta via `quality_log.json`'s `last_attempt`
+  (covers both quality improvements and downgrades, since
+  `garmin/quality/_maint.py::_upsert_quality()` sets `last_attempt` on
+  every write, not only on failure); `source_api_log` delta via
+  `max(fetched_at, backfilled_fields values)`, not `fetched_at` alone —
+  `garmin_source_writer.py::patch_source_field()` updates only the
+  per-field `backfilled_fields` timestamp on an additive backfill, never
+  the entry's top-level `fetched_at`, so a `fetched_at`-only comparison
+  would miss every backfill. Context delta is existence-only (no
+  downgrade concept for context data). The three raw-log directories
+  get no delta trigger tied to `mcp_health_days` — a log file's
+  filename-encoded date is the sync timestamp, not necessarily the
+  archived day it reports on (a recheck weeks later produces a
+  recently-dated log file about an old day) — handled instead via a
+  full filename diff against `maps/mcp_map.py`'s three new
+  `list_*_log_filenames()` functions on every sync. Concurrency: a
+  `socket.bind()` on `garmin_config.MCP_HTTP_PORT`, held for the sync's
+  duration, closes the gap between two parallel `mcp_server.py` starts
+  both reaching their boot sync before either's own `mcp.run()` bind
+  guard would catch it; a plain `threading.Lock` (analogous to
+  `garmin_quality.py`'s `QUALITY_LOCK`) serializes overlapping
+  `refresh_cache()` calls after boot. `sync_all()`'s result dict reports
+  both `*_updated` and `*_failed` counts per data category — added after
+  `build_dep_map.py` flagged the per-unit `except Exception: log;
+  continue` handlers as `risk=silent` (logged, but the caller had no way
+  to learn a failure occurred at all), the same gap `KNOWN_ISSUES.md`'s
+  Cluster G already names for `context/context_api.py`; see
+  `AUDIT_FINDINGS_v1_7_1.md` F-2 for the full analysis, including why
+  the scanner will continue to show these five handlers as
+  `silent`/`critical` even after the fix (it classifies handler
+  structure, not the caller's downstream visibility).
+
+**Changed modules:**
+- `maps/metadata_map.py` — three new functions,
+  `list_daily_log_filenames`/`list_fail_log_filenames`/
+  `list_recent_log_filenames`, filename-only siblings of the existing
+  `get_daily_logs`/`get_fail_logs`/`get_recent_logs` (same
+  `_filter_log_files()` core, without the subsequent read-and-sanitize
+  step) — internal sync bookkeeping for `clients/mcp_update.py`, never
+  registered as MCP tools. Same `{"data": [...], "error": ...}` envelope
+  and date-range-filter/30-day-default behaviour as the nine existing
+  functions.
+- `maps/gateway_map.py` — three new `_METADATA_KINDS` entries
+  (`daily_log_filenames`/`fail_log_filenames`/`recent_log_filenames`),
+  also added to `_DATE_FILTERABLE_KINDS`. No change to `get_metadata()`
+  itself — the existing generic dispatch already handles the new kinds
+  without a code change.
+- `maps/mcp_map.py` — three new thin wrapper functions, same
+  no-`"_meta"`-block pattern as `get_archive_metadata()` (a plain
+  date-range filter, not a time-series query).
+- `clients/mcp_server.py` — new `refresh_cache()`, the seventh
+  registered MCP tool (manual sync trigger, delegates to
+  `mcp_update.sync_all()`). New `_run_startup_sync()`, called once in
+  `main()` before the `MCP_HEADLESS` branch, so both the headless and
+  windowed startup paths run the boot sync identically without
+  duplicating the call into `clients/mcp_server_gui.py`. Import of
+  `mcp_update` is a flat `import mcp_update`, not `from . import
+  mcp_update` — this module is invoked as a standalone script
+  (`python clients/mcp_server.py`, `mcp_server.exe`), not imported as
+  part of a package, so `__package__` is empty and a relative import
+  raises `ImportError: attempted relative import with no known parent
+  package`; `clients/mcp_update.py`'s own internal `import mcp_sql` is
+  flat for the identical reason, since it is itself loaded via this
+  same flat import.
+- `compiler/build_manifest.py` — `clients/mcp_sql.py`/
+  `clients/mcp_update.py` added to `SHARED_SCRIPTS` and
+  `SCRIPT_SIGNATURES_BASE`. No new `RUNTIME_DEPS`/hidden-import entries
+  — both new modules use only the standard library (`sqlite3`,
+  `socket`, `threading`).
+
+**Architecture decision, corrected mid-session:** the filename-only
+introspection functions above were initially considered for a direct
+`clients/`-to-`maps/metadata_map.py` import, bypassing `gateway_map.py`/
+`mcp_map.py`, on the reasoning that they are purely internal and never
+LLM-facing. Corrected against Timo's binding architecture diagram for
+this session: the only crossing point between the `clients/` world and
+the broker layer is `mcp_map.py`, with no exception for internal-only
+consumers — all three functions therefore go through the full
+`metadata_map.py` → `gateway_map.py` → `mcp_map.py` chain like every
+other metadata kind, even though `clients/mcp_server.py` itself does
+not register them as tools.
+
+**Precondition Teil B (Drift-Check):** PFLICHT this session —
+`clients/mcp_sql.py` (new), `clients/mcp_update.py` (new),
+`maps/metadata_map.py` changed. Confirmed via `dep_map_delta.md`
+(`build_dep_map.py`, 2026-08-27_Run-01 → Run-02): 9 NEU exceptions, 11
+NEU fileio, 0 WEG, 0 GEKIPPT-Regression — clean. All NEU handlers
+individually reviewed and entered into `AUDIT_FINDINGS_v1_7_1.md` (F-1,
+F-2) — both `gewollt=ja`; F-2's silent-failure gap fixed in the same
+session (see above), F-1 is a direct continuation of `metadata_map.py`'s
+existing never-raise contract.
+
+**Test result:** 716 / 265 / 465 / 130 / 71 / 165 / 73 / 16 — all green
+(test_local / test_local_context / test_dashboard / test_broker /
+test_mcp / test_app_logic / test_qt_app / test_static).
+
+---
+
 ## v1.7.0.4 — Metadata Date-Range Filtering
 
 Fixes `get_archive_metadata` blowing past cloud-LLM token budgets when queried through Open WebUI over MCP. Real `mcp-proxy` logs showed `get_archive_metadata(kind="quality_log")` returning an unfiltered 2.8 MB dump on every single call (~2800 archive days, one entry per day since archive start) — enough to exhaust an 8k–12k TPM budget on Groq/Gemini's free tier in one request, independent of which LLM was asked. Traced through the full call chain (`mcp_server.py` → `mcp_map.py` → `gateway_map.py` → `metadata_map.py`) rather than assumed — the initially suspected fix, the planned v1.7.1 SQLite aggregation proxy, does not apply here: that proxy sits in front of `gateway_map.get()` (health/context time-series queries), while `get_archive_metadata` runs through the entirely separate `gateway_map.get_metadata()` path, which has no time-series/resolution concept to aggregate over.

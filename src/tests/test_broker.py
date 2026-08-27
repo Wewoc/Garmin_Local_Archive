@@ -690,11 +690,17 @@ check("_sanitize_line: secret + PII together → dropped (secret check runs firs
 
 section("5. gateway_map.get_metadata() — dispatch")
 
+# v1.7.1 — three filename-only kinds added for the SQLite proxy's
+# internal sync use (clients/mcp_update.py) — not part of the original
+# nine LLM-facing kinds, but registered through the same dispatch
+# mechanism per the single-broker-entry-point architecture decision
+# (NOTES_v1.7.1_session2.md). Twelve kinds total, not nine.
 _expected_kinds = {
     "stats", "device_table", "quality_log", "source_api_log", "token_log",
     "capability_config", "daily_logs", "fail_logs", "recent_logs",
+    "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
 }
-check("list_metadata_kinds: exactly the nine registered kinds",
+check("list_metadata_kinds: exactly the twelve registered kinds",
       set(gateway_map.list_metadata_kinds()) == _expected_kinds)
 
 for _kind in sorted(_expected_kinds):
@@ -706,6 +712,24 @@ check("get_metadata('stats'): delegates to metadata_map.get_stats()",
       gateway_map.get_metadata("stats") == metadata_map.get_stats())
 check("get_metadata('daily_logs'): delegates to metadata_map.get_daily_logs()",
       gateway_map.get_metadata("daily_logs") == metadata_map.get_daily_logs())
+
+# ── v1.7.1: filename-only kinds — same date_from/date_to forwarding as
+#    their get_*_logs() siblings, verified against the same content
+#    (excluding "data" itself, which naturally differs in shape —
+#    filenames vs. sanitized lines — comparing the "error"/"note" keys
+#    and delegation target is the actual contract here).
+check("get_metadata('daily_log_filenames'): delegates to metadata_map.list_daily_log_filenames()",
+      gateway_map.get_metadata("daily_log_filenames") ==
+      metadata_map.list_daily_log_filenames())
+check("get_metadata('fail_log_filenames'): delegates to metadata_map.list_fail_log_filenames()",
+      gateway_map.get_metadata("fail_log_filenames") ==
+      metadata_map.list_fail_log_filenames())
+check("get_metadata('recent_log_filenames'): delegates to metadata_map.list_recent_log_filenames()",
+      gateway_map.get_metadata("recent_log_filenames") ==
+      metadata_map.list_recent_log_filenames())
+check("get_metadata('daily_log_filenames', date_from/date_to): forwards to metadata_map",
+      gateway_map.get_metadata("daily_log_filenames", date_from="2026-06-15", date_to="2026-06-16") ==
+      metadata_map.list_daily_log_filenames(date_from="2026-06-15", date_to="2026-06-16"))
 
 # ── v1.7.0.4: get_metadata() passes date_from/date_to through only for
 #    the five date-filterable kinds; the four untouched kinds keep their

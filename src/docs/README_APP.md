@@ -462,6 +462,19 @@ backend or port without closing the window by hand — the new process
 starts in the background, and the window switches over automatically
 once it's confirmed running.
 
+**Local cache (v1.7.1):** the server keeps a small local cache
+(`sqlite/mcp_cache.db` in your archive folder) so date-range questions
+("how has my sleep been over the last three months") answer quickly
+even as the archive grows — nothing to configure, nothing to look at.
+It builds/updates itself automatically every time the server starts, so
+starting the server after a long break may take a little longer than
+usual the first time. If your LLM client supports it, it can also ask
+the server to refresh the cache on demand (a tool called
+`refresh_cache`) — useful right after a sync if you want the very
+latest data available immediately instead of waiting for the next
+server restart. Nothing here is required reading to use the MCP
+Server tab day-to-day.
+
 ### Log: Simple / Log: Detailed
 Toggles the log output level in the GUI. **Simple** shows only key steps (default). **Detailed** shows every API call — useful for diagnosing connection issues or Garmin API changes.
 
