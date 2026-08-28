@@ -307,74 +307,175 @@ check("mcp_server: registered tool names match mcp_map.py 1:1, plus refresh_cach
           "refresh_cache",
       })
 
-# ── 8b. Delegation — each wrapper calls the matching mcp_map function ─────────
+# ── 8b. Routing weiche (v1.7.1.1 Ziel 5) — placeholder always returns "sqlite" ─
+#
+# _route_query() itself: fixed "sqlite" for every kind, no real heuristic
+# yet (see clients/mcp_server.py's own module comment on the weiche for
+# the binding rationale). Verified once here per kind rather than
+# per-wrapper, since every wrapper's SQLite-branch test below already
+# exercises _route_query() indirectly — this section pins down the
+# placeholder's own contract independent of any wrapper.
+from unittest.mock import patch
+
+for _kind in ("health", "context", "fit", "raw", "metadata", "fields"):
+    check(f"_route_query({_kind!r}): placeholder returns 'sqlite'",
+          mcp_server._route_query(_kind) == "sqlite")
+
+# ── 8c. Delegation, SQLite branch (current default — _route_query() always
+#        returns "sqlite") — each wrapper calls the matching mcp_sql
+#        function, NOT mcp_map, when routed to SQLite. This replaces the
+#        pre-Ziel-5 assumption that every wrapper always calls mcp_map
+#        directly — that assumption broke the moment the weiche was wired
+#        in (v1.7.1.1), which is exactly what this suite failed to catch
+#        before this rewrite (NOTES_v1.7.1.1_session2.md, Ziel 7 test-gap
+#        finding — Timo: "ich glaube der ist nur so gut weil wir viel neu
+#        gebaut haben aber wenig bestehendes angepasst haben").
 #
 # The @mcp.tool()-decorated functions in mcp_server.py stay directly callable
 # from Python (confirmed against mcp.server.fastmcp.FastMCP, v1.x — unlike
 # the unrelated standalone "fastmcp" package's v2/v3 line, which wraps the
 # decorated function in a non-callable Tool object). No ".fn" access needed.
-# Each wrapper is patched at its call site (maps.mcp_map.<name>, the module
-# mcp_server.py imports as a whole via "from maps import mcp_map") to verify
-# it forwards arguments unchanged, without exercising the real broker chain
-# a second time — that correctness is already covered by Sections 1-6 above.
-from unittest.mock import patch
 
-with patch("maps.mcp_map.query_health", return_value={"health": {}, "_meta": {}}) as _m:
+with patch("mcp_sql.get_health_range", return_value={"health": {}, "_meta": {}}) as _m_sql, \
+     patch("maps.mcp_map.query_health") as _m_live:
     mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
-    _m.assert_called_once_with("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
-check("mcp_server.query_health: delegates to mcp_map.query_health unchanged", True)
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE)
+    _m_live.assert_not_called()
+check("mcp_server.query_health: SQLite branch calls mcp_sql.get_health_range, not mcp_map", True)
 
-with patch("maps.mcp_map.query_context", return_value={"context": {}, "_meta": {}}) as _m:
+with patch("mcp_sql.get_context_range", return_value={"context": {}, "_meta": {}}) as _m_sql, \
+     patch("maps.mcp_map.query_context") as _m_live:
     mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
-    _m.assert_called_once_with("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
-check("mcp_server.query_context: delegates to mcp_map.query_context unchanged", True)
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE)
+    _m_live.assert_not_called()
+check("mcp_server.query_context: SQLite branch calls mcp_sql.get_context_range, not mcp_map", True)
 
-with patch("maps.mcp_map.query_fit_activities", return_value={"fit": {}, "_meta": {}}) as _m:
-    mcp_server.query_fit_activities("some_field", _TEST_DATE, _TEST_DATE, "daily")
-    _m.assert_called_once_with("some_field", _TEST_DATE, _TEST_DATE, "daily")
-check("mcp_server.query_fit_activities: delegates to mcp_map.query_fit_activities unchanged", True)
-
-with patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}) as _m:
+with patch("mcp_sql.get_raw_range", return_value={"health": {}, "_meta": {}}) as _m_sql, \
+     patch("maps.mcp_map.query_raw") as _m_live:
     mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain="health")
-    _m.assert_called_once_with("floors", "2000-01-01", "2000-01-01", domain="health")
-check("mcp_server.query_raw: delegates to mcp_map.query_raw unchanged", True)
+    _m_sql.assert_called_once_with("2000-01-01", "2000-01-01")
+    _m_live.assert_not_called()
+check("mcp_server.query_raw: SQLite branch calls mcp_sql.get_raw_range, not mcp_map", True)
 
+with patch("mcp_sql.get_metadata_range", return_value={"data": {}, "error": None}) as _m_sql, \
+     patch("maps.mcp_map.get_archive_metadata") as _m_live:
+    mcp_server.get_archive_metadata("stats")
+    _m_sql.assert_called_once_with("stats", date_from=None, date_to=None)
+    _m_live.assert_not_called()
+check("mcp_server.get_archive_metadata: SQLite branch calls mcp_sql.get_metadata_range, not mcp_map", True)
+
+with patch("mcp_sql.get_metadata_range", return_value={"data": [], "error": None}) as _m_sql, \
+     patch("maps.mcp_map.get_archive_metadata") as _m_live:
+    mcp_server.get_archive_metadata("quality_log", date_from="2026-06-01", date_to="2026-06-30")
+    _m_sql.assert_called_once_with("quality_log", date_from="2026-06-01", date_to="2026-06-30")
+    _m_live.assert_not_called()
+check("mcp_server.get_archive_metadata: SQLite branch forwards explicit date_from/date_to", True)
+
+# ── 8d. Delegation, live branch — forcing _route_query() to "live" must
+#        route every wrapper to mcp_map instead, with mcp_sql untouched.
+#        This is the branch the placeholder never actually returns today,
+#        but the weiche's whole purpose (per the module comment) is that
+#        a future real heuristic only changes _route_query()'s body, never
+#        any call site — this section is what proves that promise holds
+#        structurally, not just in the comment.
+
+with patch("mcp_server._route_query", return_value="live"), \
+     patch("maps.mcp_map.query_health", return_value={"health": {}, "_meta": {}}) as _m_live, \
+     patch("mcp_sql.get_health_range") as _m_sql:
+    mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
+    _m_live.assert_called_once_with("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_not_called()
+check("mcp_server.query_health: live branch calls mcp_map.query_health, not mcp_sql", True)
+
+with patch("mcp_server._route_query", return_value="live"), \
+     patch("maps.mcp_map.query_context", return_value={"context": {}, "_meta": {}}) as _m_live, \
+     patch("mcp_sql.get_context_range") as _m_sql:
+    mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
+    _m_live.assert_called_once_with("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_not_called()
+check("mcp_server.query_context: live branch calls mcp_map.query_context, not mcp_sql", True)
+
+with patch("mcp_server._route_query", return_value="live"), \
+     patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}) as _m_live, \
+     patch("mcp_sql.get_raw_range") as _m_sql:
+    mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain="health")
+    _m_live.assert_called_once_with("floors", "2000-01-01", "2000-01-01", domain="health")
+    _m_sql.assert_not_called()
+check("mcp_server.query_raw: live branch calls mcp_map.query_raw, not mcp_sql", True)
+
+with patch("mcp_server._route_query", return_value="live"), \
+     patch("maps.mcp_map.get_archive_metadata", return_value={"data": {}, "error": None}) as _m_live, \
+     patch("mcp_sql.get_metadata_range") as _m_sql:
+    mcp_server.get_archive_metadata("stats")
+    _m_live.assert_called_once_with("stats", date_from=None, date_to=None)
+    _m_sql.assert_not_called()
+check("mcp_server.get_archive_metadata: live branch calls mcp_map.get_archive_metadata, not mcp_sql", True)
+
+# ── 8e. Stöpsel edge cases — query_fit_activities and list_available_fields
+#        both branches (SQLite AND live per _route_query()'s current
+#        "sqlite" placeholder, and forced "live") call the identical
+#        mcp_map function, since neither has a real SQLite counterpart yet
+#        (query_fit_activities: no fit_map.py/mcp_sql.get_fit_range() until
+#        v1.8; list_available_fields: reflects the code's own field
+#        registry, not archived data, no cache benefit at all — see both
+#        wrappers' own comments in clients/mcp_server.py for the full
+#        rationale). This is the one place where "SQLite branch" and
+#        "live branch" are expected to be indistinguishable by design —
+#        tested explicitly so a future accidental divergence (e.g. someone
+#        wiring a real mcp_sql.get_fit_range() into only one branch) shows
+#        up as a single, clearly-labelled failure rather than silently
+#        passing either way.
+
+with patch("maps.mcp_map.query_fit_activities", return_value={"fit": {"error": "domain not yet available"}, "_meta": {}}) as _m:
+    mcp_server.query_fit_activities("some_field", _TEST_DATE, _TEST_DATE, "daily")
+    check("mcp_server.query_fit_activities: SQLite branch (placeholder) calls mcp_map (Stöpsel)",
+          _m.call_count == 1)
+    _m.assert_called_once_with("some_field", _TEST_DATE, _TEST_DATE, "daily")
+
+with patch("mcp_server._route_query", return_value="live"), \
+     patch("maps.mcp_map.query_fit_activities", return_value={"fit": {"error": "domain not yet available"}, "_meta": {}}) as _m:
+    mcp_server.query_fit_activities("some_field", _TEST_DATE, _TEST_DATE, "daily")
+    check("mcp_server.query_fit_activities: live branch also calls mcp_map (Stöpsel, identical)",
+          _m.call_count == 1)
+
+with patch("maps.mcp_map.list_available_fields", return_value={"domains": [], "metadata_kinds": [], "fields": {}}) as _m:
+    mcp_server.list_available_fields(domain="health")
+    _m.assert_called_once_with("health")
+check("mcp_server.list_available_fields: SQLite branch (placeholder) calls mcp_map (Stöpsel)", True)
+
+with patch("mcp_server._route_query", return_value="live"), \
+     patch("maps.mcp_map.list_available_fields", return_value={"domains": [], "metadata_kinds": [], "fields": {}}) as _m:
+    mcp_server.list_available_fields(domain="health")
+    _m.assert_called_once_with("health")
+check("mcp_server.list_available_fields: live branch also calls mcp_map (Stöpsel, identical)", True)
+
+# ── 8f. refresh_cache() — unaffected by the weiche, verified explicitly ──────
+#
 # v1.7.1 — refresh_cache() delegates to mcp_update.sync_all(), mocked
 # here rather than exercised for real: a real call would open a live
 # SQLite connection and bind garmin_config.MCP_HTTP_PORT
 # (clients/mcp_sql.py / clients/mcp_update.py's own concern, out of
 # scope for this delegation-only test — see NOTES_v1.7.1_session2.md's
 # "mcp_sql.py throws, mcp_update.py catches" split for where that
-# behaviour is actually tested).
-with patch("mcp_update.sync_all", return_value={"health_days_updated": 3}) as _m:
+# behaviour is actually tested). _route_query is patched to a sentinel
+# that would raise if called, so a future accidental wiring of
+# refresh_cache() into the weiche (Ziel 6 regression) fails loudly here
+# rather than silently — see clients/mcp_server.py's module comment on
+# the weiche for the binding "refresh_cache does NOT route" decision.
+def _route_query_should_not_be_called(kind):
+    raise AssertionError(f"_route_query() called with {kind!r} — refresh_cache() must not route")
+
+with patch("mcp_server._route_query", side_effect=_route_query_should_not_be_called), \
+     patch("mcp_update.sync_all", return_value={"health_days_updated": 3}) as _m:
     _result = mcp_server.refresh_cache()
     _m.assert_called_once_with()
-check("mcp_server.refresh_cache: delegates to mcp_update.sync_all unchanged",
+check("mcp_server.refresh_cache: delegates to mcp_update.sync_all unchanged, never routes",
       _result == {"health_days_updated": 3})
 
-# v1.7.0.4: mcp_server.get_archive_metadata() now always forwards
-# date_from/date_to as keyword arguments (None when the caller omitted
-# them) — the assertion below reflects that, rather than the bare
-# single-argument call this wrapper made before date-range filtering
-# existed.
-with patch("maps.mcp_map.get_archive_metadata", return_value={"data": {}, "error": None}) as _m:
-    mcp_server.get_archive_metadata("stats")
-    _m.assert_called_once_with("stats", date_from=None, date_to=None)
-check("mcp_server.get_archive_metadata: delegates to mcp_map.get_archive_metadata unchanged", True)
-
-with patch("maps.mcp_map.get_archive_metadata", return_value={"data": {}, "error": None}) as _m:
-    mcp_server.get_archive_metadata("quality_log", date_from="2026-06-01", date_to="2026-06-30")
-    _m.assert_called_once_with("quality_log", date_from="2026-06-01", date_to="2026-06-30")
-check("mcp_server.get_archive_metadata: forwards explicit date_from/date_to unchanged", True)
-
-with patch("maps.mcp_map.list_available_fields", return_value={"domains": [], "metadata_kinds": [], "fields": {}}) as _m:
-    mcp_server.list_available_fields(domain="health")
-    _m.assert_called_once_with("health")
-check("mcp_server.list_available_fields: delegates to mcp_map.list_available_fields unchanged", True)
-
-# ── 8c. Return value pass-through — wrapper returns exactly what mcp_map returns ──
-_dummy_result = {"health": {"garmin": {"values": [], "fallback": False, "source_resolution": "daily"}}, "_meta": {}}
-with patch("maps.mcp_map.query_health", return_value=_dummy_result):
+# ── 8g. Return value pass-through — wrapper returns exactly what the
+#        chosen branch's function returns (SQLite branch, current default) ──
+_dummy_result = {"health": {"values": [], "fallback": False, "source_resolution": "daily"}, "_meta": {}}
+with patch("mcp_sql.get_health_range", return_value=_dummy_result):
     _wrapper_result = mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
 check("mcp_server.query_health: return value passed through unchanged",
       _wrapper_result == _dummy_result)

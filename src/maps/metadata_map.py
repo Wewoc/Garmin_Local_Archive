@@ -83,6 +83,7 @@ Return structure (all nine functions):
     }
 """
 
+import hashlib
 import json
 import re
 from datetime import date, datetime, timedelta
@@ -541,5 +542,61 @@ def list_recent_log_filenames(date_from: str | None = None,
         if note is not None:
             result["note"] = note
         return result
+    except Exception as exc:
+        return {"data": None, "error": str(exc)}
+
+
+def get_raw_file_hashes(date_from: str, date_to: str) -> dict:
+    """
+    SHA-256 content hash of the raw/ file for each day in the given
+    range — internal sync use (v1.7.1.1), NOT registered as an MCP
+    tool. Content-only signal, deliberately not the file's mtime: a
+    mirror/restore operation can rewrite garmin_raw_{date}.json with
+    byte-identical content, which would change mtime but must not be
+    read as "this day's raw data changed" — same reasoning
+    list_daily_log_filenames() etc. already apply to log filenames
+    (see that function's docstring), applied here to raw/ file content
+    instead of a filename-encoded date.
+
+    Used exclusively by clients/mcp_update.py's SQLite proxy sync
+    (mcp_raw_day_hashes table) to detect genuine content changes to a
+    day's raw/ file — including nachtraegliche Datenlieferung (GDPR
+    bulk import, silo repair) for a day whose recheck window had
+    already closed — without re-reading and re-comparing every one of
+    that day's raw-passthrough field values on every sync pass.
+
+    Unlike the nine LLM-facing functions above, both date_from and
+    date_to are required (no 30-day default, no "note" field) — the
+    caller always knows the exact range it needs (typically the full
+    archive date_min/date_max from get_stats(), same pattern
+    _sync_health_days()/_sync_context_days() already use), and a
+    silent default range here would risk the caller believing a
+    broader range was hashed than it actually was.
+
+    Args:
+        date_from: Start date ISO string (YYYY-MM-DD), inclusive.
+        date_to:   End date ISO string (YYYY-MM-DD), inclusive.
+
+    Returns:
+        {"data": {date_str: hash_hex | None, ...}, "error": str | None}
+        hash_hex is None for a day whose raw/ file does not exist
+        (nothing written yet for that day — not an error). One entry
+        per calendar day in the requested range, same "every day
+        present, missing data represented as None" principle
+        health_map.get()'s "values" list already uses.
+    """
+    try:
+        result: dict[str, str | None] = {}
+        current = _parse_iso_date(date_from)
+        end = _parse_iso_date(date_to)
+        while current <= end:
+            day_str = current.isoformat()
+            raw_path = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{day_str}.json"
+            if raw_path.is_file():
+                result[day_str] = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+            else:
+                result[day_str] = None
+            current += timedelta(days=1)
+        return {"data": result, "error": None}
     except Exception as exc:
         return {"data": None, "error": str(exc)}

@@ -230,12 +230,78 @@ def list_recent_log_filenames(date_from: str | None = None,
                                date_to: str | None = None) -> dict:
     """
     Filenames (+ filename-encoded date) of recent-log files — internal
-    sync bookkeeping (v1.7.1), NOT registered as an MCP tool. Same
-    rationale and shape as list_daily_log_filenames() above, only
-    dir_path differs (garmin_data/log/recent/). Thin delegation to
+    sync use (v1.7.1), NOT registered as an MCP tool. Same rationale
+    and shape as list_daily_log_filenames() above, only dir_path
+    differs (garmin_data/log/recent/). Thin delegation to
     gateway_map.get_metadata("recent_log_filenames", date_from, date_to).
     """
     return gateway_map.get_metadata("recent_log_filenames", date_from=date_from, date_to=date_to)
+
+
+def get_raw_file_hashes(date_from: str, date_to: str) -> dict:
+    """
+    SHA-256 content hash of the raw/ file for each day in the given
+    range — internal sync bookkeeping (v1.7.1.1), NOT registered as an
+    MCP tool in clients/mcp_server.py. Thin delegation to
+    gateway_map.get_metadata("raw_file_hashes", date_from, date_to).
+
+    Used exclusively by clients/mcp_update.py's SQLite proxy sync to
+    detect genuine content changes to a day's raw/ file (including
+    nachtraegliche Datenlieferung for an already-closed recheck
+    window) without re-reading every raw-passthrough field value on
+    every sync pass — see metadata_map.py's get_raw_file_hashes() for
+    the full rationale, including why mtime is deliberately not used.
+
+    Unlike the other internal sync-only functions above, date_from and
+    date_to are both required, not optional — see
+    metadata_map.get_raw_file_hashes()'s own docstring for why a
+    silent default range is not offered here.
+
+    Args:
+        date_from: Start date ISO string (YYYY-MM-DD), inclusive.
+        date_to:   End date ISO string (YYYY-MM-DD), inclusive.
+
+    Raises:
+        ValueError: passed through unchanged from
+                    gateway_map.get_metadata() — not expected in
+                    practice since "raw_file_hashes" is always a known
+                    kind.
+    """
+    return gateway_map.get_metadata("raw_file_hashes", date_from=date_from, date_to=date_to)
+
+
+def list_raw_fields(domain: str | None = None) -> dict:
+    """
+    List raw-passthrough field names per domain — internal sync use
+    (v1.7.1.1), NOT registered as an MCP tool. Thin delegation to
+    gateway_map.list_raw_fields(domain). Distinct from
+    list_available_fields() above: that function's "fields" key only
+    covers health/context/fit's interpreted (get()-reachable) fields,
+    never the raw-passthrough registry (see that function's own
+    docstring, "fit" always returns an empty list — raw-passthrough is
+    a structurally separate registry, not folded into the same
+    envelope).
+
+    Used exclusively by clients/mcp_update.py's SQLite proxy sync to
+    read the current raw-passthrough field registry fresh on every
+    sync pass — deliberately never hard-coded to today's field count,
+    since the registry is documented as "open for community feedback"
+    and can grow or shrink (see REFERENCE_GARMIN.md, "Raw-passthrough
+    fields").
+
+    Args:
+        domain: None -> query all registered domain keys. Set to one
+                of those -> query only that domain. Only "health"
+                currently returns a non-empty list (see
+                gateway_map.get_raw()'s own docstring).
+
+    Returns:
+        Dict keyed by domain name, each value a list[str] of raw
+        field names (empty list for a domain without raw-passthrough
+        support) — same shape gateway_map.list_raw_fields() already
+        returns, passed through unchanged.
+    """
+    return gateway_map.list_raw_fields(domain=domain)
 
 
 def list_available_fields(domain: str | None = None) -> dict:

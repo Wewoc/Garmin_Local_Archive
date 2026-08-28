@@ -694,19 +694,73 @@ section("5. gateway_map.get_metadata() — dispatch")
 # internal sync use (clients/mcp_update.py) — not part of the original
 # nine LLM-facing kinds, but registered through the same dispatch
 # mechanism per the single-broker-entry-point architecture decision
-# (NOTES_v1.7.1_session2.md). Twelve kinds total, not nine.
+# (NOTES_v1.7.1_session2.md).
+#
+# v1.7.1.1 — "raw_file_hashes" added for the raw-passthrough SQLite
+# cache's content-change detection (NOTES_v1.7.1.1_session2.md, Ziel 4)
+# — deliberately excluded from the zero-arg loop below and from
+# _expected_kinds' generic-loop membership: unlike every other kind
+# here, gateway_map.get_metadata() requires date_from/date_to for this
+# one (see metadata_map.get_raw_file_hashes()'s own docstring — no
+# 30-day default, no optional-range branch), so a bare
+# gateway_map.get_metadata("raw_file_hashes") call would exercise the
+# error path (a TypeError from _parse_iso_date(None), caught and
+# degraded into {"data": None, "error": ...}) rather than the success
+# path the other kinds' loop iteration below is meant to confirm.
+# Tested explicitly with a real range instead, so this kind's actual
+# contract is verified rather than incidentally passing via the same
+# try/except every other metadata_map function also happens to have.
+#
+# No ordinal/total kind-count named here on purpose (a prior version of
+# this comment said "a fourteenth kind" / "exactly the fourteen
+# registered kinds" — off by one, since _expected_kinds already has
+# twelve entries, not thirteen — corrected by removing the count
+# entirely rather than fixing the number in place: any hard-coded count
+# here has to be kept in sync by hand every time a kind is added or
+# removed, the exact failure mode that produced this bug. The
+# assertion below is a pure set-equality check and needs no restated
+# count to be correct; the current total lives in docs/METRICS.md
+# (generated, not hand-maintained) for anyone who wants to look it up.)
 _expected_kinds = {
     "stats", "device_table", "quality_log", "source_api_log", "token_log",
     "capability_config", "daily_logs", "fail_logs", "recent_logs",
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
 }
-check("list_metadata_kinds: exactly the twelve registered kinds",
-      set(gateway_map.list_metadata_kinds()) == _expected_kinds)
+_all_registered_kinds = _expected_kinds | {"raw_file_hashes"}
+check("list_metadata_kinds: matches the registered kind set exactly",
+      set(gateway_map.list_metadata_kinds()) == _all_registered_kinds)
 
 for _kind in sorted(_expected_kinds):
     _result = gateway_map.get_metadata(_kind)
     check(f"get_metadata({_kind!r}): returns data/error envelope",
           isinstance(_result, dict) and "data" in _result and "error" in _result)
+
+# ── v1.7.1.1: raw_file_hashes — mandatory date_from/date_to, tested
+#    with a real range rather than the zero-arg loop above (see comment
+#    block above for why). _TEST_DATE's raw/ file was written at module
+#    setup (_write_raw(_TMPDIR), top of this file) and is still present
+#    here — so this section's own range check exercises the real-hash
+#    path, with a second, different date (no fixture ever written for
+#    it) as the contrasting "no file → None" case, matching
+#    metadata_map.get_raw_file_hashes()'s own "hash_hex is None for a
+#    day whose raw/ file does not exist" contract.
+_rfh_result = gateway_map.get_metadata("raw_file_hashes", date_from=_TEST_DATE, date_to=_TEST_DATE)
+check("get_metadata('raw_file_hashes'): returns data/error envelope",
+      isinstance(_rfh_result, dict) and "data" in _rfh_result and "error" in _rfh_result)
+check("get_metadata('raw_file_hashes'): no error for a valid range",
+      _rfh_result["error"] is None)
+check("get_metadata('raw_file_hashes'): one entry for the requested day",
+      list(_rfh_result["data"].keys()) == [_TEST_DATE])
+check("get_metadata('raw_file_hashes'): existing raw/ file yields a real hash string",
+      isinstance(_rfh_result["data"][_TEST_DATE], str) and len(_rfh_result["data"][_TEST_DATE]) == 64)
+check("get_metadata('raw_file_hashes'): delegates to metadata_map.get_raw_file_hashes()",
+      _rfh_result == metadata_map.get_raw_file_hashes(_TEST_DATE, _TEST_DATE))
+
+_rfh_missing_date = "2000-01-01"  # no raw/ file ever written for this date in this fixture
+_rfh_missing_result = gateway_map.get_metadata(
+    "raw_file_hashes", date_from=_rfh_missing_date, date_to=_rfh_missing_date)
+check("get_metadata('raw_file_hashes'): day with no raw/ file yields hash None, not an error",
+      _rfh_missing_result == {"data": {_rfh_missing_date: None}, "error": None})
 
 check("get_metadata('stats'): delegates to metadata_map.get_stats()",
       gateway_map.get_metadata("stats") == metadata_map.get_stats())

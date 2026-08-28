@@ -159,6 +159,15 @@ _METADATA_KINDS = {
     "daily_log_filenames":  metadata_map.list_daily_log_filenames,
     "fail_log_filenames":   metadata_map.list_fail_log_filenames,
     "recent_log_filenames": metadata_map.list_recent_log_filenames,
+    # v1.7.1.1 — raw/ file content hashes, same internal-sync-only
+    # rationale as the three filename-only kinds above. Requires
+    # date_from/date_to unconditionally (see metadata_map.py's own
+    # docstring) — NOT added to _DATE_FILTERABLE_KINDS below, since
+    # that set marks kinds where the range is *optional* with a
+    # 30-day fallback; here it is mandatory, so get_metadata() must
+    # always forward both arguments for this kind, never call the
+    # zero-arg branch.
+    "raw_file_hashes":      metadata_map.get_raw_file_hashes,
 }
 
 # Kinds whose metadata_map function accepts date_from/date_to (v1.7.0.4;
@@ -277,6 +286,11 @@ def get_metadata(kind: str, date_from: str | None = None,
             f"Unknown metadata kind {kind!r} — expected one of "
             f"{sorted(_METADATA_KINDS)}"
         )
+    if kind == "raw_file_hashes":
+        # Mandatory date_from/date_to (metadata_map.get_raw_file_hashes()
+        # has no optional-range/30-day-default branch, unlike every
+        # other kind here) — always forwarded, never the zero-arg call.
+        return _METADATA_KINDS[kind](date_from=date_from, date_to=date_to)
     if kind in _DATE_FILTERABLE_KINDS:
         return _METADATA_KINDS[kind](date_from=date_from, date_to=date_to)
     return _METADATA_KINDS[kind]()

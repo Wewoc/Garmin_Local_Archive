@@ -364,6 +364,29 @@ read straight through. End-to-end tool-call verification (a real MCP
 client or the MCP Inspector invoking each of the seven registered tools)
 is still open — tracked as a follow-up, not a blocker.
 
+**Section 8 rebuilt (v1.7.1.1)** after `clients/mcp_server.py` gained an
+internal routing weiche (`_route_query()`, always `"sqlite"` today) that
+all six query tools now call before delegating — the pre-existing
+delegation checks (patching `maps/mcp_map.py`'s functions and asserting
+the wrapper called them) silently stopped exercising the code they were
+meant to cover: the wrapper now calls `clients/mcp_sql.py` first, so the
+old patches were never hit, and the real, uninitialized SQLite table
+surfaced as an unhandled `sqlite3.OperationalError` instead of a normal
+test failure. Section 8 now covers, per tool: the SQLite branch (asserts
+the matching `mcp_sql` function is called and `mcp_map` is explicitly
+NOT called), the live branch (`_route_query` forced to `"live"` —
+mirror-image assertion), and, for `query_fit_activities`/
+`list_available_fields` specifically, that both branches call the
+identical `mcp_map` function (Stöpsel — no real SQLite counterpart
+exists yet for either). `refresh_cache()` gained an explicit regression
+guard: `_route_query` is patched to raise if called at all, so a future
+accidental wiring of `refresh_cache()` into the weiche fails loudly here
+rather than silently. This class of gap — a test asserting delegation to
+a specific module, which silently stops testing anything once the
+production code's call target changes — is worth checking for whenever
+a routing/dispatch layer is added in front of an already-tested
+function; the test needs updating in lockstep, not just re-run.
+
 `clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
 (c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in
 `main()`) — the only `clients/` module with this dependency, see Package
