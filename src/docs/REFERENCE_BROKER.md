@@ -381,9 +381,9 @@ result = get_metadata("stats")
 
 result = get_metadata("quality_log", date_from="2026-08-01", date_to="2026-08-27")
 # result == {"data": {...filtered...}, "error": None}
-# (v1.7.0.4) date_from/date_to only affect eight of the twelve kinds — see
-# mcp_map.py's get_archive_metadata() below for the full list and the
-# 30-day default behaviour when neither is given.
+# (v1.7.0.4) date_from/date_to only affect five of the thirteen kinds —
+# see mcp_map.py's get_archive_metadata() below for the full list and
+# the 30-day default behaviour when neither is given.
 
 # v1.7.1 — three filename-only kinds, internal sync use only, never
 # exposed as their own MCP tool: "daily_log_filenames",
@@ -398,6 +398,29 @@ result = get_metadata("quality_log", date_from="2026-08-01", date_to="2026-08-27
 # list_recent_log_filenames() wrappers (see mcp_map.py section below),
 # not through get_archive_metadata() — that MCP tool intentionally still
 # only exposes the original nine kinds to the LLM.
+
+# v1.7.1.1 — a thirteenth kind, "raw_file_hashes", internal sync use
+# only, also never exposed via get_archive_metadata(). Content hash
+# (SHA-256) of the raw/ file per requested day — not a filename-encoded
+# date, since a mirror/restore operation can rewrite a raw/ file with
+# byte-identical content, which must not register as a change (same
+# reasoning the three filename-only kinds above already apply to log
+# filenames, applied here to file content instead). Unlike every other
+# kind in this file, date_from/date_to are REQUIRED, not optional — no
+# 30-day default, no "note" field; a caller must always know the exact
+# range it needs (see metadata_map.get_raw_file_hashes()'s own
+# docstring). Used exclusively by clients/mcp_update.py's raw-
+# passthrough sync (see mcp_map.py's get_raw_file_hashes() wrapper
+# below) to detect content changes — including data delivered after a
+# day's recheck window had already closed — without re-reading every
+# raw-passthrough field value on every sync pass.
+#
+# result = get_metadata("raw_file_hashes", date_from="2026-08-01", date_to="2026-08-02")
+# result == {"data": {"2026-08-01": "<sha256 hex>", "2026-08-02": None},
+#            "error": None}
+# hash is None for a day whose raw/ file does not exist yet — not an
+# error, same "day genuinely not written yet" principle every other
+# metadata_map function already uses.
 ```
 
 `fit_map.py` (v1.8) is planned as a peer to `health_map.py` and
@@ -458,13 +481,18 @@ get_archive_metadata(kind, date_from=None, date_to=None) -> dict
 # no "_meta" weekday block here either way, that concept is specific to
 # the time-series query_*() functions above. date_from/date_to (v1.7.0.4)
 # are a plain date-RANGE FILTER, not the same thing as a time-series
-# "resolution" — only five of the nine kinds honor them ("quality_log",
-# "source_api_log", "daily_logs", "fail_logs", "recent_logs"); the other
-# four ("stats", "device_table", "token_log", "capability_config")
-# silently ignore both arguments. Omitting both on a filterable kind
-# returns the last 30 days (anchored on the latest available date, not
-# on today) plus a "note" field in the result explaining that, rather
-# than the previous unfiltered full-archive dump.
+# "resolution" — only five of the nine LLM-facing kinds honor them
+# ("quality_log", "source_api_log", "daily_logs", "fail_logs",
+# "recent_logs"); the other four ("stats", "device_table", "token_log",
+# "capability_config") silently ignore both arguments. Omitting both on
+# a filterable kind returns the last 30 days (anchored on the latest
+# available date, not on today) plus a "note" field in the result
+# explaining that, rather than the previous unfiltered full-archive
+# dump. get_archive_metadata() itself only ever exposes these original
+# nine kinds to the LLM — the four internal-sync-only kinds below
+# (three filename-only kinds + raw_file_hashes) are reachable only
+# through mcp_map.py's own dedicated wrapper functions, never through
+# get_archive_metadata() itself.
 
 list_available_fields(domain=None) -> dict
 # {"domains": [...], "metadata_kinds": [...],
@@ -483,6 +511,27 @@ list_fail_log_filenames(date_from=None, date_to=None) -> dict
 
 list_recent_log_filenames(date_from=None, date_to=None) -> dict
 # gateway_map.get_metadata("recent_log_filenames", date_from, date_to)
+
+# v1.7.1.1 — same internal-sync-only rationale, raw-passthrough cache
+# side (Ziel 4). Both required, no optional-range default — see
+# get_metadata()'s own "raw_file_hashes" section above for why.
+get_raw_file_hashes(date_from, date_to) -> dict
+# gateway_map.get_metadata("raw_file_hashes", date_from, date_to)
+
+# v1.7.1.1 — closes a gap discovered mid-session: no existing mcp_map.py
+# function exposed gateway_map.list_raw_fields() to clients/mcp_update.py,
+# which clients/mcp_update.py::_sync_raw_fields() needs to read the live
+# raw-passthrough field registry on every sync pass rather than
+# hard-coding a field count (the registry is documented as "open for
+# community feedback" and can grow or shrink — see REFERENCE_GARMIN.md,
+# "Raw-passthrough fields"). Distinct from list_available_fields()
+# above: that function's "fields" key never included raw-passthrough
+# fields at all (see its own docstring — "fit" always an empty list,
+# raw-passthrough is a structurally separate registry).
+list_raw_fields(domain=None) -> dict
+# gateway_map.list_raw_fields(domain) — same shape as that function's
+# own contract (see gateway_map.get_raw() section above), passed through
+# unchanged.
 ```
 
 **`_meta` block** — attached to every date-ranged query response
@@ -523,22 +572,41 @@ raises for data-availability reasons:
   metadata kind — passed through unchanged from `gateway_map.get_metadata()`.
 
 **Consumer:** `clients/mcp_server.py` (v1.7 Teilbauauftrag b, extended
-v1.7.1) — standalone MCP server process, streamable-http transport
-(`mcp>=1.28,<2`, v1.7.0.1 — replaces the earlier stdio transport).
-Registers the original six functions above as MCP tools via
+v1.7.1/v1.7.1.1) — standalone MCP server process, streamable-http
+transport (`mcp>=1.28,<2`, v1.7.0.1 — replaces the earlier stdio
+transport). Registers the original six functions above as MCP tools via
 `@mcp.tool()`, same names, same signatures, plus a seventh,
 `refresh_cache()` (v1.7.1, manual SQLite-proxy sync trigger — see
 `KONZEPT_mcp_sqlite_proxy_V2.md`), which does not live in `mcp_map.py`
 at all — it delegates directly to `clients/mcp_update.py::sync_all()`.
-The three `list_*_log_filenames()` functions immediately above are
-**not** part of either group — `mcp_map.py` exposes them for
-`clients/mcp_update.py`'s own internal use, but `mcp_server.py`
-deliberately does not register them as MCP tools (nine `mcp_map.py`
-functions total; seven MCP tools total). No error-translation code in
-`mcp_server.py` itself — the MCP SDK automatically converts any
-uncaught exception raised inside a `@mcp.tool()`-decorated function into
-`CallToolResult(isError=True, ...)` with `str(exception)` as the message,
-so the two `ValueError` cases above reach the MCP client without
-`mcp_map.py` or `mcp_server.py` doing any translation work. Degraded
-`{"error": ...}` results are ordinary tool payloads — `isError` stays
-`False`.
+The three `list_*_log_filenames()` functions plus `get_raw_file_hashes()`/
+`list_raw_fields()` (v1.7.1.1) above are **not** part of either group —
+`mcp_map.py` exposes them for `clients/mcp_update.py`'s own internal
+use, but `mcp_server.py` deliberately does not register them as MCP
+tools (eleven `mcp_map.py` functions total; seven MCP tools total). No
+error-translation code in `mcp_server.py` itself — the MCP SDK
+automatically converts any uncaught exception raised inside a
+`@mcp.tool()`-decorated function into `CallToolResult(isError=True, ...)`
+with `str(exception)` as the message, so the two `ValueError` cases
+above reach the MCP client without `mcp_map.py` or `mcp_server.py`
+doing any translation work. Degraded `{"error": ...}` results are
+ordinary tool payloads — `isError` stays `False`.
+
+**Routing weiche (v1.7.1.1, `_route_query()`):** `clients/mcp_server.py`
+gained an internal routing decision point that all six query tools
+(`query_health`/`query_context`/`query_fit_activities`/`query_raw`/
+`get_archive_metadata`/`list_available_fields`) now call before
+delegating — placeholder today, always returns `"sqlite"`, `TODO
+v1.7.x` for a real cost/staleness heuristic. `refresh_cache()`
+deliberately does not route (a sync trigger, not a data query — see
+`KONZEPT_mcp_sqlite_proxy_V2.md`). The `"sqlite"` branch calls the
+matching `clients/mcp_sql.py` cache-read function
+(`get_health_range()`/`get_context_range()`/`get_raw_range()`/
+`get_metadata_range()`) instead of the `mcp_map.py` functions
+documented above; `query_fit_activities`/`list_available_fields` route
+through the same decision point but both branches currently call the
+identical `mcp_map.py` function (no `mcp_sql.get_fit_range()` until
+`fit_map.py` lands, v1.8; no cache benefit at all for a code-registry
+read in the latter case) — this file's `mcp_map.py` contract above
+remains the authoritative description of what each tool *returns*; the
+weiche only changes *which module supplies it*, never the shape.

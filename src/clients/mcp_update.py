@@ -98,6 +98,16 @@ LOG_MCP_UPDATE_MAX = 30  # same rolling-log convention as mcp_server.py's LOG_MC
 _FORM_B_KINDS = ["stats", "device_table", "token_log", "capability_config"]
 _RECENT_LOG_KINDS = ["daily_logs", "fail_logs", "recent_logs"]
 
+# How many days without a raw/ file, at the *end* of the archive's
+# known date range, are still worth an unconditional recheck before a
+# missing field is treated as "confirmed absent for this day" — same
+# purpose as garmin_quality.py's INTRADAY_RETRY_WINDOW_DAYS, but a
+# deliberately independent constant: raw-passthrough fields (weigh-ins,
+# blood pressure, etc.) have no factual link to the Garmin device's
+# intraday-availability window that constant governs (Timo confirmed,
+# NOTES_v1.7.1.1_session2.md — no prev_high-style coupling for raw).
+RAW_RETRY_WINDOW_DAYS = 14
+
 # Maps each of the three recent-log kinds to the matching filename-only
 # introspection function and the matching content-reading function on
 # maps/mcp_map.py — kept as one explicit table here rather than three
@@ -304,15 +314,31 @@ def _sync_recent_log_files(kind: str) -> tuple[int, int]:
 
 def _sync_context_days() -> tuple[int, int]:
     """
-    Form A, context: existence-only delta, no compare_value — a context
-    day, once complete, never needs re-fetching (Timo confirmed, no
-    downgrade concept, NOTES_v1.7.1_session2.md). Uses the same
-    date_min/date_max range as health so a long-idle archive's older,
-    still-missing context days are not silently skipped by an implicit
-    default range.
+    Form A, context: per-source completeness delta (v1.7.1.1 follow-up
+    fix, replacing the original existence-only delta — see
+    mcp_sql.get_context_day_state()'s docstring for the full
+    rationale). A day is a sync candidate if any currently-registered
+    context source is missing from its complete_sources set. Missing
+    sources are re-queried; a source already in attempted_sources
+    (queried once before, still without data) is queried exactly one
+    more time and then either gains data (added to complete_sources)
+    or is accepted as permanently empty for that day (Timo: "wenn der
+    tag leer ist und nicht liefern kann als ok markieren" — no
+    unbounded retry, no age-window needed the way raw-passthrough
+    fields required, since a context source either answers with data
+    or with a definitive "nothing here", unlike raw/health's
+    possible-later-availability case). Uses the same date_min/date_max
+    range as health so a long-idle archive's older, still-incomplete
+    context days are not silently skipped by an implicit default range.
 
-    Returns (days_added, days_failed) — see _sync_health_days()'s
-    docstring for why the failure count is surfaced rather than absorbed.
+    Returns (days_touched, days_failed) — days_touched counts days
+    where at least one source was (re-)queried, mirroring
+    _sync_raw_fields()'s "touched" terminology rather than the old
+    "added" (a day can now be legitimately revisited more than once,
+    unlike the old existence-only model where "added" meant "written
+    for the first and only time") — see _sync_health_days()'s
+    docstring for why the failure count is surfaced rather than
+    absorbed.
     """
     stats_result = mcp_map.get_archive_metadata("stats")
     date_min = stats_result["data"]["date_min"]
@@ -322,8 +348,9 @@ def _sync_context_days() -> tuple[int, int]:
 
     fields_result = mcp_map.list_available_fields(domain="context")
     context_sources = fields_result["fields"]["context"]
+    all_source_names = set(context_sources.keys())
 
-    added = 0
+    touched = 0
     failed = 0
     current = datetime.date.fromisoformat(date_min)
     end = datetime.date.fromisoformat(date_max)
@@ -331,31 +358,65 @@ def _sync_context_days() -> tuple[int, int]:
         day = current.isoformat()
         current += datetime.timedelta(days=1)
         try:
-            if mcp_sql.context_day_exists(day):
-                continue
+            existing = mcp_sql.get_context_day_state(day)
+            payload = existing["payload"] if existing is not None else {}
+            complete_sources = existing["complete_sources"] if existing is not None else set()
+            attempted_sources = existing["attempted_sources"] if existing is not None else set()
 
-            payload = {}
-            has_any_data = False
-            for source, field_names in context_sources.items():
+            missing_sources = all_source_names - complete_sources
+            # A source already attempted once without data gets exactly
+            # one more try (this pass) — a source never attempted at all
+            # gets its first try. Both cases query the same way below;
+            # the distinction only matters for what happens on a repeat
+            # empty result (see below).
+            sources_to_query = missing_sources
+            if not sources_to_query:
+                continue  # day already complete — nothing to do
+
+            day_had_activity = False
+            for source in sources_to_query:
+                field_names = context_sources[source]
+                source_had_data = False
                 for field in field_names:
                     field_result = mcp_map.query_context(field, day, day)
                     source_result = field_result["context"].get(source, {})
                     if source_result and "error" not in source_result:
                         payload.setdefault(source, {})[field] = source_result
-                        has_any_data = True
+                        source_had_data = True
+                day_had_activity = True
+                if source_had_data:
+                    complete_sources.add(source)
+                    attempted_sources.add(source)
+                elif source in attempted_sources:
+                    # Second empty result in a row for this source —
+                    # accepted as permanently empty for this day (Timo,
+                    # see docstring). Counted as "complete" too: an
+                    # accepted-empty source must not keep re-triggering
+                    # sources_to_query on every future sync pass, same
+                    # "no dauer-resync" concern raw-passthrough already
+                    # solved differently (age window) — here solved by
+                    # folding "confirmed empty" into the same set as
+                    # "confirmed has data", since both mean "settled,
+                    # do not touch again".
+                    complete_sources.add(source)
+                else:
+                    # First empty result — mark attempted, will get one
+                    # more try on the next sync pass.
+                    attempted_sources.add(source)
 
-            if not has_any_data:
-                continue  # day genuinely not written yet — nothing to cache
+            if not day_had_activity:
+                continue
 
-            mcp_sql.upsert_context_day(day, payload)
-            _update_day_status(day, context="yes")
-            added += 1
+            mcp_sql.upsert_context_day(day, payload, complete_sources, attempted_sources)
+            if complete_sources == all_source_names:
+                _update_day_status(day, context="yes")
+            touched += 1
         except Exception as exc:
             logger.warning("Context day %s failed to sync, skipping: %s", day, exc)
             failed += 1
             continue
 
-    return added, failed
+    return touched, failed
 
 
 def _update_day_status(day: str, quality: str | None = None,
@@ -370,6 +431,144 @@ def _update_day_status(day: str, quality: str | None = None,
         context=context if context is not None else existing["context"],
         fit=fit if fit is not None else existing["fit"],
     )
+
+
+def _sync_one_raw_field(day: str, field: str) -> bool:
+    """
+    Queries a single (day, field) raw-passthrough value through
+    mcp_map.query_raw() and upserts the result — recheck/attempts/
+    last_attempt computed per the module's own convention (Timo's
+    explicit reference to garmin_quality.py's recheck/attempts pattern,
+    reimplemented independently rather than imported — see
+    mcp_sql.upsert_raw_field()'s docstring for why).
+
+    Exception during the query -> caught here (not propagated),
+    recheck=1, attempts incremented, logged (mirrors "failed" in
+    garmin/quality/_maint.py) — returns False. No exception, value
+    present -> recheck=0 (resolved) — returns True. No exception,
+    value absent (payload["raw"] is None) -> recheck depends on
+    day_age against RAW_RETRY_WINDOW_DAYS: still within the window ->
+    recheck=1 (too early to call this "confirmed absent"), outside
+    the window -> recheck=0 (accepted as final, same "high forever"
+    spirit as garmin/quality/_maint.py's high-quality entries, applied
+    here to "no value" instead of "quality assessed") — returns True
+    either way (a successfully-determined absence is not a failure).
+
+    Never raises — the caller (_sync_raw_fields()) only needs the
+    returned bool for its fields_failed count, same
+    "mcp_sql.py throws, callers catch per unit" split used everywhere
+    else in this module, just localized one level lower here since a
+    single field's exception must not also block its sibling fields
+    on the same day from being attempted.
+    """
+    attempts_before = mcp_sql.get_raw_field_attempts(day, field)
+    now_str = datetime.datetime.now().isoformat()
+
+    try:
+        result = mcp_map.query_raw(field, day, day, domain="health")
+        field_result = result["health"].get(field, {})
+        values = field_result.get("values", [])
+        raw_value = values[0]["raw"] if values else None
+    except Exception as exc:
+        logger.warning("Raw field %s/%s failed to sync, skipping: %s",
+                        day, field, exc)
+        mcp_sql.upsert_raw_field(day, field, None, recheck=True,
+                                  attempts=attempts_before + 1, last_attempt=now_str)
+        return False
+
+    if raw_value is not None:
+        mcp_sql.upsert_raw_field(day, field, {"raw": raw_value}, recheck=False,
+                                  attempts=attempts_before, last_attempt=now_str)
+        return True
+
+    day_age = (datetime.date.today() - datetime.date.fromisoformat(day)).days
+    still_pending = day_age < RAW_RETRY_WINDOW_DAYS
+    mcp_sql.upsert_raw_field(day, field, None, recheck=still_pending,
+                              attempts=attempts_before, last_attempt=now_str)
+    return True
+
+
+def _sync_raw_fields() -> tuple[int, int]:
+    """
+    Form A variant, raw-passthrough: field-granular, hash-gated delta —
+    structurally distinct from _sync_health_days()/_sync_context_days()
+    because a single existence/compare_value check per day is not
+    enough here (KONZEPT clarified across several rounds with Timo,
+    NOTES_v1.7.1.1_session2.md — see "Sync-Reichweite pro Lauf" /
+    "mtime-Idee" / "Speicherort des Tages-Hash" sections for the full
+    reasoning trail):
+
+      1. list_raw_fields() is read fresh on every call (live field
+         registry, never hard-coded — the 13-field count is today's
+         state, not a permanent one, per Timo's original query about
+         garmin_api_capability.py's role here).
+      2. get_stats() gives the archive's real date_min/date_max, same
+         as every other _sync_*() function — never a hardcoded range.
+      3. metadata_map.get_raw_file_hashes() (via mcp_map) is read once
+         for the whole range, compared per day against
+         mcp_sql.get_raw_day_hash(): unchanged day -> only that day's
+         currently-pending fields (mcp_sql.get_pending_raw_fields())
+         are re-queried; changed or new day -> every currently
+         registered field is (re-)queried, covering both a brand-new
+         day and nachtraegliche Datenlieferung to an old, previously
+         "resolved" day alike, without a separate manual-reset code
+         path.
+      3b. Content hash, not mtime — a mirror/restore rewriting the same
+          bytes must not look like a change (Timo's explicit challenge,
+          confirmed against metadata_map.py's own pre-existing mtime
+          warning for log filenames).
+
+    Returns (days_touched, fields_failed) — days_touched counts days
+    where at least one field was queried (new or hash-changed or had
+    pending fields), fields_failed counts individual field-query
+    exceptions, same "surface partial failure, never silently absorb
+    it" principle as every other _sync_*() function's docstring.
+    """
+    stats_result = mcp_map.get_archive_metadata("stats")
+    date_min = stats_result["data"]["date_min"]
+    date_max = stats_result["data"]["date_max"]
+    if date_min is None or date_max is None:
+        return 0, 0
+
+    fields_result = mcp_map.list_raw_fields(domain="health")
+    raw_field_names = fields_result.get("health", [])
+
+    hashes_result = mcp_map.get_raw_file_hashes(date_min, date_max)
+    live_hashes = hashes_result["data"] or {}
+
+    days_touched = 0
+    fields_failed = 0
+    current = datetime.date.fromisoformat(date_min)
+    end = datetime.date.fromisoformat(date_max)
+    while current <= end:
+        day = current.isoformat()
+        current += datetime.timedelta(days=1)
+
+        live_hash = live_hashes.get(day)
+        if live_hash is None:
+            continue  # no raw/ file for this day at all — nothing to sync
+
+        cached_hash = mcp_sql.get_raw_day_hash(day)
+        if live_hash == cached_hash:
+            fields_to_sync = mcp_sql.get_pending_raw_fields(day)
+        else:
+            fields_to_sync = set(raw_field_names)
+
+        if not fields_to_sync:
+            continue
+
+        day_had_activity = False
+        for field in fields_to_sync:
+            ok = _sync_one_raw_field(day, field)
+            day_had_activity = True
+            if not ok:
+                fields_failed += 1
+
+        if day_had_activity:
+            mcp_sql.upsert_raw_day_hash(day, live_hash)
+            days_touched += 1
+
+    return days_touched, fields_failed
 
 
 def sync_all() -> dict:
@@ -433,6 +632,7 @@ def sync_all() -> dict:
 
             health_days_updated, health_days_failed = _sync_health_days()
             context_days_updated, context_days_failed = _sync_context_days()
+            raw_days_touched, raw_fields_failed = _sync_raw_fields()
 
             structured_entries_updated = 0
             structured_entries_failed = 0
@@ -464,6 +664,8 @@ def sync_all() -> dict:
                 "context_days_updated": context_days_updated,
                 "context_days_failed": context_days_failed,
                 "fit_days_updated": 0,
+                "raw_days_touched": raw_days_touched,
+                "raw_fields_failed": raw_fields_failed,
                 "snapshots_refreshed": snapshots_refreshed,
                 "log_files_added": log_files_added,
                 "log_files_failed": log_files_failed,

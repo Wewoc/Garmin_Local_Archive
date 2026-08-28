@@ -280,6 +280,15 @@ from maps import mcp_map  # noqa: E402 — after path/logging setup
 # path setup needed.
 import mcp_update  # noqa: E402 — after path/logging setup, v1.7.1
 
+# Same flat-import treatment as mcp_update above — this module is
+# invoked as a standalone script, and mcp_sql.py is itself only ever
+# loaded via mcp_update.py's own flat "import mcp_sql" (see that
+# module's docstring), so it is already resolvable on sys.path by the
+# time this import runs. v1.7.1.1 — needed here for _route_query()'s
+# SQLite-branch calls (get_health_range()/get_context_range()/
+# get_raw_range()/get_metadata_range()) below.
+import mcp_sql  # noqa: E402 — after path/logging setup, v1.7.1.1
+
 
 def _setup_boot_log() -> logging.FileHandler:
     """Attaches a FileHandler next to MCP_SERVER_CONFIG_FILE
@@ -424,6 +433,53 @@ mcp = FastMCP(
 # collision that a direct `from maps.mcp_map import query_health` plus a
 # same-named @mcp.tool() def in this module would otherwise cause.
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Routing weiche (v1.7.1.1 Ziel 5) — placeholder, no real heuristic yet
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# TODO v1.7.x — real heuristic after a measurement tool compares SQLite
+# vs. live cost/staleness (explicitly out of scope this session, see
+# NOTES_v1.7.1.1_session2.md). Fixed return "sqlite" for every kind —
+# analogous to gateway_map._DOMAIN_BROKERS['fit': None]'s "Stöpsel"
+# precedent: the decision point exists and is called from every one of
+# the six query tools below, but carries no actual logic yet, so a
+# later heuristic only has to change this one function's body, never
+# any call site.
+#
+# All six query tools route through this — refresh_cache() does NOT
+# (Ziel 6, verified separately): it is a sync trigger, not a data
+# query, so it is categorically not a routing candidate (Timo,
+# NOTES_v1.7.1.1_session2.md — "refresh cache soll ja nicht auf die
+# sql db gehen sondern mcp_delta triggern").
+#
+# query_fit_activities is included, not excluded (Timo, same NOTES
+# section: "der fit teil soll wenn er da ist auch in die sql db... von
+# daher würde ich das auch mit in die weiche nehmen") — its "sqlite"
+# branch below calls mcp_map.query_fit_activities() directly rather
+# than a not-yet-existing mcp_sql.get_fit_range(), i.e. it currently
+# returns the identical degraded {"fit": {"error": "domain not yet
+# available"}, ...} result on both branches of the if/else — the same
+# "Stöpsel statt Vollintegration" principle KONZEPT_mcp_sqlite_proxy_V2.md
+# already documents for FIT elsewhere in this project, applied here to
+# the routing weiche's SQLite branch specifically. Once fit_map.py and
+# mcp_sql.get_fit_range() exist (v1.8), only that one branch needs to
+# change — the weiche itself, and every wrapper's call to it, stays
+# unchanged.
+
+
+def _route_query(kind: str) -> str:
+    """
+    Decides whether a given query kind should be served from the
+    SQLite cache or the live archive. Placeholder — always returns
+    "sqlite" for every kind (see module comment above for the binding
+    rationale and TODO). kind is one of "health"/"context"/"fit"/
+    "raw"/"metadata" — a query-tool-family identifier, not an
+    MCP-tool-name passthrough, since query_fit_activities and the
+    (not yet existing) fit-domain query share one "fit" kind rather
+    than each tool inventing its own key.
+    """
+    return "sqlite"
+
 
 @mcp.tool()
 def query_health(field: str, date_from: str, date_to: str,
@@ -431,6 +487,8 @@ def query_health(field: str, date_from: str, date_to: str,
     """Query Garmin health data (e.g. heart rate, sleep, stress, body
     battery) for a field over a date range. resolution is "daily" or
     "intraday"."""
+    if _route_query("health") == "sqlite":
+        return mcp_sql.get_health_range(date_from, date_to)
     return mcp_map.query_health(field, date_from, date_to, resolution)
 
 
@@ -440,6 +498,8 @@ def query_context(field: str, date_from: str, date_to: str,
     """Query external context data (weather, pollen, air quality) for a
     field over a date range. Fans out across all sources that recognize
     the field."""
+    if _route_query("context") == "sqlite":
+        return mcp_sql.get_context_range(date_from, date_to)
     return mcp_map.query_context(field, date_from, date_to, resolution)
 
 
@@ -449,6 +509,15 @@ def query_fit_activities(field: str, date_from: str, date_to: str,
     """Query FIT activity data for a field over a date range. Not yet
     available (FIT pipeline is v1.8) — returns a clean "not available"
     result until then, never an error."""
+    if _route_query("fit") == "sqlite":
+        # Stöpsel (see routing weiche comment above) — no
+        # mcp_sql.get_fit_range() exists yet (FIT pipeline is v1.8),
+        # so the SQLite branch calls the same live degraded-result
+        # path query_fit_activities always used, rather than a
+        # not-yet-existing cache function. Replace with
+        # mcp_sql.get_fit_range(date_from, date_to) once that lands —
+        # no other change needed here or at any call site.
+        return mcp_map.query_fit_activities(field, date_from, date_to, resolution)
     return mcp_map.query_fit_activities(field, date_from, date_to, resolution)
 
 
@@ -458,6 +527,8 @@ def query_raw(field: str, date_from: str, date_to: str,
     """Query raw, unprocessed archive data for a passthrough field over a
     date range. domain restricts the query to one domain ("health",
     "fit", "context") — omit to search all domains."""
+    if _route_query("raw") == "sqlite":
+        return mcp_sql.get_raw_range(date_from, date_to)
     return mcp_map.query_raw(field, date_from, date_to, domain=domain)
 
 
@@ -476,6 +547,8 @@ def get_archive_metadata(kind: str, date_from: str | None = None,
     Omit both to get the last 30 days of that kind rather than the full
     archive history; the response then includes a "note" field saying
     so. Pass both explicitly for a specific or wider range."""
+    if _route_query("metadata") == "sqlite":
+        return mcp_sql.get_metadata_range(kind, date_from=date_from, date_to=date_to)
     return mcp_map.get_archive_metadata(kind, date_from=date_from, date_to=date_to)
 
 
@@ -484,6 +557,24 @@ def list_available_fields(domain: str | None = None) -> dict:
     """List all queryable fields, grouped by domain and source. Use this
     first if the set of available fields is unknown — omit domain for a
     full overview, or pass "health"/"context"/"fit" to narrow it."""
+    if _route_query("fields") == "sqlite":
+        # Stöpsel, same principle as query_fit_activities' branch above —
+        # list_available_fields() reflects the code's own field
+        # registry (health_map/context_map's registered field names,
+        # gateway_map's domain/metadata-kind lists), not archived data
+        # that a sync could make stale — there is no cache benefit to
+        # a SQLite-backed version, and no mcp_sql function exists for
+        # it. Included in the weiche anyway (Timo, explicit: "bitte so
+        # bauen wie es geplant ist" — the start prompt names "all seven
+        # tool wrappers... without exception" for Ziel 5, and only
+        # refresh_cache() is excluded by Ziel 6) rather than silently
+        # left out — both branches call the identical live path, so
+        # the routing decision is structurally present but has no
+        # observable effect for this one tool, the same non-effect
+        # query_fit_activities' branch currently has for a different
+        # reason (no fit_map.py yet vs. no cache concept applicable at
+        # all here).
+        return mcp_map.list_available_fields(domain)
     return mcp_map.list_available_fields(domain)
 
 
