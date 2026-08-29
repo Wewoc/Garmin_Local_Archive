@@ -339,7 +339,15 @@ for _kind in ("health", "context", "fit", "raw", "metadata", "fields"):
 with patch("mcp_sql.get_health_range", return_value={"health": {}, "_meta": {}}) as _m_sql, \
      patch("maps.mcp_map.query_health") as _m_live:
     mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
-    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE)
+    # v1.7.1.2 field-filter fix: field is now forwarded as a keyword
+    # argument (anchor_delivery_1711-04) — this assertion previously
+    # expected the pre-fix call shape without field, which the fix
+    # correctly broke. See the dedicated 8g-bis regression guard further
+    # down in this file for the forwarding behaviour itself; this check
+    # stays focused on its original purpose — confirming the SQLite
+    # branch, not mcp_map, handles the call — and simply needs to match
+    # the call shape that branch now actually produces.
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="hrv_last_night")
     _m_live.assert_not_called()
 check("mcp_server.query_health: SQLite branch calls mcp_sql.get_health_range, not mcp_map", True)
 
@@ -479,6 +487,23 @@ with patch("mcp_sql.get_health_range", return_value=_dummy_result):
     _wrapper_result = mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
 check("mcp_server.query_health: return value passed through unchanged",
       _wrapper_result == _dummy_result)
+
+# ── 8g-bis. field is actually forwarded to get_health_range() (v1.7.1.2
+#           field-filter fix regression guard) ──
+#
+# The pass-through check above only verifies the return value survives
+# unchanged — it never asserted WHICH arguments query_health() passes to
+# get_health_range(). That gap is exactly why the original v1.7.1.1 bug
+# (field silently dropped, every call returning all ~26 health fields
+# instead of the one requested) went unnoticed by this suite. Same
+# assert_called_once_with() pattern as the list_available_fields() checks
+# above (Zeile 441-450) — a future regression that drops field again, or
+# passes it positionally in a way that breaks get_health_range()'s
+# keyword-only expectation, fails loudly here.
+with patch("mcp_sql.get_health_range", return_value=_dummy_result) as _m:
+    mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
+    _m.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="hrv_last_night")
+check("mcp_server.query_health: field is forwarded to get_health_range() (v1.7.1.2 field-filter fix)", True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

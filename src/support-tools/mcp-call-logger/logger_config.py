@@ -78,7 +78,7 @@ INTERNAL_MCP_PORT = 8758
 #              in bytes, and (for list-shaped payloads) point count — no
 #              actual values. Enough to judge "too little / too much data",
 #              much smaller on disk.
-LOG_DEPTH = "metadata"  # "full" | "metadata"
+LOG_DEPTH = "full"  # "full" | "metadata"
 
 # ── Log file location ─────────────────────────────────────────────────────
 # Read from ~/.garmin_mcp_server_config.json's "base_dir" field (this one

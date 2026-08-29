@@ -387,6 +387,22 @@ production code's call target changes — is worth checking for whenever
 a routing/dispatch layer is added in front of an already-tested
 function; the test needs updating in lockstep, not just re-run.
 
+**Section 8c/8g-bis updated again (v1.7.1.2)** — the exact gap class
+named at the end of the paragraph above recurred: the field-filter fix
+(`get_health_range()` gained a `field` parameter, `mcp_server.py` now
+forwards it) changed the SQLite branch's call shape, and the
+pre-existing Section 8c delegation check (`_m_sql.assert_called_once_
+with(_TEST_DATE, _TEST_DATE)`, no `field`) still asserted the old,
+now-incorrect shape — it failed with an `AssertionError` at
+module-import time, which aborted the entire `test_mcp.py` script
+before reaching its own `summary()` call, surfacing in the test runner
+as "Ergebnis nicht erkannt" rather than a normal failure count. Fixed
+by updating the existing assertion to the new call shape, plus a new
+dedicated Section 8g-bis regression guard asserting `field` is actually
+forwarded (the original defect went unnoticed by this suite precisely
+because no test asserted call *arguments* for this path, only the
+return value passed through unchanged, per Section 8g above).
+
 `clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
 (c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in
 `main()`) — the only `clients/` module with this dependency, see Package

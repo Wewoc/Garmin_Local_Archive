@@ -609,4 +609,12 @@ identical `mcp_map.py` function (no `mcp_sql.get_fit_range()` until
 `fit_map.py` lands, v1.8; no cache benefit at all for a code-registry
 read in the latter case) — this file's `mcp_map.py` contract above
 remains the authoritative description of what each tool *returns*; the
-weiche only changes *which module supplies it*, never the shape.
+weiche only changes *which module supplies it*, never the per-field
+shape. **(v1.7.1.2)** `get_health_range()` now accepts the same `field`
+its caller was given and returns only that field, rather than every
+health field regardless of request — a `v1.7.1.1` defect (`field` was
+silently dropped at the `mcp_server.py` call site) that this file did
+not previously document, since the weiche's own routing logic was
+unaffected and the gap sat one layer below it. Per-field shape
+(`{"values": [...], "fallback": bool, "source_resolution": str}`)
+itself is unchanged.
