@@ -42,18 +42,25 @@ before that fix. clients/ is already on sys.path by the time this
 module loads (mcp_server.py's sys.path root anchor runs first), so the
 flat import resolves the same way mcp_map/garmin_config already do.
 
-Concurrency (NOTES_v1.7.1_session2.md, two distinct cases):
+Concurrency (NOTES_v1.7.1_session2.md, two distinct cases; case 1's
+guard corrected 2026-08-28 — see KNOWN_ISSUES.md for the diagnosis):
   1. Two parallel mcp_server.py process starts, both mid boot-sync
      before either reaches mcp.run()'s own bind-based guard — closed
-     here by binding garmin_config.MCP_HTTP_PORT for the duration of
-     sync_all() itself, released again before returning, so a second
-     process attempting the same sync gets an immediate, clear OSError
-     instead of an unpredictable "database is locked" error from
-     SQLite midway through a sync.
-  2. Two overlapping refresh_cache() calls after boot — not covered by
-     the port-bind above (the port is legitimately held by mcp.run()
-     itself by then). Guarded by _REFRESH_LOCK, a plain threading.Lock,
-     analogous to garmin_quality.py's QUALITY_LOCK precedent.
+     by binding garmin_config.MCP_HTTP_PORT for the duration of
+     sync_all(is_boot=True) only, released again before returning, so
+     a second process attempting the same boot sync gets an immediate,
+     clear OSError instead of an unpredictable "database is locked"
+     error from SQLite midway through a sync. is_boot=False (the
+     refresh_cache() path) skips this guard entirely — by the time
+     refresh_cache() can be called at all, mcp.run() already legitimately
+     holds this same port, so the original unconditional bind attempt
+     here always failed after boot, making refresh_cache() permanently
+     unusable at runtime (the actual bug this correction fixes).
+  2. Two overlapping refresh_cache() calls after boot — guarded by
+     _REFRESH_LOCK, a plain threading.Lock, analogous to
+     garmin_quality.py's QUALITY_LOCK precedent. This was always the
+     right guard for this case; the port-bind in case 1 was never
+     meant to also cover it.
 
 Per-unit error handling (NOTES_v1.7.1_session2.md, Multi-LLM-Review-Gate
 finding): a single failing day/file/entry is caught, logged, and
@@ -168,11 +175,20 @@ def _sync_health_days() -> tuple[int, int]:
     Form A, health: get_stats() for the archive's real date_min/date_max
     (never a hardcoded or guessed range, never the 30-day default —
     NOTES_v1.7.1_session2.md), then get_quality_log() over that full
-    range to learn every day's current last_attempt. A day is a sync
-    candidate if last_attempt is not null AND differs from
+    range to learn every day's current last_checked. A day is a sync
+    candidate if last_checked differs from
     mcp_sql.get_health_compare_value()'s current answer for that day —
     covers both improvements and downgrades, no special case needed
     (NOTES_v1.7.1_session2.md, quality_log delta section).
+
+    v1.7.1.1 diagnosis correction (session 2026-08-28): the original
+    compare_value was last_attempt, which garmin_quality.py only sets
+    on an actual recheck attempt — for an archive where days reach
+    "high"/"standard" on first contact and never need a recheck,
+    last_attempt stays null for effectively every day, so this
+    function silently synced nothing. last_checked is written on
+    every upsert (new day or recheck alike) and is therefore never
+    null — see KNOWN_ISSUES.md for the full diagnosis chain.
 
     Returns (days_updated, days_failed) — days_failed lets sync_all()'s
     result surface a partial-failure count instead of silently absorbing
@@ -200,9 +216,9 @@ def _sync_health_days() -> tuple[int, int]:
     failed = 0
     for entry in days:
         day = entry["date"]
-        live_compare_value = entry.get("last_attempt")
+        live_compare_value = entry.get("last_checked")
         if live_compare_value is None:
-            continue  # never touched since creation — nothing to sync
+            continue  # entry has no last_checked at all — malformed, skip
         try:
             cached_compare_value = mcp_sql.get_health_compare_value(day)
             if live_compare_value == cached_compare_value:
@@ -228,9 +244,15 @@ def _sync_structured_log(kind: str) -> tuple[int, int]:
     """
     Form C, structured logs (quality_log/source_api_log): per-entry
     compare_value diff against mcp_sql's cached value. compare_value's
-    meaning is formspecific — last_attempt for quality_log, max(fetched_at,
+    meaning is formspecific — last_checked for quality_log, max(fetched_at,
     backfilled_fields values) for source_api_log (NOTES_v1.7.1_session2.md
     correction — fetched_at alone misses additive backfills).
+
+    v1.7.1.1 diagnosis correction (session 2026-08-28): quality_log's
+    compare_value was originally last_attempt — see _sync_health_days()'s
+    docstring for why that field is null for effectively every day in
+    an archive with no recheck history, and why last_checked (written
+    on every upsert, never null) replaces it here too.
 
     Returns (entries_updated, entries_failed) — see _sync_health_days()'s
     docstring for why the failure count is surfaced rather than absorbed.
@@ -242,7 +264,7 @@ def _sync_structured_log(kind: str) -> tuple[int, int]:
     if kind == "quality_log":
         entries = {e["date"]: e for e in result["data"]["days"]}
         compare_values = {
-            date_key: entry.get("last_attempt")
+            date_key: entry.get("last_checked")
             for date_key, entry in entries.items()
         }
     else:  # source_api_log
@@ -571,14 +593,25 @@ def _sync_raw_fields() -> tuple[int, int]:
     return days_touched, fields_failed
 
 
-def sync_all() -> dict:
+def sync_all(is_boot: bool = False) -> dict:
     """
     Runs a full sync pass — all three forms, all data sources, both
-    boot-sync and refresh_cache() call this identically (see module
-    docstring). Guarded by _REFRESH_LOCK against overlapping calls
-    (case 2 in the module docstring's concurrency section); a second
-    call arriving while one is already running blocks until the first
-    completes rather than running concurrently.
+    boot-sync and refresh_cache() call this (see module docstring).
+    Guarded by _REFRESH_LOCK against overlapping calls (case 2 in the
+    module docstring's concurrency section); a second call arriving
+    while one is already running blocks until the first completes
+    rather than running concurrently.
+
+    is_boot : bool
+      True  — called from mcp_server.py's startup sequence, before
+              mcp.run() has bound the port. The port-bind guard (case 1)
+              runs, protecting against two parallel process starts.
+      False — called from the refresh_cache() MCP tool while the server
+              is already running and legitimately holds the port. The
+              port-bind guard is skipped — attempting it here always
+              failed (the port is never free at this point), which
+              made refresh_cache() unconditionally error out at runtime
+              until this correction (2026-08-28 diagnosis session).
 
     Returns a result dict — used for the boot-log entry as well as the
     refresh_cache() MCP tool's direct answer to the LLM:
@@ -614,18 +647,20 @@ def sync_all() -> dict:
         # Concurrency guard, case 1 (module docstring) — held only for
         # the duration of this sync pass, released before returning so
         # mcp.run() can bind the same port normally afterwards.
-        guard_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            guard_socket.bind(("127.0.0.1", cfg.MCP_HTTP_PORT))
-        except OSError as exc:
-            logger.error(
-                "Could not start sync — port %d already in use, "
-                "another sync is likely already running: %s",
-                cfg.MCP_HTTP_PORT, exc)
-            if handler is not None:
-                logger.removeHandler(handler)
-                handler.close()
-            raise
+        guard_socket = None
+        if is_boot:
+            guard_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                guard_socket.bind(("127.0.0.1", cfg.MCP_HTTP_PORT))
+            except OSError as exc:
+                logger.error(
+                    "Could not start boot sync — port %d already in use, "
+                    "another instance is likely already starting: %s",
+                    cfg.MCP_HTTP_PORT, exc)
+                if handler is not None:
+                    logger.removeHandler(handler)
+                    handler.close()
+                raise
 
         try:
             mcp_sql.init_db()
@@ -677,7 +712,8 @@ def sync_all() -> dict:
             logger.info("Sync complete: %s", result)
             return result
         finally:
-            guard_socket.close()
+            if guard_socket is not None:
+                guard_socket.close()
             if handler is not None:
                 logger.removeHandler(handler)
                 handler.close()

@@ -304,6 +304,8 @@ HIDDEN_IMPORTS_T3_EXTRA = [
     "requests",
     "lxml",
     "lxml.etree",
+    "sqlite3",
+    "_sqlite3",
     # MCP server SDK chain (v1.7 Teil e) — T3.3 (mcp_server.exe) only,
     # T2 does not need these (loose scripts, resolved via requirements.txt
     # + normal site-packages at runtime, not PyInstaller hidden-imports).

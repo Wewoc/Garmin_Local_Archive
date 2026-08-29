@@ -157,6 +157,14 @@ def _run_self_test() -> int:
                 print(text)
             except Exception:
                 pass
+        try:
+            import garmin.garmin_config as _cfg
+            _log_path = _cfg.LOG_DIR / "selftest_result.log"
+            _log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(_log_path, "a", encoding="utf-8") as _f:
+                _f.write(text + "\n")
+        except Exception:
+            pass
 
     if getattr(sys, "frozen", False):
         base          = Path(sys._MEIPASS) / "scripts"

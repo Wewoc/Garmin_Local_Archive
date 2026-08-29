@@ -410,7 +410,7 @@ def _build_range_meta(date_from: str, date_to: str) -> dict:
     }
 
 
-def get_health_range(date_from: str, date_to: str) -> dict:
+def get_health_range(date_from: str, date_to: str, field: str | None = None) -> dict:
     """
     Reads mcp_health_days for every day in [date_from, date_to] and
     reassembles a query_health()-compatible result:
@@ -429,6 +429,18 @@ def get_health_range(date_from: str, date_to: str) -> dict:
     "source_resolution" (a health_map.get() result) rather than raw's
     flatter {"raw": ...} shape.
 
+    v1.7.1.1 Bug-C correction (2026-08-28): each field's cached value
+    carries one more nesting level than the paragraph above states —
+    a source-name key (currently always "garmin") sits between the
+    field and its "values"/"fallback"/"source_resolution" — mirrored
+    from health_map.get()'s own return shape. This function now reads
+    through that layer (taking whichever single source is present,
+    not hard-coding "garmin"), rather than reading "values" etc.
+    directly off field_result as it incorrectly did before this fix —
+    that earlier version silently returned an empty values list for
+    every field on every day, regardless of what the cache actually
+    held.
+
     A day with no cache row at all (never synced, or synced but with
     an empty archive so nothing was ever written — see
     _sync_health_days()'s early-return for an empty archive)
@@ -445,11 +457,38 @@ def get_health_range(date_from: str, date_to: str) -> dict:
     Args:
         date_from: Start date ISO string (YYYY-MM-DD), inclusive.
         date_to:   End date ISO string (YYYY-MM-DD), inclusive.
+        field:     v1.7.1.1 addition (2026-08-28 session, "field-filter"
+                   fix) — when given, only this one field is assembled
+                   and returned, instead of every field in the cached
+                   day payload. Without this, a single-field request
+                   (e.g. "resting_heart_rate") silently pulled back
+                   every other health field too, including this
+                   archive's six *_series intraday fields — full
+                   day-long minute-by-minute timeseries the caller
+                   never asked for, ballooning a single-value answer
+                   to hundreds of KB and confusing small local LLMs
+                   trying to summarize it (observed: a fabricated
+                   value in the model's own summary of an otherwise
+                   correct 266KB response). None (the default) keeps
+                   the original "all fields" behavior for callers that
+                   genuinely want an overview.
+
+                   No separate handling is needed for intraday vs.
+                   daily fields here — each field already carries its
+                   own source_resolution from the cache, so a caller
+                   asking for "resting_heart_rate" gets a single daily
+                   value and a caller asking for "heart_rate_series"
+                   gets the full timeseries, purely based on which
+                   field name was requested — no resolution-based
+                   branching required.
 
     Returns:
         {"health": {field: <health_map.get() per-source result>, ...},
          "_meta": {...}} — "_meta" always present, matching
-        query_health()'s own contract.
+        query_health()'s own contract. When field is given, "health"
+        contains at most that one key (absent entirely if the field
+        was never cached for any day in range, same as the no-field
+        case would omit any field with zero matching values).
     """
     by_field: dict[str, dict] = {}
     conn = get_connection()
@@ -460,17 +499,40 @@ def get_health_range(date_from: str, date_to: str) -> dict:
     for row in rows:
         day_str = row["date"]
         day_payload = json.loads(row["payload_json"])
-        for field, field_result in day_payload.items():
-            entry = by_field.setdefault(field, {
+        for field_name, field_result in day_payload.items():
+            if field is not None and field_name != field:
+                continue
+            # v1.7.1.1 Bug-C fix (2026-08-28 diagnosis session): field_result
+            # carries an extra source-name layer (e.g. {"garmin": {"values":
+            # ..., "fallback": ..., "source_resolution": ...}}) — this comes
+            # straight from health_map.get()'s own result shape, mirrored
+            # unchanged into the cache by _sync_health_days()'s
+            # "payload[field] = field_result['health']" write. Reading
+            # field_result directly (as before this fix) always missed
+            # "values"/"fallback"/"source_resolution", since those live one
+            # level deeper, under whichever source key is present — every
+            # field for every day silently produced an empty values list,
+            # regardless of whether the cache row itself held real data.
+            # Option A (chosen over hard-coding "garmin"): take whichever
+            # single source is present, so this keeps working unchanged if a
+            # second source is ever added upstream, without needing another
+            # correction here.
+            source_result = field_result
+            if isinstance(field_result, dict) and field_result:
+                first_source_value = next(iter(field_result.values()))
+                if isinstance(first_source_value, dict):
+                    source_result = first_source_value
+
+            entry = by_field.setdefault(field_name, {
                 "values": [],
-                "fallback": field_result.get("fallback", False)
-                            if isinstance(field_result, dict) else False,
-                "source_resolution": field_result.get("source_resolution", "daily")
-                                     if isinstance(field_result, dict) else "daily",
+                "fallback": source_result.get("fallback", False)
+                            if isinstance(source_result, dict) else False,
+                "source_resolution": source_result.get("source_resolution", "daily")
+                                     if isinstance(source_result, dict) else "daily",
             })
-            if isinstance(field_result, dict) and "values" in field_result:
+            if isinstance(source_result, dict) and "values" in source_result:
                 entry["values"].extend(
-                    v for v in field_result["values"] if v.get("date") == day_str
+                    v for v in source_result["values"] if v.get("date") == day_str
                 )
 
     return {

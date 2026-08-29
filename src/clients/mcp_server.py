@@ -383,8 +383,11 @@ def _run_startup_sync() -> None:
     in either startup path (mcp.run() has not been reached). The same
     mcp_update.sync_all() mechanism, called again later via the
     refresh_cache() tool below, returns its result directly to the LLM
-    instead — one mechanism, two callers, no second code path (binding
-    decision from NOTES_v1.7.1_vorbereitung.md).
+    instead — one shared sync mechanism, two callers that now pass a
+    different is_boot value (2026-08-28 correction: the port-bind
+    concurrency guard inside sync_all() only makes sense here, before
+    mcp.run() has bound the port — see mcp_update.py's module docstring
+    for the full diagnosis).
 
     A failure here is not caught — an unusable SQLite cache at boot is
     surfaced immediately in the boot log rather than silently starting
@@ -392,7 +395,7 @@ def _run_startup_sync() -> None:
     first use.
     """
     logger.info("Starting SQLite proxy boot sync...")
-    result = mcp_update.sync_all()
+    result = mcp_update.sync_all(is_boot=True)
     logger.info("Boot sync complete: %s", result)
 
 
@@ -486,9 +489,25 @@ def query_health(field: str, date_from: str, date_to: str,
                   resolution: str = "daily") -> dict:
     """Query Garmin health data (e.g. heart rate, sleep, stress, body
     battery) for a field over a date range. resolution is "daily" or
-    "intraday"."""
+    "intraday" — most fields only support one of the two (e.g.
+    resting_heart_rate is daily-only, heart_rate_series is
+    intraday-only); pass the field name that matches what you want,
+    see list_available_fields() for the full list. This parameter is
+    accepted for forward compatibility but not currently used to pick
+    between two resolutions of the same field, since no field in this
+    archive currently offers both — each field's own stored resolution
+    already determines whether the answer is a single daily value or
+    a full timeseries.
+
+    v1.7.1.1 field-filter fix (2026-08-28 session): field is now
+    passed through to the SQLite branch — previously it was silently
+    dropped, so every call returned all ~26 health fields regardless
+    of what was asked for, including this archive's intraday *_series
+    fields (full day-long timeseries), inflating a single-value
+    answer to hundreds of KB and confusing small local LLMs
+    summarizing the result."""
     if _route_query("health") == "sqlite":
-        return mcp_sql.get_health_range(date_from, date_to)
+        return mcp_sql.get_health_range(date_from, date_to, field=field)
     return mcp_map.query_health(field, date_from, date_to, resolution)
 
 
