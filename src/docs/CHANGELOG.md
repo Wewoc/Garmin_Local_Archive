@@ -1,5 +1,282 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.2 — SQLite-Proxy: vier Regressionen aus v1.7.1.1 behoben
+
+`v1.7.1.1`'s routing weiche shipped structurally complete but with four
+independent defects that only became visible once the SQLite branch
+actually held data — the original diagnosis session set out to
+investigate a reported meta-question tool-call regression (`qwen3:14b`
+occasionally not calling `list_available_fields()`), which live-server
+testing ruled out as model sampling variance, not a server defect. The
+real defects surfaced one at a time while chasing a single test case
+(`resting_heart_rate` on a day with confirmed archive data returning
+empty) through the full sync → cache → read → wrapper chain.
+
+**New modules:** none.
+
+**Changed modules:**
+- `clients/mcp_update.py` — `sync_all(is_boot: bool = False)`, new
+  parameter. The port-bind concurrency guard (`v1.7.1.1`'s "two
+  parallel process starts" case) ran unconditionally on every call,
+  including from `refresh_cache()` — by the time that tool can be
+  called at all, `mcp.run()` already legitimately holds the port, so
+  the guard's own bind attempt always failed, making `refresh_cache()`
+  unconditionally error out at runtime (`[WinError 10048]`, confirmed
+  in live logs on every post-boot call). Guard now runs only when
+  `is_boot=True`. `_sync_health_days()`'s and `_sync_structured_log()`'s
+  `quality_log` branch both switched their delta compare-value from
+  `last_attempt` to `last_checked` — `last_attempt` is written only on
+  an actual recheck attempt (`garmin/quality/_maint.py::_upsert_quality()`),
+  which never happened for any of this archive's 2809 days
+  (`attempts: 0`/`recheck: false` confirmed for all of them via direct
+  `quality_log.json` inspection), so the compare-value was `null` for
+  100% of days and both sync paths silently synced nothing, every run,
+  since `v1.7.1.0`. `last_checked` is written on every upsert (new day
+  or recheck alike) and is therefore never null.
+- `clients/mcp_server.py` — `_run_startup_sync()` now calls
+  `mcp_update.sync_all(is_boot=True)`. `query_health()`'s `field`
+  parameter is now forwarded to `mcp_sql.get_health_range()` — it was
+  silently dropped since `v1.7.1.1`, so every call returned all ~26
+  health fields regardless of what was asked for, including this
+  archive's six intraday `*_series` fields (full day-long
+  minute-by-minute timeseries), inflating a single-field answer from a
+  few hundred bytes to 266KB and — confirmed against the raw tool
+  response in this session — causing `qwen3:14b` to fabricate a value
+  while summarizing the oversized result rather than reading the
+  correct one back out.
+- `clients/mcp_sql.py` — `get_health_range()` gained a `field:
+  str | None = None` parameter; when given, only that field is
+  assembled into the result instead of every field the cached day
+  payload holds. Also fixes a second, independent defect found while
+  tracing the empty-`resting_heart_rate` case: each field's cached
+  value carries a source-name layer (`{"garmin": {"values": ...,
+  "fallback": ..., "source_resolution": ...}}`, mirrored unchanged from
+  `health_map.get()`'s own result shape by `_sync_health_days()`) that
+  this function read straight through — `field_result.get("values")`
+  etc. always missed, since those keys live one level deeper, under
+  whichever source key is present. Every field on every day silently
+  produced an empty values list regardless of what the cache actually
+  held, since the very first `v1.7.1.1` sync. Now reads through
+  whichever single source is present rather than assuming the field's
+  own keys directly — chosen over hard-coding `"garmin"` so this stays
+  correct if a second source is ever added upstream without needing
+  another correction here.
+- `tests/test_mcp.py` — Section 8c's SQLite-branch delegation check
+  updated to expect `field` in the `get_health_range()` call shape
+  (previously asserted the pre-fix, field-less call, which the field
+  filter fix correctly broke). New Section 8g-bis regression guard,
+  asserting `field` is actually forwarded rather than only checking
+  that the wrapper's return value passes through unchanged (the
+  existing 8g check) — the field-drop defect above went unnoticed by
+  this suite precisely because no test asserted call arguments for
+  this path, only the return value.
+
+**Architecture decisions, this session:**
+- **`is_boot` breaks `v1.7.1`'s "one mechanism, two identical callers,
+  no second code path" principle for `sync_all()`'s port-bind guard
+  specifically** — Timo-approved trade-off: the port-bind guard's
+  underlying assumption (port availability is identical between boot
+  and runtime) was simply false, not a symmetry worth preserving. The
+  `_REFRESH_LOCK` threading-lock guard (the actual mechanism for
+  overlapping `refresh_cache()` calls, case 2 in the module docstring)
+  is unaffected and remains identical for both callers.
+- **Source-layer read: take whichever source is present (Option A),
+  not a hard-coded `"garmin"` (Option B)** — Timo-approved. More
+  robust against a future second health data source without a further
+  correction at this call site, at the cost of not explicitly failing
+  loudly if an unexpected source key ever appears.
+- **`resolution` parameter left functionally unused rather than wired
+  into a new daily/intraday branch** — Timo-approved, after discussing
+  and rejecting two alternatives: (1) splitting `query_health()` into
+  separate summary/series tools (rejected — would grow the already
+  documented `tools/list` context-budget problem, and doesn't remove
+  the need for the field filter fix regardless), and (2) using
+  `resolution="daily"` to aggregate an intraday series field down to a
+  single number (rejected — no single aggregation rule applies across
+  fields; a heart-rate series wants an average, a steps series might
+  want a sum, deferred pending a concrete need). Each field's own
+  stored `source_resolution` already determines whether a request
+  returns a single value or a full timeseries, purely from the field
+  name requested — no resolution-based decision needed from the
+  caller.
+
+**Precondition Teil A (Architecture check):** no findings — none of
+this session's changed modules write outside their own ownership, read
+a broker's files directly, or touch `quality_log.json` outside the
+existing broker path.
+
+**Precondition Teil B (Drift-Check):** PFLICHT this session — three
+modules changed (see above). Confirmed via `dep_map_delta.md`
+(`build_dep_map.py`, 2026-08-28_Run-01 → 2026-08-29_Run-01): 0 NEU, 0
+WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung across both
+exceptions and fileio — clean, no findings to review.
+
+**Test result:** 716 / 265 / 465 / 136 / 84 / 165 / 73 / 16 — all green
+(test_local / test_local_context / test_dashboard / test_broker /
+test_mcp / test_app_logic / test_qt_app / test_static). `test_mcp.py`
+required updates to reflect the field-filter fix's new call shape (83
+→ 84 checks) — see Changed modules above; no other suite required
+changes, all four fixes in this session live entirely inside the
+SQLite-proxy layer `test_mcp.py` already covers.
+
+**postscript:** `compiler/build_manifest.py` — `sqlite3`/`_sqlite3` added to `HIDDEN_IMPORTS_T3_EXTRA` (T3.1 self-test was failing to load `clients/mcp_sql.py` and its callers with `ModuleNotFoundError: No module named 'sqlite3'`); `garmin_app_standalone.py::_run_self_test()`'s `_out()` now also appends to `LOG_DIR/selftest_result.log`, since the --windowed build's `sys.stdout` silently swallowed the failure detail `build_all.py` needed to diagnose it.
+
+---
+
+## v1.7.1.1 — Routing-Weiche vollständig (SQLite-Vollabdeckung + Weiche)
+
+Closes the two SQLite-coverage gaps `v1.7.1.0` left open
+(`query_health`/`query_context`/`query_raw` had no time-series read
+path back out of the cache, only sync-in) and adds the routing decision
+point (`_route_query()`) all six query tools now pass through — a
+placeholder today (fixed `"sqlite"`), but structurally in place for a
+real cost/staleness heuristic later (v1.7.x) without touching any call
+site again. Also fixes a completeness gap in `v1.7.1.0`'s original
+context sync (`_sync_context_days()`'s existence-only delta silently
+froze a day the moment any single row existed, even with three of four
+sources still missing) and closes a coverage hole in `get_archive_metadata`'s
+own SQLite read path that had no counterpart at all before this session.
+
+**New modules:** none — all additions are new functions inside the
+existing `v1.7.1.0` module set (`clients/mcp_sql.py`, `clients/mcp_update.py`,
+`clients/mcp_server.py`, `maps/metadata_map.py`, `maps/gateway_map.py`,
+`maps/mcp_map.py`).
+
+**Changed modules:**
+- `clients/mcp_sql.py` — `get_health_range()`/`get_context_range()`
+  (Ziel 1/2), reassembling `mcp_health_days`/`mcp_context_days`'
+  per-day cache rows into `query_health()`/`query_context()`-compatible
+  read shapes; a day never synced contributes no data for that day,
+  same degrade-gracefully principle as the live broker path. Shared
+  `_build_range_meta()` weekday-table helper, reimplemented
+  independently from `maps/mcp_map.py`'s private `_build_meta()` —
+  `clients/` must not reach into `maps/`'s internals. Two new tables,
+  `mcp_raw_fields` (field-granular, `recheck`/`attempts`/`last_attempt`
+  convention modelled on `garmin/quality/_maint.py`'s pattern but
+  deliberately reimplemented rather than imported, to keep `clients/`
+  independent of `garmin/quality/`) and `mcp_raw_day_hashes` (one
+  SHA-256 content hash per day, the automatic-nachlieferung-detection
+  signal `query_raw`'s sync needed — see Architecture decisions below).
+  `get_raw_range()` reassembles both into a `query_raw()`-compatible
+  result. `mcp_context_days` gained two new columns
+  (`complete_sources_json`/`attempted_sources_json`, additive with
+  `DEFAULT`) to track per-source completeness rather than a single
+  existence flag. New `get_snapshot_metadata()`/`get_structured_log_range()`/
+  `get_recent_log_range()`/`get_metadata_range()` (Ziel 2b) — a routing
+  function one level below `_route_query()`, deciding which of the two
+  underlying cache forms (`mcp_snapshots` vs. `mcp_structured_logs`/
+  `mcp_recent_logs`) a given `get_archive_metadata()` `kind` lives in,
+  mirroring `gateway_map._DATE_FILTERABLE_KINDS`'s existing
+  classification rather than re-deriving it independently.
+- `clients/mcp_update.py` — `_sync_raw_fields()`/`_sync_one_raw_field()`
+  (Ziel 4): field-granular, hash-gated delta — a day's cached content
+  hash is compared against a freshly-read one (`maps/metadata_map.py`'s
+  new `get_raw_file_hashes()`, via `mcp_map`); unchanged day → only
+  currently-pending fields re-queried, changed or new day → every
+  currently-registered raw field re-queried. New
+  `RAW_RETRY_WINDOW_DAYS` constant, independent from `garmin_quality.py`'s
+  `INTRADAY_RETRY_WINDOW_DAYS` (no factual link between raw-passthrough
+  fields and Garmin's own intraday-availability window). `_sync_context_days()`
+  rewritten from existence-only to per-source completeness delta — a
+  day with any source still missing from `complete_sources` is
+  revisited; a source with one prior empty attempt gets exactly one
+  more try, then is accepted as permanently empty (no unbounded retry,
+  no age-window needed — a context source either answers with data or
+  with a definitive "nothing here", unlike raw/health's
+  possible-later-availability case). Return value renamed `added` →
+  `touched` (a day can now legitimately be revisited more than once).
+  `sync_all()`'s result dict gained `raw_days_touched`/`raw_fields_failed`.
+- `clients/mcp_server.py` — `_route_query(kind) -> str` (Ziel 5),
+  placeholder always returning `"sqlite"`, `TODO v1.7.x` for the real
+  heuristic. All six query tools (`query_health`/`query_context`/
+  `query_fit_activities`/`query_raw`/`get_archive_metadata`/
+  `list_available_fields`) now call it and branch into the matching
+  `mcp_sql`/`mcp_map` function; `refresh_cache()` deliberately does
+  NOT route (Ziel 6 — a sync trigger, not a data query, categorically
+  outside the weiche). `query_fit_activities` and `list_available_fields`
+  route through the same decision point as every other tool but both
+  branches call the identical `mcp_map` function today (Stöpsel — no
+  `fit_map.py`/`mcp_sql.get_fit_range()` until v1.8 for the former, no
+  cache benefit at all for a code-registry read for the latter); only
+  the SQLite branch's body needs to change once a real counterpart
+  exists, no call site. New flat `import mcp_sql`.
+- `maps/metadata_map.py` — new `get_raw_file_hashes(date_from, date_to)`,
+  a tenth metadata kind (SHA-256 content hash per day, not mtime — a
+  mirror/restore rewriting byte-identical content must not look like a
+  change, same reasoning the three `list_*_log_filenames()` functions
+  already apply to log filenames). Both `date_from`/`date_to` required,
+  no 30-day default, unlike the nine existing functions.
+- `maps/gateway_map.py` — new `_METADATA_KINDS` entry `raw_file_hashes`,
+  requiring `date_from`/`date_to` unconditionally rather than through
+  the optional `_DATE_FILTERABLE_KINDS` mechanism the other five
+  date-aware kinds use.
+- `maps/mcp_map.py` — new `get_raw_file_hashes()`/`list_raw_fields()`
+  thin wrappers, internal sync use only, not registered as MCP tools —
+  the latter closes a gap discovered mid-session: no existing `mcp_map.py`
+  function exposed `gateway_map.list_raw_fields()` to `clients/mcp_update.py`,
+  which `_sync_raw_fields()` needs to read the live raw-field registry
+  on every sync pass rather than hard-coding a field count.
+
+**Architecture decisions, this session:**
+- **Scope expansion, Timo-approved:** `_route_query()` was originally
+  scoped to Health/Context/Raw only (Ziel 1/2/4 were the stated
+  prerequisites in the session start prompt). Building it revealed
+  `get_archive_metadata`/`list_available_fields` had no SQLite read
+  path at all — not part of the original eight-goal list. Timo chose
+  full wiring today over a half-wired placeholder: Ziel 2b
+  (`get_metadata_range()` and its two supporting functions) was added
+  mid-session rather than deferred.
+- **Nachtraegliche Datenlieferung, automatic detection required:**
+  Timo rejected a simpler "new days + pending fields only" sync
+  strategy for raw-passthrough once its blind spot was identified — a
+  day whose recheck window had already closed would never notice a
+  later GDPR bulk import or silo repair. mtime was considered and
+  rejected (a mirror/restore operation changes mtime without changing
+  content — `maps/metadata_map.py`'s own pre-existing filename-vs-mtime
+  reasoning for log files applies identically here); a SHA-256 content
+  hash was chosen instead, stored in its own `mcp_raw_day_hashes` table
+  rather than duplicated into every `mcp_raw_fields` row (redundant
+  storage risks silent partial-write inconsistency across a day's
+  multiple field rows; a single per-day row is atomic).
+- **No code-sharing with `garmin/quality/`:** the `recheck`/`attempts`/
+  `last_attempt` convention `mcp_raw_fields` uses was modelled
+  explicitly on `garmin/quality/_maint.py::_upsert_quality()`'s
+  existing pattern (per Timo's direct reference), but neither a direct
+  import nor an extracted shared helper was built — `garmin_quality.py`
+  is a core-archive module (Archive-First/downgrade protection) that
+  should not gain a dependency from a cache-layer concern, and
+  `clients/` must not move structurally closer to the broker/garmin
+  core layer even where doing so would simplify the implementation.
+
+**Precondition Teil A (Architecture check):** no findings — none of
+this session's changed modules write outside their own ownership,
+read a broker's files directly, or touch `quality_log.json` outside
+the existing `mcp_map.get_archive_metadata()` broker path.
+
+**Precondition Teil B (Drift-Check):** PFLICHT this session — six
+modules changed (see above). Confirmed via `dep_map_delta.md`
+(`build_dep_map.py`, 2026-08-27_Run-03 → 2026-08-28_Run-01): 2 NEU
+exceptions, 9 NEU fileio, 0 WEG, 0 GEKIPPT-Regression — clean. All
+eleven NEU findings individually reviewed: both exceptions follow this
+module set's own established never-raise/per-unit-catch conventions
+(`gewollt=ja`, no handling needed); all nine fileio findings map 1:1 to
+this session's own new functions (`gewollt=ja`, no handling needed).
+
+**Test result:** 716 / 265 / 465 / 136 / 83 / 165 / 73 / 16 — all green
+(test_local / test_local_context / test_dashboard / test_broker /
+test_mcp / test_app_logic / test_qt_app / test_static). `test_broker.py`
+and `test_mcp.py` both required updates to reflect the new routing
+behaviour (test_broker.py: 130 → 136, a fourteenth `_METADATA_KINDS`
+entry needed its own explicit-range test rather than the generic
+zero-arg loop; test_mcp.py: 83 checks, Section 8 rebuilt from scratch
+after the pre-existing delegation tests silently stopped exercising
+the code they were meant to cover once `_route_query()` was wired
+in — the routing weiche's SQLite branch called a table that was never
+initialized in the test fixture, surfacing as an unhandled
+`sqlite3.OperationalError` rather than a normal test failure).
+
+---
+
 ## v1.7.1.0 — SQLite Aggregation Proxy
 
 First working version of the SQLite proxy planned since v1.7.0.4
