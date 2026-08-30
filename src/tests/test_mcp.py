@@ -354,7 +354,11 @@ check("mcp_server.query_health: SQLite branch calls mcp_sql.get_health_range, no
 with patch("mcp_sql.get_context_range", return_value={"context": {}, "_meta": {}}) as _m_sql, \
      patch("maps.mcp_map.query_context") as _m_live:
     mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
-    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE)
+    # v1.7.1.3 field-filter fix: field is now forwarded as a keyword
+    # argument, mirroring query_health's v1.7.1.2 fix above — this
+    # assertion previously expected the pre-fix call shape without
+    # field, which the fix correctly broke.
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="temperature_max")
     _m_live.assert_not_called()
 check("mcp_server.query_context: SQLite branch calls mcp_sql.get_context_range, not mcp_map", True)
 

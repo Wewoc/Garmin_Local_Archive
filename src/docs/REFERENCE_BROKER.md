@@ -617,4 +617,14 @@ silently dropped at the `mcp_server.py` call site) that this file did
 not previously document, since the weiche's own routing logic was
 unaffected and the gap sat one layer below it. Per-field shape
 (`{"values": [...], "fallback": bool, "source_resolution": str}`)
-itself is unchanged.
+itself is unchanged. **(v1.7.1.3)** `get_context_range()` likewise now
+accepts and honors `field` — a distinct, longer-lived defect than
+`get_health_range()`'s: the function's own signature never accepted a
+`field` argument at all before this fix, so `v1.7.1.1`'s partial
+`query_health()` fix had nothing to build on here. Filtering keeps
+every source carrying the requested field (a field can be registered
+by more than one source, see `context_map.py`'s documented
+`wind_speed_max` naming collision) rather than collapsing to a single
+source. Per-source, per-field shape
+(`{source: {field: {"values": [...], "fallback": bool,
+"source_resolution": str}}}`) itself is unchanged.
