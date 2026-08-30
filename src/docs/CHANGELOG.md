@@ -1,5 +1,60 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.3 — query_context field-Filter Fix
+
+Same defect class as `query_health`'s `v1.7.1.1`/`v1.7.1.2` field-filter
+fix, found via a 5-model × 16-question MCP-LLM test run analyzing real
+`mcp-proxy` call logs: `query_context`'s `field` parameter was silently
+dropped at the `mcp_server.py` call site — unlike `query_health`, this
+was never partially fixed in `v1.7.1.1`, since `get_context_range()`'s
+signature never even accepted a `field` argument to begin with. Every
+call returned all four context categories (weather/brightsky/
+airquality/pollen) regardless of what was asked for, up to 234KB for a
+92-day range against a single requested field, inflating a
+single-value answer and confusing small local LLMs summarizing the
+result — the same downstream effect `query_health`'s fix addressed one
+session earlier.
+
+**New modules:** none.
+
+**Changed modules:**
+- `clients/mcp_server.py` — `query_context()`'s `field` argument is now
+  forwarded to `mcp_sql.get_context_range(date_from, date_to,
+  field=field)`, mirroring `query_health()`'s existing forwarding.
+- `clients/mcp_sql.py` — `get_context_range()` gained a `field:
+  str | None = None` parameter. Filtering happens at field level, not
+  source level — a field name can be registered by more than one
+  source at once (e.g. `wind_speed_max` under both `weather` and
+  `brightsky`, `context_map.py`'s documented naming collision), so the
+  filter keeps every source carrying the requested field rather than
+  reducing a multi-source field to a single source. `field=None`
+  preserves the pre-fix, unfiltered behaviour for any internal caller
+  that may rely on it.
+
+**Test files:**
+- `tests/test_mcp.py` — the SQLite-branch delegation test for
+  `query_context()` updated to expect `field` forwarded as a keyword
+  argument, mirroring the equivalent `query_health()` test from
+  `v1.7.1.2` — this assertion previously expected the pre-fix call
+  shape without `field`, which the fix correctly broke.
+
+**Precondition:** Architecture check clean (no Sole-Write-Authority,
+Broker-Pattern, Plugin-Prinzip, Leaf-Node, or QUALITY_LOCK concerns —
+scope entirely within `clients/`). Drift-check (`build_dep_map.py`,
+2026-08-29_Run-01 → 2026-08-30_Run-01): 2 NEU fileio / 0 NEU exceptions
+/ 0 WEG / 0 GEKIPPT-Regression — both NEU fileio hits
+(`garmin_app_standalone.py::_run_self_test._out`, write/mkdir +
+write/open) traced to an unrelated T3-build-diagnostics logging
+addition from a separate session, confirmed intentional, no
+Handlungsbedarf.
+
+**Test result:** 716 / 265 / 465 / 136 / 84 / 165 / 73 / 16 — all green
+(test_local / test_local_context / test_dashboard / test_broker /
+test_mcp / test_app_logic / test_qt_app / test_static), ruff 0 errors,
+bandit 0 HIGH.
+
+---
+
 ## v1.7.1.2 — SQLite-Proxy: vier Regressionen aus v1.7.1.1 behoben
 
 `v1.7.1.1`'s routing weiche shipped structurally complete but with four
