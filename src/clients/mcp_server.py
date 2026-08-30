@@ -516,9 +516,18 @@ def query_context(field: str, date_from: str, date_to: str,
                    resolution: str = "daily") -> dict:
     """Query external context data (weather, pollen, air quality) for a
     field over a date range. Fans out across all sources that recognize
-    the field."""
+    the field.
+
+    v1.7.1.3 field-filter fix: field is now passed through to the
+    SQLite branch — previously it was silently dropped (this call site
+    never forwarded it at all), so every call returned all four
+    context categories (weather/brightsky/airquality/pollen) regardless
+    of what was asked for, inflating a single-value answer to hundreds
+    of KB and confusing small local LLMs summarizing the result. Same
+    fix as query_health()'s v1.7.1.1/v1.7.1.2 field-filter, applied
+    here with a one-session delay."""
     if _route_query("context") == "sqlite":
-        return mcp_sql.get_context_range(date_from, date_to)
+        return mcp_sql.get_context_range(date_from, date_to, field=field)
     return mcp_map.query_context(field, date_from, date_to, resolution)
 
 

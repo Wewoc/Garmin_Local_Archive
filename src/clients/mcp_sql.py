@@ -541,7 +541,8 @@ def get_health_range(date_from: str, date_to: str, field: str | None = None) -> 
     }
 
 
-def get_context_range(date_from: str, date_to: str) -> dict:
+def get_context_range(date_from: str, date_to: str,
+                       field: str | None = None) -> dict:
     """
     Reads mcp_context_days for every day in [date_from, date_to] and
     reassembles a query_context()-compatible result:
@@ -563,9 +564,30 @@ def get_context_range(date_from: str, date_to: str) -> dict:
     permanently complete, so a missing row here always means "not yet
     synced", never "synced but incomplete").
 
+    v1.7.1.3 field-filter fix: field is now an optional parameter,
+    mirroring get_health_range()'s v1.7.1.2 fix — previously
+    mcp_server.py's query_context() call site never forwarded its own
+    field argument here at all (a distinct bug from get_health_range()'s
+    v1.7.1.1 gap, since this function's signature never even accepted
+    the argument in the first place), so every call returned all four
+    context categories/every field regardless of what was asked for.
+    Filtering happens at FIELD level, not source level: a field name
+    can legitimately be registered by more than one source at once
+    (e.g. "wind_speed_max" under both "weather" and "brightsky", see
+    context_map.py's naming-collision note) — the filter keeps every
+    source that carries the requested field and drops only the other
+    fields, so a multi-source field still returns all of its sources.
+    field=None preserves the pre-fix behaviour (every field of every
+    source) for any internal caller that may rely on the unfiltered
+    shape.
+
     Args:
         date_from: Start date ISO string (YYYY-MM-DD), inclusive.
         date_to:   End date ISO string (YYYY-MM-DD), inclusive.
+        field:     Optional field name to filter to. When given, only
+                   entries whose field name matches are kept — across
+                   every source that registers that field. None keeps
+                   the unfiltered pre-fix behaviour.
 
     Returns:
         {"context": {source: {field: <context_map.get() per-source
@@ -582,9 +604,11 @@ def get_context_range(date_from: str, date_to: str) -> dict:
         day_str = row["date"]
         day_payload = json.loads(row["payload_json"])
         for source, field_map in day_payload.items():
-            source_entry = by_source.setdefault(source, {})
-            for field, field_result in field_map.items():
-                entry = source_entry.setdefault(field, {
+            for field_name, field_result in field_map.items():
+                if field is not None and field_name != field:
+                    continue
+                source_entry = by_source.setdefault(source, {})
+                entry = source_entry.setdefault(field_name, {
                     "values": [],
                     "fallback": field_result.get("fallback", False)
                                 if isinstance(field_result, dict) else False,
