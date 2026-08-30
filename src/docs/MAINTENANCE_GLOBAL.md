@@ -403,6 +403,37 @@ forwarded (the original defect went unnoticed by this suite precisely
 because no test asserted call *arguments* for this path, only the
 return value passed through unchanged, per Section 8g above).
 
+**New Section 8c-bis added (v1.7.1.4)** — four check groups for
+`query_context()`'s new unknown-field detection (typo auto-resolution,
+domain confusion, category-name/no-match, and a success-path
+byte-identity guard). Deliberately exercised against the real, live
+`mcp_map.list_available_fields()` registry rather than a mocked
+subset — a different lesson than the two Section 8c/8g-bis incidents
+above (those were about a test not tracking a production call-shape
+change; this one was about fixture data not matching production data
+at all). Two of the three fixture field names needed replacing
+mid-session, both for the same underlying reason: a hand-picked
+"obviously distinct" typo/field turned out to collide with a
+second, similarly-named real field once checked against the full
+25-field registry across all four context sources, not just the
+handful of fields visible in that check's own immediate context.
+`"temperatur_max"` matched both `temperature_max` and
+`temperature_min` (shared prefix); `"precipitaton"` matched both
+`precipitation` (weather) and `precipitation_sum` (brightsky) — two
+sources registering similarly-named fields for related real-world
+quantities. `"sleep"` (the literal category name a real LLM sent in
+the original bug report, question 14) turned out to not be a
+registered field at all — `garmin_health_map.py` only registers
+`sleep_duration`/`sleep_score`/`sleep_deep_pct`/etc., never the bare
+word "sleep" — so it exercised the generic unknown-field branch
+instead of the domain-confusion branch the check was meant to cover.
+Worth checking for whenever a new fixture value is chosen to be
+"obviously unique" against a registry with more than a handful of
+entries: verify uniqueness against the real, full registry
+programmatically (or read it directly) before trusting the assumption,
+not just against the few names already visible nearby in the same
+file section. See `NOTES_v1.7.1.4.md` for the session-level detail.
+
 `clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
 (c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in
 `main()`) — the only `clients/` module with this dependency, see Package
