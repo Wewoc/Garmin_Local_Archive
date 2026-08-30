@@ -362,6 +362,106 @@ with patch("mcp_sql.get_context_range", return_value={"context": {}, "_meta": {}
     _m_live.assert_not_called()
 check("mcp_server.query_context: SQLite branch calls mcp_sql.get_context_range, not mcp_map", True)
 
+# ── 8c-bis. query_context() unknown-field detection (v1.7.1.4) ──────────────
+#
+# Regression guard for the v1.7.1.4 fix: an unregistered field used to
+# fall through silently to {"context": {}}, identical to a registered
+# field with no data in range. These checks exercise the new validation
+# in mcp_server.py::query_context(), which runs BEFORE the _route_query()
+# switch — so it applies regardless of which branch (sqlite/live) is
+# active, and none of these calls should ever reach mcp_sql or mcp_map.
+#
+# Deliberately NOT mocking mcp_map.list_available_fields() here — these
+# checks run against the real, live context/health field registries.
+# That means: if a future session renames or removes one of the four
+# field names used below (temperature_max/temperature_min plus a typo'd
+# variant, or "sleep" moving out of health_map's registry), THIS is the
+# section that breaks — not because the v1.7.1.4 logic itself regressed,
+# but because the fixture data drifted out of sync with the real
+# registry. Check the current field names in list_available_fields()
+# first before assuming the unknown-field detection itself is broken.
+
+_qc_known_fields = set()
+for _src_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+    _qc_known_fields.update(_src_fields)
+check("test fixture: 'temperature_max' still a registered context field",
+      "temperature_max" in _qc_known_fields)
+
+# 1. Unambiguous near-match (typo) -> auto-resolved, transparently marked
+#
+# "sunshine_duratio" (missing trailing "n") was chosen after TWO earlier
+# candidates both failed this same check during the v1.7.1.4 session,
+# for the same underlying reason — verify a typo's uniqueness against
+# the REAL, full field registry (25 fields across all four context
+# sources) before trusting it, not against a small hand-picked subset:
+#   - "temperatur_max" matched both temperature_max and temperature_min
+#     (shared long prefix).
+#   - "precipitaton" matched both precipitation (weather) and
+#     precipitation_sum (brightsky) — two sources register
+#     similarly-named fields for the same real-world quantity.
+# "sunshine_duratio" has no similarly-named sibling anywhere in the
+# registry (sunshine_sum exists under brightsky, but is not a close
+# character-level match to this specific typo), so it resolves to
+# exactly one candidate at cutoff=0.8.
+with patch("mcp_sql.get_context_range", return_value={"context": {"weather": {}}, "_meta": {}}) as _m_sql, \
+     patch("maps.mcp_map.query_context") as _m_live:
+    _qc_typo = mcp_server.query_context("sunshine_duratio", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="sunshine_duration")
+    _m_live.assert_not_called()
+check("query_context unknown-field: typo auto-resolved to registered field", True)
+check("query_context unknown-field: _meta.field_resolved_from set to caller's original input",
+      _qc_typo.get("_meta", {}).get("field_resolved_from") == "sunshine_duratio")
+check("query_context unknown-field: _meta.field_used set to the resolved field",
+      _qc_typo.get("_meta", {}).get("field_used") == "sunshine_duration")
+
+# 2. Domain confusion — field exists, but under query_health, not query_context
+#
+# "sleep" (the category name an LLM sent in the real MCP-LLM test run
+# that originally surfaced this whole gap, question 14) turned out to
+# NOT be a registered field itself — garmin_health_map.py only
+# registers "sleep_duration", "sleep_score", "sleep_deep_pct", etc.,
+# never the bare word "sleep". Using "sleep" here made this check land
+# in the generic unknown-field branch instead of the domain-confusion
+# branch it is meant to exercise — caught by this check failing during
+# the v1.7.1.4 session. "sleep_duration" is a real, currently
+# registered health/garmin field with no counterpart anywhere in the
+# context registry, so it is unambiguous domain confusion.
+with patch("mcp_sql.get_context_range") as _m_sql, \
+     patch("maps.mcp_map.query_context") as _m_live:
+    _qc_domain = mcp_server.query_context("sleep_duration", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_not_called()
+    _m_live.assert_not_called()
+check("query_context unknown-field: domain-confused field never reaches mcp_sql/mcp_map", True)
+check("query_context unknown-field: domain-confused field names query_health in the error",
+      "query_health" in _qc_domain.get("error", ""))
+check("query_context unknown-field: domain-confused field has no did_you_mean list",
+      "did_you_mean" not in _qc_domain)
+
+# 3. Category name / no usable near-match — generic error, no false suggestion
+with patch("mcp_sql.get_context_range") as _m_sql, \
+     patch("maps.mcp_map.query_context") as _m_live:
+    _qc_category = mcp_server.query_context("weather", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_not_called()
+    _m_live.assert_not_called()
+check("query_context unknown-field: category name never reaches mcp_sql/mcp_map", True)
+check("query_context unknown-field: category name yields generic 'unknown field' error",
+      "unknown field" in _qc_category.get("error", ""))
+check("query_context unknown-field: context key stays an empty dict on error",
+      _qc_category.get("context") == {})
+
+# 4. Success-path byte-identity guard — a VALID field must show none of the
+#    new v1.7.1.4 keys (error/did_you_mean/_meta.field_resolved_from), so
+#    a future change to the unknown-field branch cannot silently leak into
+#    the existing, already-covered success path above.
+with patch("mcp_sql.get_context_range", return_value={"context": {"weather": {}}, "_meta": {}}):
+    _qc_valid = mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
+check("query_context unknown-field: valid field has no 'error' key",
+      "error" not in _qc_valid)
+check("query_context unknown-field: valid field has no 'did_you_mean' key",
+      "did_you_mean" not in _qc_valid)
+check("query_context unknown-field: valid field has no 'field_resolved_from' in _meta",
+      "field_resolved_from" not in _qc_valid.get("_meta", {}))
+
 with patch("mcp_sql.get_raw_range", return_value={"health": {}, "_meta": {}}) as _m_sql, \
      patch("maps.mcp_map.query_raw") as _m_live:
     mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain="health")

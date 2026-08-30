@@ -1,5 +1,83 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.4 — query_context Unknown-Field Detection + did-you-mean
+
+`query_context`'s `v1.7.1.3` field-filter fix corrected the previous
+over-return bug, but left a downstream ambiguity: an unregistered
+`field` value (a category name like `"weather"`, or a field belonging
+to `query_health` instead) returned the exact same `{"context": {}}`
+as a registered field with no data in the requested range — the caller
+(LLM or human) could not tell the two cases apart. Found via a second
+MCP-LLM test run (2026-08-30, after the `v1.7.1.3` fix) analyzing real
+`mcp-proxy` call logs: `mistral-nemo` hallucinated fully invented
+weather values on top of the empty result in this exact situation,
+while the other four models answered "no data available" — correct,
+but equally uninformative about the actual cause (a wrong field name).
+
+**New modules:** none.
+
+**Changed modules:**
+- `clients/mcp_server.py` — `query_context()` now validates `field`
+  against the live context field registry
+  (`mcp_map.list_available_fields(domain="context")`) before the
+  `_route_query()` switch, so the check applies regardless of which
+  branch (sqlite/live) ends up serving the request. Three unknown-field
+  outcomes: (1) an unambiguous near-match via
+  `difflib.get_close_matches(cutoff=0.8)` auto-resolves transparently,
+  marked via new `_meta.field_resolved_from`/`_meta.field_used` keys —
+  never a silent rewrite; (2) a field registered under `query_health`
+  instead of `query_context` returns a domain-specific error naming
+  `query_health`, no `did_you_mean` (a context-domain suggestion would
+  be wrong); (3) anything else (a category name, or no close match)
+  returns a generic `{"error": "unknown field '<field>'", ...}`, with
+  an optional `did_you_mean` list when `difflib` found candidates. A
+  valid field's result (with or without data in range) is unchanged
+  from `v1.7.1.3` — none of the above runs unless `field` is
+  unrecognized. `mcp_sql.py`/`mcp_map.py`/`context_map.py`/
+  `health_map.py` untouched — read-only consumers of their existing
+  public functions, no new cross-import (`from maps import mcp_map`
+  already existed at this call site).
+
+**Test files:**
+- `tests/test_mcp.py` — new Section 8c-bis, four check groups: typo
+  auto-resolution (`_meta.field_resolved_from`/`field_used`), domain
+  confusion (`query_health`-owned field named in the error, no
+  `did_you_mean`), category-name/no-match (generic error, empty
+  `context` key), and a success-path byte-identity guard (a valid
+  field must show none of the three new keys). Deliberately not
+  mocking `mcp_map.list_available_fields()` — checks run against the
+  real, live field registry, with an explicit code comment on where a
+  future field-registry rename would surface as a fixture-drift
+  failure rather than a logic regression. Session note: two of the
+  three fixture field names (an intended-typo candidate and a
+  domain-confusion candidate) needed replacing mid-session after
+  failing against the real, full registry rather than a hand-picked
+  subset — see `NOTES_v1.7.1.4.md` for detail. 84 → 97 checks.
+
+**Verification beyond the test suite:** re-ran the same MCP-LLM test
+runner (5 models × question catalog) against the fixed server —
+`field="weather"` now consistently returns the new `error` key across
+all three models that triggered it, and `mistral-nemo` no longer
+hallucinates weather values for that case, answering "no information
+available" instead. The domain-confusion and auto-resolve branches
+were not organically triggered by any model in this particular run
+(model phrasing is not deterministic between runs) — covered instead
+by the new unit tests above, not left unverified.
+
+**Precondition:** Architecture check clean (no Sole-Write-Authority,
+Broker-Pattern, Plugin-Prinzip, Leaf-Node, or QUALITY_LOCK concerns —
+scope entirely within `clients/`). Drift-check (`build_dep_map.py`,
+2026-08-30_Run-01 → 2026-08-30_Run-02): 0 NEU / 0 WEG / 0
+GEKIPPT-Regression / 0 GEKIPPT-Verbesserung across both exceptions and
+fileio — clean, no findings to review.
+
+**Test result:** 716 / 265 / 465 / 136 / 97 / 165 / 73 / 16 — all green
+(test_local / test_local_context / test_dashboard / test_broker /
+test_mcp / test_app_logic / test_qt_app / test_static), ruff 0 errors,
+bandit 0 HIGH.
+
+---
+
 ## v1.7.1.3 — query_context field-Filter Fix
 
 Same defect class as `query_health`'s `v1.7.1.1`/`v1.7.1.2` field-filter

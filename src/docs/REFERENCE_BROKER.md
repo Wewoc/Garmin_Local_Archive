@@ -628,3 +628,39 @@ by more than one source, see `context_map.py`'s documented
 source. Per-source, per-field shape
 (`{source: {field: {"values": [...], "fallback": bool,
 "source_resolution": str}}}`) itself is unchanged.
+
+**(v1.7.1.4)** `query_context()` gained unknown-field detection,
+checked in `clients/mcp_server.py` before the `_route_query()` switch
+above — applies regardless of which branch ends up serving the
+request, since the field registry itself
+(`mcp_map.list_available_fields`) is unrelated to that routing
+decision. `v1.7.1.3`'s field-filter fix made `field` reach
+`get_context_range()` correctly, but left the caller unable to tell
+"field does not exist" apart from "field exists, no data in this
+range" — both previously returned an identical `{"context": {}}`.
+Three unknown-field outcomes, checked in this order:
+1. **Unambiguous near-match** against the live context field registry
+   (`difflib.get_close_matches`, `cutoff=0.8`, exactly one candidate)
+   — auto-resolved transparently: the resolved field is queried
+   instead, and the result gains `_meta.field_resolved_from` (the
+   caller's original input) and `_meta.field_used` (the resolved
+   field) — never a silent, unmarked substitution.
+2. **Domain confusion** — the field IS registered, but under
+   `query_health`'s field registry, not `query_context`'s (e.g. a
+   Garmin sleep field mistakenly sent to `query_context`) — returns
+   `{"context": {}, "error": "field '<field>' belongs to query_health,
+   not query_context", "_meta": {...}}`, no `did_you_mean` (a
+   context-domain suggestion would be actively wrong here).
+3. **Neither of the above** (a category/source name like `"weather"`,
+   or no close match at all) — returns `{"context": {}, "error":
+   "unknown field '<field>'", "_meta": {...}}`, with an additional
+   `did_you_mean` list when `difflib` found any candidates, omitted
+   when it found none.
+
+A valid field's result (with or without data in the requested range)
+is unaffected — none of the above runs unless `field` is unrecognized
+against the registry queried at request time. `query_health`/
+`get_health_range()` have the same underlying gap (an unregistered
+health field returns the same silent empty result as a data-free valid
+one) — deliberately not addressed here, tracked as a known,
+not-yet-scheduled follow-up rather than pulled into this fix.
