@@ -123,6 +123,7 @@ Usage (T1, dev):
                                       # headless, per garmin_config.MCP_HEADLESS
 """
 
+import difflib
 import json
 import logging
 import os
@@ -525,7 +526,75 @@ def query_context(field: str, date_from: str, date_to: str,
     of what was asked for, inflating a single-value answer to hundreds
     of KB and confusing small local LLMs summarizing the result. Same
     fix as query_health()'s v1.7.1.1/v1.7.1.2 field-filter, applied
-    here with a one-session delay."""
+    here with a one-session delay.
+
+    v1.7.1.4 unknown-field detection (this session): a field that is
+    valid for query_context() but unregistered anywhere in the context
+    domain previously returned the same silent {"context": {}} as a
+    registered field with no data in the requested range — the caller
+    (LLM or human) could not tell "field does not exist" apart from
+    "field exists, no data here". This is checked BEFORE the
+    _route_query() switch below, so the check applies regardless of
+    which branch (sqlite/live) ends up serving the request — the field
+    registry itself (mcp_map.list_available_fields) is unrelated to
+    that routing decision.
+
+    Three unknown-field outcomes, checked in this order:
+      1. Unambiguous near-match against the known context field names
+         (e.g. a typo) -> auto-resolved, field_used replaces the
+         caller's input transparently, but the substitution is always
+         visible via _meta.field_resolved_from / _meta.field_used —
+         never a silent rewrite.
+      2. The field IS registered, but under query_health's domain, not
+         query_context's (e.g. "sleep") -> a domain-specific error
+         naming query_health, no did_you_mean list (a context-domain
+         suggestion would be wrong here).
+      3. Neither of the above (e.g. a category name like "weather", or
+         no close match at all) -> a generic "unknown field" error,
+         with a did_you_mean suggestion list when difflib found any
+         candidates, without one when it found none.
+
+    A valid field's result (with or without data in range) is returned
+    exactly as before this session — none of the above runs unless
+    field is unrecognized."""
+    known_context_fields: set[str] = set()
+    for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+        known_context_fields.update(_source_fields)
+
+    if field not in known_context_fields:
+        close_matches = difflib.get_close_matches(
+            field, known_context_fields, n=3, cutoff=0.8
+        )
+        if len(close_matches) == 1:
+            resolved_field = close_matches[0]
+            if _route_query("context") == "sqlite":
+                result = mcp_sql.get_context_range(date_from, date_to, field=resolved_field)
+            else:
+                result = mcp_map.query_context(resolved_field, date_from, date_to, resolution)
+            result.setdefault("_meta", {})
+            result["_meta"]["field_resolved_from"] = field
+            result["_meta"]["field_used"] = resolved_field
+            return result
+
+        known_health_fields = set(
+            mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
+        )
+        if field in known_health_fields:
+            return {
+                "context": {},
+                "error": f"field {field!r} belongs to query_health, not query_context",
+                "_meta": {},
+            }
+
+        error_result = {
+            "context": {},
+            "error": f"unknown field {field!r}",
+            "_meta": {},
+        }
+        if close_matches:
+            error_result["did_you_mean"] = close_matches
+        return error_result
+
     if _route_query("context") == "sqlite":
         return mcp_sql.get_context_range(date_from, date_to, field=field)
     return mcp_map.query_context(field, date_from, date_to, resolution)
