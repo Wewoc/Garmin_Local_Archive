@@ -1,5 +1,88 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.5 — query_context Kategorie-Bündel-Auflösung (weather/pollen/air)
+
+`v1.7.1.4`'s unknown-field detection correctly told the caller "this
+field doesn't exist", but a category name like `"weather"` still landed
+in the generic unknown-field error — the underlying usage goal (asking
+"how was the weather" without knowing internal field names) was not yet
+addressed. Session split in two: Session 1 (pure analysis) produced
+`KONZEPT_query_context_kategorie_aufloesung.md`, weighing a server-side
+bundle register against relying on model-driven multi-field selection
+via a richer tool description — decided in favour of the deterministic
+server-side register (Ansatz A), given the project's explicit Ollama
+model-diversity requirement and the real MCP-LLM test run's evidence
+that weaker models are already unreliable at the *simpler* single-field
+task. Session 2 (this session) implements the kernstück of that concept
+— the bundle register and flattening logic — deliberately scoped down
+from the concept's full six-point closing list; `_meta.aqi_category`,
+a GUI-panel disclaimer, and a `"bundles"` key in
+`list_available_fields()` remain for a later session.
+
+**New modules:** none.
+
+**Changed modules:**
+- `clients/mcp_server.py` — new `_CONTEXT_CATEGORY_BUNDLES` register
+  (`"weather": ["brightsky", "weather"]`, `"pollen": ["pollen"]`,
+  `"air": ["airquality"]`) mapping a category name to a PRIORITY-ORDERED
+  list of `context_map` source names — not a hardcoded field list; field
+  names per source are resolved at call time via
+  `mcp_map.list_available_fields(domain="context")`, so a new field
+  added to an already-listed source appears in the bundle automatically.
+  New `_resolve_context_bundle()`, checked in `query_context()` BEFORE
+  the existing `v1.7.1.4` unknown-field block (a bundle name is never
+  itself a registered field) — each bundle field still goes through the
+  same `_route_query()` sqlite/live switch as a plain field, no bypass
+  data-access path. Flattens the normally source-grouped result into one
+  value per field name; the sole real naming collision in the current
+  registry (`wind_speed_max`, registered by both `weather` and
+  `brightsky` under different internal keys and different values —
+  Modell vs. Messstation) is resolved PER DAY, not per whole field: for
+  each date, the first source in the bundle's priority list with a
+  non-`None` value for that specific day wins, so a field's final
+  `values` array can be stitched together from more than one source
+  across a range. The winning source per collision-day is recorded in
+  new `_meta.field_sources` (e.g. `{"wind_speed_max": {"2026-03-01":
+  "brightsky", "2026-03-02": "weather"}}`) — only for fields that
+  actually had more than one candidate source in the bundle, never for
+  a field copied through from a single source unchanged. No direct
+  `maps.context_map` import in `clients/` — `mcp_map` remains the sole
+  broker-facing surface `clients/` is allowed to call (Timo decision,
+  `NOTES_v1.7.1.5.md`), fixing an intermediate `ruff F821` regression
+  from an earlier draft of this session that briefly referenced
+  `context_map` directly.
+- Deliberately NOT changed: `mcp_sql.py` (pure SQLite access layer, no
+  validation/bundle logic — per the `v1.7.1.4` precedent), `mcp_map.py`,
+  `context_map.py` — the bundle resolution lives entirely in the
+  `mcp_server.py` wrapper, per `KONZEPT_query_context_kategorie_
+  aufloesung.md`'s explicit architecture decision.
+
+**Test files:**
+- `tests/test_mcp.py` — existing unknown-field test 3 updated: `"weather"`
+  no longer exercises the generic-error path (it is now a valid bundle
+  name), replaced with `"definitely_unknown_category"` for the same
+  original purpose. New Section 8c-ter: single-source bundle flattening
+  (`pollen`, no `field_sources` entries expected), and the real
+  `wind_speed_max` collision (`weather` bundle) across two days —
+  brightsky's value on a day it has data, falling back to weather's
+  value on a day it does not, `field_sources` recording the per-day
+  winner, non-colliding fields from both sources present with no
+  `field_sources` entry. 97 → 107 checks.
+
+**Precondition:** Architecture check clean (no Sole-Write-Authority,
+Broker-Pattern, Plugin-Prinzip, Leaf-Node, or QUALITY_LOCK concerns —
+scope entirely within `clients/`). Drift-check (`build_dep_map.py`,
+2026-08-30_Run-02 → 2026-08-31_Run-01): 0 NEU / 0 WEG / 0
+GEKIPPT-Regression / 0 GEKIPPT-Verbesserung across both exceptions and
+fileio — clean, no findings to review.
+
+**Test result:** 716 / 265 / 465 / 136 / 107 / 165 / 73 / 16 — all green
+(test_local / test_local_context / test_dashboard / test_broker /
+test_mcp / test_app_logic / test_qt_app / test_static), ruff 0 errors,
+bandit 0 HIGH.
+
+---
+
 ## v1.7.1.4 — query_context Unknown-Field Detection + did-you-mean
 
 `query_context`'s `v1.7.1.3` field-filter fix corrected the previous
