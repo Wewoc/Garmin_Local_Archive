@@ -1740,6 +1740,75 @@ HIGH.
 
 ---
 
+## v1.7.1.6 — MCP Field Units
+
+Every value returned by `query_health()`, `query_context()` (including
+its category-bundle path), and `list_available_fields()` now carries an
+explicit unit (e.g. "ms", "km/h", "0–100", "—" for fields without a
+physical unit) — closing a gap where a local LLM (verified against
+`qwen3:14b`, `qwen2.5-coder:7b`, `mistral-nemo`) reported values under
+the wrong unit, since the unit previously existed only in human-readable
+reference docs (`REFERENCE_BROKER.md`/`REFERENCE_GARMIN.md`/
+`REFERENCE_CONTEXT.md`), unreachable from the MCP tool schema itself.
+
+**Changed modules:**
+- `clients/mcp_server.py` — new `FIELD_UNITS` dict (51 fields, every
+  `query_health()`/`query_context()`-reachable field, no exceptions —
+  a mixed state would itself be a new source of LLM misinterpretation),
+  `_get_field_unit()` (single lookup point) and `_enrich_with_units()`
+  (attaches "unit" per field, handles both the per-source and the
+  already-flattened bundle shape). Wired into `query_health()`,
+  `query_context()` (both the direct-field and the near-match-resolution
+  path), `_resolve_context_bundle()`, and `list_available_fields()`
+  (additive `"units"` key, `"fields"` itself unchanged) — applied AFTER
+  the `_route_query()` switch in every case, so it covers the SQLite and
+  the live branch identically.
+- `sleep_score` — pre-existing gap closed (was retrievable but missing
+  its own reference-table row): `"0–100"`, see `REFERENCE_BROKER.md`/
+  `REFERENCE_GARMIN.md`.
+
+**Architecture note — deliberate MCP-local stopgap:** `FIELD_UNITS` is
+NOT placed in `maps/mcp_map.py`, `maps/health_map.py`, `maps/context_map.py`,
+or `maps/gateway_map.py`. Two reasons, found during this session's own
+review (not in the original session plan): (1) `_route_query()` currently
+always returns `"sqlite"` — the SQLite branch never touches `mcp_map.py`
+at all, so a unit lookup placed there would silently do nothing for every
+real request today; (2) a unit registry placed at the MCP layer would be
+an island, unusable by dashboards or any other broker consumer. Kept
+MCP-local anyway (scope decision, this session), but isolated behind
+`_get_field_unit()`'s narrow signature so a future broker-level
+replacement only requires swapping that one function's body. See
+`KNOWN_ISSUES.md` Cluster F (extended this session) and
+`NOTES_v1716_session2.md` for the full reasoning trail.
+
+**Deliberately not implemented:**
+- `maps/mcp_map.py` — untouched this session (see architecture note
+  above; all four MCP-facing functions carrying units are in
+  `clients/mcp_server.py`).
+- Raw-passthrough fields (`query_raw()`, 13 fields) — no unit concept,
+  out of scope (see `REFERENCE_GARMIN.md`, "Raw-passthrough fields").
+- Consolidation of the pre-existing, unrelated duplicate unit/label
+  dicts already living in several dashboard specialists (Cluster F) —
+  tracked, not touched.
+
+**New/changed test files:**
+- `tests/test_mcp.py` — six new checks: `query_health()` (a field with a
+  physical unit, and `vo2max` as the no-physical-unit case), `query_context()`
+  direct field, both bundle cases (`"pollen"` — single source; `"weather"` —
+  verifies the documented `wind_speed_max` collision keeps one consistent
+  unit across the brightsky/weather source switch), and
+  `mcp_server.list_available_fields()`'s new `"units"` key.
+
+**Test result:** 117 / 117 (`test_mcp.py`) — all green. Full suite
+(`test_local.py`/`test_local_context.py`/`test_dashboard.py`/
+`test_app_logic.py`) — see `NOTES_v1716_session2.md` for the pending
+final confirmation run.
+
+**Drift-Check (`build_dep_map.py`, 2026-08-31_Run-01 → Run-02):**
+0 NEU, 0 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung — clean.
+
+---
+
 ## v1.6.5.7.1 — Token Log: valid Event + Mixed Serialization
 
 Adds the previously missing silent success path to `garmin_token_log.json`
