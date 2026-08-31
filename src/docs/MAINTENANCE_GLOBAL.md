@@ -434,6 +434,23 @@ programmatically (or read it directly) before trusting the assumption,
 not just against the few names already visible nearby in the same
 file section. See `NOTES_v1.7.1.4.md` for the session-level detail.
 
+**New Section 8c-quater/8c-quinquies added, existing 8c-ter extended,
+new Section 8a-bis added (v1.7.1.6)** — six checks covering the new
+per-field `"unit"` key (`clients/mcp_server.py`'s `FIELD_UNITS`/
+`_get_field_unit()`/`_enrich_with_units()`): `query_health()` for a
+field with a physical unit plus `vo2max` (the no-physical-unit "—"
+case, verifying the session's "no exceptions" rule), `query_context()`'s
+direct-field path, the existing `pollen`/`weather` bundle fixtures from
+8c-ter extended in place rather than duplicated (the `weather` case
+specifically verifies the documented `wind_speed_max` collision keeps
+one consistent unit across the brightsky/weather source switch — the
+same fixture already built for the collision itself, no new mock
+needed), and `mcp_server.list_available_fields()`'s new `"units"` key
+(deliberately calling `mcp_server.list_available_fields()`, not
+`mcp_map.list_available_fields()` already covered in Section 6 — the
+`"units"` key exists only at the `mcp_server.py` wrapper layer, see
+`KNOWN_ISSUES.md` Cluster F). 111 → 117 checks.
+
 `clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
 (c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in
 `main()`) — the only `clients/` module with this dependency, see Package

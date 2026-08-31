@@ -313,6 +313,41 @@ def _setup_boot_log() -> logging.FileHandler:
 LOG_MCP_MAX = 30  # rolling log file limit, same convention as
                   # garmin_config.LOG_RECENT_MAX / daily_update.LOG_DAILY_MAX
 
+# ── Kategorie-Buendel fuer query_context() (v1.7.1.5) ────────────────────
+#
+# Ordnet einen Kategorienamen (z.B. "weather") einer PRIORISIERTEN LISTE
+# von context_map-Quellennamen zu. Die Feldnamen jeder Quelle werden NICHT
+# hier gepflegt -- sie werden zur Laufzeit ueber mcp_map.list_available_
+# fields(domain="context") ermittelt (nicht direkt aus maps.context_map --
+# clients/ spricht die Broker-Schicht ausschliesslich ueber mcp_map an,
+# siehe NOTES_v1.7.1.5.md), damit neue Einzelfelder innerhalb einer bereits
+# gelisteten Quelle automatisch im Buendel erscheinen, ohne dass diese
+# Liste angefasst werden muss.
+#
+# REIHENFOLGE = PRIORITAET bei Namenskollision zwischen zwei Quellen
+# desselben Buendels (aktuell nur "wind_speed_max" bei weather/brightsky,
+# siehe context_map.py-Docstring): bei einer Kollision gewinnt fuer jeden
+# Tag einzeln die ERSTE Quelle in dieser Liste, die fuer diesen Tag
+# tatsaechlich einen Wert (nicht None) liefert -- liefert sie keinen,
+# entscheidet die naechste Quelle in der Liste. Kollisionserkennung ist
+# rein namensbasiert (gleicher Feldname in mehreren Quellen desselben
+# Buendels) -- kein Mapping/keine Aehnlichkeitspruefung zwischen
+# UNTERSCHIEDLICHEN Feldnamen (bewusst verworfen, siehe
+# KONZEPT_query_context_kategorie_aufloesung.md, Abschnitt "Warum keine
+# allgemeine Feld-Mapping-Tabelle").
+#
+# Neue Quelle hinzufuegen (z.B. ein US-Anbieter):
+#   1. Quellennamen an der gewuenschten Prioritaets-Position eintragen.
+#   2. Nur falls die neue Quelle ein bereits vorhandenes Feld dieses
+#      Buendels unter demselben Namen fuehrt (echte Kollision): Position
+#      in der Liste bestimmt automatisch die Prioritaet -- keine
+#      zusaetzliche Regel noetig.
+_CONTEXT_CATEGORY_BUNDLES = {
+    "weather": ["brightsky", "weather"],  # Messstation vor Modell
+    "pollen":  ["pollen"],
+    "air":     ["airquality"],
+}
+
 
 def _start_operational_log(base_dir: Path) -> logging.FileHandler | None:
     """Creates <base_dir>/garmin_data/log/mcp/mcp_YYYY-MM-DD_HHMMSS.log,
@@ -411,6 +446,150 @@ def _run_startup_sync() -> None:
 _DEFAULT_ALLOWED_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
 _DEFAULT_ALLOWED_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Field units (v1.7.1.6) — deliberate MCP-local stopgap, see KNOWN_ISSUES.md
+#  Cluster F for the follow-up note.
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Values transcribed from REFERENCE_BROKER.md's "Field index" table
+# (health_map/garmin + context_map's four sources), verified against
+# REFERENCE_GARMIN.md/REFERENCE_CONTEXT.md, 2026-08-31 (v1.7.1.6 Session 2).
+# Every registered query_health()/query_context() field has an entry —
+# no exceptions, including fields with no physical unit (e.g. "index",
+# "text", "—") — a mixed state (some fields with unit, some without)
+# would itself be a new, unpredictable source of LLM misinterpretation
+# (Timo, Session 1 decision). Raw-passthrough fields (query_raw(), 13
+# fields, no unit concept — see REFERENCE_GARMIN.md "Raw-passthrough
+# fields") are deliberately NOT included here — out of this session's
+# scope.
+#
+# Deliberately NOT placed in maps/health_map.py, maps/context_map.py,
+# or maps/gateway_map.py: this session confirmed (DEPS-Scan v1716_02)
+# that neither module currently holds a reusable unit/label structure,
+# and _route_query()'s SQLite branch (currently the only branch ever
+# taken, see _route_query() below) never touches maps/mcp_map.py at
+# all — a unit lookup placed there would silently do nothing for every
+# real request today. This dict and its two helper functions below are
+# therefore intentionally kept MCP-local (clients/mcp_server.py), but
+# isolated behind _get_field_unit()'s narrow signature so a future
+# broker-level replacement (e.g. health_map.list_field_units()) only
+# requires swapping that one function's body — no caller here or
+# elsewhere needs to change. See NOTES_v1716_session2.md for the full
+# reasoning trail (an mcp_map.py-based design was considered first and
+# rejected for the same two reasons).
+FIELD_UNITS: dict[str, str] = {
+    # ── health_map -> garmin (25 fields, REFERENCE_BROKER.md) ────────────────
+    "hrv_last_night":        "ms",
+    "resting_heart_rate":    "bpm",
+    "spo2_avg":              "%",
+    "sleep_duration":        "hours",
+    "body_battery_max":      "0–100",
+    "stress_avg":            "0–100",
+    "vo2max":                "—",
+    "sleep_score":           "0–100",  # v1.7.1.6 — pre-existing REFERENCE_BROKER.md/
+                                        # REFERENCE_GARMIN.md gap closed this session,
+                                        # see doc anchor delivery for the table row.
+    "sleep_score_feedback":  "text",
+    "sleep_score_qualifier": "text",
+    "sleep_deep_pct":        "%",
+    "sleep_light_pct":       "%",
+    "sleep_rem_pct":         "%",
+    "sleep_awake_pct":       "%",
+    "heart_rate_series":     "bpm",
+    "stress_series":         "0–100",
+    "spo2_series":           "%",
+    "body_battery_series":   "0–100",
+    "respiration_series":    "—",  # unit not fixed in source docs, see REFERENCE_GARMIN.md
+    "steps_series":          "steps",
+    "body_weight":           "grams",
+    "calories_resting":      "kcal",
+    "hydration_ml":          "ml",
+    "endurance_score":       "index",
+    "hill_score":            "index",
+    "fitness_age":           "years",
+
+    # ── context_map -> weather (6 fields) ─────────────────────────────────────
+    "temperature_max":       "°C",
+    "temperature_min":       "°C",
+    "precipitation":         "mm",
+    "wind_speed_max":        "km/h",  # also registered by brightsky, same unit —
+                                        # see context_map.py's documented naming collision
+    "uv_index_max":          "index",
+    "sunshine_duration":     "seconds",
+
+    # ── context_map -> pollen (6 fields) ──────────────────────────────────────
+    "pollen_birch":          "grains/m³",
+    "pollen_grass":          "grains/m³",
+    "pollen_alder":          "grains/m³",
+    "pollen_mugwort":        "grains/m³",
+    "pollen_olive":          "grains/m³",
+    "pollen_ragweed":        "grains/m³",
+
+    # ── context_map -> brightsky (9 fields) ───────────────────────────────────
+    "temperature_avg":       "°C",
+    "humidity_avg":          "%",
+    "precipitation_sum":     "mm",
+    "sunshine_sum":          "min",
+    "wind_gust_max":         "km/h",
+    "cloud_cover_avg":       "%",
+    "pressure_avg":          "hPa",
+    "condition":             "text",
+
+    # ── context_map -> airquality (5 fields) ──────────────────────────────────
+    "airquality_pm2_5":             "μg/m³",
+    "airquality_pm10":              "μg/m³",
+    "airquality_european_aqi":      "index",
+    "airquality_nitrogen_dioxide":  "μg/m³",
+    "airquality_ozone":             "μg/m³",
+}
+
+
+def _get_field_unit(field: str) -> str:
+    """Single lookup point for a field's display unit. Isolated on
+    purpose (see FIELD_UNITS' module comment above) — the only place
+    that needs to change when this stopgap is replaced by a broker-level
+    unit registry. Unknown field (should not occur for a field that
+    already passed query_health()/query_context()'s own field-validity
+    checks) -> "—" rather than a KeyError, so a future new field that is
+    not yet in FIELD_UNITS degrades to "no unit shown" instead of
+    breaking the whole response."""
+    return FIELD_UNITS.get(field, "—")
+
+
+def _enrich_with_units(result: dict, domain: str) -> dict:
+    """Adds a "unit" key to every per-field dict inside result[domain],
+    in place, and returns result for call-site chaining. Handles both
+    shapes query_health()/query_context() can produce under
+    result[domain]:
+      - {source: {field: {"values": ..., ...}}}   (normal per-source shape)
+      - {field: {"values": ..., ...}}              (already-flattened
+        shape, e.g. _resolve_context_bundle()'s output)
+    A per-field dict is recognized by the presence of "values" — the one
+    key REFERENCE_BROKER.md guarantees on every field-level dict
+    regardless of domain or source, daily or intraday/live. Not
+    recursive beyond one extra level, since no third shape currently
+    exists in this codebase; see FIELD_UNITS' module comment for the
+    planned replacement path if that ever changes."""
+    domain_dict = result.get(domain)
+    if not isinstance(domain_dict, dict):
+        return result
+
+    for key, value in domain_dict.items():
+        if not isinstance(value, dict):
+            continue
+        if "values" in value:
+            # Already-flattened shape: key IS the field name.
+            value["unit"] = _get_field_unit(key)
+        else:
+            # Normal per-source shape: key is a source name, value's
+            # own keys are field names.
+            for field_name, field_dict in value.items():
+                if isinstance(field_dict, dict) and "values" in field_dict:
+                    field_dict["unit"] = _get_field_unit(field_name)
+
+    return result
+
+
 mcp = FastMCP(
     "Garmin Local Archive",
     host="127.0.0.1",
@@ -506,10 +685,134 @@ def query_health(field: str, date_from: str, date_to: str,
     of what was asked for, including this archive's intraday *_series
     fields (full day-long timeseries), inflating a single-value
     answer to hundreds of KB and confusing small local LLMs
-    summarizing the result."""
+    summarizing the result.
+
+    v1.7.1.6 unit field (this session): every field in the returned
+    result now carries a "unit" key alongside "values"/"fallback"/
+    "source_resolution" — see FIELD_UNITS above. Applied AFTER the
+    routing weiche below, so it covers both branches identically
+    (today, only the SQLite branch is ever actually taken — see
+    _route_query()'s docstring)."""
     if _route_query("health") == "sqlite":
-        return mcp_sql.get_health_range(date_from, date_to, field=field)
-    return mcp_map.query_health(field, date_from, date_to, resolution)
+        result = mcp_sql.get_health_range(date_from, date_to, field=field)
+    else:
+        result = mcp_map.query_health(field, date_from, date_to, resolution)
+    return _enrich_with_units(result, "health")
+
+
+def _resolve_context_bundle(bundle_name: str, date_from: str, date_to: str,
+                             resolution: str) -> dict:
+    """v1.7.1.5 -- resolves a _CONTEXT_CATEGORY_BUNDLES entry into a flat,
+    single-value-per-field-name result. For each source in the bundle's
+    priority list, gathers every field name that source registers (via
+    mcp_map.list_available_fields(domain="context") -- clients/ never
+    imports maps.context_map directly, mcp_map is the sole broker-facing
+    surface, see NOTES_v1.7.1.5.md) and queries it through the same
+    sqlite/live routing weiche query_context() itself uses for a plain
+    field -- no separate/bypass data-access path.
+
+    Flattening: field names are unique across sources except for a
+    deliberate, known collision (e.g. "wind_speed_max" under both
+    "weather" and "brightsky"). On a collision, the tie-break is decided
+    PER DAY, not per whole field: for each date in range, the first
+    source (in the bundle's priority-list order) with a non-None value
+    for THAT day wins -- a field's final "values" array can therefore be
+    stitched together from more than one source across the range (e.g.
+    brightsky for most days, weather filling in a day brightsky has no
+    data for). "_meta.field_sources" records the winning source for each
+    day a collision was actually resolved (e.g. {"wind_speed_max":
+    {"2026-03-01": "brightsky", "2026-03-02": "weather"}}) -- only for
+    fields that had more than one candidate source in this bundle, never
+    for a field copied through from a single source unchanged."""
+    # source_values[field_name][source] = {date: value, ...}
+    source_values: dict[str, dict[str, dict[str, object]]] = {}
+    field_resolution: dict[str, dict] = {}  # first-seen values/fallback/
+                                             # source_resolution shape per field
+    meta: dict = {}
+
+    # source -> [field_names] fuer alle context-Quellen. Ueber mcp_map
+    # bezogen, nicht direkt aus maps.context_map -- clients/ spricht die
+    # Broker-Schicht ausschliesslich ueber mcp_map an (Timo-Entscheidung,
+    # NOTES_v1.7.1.5.md), context_map bleibt intern fuer maps/.
+    _context_fields_by_source = mcp_map.list_available_fields(
+        domain="context")["fields"]["context"]
+
+    for source in _CONTEXT_CATEGORY_BUNDLES[bundle_name]:
+        for source_field in _context_fields_by_source.get(source, []):
+            if _route_query("context") == "sqlite":
+                source_result = mcp_sql.get_context_range(
+                    date_from, date_to, field=source_field
+                )
+            else:
+                source_result = mcp_map.query_context(
+                    source_field, date_from, date_to, resolution
+                )
+            meta = source_result.get("_meta", meta)
+
+            per_source = source_result.get("context", {}).get(source, {})
+            candidate = per_source.get(source_field)
+            if candidate is None:
+                continue
+
+            by_date = {v["date"]: v.get("value") for v in candidate.get("values", [])}
+            source_values.setdefault(source_field, {})[source] = by_date
+            field_resolution.setdefault(source_field, {
+                "fallback": candidate.get("fallback", False),
+                "source_resolution": candidate.get("source_resolution", "daily"),
+            })
+
+    flat_values: dict[str, dict] = {}
+    field_sources: dict[str, dict[str, str]] = {}
+
+    for source_field, per_source_dates in source_values.items():
+        sources_for_field = [
+            s for s in _CONTEXT_CATEGORY_BUNDLES[bundle_name]
+            if s in per_source_dates
+        ]
+        all_dates = sorted({
+            d for by_date in per_source_dates.values() for d in by_date
+        })
+
+        merged_values = []
+        day_winners: dict[str, str] = {}
+        for day in all_dates:
+            winning_value = None
+            winning_source = None
+            for source in sources_for_field:
+                day_value = per_source_dates[source].get(day)
+                if day_value is not None:
+                    winning_value = day_value
+                    winning_source = source
+                    break
+            merged_values.append({"date": day, "value": winning_value})
+            if winning_source is not None:
+                day_winners[day] = winning_source
+
+        flat_values[source_field] = {
+            **field_resolution[source_field],
+            "values": merged_values,
+        }
+        # Only record a per-day source map when this field actually had
+        # more than one candidate source in this bundle -- a single-
+        # source field (the normal pollen/air case, and most weather
+        # fields) needs no attribution.
+        if len(sources_for_field) > 1:
+            field_sources[source_field] = day_winners
+
+    result: dict = {"context": flat_values}
+    result["_meta"] = meta if meta else {}
+    result["_meta"]["field_sources"] = field_sources
+    # v1.7.1.6 unit field (this session): flat_values is keyed directly
+    # by field name (no source level — see this function's own
+    # docstring on flattening), so _enrich_with_units() takes the
+    # already-flattened branch. Note this cannot be done earlier by
+    # reusing "candidate"'s own unit (if any): the per-source calls
+    # above go straight to mcp_sql.get_context_range()/
+    # mcp_map.query_context() (Zeilen darueber), not through this
+    # module's query_context() @mcp.tool() wrapper, so candidate never
+    # carries a "unit" key to begin with -- this call is the first
+    # point in this function's data flow where a unit can be attached.
+    return _enrich_with_units(result, "context")
 
 
 @mcp.tool()
@@ -556,7 +859,21 @@ def query_context(field: str, date_from: str, date_to: str,
 
     A valid field's result (with or without data in range) is returned
     exactly as before this session — none of the above runs unless
-    field is unrecognized."""
+    field is unrecognized.
+
+    v1.7.1.5 category bundles (this session): a field value naming a
+    known bundle key ("weather"/"pollen"/"air") is resolved BEFORE any
+    of the three unknown-field outcomes above -- a bundle name is never
+    a registered field itself, so without this check it would always
+    fall through to the generic "unknown field" branch. Each bundle
+    field is queried individually through the SAME sqlite/live routing
+    weiche used everywhere else in this function -- the bundle path
+    only adds collection, flattening, and collision tie-breaking on top,
+    it does not bypass or duplicate the existing data-access path. See
+    _CONTEXT_CATEGORY_BUNDLES above for the priority-list mechanics."""
+    if field in _CONTEXT_CATEGORY_BUNDLES:
+        return _resolve_context_bundle(field, date_from, date_to, resolution)
+
     known_context_fields: set[str] = set()
     for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
         known_context_fields.update(_source_fields)
@@ -574,7 +891,7 @@ def query_context(field: str, date_from: str, date_to: str,
             result.setdefault("_meta", {})
             result["_meta"]["field_resolved_from"] = field
             result["_meta"]["field_used"] = resolved_field
-            return result
+            return _enrich_with_units(result, "context")
 
         known_health_fields = set(
             mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
@@ -596,8 +913,10 @@ def query_context(field: str, date_from: str, date_to: str,
         return error_result
 
     if _route_query("context") == "sqlite":
-        return mcp_sql.get_context_range(date_from, date_to, field=field)
-    return mcp_map.query_context(field, date_from, date_to, resolution)
+        result = mcp_sql.get_context_range(date_from, date_to, field=field)
+    else:
+        result = mcp_map.query_context(field, date_from, date_to, resolution)
+    return _enrich_with_units(result, "context")
 
 
 @mcp.tool()
@@ -653,7 +972,16 @@ def get_archive_metadata(kind: str, date_from: str | None = None,
 def list_available_fields(domain: str | None = None) -> dict:
     """List all queryable fields, grouped by domain and source. Use this
     first if the set of available fields is unknown — omit domain for a
-    full overview, or pass "health"/"context"/"fit" to narrow it."""
+    full overview, or pass "health"/"context"/"fit" to narrow it.
+
+    v1.7.1.6 unit field (this session): the result gains a "units" key
+    alongside the existing "fields" key — a flat {field_name: unit}
+    dict covering every field returned under "fields" for the requested
+    domain(s). Additive only: "fields" itself keeps its original shape
+    unchanged (a nested {domain: {source: [field, ...]}} name list), so
+    existing callers reading "fields" (e.g. _resolve_context_bundle()
+    above, which iterates the plain name lists) are unaffected. See
+    FIELD_UNITS above for the unit values and their source."""
     if _route_query("fields") == "sqlite":
         # Stöpsel, same principle as query_fit_activities' branch above —
         # list_available_fields() reflects the code's own field
@@ -671,8 +999,19 @@ def list_available_fields(domain: str | None = None) -> dict:
         # query_fit_activities' branch currently has for a different
         # reason (no fit_map.py yet vs. no cache concept applicable at
         # all here).
-        return mcp_map.list_available_fields(domain)
-    return mcp_map.list_available_fields(domain)
+        result = mcp_map.list_available_fields(domain)
+    else:
+        result = mcp_map.list_available_fields(domain)
+
+    all_field_names: set[str] = set()
+    for _domain_fields in result.get("fields", {}).values():
+        if isinstance(_domain_fields, dict):
+            for _source_fields in _domain_fields.values():
+                all_field_names.update(_source_fields)
+        elif isinstance(_domain_fields, list):
+            all_field_names.update(_domain_fields)
+    result["units"] = {name: _get_field_unit(name) for name in sorted(all_field_names)}
+    return result
 
 
 @mcp.tool()

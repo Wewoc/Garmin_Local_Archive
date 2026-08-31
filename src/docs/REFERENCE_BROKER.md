@@ -271,6 +271,7 @@ added/removed, update both places. `list_fields()` in the corresponding
 | `body_battery_max` | 0–100 | Peak Body Battery energy level for the day |
 | `stress_avg` | 0–100 | Average stress level for the day |
 | `vo2max` | — | VO2max estimate — no fixed unit, device-calculated index |
+| `sleep_score` | 0–100 | Overall sleep score (v1.7.1.6 — previously retrievable via `health_map.get()`/`get_raw()`'s `live_nested` and `daily` routes but missing its own table row here, a pre-existing gap noted in `REFERENCE_GARMIN.md`, closed this session; value range confirmed against `tests/test_dashboard.py`'s live-route fixture) |
 | `sleep_score_feedback` | text | Categorical sleep feedback, e.g. `POSITIVE_DEEP` |
 | `sleep_score_qualifier` | text | Categorical sleep quality label, e.g. `FAIR`, `EXCELLENT` |
 | `sleep_deep_pct` | % | Share of deep sleep, calculated from raw seconds |
@@ -664,3 +665,86 @@ against the registry queried at request time. `query_health`/
 health field returns the same silent empty result as a data-free valid
 one) — deliberately not addressed here, tracked as a known,
 not-yet-scheduled follow-up rather than pulled into this fix.
+
+**(v1.7.1.5)** `query_context()` gained category-bundle resolution,
+checked BEFORE the three unknown-field outcomes above (a bundle name
+is never itself a registered field, so without this check it would
+always fall into outcome 3) but still routed through the same
+`_route_query()` sqlite/live switch per bundle field — no bypass
+data-access path. `_CONTEXT_CATEGORY_BUNDLES` in `clients/mcp_server.py`
+maps `"weather"`/`"pollen"`/`"air"` to a PRIORITY-ORDERED list of
+`context_map` source names (`"weather": ["brightsky", "weather"]`,
+`"pollen": ["pollen"]`, `"air": ["airquality"]`) — not a field list;
+field names per source are resolved at call time via
+`mcp_map.list_available_fields(domain="context")`, so a source's own
+field additions need no change here. See
+`KONZEPT_query_context_kategorie_aufloesung.md` for the full
+architecture decision (server-side register chosen over relying on
+model-driven multi-field selection, given the project's Ollama
+model-diversity requirement).
+
+A bundle's result is flattened to one value per field name — the
+normal per-source grouping (`{source: {field: {...}}}`) collapses to
+`{field: {...}}` directly under `"context"`. The sole real naming
+collision in the current registry, `wind_speed_max` (registered by
+both `weather` and `brightsky` under different internal keys and
+different values — Modell vs. Messstation, see `context_map.py`'s
+naming-collision note above), is resolved PER DAY, not per whole
+field: for each date in range, the first source in the bundle's
+priority list with a non-`None` value for that specific day wins — a
+field's final `values` array can therefore be stitched together from
+more than one source across a range (e.g. brightsky for most days,
+weather filling in a day brightsky has no data for). The winning
+source per collision-day is recorded in `_meta.field_sources` (e.g.
+`{"wind_speed_max": {"2026-03-01": "brightsky", "2026-03-02":
+"weather"}}`) — only for fields that actually had more than one
+candidate source in the bundle; a field copied through from a single
+source (the normal case for `pollen`/`air`, and most `weather` fields)
+gets no `field_sources` entry.
+
+Deliberately out of scope for this fix (see concept document's closing
+section): `_meta.aqi_category` for `airquality_european_aqi`, a
+GUI-panel disclaimer, and a `"bundles"` key in
+`list_available_fields()` reporting the register's contents back to
+callers — all tracked as follow-ups, not pulled into this session.
+`mcp_sql.py`/`mcp_map.py`/`context_map.py` untouched — the bundle
+register and flattening logic live entirely in the `mcp_server.py`
+wrapper; `mcp_sql.py` remains a pure SQLite access layer with no
+validation/bundle logic, per the `v1.7.1.4` precedent. `clients/` still
+has no direct `maps.context_map` import — field names per source are
+obtained via `mcp_map.list_available_fields()`, the same broker-facing
+surface already used for the `v1.7.1.4` unknown-field registry lookup.
+
+**(v1.7.1.6)** `query_health()`, `query_context()` (both its direct-field
+and its category-bundle path), and `list_available_fields()` gained an
+explicit unit per field — closing the gap this file's own "Field index"
+table already existed to bridge for a human reader, but which the MCP
+tool schema itself never exposed to an LLM caller (verified empirically
+against `qwen3:14b`/`qwen2.5-coder:7b`/`mistral-nemo` — see
+`NOTES_v1716_session2.md` for the test transcript). `query_health()`/
+`query_context()` results gain a `"unit"` key alongside `"values"`/
+`"fallback"`/`"source_resolution"` on every field-level dict, for both
+the SQLite and the live branch identically (applied after the
+`_route_query()` switch, not before). `list_available_fields()` gains an
+additive `"units"` key (flat `{field_name: unit}`) alongside its
+existing `"fields"` key, which itself keeps its original name-list shape
+unchanged. Unit values transcribed from this file's own "Field index"
+table above, no new research — including the "no exceptions" rule
+(every field gets a unit, including ones with no physical unit, e.g.
+`vo2max`/`airquality_european_aqi` → `"—"`/`"index"`, never an omitted
+key) to avoid a mixed state that would itself become a new source of
+LLM misinterpretation.
+
+Deliberately kept MCP-local (`clients/mcp_server.py`'s new `FIELD_UNITS`
+dict), NOT in `maps/mcp_map.py`, `maps/health_map.py`,
+`maps/context_map.py`, or `maps/gateway_map.py` — two reasons found
+during this session's own review, not anticipated at session start: (1)
+`_route_query()` currently always returns `"sqlite"`; that branch never
+reaches `mcp_map.py` at all, so a unit lookup placed there would
+silently do nothing for every real request today; (2) a unit registry
+living only at the MCP layer would be an island, unusable by dashboard
+specialists or any other broker consumer — see `KNOWN_ISSUES.md` Cluster F,
+extended this session with this stopgap as a documented, intentionally
+swappable placeholder (isolated behind one function, `_get_field_unit()`,
+so a future broker-level replacement needs no caller-side change).
+`maps/mcp_map.py` itself is untouched this session.
