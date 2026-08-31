@@ -437,14 +437,24 @@ check("query_context unknown-field: domain-confused field names query_health in 
 check("query_context unknown-field: domain-confused field has no did_you_mean list",
       "did_you_mean" not in _qc_domain)
 
-# 3. Category name / no usable near-match — generic error, no false suggestion
+# 3. No usable near-match at all — generic error, no false suggestion
+#
+# v1.7.1.5 note: "weather" USED to be this test's example (a category
+# name with no near-match under the pre-v1.7.1.5 field-only registry).
+# It no longer fits here -- "weather" is now a registered bundle name
+# (_CONTEXT_CATEGORY_BUNDLES), so mcp_server.query_context("weather", ...)
+# deliberately DOES reach mcp_sql/mcp_map now (see Section 8c-ter below,
+# where that new behaviour is the thing under test). This check keeps
+# its original purpose -- a string that is neither a field, a bundle
+# name, nor a near-match to either -- using a value with no realistic
+# resemblance to anything in the registry.
 with patch("mcp_sql.get_context_range") as _m_sql, \
      patch("maps.mcp_map.query_context") as _m_live:
-    _qc_category = mcp_server.query_context("weather", _TEST_DATE, _TEST_DATE, "daily")
+    _qc_category = mcp_server.query_context("definitely_unknown_category", _TEST_DATE, _TEST_DATE, "daily")
     _m_sql.assert_not_called()
     _m_live.assert_not_called()
-check("query_context unknown-field: category name never reaches mcp_sql/mcp_map", True)
-check("query_context unknown-field: category name yields generic 'unknown field' error",
+check("query_context unknown-field: unrecognized value never reaches mcp_sql/mcp_map", True)
+check("query_context unknown-field: unrecognized value yields generic 'unknown field' error",
       "unknown field" in _qc_category.get("error", ""))
 check("query_context unknown-field: context key stays an empty dict on error",
       _qc_category.get("context") == {})
@@ -506,6 +516,148 @@ with patch("mcp_server._route_query", return_value="live"), \
     _m_live.assert_called_once_with("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
     _m_sql.assert_not_called()
 check("mcp_server.query_context: live branch calls mcp_map.query_context, not mcp_sql", True)
+
+# ── 8c-ter. query_context() category bundles (v1.7.1.5) ─────────────────────
+#
+# _CONTEXT_CATEGORY_BUNDLES resolution runs BEFORE the v1.7.1.4
+# unknown-field check above (a bundle name is never itself a registered
+# field, see mcp_server.py module comment) and BEFORE the _route_query()
+# switch, but each bundle field still goes through that same switch --
+# these checks stay on the SQLite branch (the placeholder's current
+# default, per 8b) to match the rest of this section's style, and mock
+# mcp_sql.get_context_range per bundle field rather than hitting real
+# files, same style as 8c-bis above. list_available_fields() itself is
+# NOT mocked (same reasoning as 8c-bis: if a future session renames a
+# field, this section should fail for that reason, not silently drift).
+
+section("mcp_server 8c-ter. query_context() category bundles (v1.7.1.5)")
+
+# 1. "pollen" — single-source bundle, no collision possible. Confirms a
+#    bundle with only one source in its priority list still flattens
+#    correctly and never adds "_meta.field_sources" entries (nothing to
+#    attribute — see _resolve_context_bundle()'s docstring).
+_pollen_fields = mcp_map.list_available_fields(domain="context")["fields"]["context"]["pollen"]
+
+def _fake_pollen_range(date_from, date_to, field=None):
+    return {"context": {"pollen": {field: {
+        "values": [{"date": _TEST_DATE, "value": 12.5}],
+        "fallback": False, "source_resolution": "daily",
+    }}}, "_meta": {"weekday_table": {}}}
+
+with patch("mcp_sql.get_context_range", side_effect=_fake_pollen_range) as _m_sql:
+    _qc_pollen = mcp_server.query_context("pollen", _TEST_DATE, _TEST_DATE, "daily")
+    check("query_context bundle 'pollen': mcp_sql called once per registered field",
+          _m_sql.call_count == len(_pollen_fields))
+check("query_context bundle 'pollen': every field present in flat result",
+      set(_qc_pollen["context"].keys()) == set(_pollen_fields))
+check("query_context bundle 'pollen': a field's value is unwrapped correctly",
+      _qc_pollen["context"]["pollen_birch"]["values"][0]["value"] == 12.5)
+check("query_context bundle 'pollen': no field_sources entries (single-source bundle)",
+      _qc_pollen["_meta"]["field_sources"] == {})
+
+# 2. "weather" — the real, documented collision. Both "weather" and
+#    "brightsky" register "wind_speed_max" (see context_map.py
+#    docstring / KONZEPT_query_context_kategorie_aufloesung.md). Priority
+#    list is ["brightsky", "weather"] (Messstation vor Modell) — a day
+#    with data from both sources must show brightsky's value; a day
+#    where brightsky has none must fall back to weather's value for
+#    that SAME day (per-day tie-break, not whole-field).
+
+_DAY_1, _DAY_2 = "2026-03-01", "2026-03-02"
+
+def _fake_weather_bundle_range(date_from, date_to, field=None):
+    if field == "wind_speed_max":
+        return {"context": {"weather": {"wind_speed_max": {
+            "values": [{"date": _DAY_1, "value": 18.5},
+                       {"date": _DAY_2, "value": 21.0}],
+            "fallback": False, "source_resolution": "daily",
+        }}}, "_meta": {}}
+    # every other weather-only field: arbitrary distinct value, present
+    # both days, no collision partner
+    return {"context": {"weather": {field: {
+        "values": [{"date": _DAY_1, "value": 1.0},
+                   {"date": _DAY_2, "value": 2.0}],
+        "fallback": False, "source_resolution": "daily",
+    }}}, "_meta": {}}
+
+def _fake_brightsky_bundle_range(date_from, date_to, field=None):
+    if field == "wind_speed_max":
+        # Day 1: brightsky has data (should win). Day 2: brightsky has
+        # no data for this field (value None) — weather must win instead.
+        return {"context": {"brightsky": {"wind_speed_max": {
+            "values": [{"date": _DAY_1, "value": 22.0},
+                       {"date": _DAY_2, "value": None}],
+            "fallback": False, "source_resolution": "daily",
+        }}}, "_meta": {}}
+    return {"context": {"brightsky": {field: {
+        "values": [{"date": _DAY_1, "value": 3.0},
+                   {"date": _DAY_2, "value": 4.0}],
+        "fallback": False, "source_resolution": "daily",
+    }}}, "_meta": {}}
+
+def _fake_weather_bundle_dispatch(date_from, date_to, field=None):
+    # _resolve_context_bundle() queries per (source, field) via the same
+    # mcp_sql.get_context_range() entry point for every source in the
+    # bundle -- but that function signature carries no "source" argument
+    # (matches the real mcp_sql.get_context_range() contract), so for a
+    # colliding field name ("wind_speed_max", present in BOTH sources)
+    # the mock cannot tell which source is being queried from "field"
+    # alone -- both calls arrive with the identical field name. Dispatch
+    # therefore follows _CONTEXT_CATEGORY_BUNDLES["weather"]'s own fixed
+    # iteration order (["brightsky", "weather"]) instead: for any field
+    # name that exists in both sources, the FIRST call reaching this mock
+    # is brightsky's (bundle iterates brightsky before weather), the
+    # SECOND is weather's. Fields unique to one source need no counting
+    # -- they only ever come from that source.
+    #
+    # v1.7.1.5 correction (this anchor): the earlier version of this mock
+    # dispatched purely on "is field in brightsky's field list" — wrong
+    # for "wind_speed_max", which is in BOTH lists, so both the
+    # weather-side and brightsky-side call were misrouted to the
+    # brightsky fake, and the production code's weather-side lookup
+    # under result["context"]["weather"]["wind_speed_max"] then found
+    # nothing, silently dropping "weather" as a candidate source and
+    # making the day-2 fallback check fail. Root cause was in this mock,
+    # not in _resolve_context_bundle() itself — verified by reproducing
+    # the real collection loop locally against both mock versions.
+    _brightsky_only = set(mcp_map.list_available_fields(
+        domain="context")["fields"]["context"]["brightsky"]) - {"wind_speed_max"}
+    _weather_only = set(mcp_map.list_available_fields(
+        domain="context")["fields"]["context"]["weather"]) - {"wind_speed_max"}
+
+    if field in _brightsky_only:
+        return _fake_brightsky_bundle_range(date_from, date_to, field=field)
+    if field in _weather_only:
+        return _fake_weather_bundle_range(date_from, date_to, field=field)
+
+    # field == "wind_speed_max" -- the collision. Count calls to
+    # distinguish brightsky's (first, per bundle order) from weather's
+    # (second).
+    _fake_weather_bundle_dispatch._wind_speed_max_calls = getattr(
+        _fake_weather_bundle_dispatch, "_wind_speed_max_calls", 0) + 1
+    if _fake_weather_bundle_dispatch._wind_speed_max_calls == 1:
+        return _fake_brightsky_bundle_range(date_from, date_to, field=field)
+    return _fake_weather_bundle_range(date_from, date_to, field=field)
+
+with patch("mcp_sql.get_context_range", side_effect=_fake_weather_bundle_dispatch):
+    _qc_weather = mcp_server.query_context("weather", _DAY_1, _DAY_2, "daily")
+
+check("query_context bundle 'weather': wind_speed_max day 1 = brightsky's value",
+      _qc_weather["context"]["wind_speed_max"]["values"][0] ==
+      {"date": _DAY_1, "value": 22.0})
+check("query_context bundle 'weather': wind_speed_max day 2 falls back to weather's value",
+      _qc_weather["context"]["wind_speed_max"]["values"][1] ==
+      {"date": _DAY_2, "value": 21.0})
+check("query_context bundle 'weather': field_sources records the per-day winner",
+      _qc_weather["_meta"]["field_sources"]["wind_speed_max"] ==
+      {_DAY_1: "brightsky", _DAY_2: "weather"})
+check("query_context bundle 'weather': non-colliding brightsky-only field has no field_sources entry",
+      "temperature_avg" not in _qc_weather["_meta"]["field_sources"])
+check("query_context bundle 'weather': non-colliding weather-only field has no field_sources entry",
+      "temperature_max" not in _qc_weather["_meta"]["field_sources"])
+check("query_context bundle 'weather': result includes fields from both sources",
+      "temperature_avg" in _qc_weather["context"] and
+      "temperature_max" in _qc_weather["context"])
 
 with patch("mcp_server._route_query", return_value="live"), \
      patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}) as _m_live, \

@@ -313,6 +313,41 @@ def _setup_boot_log() -> logging.FileHandler:
 LOG_MCP_MAX = 30  # rolling log file limit, same convention as
                   # garmin_config.LOG_RECENT_MAX / daily_update.LOG_DAILY_MAX
 
+# ── Kategorie-Buendel fuer query_context() (v1.7.1.5) ────────────────────
+#
+# Ordnet einen Kategorienamen (z.B. "weather") einer PRIORISIERTEN LISTE
+# von context_map-Quellennamen zu. Die Feldnamen jeder Quelle werden NICHT
+# hier gepflegt -- sie werden zur Laufzeit ueber mcp_map.list_available_
+# fields(domain="context") ermittelt (nicht direkt aus maps.context_map --
+# clients/ spricht die Broker-Schicht ausschliesslich ueber mcp_map an,
+# siehe NOTES_v1.7.1.5.md), damit neue Einzelfelder innerhalb einer bereits
+# gelisteten Quelle automatisch im Buendel erscheinen, ohne dass diese
+# Liste angefasst werden muss.
+#
+# REIHENFOLGE = PRIORITAET bei Namenskollision zwischen zwei Quellen
+# desselben Buendels (aktuell nur "wind_speed_max" bei weather/brightsky,
+# siehe context_map.py-Docstring): bei einer Kollision gewinnt fuer jeden
+# Tag einzeln die ERSTE Quelle in dieser Liste, die fuer diesen Tag
+# tatsaechlich einen Wert (nicht None) liefert -- liefert sie keinen,
+# entscheidet die naechste Quelle in der Liste. Kollisionserkennung ist
+# rein namensbasiert (gleicher Feldname in mehreren Quellen desselben
+# Buendels) -- kein Mapping/keine Aehnlichkeitspruefung zwischen
+# UNTERSCHIEDLICHEN Feldnamen (bewusst verworfen, siehe
+# KONZEPT_query_context_kategorie_aufloesung.md, Abschnitt "Warum keine
+# allgemeine Feld-Mapping-Tabelle").
+#
+# Neue Quelle hinzufuegen (z.B. ein US-Anbieter):
+#   1. Quellennamen an der gewuenschten Prioritaets-Position eintragen.
+#   2. Nur falls die neue Quelle ein bereits vorhandenes Feld dieses
+#      Buendels unter demselben Namen fuehrt (echte Kollision): Position
+#      in der Liste bestimmt automatisch die Prioritaet -- keine
+#      zusaetzliche Regel noetig.
+_CONTEXT_CATEGORY_BUNDLES = {
+    "weather": ["brightsky", "weather"],  # Messstation vor Modell
+    "pollen":  ["pollen"],
+    "air":     ["airquality"],
+}
+
 
 def _start_operational_log(base_dir: Path) -> logging.FileHandler | None:
     """Creates <base_dir>/garmin_data/log/mcp/mcp_YYYY-MM-DD_HHMMSS.log,
@@ -512,6 +547,111 @@ def query_health(field: str, date_from: str, date_to: str,
     return mcp_map.query_health(field, date_from, date_to, resolution)
 
 
+def _resolve_context_bundle(bundle_name: str, date_from: str, date_to: str,
+                             resolution: str) -> dict:
+    """v1.7.1.5 -- resolves a _CONTEXT_CATEGORY_BUNDLES entry into a flat,
+    single-value-per-field-name result. For each source in the bundle's
+    priority list, gathers every field name that source registers (via
+    mcp_map.list_available_fields(domain="context") -- clients/ never
+    imports maps.context_map directly, mcp_map is the sole broker-facing
+    surface, see NOTES_v1.7.1.5.md) and queries it through the same
+    sqlite/live routing weiche query_context() itself uses for a plain
+    field -- no separate/bypass data-access path.
+
+    Flattening: field names are unique across sources except for a
+    deliberate, known collision (e.g. "wind_speed_max" under both
+    "weather" and "brightsky"). On a collision, the tie-break is decided
+    PER DAY, not per whole field: for each date in range, the first
+    source (in the bundle's priority-list order) with a non-None value
+    for THAT day wins -- a field's final "values" array can therefore be
+    stitched together from more than one source across the range (e.g.
+    brightsky for most days, weather filling in a day brightsky has no
+    data for). "_meta.field_sources" records the winning source for each
+    day a collision was actually resolved (e.g. {"wind_speed_max":
+    {"2026-03-01": "brightsky", "2026-03-02": "weather"}}) -- only for
+    fields that had more than one candidate source in this bundle, never
+    for a field copied through from a single source unchanged."""
+    # source_values[field_name][source] = {date: value, ...}
+    source_values: dict[str, dict[str, dict[str, object]]] = {}
+    field_resolution: dict[str, dict] = {}  # first-seen values/fallback/
+                                             # source_resolution shape per field
+    meta: dict = {}
+
+    # source -> [field_names] fuer alle context-Quellen. Ueber mcp_map
+    # bezogen, nicht direkt aus maps.context_map -- clients/ spricht die
+    # Broker-Schicht ausschliesslich ueber mcp_map an (Timo-Entscheidung,
+    # NOTES_v1.7.1.5.md), context_map bleibt intern fuer maps/.
+    _context_fields_by_source = mcp_map.list_available_fields(
+        domain="context")["fields"]["context"]
+
+    for source in _CONTEXT_CATEGORY_BUNDLES[bundle_name]:
+        for source_field in _context_fields_by_source.get(source, []):
+            if _route_query("context") == "sqlite":
+                source_result = mcp_sql.get_context_range(
+                    date_from, date_to, field=source_field
+                )
+            else:
+                source_result = mcp_map.query_context(
+                    source_field, date_from, date_to, resolution
+                )
+            meta = source_result.get("_meta", meta)
+
+            per_source = source_result.get("context", {}).get(source, {})
+            candidate = per_source.get(source_field)
+            if candidate is None:
+                continue
+
+            by_date = {v["date"]: v.get("value") for v in candidate.get("values", [])}
+            source_values.setdefault(source_field, {})[source] = by_date
+            field_resolution.setdefault(source_field, {
+                "fallback": candidate.get("fallback", False),
+                "source_resolution": candidate.get("source_resolution", "daily"),
+            })
+
+    flat_values: dict[str, dict] = {}
+    field_sources: dict[str, dict[str, str]] = {}
+
+    for source_field, per_source_dates in source_values.items():
+        sources_for_field = [
+            s for s in _CONTEXT_CATEGORY_BUNDLES[bundle_name]
+            if s in per_source_dates
+        ]
+        all_dates = sorted({
+            d for by_date in per_source_dates.values() for d in by_date
+        })
+
+        merged_values = []
+        day_winners: dict[str, str] = {}
+        for day in all_dates:
+            winning_value = None
+            winning_source = None
+            for source in sources_for_field:
+                day_value = per_source_dates[source].get(day)
+                if day_value is not None:
+                    winning_value = day_value
+                    winning_source = source
+                    break
+            merged_values.append({"date": day, "value": winning_value})
+            if winning_source is not None:
+                day_winners[day] = winning_source
+
+        flat_values[source_field] = {
+            **field_resolution[source_field],
+            "values": merged_values,
+        }
+        # Only record a per-day source map when this field actually had
+        # more than one candidate source in this bundle -- a single-
+        # source field (the normal pollen/air case, and most weather
+        # fields) needs no attribution.
+        if len(sources_for_field) > 1:
+            field_sources[source_field] = day_winners
+
+    result: dict = {"context": flat_values}
+    result["_meta"] = meta if meta else {}
+    result["_meta"]["field_sources"] = field_sources
+    return result
+
+
 @mcp.tool()
 def query_context(field: str, date_from: str, date_to: str,
                    resolution: str = "daily") -> dict:
@@ -556,7 +696,21 @@ def query_context(field: str, date_from: str, date_to: str,
 
     A valid field's result (with or without data in range) is returned
     exactly as before this session — none of the above runs unless
-    field is unrecognized."""
+    field is unrecognized.
+
+    v1.7.1.5 category bundles (this session): a field value naming a
+    known bundle key ("weather"/"pollen"/"air") is resolved BEFORE any
+    of the three unknown-field outcomes above -- a bundle name is never
+    a registered field itself, so without this check it would always
+    fall through to the generic "unknown field" branch. Each bundle
+    field is queried individually through the SAME sqlite/live routing
+    weiche used everywhere else in this function -- the bundle path
+    only adds collection, flattening, and collision tie-breaking on top,
+    it does not bypass or duplicate the existing data-access path. See
+    _CONTEXT_CATEGORY_BUNDLES above for the priority-list mechanics."""
+    if field in _CONTEXT_CATEGORY_BUNDLES:
+        return _resolve_context_bundle(field, date_from, date_to, resolution)
+
     known_context_fields: set[str] = set()
     for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
         known_context_fields.update(_source_fields)
