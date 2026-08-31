@@ -307,6 +307,23 @@ check("mcp_server: registered tool names match mcp_map.py 1:1, plus refresh_cach
           "refresh_cache",
       })
 
+# ── 8a-bis. unit field (v1.7.1.6) — mcp_server.list_available_fields() ───────
+#
+# Deliberately calling mcp_server.list_available_fields() here, not
+# mcp_map.list_available_fields() (already covered in section 6 above)
+# — the "units" key is added in the mcp_server.py wrapper only, per this
+# session's scope decision (FIELD_UNITS stays MCP-local, mcp_map.py is
+# untouched this session).
+_laf_units = mcp_server.list_available_fields()
+check("mcp_server.list_available_fields: units key present",
+      "units" in _laf_units)
+check("mcp_server.list_available_fields: fields key unchanged (additive, not replaced)",
+      "garmin" in _laf_units["fields"]["health"])
+check("mcp_server.list_available_fields: units covers a known health field",
+      _laf_units["units"].get("hrv_last_night") == "ms")
+check("mcp_server.list_available_fields: units covers a known context field",
+      _laf_units["units"].get("temperature_max") == "°C")
+
 # ── 8b. Routing weiche (v1.7.1.1 Ziel 5) — placeholder always returns "sqlite" ─
 #
 # _route_query() itself: fixed "sqlite" for every kind, no real heuristic
@@ -351,6 +368,34 @@ with patch("mcp_sql.get_health_range", return_value={"health": {}, "_meta": {}})
     _m_live.assert_not_called()
 check("mcp_server.query_health: SQLite branch calls mcp_sql.get_health_range, not mcp_map", True)
 
+# ── 8c-quater. unit field (v1.7.1.6) — query_health() ────────────────────────
+#
+# Not reusing the empty-dict mock above (nothing to enrich there) — a
+# fresh mock with a real field-value shape is needed to verify
+# _enrich_with_units() actually attaches "unit" alongside "values"/
+# "fallback"/"source_resolution", on the SQLite branch (the only branch
+# _route_query() currently ever selects).
+_HEALTH_UNIT_MOCK = {"health": {"garmin": {"hrv_last_night": {
+    "values": [{"date": _TEST_DATE, "value": 45}],
+    "fallback": False, "source_resolution": "daily",
+}}}, "_meta": {}}
+with patch("mcp_sql.get_health_range", return_value=_HEALTH_UNIT_MOCK):
+    _qh_unit = mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health unit field: hrv_last_night carries its documented unit",
+      _qh_unit["health"]["garmin"]["hrv_last_night"]["unit"] == "ms")
+
+# Field with no physical unit (REFERENCE_BROKER.md: "vo2max | — | ...") —
+# verifies the "no exceptions" rule (Session 1 decision): every field
+# gets a "unit" key, including ones without a real physical unit.
+_HEALTH_UNIT_MOCK_VO2 = {"health": {"garmin": {"vo2max": {
+    "values": [{"date": _TEST_DATE, "value": 48}],
+    "fallback": False, "source_resolution": "daily",
+}}}, "_meta": {}}
+with patch("mcp_sql.get_health_range", return_value=_HEALTH_UNIT_MOCK_VO2):
+    _qh_unit_vo2 = mcp_server.query_health("vo2max", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health unit field: vo2max (no physical unit) still carries a unit key",
+      _qh_unit_vo2["health"]["garmin"]["vo2max"]["unit"] == "—")
+
 with patch("mcp_sql.get_context_range", return_value={"context": {}, "_meta": {}}) as _m_sql, \
      patch("maps.mcp_map.query_context") as _m_live:
     mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
@@ -361,6 +406,16 @@ with patch("mcp_sql.get_context_range", return_value={"context": {}, "_meta": {}
     _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="temperature_max")
     _m_live.assert_not_called()
 check("mcp_server.query_context: SQLite branch calls mcp_sql.get_context_range, not mcp_map", True)
+
+# ── 8c-quinquies. unit field (v1.7.1.6) — query_context() direct field ───────
+_CONTEXT_UNIT_MOCK = {"context": {"weather": {"temperature_max": {
+    "values": [{"date": _TEST_DATE, "value": 21.5}],
+    "fallback": False, "source_resolution": "daily",
+}}}, "_meta": {}}
+with patch("mcp_sql.get_context_range", return_value=_CONTEXT_UNIT_MOCK):
+    _qc_unit = mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
+check("query_context unit field: temperature_max carries its documented unit",
+      _qc_unit["context"]["weather"]["temperature_max"]["unit"] == "°C")
 
 # ── 8c-bis. query_context() unknown-field detection (v1.7.1.4) ──────────────
 #
@@ -554,6 +609,8 @@ check("query_context bundle 'pollen': a field's value is unwrapped correctly",
       _qc_pollen["context"]["pollen_birch"]["values"][0]["value"] == 12.5)
 check("query_context bundle 'pollen': no field_sources entries (single-source bundle)",
       _qc_pollen["_meta"]["field_sources"] == {})
+check("query_context bundle 'pollen': unit field (v1.7.1.6) — flattened field carries its unit",
+      _qc_pollen["context"]["pollen_birch"]["unit"] == "grains/m³")
 
 # 2. "weather" — the real, documented collision. Both "weather" and
 #    "brightsky" register "wind_speed_max" (see context_map.py
@@ -658,6 +715,13 @@ check("query_context bundle 'weather': non-colliding weather-only field has no f
 check("query_context bundle 'weather': result includes fields from both sources",
       "temperature_avg" in _qc_weather["context"] and
       "temperature_max" in _qc_weather["context"])
+check("query_context bundle 'weather': unit field (v1.7.1.6) — colliding "
+      "wind_speed_max keeps one consistent unit across the source switch",
+      _qc_weather["context"]["wind_speed_max"]["unit"] == "km/h")
+check("query_context bundle 'weather': unit field (v1.7.1.6) — non-colliding "
+      "fields from each source also carry their unit",
+      _qc_weather["context"]["temperature_avg"]["unit"] == "°C" and
+      _qc_weather["context"]["temperature_max"]["unit"] == "°C")
 
 with patch("mcp_server._route_query", return_value="live"), \
      patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}) as _m_live, \
