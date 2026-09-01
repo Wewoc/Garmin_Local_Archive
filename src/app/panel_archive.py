@@ -531,6 +531,44 @@ class PanelArchive(QWidget):
         except Exception:
             return False
 
+    # ── Quality-by-date lookup (v1.7.1.7, Force-Refetch calendar) ─────────────
+
+    def _get_quality_by_date(self, base_dir: str) -> dict:
+        """Returns {date_str: quality_label} for every entry in
+        quality_log.json. Read-only — same documented direct-read exception
+        as _check_failed_days_popup() above (no mutation, no ownership
+        transfer, no QUALITY_LOCK required; os.replace() atomicity
+        guarantees the reader sees either the old or the new complete
+        file). Kept as its own function rather than folded into
+        _check_failed_days_popup(): that function counts failed days in a
+        range, this one hands back a full per-date label map — a
+        different shape, not a variant of the same query. Deliberately
+        pure lookup — no dialog, no popup, no side effect of any kind, so
+        nothing here can accidentally slip into a write path.
+        Used by panel_outputs.py::_on_force_refetch() to color the
+        calendar by quality status.
+
+        Returns {} if the file is missing, empty, or unreadable — callers
+        treat an empty dict as "no quality information available", never
+        as an error.
+        """
+        # INTENTIONAL DIRECT READ — see _check_failed_days_popup() above for
+        # the full rationale. Documented exception: see REFERENCE_GARMIN.md
+        # § Documented Exceptions.
+        quality_file = Path(base_dir) / "garmin_data" / "log" / "quality_log.json"
+        if not quality_file.exists():
+            return {}
+        try:
+            data    = json.loads(quality_file.read_text(encoding="utf-8"))
+            entries = data.get("days", [])
+            return {
+                e["date"]: e.get("quality", e.get("category", "failed"))
+                for e in entries
+                if e.get("date")
+            }
+        except Exception:
+            return {}
+
     # ── Silo-Check ────────────────────────────────────────────────────────────
 
     def _on_silo_check(self):

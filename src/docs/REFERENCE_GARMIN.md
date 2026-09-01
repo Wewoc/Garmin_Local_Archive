@@ -45,7 +45,8 @@ garmin_app.py (GUI)
 - `garmin_backup.py` is sole write authority for `garmin_data/backup/`
 - `garmin_source_writer.py` is sole write authority for `garmin_data/source/` and `source_api_log.json` (v1.6.0.2 — genuinely enforced since v1.6.0.4.6: mirror bypass closed)
 - `source/` contains exclusively live API responses — bulk import never writes to `source/`, not even during backfill (v1.6.0.2)
-- `source/` files with `intraday_present=True` are never overwritten by a degraded response — Conservative guard in `write_source()` (v1.6.0.4.6)
+- `source/` files with `intraday_present=True` are never overwritten by a degraded response — Conservative guard in `write_source()` (v1.6.0.4.6). `force=True` (v1.7.1.7) bypasses this guard entirely — used exclusively by the deliberate per-day Force-Refetch path (`garmin_collector.run_force_refetch_preview()`), never by the normal sync path
+- `garmin_force_refetch.py` is sole write authority for `garmin_data/backup/force_refetch/` (v1.7.1.7) — pre-overwrite `source/` snapshots for Force-Refetch, deliberately separate from `AUTORESTORE_DIR` (different purpose: quality_log-wide defect recovery vs. single-day safety net before an intentional freeze-guard bypass)
 - `garmin_collector.py` is the stop-event orchestrator (v1.5.6.3) — `set_stop_event(ev)` registers the event on the collector and distributes it to `garmin_api` in one call. The GUI calls `main(stop_event=ev)`; no module ever reads `_STOP_EVENT` via `globals()`
 - `garmin_mirror.py` is sole owner of the mirror operation — delegates to `garmin_container.py` for container creation. `is_import_ready()` removed (v1.5.6.2) — import source selected via file picker, not stored path
 - `garmin_container.py` is sole owner of `mirror.gla` — no other module reads or writes the container file directly
@@ -128,7 +129,7 @@ Called by `garmin_source_writer` to guard `write_source()` against overwriting h
 |---|---|
 | `assess_source(raw_data)` | Assesses whether a raw API response contains intraday data. Checks `heartRateValues`, `stressValuesArray`, `bodyBatteryValuesArray`. Returns `{"intraday_present": bool}` |
 | `assess_source_from_file(source_path)` | Reads existing source file from disk and assesses it. Returns `None` if absent. Returns `{"unreadable": True}` if file exists but cannot be read/parsed (v1.6.0.4.9). Returns `{"intraday_present": bool}` on success |
-| `compare_source(existing_assessment, new_assessment)` | Conservative guard decision. Returns `"write"` \| `"skip"` \| `"skip_warn"`. Truth table: None (absent) → write; `{"unreadable": True}` → skip_warn (v1.6.0.4.9); intraday absent → write; intraday present + new present → skip; intraday present + new absent → skip_warn |
+| `compare_source(existing_assessment, new_assessment, force=False)` | Conservative guard decision. Returns `"write"` \| `"skip"` \| `"skip_warn"`. Truth table: None (absent) → write; `{"unreadable": True}` → skip_warn (v1.6.0.4.9); intraday absent → write; intraday present + new present → skip; intraday present + new absent → skip_warn. `force=True` (v1.7.1.7) short-circuits the entire table, always returns `"write"` |
 
 ---
 
@@ -141,7 +142,7 @@ No longer a Leaf-Node (v1.6.0.4.6) — imports `garmin_source_quality` for the w
 
 | Function | Purpose |
 |---|---|
-| `write_source(raw_data, date_str)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Guard: reads existing file → `assess_source_from_file` → `assess_source` → `compare_source` → write / skip / skip_warn. Atomic: `.tmp` → `fsync` → `os.replace`. Triggers `backup_source()` only on actual write. Returns `bool`. Non-fatal |
+| `write_source(raw_data, date_str, force=False)` | Writes unmodified API response to `source/garmin_source_YYYY-MM-DD.json`. Guard: reads existing file → `assess_source_from_file` → `assess_source` → `compare_source` → write / skip / skip_warn. Atomic: `.tmp` → `fsync` → `os.replace`. Triggers `backup_source()` only on actual write. Returns `bool`. Non-fatal. `force` (v1.7.1.7) passed straight through to `compare_source()` |
 | `update_log(date_str, val_result, endpoints_fetched, endpoints_failed, size_bytes, raw_data=None)` | Upserts entry in `source_api_log.json`. Stores `intraday_present` when `raw_data` provided (via `garmin_source_quality.assess_source()`). Atomic write. Returns `bool`. Non-fatal |
 
 ---
@@ -165,8 +166,9 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 
 | Function | Purpose |
 |---|---|
-| `backup_source(date_str)` | Copies `garmin_source_YYYY-MM-DD.json` to `backup/source/`. Called by `garmin_source_writer` after write. Returns `bool`. Non-fatal |
+| `backup_source(date_str, force=False)` | Copies `garmin_source_YYYY-MM-DD.json` to `backup/source/`. Called by `garmin_source_writer` after write. Returns `bool`. Non-fatal. `force=True` (v1.7.1.7) allows this date's file to replace an already-consolidated entry of the same name inside a completed month's ZIP — see `_consolidate_source_months()` |
 | `backfill_source()` | Copies all source files without a backup copy. One-time operation. Returns `{"copied", "skipped", "failed"}` |
+| *(v1.7.1.7 note)* `backfill_raw()`/`backfill_source()` likely share the same name-check pattern as the consolidation functions above, but were not touched — neither is part of the Force-Refetch call path (only the backfill buttons use them). See `KNOWN_ISSUES.md` |
 | `check_source_backfill_needed()` | Returns count of source files without backup. Fast check, no copy |
 
 **Constants:**
@@ -179,7 +181,7 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 |---|---|
 | `GarminLoginError` | Exception raised on unrecoverable login failure. Replaces `sys.exit(1)` |
 | `login(on_key_required, on_token_expired, on_mfa_required, on_sso_required)` | Logs in to Garmin Connect. Tries saved token first, falls back to SSO. MFA via callback. `on_sso_required` blocks Path 3 until user confirms — `None` (headless/standalone) starts SSO automatically. Returns client or `None` if cancelled. Raises `GarminLoginError` on failure. **Note:** `support-tools/garmin-login-probe/garmin_login_probe.py` calls this directly with `on_sso_required=lambda: True` — a signature change here requires updating that tool too |
-| `api_call(client, method, *args, label)` | Single API call with random delay and stop-check. Returns `(data, success)` |
+| `api_call(client, method, *args, label)` | Single API call with random delay and stop-check. Returns `(data, success)`. Logs `log.debug(f"Fetching {label or method} ...")` before the call (v1.7.1.7) — silent at the normal sync's default `INFO` level, visible when a caller raises the root logger to `DEBUG` for its own duration (e.g. Force-Refetch's progress dialog, `panel_outputs.py`). Deliberate reuse of the existing logging mechanism rather than a new `progress`-callback parameter threaded through `fetch_raw()`/`_fetch_and_assess()`/`run_force_refetch_preview()` |
 | `fetch_raw(client, date_str, extra_endpoints=None)` | Calls all 15 Garmin API endpoints, plus any `(method, args, key)` tuples passed via `extra_endpoints`. Stays config-blind — only ever receives a ready-made tuple list. `extra_endpoints` (v1.6.8) — used by `garmin_collector` to append user-enabled API-Capability-Scan candidates; baseline 15 always run regardless. Returns `(raw: dict, failed_endpoints: list[str])` |
 | `get_devices(client)` | Fetches registered device list. Returns sorted list |
 | `set_stop_event(ev)` | Registers the stop event (`threading.Event` or `None`). Same pattern as `garmin_validator.reload_schema()` — explicit setter, no `globals()` injection |
@@ -351,6 +353,8 @@ matching on unknown text.
 | `QUALITY_LOCK` | `threading.Lock()` — acquire around all load-modify-save sequences |
 | `assess_quality(raw)` | Returns `"high"` / `"standard"` / `"failed"`. Pure function |
 | `assess_quality_fields(raw)` | Returns per-endpoint quality dict. Pure function. Reuses `garmin_normalizer._parse_list_values()` to verify an intraday array actually parses into `[ts,val]` pairs (`[ts,status,val]` for `body_battery`, `val_index=2`) before labeling a field `"high"` — a structurally malformed array falls through to the next applicable tier instead (v1.6.5.8, F8). Downgrade reasons are collected under a reserved key inside the returned dict, extracted by `_maint.py` into `entry["field_downgrades"]` — never present in the dict actually stored as `entry["fields"]` |
+| `KNOWN_FIELDS` | Constant (tuple, 14 names) in `quality/_assess.py`, re-exported here (v1.7.1.7). Single source of truth for the field names `assess_quality_fields()` assesses — also used by `quality/_fieldhash.py` for `compare_source_fields()` |
+| `compare_source_fields(old_source, new_source)` | SHA-256 field-by-field comparison of two `source/`-shaped dicts (v1.7.1.7, `garmin/quality/_fieldhash.py`). Each field's value serialized via `json.dumps(..., sort_keys=True)` before hashing — key order never causes a false difference. Returns `list[str]` — names (from `KNOWN_FIELDS`) of fields that differ, in `KNOWN_FIELDS` order. Used exclusively by `garmin_collector.run_force_refetch_preview()` to show the user what actually changed after a deliberate Force-Refetch |
 | `record_attempt(data, day, label, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Public API — atomically calls `_upsert_quality` + `_save_quality_log`. Caller must hold `QUALITY_LOCK`. |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Adds or updates day entry. Downgrade protection: `high` stays `high`. Stores `device_id` + `device_name` per entry. |
 | `save_device_table(quality_data)` | Builds and writes `device_table.json`. Called after each sync and after device_id backfill. Groups entries by `device_id`; entries with `device_id=None` appear as `__unknown__` row. Sole write authority: `garmin_quality`. |
@@ -378,6 +382,28 @@ Each quality log entry stores `device_id` (str) and `device_name` (str) — set 
 
 ---
 
+## `garmin_force_refetch.py`
+
+Sole Owner of `garmin_data/backup/force_refetch/` (v1.7.1.7). Snapshots the
+archived `source/` file for a single day before a deliberate Force-Refetch
+overwrite, and can restore it if the new fetch turns out worse than
+expected. Deliberately separate from `garmin_backup.py`/`AUTORESTORE_DIR` —
+different purpose (single-day pre-overwrite safety net for an intentional
+freeze-guard bypass, not quality_log-wide defect recovery). Scope is
+`source/` only, not `raw/` — for the `"api"` origin, `raw`/`summary` are
+derived from `source` (`garmin_normalizer._normalize_api()` is a
+pass-through), so a `source/` snapshot alone is sufficient to reconstruct
+the day. Flat directory, one file per day — no monthly ZIP consolidation
+(Force-Refetch is a rare, deliberate maintenance action, not a high-volume
+daily path).
+
+| Function | Purpose |
+|---|---|
+| `snapshot_source(date_str)` | Copies the current `source/garmin_source_YYYY-MM-DD.json` into `backup/force_refetch/` before the guard-bypassing overwrite. Returns `{"snapshotted": bool, "had_prior_data": bool}` — `had_prior_data=False` is a valid, expected case (day was previously `"failed"`, never written), not an error |
+| `restore_snapshot(date_str)` | Restores `source/garmin_source_YYYY-MM-DD.json` from a previously written snapshot, overwriting the current `source/` file. No GUI entry point yet (v1.7.1.7) — deferred to a later session. Does not consult `compare_source()` — a deliberate restore-to-known-good-state is, like Force-Refetch itself, an intentional exception to that guard. Returns `bool` — `False` if no snapshot exists or on any error |
+
+---
+
 ## `garmin_sync.py`
 
 | Symbol | Purpose |
@@ -394,7 +420,7 @@ Each quality log entry stores `device_id` (str) and `device_name` (str) — set 
 | Function | Purpose |
 |---|---|
 | `main()` | Full sync orchestration: import mode (0) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → login → devices → device_id backfill → source backfill (5c) → first_day → date resolution → fetch loop → save |
-| `_fetch_and_assess(client, date_str, enabled_candidates=None)` | Fetch → validate → normalize → assess. No file writes. Returns `(label, normalized, summary, fields, val_result)`. `enabled_candidates` (v1.6.8) — optional list of API-Capability-Scan candidate method names, pre-filtered by the caller (double-gate); turned into `extra_endpoints` for `api.fetch_raw()`. `None` (default) — used by `_run_source_backfill()`, which does not take part in the Capability Scan (scope boundary, v1.6.8) |
+| `_fetch_and_assess(client, date_str, enabled_candidates=None, force=False)` | Fetch → validate → normalize → assess. No file writes of its own beyond `write_source()` (see below). Returns `(label, normalized, summary, fields, val_result)`. `enabled_candidates` (v1.6.8) — optional list of API-Capability-Scan candidate method names, pre-filtered by the caller (double-gate); turned into `extra_endpoints` for `api.fetch_raw()`. `None` (default) — used by `_run_source_backfill()`, which does not take part in the Capability Scan (scope boundary, v1.6.8). `force` (v1.7.1.7) passed straight through to the internal `write_source()` call — cannot be applied afterwards separately, since `write_source()` is called internally |
 | `run_capability_scan(client, window_days=7)` | Probes the 19 optional health-endpoint candidates (`garmin_api_capability.CANDIDATE_ENDPOINTS`) over the last `window_days` days. Runs entirely under `quality.QUALITY_LOCK` (reused, not a new lock — see Invariants). Per-candidate try/except — one failing candidate never aborts the rest. Payload discarded, only the tri-state result (`found`/`not_observed`/`error`) persisted via `garmin_api_capability.update_endpoint()`/`save_config()`. Returns `{"scanned", "found", "not_observed", "error"}` (v1.6.8) |
 | `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)`. Delegates the actual rank comparison to `quality.is_downgrade()` (v1.6.5.7 — canonical location, also used by `export/regenerate_raw.py` and `garmin_silo_repair.py`; previously duplicated in each) |
 | `_run_steps_backfill(client, quality_data)` | Backfills `steps_series` for existing high-quality API days. Per day: `api_call()` → `merge_field()` → `normalize()`/`summarize()` → `write_day()` → `record_attempt()` (with `backfilled_fields`) → `patch_source_field()`. On `patch_source_field()` failure: one automatic retry, then `log.error()` (not `warning`) if it still fails — `source/` will not be auto-retried on a future run, since the candidate filter checks `fields` from `raw/`, already correct at that point (v1.6.5.7) |
@@ -403,8 +429,12 @@ Each quality log entry stores `device_id` (str) and `device_name` (str) — set 
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
 | `_run_schema_migration(quality_data)` | Rewrites outdated summary files from raw when `GARMIN_SCHEMA_MIGRATE=1`. No API call. Raw files unchanged. Log output per day `[i/total]` |
 | `_run_source_backfill(client, quality_data)` | Re-fetches API days from `cfg.SYNC_DATES` that have no `source/` file. Step 5c in `main()` — after login, triggered by `GARMIN_SOURCE_BACKFILL=1`. Non-fatal per-day errors. No-op if `SYNC_DATES` empty (v1.6.0.3) |
+| `run_force_refetch_preview(client, date_strs)` | Force-Refetch, Phase 1 (v1.7.1.7). Per date: snapshot `source/` via `garmin_force_refetch.snapshot_source()` → `_fetch_and_assess(force=True)` (writes `source/`, guard bypassed) → `garmin_quality.compare_source_fields()` against the pre-fetch version. Does NOT write `raw/`/`summary/`, does NOT call `record_attempt()`, does NOT touch backups — those happen only in `commit_force_refetch()` for user-confirmed dates. Two-phase split exists because a one-shot write-then-restore model would have to unwind four silos (`source/`, `raw/`+`summary/`, `quality_log.json`, backup ZIP) on rejection; splitting fetch+compare from commit means nothing outside `source/` is touched until confirmed. Returns `list[dict]`, one entry per date: `date`, `error`, `had_prior_data`, `quality_before`, `quality_after`, `fields_changed`, plus `_normalized`/`_summary`/`_fields`/`_val_result` carried through for Phase 2. Per-date exceptions caught and recorded, do not stop remaining dates |
+| `commit_force_refetch(preview_results, confirmed_dates, quality_data)` | Force-Refetch, Phase 2 (v1.7.1.7). For each `preview_results` entry: if `date` is in `confirmed_dates` — `_should_write()` → `_write_assessed()` → `record_attempt()` → `garmin_backup.backup_raw(force=True)` (only if written) + `garmin_backup_source.backup_source(force=True)` (always — `source/` was written in Phase 1 regardless of label); if NOT confirmed — `garmin_force_refetch.restore_snapshot()` reverts `source/` only, since Phase 1 touched nothing else. `_check_downgrade()` deliberately bypassed for confirmed dates — the user has already seen the before/after comparison, which is the human decision `_check_downgrade()` would otherwise stand in for. Returns `list[dict]`: `date`, `action` (`"committed"` \| `"reverted"` \| `"skipped_error"`), `error` |
 | `_start_session_log()` | Opens session log file. Returns `(handler, path)` |
 | `_close_session_log(fh, path, had_errors, had_incomplete)` | Closes handler, copies to `log/fail/` if errors present |
+| `_start_force_refetch_log()` | Opens a rolling Force-Refetch log file under `log/force_refetch/` (v1.7.1.7) — exact shape of `_start_session_log()` above, own directory (`cfg.LOG_FORCE_REFETCH_DIR`, own `LOG_FORCE_REFETCH_MAX = 30`, kept separate from `log/recent/` since Force-Refetch is a distinct, rare maintenance action, not a normal sync session). Fixed at `DEBUG` level (not caller-configurable) — deliberately matches the level the GUI worker raises the root logger to during the run, so the file and the live progress dialog show the same detail. Returns `(handler, path)` |
+| `_close_force_refetch_log(fh)` | Closes the Force-Refetch log handler, enforces `LOG_FORCE_REFETCH_MAX` rolling limit. No `log/fail/`-style error-copy step — the dedicated directory is already small and rarely populated, a separate failure copy would be redundant |
 
 **Bulk recheck logic:**
 
@@ -509,12 +539,12 @@ Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_
 
 | Function | Purpose |
 |---|---|
-| `backup_raw(date_str)` | Copies `garmin_raw_YYYY-MM-DD.json` into `backup/raw/YYYY-MM/`. Triggers `_consolidate_raw_months()`. Returns `bool` |
+| `backup_raw(date_str, force=False)` | Copies `garmin_raw_YYYY-MM-DD.json` into `backup/raw/YYYY-MM/`. Triggers `_consolidate_raw_months()`. Returns `bool`. `force=True` (v1.7.1.7) allows this date's file to replace an already-consolidated entry of the same name inside a completed month's ZIP |
 | `backup_quality_log()` | Creates monthly snapshot of `quality_log.json` as `quality_log_YYYY-MM.zip`. Triggers yearly consolidation |
 | `restore_quality_log()` | Restores from latest valid monthly ZIP. Returns loaded `dict` or `None` |
 | `check_raw_integrity()` | Compares `write=True` quality log entries vs. existing raw files. Returns `{"missing_days", "no_backup", "total_checked", "error"}` — `error` is `None` on success, set if `quality_log.json` itself could not be read (v1.6.5.7, Netz 3 Kandidat 2). Called via `garmin_app_controller.check_integrity()` which sets `GARMIN_OUTPUT_DIR` first |
 | `restore_raw_days(date_strs)` | Restores raw files from backup (dir first, then ZIP). Returns `{"restored", "skipped_already_current", "failed", "errors"}` — `errors` is `dict[str, str]`, one reason per date in `failed` (v1.6.5.7, Netz 3 Kandidat 2). Own downgrade guard (v1.6.5.8, Fix 2): a date is skipped into `skipped_already_current` if a raw file already exists for it and its `quality_log` entry is already `"high"` — reads `quality_log.json` directly, same pattern as `check_raw_integrity()`, no `garmin_quality` import (this module deliberately has none) |
-| `_consolidate_raw_months(current_month)` | ZIPs completed month dirs, deletes dir after ZIP verified |
+| `_consolidate_raw_months(current_month, force_filenames=None)` | ZIPs completed month dirs, deletes dir after ZIP verified. `force_filenames` (v1.7.1.7) — set of filenames allowed to REPLACE an already-consolidated entry of the same name inside the ZIP; scope is per-filename, never per-month, so an unrelated batch of already-good consolidated days in the same month is never touched. `zipfile` has no in-place replace — a replace rebuilds the ZIP without the old entry, adds the new version, verifies integrity, then atomically swaps it in. `None` (default) — unchanged prior behavior |
 | `_consolidate_log_years(current_year)` | Creates `quality_log_YYYY.zip` for completed years without yearly ZIP |
 | `_zip_contains(zip_path, filename)` | Returns `True` if filename exists in ZIP. Silent on error |
 | `check_raw_backfill_needed()` | Returns count of raw files without backup. Fast, no copy. Returns 0 if complete |
@@ -813,3 +843,24 @@ the broker response contract, see `REFERENCE_BROKER.md`.
 | `_toggle_timer()` | Starts or stops background timer |
 | `_timer_loop(generation)` | Main timer loop, in `panel_timer.py` — six modes, candidate logic delegated to `garmin_app_controller.py` (see its own section below) |
 | `_copy_last_error_log()` | Copies most recent fail log to clipboard |
+
+---
+
+## Force-Refetch GUI (v1.7.1.7, Baustein 5)
+
+`app/dialog_force_refetch.py` (new file — deliberately not `app/dialogs.py`,
+too large/multi-part a feature for the shared-dialog file) plus additions
+to `panel_outputs.py` and `panel_archive.py`. No project-module imports in
+`dialog_force_refetch.py` itself (same rule as `dialogs.py`) —
+`quality_by_date`/`results` are always handed in by the caller, never read
+by the dialog file itself.
+
+| Symbol | Purpose |
+|---|---|
+| `panel_outputs.py::_on_force_refetch()` | Force-Refetch GUI orchestrator. Precondition check (`_is_running()`/timer/context-sync — same pattern as `_on_mirror()`/`_on_silo_check()`) before opening the calendar dialog, avoiding a collision on the module-global `garmin_collector._stop_event`. Timer paused for the whole interaction (calendar selection through commit/cancel), not just during the fetch. Opens `ForceRefetchDialog` → background worker thread (own `garmin_api.login()`, same pattern as `garmin_live_fetch.fetch_live()` — NOT `self._app._run()`/`main()`, since `run_force_refetch_preview()` needs an actual `client` object) → `ForceRefetchProgressDialog` (live) → `ForceRefetchReviewDialog` (confirm/reject) → `commit_force_refetch()` under `quality.QUALITY_LOCK` held by the caller for load+call+save (different contract than `_run_source_backfill()`, which holds the lock internally) |
+| `panel_archive.py::_get_quality_by_date()` | Read-only `{date: label}` lookup from `quality_log.json` — same documented direct-read exception as `_check_failed_days_popup()` (see Documented Exceptions above). Own function rather than an extension of `_check_failed_days_popup()` — different return shape (full date→label map vs. a filtered count), not a variant of the same query |
+| `dialog_force_refetch.py::DateToggleCalendar` | Reusable `QCalendarWidget` — click toggles a date in/out of an internal `set[str]`. Two independent color layers: an optional quality-status background (green/yellow/red, from a caller-supplied `{date: label}` dict, purely informational, set once at construction) and a selection highlight (bold + underline in the theme accent color — deliberately not red, which is reserved for `"failed"`). Known, accepted Qt limitation: `setDateTextFormat()` reliably shows only the most-recently-clicked cell's format; earlier selections can visually revert on a later click (selection state itself — `_selected`/`get_selected_dates()` — remains correct throughout). Not worked around — the `QListWidget` selection list is the reliable display |
+| `dialog_force_refetch.py::SelectionOnlyCalendar` | Read-only calendar for the progress dialog — highlights a fixed, pre-given set of dates, no click interaction, no quality background. Separate class rather than a `read_only` flag on `DateToggleCalendar` — one class, one job |
+| `dialog_force_refetch.py::ForceRefetchDialog` | Calendar-selection dialog. Hosts `DateToggleCalendar` + a mirrored `QListWidget` (clicking a list entry also deselects — second way to deselect, matching the calendar's own toggle) + Start button. `get_selected_dates()` returns the confirmed selection |
+| `dialog_force_refetch.py::ForceRefetchProgressDialog` | Read-only `SelectionOnlyCalendar` + live `QPlainTextEdit` log + Stop button (`stop_requested` signal). `append_log()` — Main Thread only, caller dispatches from the worker thread. Pure UI + a thread-safe log sink — does not call `run_force_refetch_preview()` itself |
+| `dialog_force_refetch.py::ForceRefetchReviewDialog` | One row per `run_force_refetch_preview()` result entry — quality-before → quality-after, changed-field count with field names shown (from `entry["fields_changed"]`), checkbox per day starting UNCHECKED (deliberate opt-in, not pre-confirmed), Confirm-all/Reject-all buttons. Error entries shown for information only, no checkbox — `commit_force_refetch()` already treats any non-confirmed date as rejected. `get_confirmed_dates()` returns the checked set |

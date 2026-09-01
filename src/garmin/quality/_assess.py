@@ -17,6 +17,27 @@ from garmin_normalizer import _parse_list_values
 
 log = logging.getLogger(__name__)
 
+# Known top-level field names assessed per-endpoint by assess_quality_fields().
+# Single source of truth (v1.7.1.7) — also used by quality/_fieldhash.py for
+# the Force-Refetch field-level comparison. Keep in sync with the per-field
+# blocks in assess_quality_fields() below if a field is ever added or removed.
+KNOWN_FIELDS = (
+    "heart_rates",
+    "stress",
+    "sleep",
+    "hrv",
+    "spo2",
+    "stats",
+    "steps",
+    "body_battery",
+    "respiration",
+    "activities",
+    "training_status",
+    "training_readiness",
+    "race_predictions",
+    "max_metrics",
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
