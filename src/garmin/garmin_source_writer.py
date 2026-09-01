@@ -56,7 +56,7 @@ SOURCE_FILE_PREFIX = "garmin_source_"
 #  Public API
 # ══════════════════════════════════════════════════════════════════════════════
 
-def write_source(raw_data: dict, date_str: str) -> bool:
+def write_source(raw_data: dict, date_str: str, force: bool = False) -> bool:
     """
     Writes raw API response to garmin_data/source/garmin_source_YYYY-MM-DD.json.
 
@@ -69,10 +69,16 @@ def write_source(raw_data: dict, date_str: str) -> bool:
       already contains intraday data and the new response does not.
       "skip" and "skip_warn" both return True — non-fatal, pipeline continues.
 
+    force (v1.7.1.7): passed through to compare_source() — bypasses the
+    freeze-when-present guard entirely when True, always writing. Used
+    exclusively by the deliberate per-day Force-Refetch path, never by
+    the normal sync path.
+
     Parameters
     ----------
     raw_data : dict — unmodified API response from garmin_api.fetch_raw()
     date_str : str  — date in YYYY-MM-DD format
+    force    : bool — bypass the freeze-when-present guard (see above)
 
     Returns
     -------
@@ -93,7 +99,7 @@ def write_source(raw_data: dict, date_str: str) -> bool:
         # ── Downgrade guard ───────────────────────────────────────────────────
         existing_assessment = _sq.assess_source_from_file(dst)
         new_assessment      = _sq.assess_source(raw_data)
-        decision            = _sq.compare_source(existing_assessment, new_assessment)
+        decision            = _sq.compare_source(existing_assessment, new_assessment, force=force)
 
         if decision == "skip":
             log.debug(f"  source_writer: {date_str} — intraday present, skip (freeze)")

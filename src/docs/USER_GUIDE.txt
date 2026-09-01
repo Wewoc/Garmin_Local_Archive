@@ -122,6 +122,36 @@ Custom Dashboard. Your existing daily sync data and dashboards are
 unaffected either way -- this is a purely additive, opt-in feature.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FORCE REFETCH (v1.7.1.7)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Daily Sync will not retry a day it already considers finished -- even
+if that day's data is wrong or incomplete (e.g. a Bluetooth dropout
+during sync). Force Refetch deliberately re-downloads a single day,
+bypassing that protection.
+
+Settings -> Data Collection -> "Force Refetch" opens a calendar dialog:
+
+1. Select dates
+   Click days to toggle them in/out. Each day's current quality is
+   shown as a background colour (green = high, yellow = standard,
+   red = failed).
+
+2. Start
+   Re-downloads each selected day from Garmin. Progress is shown live
+   in a log window. Nothing is written to your archive yet.
+
+3. Review
+   Shows quality before/after and how many fields changed, per day.
+   Confirm the days you want to keep, or reject them -- a rejected day
+   is restored to exactly its previous state. Only confirmed days are
+   written to your archive.
+
+A safety copy of each day's pre-fetch data is kept automatically, so a
+rejected day is never lost. "0 fields changed" in the review means
+Garmin has nothing new for that day -- expected, not an error.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 4. DASHBOARDS & ANALYSIS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

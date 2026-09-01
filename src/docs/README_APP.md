@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.1.6
+# Garmin Local Archive — Desktop App v1.7.1.7
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -243,6 +243,34 @@ Enabled fields with a recognized health value (e.g. body weight, resting
 calories) appear automatically in Custom Dashboard. A number of fields are
 archived but have no dedicated interpretation yet — they're stored for
 future use.
+
+### Force Refetch
+Deliberately re-downloads a single day, bypassing the normal protection
+that prevents Daily Sync from overwriting a day already marked complete.
+Use this if a day's data is present but wrong or incomplete for a known
+reason (e.g. a Bluetooth dropout during sync) — Daily Sync alone will not
+retry a day it considers finished.
+
+Click **⚠ Force Refetch** (below API Scan, Settings tab → Data
+Collection) to open a calendar dialog:
+
+1. **Select dates** — click days to toggle them in/out of the selection.
+   The calendar also shows each day's current quality as a background
+   colour (green = high, yellow = standard, red = failed), so you can
+   see at a glance which days are worth re-fetching.
+2. **Start** — confirms the selection and re-downloads each selected day
+   from Garmin. Progress is shown live in a log window; nothing is
+   written to your archive yet at this point.
+3. **Review** — for each day, shows the quality before and after the
+   re-fetch and how many data fields actually changed. Confirm the days
+   you want to keep, or reject them individually — a rejected day is
+   restored to exactly its previous state. Only confirmed days are
+   written to your archive.
+
+A safety copy of each day's pre-fetch data is kept automatically, so a
+rejected day is never lost. If Garmin's own data for that day hasn't
+changed since your last sync, the review will show "0 fields changed" —
+this is expected, not an error.
 
 ### Background Timer
 Automatically repairs and fills your archive in the background while the app is open — no manual intervention needed.

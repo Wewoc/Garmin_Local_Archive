@@ -252,9 +252,19 @@ def login(on_key_required=None, on_token_expired=None, on_mfa_required=None,
 # ══════════════════════════════════════════════════════════════════════════════
 
 def api_call(client, method: str, *args, label: str = ""):
-    """Single API call with delay and error handling. Returns (data, success)."""
+    """Single API call with delay and error handling. Returns (data, success).
+
+    Logs a debug-level "Fetching ..." line before the call (v1.7.1.7) —
+    silent at the normal sync's default INFO level, so no behavior change
+    there. Visible when a caller raises the root logger to DEBUG for its
+    own duration (e.g. Force-Refetch's progress dialog, panel_outputs.py)
+    — reuses this single log line rather than adding a separate
+    progress-callback parameter through the fetch_raw()/_fetch_and_assess()
+    chain.
+    """
     if _is_stopped():
         return None, False
+    log.debug(f"    Fetching {label or method} ...")
     try:
         data = getattr(client, method)(*args)
         time.sleep(random.uniform(cfg.REQUEST_DELAY_MIN, cfg.REQUEST_DELAY_MAX))

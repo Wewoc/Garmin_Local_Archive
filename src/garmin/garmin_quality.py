@@ -51,6 +51,11 @@ from quality._io import (
 from quality._assess import (
     assess_quality,
     assess_quality_fields,
+    KNOWN_FIELDS,
+)
+
+from quality._fieldhash import (
+    compare_source_fields,
 )
 
 from quality._scan import (
