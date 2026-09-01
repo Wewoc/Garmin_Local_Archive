@@ -79,6 +79,7 @@ of scope.
 | `garmin_container.py` | `mirror.gla` — sole owner, no other module touches the container file |
 | `garmin_import_mirror.py` | mirror import operation — orchestrates only |
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
+| `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
 
 ### Invariants
 
@@ -150,6 +151,37 @@ of scope.
   the first test to exercise the downgrade guard (line 93 above) inside the
   real fetch loop rather than via the isolated `_check_downgrade()` unit
   tests (Section 15). `test_local.py` 703→716. See `NOTES_v169_01.md`.
+- **Added (v1.7.1.7, 2026-08-31/09-01):** Force-Refetch mechanism — a
+  deliberate, user-initiated opt-in to re-fetch a single day that two
+  existing guards otherwise protect against overwriting
+  (`garmin_sync.get_local_dates()`'s local-file presence check;
+  `garmin_source_quality.compare_source()`'s freeze-when-present guard).
+  Both guards remain fully intact for the normal sync path — Force-Refetch
+  adds a `force` bypass parameter, it does not weaken either guard's
+  default behavior. Two-phase design in `garmin_collector.py`
+  (`run_force_refetch_preview()` / `commit_force_refetch()`) — considered
+  and rejected a one-shot write-then-restore model, because reverting after
+  writing would have to unwind four silos at once (`source/`,
+  `raw/`+`summary/`, `quality_log.json`, backup ZIP); splitting fetch+compare
+  from commit means nothing outside `source/` is touched until the user has
+  confirmed the before/after comparison. New Sole-Write-Authority module
+  `garmin_force_refetch.py` (snapshot + restore, `source/` only — `raw`/
+  `summary` are derivable from `source` for the API origin). `get_local_dates()`
+  deliberately NOT extended with a `force_dates` parameter — the orchestrator
+  calls `_fetch_and_assess()` directly per date (same pattern as
+  `_run_source_backfill()`), never routes through `main()`/the `missing`
+  calculation, keeping the normal sync path's complexity (device history,
+  `_check_downgrade()`, bulk-upgrade candidates, `MAX_DAYS_PER_SESSION`)
+  completely unchanged and untouched by this feature. Field-level comparison
+  (`quality/_fieldhash.py::compare_source_fields()`, new `KNOWN_FIELDS`
+  constant in `quality/_assess.py`) is a label diff plus a per-field SHA-256
+  hash diff — a label alone is too coarse, since two different payloads can
+  coincidentally share a label. GUI (calendar dialog, confirmation flow)
+  deferred to a later session. See `KNOWN_ISSUES.md` for the resolved entry
+  and the two follow-up notes it left behind (`backfill_raw()`/
+  `backfill_source()` name-check pattern unchecked; `garmin_writer.py`
+  raw/summary atomicity gap now more relevant since Force-Refetch touches
+  deliberately-risky days).
 
 ---
 
@@ -263,6 +295,81 @@ wrapper behaviour unaffected; `clear_token()` mocked WCM failure asserts
 `False` instead of the previous unconditional success. Section 6 —
 `read_summary()` missing-file case; `_run_schema_migration()` missing-summary
 case asserts no crash.
+
+L. **Force-Refetch (v1.7.1.7, Session 4, 2026-09-01)** — full coverage for
+Bausteine 1–5, previously manual-only (single real end-to-end run against
+the Garmin API, see `NOTES_v17117.md` "Session-Abschluss (2026-09-01)").
+`test_local.py` 716→780 across four anchors:
+- `compare_source_fields()` (`quality/_fieldhash.py`, via the
+  `garmin_quality` facade) — identical dicts, single-field diff, field
+  absent on one side, nested key order irrelevance (`sort_keys=True`),
+  unserializable value (`repr()` fallback), `None`/`None` input.
+- `garmin_source_quality.compare_source(force=True)` — all four
+  existing/new combinations forced to `"write"`, regression check that
+  `force=False` leaves the existing truth table untouched.
+- `garmin_source_writer.write_source(force=True)` — bypasses the
+  freeze-when-present guard against a real high-res file; `force=False`
+  regression check confirms the guard still holds.
+- `garmin_force_refetch.snapshot_source()` / `restore_snapshot()` —
+  `had_prior_data` True/False, snapshot content round-trip, restore with
+  and without an existing snapshot. **Documented finding, not fixed this
+  session:** `restore_snapshot()` does not delete the snapshot file it
+  restores from — asserted as current behaviour (not a bug) so a future
+  intentional change shows as a visible diff here, not a silent
+  regression; relevant once the deferred Restore GUI is built (see
+  `KNOWN_ISSUES.md`).
+- `garmin_collector.run_force_refetch_preview()` — no-prior-file case
+  (`had_prior_data=False`, `quality_before="failed"`), real field
+  difference against an existing `source/` file, per-day exception
+  isolation (one day's fetch failure does not stop the rest), stop-event
+  mid-list abort.
+- `garmin_collector.commit_force_refetch()` — confirmed + `"high"` (write,
+  `record_attempt()`, both backups called with `force=True`), confirmed +
+  `"failed"` (`_should_write()` still blocks the write, entry still
+  recorded), **the previously-never-exercised reject path**
+  (`restore_snapshot()` called for real, both with and without an
+  existing snapshot — `"no snapshot to restore"` surfaced instead of a
+  crash), a preview entry that already carried an `error` (`skipped_error`,
+  no crash on the missing `_normalized`/`_summary`/etc. keys), a mid-batch
+  exception on one date (`skipped_error` for that date, the rest still
+  commit), and a regression check that `_check_downgrade()` is never
+  called for confirmed dates (deliberate bypass, see
+  `commit_force_refetch()` docstring).
+- `garmin_collector._start_force_refetch_log()` /
+  `_close_force_refetch_log()` — file creation under
+  `LOG_FORCE_REFETCH_DIR`, handler DEBUG level, rolling-limit pruning.
+  Two test-harness pitfalls surfaced and were worked around, not found in
+  the production code: (1) the log filename has second-resolution
+  (`strftime %H%M%S`), so calling the function in a tight loop collides
+  on the same file — the rolling-limit check instead pre-creates distinct
+  files with controlled `mtime`s and triggers one real close to exercise
+  the prune step; (2) `test_local.py` calls `logging.disable(logging.CRITICAL)`
+  at the top of the file — a global cutoff that overrides any per-logger
+  level, so the DEBUG assertion must also call
+  `logging.disable(logging.NOTSET)` before raising the root logger's own
+  level, and restore both afterwards.
+- `garmin_api.api_call()` — `label=""` falls back to the method name in
+  the new debug log line without a format-string error, both on success
+  and on an exception.
+
+`test_qt_app.py` 73→79 — `panel_archive.py::_get_quality_by_date()`
+(missing file → `{}`, date→label map from a real `quality_log.json`,
+`category`-key fallback, an entry missing `date` skipped rather than
+crashing, corrupt JSON → `{}`, missing `"days"` key → `{}`). Same category
+as the existing `_check_failed_days_popup()` coverage — a pure data
+lookup, not a GUI interaction — not an exception to "GUI is not
+automated" below.
+
+`test_static.py` — three findings from Baustein 5 fixed in the same
+session, not GUI-behaviour related: unused `QSizePolicy` import in
+`dialog_force_refetch.py` (ruff); `SHARED_SCRIPTS` manifest missing the
+three new files from Bausteine 3–4 (`app/dialog_force_refetch.py`,
+`garmin/garmin_force_refetch.py`, `garmin/quality/_fieldhash.py`); one new
+silent `except: pass` handler in `garmin_backup.py`'s force-replace
+tmp-ZIP cleanup (Baustein 2, `anchor_delivery_17117-04`) — resolved with a
+`log.debug()` instead of `pass`, restoring the Baseline-0 guarantee
+without changing behaviour (the underlying error was already surfaced via
+the enclosing `log.error()` one level up).
 
 ### What is NOT tested
 
@@ -381,3 +488,11 @@ Garmin stores intraday detail for ~1–2 years. Older data returns daily aggrega
 - `log/recent/` capped at 30 files — oldest deleted automatically
 - `log/fail/` has no automatic limit
 - Always written at DEBUG regardless of GUI log toggle
+- Force-Refetch (v1.7.1.7): own rolling log at
+  `log/force_refetch/force_refetch_YYYY-MM-DD_HHMMSS.log`
+  (`garmin_collector.py::_start_force_refetch_log()`/
+  `_close_force_refetch_log()`), capped at 30 files — same rotation shape
+  as `log/recent/` above, own directory, no `log/fail/`-style error copy.
+  Always DEBUG — includes `garmin_api.py::api_call()`'s per-endpoint
+  "Fetching {label} ..." line, which is silent in a normal sync session
+  (default `INFO`)

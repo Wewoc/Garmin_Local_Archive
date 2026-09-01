@@ -372,6 +372,95 @@ class TestPanelArchive:
         result = panel._check_failed_days_popup("", "recent", "90", "", "")
         assert result is False
 
+    # ── _get_quality_by_date() (v1.7.1.7, Force-Refetch calendar lookup) ──────
+    # Pure data function — no dialog, no widget access, no side effect (see its
+    # own docstring). Same category as _check_failed_days_popup() above, not
+    # the general "GUI not automated" exclusion in MAINTENANCE_GARMIN.md.
+
+    def test_get_quality_by_date_missing_file_returns_empty(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_archive import PanelArchive
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+        result = panel._get_quality_by_date(str(tmp_path))
+        assert result == {}
+
+    def test_get_quality_by_date_returns_date_to_label_map(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_archive import PanelArchive
+        import json
+        log_dir = tmp_path / "garmin_data" / "log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "quality_log.json").write_text(json.dumps({
+            "days": [
+                {"date": "2024-08-01", "quality": "high"},
+                {"date": "2024-08-02", "quality": "standard"},
+                {"date": "2024-08-03", "quality": "failed"},
+            ]
+        }), encoding="utf-8")
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+        result = panel._get_quality_by_date(str(tmp_path))
+        assert result == {
+            "2024-08-01": "high",
+            "2024-08-02": "standard",
+            "2024-08-03": "failed",
+        }
+
+    def test_get_quality_by_date_falls_back_to_category_key(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_archive import PanelArchive
+        import json
+        log_dir = tmp_path / "garmin_data" / "log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "quality_log.json").write_text(json.dumps({
+            "days": [{"date": "2024-08-01", "category": "high"}]
+        }), encoding="utf-8")
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+        result = panel._get_quality_by_date(str(tmp_path))
+        assert result == {"2024-08-01": "high"}
+
+    def test_get_quality_by_date_missing_date_key_skipped(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_archive import PanelArchive
+        import json
+        log_dir = tmp_path / "garmin_data" / "log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "quality_log.json").write_text(json.dumps({
+            "days": [
+                {"quality": "high"},
+                {"date": "2024-08-02", "quality": "standard"},
+            ]
+        }), encoding="utf-8")
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+        result = panel._get_quality_by_date(str(tmp_path))
+        assert result == {"2024-08-02": "standard"}
+
+    def test_get_quality_by_date_corrupt_json_returns_empty_no_crash(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_archive import PanelArchive
+        log_dir = tmp_path / "garmin_data" / "log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "quality_log.json").write_text("{not valid json", encoding="utf-8")
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+        result = panel._get_quality_by_date(str(tmp_path))
+        assert result == {}
+
+    def test_get_quality_by_date_no_days_key_returns_empty(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_archive import PanelArchive
+        import json
+        log_dir = tmp_path / "garmin_data" / "log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "quality_log.json").write_text(json.dumps({}), encoding="utf-8")
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+        result = panel._get_quality_by_date(str(tmp_path))
+        assert result == {}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PasswordConfirmDialog — setup vs. unlock mode

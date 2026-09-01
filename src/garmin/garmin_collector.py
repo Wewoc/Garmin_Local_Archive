@@ -22,6 +22,7 @@ Pipeline:
 Configuration via environment variables — see garmin_config.py for full list.
 """
 
+import json
 import logging
 import os
 import sys
@@ -81,7 +82,12 @@ def _should_write(label: str) -> bool:
     return label in ("high", "standard")
 
 
-def _fetch_and_assess(client, date_str: str, enabled_candidates: list | None = None) -> tuple:
+def _fetch_and_assess(
+    client,
+    date_str: str,
+    enabled_candidates: list | None = None,
+    force: bool = False,
+) -> tuple:
     """
     Fetches and assesses a single day — no file writes.
 
@@ -97,6 +103,12 @@ def _fetch_and_assess(client, date_str: str, enabled_candidates: list | None = N
         added — is what _run_source_backfill() uses: that path
         intentionally does not take part in the Capability-Scan for now
         (scope boundary, v1.6.8).
+    force : bool
+        Passed through to garmin_source_writer.write_source() — bypasses
+        the freeze-when-present guard for the source/ file (v1.7.1.7).
+        Used exclusively by the deliberate per-day Force-Refetch path,
+        never by the normal sync path. Cannot be applied "afterwards"
+        separately — write_source() is called internally, below.
 
     Returns
     -------
@@ -119,7 +131,7 @@ def _fetch_and_assess(client, date_str: str, enabled_candidates: list | None = N
     # write_source() before validator — secures raw data even if validator crashes.
     try:
         import garmin_source_writer as _sw
-        if not _sw.write_source(raw_data, date_str):
+        if not _sw.write_source(raw_data, date_str, force=force):
             log.error(f"    source_writer.write_source failed for {date_str}")
     except Exception as _e:
         log.error(f"    source_writer.write_source failed for {date_str}: {_e}")
@@ -403,6 +415,56 @@ def _close_session_log(fh: logging.FileHandler, log_path: Path,
         log.warning(f"  Could not rotate session logs: {e}")
 
 
+def _start_force_refetch_log() -> tuple:
+    """
+    Creates a new Force-Refetch log file in log/force_refetch/ at DEBUG
+    level (v1.7.1.7) — same shape as _start_session_log() above, own
+    directory (see garmin_config.py::LOG_FORCE_REFETCH_DIR for why).
+    DEBUG is not a caller-configurable choice here — this file exists so
+    a completed Force-Refetch run has the same per-endpoint detail on
+    disk that panel_outputs.py's progress dialog raises the root logger
+    to DEBUG to show live (anchor_delivery_17117-24/25); the file log and
+    the live dialog log are deliberately kept at the same level.
+
+    Returns (file_handler, log_path) so the caller can close it when the
+    run finishes (see _close_force_refetch_log() below).
+    """
+    cfg.LOG_FORCE_REFETCH_DIR.mkdir(parents=True, exist_ok=True)
+
+    ts       = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    log_path = cfg.LOG_FORCE_REFETCH_DIR / f"force_refetch_{ts}.log"
+
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    fh.addFilter(redact.RedactFilter())
+    logging.getLogger().addHandler(fh)
+    return fh, log_path
+
+
+def _close_force_refetch_log(fh: logging.FileHandler) -> None:
+    """
+    Closes the Force-Refetch log file handler and enforces
+    LOG_FORCE_REFETCH_MAX rolling limit on log/force_refetch/. No
+    log/fail/-style error-copy step — unlike a sync session, a Force-Refetch
+    run's own file already lives in a small, dedicated, rarely-populated
+    directory; a separate failure copy would be redundant here.
+    """
+    logging.getLogger().removeHandler(fh)
+    fh.close()
+
+    try:
+        logs = sorted(cfg.LOG_FORCE_REFETCH_DIR.glob("force_refetch_*.log"),
+                      key=lambda f: f.stat().st_mtime)
+        for old in logs[:-cfg.LOG_FORCE_REFETCH_MAX]:
+            old.unlink(missing_ok=True)
+    except Exception as e:
+        log.warning(f"  Could not rotate Force-Refetch logs: {e}")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Self-healing
 # ══════════════════════════════════════════════════════════════════════════════
@@ -483,6 +545,255 @@ def _run_self_healing(quality_data: dict) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 #  Source backfill
 # ══════════════════════════════════════════════════════════════════════════════
+
+def commit_force_refetch(preview_results: list[dict], confirmed_dates: set[str],
+                          quality_data: dict) -> list[dict]:
+    """
+    Force-Refetch — Phase 2 (Commit). Writes raw/summary/, updates
+    quality_log.json, and consolidates backups — only for dates the user
+    confirmed after reviewing run_force_refetch_preview()'s comparison.
+    Rejected dates are reverted via garmin_force_refetch.restore_snapshot()
+    — only source/ needs undoing, since nothing else was touched by the
+    preview phase. (v1.7.1.7 — see run_force_refetch_preview() docstring
+    for why the write is split from the fetch+compare this way.)
+
+    Existing downgrade protection (_check_downgrade(), used by the normal
+    batch sync) is deliberately bypassed here for confirmed dates — the
+    user has already seen the before/after comparison and chosen to keep
+    it, which is the human decision _check_downgrade() would otherwise
+    stand in for. _should_write() remains the one active write guard (no
+    raw/summary write when the new label is "failed").
+
+    Per confirmed date:
+      1. _should_write(label) → _write_assessed() (same write path as
+         the normal sync and _run_source_backfill()).
+      2. record_attempt() — quality_log.json entry.
+      3. Backup with force=True — garmin_backup.backup_raw()/
+         garmin_backup_source.backup_source(), so the confirmed new
+         version also replaces the old one in the monthly backup ZIP if
+         that month was already consolidated (Baustein 2).
+
+    Per rejected date (in preview_results but not in confirmed_dates):
+      1. garmin_force_refetch.restore_snapshot() — reverts source/ to its
+         pre-preview state. No-op (returns False, logged) if the date had
+         no prior data (had_prior_data was False — nothing to restore).
+
+    Per-date exceptions are caught and recorded as a failed entry — one
+    date's error does not stop the remaining dates.
+
+    Parameters
+    ----------
+    preview_results : list[dict] — the return value of
+                       run_force_refetch_preview(), unmodified
+    confirmed_dates : set[str] — dates (YYYY-MM-DD) the user confirmed;
+                       any preview_results entry not in this set (and
+                       without an error) is treated as rejected
+    quality_data    : dict — the in-memory quality log; caller holds
+                       quality.QUALITY_LOCK for the duration of this call
+                       (same convention as _run_source_backfill())
+
+    Returns
+    -------
+    list[dict] — one entry per preview_results date, each with:
+      date      str
+      action    str            — "committed" | "reverted" | "skipped_error"
+      error     str | None     — set on write/restore failure
+    """
+    import garmin_backup as _bkp
+    import garmin_backup_source as _bsrc
+    import garmin_force_refetch as _ffr
+
+    results = []
+
+    for entry in preview_results:
+        date_str = entry["date"]
+
+        if entry.get("error") is not None:
+            # Already failed in preview — nothing to commit or revert.
+            results.append({"date": date_str, "action": "skipped_error", "error": entry["error"]})
+            continue
+
+        if date_str not in confirmed_dates:
+            # ── Rejected — revert source/ only, nothing else was touched ────
+            try:
+                reverted = _ffr.restore_snapshot(date_str)
+                results.append({
+                    "date":   date_str,
+                    "action": "reverted",
+                    "error":  None if reverted else "no snapshot to restore",
+                })
+                log.info(f"  Force-Refetch commit: {date_str} — rejected, source/ reverted")
+            except Exception as e:
+                log.error(f"  Force-Refetch commit: {date_str} — revert failed: {e}")
+                results.append({"date": date_str, "action": "reverted", "error": str(e)})
+            continue
+
+        # ── Confirmed — write raw/summary, log, backup ──────────────────────
+        try:
+            label = entry["quality_after"]
+
+            wrote = _should_write(label)
+            if wrote:
+                _write_assessed(entry["_normalized"], entry["_summary"], date_str, label)
+
+            quality.record_attempt(
+                quality_data, date.fromisoformat(date_str), label,
+                f"Force-Refetch (confirmed): {label}",
+                written=wrote,
+                source="api",
+                fields=entry["_fields"],
+                validator_result=entry["_val_result"],
+            )
+
+            # backup_raw()/backup_source() require the underlying file to
+            # exist — only meaningful when this label was actually written.
+            # source/ backup always applies (source/ was written in the
+            # preview phase regardless of label).
+            if wrote:
+                _bkp.backup_raw(date_str, force=True)
+            _bsrc.backup_source(date_str, force=True)
+
+            results.append({"date": date_str, "action": "committed", "error": None})
+            log.info(f"  Force-Refetch commit: {date_str} — confirmed, written")
+
+        except Exception as e:
+            log.error(f"  Force-Refetch commit: {date_str} — commit failed: {e}")
+            results.append({"date": date_str, "action": "skipped_error", "error": str(e)})
+
+    return results
+
+
+def run_force_refetch_preview(client, date_strs: list[str]) -> list[dict]:
+    """
+    Force-Refetch — Phase 1 (Preview). Fetches and compares, does NOT
+    write raw/summary, does NOT update quality_log.json, does NOT touch
+    backups. (v1.7.1.7)
+
+    Two-phase design (superseding an earlier one-shot draft rejected
+    during this session): a one-shot write-then-restore model was
+    considered and rejected, because a restore after writing would have
+    to unwind four silos at once — source/, raw/+summary/,
+    quality_log.json (already committed via record_attempt()), and the
+    backup ZIP (if backup_raw()/backup_source() ran with force=True). A
+    restore that only reverts source/ (as an earlier draft of
+    garmin_force_refetch.py did) would leave those other three silos
+    inconsistent with the reverted source/ file — exactly what
+    Sole-Write-Authority is meant to prevent. Splitting fetch+compare
+    from the actual commit avoids ever reaching that inconsistent state:
+    nothing outside source/ is touched until the user has seen the
+    comparison and chosen to keep it (see commit_force_refetch() below).
+
+    source/ IS written here (force=True bypasses the freeze-when-present
+    guard — that write is unavoidable to have something to compare).
+    Snapshotting it first is still the safety net: if the user rejects
+    this day, garmin_force_refetch.restore_snapshot() undoes exactly the
+    one write that happened.
+
+    Per-day steps:
+      1. Read the current source/ file (if any) — "old" side of the
+         comparison, before it is overwritten.
+      2. Assess its quality label (assess_quality()).
+      3. Snapshot the current source/ file via garmin_force_refetch,
+         before the guard-bypassing overwrite.
+      4. _fetch_and_assess(force=True) — fetches, writes source/
+         (overwriting, guard bypassed), returns the new label + the
+         normalized/summary/fields/val_result the caller will need in
+         Phase 2 if this day is confirmed.
+      5. Read the new source/ file, compare field-by-field against the
+         pre-fetch version (garmin_quality.compare_source_fields()).
+      6. Build this day's result entry — carries everything
+         commit_force_refetch() needs, so Phase 2 never re-fetches.
+
+    Per-day exceptions are caught and recorded as a failed entry — one
+    day's error does not stop the remaining days in the selection.
+
+    Parameters
+    ----------
+    client    : garminconnect client — already logged in
+    date_strs : list[str] — dates in YYYY-MM-DD format, user-selected via
+                the Force-Refetch calendar dialog (Baustein 5)
+
+    Returns
+    -------
+    list[dict] — one entry per date_str, in the order given, each with:
+      date            str
+      error           str | None   — set on fetch failure, all other
+                                      keys below are omitted
+      had_prior_data  bool         — whether a source/ file existed
+                                      before this run
+      quality_before  str          — "failed" if had_prior_data is False
+      quality_after   str
+      fields_changed  list[str]    — from compare_source_fields(); empty
+                                      if had_prior_data is False
+      _normalized     dict         — carried through for commit_force_refetch()
+      _summary        dict         — carried through for commit_force_refetch()
+      _fields         dict         — carried through for commit_force_refetch()
+      _val_result     dict         — carried through for commit_force_refetch()
+    """
+    import garmin_force_refetch as _ffr
+
+    results = []
+
+    for date_str in date_strs:
+        if _is_stopped():
+            log.info(f"  Force-Refetch preview: stopped after {len(results)} day(s).")
+            break
+
+        try:
+            src_path = cfg.SOURCE_DIR / f"garmin_source_{date_str}.json"
+
+            # ── 1+2. Read + assess the pre-fetch state ─────────────────────
+            old_source = None
+            if src_path.exists():
+                try:
+                    old_source = json.loads(src_path.read_text(encoding="utf-8"))
+                except Exception as _e:
+                    log.warning(f"  Force-Refetch preview: could not read existing source/ for {date_str}: {_e}")
+            quality_before = quality.assess_quality(old_source) if old_source else "failed"
+
+            # ── 3. Snapshot before the guard-bypassing overwrite ───────────
+            snap_result = _ffr.snapshot_source(date_str)
+
+            # ── 4. Fetch + write source/ (force bypasses freeze guard) ─────
+            label, normalized, summary, fields, val_result = \
+                _fetch_and_assess(client, date_str, force=True)
+
+            # ── 5. Field-level comparison ────────────────────────────────────
+            fields_changed = []
+            if snap_result["had_prior_data"]:
+                new_source = None
+                if src_path.exists():
+                    try:
+                        new_source = json.loads(src_path.read_text(encoding="utf-8"))
+                    except Exception as _e:
+                        log.warning(f"  Force-Refetch preview: could not read new source/ for {date_str}: {_e}")
+                fields_changed = quality.compare_source_fields(
+                    old_source or {}, new_source or {}
+                )
+
+            results.append({
+                "date":            date_str,
+                "error":           None,
+                "had_prior_data":  snap_result["had_prior_data"],
+                "quality_before":  quality_before,
+                "quality_after":   label,
+                "fields_changed":  fields_changed,
+                "_normalized":     normalized,
+                "_summary":        summary,
+                "_fields":         fields,
+                "_val_result":     val_result,
+            })
+            log.info(
+                f"  Force-Refetch preview: {date_str} — {quality_before} → {label} "
+                f"| {len(fields_changed)} field(s) changed"
+            )
+
+        except Exception as e:
+            log.error(f"  Force-Refetch preview: {date_str} — error: {e}")
+            results.append({"date": date_str, "error": str(e)})
+
+    return results
+
 
 def _run_source_backfill(client, quality_data: dict) -> None:
     """

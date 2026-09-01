@@ -63,6 +63,13 @@ LOG_BACKUP_DIR   = BACKUP_DIR / "log"    # quality_log ZIPs (monatlich + jährli
 RAW_BACKUP_DIR   = BACKUP_DIR / "raw"    # Raw-Verzeichnisse / ZIPs
 AUTORESTORE_DIR  = BACKUP_DIR / "autorestore"  # defekte Stände vor Auto-Restore
 
+# Force-Refetch snapshot directory (sole owner: garmin_force_refetch.py, v1.7.1.7)
+# Pre-overwrite source/ snapshots for the deliberate per-day Force-Refetch
+# path — deliberately separate from AUTORESTORE_DIR above (different
+# purpose: quality_log-wide defect recovery vs. single-day source/ safety
+# net before an intentional freeze-guard bypass).
+FORCE_REFETCH_BACKUP_DIR = BACKUP_DIR / "force_refetch"
+
 # Source archive (sole owner: garmin_source_writer.py)
 # Contains unmodified API responses before any pipeline processing.
 # Bulk import never writes here — only live API fetches.
@@ -157,6 +164,15 @@ SESSION_LOG_PREFIX = os.environ.get("GARMIN_SESSION_LOG_PREFIX", "garmin")
 
 # Maximum number of session logs kept in log/recent/ (rolling)
 LOG_RECENT_MAX = 30
+
+# Force-Refetch's own rolling log directory (v1.7.1.7) — same rotation
+# convention as log/recent/ above and daily_update.py's log/daily/, kept
+# separate rather than reusing log/recent/: Force-Refetch is a distinct,
+# rare maintenance action, not a normal sync session, and giving it its
+# own directory means its logs are never crowded out by the 30-file cap
+# on ordinary sync sessions (and vice versa).
+LOG_FORCE_REFETCH_DIR = LOG_DIR / "force_refetch"
+LOG_FORCE_REFETCH_MAX = 30
 
 # Log level for the root logger
 LOG_LEVEL = os.environ.get("GARMIN_LOG_LEVEL", "INFO")

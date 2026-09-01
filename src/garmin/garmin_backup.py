@@ -38,10 +38,18 @@ log = logging.getLogger(__name__)
 #  Raw backup (B1 / B4)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def backup_raw(date_str: str) -> bool:
+def backup_raw(date_str: str, force: bool = False) -> bool:
     """
     Copies garmin_raw_YYYY-MM-DD.json into backup/raw/YYYY-MM/ after a
     successful write. Triggered by garmin_writer.write_day().
+
+    force (v1.7.1.7): when True, this date's file is allowed to replace an
+    already-consolidated entry of the same name inside a completed month's
+    ZIP (see _consolidate_raw_months()). Scope is exactly this one date —
+    never the whole month directory — so an unrelated batch of already-good,
+    already-consolidated days sharing the same month is never touched or
+    at risk, even if that month sits past the 180-day intraday window.
+    Used exclusively by the deliberate per-day Force-Refetch path.
 
     Returns True on success, False on any error.
     Caller (garmin_writer) logs ERROR + shows panel warning on False.
@@ -61,7 +69,8 @@ def backup_raw(date_str: str) -> bool:
         log.debug(f"  backup_raw: {date_str} → backup/raw/{month}/")
 
         # Consolidate completed months (B4)
-        _consolidate_raw_months(current_month=month)
+        force_filenames = {raw_file.name} if force else None
+        _consolidate_raw_months(current_month=month, force_filenames=force_filenames)
         return True
 
     except Exception as e:
@@ -69,7 +78,7 @@ def backup_raw(date_str: str) -> bool:
         return False
 
 
-def _consolidate_raw_months(current_month: str) -> None:
+def _consolidate_raw_months(current_month: str, force_filenames: set[str] | None = None) -> None:
     """
     Zips all completed month directories in backup/raw/.
     A month is complete if it is not the current_month.
@@ -80,6 +89,17 @@ def _consolidate_raw_months(current_month: str) -> None:
         directory into existing ZIP ('a' mode), then delete directory.
         This covers the case where a historical day is fetched after the month
         was already consolidated (e.g. via Background Timer).
+
+    force_filenames (v1.7.1.7): set of filenames (e.g. "garmin_raw_2026-08-27.json")
+    that are allowed to REPLACE an already-consolidated entry of the same name
+    inside the ZIP — used exclusively by the deliberate per-day Force-Refetch
+    path. Scope is intentionally per-filename, never per-month: a month can be
+    mostly already-consolidated, good data with only one or two force-refetched
+    days mixed in, and only those exact filenames may touch the ZIP's existing
+    entries. zipfile has no in-place replace, so a replace rebuilds the ZIP
+    without the old entry, adds the new version, verifies integrity, then
+    atomically swaps it in. None (default) — no replace capability, fully
+    unchanged from prior behavior (skip filenames already in the ZIP).
 
     Deletes the directory after successful ZIP creation/update.
     """
@@ -100,13 +120,16 @@ def _consolidate_raw_months(current_month: str) -> None:
             if zip_path.exists():
                 # Bug 3 fix: ZIP exists but directory also has files — append
                 # only the files not yet in the ZIP, then delete the directory.
-                appended = 0
+                appended     = 0
+                to_replace   = []
                 with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as zf:
                     existing = set(zf.namelist())
                     for f in files:
                         if f.name not in existing:
                             zf.write(f, f.name)
                             appended += 1
+                        elif force_filenames and f.name in force_filenames:
+                            to_replace.append(f)
                 if appended:
                     log.info(
                         f"  backup: raw/{month_name}/ → {appended} file(s) "
@@ -119,6 +142,44 @@ def _consolidate_raw_months(current_month: str) -> None:
                             f"  backup: ZIP integrity check failed after append "
                             f"for {month_name} — directory kept as fallback"
                         )
+                        continue
+
+                # ── Force-Replace (v1.7.1.7) ──────────────────────────────────
+                # zipfile cannot replace an entry in place — rebuild without
+                # the old entry, add the new version, verify, then swap in.
+                # Only touches to_replace filenames; every other entry in the
+                # ZIP (including entries for the same month) is copied as-is.
+                if to_replace:
+                    tmp_zip = zip_path.with_suffix(".zip.tmp")
+                    try:
+                        with zipfile.ZipFile(zip_path, "r") as src_zf, \
+                             zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as dst_zf:
+                            replace_names = {f.name for f in to_replace}
+                            for item in src_zf.infolist():
+                                if item.filename in replace_names:
+                                    continue  # drop old entry — replaced below
+                                dst_zf.writestr(item, src_zf.read(item.filename))
+                            for f in to_replace:
+                                dst_zf.write(f, f.name)
+                        with zipfile.ZipFile(tmp_zip, "r") as check_zf:
+                            if check_zf.testzip() is not None:
+                                raise RuntimeError("ZIP integrity check failed after force-replace")
+                        import os
+                        os.replace(tmp_zip, zip_path)
+                        log.info(
+                            f"  backup: raw/{month_name}/ → {len(to_replace)} "
+                            f"file(s) force-replaced in {zip_path.name}"
+                        )
+                    except Exception as e:
+                        log.error(
+                            f"  backup: force-replace failed for {month_name}: {e} "
+                            f"— directory kept as fallback"
+                        )
+                        try:
+                            if tmp_zip.exists():
+                                tmp_zip.unlink()
+                        except Exception as _cleanup_e:
+                            log.debug(f"  backup: tmp zip cleanup failed for {month_name}: {_cleanup_e}")
                         continue
             else:
                 # No ZIP yet — create from scratch

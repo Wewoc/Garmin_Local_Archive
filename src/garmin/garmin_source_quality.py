@@ -103,7 +103,11 @@ def assess_source_from_file(source_path: Path) -> dict | None:
         return {"unreadable": True}
 
 
-def compare_source(existing_assessment: dict | None, new_assessment: dict) -> str:
+def compare_source(
+    existing_assessment: dict | None,
+    new_assessment: dict,
+    force: bool = False,
+) -> str:
     """
     Decides whether a new source response should overwrite the existing file.
 
@@ -113,17 +117,30 @@ def compare_source(existing_assessment: dict | None, new_assessment: dict) -> st
       - Existing present, new present → skip  (first good capture wins)
       - Existing present, new absent  → skip_warn  (degradation blocked)
 
+    force (v1.7.1.7): when True, always returns "write" — bypasses the
+    freeze-when-present guard entirely, regardless of existing/new
+    assessment. Used exclusively by the deliberate per-day Force-Refetch
+    path (Settings/Data Collection), never by the normal sync path. The
+    guard this bypasses exists to protect against accidental degradation
+    during ordinary syncs — a Force-Refetch is a conscious, user-initiated
+    exception to that default.
+
     Parameters
     ----------
     existing_assessment : dict | None
         Result of assess_source() on the existing file, or None if no file exists.
     new_assessment : dict
         Result of assess_source() on the incoming raw_data.
+    force : bool
+        If True, always returns "write" — see above.
 
     Returns
     -------
     str — "write" | "skip" | "skip_warn"
     """
+    if force:
+        return "write"
+
     if existing_assessment is None:
         # No existing file (absent) — always write
         return "write"
