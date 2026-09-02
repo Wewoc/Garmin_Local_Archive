@@ -10,9 +10,12 @@ Provides shared design tokens, metric metadata, disclaimer, and footer
 used by all plotters regardless of output format.
 
 Rules:
-- No logic, no file I/O, no imports beyond stdlib.
+- No logic, no file I/O beyond the theme import below, never a network or
+  disk access.
 - Called exclusively by plotters in layouts/ — never by specialists.
 """
+
+import theme
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Metric metadata — label, unit, and color tokens per field
@@ -49,11 +52,18 @@ METRIC_META = {
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Excel color tokens — stripped hex (no #) for openpyxl
+#  Header fill now follows the active app theme (theme.py) instead of a
+#  fixed navy, so Excel exports match the chosen theme. Header font stays
+#  fixed black — checked against all 5 built-in themes' accent colors,
+#  black clears the WCAG-AA text contrast threshold (4.5:1) on every one
+#  of them, theme.TEXT does not (it's tuned for text-on-dark-background,
+#  not text-on-accent-fill). Border stays fixed neutral grey — a themed
+#  border on a white sheet reads as visual noise regardless of theme.
 # ══════════════════════════════════════════════════════════════════════════════
 
-EXCEL_HEADER_COLOR  = "1F3864"   # dark navy — header fill
-EXCEL_HEADER_FONT   = "FFFFFF"   # white — header font
-EXCEL_BORDER_COLOR  = "D0D0D0"   # light grey — cell border
+EXCEL_HEADER_COLOR  = theme.ACCENT_EXCEL   # theme accent — header fill
+EXCEL_HEADER_FONT   = "000000"             # black — fixed, see note above
+EXCEL_BORDER_COLOR  = "D0D0D0"             # light grey — cell border (fixed)
 
 # Per-metric row fill colors (light tints, openpyxl format)
 EXCEL_ROW_COLORS = {

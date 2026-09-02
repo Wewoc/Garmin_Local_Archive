@@ -36,6 +36,7 @@ from PyQt6.QtGui import QFont
 import garmin_app_settings as _settings
 import garmin_dashboard_presets as _presets
 import frozen_paths
+import theme
 from .dialogs import PasswordConfirmDialog
 from .dialog_force_refetch import (
     ForceRefetchDialog, ForceRefetchProgressDialog, ForceRefetchReviewDialog,
@@ -229,6 +230,40 @@ class PanelOutputs(QWidget):
             out_row.addWidget(self._tip(tip))
             lay.addLayout(out_row)
 
+        # ── Design ───────────────────────────────────────────────────────────
+        lay.addWidget(self._section_widget("Design"))
+        design_row = QHBoxLayout()
+        design_row.setContentsMargins(20, 2, 20, 2)
+        design_row.setSpacing(4)
+
+        self._theme_combo = QComboBox()
+        self._theme_combo.setStyleSheet(
+            f"QComboBox {{ background: {self._app.BG3}; color: {self._app.TEXT}; "
+            f"border: none; padding: 4px; }}"
+            f"QComboBox QAbstractItemView {{ background: {self._app.BG3}; "
+            f"color: {self._app.TEXT}; "
+            f"selection-background-color: {self._app.ACCENT2}; }}"
+        )
+        for num, t in theme._THEMES.items():
+            self._theme_combo.addItem(t["name"], userData=num)
+        current_theme = self._app.settings.get("active_theme", 1)
+        idx = self._theme_combo.findData(current_theme)
+        self._theme_combo.setCurrentIndex(max(0, idx))
+
+        apply_btn = QPushButton("Apply")
+        apply_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        apply_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.ACCENT}; "
+            f"color: {self._app.TEXT}; border: none; padding: 6px 14px; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
+        apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        apply_btn.clicked.connect(self._on_theme_apply)
+
+        design_row.addWidget(self._theme_combo)
+        design_row.addWidget(apply_btn)
+        design_row.addWidget(self._tip("restart to apply"))
+        lay.addLayout(design_row)
+
         lay.addStretch()
 
     # ── Widget helpers ─────────────────────────────────────────────────────────
@@ -269,6 +304,18 @@ class PanelOutputs(QWidget):
         lbl.setStyleSheet(f"color: {self._app.TEXT2};")
         lbl.setFixedWidth(300)
         return lbl
+
+    def _on_theme_apply(self):
+        """Save the selected theme number to settings. Does not restart the
+        app — new colors take effect on next launch (see NEU comment in
+        theme.py: ACTIVE_THEME is read from settings at import time)."""
+        selected = self._theme_combo.currentData()
+        self._app.settings["active_theme"] = selected
+        self._app._panel_settings._safe_save(self._app.settings)
+        QMessageBox.information(
+            self._app, "Design",
+            "Theme saved — restart Garmin Local Archive to apply.",
+        )
 
     # ── Sync actions ───────────────────────────────────────────────────────────
 

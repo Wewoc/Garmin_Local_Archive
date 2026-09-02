@@ -46,6 +46,7 @@ DEFAULT_SETTINGS = {
     "backup_raw_backfill_asked": False,
     "mcp_enabled":                False,
     "mcp_llm_backend":            "ollama",
+    "active_theme":               1,
 }
 
 

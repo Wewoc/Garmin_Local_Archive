@@ -34,6 +34,7 @@ SHARED_SCRIPTS = [
     # app base
     "version.py",
     "garmin_app_base.py",
+    "theme.py",
     "crash_handler.py",
     "qwebengine_hardening.py",
     "frozen_paths.py",
@@ -216,6 +217,7 @@ SCRIPT_SIGNATURES_BASE = {
     "clients/mcp_server_gui.py": ["def run_gui"],
     "clients/mcp_sql.py": ["def init_db", "def get_connection"],
     "clients/mcp_update.py": ["def sync_all"],
+    "theme.py": ["ACTIVE_THEME", "_THEMES"],
 }
 # ── Docs ──────────────────────────────────────────────────────────────────────
 

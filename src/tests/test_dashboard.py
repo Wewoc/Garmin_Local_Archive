@@ -27,6 +27,15 @@ sys.path.insert(0, str(_ROOT / "garmin"))
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "layouts"))
 sys.path.insert(0, str(_ROOT / "dashboards"))
+# app/ needed since theme.py (imported transitively via dash_layout.py and
+# other layouts/ modules) reads active_theme via
+# `import garmin_app_settings as _settings` — added when the theme-GUI
+# switcher feature wired theme.py to the settings layer (previously a
+# fixed ACTIVE_THEME constant with no cross-package import). Without this
+# path entry, dash_layout's own import crashes the whole test file with
+# ModuleNotFoundError, aborting mid-Section-3 and leaving every later
+# section silently unexecuted.
+sys.path.insert(0, str(_ROOT / "app"))
 logging.disable(logging.CRITICAL)
 
 # ── Test runner ────────────────────────────────────────────────────────────────
@@ -1360,7 +1369,12 @@ check("live render: body battery value present", ">40<" in _live_html)
 check("live render: qualifier badge present",    "FAIR" in _live_html)
 check("live render: feedback label present",     "Long but not enough deep" in _live_html)
 check("live render: phase bar segments present", "Deep 20%" in _live_html)
-check("live render: dark background token",      "#12101f" in _live_html)
+# NOTE: was hardcoded to "#12101f" (THEME_2/Violet's bg value) — broke on
+# any default-theme change since live.py deliberately reads the *active*
+# theme dynamically (`_BG = theme.BG`, see module docstring: "Single
+# Source of Truth"). Checking against live_render.theme.BG mirrors what
+# live.py actually does instead of duplicating one fixed color literal.
+check("live render: dark background token",      live_render.theme.BG in _live_html)
 
 # archive fallback note
 _live_data_archive = dict(_LIVE_RENDER_DATA)

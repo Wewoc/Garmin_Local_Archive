@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.1.7
+# Garmin Local Archive — Desktop App v1.7.1.8
 
 Garmin Connect is still required — the app pulls data from there via API. This tool does not replace Connect, the Garmin app, or your device sync.
 
@@ -113,6 +113,7 @@ The app window is divided into two areas:
 - **Export date range** — used by all dashboards. Leave empty to use the oldest/newest file in your archive automatically
 - **Age / Sex** — used by the Health Analysis dashboard for reference ranges
 - **Mirror folder** — optional second location for your archive (NAS, USB, external drive). Leave empty to disable. Set once, then use the **Mirror** button to sync.
+- **Theme** *(v1.7.1.8)* — colour scheme for the app window and HTML dashboards, chosen from a dropdown. Five built-in themes (Monochrome + Rust Accent — default, Violet, Bordeaux, Amber & Copper, Olive & Sand). Click **Apply** next to the dropdown, then restart the app — themes are not applied live to an already-open window.
 - **Delay min / max (s)** — randomized pause between individual Garmin API requests (default: 5 / 20). Garmin Connect has no official public API — this tool uses the same endpoints the mobile app itself calls. A randomized delay within this range keeps request timing within normal usage patterns and helps avoid rate limiting (HTTP 429). Lower values increase the risk of a temporary IP ban — 5/20 is the recommended minimum.
 
 Click **Save Settings** — settings are remembered between sessions.

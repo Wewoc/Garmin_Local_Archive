@@ -41,6 +41,14 @@ def ensure_plotly_bundle(root: Path) -> None:
     missing or mismatched. Aborts the build on download failure or hash
     mismatch after download — never silently proceeds with an unverified file.
     """
+    # root + layouts/ alone are not enough: theme.py itself does
+    # `import garmin_app_settings as _settings` at import time (reads
+    # active_theme), and that module lives under app/, not root — same
+    # three-path pattern already fixed in tests/test_dashboard.py
+    # (v1.7.1.8). All three needed: layouts/ (dash_layout_html itself),
+    # root (theme.py), app/ (garmin_app_settings.py, theme.py's own import).
+    sys.path.insert(0, str(root / "app"))
+    sys.path.insert(0, str(root))
     sys.path.insert(0, str(root / "layouts"))
     import dash_layout_html as layout_html  # noqa: E402
 
