@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import dash_layout      as layout
 import dash_layout_html as layout_html
+import theme
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -44,25 +45,33 @@ import dash_layout_html as layout_html
 #  Mobile CSS
 # ══════════════════════════════════════════════════════════════════════════════
 
-_MOBILE_CSS = """
+# Same pattern as dash_layout_html.py: header background + accent are the
+# only theme-linked tokens, rest stays fixed light-mode (printable report).
+_MOBILE_CSS_TEMPLATE = """
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #f5f5f5; color: #333; }
-  header { background: #231f38; color: #fff; padding: 12px 16px; }
+  header { background: __THEME_BG3__; color: #fff; padding: 12px 16px; }
   header h1 { font-size: 17px; font-weight: 600; }
   header p  { font-size: 11px; opacity: 0.75; margin-top: 3px; }
   .disclaimer { font-size: 10px; color: #888; padding: 6px 16px 4px; background: #fff; }
   .range-bar { background: #fff; padding: 8px 16px 10px;
                border-bottom: 1px solid #ddd; display: flex;
                align-items: center; gap: 8px; }
-  .range-bar label { font-size: 12px; font-weight: 600; color: #6e3fcf; white-space: nowrap; }
+  .range-bar label { font-size: 12px; font-weight: 600; color: __THEME_ACCENT__; white-space: nowrap; }
   .range-bar select { font-size: 12px; padding: 4px 8px; border-radius: 4px;
                       border: 1px solid #ccc; flex: 1; max-width: 260px; }
   .metric-section { background: #fff; margin: 8px 0 0; padding: 10px 16px 16px; }
-  .metric-title { font-size: 13px; font-weight: 600; color: #6e3fcf;
-                  padding-bottom: 6px; border-bottom: 2px solid #6e3fcf;
+  .metric-title { font-size: 13px; font-weight: 600; color: __THEME_ACCENT__;
+                  padding-bottom: 6px; border-bottom: 2px solid __THEME_ACCENT__;
                   margin-bottom: 8px; }
   footer { text-align: center; padding: 12px; font-size: 10px; color: #999; }
 """
+
+_MOBILE_CSS = (
+    _MOBILE_CSS_TEMPLATE
+    .replace("__THEME_BG3__",    theme.BG3)
+    .replace("__THEME_ACCENT__", theme.ACCENT)
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

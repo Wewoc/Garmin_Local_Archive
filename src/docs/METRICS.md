@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-09-01 14:26 UTC · Version: 1.7.1.7
+Generated: 2026-09-02 14:09 UTC · Version: 1.7.1.8
 
 ## Test Counts
 
@@ -14,12 +14,12 @@ Generated: 2026-09-01 14:26 UTC · Version: 1.7.1.7
 | test_dashboard.py | 465 | 465 | 0 |
 | test_broker.py | 136 | 136 | 0 |
 | test_mcp.py | 117 | 117 | 0 |
-| test_app_logic.py | 165 | 165 | 0 |
-| test_qt_app.py | 79 | 79 | 0 |
+| test_app_logic.py | 169 | 169 | 0 |
+| test_qt_app.py | 80 | 80 | 0 |
 | test_static.py | 16 | 16 | 0 |
-| **Total** | **2023** | **2023** | **0** |
+| **Total** | **2028** | **2028** | **0** |
 
 ## Modules
 
-Total: 111 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 112 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 

@@ -14,15 +14,21 @@ Rules:
 """
 
 import html as html_escape
+import theme
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CSS
 # ══════════════════════════════════════════════════════════════════════════════
 
-CSS = """
+# Header background + tab-active accent are the only two theme-linked
+# tokens in this otherwise deliberately neutral light report CSS (see
+# module docstring — "Passive resource"). Everything else (page background,
+# borders, body text) stays fixed light-mode regardless of the app theme,
+# since these reports are meant to be readable/printable standalone.
+_CSS_TEMPLATE = """
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #f5f5f5; color: #333; }
-  header { background: #231f38; color: #fff; padding: 16px 24px; }
+  header { background: __THEME_BG3__; color: #fff; padding: 16px 24px; }
   header h1 { font-size: 20px; font-weight: 600; }
   header p  { font-size: 13px; opacity: 0.75; margin-top: 4px; }
   header .time-basis { font-size: 11px; opacity: 0.55; margin-top: 2px; }
@@ -36,10 +42,16 @@ CSS = """
     transition: background 0.15s;
   }
   .tab-btn:hover  { background: #ddd; }
-  .tab-btn.active { background: #fff; border-bottom: 3px solid #6e3fcf; font-weight: 600; }
+  .tab-btn.active { background: #fff; border-bottom: 3px solid __THEME_ACCENT__; font-weight: 600; }
   .chart-container { background: #fff; margin: 0; padding: 16px 24px 24px; }
   footer { text-align: center; padding: 16px; font-size: 11px; color: #999; }
 """
+
+CSS = (
+    _CSS_TEMPLATE
+    .replace("__THEME_BG3__",    theme.BG3)
+    .replace("__THEME_ACCENT__", theme.ACCENT)
+)
 
 PLOTLY_CDN     = "https://cdn.plot.ly/plotly-2.27.0.min.js"
 PLOTLY_VERSION = "2.27.0"

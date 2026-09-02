@@ -42,6 +42,7 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 import garmin_app_settings as _settings
 import garmin_app_controller as _controller
 import garmin_redact as _redact
+import theme
 
 from app.panel_settings   import PanelSettings
 from app.panel_mcp        import PanelMcp
@@ -86,15 +87,19 @@ class GarminApp(QMainWindow):
     """
 
     # ── Colors (class attributes — available to all panels via self._app.*) ────
-    BG      = "#12101f"
-    BG2     = "#1a1729"
-    BG3     = "#231f38"
-    ACCENT  = "#a259f7"
-    ACCENT2 = "#6e3fcf"
-    TEXT    = "#eaeaea"
-    TEXT2   = "#a0a0b0"
-    GREEN   = "#4ecca3"
-    YELLOW  = "#f5a623"
+    # Werte kommen aus theme.py (Single Source of Truth) — hier nur Aliase,
+    # damit bestehende self._app.BG / self._app.ACCENT usw. im ganzen
+    # Projekt unveraendert funktionieren.
+    BG      = theme.BG
+    BG2     = theme.BG2
+    BG3     = theme.BG3
+    ACCENT  = theme.ACCENT
+    ACCENT2 = theme.ACCENT2
+    TEXT    = theme.TEXT
+    TEXT2   = theme.TEXT2
+    GREEN   = theme.GREEN
+    YELLOW  = theme.YELLOW
+    RED     = theme.RED
 
     # ── Thread-safe dispatch signal (D-2) ──────────────────────────────────────
     # Defined at class level — emitting from any thread queues execution
@@ -431,7 +436,7 @@ class GarminApp(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setFont(QFont("Consolas", 8))
         self.log.setStyleSheet(
-            f"QPlainTextEdit {{ background: #0a0a1a; color: {self.GREEN}; "
+            f"QPlainTextEdit {{ background: {theme.BG0}; color: {self.GREEN}; "
             f"border: none; padding: 4px; }}")
         self.log.setFixedHeight(90)
         log_lay.addWidget(self.log)
@@ -468,10 +473,14 @@ class GarminApp(QMainWindow):
     def _collect_settings(self) -> dict:
         """Central settings reader — delegates to PanelSettings.
         Timer fields are merged from PanelTimer, MCP fields from PanelMcp.
+        active_theme is not bound to any Settings-panel widget, so it is
+        carried over from self.settings directly (set by PanelOutputs'
+        Design section on Apply — see _on_theme_apply()).
         Called by Controller and panels."""
         s = self._panel_settings._collect_settings()
         s.update(self._panel_timer.get_timer_settings())
         s.update(self._panel_mcp.get_mcp_settings())
+        s["active_theme"] = self.settings.get("active_theme", 1)
         return s
 
     def _safe_save(self, s: dict = None):

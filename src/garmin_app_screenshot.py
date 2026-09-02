@@ -32,12 +32,16 @@ from PyQt6.QtWidgets import QApplication, QPushButton
 from PyQt6.QtCore import Qt, QUrl
 
 from garmin_app import GarminApp
+import theme
 
 
 # ── Demo dashboard HTML (embedded — no file dependency) ───────────────────────
 # dashboard_desktop.html inlined — Chart.js loaded from cdnjs (requires internet)
 
-DEMO_HTML = """
+# Header background/text and the two theme-linked tokens below are the
+# only theme-linked parts of this otherwise fixed light-mode demo report
+# (same pattern as dash_layout_html.py/_MOBILE_CSS — see theme01-03).
+_DEMO_HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -48,16 +52,16 @@ DEMO_HTML = """
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-width:1200px}
 .app{width:1200px;margin:0 auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12)}
-.header{background:#231f38;color:#e8edf5;padding:16px 28px}
+.header{background:__THEME_BG3__;color:#e8edf5;padding:16px 28px}
 .header h1{font-size:18px;font-weight:500;letter-spacing:.01em;margin-bottom:3px}
 .header p{font-size:12px;color:#8a9ab8;letter-spacing:.02em}
 .notice{background:#fffbea;border-bottom:1px solid #f0d878;padding:10px 28px;font-size:12px;color:#7a6010;display:flex;align-items:center;gap:8px}
 .meta{padding:11px 28px;font-size:13px;color:#555;display:flex;gap:24px;border-bottom:1px solid #e8eaed;background:#fafbfc}
-.meta strong{color:#231f38}
+.meta strong{color:__THEME_BG3__}
 .legend-row{padding:8px 28px;display:flex;gap:24px;align-items:center;border-bottom:1px solid #e8eaed;background:#fafbfc}
 .leg{display:flex;align-items:center;gap:7px;font-size:12px;color:#666}
-.l-solid{width:30px;height:2px;background:#6e3fcf}
-.l-dash{width:30px;height:0;border-top:2px dashed #6e3fcf;opacity:.6}
+.l-solid{width:30px;height:2px;background:__THEME_ACCENT__}
+.l-dash{width:30px;height:0;border-top:2px dashed __THEME_ACCENT__;opacity:.6}
 .l-rect{width:18px;height:12px;background:#cde8c8;border:1px solid #a6cfa0;border-radius:2px}
 .tabs{display:flex;padding:0 28px;border-bottom:1px solid #dde0e6;background:#fff}
 .tab{padding:11px 18px;font-size:13px;cursor:pointer;border:none;border-bottom:2px solid transparent;background:none;color:#666;font-family:inherit}
@@ -67,7 +71,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-width:12
 .y-label{font-size:11px;color:#888;margin-bottom:6px}
 .chart-wrap{position:relative;width:100%;height:340px}
 .footer{text-align:center;font-size:11px;color:#999;padding:12px 28px;border-top:1px solid #e8eaed;background:#fafbfc}
-.footer a{color:#6e3fcf;text-decoration:none}
+.footer a{color:__THEME_ACCENT__;text-decoration:none}
 </style>
 </head>
 <body>
@@ -126,7 +130,7 @@ function moving(arr,w){
 const labels=[];
 for(let i=0;i<N;i++){const d=new Date(2024,5,1);d.setDate(d.getDate()+i);labels.push(d.toISOString().slice(0,10));}
 const DS={
-  hrv:{raw:gen(56,8,6,-8),ref:[45,85],yLabel:'HRV (ms)',yMin:25,yMax:110,color:'#6e3fcf'},
+  hrv:{raw:gen(56,8,6,-8),ref:[45,85],yLabel:'HRV (ms)',yMin:25,yMax:110,color:'__THEME_ACCENT__'},
   rhr:{raw:gen(52,4,3,4),ref:[45,65],yLabel:'HR (bpm)',yMin:35,yMax:80,color:'#b84a2e'},
   sleep:{raw:gen(6.8,0.8,.5,-.3),ref:[7,9],yLabel:'Sleep (h)',yMin:3,yMax:10,color:'#5a3db8'},
   bb:{raw:gen(72,15,8,-10),ref:[60,100],yLabel:'Body Battery',yMin:0,yMax:100,color:'#2e8b57'},
@@ -173,15 +177,21 @@ buildChart(0);
 
 """
 
+DEMO_HTML = (
+    _DEMO_HTML_TEMPLATE
+    .replace("__THEME_BG3__",    theme.BG3)
+    .replace("__THEME_ACCENT__", theme.ACCENT)
+)
+
 # ── Demo XLSX table (embedded — no file dependency) ───────────────────────────
 
-DEMO_XLSX_HTML = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
+_DEMO_XLSX_HTML_TEMPLATE = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
 <style>
-body{background:#12101f;margin:0;padding:12px;font-family:'Segoe UI',sans-serif;}
+body{background:__THEME_BG__;margin:0;padding:12px;font-family:'Segoe UI',sans-serif;}
 table{border-collapse:collapse;width:100%;}
-th{background:#231f38;color:#a259f7;padding:6px 12px;text-align:left;font-size:11px;font-weight:600;border-bottom:1px solid #a259f7;}
-td{padding:5px 12px;font-size:11px;color:#eaeaea;border-bottom:1px solid #231f38;}
-tr:nth-child(even) td{background:#1a1729;}
+th{background:__THEME_BG3__;color:__THEME_ACCENT__;padding:6px 12px;text-align:left;font-size:11px;font-weight:600;border-bottom:1px solid __THEME_ACCENT__;}
+td{padding:5px 12px;font-size:11px;color:__THEME_TEXT__;border-bottom:1px solid __THEME_BG3__;}
+tr:nth-child(even) td{background:__THEME_BG2__;}
 </style></head><body>
 <table>
 <thead><tr>
@@ -201,6 +211,15 @@ tr:nth-child(even) td{background:#1a1729;}
 </tbody>
 </table>
 </body></html>"""
+
+DEMO_XLSX_HTML = (
+    _DEMO_XLSX_HTML_TEMPLATE
+    .replace("__THEME_BG__",     theme.BG)
+    .replace("__THEME_BG2__",    theme.BG2)
+    .replace("__THEME_BG3__",    theme.BG3)
+    .replace("__THEME_ACCENT__", theme.ACCENT)
+    .replace("__THEME_TEXT__",   theme.TEXT)
+)
 
 # ── Dummy data ─────────────────────────────────────────────────────────────────
 

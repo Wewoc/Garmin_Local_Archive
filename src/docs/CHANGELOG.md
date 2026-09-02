@@ -1,5 +1,84 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.8 — GUI-Theme Switch
+
+Closes the theme-GUI-switcher feature cycle started in the previous
+session (dropdown + apply in `panel_settings.py`, `active_theme`
+persisted via settings) — test coverage, a build-manifest gap, and a
+Timo-requested default-theme swap surfaced two further latent test
+defects along the way.
+
+**Changed modules:**
+- `tests/test_app_logic.py` — Section 1 gains `active_theme default = 1`
+  check. New Section 22: `theme.py` fallback behavior — missing
+  `active_theme` key and an invalid/unknown number (99) both verified to
+  resolve to Theme 1 colors, via `importlib.reload(theme)` after patching
+  `garmin_app_settings.load_settings` (module attribute patch, since
+  `theme.py` reads it at import time).
+- `tests/test_qt_app.py` — new regression test
+  `test_collect_settings_preserves_active_theme` in `TestGarminAppBase`,
+  guarding the `_collect_settings()` bug fixed in the previous session
+  (the key was silently dropped on app close, being bound to no
+  Settings-panel widget). Uses `active_theme=3` rather than the default 1
+  so the assertion proves pass-through, not coincidence. Patches
+  `garmin_app_base.load_settings` — not `garmin_app_settings.load_settings`
+  — since `garmin_app_base.py` re-exports the name at import time
+  (`load_settings = _settings.load_settings`); patching the origin
+  module doesn't reach a name already bound elsewhere.
+- `tests/test_dashboard.py` — two fixes surfaced by this session's
+  changes, neither caused by them:
+  1. `sys.path` gained an `app/` entry. `theme.py`'s
+     `import garmin_app_settings as _settings` (added when the
+     theme-GUI switcher wired theme.py to the settings layer) crashed
+     the whole file with `ModuleNotFoundError` as soon as
+     `dash_layout.py` pulled `theme.py` in transitively — Section 3
+     onward never ran, silently, until this was the first full
+     `test_all` pass since that feature landed.
+  2. Section 15b's `live render: dark background token` check was
+     hardcoded to `"#12101f"` (THEME_2/Violet's `bg` value) — broke as
+     soon as the default theme changed, since `layouts/render/live.py`
+     deliberately reads the *active* theme dynamically (`_BG =
+     theme.BG`, its own docstring: "Single Source of Truth"). Changed
+     to check against `live_render.theme.BG` instead of a duplicated
+     fixed literal, so it tracks whichever theme is actually active
+     going forward.
+- `compiler/build_manifest.py` — `theme.py` was already present in
+  `SHARED_SCRIPTS` but missing its trailing comma, silently merging
+  with the following string literal into
+  `"theme.pycrash_handler.py"` via Python's implicit string
+  concatenation — `theme.py` never actually appeared as its own list
+  entry. Comma added; new `SCRIPT_SIGNATURES_BASE` entry
+  `"theme.py": ["ACTIVE_THEME", "_THEMES"]` added per
+  `FINAL_DOKU_PROMPT_v4.md` Schritt 4 (constants used as the signature
+  fallback, since the module has no `def`/`class`).
+- `theme.py` — `THEME_1` and `THEME_4` color values swapped (Timo
+  preference): Theme 1 (the fallback default) is now Monochrome + Rust
+  Accent; Amber & Copper moves to Theme 4. `"(default)"` name marker
+  moved accordingly. No structural change — `_THEMES` dict,
+  `ACTIVE_THEME` resolution logic, and all fallback docstrings/comments
+  referencing "Theme 1" remain valid unchanged, since the fallback
+  target (the number 1) didn't move, only its color values.
+
+**Precondition Teil A (Architecture check):** no findings — none of
+this session's changed files (`theme.py`, `compiler/build_manifest.py`,
+three test files) touch `garmin/`, `context/`, `maps/`, `dashboards/`,
+or `layouts/`; none of the five invariants apply.
+
+**Precondition Teil B (Drift-Check):** PFLICHT skipped correctly — no
+code in the five watched packages changed this session.
+`dep_map_delta.md` (`build_dep_map.py`, 2026-09-01_Run-01 →
+2026-09-02_Run-01) showed 3 NEU fileio (`garmin_app_screenshot.py`,
+`layouts/dash_layout_html.py`, `layouts/dash_plotter_html_mobile.py`)
+— all three traced to the prior `theme01` session's header-chrome
+theming work (`anchor_delivery_theme01-01/-03/-04`), confirmed via the
+delivered anchor files, not new to this session. 0 GEKIPPT-Regression.
+
+**Test result:** 780 / 265 / 465 / 136 / 117 / 169 / 80 / 16 — all
+green (test_local / test_local_context / test_dashboard / test_broker
+/ test_mcp / test_app_logic / test_qt_app / test_static).
+
+---
+
 ## v1.7.1.7 — Force-Refetch mechanism for individual days
 
 Triggered by a Bluetooth dropout leaving several days with empty
