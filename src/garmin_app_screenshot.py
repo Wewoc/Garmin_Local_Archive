@@ -15,10 +15,21 @@ Overrides only:
 Usage PowerShell:
     python .\\garmin_app_screenshot.py
 
-No credentials, no file I/O, no subprocesses.
+Optional automated mode (used by external multi-theme screenshot
+tooling — lives outside this repo):
+    python .\\garmin_app_screenshot.py --auto-shot <output_dir>
+
+    Iterates every tab of the running window, saves one JPEG per tab
+    into <output_dir> (created if missing), then exits automatically.
+    Without --auto-shot, behavior is 100% unchanged (window stays open,
+    manual close).
+
+No credentials, no file I/O (except the JPEGs written under
+--auto-shot), no subprocesses.
 Safe to run on any machine.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -29,7 +40,7 @@ for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
 sys.path.insert(0, str(_root / "app"))
 
 from PyQt6.QtWidgets import QApplication, QPushButton
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, QTimer
 
 from garmin_app import GarminApp
 import theme
@@ -279,17 +290,54 @@ class ScreenshotApp(GarminApp):
     directly from GarminApp and stays in sync automatically.
     """
 
-    def __init__(self):
+    def __init__(self, auto_shot_dir: str = None):
         from PyQt6.QtCore import QTimer
         super().__init__()
+        self._auto_shot_dir = auto_shot_dir
+        self._auto_shot_index = 0
         self._load_demo_settings()
         self._set_connection_indicators_green()
         self._write_demo_log()
         self._load_demo_chat()
         self._disable_all_buttons()
         self.setWindowTitle("Garmin Local Archive  [SCREENSHOT MODE]")
+        if self._auto_shot_dir:
+            # Fixed, generous window size for auto-shot mode — the default
+            # window size can be too small to show tab content (e.g. the
+            # HRV/Resting HR/... chart in the Dashboard tab) without
+            # scrolling, and self.grab() only captures what's visible.
+            self.resize(1500, 1150)
         # Delay so table widget is fully laid out before we insert rows
         QTimer.singleShot(100, self._refresh_archive_info)
+        if self._auto_shot_dir:
+            # Extra delay on top of the table refresh above, so dashboard/
+            # xlsx HTML views also have time to finish rendering before the
+            # first tab screenshot is taken.
+            QTimer.singleShot(500, self._auto_shot_next_tab)
+
+    # ── Auto-shot mode (used by external multi-theme screenshot tooling) ───────
+
+    def _auto_shot_next_tab(self):
+        """Advance to the next tab, wait for it to settle, capture a JPEG,
+        then either schedule the next tab or quit once all tabs are done.
+        Guessed settle delay (400ms) — first thing to tune if a captured
+        tab looks empty or half-rendered."""
+        tabs = self._right_tabs
+        if self._auto_shot_index >= tabs.count():
+            QApplication.instance().quit()
+            return
+        tabs.setCurrentIndex(self._auto_shot_index)
+        QTimer.singleShot(400, self._auto_shot_capture_current_tab)
+
+    def _auto_shot_capture_current_tab(self):
+        out_dir = Path(self._auto_shot_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tab_title = self._right_tabs.tabText(self._auto_shot_index)
+        slug = tab_title.lower().replace(" ", "_").replace("-", "_")
+        target = out_dir / f"{slug}.jpg"
+        self.grab().save(str(target), "JPG", quality=90)
+        self._auto_shot_index += 1
+        self._auto_shot_next_tab()
 
     # ── Demo settings ──────────────────────────────────────────────────────────
 
@@ -477,8 +525,20 @@ class ScreenshotApp(GarminApp):
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument(
+        "--auto-shot",
+        metavar="OUTPUT_DIR",
+        default=None,
+        help=(
+            "Automated mode: capture one JPEG per tab into OUTPUT_DIR, "
+            "then exit. Without this flag, behavior is unchanged."
+        ),
+    )
+    args = parser.parse_args()
+
     qapp = QApplication(sys.argv)
     qapp.setStyle("Fusion")
-    window = ScreenshotApp()
+    window = ScreenshotApp(auto_shot_dir=args.auto_shot)
     window.show()
     sys.exit(qapp.exec())

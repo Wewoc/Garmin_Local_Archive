@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garmin Local Archive — a local archive for your Garmin Connect data</title>
+<meta name="description" content="Garmin Local Archive is a free, open-source Windows app that archives your Garmin Connect health data locally — before Garmin's own history quietly loses detail. No cloud, no extra account for GLA, no subscription.">
+
+<!-- Social preview (OpenGraph) — image lives at src/screenshots/social_banner.jpg in the repo -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Garmin Local Archive — a local archive for your Garmin Connect data">
+<meta property="og:description" content="A free, open-source Windows app that archives your Garmin Connect health data locally — before Garmin's own history quietly loses detail. No cloud, no extra account, no subscription.">
+<meta property="og:url" content="https://wewoc.github.io/Garmin_Local_Archive/">
+<meta property="og:image" content="https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/social_banner.jpg">
+
+<!-- Twitter/X card — mirrors OpenGraph, required separately for X previews -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Garmin Local Archive — a local archive for your Garmin Connect data">
+<meta name="twitter:description" content="A free, open-source Windows app that archives your Garmin Connect health data locally — before Garmin's own history quietly loses detail.">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/social_banner.jpg">
+
+<style>
+  :root {
+    --bg0: #0a0b0c;
+    --bg: #111214;
+    --bg2: #191b1e;
+    --bg3: #232629;
+    --accent: #c76a3f;
+    --accent2: #9c5330;
+    --text: #e8e9eb;
+    --text2: #9a9ea3;
+    --green: #4ecca3;
+    --yellow: #f5c542;
+    --red: #e94560;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Inter", Roboto, sans-serif;
+    line-height: 1.6;
+    font-size: 17px;
+  }
+
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  .wrap-wide {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  a { color: var(--accent); }
+
+  /* ── Top bar ─────────────────────────────────────────── */
+  .topbar {
+    border-bottom: 1px solid var(--bg3);
+    background: var(--bg0);
+  }
+  .topbar .wrap-wide {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+  }
+  .topbar-brand {
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    font-size: 15px;
+  }
+  .topbar-links {
+    display: flex;
+    gap: 24px;
+    font-size: 14px;
+  }
+  .topbar-links a { color: var(--text2); text-decoration: none; }
+  .topbar-links a:hover { color: var(--text); }
+
+  /* ── Hero ────────────────────────────────────────────── */
+  .hero {
+    position: relative;
+    padding: 96px 0 72px;
+    border-bottom: 1px solid var(--bg3);
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 290px;
+    background-image: url('https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/hero_header.jpg');
+    background-size: cover;
+    background-position: top center;
+    opacity: 0.16;
+    mask-image: linear-gradient(to bottom, black 0%, black 40%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 40%, transparent 100%);
+    pointer-events: none;
+  }
+  .hero > .wrap {
+    position: relative;
+    z-index: 1;
+  }
+  .hero-kicker {
+    color: var(--text2);
+    font-size: 15px;
+    margin-bottom: 18px;
+  }
+  .hero h1 {
+    font-size: 44px;
+    line-height: 1.18;
+    font-weight: 650;
+    margin: 0 0 24px;
+    letter-spacing: -0.5px;
+    max-width: 620px;
+  }
+  .hero-sub {
+    color: var(--text2);
+    font-size: 18px;
+    max-width: 520px;
+    margin: 0 0 36px;
+  }
+  .hero-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-block;
+    padding: 12px 22px;
+    border-radius: 4px;
+    font-size: 15px;
+    font-weight: 550;
+    text-decoration: none;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #16110d;
+  }
+  .btn-primary:hover { background: #d47a4d; }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--bg3);
+  }
+  .btn-secondary:hover { border-color: var(--text2); }
+
+  /* ── Section base ────────────────────────────────────── */
+  section { padding: 88px 0; }
+  section + section { border-top: 1px solid var(--bg3); }
+
+  .section-label {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+
+  h2 {
+    font-size: 28px;
+    font-weight: 620;
+    margin: 0 0 20px;
+    letter-spacing: -0.2px;
+    max-width: 560px;
+  }
+
+  p { color: var(--text); max-width: 640px; }
+  .muted { color: var(--text2); }
+
+  /* ── Flow diagram (chapter 1: idea chain) ───────────────*/
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-width: 480px;
+    margin: 36px 0;
+  }
+  .flow-step {
+    padding: 14px 18px;
+    background: var(--bg2);
+    border: 1px solid var(--bg3);
+    border-radius: 4px;
+    font-size: 15px;
+  }
+  .flow-arrow {
+    text-align: left;
+    color: var(--text2);
+    padding: 6px 0 6px 18px;
+    font-size: 14px;
+  }
+
+  /* ── Data comparison (chapter 3) ─────────────────────────*/
+  .compare {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin: 44px 0 12px;
+    max-width: 560px;
+  }
+  .compare-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .compare-label {
+    width: 90px;
+    flex-shrink: 0;
+    font-size: 14px;
+    color: var(--text2);
+  }
+  .compare-track {
+    flex: 1;
+    height: 32px;
+    background: var(--bg2);
+    border: 1px solid var(--bg3);
+    border-radius: 4px;
+    position: relative;
+  }
+  .compare-fill {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    border-radius: 3px;
+  }
+  .compare-fill.high {
+    width: 92%;
+    background: var(--accent);
+  }
+  .compare-fill.standard-max {
+    width: 78%;
+    background: linear-gradient(90deg, var(--bg3) 0%, var(--accent2) 100%);
+    opacity: 0.55;
+  }
+  .compare-value {
+    font-size: 13px;
+    color: var(--text);
+    white-space: nowrap;
+    min-width: 150px;
+  }
+
+  /* ── Turning point (the one loud moment) ────────────────*/
+  .turning {
+    background: var(--bg0);
+    border-top: 1px solid var(--bg3);
+    border-bottom: 1px solid var(--bg3);
+    padding: 120px 0;
+  }
+  .turning blockquote {
+    margin: 0;
+    font-size: 34px;
+    line-height: 1.4;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    max-width: 680px;
+  }
+  .turning blockquote .accent-line {
+    color: var(--accent);
+  }
+
+  /* ── Architecture: before / after ────────────────────────*/
+  .arch-compare {
+    display: flex;
+    gap: 48px;
+    margin: 32px 0;
+    flex-wrap: wrap;
+  }
+  .arch-col { flex: 1; min-width: 220px; }
+  .arch-col-label {
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 12px;
+  }
+  .arch-chain {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 15px;
+  }
+  .arch-node {
+    background: var(--bg2);
+    border: 1px solid var(--bg3);
+    padding: 8px 12px;
+    border-radius: 4px;
+  }
+  .arch-node.emph { border-color: var(--accent); color: var(--accent); }
+  .arch-sep { color: var(--text2); }
+
+  .arch-tree {
+    margin-top: 36px;
+    font-size: 15px;
+  }
+  .arch-tree-root {
+    display: inline-block;
+    background: var(--accent);
+    color: #16110d;
+    padding: 10px 18px;
+    border-radius: 4px;
+    font-weight: 600;
+    margin-bottom: 18px;
+  }
+  .arch-tree-branches {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .arch-tree-branch {
+    background: var(--bg2);
+    border: 1px solid var(--bg3);
+    border-radius: 4px;
+    padding: 12px 16px;
+    min-width: 140px;
+  }
+  .arch-tree-branch .b-title { font-weight: 600; margin-bottom: 6px; }
+  .arch-tree-branch .b-sub { color: var(--text2); font-size: 13px; }
+
+  /* ── Function grid (Preserve/Recover/Validate/...) ──────*/
+  .fn-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--bg3);
+    border: 1px solid var(--bg3);
+    margin-top: 12px;
+    max-width: 760px;
+  }
+  .fn-card {
+    background: var(--bg);
+    padding: 28px 24px;
+  }
+  .fn-card h3 {
+    font-size: 16px;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+  .fn-card p {
+    font-size: 14px;
+    color: var(--text2);
+    margin: 0;
+  }
+
+  /* ── Screenshot showcase ─────────────────────────────────*/
+  .shot-main {
+    background: var(--bg2);
+    border: 1px solid var(--bg3);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 32px 0 16px;
+    max-width: 900px;
+  }
+  .shot-main img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .shot-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    max-width: 900px;
+  }
+  .shot-small {
+    background: var(--bg2);
+    border: 1px solid var(--bg3);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .shot-small img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .shot-caption {
+    font-size: 13px;
+    color: var(--text2);
+    text-align: center;
+    padding: 8px 6px;
+  }
+
+  /* ── Local-by-design list ───────────────────────────────*/
+  .local-list {
+    list-style: none;
+    padding: 0;
+    margin: 28px 0 0;
+    max-width: 460px;
+  }
+  .local-list li {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--bg3);
+    color: var(--text2);
+    font-size: 15px;
+  }
+  .local-list li:first-child { border-top: 1px solid var(--bg3); }
+  .local-list li span { color: var(--text); }
+
+  /* ── Download ─────────────────────────────────────────── */
+  .download-box {
+    background: var(--bg2);
+    border: 1px solid var(--bg3);
+    border-radius: 6px;
+    padding: 48px;
+    text-align: left;
+    max-width: 640px;
+  }
+  .download-box h2 { margin-bottom: 12px; }
+  .download-box p { margin-bottom: 28px; }
+
+  /* ── Footer / technical details ─────────────────────────*/
+  footer {
+    padding: 56px 0 80px;
+  }
+  .footer-links {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    font-size: 14px;
+    color: var(--text2);
+  }
+  .footer-note {
+    margin-top: 36px;
+    color: var(--text2);
+    font-size: 13px;
+  }
+
+  @media (max-width: 720px) {
+    .hero h1 { font-size: 32px; }
+    .turning blockquote { font-size: 24px; }
+    .fn-grid { grid-template-columns: 1fr; }
+    .arch-compare { flex-direction: column; gap: 24px; }
+    .shot-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="wrap-wide">
+      <div class="topbar-brand">GARMIN LOCAL ARCHIVE</div>
+      <div class="topbar-links">
+        <a href="#story">Story</a>
+        <a href="#today">What it does</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/Wewoc/Garmin_Local_Archive">GitHub</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ HERO ═══ -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-kicker muted">local · private · yours</div>
+      <h1>A local archive for your Garmin Connect data.</h1>
+      <p class="hero-sub">It didn't start as an archive. It started as a way to ask a local AI about my Garmin data — until I found out the data itself was disappearing.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://github.com/Wewoc/Garmin_Local_Archive/releases">Download for Windows</a>
+        <a class="btn btn-secondary" href="https://github.com/Wewoc/Garmin_Local_Archive">View on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CHAPTER 1 — It started with AI ═══ -->
+  <section id="story">
+    <div class="wrap">
+      <div class="section-label">Chapter 1</div>
+      <h2>A simple question, and what follows.</h2>
+      <p>I'd read about Garmin Chat Connector, a cloud-based service that let you ask an AI about your Garmin data — a genuinely good idea, and the spark for everything that followed.</p>
+      <p class="muted"><em>"I didn't want to hand this data to an AI company. I wanted to prepare and analyze it locally."</em></p>
+      <p class="muted">Could that actually work?</p>
+      <div class="flow">
+        <div class="flow-step">Ask a local AI about my Garmin data</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">Ollama needs to run locally</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">Data has to be available locally</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">Download the Garmin data</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CHAPTER 2 — The first archive ═══ -->
+  <section>
+    <div class="wrap">
+      <div class="section-label">Chapter 2</div>
+      <h2>Simple, but working.</h2>
+      <p>Three hours later there was a handful of small scripts, a dashboard, and an Excel export. It worked — faster and more easily than I'd expected.</p>
+      <p class="muted">At this point it was just a data collector. Fuel for the AI analysis that was supposed to come next.</p>
+    </div>
+  </section>
+
+  <!-- ═══ CHAPTER 3 — Something was wrong ═══ -->
+  <section>
+    <div class="wrap">
+      <div class="section-label">Chapter 3</div>
+      <h2>Something didn't add up.</h2>
+      <p>Comparing files from different devices and years showed a pattern the collector script had nothing to do with. My current device consistently delivered full detail. My older devices varied wildly — sometimes close to that, sometimes barely a fraction of it.</p>
+
+      <div class="compare">
+        <div class="compare-row">
+          <div class="compare-label">high</div>
+          <div class="compare-track">
+            <div class="compare-fill high"></div>
+          </div>
+          <div class="compare-value">~550 KB · my current device</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-label">standard</div>
+          <div class="compare-track">
+            <div class="compare-fill standard-max"></div>
+          </div>
+          <div class="compare-value">&lt;1 KB – ~480 KB · varies across my older devices</div>
+        </div>
+      </div>
+      <p class="muted">Not a bug. My older devices simply carried fewer sensors — and never sent minute-by-minute detail to begin with.</p>
+
+      <p>Then came the harder discovery: it wasn't only about old devices. Even my current watch loses its full resolution — Garmin quietly reduces intraday detail after several months.</p>
+    </div>
+  </section>
+
+  <!-- ═══ THE TURNING POINT — the one loud moment ═══ -->
+  <section class="turning">
+    <div class="wrap">
+      <blockquote>
+        The <span class="accent-line">path</span> sharpened the <span class="accent-line">idea</span>.
+      </blockquote>
+    </div>
+  </section>
+
+  <!-- ═══ CHAPTER 4 — before / after architecture ═══ -->
+  <section>
+    <div class="wrap-wide">
+      <div class="section-label">What changed</div>
+      <h2>The archive became the point.</h2>
+
+      <div class="arch-compare">
+        <div class="arch-col">
+          <div class="arch-col-label">BEFORE</div>
+          <div class="arch-chain">
+            <div class="arch-node">Garmin</div>
+            <span class="arch-sep">→</span>
+            <div class="arch-node">Collector</div>
+            <span class="arch-sep">→</span>
+            <div class="arch-node">Dashboard</div>
+          </div>
+        </div>
+        <div class="arch-col">
+          <div class="arch-col-label">MEANWHILE</div>
+          <div class="arch-chain">
+            <div class="arch-node">Garmin</div>
+            <span class="arch-sep">→</span>
+            <div class="arch-node emph">Local Archive</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arch-tree">
+        <div class="arch-tree-root">Local Archive</div>
+        <div class="arch-tree-branches">
+          <div class="arch-tree-branch">
+            <div class="b-title">Dashboard</div>
+            <div class="b-sub">Explore &amp; visualize</div>
+          </div>
+          <div class="arch-tree-branch">
+            <div class="b-title">Export</div>
+            <div class="b-sub">Excel, HTML, JSON</div>
+          </div>
+          <div class="arch-tree-branch">
+            <div class="b-title">Local AI</div>
+            <div class="b-sub">Ollama chat → MCP</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Function areas ═══ -->
+  <section id="today">
+    <div class="wrap-wide">
+      <div class="section-label">What it does</div>
+      <h2>A safeguard against data decay.</h2>
+
+      <div class="fn-grid">
+        <div class="fn-card">
+          <h3>Preserve</h3>
+          <p>Archive your data locally, for the long term — before Garmin's own history quietly loses detail. Along the way, it checks data quality and stops good data from ever being silently overwritten by worse data.</p>
+        </div>
+        <div class="fn-card">
+          <h3>Contextualize</h3>
+          <p>Combine Garmin data with local context — weather, pollen, and more.</p>
+        </div>
+        <div class="fn-card">
+          <h3>Recover</h3>
+          <p>Rebuild historical data from Garmin exports and fold it back into the archive.</p>
+        </div>
+        <div class="fn-card">
+          <h3>Explore</h3>
+          <p>Dashboards, Excel and HTML exports, a local AI chat, or MCP — use whichever fits best.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Screenshots ═══ -->
+  <section>
+    <div class="wrap-wide">
+      <div class="section-label">See it</div>
+      <h2>The archive, at work.</h2>
+
+      <div class="shot-main">
+        <img src="https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/GUI-Page_1.jpg" alt="Garmin Local Archive dashboard, showing device history and HRV chart">
+      </div>
+
+      <div class="shot-grid">
+        <div>
+          <div class="shot-small">
+            <img src="https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/GUI-Page_4.jpg" alt="Files tab, showing exported health summary data">
+          </div>
+          <div class="shot-caption">Files</div>
+        </div>
+        <div>
+          <div class="shot-small">
+            <img src="https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/GUI-Page_3.jpg" alt="Settings tab, showing sync and data management options">
+          </div>
+          <div class="shot-caption">Settings &amp; sync</div>
+        </div>
+        <div>
+          <div class="shot-small">
+            <img src="https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/GUI-Page_2.jpg" alt="Local AI chat, answering a question about HRV and sleep">
+          </div>
+          <div class="shot-caption">Local AI chat</div>
+        </div>
+        <div>
+          <div class="shot-small">
+            <img src="https://raw.githubusercontent.com/Wewoc/Garmin_Local_Archive/main/src/screenshots/GUI-Page_5.jpg" alt="MCP server settings, showing local Ollama backend configuration">
+          </div>
+          <div class="shot-caption">MCP server</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Local by design ═══ -->
+  <section>
+    <div class="wrap">
+      <div class="section-label">Local by design</div>
+      <h2>Your data stays on your machine.</h2>
+      <p class="muted">No extra account for GLA. No subscription. No vendor lock-in.</p>
+      <ul class="local-list">
+        <li>No data leaves your machine unless you export it yourself</li>
+        <li>The archive itself is plain, machine-readable data — not locked to GLA</li>
+        <li>Encrypted dashboards and an encrypted mirror container, for when you do want to move the archive between machines</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══ Download ═══ -->
+  <section id="download">
+    <div class="wrap">
+      <div class="download-box">
+        <div class="section-label">Get started</div>
+        <h2>Ready to build your own archive?</h2>
+        <p class="muted">Windows standalone. No Python required.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/Wewoc/Garmin_Local_Archive/releases">Download latest release</a>
+          <a class="btn btn-secondary" href="https://github.com/Wewoc/Garmin_Local_Archive">GitHub Repository</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Footer — technical details ═══ -->
+  <footer>
+    <div class="wrap-wide">
+      <div class="section-label">Technical details</div>
+      <div class="footer-links">
+        <a href="https://github.com/Wewoc/Garmin_Local_Archive/blob/main/README.md">README</a>
+        <a href="https://github.com/Wewoc/Garmin_Local_Archive/blob/main/src/screenshots/data_flow.png">Architecture</a>
+        <a href="https://github.com/Wewoc/Garmin_Local_Archive/tree/main/src/docs">Documentation</a>
+        <a href="https://github.com/Wewoc/Garmin_Local_Archive/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/Wewoc/Garmin_Local_Archive/blob/main/src/docs/MINDSET.md">Mindset</a>
+        <a href="https://github.com/Wewoc/Garmin_Local_Archive/blob/main/src/docs/ROADMAP.md">Roadmap</a>
+      </div>
+      <div class="footer-note">GNU GPL v3 · github.com/Wewoc/Garmin_Local_Archive</div>
+    </div>
+  </footer>
+
+</body>
+</html>
