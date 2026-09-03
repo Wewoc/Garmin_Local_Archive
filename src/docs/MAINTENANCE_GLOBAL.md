@@ -23,6 +23,128 @@ For pipeline-specific maintenance see `MAINTENANCE_GARMIN.md` and `MAINTENANCE_C
 
 ---
 
+## Module reference
+
+Script-by-script reference for all five layers. Kept in sync with `build_manifest.py`'s `SHARED_SCRIPTS` — see "Adding a new module" below for what to update when a module is added.
+
+Note: `garmin_extended_anaysis.py` (an Easter Egg module, separately licensed under CC BY 4.0 rather than GPL) is intentionally excluded from this reference.
+
+**Garmin pipeline** — `garmin/`
+
+| Script | What it does |
+|---|---|
+| `garmin_collector.py` | Orchestrator — decides, delegates, coordinates the full pipeline |
+| `garmin_api_capability.py` | Sole owner of the API capability scan config — discovers which optional Garmin endpoints (beyond the standard fields) return real data for your account, and lets you selectively enable them. (v1.6.8) |
+| `garmin_config.py` | All configuration — ENV variables, paths, constants |
+| `garmin_utils.py` | Shared utilities — date parsing, no project-module dependencies |
+| `garmin_api.py` | Login and all Garmin Connect API calls |
+| `garmin_security.py` | Token encryption/decryption — AES-256-GCM, key stored in Windows Credential Manager |
+| `garmin_validator.py` | Structural validation against `garmin_dataformat.json` — detects API changes before they reach the normalizer |
+| `garmin_normalizer.py` | Unified data schema across sources + summary extraction |
+| `garmin_quality.py` | Quality assessment — sole owner of `quality_log.json`. Checksum-protected, auto-restore on mismatch |
+| `garmin_sync.py` | Determines which days are missing |
+| `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here |
+| `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, feeds each day through the pipeline |
+| `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
+| `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive). Writes `mirror_meta.json` on success |
+| `garmin_import_mirror.py` | Mirror import — selective import from a mirror folder into the local archive. Quality-rank delta, dry-run dialog, timer-safe |
+| `garmin_source_quality.py` | Source quality assessment — determines whether a raw API response contains intraday data. Guards `source/` files from being overwritten by degraded responses. |
+| `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
+| `garmin_backup_source.py` | Sole owner of `garmin_data/backup/source/` — backs up source files after each write. Provides one-time backfill for existing source files. |
+| `garmin_live_fetch.py` | Sole owner of `garmin_data/live/` — lightweight fetch of today's intraday data + last night's sleep for the Live Tracking view. Single-file snapshot, no history, overwritten on every fetch. (v1.6.5) |
+| `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to `garmin_silo_repair.py`. |
+| `garmin_silo_repair.py` | Headless-callable core for the four repair paths that `garmin_silo_check.py` detects. Extracted from `panel_archive.py`'s `_on_silo_repair()` closure so repair is callable without a live GUI instance. Not a Leaf-Node — delegates to the existing Sole-Write-Authority modules; performs no direct file writes itself. |
+| `garmin_merge.py` | Additive field merge for backfill operations — never overwrites an already-populated field. Used to retroactively add newly supported data fields (like step count) to already-archived days. |
+| `garmin_force_refetch.py` | Sole owner of `garmin_data/backup/force_refetch/` — snapshots the archived `source/` file for a day before a deliberate Force-Refetch overwrite, and can restore it if the new fetch turns out worse. Scope: `source/` only, not `raw/`. Flat directory, one file per day. (v1.7.1.7) |
+| `garmin_container.py` | Sole owner of `.gla` encrypted mirror container files — creates and opens them for encrypted mirror transport. AES-256-GCM per section (quality_log, raw, summary, context), PBKDF2-HMAC-SHA256 (600 000 iterations) → HKDF per-section key derivation. |
+| `garmin_redact.py` | Leaf-Node — replaces live `GARMIN_EMAIL`/`GARMIN_PASSWORD` values with readable placeholders before text reaches any log sink (file, GUI widget, clipboard). Reads config fresh on every call, no caching. |
+
+**Context pipeline** — `context/`
+
+| Script | What it does |
+|---|---|
+| `context_collector.py` | Orchestrates external API collect — date range, location, plugin loop |
+| `context_api.py` | Fetches external context data based on plugin metadata — supports Open-Meteo and Brightsky adapters |
+| `context_writer.py` | Sole owner of `context_data/` — all file writes go through here |
+| `weather_plugin.py` | Plugin metadata — Open-Meteo Weather API fields, endpoints, file prefix |
+| `pollen_plugin.py` | Plugin metadata — Open-Meteo Air Quality API fields, endpoints, aggregation |
+| `brightsky_plugin.py` | Plugin metadata — Brightsky DWD Weather API fields, endpoints, field-specific aggregation |
+| `airquality_plugin.py` | Plugin metadata — Open-Meteo Air Quality API fields (PM2.5, PM10, AQI, NO₂, Ozone), daily mean aggregation |
+
+**Data brokers** — `maps/`
+
+| Script | What it does |
+|---|---|
+| `health_map.py` + `garmin_health_map.py` | Routes dashboard requests to Garmin data — reads `garmin_data/` |
+| `context_map.py` + `weather_map.py` + `pollen_map.py` + `brightsky_map.py` + `airquality_map.py` | Routes dashboard requests to context archive — reads `context_data/` |
+| `gateway_map.py` | Cross-domain routing broker (v1.6.7) — pass-through to `health_map`/`context_map` (and the future `fit_map`, v1.8) for consumers that need more than one domain in a single query, e.g. the MCP server (v1.7). Not used by any of the named dashboard specialists above — they query their domain broker directly. |
+| `metadata_map.py` | Archive-state introspection broker (v1.6.9.1) — coverage stats, device table, quality log, token event log, capability config, and session logs, reached via `gateway_map.get_metadata()`. Deliberately separate from the time-series brokers above — archive-state snapshots have no `date_from`/`date_to`/`resolution` concept. Reads its own files directly rather than routing to sibling `*_map.py` modules. Session-log reads pass through a sanitizer first — recognized secrets are dropped, recognized personal data (email, IP, GPS) is masked. |
+
+Building your own tool on top of the archive? `gateway_map.py` is the recommended entry point — a single import instead of learning the `health_map`/`context_map` contracts separately. Request/response reference and usage examples: [`docs/REFERENCE_BROKER.md`](REFERENCE_BROKER.md).
+
+**Dashboard layer** — `dashboards/` + `layouts/`
+
+| Script | What it does |
+|---|---|
+| `dash_runner.py` | Auto-discovers specialists, builds report selection popup, orchestrates build |
+| `*_dash.py` | Dashboard specialists — fetch data via brokers, return neutral dict for renderers |
+| `dash_plotter_*.py` | Format renderers — HTML (Plotly), Excel, JSON + Markdown prompt |
+| `dash_layout*.py` | Passive resources — color tokens, CSS variables, disclaimer, prompt templates |
+| `garmin_mobile_landing.py` | Mobile landing page generator — writes `index.html` with archive status to `dashboards/` after every sync |
+
+**Desktop app**
+
+| Script | What it does |
+|---|---|
+| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings / Ollama-Chat / MCP Server. PyQt6 QMainWindow. |
+| `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No GUI — importable in any context. |
+| `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No GUI. |
+| `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer / Documentation). Home tab: Dashboard viewer. (v1.6.0+) |
+| `app/panel_settings.py` | Settings panel — credentials, paths, sync config, context location. |
+| `app/panel_connection.py` | Connection panel — connection test, data management (Export to Mirror / Import from Mirror / Restore / Silo-Check / Repair / Reset Token), dialogs. Indicators delegated to panel_home. |
+| `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
+| `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
+| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
+| `app/panel_chat.py` | Ollama-Chat panel — native chat against a local Ollama instance, no external tool required. Model dropdown, chat history, "Neuer Chat" reset. (v1.6.6) |
+| `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — used exclusively by `app/panel_chat.py`. (v1.6.6) |
+| `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
+| `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
+| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. |
+| `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
+| `clients/mcp_sql.py` | SQLite aggregation-cache access layer for the MCP server (v1.7.1) — a local, always-reconstructible cache that speeds up date-range queries over the archive. Pure consumer, never a source: `garmin_backup.py`/`garmin_mirror.py` never touch it, and a lost cache file just triggers a rebuild on the next sync. |
+| `clients/mcp_update.py` | Delta-sync logic for the SQLite cache above (v1.7.1) — runs automatically at server startup and on demand via the `refresh_cache()` MCP tool, so an LLM can ask for fresher data without restarting the server. |
+| `app/dialogs.py` | Shared GUI dialog classes (e.g. `PasswordConfirmDialog`) used by `panel_archive.py`/`panel_outputs.py`. No project-module imports beyond PyQt6, no business logic. |
+| `app/dialog_force_refetch.py` | Force-Refetch calendar dialog — lets the user pick one or more days for a deliberate Force-Refetch. Two-widget split: a reusable `DateToggleCalendar` (quality background + selection highlight, deliberately non-red to stay distinguishable from the "failed" quality color) carries no Force-Refetch-specific logic itself. (v1.7.1.7) |
+| `app/garmin_dashboard_presets.py` | Sole owner of the Custom Dashboard preset file — stores named field selections for the Custom Dashboard Builder. Same persistence pattern as `garmin_app_settings.py`, separate file, separate ownership. No GUI, no pipeline imports — importable headless. (v1.6.4) |
+| `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
+| `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
+| `compiler/build_manifest.py` | Single source of truth for `SHARED_SCRIPTS` — the module list shared between `build.py` and `build_standalone.py`. Pure data, no logic, no side effects. |
+| `compiler/build_all.py` | Runs Target 2 then Target 3 sequentially; aborts Target 3 if Target 2 fails. Includes the Plotly pre-build check (pinned SHA256) before any test or build step. |
+| `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation. Exit codes 0–5 distinguish success, migration-required, missing settings, API error, dashboard error, and update-available. |
+| `version.py` | Single source of truth for `APP_VERSION` — no dependencies, safe for all build targets |
+
+**Shared infrastructure** — `src/` root, Leaf-Nodes with no project-module dependency
+
+| Script | What it does |
+|---|---|
+| `theme.py` | Central design color source of truth — one or more complete `THEME_n` color schemes, selected in Settings → Design. Rest of the app resolves colors via `BG`, `ACCENT`, `TEXT` etc., auto-resolved from the active theme. |
+| `crash_handler.py` | Global uncaught-exception capture — `sys.excepthook` (main thread), `threading.excepthook` (worker threads), optional `qInstallMessageHandler` (Qt-native fatal/critical). Writes to a fixed local path independent of `base_dir`, since a crash may itself be caused by `base_dir` being unreachable. Safe to use from both GUI and headless (`daily_update.py`) entry points. |
+| `frozen_paths.py` | Central frozen-path resolution (`sys.frozen` / `sys._MEIPASS` / `sys.executable`) — replaces logic previously duplicated across `panel_outputs.py` (6×), `panel_home.py`, and other call sites. No I/O beyond `Path.exists()` checks. |
+| `log_utils.py` | `with_timestamp()` — wraps a log callback so every message gets a timestamp prefix matching `logging.Formatter`'s `"%Y-%m-%d %H:%M:%S"`, unifying console output between the Garmin page and the Context/Dashboard pipeline. |
+| `qwebengine_hardening.py` | Shared `QWebEngineSettings` hardening for embedded `QWebEngineView` instances, which only ever display content generated by this project. Disables unneeded WebEngine capabilities; JavaScript stays enabled for Plotly. Idempotent. |
+| `garmin_app_screenshot.py` | Screenshot/demo mode — inherits the full UI from `GarminApp` unmodified, overrides only settings/password loading (dummy data), all button commands (no-ops), and `closeEvent` (no save). No credentials, no file I/O, no subprocesses — safe to run on any machine. |
+
+**Export & maintenance tools** — `export/`, one-time or offline utilities outside the live pipeline
+
+| Script | What it does |
+|---|---|
+| `backfill_source_backup.py` | One-time script — copies all existing `source/` files to `backup/source/`. Run once after introducing `garmin_backup_source.py`. |
+| `backfill_source_intraday.py` | One-time backfill — adds `intraday_present` to existing `source_api_log.json` entries via `garmin_source_quality.assess_source()`. Idempotent, patch-only (never creates new entries). |
+| `regenerate_raw.py` | Regenerates `raw/` and `summary/` from the `source/` archive, no API calls. Downgrade-protected — never lowers an existing quality label. Supports `--dry-run` and `--date`. |
+| `regenerate_summaries.py` | Regenerates all `summary/` JSON files from existing `raw/` files, no API calls. Run after `garmin_normalizer.py` changes. |
+
+---
+
 ## Three build targets
 
 | Target | GUI entry point | Daily Sync entry point | Build script | Python on target |

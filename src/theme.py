@@ -46,14 +46,23 @@ theme (e.g. stress is always green, in every theme).
 
 # ── Theme selection ─────────────────────────────────────────────────────
 # Which theme is active — read from app settings (active_theme), set via
-# Settings tab → Design in the app. Falls back to 1 (Amber & Copper) if
+# Settings tab → Design in the app. Falls back to 1 (Monochrome + Rust Accent) if
 # the settings file has no value yet (fresh install) or an invalid one.
 #
-#   1 — Amber & Copper   (default)
+#   1 — Monochrome + Rust Accent  (default)
 #   2 — Violet           (original)
-#   3 — Bordeaux
-#   4 — Monochrome + Rust Accent
-#   5 — Olive & Sand
+#   3 — Amber & Copper
+#   4 — Olive & Sand
+#   5 — Toxic            (metallic/silver + toxic olive-green accent)
+#   6 — Ice Blue         (steel base + deep blue accent)
+#
+# Removed: Bordeaux (was 3) — its dark-red accent conflicted with the
+# app-wide convention that red is reserved for error/failure states
+# (see REFERENCE_INVARIANTEN.md, DateToggleCalendar). Numbers below were
+# renumbered (not left with a gap) — a saved active_theme: 3 from before
+# this change now loads what used to be Amber & Copper (was 4) instead of
+# falling back to the default. Anyone who built a custom theme on top of
+# THEME_4..THEME_7 needs to renumber it to match after updating.
 import garmin_app_settings as _settings
 
 ACTIVE_THEME = _settings.load_settings().get("active_theme", 1)
@@ -92,21 +101,6 @@ THEME_2 = {
 }
 
 THEME_3 = {
-    "name":    "Bordeaux",
-    "bg0":     "#080405",
-    "bg":      "#0e0609",
-    "bg2":     "#170a0e",
-    "bg3":     "#1f0e14",
-    "accent":  "#9a5640",
-    "accent2": "#7a4432",
-    "text":    "#eee2e5",
-    "text2":   "#b09aa1",
-    "green":   "#4ecca3",
-    "yellow":  "#f5a623",
-    "red":     "#ff5a6e",
-}
-
-THEME_4 = {
     "name":    "Amber & Copper",
     "bg0":     "#0d0a08",
     "bg":      "#161210",
@@ -121,7 +115,7 @@ THEME_4 = {
     "red":     "#e94560",
 }
 
-THEME_5 = {
+THEME_4 = {
     "name":    "Olive & Sand",
     "bg0":     "#0e0f0a",
     "bg":      "#14150f",
@@ -136,10 +130,40 @@ THEME_5 = {
     "red":     "#e94560",
 }
 
+THEME_5 = {
+    "name":    "Toxic",
+    "bg0":     "#0a0c0b",
+    "bg":      "#121513",
+    "bg2":     "#262c2a",
+    "bg3":     "#3a423e",
+    "accent":  "#7a9e00",
+    "accent2": "#6b8c00",
+    "text":    "#e4e8e5",
+    "text2":   "#9aa39d",
+    "green":   "#4ecca3",
+    "yellow":  "#f5c542",
+    "red":     "#e94560",
+}
+
+THEME_6 = {
+    "name":    "Ice Blue",
+    "bg0":     "#0a0c0b",
+    "bg":      "#121513",
+    "bg2":     "#262c2a",
+    "bg3":     "#3a423e",
+    "accent":  "#1f6488",
+    "accent2": "#184e69",
+    "text":    "#e4e8e5",
+    "text2":   "#9aa39d",
+    "green":   "#4ecca3",
+    "yellow":  "#f5c542",
+    "red":     "#e94560",
+}
+
 # To add a further theme: copy a dict above, adjust the values, register it
 # below in _THEMES. Example:
 #
-# THEME_6 = {
+# THEME_7 = {
 #     "name":    "My new theme",
 #     "bg0":     "#......",
 #     "bg":      "#......",
@@ -160,6 +184,7 @@ _THEMES = {
     3: THEME_3,
     4: THEME_4,
     5: THEME_5,
+    6: THEME_6,
 }
 
 # ── Resolve the active theme (don't change anything below this line) ──────
