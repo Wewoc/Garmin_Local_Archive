@@ -212,13 +212,13 @@ class GarminApp(QMainWindow):
         tagline.setFont(QFont("Segoe UI", 9))
         tagline.setStyleSheet(f"color: {self.TEXT}; background: transparent;")
 
-        link = QLabel("www.github.com/Wewoc/Garmin_Local_Archive")
+        link = QLabel("wewoc.github.io/Garmin_Local_Archive")
         link.setFont(QFont("Segoe UI", 8))
         link.setStyleSheet(
             "color: #6ab0f5; text-decoration: underline; background: transparent;")
         link.setCursor(Qt.CursorShape.PointingHandCursor)
         link.mousePressEvent = lambda e: _open_url(
-            "https://www.github.com/Wewoc/Garmin_Local_Archive")
+            "https://wewoc.github.io/Garmin_Local_Archive/")
 
         gpl = QLabel("GNU GPL v3")
         gpl.setFont(QFont("Segoe UI", 8))
