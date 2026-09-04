@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 import garmin_config as cfg
+import theme
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +185,16 @@ def _render_html(status: dict, dash_mobile: str = "", dash_sleep: str = "") -> s
     html = _HTML_TEMPLATE.replace("__STATUS_JSON_PLACEHOLDER__", status_json)
     html = html.replace("__DASH_MOBILE_PLACEHOLDER__",  dash_mobile)
     html = html.replace("__DASH_SLEEP_PLACEHOLDER__",   dash_sleep)
+    html = html.replace("__THEME_BG__",      theme.BG)
+    html = html.replace("__THEME_BG2__",     theme.BG2)
+    html = html.replace("__THEME_BG3__",     theme.BG3)
+    html = html.replace("__THEME_ACCENT__",  theme.ACCENT)
+    html = html.replace("__THEME_ACCENT2__", theme.ACCENT2)
+    html = html.replace("__THEME_TEXT__",    theme.TEXT)
+    html = html.replace("__THEME_TEXT2__",   theme.TEXT2)
+    html = html.replace("__THEME_GREEN__",   theme.GREEN)
+    html = html.replace("__THEME_YELLOW__",  theme.YELLOW)
+    html = html.replace("__THEME_RED__",     theme.RED)
     return html
 
 
@@ -195,16 +206,16 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <title>🦄 GLA — Archive Overview</title>
 <style>
   :root {
-    --bg:      #12101f;
-    --bg2:     #1a1729;
-    --bg3:     #231f38;
-    --accent:  #a259f7;
-    --accent2: #6e3fcf;
-    --text:    #eaeaea;
-    --text2:   #a0a0b0;
-    --green:   #4ecca3;
-    --yellow:  #f5a623;
-    --red:     #e94560;
+    --bg:      __THEME_BG__;
+    --bg2:     __THEME_BG2__;
+    --bg3:     __THEME_BG3__;
+    --accent:  __THEME_ACCENT__;
+    --accent2: __THEME_ACCENT2__;
+    --text:    __THEME_TEXT__;
+    --text2:   __THEME_TEXT2__;
+    --green:   __THEME_GREEN__;
+    --yellow:  __THEME_YELLOW__;
+    --red:     __THEME_RED__;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { background: var(--bg); }
@@ -373,16 +384,16 @@ window.__GLA_STATUS__ = __STATUS_JSON_PLACEHOLDER__;
 </div>
 
 <!-- ── Inline dashboard embeds (shown on demand, hidden by default) ────── -->
-<div id="view-mobile" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#12101f; z-index:100; overflow:auto;">
+<div id="view-mobile" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg); z-index:100; overflow:auto;">
   <div style="position:fixed; top:8px; right:12px; z-index:200;">
-    <button onclick="hideDash()" style="background:#a259f7; color:#fff; border:none; border-radius:4px; padding:6px 14px; font-size:13px; cursor:pointer;">✕ zurück</button>
+    <button onclick="hideDash()" style="background:var(--accent); color:#fff; border:none; border-radius:4px; padding:6px 14px; font-size:13px; cursor:pointer;">✕ zurück</button>
   </div>
   <div id="content-mobile">__DASH_MOBILE_PLACEHOLDER__</div>
 </div>
 
-<div id="view-sleep" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#12101f; z-index:100; overflow:auto;">
+<div id="view-sleep" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg); z-index:100; overflow:auto;">
   <div style="position:fixed; top:8px; right:12px; z-index:200;">
-    <button onclick="hideDash()" style="background:#a259f7; color:#fff; border:none; border-radius:4px; padding:6px 14px; font-size:13px; cursor:pointer;">✕ zurück</button>
+    <button onclick="hideDash()" style="background:var(--accent); color:#fff; border:none; border-radius:4px; padding:6px 14px; font-size:13px; cursor:pointer;">✕ zurück</button>
   </div>
   <div id="content-sleep">__DASH_SLEEP_PLACEHOLDER__</div>
 </div>

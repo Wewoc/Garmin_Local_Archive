@@ -484,7 +484,7 @@ def timer_run_steps_backfill(s: dict) -> list | None:
     min_days..max_days per cycle via days[:n_days] (same as source_backfill).
 
     Window is capped at STEPS_BACKFILL_WINDOW_DAYS (140) — a margin above the
-    ~134-day empirically measured Garmin intraday degradation cutoff. Beyond
+    ~135-day empirically measured Garmin intraday degradation cutoff. Beyond
     that window Garmin itself no longer returns intraday data for any field,
     so there is nothing left to recover regardless of this window's size.
 

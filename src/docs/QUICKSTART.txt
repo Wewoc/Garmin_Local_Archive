@@ -2,6 +2,13 @@
   Garmin Local Archive — Quickstart
 ═══════════════════════════════════════════════════════════
 
+Three documents:
+  QUICKSTART.txt   -> first-time setup in a few minutes (this document)
+  README_APP.md    -> installation, security, technical setup
+  USER_GUIDE.txt   -> all features in daily use, troubleshooting
+
+Terms of use and liability: see README_APP.md, "Project status & disclaimer".
+
 FIRST-TIME SETUP
 ────────────────
 1. Open the Settings tab
@@ -43,8 +50,7 @@ DISCOVER MORE DATA (optional)
 ──────────────────────────────
 Settings -> Data Collection -> "API Scan" checks if your account
 provides additional health data (e.g. from a connected smart scale).
--> Details: USER_GUIDE.txt ("API Capability Scan") and README_APP.md
-   ("API Scan")
+-> Details: USER_GUIDE.txt, "API Capability Scan"
 
 ───────────────────────────────────────────────────────────
   For the built-in Ollama Chat: see USER_GUIDE.txt, Section 10.

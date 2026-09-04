@@ -37,14 +37,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import dash_layout as layout
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import theme
 
-# ── Design tokens — mirrors garmin_app_base.py's own dark theme ──────────────
-_BG      = "#12101f"
-_BG2     = "#1a1729"
-_BG3     = "#231f38"
-_ACCENT  = "#a259f7"
-_TEXT    = "#eaeaea"
-_TEXT2   = "#a0a0b0"
+# ── Design tokens — aus theme.py (Single Source of Truth), nicht mehr
+#    hier dupliziert. Siehe garmin_app_base.py fuer dieselben Werte auf
+#    App-Chrome-Seite. ────────────────────────────────────────────────────
+_BG      = theme.BG
+_BG2     = theme.BG2
+_BG3     = theme.BG3
+_ACCENT  = theme.ACCENT
+_TEXT    = theme.TEXT
+_TEXT2   = theme.TEXT2
 
 _METRIC_COLORS = {
     "body_battery": "#BA7517",

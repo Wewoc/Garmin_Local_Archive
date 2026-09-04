@@ -84,6 +84,7 @@ check("age default = 35",                  base.DEFAULT_SETTINGS["age"] == "35")
 check("sex default = male",                base.DEFAULT_SETTINGS["sex"] == "male")
 check("context_latitude present",          "context_latitude" in base.DEFAULT_SETTINGS)
 check("context_longitude present",         "context_longitude" in base.DEFAULT_SETTINGS)
+check("active_theme default = 1",          base.DEFAULT_SETTINGS["active_theme"] == 1)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  2. DEFAULT_SETTINGS — garmin_app and standalone re-export base
@@ -894,6 +895,37 @@ with patch("requests.post", return_value=_mock_resp(500, raise_http_error=True))
         check("chat: 500 raises generic OllamaError", False)
     except ollama_client.OllamaError:
         check("chat: 500 raises generic OllamaError", True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  22. theme.py — active_theme fallback behavior
+# ══════════════════════════════════════════════════════════════════════════════
+section("22. theme.py — active_theme fallback behavior")
+
+import theme as _theme_mod
+
+# Case A: settings file has no active_theme key at all (fresh/old install).
+# theme.py reads it via _settings.load_settings().get("active_theme", 1) at
+# import time, so the module must be reloaded for the patch to take effect.
+with patch.object(settings_mod, "load_settings", return_value={}):
+    importlib.reload(_theme_mod)
+    check("missing active_theme key → ACTIVE_THEME falls back to 1",
+          _theme_mod.ACTIVE_THEME == 1)
+    check("missing active_theme key → colors resolve to Theme 1",
+          _theme_mod.BG == _theme_mod.THEME_1["bg"])
+
+# Case B: settings file has an invalid/unknown active_theme number
+# (e.g. leftover value from a removed theme). _THEMES.get(ACTIVE_THEME,
+# THEME_1) must catch this — ACTIVE_THEME itself stays 99, only the
+# resolved colors fall back.
+with patch.object(settings_mod, "load_settings", return_value={"active_theme": 99}):
+    importlib.reload(_theme_mod)
+    check("invalid active_theme (99) → colors fall back to Theme 1",
+          _theme_mod.BG == _theme_mod.THEME_1["bg"])
+
+# Reload once more without a patch — leaves theme.py in its normal,
+# real-settings state so no later test/run in the same process inherits
+# a patched module.
+importlib.reload(_theme_mod)
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 shutil.rmtree(_TMPDIR, ignore_errors=True)

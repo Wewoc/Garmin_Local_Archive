@@ -3,6 +3,13 @@
   Version: see version.py / About
 ═══════════════════════════════════════════════════════════
 
+Three documents:
+  QUICKSTART.txt   -> first-time setup in a few minutes
+  README_APP.md    -> installation, security, technical setup
+  USER_GUIDE.txt   -> all features in daily use, troubleshooting (this document)
+
+Terms of use and liability: see README_APP.md, "Project status & disclaimer".
+
 CONTENTS
 ────────
   1. Setup
@@ -16,6 +23,7 @@ CONTENTS
   9. Data Structure
   10. Ollama Chat
   11. MCP Server
+  12. Buttons Reference
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -50,6 +58,9 @@ GDPR EXPORT (request now)
   Import: Settings -> Data Collection -> "Bulk Import"
   (details in Section 3)
 
+-> For installation, Windows security prompts, and password storage
+   details: README_APP.md.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 2. FIRST SYNC
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -69,7 +80,16 @@ The sync can be stopped at any time with "Stop" —
 it will resume from where it left off on the next run.
 
 -> For a full explanation of the Connection & Archive Status panel:
-     Documentation button -> README App -> "Connection & Archive Status"
+     see Section 12, "Connection & Archive Status".
+
+If there are days with failed or incomplete downloads in the selected
+sync range, a popup will appear before the sync starts: "Incomplete
+records found: X days in the selected range — Refresh now?" Click
+"Yes" to re-fetch those days, or "No" to skip them and sync normally.
+
+Large archives: if you have years of Garmin history, start with
+`range` mode for the last 1–2 years before using `auto`. Downloading
+everything at once can trigger Garmin rate limiting.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 3. BULK IMPORT (GDPR EXPORT)
@@ -82,7 +102,11 @@ or not at all.
 For the complete history: request a GDPR export from Garmin.
   -> https://www.garmin.com/en-US/account/datamanagement/
 
-The export arrives as a ZIP file (may take several days).
+The export arrives as a ZIP file (may take several days). Note that
+the GDPR export itself does not contain intraday data (no heart rate
+curves, stress timelines, or body battery graphs) — it provides your
+complete daily-summary history, which the live API can no longer
+serve once a day has aged past the ~135-day window.
 
 Import:
   Settings tab -> Data Collection -> "Bulk Import"
@@ -91,6 +115,11 @@ Import:
 
 Bulk Import and Daily Sync complement each other:
   Bulk Import provides the history, Daily Sync keeps it current.
+
+Imported days land in `raw/` and `summary/` alongside API data. Days
+already present with `high` or `standard` quality from the API are
+skipped — the better source wins. Imported data is marked
+`source: bulk` in the quality log and never re-fetched automatically.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 API CAPABILITY SCAN (optional)
@@ -178,6 +207,37 @@ Files tab: Excel overview of all archived days (v).
 Rebuild dashboards:
   Settings tab -> Outputs -> "Create All Dashboards"
 
+Create Reports (Home tab) opens a popup with all available dashboards
+and their output formats:
+
+  Dashboard            HTML   Mobile HTML   Excel   JSON
+  Timeseries             X        -           X       -
+  Heatmap                X        -           -       -
+  Health Analysis         X        X           -       X
+  Daily Overview          -        -           X       -
+  Health + Context        X        -           X       -
+  Sleep & Recovery        X        -           -       -
+
+Output is written to `BASE_DIR/dashboards/`. The folder opens
+automatically after a successful build.
+
+Intraday data — what the Timeseries dashboard shows:
+The Timeseries dashboard renders every data point captured from the
+API — no aggregation, no downsampling. The number of points per day
+depends on what Garmin delivered at the time of sync:
+
+  Metric          API resolution   Data points / day
+  Heart Rate      ~1 minute        up to 1,440
+  Stress          ~3 minutes       up to 480
+  Body Battery    ~15 minutes      up to 96
+  SpO2            ~1 hour          up to 24
+  Respiration     variable         variable
+
+Days synced within ~135 days of the recording date show full curves.
+Days beyond that threshold — or days from a GDPR bulk import — contain
+daily summary values only (`standard` quality). The quality badge in
+the archive panel shows the breakdown.
+
 Custom Dashboard (free field selection):
   Settings tab -> Outputs -> "Custom Dashboard"
   Pick any Garmin and Context fields, set a date range
@@ -191,30 +251,126 @@ Encrypted export (for USB transport):
   Enter a password (with confirmation) — never saved.
   Output: basedir/encrypted/ — files end in _enc.html
   Opens in any browser, decrypts locally, no internet needed.
+  Mobile variants are not included. Not triggered by Daily Sync —
+  encrypted export is always manual.
+
+Dashboard tab (first tab): shows your HTML dashboards directly inside
+the app — no browser needed. The Health Analysis dashboard loads by
+default on startup. Use the dropdown at the top to switch between all
+HTML dashboards in `BASE_DIR/dashboards/`. Fully interactive — zoom,
+hover, and filter work exactly as in a browser.
+
+Files tab (second tab): shows your Excel dashboards directly inside
+the app — no Excel required. The Daily Overview spreadsheet loads by
+default. Switch between files using the left dropdown and between
+sheets using the right dropdown (appears automatically for multi-sheet
+files). Chart sheets are hidden — only data sheets are shown. "Open
+File" opens the selected file in whatever your system has registered
+for `.xlsx` (Excel, LibreOffice, WPS). The file list refreshes
+automatically after every dashboard build and on every tab switch.
+
+The Health Analysis JSON includes a ready-to-use Markdown start prompt
+(`health_garmin_prompt.md`) for Open WebUI / Ollama — load it as the
+system prompt for AI-assisted interpretation.
+
+The Health Analysis Mobile HTML is optimised for landscape phone
+viewing — all metrics on one scrollable page, global range dropdown
+(calendar weeks, months, fixed ranges) controls all charts at once.
+Copy it to OneDrive or Google Drive to open on your phone.
+
+The Sleep & Recovery dashboard shows HRV, Body Battery, and Sleep
+duration alongside sleep phase composition (Deep / Light / REM / Awake
+as %) and weather/pollen context. Tab 1 covers the full date range.
+Tab 2 shows intraday detail for any selected day.
+
+Reference ranges (Health Analysis) are based on published guidelines
+(AHA, ACSM, Garmin/Firstbeat) — informational only, not medical advice.
+Dashboard values from consumer wearables are indicative only — not
+medical-grade.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 5. BACKGROUND TIMER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-The timer must be started manually and runs as long as the app
-is open.
+Automatically repairs and fills your archive in the background while
+the app is open — no manual intervention needed.
+
+Two time windows matter here, and they are not the same thing:
+
+  ~135 days   Garmin's own limit. This is where Garmin itself stops
+              serving full intraday resolution (heart rate curves,
+              stress timelines, Body Battery detail, etc.) through the
+              API. Once a day ages past this point, that detail is
+              gone for good — no retry can bring it back.
+
+  180 days    The timer's own safety buffer, set wider than the
+              135-day limit on purpose. The timer keeps retrying
+              `standard`-quality or bulk-imported days within this
+              180-day window, so that a day still has a real chance of
+              being upgraded to full intraday quality before Garmin's
+              135-day cutoff actually removes the data.
+
+In short: 180 days is how long the timer keeps trying; ~135 days is
+the hard deadline it is racing against.
 
 Start:
   Click "Timer: Off" -> set interval -> click "Start Timer"
 
-What the timer does while running:
+The timer works through a priority queue each run:
+
+1. Bulk Recheck (priority) — if you have imported a Garmin GDPR
+   export, the timer first upgrades those days via the live API,
+   oldest first, within the 180-day safety window described above.
+   Runs exclusively until all candidates are resolved.
+2. Repair — re-fetches days where the API call itself failed (no file
+   created)
+3. Quality — re-checks `standard` days where the previous day had
+   intraday data and the retry window (180 days) is still open —
+   worth trying again for a quality upgrade
+4. Fill — fetches completely missing days between your earliest known
+   date and yesterday
+5. Source Backfill (v1.6.0.3) — if you were running GLA before
+   v1.6.0.2, some historical days may be missing from the source
+   archive. The timer fills this gap automatically, oldest first,
+   within the 180-day safety window, for as long as Garmin can still
+   deliver full intraday resolution for those days. Becomes a no-op
+   once complete — runs invisibly in the background.
+6. Steps Backfill (v1.6.3) — if you were running GLA before step count
+   intraday support was added, high-quality days already in your
+   archive may be missing this field. The timer adds it retroactively,
+   oldest first, within a 140-day window — only a single lightweight
+   API call per day, no re-fetch of everything else. Becomes a no-op
+   once complete.
+
+What the timer does while running, in short:
   - Checks for missing days and downloads them
-  - Upgrades days that have no intraday data yet (as long as
-    they are still within the ~135-day window)
-  - Retroactively adds newly supported data fields (like step
-    count) to days already archived at full quality
+  - Upgrades days that have no intraday data yet (as long as they are
+    still within the 180-day safety window)
+  - Retroactively adds newly supported data fields (like step count)
+    to days already archived at full quality
   - Runs in the background without blocking the rest of the app
+
+When all queues are empty the timer stops automatically and logs
+"Archive complete".
+
+Settings (shown next to the button):
+
+  Field                  Default   Description
+  Min. Interval (min)    5         Shortest wait between runs
+  Max. Interval (min)    30        Longest wait between runs
+  Min. Days per Run      3         Fewest days fetched per run
+  Max. Days per Run      10        Most days fetched per run
+
+The timer runs its own connection test before the first sync. If
+successful, the connection indicators in the top panel turn green.
+Clicking the timer button while a sync is running stops the current
+download immediately.
 
 The timer does not start automatically after restarting the app —
 it must be activated manually each time.
 
-Note: Export to Mirror automatically pauses the timer
-and restarts it afterwards.
+Note: Export to Mirror automatically pauses the timer and restarts it
+afterwards.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 6. MIRROR / BACKUP
@@ -231,6 +387,11 @@ Create backup:
   "Export to Mirror" — packs the archive into the container
   Enter a password and confirm it — always entered manually,
   never saved. Prevents silent storage of a mistyped password.
+  The button opens a dialog with two options: "Export to Mirror"
+  (create or update the backup) and "Import from Mirror" (restore
+  data from an existing container). The button is greyed out if no
+  mirror target is configured or the target is unreachable, and
+  disabled automatically while a Sync or Context Sync is running.
 
 Restore:
   "Import from Mirror" — unpacks the container into the archive
@@ -242,10 +403,24 @@ Restore:
 7. AUTOMATED DAILY SYNC VIA WINDOWS TASK SCHEDULER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-For fully automated sync without the app open:
+`daily_update` runs the full daily workflow headlessly — no GUI, no
+manual interaction. Configure the app once, then let `daily_update`
+handle the rest automatically via Windows Task Scheduler.
 
-Standalone version:  use daily_update.exe directly
-Standard version:    use Starte_Daily_Sync.bat
+What it does on each run:
+  1. Checks the archive for gaps — heals gaps up to 7 days automatically
+  2. Syncs Garmin data for the missing period
+  3. Syncs context data (weather, pollen, air quality)
+  4. Rebuilds all dashboards
+  5. Closes the console window if everything completed cleanly
+
+Gaps larger than 7 days trigger a hard stop — open the app and sync
+manually first.
+
+Entry point per version:
+  Standalone version:  daily_update.exe — double-click or Task Scheduler
+  Standard EXE:        Starte_Daily_Sync.bat — double-click or Task Scheduler
+  Scripts only:        python scheduler/daily_update.py
 
 Setup in Task Scheduler:
   1. Windows key -> open "Task Scheduler"
@@ -255,6 +430,36 @@ Setup in Task Scheduler:
      Standalone: path to daily_update.exe
      Standard:   path to Starte_Daily_Sync.bat
   5. "Run with highest privileges" — not required
+
+A ready-to-import XML template (`daily_update_task.xml`) ships in
+`info/`. Import it once into Windows Task Scheduler. Recommended
+settings:
+  - Run daily in the morning
+  - Enable "Run task as soon as possible after a scheduled start is
+    missed" — ensures the sync runs after waking from sleep
+  - Disable "Restart on failure" — prevents flooding `log/daily/` with
+    error files
+
+Console behaviour:
+
+  State                  Behaviour
+  All OK                 Console closes automatically
+  Update available       Stays open — yellow notice
+  Error                  Stays open — red notice, check garmin_data/log/daily/
+  Migration required     Stays open — open the app first
+  Settings missing       Stays open — open the app and save settings first
+
+Prerequisite: the app must be configured at least once (email,
+password, folder, location saved) before `daily_update` can run.
+Running it before setup results in a hard stop with a clear message.
+
+After updating the app: a fresh build occasionally causes Garmin to
+reject the saved token on the next login, sometimes paired with a
+step-up verification (MFA) — `daily_update` cannot resolve this
+headlessly and will fail visibly. If a scheduled run fails right after
+an update, open the GUI once and complete a normal login (entering the
+MFA code if prompted). This re-establishes a valid token, and the next
+scheduled run will succeed normally.
 
 The headless sync writes a log to garmin_data/log/daily.
 
@@ -292,6 +497,30 @@ Context data missing / no weather or pollen
   -> Context data is only loaded for days already in the archive
      (Garmin sync must run first)
 
+Stress / Body Battery missing from Excel or dashboard
+  -> Run `regenerate_summaries.py` once to rebuild all summary files
+     from raw data.
+  -> Standalone: use the "Silo-Check" button (Settings tab -> Data
+     Management) to detect missing summaries, then click "Repair" to
+     rebuild them automatically.
+
+Background timer shows days as `standard` instead of `high`
+  -> This is expected behaviour. `standard` means the API returned
+     full daily data but no intraday detail (heart rate curve, stress
+     curve, etc.). This happens for older dates where Garmin has
+     permanently degraded intraday resolution, or for device eras that
+     never produced intraday data. The timer retries `standard` days
+     only if the previous day had intraday data and the 180-day retry
+     window is still open — after that the label is accepted as final
+     and those days are never touched again.
+
+Log shows errors but no data
+  -> Check your email/password in Settings and make sure the data
+     folder path is valid and writable.
+
+-> For app-start problems, login/MFA issues, and password storage:
+   README_APP.md, "Troubleshooting".
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 9. DATA STRUCTURE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -309,6 +538,18 @@ Context data missing / no weather or pollen
 
 All data stays local. No cloud, no third-party services.
 
+Every sync automatically writes a detailed log to your data folder:
+
+  garmin_data/
+    log/
+       recent/    – last 30 sync sessions (always full detail)
+       fail/      – sessions with errors or incomplete days (kept permanently)
+
+Manual sync sessions are named `garmin_YYYY-MM-DD_HHMMSS.log`.
+Background timer sessions are named
+`garmin_background_YYYY-MM-DD_HHMMSS.log`. These are plain text files
+— open them in any text editor if you need to diagnose a problem.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 10. OLLAMA CHAT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -320,8 +561,8 @@ Requirements:
   - Ollama installed and running: https://ollama.com/download
     (started via "ollama serve", or runs automatically after install)
   - At least one model pulled -- sizing guide (rule of thumb: VRAM in GB
-    minus 2 = usable model size) is in README.md, "Option A -- Built-in
-    Chat"
+    minus 2 = usable model size) is in README_APP.md, "Option A --
+    Built-in Chat"
 
 The chat runs against your existing Health Analysis export -- it does
 not generate data itself. Build one first: Home tab -> "Create Reports",
@@ -414,6 +655,92 @@ Running without the main app:
   it can also ask the server to refresh the cache on demand -- useful
   right after a sync if you want the very latest data available
   immediately instead of waiting for the next restart.
+
+For connecting Open WebUI or Claude Desktop to a running server, see
+README_APP.md, "Connecting Open WebUI to the MCP Server".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. BUTTONS REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Quick reference for buttons not already covered in Sections 1-11.
+
+Connection & Archive Status
+  See Section 2, "First Sync", and the Archive info panel description
+  there. Updated automatically before every sync; no manual test
+  button.
+
+Silo-Check
+  Scans your data silos for inconsistencies the live pipeline does
+  not catch — old gaps, interrupted runs, manual file operations, or
+  import errors. Click "Silo-Check" to run. Read-only, completes in
+  the background, runs silently at startup and takes a few seconds.
+  Results appear in the log:
+    "N days missing" — backup copies exist, click to restore
+    automatically
+    "N days missing, N no backup" — some days have no backup; a
+    dialog lists them so you can re-fetch manually via Sync Data
+
+Documentation
+  Opens a dialog with three entries: Quickstart (first-time setup),
+  User Guide (this document), and README App (installation/security).
+  Files open in your default text editor or viewer.
+
+Sync Data / Stop
+  Downloads missing days from Garmin Connect. Watch the log at the
+  bottom for progress. First run may take a while depending on how
+  far back you go.
+  Standard: click Stop to cancel a running sync immediately.
+  Standalone: click Stop to cancel — the current day finishes saving
+  before stopping.
+
+Sync Context / CSV
+  Downloads weather and pollen data for your full archive date range
+  — free, no account required. Weather data is fetched from
+  Open-Meteo and Brightsky (DWD), pollen data from Open-Meteo Air
+  Quality. Used by the Health + Context and Sleep & Recovery
+  dashboards.
+  Setting your location: Settings -> CONTEXT -> paste a Google Maps
+  URL -> click "Set Location". The app extracts latitude and
+  longitude automatically.
+  CSV button: opens `local_config.csv` directly in Excel. Lets you
+  define different coordinates for specific date ranges — useful if
+  you travel or have relocated. Created automatically on first Sync
+  Context. For a fixed home location, the Settings entry is
+  sufficient.
+
+Daily Sync button
+  One-click daily workflow. Detects the gap since your last sync,
+  then runs in sequence: Garmin Sync -> Context Sync -> Create All ->
+  Live Tracking (fetches today's snapshot in the background, does not
+  block or delay the steps above). If the gap is larger than 7 days a
+  confirmation dialog appears before starting. The button is disabled
+  while running.
+
+Update Live button
+  Fetches today's intraday data (Body Battery, Heart Rate, Steps,
+  Stress) and last night's sleep summary, then refreshes the Live
+  Tracking dashboard — without running a full Daily Sync. Takes about
+  30–60 seconds. Also runs automatically after every Daily Sync — use
+  this button to check in between.
+
+Log: Simple / Log: Detailed
+  Toggles the log output level in the GUI. Simple shows only key
+  steps (default). Detailed shows every API call — useful for
+  diagnosing connection issues or Garmin API changes. If you toggle
+  while a sync is running, a yellow notice appears: "Takes effect on
+  next sync." Session log files (in log/recent/ and log/fail/) always
+  record at full detail regardless of this toggle.
+
+Open Data Folder
+  Opens your data folder in Windows Explorer.
+
+Copy Last Error Log
+  Copies the contents of the most recent error log from log/fail/ to
+  your clipboard — ready to paste into a GitHub issue or support
+  chat. Standalone: since there is no terminal, this is the primary
+  way to retrieve diagnostic information when something goes wrong.
+  If no error logs exist, a message appears in the log area instead.
 
 ═══════════════════════════════════════════════════════════
   Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive

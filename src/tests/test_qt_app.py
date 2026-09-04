@@ -1218,3 +1218,50 @@ class TestGarminAppBase:
         for key in ("timer_min_interval", "timer_max_interval",
                     "timer_min_days", "timer_max_days"):
             assert key in s
+
+    def test_collect_settings_preserves_active_theme(self, qtbot):
+        """Regression test — active_theme is not bound to any Settings-panel
+        widget, so _collect_settings() must carry it over from self.settings
+        explicitly. Previously the key was silently dropped on app close
+        because it was absent from all three panel sources it merges from.
+        active_theme=3 (not the default 1) is used so the assertion actually
+        proves the value was passed through, not just coincidentally equal
+        to the default."""
+        from unittest.mock import patch
+        # NOTE: patch garmin_app_base.load_settings, not
+        # garmin_app_settings.load_settings — garmin_app_base.py does
+        # `load_settings = _settings.load_settings` at import time (a
+        # re-export), so GarminApp.__init__()'s `self.settings =
+        # load_settings()` call resolves the name already bound in
+        # garmin_app_base's own namespace. Patching the origin module
+        # (garmin_app_settings) does not reach that already-bound name.
+        with patch("garmin_app_base.load_settings", return_value={
+            "email": "", "password": "", "base_dir": "",
+            "sync_mode": "recent", "sync_days": "90",
+            "sync_from": "", "sync_to": "", "sync_auto_fallback": "",
+            "date_from": "", "date_to": "", "age": "35", "sex": "male",
+            "request_delay_min": "5.0", "request_delay_max": "20.0",
+            "context_latitude": "0.0", "context_longitude": "0.0",
+            "context_location": "", "mirror_dir": "",
+            "timer_min_interval": "5", "timer_max_interval": "30",
+            "timer_min_days": "3", "timer_max_days": "10",
+            "backup_raw_backfill_asked": False,
+            "active_theme": 3,
+        }), patch("garmin_app_settings.load_password", return_value=""), \
+            patch("garmin_app_controller.check_migration_needed",
+                  return_value=False):
+            from garmin_app_base import GarminApp
+
+            class _TestApp(GarminApp):
+                def _run(self, *a, **kw): pass
+                def _is_running(self): return False
+                def _stop_collector(self): pass
+                def closeEvent(self, event):
+                    # Suppress settings save during pytest-qt teardown —
+                    # prevents overwriting real settings file with empty test values.
+                    event.accept()
+
+            app = _TestApp()
+            qtbot.addWidget(app)
+        s = app._collect_settings()
+        assert s.get("active_theme") == 3
