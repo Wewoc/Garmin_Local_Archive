@@ -1,7 +1,5 @@
 ![Garmin Local Archive](src/screenshots/Banner_2.jpg)
 
-# Garmin Local Archive
-
 Archive and analyze your Garmin Health data local — no cloud, no additional account, no Python required.
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
