@@ -1,0 +1,40 @@
+name: License Bestandsscan
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ScanCode Toolkit
+        run: pip install scancode-toolkit
+
+      - name: Install pip-licenses
+        run: pip install pip-licenses
+
+      - name: Install project dependencies
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Dependency license list
+        run: pip-licenses --format=markdown --with-urls > dependency_licenses.md
+
+      - name: Codebase license/copyright scan
+        run: scancode -clip --json-pp scancode_report.json .
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-scan-reports
+          path: |
+            dependency_licenses.md
+            scancode_report.json
