@@ -1,22 +1,14 @@
 ![Garmin Local Archive](src/screenshots/Banner_2.jpg)
 
-## What you'll find here
-
-**[↓ Why this exists](#why-this-exists)** — the data loss problem that started this  
-**[↓ Download](#download)** — standalone EXE, no setup needed, Windows only  
-**[↓ Bulk Import](#bulk-import)** — recover your full Garmin history from a GDPR export  
-**[↓ Dashboards](#dashboards)** — HRV, sleep, Body Battery, stress, intraday timeseries  
-**[↓ AI chat](#ollama-chat)** — built-in Ollama chat, plus Open WebUI / AnythingLLM for advanced RAG  
-**[↓ MCP Server](#mcp-server)** — local LLM tool access via Claude Desktop, Open WebUI, or any MCP client — query your archive directly, no export step  
-**[↓ Architecture](#what-is-included)** — pipeline overview, all modules
-
-**Platform:** Windows · **No cloud** · **No subscription** · **No Python needed** · **Standalone EXE**
-
----
-
 # Garmin Local Archive
 
-Archive and analyze your Garmin Connect data **locally on your machine** — `create your own backup and save your data from decay` — no cloud, no third parties, no subscriptions. Everything runs locally under your control.
+Archive and analyze your Garmin Health data local — no cloud, no additional account, no Python required.
+
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![License](https://img.shields.io/badge/license-GPLv3-green)
+![No Cloud](https://img.shields.io/badge/cloud-none-brightgreen)
+![Release](https://img.shields.io/github/v/release/Wewoc/Garmin_Local_Archive)
+![Last Commit](https://img.shields.io/github/last-commit/Wewoc/Garmin_Local_Archive)
 
 *Privacy first — inspired by European principles.*
 
