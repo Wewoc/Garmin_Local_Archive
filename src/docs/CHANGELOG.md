@@ -1,5 +1,127 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.9 — query_health Feldnamen-Fallback + Kurzform-Alias-Mapping
+
+`query_health`'s `v1.7.1.1`/`v1.7.1.6` fixes left the same downstream
+ambiguity `query_context` had before its own `v1.7.1.4` fix: an
+unregistered `field` value returned the exact same `{"health": {}}`
+as a registered field with no data in the requested range — the
+caller (LLM or human) could not tell the two cases apart. Quantified
+via an automated 2026-09-05 test run (78 questions × 5 local models =
+390 cases, `health_fallback_questions.py`/
+`evaluate_health_fallback_results.py`): 34.1% correct, 5.6%
+`field_wrong_empty_hallucinated`, 1.0% `field_wrong_but_real_data`
+(a model picking a completely unrelated but real field — see "Known
+gap" below).
+
+A second, structural gap surfaced during that fix's own analysis:
+~5 of the 26 health fields have short, natural-language prefixes
+(`"steps"`, `"spo2"`, `"hrv"`, `"hill"`, `sleep_score_*`) that fall
+below any workable `difflib` cutoff (confirmed down to `cutoff=0.7`,
+a structural limit of short-prefix-vs-long-suffix matching, not a
+tuning opportunity — see `REFERENCE_BROKER.md`'s `v1.7.1.9` entry for
+the full analysis). Addressed in the same version via an explicit
+alias mapping, verified against the real field registry rather than
+the fallback fix's own test-question-derived candidate list.
+
+**New modules:** none.
+
+**Changed modules:**
+- `clients/mcp_server.py` — `query_health()` now validates `field`
+  against the live health field registry
+  (`mcp_map.list_available_fields(domain="health")`) before the
+  `_route_query()` switch, mirroring `query_context`'s `v1.7.1.4` fix.
+  Three unknown-field outcomes: (1) an unambiguous near-match via
+  `difflib.get_close_matches(cutoff=0.8)` auto-resolves transparently,
+  marked via `_meta.field_resolved_from`/`_meta.field_used` — never a
+  silent rewrite; (2) a field registered under `query_context` instead
+  of `query_health` (including a `_CONTEXT_CATEGORY_BUNDLES` key like
+  `"weather"`, checked first) returns a domain-specific error naming
+  `query_context`, no `did_you_mean`; (3) anything else returns a
+  generic `{"error": "unknown field '<field>'", ...}`, with an
+  optional `did_you_mean` list when `difflib` found candidates. A
+  valid field's result (with or without data in range) is unchanged —
+  none of the above runs unless `field` is unrecognized. `mcp_sql.py`/
+  `mcp_map.py`/`mcp_update.py` untouched — read-only consumers of
+  their existing public functions, per the `v1.7.1.4` precedent
+  (`mcp_sql.py` stays a pure SQLite access layer with no validation
+  logic).
+- `clients/mcp_server.py` — new `HEALTH_FIELD_ALIASES` dict
+  (`{"steps": "steps_series", "hrv": "hrv_last_night", "hill":
+  "hill_score"}`), checked in `query_health()` before outcome 1 above
+  — an alias hit is more certain than a near-match and should not have
+  to pass through it. `"spo2"` deliberately excluded: a real collision
+  between `spo2_avg` (daily) and `spo2_series` (intraday) exists in the
+  registry, `resolution` is not currently wired to field routing and is
+  omitted by callers in 72% of real tool calls (Lauf 7 data) — a fixed
+  default would be a silent guess, not a resolution. Stays on the
+  generic unknown-field error. `sleep_score_*` short forms handled
+  separately below, not via this dict — `sleep_score` is itself already
+  a valid, registered field, not an unknown one.
+- `clients/mcp_server.py` — `query_health()` gained a dedicated
+  `sleep_score` fan-out branch, checked before the bundle check (the
+  earliest point in the function), since `sleep_score` already being
+  valid means it would never otherwise reach any of the unknown-field
+  checks above. A bare `field="sleep_score"` request now returns all
+  three closely-related fields (`sleep_score`, `sleep_score_feedback`,
+  `sleep_score_qualifier`) together, in the same flattened
+  `{field: {"values": ..., "fallback": ..., "source_resolution": ...}}`
+  shape `_resolve_context_bundle()` already produces — matching
+  `get_health_range()`'s own real return shape, no third shape
+  introduced. `_meta.field_resolved_from` is set to `"sleep_score"`;
+  no `field_used`, since all three delivered field names are already
+  visible as the result's own dict keys. A direct, targeted call to
+  `sleep_score_feedback` or `sleep_score_qualifier` is unaffected —
+  only the bare `"sleep_score"` triggers the fan-out.
+
+**Verified:** re-run of the 390-case test catalog for the field-name
+fallback (before/after comparison) shows silent wrong answers falling
+from 35.9% to 8.4%, `field_correct` rising from 26.4% to 33.6%, no
+regressions. A second, dedicated 390-case run (Lauf 7 vs. Lauf 9 — an
+earlier Lauf 8 attempt is void, see below) verified the alias mapping
+and fan-out: `field_correct` 176→180, `field_wrong_empty_honest`
+79→58, all three alias fields (`steps`/`hrv`/`hill`) resolving
+correctly wherever a matching data point existed, `spo2` unchanged as
+intended, `sleep_score` fan-out returning all three fields with real
+data. Full before/after breakdowns, both anomaly investigations, and
+the Lauf 9 result in `REFERENCE_BROKER.md`'s `v1.7.1.9` entry.
+
+**Bug found and fixed before release:** the first sleep_score fan-out
+implementation wrongly assumed an extra `{"garmin": {...}}` layer on
+`mcp_sql.get_health_range()`'s return value (confusing it with
+`health_map.get()`'s own live-side shape, which does nest under a
+source name) — `get_health_range()` already reads through that layer
+itself and returns the field directly under `"health"`. Every
+extraction silently produced `None`, so all 29 sleep_score calls in
+the first post-fix test run (informally "Lauf 8", discarded) returned
+empty results despite a correctly-set `_meta.field_resolved_from`.
+Found by inspecting `mcp_sql.py`'s actual return value rather than
+continuing to guess; fixed in both the implementation and the test
+mocks that had made the same wrong assumption. 156/156 unit tests
+green after the fix; test catalog re-run as Lauf 9 (see above).
+
+**Test files:**
+- `tests/test_mcp.py` — new Section 8c-bis-health, mirroring
+  `query_context`'s 8c-bis: typo auto-resolution
+  (`_meta.field_resolved_from`/`field_used`), domain confusion
+  (`query_context`-owned field named in the error, no `did_you_mean`),
+  bundle-name domain confusion (a `_CONTEXT_CATEGORY_BUNDLES` key
+  reaching `query_health`, same outcome as plain domain confusion),
+  category-name/no-match (generic error, empty `health` key), and a
+  success-path byte-identity guard. Deliberately not mocking
+  `mcp_map.list_available_fields()` — checks run against the real,
+  live field registry.
+- `tests/test_mcp.py` — Sections 3b–3f (alias mapping + sleep_score
+  fan-out): `"steps"` alias resolution incl. `_meta` keys and
+  mcp_map-bypass check; `"hrv"`/`"hill"` alias resolution; `"spo2"`
+  confirmed to stay on the generic error; sleep_score fan-out (all
+  three fields present, three separate `mcp_sql` calls,
+  `_meta.field_resolved_from` set, no `field_used`); targeted
+  `sleep_score_feedback` call confirmed unaffected (single call, no
+  fan-out). 156/156 total, all green.
+
+---
+
 ## v1.7.1.8 — GUI-Theme Switch
 
 Closes the theme-GUI-switcher feature cycle started in the previous
