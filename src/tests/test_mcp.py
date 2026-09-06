@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2024 Wewoc (github.com/wewoc)
+# Copyright (C) 2026 Wewoc (github.com/wewoc)
 
 """
 test_mcp.py — Garmin Local Archive — MCP Layer Test
@@ -46,6 +46,7 @@ import sys
 import shutil
 import tempfile
 import logging
+import difflib
 from pathlib import Path
 
 # ── Path setup ─────────────────────────────────────────────────────────────────
@@ -416,6 +417,249 @@ with patch("mcp_sql.get_context_range", return_value=_CONTEXT_UNIT_MOCK):
     _qc_unit = mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
 check("query_context unit field: temperature_max carries its documented unit",
       _qc_unit["context"]["weather"]["temperature_max"]["unit"] == "°C")
+
+# ── 8c-bis-health. query_health() unknown-field detection (v1.7.1.9) ────────
+#
+# Mirrors Section 8c-bis below for query_context() (v1.7.1.4): an
+# unregistered field used to fall through silently to {"health": {}},
+# identical to a registered field with no data in range. These checks
+# exercise the new validation in mcp_server.py::query_health(), which
+# runs BEFORE the _route_query() switch — so it applies regardless of
+# which branch (sqlite/live) is active, and none of these calls should
+# ever reach mcp_sql or mcp_map.
+#
+# Confirmed against a real 390-case test run (health_fallback_questions.py,
+# 78 questions x 5 local models, before/after comparison 2026-09-05):
+# silent wrong answers (empty result + model denies/hallucinates) fell
+# from 35.9% to 8.4%, field_correct rose from 26.4% to 33.6%, no
+# regressions in previously-correct cases. See REFERENCE_BROKER.md
+# v1.7.1.9 entry for the full comparison and the two known, unaddressed
+# gaps (short-prefix aliasing, e.g. "steps" vs "steps_series" — see
+# v1.7.1.9 Session 2 note there).
+#
+# Deliberately NOT mocking mcp_map.list_available_fields() here — same
+# reasoning as 8c-bis: if a future session renames or removes one of
+# the field names used below, THIS is the section that breaks — not
+# because the v1.7.1.9 logic itself regressed, but because the fixture
+# data drifted out of sync with the real registry. Check the current
+# field names in list_available_fields() first before assuming the
+# unknown-field detection itself is broken.
+
+section("mcp_server 8c-bis-health. query_health() unknown-field detection (v1.7.1.9)")
+
+_qh_known_fields = set(
+    mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
+)
+check("test fixture: 'hrv_last_night' still a registered health field",
+      "hrv_last_night" in _qh_known_fields)
+
+# 1. Unambiguous near-match (typo) -> auto-resolved, transparently marked
+#
+# Verify the chosen typo's uniqueness against the REAL, full health
+# registry before trusting it — same lesson as 8c-bis, where two
+# earlier typo candidates each collided with a second real field once
+# checked against the full registry rather than a hand-picked subset.
+_qh_typo_candidates = difflib.get_close_matches(
+    "hrv_last_nigth", _qh_known_fields, n=3, cutoff=0.8
+)
+check("test fixture: 'hrv_last_nigth' resolves to exactly one health field",
+      len(_qh_typo_candidates) == 1 and _qh_typo_candidates[0] == "hrv_last_night")
+
+with patch("mcp_sql.get_health_range", return_value={
+    "health": {"hrv_last_night": {
+        "values": [{"date": _TEST_DATE, "value": 45}],
+        "fallback": False, "source_resolution": "daily",
+    }}, "_meta": {},
+}) as _m_sql:
+    _qh_typo = mcp_server.query_health("hrv_last_nigth", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="hrv_last_night")
+check("query_health unknown-field: typo auto-resolves to the intended field", True)
+check("query_health unknown-field: _meta.field_resolved_from set to caller's original input",
+      _qh_typo.get("_meta", {}).get("field_resolved_from") == "hrv_last_nigth")
+check("query_health unknown-field: _meta.field_used set to the resolved field",
+      _qh_typo.get("_meta", {}).get("field_used") == "hrv_last_night")
+
+# 2. Domain confusion — field exists, but under query_context, not query_health
+with patch("mcp_sql.get_context_range") as _m_sql_ctx, \
+     patch("mcp_sql.get_health_range") as _m_sql_health, \
+     patch("maps.mcp_map.query_health") as _m_live:
+    _qh_domain = mcp_server.query_health("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql_ctx.assert_not_called()
+    _m_sql_health.assert_not_called()
+    _m_live.assert_not_called()
+check("query_health unknown-field: domain-confused field never reaches mcp_sql/mcp_map", True)
+check("query_health unknown-field: domain-confused field names query_context in the error",
+      "query_context" in _qh_domain.get("error", ""))
+check("query_health unknown-field: domain-confused field has no did_you_mean list",
+      "did_you_mean" not in _qh_domain)
+check("query_health unknown-field: health key stays an empty dict on domain-confusion error",
+      _qh_domain.get("health") == {})
+
+# 2b. Bundle name (query_context-only concept) reaching query_health —
+#     same domain-confusion outcome as a plain context field above,
+#     checked first (before the registry lookup), mirroring
+#     query_context()'s own bundle-check-before-unknown-field ordering.
+with patch("mcp_sql.get_health_range") as _m_sql_bundle, \
+     patch("maps.mcp_map.query_health") as _m_live_bundle:
+    _qh_bundle = mcp_server.query_health("weather", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql_bundle.assert_not_called()
+    _m_live_bundle.assert_not_called()
+check("query_health unknown-field: bundle name never reaches mcp_sql/mcp_map", True)
+check("query_health unknown-field: bundle name names query_context in the error",
+      "query_context" in _qh_bundle.get("error", ""))
+check("query_health unknown-field: bundle name has no did_you_mean list",
+      "did_you_mean" not in _qh_bundle)
+
+# 3. No usable near-match at all, and not a query_context field either —
+#    generic error, no false suggestion
+with patch("mcp_sql.get_health_range") as _m_sql, \
+     patch("maps.mcp_map.query_health") as _m_live:
+    _qh_unknown = mcp_server.query_health("definitely_unknown_health_field", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_not_called()
+    _m_live.assert_not_called()
+check("query_health unknown-field: unrecognized value never reaches mcp_sql/mcp_map", True)
+check("query_health unknown-field: unrecognized value yields generic 'unknown field' error",
+      "unknown field" in _qh_unknown.get("error", ""))
+check("query_health unknown-field: health key stays an empty dict on error",
+      _qh_unknown.get("health") == {})
+
+# 3b. Short-prefix gap, resolved via explicit alias mapping (v1.7.1.9
+#     Session 2): "steps" is a real, common short-form for
+#     "steps_series", but difflib ratio(steps, steps_series) = 0.588 --
+#     well under any defensible cutoff (verified down to cutoff=0.7).
+#     Confirmed structural, not a tunable parameter (see
+#     REFERENCE_BROKER.md v1.7.1.9 entry) -- Session 2 added an
+#     explicit HEALTH_FIELD_ALIASES mapping, checked before outcome 1's
+#     near-match logic. "steps" now auto-resolves exactly like a
+#     near-match typo would (same _meta keys), just via the alias path
+#     instead of difflib.
+_HEALTH_ALIAS_MOCK = {"health": {"garmin": {"steps_series": {
+    "values": [{"date": _TEST_DATE, "series": [{"ts": _TEST_DATE + "T00:00:00", "value": 120}]}],
+    "fallback": False, "source_resolution": "intraday",
+}}}, "_meta": {}}
+with patch("mcp_sql.get_health_range", return_value=_HEALTH_ALIAS_MOCK) as _m_sql_steps, \
+     patch("maps.mcp_map.query_health") as _m_live_steps:
+    _qh_steps = mcp_server.query_health("steps", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health unknown-field: 'steps' alias auto-resolves to steps_series",
+      "error" not in _qh_steps)
+check("query_health unknown-field: 'steps' alias never reaches mcp_map (sqlite branch active)",
+      not _m_live_steps.called)
+check("query_health unknown-field: 'steps' alias — _meta.field_resolved_from set to caller's input",
+      _qh_steps.get("_meta", {}).get("field_resolved_from") == "steps")
+check("query_health unknown-field: 'steps' alias — _meta.field_used set to steps_series",
+      _qh_steps.get("_meta", {}).get("field_used") == "steps_series")
+check("query_health unknown-field: 'steps' alias — mcp_sql.get_health_range called with resolved field",
+      _m_sql_steps.call_args.kwargs.get("field") == "steps_series")
+
+# 3c. Remaining alias candidates (hrv, hill) — same mechanism, lighter
+#     check (mock target only, not full result shape, since 3b already
+#     covers the shared code path in detail).
+for _alias_input, _alias_target in [("hrv", "hrv_last_night"), ("hill", "hill_score")]:
+    _alias_mock = {"health": {"garmin": {_alias_target: {
+        "values": [{"date": _TEST_DATE, "value": 42}],
+        "fallback": False, "source_resolution": "daily",
+    }}}, "_meta": {}}
+    with patch("mcp_sql.get_health_range", return_value=_alias_mock) as _m_sql_a:
+        _qh_a = mcp_server.query_health(_alias_input, _TEST_DATE, _TEST_DATE, "daily")
+    check(f"query_health unknown-field: {_alias_input!r} alias resolves to {_alias_target!r}",
+          _qh_a.get("_meta", {}).get("field_used") == _alias_target)
+    check(f"query_health unknown-field: {_alias_input!r} alias — no error key",
+          "error" not in _qh_a)
+
+# 3d. spo2 explicitly excluded from alias mapping (v1.7.1.9 Session 2
+#     decision — real collision between spo2_avg/spo2_series, see
+#     NOTES_v1.7.1.9.md Session 2). Must still fall through to the
+#     generic unknown-field error, same as before Session 2.
+with patch("mcp_sql.get_health_range") as _m_sql_spo2, \
+     patch("maps.mcp_map.query_health") as _m_live_spo2:
+    _qh_spo2 = mcp_server.query_health("spo2", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health unknown-field: 'spo2' deliberately NOT aliased, stays a generic error",
+      "unknown field" in _qh_spo2.get("error", ""))
+check("query_health unknown-field: 'spo2' never reaches mcp_sql/mcp_map",
+      not _m_sql_spo2.called and not _m_live_spo2.called)
+
+# 3e. sleep_score fan-out (v1.7.1.9 Session 2) — bare "sleep_score" is
+#     itself already a valid, registered field (unlike the alias
+#     candidates above), so it bypasses the unknown-field checks
+#     entirely and is resolved by its own dedicated branch, checked
+#     even earlier than the alias mapping. Fans out to
+#     sleep_score_feedback/sleep_score_qualifier and returns all three
+#     in the same {field: {...}} flattened shape _resolve_context_
+#     bundle() already produces — matching get_health_range()'s own
+#     real return shape (field directly under "health", no "garmin"
+#     layer — see mcp_sql.get_health_range()'s docstring: it already
+#     reads through that layer itself before returning).
+_SLEEP_SCORE_MOCKS = {
+    "sleep_score": {"health": {"sleep_score": {
+        "values": [{"date": _TEST_DATE, "value": 78}],
+        "fallback": False, "source_resolution": "daily",
+    }}, "_meta": {"date_from_iso": _TEST_DATE}},
+    "sleep_score_feedback": {"health": {"sleep_score_feedback": {
+        "values": [{"date": _TEST_DATE, "value": "POSITIVE_DEEP"}],
+        "fallback": False, "source_resolution": "daily",
+    }}, "_meta": {}},
+    "sleep_score_qualifier": {"health": {"sleep_score_qualifier": {
+        "values": [{"date": _TEST_DATE, "value": "FAIR"}],
+        "fallback": False, "source_resolution": "daily",
+    }}, "_meta": {}},
+}
+
+def _sleep_score_side_effect(date_from, date_to, field=None):
+    return _SLEEP_SCORE_MOCKS[field]
+
+with patch("mcp_sql.get_health_range", side_effect=_sleep_score_side_effect) as _m_sql_ss:
+    _qh_ss = mcp_server.query_health("sleep_score", _TEST_DATE, _TEST_DATE, "daily")
+check("sleep_score fan-out: all three fields present in result",
+      set(_qh_ss.get("health", {}).keys()) ==
+      {"sleep_score", "sleep_score_feedback", "sleep_score_qualifier"})
+check("sleep_score fan-out: three separate calls made (one per field)",
+      _m_sql_ss.call_count == 3)
+check("sleep_score fan-out: _meta.field_resolved_from set to 'sleep_score'",
+      _qh_ss.get("_meta", {}).get("field_resolved_from") == "sleep_score")
+check("sleep_score fan-out: no field_used key (all three names already visible as dict keys)",
+      "field_used" not in _qh_ss.get("_meta", {}))
+check("sleep_score fan-out: sleep_score value correct",
+      _qh_ss["health"]["sleep_score"]["values"][0]["value"] == 78)
+check("sleep_score fan-out: sleep_score_feedback value correct",
+      _qh_ss["health"]["sleep_score_feedback"]["values"][0]["value"] == "POSITIVE_DEEP")
+check("sleep_score fan-out: sleep_score_qualifier value correct",
+      _qh_ss["health"]["sleep_score_qualifier"]["values"][0]["value"] == "FAIR")
+
+# 3f. Targeted feedback/qualifier calls unaffected — only the bare
+#     "sleep_score" triggers fan-out, a direct call to either companion
+#     field must return exactly that one field, unchanged from
+#     pre-Session-2 behavior.
+_SLEEP_FEEDBACK_ONLY_MOCK = {"health": {"sleep_score_feedback": {
+    "values": [{"date": _TEST_DATE, "value": "POSITIVE_DEEP"}],
+    "fallback": False, "source_resolution": "daily",
+}}, "_meta": {}}
+with patch("mcp_sql.get_health_range", return_value=_SLEEP_FEEDBACK_ONLY_MOCK) as _m_sql_fb:
+    _qh_fb = mcp_server.query_health("sleep_score_feedback", _TEST_DATE, _TEST_DATE, "daily")
+check("sleep_score_feedback targeted call: only one field in result, no fan-out",
+      set(_qh_fb.get("health", {}).keys()) == {"sleep_score_feedback"})
+check("sleep_score_feedback targeted call: single mcp_sql call, not three",
+      _m_sql_fb.call_count == 1)
+check("sleep_score_feedback targeted call: no field_resolved_from (not a fan-out or alias hit)",
+      "field_resolved_from" not in _qh_fb.get("_meta", {}))
+
+# 4. Success-path byte-identity guard — a VALID field must show none of the
+#    new v1.7.1.9 keys (error/did_you_mean/_meta.field_resolved_from), so
+#    a future change to the unknown-field branch cannot silently leak into
+#    the existing, already-covered success path.
+with patch("mcp_sql.get_health_range", return_value={
+    "health": {"hrv_last_night": {
+        "values": [{"date": _TEST_DATE, "value": 45}],
+        "fallback": False, "source_resolution": "daily",
+    }}, "_meta": {},
+}):
+    _qh_valid = mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health unknown-field: valid field has no 'error' key",
+      "error" not in _qh_valid)
+check("query_health unknown-field: valid field has no 'did_you_mean' key",
+      "did_you_mean" not in _qh_valid)
+check("query_health unknown-field: valid field has no 'field_resolved_from' in _meta",
+      "field_resolved_from" not in _qh_valid.get("_meta", {}))
+
 
 # ── 8c-bis. query_context() unknown-field detection (v1.7.1.4) ──────────────
 #

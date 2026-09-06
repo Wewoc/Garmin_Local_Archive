@@ -35,6 +35,7 @@ Palette inspiration (if you're looking for new values):
   https://coolors.co
   https://color.adobe.com
   https://paletton.com
+  https://delphi.tools/tools/palette-collection
 
 Function-specific colors (heart-rate orange, sleep phases, quality
 indicators EXCELLENT/GOOD/FAIR/POOR etc.) are deliberately NOT here — they

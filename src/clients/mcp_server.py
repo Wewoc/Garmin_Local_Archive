@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2024 Wewoc (github.com/wewoc)
+# Copyright (C) 2026 Wewoc (github.com/wewoc)
 
 """
 clients/mcp_server.py
@@ -650,6 +650,19 @@ mcp = FastMCP(
 # unchanged.
 
 
+# v1.7.1.9 Session 2 -- explicit short-form alias mapping for
+# query_health(). See query_health()'s own docstring for the full
+# rationale (structural difflib limitation, not a tuning gap) and
+# NOTES_v1.7.1.9.md Session 2 for the per-candidate verification
+# against the real, current health field registry. "spo2" deliberately
+# excluded -- see the same notes for the collision analysis.
+HEALTH_FIELD_ALIASES: dict[str, str] = {
+    "steps": "steps_series",
+    "hrv": "hrv_last_night",
+    "hill": "hill_score",
+}
+
+
 def _route_query(kind: str) -> str:
     """
     Decides whether a given query kind should be served from the
@@ -687,12 +700,179 @@ def query_health(field: str, date_from: str, date_to: str,
     answer to hundreds of KB and confusing small local LLMs
     summarizing the result.
 
-    v1.7.1.6 unit field (this session): every field in the returned
-    result now carries a "unit" key alongside "values"/"fallback"/
+    v1.7.1.6 unit field: every field in the returned result now
+    carries a "unit" key alongside "values"/"fallback"/
     "source_resolution" — see FIELD_UNITS above. Applied AFTER the
     routing weiche below, so it covers both branches identically
     (today, only the SQLite branch is ever actually taken — see
-    _route_query()'s docstring)."""
+    _route_query()'s docstring).
+
+    v1.7.1.9 unknown-field detection (this session): mirrors
+    query_context()'s v1.7.1.4 fix, applied here with a delayed
+    session (see that function's docstring for the original rationale
+    -- a valid-but-dataless field and an unregistered field previously
+    returned the identical silent {"health": {}}, leaving the caller
+    unable to tell the two apart). Checked BEFORE the _route_query()
+    switch below, so it applies regardless of which branch (sqlite/
+    live) ends up serving the request -- the field registry itself
+    (mcp_map.list_available_fields) is unrelated to that routing
+    decision.
+
+    Three unknown-field outcomes, checked in this order:
+      1. Unambiguous near-match against the known health field names
+         (e.g. a typo) -> auto-resolved, field_used replaces the
+         caller's input transparently, but the substitution is always
+         visible via _meta.field_resolved_from / _meta.field_used —
+         never a silent rewrite.
+      2. The field IS registered, but under query_context's domain,
+         not query_health's (e.g. "temperature_max") -> a
+         domain-specific error naming query_context, no did_you_mean
+         list (a health-domain suggestion would be wrong here).
+      3. Neither of the above (no close match, and not a
+         query_context field either) -> a generic "unknown field"
+         error, with a did_you_mean suggestion list when difflib found
+         any candidates, without one when it found none.
+
+    A valid field's result (with or without data in range) is returned
+    exactly as before this session — none of the above runs unless
+    field is unrecognized.
+
+    Deliberately NOT addressed here (see AKTIONSPLAN_v1.7.1.9_
+    health_fallback.md Abschnitt 3/4 for the full analysis): a model
+    that picks a completely unrelated but real, registered field
+    instead of a near-match typo (verified empirically against the
+    2026-09-05 test run's Hermes3 cases, e.g. resting_heart_rate
+    returned for a steps question) is not a field-registry problem —
+    no near-match exists for the fallback to catch, since the wrong
+    field is itself a valid, unrelated field name. Tracked as a
+    parking-lot item (query_health docstring example-field guidance),
+    not pulled into this fix.
+
+    v1.7.1.9 Session 2 -- sleep_score fan-out: "sleep_score" is itself
+    an already-valid, registered field (unlike the alias candidates
+    below), so it would never reach the unknown-field checks above --
+    it always short-circuits straight to the normal valid-field path.
+    Checked here, BEFORE the bundle check, precisely because it is
+    valid and would otherwise never trigger any of the outcomes below.
+    Fans out to the two closely related fields sleep_score_feedback
+    and sleep_score_qualifier and returns all three together in the
+    same {"garmin": {field: {...}}} shape a normal multi-field result
+    already has -- no new result shape, _enrich_with_units() handles
+    it unchanged. _meta.field_resolved_from is set to "sleep_score" so
+    the fan-out is visible; no field_used, since all three delivered
+    field names are already the dict's own keys, unlike the 1:1 alias
+    case where the substitution would otherwise be invisible. A direct
+    call to "sleep_score_feedback" or "sleep_score_qualifier" is NOT
+    affected -- only the exact bare "sleep_score" triggers this.
+
+    v1.7.1.9 Session 2 -- short-form alias mapping: three short-form
+    field names (steps, hrv, hill) sit far enough below any workable
+    difflib cutoff against their real target field names (steps_series,
+    hrv_last_night, hill_score -- confirmed down to cutoff=0.7, see
+    NOTES_v1.7.1.9.md Session 2) that no cutoff tuning can catch them
+    without introducing new ambiguities elsewhere. HEALTH_FIELD_ALIASES
+    below resolves these explicitly, checked before outcome 1's
+    near-match logic (an alias hit is more certain than a near-match
+    and should not have to pass through it). "spo2" was considered and
+    explicitly excluded (real collision between spo2_avg and
+    spo2_series, no reliable disambiguation signal available -- see
+    NOTES_v1.7.1.9.md Session 2 for the full analysis)."""
+    if field == "sleep_score":
+        # Correction (v1.7.1.9 Session 2, post-Lauf-8): get_health_range()
+        # already reads through the source-name layer itself (see its own
+        # docstring, "v1.7.1.1 Bug-C correction") and returns
+        # {"health": {field: {"values": ...}}} directly -- no "garmin" key
+        # on this return value. The original version of this block wrongly
+        # assumed an extra {"garmin": {...}} layer here (confusing this
+        # call's return shape with health_map.get()'s own live-side shape,
+        # which DOES nest under a source name), so every extraction silently
+        # produced None and merged stayed empty on all 5 models / 29 calls
+        # in the Lauf-8 test run. Fixed to read the field straight off
+        # "health", and to build the same flattened shape
+        # _resolve_context_bundle() already produces (which
+        # _enrich_with_units() already recognizes as its documented
+        # "already-flattened shape" case -- no third shape introduced).
+        fan_out_fields = ["sleep_score", "sleep_score_feedback", "sleep_score_qualifier"]
+        merged: dict = {}
+        meta: dict = {}
+        for fan_field in fan_out_fields:
+            if _route_query("health") == "sqlite":
+                fan_result = mcp_sql.get_health_range(date_from, date_to, field=fan_field)
+            else:
+                fan_result = mcp_map.query_health(fan_field, date_from, date_to, resolution)
+            meta = fan_result.get("_meta", meta)
+            field_value = fan_result.get("health", {}).get(fan_field)
+            if field_value is not None:
+                merged[fan_field] = field_value
+        result = {"health": merged}
+        result["_meta"] = meta if meta else {}
+        result["_meta"]["field_resolved_from"] = "sleep_score"
+        return _enrich_with_units(result, "health")
+
+    if field in HEALTH_FIELD_ALIASES:
+        resolved_field = HEALTH_FIELD_ALIASES[field]
+        if _route_query("health") == "sqlite":
+            result = mcp_sql.get_health_range(date_from, date_to, field=resolved_field)
+        else:
+            result = mcp_map.query_health(resolved_field, date_from, date_to, resolution)
+        result.setdefault("_meta", {})
+        result["_meta"]["field_resolved_from"] = field
+        result["_meta"]["field_used"] = resolved_field
+        return _enrich_with_units(result, "health")
+
+    if field in _CONTEXT_CATEGORY_BUNDLES:
+        # A bundle name (e.g. "weather") is a query_context-only
+        # concept -- it is never itself a registered health field, so
+        # without this check it would silently fall through to outcome
+        # 3 below and likely produce a did_you_mean suggestion against
+        # unrelated health fields. Routed to the same domain-confusion
+        # error as outcome 2, since a bundle name IS something
+        # query_context understands, just not under this tool.
+        return {
+            "health": {},
+            "error": f"field {field!r} belongs to query_context, not query_health",
+            "_meta": {},
+        }
+
+    known_health_fields = set(
+        mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
+    )
+
+    if field not in known_health_fields:
+        close_matches = difflib.get_close_matches(
+            field, known_health_fields, n=3, cutoff=0.8
+        )
+        if len(close_matches) == 1:
+            resolved_field = close_matches[0]
+            if _route_query("health") == "sqlite":
+                result = mcp_sql.get_health_range(date_from, date_to, field=resolved_field)
+            else:
+                result = mcp_map.query_health(resolved_field, date_from, date_to, resolution)
+            result.setdefault("_meta", {})
+            result["_meta"]["field_resolved_from"] = field
+            result["_meta"]["field_used"] = resolved_field
+            return _enrich_with_units(result, "health")
+
+        known_context_fields: set[str] = set()
+        for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+            known_context_fields.update(_source_fields)
+
+        if field in known_context_fields:
+            return {
+                "health": {},
+                "error": f"field {field!r} belongs to query_context, not query_health",
+                "_meta": {},
+            }
+
+        error_result = {
+            "health": {},
+            "error": f"unknown field {field!r}",
+            "_meta": {},
+        }
+        if close_matches:
+            error_result["did_you_mean"] = close_matches
+        return error_result
+
     if _route_query("health") == "sqlite":
         result = mcp_sql.get_health_range(date_from, date_to, field=field)
     else:
