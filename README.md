@@ -1,12 +1,12 @@
 ![Garmin Local Archive](src/screenshots/Banner_2.jpg)
 
-Archive and analyze your Garmin Health data local — no cloud, no additional account, no Python required.
-
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![No Cloud](https://img.shields.io/badge/cloud-none-brightgreen)
 ![Release](https://img.shields.io/github/v/release/Wewoc/Garmin_Local_Archive)
 ![Last Commit](https://img.shields.io/github/last-commit/Wewoc/Garmin_Local_Archive)
+
+**Archive and analyze your Garmin Health data local.**
 
 *Privacy first — inspired by European principles.*
 
@@ -38,7 +38,7 @@ Standard version: install dependencies first — `pip install -r requirements.tx
 
 ## Project status & disclaimer
 
-> GNU General Public License v3.0 — provided as-is.
+> GNU General Public License v3.0 — provided as-is, without warranty of any kind, express or implied.
 
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.

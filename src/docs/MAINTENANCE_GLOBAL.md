@@ -571,7 +571,42 @@ needed), and `mcp_server.list_available_fields()`'s new `"units"` key
 (deliberately calling `mcp_server.list_available_fields()`, not
 `mcp_map.list_available_fields()` already covered in Section 6 — the
 `"units"` key exists only at the `mcp_server.py` wrapper layer, see
-`KNOWN_ISSUES.md` Cluster F). 111 → 117 checks.
+`KNOWN_ISSUES.md` Cluster F). Check-count delta tracked in
+`docs/METRICS.md` (`test_mcp.py`), not restated here — see this
+section's own opening note above on why totals live there instead.
+
+**New Sections 3b–3f added (v1.7.1.9, second work session)** — covering
+`clients/mcp_server.py`'s `HEALTH_FIELD_ALIASES` dict and the dedicated
+`sleep_score` fan-out branch in `query_health()`, both checked before
+the `v1.7.1.9`-first-session near-match fallback (Section
+8c-bis-health) they sit in front of: `"steps"` alias resolution
+including `_meta.field_resolved_from`/`field_used` and an explicit
+mcp_map-bypass check (the fullest of the three alias checks — 3c then
+covers `"hrv"`/`"hill"` more lightly against the same code path);
+`"spo2"` confirmed to stay on the generic unknown-field error
+(deliberately not aliased — see `REFERENCE_BROKER.md`'s `v1.7.1.9`
+entry for the collision analysis); the `sleep_score` fan-out itself
+(all three fields present in one result, three separate `mcp_sql`
+calls, `_meta.field_resolved_from` set, deliberately no `field_used`);
+and a targeted `sleep_score_feedback` call confirmed to still return
+only that one field, unaffected by the fan-out branch. Replaces the
+original Section 3b, which had documented the pre-fix `"steps"`
+short-prefix gap as an explicit regression marker (`did_you_mean`
+absent, generic error) — an intentional "before" state now superseded
+by its own fix, not a case this suite needs to keep guarding against.
+Check-count delta tracked in `docs/METRICS.md`, not restated here.
+
+First implementation attempt of the `sleep_score` fan-out (see
+`REFERENCE_BROKER.md`'s `v1.7.1.9` entry, "Bug found and fixed") wrongly
+nested its mock/expected shape under an extra `"garmin"` key that
+`mcp_sql.get_health_range()` does not actually produce — the bug and
+its test mocks shared the same wrong assumption, so the original 3e/3f
+mocks could not have caught it. Both corrected together; worth noting
+here as this suite's own instance of `MAINTENANCE_GLOBAL.md`'s existing
+"verify against the real thing, not an assumption" caution elsewhere in
+this file (see the `"sleep"`/registry-uniqueness note above) — this
+time the real thing was another module's actual return shape, not a
+field registry.
 
 `clients/mcp_server.py` gained a `garmin_config` import in Teilbauauftrag
 (c) (`MCP_ENABLED`/`MCP_LLM_BACKEND`/`MCP_LLM_CONFIG_FILE` checks in
