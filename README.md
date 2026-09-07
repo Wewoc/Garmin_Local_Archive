@@ -50,7 +50,7 @@ Standard version: install dependencies first — `pip install -r requirements.tx
 - **Feedback welcome:** If something feels off — logic, structure, results — open an issue.
 
 **Scope & limitations:** Local-first, personal use, no enterprise ambitions.
-- Relies on Garmin's unofficial API — may change without notice. Structural changes are detected and logged automatically (v1.3.4)
+- Relies on python-garminconnect. Since Garmin does not offer a public API for personal use, moste non-commercial tools share this dependency. To mitigate unannounced upstream changes, GLA automatically detects and logs structural API shifts.
 - Local test suites cover the full pipeline plus a separate build-output validation suite — no automated build/test CI yet; CodeQL security scanning runs via GitHub Actions on every push/PR to main
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Per-day checkpointing: an interrupted sync resumes from the last completed day, no full re-sync required

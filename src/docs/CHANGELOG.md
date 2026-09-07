@@ -1,5 +1,114 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.10 — Docstring Fixes, Dead Config Cleanup, Test Helper Consolidation
+
+**New modules:** none.
+
+**Changed modules — Teil 1 (Docstrings/Kommentare, keine Verhaltenslogik):**
+- `garmin/garmin_config.py` — docstring precision fix: "no business
+  logic" now unambiguously refers to the module itself (not import
+  freedom), "no module reads os.environ directly" unambiguously refers
+  to other modules.
+- `maps/health_map.py` — stale `garmin_map` → `garmin_health_map`
+  reference in the module docstring (rename from `v1.6.7` not
+  previously carried through); `resolution="live"` documented in
+  `get()`'s docstring.
+- `maps/context_map.py` — `airquality` entry added to the module
+  docstring's return-shape example (previously undocumented despite
+  being a registered source since `v1.7.0.x`).
+- `garmin/garmin_quality.py` — removed `update_device_rank_config` from
+  the facade docstring's responsibilities list and sub-module overview
+  (function no longer exists in the code), replaced with the actually
+  re-exported functions (`set_unknown_device_name`,
+  `save_device_table`).
+- `app/panel_archive.py` — added an `INTENTIONAL DIRECT READ` comment
+  at the `device_table.json` read site in `_refresh_archive_info()`,
+  referencing `tmp.replace()` atomicity and
+  `REFERENCE_GARMIN.md § Documented Exceptions` — matching the existing
+  convention already used at all `quality_log.json` direct-read sites
+  project-wide, which this specific read site had lacked.
+- `layouts/garmin_mobile_landing.py` — identical `INTENTIONAL DIRECT
+  READ` comment addition at the `device_table.json` read site in
+  `write_index_html()`.
+- `maps/garmin_health_map.py` — `resolution="live"` documented in
+  `get()`'s docstring (`date_from`/`date_to` ignored when `live`),
+  cross-referencing `health_map.get()` as the sync partner.
+
+**Changed modules — Session 2 (small, self-contained code fixes):**
+- `context/context_collector.py` — removed a redundant local re-import
+  of `date`/`timedelta` under alias (`_date`, `_td`) inside the nested
+  segment/plugin loop in `run()`. The module-level import already
+  covers this scope; the aliased re-import served no purpose (no name
+  collision existed).
+- `tests/support.py` — added `skip(name, reason)` alongside the
+  existing `check()`/`section()`, with its own `_skip` module-level
+  counter; `summary()` now prints an optional `(N skipped)` suffix when
+  `_skip > 0`.
+- `tests/test_build_output.py` — replaced its own duplicated
+  `check()`/`section()`/`skip()` definitions and local state
+  (`_pass`, `_fail`, `_skip`, `_failures`) with
+  `from support import check, skip, section, summary`; its own
+  end-of-run summary block replaced by a single `summary()` call.
+  Added a `sys.path` entry for its own directory so the import
+  resolves regardless of invocation context (direct script run vs.
+  pytest from project root). Root cause: the file previously counted
+  against local variables that a shared `check()` import would have
+  silently bypassed — verified working via a full Target-2/Target-3
+  build run, see below.
+- `garmin_app_base.py` — `closeEvent()`'s daemon-thread join loop now
+  uses a shared 2.0s time budget (`time.monotonic()`-based deadline,
+  decremented per thread) instead of a fixed `timeout=2.0` per thread,
+  preventing the worst-case wait from stacking across multiple
+  still-running daemon threads at shutdown. Added `import time`.
+- `dashboards/dash_runner.py` — removed two dead `plotter_map` registry
+  entries (`"pdf": "dash_plotter_pdf"`, `"word": "dash_plotter_word"`)
+  referencing plotter modules that do not exist in the project.
+  `_load_plotters()`'s existing `mod_path.exists()` guard already
+  skipped them silently — functionally a no-op removal, purely
+  cleaning up dead configuration.
+
+**Not implemented (with reasoning):**
+- M9 (`sleep_score` real but not listed in `REFERENCE_BROKER.md`) —
+  finding already closed by `v1.7.1.6`; `REFERENCE_BROKER.md` and
+  `REFERENCE_GARMIN.md` both already document `sleep_score`,
+  `sleep_score_feedback`, `sleep_score_qualifier` with explicit closure
+  notes predating this session.
+- K4 (comment in `app/panel_connection.py` allegedly claiming
+  delegation while the code duplicates instead) — full-file review
+  found no such contradiction. The flagged comment (`_conn_indicators`
+  ownership note) accurately describes `_set_indicator()`'s real
+  behavior, and `_run_connection_test()` genuinely delegates to
+  `garmin_app_controller.check_connection()`. Finding predates this
+  session and no longer applies — same pattern as M9 above.
+- K14 (`AGGREGATION` vs. `AGGREGATION_MAP` naming inconsistency across
+  the four context plugins) — analysis found this is not a naming
+  issue but three genuinely different aggregation needs
+  (`weather_plugin`: none, API already daily; `pollen_plugin`: single
+  rule for all fields; `brightsky_plugin`: per-field rules;
+  `airquality_plugin`: has both simultaneously, reason unclear).
+  Deferred to `v1.7.1.11`, which will restructure this area as part of
+  a larger context-intraday feature (retaining hourly source values
+  for charting instead of only the aggregated daily value) — a
+  standalone K14 fix would likely be redone by that restructuring.
+
+**Verified:** Part 1 — all 8 core test suites green, 2067/2067 checks
+(2026-09-06 19:51–19:52), ruff 0 errors, bandit 0 HIGH findings,
+regression guard exactly at baseline — no surprises expected for
+docstring/comment-only changes. Session 2 — all 8 core test suites
+green again, 2067/2067 checks, ruff 0 errors, bandit 0 HIGH findings,
+regression guard exactly at baseline. `test_build_output.py` is not
+part of the 8-suite run (standalone script, requires a completed
+build) — separately verified via a full Target-2 + Target-3 build run:
+the "Post-build: running output validation" section
+(= `test_build_output.py`) completed 812/812 checks, 0 failed, printed
+in `support.summary()`'s format rather than the file's old inline
+format — confirming the import path,
+`check()`/`skip()`/`section()`/`summary()` delegation, and exit-code
+path all work correctly (the build would have stopped at `sys.exit(1)`
+had `_fail` been nonzero; it continued through to the CVE whitelist
+check instead). App-logic tests (169/169) and the standalone
+self-test also green in the same run.
+
 ## v1.7.1.9 — query_health Feldnamen-Fallback + Kurzform-Alias-Mapping
 
 `query_health`'s `v1.7.1.1`/`v1.7.1.6` fixes left the same downstream

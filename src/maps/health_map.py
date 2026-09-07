@@ -10,7 +10,7 @@ Single entry point for all local archive data requests from specialists.
 Routing layer only — knows which *_map.py modules are registered,
 but knows nothing about how any source stores its data.
 
-In v1.4: only garmin_map is registered.
+In v1.4: only garmin_health_map is registered (renamed from garmin_map in v1.6.7).
 Interface is designed to accept a second source in v2.0 without modification.
 
 Usage (from a specialist):
@@ -60,8 +60,11 @@ def get(field: str, date_from: str, date_to: str,
         field:      Generic field name (dashboard-side).
         date_from:  Start date ISO string (YYYY-MM-DD), inclusive.
         date_to:    End date ISO string (YYYY-MM-DD), inclusive.
-        resolution: "daily" or "intraday". Each source applies its own
-                    fallback logic if the requested resolution is unavailable.
+        resolution: "daily", "intraday", or "live" (garmin source only).
+                    Each source applies its own fallback logic if the
+                    requested resolution is unavailable — "live" bypasses
+                    fallback entirely, see garmin_health_map.get() for the
+                    full rationale.
 
     Returns:
         Dict keyed by source name. Each value is the result from that
