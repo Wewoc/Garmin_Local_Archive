@@ -67,6 +67,12 @@ def write_index_html(base_dir: Path | None = None) -> bool:
             return False
 
         # ── Read device_table ─────────────────────────────────────────────────
+        # INTENTIONAL DIRECT READ — read-only, no QUALITY_LOCK required (see
+        # module docstring above). device_table.json is written atomically
+        # via tmp.replace() in garmin/quality/_io.py::save_device_table(),
+        # so this read always sees either the old or the new complete file,
+        # never a partial write. Documented exception: see
+        # REFERENCE_GARMIN.md § Documented Exceptions.
         device_table = []
         if dt_path.exists():
             try:

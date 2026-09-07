@@ -11,10 +11,12 @@ Reads all GARMIN_* environment variables, sets defaults, and derives paths.
 No business logic. A small number of narrowly-scoped parsing helpers exist
 where the same fallback shape is needed in multiple places below (see
 _read_mcp_server_config(), _parse_extra_hosts()) — deliberate, documented
-exceptions, not a precedent for broader logic in this file. One
-project-internal import exists: garmin_utils, used only for SYNC_DATES
-(_utils.parse_sync_dates()).
-All other modules import this module — no module reads os.environ directly.
+exceptions, not a precedent for broader logic in this file. This module
+itself imports one project-internal helper, garmin_utils, used only for
+SYNC_DATES (_utils.parse_sync_dates()) — the "no business logic" claim
+above refers to this file's own code, not to whether it has any imports.
+All other modules import this module for their own config needs — no
+module besides this one reads os.environ directly.
 
 Standalone note: _apply_env() in garmin_app_standalone.py sets os.environ
 before _run_module() loads garmin_collector.py. garmin_collector.py imports
