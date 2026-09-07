@@ -15,17 +15,18 @@ Responsibilities:
   - Determine and persist first_day
   - Scan raw/ for newly discovered failed quality files
   - Clean archive before first_day (dry run + delete)
-  - Manage device_rank_config (v1.5.7)
+  - Manage device names on quality_log entries (set_unknown_device_name)
+    and the derived device_table.json (save_device_table)
 
 All other modules receive quality data as a plain dict parameter — they
 never read or write quality_log.json directly.
 
 Implementation is split across garmin/quality/ sub-modules:
-  _io.py     — Load, Save, Checksum, Defective log
+  _io.py     — Load, Save, Checksum, Defective log, save_device_table
   _assess.py — assess_quality (high/standard/failed), assess_quality_fields
   _scan.py   — get_low_quality_dates, _backfill_quality_log
   _maint.py  — QUALITY_RANK, _upsert_quality, _set_first_day,
-               cleanup_before_first_day, update_device_rank_config
+               cleanup_before_first_day, set_unknown_device_name
   _stats.py  — get_archive_stats
 
 This facade re-exports all public symbols — callers remain unchanged.

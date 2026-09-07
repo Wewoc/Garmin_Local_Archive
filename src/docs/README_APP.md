@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.1.9
+# Garmin Local Archive — Desktop App v1.7.1.10
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -315,3 +315,22 @@ In Open WebUI: **Settings → Connections → MCP Servers → Add Connection**.
 Save the connection, then enable it in a chat via the tools/connectors picker.
 
 **Claude Desktop** and other MCP clients connect the same server differently — usually via a JSON config file (`mcpServers` entry) rather than an in-app dialog. Check the client's own MCP documentation for the exact syntax; the server URL and port above stay the same regardless of client.
+
+### Which Ollama model works well with the MCP Server?
+
+MCP tool-calling puts different demands on a model than the built-in
+chat — the model must reliably fill required tool arguments (e.g.
+`date_from`/`date_to`) and pick the right field name. Based on an
+internal test (390 tool calls across 5 local models, v1.7.1.9):
+
+| Model | Tool-calling reliability | Notes |
+|---|---|---|
+| `qwen3:14b` | High | Most reliable field/argument handling, but noticeably slower per reply |
+| `qwen2.5-coder:7b` | High | Best balance of reliability and speed — good default choice |
+| `qwen2.5-coder:14b` | Good | Solid, but no clear advantage over the 7b variant for this use case |
+| `mistral-nemo` | Low | Frequently calls the wrong tool or none at all |
+| `hermes3` | Low | Often omits required arguments (e.g. `date_to`), despite fast replies |
+
+Rough guide, not a guarantee — results depend on the exact question
+phrasing and may shift with future Ollama/model versions. Test tool and
+methodology: [mcp-llm-tester](https://github.com/Wewoc/GLA-NeedfulThings/tree/main/mcp-llm-tester).

@@ -30,34 +30,10 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "compiler"))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import build_manifest as manifest
-
-# ── Results tracking ───────────────────────────────────────────────────────────
-_pass = 0
-_fail = 0
-_skip = 0
-_failures = []
-
-def check(name, condition):
-    global _pass, _fail
-    if condition:
-        _pass += 1
-        print(f"  ✓  {name}")
-    else:
-        _fail += 1
-        _failures.append(name)
-        print(f"  ✗  {name}")
-
-def skip(name, reason):
-    global _skip
-    _skip += 1
-    print(f"  –  {name}  (skipped: {reason})")
-
-def section(title):
-    print(f"\n{'─' * 55}")
-    print(f"  {title}")
-    print(f"{'─' * 55}")
+from support import check, skip, section, summary
 
 # ── Build root ─────────────────────────────────────────────────────────────────
 # Both build targets write output to the project root (--distpath = root)
@@ -339,18 +315,4 @@ check("embed: keine Duplikate in EMBEDDED_SCRIPTS",
       len(manifest.EMBEDDED_SCRIPTS) == len(set(manifest.EMBEDDED_SCRIPTS)))
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-total = _pass + _fail
-print(f"\n{'═' * 55}")
-print(f"  Result: {_pass}/{total} checks passed", end="")
-if _skip:
-    print(f"  ({_skip} skipped — build required)", end="")
-if _fail:
-    print(f"  ({_fail} failed)")
-    print("\n  Failed checks:")
-    for f in _failures:
-        print(f"    ✗  {f}")
-else:
-    print("  ✓")
-print(f"{'═' * 55}")
-
-sys.exit(0 if _fail == 0 else 1)
+summary()

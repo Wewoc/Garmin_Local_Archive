@@ -39,6 +39,12 @@ Return structure:
             "fallback":          bool,
             "source_resolution": str,
             "error":             str,   # optional — only present if source failed
+        },
+        "airquality": {
+            "values":            [{"date": str, "value": float|None}, ...],
+            "fallback":          bool,
+            "source_resolution": str,
+            "error":             str,   # optional — only present if source failed
         }
     }
 

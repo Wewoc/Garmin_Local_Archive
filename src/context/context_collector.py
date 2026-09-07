@@ -290,9 +290,8 @@ def run(settings: dict = None, stop_event=None,
                     continue
 
             # Skip dates already written
-            from datetime import date as _date, timedelta as _td
-            d   = _date.fromisoformat(seg_from)
-            end = _date.fromisoformat(seg_to)
+            d   = date.fromisoformat(seg_from)
+            end = date.fromisoformat(seg_to)
             skip  = set()
             fetch_from = None
             while d <= end:
@@ -301,7 +300,7 @@ def run(settings: dict = None, stop_event=None,
                     skip.add(ds)
                 elif fetch_from is None:
                     fetch_from = ds
-                d += _td(days=1)
+                d += timedelta(days=1)
 
             results[name]["skipped"] += len(skip)
 

@@ -71,7 +71,15 @@ class PanelArchive(QWidget):
                 return
 
             counts       = {"failed": stats.get("failed", 0)}
-            # device_table — read directly from device_table.json (written by collector)
+            # INTENTIONAL DIRECT READ — read-only analytical fast-path,
+            # same rationale as the quality_log.json direct reads elsewhere
+            # in this file (see _check_failed_days_popup() above). No
+            # mutation, no ownership transfer, no QUALITY_LOCK required —
+            # device_table.json is written atomically via tmp.replace() in
+            # garmin/quality/_io.py::save_device_table(), so a reader here
+            # always sees either the old or the new complete file, never a
+            # partial write. Documented exception: see REFERENCE_GARMIN.md
+            # § Documented Exceptions.
             _dt_path = base_dir / "garmin_data" / "log" / "device_table.json"
             try:
                 device_table = json.loads(_dt_path.read_text(encoding="utf-8")) if _dt_path.exists() else []

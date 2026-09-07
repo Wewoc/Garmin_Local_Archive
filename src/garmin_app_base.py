@@ -27,6 +27,7 @@ v1.5.4 — PyQt6 migration
 """
 
 import threading
+import time
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -837,14 +838,20 @@ class GarminApp(QMainWindow):
     # ── Close ──────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event):
-        """D-9: set all stop events, join threads with timeout, save settings."""
+        """D-9: set all stop events, join threads with shared timeout budget, save settings."""
         self._timer_generation += 1
         self._timer_stop.set()
         self._context_stop_event.set()
 
+        # Shared 2.0s budget across all daemon threads instead of up to
+        # 2.0s per thread — avoids stacking timeouts when several threads
+        # are still running at shutdown (K5, v1.7.1.10).
+        _deadline = time.monotonic() + 2.0
         for t in threading.enumerate():
             if t.daemon and t != threading.main_thread():
-                t.join(timeout=2.0)
+                _remaining = _deadline - time.monotonic()
+                if _remaining > 0:
+                    t.join(timeout=_remaining)
 
         try:
             # Guard: widgets may already be deleted during pytest-qt teardown.

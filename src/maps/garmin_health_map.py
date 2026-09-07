@@ -702,13 +702,16 @@ def get(field: str, date_from: str, date_to: str,
 
     Args:
         field:       Generic field name (dashboard-side). Must exist in _FIELD_MAP.
-        date_from:   Start date ISO string (YYYY-MM-DD), inclusive.
-        date_to:     End date ISO string (YYYY-MM-DD), inclusive.
+        date_from:   Start date ISO string (YYYY-MM-DD), inclusive. Ignored
+                     when resolution="live".
+        date_to:     End date ISO string (YYYY-MM-DD), inclusive. Ignored
+                     when resolution="live".
         resolution:  "daily", "intraday", or "live". Fallback applied if
                      requested "daily"/"intraday" resolution is unavailable
                      for this field. "live" bypasses fallback entirely —
                      single always-current snapshot, no archive equivalent
-                     to swap to.
+                     to swap to. See health_map.get()'s own docstring for
+                     the same parameter, kept in sync with this one.
 
     Returns:
         {

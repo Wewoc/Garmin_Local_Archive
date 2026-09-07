@@ -19,6 +19,7 @@ import sys
 # ── State ──────────────────────────────────────────────────────────────────────
 _pass     = 0
 _fail     = 0
+_skip     = 0
 _failures = []
 
 
@@ -36,6 +37,13 @@ def check(name: str, condition: bool) -> None:
         print(f"  ✗  {name}")
 
 
+def skip(name: str, reason: str) -> None:
+    """Record a skipped test result and print it immediately."""
+    global _skip
+    _skip += 1
+    print(f"  –  {name}  (skipped: {reason})")
+
+
 def section(title: str) -> None:
     """Print a section header."""
     print(f"\n{'─' * 55}")
@@ -47,7 +55,10 @@ def summary() -> None:
     """Print final results and exit with appropriate code."""
     total = _pass + _fail
     print(f"\n{'═' * 55}")
-    print(f"  {total} checks — {_pass} passed, {_fail} failed")
+    print(f"  {total} checks — {_pass} passed, {_fail} failed", end="")
+    if _skip:
+        print(f"  ({_skip} skipped)", end="")
+    print()
     if _failures:
         print("\n  Failed:")
         for name in _failures:

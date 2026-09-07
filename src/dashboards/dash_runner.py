@@ -53,8 +53,6 @@ def _load_plotters() -> dict:
         "html_mobile":  "dash_plotter_html_mobile",
         "excel":        "dash_plotter_excel",
         "json":         "dash_plotter_json",
-        "pdf":          "dash_plotter_pdf",
-        "word":         "dash_plotter_word",
     }
 
     for fmt, module_name in plotter_map.items():
