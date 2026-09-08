@@ -3,23 +3,23 @@
 
 # METRICS
 
-Generated: 2026-09-07 06:41 UTC · Version: 1.7.1.10
+Generated: 2026-09-08 07:48 UTC · Version: 1.7.1.11
 
 ## Test Counts
 
 | Suite | Checks | Passed | Failed |
 |---|---|---|---|
 | test_local.py | 780 | 780 | 0 |
-| test_local_context.py | 265 | 265 | 0 |
+| test_local_context.py | 299 | 299 | 0 |
 | test_dashboard.py | 465 | 465 | 0 |
 | test_broker.py | 136 | 136 | 0 |
-| test_mcp.py | 156 | 156 | 0 |
+| test_mcp.py | 168 | 168 | 0 |
 | test_app_logic.py | 169 | 169 | 0 |
 | test_qt_app.py | 80 | 80 | 0 |
 | test_static.py | 16 | 16 | 0 |
-| **Total** | **2067** | **2067** | **0** |
+| **Total** | **2113** | **2113** | **0** |
 
 ## Modules
 
-Total: 112 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 113 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 

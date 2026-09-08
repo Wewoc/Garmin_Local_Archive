@@ -52,7 +52,10 @@ API_FIELDS = [
 # ── Storage ────────────────────────────────────────────────────────────────────
 
 # Output directory — sole write target for this plugin
-OUTPUT_DIR  = cfg.CONTEXT_WEATHER_DIR
+# v1.7.1.11 — renamed from CONTEXT_WEATHER_DIR. weather has no raw/
+# variant (Open-Meteo Weather never delivers intraday data) — no
+# RAW_OUTPUT_DIR here, unlike the three hourly-source plugins.
+OUTPUT_DIR  = cfg.CONTEXT_WEATHER_SUMMARY_DIR
 
 # File naming: FILE_PREFIX + YYYY-MM-DD + .json
 FILE_PREFIX = "weather_"

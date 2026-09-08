@@ -101,7 +101,13 @@ AGGREGATION_MAP = {
 # ── Storage ────────────────────────────────────────────────────────────────────
 
 # Output directory — sole write target for this plugin
-OUTPUT_DIR  = cfg.CONTEXT_BRIGHTSKY_DIR
+# v1.7.1.11 — renamed from CONTEXT_BRIGHTSKY_DIR (now points at summary/).
+OUTPUT_DIR  = cfg.CONTEXT_BRIGHTSKY_SUMMARY_DIR
+
+# Raw hourly-values output directory (v1.7.1.11) — one flat JSON array
+# per field per day, timestamped entries. Read via _series field names
+# in maps/brightsky_map.py.
+RAW_OUTPUT_DIR = cfg.CONTEXT_BRIGHTSKY_RAW_DIR
 
 # File naming: FILE_PREFIX + YYYY-MM-DD + .json
 FILE_PREFIX = "brightsky_"

@@ -69,7 +69,7 @@ Garmin Connect is still required — the app pulls data from there via API.
 
 I wanted to ask an AI questions about my health data without sending that data to another cloud service. So I built a local alternative instead.
 
-There's a second reason that matters more over time: Garmin silently degrades intraday data resolution. Empirical analysis of archive data (April 2026) shows the threshold at approximately 135 days. Once full resolution is lost, it's gone permanently. This tool exists to capture it while it's still available.
+There's a second reason that matters more over time: Garmin silently degrades intraday data resolution. Empirical analysis of archive data (April–June 2026) shows the threshold at approximately 120–135 days, and appears to trend lower over time. Once full resolution is lost, it's gone permanently. This tool exists to capture it while it's still available.
 
 What "intraday resolution" actually means in practice:
 
@@ -81,7 +81,7 @@ What "intraday resolution" actually means in practice:
 | SpO2 | ~1 hour | up to 24 |
 | Respiration | variable | variable |
 
-After ~135 days, Garmin stops serving this data entirely. The daily summary (resting HR, average stress, etc.) remains — but the curves, the detail, the full timeline: gone. GLA captures it while it's still there.
+After ~120 days, Garmin stops serving this data entirely. The daily summary (resting HR, average stress, etc.) remains — but the curves, the detail, the full timeline: gone. GLA captures it while it's still there.
 
 *→ For the full story, see [MINDSET.md](src/docs/MINDSET.md).*
 
@@ -231,7 +231,7 @@ The project is structured into five focused layers — Garmin pipeline, Context 
 
 The diagram above shows how the layers connect. Each module is self-contained and designed to be extended — for a script-by-script reference (what each module does, owns, and how to add new ones), see [`docs/MAINTENANCE_GLOBAL.md`](src/docs/MAINTENANCE_GLOBAL.md).
 
-The desktop app includes a **Background Timer** — once started, it automatically repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~135 days), fills missing days, keeps a raw API-response backup current, and retroactively adds newly supported data fields (like step count) to already-archived days, with no further manual steps in between. The timer must be started manually and only runs while the app is open — it does not resume automatically after a restart.
+The desktop app includes a **Background Timer** — once started, it automatically repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~120 days), fills missing days, keeps a raw API-response backup current, and retroactively adds newly supported data fields (like step count) to already-archived days, with no further manual steps in between. The timer must be started manually and only runs while the app is open — it does not resume automatically after a restart.
 
 Data is stored in two root folders:
 

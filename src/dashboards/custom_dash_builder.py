@@ -69,9 +69,14 @@ def list_available_fields() -> dict:
         f for f in garmin_list_fields(active_only=True)
         if not f.endswith(_SERIES_SUFFIX) and f not in _EXCLUDE_FROM_DAILY
     ]
+    # v1.7.1.11 — same _series exclusion as garmin_fields above, now also
+    # needed on the context side (see explorer_garmin-context_html_dash.py's
+    # matching fix — this function is a manually-synced copy of that one).
     context_fields = []
     for src in _CONTEXT_SOURCES:
-        context_fields.extend(context_list_fields(src))
+        context_fields.extend(
+            f for f in context_list_fields(src) if not f.endswith(_SERIES_SUFFIX)
+        )
 
     return {"garmin": garmin_fields, "context": context_fields}
 

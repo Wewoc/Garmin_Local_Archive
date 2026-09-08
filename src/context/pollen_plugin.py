@@ -51,7 +51,13 @@ API_FIELDS = [
 # ── Storage ────────────────────────────────────────────────────────────────────
 
 # Output directory — sole write target for this plugin
-OUTPUT_DIR  = cfg.CONTEXT_POLLEN_DIR
+# v1.7.1.11 — renamed from CONTEXT_POLLEN_DIR (now points at summary/).
+OUTPUT_DIR  = cfg.CONTEXT_POLLEN_SUMMARY_DIR
+
+# Raw hourly-values output directory (v1.7.1.11) — one flat JSON array
+# per field per day, timestamped entries. Read via _series field names
+# in maps/pollen_map.py.
+RAW_OUTPUT_DIR = cfg.CONTEXT_POLLEN_RAW_DIR
 
 # File naming: FILE_PREFIX + YYYY-MM-DD + .json
 FILE_PREFIX = "pollen_"

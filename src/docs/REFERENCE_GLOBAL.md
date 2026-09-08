@@ -76,10 +76,13 @@ All modules import via `import garmin_config as cfg`.
 | `CAPABILITY_CONFIG_FILE` | `LOG_DIR/garmin_api_capability_config.json` | API-Capability-Scan config — sole owner: `garmin_api_capability.py` (v1.6.8) |
 | `CRASH_LOG_DIR` *(documented exception)* | `%LOCALAPPDATA%\GarminLocalArchive\crash\` → `%TEMP%` → cwd fallback chain | Global crash logs — sole owner: `crash_handler.py` (v1.6.0.4.3). **Deliberately not under `BASE_DIR`**: the crash may itself be caused by `BASE_DIR` being unwritable or unreachable, so the crash logger cannot depend on it. Rotation: `CRASH_LOG_MAX = 30`, analogous to `LOG_RECENT_MAX`/`LOG_DAILY_MAX`. |
 | `CONTEXT_DIR` | `BASE_DIR/context_data` | External API data root |
-| `CONTEXT_WEATHER_DIR` | `CONTEXT_DIR/weather/raw` | Archived weather files |
-| `CONTEXT_POLLEN_DIR` | `CONTEXT_DIR/pollen/raw` | Archived pollen files |
-| `CONTEXT_BRIGHTSKY_DIR` | `CONTEXT_DIR/brightsky/raw` | Archived Brightsky DWD files |
-| `CONTEXT_AIRQUALITY_DIR` | `CONTEXT_DIR/airquality/raw` | Archived air quality files |
+| `CONTEXT_WEATHER_SUMMARY_DIR` | `CONTEXT_DIR/weather/summary` | Archived weather files (daily, no raw/ — Open-Meteo Weather has no intraday resolution) |
+| `CONTEXT_POLLEN_SUMMARY_DIR` | `CONTEXT_DIR/pollen/summary` | Archived pollen files, daily aggregate (v1.7.1.11 — renamed from `CONTEXT_POLLEN_DIR`) |
+| `CONTEXT_POLLEN_RAW_DIR` | `CONTEXT_DIR/pollen/raw` | Archived pollen files, hourly/timestamped (v1.7.1.11) |
+| `CONTEXT_BRIGHTSKY_SUMMARY_DIR` | `CONTEXT_DIR/brightsky/summary` | Archived Brightsky DWD files, daily aggregate (v1.7.1.11 — renamed from `CONTEXT_BRIGHTSKY_DIR`) |
+| `CONTEXT_BRIGHTSKY_RAW_DIR` | `CONTEXT_DIR/brightsky/raw` | Archived Brightsky DWD files, hourly/timestamped (v1.7.1.11) |
+| `CONTEXT_AIRQUALITY_SUMMARY_DIR` | `CONTEXT_DIR/airquality/summary` | Archived air quality files, daily aggregate (v1.7.1.11 — renamed from `CONTEXT_AIRQUALITY_DIR`) |
+| `CONTEXT_AIRQUALITY_RAW_DIR` | `CONTEXT_DIR/airquality/raw` | Archived air quality files, hourly/timestamped (v1.7.1.11) |
 | `LOCAL_CONFIG_FILE` | `BASE_DIR/local_config.csv` | User location config for context collect |
 | `MCP_LLM_CONFIG_FILE` | `~/.garmin_mcp_llm_config.json` | Plaintext cloud LLM credentials (`provider`/`api_key`/`model`) for `MCP_LLM_BACKEND="cloud"` — missing/incomplete = cloud backend unavailable, not an error (v1.7 Teilbauauftrag c) |
 | `MCP_SERVER_CONFIG_FILE` | `~/.garmin_mcp_server_config.json` | Six fields (v1.7.0.2 added the last two — see `MCP_EXTRA_ALLOWED_HOSTS_ENABLED` below): `mcp_llm_backend`, `base_dir`, `mcp_http_port`, `mcp_headless`, `mcp_extra_hosts_enabled`, `mcp_extra_hosts` — enables `clients/mcp_server.py` to run fully standalone, without a GLA installation (v1.7 Teilbauauftrag f). `mcp_http_port` replaced the earlier `mcp_ollama_model` field in v1.7.0.1 (Ollama model selection removed — see `MCP_OLLAMA_MODEL` entry below); `mcp_headless` is new, not a replacement — see `MCP_HEADLESS` entry below. A field named `mcp_enabled` existed through Teil (f) but was removed in Teil (g) — the "Enable MCP server" checkbox it backed had no functional effect once `main()` stopped gating on it (Teil f), and the Teil (g) "Start MCP Server" button made the whole on/off concept moot; not to be confused with `mcp_headless`, a different, still-live field despite the naming similarity. Old files on disk may still carry a stale `mcp_enabled` key — harmless, simply ignored. Two documented writers (deliberate Sole-Write-Authority exception — mutually exclusive operating modes, never run concurrently against the file): `app/panel_mcp.py::_mcp_save_server_config()` (mirrors GLA's live values on every MCP settings save) and `clients/mcp_server_gui.py` (direct standalone-window input, merge-on-write). |
@@ -466,11 +469,23 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 │
 ├── context_data/                ← External API data (v1.4+)
 │   ├── weather/
-│   │   └── raw/
+│   │   └── summary/                 ← daily aggregate — weather has no raw/ (no intraday API data)
 │   │       └── weather_YYYY-MM-DD.json
-│   └── pollen/
-│       └── raw/
-│           └── pollen_YYYY-MM-DD.json
+│   ├── pollen/
+│   │   ├── summary/                 ← daily aggregate (v1.7.1.11 — renamed from raw/)
+│   │   │   └── pollen_YYYY-MM-DD.json
+│   │   └── raw/                     ← hourly, timestamped (v1.7.1.11)
+│   │       └── pollen_YYYY-MM-DD.json
+│   ├── brightsky/
+│   │   ├── summary/                 ← daily aggregate (v1.7.1.11 — renamed from raw/)
+│   │   │   └── brightsky_YYYY-MM-DD.json
+│   │   └── raw/                     ← hourly, timestamped (v1.7.1.11)
+│   │       └── brightsky_YYYY-MM-DD.json
+│   └── airquality/
+│       ├── summary/                 ← daily aggregate (v1.7.1.11 — renamed from raw/)
+│       │   └── airquality_YYYY-MM-DD.json
+│       └── raw/                     ← hourly, timestamped (v1.7.1.11)
+│           └── airquality_YYYY-MM-DD.json
 │
 └── sqlite/                      ← SQLite aggregation-proxy cache (v1.7.1)
     └── mcp_cache.db                 ← derived, reconstructible from the archive —

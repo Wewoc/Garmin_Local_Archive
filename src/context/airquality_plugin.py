@@ -56,7 +56,14 @@ AGGREGATION_MAP = {
 
 # ── Storage ────────────────────────────────────────────────────────────────────
 
-OUTPUT_DIR  = cfg.CONTEXT_AIRQUALITY_DIR
+# v1.7.1.11 — renamed from CONTEXT_AIRQUALITY_DIR (now points at summary/).
+OUTPUT_DIR  = cfg.CONTEXT_AIRQUALITY_SUMMARY_DIR
+
+# Raw hourly-values output directory (v1.7.1.11) — one flat JSON array
+# per field per day, timestamped entries. Read via _series field names
+# in maps/airquality_map.py.
+RAW_OUTPUT_DIR = cfg.CONTEXT_AIRQUALITY_RAW_DIR
+
 FILE_PREFIX = "airquality_"
 SOURCE_TAG  = "open-meteo-airquality"
 AGGREGATION = "daily_mean"

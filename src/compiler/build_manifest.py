@@ -101,6 +101,8 @@ SHARED_SCRIPTS = [
     "maps/airquality_map.py",
     "maps/metadata_map.py",
     "maps/mcp_map.py",
+    "maps/_context_io.py",   # v1.7.1.11 — shared summary/raw read helpers
+                              # for the four *_map.py resolvers above
     # context pipeline
     "context/__init__.py",
     "context/context_collector.py",

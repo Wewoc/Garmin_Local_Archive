@@ -326,7 +326,7 @@ caller interprets them.
 | `uv_index_max` | index | Daily maximum UV index |
 | `sunshine_duration` | seconds | Daily sunshine duration |
 
-**`context_map` → `pollen`** (6 fields)
+**`context_map` → `pollen`** (12 fields — 6 daily + 6 `_series`, v1.7.1.11)
 
 | Field | Value | Description |
 |---|---|---|
@@ -336,8 +336,14 @@ caller interprets them.
 | `pollen_mugwort` | grains/m³ | Daily max mugwort pollen concentration |
 | `pollen_olive` | grains/m³ | Daily max olive pollen concentration |
 | `pollen_ragweed` | grains/m³ | Daily max ragweed pollen concentration |
+| `pollen_birch_series` | grains/m³ | Hourly birch pollen readings, timestamped (raw/, v1.7.1.11) |
+| `pollen_grass_series` | grains/m³ | Hourly grass pollen readings, timestamped (raw/, v1.7.1.11) |
+| `pollen_alder_series` | grains/m³ | Hourly alder pollen readings, timestamped (raw/, v1.7.1.11) |
+| `pollen_mugwort_series` | grains/m³ | Hourly mugwort pollen readings, timestamped (raw/, v1.7.1.11) |
+| `pollen_olive_series` | grains/m³ | Hourly olive pollen readings, timestamped (raw/, v1.7.1.11) |
+| `pollen_ragweed_series` | grains/m³ | Hourly ragweed pollen readings, timestamped (raw/, v1.7.1.11) |
 
-**`context_map` → `brightsky`** (9 fields)
+**`context_map` → `brightsky`** (18 fields — 9 daily + 9 `_series`, v1.7.1.11)
 
 | Field | Value | Description |
 |---|---|---|
@@ -350,8 +356,17 @@ caller interprets them.
 | `cloud_cover_avg` | % | Daily mean cloud cover |
 | `pressure_avg` | hPa | Daily mean sea-level pressure |
 | `condition` | text | Daily dominant weather condition (mode of hourly values) |
+| `temperature_avg_series` | °C | Hourly temperature readings, timestamped (raw/, v1.7.1.11) |
+| `humidity_avg_series` | % | Hourly relative humidity readings, timestamped (raw/, v1.7.1.11) |
+| `precipitation_sum_series` | mm | Hourly precipitation readings, timestamped (raw/, v1.7.1.11) |
+| `sunshine_sum_series` | min | Hourly sunshine readings, timestamped (raw/, v1.7.1.11) |
+| `wind_speed_max_series` | km/h | Hourly wind speed readings, timestamped (raw/, v1.7.1.11) |
+| `wind_gust_max_series` | km/h | Hourly wind gust readings, timestamped (raw/, v1.7.1.11) |
+| `cloud_cover_avg_series` | % | Hourly cloud cover readings, timestamped (raw/, v1.7.1.11) |
+| `pressure_avg_series` | hPa | Hourly pressure readings, timestamped (raw/, v1.7.1.11) |
+| `condition_series` | text | Hourly condition readings, timestamped (raw/, v1.7.1.11) |
 
-**`context_map` → `airquality`** (5 fields)
+**`context_map` → `airquality`** (10 fields — 5 daily + 5 `_series`, v1.7.1.11)
 
 | Field | Value | Description |
 |---|---|---|
@@ -360,6 +375,17 @@ caller interprets them.
 | `airquality_european_aqi` | index | Daily mean European Air Quality Index |
 | `airquality_nitrogen_dioxide` | μg/m³ | Daily mean nitrogen dioxide concentration |
 | `airquality_ozone` | μg/m³ | Daily mean ozone concentration |
+| `airquality_pm2_5_series` | μg/m³ | Hourly PM2.5 readings, timestamped (raw/, v1.7.1.11) |
+| `airquality_pm10_series` | μg/m³ | Hourly PM10 readings, timestamped (raw/, v1.7.1.11) |
+| `airquality_european_aqi_series` | index | Hourly European AQI readings, timestamped (raw/, v1.7.1.11) |
+| `airquality_nitrogen_dioxide_series` | μg/m³ | Hourly nitrogen dioxide readings, timestamped (raw/, v1.7.1.11) |
+| `airquality_ozone_series` | μg/m³ | Hourly ozone readings, timestamped (raw/, v1.7.1.11) |
+
+**`_series` fields, general note (v1.7.1.11):** each `_series` entry is an
+independently registered `_FIELD_MAP` line, not a resolution branch of its
+daily counterpart — see `REFERENCE_CONTEXT.md`'s "Fallback behaviour"
+section for the full read-path and `fallback` contract. `weather` has no
+`_series` variants — Open-Meteo Weather delivers no intraday data.
 
 **Naming collision, deliberate:** `weather` and `brightsky` both register a
 field called `wind_speed_max` — same generic name, independently defined in
@@ -872,6 +898,51 @@ validation/bundle logic, per the `v1.7.1.4` precedent. `clients/` still
 has no direct `maps.context_map` import — field names per source are
 obtained via `mcp_map.list_available_fields()`, the same broker-facing
 surface already used for the `v1.7.1.4` unknown-field registry lookup.
+
+**(v1.7.1.11)** Context-intraday raw/summary split (`pollen`/`brightsky`/
+`airquality` — see `REFERENCE_CONTEXT.md`) added one `<field>_series`
+entry per daily field to the context field registry. `_series` fields
+flow through the exact same sqlite/live routing weiche as any other
+context field — no field-name branching in front of `_route_query()`,
+same principle `query_health()`'s own `steps_series` already
+established: the field name itself (the `_series` suffix) is what
+tells a caller which shape to expect (a single daily value vs. a full
+timeseries), not a flag on the response. `clients/mcp_update.py::
+_sync_context_days()` syncs the full, unfiltered field list — daily
+and `_series` alike — into `mcp_context_days`, exactly like every other
+context field; `query_context()` in `clients/mcp_server.py` has no
+`_series`-specific branch left, direct-field and typo-resolution call
+sites both fall straight through to the same `_route_query("context")`
+switch every other field uses.
+
+`_resolve_context_bundle()` is the one deliberate exception: it skips
+any `source_field` ending in `"_series"` during collection — the
+bundle mechanism answers a daily-value source-collision question (e.g.
+`wind_speed_max`, weather vs. brightsky); at intraday resolution none
+of the three affected sources ever has more than one candidate for the
+same field, so the collision machinery has nothing to resolve. A
+`_series` field remains individually queryable via `query_context()`
+— never through a bundle name.
+
+`mcp_sql.py`'s own functions are unchanged — `get_context_range()`
+already handled the `{"date","value"}` vs. `{"date","series"}` shape
+difference correctly without modification: neither shape is
+interpreted there, only copied through per the field's own `"values"`
+list, with `"source_resolution"` ("daily"/"intraday") as the signal a
+caller uses to know which inner shape to expect. `mcp_sql.py` stays a
+pure, field-agnostic access layer per the `v1.7.1.4` precedent
+restated above.
+
+**Cache rebuild note:** `mcp_context_days` is purely derived (never a
+source of truth). Since `complete_sources`/`missing_sources` tracking
+in `_sync_context_days()` is per-source, not per-field, a day already
+marked complete under a pre-`v1.7.1.11` field list will not
+automatically pick up its source's new `_series` fields on the next
+incremental sync — the source is already "done" as far as that check
+is concerned. `mcp_cache.db` must be deleted once after upgrading to
+this version so the next full sync/boot-sync rebuilds every day's
+`complete_sources` state against the current, `_series`-inclusive
+field list.
 
 **(v1.7.1.6)** `query_health()`, `query_context()` (both its direct-field
 and its category-bundle path), and `list_available_fields()` gained an

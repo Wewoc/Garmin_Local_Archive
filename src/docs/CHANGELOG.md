@@ -1,5 +1,183 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.11 — Context-Pipeline Intraday: raw/summary Split + `_series` Fields
+
+Context data for the three hourly sources (pollen/brightsky/airquality)
+now preserves the raw hourly readings alongside the existing daily
+aggregate, instead of discarding them after aggregation. `context_data/`
+splits into `summary/` (daily aggregate — the pre-`v1.7.1.11` `raw/`
+meaning, relocated and renamed) and `raw/` (new — hourly, timestamped)
+per source. `weather` is unaffected — Open-Meteo Weather has no intraday
+resolution to preserve, so it keeps `summary/` only, no `raw/`. Each
+hourly source's `_FIELD_MAP` gains one `<field>_series` entry per daily
+field, additively — the existing daily field names and their read path
+are unchanged. A `_series` field has exactly one read path (`raw/`) —
+no daily/intraday fallback branch, `fallback` is always `False`.
+
+`_series` fields flow through the SQLite cache and the sqlite/live
+routing weiche exactly like any other context field — same principle
+`query_health()`'s own `steps_series` already uses: the field name
+itself (the `_series` suffix) tells the caller which shape to expect
+(a single daily value vs. a full timeseries), not a response flag.
+`_resolve_context_bundle()` is the one exception — it skips `_series`
+fields during bundle collection, since the bundle mechanism resolves
+daily-value source collisions (e.g. `wind_speed_max` weather-vs-brightsky)
+and none of the three affected sources ever has more than one intraday
+candidate for a field, so the collision machinery has nothing to
+resolve there. A `_series` field remains individually queryable via
+`query_context()` outside the bundle path.
+
+Migration is a one-time wipe-and-refetch per source, triggered by
+`context_collector.run()`: a source missing `summary/` (the new folder
+name) is treated as unmigrated, its entire folder tree is wiped, and
+the next sync repopulates both `summary/` and `raw/` from the API.
+Idempotent — an accidental second run on an already-migrated source is
+a no-op.
+
+**mcp_cache.db reset required:** `mcp_context_days` is a purely derived
+cache table (rebuildable from the archive, never a source of truth).
+After updating to this version, delete `mcp_cache.db` once and let the
+next sync/boot-sync rebuild it — this is what backfills `_series` data
+into the cache for all previously-synced days. Skipping this step
+leaves `_series` fields answering empty from the cache until the next
+manual/automatic full resync.
+
+**New modules:**
+- `maps/_context_io.py` — shared read helpers for the four context-side
+  field resolvers, replacing four independent `_read_field()`/
+  `_date_range()` copies (`weather_map.py`/`pollen_map.py`/
+  `brightsky_map.py`/`airquality_map.py`). `read_summary_field()` is
+  behaviour-identical to the old per-module `_read_field()`.
+  `read_raw_field()` is new — reads a day's `raw/` file and passes its
+  already-timestamped `{"ts": str, "value": ...}` entries straight
+  through into the broker's series return shape, no reconstruction.
+
+**Changed modules:**
+- `garmin/garmin_config.py` — `CONTEXT_WEATHER_DIR`/`CONTEXT_POLLEN_DIR`/
+  `CONTEXT_BRIGHTSKY_DIR`/`CONTEXT_AIRQUALITY_DIR` renamed to
+  `CONTEXT_*_SUMMARY_DIR`; new `CONTEXT_POLLEN_RAW_DIR`/
+  `CONTEXT_BRIGHTSKY_RAW_DIR`/`CONTEXT_AIRQUALITY_RAW_DIR`. No
+  `CONTEXT_WEATHER_RAW_DIR` — weather has no `raw/`.
+- `context/weather_plugin.py`/`pollen_plugin.py`/`brightsky_plugin.py`/
+  `airquality_plugin.py` — `OUTPUT_DIR` repointed to the new
+  `*_SUMMARY_DIR` constants. The three hourly plugins gain
+  `RAW_OUTPUT_DIR`; `weather_plugin.py` does not.
+- `context/context_api.py` — `_parse_hourly_to_daily_max()`/
+  `_parse_hourly_to_daily()`/`_parse_brightsky()` now return
+  `(summary, raw)` tuples instead of a bare summary dict — `raw` is the
+  same `by_date` intermediate these parsers already built before
+  reducing to the daily value, now returned instead of discarded, with
+  timestamps attached per entry rather than a fixed-length index list
+  (a missing/None hourly reading is simply absent from the list, so a
+  DST-short/-long day never misaligns an index-based hour lookup).
+  `fetch()`'s return shape changes accordingly:
+  `{"summary": {date: {field: value}}, "raw": {date: {field: [...]}}}`
+  — `"raw"` is always `{}` for `weather` (a daily plugin).
+- `context/context_writer.py` — `write()` accepts the new two-part
+  `data` shape, writes `raw/` alongside `summary/` for plugins that
+  declare `RAW_OUTPUT_DIR` (best-effort — a `raw/` write failure is
+  logged but does not affect the `written`/`failed` counts, which stay
+  scoped to `summary/` as before). `already_written()` is now a
+  two-stage check for those plugins: a day counts as written only if
+  both `summary/` and `raw/` files exist — without this, a day with
+  `summary/` but not yet `raw/` (e.g. right after the migration wipe)
+  would be silently skipped and `raw/` would never backfill.
+- `context/context_collector.py` — `run()`'s `OUTPUT_DIR` override
+  block updated for the renamed constants and new `RAW_OUTPUT_DIR`
+  overrides; new per-source migration wipe-check before the segment
+  loop (see migration note above). New `import shutil`.
+- `maps/weather_map.py`/`pollen_map.py`/`brightsky_map.py`/
+  `airquality_map.py` — local `_read_field()`/`_date_range()` removed,
+  replaced by imports from `maps/_context_io.py`. `pollen_map.py`/
+  `brightsky_map.py`/`airquality_map.py` additionally gain one
+  `<field>_series` entry per daily field in `_FIELD_MAP` and a
+  `field.endswith("_series")` dispatch in `get()`, routing to
+  `read_raw_field()`/`read_summary_field()` respectively.
+  `weather_map.py` is summary-only, no dispatch needed.
+- `clients/mcp_server.py` — `_resolve_context_bundle()` skips any
+  `_series` field during bundle collection (see architecture note
+  above). `query_context()` docstring states explicitly that
+  resolution is decided by the field name itself (`_series` suffix),
+  same principle as `query_health()`.
+- `clients/mcp_update.py` — `_sync_context_days()` syncs the full,
+  unfiltered field list (daily and `_series` alike) into
+  `mcp_context_days`, same as every other context field.
+- `dashboards/explorer_garmin-context_html_dash.py`/
+  `dashboards/custom_dash_builder.py` — both apply the same `_series`
+  exclusion to their context-field collection that `explorer_...`
+  already applied to Garmin fields (`_SERIES_SUFFIX`, pre-existing
+  constant, previously only used on the Garmin side). Without this,
+  `context_list_fields()`'s newly-doubled field lists (daily + series)
+  would have fed a `_series` field into a daily-value dropdown, and
+  `_context_by_date()`'s `entry["value"]` lookup would `KeyError` on a
+  `_series` entry's `{"date", "series"}` shape.
+- `compiler/build_manifest.py` — `maps/_context_io.py` added to
+  `SHARED_SCRIPTS`.
+
+**Test files:**
+- `tests/test_local_context.py` — constants updated; parser/`fetch()`/
+  `write()`/`already_written()` tests updated for the new tuple/dict
+  shapes; new checks for `_series` field resolution (`pollen_birch_series`/
+  `temperature_avg_series`), the two-stage `already_written()` check,
+  and timestamped raw-list construction including the gap case (a null
+  hourly reading produces a shorter list, not a placeholder). 265 → 299.
+- `tests/test_broker.py` — constants updated; `list_fields()` count
+  assertions updated for the now-doubled `pollen`/`brightsky`/
+  `airquality` registries (6→12, 9→18, 5→10 — `_series` entries
+  included, `weather` unchanged at 6). 130 → 136.
+- `tests/test_mcp.py` — constant updated; the `"pollen"` bundle test's
+  `mcp_sql.call_count`/result-key assertions compare against the
+  daily-only field subset (`_resolve_context_bundle()`'s own `_series`
+  skip), plus an explicit sanity check that the registry does contain
+  `_series` entries. New coverage for `query_context()`'s `_series`
+  handling: SQLite-branch and live-branch routing for a `_series`
+  field, typo-resolution landing on a `_series` field, a regression
+  guard against the field ever bypassing the routing weiche, and a
+  documented case where a `_series`-suffix typo on a short-prefix field
+  name legitimately matches both the `_series` field and its daily
+  counterpart (no auto-resolution, by design). 158 → 168.
+
+**Documentation:**
+- `docs/REFERENCE_CONTEXT.md` — architecture overview, fallback
+  behaviour, all three affected field tables (+ `_series` rows),
+  complete file-structures section (new `summary/` examples, new
+  `raw/` examples with timestamped-list shape).
+- `docs/REFERENCE_GLOBAL.md` — `CONTEXT_*_DIR` path table renamed to
+  `*_SUMMARY_DIR`/`*_RAW_DIR`; "Data folder structure (runtime)" tree
+  updated with the full `summary/`+`raw/` breakdown per source.
+- `docs/REFERENCE_BROKER.md` — `v1.7.1.11` entry documents that
+  `_series` fields flow through the same sqlite/live routing weiche as
+  any other context field, with `_resolve_context_bundle()`'s bundle-
+  collision skip as the one documented exception.
+- `docs/MAINTENANCE_CONTEXT.md` — pipeline diagram shows two possible
+  read paths per source (except `weather`); invariants updated for the
+  two-stage `already_written()` check and `fetch()`'s new empty-failure
+  shape; debugging section's "No data returned" file-location list
+  updated for `summary/`/`raw/`.
+- `docs/USER_GUIDE.txt` — Section 9 ("Data Structure") `context_data/`
+  tree updated, `airquality/` added (was missing even before this
+  session).
+- `docs/KNOWN_ISSUES.md` — K14 (`AGGREGATION` vs. `AGGREGATION_MAP`
+  naming) closed, as anticipated when it was deferred to this version;
+  new cosmetic finding logged — a `PytestUnhandledThreadExceptionWarning`
+  in `tests/test_qt_app.py` (`app/panel_archive.py`'s
+  `_startup_integrity_check()` daemon thread racing the test fixture's
+  teardown) — reproducible, unrelated to this session's changes, test
+  suite stays green regardless.
+
+**Not implemented (deferred, matching the original build order's own
+placeholder):** `clients/mcp_sql.py`'s SQLite cache schema itself
+required no change — `mcp_context_days` already stored arbitrary
+per-field payloads, so no new column or table was needed for `_series`
+support.
+
+**Test result:** 780 / 299 / 465 / 136 / 168 / 169 / 80 / 16 — all green
+(test_local / test_local_context / test_dashboard / test_broker /
+test_mcp / test_app_logic / test_qt_app / test_static), ruff 0 errors,
+bandit 0 HIGH.
+
+---
+
 ## v1.7.1.10 — Docstring Fixes, Dead Config Cleanup, Test Helper Consolidation
 
 **New modules:** none.
