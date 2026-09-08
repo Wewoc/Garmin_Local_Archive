@@ -51,7 +51,7 @@ CONTEXT (location for weather and pollen data)
 Click "Save Settings" — the app is now ready for the first sync.
 
 GDPR EXPORT (request now)
-  Garmin only provides ~135 days at full intraday resolution
+  Garmin only provides ~120 days at full intraday resolution
   via the API. For the complete history, request a GDPR export
   from Garmin — this can take several days, so request it now:
   -> https://www.garmin.com/en-US/account/datamanagement/
@@ -71,7 +71,7 @@ starting from today and going backwards.
 
 What gets downloaded:
   - Intraday data: heart rate, stress, SpO2, Body Battery
-    (minute-level resolution — only available for ~135 days)
+    (minute-level resolution — only available for ~120 days)
   - Daily summaries: sleep, steps, HRV, ...
   - Weather and pollen data for your configured location
 
@@ -95,7 +95,7 @@ everything at once can trigger Garmin rate limiting.
 3. BULK IMPORT (GDPR EXPORT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Garmin's API only provides the last ~135 days at full intraday
+Garmin's API only provides the last ~120 days at full intraday
 resolution. Older data is available only as daily aggregates
 or not at all.
 
@@ -106,7 +106,7 @@ The export arrives as a ZIP file (may take several days). Note that
 the GDPR export itself does not contain intraday data (no heart rate
 curves, stress timelines, or body battery graphs) — it provides your
 complete daily-summary history, which the live API can no longer
-serve once a day has aged past the ~135-day window.
+serve once a day has aged past the ~120-day window.
 
 Import:
   Settings tab -> Data Collection -> "Bulk Import"
@@ -233,7 +233,7 @@ depends on what Garmin delivered at the time of sync:
   SpO2            ~1 hour          up to 24
   Respiration     variable         variable
 
-Days synced within ~135 days of the recording date show full curves.
+Days synced within ~120 days of the recording date show full curves.
 Days beyond that threshold — or days from a GDPR bulk import — contain
 daily summary values only (`standard` quality). The quality badge in
 the archive panel shows the breakdown.
@@ -297,20 +297,20 @@ the app is open — no manual intervention needed.
 
 Two time windows matter here, and they are not the same thing:
 
-  ~135 days   Garmin's own limit. This is where Garmin itself stops
+  ~120 days   Garmin's own limit. This is where Garmin itself stops
               serving full intraday resolution (heart rate curves,
               stress timelines, Body Battery detail, etc.) through the
               API. Once a day ages past this point, that detail is
               gone for good — no retry can bring it back.
 
   180 days    The timer's own safety buffer, set wider than the
-              135-day limit on purpose. The timer keeps retrying
+              120-day limit on purpose. The timer keeps retrying
               `standard`-quality or bulk-imported days within this
               180-day window, so that a day still has a real chance of
               being upgraded to full intraday quality before Garmin's
-              135-day cutoff actually removes the data.
+              120-day cutoff actually removes the data.
 
-In short: 180 days is how long the timer keeps trying; ~135 days is
+In short: 180 days is how long the timer keeps trying; ~120 days is
 the hard deadline it is racing against.
 
 Start:
@@ -532,9 +532,13 @@ Log shows errors but no data
     log/        Session logs, quality register, token
 
   context_data/
-    weather/    Weather data (Open-Meteo)
-    pollen/     Pollen data (Open-Meteo Air Quality)
-    brightsky/  Weather data (Brightsky/DWD)
+    weather/summary/       Daily weather data (Open-Meteo)
+    pollen/summary/        Daily pollen data (Open-Meteo Air Quality)
+    pollen/raw/            Hourly pollen readings
+    brightsky/summary/     Daily weather data (Brightsky/DWD)
+    brightsky/raw/         Hourly weather readings
+    airquality/summary/    Daily air quality data (Open-Meteo Air Quality)
+    airquality/raw/        Hourly air quality readings
 
 All data stays local. No cloud, no third-party services.
 

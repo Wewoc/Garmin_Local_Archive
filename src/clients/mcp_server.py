@@ -903,7 +903,15 @@ def _resolve_context_bundle(bundle_name: str, date_from: str, date_to: str,
     day a collision was actually resolved (e.g. {"wind_speed_max":
     {"2026-03-01": "brightsky", "2026-03-02": "weather"}}) -- only for
     fields that had more than one candidate source in this bundle, never
-    for a field copied through from a single source unchanged."""
+    for a field copied through from a single source unchanged.
+
+    v1.7.1.11 -- "_series" (intraday) fields are skipped during bundle
+    resolution (see the source_field loop below). The bundle mechanism
+    exists to answer a daily-value source-collision question (DWD vs.
+    model, e.g. wind_speed_max); at intraday resolution the three
+    affected sources never have more than one candidate, so the
+    collision machinery has nothing to resolve. A _series field remains
+    individually queryable via query_context()."""
     # source_values[field_name][source] = {date: value, ...}
     source_values: dict[str, dict[str, dict[str, object]]] = {}
     field_resolution: dict[str, dict] = {}  # first-seen values/fallback/
@@ -919,6 +927,11 @@ def _resolve_context_bundle(bundle_name: str, date_from: str, date_to: str,
 
     for source in _CONTEXT_CATEGORY_BUNDLES[bundle_name]:
         for source_field in _context_fields_by_source.get(source, []):
+            if source_field.endswith("_series"):
+                continue  # Bundle-Kollisionslogik ist nur für Tageswerte
+                           # definiert — DWD-ja/nein-Frage betrifft Quellen,
+                           # nicht Auflösungsstufen. Ein _series-Feld bleibt
+                           # über query_context() einzeln abfragbar.
             if _route_query("context") == "sqlite":
                 source_result = mcp_sql.get_context_range(
                     date_from, date_to, field=source_field
@@ -1050,7 +1063,19 @@ def query_context(field: str, date_from: str, date_to: str,
     weiche used everywhere else in this function -- the bundle path
     only adds collection, flattening, and collision tie-breaking on top,
     it does not bypass or duplicate the existing data-access path. See
-    _CONTEXT_CATEGORY_BUNDLES above for the priority-list mechanics."""
+    _CONTEXT_CATEGORY_BUNDLES above for the priority-list mechanics.
+
+    v1.7.1.11 Session 4 -- resolution is decided by the field name
+    itself, same principle as query_health(): a "_series" suffix always
+    means intraday/timeseries data, a plain field name always means a
+    single daily value -- no field in this archive offers both under
+    one name, so the caller already knows which shape to expect before
+    the query even runs. This holds regardless of which branch
+    (sqlite/live) below ends up serving the request -- both branches
+    return the same "values" contract (see mcp_sql.get_context_range()
+    / clients/mcp_sql.py, and maps/_context_io.py's read_summary_field()/
+    read_raw_field() for the underlying {"date","value"} vs.
+    {"date","series"} shapes)."""
     if field in _CONTEXT_CATEGORY_BUNDLES:
         return _resolve_context_bundle(field, date_from, date_to, resolution)
 
@@ -1064,6 +1089,9 @@ def query_context(field: str, date_from: str, date_to: str,
         )
         if len(close_matches) == 1:
             resolved_field = close_matches[0]
+            # v1.7.1.11 Session 4 -- Rueckbau: "_series" durchlaeuft
+            # dieselbe Weiche wie jedes andere Feld, kein Sonderpfad mehr
+            # (siehe Docstring-Zusatz oben, NOTES_v1.7.1.11.md Session 4).
             if _route_query("context") == "sqlite":
                 result = mcp_sql.get_context_range(date_from, date_to, field=resolved_field)
             else:
@@ -1092,6 +1120,9 @@ def query_context(field: str, date_from: str, date_to: str,
             error_result["did_you_mean"] = close_matches
         return error_result
 
+    # v1.7.1.11 Session 4 -- Rueckbau: "_series" durchlaeuft dieselbe
+    # Weiche wie jedes andere Feld, kein Sonderpfad mehr (siehe
+    # Docstring-Zusatz oben, NOTES_v1.7.1.11.md Session 4).
     if _route_query("context") == "sqlite":
         result = mcp_sql.get_context_range(date_from, date_to, field=field)
     else:

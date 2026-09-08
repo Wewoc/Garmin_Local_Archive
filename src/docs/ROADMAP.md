@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.1.10**
+**Currently stable — v1.7.1.11**
 
 ---
 
@@ -39,7 +39,7 @@ A new output layer parallel to `dashboards/` — reads via the Broker Layer,
 writes to external formats and databases. GLA becomes local data infrastructure
 for the broader Garmin ecosystem: other tools consume GLA's archive instead of
 fetching from the Garmin API themselves, gaining access to intraday data that
-would otherwise be lost after ~135 days.
+would otherwise be lost after ~120 days.
  
 **Architecture**
  

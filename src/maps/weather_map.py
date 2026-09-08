@@ -21,14 +21,13 @@ Generic field names (dashboard-side):
   Any internal key appearing outside this module is an architecture violation.
 """
 
-import json
 import logging
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 import garmin_config as cfg
+from maps._context_io import read_summary_field
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Field map
@@ -54,30 +53,10 @@ log = logging.getLogger(__name__)
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _date_range(date_from: str, date_to: str) -> list[str]:
-    d   = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
-    out = []
-    while d <= end:
-        out.append(d.isoformat())
-        d += timedelta(days=1)
-    return out
-
-
 def _read_field(field: str, date_from: str, date_to: str) -> dict:
     internal_key = _FIELD_MAP[field]
-    values = []
-    for ds in _date_range(date_from, date_to):
-        f     = cfg.CONTEXT_WEATHER_DIR / f"{_FILE_PREFIX}{ds}.json"
-        value = None
-        if f.exists():
-            try:
-                data  = json.loads(f.read_text(encoding="utf-8"))
-                value = data.get("fields", {}).get(internal_key)
-            except (json.JSONDecodeError, OSError) as e:
-                log.warning(f"weather_map: could not read {f}: {e}")
-        values.append({"date": ds, "value": value})
-    return {"values": values, "source_resolution": "daily"}
+    return read_summary_field(cfg.CONTEXT_WEATHER_SUMMARY_DIR, _FILE_PREFIX,
+                               internal_key, date_from, date_to)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

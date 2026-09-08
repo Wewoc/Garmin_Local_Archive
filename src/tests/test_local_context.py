@@ -54,13 +54,15 @@ from maps import weather_map, pollen_map, brightsky_map, context_map
 # ══════════════════════════════════════════════════════════════════════════════
 section("1. garmin_config — context paths")
 
-check("CONTEXT_DIR derived",           cfg.CONTEXT_DIR           == _TMPDIR / "context_data")
-check("CONTEXT_WEATHER_DIR derived",   cfg.CONTEXT_WEATHER_DIR   == _TMPDIR / "context_data" / "weather"   / "raw")
-check("CONTEXT_POLLEN_DIR derived",    cfg.CONTEXT_POLLEN_DIR    == _TMPDIR / "context_data" / "pollen"    / "raw")
-check("CONTEXT_BRIGHTSKY_DIR derived", cfg.CONTEXT_BRIGHTSKY_DIR == _TMPDIR / "context_data" / "brightsky" / "raw")
-check("LOCAL_CONFIG_FILE derived",     cfg.LOCAL_CONFIG_FILE     == _TMPDIR / "local_config.csv")
-check("CONTEXT_LATITUDE default",      isinstance(cfg.CONTEXT_LATITUDE,  float))
-check("CONTEXT_LONGITUDE default",     isinstance(cfg.CONTEXT_LONGITUDE, float))
+check("CONTEXT_DIR derived",                   cfg.CONTEXT_DIR                   == _TMPDIR / "context_data")
+check("CONTEXT_WEATHER_SUMMARY_DIR derived",   cfg.CONTEXT_WEATHER_SUMMARY_DIR   == _TMPDIR / "context_data" / "weather"   / "summary")
+check("CONTEXT_POLLEN_SUMMARY_DIR derived",    cfg.CONTEXT_POLLEN_SUMMARY_DIR    == _TMPDIR / "context_data" / "pollen"    / "summary")
+check("CONTEXT_POLLEN_RAW_DIR derived",        cfg.CONTEXT_POLLEN_RAW_DIR        == _TMPDIR / "context_data" / "pollen"    / "raw")
+check("CONTEXT_BRIGHTSKY_SUMMARY_DIR derived", cfg.CONTEXT_BRIGHTSKY_SUMMARY_DIR == _TMPDIR / "context_data" / "brightsky" / "summary")
+check("CONTEXT_BRIGHTSKY_RAW_DIR derived",     cfg.CONTEXT_BRIGHTSKY_RAW_DIR     == _TMPDIR / "context_data" / "brightsky" / "raw")
+check("LOCAL_CONFIG_FILE derived",             cfg.LOCAL_CONFIG_FILE             == _TMPDIR / "local_config.csv")
+check("CONTEXT_LATITUDE default",              isinstance(cfg.CONTEXT_LATITUDE,  float))
+check("CONTEXT_LONGITUDE default",             isinstance(cfg.CONTEXT_LONGITUDE, float))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -128,20 +130,26 @@ check("no AGGREGATION string",         not hasattr(brightsky_plugin, "AGGREGATIO
 section("5. context_writer")
 
 # Override OUTPUT_DIR to temp
+# v1.7.1.11 — OUTPUT_DIR now points at summary/, not raw/ (renamed meaning).
+# _fake_weather_plugin has no RAW_OUTPUT_DIR (weather never gets raw/,
+# same as the real weather_plugin). _fake_pollen_plugin gets one, to
+# exercise write()'s raw-write branch and already_written()'s two-stage
+# check below.
 import types
 _fake_weather_plugin = types.SimpleNamespace(
     NAME        = "weather",
     SOURCE_TAG  = "open-meteo-weather",
     FILE_PREFIX = "weather_",
-    OUTPUT_DIR  = _TMPDIR / "context_data" / "weather" / "raw",
+    OUTPUT_DIR  = _TMPDIR / "context_data" / "weather" / "summary",
     AGGREGATION = None,
 )
 _fake_pollen_plugin = types.SimpleNamespace(
-    NAME        = "pollen",
-    SOURCE_TAG  = "open-meteo-pollen",
-    FILE_PREFIX = "pollen_",
-    OUTPUT_DIR  = _TMPDIR / "context_data" / "pollen" / "raw",
-    AGGREGATION = "daily_max",
+    NAME           = "pollen",
+    SOURCE_TAG     = "open-meteo-pollen",
+    FILE_PREFIX    = "pollen_",
+    OUTPUT_DIR     = _TMPDIR / "context_data" / "pollen" / "summary",
+    RAW_OUTPUT_DIR = _TMPDIR / "context_data" / "pollen" / "raw",
+    AGGREGATION    = "daily_max",
 )
 
 _weather_data = {
@@ -157,7 +165,13 @@ _pollen_data = {
                    "mugwort_pollen": 0.0, "olive_pollen": 0.0, "ragweed_pollen": 0.0},
 }
 
-result_w = context_writer.write(_fake_weather_plugin, _weather_data, 52.11, 8.67)
+# v1.7.1.11 — write() now takes {"summary": {...}, "raw": {...}} instead
+# of a bare {date: fields} dict. weather has no raw/ counterpart — its
+# "raw" is always {}, mirroring context_api.fetch()'s own contract for
+# daily plugins.
+_weather_payload = {"summary": _weather_data, "raw": {}}
+
+result_w = context_writer.write(_fake_weather_plugin, _weather_payload, 52.11, 8.67)
 check("write weather: written=2",    result_w["written"] == 2)
 check("write weather: failed=0",     result_w["failed"]  == 0)
 
@@ -175,7 +189,17 @@ check("weather file 1: fields dict",    isinstance(data1["fields"], dict))
 check("weather file 1: temp_max value", data1["fields"]["temperature_2m_max"] == 5.2)
 check("weather file 1: no aggregation", "aggregation" not in data1)
 
-result_p = context_writer.write(_fake_pollen_plugin, _pollen_data, 52.11, 8.67)
+# v1.7.1.11 — pollen raw data: one timestamped hourly value per day,
+# same shape context_api's parsers now produce.
+_pollen_raw_data = {
+    "2026-01-01": {
+        "birch_pollen": [{"ts": "2026-01-01T00:00", "value": 0.0},
+                          {"ts": "2026-01-01T12:00", "value": 0.3}],
+    },
+}
+_pollen_payload = {"summary": _pollen_data, "raw": _pollen_raw_data}
+
+result_p = context_writer.write(_fake_pollen_plugin, _pollen_payload, 52.11, 8.67)
 check("write pollen: written=1",     result_p["written"] == 1)
 
 fp = _fake_pollen_plugin.OUTPUT_DIR / "pollen_2026-01-01.json"
@@ -184,15 +208,37 @@ data_p = json.loads(fp.read_text(encoding="utf-8"))
 check("pollen file: aggregation set", data_p.get("aggregation") == "daily_max")
 check("pollen file: birch value",     data_p["fields"]["birch_pollen"] == 0.0)
 
+# v1.7.1.11 — raw/ file written alongside summary/, timestamped entries
+# passed through unchanged.
+fp_raw = _fake_pollen_plugin.RAW_OUTPUT_DIR / "pollen_2026-01-01.json"
+check("pollen raw file exists",       fp_raw.exists())
+data_p_raw = json.loads(fp_raw.read_text(encoding="utf-8"))
+check("pollen raw file: birch is list",
+      isinstance(data_p_raw["fields"]["birch_pollen"], list))
+check("pollen raw file: birch entry count",
+      len(data_p_raw["fields"]["birch_pollen"]) == 2)
+check("pollen raw file: birch entry shape",
+      data_p_raw["fields"]["birch_pollen"][0] == {"ts": "2026-01-01T00:00", "value": 0.0})
+
 check("already_written weather True",
       context_writer.already_written(_fake_weather_plugin, "2026-01-01"))
 check("already_written weather False",
       not context_writer.already_written(_fake_weather_plugin, "2026-03-01"))
-check("already_written pollen True",
+check("already_written pollen True (summary+raw both present)",
       context_writer.already_written(_fake_pollen_plugin, "2026-01-01"))
 
+# v1.7.1.11 — two-stage check: summary/ alone (no raw/ for this date)
+# must NOT count as already written for a plugin that declares
+# RAW_OUTPUT_DIR.
+_summary_only_date = "2026-01-05"
+context_writer.write(_fake_pollen_plugin,
+                      {"summary": {_summary_only_date: _pollen_data["2026-01-01"]}, "raw": {}},
+                      52.11, 8.67)
+check("already_written pollen False (summary only, no raw)",
+      not context_writer.already_written(_fake_pollen_plugin, _summary_only_date))
+
 # leeres dict — kein Absturz, written=0
-result_empty = context_writer.write(_fake_weather_plugin, {}, 52.11, 8.67)
+result_empty = context_writer.write(_fake_weather_plugin, {"summary": {}, "raw": {}}, 52.11, 8.67)
 check("write empty dict: written=0",  result_empty["written"] == 0)
 check("write empty dict: failed=0",   result_empty["failed"]  == 0)
 
@@ -236,7 +282,8 @@ _hourly_response = {
         "ragweed_pollen": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     }
 }
-parsed_hourly = context_api._parse_hourly_to_daily_max(
+# v1.7.1.11 — _parse_hourly_to_daily_max() now returns (summary, raw).
+parsed_hourly, parsed_hourly_raw = context_api._parse_hourly_to_daily_max(
     _hourly_response, pollen_plugin.API_FIELDS
 )
 check("parse_hourly: 2 dates",             len(parsed_hourly) == 2)
@@ -244,6 +291,16 @@ check("parse_hourly: birch day1 = max",    parsed_hourly["2026-02-01"]["birch_po
 check("parse_hourly: birch day2 = max",    parsed_hourly["2026-02-02"]["birch_pollen"] == 3.2)
 check("parse_hourly: mugwort day1 = None or 0",
       parsed_hourly["2026-02-01"]["mugwort_pollen"] in (0.0, None))
+
+# v1.7.1.11 — raw side: timestamped entries, one per non-None hourly
+# reading. birch has 4 entries on day1 (2026-02-01T00:00/06:00/12:00/18:00).
+check("parse_hourly raw: birch day1 has 4 timestamped entries",
+      len(parsed_hourly_raw["2026-02-01"]["birch_pollen"]) == 4)
+check("parse_hourly raw: birch day1 entry shape",
+      parsed_hourly_raw["2026-02-01"]["birch_pollen"][0] ==
+      {"ts": "2026-02-01T00:00", "value": 0.0})
+check("parse_hourly raw: birch day1 max value present in raw list",
+      8.3 in [e["value"] for e in parsed_hourly_raw["2026-02-01"]["birch_pollen"]])
 
 # null-Werte in hourly-Arrays
 _hourly_with_nulls = {
@@ -257,13 +314,24 @@ _hourly_with_nulls = {
         "ragweed_pollen": [None, None],
     }
 }
-parsed_nulls = context_api._parse_hourly_to_daily_max(
+parsed_nulls, parsed_nulls_raw = context_api._parse_hourly_to_daily_max(
     _hourly_with_nulls, pollen_plugin.API_FIELDS
 )
 check("parse_hourly nulls: returns dict",       isinstance(parsed_nulls, dict))
 check("parse_hourly nulls: birch = 3.5",        parsed_nulls["2026-02-03"]["birch_pollen"] == 3.5)
 check("parse_hourly nulls: grass all-null ok",
       parsed_nulls["2026-02-03"]["grass_pollen"] in (0.0, None))
+
+# v1.7.1.11 — a None hourly reading is absent from the raw list entirely
+# (not a None placeholder at a fixed index) — grass_pollen day1 had two
+# None readings, so its raw list is empty; birch had one None + one
+# real value, so its raw list has exactly one entry.
+check("parse_hourly nulls raw: grass day1 raw list empty (all null)",
+      parsed_nulls_raw["2026-02-03"]["grass_pollen"] == [])
+check("parse_hourly nulls raw: birch day1 raw list has 1 entry",
+      len(parsed_nulls_raw["2026-02-03"]["birch_pollen"]) == 1)
+check("parse_hourly nulls raw: birch day1 entry value = 3.5",
+      parsed_nulls_raw["2026-02-03"]["birch_pollen"][0]["value"] == 3.5)
 
 # _parse_brightsky — field-specific aggregation
 _brightsky_response = {
@@ -288,7 +356,8 @@ _brightsky_response = {
          "condition": "rain"},
     ]
 }
-parsed_bs = context_api._parse_brightsky(
+# v1.7.1.11 — _parse_brightsky() now returns (summary, raw).
+parsed_bs, parsed_bs_raw = context_api._parse_brightsky(
     _brightsky_response, brightsky_plugin.AGGREGATION_MAP
 )
 check("parse_brightsky: 2 dates",              len(parsed_bs) == 2)
@@ -299,6 +368,14 @@ check("parse_brightsky: gust max day1",        parsed_bs["2026-02-01"]["wind_gus
 check("parse_brightsky: sunshine sum day1",    parsed_bs["2026-02-01"]["sunshine"] == 30)
 check("parse_brightsky: condition mode day1",  parsed_bs["2026-02-01"]["condition"] in ("rain", "dry"))
 check("parse_brightsky: day2 single entry",    parsed_bs["2026-02-02"]["temperature"] == 3.0)
+
+# v1.7.1.11 — raw side: two timestamped entries for temperature on day1
+# (both fixture rows fall on 2026-02-01).
+check("parse_brightsky raw: temperature day1 has 2 entries",
+      len(parsed_bs_raw["2026-02-01"]["temperature"]) == 2)
+check("parse_brightsky raw: temperature day1 first entry",
+      parsed_bs_raw["2026-02-01"]["temperature"][0] ==
+      {"ts": "2026-02-01T00:00:00+01:00", "value": 4.0})
 
 # null values in brightsky response
 _brightsky_nulls = {
@@ -311,12 +388,14 @@ _brightsky_nulls = {
          "condition": None},
     ]
 }
-parsed_bs_nulls = context_api._parse_brightsky(
+parsed_bs_nulls, parsed_bs_nulls_raw = context_api._parse_brightsky(
     _brightsky_nulls, brightsky_plugin.AGGREGATION_MAP
 )
 check("parse_brightsky nulls: returns dict",   isinstance(parsed_bs_nulls, dict))
 check("parse_brightsky nulls: temp=None",      parsed_bs_nulls["2026-02-03"]["temperature"] is None)
 check("parse_brightsky nulls: condition=None", parsed_bs_nulls["2026-02-03"]["condition"] is None)
+check("parse_brightsky nulls raw: temperature day1 raw list empty",
+      parsed_bs_nulls_raw["2026-02-03"]["temperature"] == [])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -331,6 +410,7 @@ class _MockResp:
     def __enter__(self): return self
     def __exit__(self, *a): pass
 
+# v1.7.1.11 — fetch() now returns {"summary": {...}, "raw": {...}}.
 with patch("urllib.request.urlopen", return_value=_MockResp()):
     fetched = context_api.fetch(
         weather_plugin, "2026-02-01", "2026-02-02",
@@ -338,8 +418,11 @@ with patch("urllib.request.urlopen", return_value=_MockResp()):
     )
 
 check("fetch returns dict",           isinstance(fetched, dict))
-check("fetch: 2 dates returned",      len(fetched) == 2)
-check("fetch: day1 has fields",       isinstance(fetched.get("2026-02-01"), dict))
+check("fetch: has summary + raw keys", "summary" in fetched and "raw" in fetched)
+check("fetch: 2 dates returned",      len(fetched["summary"]) == 2)
+check("fetch: weather raw always empty (daily plugin)",
+      fetched["raw"] == {})
+check("fetch: day1 has fields",       isinstance(fetched["summary"].get("2026-02-01"), dict))
 
 # fetch with skip_dates
 with patch("urllib.request.urlopen", return_value=_MockResp()):
@@ -347,16 +430,17 @@ with patch("urllib.request.urlopen", return_value=_MockResp()):
         weather_plugin, "2026-02-01", "2026-02-02",
         52.11, 8.67, skip_dates={"2026-02-01"}
     )
-check("fetch with skip: day1 absent", "2026-02-01" not in fetched_skip)
+check("fetch with skip: day1 absent", "2026-02-01" not in fetched_skip["summary"])
 
-# Netzwerkfehler — fetch() darf nicht abstürzen, gibt leeres dict zurück
+# Netzwerkfehler — fetch() darf nicht abstürzen, gibt leere summary/raw zurück
 with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
     fetched_err = context_api.fetch(
         weather_plugin, "2026-02-01", "2026-02-02",
         52.11, 8.67
     )
 check("fetch network error: returns dict",  isinstance(fetched_err, dict))
-check("fetch network error: empty dict",    len(fetched_err) == 0)
+check("fetch network error: empty summary", len(fetched_err["summary"]) == 0)
+check("fetch network error: empty raw",     len(fetched_err["raw"]) == 0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -368,7 +452,7 @@ check("list_fields not empty",        len(weather_map.list_fields()) > 0)
 check("temperature_max registered",   "temperature_max" in weather_map.list_fields())
 check("precipitation registered",     "precipitation"   in weather_map.list_fields())
 
-_wmap_dir = cfg.CONTEXT_WEATHER_DIR
+_wmap_dir = cfg.CONTEXT_WEATHER_SUMMARY_DIR
 _wmap_dir.mkdir(parents=True, exist_ok=True)
 _wmap_file = _wmap_dir / "weather_2026-03-01.json"
 _wmap_file.write_text(json.dumps({
@@ -414,7 +498,7 @@ check("list_fields not empty",        len(pollen_map.list_fields()) > 0)
 check("pollen_birch registered",      "pollen_birch"   in pollen_map.list_fields())
 check("pollen_grass registered",      "pollen_grass"   in pollen_map.list_fields())
 
-_pmap_dir = cfg.CONTEXT_POLLEN_DIR
+_pmap_dir = cfg.CONTEXT_POLLEN_SUMMARY_DIR
 _pmap_dir.mkdir(parents=True, exist_ok=True)
 _pmap_file = _pmap_dir / "pollen_2026-03-01.json"
 _pmap_file.write_text(json.dumps({
@@ -445,6 +529,40 @@ try:
 except KeyError:
     check("pollen_map unknown field: raises KeyError", True)
 
+# v1.7.1.11 — pollen_birch_series reads raw/, independent read path from
+# pollen_birch above (no daily/intraday fallback branch — see get()'s
+# docstring). fallback is always False for a _series field.
+_pmap_raw_dir = cfg.CONTEXT_POLLEN_RAW_DIR
+_pmap_raw_dir.mkdir(parents=True, exist_ok=True)
+_pmap_raw_file = _pmap_raw_dir / "pollen_2026-03-01.json"
+_pmap_raw_file.write_text(json.dumps({
+    "date": "2026-03-01",
+    "fields": {
+        "birch_pollen": [
+            {"ts": "2026-03-01T00:00", "value": 1.0},
+            {"ts": "2026-03-01T12:00", "value": 5.0},
+        ],
+    }
+}), encoding="utf-8")
+
+result_pmap_series = pollen_map.get("pollen_birch_series", "2026-03-01", "2026-03-01")
+check("pollen_map series: returns dict",           isinstance(result_pmap_series, dict))
+check("pollen_map series: fallback=False",         result_pmap_series["fallback"] == False)
+check("pollen_map series: source_resolution",      result_pmap_series["source_resolution"] == "intraday")
+check("pollen_map series: values entry has series",
+      "series" in result_pmap_series["values"][0])
+check("pollen_map series: series has 2 entries",
+      len(result_pmap_series["values"][0]["series"]) == 2)
+check("pollen_map series: first entry shape",
+      result_pmap_series["values"][0]["series"][0] == {"ts": "2026-03-01T00:00", "value": 1.0})
+
+result_pmap_series_missing = pollen_map.get("pollen_birch_series", "2026-03-02", "2026-03-02")
+check("pollen_map series missing day: empty series list",
+      result_pmap_series_missing["values"][0]["series"] == [])
+
+check("pollen_map list_fields: includes pollen_birch_series",
+      "pollen_birch_series" in pollen_map.list_fields())
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  10. maps/brightsky_map — field resolution
@@ -456,7 +574,7 @@ check("temperature_avg registered",      "temperature_avg"   in brightsky_map.li
 check("precipitation_sum registered",    "precipitation_sum" in brightsky_map.list_fields())
 check("condition registered",            "condition"         in brightsky_map.list_fields())
 
-_bmap_dir = cfg.CONTEXT_BRIGHTSKY_DIR
+_bmap_dir = cfg.CONTEXT_BRIGHTSKY_SUMMARY_DIR
 _bmap_dir.mkdir(parents=True, exist_ok=True)
 _bmap_file = _bmap_dir / "brightsky_2026-03-01.json"
 _bmap_file.write_text(json.dumps({
@@ -498,6 +616,30 @@ try:
     check("brightsky_map unknown field: raises KeyError", False)
 except KeyError:
     check("brightsky_map unknown field: raises KeyError", True)
+
+# v1.7.1.11 — temperature_avg_series reads raw/, same pattern as
+# pollen_birch_series above.
+_bmap_raw_dir = cfg.CONTEXT_BRIGHTSKY_RAW_DIR
+_bmap_raw_dir.mkdir(parents=True, exist_ok=True)
+_bmap_raw_file = _bmap_raw_dir / "brightsky_2026-03-01.json"
+_bmap_raw_file.write_text(json.dumps({
+    "date": "2026-03-01",
+    "fields": {
+        "temperature": [
+            {"ts": "2026-03-01T00:00:00+01:00", "value": 4.0},
+            {"ts": "2026-03-01T12:00:00+01:00", "value": 9.0},
+        ],
+    }
+}), encoding="utf-8")
+
+result_bmap_series = brightsky_map.get("temperature_avg_series", "2026-03-01", "2026-03-01")
+check("brightsky_map series: fallback=False",     result_bmap_series["fallback"] == False)
+check("brightsky_map series: source_resolution",  result_bmap_series["source_resolution"] == "intraday")
+check("brightsky_map series: series has 2 entries",
+      len(result_bmap_series["values"][0]["series"]) == 2)
+
+check("brightsky_map list_fields: includes temperature_avg_series",
+      "temperature_avg_series" in brightsky_map.list_fields())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -658,10 +800,11 @@ def _mock_urlopen(url, timeout=30):
         return _MockRespBrightsky()
     return _MockRespWeather()
 
-# Reset output dirs
-shutil.rmtree(cfg.CONTEXT_WEATHER_DIR,   ignore_errors=True)
-shutil.rmtree(cfg.CONTEXT_POLLEN_DIR,    ignore_errors=True)
-shutil.rmtree(cfg.CONTEXT_BRIGHTSKY_DIR, ignore_errors=True)
+# Reset output dirs — v1.7.1.11: wipe both summary/ and raw/ per source,
+# matching the migration wipe-check's own scope (whole source folder).
+shutil.rmtree(cfg.CONTEXT_DIR / "weather",   ignore_errors=True)
+shutil.rmtree(cfg.CONTEXT_DIR / "pollen",    ignore_errors=True)
+shutil.rmtree(cfg.CONTEXT_DIR / "brightsky", ignore_errors=True)
 
 with patch("garmin_quality.get_archive_stats", return_value=_mock_stats), \
      patch("urllib.request.urlopen", side_effect=_mock_urlopen):
@@ -681,19 +824,30 @@ check("run: weather written=2",          run_result["plugins"]["weather"]["writt
 check("run: pollen written=2",           run_result["plugins"]["pollen"]["written"]    == 2)
 check("run: brightsky written=2",        run_result["plugins"]["brightsky"]["written"] == 2)
 
-# Verify files on disk
-w1 = cfg.CONTEXT_WEATHER_DIR   / "weather_2026-03-01.json"
-w2 = cfg.CONTEXT_WEATHER_DIR   / "weather_2026-03-02.json"
-p1 = cfg.CONTEXT_POLLEN_DIR    / "pollen_2026-03-01.json"
-p2 = cfg.CONTEXT_POLLEN_DIR    / "pollen_2026-03-02.json"
-b1 = cfg.CONTEXT_BRIGHTSKY_DIR / "brightsky_2026-03-01.json"
-b2 = cfg.CONTEXT_BRIGHTSKY_DIR / "brightsky_2026-03-02.json"
+# Verify files on disk — summary/ (v1.7.1.11 rename)
+w1 = cfg.CONTEXT_WEATHER_SUMMARY_DIR   / "weather_2026-03-01.json"
+w2 = cfg.CONTEXT_WEATHER_SUMMARY_DIR   / "weather_2026-03-02.json"
+p1 = cfg.CONTEXT_POLLEN_SUMMARY_DIR    / "pollen_2026-03-01.json"
+p2 = cfg.CONTEXT_POLLEN_SUMMARY_DIR    / "pollen_2026-03-02.json"
+b1 = cfg.CONTEXT_BRIGHTSKY_SUMMARY_DIR / "brightsky_2026-03-01.json"
+b2 = cfg.CONTEXT_BRIGHTSKY_SUMMARY_DIR / "brightsky_2026-03-02.json"
 check("run: weather file 1 on disk",    w1.exists())
 check("run: weather file 2 on disk",    w2.exists())
 check("run: pollen file 1 on disk",     p1.exists())
 check("run: pollen file 2 on disk",     p2.exists())
 check("run: brightsky file 1 on disk",  b1.exists())
 check("run: brightsky file 2 on disk",  b2.exists())
+
+# v1.7.1.11 — raw/ files written alongside summary/ for the three hourly
+# sources (not weather).
+p1_raw = cfg.CONTEXT_POLLEN_RAW_DIR    / "pollen_2026-03-01.json"
+b1_raw = cfg.CONTEXT_BRIGHTSKY_RAW_DIR / "brightsky_2026-03-01.json"
+check("run: pollen raw file 1 on disk",    p1_raw.exists())
+check("run: brightsky raw file 1 on disk", b1_raw.exists())
+_d_p1_raw = json.loads(p1_raw.read_text(encoding="utf-8"))
+check("run: pollen raw birch is timestamped list",
+      isinstance(_d_p1_raw["fields"]["birch_pollen"], list) and
+      "ts" in _d_p1_raw["fields"]["birch_pollen"][0])
 
 d_w1 = json.loads(w1.read_text(encoding="utf-8"))
 check("run: weather content correct",   d_w1["fields"]["temperature_2m_max"] == 10.0)
@@ -753,9 +907,9 @@ entries_bad = context_collector._load_csv()
 check("load_csv bad row: valid entry kept",  any(e["lat"] == 52.1134 for e in entries_bad))
 
 # Netzwerkfehler während run() — run() gibt dict zurück, kein Absturz
-shutil.rmtree(cfg.CONTEXT_WEATHER_DIR,   ignore_errors=True)
-shutil.rmtree(cfg.CONTEXT_POLLEN_DIR,    ignore_errors=True)
-shutil.rmtree(cfg.CONTEXT_BRIGHTSKY_DIR, ignore_errors=True)
+shutil.rmtree(cfg.CONTEXT_DIR / "weather",   ignore_errors=True)
+shutil.rmtree(cfg.CONTEXT_DIR / "pollen",    ignore_errors=True)
+shutil.rmtree(cfg.CONTEXT_DIR / "brightsky", ignore_errors=True)
 with patch("garmin_quality.get_archive_stats", return_value=_mock_stats), \
      patch("urllib.request.urlopen", side_effect=OSError("network down")):
     run_net_err = context_collector.run(

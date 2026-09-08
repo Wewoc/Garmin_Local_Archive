@@ -41,31 +41,41 @@ log = logging.getLogger(__name__)
 #  Public interface
 # ══════════════════════════════════════════════════════════════════════════════
 
-def write(plugin, data: dict[str, dict],
+def write(plugin, data: dict,
           lat: float, lon: float) -> dict:
     """
     Write fetched data to context_data/ based on plugin metadata.
 
     Args:
-        plugin:  Plugin module (weather_plugin or pollen_plugin).
-        data:    {date_str: {field: value}} from context_api.fetch().
+        plugin:  Plugin module (weather_plugin, pollen_plugin, brightsky_plugin,
+                 airquality_plugin).
+        data:    {"summary": {date: {field: value}}, "raw": {date: {field:
+                 [{"ts": str, "value": ...}, ...]}}} from context_api.fetch()
+                 (v1.7.1.11).
         lat:     Latitude used for this fetch segment.
         lon:     Longitude used for this fetch segment.
 
     Returns:
-        {"written": int, "failed": int}
+        {"written": int, "failed": int} — counts summary/ writes only,
+        consistent with the pre-v1.7.1.11 contract. raw/ writes are
+        best-effort alongside and not separately counted.
     """
     written = failed = 0
-    fetched_at  = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    aggregation = getattr(plugin, "AGGREGATION", None)
+    fetched_at     = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    aggregation    = getattr(plugin, "AGGREGATION", None)
+    raw_output_dir = getattr(plugin, "RAW_OUTPUT_DIR", None)
+    summary_data   = data.get("summary", {})
+    raw_data       = data.get("raw", {})
 
     try:
         plugin.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        if raw_output_dir is not None:
+            raw_output_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        log.warning(f"  context_writer: could not create dir {plugin.OUTPUT_DIR} — {exc}")
-        return {"written": 0, "failed": len(data)}
+        log.warning(f"  context_writer: could not create dir for {plugin.NAME} — {exc}")
+        return {"written": 0, "failed": len(summary_data)}
 
-    for ds, fields in data.items():
+    for ds, fields in summary_data.items():
         tmp = None
         try:
             out = {
@@ -97,13 +107,59 @@ def write(plugin, data: dict[str, dict],
                     pass
             failed += 1
 
+    # v1.7.1.11 — raw/ (hourly, timestamped) write, only for plugins that
+    # declare RAW_OUTPUT_DIR (pollen/brightsky/airquality — not weather).
+    # Best-effort: a raw write failure is logged but does not affect the
+    # written/failed counts above, which stay scoped to summary/ as before.
+    if raw_output_dir is not None:
+        for ds, fields in raw_data.items():
+            tmp = None
+            try:
+                out = {
+                    "date":       ds,
+                    "source":     plugin.SOURCE_TAG,
+                    "fetched_at": fetched_at,
+                    "latitude":   lat,
+                    "longitude":  lon,
+                    "fields":     fields,   # {field: [{"ts": str, "value": ...}, ...]}
+                }
+                path = raw_output_dir / f"{plugin.FILE_PREFIX}{ds}.json"
+                tmp  = raw_output_dir / f"{plugin.FILE_PREFIX}{ds}.tmp"
+                tmp.write_text(
+                    json.dumps(out, ensure_ascii=False, indent=2),
+                    encoding="utf-8"
+                )
+                os.replace(tmp, path)
+                tmp = None
+            except OSError as exc:
+                log.warning(f"  context_writer: raw write failed {ds} — {exc}")
+                if tmp is not None:
+                    try:
+                        tmp.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
     log.info(f"  context_writer [{plugin.NAME}]: written={written} failed={failed}")
     return {"written": written, "failed": failed}
 
 
 def already_written(plugin, date_str: str) -> bool:
-    """Return True if the file for this plugin + date already exists."""
-    return (plugin.OUTPUT_DIR / f"{plugin.FILE_PREFIX}{date_str}.json").exists()
+    """Return True if the file for this plugin + date already exists.
+
+    v1.7.1.11 — two-stage check: a day counts as complete only if the
+    summary/ file exists AND, for plugins that declare RAW_OUTPUT_DIR,
+    the raw/ file also exists. Without this, a day that has summary/
+    but not yet raw/ (e.g. right after the migration wipe-check updates
+    a plugin's OUTPUT_DIR) would be silently skipped and raw/ would
+    never backfill for existing days. weather has no RAW_OUTPUT_DIR —
+    the second condition is skipped for it automatically.
+    """
+    summary_ok = (plugin.OUTPUT_DIR / f"{plugin.FILE_PREFIX}{date_str}.json").exists()
+    raw_output_dir = getattr(plugin, "RAW_OUTPUT_DIR", None)
+    if raw_output_dir is None:
+        return summary_ok
+    raw_ok = (raw_output_dir / f"{plugin.FILE_PREFIX}{date_str}.json").exists()
+    return summary_ok and raw_ok
 
 
 def write_file(dest_path: Path, data: dict) -> bool:

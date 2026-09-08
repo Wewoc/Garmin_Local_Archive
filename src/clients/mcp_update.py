@@ -369,7 +369,26 @@ def _sync_context_days() -> tuple[int, int]:
         return 0, 0
 
     fields_result = mcp_map.list_available_fields(domain="context")
-    context_sources = fields_result["fields"]["context"]
+    # v1.7.1.11 Session 4 — Rueckbau des Session-3-Ausschlusses (siehe
+    # NOTES_v1.7.1.11.md Session 4): "_series" (intraday, raw/) Felder
+    # gehoeren wie jedes andere Feld in den proaktiven SQLite-Sync.
+    # Zeitreihen ueber JSON direkt abzufragen statt ueber den Cache war
+    # explizit unerwuenscht (Timo, Session-4-Ausloeser). context_sources
+    # nutzt wieder die volle, ungefilterte Feldliste aus
+    # list_available_fields(domain="context"). _resolve_context_bundle()'s
+    # eigener "_series"-Skip (Anchor 6.1) bleibt unabhaengig davon
+    # bestehen — der betrifft nur die Bundle-Kollisionslogik (Tageswert-
+    # Quellenauswahl), nicht den Cache-Sync.
+    #
+    # Nach diesem Rueckbau: mcp_cache.db muss einmalig geleert/neu
+    # aufgebaut werden (rein abgeleitete Tabelle, siehe SESSION_BASE) —
+    # sonst bleiben bereits als complete_sources markierte Sources ohne
+    # ihre "_series"-Felder haengen, da complete_sources quellen-, nicht
+    # feld-granular gefuehrt wird.
+    context_sources = {
+        source: fields
+        for source, fields in fields_result["fields"]["context"].items()
+    }
     all_source_names = set(context_sources.keys())
 
     touched = 0

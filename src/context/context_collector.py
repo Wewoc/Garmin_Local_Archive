@@ -22,6 +22,7 @@ Plugin registry: add new plugins by importing and adding to _PLUGINS list.
 
 import csv
 import logging
+import shutil
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -224,10 +225,34 @@ def run(settings: dict = None, stop_event=None,
         base = Path(settings["base_dir"])
         _CSV_FILE = base / "local_config.csv"
         # Override plugin output dirs to use correct base_dir
-        weather_plugin.OUTPUT_DIR    = base / "context_data" / "weather"    / "raw"
-        pollen_plugin.OUTPUT_DIR     = base / "context_data" / "pollen"     / "raw"
-        brightsky_plugin.OUTPUT_DIR  = base / "context_data" / "brightsky"  / "raw"
-        airquality_plugin.OUTPUT_DIR = base / "context_data" / "airquality" / "raw"
+        # v1.7.1.11 — summary/ (daily, old "raw" meaning) + raw/ (hourly,
+        # new) for the three hourly sources. weather stays summary-only.
+        weather_plugin.OUTPUT_DIR         = base / "context_data" / "weather"    / "summary"
+        pollen_plugin.OUTPUT_DIR          = base / "context_data" / "pollen"     / "summary"
+        pollen_plugin.RAW_OUTPUT_DIR      = base / "context_data" / "pollen"     / "raw"
+        brightsky_plugin.OUTPUT_DIR       = base / "context_data" / "brightsky"  / "summary"
+        brightsky_plugin.RAW_OUTPUT_DIR   = base / "context_data" / "brightsky"  / "raw"
+        airquality_plugin.OUTPUT_DIR      = base / "context_data" / "airquality" / "summary"
+        airquality_plugin.RAW_OUTPUT_DIR  = base / "context_data" / "airquality" / "raw"
+
+        # v1.7.1.11 — one-time migration check. If a source's summary/
+        # does not exist yet, it predates the raw/summary split (the old
+        # code only ever knew a "raw/" folder with daily meaning) — wipe
+        # everything under that source so the next sync re-fetches from
+        # the API with both summary/ and raw/ populated. Idempotent: a
+        # source that already has summary/ is left untouched, so an
+        # accidental second run is a no-op. weather gets no special case
+        # — it simply has no RAW_OUTPUT_DIR, the wipe still applies to
+        # its own summary/ folder like any other source.
+        for _plugin in _PLUGINS:
+            if not _plugin.OUTPUT_DIR.exists():
+                log.info(
+                    f"  context_collector: {_plugin.NAME} — summary/ missing, "
+                    f"wiping for v1.7.1.11 migration"
+                )
+                _source_root = _plugin.OUTPUT_DIR.parent
+                if _source_root.exists():
+                    shutil.rmtree(_source_root, ignore_errors=True)
     _ensure_csv()
 
     # Default location from GUI settings

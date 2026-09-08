@@ -123,9 +123,13 @@ from maps import garmin_health_map
 # brightsky_map's _FIELD_MAP — used below to exercise real multi-source
 # fan-out, not just single-source routing.
 
+# v1.7.1.11 — fixture dirs renamed to *_SUMMARY_DIR (old CONTEXT_*_DIR
+# meaning: daily aggregate, now stored under summary/ not raw/). Fields
+# below are unchanged — these fixtures only exercise the daily read path,
+# not the new raw/ intraday path (covered separately in test_local_context.py).
 _CONTEXT_FIXTURES = {
     "weather": {
-        "dir":    cfg.CONTEXT_WEATHER_DIR,
+        "dir":    cfg.CONTEXT_WEATHER_SUMMARY_DIR,
         "prefix": "weather_",
         "fields": {
             "temperature_2m_max": 25.0,
@@ -133,21 +137,21 @@ _CONTEXT_FIXTURES = {
         },
     },
     "pollen": {
-        "dir":    cfg.CONTEXT_POLLEN_DIR,
+        "dir":    cfg.CONTEXT_POLLEN_SUMMARY_DIR,
         "prefix": "pollen_",
         "fields": {
             "birch_pollen": 3.0,
         },
     },
     "brightsky": {
-        "dir":    cfg.CONTEXT_BRIGHTSKY_DIR,
+        "dir":    cfg.CONTEXT_BRIGHTSKY_SUMMARY_DIR,
         "prefix": "brightsky_",
         "fields": {
             "wind_speed": 22.0,
         },
     },
     "airquality": {
-        "dir":    cfg.CONTEXT_AIRQUALITY_DIR,
+        "dir":    cfg.CONTEXT_AIRQUALITY_SUMMARY_DIR,
         "prefix": "airquality_",
         "fields": {
             "pm2_5": 8.0,
@@ -262,14 +266,18 @@ finally:
 
 # ── list_fields() / list_sources() ──────────────────────────────────────────────
 
+# v1.7.1.11 — pollen/brightsky/airquality _FIELD_MAP now additionally
+# registers one "_series" entry per daily field (Anchor 4.1) — list_fields()
+# does not distinguish daily from series, so these counts doubled for the
+# three hourly sources. weather has no _series variant, count unchanged.
 check("context_map list_fields: default source=weather → 6 fields",
       len(context_map.list_fields()) == 6)
-check("context_map list_fields: pollen → 6 fields",
-      len(context_map.list_fields("pollen")) == 6)
-check("context_map list_fields: brightsky → 9 fields",
-      len(context_map.list_fields("brightsky")) == 9)
-check("context_map list_fields: airquality → 5 fields",
-      len(context_map.list_fields("airquality")) == 5)
+check("context_map list_fields: pollen → 12 fields (6 daily + 6 series)",
+      len(context_map.list_fields("pollen")) == 12)
+check("context_map list_fields: brightsky → 18 fields (9 daily + 9 series)",
+      len(context_map.list_fields("brightsky")) == 18)
+check("context_map list_fields: airquality → 10 fields (5 daily + 5 series)",
+      len(context_map.list_fields("airquality")) == 10)
 check("context_map list_fields: unknown source → empty list",
       context_map.list_fields("nonexistent_source") == [])
 
