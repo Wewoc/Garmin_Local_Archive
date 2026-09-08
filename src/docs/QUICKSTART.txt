@@ -31,7 +31,7 @@ RUN YOUR FIRST SYNC
 
 IMPORT YOUR FULL HISTORY (recommended)
 ────────────────────────────────────────
-Garmin only provides ~135 days at full resolution via API.
+Garmin only provides ~120 days at full resolution via API.
 For the complete history: request a GDPR export from Garmin
 -> https://www.garmin.com/en-US/account/datamanagement/
 This can take several days — request it now.

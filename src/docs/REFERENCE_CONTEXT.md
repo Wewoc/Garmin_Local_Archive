@@ -16,17 +16,26 @@ GUI "API Sync" Button
         ├── Splits date range into segments per location
         └── Per segment, per plugin:
               context_api.fetch(plugin, ...)   → external API (Open-Meteo or Brightsky)
-              context_writer.write(plugin, ...) → context_data/
+                                                   returns {"summary": ..., "raw": ...}
+              context_writer.write(plugin, ...) → context_data/ (summary/ + raw/)
 
 Dashboard specialists
   └── context_map.get(field, date_from, date_to)
-        ├── weather_map.get()    → context_data/weather/raw/
-        ├── pollen_map.get()     → context_data/pollen/raw/
-        ├── brightsky_map.get()  → context_data/brightsky/raw/
-        └── airquality_map.get() → context_data/airquality/raw/
+        ├── weather_map.get()    → context_data/weather/summary/          (no raw/)
+        ├── pollen_map.get()     → context_data/pollen/summary/ or raw/
+        ├── brightsky_map.get()  → context_data/brightsky/summary/ or raw/
+        └── airquality_map.get() → context_data/airquality/summary/ or raw/
 ```
 
 **Key principle:** `maps/` = routing only. `context/` = collect only. No crossover.
+
+**v1.7.1.11 — raw/summary split.** `summary/` holds daily aggregates (the
+former `raw/` meaning); `raw/` now holds unreduced hourly values,
+timestamped, for pollen/brightsky/airquality (not weather — Open-Meteo
+Weather never delivers intraday data). Which folder a field reads from is
+decided by the field name itself: a `_series` suffix routes to `raw/`, no
+suffix routes to `summary/`. See "Registered fields" and "File structures"
+below for the exact naming and JSON shape of each.
 
 ---
 
@@ -45,6 +54,7 @@ Dashboard specialists
 | `pollen_map.py` | Resolves generic field names to pollen archive files | Write files, call APIs |
 | `brightsky_map.py` | Resolves generic field names to Brightsky archive files | Write files, call APIs |
 | `airquality_map.py` | Resolves generic field names to air quality archive files | Write files, call APIs |
+| `_context_io.py` (v1.7.1.11) | Shared read helpers for the four `*_map.py` modules above — `read_summary_field()` (daily), `read_raw_field()` (hourly, timestamped) | Write files, call APIs, know about any specific source |
 
 ---
 
@@ -173,7 +183,7 @@ All three follow identical interface:
 | `get(field, date_from, date_to, resolution)` | Reads locally archived files. Returns `{"values": [...], "fallback": bool, "source_resolution": str}` |
 | `list_fields()` | Returns all registered generic field names |
 
-**Fallback behaviour:** All sources are always daily. If `resolution="intraday"` is requested, `fallback=True` is set but daily data is returned.
+**Fallback behaviour (v1.7.1.11):** `weather` is always daily — `resolution="intraday"` sets `fallback=True` and daily data is still returned, unchanged from before this version. `pollen`/`brightsky`/`airquality` now differentiate by field name instead: a non-`_series` field behaves exactly like `weather` (daily, `fallback=True` on an `"intraday"` request). A `_series` field has only one read path (`raw/`) — no daily/intraday fallback branch applies to it, `resolution` is accepted for interface compatibility but ignored, and `fallback` is always `False` (there is no degraded alternate path for it to have fallen back from).
 
 ### Registered fields — `weather_map.py`
 
@@ -197,6 +207,14 @@ All three follow identical interface:
 | `pollen_olive` | `olive_pollen` | grains/m³ |
 | `pollen_ragweed` | `ragweed_pollen` | grains/m³ |
 
+**v1.7.1.11 — `_series` variants (raw/, intraday):** each field above has an
+additional, independently registered `<name>_series` entry reading the same
+internal key from `raw/` instead of `summary/` — `pollen_birch_series`,
+`pollen_grass_series`, `pollen_alder_series`, `pollen_mugwort_series`,
+`pollen_olive_series`, `pollen_ragweed_series`. Not a resolution branch of
+the non-series field — a separate `_FIELD_MAP` line with its own read path
+(see "Fallback behaviour" above).
+
 ### Registered fields — `brightsky_map.py`
 
 | Generic name | Internal key | Unit | Aggregation |
@@ -211,6 +229,12 @@ All three follow identical interface:
 | `pressure_avg` | `pressure_msl` | hPa | daily mean |
 | `condition` | `condition` | string | daily mode |
 
+**v1.7.1.11 — `_series` variants (raw/, intraday):** same pattern as
+`pollen_map.py` above — one additional `<name>_series` entry per field
+(`temperature_avg_series`, `humidity_avg_series`, `precipitation_sum_series`,
+`sunshine_sum_series`, `wind_speed_max_series`, `wind_gust_max_series`,
+`cloud_cover_avg_series`, `pressure_avg_series`, `condition_series`).
+
 ### Registered fields — `airquality_map.py`
 
 | Generic name | Internal key | Unit | Aggregation |
@@ -221,11 +245,24 @@ All three follow identical interface:
 | `airquality_nitrogen_dioxide` | `nitrogen_dioxide` | μg/m³ | daily mean |
 | `airquality_ozone` | `ozone` | μg/m³ | daily mean |
 
+**v1.7.1.11 — `_series` variants (raw/, intraday):** same pattern —
+`airquality_pm2_5_series`, `airquality_pm10_series`,
+`airquality_european_aqi_series`, `airquality_nitrogen_dioxide_series`,
+`airquality_ozone_series`.
+
 ---
 
 ## File structures
 
-### `context_data/weather/raw/weather_YYYY-MM-DD.json`
+**v1.7.1.11 — raw/summary split.** Each of the three hourly sources
+(pollen, brightsky, airquality) now writes two files per day instead of
+one: `summary/<prefix>_YYYY-MM-DD.json` (daily aggregate — identical shape
+and content to the pre-v1.7.1.11 `raw/` file, just relocated and renamed)
+and `raw/<prefix>_YYYY-MM-DD.json` (new — hourly values, timestamped,
+unreduced). `weather` writes only `summary/` — Open-Meteo Weather has no
+hourly resolution to preserve.
+
+### `context_data/weather/summary/weather_YYYY-MM-DD.json`
 
 ```json
 {
@@ -245,7 +282,7 @@ All three follow identical interface:
 }
 ```
 
-### `context_data/pollen/raw/pollen_YYYY-MM-DD.json`
+### `context_data/pollen/summary/pollen_YYYY-MM-DD.json`
 
 ```json
 {
@@ -266,7 +303,31 @@ All three follow identical interface:
 }
 ```
 
-### `context_data/brightsky/raw/brightsky_YYYY-MM-DD.json`
+### `context_data/pollen/raw/pollen_YYYY-MM-DD.json` (v1.7.1.11)
+
+Each field is a list of timestamped hourly entries rather than one
+aggregated scalar. A missing/None hourly reading is simply absent from the
+list — no fixed-length placeholder, no misaligned index on a DST-short/-long
+day.
+
+```json
+{
+    "date":        "2026-01-01",
+    "source":      "open-meteo-pollen",
+    "fetched_at":  "2026-04-09T10:00:00",
+    "latitude":    52.1134,
+    "longitude":   8.6655,
+    "fields": {
+        "birch_pollen": [
+            {"ts": "2026-01-01T00:00", "value": 0.1},
+            {"ts": "2026-01-01T01:00", "value": 0.1},
+            {"ts": "2026-01-01T03:00", "value": 0.3}
+        ]
+    }
+}
+```
+
+### `context_data/brightsky/summary/brightsky_YYYY-MM-DD.json`
 
 ```json
 {
@@ -289,7 +350,29 @@ All three follow identical interface:
 }
 ```
 
-### `context_data/airquality/raw/airquality_YYYY-MM-DD.json`
+### `context_data/brightsky/raw/brightsky_YYYY-MM-DD.json` (v1.7.1.11)
+
+Same timestamped-list shape as pollen's `raw/` file above. Brightsky's
+native timestamps are full ISO strings with UTC offset, carried through
+unchanged (`"2026-01-01T00:00:00+01:00"`, not truncated to `"HH:MM"`).
+
+```json
+{
+    "date":        "2026-01-01",
+    "source":      "brightsky-dwd",
+    "fetched_at":  "2026-04-09T10:00:00",
+    "latitude":    52.1134,
+    "longitude":   8.6655,
+    "fields": {
+        "temperature": [
+            {"ts": "2026-01-01T00:00:00+01:00", "value": 4.0},
+            {"ts": "2026-01-01T12:00:00+01:00", "value": 8.0}
+        ]
+    }
+}
+```
+
+### `context_data/airquality/summary/airquality_YYYY-MM-DD.json`
 
 ```json
 {
@@ -305,6 +388,26 @@ All three follow identical interface:
         "european_aqi":     32.0,
         "nitrogen_dioxide": 15.2,
         "ozone":            68.5
+    }
+}
+```
+
+### `context_data/airquality/raw/airquality_YYYY-MM-DD.json` (v1.7.1.11)
+
+Same timestamped-list shape as pollen's `raw/` file above.
+
+```json
+{
+    "date":        "2026-01-01",
+    "source":      "open-meteo-airquality",
+    "fetched_at":  "2026-04-09T10:00:00",
+    "latitude":    52.5134,
+    "longitude":   13.6655,
+    "fields": {
+        "pm2_5": [
+            {"ts": "2026-01-01T00:00", "value": 10.2},
+            {"ts": "2026-01-01T01:00", "value": 11.8}
+        ]
     }
 }
 ```

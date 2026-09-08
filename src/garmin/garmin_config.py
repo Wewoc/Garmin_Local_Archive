@@ -100,11 +100,19 @@ LOCAL_CONFIG_FILE = BASE_DIR / "local_config.csv"
 #  Context data (external API — weather, pollen, brightsky)
 # ══════════════════════════════════════════════════════════════════════════════
 
-CONTEXT_DIR           = BASE_DIR / "context_data"
-CONTEXT_WEATHER_DIR   = CONTEXT_DIR / "weather"   / "raw"
-CONTEXT_POLLEN_DIR    = CONTEXT_DIR / "pollen"    / "raw"
-CONTEXT_BRIGHTSKY_DIR  = CONTEXT_DIR / "brightsky"  / "raw"
-CONTEXT_AIRQUALITY_DIR = CONTEXT_DIR / "airquality" / "raw"
+CONTEXT_DIR                    = BASE_DIR / "context_data"
+
+# v1.7.1.11 — raw/summary split. "summary" = daily aggregate (old "raw"
+# meaning), "raw" = hourly unreduced values (new). weather stays
+# summary-only — Open-Meteo Weather never delivers intraday data.
+CONTEXT_WEATHER_SUMMARY_DIR    = CONTEXT_DIR / "weather"    / "summary"
+CONTEXT_POLLEN_SUMMARY_DIR     = CONTEXT_DIR / "pollen"     / "summary"
+CONTEXT_BRIGHTSKY_SUMMARY_DIR  = CONTEXT_DIR / "brightsky"  / "summary"
+CONTEXT_AIRQUALITY_SUMMARY_DIR = CONTEXT_DIR / "airquality" / "summary"
+
+CONTEXT_POLLEN_RAW_DIR     = CONTEXT_DIR / "pollen"     / "raw"
+CONTEXT_BRIGHTSKY_RAW_DIR  = CONTEXT_DIR / "brightsky"  / "raw"
+CONTEXT_AIRQUALITY_RAW_DIR = CONTEXT_DIR / "airquality" / "raw"
 
 # Location for external API calls — set via GUI (geocoded from place name)
 # Falls back to ENV for headless/testing use

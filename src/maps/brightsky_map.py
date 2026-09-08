@@ -42,67 +42,49 @@ File structure read by this module:
   }
 """
 
-import json
 import logging
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 import garmin_config as cfg
+from maps._context_io import read_summary_field, read_raw_field
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Field map
 #
 #  Generic name (dashboard-side) → internal key in "fields" dict of
 #  brightsky_YYYY-MM-DD.json
+#
+#  v1.7.1.11 — each "_series" entry is an independent registry line, not
+#  a resolution branch of its non-series counterpart. Additive — does
+#  not change the existing daily fields' behaviour.
 # ══════════════════════════════════════════════════════════════════════════════
 
 _FIELD_MAP = {
-    "temperature_avg":  "temperature",        # °C    daily mean
-    "humidity_avg":     "relative_humidity",  # %     daily mean
-    "precipitation_sum":"precipitation",       # mm    daily sum
-    "sunshine_sum":     "sunshine",           # min   daily sum
-    "wind_speed_max":   "wind_speed",         # km/h  daily max
-    "wind_gust_max":    "wind_gust_speed",    # km/h  daily max
-    "cloud_cover_avg":  "cloud_cover",        # %     daily mean
-    "pressure_avg":     "pressure_msl",       # hPa   daily mean
-    "condition":        "condition",          # str   mode of hourly conditions
+    "temperature_avg":         "temperature",        # °C    daily mean
+    "temperature_avg_series":  "temperature",
+    "humidity_avg":            "relative_humidity",  # %     daily mean
+    "humidity_avg_series":     "relative_humidity",
+    "precipitation_sum":       "precipitation",       # mm    daily sum
+    "precipitation_sum_series":"precipitation",
+    "sunshine_sum":            "sunshine",           # min   daily sum
+    "sunshine_sum_series":     "sunshine",
+    "wind_speed_max":          "wind_speed",         # km/h  daily max
+    "wind_speed_max_series":   "wind_speed",
+    "wind_gust_max":           "wind_gust_speed",    # km/h  daily max
+    "wind_gust_max_series":    "wind_gust_speed",
+    "cloud_cover_avg":         "cloud_cover",        # %     daily mean
+    "cloud_cover_avg_series":  "cloud_cover",
+    "pressure_avg":            "pressure_msl",       # hPa   daily mean
+    "pressure_avg_series":     "pressure_msl",
+    "condition":               "condition",          # str   mode of hourly conditions
+    "condition_series":        "condition",
 }
 
 _FILE_PREFIX = "brightsky_"
 
 log = logging.getLogger(__name__)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Internal helpers
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _date_range(date_from: str, date_to: str) -> list[str]:
-    d   = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
-    out = []
-    while d <= end:
-        out.append(d.isoformat())
-        d += timedelta(days=1)
-    return out
-
-
-def _read_field(field: str, date_from: str, date_to: str) -> dict:
-    internal_key = _FIELD_MAP[field]
-    values = []
-    for ds in _date_range(date_from, date_to):
-        f     = cfg.CONTEXT_BRIGHTSKY_DIR / f"{_FILE_PREFIX}{ds}.json"
-        value = None
-        if f.exists():
-            try:
-                data  = json.loads(f.read_text(encoding="utf-8"))
-                value = data.get("fields", {}).get(internal_key)
-            except (json.JSONDecodeError, OSError) as e:
-                log.warning(f"brightsky_map: could not read {f}: {e}")
-        values.append({"date": ds, "value": value})
-    return {"values": values, "source_resolution": "daily"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -118,15 +100,16 @@ def get(field: str, date_from: str, date_to: str,
         field:      Generic field name (dashboard-side). Must exist in _FIELD_MAP.
         date_from:  Start date ISO string (YYYY-MM-DD), inclusive.
         date_to:    End date ISO string (YYYY-MM-DD), inclusive.
-        resolution: Accepted for interface compatibility — Brightsky data is
-                    always stored as daily aggregates.
-                    "intraday" request returns fallback=True with daily data.
+        resolution: Accepted for interface compatibility. Ignored for "_series"
+                    fields (only one read path — raw/, always intraday). For
+                    non-series fields, "intraday" returns fallback=True with
+                    daily data, unchanged from before v1.7.1.11.
 
     Returns:
         {
-            "values":            [{"date": str, "value": float|str|None}, ...],
+            "values":            [...],
             "fallback":          bool,
-            "source_resolution": "daily",
+            "source_resolution": "daily" | "intraday",
         }
 
     Raises:
@@ -135,9 +118,17 @@ def get(field: str, date_from: str, date_to: str,
     if field not in _FIELD_MAP:
         raise KeyError(f"brightsky_map: unknown field '{field}'")
 
-    fallback = resolution == "intraday"
-    result   = _read_field(field, date_from, date_to)
-    result["fallback"] = fallback
+    internal_key = _FIELD_MAP[field]
+
+    if field.endswith("_series"):
+        result = read_raw_field(cfg.CONTEXT_BRIGHTSKY_RAW_DIR, _FILE_PREFIX,
+                                 internal_key, date_from, date_to)
+        result["fallback"] = False
+        return result
+
+    result = read_summary_field(cfg.CONTEXT_BRIGHTSKY_SUMMARY_DIR, _FILE_PREFIX,
+                                 internal_key, date_from, date_to)
+    result["fallback"] = (resolution == "intraday")
     return result
 
 

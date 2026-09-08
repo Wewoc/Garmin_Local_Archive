@@ -121,8 +121,19 @@ def _parse_daily(response: dict, fields: list) -> dict[str, dict]:
     return result
 
 
-def _parse_hourly_to_daily_max(response: dict, fields: list) -> dict[str, dict]:
-    """Aggregate hourly API response to daily max per field."""
+def _parse_hourly_to_daily_max(response: dict, fields: list) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Aggregate hourly API response to daily max per field.
+
+    v1.7.1.11 — returns (summary, raw) instead of a bare summary dict.
+    summary is unchanged: {date: {field: value}} (daily max). raw is
+    {date: {field: [{"ts": str, "value": ...}, ...]}} — the same by_date
+    intermediate this function already built before reducing to max(),
+    now returned instead of discarded. Timestamped rather than a fixed-
+    length index list on purpose: a missing/None hourly reading is
+    simply absent from the list, and a DST-short/-long day naturally
+    has 23/25 entries instead of silently misaligning an index-based
+    hour lookup.
+    """
     hourly = response.get("hourly", {})
     times  = hourly.get("time", [])   # "YYYY-MM-DDTHH:MM"
 
@@ -135,17 +146,18 @@ def _parse_hourly_to_daily_max(response: dict, fields: list) -> dict[str, dict]:
             val = hourly.get(field, [])
             v   = val[i] if i < len(val) else None
             if v is not None:
-                by_date[ds][field].append(v)
+                by_date[ds][field].append({"ts": ts, "value": v})
 
-    return {
-        ds: {field: (max(vals) if vals else None)
-             for field, vals in field_data.items()}
+    summary = {
+        ds: {field: (max(entry["value"] for entry in entries) if entries else None)
+             for field, entries in field_data.items()}
         for ds, field_data in by_date.items()
     }
+    return summary, by_date
 
 
 def _parse_hourly_to_daily(response: dict, fields: list,
-                            aggregation_map: dict) -> dict[str, dict]:
+                            aggregation_map: dict) -> tuple[dict[str, dict], dict[str, dict]]:
     """
     Aggregate hourly API response to daily values per field.
 
@@ -154,6 +166,10 @@ def _parse_hourly_to_daily(response: dict, fields: list,
         max   → maximum of all hourly values
         sum   → sum of all hourly values
         mode  → most frequent non-None value
+
+    v1.7.1.11 — returns (summary, raw) instead of a bare summary dict.
+    See _parse_hourly_to_daily_max()'s docstring for the raw shape and
+    the reasoning behind timestamped (not index-based) raw entries.
     """
     hourly = response.get("hourly", {})
     times  = hourly.get("time", [])   # "YYYY-MM-DDTHH:MM"
@@ -167,12 +183,13 @@ def _parse_hourly_to_daily(response: dict, fields: list,
             val = hourly.get(field, [])
             v   = val[i] if i < len(val) else None
             if v is not None:
-                by_date[ds][field].append(v)
+                by_date[ds][field].append({"ts": ts, "value": v})
 
-    result = {}
+    summary = {}
     for ds, field_data in by_date.items():
         day_values = {}
-        for field, vals in field_data.items():
+        for field, entries in field_data.items():
+            vals   = [e["value"] for e in entries]
             method = aggregation_map.get(field, "mean")
             if not vals:
                 day_values[field] = None
@@ -189,9 +206,9 @@ def _parse_hourly_to_daily(response: dict, fields: list,
                     day_values[field] = vals[0]
             else:
                 day_values[field] = None
-        result[ds] = day_values
+        summary[ds] = day_values
 
-    return result
+    return summary, by_date
 
 
 def _parse_brightsky(response: dict, aggregation_map: dict) -> dict[str, dict]:
@@ -204,10 +221,10 @@ def _parse_brightsky(response: dict, aggregation_map: dict) -> dict[str, dict]:
         max   → maximum of all hourly values
         mode  → most frequent non-None value
     """
-    entries = response.get("weather", [])
+    entries_raw = response.get("weather", [])
     by_date: dict[str, dict[str, list]] = {}
 
-    for entry in entries:
+    for entry in entries_raw:
         ts = entry.get("timestamp", "")
         ds = ts[:10]
         if not ds:
@@ -217,12 +234,13 @@ def _parse_brightsky(response: dict, aggregation_map: dict) -> dict[str, dict]:
         for field in aggregation_map:
             val = entry.get(field)
             if val is not None:
-                by_date[ds][field].append(val)
+                by_date[ds][field].append({"ts": ts, "value": val})
 
-    result = {}
+    summary = {}
     for ds, field_data in by_date.items():
         day_values = {}
-        for field, vals in field_data.items():
+        for field, entries in field_data.items():
+            vals   = [e["value"] for e in entries]
             method = aggregation_map.get(field, "mean")
             if not vals:
                 day_values[field] = None
@@ -239,9 +257,9 @@ def _parse_brightsky(response: dict, aggregation_map: dict) -> dict[str, dict]:
                     day_values[field] = vals[0]
             else:
                 day_values[field] = None
-        result[ds] = day_values
+        summary[ds] = day_values
 
-    return result
+    return summary, by_date
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -263,8 +281,11 @@ def fetch(plugin, date_from: str, date_to: str,
         skip_dates:  Set of date strings already collected — skipped.
 
     Returns:
-        {date_str: {field: value}} for all successfully fetched dates.
-        Missing dates are not in the result — context_writer handles None.
+        {"summary": {date_str: {field: value}},
+         "raw":     {date_str: {field: [{"ts": str, "value": ...}, ...]}}}
+        for all successfully fetched dates. Missing dates are not in
+        either dict — context_writer handles None. "raw" is always {}
+        for daily plugins (weather) — v1.7.1.11.
     """
     skip_dates  = skip_dates or set()
     all_dates   = _date_range(date_from, date_to)
@@ -273,7 +294,8 @@ def fetch(plugin, date_from: str, date_to: str,
     resolution  = plugin.API_RESOLUTION
     fields      = plugin.API_FIELDS
     chunk_size  = plugin.CHUNK_DAYS
-    result      = {}
+    result_summary = {}
+    result_raw     = {}
 
     for chunk in _chunks(missing, chunk_size):
         url      = _select_url(plugin, chunk[0])
@@ -283,18 +305,22 @@ def fetch(plugin, date_from: str, date_to: str,
             continue
 
         if adapter == "brightsky":
-            parsed = _parse_brightsky(response, plugin.AGGREGATION_MAP)
+            parsed_summary, parsed_raw = _parse_brightsky(response, plugin.AGGREGATION_MAP)
         elif resolution == "daily":
-            parsed = _parse_daily(response, fields)
+            parsed_summary = _parse_daily(response, fields)
+            parsed_raw = {}
         elif hasattr(plugin, "AGGREGATION_MAP"):
-            parsed = _parse_hourly_to_daily(response, fields, plugin.AGGREGATION_MAP)
+            parsed_summary, parsed_raw = _parse_hourly_to_daily(response, fields, plugin.AGGREGATION_MAP)
         else:
-            parsed = _parse_hourly_to_daily_max(response, fields)
+            parsed_summary, parsed_raw = _parse_hourly_to_daily_max(response, fields)
 
         # Only keep dates that were actually requested — skip_dates stay out
-        for ds, val in parsed.items():
+        for ds, val in parsed_summary.items():
             if ds not in skip_dates:
-                result[ds] = val
+                result_summary[ds] = val
+        for ds, val in parsed_raw.items():
+            if ds not in skip_dates:
+                result_raw[ds] = val
         time.sleep(0.5)
 
-    return result
+    return {"summary": result_summary, "raw": result_raw}

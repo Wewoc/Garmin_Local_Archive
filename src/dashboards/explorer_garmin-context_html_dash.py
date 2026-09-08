@@ -136,9 +136,17 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         if not f.endswith(_SERIES_SUFFIX) and f not in _EXCLUDE_FROM_DAILY
     ]
 
+    # v1.7.1.11 — context_list_fields() now also returns "_series" (intraday)
+    # entries for pollen/brightsky/airquality (additive _FIELD_MAP registry
+    # lines). Same exclusion this function already applies to Garmin fields
+    # above (daily_garmin_fields), now mirrored for context fields — a
+    # _series field returns {"date", "series"} not {"date", "value"} and
+    # would otherwise break _context_by_date()'s dict comprehension.
     context_fields = []
     for src in _CONTEXT_SOURCES:
-        context_fields.extend(context_list_fields(src))
+        context_fields.extend(
+            f for f in context_list_fields(src) if not f.endswith(_SERIES_SUFFIX)
+        )
 
     all_daily_fields = daily_garmin_fields + context_fields
 

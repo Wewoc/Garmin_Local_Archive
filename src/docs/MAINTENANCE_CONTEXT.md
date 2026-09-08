@@ -22,17 +22,25 @@ GUI "API Sync" Button
 
 Dashboard specialists
   └── context_map.get(field, date_from, date_to)
-        ├── weather_map.get()           → reads context_data/weather/raw/
-        ├── pollen_map.get()            → reads context_data/pollen/raw/
-        ├── brightsky_map.get()         → reads context_data/brightsky/raw/
-        └── airquality_map.get()        → reads context_data/airquality/raw/
+        ├── weather_map.get()           → reads context_data/weather/summary/    (no raw/)
+        ├── pollen_map.get()            → reads context_data/pollen/summary/     or raw/, by field name
+        ├── brightsky_map.get()         → reads context_data/brightsky/summary/  or raw/, by field name
+        └── airquality_map.get()        → reads context_data/airquality/summary/ or raw/, by field name
 ```
+
+**v1.7.1.11 — two possible read paths per source (except weather).** Which
+folder a `get()` call reads from is decided by the field name itself, not by
+the `resolution` parameter: a `_series`-suffixed field reads `raw/`
+(hourly, timestamped), any other registered field reads `summary/` (daily
+aggregate — the pre-v1.7.1.11 `raw/` meaning, relocated and renamed).
+`weather` is unaffected — it has no `_series` fields and no `raw/` folder,
+Open-Meteo Weather delivers no intraday data.
 
 ### Module ownership
 
 | Module | Sole write authority |
 |---|---|
-| `context_writer.py` | `context_data/` (all subfolders) |
+| `context_writer.py` | `context_data/` (all subfolders — `summary/` and `raw/`, v1.7.1.11) |
 
 ### Invariants
 
@@ -41,8 +49,9 @@ Dashboard specialists
 - `context_map.py` never calls external APIs directly — reads local files only
 - Plugins contain NO executable logic — metadata only
 - `context_writer.py` is the only module that creates files in `context_data/`
-- `context_api.fetch()` never raises — `OSError` caught in `_fetch_chunk()` (returns `None`); `fetch()` returns empty dict on network failure
+- `context_api.fetch()` never raises — `OSError` caught in `_fetch_chunk()` (returns `None`); `fetch()` returns `{"summary": {}, "raw": {}}` on network failure (v1.7.1.11 — was a bare empty dict before the raw/summary split)
 - `context_collector.run()` never raises — `Exception` caught around fetch+write block (`failed += 1`); always returns a result dict
+- `context_writer.already_written()` is a two-stage check for plugins that declare `RAW_OUTPUT_DIR` (pollen/brightsky/airquality): a day counts as written only if both `summary/` and `raw/` files exist (v1.7.1.11)
 
 ---
 
@@ -195,10 +204,13 @@ All APIs are free for non-commercial use with no authentication. `context_api.py
 
 ### No data returned for a date
 
-1. Check if file exists in the relevant source folder:
-   - `context_data/weather/raw/weather_YYYY-MM-DD.json`
-   - `context_data/pollen/raw/pollen_YYYY-MM-DD.json`
-   - `context_data/brightsky/raw/brightsky_YYYY-MM-DD.json`
+1. Check if file exists in the relevant source folder — `summary/` for a
+   daily field, `raw/` for a `_series` field (v1.7.1.11 — weather has no
+   `raw/`):
+   - `context_data/weather/summary/weather_YYYY-MM-DD.json`
+   - `context_data/pollen/summary/pollen_YYYY-MM-DD.json` or `pollen/raw/pollen_YYYY-MM-DD.json`
+   - `context_data/brightsky/summary/brightsky_YYYY-MM-DD.json` or `brightsky/raw/brightsky_YYYY-MM-DD.json`
+   - `context_data/airquality/summary/airquality_YYYY-MM-DD.json` or `airquality/raw/airquality_YYYY-MM-DD.json`
 2. If missing: run API Sync — check for location configured (not 0.0/0.0)
 3. Check `local_config.csv` for the date range — correct coordinates?
 4. For Brightsky: location must be within Germany bounding box (lat 47.2–55.1, lon 5.8–15.1) — outside this range, `brightsky_plugin` is skipped automatically and a log entry is written

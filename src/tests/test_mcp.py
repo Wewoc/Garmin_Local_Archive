@@ -90,7 +90,8 @@ def _write_raw(base_dir: Path):
 _write_raw(_TMPDIR)
 importlib.reload(cfg)
 
-_CONTEXT_FIXTURE_DIR = cfg.CONTEXT_WEATHER_DIR
+# v1.7.1.11 — renamed from CONTEXT_WEATHER_DIR (now points at summary/).
+_CONTEXT_FIXTURE_DIR = cfg.CONTEXT_WEATHER_SUMMARY_DIR
 _CONTEXT_FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
 (_CONTEXT_FIXTURE_DIR / f"weather_{_TEST_DATE}.json").write_text(
     json.dumps({"date": _TEST_DATE, "fields": {"temperature_2m_max": 25.0}}),
@@ -816,6 +817,161 @@ with patch("mcp_server._route_query", return_value="live"), \
     _m_sql.assert_not_called()
 check("mcp_server.query_context: live branch calls mcp_map.query_context, not mcp_sql", True)
 
+# ── 8d-bis. query_context() "_series" fields — SQLite-Rueckbau (v1.7.1.11
+#            Session 4) ──────────────────────────────────────────────────
+#
+# Session 3 gave "_series" fields a hardcoded live-only bypass in
+# query_context() (two spots: direct field path, typo-resolution path),
+# reasoning that they were excluded from the proactive SQLite sync and
+# would silently return empty from mcp_sql. Session 4 established (Timo,
+# NOTES_v1.7.1.11.md Session 4) that ALL context data — daily and
+# "_series" alike — must flow through the same sqlite/live routing
+# weiche as every other field, same as query_health()'s steps_series
+# already does. This section is the missing coverage for that specific
+# behaviour: Session 3 never added a dedicated test for its own
+# "_series" bypass (the only two "_series"-suffix checks in this file,
+# in Section 8c-ter below, exercise _resolve_context_bundle()'s
+# separate and unrelated bundle-collision skip, not this path) — so
+# there was nothing here to break when the bypass was removed, and
+# nothing here to prove the removal actually took effect either. These
+# checks close that gap.
+#
+# Deliberately NOT mocking mcp_map.list_available_fields() here — same
+# reasoning as 8c-bis: pulls a real "_series" field name from the live
+# registry, so a future rename/removal breaks THIS section for that
+# reason, not silently drifts out of sync.
+
+section("mcp_server 8d-bis. query_context() \"_series\" fields — SQLite-Rueckbau (v1.7.1.11 S4)")
+
+_qc_series_fields = set()
+for _src_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+    _qc_series_fields.update(f for f in _src_fields if f.endswith("_series"))
+check("test fixture: at least one '_series' context field is registered",
+      len(_qc_series_fields) > 0)
+_a_series_field = sorted(_qc_series_fields)[0] if _qc_series_fields else None
+
+# 1. Happy path — direct field path, SQLite branch (today's placeholder
+#    default): a "_series" field must now call mcp_sql.get_context_range,
+#    exactly like any daily field already does.
+if _a_series_field is not None:
+    with patch("mcp_sql.get_context_range",
+               return_value={"context": {"weather": {}}, "_meta": {}}) as _m_sql, \
+         patch("maps.mcp_map.query_context") as _m_live:
+        mcp_server.query_context(_a_series_field, _TEST_DATE, _TEST_DATE, "intraday")
+        _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field=_a_series_field)
+    check("query_context '_series' direct field: SQLite branch calls mcp_sql.get_context_range",
+          True)
+    # 4. Regression guard — must NOT fall back to the old live-only bypass.
+    check("query_context '_series' direct field: SQLite branch never touches mcp_map.query_context",
+          not _m_live.called)
+
+# 2. Live branch — forcing _route_query() to "live" must route a
+#    "_series" field to mcp_map exactly like a daily field (8d above),
+#    proving the weiche now applies uniformly, no field-name branching
+#    left in front of it.
+if _a_series_field is not None:
+    with patch("mcp_server._route_query", return_value="live"), \
+         patch("maps.mcp_map.query_context",
+               return_value={"context": {}, "_meta": {}}) as _m_live, \
+         patch("mcp_sql.get_context_range") as _m_sql:
+        mcp_server.query_context(_a_series_field, _TEST_DATE, _TEST_DATE, "intraday")
+        _m_live.assert_called_once_with(_a_series_field, _TEST_DATE, _TEST_DATE, "intraday")
+        _m_sql.assert_not_called()
+    check("query_context '_series' direct field: live branch calls mcp_map.query_context, not mcp_sql",
+          True)
+
+# 3. Typo resolution landing on a "_series" field — the second removed
+#    bypass. A close-match typo of a real "_series" field name must now
+#    also reach the SQLite branch (placeholder default), not be forced
+#    live.
+#
+# Correction (Session 4, post-Anchor-3 diagnosis, debug_series_typo.py
+# run): the original approach here derived the typo by dropping a
+# character INSIDE "_series" itself (e.g. "_series" -> "_seris") from
+# whichever field sorted(_qc_series_fields)[0] happened to pick. Every
+# "_series" field in this registry has a same-named daily counterpart
+# minus the suffix (X / X_series) — a typo landing inside "_series"
+# leaves the X-prefix almost untouched, so difflib often rates BOTH "X"
+# and "X_series" above cutoff=0.8 for that typo (confirmed for the
+# then-picked "airquality_european_aqi_series": ratio 0.9831 against
+# itself, 0.8846 against "airquality_european_aqi" — both clear
+# cutoff=0.8), failing the "exactly one candidate" assumption. Not a
+# registry problem, an artifact of where the typo lands. Fixed two ways
+# (Timo, Session 4): a real, pre-verified single-candidate case (this
+# check) placing the typo INSIDE the prefix instead, plus a separate
+# check (3b, below) that keeps the original collision case as
+# documented, expected behaviour rather than discarding it.
+#
+# "pollen_birch_series" hardcoded rather than derived from
+# sorted(_qc_series_fields) for the same reason 8c-bis hardcodes
+# "sunshine_duratio": a stable, pre-verified typo, not a runtime pick
+# that can land on an unrelated field with different collision
+# behaviour on a future registry change.
+_series_typo_field = "pollen_birch_series"
+if _series_typo_field in _qc_series_fields:
+    _series_typo = "pollenbirch_series"  # missing "_" between prefix and "birch"
+    _all_known_context_fields = set()
+    for _src_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+        _all_known_context_fields.update(_src_fields)
+    _typo_matches = difflib.get_close_matches(
+        _series_typo, _all_known_context_fields, n=3, cutoff=0.8
+    )
+    check("test fixture: '_series' typo (mid-prefix) resolves to exactly one candidate",
+          _typo_matches == [_series_typo_field])
+    if _typo_matches == [_series_typo_field]:
+        with patch("mcp_sql.get_context_range",
+                   return_value={"context": {"weather": {}}, "_meta": {}}) as _m_sql, \
+             patch("maps.mcp_map.query_context") as _m_live:
+            _qc_series_typo = mcp_server.query_context(
+                _series_typo, _TEST_DATE, _TEST_DATE, "intraday")
+            _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field=_series_typo_field)
+        check("query_context '_series' typo-resolved field: SQLite branch calls mcp_sql.get_context_range",
+              True)
+        check("query_context '_series' typo-resolved field: never falls back to mcp_map.query_context",
+              not _m_live.called)
+        check("query_context '_series' typo-resolved field: _meta.field_used set correctly",
+              _qc_series_typo.get("_meta", {}).get("field_used") == _series_typo_field)
+
+# 3b. Documented collision case — a typo placed INSIDE "_series" itself
+#     (e.g. "_series" -> "_seris", the pattern that motivated the
+#     correction above) legitimately matches BOTH a "_series" field and
+#     its daily counterpart for names with a short "_series"-relative
+#     prefix (e.g. "airquality_european_aqi_series"). This is not a bug
+#     in the rollback — same "no unique match, fall through" behaviour
+#     8c-bis's own "definitely_unknown_category" case exercises for a
+#     different reason — but it IS a real, reproducible property of this
+#     field naming convention worth keeping a check on, so a future
+#     session changing the alias/typo-resolution cutoff notices if it
+#     starts silently picking one of the two candidates instead of
+#     correctly falling through to ambiguous/unresolved.
+_collision_field = "airquality_european_aqi_series"
+if _collision_field in _qc_series_fields:
+    _collision_typo = "airquality_european_aqi_seris"  # missing "e" in "_series"
+    _all_known_context_fields = set()
+    for _src_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+        _all_known_context_fields.update(_src_fields)
+    _collision_matches = difflib.get_close_matches(
+        _collision_typo, _all_known_context_fields, n=3, cutoff=0.8
+    )
+    check("test fixture: '_series'-suffix typo on a short-prefix field stays a documented "
+          "X/X_series collision (>=2 candidates, no auto-resolution)",
+          len(_collision_matches) >= 2
+          and _collision_field in _collision_matches)
+
+# 5. Regression guard for 8c-bis's own typo test — the pre-existing
+#    NON-"_series" typo path ("sunshine_duratio" -> "sunshine_duration")
+#    must stay on the SQLite branch after this session's changes exactly
+#    as before; nothing in this rollback should affect a plain field's
+#    typo resolution.
+with patch("mcp_sql.get_context_range",
+           return_value={"context": {"weather": {}}, "_meta": {}}) as _m_sql, \
+     patch("maps.mcp_map.query_context") as _m_live:
+    mcp_server.query_context("sunshine_duratio", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="sunshine_duration")
+    _m_live.assert_not_called()
+check("query_context non-'_series' typo path: unaffected by the '_series' rollback (regression guard)",
+      True)
+
 # ── 8c-ter. query_context() category bundles (v1.7.1.5) ─────────────────────
 #
 # _CONTEXT_CATEGORY_BUNDLES resolution runs BEFORE the v1.7.1.4
@@ -837,6 +993,16 @@ section("mcp_server 8c-ter. query_context() category bundles (v1.7.1.5)")
 #    attribute — see _resolve_context_bundle()'s docstring).
 _pollen_fields = mcp_map.list_available_fields(domain="context")["fields"]["context"]["pollen"]
 
+# v1.7.1.11 — pollen's field registry now also contains "_series" (intraday)
+# entries (Anchor 4.1), but _resolve_context_bundle() deliberately skips
+# them (Anchor 6.1) — the bundle mechanism answers a daily-value source-
+# collision question that has no intraday equivalent among these sources.
+# _pollen_fields therefore no longer equals the set of fields actually
+# queried/flattened here; _pollen_daily_fields does.
+_pollen_daily_fields = [f for f in _pollen_fields if not f.endswith("_series")]
+check("test fixture: pollen registry contains _series entries (sanity check)",
+      len(_pollen_fields) > len(_pollen_daily_fields))
+
 def _fake_pollen_range(date_from, date_to, field=None):
     return {"context": {"pollen": {field: {
         "values": [{"date": _TEST_DATE, "value": 12.5}],
@@ -845,10 +1011,12 @@ def _fake_pollen_range(date_from, date_to, field=None):
 
 with patch("mcp_sql.get_context_range", side_effect=_fake_pollen_range) as _m_sql:
     _qc_pollen = mcp_server.query_context("pollen", _TEST_DATE, _TEST_DATE, "daily")
-    check("query_context bundle 'pollen': mcp_sql called once per registered field",
-          _m_sql.call_count == len(_pollen_fields))
-check("query_context bundle 'pollen': every field present in flat result",
-      set(_qc_pollen["context"].keys()) == set(_pollen_fields))
+    check("query_context bundle 'pollen': mcp_sql called once per registered daily field, _series skipped",
+          _m_sql.call_count == len(_pollen_daily_fields))
+check("query_context bundle 'pollen': every daily field present in flat result",
+      set(_qc_pollen["context"].keys()) == set(_pollen_daily_fields))
+check("query_context bundle 'pollen': no _series field leaked into flat result",
+      not any(f.endswith("_series") for f in _qc_pollen["context"]))
 check("query_context bundle 'pollen': a field's value is unwrapped correctly",
       _qc_pollen["context"]["pollen_birch"]["values"][0]["value"] == 12.5)
 check("query_context bundle 'pollen': no field_sources entries (single-source bundle)",
