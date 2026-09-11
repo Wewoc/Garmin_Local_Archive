@@ -1,5 +1,40 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.12 — Context/Health Field Name Resolution: Alias Tables, Ambiguity Queries, Domain Classification
+
+The field name fallback in `query_context()`/`query_health()` has been refined, building on the `v1.7.1.11` session 5 cutoff reduction (0.8 → 0.65).
+Four related corrections, one production release (2026-09-10/11), three of which were found during the actual `test_mcp.py` test run and were not planned in advance.
+
+`CONTEXT_FIELD_ALIASES` (36 entries) addresses curated, empirically confirmed mismatches for short/generic field names — 4 of which were previously identified as cutoff-0.65 mismatches in run 12b (`humidity`, `pressure`, `air_pressure`, `wind_speed`), and 32 more were individually re-verified against the current registry from the run-11 appendix A candidate list. `CONTEXT_FIELD_AMBIGUOUS`/`HEALTH_FIELD_AMBIGUOUS` (7 fields total) introduces a new query mechanism for cases where the requested name does not distinguish between daily value and time series (`pm25`/`pm2_5`/`pm10`/`no2`/`air_quality_index` for Context, `spo2`/`stress` for Health) — deliberately not using a new response format, but reusing the existing `error`/`did_you_mean` schema to avoid burdening weaker local models with an additional concept. `spo2`/`stress` were not originally planned but were discovered as a side effect of the cutoff-0.65 reduction: the documented `v1.7.1.9` decision to deliberately not resolve `spo2` was overridden by the reduced cutoff — a systematic scan of all 26 Health fields revealed the same previously undiscovered error for `stress`.
+
+A more structural correction, also found during the test run: the domain affiliation check in `query_health()`/`query_context()` previously occurred AFTER the difflib similarity check, instead of before — with `cutoff=0.65`, this could cause an exact, registered field from the other domain to be incorrectly resolved to a similarly named field in the wrong domain before the actual domain confusion message was reached. A systematic scan of both field registrations found eight such cases (four in each direction); the correction moves the domain classification before the similarity comparison — "classify first, then compare" instead of the reverse.
+
+Fourth correction: `wind_speed_max`'s existing daily tie-break (`brightsky` before `weather`, `v1.7.1.5`) was only accessible via the bundle path (`field="weather"`)— a direct field query (`field="wind_speed_max"`) completely bypassed it and provided both source values without resolution. Now, the same value priority also applies in the direct path, without location/configuration checks (the fetch-side Germany bounding box in `context_collector.py` already encodes this decision completely into file existence — a value check is equivalent).
+
+Two pure test fixture corrections without changes to production code:
+`"sunshine_duratio"` (two test cases) and `"pollenbirch_series"` no longer matched uniquely with `cutoff=0.65` — replacement cases or reformulation as a documented collision case, the latter after confirmation that with `cutoff=0.65`, no `_series` field remains uniquely identifiable for the tested typo pattern (all 19 fields checked) — an open fundamental question, deliberately not resolved today.
+
+**Verified against an actual LLM test run** (`qwen2.5-coder:7b` + `qwen3:8b`, 80 targeted questions × 2 models = 160 cases, targeted run instead of full catalog): 160/160 server-side answers correct — all 36 aliases resolved reliably, all 8 domain regression cases corrected, all 3 `_series` collision examples as documented. Model-dependent variance observed in the ambiguity query (`qwen2.5-coder:7b` respected it in 1/7, `qwen3:8b` in 5/7 cases) — model behavior, not a server finding.
+
+**REFERENCE_MCP.md recreated** — the `## mcp_map.py` section from `REFERENCE_BROKER.md` (more than half of the original file) moves to a separate file, including today's v1.7.1.12 additions. `REFERENCE_BROKER.md` retains only the generic broker basis.
+
+**Changed modules:**
+- `clients/mcp_server.py` — `CONTEXT_FIELD_ALIASES`, `CONTEXT_FIELD_AMBIGUOUS`, `HEALTH_FIELD_AMBIGUOUS` added.
+  `query_context()`/`query_health()`: Alias/ambiguity check before bundle/difflib check; domain registry check before instead of after the difflib call (both functions); `wind_speed_max` special case in the direct field path (one Fan-Out ratio call instead of two identical calls, `_meta` correctly inherited instead of overwritten — both errors from a previous draft found during review of `mcp_sql.py` and corrected before release).
+
+**Test files:**
+- `tests/test_mcp.py` — new checks for all three mechanisms;
+  `"sunshine_duratio"` (two instances) → `"condiiton"` (cutoff-0.65 fixture correction); `"pollenbirch_series"` check reformulated to documented collision case (analogous to the existing `airquality_european_aqi_series` case); new `spo2`/`stress` ambiguity test block replaces the previous pure unknown-field check for `spo2`. 168 → 170.
+
+**Documentation:**
+- `docs/REFERENCE_MCP.md` — newly created (split from `docs/REFERENCE_BROKER.md`), plus a dedicated `v1.7.1.12` section with all four mechanisms and the LLM test results.
+- `docs/REFERENCE_BROKER.md` — MCP section removed (moved to `REFERENCE_MCP.md`), file header and broker overview table now refer to it; three internal "see mcp_map.py section below" references corrected, which would otherwise have pointed to nothing.
+- `docs/MAINTENANCE_GLOBAL.md` — two `REFERENCE_BROKER.md` references (spo2 collision analysis, sleep_score Fan-Out ratio bug) corrected to `REFERENCE_MCP.md`.
+- `NOTES_v1.7.1.12.md` — complete session documentation: all six goals (original three + three found during testing), rejected alias candidates with justification, open issues for follow-up sessions.
+
+**Test result:** 780 / 299 / 465 / 136 / 170 / 169 / 80 / 16 — all green.
+---
+
 ## v1.7.1.11 — Context-Pipeline Intraday: raw/summary Split + `_series` Fields
 
 Context data for the three hourly sources (pollen/brightsky/airquality)

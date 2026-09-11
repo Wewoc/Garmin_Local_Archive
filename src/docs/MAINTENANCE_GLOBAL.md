@@ -584,8 +584,10 @@ including `_meta.field_resolved_from`/`field_used` and an explicit
 mcp_map-bypass check (the fullest of the three alias checks — 3c then
 covers `"hrv"`/`"hill"` more lightly against the same code path);
 `"spo2"` confirmed to stay on the generic unknown-field error
-(deliberately not aliased — see `REFERENCE_BROKER.md`'s `v1.7.1.9`
-entry for the collision analysis); the `sleep_score` fan-out itself
+(deliberately not aliased at the time — see `REFERENCE_MCP.md`'s
+`v1.7.1.9` entry for the collision analysis; superseded by the
+dedicated `HEALTH_FIELD_AMBIGUOUS` mechanism in `v1.7.1.12`); the
+`sleep_score` fan-out itself
 (all three fields present in one result, three separate `mcp_sql`
 calls, `_meta.field_resolved_from` set, deliberately no `field_used`);
 and a targeted `sleep_score_feedback` call confirmed to still return
@@ -597,7 +599,7 @@ by its own fix, not a case this suite needs to keep guarding against.
 Check-count delta tracked in `docs/METRICS.md`, not restated here.
 
 First implementation attempt of the `sleep_score` fan-out (see
-`REFERENCE_BROKER.md`'s `v1.7.1.9` entry, "Bug found and fixed") wrongly
+`REFERENCE_MCP.md`'s `v1.7.1.9` entry, "Bug found and fixed") wrongly
 nested its mock/expected shape under an extra `"garmin"` key that
 `mcp_sql.get_health_range()` does not actually produce — the bug and
 its test mocks shared the same wrong assumption, so the original 3e/3f

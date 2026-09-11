@@ -567,17 +567,36 @@ for _alias_input, _alias_target in [("hrv", "hrv_last_night"), ("hill", "hill_sc
     check(f"query_health unknown-field: {_alias_input!r} alias — no error key",
           "error" not in _qh_a)
 
-# 3d. spo2 explicitly excluded from alias mapping (v1.7.1.9 Session 2
-#     decision — real collision between spo2_avg/spo2_series, see
-#     NOTES_v1.7.1.9.md Session 2). Must still fall through to the
-#     generic unknown-field error, same as before Session 2.
+# 3d. spo2/stress explicitly excluded from alias mapping (v1.7.1.9
+#     Session 2 decision for spo2 -- real collision between
+#     spo2_avg/spo2_series, see NOTES_v1.7.1.9.md Session 2; stress
+#     added v1.7.1.12 after the cutoff=0.65 change was found to
+#     silently auto-resolve both -- see HEALTH_FIELD_AMBIGUOUS's own
+#     comment in mcp_server.py). Both must land in the new ambiguous-
+#     field response (error + did_you_mean with both real candidates),
+#     NOT the generic "unknown field" text this test originally
+#     expected pre-v1.7.1.12, and NOT an auto-resolved value.
 with patch("mcp_sql.get_health_range") as _m_sql_spo2, \
      patch("maps.mcp_map.query_health") as _m_live_spo2:
     _qh_spo2 = mcp_server.query_health("spo2", _TEST_DATE, _TEST_DATE, "daily")
-check("query_health unknown-field: 'spo2' deliberately NOT aliased, stays a generic error",
-      "unknown field" in _qh_spo2.get("error", ""))
+check("query_health unknown-field: 'spo2' is ambiguous, not a generic unknown-field error",
+      "ambiguous" in _qh_spo2.get("error", ""))
+check("query_health unknown-field: 'spo2' did_you_mean lists both real candidates",
+      _qh_spo2.get("did_you_mean") == ["spo2_avg", "spo2_series"])
 check("query_health unknown-field: 'spo2' never reaches mcp_sql/mcp_map",
       not _m_sql_spo2.called and not _m_live_spo2.called)
+check("query_health unknown-field: 'spo2' has no field_used (nothing resolved)",
+      "field_used" not in _qh_spo2.get("_meta", {}))
+
+with patch("mcp_sql.get_health_range") as _m_sql_stress, \
+     patch("maps.mcp_map.query_health") as _m_live_stress:
+    _qh_stress = mcp_server.query_health("stress", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health unknown-field: 'stress' is ambiguous (v1.7.1.12 new case)",
+      "ambiguous" in _qh_stress.get("error", ""))
+check("query_health unknown-field: 'stress' did_you_mean lists both real candidates",
+      _qh_stress.get("did_you_mean") == ["stress_avg", "stress_series"])
+check("query_health unknown-field: 'stress' never reaches mcp_sql/mcp_map",
+      not _m_sql_stress.called and not _m_live_stress.called)
 
 # 3e. sleep_score fan-out (v1.7.1.9 Session 2) — bare "sleep_score" is
 #     itself already a valid, registered field (unlike the alias
@@ -689,30 +708,29 @@ check("test fixture: 'temperature_max' still a registered context field",
 
 # 1. Unambiguous near-match (typo) -> auto-resolved, transparently marked
 #
-# "sunshine_duratio" (missing trailing "n") was chosen after TWO earlier
-# candidates both failed this same check during the v1.7.1.4 session,
-# for the same underlying reason — verify a typo's uniqueness against
-# the REAL, full field registry (25 fields across all four context
-# sources) before trusting it, not against a small hand-picked subset:
-#   - "temperatur_max" matched both temperature_max and temperature_min
-#     (shared long prefix).
-#   - "precipitaton" matched both precipitation (weather) and
-#     precipitation_sum (brightsky) — two sources register
-#     similarly-named fields for the same real-world quantity.
-# "sunshine_duratio" has no similarly-named sibling anywhere in the
-# registry (sunshine_sum exists under brightsky, but is not a close
-# character-level match to this specific typo), so it resolves to
-# exactly one candidate at cutoff=0.8.
+# v1.7.1.12 -- "sunshine_duratio" (the original candidate, chosen under
+# cutoff=0.8) stopped being unique once cutoff was lowered to 0.65
+# (v1.7.1.11 Session 5, deliberate/confirmed): at 0.65 it now matches
+# THREE candidates (sunshine_duration, sunshine_sum, sunshine_sum_series)
+# instead of one, so the len(close_matches) == 1 auto-resolve branch no
+# longer fires for it -- not a regression in the unknown-field logic
+# itself, the fixture just predates the cutoff change. Replaced with
+# "condiiton" (missing second "i"), re-verified unique at cutoff=0.65
+# against the full, current field registry (see FIELD_UNITS in
+# mcp_server.py / REFERENCE_BROKER.md): "condition" is the only string
+# field in the entire context registry, so it has no _avg/_max/_sum
+# sibling that could collide with it the way sunshine_duration now
+# collides with sunshine_sum/sunshine_sum_series.
 with patch("mcp_sql.get_context_range", return_value={"context": {"weather": {}}, "_meta": {}}) as _m_sql, \
      patch("maps.mcp_map.query_context") as _m_live:
-    _qc_typo = mcp_server.query_context("sunshine_duratio", _TEST_DATE, _TEST_DATE, "daily")
-    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="sunshine_duration")
+    _qc_typo = mcp_server.query_context("condiiton", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="condition")
     _m_live.assert_not_called()
 check("query_context unknown-field: typo auto-resolved to registered field", True)
 check("query_context unknown-field: _meta.field_resolved_from set to caller's original input",
-      _qc_typo.get("_meta", {}).get("field_resolved_from") == "sunshine_duratio")
+      _qc_typo.get("_meta", {}).get("field_resolved_from") == "condiiton")
 check("query_context unknown-field: _meta.field_used set to the resolved field",
-      _qc_typo.get("_meta", {}).get("field_used") == "sunshine_duration")
+      _qc_typo.get("_meta", {}).get("field_used") == "condition")
 
 # 2. Domain confusion — field exists, but under query_health, not query_context
 #
@@ -907,6 +925,23 @@ if _a_series_field is not None:
 # "sunshine_duratio": a stable, pre-verified typo, not a runtime pick
 # that can land on an unrelated field with different collision
 # behaviour on a future registry change.
+#
+# v1.7.1.12 -- REFRAMED from "resolves to exactly one candidate" to a
+# second documented collision case (same shape as 3b below). At
+# cutoff=0.65 (current production value, v1.7.1.11 Session 5) this typo
+# no longer matches uniquely -- a systematic check of all 19 registered
+# "_series" fields found NONE stay unique under this "drop one prefix-
+# internal underscore" typo pattern at 0.65; most collide with their own
+# daily counterpart (e.g. "pollenbirch_series" now also matches
+# "pollen_olive_series"/"pollen_grass_series" alongside the intended
+# "pollen_birch_series"). This is a structural property of cutoff=0.65
+# against the X/X_series naming scheme, not a fluke of this one field --
+# no replacement typo that still resolves uniquely exists in the current
+# registry (verified against a second typo pattern too, same result).
+# See NOTES_v1.7.1.12.md "Ziel 6" for the full analysis. Deliberately
+# NOT fixed via a new alias or a cutoff change this session (Timo) --
+# this test now documents the collision as expected behaviour, same
+# principle as 3b's pre-existing "_series"-internal-typo case.
 _series_typo_field = "pollen_birch_series"
 if _series_typo_field in _qc_series_fields:
     _series_typo = "pollenbirch_series"  # missing "_" between prefix and "birch"
@@ -914,23 +949,11 @@ if _series_typo_field in _qc_series_fields:
     for _src_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
         _all_known_context_fields.update(_src_fields)
     _typo_matches = difflib.get_close_matches(
-        _series_typo, _all_known_context_fields, n=3, cutoff=0.8
+        _series_typo, _all_known_context_fields, n=3, cutoff=0.65
     )
-    check("test fixture: '_series' typo (mid-prefix) resolves to exactly one candidate",
-          _typo_matches == [_series_typo_field])
-    if _typo_matches == [_series_typo_field]:
-        with patch("mcp_sql.get_context_range",
-                   return_value={"context": {"weather": {}}, "_meta": {}}) as _m_sql, \
-             patch("maps.mcp_map.query_context") as _m_live:
-            _qc_series_typo = mcp_server.query_context(
-                _series_typo, _TEST_DATE, _TEST_DATE, "intraday")
-            _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field=_series_typo_field)
-        check("query_context '_series' typo-resolved field: SQLite branch calls mcp_sql.get_context_range",
-              True)
-        check("query_context '_series' typo-resolved field: never falls back to mcp_map.query_context",
-              not _m_live.called)
-        check("query_context '_series' typo-resolved field: _meta.field_used set correctly",
-              _qc_series_typo.get("_meta", {}).get("field_used") == _series_typo_field)
+    check("test fixture: '_series' typo (mid-prefix) is a documented "
+          "collision at cutoff=0.65 (>=2 candidates, no auto-resolution)",
+          len(_typo_matches) >= 2 and _series_typo_field in _typo_matches)
 
 # 3b. Documented collision case — a typo placed INSIDE "_series" itself
 #     (e.g. "_series" -> "_seris", the pattern that motivated the
@@ -959,15 +982,16 @@ if _collision_field in _qc_series_fields:
           and _collision_field in _collision_matches)
 
 # 5. Regression guard for 8c-bis's own typo test — the pre-existing
-#    NON-"_series" typo path ("sunshine_duratio" -> "sunshine_duration")
-#    must stay on the SQLite branch after this session's changes exactly
-#    as before; nothing in this rollback should affect a plain field's
-#    typo resolution.
+#    NON-"_series" typo path must stay on the SQLite branch. v1.7.1.12:
+#    "sunshine_duratio" replaced with "condiiton" -> "condition" for the
+#    same reason as the first occurrence above (cutoff=0.65 makes
+#    "sunshine_duratio" match 3 candidates instead of 1) -- nothing in
+#    this rollback should affect a plain field's typo resolution.
 with patch("mcp_sql.get_context_range",
            return_value={"context": {"weather": {}}, "_meta": {}}) as _m_sql, \
      patch("maps.mcp_map.query_context") as _m_live:
-    mcp_server.query_context("sunshine_duratio", _TEST_DATE, _TEST_DATE, "daily")
-    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="sunshine_duration")
+    mcp_server.query_context("condiiton", _TEST_DATE, _TEST_DATE, "daily")
+    _m_sql.assert_called_once_with(_TEST_DATE, _TEST_DATE, field="condition")
     _m_live.assert_not_called()
 check("query_context non-'_series' typo path: unaffected by the '_series' rollback (regression guard)",
       True)

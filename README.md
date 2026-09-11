@@ -4,7 +4,6 @@
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![No Cloud](https://img.shields.io/badge/cloud-none-brightgreen)
 ![Release](https://img.shields.io/github/v/release/Wewoc/Garmin_Local_Archive)
-![Last Commit](https://img.shields.io/github/last-commit/Wewoc/Garmin_Local_Archive)
 
 **Archive and analyze your Garmin Health data local.**
 

@@ -663,6 +663,172 @@ HEALTH_FIELD_ALIASES: dict[str, str] = {
 }
 
 
+# v1.7.1.12 -- fields where the requested short form does not reveal
+# whether a daily value or a _series (timeseries) was meant, same
+# principle as CONTEXT_FIELD_AMBIGUOUS (see that table's own comment
+# for the full rationale -- reuse of the existing error/did_you_mean
+# schema, no new response shape, no majority-default alias).
+#
+# Discovered this session (NOT part of the original v1.7.1.9 alias
+# work): lowering cutoff to 0.65 (v1.7.1.11 Session 5) unintentionally
+# undermined the v1.7.1.9 Session 2 decision to keep "spo2" unresolved
+# -- at cutoff=0.8 the exclusion held implicitly (no match at all); at
+# 0.65 "spo2" now matches exactly one candidate (spo2_avg), so the
+# existing len(close_matches) == 1 auto-resolve branch silently fires
+# for a case the architecture explicitly wanted left alone. A systematic
+# scan of all 26 registered health fields at cutoff=0.65 (every prefix
+# with an _avg/_series/_max/_pct sibling, existing HEALTH_FIELD_ALIASES
+# short forms steps/hrv/hill excluded as already resolved) found one
+# more case with the identical shape: "stress" matches uniquely to
+# stress_avg, though stress_avg/stress_series are just as co-equal as
+# spo2_avg/spo2_series. "respiration" was checked and deliberately NOT
+# included -- only one target (respiration_series) exists for that
+# prefix, no ambiguity, the existing auto-resolve there is correct and
+# unaffected. "body_battery", "heart_rate", "sleep_deep", "sleep_rem"
+# were also checked -- all already fall through correctly to the
+# generic unknown-field error (2-3 close matches each, auto-resolve
+# condition not met), no change needed for those.
+HEALTH_FIELD_AMBIGUOUS: dict[str, list[str]] = {
+    "spo2": ["spo2_avg", "spo2_series"],
+    "stress": ["stress_avg", "stress_series"],
+}
+
+
+# v1.7.1.12 -- explicit alias mapping for query_context(), same pattern
+# as HEALTH_FIELD_ALIASES above (structural difflib limitation, not a
+# tuning gap -- see query_context()'s own docstring and NOTES_v1.7.1.12.md
+# for the full analysis and Lauf 11/12/12b test-run background). All 36
+# entries are requested->expected discrepancies actually observed in
+# Lauf 11 (7 models, cutoff 0.8) and Lauf 12b (2 models, cutoff 0.65),
+# individually re-verified against the current context field registry
+# before inclusion -- not taken over 1:1 from the raw candidate list.
+#
+# Four candidates from the original 66-entry raw list were deliberately
+# NOT included, kept as an open item rather than silently dropped (see
+# NOTES_v1.7.1.12.md "Ziel 1" section for the per-case reasoning):
+#   "ozone" (x3) -> would alias to airquality_ozone_series, but shares
+#     the same daily/series ambiguity as the CONTEXT_FIELD_AMBIGUOUS
+#     entries below -- inconsistent to resolve unilaterally here while
+#     pm25/pm10/no2/etc. get a rückfrage instead.
+#   "pollen_pollen_airborne" (x1) -> proposed target (pollen_mugwort_
+#     series) is not recoverable from the requested name itself, same
+#     failure mode as the 3 candidates already rejected in Lauf 11
+#     Appendix A (ragweed/pollen_elm/pollen_series mis-mappings).
+#   "air_quality_pm2_5" (x1) -> proposed _series target has no _series
+#     signal in the requested name; pm2_5 itself is a known ambiguity
+#     case (see CONTEXT_FIELD_AMBIGUOUS), no reason this variant should
+#     resolve unambiguously where the bare form does not.
+#   "weather_summary" (x1) -> proposed target (condition_series)
+#     contradicts the word itself ("summary" suggests a daily aggregate,
+#     not a timeseries).
+#
+# "temperature" and "sun" deliberately excluded (per Lauf 11 Appendix A
+# and confirmed in this session): temperature has three co-equal daily
+# targets (_min/_max/_avg), sun is too short/generic with collision risk.
+CONTEXT_FIELD_ALIASES: dict[str, str] = {
+    # -- Cutoff-0.65 auto-resolve mistakes, promoted to explicit aliases
+    #    (v1.7.1.11 Session 5 / Lauf 12b, individually traced to
+    #    _meta.field_resolved_from root cause, not estimated) --
+    "humidity": "humidity_avg",
+    "pressure": "pressure_avg",
+    "air_pressure": "pressure_avg",
+    "wind_speed": "wind_speed_max",
+
+    # -- Multi-observation candidates (x9 down to x2), Lauf 11 Appendix A --
+    "pollen_grass_hourly": "pollen_grass_series",
+    "sunshine_total": "sunshine_sum",
+    "european_aqi": "airquality_european_aqi",
+    "min_temperature": "temperature_min",
+    "pollen_alder_hourly": "pollen_alder_series",
+    "olive_pollen": "pollen_olive",
+    "ragweed_pollen": "pollen_ragweed",
+    "max_wind_speed_dwd": "wind_speed_max",
+    "pm25_series": "airquality_pm2_5_series",
+    "pm10_series": "airquality_pm10_series",
+    "max_wind_speed": "wind_speed_max",
+    "grass_pollen": "pollen_grass",
+    "airquality_o3_series": "airquality_ozone_series",
+    "uv_max": "uv_index_max",
+    "alder_pollen": "pollen_alder",
+    "avg_cloud_cover": "cloud_cover_avg",
+    "avg_pressure": "pressure_avg",
+    "airquality_no2_series": "airquality_nitrogen_dioxide_series",
+    "airquality_no2": "airquality_nitrogen_dioxide",
+    "mugwort_pollen": "pollen_mugwort",
+    "max_wind_gust": "wind_gust_max",
+    "weather_condition": "condition",
+    "max_temperature": "temperature_max",
+    "pollen_birch_hourly": "pollen_birch_series",
+    "european_aqi_series": "airquality_european_aqi_series",
+    "pollen_olive_hourly": "pollen_olive_series",
+    "pollen_ambrosia": "pollen_ragweed_series",
+    "avg_humidity": "humidity_avg",
+    "sunshine_minutes": "sunshine_sum",
+    "avg_temperature": "temperature_avg",
+
+    # -- x1 candidates, individually re-verified this session --
+    "wind_max": "wind_speed_max",
+    "rain_sum": "precipitation_sum",
+    "air_pressure_series": "pressure_avg_series",
+    "weather_series": "condition_series",
+    "ozon": "airquality_ozone",  # deutsche Schreibweise ohne "e"
+    "ozone_index": "airquality_ozone_series",
+    "birkenpollen_belaestigung": "pollen_birch",
+    "beifußpollenbelastung": "pollen_mugwort_series",
+    "olivenpollenbelastung": "pollen_olive_series",
+    "brightness_index": "cloud_cover_avg",
+    "airpressure": "pressure_avg_series",
+    "birch_pollen_concentration": "pollen_birch",
+    "outdoor_humidity": "humidity_avg",
+    "air_quality_humidity_series": "humidity_avg_series",
+    "rainfall_max": "precipitation_sum_series",
+    "sun_minutes": "sunshine_sum",
+    "brightsky_percent": "sunshine_sum_series",
+    "pm25_avg": "airquality_pm2_5",
+    "air_quality_index_daily_max": "airquality_european_aqi",
+    "no2_avg": "airquality_nitrogen_dioxide",
+    "no2_max_time": "airquality_nitrogen_dioxide_series",
+    "air_quality_o3_max": "airquality_ozone",
+    "ozone_max": "airquality_ozone_series",
+    "sun_hours": "sunshine_duration",
+    "rain_intensity_series": "precipitation_sum_series",
+    "ozone_avg": "airquality_ozone",
+}
+
+
+# v1.7.1.12 -- fields where the requested name itself does not reveal
+# whether a daily value or a _series (timeseries) was meant, unlike
+# CONTEXT_FIELD_ALIASES above where every observation points to the
+# same target. A majority-default alias was considered and rejected
+# (see NOTES_v1.7.1.12.md "Ziel 1"/"Ziel 3") -- it would silently
+# return a wrong value in the minority of cases (20-50%, depending on
+# field), exactly the failure mode this session is fixing elsewhere.
+#
+# Instead: reuse the existing error/did_you_mean schema (checked in
+# query_context() below, BEFORE the generic unknown-field handling) --
+# no new response shape, no new field on the result dict. Deliberately
+# NOT a new "ambiguous": true marker -- weaker local models (see Lauf 11:
+# mistral-nemo skips query_context in 74% of cases, command-r7b refuses
+# tool calls entirely) already struggle with the existing schema; a new
+# response concept would add reasoning burden precisely where models are
+# already weakest, whereas did_you_mean is a shape every model already
+# has to handle for typos. field_used/field_resolved_from are NOT set --
+# nothing was resolved, the caller must re-ask with the exact name.
+#
+# Grouped by subject matter (all air quality: particulates + gases),
+# not by candidate quality -- pm25/pm2_5/pm10/no2/air_quality_index all
+# showed the identical daily/series split pattern in Lauf 11 Appendix A.
+# "ozone" deliberately NOT included here (see CONTEXT_FIELD_ALIASES
+# comment above) -- distinct decision, not yet resolved either way.
+CONTEXT_FIELD_AMBIGUOUS: dict[str, list[str]] = {
+    "pm25": ["airquality_pm2_5", "airquality_pm2_5_series"],
+    "pm2_5": ["airquality_pm2_5", "airquality_pm2_5_series"],
+    "pm10": ["airquality_pm10", "airquality_pm10_series"],
+    "no2": ["airquality_nitrogen_dioxide", "airquality_nitrogen_dioxide_series"],
+    "air_quality_index": ["airquality_european_aqi", "airquality_european_aqi_series"],
+}
+
+
 def _route_query(kind: str) -> str:
     """
     Decides whether a given query kind should be served from the
@@ -820,6 +986,27 @@ def query_health(field: str, date_from: str, date_to: str,
         result["_meta"]["field_used"] = resolved_field
         return _enrich_with_units(result, "health")
 
+    if field in HEALTH_FIELD_AMBIGUOUS:
+        # v1.7.1.12 -- checked here, BEFORE the bundle/difflib logic
+        # below, same ordering principle as HEALTH_FIELD_ALIASES above
+        # (a known-ambiguous hit is more certain than letting it fall
+        # through to whatever difflib happens to resolve at the current
+        # cutoff). NOT resolved -- no field_used/field_resolved_from,
+        # the caller must re-ask with the exact name. See
+        # HEALTH_FIELD_AMBIGUOUS's own comment above for why "spo2" and
+        # "stress" are here and "respiration" deliberately is not.
+        candidates = HEALTH_FIELD_AMBIGUOUS[field]
+        return {
+            "health": {},
+            "error": (
+                f"field {field!r} is ambiguous between a daily value and "
+                f"a time series -- please specify one of: "
+                f"{', '.join(candidates)}"
+            ),
+            "did_you_mean": candidates,
+            "_meta": {},
+        }
+
     if field in _CONTEXT_CATEGORY_BUNDLES:
         # A bundle name (e.g. "weather") is a query_context-only
         # concept -- it is never itself a registered health field, so
@@ -838,9 +1025,48 @@ def query_health(field: str, date_from: str, date_to: str,
         mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
     )
 
+    # v1.7.1.12 -- Domain-Einordnung VOR dem Aehnlichkeitsvergleich
+    # (Timo-Entscheidung, siehe NOTES_v1.7.1.12.md Ziel 5): known_
+    # context_fields wird jetzt hier, VOR dem difflib-Block, berechnet
+    # und geprueft -- vorher lief dieser Check erst NACH dem
+    # len(close_matches)==1-Zweig, wodurch ein exaktes, registriertes
+    # Context-Feld bei cutoff=0.65 regelmaessig faelschlich auf ein
+    # aehnlich benanntes Health-Feld auto-resolved wurde, BEVOR die
+    # Domain-Confusion-Pruefung ueberhaupt erreicht werden konnte
+    # (z.B. "sunshine_duration" -> faelschlich "sleep_duration",
+    # "pressure_avg"/"pressure_avg_series" -> faelschlich "stress_avg"/
+    # "stress_series"). Ein Feld, das exakt in der anderen Domain
+    # registriert ist, wird jetzt sofort korrekt eingeordnet, ohne dass
+    # difflib je die Chance bekommt es zuerst der falschen Domain
+    # zuzuordnen -- Einordnung vor Aehnlichkeitsvergleich, nicht danach.
+    known_context_fields: set[str] = set()
+    for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+        known_context_fields.update(_source_fields)
+
+    if field not in known_health_fields and field in known_context_fields:
+        return {
+            "health": {},
+            "error": f"field {field!r} belongs to query_context, not query_health",
+            "_meta": {},
+        }
+
     if field not in known_health_fields:
+        # v1.7.1.11 Session 5 (Testlauf, 2026-09-09) -- cutoff testweise
+        # von 0.8 auf 0.65 gesenkt, um empirisch zu pruefen, ob sich
+        # damit mehr echte Nahtreffer (z.B. steps -> steps_series,
+        # Wortumstellungen wie min_temperature -> temperature_min)
+        # zuverlaessig aufloesen lassen, ohne unerwuenschte
+        # Fehltreffer bei kurzen/generischen Feldnamen zu erzeugen.
+        # Kalibriert gegen die 25 haeufigsten requested/expected-
+        # Diskrepanzen aus Lauf 11 (context-Domaene): 0.65 deckt ~52%
+        # der gewichteten Faelle ab (0.80: ~5%), mit dem groessten
+        # Einzelsprung gegenueber 0.70. Reiner Testwert fuer diese
+        # Session -- KEINE endgueltige Entscheidung. Vor v1.7.1.10
+        # wurde eine generelle Cutoff-Absenkung bereits einmal geprueft
+        # und wegen Fehltreffer-Risiko bewusst verworfen -- dieser
+        # Lauf soll das empirisch nachpruefen, nicht ueberschreiben.
         close_matches = difflib.get_close_matches(
-            field, known_health_fields, n=3, cutoff=0.8
+            field, known_health_fields, n=3, cutoff=0.65
         )
         if len(close_matches) == 1:
             resolved_field = close_matches[0]
@@ -852,17 +1078,6 @@ def query_health(field: str, date_from: str, date_to: str,
             result["_meta"]["field_resolved_from"] = field
             result["_meta"]["field_used"] = resolved_field
             return _enrich_with_units(result, "health")
-
-        known_context_fields: set[str] = set()
-        for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
-            known_context_fields.update(_source_fields)
-
-        if field in known_context_fields:
-            return {
-                "health": {},
-                "error": f"field {field!r} belongs to query_context, not query_health",
-                "_meta": {},
-            }
 
         error_result = {
             "health": {},
@@ -1075,7 +1290,50 @@ def query_context(field: str, date_from: str, date_to: str,
     return the same "values" contract (see mcp_sql.get_context_range()
     / clients/mcp_sql.py, and maps/_context_io.py's read_summary_field()/
     read_raw_field() for the underlying {"date","value"} vs.
-    {"date","series"} shapes)."""
+    {"date","series"} shapes).
+
+    v1.7.1.12 -- CONTEXT_FIELD_ALIASES / CONTEXT_FIELD_AMBIGUOUS checked
+    here, BEFORE the bundle check, mirroring query_health()'s
+    HEALTH_FIELD_ALIASES ordering (an alias hit is more certain than a
+    near-match and should not have to pass through the bundle or
+    difflib logic). Three outcomes now precede the pre-existing bundle/
+    unknown-field handling below:
+      1. CONTEXT_FIELD_ALIASES hit -> auto-resolved, field_used/
+         field_resolved_from set, same as the alias path in
+         query_health().
+      2. CONTEXT_FIELD_AMBIGUOUS hit -> NOT resolved. Returns the
+         existing error/did_you_mean shape with a field-specific error
+         message and the known candidate list as did_you_mean -- no new
+         response shape (see CONTEXT_FIELD_AMBIGUOUS's own comment for
+         the rationale). field_used/field_resolved_from are NOT set.
+      3. Neither -> falls through unchanged to the bundle check and the
+         existing unknown-field difflib logic below.
+    See NOTES_v1.7.1.12.md for the full candidate-by-candidate analysis
+    behind both tables."""
+    if field in CONTEXT_FIELD_ALIASES:
+        resolved_field = CONTEXT_FIELD_ALIASES[field]
+        if _route_query("context") == "sqlite":
+            result = mcp_sql.get_context_range(date_from, date_to, field=resolved_field)
+        else:
+            result = mcp_map.query_context(resolved_field, date_from, date_to, resolution)
+        result.setdefault("_meta", {})
+        result["_meta"]["field_resolved_from"] = field
+        result["_meta"]["field_used"] = resolved_field
+        return _enrich_with_units(result, "context")
+
+    if field in CONTEXT_FIELD_AMBIGUOUS:
+        candidates = CONTEXT_FIELD_AMBIGUOUS[field]
+        return {
+            "context": {},
+            "error": (
+                f"field {field!r} is ambiguous between a daily value and "
+                f"a time series -- please specify one of: "
+                f"{', '.join(candidates)}"
+            ),
+            "did_you_mean": candidates,
+            "_meta": {},
+        }
+
     if field in _CONTEXT_CATEGORY_BUNDLES:
         return _resolve_context_bundle(field, date_from, date_to, resolution)
 
@@ -1083,9 +1341,30 @@ def query_context(field: str, date_from: str, date_to: str,
     for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
         known_context_fields.update(_source_fields)
 
+    # v1.7.1.12 -- Domain-Einordnung VOR dem Aehnlichkeitsvergleich,
+    # spiegelbildlich zur selben Korrektur in query_health() oben (siehe
+    # dortiger Kommentar fuer die volle Begruendung). known_health_fields
+    # wird jetzt hier, VOR dem difflib-Block, berechnet und geprueft --
+    # vorher fuehrte das bei cutoff=0.65 z.B. dazu, dass "sleep_duration"
+    # faelschlich auf "sunshine_duration" auto-resolved wurde, BEVOR die
+    # Domain-Confusion-Pruefung ueberhaupt erreicht werden konnte.
+    known_health_fields = set(
+        mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
+    )
+
+    if field not in known_context_fields and field in known_health_fields:
+        return {
+            "context": {},
+            "error": f"field {field!r} belongs to query_health, not query_context",
+            "_meta": {},
+        }
+
     if field not in known_context_fields:
+        # v1.7.1.11 Session 5 (Testlauf, 2026-09-09) -- cutoff testweise
+        # von 0.8 auf 0.65 gesenkt, siehe identischer Kommentar im
+        # query_health()-Block oben fuer Begruendung und Kalibrierung.
         close_matches = difflib.get_close_matches(
-            field, known_context_fields, n=3, cutoff=0.8
+            field, known_context_fields, n=3, cutoff=0.65
         )
         if len(close_matches) == 1:
             resolved_field = close_matches[0]
@@ -1101,16 +1380,6 @@ def query_context(field: str, date_from: str, date_to: str,
             result["_meta"]["field_used"] = resolved_field
             return _enrich_with_units(result, "context")
 
-        known_health_fields = set(
-            mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
-        )
-        if field in known_health_fields:
-            return {
-                "context": {},
-                "error": f"field {field!r} belongs to query_health, not query_context",
-                "_meta": {},
-            }
-
         error_result = {
             "context": {},
             "error": f"unknown field {field!r}",
@@ -1123,6 +1392,82 @@ def query_context(field: str, date_from: str, date_to: str,
     # v1.7.1.11 Session 4 -- Rueckbau: "_series" durchlaeuft dieselbe
     # Weiche wie jedes andere Feld, kein Sonderpfad mehr (siehe
     # Docstring-Zusatz oben, NOTES_v1.7.1.11.md Session 4).
+    #
+    # v1.7.1.12 -- wind_speed_max source collision (see NOTES_v1.7.1.12.md
+    # "Ziel 2"): "weather" and "brightsky" both register a field called
+    # "wind_speed_max" (deliberate, documented in REFERENCE_BROKER.md).
+    # _resolve_context_bundle() above already tie-breaks this correctly
+    # per day when the request goes through the "weather" bundle name --
+    # but a direct field request (this path) bypassed that logic
+    # entirely and returned both source values unresolved. Fixed here
+    # with a plain value precedence, no fallback concept, no generic
+    # collision table (Timo-Entscheidung, deliberately not building
+    # _KNOWN_FIELD_COLLISIONS for a single confirmed case): brightsky
+    # wins per day whenever it has a non-None value; days with no
+    # brightsky value (confirmed to mean "location was outside Germany
+    # that day" -- context_collector.py skips the brightsky fetch
+    # entirely outside the DE bounding box, no file is ever written for
+    # those dates) fall through to weather's value for that same day.
+    # No location check needed here -- the fetch-time skip already
+    # encodes the location decision into file presence, checking values
+    # is equivalent and stays within this file's scope.
+    #
+    # Single call, not two: both mcp_sql.get_context_range(field=...) and
+    # mcp_map.query_context(field=...) already fan out across every
+    # source that registers the requested field name in one result (see
+    # mcp_sql.get_context_range()'s own docstring, "field-filter fix" --
+    # "the filter keeps every source that carries the requested field...
+    # so a multi-source field still returns all of its sources"; same
+    # fan-out principle on the live branch via gateway_map.get()). No
+    # second query needed to reach the other source -- it is already in
+    # the same response, keyed by source name under "context".
+    if field == "wind_speed_max":
+        if _route_query("context") == "sqlite":
+            collision_result = mcp_sql.get_context_range(date_from, date_to, field=field)
+        else:
+            collision_result = mcp_map.query_context(field, date_from, date_to, resolution)
+
+        by_source = collision_result.get("context", {})
+        brightsky_candidate = by_source.get("brightsky", {}).get(field)
+        weather_candidate = by_source.get("weather", {}).get(field)
+
+        brightsky_by_date = {
+            v["date"]: v.get("value")
+            for v in (brightsky_candidate.get("values", []) if brightsky_candidate else [])
+        }
+        weather_by_date = {
+            v["date"]: v.get("value")
+            for v in (weather_candidate.get("values", []) if weather_candidate else [])
+        }
+        all_dates = sorted(set(brightsky_by_date) | set(weather_by_date))
+
+        merged_values = []
+        field_sources: dict[str, str] = {}
+        for day in all_dates:
+            day_value = brightsky_by_date.get(day)
+            if day_value is not None:
+                merged_values.append({"date": day, "value": day_value})
+                field_sources[day] = "brightsky"
+            else:
+                day_value = weather_by_date.get(day)
+                merged_values.append({"date": day, "value": day_value})
+                if day_value is not None:
+                    field_sources[day] = "weather"
+
+        base_candidate = brightsky_candidate or weather_candidate or {}
+        result = {
+            "context": {
+                field: {
+                    "fallback": base_candidate.get("fallback", False),
+                    "source_resolution": base_candidate.get("source_resolution", "daily"),
+                    "values": merged_values,
+                }
+            },
+        }
+        result["_meta"] = collision_result.get("_meta", {})
+        result["_meta"]["field_sources"] = {field: field_sources}
+        return _enrich_with_units(result, "context")
+
     if _route_query("context") == "sqlite":
         result = mcp_sql.get_context_range(date_from, date_to, field=field)
     else:
