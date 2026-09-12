@@ -147,7 +147,13 @@ def summarize(raw: dict) -> dict:
         "score":               safe_get(ds, "sleepScores", "overall", "value"),
         "spo2_avg":            safe_get(ds, "averageSpO2Value"),
         "respiration_avg":     safe_get(ds, "averageRespirationValue"),
-        "hrv_last_night_ms":   safe_get(hrv_sum, "lastNight") or safe_get(hrv_sum, "lastNight5MinHigh"),
+        # v1.7.1.13, Issue #8: primary key was "lastNight" (never present in
+        # the real Garmin payload — always None) with an unconditional
+        # fallback to "lastNight5MinHigh" (the night's peak 5-min reading,
+        # not an average) under a field name that promises an average.
+        # Fallback removed deliberately — a missing lastNightAvg now surfaces
+        # as None instead of silently substituting a differently-shaped value.
+        "hrv_last_night_ms":   safe_get(hrv_sum, "lastNightAvg"),
         "hrv_weekly_avg_ms":   safe_get(hrv_sum, "weeklyAvg"),
         "hrv_status":          safe_get(hrv_sum, "status"),
         "hrv_feedback":        safe_get(hrv_sum, "feedbackPhrase"),
@@ -286,14 +292,29 @@ def safe_get(d, *keys, default=None):
     return d
 
 
-def _parse_list_values(lst, dict_key: str) -> list:
-    """Extracts numeric values from a list of dicts or [timestamp, value] pairs."""
+def _parse_list_values(lst, dict_key: int | str) -> list:
+    """
+    Extracts numeric values from a list of dicts or [timestamp, ...] tuples.
+
+    dict_key selects the extraction mode:
+      - str: dict-key lookup (item.get(dict_key)) for list-of-dicts input.
+      - int: positional index (item[dict_key]) for list/tuple input — e.g.
+        dict_key=2 reads index 2 of a [ts, status, value] triplet, not just
+        the [ts, value] pair case (dict_key=1).
+
+    v1.7.1.13, Issue #6: previously ALWAYS read item[1] for list/tuple
+    items regardless of dict_key — a call site passing dict_key=2 (e.g.
+    body_battery's [ts, status, value] triplet) silently read the status
+    field instead of the value, and non-numeric status strings made the
+    result list empty. Existing callers all pass dict_key=1, so their
+    behavior is unchanged (item[1] == item[dict_key] when dict_key == 1).
+    """
     result = []
     for item in (lst or []):
         if isinstance(item, dict):
             v = item.get(dict_key)
-        elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            v = item[1]
+        elif isinstance(item, (list, tuple)) and isinstance(dict_key, int) and len(item) > dict_key:
+            v = item[dict_key]
         else:
             continue
         if isinstance(v, (int, float)):

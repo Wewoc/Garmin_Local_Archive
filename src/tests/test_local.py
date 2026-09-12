@@ -168,6 +168,21 @@ check("safe_get: default",         normalizer.safe_get({}, "x", default=99) == 9
 check("_parse_list_values: dict list",   normalizer._parse_list_values([{"v": 10}, {"v": 20}], "v") == [10, 20])
 check("_parse_list_values: ts,val pairs", normalizer._parse_list_values([[0, 55], [60, 60]], 1) == [55, 60])
 
+# v1.7.1.13, Issue #6 — dict_key as a real positional index for list/tuple
+# items (previously silently ignored, always read item[1] regardless of
+# dict_key). Real-world body_battery shapes from GitHub Issue #6:
+# 2-element [ts, val] (dict_key=1, unaffected by the bug) and 4-element
+# [ts, status_string, val, extra_float] (dict_key=2, was broken — read
+# the status string at index 1 instead of the value at index 2).
+check("_parse_list_values: dict_key=2 on 4-element triplet (bug case)",
+      normalizer._parse_list_values(
+          [[1788580800000, "MEASURED", 28, 3.0], [1788581100000, "MEASURED", 30, 3.0]], 2
+      ) == [28, 30])
+check("_parse_list_values: dict_key=1 unaffected by the dict_key=2 fix (regression guard)",
+      normalizer._parse_list_values([[0, 55], [60, 60]], 1) == [55, 60])
+check("_parse_list_values: dict_key=2 with too-short tuple → skipped, not IndexError",
+      normalizer._parse_list_values([[0, 1], [0, 1, 2]], 2) == [2])
+
 # summarize — structure
 s = normalizer.summarize({"date": "2024-03-15"})
 check("summarize: returns dict",            isinstance(s, dict))
@@ -397,6 +412,44 @@ check("f8: downgrade reasons recorded",    len(f_mal.get("_downgrade_reasons", {
 f8_good = quality.assess_quality_fields(raw_fields_high)
 check("f8: good case still high",          f8_good.get("heart_rates") == "high")
 check("f8: good case no downgrade marker", "_downgrade_reasons" not in f8_good)
+
+# v1.7.1.13, Issue #6 — body_battery quality label with the real 4-element
+# [ts, status, value, extra] shape from stress.bodyBatteryValuesArray
+# (GitHub Issue #6, reporter Gene-Howard, confirmed 2026-09-05). Before the
+# _parse_list_values dict_key fix this fell through to "failed" on every
+# archived day — the status string at index 1 is not numeric, so the
+# parseability check always failed despite valid data being present.
+raw_bb_real_shape = {
+    "date": "2026-09-05",
+    "stress": {
+        "bodyBatteryValuesArray": [
+            [1788580800000, "MEASURED", 28, 3.0],
+            [1788581100000, "MEASURED", 30, 3.0],
+        ],
+    },
+}
+f_bb_fixed = quality.assess_quality_fields(raw_bb_real_shape)
+check("issue6: body_battery 4-element triplet → high (was: failed)",
+      f_bb_fixed.get("body_battery") == "high")
+check("issue6: body_battery — no downgrade marker on valid triplet data",
+      "body_battery" not in f_bb_fixed.get("_downgrade_reasons", {}))
+
+# Sparse 2-element [ts, val] entries with dict_key=2 (too short for index 2)
+# — must be skipped per-item, not raise IndexError, and must not silently
+# produce a wrong "high" from garbage. Placed under stress.bodyBatteryValuesArray
+# artificially here to isolate the dict_key=2/short-tuple path in assess_
+# quality_fields() specifically; the real 2-element shape from Issue #6
+# (body_battery[0].bodyBatteryValuesArray) is a separate, pre-existing,
+# deliberately-not-fixed path (F8 CHANGELOG note) not exercised by this test.
+raw_bb_short_tuples = {
+    "date": "2026-09-05",
+    "stress": {
+        "bodyBatteryValuesArray": [[1788580800000, 28], [1788603300000, 60]],
+    },
+}
+f_bb_short = quality.assess_quality_fields(raw_bb_short_tuples)
+check("issue6: dict_key=2 on 2-element tuples → no crash, correctly not parseable",
+      f_bb_short.get("body_battery") in ("low", "failed"))
 
 # field_downgrades — stored only when a downgrade actually occurred
 data_f8 = {"first_day": None, "devices": [], "days": []}

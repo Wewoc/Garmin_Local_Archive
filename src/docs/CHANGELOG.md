@@ -1,5 +1,106 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.13 — body_battery Parseability Bug (#6) + HRV lastNight Field Mapping (#8)
+
+Two independent bugfixes from confirmed GitHub issues, bundled into one
+session because both are small and risk-free (separate anchors, no
+schema impact, no architectural overlap between the two).
+
+**Issue #6 — `assess_quality_fields()` marked `body_battery` as `"failed"`
+on nearly every archived day.** Root cause turned out to be different
+from the reporter's initial diagnosis: `_assess.py` already had the
+two-location fallback (`stress.bodyBatteryValuesArray` /
+`body_battery[0].bodyBatteryValuesArray`) introduced in `v1.6.5.8` (F8) —
+the actual defect was one level deeper, in `garmin_normalizer.
+_parse_list_values()` itself. For list/tuple items, the function always
+read `item[1]` regardless of the `dict_key` argument passed in — a call
+site passing `dict_key=2` (the `[ts, status, value]`/`[ts, status, value,
+extra]` triplet/quadruplet shape `bodyBatteryValuesArray` actually uses,
+confirmed against real archive data from the issue reporter,
+2026-09-05) silently read the non-numeric status string at index 1
+instead of the value at index 2, producing an empty parse result and
+therefore a `"failed"`/`"low"` label despite valid underlying data.
+`dict_key` is now a real positional index for list/tuple items when
+passed as `int` (dict-key lookup unchanged for `dict` items). All
+existing callers pass `dict_key=1`, so their behaviour is unchanged
+(`item[1] == item[dict_key]` when `dict_key == 1`) — only the previously
+broken `dict_key=2` call site in `_assess.py` starts working correctly.
+`garmin_normalizer.summarize()`'s own body_battery aggregation was never
+affected — it has always used its own inline index-2 loop, independent
+of `_parse_list_values()`, which is why the reporter correctly observed
+the daily summary computing correct values while the quality label was
+wrong.
+
+**Issue #8 — `hrv_last_night_ms` read the wrong Garmin field.**
+`summarize()` read `safe_get(hrv_sum, "lastNight") or
+safe_get(hrv_sum, "lastNight5MinHigh")` — `"lastNight"` never exists in
+the real Garmin payload (the correct key is `"lastNightAvg"`), so the
+`or` fallback fired unconditionally, silently substituting the night's
+peak 5-minute reading for what the field name promises is an average.
+Confirmed via two independent day-by-day comparisons against raw data
+(2026-09-07/08). Fixed at three independent locations that each read
+the same underlying Garmin field with the same wrong key, found via a
+DEPS scan run for this session (only one of the three was known at
+session start):
+- `garmin_normalizer.py::summarize()` — corrected to `"lastNightAvg"`,
+  fallback removed entirely (a missing value now surfaces as `None`
+  rather than silently substituting a differently-shaped value).
+- `garmin/quality/_assess.py::assess_quality_fields()` — same wrong key
+  in the `hrv` field's quality-label check (`"medium"` vs `"low"`),
+  independent of `summarize()`. Corrected the same way, no fallback
+  added, for consistency with `summarize()` — a `"medium"` label here
+  must mean the value actually stored under `hrv_last_night_ms` is
+  present.
+- `maps/garmin_health_map.py::_FIELD_MAP["hrv_last_night"]["live_nested"]`
+  — primary candidate corrected to `"lastNightAvg"`. Unlike the two
+  archive-side locations above, the fallback to `"lastNight5MinHigh"` is
+  **deliberately kept** here: this is the live-only snapshot path (no
+  archive equivalent to fall back to per its own docstring), and Garmin
+  may not have finished computing `lastNightAvg` yet at the time of day
+  this is typically queried — a peak-value stand-in is judged acceptable
+  for a live snapshot in a way it is not for an archived daily value.
+
+**New modules:** none.
+
+**Changed modules:**
+- `garmin/garmin_normalizer.py` — `_parse_list_values()`: `dict_key`
+  type hint corrected `str` → `int | str`, positional-index branch added
+  for list/tuple items. `summarize()`: HRV primary key corrected,
+  fallback removed.
+- `garmin/quality/_assess.py` — `assess_quality_fields()`: `hrv` field
+  primary key corrected, no fallback added.
+- `maps/garmin_health_map.py` — `_FIELD_MAP["hrv_last_night"]
+  ["live_nested"]`: primary candidate corrected, fallback candidate
+  unchanged (deliberate asymmetry, see above).
+
+**Test files:**
+- `tests/test_local.py` — new `_parse_list_values` unit checks
+  (`dict_key=2` on the real 4-element triplet shape from the issue
+  report; `dict_key=1` regression guard; short-tuple-with-`dict_key=2`
+  skip, not `IndexError`) and new `assess_quality_fields()` integration
+  checks reproducing the real triplet shape from GitHub Issue #6
+  (`body_battery` → `"high"`, was `"failed"`). 780 → 786.
+- `tests/test_dashboard.py` — `_LIVE_SNAPSHOT`'s HRV fixture updated
+  from `"lastNight"` to `"lastNightAvg"` (primary-candidate test);
+  `_LIVE_SNAPSHOT_HRV_FALLBACK` fixture unchanged in shape — still
+  correctly exercises the deliberately-kept fallback path.
+
+**Found but deliberately not fixed:** `raw["body_battery"]`'s top-level
+fallback path (both in `_assess.py` and `garmin_normalizer.summarize()`)
+still expects a shape real Garmin data never has in practice (a dict with
+a `bodyBatteryValuesArray` key, where the real top-level `body_battery`
+is a list of device-segment dicts) — pre-existing, inert, independently
+confirmed dead in the `v1.6.5.8` (F8) session and unrelated to either fix
+in this session.
+
+**Drift-Check (`build_dep_map.py`, 2026-09-11_Run-01 → 2026-09-12_Run-01):**
+0 NEU, 0 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung — clean.
+
+**Test result:** 786 / 299 / 465 / 136 / 170 / 169 / 80 / 16 — all green,
+ruff 0 errors, bandit 0 HIGH.
+
+---
+
 ## v1.7.1.12 — Context/Health Field Name Resolution: Alias Tables, Ambiguity Queries, Domain Classification
 
 The field name fallback in `query_context()`/`query_health()` has been refined, building on the `v1.7.1.11` session 5 cutoff reduction (0.8 → 0.65).

@@ -1228,7 +1228,10 @@ _LIVE_SNAPSHOT = {
         }
     },
     "hrv": {
-        "hrvSummary": {"lastNight": 45},
+        # v1.7.1.13, Issue #8: "lastNight" replaced by the actually-used
+        # primary key "lastNightAvg" — this fixture exercises the primary
+        # (non-fallback) candidate path.
+        "hrvSummary": {"lastNightAvg": 45},
     },
 }
 cfg.LIVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1281,6 +1284,11 @@ check("broker live_nested: sleep_duration source_resolution = live",
       _bc_live_duration["source_resolution"] == "live")
 
 # live_nested — hrv fallback chain: primary key absent, second candidate used
+# v1.7.1.13, Issue #8: fixture unchanged in shape — live_nested's fallback
+# to lastNight5MinHigh is deliberately kept (see garmin_health_map.py
+# comment), only the primary candidate above (test at line ~1231) moved
+# from "lastNight" to "lastNightAvg". This fixture still correctly omits
+# lastNightAvg to exercise the fallback path.
 _LIVE_SNAPSHOT_HRV_FALLBACK = dict(_LIVE_SNAPSHOT)
 _LIVE_SNAPSHOT_HRV_FALLBACK["hrv"] = {"hrvSummary": {"lastNight5MinHigh": 38}}
 cfg.LIVE_FILE.write_text(json.dumps(_LIVE_SNAPSHOT_HRV_FALLBACK), encoding="utf-8")
