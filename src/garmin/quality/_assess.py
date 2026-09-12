@@ -183,9 +183,15 @@ def assess_quality_fields(raw: dict) -> dict:
         fields["sleep"] = "failed"
 
     # ── hrv ──
+    # v1.7.1.13, Issue #8: same wrong primary key as garmin_normalizer.
+    # summarize() — "lastNight" never present in the real payload, this
+    # field's quality label was effectively always "low", never "medium".
+    # Corrected to "lastNightAvg", no fallback added (consistent with
+    # summarize()'s own fallback removal — a "medium" label here must mean
+    # the value actually stored under hrv_last_night_ms is present).
     hrv = raw.get("hrv") or {}
     hrv_sum = _safe_get(hrv, "hrvSummary") if isinstance(hrv, dict) else None
-    if isinstance(hrv_sum, dict) and hrv_sum.get("lastNight") is not None:
+    if isinstance(hrv_sum, dict) and hrv_sum.get("lastNightAvg") is not None:
         fields["hrv"] = "medium"
     elif isinstance(hrv, dict) and hrv:
         fields["hrv"] = "low"
