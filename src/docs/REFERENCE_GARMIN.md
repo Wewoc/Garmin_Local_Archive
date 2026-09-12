@@ -68,7 +68,7 @@ garmin_app.py (GUI)
 - The 15 baseline `fetch_raw()` endpoints always run — the API-Capability-Scan config can never disable them, only add optional candidates (v1.6.8, Archive-First)
 - API-Capability-Scan candidates are double-gated before joining a sync run: `enabled_by_user == True` **and** `status == "found"` — a hand-edited config file can never activate an endpoint that was never confirmed present (v1.6.8)
 - Capability config is read once per sync run as an immutable snapshot, inside the same `QUALITY_LOCK` the sync loop already holds — `run_capability_scan()` reuses this same lock rather than introducing a second one: it never writes `quality_log.json` itself, but does share the Garmin client with the sync, and the two must never run concurrently (v1.6.8)
-- API-Capability-Scan candidates reach `summary/` — and therefore `get()`/`list_fields()` — only if `garmin_normalizer.summarize()` is explicitly extended for that candidate; landing in `raw/` alone is not sufficient, `summarize()` is a fixed field list, not a generic passthrough. Six candidates are wired this way: `body_weight`, `calories_resting` (v1.6.8 pilot), `hydration_ml`, `endurance_score`, `hill_score`, `fitness_age` (v1.6.8 Session 4). The remaining 13 are exposed unprocessed via `get_raw()`/`list_raw_fields()` instead — see "Raw-passthrough fields" below — rather than left archived-but-unreachable
+- API-Capability-Scan candidates reach `summary/` — and therefore `get()`/`list_fields()` — only if `garmin_normalizer.summarize()` is explicitly extended for that candidate; landing in `raw/` alone is not sufficient, `summarize()` is a fixed field list, not a generic passthrough. Seven candidates are wired this way: `body_weight`, `calories_resting` (v1.6.8 pilot), `hydration_ml`, `endurance_score`, `hill_score`, `fitness_age` (v1.6.8 Session 4), `blood_pressure` (six `bp_*` scalar fields, v1.7.1.14, Issue #7). The remaining 12 are exposed unprocessed via `get_raw()`/`list_raw_fields()` instead — see "Raw-passthrough fields" below — rather than left archived-but-unreachable
 - `list_fields(active_only=True)` additionally excludes API-Capability-Scan candidate fields whose endpoint is not `enabled_by_user` in the capability config — used by the Custom Dashboard field picker and Explorer (v1.6.8 Session 4, "Governance B"). Baseline fields and raw-passthrough fields are unaffected: baseline fields are absent from the gating dict by design, raw-passthrough fields aren't part of `list_fields()`'s registry at all
 
 ---
@@ -630,14 +630,18 @@ above — `CANDIDATE_ENDPOINTS` defines no short-name convention yet).
 | `get_lactate_threshold` |
 | `get_running_tolerance` |
 
-As of v1.6.8 Session 4, all 19 are broker-reachable in some form: 6 are
+As of v1.6.8 Session 4, all 19 are broker-reachable in some form. 7 are
 interpreted into `summary/` fields (`body_weight`, `calories_resting`,
-`hydration_ml`, `endurance_score`, `hill_score`, `fitness_age`), the
-remaining 13 are exposed unprocessed via `get_raw()`/`list_raw_fields()`
-— see "Raw-passthrough fields" below. `get_daily_weigh_ins` is a
-suspected duplicate of `get_body_composition` (both empty/identical at
-the pilot account) — see `NOTES_v168_C_01.md`, unresolved pending real
-scale data.
+`hydration_ml`, `endurance_score`, `hill_score`, `fitness_age`,
+`blood_pressure` — the last added v1.7.1.14, Issue #7), the remaining 12
+are exposed unprocessed via `get_raw()`/`list_raw_fields()` — see
+"Raw-passthrough fields" below. `get_daily_weigh_ins`'s suspected
+duplicate status against `get_body_composition` is now confirmed —
+byte-identical on accounts without a smart scale (`sourceType:
+"MANUAL"`, confirmed by a real-data report, v1.7.1.14 Issue #9) —
+deliberately excluded from `garmin_live_fetch.py::_ENDPOINTS` for that
+reason, but its `_RAW_PASSTHROUGH_FIELDS` registration is unaffected and
+unchanged.
 
 ---
 
@@ -693,7 +697,22 @@ Single-file snapshot of the current calendar day ("heute Nacht bis jetzt") — n
 
 | Function | Purpose |
 |---|---|
-| `fetch_live(client=None, progress=None, state_cb=None)` | Fetches sleep + HRV + all six intraday endpoints for today. `client=None` logs in headless (or reuses an already-authenticated client, e.g. right after a Daily Sync run). `progress`: optional `callable(str) -> None` for GUI-visible fetch progress — deliberately not named `log`, which would shadow the module logger. `state_cb` (v1.6.5.1): optional `callable(key: str, state: str) -> None` for GUI connection-status indicators (token/login/api/data × ok/fail) — fires token+login right after the login step, then api+data via a lightweight probe (`client.get_user_profile()` / `client.get_stats(today)`, same pattern as `garmin_app_controller.check_connection()`) immediately after, independent of the endpoint loop's own per-endpoint tracking. Returns `{"ok": bool, "failed_endpoints": list[str]}`. `ok=False` only on login failure/unavailability — individual endpoint failures never abort the fetch |
+| `fetch_live(client=None, progress=None, state_cb=None)` | Fetches sleep + HRV + all eight baseline intraday endpoints for today, plus `get_blood_pressure`/`get_body_composition` if capability-enabled (v1.7.1.14, Issue #9 — see `_ENDPOINTS` below; corrected from a previously inaccurate "six" here, which predates this session — the baseline was always 8). `client=None` logs in headless (or reuses an already-authenticated client, e.g. right after a Daily Sync run). `progress`: optional `callable(str) -> None` for GUI-visible fetch progress — deliberately not named `log`, which would shadow the module logger. `state_cb` (v1.6.5.1): optional `callable(key: str, state: str) -> None` for GUI connection-status indicators (token/login/api/data × ok/fail) — fires token+login right after the login step, then api+data via a lightweight probe (`client.get_user_profile()` / `client.get_stats(today)`, same pattern as `garmin_app_controller.check_connection()`) immediately after, independent of the endpoint loop's own per-endpoint tracking. Returns `{"ok": bool, "failed_endpoints": list[str]}`. `ok=False` only on login failure/unavailability — individual endpoint failures never abort the fetch |
+
+**`_ENDPOINTS` (v1.7.1.14):** list of `(method, key, capability_gate)`
+3-tuples, 10 entries — 8 baseline (`capability_gate=None`, always fetched
+unconditionally, unchanged since before this session) plus
+`get_blood_pressure`/`get_body_composition` (`capability_gate` set to the
+matching Capability-Scan endpoint name — fetched only if the user has
+enabled it via Settings → API Scan → Edit Config, same `enabled_by_user`
+double-gate the broker's `_CAPABILITY_FIELDS` already applies).
+`get_daily_weigh_ins` deliberately excluded — confirmed byte-identical
+duplicate of `get_body_composition` on accounts without a smart scale.
+`fetch_live()`'s success ratio in its log/progress output is computed
+against `attempted_count` (only endpoints actually fetched, i.e. not
+skipped by a gate), not the static list length — a disabled gated
+endpoint must not lower the reported ratio for an otherwise fully
+successful fetch.
 | `_write_live(live_data)` | Writes the snapshot to `cfg.LIVE_FILE`. Plain write, no atomic tmp/fsync/replace sequence — `live.json` has no history to protect |
 
 ---
@@ -748,6 +767,27 @@ The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single
 | `endurance_score` | daily | `training.endurance_score` | index, from `get_endurance_score` — checked against `vo2max` for redundancy (Multi-LLM hint), none found — distinct, device-calculated index (v1.6.8 Session 4) |
 | `hill_score` | daily | `training.hill_score` | index, from `get_hill_score` — not to be confused with that same endpoint's own internal `enduranceScore` sub-field, unrelated to the `endurance_score` field above (v1.6.8 Session 4) |
 | `fitness_age` | daily | `training.fitness_age` | years, from `get_fitnessage_data` — only `fitnessAge` adopted; `chronologicalAge`/`achievableFitnessAge`/`previousFitnessAge`/`components` intentionally excluded (v1.6.8 Session 4) |
+| `bp_high_systolic` | daily | `blood_pressure.high_systolic` | mmHg, from `get_blood_pressure` — day's highest systolic reading, 1:1 from Garmin's own daily aggregate (v1.7.1.14, Issue #7) |
+| `bp_high_diastolic` | daily | `blood_pressure.high_diastolic` | mmHg, same source/rollup as above |
+| `bp_low_systolic` | daily | `blood_pressure.low_systolic` | mmHg, same source/rollup as above |
+| `bp_low_diastolic` | daily | `blood_pressure.low_diastolic` | mmHg, same source/rollup as above |
+| `bp_num_measurements` | daily | `blood_pressure.num_measurements` | count, measurements logged that day |
+| `bp_category` | daily | `blood_pressure.category` | text, e.g. `STAGE_2_HIGH` — reflects the day's worst individual reading, not an average |
+
+All six `bp_*` fields gated in `_CAPABILITY_FIELDS` against
+`get_blood_pressure` (v1.7.1.14, Issue #7). A seventh value,
+`worstReading` (`{systolic, diastolic, pulse, timestamp}` — the
+individual measurement that produced the day's `bp_category`;
+tiebreak on same-category ties: chronologically latest measurement
+wins, by `measurementTimestampLocal`), is deliberately NOT part of
+`_FIELD_MAP` — it has no single scalar shape. It lives as a plain nested
+object under `blood_pressure.worstReading` in the summary JSON, read
+directly by any consumer that needs it — same treatment as
+`sleep_score_feedback` (excluded from Explorer/Custom Dashboard's daily
+field iteration via `_EXCLUDE_FROM_DAILY`). See `CHANGELOG.md` v1.7.1.14
+for the Composite-field-type evaluation (Option A vs. B) that led to
+this choice, and `REFERENCE_BROKER.md`'s field index for the broker-side
+table.
 
 **Live route (v1.6.5):** 16 of the fields above also support `resolution="live"` (reads `garmin_data/live/live.json`, written by `garmin_live_fetch.py`, instead of the archive): `heart_rate_series`, `stress_series`, `spo2_series`, `body_battery_series`, `respiration_series`, `steps_series` (via `live`); `sleep_deep_pct`, `sleep_light_pct`, `sleep_rem_pct`, `sleep_awake_pct` (via `live_pct`); `hrv_last_night`, `sleep_score`, `sleep_score_feedback`, `sleep_score_qualifier`, `sleep_duration` (via `live_nested`). Fields with no live route (`resting_heart_rate`, `spo2_avg`, `body_battery_max`, `stress_avg`, `vo2max`) return `fallback=True`, empty `values`, for `resolution="live"`. Consumer: `dashboards/live_tracking_html_dash.py`.
 
@@ -755,11 +795,12 @@ The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single
 
 ### Raw-passthrough fields (v1.6.8 Session 4)
 
-13 of the 19 original API-Capability-Scan candidates have no known
+12 of the 19 original API-Capability-Scan candidates have no known
 daily-value extraction — list-of-entries structure, empty/unknown schema
 at the pilot account, or event-log structure (see `NOTES_v168_D_02.md`
-"Blocker-Typen" for the per-field reasoning). Rather than leave them
-archived-but-broker-invisible, `garmin_health_map.py` exposes them
+"Blocker-Typen" for the per-field reasoning; `blood_pressure` moved out
+of this group in v1.7.1.14, Issue #7 — see below). Rather than leave
+them archived-but-broker-invisible, `garmin_health_map.py` exposes them
 unprocessed via a second, deliberately separate access path — kept
 entirely out of `_FIELD_MAP`/`get()`/`list_fields()` so existing
 dashboards (which all assume the scalar `{"values": [{"date", "value"}]}`
@@ -778,14 +819,16 @@ does not contain that endpoint's key. `health_map.py`/`gateway_map.py`
 provide thin passthroughs — see `REFERENCE_BROKER.md`.
 
 **Status:** open for community feedback — GitHub issue with a feedback
-template pending (v1.6.8 doc-closure). Any of the 13 fields with a
+template pending (v1.6.8 doc-closure). Any of the 12 fields with a
 concrete aggregation/display proposal backed by real filled data can move
-to a proper `summarize()` field later, same as the six already wired.
+to a proper `summarize()` field later, same as the seven already wired —
+`blood_pressure` did exactly that in v1.7.1.14 (Issue #7), once a real
+multi-reading-day payload from a GitHub issue report gave the extraction
+shape needed.
 
 | Field | Source endpoint |
 |---|---|
 | `daily_weigh_ins` | `get_daily_weigh_ins` |
-| `blood_pressure` | `get_blood_pressure` |
 | `menstrual_calendar_data` | `get_menstrual_calendar_data` |
 | `pregnancy_summary` | `get_pregnancy_summary` |
 | `lifestyle_logging_data` | `get_lifestyle_logging_data` |
