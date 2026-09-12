@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import garmin_api
+import garmin_api_capability as capability
 import garmin_config as cfg
 
 log = logging.getLogger(__name__)
@@ -46,8 +47,15 @@ log = logging.getLogger(__name__)
 #  Endpoints — sleep + HRV + all six intraday fields registered in garmin_health_map.py
 # ══════════════════════════════════════════════════════════════════════════════
 
-# (client method, args-template, key in live_data)
+# (client method, args-template, key in live_data, capability_gate)
 # args filled in with today's date string at call time.
+#
+# capability_gate: None for baseline endpoints — always fetched,
+# unconditionally, same as before v1.7.1.14. For a Capability-Scan
+# candidate, the capability endpoint name to check against
+# garmin_api_capability.load_config() — only fetched if the user has
+# enabled_by_user=True for that endpoint (same double-gate the broker's
+# _CAPABILITY_FIELDS already applies, see garmin_health_map.py).
 #
 # HRV note: garmin_normalizer.summarize() derives hrv_last_night_ms primarily
 # from raw["hrv"]["hrvSummary"] (this endpoint), with a fallback to
@@ -55,14 +63,23 @@ log = logging.getLogger(__name__)
 # relying on that fallback — keeps the live snapshot's hrv_last_night field
 # reliable regardless of whether Garmin embeds it in the sleep response.
 _ENDPOINTS = [
-    ("get_sleep_data",       "sleep"),
-    ("get_hrv_data",         "hrv"),
-    ("get_heart_rates",      "heart_rates"),
-    ("get_stress_data",      "stress"),
-    ("get_body_battery",     "body_battery"),
-    ("get_steps_data",       "steps"),
-    ("get_spo2_data",        "spo2"),
-    ("get_respiration_data", "respiration"),
+    ("get_sleep_data",       "sleep",           None),
+    ("get_hrv_data",         "hrv",             None),
+    ("get_heart_rates",      "heart_rates",     None),
+    ("get_stress_data",      "stress",          None),
+    ("get_body_battery",     "body_battery",    None),
+    ("get_steps_data",       "steps",           None),
+    ("get_spo2_data",        "spo2",            None),
+    ("get_respiration_data", "respiration",     None),
+
+    # ── Capability-Scan candidates (v1.7.1.14, Issue #9) — raw-passthrough
+    #    snapshot values, not continuous intraday series. Only fetched if
+    #    the user enabled the endpoint via Settings → API Scan → Edit
+    #    Config. get_daily_weigh_ins deliberately excluded — confirmed
+    #    byte-identical duplicate of get_body_composition on accounts
+    #    without a smart scale (sourceType: "MANUAL"), see Issue #9. ──
+    ("get_blood_pressure",   "get_blood_pressure",   "get_blood_pressure"),
+    ("get_body_composition", "get_body_composition", "get_body_composition"),
 ]
 
 
@@ -167,8 +184,22 @@ def fetch_live(client=None, progress=None, state_cb=None) -> dict:
         "synced_at":  datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     failed_endpoints = []
+    attempted_count  = 0
 
-    for method, key in _ENDPOINTS:
+    # Capability config loaded once per fetch_live() call — same immutable-
+    # snapshot pattern as the Daily Sync's capability-gated fetch (see
+    # garmin_collector._fetch_and_assess()). A gated endpoint not yet
+    # enabled by the user is skipped entirely — not counted as failed,
+    # simply not attempted, same as it never appearing in _ENDPOINTS before
+    # v1.7.1.14.
+    _cap_config = capability.load_config()
+
+    for method, key, capability_gate in _ENDPOINTS:
+        if capability_gate is not None:
+            _gate_entry = _cap_config.get("endpoints", {}).get(capability_gate, {})
+            if not _gate_entry.get("enabled_by_user"):
+                continue
+        attempted_count += 1
         progress(f"Fetching {key} ...")
         data, success = garmin_api.api_call(client, method, today, label=key)
         if data is not None:
@@ -180,10 +211,15 @@ def fetch_live(client=None, progress=None, state_cb=None) -> dict:
     progress("Writing live.json ...")
     _write_live(live_data)
 
-    ok_count = len(_ENDPOINTS) - len(failed_endpoints)
-    log.info(f"  ✓ Live fetch complete ({ok_count}/{len(_ENDPOINTS)} endpoints)")
+    # v1.7.1.14: denominator is attempted_count, not len(_ENDPOINTS) — a
+    # not-yet-enabled capability-gated endpoint is skipped, not attempted,
+    # so it must not lower the reported ratio for an otherwise fully
+    # successful fetch (e.g. 8/8 baseline endpoints, BP/body composition
+    # both disabled, should read "8/8", not "8/10").
+    ok_count = attempted_count - len(failed_endpoints)
+    log.info(f"  ✓ Live fetch complete ({ok_count}/{attempted_count} endpoints)")
     if failed_endpoints:
         log.warning(f"    Failed endpoints: {', '.join(failed_endpoints)}")
-    progress(f"\u2713 Live fetch complete ({ok_count}/{len(_ENDPOINTS)} endpoints)")
+    progress(f"\u2713 Live fetch complete ({ok_count}/{attempted_count} endpoints)")
 
     return {"ok": True, "failed_endpoints": failed_endpoints}

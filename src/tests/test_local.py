@@ -3136,13 +3136,18 @@ section("H. garmin_live_fetch")
 import garmin_live_fetch as live_fetch
 importlib.reload(live_fetch)
 
-# ── _ENDPOINTS structure — 8 entries, HRV included ────────────────────────────
-check("live_fetch: _ENDPOINTS has 8 entries",
-      len(live_fetch._ENDPOINTS) == 8)
+# ── _ENDPOINTS structure — 10 entries (8 baseline + 2 capability-gated,
+#    v1.7.1.14 Issue #9), 3-tuple shape (method, key, capability_gate) ───────
+check("live_fetch: _ENDPOINTS has 10 entries",
+      len(live_fetch._ENDPOINTS) == 10)
 check("live_fetch: _ENDPOINTS includes get_hrv_data/hrv",
-      ("get_hrv_data", "hrv") in live_fetch._ENDPOINTS)
+      ("get_hrv_data", "hrv", None) in live_fetch._ENDPOINTS)
 check("live_fetch: _ENDPOINTS includes get_sleep_data/sleep",
-      ("get_sleep_data", "sleep") in live_fetch._ENDPOINTS)
+      ("get_sleep_data", "sleep", None) in live_fetch._ENDPOINTS)
+check("live_fetch: _ENDPOINTS includes get_blood_pressure (capability-gated)",
+      ("get_blood_pressure", "get_blood_pressure", "get_blood_pressure") in live_fetch._ENDPOINTS)
+check("live_fetch: _ENDPOINTS includes get_body_composition (capability-gated)",
+      ("get_body_composition", "get_body_composition", "get_body_composition") in live_fetch._ENDPOINTS)
 
 # ── fetch_live — success path, client provided (no login) ────────────────────
 _lf_mock_client = MagicMock()
@@ -3218,8 +3223,15 @@ with patch.object(live_fetch.garmin_api, "api_call", side_effect=_lf_api_call_su
 
 check("fetch_live progress: callback received messages",
       len(_lf_progress_msgs) > 0)
-check("fetch_live progress: mentions every endpoint",
-      all(any(key in m for m in _lf_progress_msgs) for _, key in live_fetch._ENDPOINTS))
+# v1.7.1.14, Issue #9: 3-tuple unpack. Capability config is deleted at
+# this point in the test run (see line ~725), so both gated endpoints
+# (get_blood_pressure, get_body_composition) are enabled_by_user=False
+# and never attempted — the progress-message check is scoped to the
+# baseline (ungated) endpoints only, matching what fetch_live() actually
+# calls in this scenario.
+check("fetch_live progress: mentions every attempted endpoint",
+      all(any(key in m for m in _lf_progress_msgs)
+          for _, key, gate in live_fetch._ENDPOINTS if gate is None))
 check("fetch_live progress: mentions completion",
       any("complete" in m for m in _lf_progress_msgs))
 check("fetch_live progress: fetch itself still succeeds",

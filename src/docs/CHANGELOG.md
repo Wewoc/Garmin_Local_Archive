@@ -1,5 +1,135 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.14 — Blood Pressure Integration: Summary Rollup (#7) + Live-Fetch (#9)
+
+Closes the two-part gap Gene-Howard reported: `get_blood_pressure` was
+archived correctly but never surfaced in the daily summary or any
+dashboard (Issue #7), and the Live/Intraday sync never fetched blood
+pressure or body composition data at all (Issue #9). Together the two
+issues close the full loop — data arrives (#9) and is visible on the same
+day (#7).
+
+**Phase 1 — Composite field type: evaluated, not built.** Before any
+code, an open architectural question was resolved: `blood_pressure`'s
+`worstReading` value (`{systolic, diastolic, pulse, timestamp}`) is a
+tuple, not a scalar — GLA's two existing field types (daily scalar,
+intraday series) don't fit it. Two options were weighed: a new,
+reusable Composite field type routed through `garmin_health_map.get()`
+(Option A), or a plain structured object stored directly in the summary,
+outside the broker contract entirely (Option B). Option A was rejected —
+Rule-of-Three: only one confirmed use case (blood pressure) exists;
+Body Composition was raised as a hypothetical second case but neither
+confirmed nor structurally verified, and building a reusable
+generalisation on one confirmed case risks a wrong-shaped abstraction if
+the second real case turns out structurally different (checked
+concretely against the planned v1.8 FIT pipeline, which would need its
+own field type regardless — an activity-level, not day-level, structure).
+Option A would also have required a contract change to `explorer_
+garmin-context_html_dash.py` and `custom_dash_builder.py` — two
+generic, working modules — for a single current consumer. **Option B
+chosen:** `worstReading` lives as a plain nested object in the
+`blood_pressure` summary section, read directly by any consumer that
+needs it — not registered in `_FIELD_MAP`, not visible to Explorer/
+Custom Dashboard Builder (same pattern already used for
+`sleep_score_feedback` via `_EXCLUDE_FROM_DAILY`).
+
+**Issue #7 — BP rollup in daily summary.** `blood_pressure` moves out of
+`_RAW_PASSTHROUGH_FIELDS` (13 → 12 entries) — the six day-level aggregate
+values (`highSystolic`, `highDiastolic`, `lowSystolic`, `lowDiastolic`,
+`numOfMeasurements`, `category`) are pulled 1:1 from Garmin's own daily
+aggregate (`raw["get_blood_pressure"]["measurementSummaries"][0]`,
+confirmed structure from real multi-reading-day payload data supplied in
+the issue thread) and registered as six new `bp_`-prefixed `_FIELD_MAP`
+scalars, each gated in `_CAPABILITY_FIELDS` against `get_blood_pressure`
+(consistent with the existing Capability-Scan gating for
+account-dependent fields — BP requires a compatible measurement device
+or manual entry, not universally present). `worstReading` has no
+day-level Garmin aggregate for pulse — derived from `measurements[]`:
+the individual measurement whose own `category` matches the day's worst
+category. When more than one measurement shares that category, the
+chronologically latest one wins (sorted by `measurementTimestampLocal`)
+— deterministic regardless of the raw list's own order, which real
+payload data confirms is not guaranteed chronological. `get_daily_weigh_ins`
+was checked during this work for a conflicting registration — none
+found: its `_RAW_PASSTHROUGH_FIELDS` entry is independent of the
+`body_weight` field (bound to `get_body_composition` in both
+`_FIELD_MAP` and `_CAPABILITY_FIELDS`) and needed no change.
+
+**Issue #9 — BP + Body Composition in Live-Fetch.**
+`garmin_live_fetch.py::_ENDPOINTS` grows from 8 to 10 entries and its
+tuple shape gains a third element, `capability_gate` (`None` for the
+eight always-on baseline endpoints, unchanged from before this session;
+the Capability-Scan endpoint name for the two new gated entries). A
+gated endpoint is fetched only if the user has enabled it via Settings →
+API Scan → Edit Config (`capability.load_config()`, same
+`enabled_by_user` double-gate the broker already applies) — not attempted
+at all otherwise, so a disabled endpoint is never counted against
+`fetch_live()`'s success ratio. The log/progress denominator was changed
+from the previous static `len(_ENDPOINTS)` to a new `attempted_count`
+running total for the same reason: with a static denominator, an account
+with both new endpoints disabled would have logged "8/10 endpoints" for
+a fetch that in fact succeeded on all eight attempted endpoints.
+`get_daily_weigh_ins` deliberately excluded from `_ENDPOINTS` — confirmed
+by the issue reporter as a byte-identical duplicate of
+`get_body_composition` on accounts without a smart scale (`sourceType:
+"MANUAL"`).
+
+**New modules:** none.
+
+**Changed modules:**
+- `maps/garmin_health_map.py` — `blood_pressure` removed from
+  `_RAW_PASSTHROUGH_FIELDS`. Six new `bp_*` scalar entries added to
+  `_FIELD_MAP` (`daily` descriptor only, same shape as existing
+  Capability-Scan pilot fields). Six corresponding entries added to
+  `_CAPABILITY_FIELDS`, all gated on `get_blood_pressure`.
+- `garmin/garmin_normalizer.py` — `summarize()`: new `blood_pressure`
+  section — six scalars read from `raw["get_blood_pressure"]
+  ["measurementSummaries"][0]`, plus a derived `worstReading` object
+  (see Issue #7 above for the tiebreak rule). `CURRENT_SCHEMA_VERSION`
+  3 → 4 — purely additive change, but bumped anyway so the self-healing
+  / schema-migration loop regenerates already-archived days' summaries
+  from `raw/` automatically (which already holds the full
+  `get_blood_pressure` payload for those days — the original Issue #7
+  gap was archived-but-not-surfaced, not missing data).
+- `garmin/garmin_live_fetch.py` — `_ENDPOINTS` tuple shape extended to
+  `(method, key, capability_gate)`, grown to 10 entries. `fetch_live()`:
+  capability config loaded once per call (same immutable-snapshot
+  pattern as the Daily Sync's capability-gated fetch), gated endpoints
+  skipped when not `enabled_by_user`. Log/progress denominator changed
+  from `len(_ENDPOINTS)` to a new `attempted_count`.
+
+**Test files:**
+- `tests/test_broker.py` — two `13`-field assertions corrected to `12`
+  (`health_map.list_raw_fields`, `gateway_map.list_raw_fields
+  (domain="health")`).
+- `tests/test_dashboard.py` — `_SUMMARY` fixture gains a `blood_pressure`
+  section (test values from the real multi-reading-day payload in the
+  issue thread). New broker-contract check for `bp_high_systolic` as a
+  representative of the six new fields. Two further corrections found
+  only by the first post-anchor test run, not anticipated by the DEPS
+  scan (its patterns targeted `_RAW_PASSTHROUGH_FIELDS` text occurrences,
+  not result-assertions derived from that constant's length):
+  `list_raw_fields()` direct-call assertion (`13` → `12`, a third
+  occurrence beyond the two in `test_broker.py`) and the `active_only`
+  exclusion-count assertion (`-6` → `-12`, six old + six new capability
+  fields).
+- `tests/test_local.py` — `_ENDPOINTS` structure assertions updated to
+  the 3-tuple shape and 10-entry count; two new checks added for the
+  gated endpoints themselves. Progress-callback completeness check
+  scoped to `capability_gate is None` entries only — the Capability
+  config is deleted earlier in this test file's run, so the two gated
+  endpoints are never attempted in this scenario and must not be
+  expected in the progress messages. Found via a runtime crash
+  (`ValueError: too many values to unpack`) in the first post-Anchor-8
+  test run, not by the DEPS scan.
+
+**Test result:** 788 / 299 / 469 / 136 / 170 / 169 / 80 / 16 — all green.
+
+**Drift-Check (`build_dep_map.py`, 2026-09-12_Run-01 → 2026-09-12_Run-02):**
+0 NEU, 0 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung — clean.
+
+---
+
 ## v1.7.1.13 — body_battery Parseability Bug (#6) + HRV lastNight Field Mapping (#8)
 
 Two independent bugfixes from confirmed GitHub issues, bundled into one

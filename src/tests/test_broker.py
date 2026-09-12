@@ -192,8 +192,8 @@ check("health_map list_fields: active_only passthrough for garmin",
 check("health_map list_fields: unknown source → empty list",
       health_map.list_fields(source="nonexistent_source") == [])
 
-check("health_map list_raw_fields: garmin → 13 fields",
-      len(health_map.list_raw_fields(source="garmin")) == 13)
+check("health_map list_raw_fields: garmin → 12 fields",
+      len(health_map.list_raw_fields(source="garmin")) == 12)
 check("health_map list_raw_fields: unknown source → empty list",
       health_map.list_raw_fields(source="nonexistent_source") == [])
 
@@ -340,8 +340,8 @@ check("gateway_map get_raw domain=None: context degrades (no raw-passthrough)",
       _gw_raw_all["context"] == {"error": "domain has no raw-passthrough support"})
 
 _gw_lrf_health = gateway_map.list_raw_fields(domain="health")
-check("gateway_map list_raw_fields domain=health: 13 fields",
-      len(_gw_lrf_health["health"]) == 13)
+check("gateway_map list_raw_fields domain=health: 12 fields",
+      len(_gw_lrf_health["health"]) == 12)
 
 _gw_lrf_fit = gateway_map.list_raw_fields(domain="fit")
 check("gateway_map list_raw_fields domain=fit: empty list (broker not registered)",

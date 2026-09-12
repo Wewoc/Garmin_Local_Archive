@@ -659,6 +659,20 @@ _SUMMARY = {
     "heartrate": {"resting_bpm": 52.0},
     "stress":    {"stress_avg": 28.0, "body_battery_max": 85.0},
     "training":  {"vo2max": 48.0},
+    "blood_pressure": {
+        "high_systolic":    154,
+        "high_diastolic":   101,
+        "low_systolic":     111,
+        "low_diastolic":    72,
+        "num_measurements": 3,
+        "category":         "STAGE_2_HIGH",
+        "worstReading": {
+            "systolic":  154,
+            "diastolic": 101,
+            "pulse":     70,
+            "timestamp": "2026-09-08T16:37:35.972",
+        },
+    },
 }
 
 _sum_dir = _TMPDIR / "garmin_data" / "summary"
@@ -1105,6 +1119,18 @@ check("broker: no fallback for daily→daily",     _bc["fallback"] is False)
 check("broker: source_resolution = daily",       _bc["source_resolution"] == "daily")
 check("broker: values entry has date key",       len(_bc["values"]) > 0 and "date" in _bc["values"][0])
 
+# v1.7.1.14, Issue #7 — bp_* scalars, same daily-field contract as
+# hrv_last_night above. One representative field checked here; the
+# other five (bp_high_diastolic, bp_low_systolic, bp_low_diastolic,
+# bp_num_measurements, bp_category) share the identical "daily"
+# descriptor shape in _FIELD_MAP, no separate contract to verify.
+_bc_bp = garmin_health_map.get("bp_high_systolic", _TEST_DATE, _TEST_DATE, resolution="daily")
+check("broker bp_high_systolic: values is list",       isinstance(_bc_bp["values"], list))
+check("broker bp_high_systolic: fallback = False",     _bc_bp["fallback"] is False)
+check("broker bp_high_systolic: source_resolution = daily", _bc_bp["source_resolution"] == "daily")
+check("broker bp_high_systolic: value matches fixture",
+      _bc_bp["values"][0]["value"] == 154)
+
 # raw_pct-Feld — gleicher Contract
 _bc_pct = garmin_health_map.get("sleep_deep_pct", _TEST_DATE, _TEST_DATE, resolution="daily")
 check("broker raw_pct: values is list",          isinstance(_bc_pct["values"], list))
@@ -1154,8 +1180,11 @@ import garmin_api_capability as capability
 capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
 _lf_default_count   = len(_lf)
 _lf_active_default  = garmin_health_map.list_fields(active_only=True)
+# v1.7.1.14, Issue #7: six new bp_* capability fields added — disabled-by-
+# default delta grows from 6 (body_weight, calories_resting, hydration_ml,
+# endurance_score, hill_score, fitness_age) to 12 (+ the six bp_* fields).
 check("list_fields active_only: excludes disabled capability fields by default",
-      len(_lf_active_default) == _lf_default_count - 6)
+      len(_lf_active_default) == _lf_default_count - 12)
 check("list_fields active_only: baseline field always present",
       "hrv_last_night" in _lf_active_default)
 check("list_fields active_only: disabled capability field excluded",
@@ -1178,7 +1207,7 @@ capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
 # ── get_raw() / list_raw_fields() — garmin_health_map (v1.6.8 Session 4) ────
 
 _lrf = garmin_health_map.list_raw_fields()
-check("list_raw_fields: 13 fields",              len(_lrf) == 13)
+check("list_raw_fields: 12 fields",              len(_lrf) == 12)
 check("list_raw_fields: floors present",         "floors" in _lrf)
 check("list_raw_fields: all strings",            all(isinstance(f, str) for f in _lrf))
 
