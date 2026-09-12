@@ -301,6 +301,38 @@ _FIELD_MAP = {
         "intraday": None,
         "daily":    ("training", "fitness_age"),
     },
+
+    # ── Blood pressure scalars (v1.7.1.14, Issue #7) — six aggregate
+    #    values 1:1 from Garmin's daily BP aggregate. worstReading (the
+    #    measurement that triggered the day's category) is deliberately
+    #    NOT part of _FIELD_MAP — Option B, see NOTES_v1_7_1_14.md:
+    #    stored as a structured object directly in the summary, not
+    #    routed through the broker. ──
+
+    "bp_high_systolic": {
+        "intraday": None,
+        "daily":    ("blood_pressure", "high_systolic"),
+    },
+    "bp_high_diastolic": {
+        "intraday": None,
+        "daily":    ("blood_pressure", "high_diastolic"),
+    },
+    "bp_low_systolic": {
+        "intraday": None,
+        "daily":    ("blood_pressure", "low_systolic"),
+    },
+    "bp_low_diastolic": {
+        "intraday": None,
+        "daily":    ("blood_pressure", "low_diastolic"),
+    },
+    "bp_num_measurements": {
+        "intraday": None,
+        "daily":    ("blood_pressure", "num_measurements"),
+    },
+    "bp_category": {
+        "intraday": None,
+        "daily":    ("blood_pressure", "category"),
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -319,7 +351,6 @@ _FIELD_MAP = {
 
 _RAW_PASSTHROUGH_FIELDS = {
     "daily_weigh_ins":          "get_daily_weigh_ins",
-    "blood_pressure":           "get_blood_pressure",
     "menstrual_calendar_data":  "get_menstrual_calendar_data",
     "pregnancy_summary":        "get_pregnancy_summary",
     "lifestyle_logging_data":   "get_lifestyle_logging_data",
@@ -791,12 +822,18 @@ def get(field: str, date_from: str, date_to: str,
 # hier absichtlich (= immer sichtbar, kein Gate). Wächst mit jedem weiteren
 # verdrahteten Kandidaten (v1.6.8).
 _CAPABILITY_FIELDS = {
-    "body_weight":      "get_body_composition",
-    "calories_resting": "get_calories_daily",
-    "hydration_ml":     "get_hydration_data",
-    "endurance_score":  "get_endurance_score",
-    "hill_score":       "get_hill_score",
-    "fitness_age":      "get_fitnessage_data",
+    "body_weight":         "get_body_composition",
+    "calories_resting":    "get_calories_daily",
+    "hydration_ml":        "get_hydration_data",
+    "endurance_score":     "get_endurance_score",
+    "hill_score":          "get_hill_score",
+    "fitness_age":         "get_fitnessage_data",
+    "bp_high_systolic":    "get_blood_pressure",
+    "bp_high_diastolic":   "get_blood_pressure",
+    "bp_low_systolic":     "get_blood_pressure",
+    "bp_low_diastolic":    "get_blood_pressure",
+    "bp_num_measurements": "get_blood_pressure",
+    "bp_category":         "get_blood_pressure",
 }
 
 

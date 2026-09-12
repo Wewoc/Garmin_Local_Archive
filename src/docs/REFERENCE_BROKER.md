@@ -263,7 +263,7 @@ rule, kept for quick readability. When a field's unit changes or a field is
 added/removed, update both places. `list_fields()` in the corresponding
 `*_map.py` module remains the actual source of truth for which fields exist.
 
-**`health_map` → `garmin`** (25 fields)
+**`health_map` → `garmin`** (31 fields)
 
 | Field | Value | Description |
 |---|---|---|
@@ -293,8 +293,30 @@ added/removed, update both places. `list_fields()` in the corresponding
 | `endurance_score` | index | Endurance Score, from API-Capability-Scan candidate `get_endurance_score` — device-calculated index, checked against `vo2max` for redundancy, none found (v1.6.8 Session 4) |
 | `hill_score` | index | Hill Score, from API-Capability-Scan candidate `get_hill_score` — not to be confused with that same endpoint's own internal `enduranceScore` sub-field (v1.6.8 Session 4) |
 | `fitness_age` | years | Fitness Age, from API-Capability-Scan candidate `get_fitnessage_data` — only `fitnessAge` adopted (v1.6.8 Session 4) |
+| `bp_high_systolic` | mmHg | Highest systolic reading of the day, from API-Capability-Scan candidate `get_blood_pressure` — pulled 1:1 from Garmin's own daily aggregate (v1.7.1.14, Issue #7) |
+| `bp_high_diastolic` | mmHg | Highest diastolic reading of the day, same source and rollup as above (v1.7.1.14, Issue #7) |
+| `bp_low_systolic` | mmHg | Lowest systolic reading of the day, same source and rollup as above (v1.7.1.14, Issue #7) |
+| `bp_low_diastolic` | mmHg | Lowest diastolic reading of the day, same source and rollup as above (v1.7.1.14, Issue #7) |
+| `bp_num_measurements` | count | Number of blood pressure measurements logged that day (v1.7.1.14, Issue #7) |
+| `bp_category` | text | Garmin's day-level category (e.g. `STAGE_2_HIGH`, `NORMAL`) — reflects the worst individual reading of the day, not an average (v1.7.1.14, Issue #7) |
 
-**`health_map` → `garmin` raw-passthrough** (13 fields, v1.6.8 Session 4)
+All six `bp_*` fields are gated in `_CAPABILITY_FIELDS` against
+`get_blood_pressure` — account-dependent (requires a compatible
+measurement device or manual entry), same gating pattern as
+`body_weight`/`hydration_ml` above. A seventh blood-pressure value,
+`worstReading` (`{systolic, diastolic, pulse, timestamp}` — the individual
+measurement that produced the day's `bp_category`), is deliberately NOT
+part of `_FIELD_MAP` — it has no single scalar value and doesn't fit
+either the daily-scalar or intraday-series shape every other registered
+field assumes. It lives as a plain nested object under the
+`blood_pressure` key in the summary JSON (`raw["get_blood_pressure"]` →
+`garmin_normalizer.summarize()`), read directly by any consumer that
+needs it, not routed through `get()`/`list_fields()` — same treatment as
+`sleep_score_feedback` (excluded from Explorer/Custom Dashboard's daily
+field iteration via `_EXCLUDE_FROM_DAILY`). See `CHANGELOG.md` v1.7.1.14
+for the Composite-field-type evaluation that led to this choice.
+
+**`health_map` → `garmin` raw-passthrough** (12 fields, v1.6.8 Session 4)
 
 Not part of `list_fields()`/`get()` — a deliberately separate access path,
 see `health_map.get_raw()` above and `REFERENCE_GARMIN.md` →
@@ -305,7 +327,6 @@ caller interprets them.
 | Field | Source endpoint |
 |---|---|
 | `daily_weigh_ins` | `get_daily_weigh_ins` |
-| `blood_pressure` | `get_blood_pressure` |
 | `menstrual_calendar_data` | `get_menstrual_calendar_data` |
 | `pregnancy_summary` | `get_pregnancy_summary` |
 | `lifestyle_logging_data` | `get_lifestyle_logging_data` |

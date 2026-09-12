@@ -32,7 +32,13 @@ log = logging.getLogger(__name__)
 
 # Version of the summary schema produced by summarize().
 # Increment when fields are added, removed, or renamed in the summary dict.
-CURRENT_SCHEMA_VERSION = 3
+# v1.7.1.14: 3 → 4 — new "blood_pressure" summary section (Issue #7).
+# Purely additive (no existing field changed/removed), but bumped anyway
+# so the self-healing / schema-migration loop picks up already-archived
+# days and regenerates their summary from raw/ automatically — raw/
+# already holds the full get_blood_pressure payload for those days
+# (that was the original Issue #7 gap: data archived, never surfaced).
+CURRENT_SCHEMA_VERSION = 4
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -238,6 +244,47 @@ def summarize(raw: dict) -> dict:
     hy = raw.get("get_hydration_data") or {}
     s["hydration"] = {
         "value_ml": safe_get(hy, "valueInML"),
+    }
+
+    # ── Blood pressure (v1.7.1.14, Issue #7) ──
+    # raw["get_blood_pressure"]["measurementSummaries"] is a list, one
+    # entry per day. The six aggregate scalars are pulled 1:1 from that
+    # day-object. worstReading has no day-level Garmin aggregate (no
+    # average/latest field, per GitHub issue #7 discussion) — derived
+    # here from measurements[]: the measurement whose own "category"
+    # matches the day's "category" (the reading that triggered it). If
+    # more than one measurement shares that category, the chronologically
+    # latest one wins (sorted by measurementTimestampLocal) — deterministic
+    # regardless of the raw list's own order, which is not guaranteed
+    # chronological. worstReading is intentionally NOT part of _FIELD_MAP
+    # (Option B) — it stays a plain nested object here, read directly from
+    # the summary by consumers that need it, not routed through the broker.
+    bp_raw  = raw.get("get_blood_pressure") or {}
+    bp_days = safe_get(bp_raw, "measurementSummaries", default=[]) or []
+    bp_day  = bp_days[0] if bp_days else {}
+    bp_worst_reading = None
+    _bp_day_category = safe_get(bp_day, "category")
+    _bp_candidates = [
+        m for m in (safe_get(bp_day, "measurements", default=[]) or [])
+        if isinstance(m, dict) and m.get("category") == _bp_day_category
+    ]
+    if _bp_candidates:
+        _bp_candidates.sort(key=lambda m: m.get("measurementTimestampLocal") or "")
+        _bp_worst = _bp_candidates[-1]
+        bp_worst_reading = {
+            "systolic":  _bp_worst.get("systolic"),
+            "diastolic": _bp_worst.get("diastolic"),
+            "pulse":     _bp_worst.get("pulse"),
+            "timestamp": _bp_worst.get("measurementTimestampLocal"),
+        }
+    s["blood_pressure"] = {
+        "high_systolic":    safe_get(bp_day, "highSystolic"),
+        "high_diastolic":   safe_get(bp_day, "highDiastolic"),
+        "low_systolic":     safe_get(bp_day, "lowSystolic"),
+        "low_diastolic":    safe_get(bp_day, "lowDiastolic"),
+        "num_measurements": safe_get(bp_day, "numOfMeasurements"),
+        "category":         _bp_day_category,
+        "worstReading":     bp_worst_reading,
     }
 
     # ── Training ──

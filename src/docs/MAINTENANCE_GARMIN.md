@@ -229,7 +229,7 @@ python tests/test_local.py
 
 1. `garmin_config` — ENV parsing, path derivation, constants
 2. `garmin_sync` — all three sync modes, `date_range()`, `get_local_dates()`
-3. `garmin_normalizer` — `normalize()`, `safe_get()`, `_parse_list_values()` (dict-key lookup for list-of-dicts, positional index for list/tuple items — the latter fixed in v1.7.1.13, Issue #6, previously always read `item[1]` regardless of the index passed), `summarize()` (HRV `lastNightAvg` primary key, no fallback — v1.7.1.13, Issue #8)
+3. `garmin_normalizer` — `normalize()`, `safe_get()`, `_parse_list_values()` (dict-key lookup for list-of-dicts, positional index for list/tuple items — the latter fixed in v1.7.1.13, Issue #6, previously always read `item[1]` regardless of the index passed), `summarize()` (HRV `lastNightAvg` primary key, no fallback — v1.7.1.13, Issue #8; `blood_pressure` section added — six scalars from `get_blood_pressure`'s daily aggregate plus a derived `worstReading` object, same-category tiebreak on chronologically latest measurement — v1.7.1.14, Issue #7). `CURRENT_SCHEMA_VERSION` 3 → 4 alongside the new section (purely additive, but bumped so the self-healing/schema-migration loop regenerates already-archived summaries from `raw/` automatically)
 4. `garmin_quality` — `high`/`standard`/`failed` labels (v1.5.7), upsert, round-trip, migrations, thread safety, device_id fields, field-level parseability guard (F8, v1.6.5.8 — malformed intraday arrays no longer labeled `high`; `field_downgrades` recorded and removed again on clean re-assessment). `body_battery`'s real `[ts,status,value]`/`[ts,status,value,extra]` triplet shape now correctly reaches `"high"` (v1.7.1.13, Issue #6 — regression-guarded against the `dict_key=1` path and short-tuple inputs). `hrv` field quality label reads `hrvSummary.lastNightAvg`, no fallback (v1.7.1.13, Issue #8)
 5. `garmin_writer` — `write_day()`, file content, `read_raw()`
 6. `garmin_collector` internals — `_fetch_and_assess()` tuple, `val_result` structure, `set_stop_event()` distribution to `garmin_api` and bilateral clearing (v1.5.6.3), `run_import()` quality-failed counting (Fix 3, v1.6.5.8 — `quality: "failed"` days counted in `failed`, not `ok`; tested via mocked `garmin_import.load_bulk()`). `main()`'s regular Steps 1–9 fetch loop — ok/failed/downgrade in one pass, mocked `api.login`/`api.get_devices`/`api.fetch_raw` against the real quality log + writer inside `_TMPDIR` (v1.6.9, Block 1a — see Invariants below)
@@ -266,12 +266,18 @@ E. `garmin_collector._run_source_backfill` (v1.6.0.3) — no-op when `SYNC_DATES
 F. `garmin_backup_source` (v1.6.0.4) — `SOURCE_BACKUP_DIR` path derivation, `backup_source` round-trip + missing source → False, monthly dir write, `_consolidate_source_months` ZIP + skip current month, `backfill_source` copy + idempotent, `check_source_backfill_needed` count, `_zip_contains`, Leaf-Node AST check.
 G. `garmin_silo_check` (v1.6.0.4.7) — result structure (all keys, totals/counts sub-keys, checked_at format), clean-silo baseline (isolated tmpdir), all four check categories (#1 raw without quality, #3 source without raw, #5 summary without raw, #7 raw without summary), counts match list lengths invariant, finding lists contain date objects, Leaf-Node AST check.
 
-H. `garmin_live_fetch` (v1.6.5) — `_ENDPOINTS` structure (8 entries incl. `get_hrv_data`),
-`fetch_live()` success path (all endpoints, `live.json` written correctly), partial-failure
+H. `garmin_live_fetch` (v1.6.5, extended v1.7.1.14) — `_ENDPOINTS` structure
+(10 entries: 8 always-on baseline incl. `get_hrv_data`, plus `get_blood_pressure`/
+`get_body_composition` gated behind `capability_gate` — the tuple shape grew a
+third element for this, `(method, key, capability_gate)`), `fetch_live()` success
+path (all baseline endpoints, `live.json` written correctly; gated endpoints
+skipped rather than attempted when not `enabled_by_user`, verified not counted
+against the success ratio via the new `attempted_count`), partial-failure
 path (one endpoint fails, rest still written, no crash), three login paths (error,
-cancelled, own-login reusing an existing client), `progress` callback (messages received
-per endpoint + completion, default no-op backward compatible), `_write_live()` directory
-creation. 29 checks total.
+cancelled, own-login reusing an existing client), `progress` callback (messages
+received per attempted endpoint + completion, scoped to baseline-only entries
+in the test scenario where the capability config is absent; default no-op
+backward compatible), `_write_live()` directory creation. 31 checks total.
 
 I. `garmin_silo_repair` (v1.6.5.7, extended v1.6.5.8) — return structure
 (`ok`/`failed`/`items`), empty-`fresh`-dict no-op, category #5 (orphan
