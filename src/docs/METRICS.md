@@ -3,13 +3,13 @@
 
 # METRICS
 
-Generated: 2026-09-11 14:19 UTC · Version: 1.7.1.12
+Generated: 2026-09-12 09:02 UTC · Version: 1.7.1.13
 
 ## Test Counts
 
 | Suite | Checks | Passed | Failed |
 |---|---|---|---|
-| test_local.py | 780 | 780 | 0 |
+| test_local.py | 786 | 786 | 0 |
 | test_local_context.py | 299 | 299 | 0 |
 | test_dashboard.py | 465 | 465 | 0 |
 | test_broker.py | 136 | 136 | 0 |
@@ -17,7 +17,7 @@ Generated: 2026-09-11 14:19 UTC · Version: 1.7.1.12
 | test_app_logic.py | 169 | 169 | 0 |
 | test_qt_app.py | 80 | 80 | 0 |
 | test_static.py | 16 | 16 | 0 |
-| **Total** | **2115** | **2115** | **0** |
+| **Total** | **2121** | **2121** | **0** |
 
 ## Modules
 

@@ -59,8 +59,17 @@ _FIELD_MAP = {
     "hrv_last_night": {
         "intraday": None,
         "daily":    ("sleep",     "hrv_last_night_ms"),
+        # v1.7.1.13, Issue #8: primary candidate corrected from the
+        # nonexistent "lastNight" key to "lastNightAvg". Unlike
+        # summarize()/assess_quality_fields(), the fallback to
+        # "lastNight5MinHigh" is DELIBERATELY KEPT here — this is the
+        # live-only path (no archive equivalent to fall back to), and
+        # Garmin may not have finished computing lastNightAvg yet at the
+        # time of day this is typically queried. A peak-value stand-in is
+        # judged acceptable for a live snapshot in a way it is not for an
+        # archived daily value.
         "live_nested": [
-            ("hrv", "hrvSummary.lastNight"),
+            ("hrv", "hrvSummary.lastNightAvg"),
             ("hrv", "hrvSummary.lastNight5MinHigh"),
         ],
     },
