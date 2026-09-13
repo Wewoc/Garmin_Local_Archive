@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.1.14
+# Garmin Local Archive — Desktop App v1.7.1.15
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -320,16 +320,17 @@ Save the connection, then enable it in a chat via the tools/connectors picker.
 
 MCP tool-calling puts different demands on a model than the built-in
 chat — the model must reliably fill required tool arguments (e.g.
-`date_from`/`date_to`) and pick the right field name. Based on an
-internal test (390 tool calls across 5 local models, v1.7.1.9):
+`date_from`/`date_to`) and pick the right field name. Based on
+internal tests across multiple sessions (v1.7.1.11–v1.7.1.15, over
+1,300 tool calls across 9 local models):
 
-| Model | Tool-calling reliability | Notes |
+| Model | Suitability | Notes |
 |---|---|---|
-| `qwen3:14b` | High | Most reliable field/argument handling, but noticeably slower per reply |
-| `qwen2.5-coder:7b` | High | Best balance of reliability and speed — good default choice |
-| `qwen2.5-coder:14b` | Good | Solid, but no clear advantage over the 7b variant for this use case |
-| `mistral-nemo` | Low | Frequently calls the wrong tool or none at all |
-| `hermes3` | Low | Often omits required arguments (e.g. `date_to`), despite fast replies |
+| `qwen3:4b` and larger (8b, 14b) | Recommended | Most reliable field resolution and tool use across all tests; larger variants noticeably slower per reply |
+| `qwen2.5-coder:7b` and larger | Usable | Works reliably, but occasionally gets stuck repeating a call on ambiguous or empty results instead of answering |
+| `qwen3:0.6b` | Limited | Noticeably weaker than the rest of its own model family — sometimes misreads server error messages |
+| `command-r7b`, `hermes3` | Not recommended | `command-r7b` consistently refused all tool use in testing; `hermes3` picked the correct field in only a fraction of cases |
+| `gemma` (any size) | Not usable | No native tool-calling template in Ollama — cannot call MCP tools at all |
 
 Rough guide, not a guarantee — results depend on the exact question
 phrasing and may shift with future Ollama/model versions. Test tool and

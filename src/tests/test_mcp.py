@@ -419,6 +419,46 @@ with patch("mcp_sql.get_context_range", return_value=_CONTEXT_UNIT_MOCK):
 check("query_context unit field: temperature_max carries its documented unit",
       _qc_unit["context"]["weather"]["temperature_max"]["unit"] == "°C")
 
+# ── 8c-sexies. has_data signal (v1.7.1.15) — _enrich_with_units() ───────────
+#
+# A field can be successfully resolved (no error, no ambiguity, no
+# domain confusion) but still carry no data for the requested range —
+# structurally identical to an in-progress/incomplete response
+# ("context": {}) unless explicitly marked. _enrich_with_units() sets
+# _meta["has_data"] = False whenever every "values" array it finds is
+# empty; it is left unset (not "True") on the ordinary success path,
+# matching the existing convention for field_resolved_from/field_used
+# (only present when something notable happened).
+_HEALTH_EMPTY_MOCK = {"health": {"garmin": {"hrv_last_night": {
+    "values": [], "fallback": False, "source_resolution": "daily",
+}}}, "_meta": {}}
+with patch("mcp_sql.get_health_range", return_value=_HEALTH_EMPTY_MOCK):
+    _qh_empty = mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health has_data: empty values array sets _meta.has_data to False",
+      _qh_empty.get("_meta", {}).get("has_data") is False)
+check("query_health has_data: valid field WITH data has no has_data key",
+      "has_data" not in _qh_unit.get("_meta", {}))
+
+_CONTEXT_EMPTY_MOCK = {"context": {"weather": {"temperature_max": {
+    "values": [], "fallback": False, "source_resolution": "daily",
+}}}, "_meta": {}}
+with patch("mcp_sql.get_context_range", return_value=_CONTEXT_EMPTY_MOCK):
+    _qc_empty = mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
+check("query_context has_data: empty values array sets _meta.has_data to False",
+      _qc_empty.get("_meta", {}).get("has_data") is False)
+check("query_context has_data: valid field WITH data has no has_data key",
+      "has_data" not in _qc_unit.get("_meta", {}))
+
+# Fall A — field resolved but no cache rows at all for the range
+# (mcp_sql.get_*_range's own "no cache row" case: "context"/"health" stays
+# a completely empty dict, not a field entry with an empty values list).
+# Same has_data signal must fire here too — the two shapes are handled by
+# the same domain_dict.items() loop in _enrich_with_units().
+with patch("mcp_sql.get_context_range", return_value={"context": {}, "_meta": {}}):
+    _qc_empty_a = mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
+check("query_context has_data: empty context dict (Fall A) also sets has_data to False",
+      _qc_empty_a.get("_meta", {}).get("has_data") is False)
+
 # ── 8c-bis-health. query_health() unknown-field detection (v1.7.1.9) ────────
 #
 # Mirrors Section 8c-bis below for query_context() (v1.7.1.4): an
@@ -597,6 +637,25 @@ check("query_health unknown-field: 'stress' did_you_mean lists both real candida
       _qh_stress.get("did_you_mean") == ["stress_avg", "stress_series"])
 check("query_health unknown-field: 'stress' never reaches mcp_sql/mcp_map",
       not _m_sql_stress.called and not _m_live_stress.called)
+
+# 3d-bis. "ozone" ambiguous on the query_context side (v1.7.1.15) — same
+#     mechanism as spo2/stress above, but CONTEXT_FIELD_AMBIGUOUS rather
+#     than HEALTH_FIELD_AMBIGUOUS. Previously "ozone" itself was in
+#     neither the alias nor the ambiguous table (only decorated variants
+#     like "ozone_max"/"ozon" were registered aliases), so the bare word
+#     fell through to the generic difflib unknown-field path — the
+#     inconsistent behaviour this fix resolves.
+with patch("mcp_sql.get_context_range") as _m_sql_ozone, \
+     patch("maps.mcp_map.query_context") as _m_live_ozone:
+    _qc_ozone = mcp_server.query_context("ozone", _TEST_DATE, _TEST_DATE, "daily")
+check("query_context unknown-field: 'ozone' is ambiguous (v1.7.1.15 new case)",
+      "ambiguous" in _qc_ozone.get("error", ""))
+check("query_context unknown-field: 'ozone' did_you_mean lists both real candidates",
+      _qc_ozone.get("did_you_mean") == ["airquality_ozone", "airquality_ozone_series"])
+check("query_context unknown-field: 'ozone' never reaches mcp_sql/mcp_map",
+      not _m_sql_ozone.called and not _m_live_ozone.called)
+check("query_context unknown-field: 'ozone' has no field_used (nothing resolved)",
+      "field_used" not in _qc_ozone.get("_meta", {}))
 
 # 3e. sleep_score fan-out (v1.7.1.9 Session 2) — bare "sleep_score" is
 #     itself already a valid, registered field (unlike the alias

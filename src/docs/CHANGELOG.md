@@ -1,5 +1,67 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.15 — Ozone Field Ambiguity + Explicit Empty-Result Signal (query_context/query_health)
+
+Two small, independent fixes to field-name resolution, derived from the
+2026-09-10/2026-09-12 MCP test runs (MCP_TESTLAUF_BERICHT_2026-09.md).
+
+**Fix 1 — "ozone" now a registered ambiguity case.** The bare word
+"ozone" was previously in neither `CONTEXT_FIELD_ALIASES` nor
+`CONTEXT_FIELD_AMBIGUOUS` — a deliberately deferred open item since
+v1.7.1.12 (several decorated variants like "ozone_max"/"ozon" were
+already registered aliases, but the bare word itself was left
+unresolved, causing inconsistent model behaviour: refusal, silent
+auto-resolve, or self-contradiction across phrasing variants in the
+test runs). Added to `CONTEXT_FIELD_AMBIGUOUS` alongside the five
+existing air-quality entries (pm25/pm2_5/pm10/no2/air_quality_index),
+resolving to the existing error/did_you_mean response shape — no new
+response concept. Target field pair (`airquality_ozone`/
+`airquality_ozone_series`) was already fully registered in
+`airquality_map.py`, no change needed there.
+
+**Fix 2 — `_meta["has_data"]` signal on resolved-but-empty results.**
+A field correctly resolved but with no values for the requested date
+range previously returned a result structurally identical to an
+in-progress/incomplete response (`"context"/"health": {}`) — at least
+one model (qwen2.5-coder:7b) repeatedly misread this as a signal to
+retry (hitting MAX_TOOL_TURNS) or fabricated a value instead of
+reporting "no data" (see test run details). `_enrich_with_units()`
+now sets `_meta["has_data"] = False` whenever every "values" array it
+finds during its existing unit-enrichment pass is empty — covers both
+observed empty shapes (a fully empty domain dict, and a registered
+field with an empty "values" list). Deliberately centralized in
+`_enrich_with_units()` rather than duplicated across the 8 individual
+return sites in `query_context()`/`query_health()` — one place, no
+import overhead, automatically covers both domains. `has_data` is only
+set on the negative case (never `true` on success), matching the
+existing convention for `field_resolved_from`/`field_used`.
+
+**Validation — Lauf 16 (5 models × 9 questions,
+question_catalog_patch-v17115.py).** Fix 1: 100% correct
+ambiguous-field responses across all 5 models, no regression on
+control questions (full field name, existing alias). Fix 2: zero
+fabricated values across all models (the original core risk) — one
+remaining MAX_TOOL_TURNS case (qwen2.5-coder:7b, query_health) where
+the server signal is set correctly but the model still doesn't act on
+it; confirmed as a model-behaviour limit, not a server defect (the
+same model/field pair succeeds cleanly on the query_context side).
+Full analysis in NOTES_v1.7.1.15.md.
+
+**New modules:** none.
+
+**Changed modules:**
+- `clients/mcp_server.py` — `"ozone": ["airquality_ozone",
+  "airquality_ozone_series"]` added to `CONTEXT_FIELD_AMBIGUOUS`;
+  `_enrich_with_units()` extended to set `_meta["has_data"] = False`
+  on resolved-but-empty results.
+- `tests/test_mcp.py` — 9 new checks: ozone-ambiguity regression test
+  (query_context side, mirrors the existing spo2/stress pattern) plus
+  a has_data block covering both empty-shape cases on both domains,
+  with a success-path guard confirming no `has_data` key on results
+  that do carry data.
+
+**Test result:** 179 / 179 — all green.
+
 ## v1.7.1.14 — Blood Pressure Integration: Summary Rollup (#7) + Live-Fetch (#9)
 
 Closes the two-part gap Gene-Howard reported: `get_blood_pressure` was
