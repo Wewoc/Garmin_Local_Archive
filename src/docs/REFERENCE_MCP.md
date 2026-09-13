@@ -561,18 +561,23 @@ the settled contract, not the working notes.
 (`humidity`→`humidity_avg`, `pressure`→`pressure_avg`,
 `air_pressure`→`pressure_avg`, `wind_speed`→`wind_speed_max`); the
 remaining 32 are individually re-verified requested→expected
-discrepancies from the Lauf 11 Appendix A candidate list. Four
+discrepancies from the Lauf 11 Appendix A candidate list. Three
 candidates from that same list were deliberately NOT added —
-`"ozone"` (shares the same daily/series ambiguity as item 2 below,
-inconsistent to resolve unilaterally), `"pollen_pollen_airborne"`,
-`"air_quality_pm2_5"`, and `"weather_summary"` (each judged
-unrecoverable from the requested name itself, same failure mode as
-candidates already rejected in the original Lauf 11 analysis).
+`"pollen_pollen_airborne"`, `"air_quality_pm2_5"`, and
+`"weather_summary"` (each judged unrecoverable from the requested name
+itself, same failure mode as candidates already rejected in the
+original Lauf 11 analysis). A fourth candidate, `"ozone"`, was
+originally left as an open item for the same reason (shares the same
+daily/series ambiguity as item 2 below, inconsistent to resolve
+unilaterally as an alias) — resolved in `v1.7.1.15` by adding it to
+`CONTEXT_FIELD_AMBIGUOUS` instead, see that entry below.
 `"temperature"`/`"sun"` remain excluded, as originally decided (three
 co-equal daily targets / too short and generic, collision risk).
 
-**2. `CONTEXT_FIELD_AMBIGUOUS`** (5 entries: `pm25`, `pm2_5`, `pm10`,
-`no2`, `air_quality_index`) and **`HEALTH_FIELD_AMBIGUOUS`** (2
+**2. `CONTEXT_FIELD_AMBIGUOUS`** (5 entries at the time of this fix:
+`pm25`, `pm2_5`, `pm10`, `no2`, `air_quality_index`; a sixth, `ozone`,
+was added in `v1.7.1.15`, see below) and **`HEALTH_FIELD_AMBIGUOUS`**
+(2
 entries: `spo2`, `stress`) — a new third outcome for fields where the
 requested name itself does not reveal whether a daily value or a
 `_series` was meant, checked before the generic unknown-field
@@ -702,3 +707,70 @@ ambiguity rückfrage (asked the user rather than guessing) in 1/7
 cases, `qwen3:8b` in 5/7 — expected LLM behaviour variance per Lauf
 11's own precedent for differing model tool-call discipline, not
 something this mechanism controls or claims to.
+
+---
+
+## (v1.7.1.15) Ozone ambiguity + explicit empty-result signal
+
+Two small, independent fixes, derived from the 2026-09-10/2026-09-12
+MCP test runs. Full session documentation in `NOTES_v1.7.1.15.md` —
+this entry is the settled contract.
+
+**1. `"ozone"` added to `CONTEXT_FIELD_AMBIGUOUS`** — closes the open
+item left by `v1.7.1.12` above (the bare word was in neither
+`CONTEXT_FIELD_ALIASES` nor `CONTEXT_FIELD_AMBIGUOUS`, while several
+decorated variants — `"ozone_max"`, `"ozon"`, `"air_quality_o3_max"`,
+`"ozone_avg"`, `"ozone_index"`, `"airquality_o3_series"` — were
+already registered aliases). The inconsistency between a resolvable
+decorated form and an unresolvable bare form produced the same
+inconsistent model behaviour (refusal, silent auto-resolve,
+self-contradiction across phrasing variants) the `v1.7.1.12` ambiguity
+mechanism already exists to prevent for the other five air-quality
+fields. `CONTEXT_FIELD_AMBIGUOUS` now has 6 entries: `pm25`, `pm2_5`,
+`pm10`, `no2`, `air_quality_index`, `ozone` — same response shape
+(existing `error`/`did_you_mean`, no new response concept). Target
+field pair (`airquality_ozone`/`airquality_ozone_series`) was already
+fully registered in `airquality_map.py`'s `_FIELD_MAP`, no change
+needed there.
+
+**2. `_meta["has_data"]` signal on resolved-but-empty results** — a
+field correctly resolved (via any of the paths above, or the plain
+success path) but with no values for the requested date range
+previously returned a result structurally identical to an
+in-progress/incomplete response (`"context"`/`"health"`: `{}`, or a
+registered field with an empty `"values"` list) — at least one model
+(`qwen2.5-coder:7b`) repeatedly misread this as a signal to retry
+(`MAX_TOOL_TURNS`) or fabricated a value instead of reporting "no
+data". `_enrich_with_units()` now sets `_meta["has_data"] = False`
+whenever every `"values"` array it finds during its existing
+unit-enrichment pass is empty — reuses the same per-field iteration
+already needed for the unit lookup, no second pass, no new response
+shape. Covers both observed empty shapes (a fully empty domain dict,
+and a registered field with an empty `"values"` list) identically,
+since both simply produce zero iterations of the "has data" check.
+Deliberately centralized in `_enrich_with_units()` rather than
+duplicated across the 8 individual return sites across
+`query_context()`/`query_health()` — one place, no import overhead,
+automatically covers both domains (the `query_health` side had
+weaker supporting evidence in the original test runs than
+`query_context`, but needed no separate justification once the fix
+was centralized — both domains share the same underlying mechanism).
+`has_data` is only set on the negative case, never `true` on success —
+matching the existing convention for `field_resolved_from`/
+`field_used` (present only when something notable happened).
+
+**Validation — Lauf 16** (5 models × 9 questions,
+`question_catalog_patch-v17115.py`, `2015-01-01` as a date range
+guaranteed to precede archive coverage). Fix 1: 100% correct
+ambiguous-field responses across all 5 models, no regression on
+control questions (full field name, existing alias). Fix 2: zero
+fabricated values across all models — the original core risk is
+eliminated. One remaining `MAX_TOOL_TURNS` case (`qwen2.5-coder:7b`,
+`query_health` side only, not `query_context` with the same
+model/field pair) where the server signal is set correctly but the
+model does not act on it — confirmed as a model-behaviour limit, not
+a server defect: the server's obligation (an unambiguous, correctly-
+set signal) is met; whether a given model chooses to read `_meta` and
+stop retrying is outside what this mechanism can control, same
+category of model-dependent variance already documented for the
+ambiguity rückfrage above.

@@ -620,6 +620,27 @@ the underlying `garmin_config.MCP_ENABLED` constant itself was removed
 in Teil (g) — the "Enable MCP server" checkbox it backed had no
 functional effect once the flag was ignored, and the new "Start MCP
 Server" button replaced the manual-start workflow it used to describe.
+
+**New checks added (v1.7.1.15)** — two small additions to Section 8,
+covering `clients/mcp_server.py`'s two independent fixes. An
+`"ozone"`-ambiguity check added directly after the existing
+`"stress"` block (Section 3, `query_context` side rather than
+`query_health` — same mechanism as `spo2`/`stress` but exercising
+`CONTEXT_FIELD_AMBIGUOUS` instead of `HEALTH_FIELD_AMBIGUOUS`):
+confirms `error`/`did_you_mean` with both real candidates
+(`airquality_ozone`/`airquality_ozone_series`), no `mcp_sql`/`mcp_map`
+call, no `field_used`. A `has_data` block added after Section
+8c-quinquies, covering both domains and both observed empty shapes
+(a registered field with an empty `"values"` list, and a fully empty
+domain dict — `query_context` only, since `mcp_sql.get_context_range()`
+is the only one of the two range functions where this shape was
+directly evidenced in this session) — plus a success-path guard
+confirming no `has_data` key appears when a result does carry data,
+reusing the `_qh_unit`/`_qc_unit` mocks from 8c-quater/8c-quinquies
+rather than building new fixtures for that check. Check-count delta
+tracked in `docs/METRICS.md` (`test_mcp.py`), not restated here — see
+this section's own opening note above on why totals live there
+instead.
 `test_mcp.py` Section 8's `MCP_ENABLED` mocking, if any remained, should
 be checked against current behaviour in the next session touching that
 file — not re-verified as part of this doc pass.
