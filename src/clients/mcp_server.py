@@ -569,23 +569,39 @@ def _enrich_with_units(result: dict, domain: str) -> dict:
     regardless of domain or source, daily or intraday/live. Not
     recursive beyond one extra level, since no third shape currently
     exists in this codebase; see FIELD_UNITS' module comment for the
-    planned replacement path if that ever changes."""
+    planned replacement path if that ever changes.
+
+    v1.7.1.15 -- also sets _meta["has_data"] = False when the field was
+    successfully resolved but every "values" array found is empty (or
+    result[domain] itself is empty), so a resolved-but-no-data response
+    is distinguishable from an in-progress/incomplete one. Reuses the
+    same "values" presence check already needed for the unit lookup --
+    no second pass, no new response shape."""
     domain_dict = result.get(domain)
     if not isinstance(domain_dict, dict):
         return result
 
+    has_data = False
     for key, value in domain_dict.items():
         if not isinstance(value, dict):
             continue
         if "values" in value:
             # Already-flattened shape: key IS the field name.
             value["unit"] = _get_field_unit(key)
+            if value["values"]:
+                has_data = True
         else:
             # Normal per-source shape: key is a source name, value's
             # own keys are field names.
             for field_name, field_dict in value.items():
                 if isinstance(field_dict, dict) and "values" in field_dict:
                     field_dict["unit"] = _get_field_unit(field_name)
+                    if field_dict["values"]:
+                        has_data = True
+
+    if not has_data:
+        result.setdefault("_meta", {})
+        result["_meta"]["has_data"] = False
 
     return result
 
@@ -816,16 +832,18 @@ CONTEXT_FIELD_ALIASES: dict[str, str] = {
 # nothing was resolved, the caller must re-ask with the exact name.
 #
 # Grouped by subject matter (all air quality: particulates + gases),
-# not by candidate quality -- pm25/pm2_5/pm10/no2/air_quality_index all
-# showed the identical daily/series split pattern in Lauf 11 Appendix A.
-# "ozone" deliberately NOT included here (see CONTEXT_FIELD_ALIASES
-# comment above) -- distinct decision, not yet resolved either way.
+# not by candidate quality -- pm25/pm2_5/pm10/no2/air_quality_index/
+# ozone all showed the identical daily/series split pattern in Lauf 11
+# Appendix A. "ozone" was originally left out here as an open item
+# (see CONTEXT_FIELD_ALIASES comment above) -- v1.7.1.15 resolves that
+# open item by including it, consistent with the other five entries.
 CONTEXT_FIELD_AMBIGUOUS: dict[str, list[str]] = {
     "pm25": ["airquality_pm2_5", "airquality_pm2_5_series"],
     "pm2_5": ["airquality_pm2_5", "airquality_pm2_5_series"],
     "pm10": ["airquality_pm10", "airquality_pm10_series"],
     "no2": ["airquality_nitrogen_dioxide", "airquality_nitrogen_dioxide_series"],
     "air_quality_index": ["airquality_european_aqi", "airquality_european_aqi_series"],
+    "ozone": ["airquality_ozone", "airquality_ozone_series"],
 }
 
 
