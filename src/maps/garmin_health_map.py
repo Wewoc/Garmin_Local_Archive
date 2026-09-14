@@ -333,6 +333,138 @@ _FIELD_MAP = {
         "intraday": None,
         "daily":    ("blood_pressure", "category"),
     },
+
+    # ── v1.7.1.16 — Broker-Registrierungslücken geschlossen: alle 23
+    #    Felder unten werden bereits von summarize() berechnet und liegen
+    #    fertig in summary/*.json, waren aber nie in _FIELD_MAP
+    #    registriert (unsichtbar für query_health()/list_available_
+    #    fields()/den SQLite-Sync). Kein Normalizer-/Collector-Eingriff
+    #    nötig — reine Registrierung. Siehe NOTES_v1.7.1.16.md für die
+    #    volle Herleitung (Live-MCP-Test + Abgleich summarize() vs.
+    #    _FIELD_MAP) und die Baseline-/Capability-Einordnung je Feld.
+    #    Alle 23 Werte sind einfache Skalare (Zahl/Text) mit bereits
+    #    laufender, verifizierter Extraktion — keiner hat ein unklares
+    #    Datenformat wie worstReading (siehe dessen Option-B-Kommentar
+    #    oben), daher keine Ausschlüsse in dieser Gruppe.
+
+    # -- Geschwister von hrv_last_night (alle Baseline, "hrv"-Endpoint) --
+    "hrv_weekly_avg": {
+        "intraday": None,
+        "daily":    ("sleep", "hrv_weekly_avg_ms"),
+    },
+    "hrv_status": {
+        "intraday": None,
+        "daily":    ("sleep", "hrv_status"),
+    },
+    "hrv_feedback": {
+        "intraday": None,
+        "daily":    ("sleep", "hrv_feedback"),
+    },
+
+    # -- Geschwister von stress_avg/body_battery_max (Baseline, "stress"-Endpoint) --
+    "stress_max": {
+        "intraday": None,
+        "daily":    ("stress", "stress_max"),
+    },
+    "body_battery_min": {
+        "intraday": None,
+        "daily":    ("stress", "body_battery_min"),
+    },
+    "body_battery_end": {
+        "intraday": None,
+        "daily":    ("stress", "body_battery_end"),
+    },
+
+    # -- Geschwister von resting_heart_rate (Baseline, "heart_rates"-Endpoint) --
+    "heart_rate_max": {
+        "intraday": None,
+        "daily":    ("heartrate", "max_bpm"),
+    },
+    "heart_rate_min": {
+        "intraday": None,
+        "daily":    ("heartrate", "min_bpm"),
+    },
+    "heart_rate_avg": {
+        "intraday": None,
+        "daily":    ("heartrate", "avg_bpm"),
+    },
+
+    # -- "day"-Sektion (Baseline, "user_summary"/"stats"-Endpoints) --
+    # v1.7.1.16 correction: originally registered as "steps" — dead on
+    # arrival, HEALTH_FIELD_ALIASES already maps that exact name to
+    # "steps_series" (clients/mcp_server.py) and alias resolution runs
+    # before a direct _FIELD_MAP lookup, so query_health("steps", ...)
+    # never reached this entry. Caught live post-deploy, see
+    # NOTES_v1_7_1_16.md. Renamed to "steps_total" — no collision,
+    # matches the "calories_total" naming already used in this same
+    # batch.
+    "steps_total": {
+        "intraday": None,
+        "daily":    ("day", "steps"),
+    },
+    "steps_goal": {
+        "intraday": None,
+        "daily":    ("day", "steps_goal"),
+    },
+    "floors_climbed": {
+        "intraday": None,
+        "daily":    ("day", "floors_climbed"),
+    },
+    "intensity_min_moderate": {
+        "intraday": None,
+        "daily":    ("day", "intensity_min_moderate"),
+    },
+    "intensity_min_vigorous": {
+        "intraday": None,
+        "daily":    ("day", "intensity_min_vigorous"),
+    },
+    "distance": {
+        "intraday": None,
+        "daily":    ("day", "distance_km"),
+    },
+
+    # -- "day"-Sektion, Capability-gated (get_calories_daily, gleicher
+    #    Endpoint wie das bereits registrierte calories_resting) --
+    "calories_active": {
+        "intraday": None,
+        "daily":    ("day", "calories_active"),
+    },
+    "calories_total": {
+        "intraday": None,
+        "daily":    ("day", "calories_total"),
+    },
+
+    # -- "training"-Sektion (Baseline, "training_readiness"/
+    #    "training_status"-Endpoints) --
+    "readiness_score": {
+        "intraday": None,
+        "daily":    ("training", "readiness_score"),
+    },
+    "readiness_level": {
+        "intraday": None,
+        "daily":    ("training", "readiness_level"),
+    },
+    "readiness_feedback": {
+        "intraday": None,
+        "daily":    ("training", "readiness_feedback"),
+    },
+    "training_status": {
+        "intraday": None,
+        "daily":    ("training", "training_status"),
+    },
+    "training_load_7d": {
+        "intraday": None,
+        "daily":    ("training", "training_load_7d"),
+    },
+
+    # -- Ursprünglicher Auslöser dieser Session (Live-MCP-Test): kein
+    #    Tageswert für Atemfrequenz abfragbar, nur respiration_series
+    #    (Intraday, ~70 KB/Tag) -- Wert liegt analog zu spo2_avg bereits
+    #    unter "sleep" in summary/*.json. --
+    "respiration_avg": {
+        "intraday": None,
+        "daily":    ("sleep", "respiration_avg"),
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -834,6 +966,11 @@ _CAPABILITY_FIELDS = {
     "bp_low_diastolic":    "get_blood_pressure",
     "bp_num_measurements": "get_blood_pressure",
     "bp_category":         "get_blood_pressure",
+    # v1.7.1.16 -- same get_calories_daily endpoint calories_resting
+    # already gates on; active/total live in the same one-element list
+    # response, just previously unregistered (see NOTES_v1.7.1.16.md).
+    "calories_active":     "get_calories_daily",
+    "calories_total":      "get_calories_daily",
 }
 
 

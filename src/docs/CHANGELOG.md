@@ -1,5 +1,104 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.16 — wind_speed_max Priority Fix + 23 Health Field Registrations
+
+Derived from a live MCP test session with a frontier model (Claude Sonnet
+5, direct MCP connection) run as a comparison against the existing
+Ollama/small-model test catalogs. Full session documentation in
+`NOTES_v1_7_1_16.md`.
+
+**Fix 1 — wind_speed_max source-priority merge now applies through every
+resolution path.** The brightsky/DWD-vs-weather/Open-Meteo per-day
+priority merge (introduced `v1.7.1.12` for the direct-field-name path)
+was still bypassed by two other paths that can also land on
+`wind_speed_max`: a `CONTEXT_FIELD_ALIASES` hit (`"wind_speed"`,
+`"max_wind_speed_dwd"`, `"max_wind_speed"`, `"wind_max"` all alias to it)
+and a difflib near-match auto-resolve — both returned right after
+fetching, before the merge could run, so a request like `query_context
+max_wind_speed ...` returned both sources' conflicting raw values instead
+of one prioritized value. Fixed by extracting the merge into a shared
+`_fetch_context_field()` helper used by all three resolution paths. No
+behavior change for the already-correct direct-field-name path.
+
+**Fix 2 — 23 previously unregistered health fields.** Triggered by
+`respiration_avg`: the daily respiration average was already computed by
+`garmin_normalizer.summarize()` and sitting in `summary/*.json`, but
+`query_health()` had no way to reach it — only the ~70 KB/day
+`respiration_series` (intraday) was registered, so any natural-language
+question about breathing rate returned a response large enough to
+overflow smaller models' context windows. A full audit of `summarize()`
+against `garmin_health_map.py`'s `_FIELD_MAP` found 22 more fields in the
+same situation (value already computed and archived, never registered) —
+`hrv_weekly_avg`, `hrv_status`, `hrv_feedback`, `stress_max`,
+`body_battery_min`, `body_battery_end`, `heart_rate_max`,
+`heart_rate_min`, `heart_rate_avg`, `steps_total`, `steps_goal`,
+`floors_climbed`, `intensity_min_moderate`, `intensity_min_vigorous`,
+`distance`, `calories_active`, `calories_total`, `readiness_score`,
+`readiness_level`, `readiness_feedback`, `training_status`,
+`training_load_7d`. All 23 registered — every one already had a working,
+verified `summarize()` extraction (none had the unverified-shape
+"raw-passthrough" situation blood pressure was in before `v1.7.1.14`).
+`calories_active`/`calories_total` are gated in `_CAPABILITY_FIELDS`
+against the same `get_calories_daily` endpoint `calories_resting` already
+uses — no new capability gate. All others are Baseline (always-fetched
+endpoints, no Capability-Scan opt-in needed). See `REFERENCE_GARMIN.md`
+and `REFERENCE_BROKER.md` for the full field table.
+
+**Fix 3 — `get_archive_metadata()` docstring clarified (no behavior
+change).** The documented "last 30 days + `note` field" convenience for
+the five date-filterable metadata kinds only exists on the live path
+(`mcp_map.py`); the SQLite-cached path actually taken today
+(`mcp_sql.get_metadata_range()`) returns an empty result with no `note`
+when both dates are omitted — deliberate on that path, but previously
+undocumented at the public tool's own docstring.
+
+**Migration note — the 23 new fields need a one-time cache rebuild to
+appear on already-archived days.** `mcp_health_days` (SQLite) only
+rebuilds a day's cached payload when that day's quality-log
+`compare_value` changes — adding a field to `_FIELD_MAP` does not itself
+trigger that, so `refresh_cache()` alone leaves already-synced days with
+their old, field-incomplete payload. The underlying `summary/*.json`
+files already have the data (verified live against archive days back to
+2019-10-13 and confirmed no re-normalization is needed), so no re-fetch
+from the Garmin API is required — deleting `garmin_data/sqlite/
+mcp_cache.db` and restarting the server (or, before that, checking that
+none of your `summary/*.json` files predate the relevant `summarize()`
+fields) rebuilds the cache from the existing archive and makes all 23
+fields available for every already-archived day. See
+`NOTES_v1_7_1_16.md` for the full verification trail. This is a general
+limitation of the sync design, not specific to this release — any future
+`_FIELD_MAP` addition will need the same rebuild to reach historical
+days.
+
+**Correction (caught live, post-deploy) — `steps` renamed to
+`steps_total`.** Originally registered as `steps`, which collided with
+the pre-existing `HEALTH_FIELD_ALIASES["steps"] = "steps_series"` —
+alias resolution runs before any `_FIELD_MAP` lookup in `query_health()`,
+so the new field was unreachable dead code. Renamed to `steps_total`
+(no collision; matches the `calories_total` naming already used in this
+same release). `steps` itself is unaffected and continues to resolve to
+`steps_series` as before.
+
+**New modules:** none.
+
+**Changed modules:**
+- `clients/mcp_server.py` — `_fetch_context_field()` helper extracted;
+  `CONTEXT_FIELD_ALIASES` and difflib near-match branches in
+  `query_context()` now route through it; `FIELD_UNITS` gains 23 entries;
+  `get_archive_metadata()` docstring clarified.
+- `maps/garmin_health_map.py` — 23 new `_FIELD_MAP` entries
+  (`steps_total`, not `steps` — see correction above);
+  `_CAPABILITY_FIELDS` gains `calories_active`/`calories_total`.
+- `tests/test_mcp.py` — two new checks for the `wind_speed_max` direct
+  path (regression) and the alias path (the actual fix); a third new
+  check confirming `steps_total` resolves directly without hitting the
+  `steps` alias.
+- `tests/test_dashboard.py` — capability-field-count delta assertion
+  corrected (`-12` → `-14`) for the two new gated fields.
+
+**Test result:** 788 / 299 / 469 / 136 / 186 / 169 / 80 / 16 — all green
+(2143 checks total).
+
 ## v1.7.1.15 — Ozone Field Ambiguity + Explicit Empty-Result Signal (query_context/query_health)
 
 Two small, independent fixes to field-name resolution, derived from the

@@ -62,7 +62,9 @@ def _compute_checksum(data: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-# TODO: remove after v1.6 — migration bridge for pre-v1.5.5 checksums (date + write only)
+# Migration bridge for pre-v1.5.5 checksums (date + write only) — still
+# called from _load_quality_log() below as of v1.7.1.15. Safe to remove
+# once no archive can still hold a pre-v1.5.5 checksum.
 def _compute_checksum_legacy(data: dict) -> str:
     """
     Replicates the pre-v1.5.5 checksum algorithm (date + write only).

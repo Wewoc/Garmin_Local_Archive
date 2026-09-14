@@ -592,6 +592,23 @@ check("query_health unknown-field: 'steps' alias — _meta.field_used set to ste
 check("query_health unknown-field: 'steps' alias — mcp_sql.get_health_range called with resolved field",
       _m_sql_steps.call_args.kwargs.get("field") == "steps_series")
 
+# 3b-bis. v1.7.1.16 correction — "steps_total" (the actual registered
+#         daily-total field) must NOT be caught by the "steps" alias
+#         above (different string, HEALTH_FIELD_ALIASES has no entry
+#         for "steps_total") and must resolve directly via _FIELD_MAP,
+#         no field_resolved_from/field_used. Regression guard for the
+#         live-discovered "steps" naming collision (NOTES_v1_7_1_16.md).
+_HEALTH_STEPS_TOTAL_MOCK = {"health": {"garmin": {"steps_total": {
+    "values": [{"date": _TEST_DATE, "value": 8500}],
+    "fallback": False, "source_resolution": "daily",
+}}}, "_meta": {}}
+with patch("mcp_sql.get_health_range", return_value=_HEALTH_STEPS_TOTAL_MOCK):
+    _qh_steps_total = mcp_server.query_health("steps_total", _TEST_DATE, _TEST_DATE, "daily")
+check("query_health 'steps_total': resolves directly, not via the 'steps' alias",
+      "field_resolved_from" not in _qh_steps_total.get("_meta", {}))
+check("query_health 'steps_total': value present",
+      _qh_steps_total["health"]["garmin"]["steps_total"]["values"][0]["value"] == 8500)
+
 # 3c. Remaining alias candidates (hrv, hill) — same mechanism, lighter
 #     check (mock target only, not full result shape, since 3b already
 #     covers the shared code path in detail).
@@ -1217,6 +1234,71 @@ check("query_context bundle 'weather': unit field (v1.7.1.6) — non-colliding "
       "fields from each source also carry their unit",
       _qc_weather["context"]["temperature_avg"]["unit"] == "°C" and
       _qc_weather["context"]["temperature_max"]["unit"] == "°C")
+
+# 3. v1.7.1.16 -- direct field request (not via a bundle name) for the
+#    same colliding field. Regression test: this path (mcp_server's
+#    "field == 'wind_speed_max'" special case, now inside the shared
+#    _fetch_context_field() helper) already existed and worked before
+#    the fix -- must keep producing the identical merged result.
+
+def _fake_direct_collision_range(date_from, date_to, field=None):
+    assert field == "wind_speed_max"
+    return {
+        "context": {
+            "brightsky": {"wind_speed_max": {
+                "values": [{"date": _DAY_1, "value": 22.0},
+                           {"date": _DAY_2, "value": None}],
+                "fallback": False, "source_resolution": "daily",
+            }},
+            "weather": {"wind_speed_max": {
+                "values": [{"date": _DAY_1, "value": 18.5},
+                           {"date": _DAY_2, "value": 21.0}],
+                "fallback": False, "source_resolution": "daily",
+            }},
+        },
+        "_meta": {},
+    }
+
+with patch("mcp_sql.get_context_range", side_effect=_fake_direct_collision_range):
+    _qc_direct = mcp_server.query_context("wind_speed_max", _DAY_1, _DAY_2, "daily")
+
+check("query_context direct 'wind_speed_max': day 1 = brightsky's value",
+      _qc_direct["context"]["wind_speed_max"]["values"][0] ==
+      {"date": _DAY_1, "value": 22.0})
+check("query_context direct 'wind_speed_max': day 2 falls back to weather's value",
+      _qc_direct["context"]["wind_speed_max"]["values"][1] ==
+      {"date": _DAY_2, "value": 21.0})
+check("query_context direct 'wind_speed_max': field_sources records the per-day winner",
+      _qc_direct["_meta"]["field_sources"]["wind_speed_max"] ==
+      {_DAY_1: "brightsky", _DAY_2: "weather"})
+check("query_context direct 'wind_speed_max': no field_resolved_from (exact field name, no alias)",
+      "field_resolved_from" not in _qc_direct["_meta"])
+
+# 4. v1.7.1.16 fix -- an ALIAS resolving to "wind_speed_max" (e.g.
+#    "max_wind_speed", CONTEXT_FIELD_ALIASES) must ALSO get the
+#    brightsky/weather priority merge, not the raw, unmerged two-source
+#    fan-out. Before this fix the alias branch returned right after
+#    fetching -- above/before ever reaching the "field == 'wind_speed_max'"
+#    block -- with both sources' conflicting values still separated by
+#    source key. Live-server repro: "query_context max_wind_speed ..."
+#    returned brightsky's and weather's values side by side instead of
+#    one prioritized value (see NOTES_v1.7.1.16.md).
+
+with patch("mcp_sql.get_context_range", side_effect=_fake_direct_collision_range):
+    _qc_alias = mcp_server.query_context("max_wind_speed", _DAY_1, _DAY_2, "daily")
+
+check("query_context alias 'max_wind_speed': resolves to wind_speed_max with the "
+      "merge applied, not raw per-source values",
+      _qc_alias["context"]["wind_speed_max"]["values"][0] ==
+      {"date": _DAY_1, "value": 22.0} and
+      _qc_alias["context"]["wind_speed_max"]["values"][1] ==
+      {"date": _DAY_2, "value": 21.0})
+check("query_context alias 'max_wind_speed': field_sources still populated after merge",
+      _qc_alias["_meta"]["field_sources"]["wind_speed_max"] ==
+      {_DAY_1: "brightsky", _DAY_2: "weather"})
+check("query_context alias 'max_wind_speed': field_resolved_from/field_used set on top of the merge",
+      _qc_alias["_meta"]["field_resolved_from"] == "max_wind_speed" and
+      _qc_alias["_meta"]["field_used"] == "wind_speed_max")
 
 with patch("mcp_server._route_query", return_value="live"), \
      patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}) as _m_live, \

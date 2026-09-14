@@ -263,7 +263,10 @@ rule, kept for quick readability. When a field's unit changes or a field is
 added/removed, update both places. `list_fields()` in the corresponding
 `*_map.py` module remains the actual source of truth for which fields exist.
 
-**`health_map` → `garmin`** (31 fields)
+**`health_map` → `garmin`** (54 fields — 31 pre-`v1.7.1.16` + 23 new;
+note the pre-existing count here was already one short of the actual
+`_FIELD_MAP` length at the time, 32 — not reconciled retroactively, see
+`NOTES_v1_7_1_16.md`)
 
 | Field | Value | Description |
 |---|---|---|
@@ -299,6 +302,29 @@ added/removed, update both places. `list_fields()` in the corresponding
 | `bp_low_diastolic` | mmHg | Lowest diastolic reading of the day, same source and rollup as above (v1.7.1.14, Issue #7) |
 | `bp_num_measurements` | count | Number of blood pressure measurements logged that day (v1.7.1.14, Issue #7) |
 | `bp_category` | text | Garmin's day-level category (e.g. `STAGE_2_HIGH`, `NORMAL`) — reflects the worst individual reading of the day, not an average (v1.7.1.14, Issue #7) |
+| `hrv_weekly_avg` | ms | 7-day rolling HRV average — sibling of `hrv_last_night`, previously computed but unregistered (v1.7.1.16) |
+| `hrv_status` | text | Categorical HRV status, e.g. `BALANCED` (v1.7.1.16) |
+| `hrv_feedback` | text | HRV status feedback phrase (v1.7.1.16) |
+| `stress_max` | 0–100 | Peak stress level for the day — sibling of `stress_avg` (v1.7.1.16) |
+| `body_battery_min` | 0–100 | Lowest Body Battery level for the day — sibling of `body_battery_max` (v1.7.1.16) |
+| `body_battery_end` | 0–100 | Body Battery level at the last reading of the day (v1.7.1.16) |
+| `heart_rate_max` | bpm | Maximum heart rate for the day — sibling of `resting_heart_rate` (v1.7.1.16) |
+| `heart_rate_min` | bpm | Minimum heart rate for the day (v1.7.1.16) |
+| `heart_rate_avg` | bpm | Average heart rate for the day, computed from intraday readings (v1.7.1.16) |
+| `steps_total` | steps | Total steps for the day — daily total, distinct from `steps_series` (intraday bins). Named `steps_total`, not `steps` — that name is already a `HEALTH_FIELD_ALIASES` entry resolving to `steps_series`, which runs before any `_FIELD_MAP` lookup (v1.7.1.16) |
+| `steps_goal` | steps | Daily step goal (v1.7.1.16) |
+| `floors_climbed` | floors | Floors climbed for the day — distinct from the still-unverified raw-passthrough candidate `floors`/`get_floors` (v1.7.1.16) |
+| `intensity_min_moderate` | minutes | Moderate-intensity minutes for the day (v1.7.1.16) |
+| `intensity_min_vigorous` | minutes | Vigorous-intensity minutes for the day (v1.7.1.16) |
+| `distance` | km | Total distance covered for the day (v1.7.1.16) |
+| `calories_active` | kcal | Active calories for the day, from the same `get_calories_daily` candidate as `calories_resting`, previously left unadopted (v1.7.1.16) |
+| `calories_total` | kcal | Total calories for the day, same source (v1.7.1.16) |
+| `readiness_score` | 0–100 | Training Readiness score for the day (v1.7.1.16) |
+| `readiness_level` | text | Categorical Training Readiness level, e.g. `MODERATE` (v1.7.1.16) |
+| `readiness_feedback` | text | Training Readiness feedback phrase (v1.7.1.16) |
+| `training_status` | text | Garmin's current training status label, e.g. `PRODUCTIVE` (v1.7.1.16) |
+| `training_load_7d` | — | 7-day training load balance — unit/scale not independently verified (v1.7.1.16) |
+| `respiration_avg` | breaths/min | Average overnight respiration rate — sibling of `spo2_avg`, previously only reachable via the ~70 KB/day `respiration_series` (v1.7.1.16) |
 
 All six `bp_*` fields are gated in `_CAPABILITY_FIELDS` against
 `get_blood_pressure` — account-dependent (requires a compatible
@@ -419,6 +445,28 @@ time — `context_map.get()` queries every registered source that recognizes
 the field and returns all of them under separate source keys in the same
 response dict. The consumer distinguishes between them only afterwards, by
 reading the keys of the returned dict, not by choosing one in advance.
+
+This broker-layer contract is unchanged by `v1.7.1.16` — the brightsky/DWD-
+vs-weather/Open-Meteo priority merge lives one layer up, in
+`clients/mcp_server.py`'s `query_context()` wrapper (`_fetch_context_field()`
+helper), not in `context_map.get()` itself. See `REFERENCE_MCP.md`'s
+`(v1.7.1.16)` entry for the merge's own contract and which resolution
+paths it now covers.
+
+**Known limitation, applies to any future `_FIELD_MAP` addition (not
+just `v1.7.1.16`'s 23 fields):** registering a new field does not
+retroactively make it available for already-archived days. The SQLite
+health-day cache (`mcp_health_days`) only rebuilds a day's cached
+payload when that day's quality-log `compare_value` changes — the field
+registry itself is not part of that comparison, so `refresh_cache()`
+silently leaves untouched days on their old, field-incomplete cached
+payload. No `_FIELD_MAP` change needs a normalizer/schema-version change
+to fix this (the underlying `summary/*.json` files already carry
+whatever `summarize()` computes, independently of the broker
+registration) — but the SQLite cache does need a full rebuild (delete
+`garmin_data/sqlite/mcp_cache.db`, restart) to reflect a newly
+registered field for historical days. See `NOTES_v1_7_1_16.md` for the
+verification trail (confirmed working back to 2019-10-13).
 
 ---
 
