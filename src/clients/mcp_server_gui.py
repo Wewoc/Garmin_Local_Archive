@@ -4,92 +4,81 @@
 
 """
 clients/mcp_server_gui.py
-Garmin Local Archive — MCP Server Window (v1.7.0.1)
+Garmin Local Archive — MCP Server Window
 
-Role (v1.7.0.1, corrected after an initial misreading of Eckpunkt 6 —
-see NOTES_v1.7.0.1vorbereitung.md): this window stays the default entry
-point, exactly as it was under v1.7 Teilbauauftrag f's "the window is
-the server" — Timo's explicit decision was to KEEP that coupling
-(window closed = process closed), not to make the server headless by
-default. What actually changes with the streamable-http transport is
-narrower: run_gui() (renamed from the transport-era-agnostic name this
-function has always had) starts mcp.run(transport="streamable-http")
-in a daemon thread instead of transport="stdio", and the Restart
-button's health-check switches from polling garmin_config.
-MCP_SERVER_LOCK_FILE for a new PID to a plain TCP-connect probe against
-garmin_config.MCP_HTTP_PORT (Eckpunkt 4a, Fall 2 — the lockfile itself
-is gone, see garmin_config.py).
+Role: this window is the default entry point, coupled to the server
+("the window is the server" — window closed = process closed), not
+headless by default (see NOTES_v1.7.0.1vorbereitung.md, Eckpunkt 6).
+run_gui() starts mcp.run(transport="streamable-http") in a daemon
+thread. The Restart button's health-check uses a plain TCP-connect
+probe against garmin_config.MCP_HTTP_PORT (no lockfile — see
+garmin_config.py).
 
-Headless mode (v1.7.0.1, new): garmin_config.MCP_HEADLESS, settable
-from a checkbox in THIS window (a "next start" setting — checking it
-here does not affect the already-running server this same window
-started, only a subsequent launch) and from app/panel_mcp.py's Port row
-for the GLA-integrated case. When set, clients/mcp_server.py::main()
-skips this window entirely and runs the server directly on the calling
-thread (see that module's _run_headless()) — analogous to
-scheduler/daily_update.py. This window is never required for the
-server to run; it is simply the default when MCP_HEADLESS is false.
+Headless mode: garmin_config.MCP_HEADLESS, settable from a checkbox in
+THIS window (a "next start" setting — checking it here does not affect
+the already-running server this same window started, only a subsequent
+launch) and from app/panel_mcp.py's Port row for the GLA-integrated
+case. When set, clients/mcp_server.py::main() skips this window
+entirely and runs the server directly on the calling thread (see that
+module's _run_headless()) — analogous to scheduler/daily_update.py.
+This window is never required for the server to run; it is simply the
+default when MCP_HEADLESS is false.
 
-Tkinter, not PyQt6 — deliberate (session decision, unchanged from v1.7):
-PyQt6 in GLA proper is tied to the WebEngine dashboard view, which this
-window has no need for. tkinter.filedialog/messagebox/ttk/scrolledtext
-are already in HIDDEN_IMPORTS_COMMON (compiler/build_manifest.py), so
-this adds no new bundling weight for T3.3.
+Tkinter, not PyQt6 — deliberate: PyQt6 in GLA proper is tied to the
+WebEngine dashboard view, which this window has no need for.
+tkinter.filedialog/messagebox/ttk/scrolledtext are already in
+HIDDEN_IMPORTS_COMMON (compiler/build_manifest.py), so this adds no new
+bundling weight for T3.3.
 
-Restart (v1.7.0.1, replacing the v1.7 Teilbauauftrag h button of the
-same intent): unlike the server start itself, which now happens
-automatically the moment this window opens (no separate "Start" click
-needed — Timo's corrected Eckpunkt 6), the "🔄 Restart Server" button
-still exists for the same reason it did before: a config change (port,
-archive path, backend, headless) needs a new process to take effect,
-and there is still no clean-stop API on a running mcp.run() call under
-either transport (Eckpunkt 4b, re-confirmed for streamable-http — an
-open FastMCP/uvicorn upstream issue tracks exactly this gap). Self-
-Relaunch via subprocess.Popen (Option C reasoning from Teilbauauftrag h
-retained): launches a new process with current on-disk settings
-(Save first, then Restart — same two-step as before), polls
-_is_server_reachable() against the (possibly changed) target port, and
-on success calls root.destroy() — which ends THIS process, and with it
-the daemon thread holding the old server, completing the handover. A
-timeout leaves the old server running untouched and re-enables the
-button. If the saved settings switched MCP_HEADLESS to true, the new
-process comes up without a window at all, but is still TCP-reachable on
-its port the same way — the restart flow does not need to special-case
-that transition.
+Restart: the server starts automatically the moment this window opens
+(no separate "Start" click needed). The "🔄 Restart Server" button
+exists because a config change (port, archive path, backend, headless)
+needs a new process to take effect, and there is no clean-stop API on a
+running mcp.run() call under either transport (an open FastMCP/uvicorn
+upstream issue tracks this gap). Self-Relaunch via subprocess.Popen:
+launches a new process with current on-disk settings (Save first, then
+Restart), polls _is_server_reachable() against the (possibly changed)
+target port, and on success calls root.destroy() — which ends THIS
+process, and with it the daemon thread holding the old server,
+completing the handover. A timeout leaves the old server running
+untouched and re-enables the button. If the saved settings switched
+MCP_HEADLESS to true, the new process comes up without a window at
+all, but is still TCP-reachable on its port the same way.
 
-Log display: unchanged in shape from v1.7 — since the server runs in
-this same process again (daemon thread), its log records reach this
-window's root logger exactly like this window's own log lines do, both
-via the single _QueueLogHandler + root.after(100, ...) poll loop
-(architectural port of garmin_app_standalone.py's PyQt6
-_QueueWriter/_QueueHandler/_poll_log_queue trio). No file-tailing, no
-cross-process log mechanism needed — that only existed in the
-(corrected-away) headless-by-default draft of this Bauauftrag.
+Log display: the server runs in this same process (daemon thread), so
+its log records reach this window's root logger exactly like this
+window's own log lines do, via a single _QueueLogHandler +
+root.after(100, ...) poll loop (architectural port of
+garmin_app_standalone.py's PyQt6 _QueueWriter/_QueueHandler/
+_poll_log_queue trio). No file-tailing, no cross-process log mechanism
+needed.
 
-Persistence — two separate files, unchanged in shape from v1.7:
+Persistence — two separate files:
   - garmin_config.MCP_SERVER_CONFIG_FILE (mcp_llm_backend, base_dir,
-    mcp_http_port, mcp_headless as of v1.7.0.1 — mcp_ollama_model
-    removed, see below) — this window is a second, independent writer
-    alongside panel_mcp.py's mirror-on-save (documented as a deliberate
-    Sole-Write-Authority exception in garmin_config.py's docstring: the
-    two writers serve mutually exclusive operating modes and never run
-    against the file at the same time in practice). base_dir here is a
-    real, user-editable field (no GLA instance to mirror from), unlike
-    panel_mcp.py's read-only mirror value.
+    mcp_http_port, mcp_headless) — this window is a second, independent
+    writer alongside panel_mcp.py's mirror-on-save (documented as a
+    deliberate Sole-Write-Authority exception in garmin_config.py's
+    docstring: the two writers serve mutually exclusive operating modes
+    and never run against the file at the same time in practice).
+    base_dir here is a real, user-editable field (no GLA instance to
+    mirror from), unlike panel_mcp.py's read-only mirror value.
   - garmin_config.MCP_LLM_CONFIG_FILE (provider, api_key, model) — cloud
     LLM credentials, same file panel_mcp.py's Cloud Config section
     already owns; this window is simply a second writer with the same
     read-merge-write shape (_save_cloud_config() below mirrors
     panel_mcp.py::_mcp_save_cloud_config() field-for-field).
 
-Ollama model selection removed (v1.7.0.1, Zusatzpunkt from
-NOTES_v1.7.0.1vorbereitung.md): MCP itself never calls an LLM — the MCP
-host (Ollama, Open WebUI, Claude Desktop, ...) decides which model runs
-and this server never sees that choice. mcp_ollama_model was architected
-into the wrong process; it is gone from this window, from
+Ollama model selection removed (see NOTES_v1.7.0.1vorbereitung.md,
+Zusatzpunkt): MCP itself never calls an LLM — the MCP host (Ollama,
+Open WebUI, Claude Desktop, ...) decides which model runs and this
+server never sees that choice. mcp_ollama_model was architected into
+the wrong process; it is gone from this window, from
 MCP_SERVER_CONFIG_FILE, and from garmin_config.py entirely. The
-mcp_llm_backend choice itself (ollama vs. cloud) is unrelated and stays
-— it still gates whether the cloud-credentials block below is shown.
+mcp_llm_backend choice itself (ollama vs. cloud) is unrelated and
+stays — it still gates whether the cloud-credentials block below is
+shown.
+
+Entstehungsgeschichte: siehe CHANGELOG.md v1.7.0 / v1.7.0.1.
 """
 
 import json

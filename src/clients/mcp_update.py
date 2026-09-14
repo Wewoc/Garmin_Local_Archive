@@ -4,7 +4,7 @@
 
 """
 clients/mcp_update.py
-Garmin Local Archive — SQLite Proxy, delta/sync logic (v1.7.1)
+Garmin Local Archive — SQLite Proxy, delta/sync logic
 
 Compares mcp_sql.py's current cache state ("Ist") against maps/mcp_map.py's
 live archive state ("Soll") and writes only the difference back through
@@ -14,36 +14,34 @@ Python, fully callable in isolation from mcp_server.py, exactly the
 Single-Responsibility split KONZEPT_mcp_sqlite_proxy_V2.md specifies.
 
 One mechanism, two callers (NOTES_v1.7.1_vorbereitung.md /
-NOTES_v1.7.1_session2.md, binding): sync_all() runs identically whether
-called from clients/mcp_server.py's boot sequence (before mcp.run(),
-result only logged — LLM is not connected yet) or from the
-refresh_cache() MCP tool (LLM-triggered, result returned as the tool's
-answer). No second code path, no boot-specific or refresh-specific
-branch anywhere in this module.
+NOTES_v1.7.1_session2.md): sync_all() runs identically whether called
+from clients/mcp_server.py's boot sequence (before mcp.run(), result
+only logged — LLM is not connected yet) or from the refresh_cache() MCP
+tool (LLM-triggered, result returned as the tool's answer). No second
+code path, no boot-specific or refresh-specific branch anywhere in this
+module.
 
 Broker access exclusively through maps/mcp_map.py — never a direct
 import of maps/gateway_map.py, maps/metadata_map.py, or any domain
 broker, and never direct filesystem access into garmin_data/ or
-context_data/ (the diagram Timo provided this session is binding: the
-only crossing point between the clients/ world and the broker layer is
-mcp_map.py, even for the filename-only introspection functions
-list_daily_log_filenames()/list_fail_log_filenames()/
-list_recent_log_filenames() that exist solely for this module's own use
-and are deliberately not registered as MCP tools in mcp_server.py — see
-NOTES_v1.7.1_session2.md).
+context_data/. The only crossing point between the clients/ world and
+the broker layer is mcp_map.py, even for the filename-only
+introspection functions list_daily_log_filenames()/
+list_fail_log_filenames()/list_recent_log_filenames() that exist solely
+for this module's own use and are deliberately not registered as MCP
+tools in mcp_server.py (see NOTES_v1.7.1_session2.md).
 
 Import style: flat "import mcp_sql", not "from . import mcp_sql" — this
-module is loaded via mcp_server.py's own flat "import mcp_update"
-(v1.7.1 fix, see that module's docstring), which means mcp_update.py
-itself carries no package context at import time; a relative import
-here would raise the same "attempted relative import with no known
-parent package" error mcp_server.py's own import of this module did
-before that fix. clients/ is already on sys.path by the time this
-module loads (mcp_server.py's sys.path root anchor runs first), so the
-flat import resolves the same way mcp_map/garmin_config already do.
+module is loaded via mcp_server.py's own flat "import mcp_update" (see
+that module's docstring), which means mcp_update.py itself carries no
+package context at import time; a relative import here would raise the
+same "attempted relative import with no known parent package" error.
+clients/ is already on sys.path by the time this module loads
+(mcp_server.py's sys.path root anchor runs first), so the flat import
+resolves the same way mcp_map/garmin_config already do.
 
-Concurrency (NOTES_v1.7.1_session2.md, two distinct cases; case 1's
-guard corrected 2026-08-28 — see KNOWN_ISSUES.md for the diagnosis):
+Concurrency (NOTES_v1.7.1_session2.md; see KNOWN_ISSUES.md for the
+case-1 diagnosis), two distinct cases:
   1. Two parallel mcp_server.py process starts, both mid boot-sync
      before either reaches mcp.run()'s own bind-based guard — closed
      by binding garmin_config.MCP_HTTP_PORT for the duration of
@@ -53,20 +51,20 @@ guard corrected 2026-08-28 — see KNOWN_ISSUES.md for the diagnosis):
      error from SQLite midway through a sync. is_boot=False (the
      refresh_cache() path) skips this guard entirely — by the time
      refresh_cache() can be called at all, mcp.run() already legitimately
-     holds this same port, so the original unconditional bind attempt
-     here always failed after boot, making refresh_cache() permanently
-     unusable at runtime (the actual bug this correction fixes).
+     holds this same port, so an unconditional bind attempt here would
+     always fail after boot, making refresh_cache() permanently
+     unusable at runtime.
   2. Two overlapping refresh_cache() calls after boot — guarded by
      _REFRESH_LOCK, a plain threading.Lock, analogous to
-     garmin_quality.py's QUALITY_LOCK precedent. This was always the
-     right guard for this case; the port-bind in case 1 was never
-     meant to also cover it.
+     garmin_quality.py's QUALITY_LOCK precedent. This is the right
+     guard for this case; the port-bind in case 1 does not also cover
+     it.
 
-Per-unit error handling (NOTES_v1.7.1_session2.md, Multi-LLM-Review-Gate
-finding): a single failing day/file/entry is caught, logged, and
-skipped — it never aborts the whole sync_all() pass. Consistent with
-the archive's own established "skip one bad file, keep the loop going"
-principle (maps/metadata_map.py's _read_filtered_log_dir()).
+Per-unit error handling (NOTES_v1.7.1_session2.md): a single failing
+day/file/entry is caught, logged, and skipped — it never aborts the
+whole sync_all() pass. Consistent with the archive's own established
+"skip one bad file, keep the loop going" principle
+(maps/metadata_map.py's _read_filtered_log_dir()).
 
 Health field discovery: rather than maintaining a second, separately-
 kept list of health field names in this module, sync_all() asks
@@ -83,6 +81,8 @@ timestamp string used in this log file's name is also written as a
 marker field on every line of this log, mcp_sql.py's log, and
 mcp_server.py's own operational log for the same sync pass —
 correlation across all three without a separate marker mechanism.
+
+Entstehungsgeschichte: siehe CHANGELOG.md v1.7.1.
 """
 
 import datetime

@@ -7,7 +7,7 @@ app/panel_mcp.py
 Garmin Local Archive — MCP Server Panel
 
 PanelMcp — PyQt6 QWidget, eigenständiger Tab "MCP Server" in
-garmin_app_base.py's QTabWidget (v1.7 Teilbauauftrag d).
+garmin_app_base.py's QTabWidget.
 
 Layout injected by garmin_app_base._build_ui():
   - self._panel_mcp added as Tab 4 "MCP Server"
@@ -19,38 +19,39 @@ Rules:
     analogous to PanelTimer.get_timer_settings() / load_timer_settings(s).
     Called by GarminApp._collect_settings() / GarminApp.__init__().
 
-Scope note (v1.7 Teilbauauftrag d, superseded in part by Teilbauauftrag
-g): this panel was originally settings-persistence-only, never
-starting/stopping clients/mcp_server.py itself (Teil b/c architecture
-decision). Teil (g) added a "Start MCP Server" button that does launch
-the process directly — the settings/dropdown fields below still only
-control what gets written to SETTINGS_FILE, but process control is no
-longer out of scope for this panel. The former "Enable MCP server"
-checkbox and its GARMIN_MCP_ENABLED flag were removed in Teil (g) — the
-flag stopped being read by main() back in Teil (f), and the new Start
-button made the whole on/off concept moot. See NOTES_v1.7_teild.md for
-the original reasoning and NOTES_v1.7_teilg.md for the removal.
+Scope: this panel was originally settings-persistence-only, never
+starting/stopping clients/mcp_server.py itself. A "Start MCP Server"
+button was added later that does launch the process directly — the
+settings/dropdown fields below still only control what gets written to
+SETTINGS_FILE, but process control is no longer out of scope for this
+panel. The former "Enable MCP server" checkbox and its
+GARMIN_MCP_ENABLED flag were removed once main() stopped reading it and
+the Start button made the whole on/off concept moot (see
+NOTES_v1.7_teild.md for the original reasoning, NOTES_v1.7_teilg.md for
+the removal).
 
-Server config mirror (v1.7 Teilbauauftrag f): _mcp_save() additionally
-writes garmin_config.MCP_SERVER_CONFIG_FILE (~/.garmin_mcp_server_config.json)
-with the same three values (mcp_enabled, mcp_llm_backend, base_dir) — a
-mirror, not a new source of truth. Lets a standalone mcp_server.exe (no
-GLA installation, no ENV set) discover the archive path and MCP settings
-this GUI session last saved. Still no os.environ write — this remains a
-pure file-persistence step, same as the SETTINGS_FILE write beside it.
-A write failure here is logged, not shown as a blocking dialog — see
+Server config mirror: _mcp_save() additionally writes
+garmin_config.MCP_SERVER_CONFIG_FILE
+(~/.garmin_mcp_server_config.json) with the same three values
+(mcp_enabled, mcp_llm_backend, base_dir) — a mirror, not a new source of
+truth. Lets a standalone mcp_server.exe (no GLA installation, no ENV
+set) discover the archive path and MCP settings this GUI session last
+saved. Still no os.environ write — this remains a pure
+file-persistence step, same as the SETTINGS_FILE write beside it. A
+write failure here is logged, not shown as a blocking dialog — see
 _mcp_save() below.
 
 Cloud LLM config file: this panel is the first and only writer of
-garmin_config.MCP_LLM_CONFIG_FILE (~/.garmin_mcp_llm_config.json,
-Teil c). Same three required fields mcp_server.py's
-_cloud_llm_config_available() checks (provider, api_key, model) — see
-clients/mcp_server.py for the read side. The API key field never
-reloads a previously saved key into the widget (QLineEdit.Password
-echo mode plus deliberately not pre-filled) — avoids holding the
-plaintext key in UI widget state longer than a save action requires.
-A status label shows whether a key is currently on disk without
-displaying it.
+garmin_config.MCP_LLM_CONFIG_FILE (~/.garmin_mcp_llm_config.json). Same
+three required fields mcp_server.py's _cloud_llm_config_available()
+checks (provider, api_key, model) — see clients/mcp_server.py for the
+read side. The API key field never reloads a previously saved key into
+the widget (QLineEdit.Password echo mode plus deliberately not
+pre-filled) — avoids holding the plaintext key in UI widget state
+longer than a save action requires. A status label shows whether a key
+is currently on disk without displaying it.
+
+Entstehungsgeschichte: siehe CHANGELOG.md v1.7.0.
 """
 
 import socket

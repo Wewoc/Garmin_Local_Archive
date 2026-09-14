@@ -108,10 +108,11 @@ from . import metadata_map
 # ══════════════════════════════════════════════════════════════════════════════
 #  Domain registry — health + fit + context
 #
-#  "fit" is registered with None on purpose ahead of v1.7 (garmin_fit_map.py)
-#  so the domain key and the get()/list_domains() contract are stable before
-#  the broker exists. When garmin_fit_map.py lands, replace None with the
-#  import — no other change needed here.
+#  "fit" is registered with None on purpose ahead of the FIT Pipeline
+#  (garmin_fit_map.py, planned v1.8, see ROADMAP.md) so the domain key
+#  and the get()/list_domains() contract are stable before the broker
+#  exists. When garmin_fit_map.py lands, replace None with the import —
+#  no other change needed here.
 #
 #  To add a domain:
 #    1. Build the domain broker (own *_map.py, own _SOURCES registry)
@@ -121,7 +122,7 @@ from . import metadata_map
 
 _DOMAIN_BROKERS = {
     "health":  health_map,
-    "fit":     None,          # garmin_fit_map.py, v1.7
+    "fit":     None,          # garmin_fit_map.py, planned v1.8
     "context": context_map,
 }
 

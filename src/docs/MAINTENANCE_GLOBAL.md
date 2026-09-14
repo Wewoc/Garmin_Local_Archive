@@ -641,6 +641,27 @@ rather than building new fixtures for that check. Check-count delta
 tracked in `docs/METRICS.md` (`test_mcp.py`), not restated here — see
 this section's own opening note above on why totals live there
 instead.
+
+**New checks added (v1.7.1.16)** — two additions to the existing
+`wind_speed_max` collision block (the `_resolve_context_bundle()`/bundle
+test predates this session; see `REFERENCE_MCP.md`'s `v1.7.1.16` entry
+for the fix these cover). A direct-field regression check
+(`query_context("wind_speed_max", ...)`, mocking both sources'
+conflicting values) confirms the pre-existing merge behavior is
+unchanged after the `_fetch_context_field()` extraction. An alias-path
+check (`query_context("max_wind_speed", ...)`, same mocked values)
+confirms the actual fix — the merge now applies there too, plus
+`field_resolved_from`/`field_used` set on top of the merged result. No
+check added for the difflib near-match path — constructing a near-match
+string that reliably matches only `wind_speed_max` and isn't already a
+registered alias proved fragile, left as a known small test gap (see
+`NOTES_v1_7_1_16.md`). Separately, `test_dashboard.py`'s capability-
+field-count delta assertion (`_lf_default_count - 12`) was corrected to
+`-14` — `garmin_health_map.py` gained two new `_CAPABILITY_FIELDS`
+entries this session (`calories_active`/`calories_total`, same
+`get_calories_daily` gate as `calories_resting`). Check-count delta
+tracked in `docs/METRICS.md`, not restated here.
+
 `test_mcp.py` Section 8's `MCP_ENABLED` mocking, if any remained, should
 be checked against current behaviour in the next session touching that
 file — not re-verified as part of this doc pass.

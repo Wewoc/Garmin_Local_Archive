@@ -762,7 +762,7 @@ The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single
 | `respiration_series` | intraday | `respiration.respirationValuesArray` | List of `[epoch_ms, value]` pairs — same v1.6.3.1 fix as spo2_series. Raw data also contains a newer, parallel `wellnessEpochRespirationDataDTOList` (dict-shaped) — absent in all 4 raw files sampled during v1.6.5.6 (2024-03-07, 2025-03-10, 2025-03-30, 2026-07-01/27); not conclusive, still not evaluated as a data source, see `NOTES_v1656.md` |
 | `steps_series` | intraday | `steps` (bare list at top level, not nested under a sub-key) | 15-min bins, `{"startGMT", "steps"}`. `_read_intraday()` handles this via its existing `isinstance(section_data, list)` branch — no code change needed for this shape |
 | `body_weight` | daily | `body_composition.weight_g` | grams, raw/unconverted — Garmin's gram convention assumed but not verified against real data (no scale connected during pilot). First API-Capability-Scan candidate wired into the broker (v1.6.8) |
-| `calories_resting` | daily | `day.calories_resting` | kcal — resting/basal calories from `get_calories_daily`, distinct from `calories_active`/`calories_total` (sourced from `user_summary`, unrelated raw section, likely redundant with this candidate's own `active`/`total` fields — only `resting` was adopted). Second API-Capability-Scan candidate wired into the broker (v1.6.8) |
+| `calories_resting` | daily | `day.calories_resting` | kcal — resting/basal calories from `get_calories_daily`. Second API-Capability-Scan candidate wired into the broker (v1.6.8). `active`/`total` from this same candidate's response were left unadopted at the time (redundant-seeming against `user_summary`'s own fields) — later confirmed as a distinct, unregistered pair and adopted as `calories_active`/`calories_total` (v1.7.1.16) |
 | `hydration_ml` | daily | `hydration.value_ml` | ml, from `get_hydration_data` — only `valueInML` adopted, `goalInML` (a user-set target, not a measurement) intentionally excluded (v1.6.8 Session 4) |
 | `endurance_score` | daily | `training.endurance_score` | index, from `get_endurance_score` — checked against `vo2max` for redundancy (Multi-LLM hint), none found — distinct, device-calculated index (v1.6.8 Session 4) |
 | `hill_score` | daily | `training.hill_score` | index, from `get_hill_score` — not to be confused with that same endpoint's own internal `enduranceScore` sub-field, unrelated to the `endurance_score` field above (v1.6.8 Session 4) |
@@ -773,6 +773,29 @@ The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single
 | `bp_low_diastolic` | daily | `blood_pressure.low_diastolic` | mmHg, same source/rollup as above |
 | `bp_num_measurements` | daily | `blood_pressure.num_measurements` | count, measurements logged that day |
 | `bp_category` | daily | `blood_pressure.category` | text, e.g. `STAGE_2_HIGH` — reflects the day's worst individual reading, not an average |
+| `hrv_weekly_avg` | daily | `sleep.hrv_weekly_avg_ms` | ms — sibling of `hrv_last_night`, previously computed but unregistered (v1.7.1.16) |
+| `hrv_status` | daily | `sleep.hrv_status` | text, e.g. `BALANCED` (v1.7.1.16) |
+| `hrv_feedback` | daily | `sleep.hrv_feedback` | text (v1.7.1.16) |
+| `stress_max` | daily | `stress.stress_max` | 0–100, sibling of `stress_avg` (v1.7.1.16) |
+| `body_battery_min` | daily | `stress.body_battery_min` | 0–100, sibling of `body_battery_max` (v1.7.1.16) |
+| `body_battery_end` | daily | `stress.body_battery_end` | 0–100 (v1.7.1.16) |
+| `heart_rate_max` | daily | `heartrate.max_bpm` | bpm, sibling of `resting_heart_rate` (v1.7.1.16) |
+| `heart_rate_min` | daily | `heartrate.min_bpm` | bpm (v1.7.1.16) |
+| `heart_rate_avg` | daily | `heartrate.avg_bpm` | bpm (v1.7.1.16) |
+| `steps_total` | daily | `day.steps` | steps, daily total — distinct from `steps_series` (intraday 15-min bins). Registered as `steps_total`, not `steps` — `steps` is already a `HEALTH_FIELD_ALIASES` entry pointing to `steps_series`, caught live after initial deploy (v1.7.1.16, see `NOTES_v1_7_1_16.md`) |
+| `steps_goal` | daily | `day.steps_goal` | steps (v1.7.1.16) |
+| `floors_climbed` | daily | `day.floors_climbed` (`user_summary.floorsAscended`) | floors — distinct from the still-unverified raw-passthrough candidate `floors`/`get_floors` (v1.7.1.16) |
+| `intensity_min_moderate` | daily | `day.intensity_min_moderate` | minutes (v1.7.1.16) |
+| `intensity_min_vigorous` | daily | `day.intensity_min_vigorous` | minutes (v1.7.1.16) |
+| `distance` | daily | `day.distance_km` | km (v1.7.1.16) |
+| `calories_active` | daily | `day.calories_active` | kcal, from `get_calories_daily` — same candidate as `calories_resting`, previously left unadopted (v1.7.1.16) |
+| `calories_total` | daily | `day.calories_total` | kcal, same source (v1.7.1.16) |
+| `readiness_score` | daily | `training.readiness_score` | 0–100 (v1.7.1.16) |
+| `readiness_level` | daily | `training.readiness_level` | text (v1.7.1.16) |
+| `readiness_feedback` | daily | `training.readiness_feedback` | text (v1.7.1.16) |
+| `training_status` | daily | `training.training_status` | text, e.g. `PRODUCTIVE` (v1.7.1.16) |
+| `training_load_7d` | daily | `training.training_load_7d` | unit/scale not independently verified (v1.7.1.16) |
+| `respiration_avg` | daily | `sleep.respiration_avg` | breaths/min — sibling of `spo2_avg`, previously only reachable via `respiration_series` (intraday, ~70 KB/day) (v1.7.1.16) |
 
 All six `bp_*` fields gated in `_CAPABILITY_FIELDS` against
 `get_blood_pressure` (v1.7.1.14, Issue #7). A seventh value,

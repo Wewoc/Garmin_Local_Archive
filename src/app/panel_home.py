@@ -355,7 +355,7 @@ class PanelHome(QWidget):
         tab_lay.addWidget(self._dash_view)
 
         # Activity Log removed in v1.6 — quality info covered in fixed top area.
-        # Reserved for v1.7 FIT Pipeline.
+        # Reserved for the FIT Pipeline (planned v1.8, see ROADMAP.md).
 
     # ── Indicator ──────────────────────────────────────────────────────────────
 

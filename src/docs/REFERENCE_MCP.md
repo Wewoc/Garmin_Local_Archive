@@ -774,3 +774,62 @@ set signal) is met; whether a given model chooses to read `_meta` and
 stop retrying is outside what this mechanism can control, same
 category of model-dependent variance already documented for the
 ambiguity rückfrage above.
+
+---
+
+## (v1.7.1.16) wind_speed_max merge coverage + 23 registered health fields
+
+Derived from a live MCP test session with a frontier model (Claude
+Sonnet 5, direct MCP connection), run as a comparison against the
+Ollama/small-model test catalogs. Full session documentation in
+`NOTES_v1_7_1_16.md` — this entry is the settled contract.
+
+**1. `wind_speed_max` merge now covers the alias and near-match paths
+too.** The `v1.7.1.12` fix above closed the gap for a direct field
+request (`field="wind_speed_max"`). Two other resolution paths could
+also land on `wind_speed_max` without going through that check:
+`CONTEXT_FIELD_ALIASES` (`"wind_speed"`, `"max_wind_speed_dwd"`,
+`"max_wind_speed"`, `"wind_max"` all alias to it) and the difflib
+near-match auto-resolve. Both returned right after fetching — before
+the merge could run — so e.g. `query_context max_wind_speed 2026-08-29`
+returned brightsky's and weather's values side by side under separate
+source keys instead of one prioritized value, reproduced live against
+the running server. Fix: the merge logic (previously inline in the
+direct-field branch) is now `_fetch_context_field()`, a shared helper
+called by all three resolution paths — the direct-field path's
+behavior and output shape are unchanged, only the alias/near-match
+paths gained the merge they were missing. `_meta.field_sources` is
+populated identically regardless of which path resolved the field;
+`field_resolved_from`/`field_used` are added on top for the alias/
+near-match paths, same as for any other resolved field.
+
+**2. 23 previously unregistered health fields.** Triggered by
+`respiration_avg`: already computed by `garmin_normalizer.summarize()`
+and archived in `summary/*.json`, but unreachable via `query_health()`
+— only `respiration_series` (intraday, ~70 KB/day) was registered, so
+any natural-language respiration question returned a response large
+enough to overflow smaller models' context windows (confirmed by
+hitting this session's own tool-result size limit during the live
+test). A full audit of `summarize()` against `garmin_health_map.py`'s
+`_FIELD_MAP` found 22 more fields in the identical situation — see
+`REFERENCE_GARMIN.md`/`REFERENCE_BROKER.md` for the full list and
+per-field source paths. All 23 already had a working, verified
+`summarize()` extraction (none were in the unverified-shape
+"raw-passthrough" situation blood pressure was in before `v1.7.1.14`)
+— purely a broker-registration gap, no normalizer/collector change
+needed. `calories_active`/`calories_total` are gated in
+`_CAPABILITY_FIELDS` against the same `get_calories_daily` endpoint
+`calories_resting` already uses; the other 21 are Baseline fields
+(always-fetched endpoints, no Capability-Scan opt-in). `refresh_cache()`
+backfills all 23 for already-archived days from the existing
+`summary/*.json` files — no re-fetch from the Garmin API needed.
+
+**3. `get_archive_metadata()` docstring clarified (no behavior
+change).** The documented "last 30 days + `note` field" convenience for
+the five date-filterable metadata kinds, when both dates are omitted,
+only applies on the live path (`mcp_map.get_archive_metadata()` →
+`metadata_map.py`). The SQLite-cached path actually taken today
+(`mcp_sql.get_metadata_range()`) instead returns an empty result with
+no `note` — deliberate on that path (documented in its own internal
+docstring already), but previously not surfaced at this public tool's
+docstring level.
