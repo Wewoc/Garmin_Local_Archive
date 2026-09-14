@@ -494,16 +494,19 @@ field. `0.65` is the adopted production value — the 7 mismatches were
 addressed via explicit aliases rather than reverting the cutoff, see
 `v1.7.1.12` below.
 
-**Cache rebuild note:** `mcp_context_days` is purely derived (never a
-source of truth). Since `complete_sources`/`missing_sources` tracking
-in `_sync_context_days()` is per-source, not per-field, a day already
-marked complete under a pre-`v1.7.1.11` field list will not
-automatically pick up its source's new `_series` fields on the next
-incremental sync — the source is already "done" as far as that check
-is concerned. `mcp_cache.db` must be deleted once after upgrading to
-this version so the next full sync/boot-sync rebuilds every day's
-`complete_sources` state against the current, `_series`-inclusive
-field list.
+**Automatic field-registry reconciliation (`v1.7.1.17`):** the
+structural gap this note used to describe — a field added to an
+already-registered source not being picked up by an incremental sync —
+is now closed automatically. `mcp_field_registry` (`mcp_sql.py`) stores
+the field set seen at the last sync per domain (`"health"`,
+`"context:<source>"`); `_reconcile_field_registry()` (`mcp_update.py`),
+called at the start of every `sync_all()` pass, compares the live field
+set against the stored one and resets the affected sync-delta state
+(health: `last_attempt_synced` set to `NULL`; context: the affected
+source removed from `complete_sources`/`attempted_sources`) whenever a
+domain has gained fields since it was last registered — no manual
+`mcp_cache.db` deletion required for this or any future `_FIELD_MAP`/
+context-field growth.
 
 **(v1.7.1.6)** `query_health()`, `query_context()` (both its direct-field
 and its category-bundle path), and `list_available_fields()` gained an

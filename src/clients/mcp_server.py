@@ -453,9 +453,11 @@ _DEFAULT_ALLOWED_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://
 # reasoning trail (an mcp_map.py-based design was considered first and
 # rejected for the same two reasons).
 FIELD_UNITS: dict[str, str] = {
-    # ── health_map -> garmin (54 fields, REFERENCE_BROKER.md; comment was
-    #    already stale at "25" before v1.7.1.16 — never updated for the six
-    #    v1.7.1.14 bp_* fields, see NOTES_v1_7_1_16.md) ────────────────────
+    # ── health_map -> garmin (55 fields total: 26 pre-v1.7.1.14 + 6
+    #    bp_* (v1.7.1.14) + 23 v1.7.1.16 registrations — corrected
+    #    v1.7.1.17; the previous "54" comment undercounted by one and
+    #    never reflected the six bp_* fields at all, see
+    #    REFERENCE_BROKER.md/NOTES_v1_7_1_17.md) ─────────────────────────
     "hrv_last_night":        "ms",
     "resting_heart_rate":    "bpm",
     "spo2_avg":              "%",
@@ -484,6 +486,16 @@ FIELD_UNITS: dict[str, str] = {
     "endurance_score":       "index",
     "hill_score":            "index",
     "fitness_age":           "years",
+
+    # ── health_map -> garmin, v1.7.1.14 blood-pressure scalars (6) ─────────
+    #    units per REFERENCE_GARMIN.md; previously missing here entirely
+    #    (v1.7.1.17 fix, see FIELD_UNITS' own header comment above) ────────
+    "bp_high_systolic":      "mmHg",
+    "bp_high_diastolic":     "mmHg",
+    "bp_low_systolic":       "mmHg",
+    "bp_low_diastolic":      "mmHg",
+    "bp_num_measurements":   "count",
+    "bp_category":           "text",
 
     # ── health_map -> garmin, v1.7.1.16 registration-gap fields (23) ──────────
     # Broker-Registrierungslücken geschlossen, siehe garmin_health_map.py
@@ -678,7 +690,6 @@ mcp = FastMCP(
 # against the real, current health field registry. "spo2" deliberately
 # excluded -- see the same notes for the collision analysis.
 HEALTH_FIELD_ALIASES: dict[str, str] = {
-    "steps": "steps_series",
     "hrv": "hrv_last_night",
     "hill": "hill_score",
 }
@@ -712,6 +723,7 @@ HEALTH_FIELD_ALIASES: dict[str, str] = {
 HEALTH_FIELD_AMBIGUOUS: dict[str, list[str]] = {
     "spo2": ["spo2_avg", "spo2_series"],
     "stress": ["stress_avg", "stress_series"],
+    "steps": ["steps_total", "steps_series"],
 }
 
 
