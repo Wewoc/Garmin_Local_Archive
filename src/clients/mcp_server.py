@@ -4,84 +4,58 @@
 
 """
 clients/mcp_server.py
-Garmin Local Archive — MCP Server (v1.7.0.1 — HTTP transport)
+Garmin Local Archive — MCP Server (streamable-http transport)
 
-Standalone MCP server process, streamable-http transport (v1.7.0.1,
-replacing the original stdio transport from v1.7 Teilbauauftrag b).
-Registers the six maps/mcp_map.py functions (query_health, query_context,
-query_fit_activities, query_raw, get_archive_metadata,
-list_available_fields) as MCP tools via the official mcp SDK
-(mcp>=1.28,<2, verified against mcp==1.29.0).
+Standalone MCP server process. Registers the six maps/mcp_map.py functions
+(query_health, query_context, query_fit_activities, query_raw,
+get_archive_metadata, list_available_fields) as MCP tools via the official
+mcp SDK (mcp>=1.28,<2, verified against mcp==1.29.0).
 
 No broker/delegation logic of its own — that lives entirely in
-mcp_map.py (v1.7 Teilbauauftrag a). This module is pure MCP protocol
-exposition: thin @mcp.tool() wrappers with 1:1 signatures, nothing else.
+mcp_map.py. This module is pure MCP protocol exposition: thin
+@mcp.tool() wrappers with 1:1 signatures, nothing else.
 
 Error handling: deliberately no translation code. mcp_map.py's degraded
 results ({"error": ...} inside an otherwise normal return dict) pass
 through unchanged as ordinary tool payloads (isError stays False — the
-LLM sees a normal result with an "error" field, exactly as designed in
-Teilbauauftrag a). Genuine exceptions (ValueError from query_raw/
-get_archive_metadata on an unknown domain/kind) are left unhandled here
-by design — the mcp SDK automatically converts any uncaught exception
-raised inside a @mcp.tool()-decorated function into
-CallToolResult(isError=True, ...) with str(exception) as the message.
-Wrapping these calls in try/except here would just re-implement
-behaviour the SDK already provides.
+LLM sees a normal result with an "error" field). Genuine exceptions
+(ValueError from query_raw/get_archive_metadata on an unknown
+domain/kind) are left unhandled here by design — the mcp SDK
+automatically converts any uncaught exception raised inside a
+@mcp.tool()-decorated function into CallToolResult(isError=True, ...)
+with str(exception) as the message.
 
 Process model: standalone subprocess, analogous to
 scheduler/daily_update.py — NOT an in-process thread off
 garmin_app_base.py. Runs independently of the main GUI (Broker Layer
-needs only the Python import path, no Qt). Uses the same sys.path
-root-anchor pattern as daily_update.py, not the
-frozen_paths.add_to_path() lazy-import helper from app/panel_chat.py —
-that pattern is GUI-context-bound (mounts clients/ into a running Qt
-process) and does not apply to a standalone script invocation.
+needs only the Python import path, no Qt).
 
-Transport (v1.7.0.1): mcp.run(transport="streamable-http"), host/port
-set on the FastMCP constructor — host/port are constructor arguments for
-this SDK, not run() arguments (verify against the installed mcp package
-version with `pip show mcp` before relying on this if the SDK is ever
-upgraded — see NOTES_v1.7.0.1vorbereitung.md, Eckpunkt 1). Host is
-hardcoded "127.0.0.1", not configurable — a deliberate security boundary
-(see garmin_config.py's MCP_HTTP_PORT comment). Port is
-garmin_config.MCP_HTTP_PORT (ENV > config file > default 8756). stdout
-is no longer a reserved protocol channel under HTTP — the "never
-print()" rule from the stdio era is no longer a correctness requirement,
-but all logging still goes to stderr regardless (no reason to change a
-working, harmless convention).
+Transport: mcp.run(transport="streamable-http"), host/port set on the
+FastMCP constructor — host/port are constructor arguments for this SDK,
+not run() arguments (verify against the installed mcp package version
+with `pip show mcp` before relying on this if the SDK is ever
+upgraded). Host is hardcoded "127.0.0.1", not configurable — a
+deliberate security boundary. Port is garmin_config.MCP_HTTP_PORT
+(ENV > config file > default 8756). Logging always goes to stderr.
 
-Extra allowed hosts (v1.7.0.2): the DNS-rebinding allowed_hosts/
-allowed_origins check below is a separate mechanism from the hardcoded
-bind host above — it validates the incoming Host/Origin headers, not
-which network interface this process listens on; 127.0.0.1 stays the
-only bind address either way, unaffected by this. garmin_config.
-MCP_EXTRA_ALLOWED_HOSTS_ENABLED (off by default, opt-in via
-app/panel_mcp.py or clients/mcp_server_gui.py) adds garmin_config.
-MCP_EXTRA_ALLOWED_HOSTS on top of the SDK's own 127.0.0.1/localhost/::1
-defaults — added for Open WebUI running in Docker, reachable only via
-host.docker.internal (not 127.0.0.1) from inside its container (real
-"Invalid Host header: host.docker.internal:<port>" rejection observed
-in clients/mcp_server_gui.py's log — see NOTES_v1.7.0.2.md). When the
-flag is off, transport_security=None is passed unchanged, so the SDK's
-own localhost-only default branch still applies exactly as before —
-zero behaviour change for any install that never enables this. Origin-
-header handling deliberately not extended alongside this (see
-NOTES_v1.7.0.2.md) — Section 8's _validate_origin() passes any request
-with no Origin header at all, which a server-to-server client like Open
-WebUI's backend is not expected to send; revisit only if a real Origin
-rejection shows up in the log, same evidence-first approach as this
-whole fix.
+Extra allowed hosts: the DNS-rebinding allowed_hosts/allowed_origins
+check below is a separate mechanism from the hardcoded bind host above
+— it validates the incoming Host/Origin headers, not which network
+interface this process listens on; 127.0.0.1 stays the only bind
+address either way. garmin_config.MCP_EXTRA_ALLOWED_HOSTS_ENABLED (off
+by default, opt-in via app/panel_mcp.py or clients/mcp_server_gui.py)
+adds garmin_config.MCP_EXTRA_ALLOWED_HOSTS on top of the SDK's own
+127.0.0.1/localhost/::1 defaults — needed for Open WebUI running in
+Docker, reachable only via host.docker.internal (not 127.0.0.1) from
+inside its container. When the flag is off, transport_security=None is
+passed unchanged, so the SDK's own localhost-only default branch
+applies exactly as before.
 
-Startup mode (v1.7.0.1 — corrected after an initial misreading of
-Eckpunkt 6, see NOTES_v1.7.0.1vorbereitung.md): the window stays the
-DEFAULT entry point, coupled to the server exactly as under v1.7
-Teilbauauftrag f's "the window is the server" (window closed = process
-closed) — Timo's explicit decision was to keep that coupling, only the
-transport and the restart-health-check mechanism change. main() opens
-clients/mcp_server_gui.py::run_gui(), which starts the HTTP server in a
-daemon thread and blocks in Tkinter's mainloop() on this thread, unless
-garmin_config.MCP_HEADLESS is true (new config field, ENV/config-file
+Startup mode: the window stays the DEFAULT entry point, coupled to the
+server ("the window is the server" — window closed = process closed).
+main() opens clients/mcp_server_gui.py::run_gui(), which starts the
+HTTP server in a daemon thread and blocks in Tkinter's mainloop() on
+this thread, unless garmin_config.MCP_HEADLESS is true (ENV/config-file
 driven, NOT a CLI flag) — in that case main() calls _run_headless()
 below instead: no window at all, mcp.run() blocks directly on this
 thread, analogous to scheduler/daily_update.py. MCP_HEADLESS is
@@ -90,15 +64,12 @@ window itself (clients/mcp_server_gui.py — takes effect on the next
 start, not the running instance; primarily for the standalone case,
 mcp_server.exe with no GLA installation present).
 
-No process-liveness lockfile anymore (v1.7.0.1 — garmin_config.
-MCP_SERVER_LOCK_FILE removed). A second instance now fails naturally
-with OSError when it cannot bind 127.0.0.1:MCP_HTTP_PORT — caught in
-_run_headless() below (and inside run_gui()'s server thread for the
-windowed case) and logged, no separate pre-flight check needed
-(Eckpunkt 4a, Fall 1: "AddressInUse ersetzt Lockfile"). This also
-replaces the mcp_server_gui.py restart-confirmation poll, which now
-does a TCP-connect-ping loop against the port instead of watching a
-lockfile for a new PID (Eckpunkt 4a, Fall 2).
+No process-liveness lockfile — a second instance fails naturally with
+OSError when it cannot bind 127.0.0.1:MCP_HTTP_PORT — caught in
+_run_headless() (and inside run_gui()'s server thread for the windowed
+case) and logged, no separate pre-flight check needed. The
+mcp_server_gui.py restart-confirmation poll does a TCP-connect-ping
+loop against the port instead of watching a lockfile for a new PID.
 
 Boot-log setup (_setup_boot_log()) runs before anything else in main(),
 including before the cloud-config check below, so import-time failures
@@ -106,10 +77,9 @@ in garmin_config or the MCP SDK are still captured somewhere on disk.
 The operational log (inside the archive, rotating —
 _start_operational_log() below) replaces the boot log once
 MCP_BASE_DIR is confirmed reachable — no permanent duplication between
-the two, same "one active destination at a time" rule as before. This
-function lives here (not in mcp_server_gui.py, unlike pre-v1.7.0.1)
-because BOTH the headless and windowed paths need it now; it is passed
-into run_gui() as a plain callable rather than imported back from
+the two. This function lives here (not in mcp_server_gui.py) because
+BOTH the headless and windowed paths need it; it is passed into
+run_gui() as a plain callable rather than imported back from
 mcp_server_gui.py, to avoid a circular import (this module already
 imports mcp_server_gui.py to call run_gui()).
 
@@ -117,6 +87,11 @@ Cloud LLM config (garmin_config.MCP_LLM_CONFIG_FILE) is checked
 informationally when MCP_LLM_BACKEND="cloud" — an incomplete/missing file
 is never a startup blocker, only a log line; Ollama remains the default
 and stays available regardless.
+
+Entstehungsgeschichte (warum HTTP statt stdio, warum das Fenster
+Standardeinstieg bleibt, warum das Lockfile entfiel, der Docker/
+allowed-hosts-Fix): siehe CHANGELOG.md v1.7.0 / v1.7.0.1 / v1.7.0.2 /
+v1.7.0.3.
 
 Usage (T1, dev):
     python clients/mcp_server.py     # opens the window (default) or runs
@@ -478,7 +453,9 @@ _DEFAULT_ALLOWED_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://
 # reasoning trail (an mcp_map.py-based design was considered first and
 # rejected for the same two reasons).
 FIELD_UNITS: dict[str, str] = {
-    # ── health_map -> garmin (25 fields, REFERENCE_BROKER.md) ────────────────
+    # ── health_map -> garmin (54 fields, REFERENCE_BROKER.md; comment was
+    #    already stale at "25" before v1.7.1.16 — never updated for the six
+    #    v1.7.1.14 bp_* fields, see NOTES_v1_7_1_16.md) ────────────────────
     "hrv_last_night":        "ms",
     "resting_heart_rate":    "bpm",
     "spo2_avg":              "%",
@@ -507,6 +484,36 @@ FIELD_UNITS: dict[str, str] = {
     "endurance_score":       "index",
     "hill_score":            "index",
     "fitness_age":           "years",
+
+    # ── health_map -> garmin, v1.7.1.16 registration-gap fields (23) ──────────
+    # Broker-Registrierungslücken geschlossen, siehe garmin_health_map.py
+    # _FIELD_MAP-Kommentar und NOTES_v1.7.1.16.md. Einheiten mit "—"
+    # bewusst offen gelassen statt geraten (gleiche Konvention wie
+    # vo2max/respiration_series oben) -- REFERENCE_GARMIN.md/
+    # REFERENCE_BROKER.md-Abgleich folgt im separaten Doku-Bauauftrag.
+    "hrv_weekly_avg":         "ms",
+    "hrv_status":             "text",
+    "hrv_feedback":           "text",
+    "stress_max":             "0–100",
+    "body_battery_min":       "0–100",
+    "body_battery_end":       "0–100",
+    "heart_rate_max":         "bpm",
+    "heart_rate_min":         "bpm",
+    "heart_rate_avg":         "bpm",
+    "steps_total":            "steps",
+    "steps_goal":             "steps",
+    "floors_climbed":         "floors",
+    "intensity_min_moderate": "minutes",
+    "intensity_min_vigorous": "minutes",
+    "distance":               "km",
+    "calories_active":        "kcal",
+    "calories_total":         "kcal",
+    "readiness_score":        "0–100",
+    "readiness_level":        "text",
+    "readiness_feedback":     "text",
+    "training_status":        "text",
+    "training_load_7d":       "—",  # Skala nicht sicher verifiziert
+    "respiration_avg":        "breaths/min",
 
     # ── context_map -> weather (6 fields) ─────────────────────────────────────
     "temperature_max":       "°C",
@@ -645,16 +652,14 @@ mcp = FastMCP(
 # later heuristic only has to change this one function's body, never
 # any call site.
 #
-# All six query tools route through this — refresh_cache() does NOT
-# (Ziel 6, verified separately): it is a sync trigger, not a data
-# query, so it is categorically not a routing candidate (Timo,
-# NOTES_v1.7.1.1_session2.md — "refresh cache soll ja nicht auf die
-# sql db gehen sondern mcp_delta triggern").
+# All six query tools route through this — refresh_cache() does NOT:
+# it is a sync trigger, not a data query, so it is categorically not a
+# routing candidate (see NOTES_v1.7.1.1_session2.md).
 #
-# query_fit_activities is included, not excluded (Timo, same NOTES
-# section: "der fit teil soll wenn er da ist auch in die sql db... von
-# daher würde ich das auch mit in die weiche nehmen") — its "sqlite"
-# branch below calls mcp_map.query_fit_activities() directly rather
+# query_fit_activities IS included, not excluded — once the FIT domain
+# exists it should also go through the SQLite cache like every other
+# domain (see NOTES_v1.7.1.1_session2.md). Its "sqlite" branch below
+# calls mcp_map.query_fit_activities() directly rather
 # than a not-yet-existing mcp_sql.get_fit_range(), i.e. it currently
 # returns the identical degraded {"fit": {"error": "domain not yet
 # available"}, ...} result on both branches of the if/else — the same
@@ -1241,6 +1246,106 @@ def _resolve_context_bundle(bundle_name: str, date_from: str, date_to: str,
     return _enrich_with_units(result, "context")
 
 
+# v1.7.1.16 -- extracted out of query_context() so the brightsky/DWD-vs-
+# weather/Open-Meteo source-priority merge for "wind_speed_max" (see the
+# comment on the "field == 'wind_speed_max'" branch below) applies no
+# matter how the caller reached that field name: a direct, exact request,
+# a CONTEXT_FIELD_ALIASES hit (e.g. "max_wind_speed", "wind_speed",
+# "max_wind_speed_dwd", "wind_max" -- all four alias to "wind_speed_max"),
+# or a difflib near-match auto-resolve. Before this fix only the direct-
+# request path applied the merge; both alias/near-match paths returned
+# right after fetching, with the two sources' conflicting raw values
+# still separated by source key under result["context"] instead of one
+# prioritized value -- reproduced live via "query_context max_wind_speed
+# ...", see NOTES_v1.7.1.16.md for the repro and MCP-side symptom.
+#
+# Returns the same {"context": ..., "_meta": ...} shape query_context()'s
+# call sites already expect, pre-unit-enrichment -- callers still run the
+# result through _enrich_with_units() themselves so field_resolved_from/
+# field_used (set by the alias/near-match callers, not here) end up in
+# the same "_meta" dict that carries "field_sources" for the merge case.
+def _fetch_context_field(field: str, date_from: str, date_to: str,
+                          resolution: str) -> dict:
+    # v1.7.1.12 -- wind_speed_max source collision (see NOTES_v1.7.1.12.md
+    # "Ziel 2"): "weather" and "brightsky" both register a field called
+    # "wind_speed_max" (deliberate, documented in REFERENCE_BROKER.md).
+    # _resolve_context_bundle() above already tie-breaks this correctly
+    # per day when the request goes through the "weather" bundle name --
+    # this handles the same tie-break for every other way of reaching the
+    # field (direct request, alias, near-match -- see this function's own
+    # docstring above). Fixed here with a plain value precedence, no
+    # generic collision table (Timo-Entscheidung, deliberately not
+    # building _KNOWN_FIELD_COLLISIONS for a single confirmed case):
+    # brightsky wins per day whenever it has a non-None value; days with
+    # no brightsky value (confirmed to mean "location was outside Germany
+    # that day" -- context_collector.py skips the brightsky fetch
+    # entirely outside the DE bounding box, no file is ever written for
+    # those dates) fall through to weather's value for that same day.
+    # No location check needed here -- the fetch-time skip already
+    # encodes the location decision into file presence, checking values
+    # is equivalent and stays within this function's scope.
+    #
+    # Single call, not two: both mcp_sql.get_context_range(field=...) and
+    # mcp_map.query_context(field=...) already fan out across every
+    # source that registers the requested field name in one result (see
+    # mcp_sql.get_context_range()'s own docstring, "field-filter fix" --
+    # "the filter keeps every source that carries the requested field...
+    # so a multi-source field still returns all of its sources"; same
+    # fan-out principle on the live branch via gateway_map.get()). No
+    # second query needed to reach the other source -- it is already in
+    # the same response, keyed by source name under "context".
+    if field == "wind_speed_max":
+        if _route_query("context") == "sqlite":
+            collision_result = mcp_sql.get_context_range(date_from, date_to, field=field)
+        else:
+            collision_result = mcp_map.query_context(field, date_from, date_to, resolution)
+
+        by_source = collision_result.get("context", {})
+        brightsky_candidate = by_source.get("brightsky", {}).get(field)
+        weather_candidate = by_source.get("weather", {}).get(field)
+
+        brightsky_by_date = {
+            v["date"]: v.get("value")
+            for v in (brightsky_candidate.get("values", []) if brightsky_candidate else [])
+        }
+        weather_by_date = {
+            v["date"]: v.get("value")
+            for v in (weather_candidate.get("values", []) if weather_candidate else [])
+        }
+        all_dates = sorted(set(brightsky_by_date) | set(weather_by_date))
+
+        merged_values = []
+        field_sources: dict[str, str] = {}
+        for day in all_dates:
+            day_value = brightsky_by_date.get(day)
+            if day_value is not None:
+                merged_values.append({"date": day, "value": day_value})
+                field_sources[day] = "brightsky"
+            else:
+                day_value = weather_by_date.get(day)
+                merged_values.append({"date": day, "value": day_value})
+                if day_value is not None:
+                    field_sources[day] = "weather"
+
+        base_candidate = brightsky_candidate or weather_candidate or {}
+        result = {
+            "context": {
+                field: {
+                    "fallback": base_candidate.get("fallback", False),
+                    "source_resolution": base_candidate.get("source_resolution", "daily"),
+                    "values": merged_values,
+                }
+            },
+        }
+        result["_meta"] = collision_result.get("_meta", {})
+        result["_meta"]["field_sources"] = {field: field_sources}
+        return result
+
+    if _route_query("context") == "sqlite":
+        return mcp_sql.get_context_range(date_from, date_to, field=field)
+    return mcp_map.query_context(field, date_from, date_to, resolution)
+
+
 @mcp.tool()
 def query_context(field: str, date_from: str, date_to: str,
                    resolution: str = "daily") -> dict:
@@ -1330,10 +1435,13 @@ def query_context(field: str, date_from: str, date_to: str,
     behind both tables."""
     if field in CONTEXT_FIELD_ALIASES:
         resolved_field = CONTEXT_FIELD_ALIASES[field]
-        if _route_query("context") == "sqlite":
-            result = mcp_sql.get_context_range(date_from, date_to, field=resolved_field)
-        else:
-            result = mcp_map.query_context(resolved_field, date_from, date_to, resolution)
+        # v1.7.1.16 -- routed through _fetch_context_field() instead of
+        # calling mcp_sql/mcp_map directly, so an alias landing on
+        # "wind_speed_max" (e.g. "max_wind_speed", "wind_speed",
+        # "max_wind_speed_dwd", "wind_max") gets the brightsky/DWD-vs-
+        # weather/Open-Meteo priority merge too, not just an exact-name
+        # request -- see _fetch_context_field()'s own docstring.
+        result = _fetch_context_field(resolved_field, date_from, date_to, resolution)
         result.setdefault("_meta", {})
         result["_meta"]["field_resolved_from"] = field
         result["_meta"]["field_used"] = resolved_field
@@ -1389,10 +1497,11 @@ def query_context(field: str, date_from: str, date_to: str,
             # v1.7.1.11 Session 4 -- Rueckbau: "_series" durchlaeuft
             # dieselbe Weiche wie jedes andere Feld, kein Sonderpfad mehr
             # (siehe Docstring-Zusatz oben, NOTES_v1.7.1.11.md Session 4).
-            if _route_query("context") == "sqlite":
-                result = mcp_sql.get_context_range(date_from, date_to, field=resolved_field)
-            else:
-                result = mcp_map.query_context(resolved_field, date_from, date_to, resolution)
+            # v1.7.1.16 -- routed through _fetch_context_field() instead
+            # of calling mcp_sql/mcp_map directly, same reasoning as the
+            # CONTEXT_FIELD_ALIASES branch above: a near-match landing on
+            # "wind_speed_max" must get the source-priority merge too.
+            result = _fetch_context_field(resolved_field, date_from, date_to, resolution)
             result.setdefault("_meta", {})
             result["_meta"]["field_resolved_from"] = field
             result["_meta"]["field_used"] = resolved_field
@@ -1411,86 +1520,13 @@ def query_context(field: str, date_from: str, date_to: str,
     # Weiche wie jedes andere Feld, kein Sonderpfad mehr (siehe
     # Docstring-Zusatz oben, NOTES_v1.7.1.11.md Session 4).
     #
-    # v1.7.1.12 -- wind_speed_max source collision (see NOTES_v1.7.1.12.md
-    # "Ziel 2"): "weather" and "brightsky" both register a field called
-    # "wind_speed_max" (deliberate, documented in REFERENCE_BROKER.md).
-    # _resolve_context_bundle() above already tie-breaks this correctly
-    # per day when the request goes through the "weather" bundle name --
-    # but a direct field request (this path) bypassed that logic
-    # entirely and returned both source values unresolved. Fixed here
-    # with a plain value precedence, no fallback concept, no generic
-    # collision table (Timo-Entscheidung, deliberately not building
-    # _KNOWN_FIELD_COLLISIONS for a single confirmed case): brightsky
-    # wins per day whenever it has a non-None value; days with no
-    # brightsky value (confirmed to mean "location was outside Germany
-    # that day" -- context_collector.py skips the brightsky fetch
-    # entirely outside the DE bounding box, no file is ever written for
-    # those dates) fall through to weather's value for that same day.
-    # No location check needed here -- the fetch-time skip already
-    # encodes the location decision into file presence, checking values
-    # is equivalent and stays within this file's scope.
-    #
-    # Single call, not two: both mcp_sql.get_context_range(field=...) and
-    # mcp_map.query_context(field=...) already fan out across every
-    # source that registers the requested field name in one result (see
-    # mcp_sql.get_context_range()'s own docstring, "field-filter fix" --
-    # "the filter keeps every source that carries the requested field...
-    # so a multi-source field still returns all of its sources"; same
-    # fan-out principle on the live branch via gateway_map.get()). No
-    # second query needed to reach the other source -- it is already in
-    # the same response, keyed by source name under "context".
-    if field == "wind_speed_max":
-        if _route_query("context") == "sqlite":
-            collision_result = mcp_sql.get_context_range(date_from, date_to, field=field)
-        else:
-            collision_result = mcp_map.query_context(field, date_from, date_to, resolution)
-
-        by_source = collision_result.get("context", {})
-        brightsky_candidate = by_source.get("brightsky", {}).get(field)
-        weather_candidate = by_source.get("weather", {}).get(field)
-
-        brightsky_by_date = {
-            v["date"]: v.get("value")
-            for v in (brightsky_candidate.get("values", []) if brightsky_candidate else [])
-        }
-        weather_by_date = {
-            v["date"]: v.get("value")
-            for v in (weather_candidate.get("values", []) if weather_candidate else [])
-        }
-        all_dates = sorted(set(brightsky_by_date) | set(weather_by_date))
-
-        merged_values = []
-        field_sources: dict[str, str] = {}
-        for day in all_dates:
-            day_value = brightsky_by_date.get(day)
-            if day_value is not None:
-                merged_values.append({"date": day, "value": day_value})
-                field_sources[day] = "brightsky"
-            else:
-                day_value = weather_by_date.get(day)
-                merged_values.append({"date": day, "value": day_value})
-                if day_value is not None:
-                    field_sources[day] = "weather"
-
-        base_candidate = brightsky_candidate or weather_candidate or {}
-        result = {
-            "context": {
-                field: {
-                    "fallback": base_candidate.get("fallback", False),
-                    "source_resolution": base_candidate.get("source_resolution", "daily"),
-                    "values": merged_values,
-                }
-            },
-        }
-        result["_meta"] = collision_result.get("_meta", {})
-        result["_meta"]["field_sources"] = {field: field_sources}
-        return _enrich_with_units(result, "context")
-
-    if _route_query("context") == "sqlite":
-        result = mcp_sql.get_context_range(date_from, date_to, field=field)
-    else:
-        result = mcp_map.query_context(field, date_from, date_to, resolution)
-    return _enrich_with_units(result, "context")
+    # v1.7.1.16 -- the wind_speed_max source-priority merge (previously
+    # inline here) moved into _fetch_context_field() above, shared with
+    # the CONTEXT_FIELD_ALIASES and difflib near-match branches earlier
+    # in this function -- see that function's docstring for why.
+    return _enrich_with_units(
+        _fetch_context_field(field, date_from, date_to, resolution), "context"
+    )
 
 
 @mcp.tool()
@@ -1534,9 +1570,22 @@ def get_archive_metadata(kind: str, date_from: str | None = None,
     date_from/date_to (ISO "YYYY-MM-DD", inclusive) optionally narrow
     "quality_log", "source_api_log", "daily_logs", "fail_logs", and
     "recent_logs" to a date range — ignored for the other four kinds.
-    Omit both to get the last 30 days of that kind rather than the full
-    archive history; the response then includes a "note" field saying
-    so. Pass both explicitly for a specific or wider range."""
+
+    v1.7.1.16 clarification (no behavior change): the 30-day-default-
+    plus-"note" convenience described below only exists on the LIVE
+    path (mcp_map.get_archive_metadata() -> metadata_map.py). On the
+    SQLite-cached path (mcp_sql.get_metadata_range() — the one actually
+    taken today, see _route_query()), omitting both dates for one of
+    the five date-filterable kinds instead returns an empty result with
+    no "note" at all; this is deliberate on that path (see
+    mcp_sql.get_metadata_range()'s own docstring: "no 30-day-default
+    fallback in this cache read"), not a bug — but the difference was
+    previously undocumented at this public tool's own docstring level.
+
+    Live path: omit both to get the last 30 days of that kind rather
+    than the full archive history; the response then includes a "note"
+    field saying so. Pass both explicitly for a specific or wider range
+    on either path."""
     if _route_query("metadata") == "sqlite":
         return mcp_sql.get_metadata_range(kind, date_from=date_from, date_to=date_to)
     return mcp_map.get_archive_metadata(kind, date_from=date_from, date_to=date_to)
@@ -1563,11 +1612,10 @@ def list_available_fields(domain: str | None = None) -> dict:
         # gateway_map's domain/metadata-kind lists), not archived data
         # that a sync could make stale — there is no cache benefit to
         # a SQLite-backed version, and no mcp_sql function exists for
-        # it. Included in the weiche anyway (Timo, explicit: "bitte so
-        # bauen wie es geplant ist" — the start prompt names "all seven
-        # tool wrappers... without exception" for Ziel 5, and only
-        # refresh_cache() is excluded by Ziel 6) rather than silently
-        # left out — both branches call the identical live path, so
+        # it. Included in the weiche anyway, consistent with every other
+        # tool wrapper except refresh_cache() (see NOTES_v1.7.1.1_session2.md)
+        # rather than silently left out — both branches call the identical
+        # live path, so
         # the routing decision is structurally present but has no
         # observable effect for this one tool, the same non-effect
         # query_fit_activities' branch currently has for a different

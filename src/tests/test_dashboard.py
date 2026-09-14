@@ -1183,8 +1183,11 @@ _lf_active_default  = garmin_health_map.list_fields(active_only=True)
 # v1.7.1.14, Issue #7: six new bp_* capability fields added — disabled-by-
 # default delta grows from 6 (body_weight, calories_resting, hydration_ml,
 # endurance_score, hill_score, fitness_age) to 12 (+ the six bp_* fields).
+# v1.7.1.16: two more capability fields added (calories_active,
+# calories_total — same get_calories_daily gate as calories_resting,
+# see NOTES_v1.7.1.16.md) — delta grows from 12 to 14.
 check("list_fields active_only: excludes disabled capability fields by default",
-      len(_lf_active_default) == _lf_default_count - 12)
+      len(_lf_active_default) == _lf_default_count - 14)
 check("list_fields active_only: baseline field always present",
       "hrv_last_night" in _lf_active_default)
 check("list_fields active_only: disabled capability field excluded",

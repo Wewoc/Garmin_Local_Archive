@@ -191,7 +191,7 @@ LOG_LEVEL = os.environ.get("GARMIN_LOG_LEVEL", "INFO")
 #  Collector limits
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Maximum days fetched per session (placeholder — used from v1.2.1 onwards)
+# Maximum days fetched per session
 MAX_DAYS_PER_SESSION = int(os.environ.get("GARMIN_MAX_DAYS_PER_SESSION", "30"))
 
 # Days processed per chunk before quality_log.json is flushed to disk

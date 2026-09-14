@@ -4,7 +4,7 @@
 
 """
 clients/mcp_sql.py
-Garmin Local Archive — SQLite Proxy, data-access layer (v1.7.1)
+Garmin Local Archive — SQLite Proxy, data-access layer
 
 Pure SQLite access — schema definition, connection, and typed read/write
 functions for the MCP aggregation cache. Owns no sync/delta logic (that
@@ -28,30 +28,26 @@ Error handling: every function in this module raises on failure — it
 does not degrade internally, unlike the {"data":..., "error":...}
 envelope used throughout maps/. The caller (clients/mcp_update.py) is
 responsible for catching per-unit failures and logging them, so that
-one bad row/file does not abort an entire sync pass (NOTES_v1.7.1_
-session2.md, "Fehlerbehandlung" — mcp_sql.py throws, mcp_update.py
-catches per unit). Keeping this module free of try/except keeps its
-own logic easy to verify in isolation and avoids silently swallowing a
-schema/connection problem that the caller actually needs to see.
+one bad row/file does not abort an entire sync pass (see
+NOTES_v1.7.1_session2.md, "Fehlerbehandlung"). Keeping this module free
+of try/except keeps its own logic easy to verify in isolation and
+avoids silently swallowing a schema/connection problem that the caller
+actually needs to see.
 
 Connection model: a single, module-level, long-lived connection —
 correct for this process model, since only clients/mcp_server.py (one
-process) ever opens this database (NOTES_v1.7.1_session2.md,
-Connection-Handling: "aktuell kann ja nur der mcp server auf die
-datenbank zugreifen"). WAL (write-ahead logging) journal mode is
+process) ever opens this database (see NOTES_v1.7.1_session2.md,
+Connection-Handling). WAL (write-ahead logging) journal mode is
 enabled at connect time so that a concurrent read (an in-flight MCP
 tool call) and a concurrent write (a refresh_cache() sync running in
 another thread inside the same process) do not block each other or
-raise "database is locked" under normal operation — this is the
-technical implementation of the "offene Verbindung, aber
-Thread-sicher" decision from the same NOTES section, not a new
-architectural decision. check_same_thread=False is required for the
-same reason: FastMCP may service tool calls on a different thread than
-the one that opened this connection.
+raise "database is locked" under normal operation. check_same_thread=
+False is required for the same reason: FastMCP may service tool calls
+on a different thread than the one that opened this connection.
 
 Schema — three data shapes, matching maps/metadata_map.py's/
-maps/gateway_map.py's own Form A/B/C classification
-(NOTES_v1.7.1_session2.md):
+maps/gateway_map.py's own Form A/B/C classification (see
+NOTES_v1.7.1_session2.md):
 
   Form A (daily time series):
     mcp_health_days    — one row per day, health payload + last_attempt
@@ -77,23 +73,22 @@ maps/gateway_map.py's own Form A/B/C classification
 
   Form C (structured logs / log files):
     mcp_structured_logs — one row per (kind, date_key) for quality_log/
-                         source_api_log, compare_value formspecific:
+                         source_api_log, compare_value form-specific:
                          last_attempt for quality_log, max(fetched_at,
                          backfilled_fields values) for source_api_log
-                         (NOTES_v1.7.1_session2.md — corrected from an
-                         earlier, wrong fetched_at-only assumption)
+                         (see NOTES_v1.7.1_session2.md)
     mcp_recent_logs    — one row per (kind, source_filename) for
                          daily_logs/fail_logs/recent_logs. Primary key
                          is the filename, not (kind, date_key) — a
                          calendar day can have more than one sync log
-                         (Timo correction, NOTES_v1.7.1_session2.md).
-                         No delta trigger via mcp_health_days — a log's
+                         (see NOTES_v1.7.1_session2.md). No delta
+                         trigger via mcp_health_days — a log's
                          filename-date is the sync timestamp, not
                          necessarily the archived day it reports on
-                         (a recheck on 2026-08-27 for an archived day
-                         from 2026-07-15 produces a log file dated
-                         2026-08-27) — handled like Form B instead,
-                         full filename diff on every sync via
+                         (a recheck for an archived day from months
+                         earlier still produces a log file dated
+                         today) — handled like Form B instead, full
+                         filename diff on every sync via
                          maps/mcp_map.py's list_*_log_filenames().
 
 All timestamps stored as the ISO strings the archive itself already
@@ -101,6 +96,8 @@ uses (quality_log.json's last_attempt, source_api_log.json's
 fetched_at) — no reformatting, so a stored compare_value can be
 string-compared directly against a freshly-read one without a parse
 step on either side.
+
+Entstehungsgeschichte: siehe CHANGELOG.md v1.7.1.
 """
 
 import json
