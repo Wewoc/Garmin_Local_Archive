@@ -1,5 +1,55 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.1.17 — Sync Field-Registry Reconciliation + steps Ambiguity Fix + Doc Cleanup
+
+Closes the structural gap `v1.7.1.16`'s own "Migration note" and
+`REFERENCE_MCP.md`'s "Cache rebuild note" documented: `mcp_update.py`'s
+sync logic could not detect a newly-registered field in an
+already-synced source, requiring a manual `mcp_cache.db` deletion after
+every future `_FIELD_MAP` growth.
+
+**Fix 1 — automatic field-registry reconciliation.** New
+`mcp_field_registry` table (`mcp_sql.py`) stores the field set seen at
+the last sync per domain (`"health"`, `"context:<source>"`). A new
+`_reconcile_field_registry()` (`mcp_update.py`), called at the start of
+every `sync_all()` pass, compares the live field set
+(`mcp_map.list_available_fields()`) against the stored one; when a
+domain has gained fields since it was last registered, the affected
+sync-delta state is reset (`mcp_health_days.last_attempt_synced` to
+`NULL` for health, the affected source removed from
+`complete_sources`/`attempted_sources` for context) so the same
+`sync_all()` pass that detects the drift also resolves it — no manual
+DB deletion needed for any future field-registry growth.
+`sync_all()`'s result dict gains `field_registry_resets: list[str]`,
+the domain names that triggered a reset this run (empty in the normal
+case).
+
+**Fix 2 — `steps` short-form is ambiguous, not an alias.**
+`HEALTH_FIELD_ALIASES["steps"] = "steps_series"` predates `v1.7.1.16`'s
+`steps_total` field — since then, "steps" has been silently resolving
+to the intraday series while the equally-valid daily total sat
+unreachable under the same short name. Live test run 19
+(`qwen2.5-coder`/`qwen3` family, `mcp_test/results/
+lauf_19_20260914_v17116/`) surfaced this: "Wie viele Schritte bin ich
+insgesamt gegangen?" returned the `steps_series` value (e.g. 286/1090/
+3825/5090) instead of the correct `steps_total` daily sum (2595) for
+several models. `steps` moved from `HEALTH_FIELD_ALIASES` to
+`HEALTH_FIELD_AMBIGUOUS` (`["steps_total", "steps_series"]`, aggregate
+before series, same convention as the existing `spo2`/`stress`
+entries) — `query_health(field="steps", ...)` now returns the same
+`did_you_mean` prompt already used for those two fields instead of
+silently picking one candidate.
+
+**Fix 3 — doc corrections.** `REFERENCE_MCP.md`'s "Cache rebuild note"
+(manual `mcp_cache.db` deletion instruction) replaced with a
+description of the new automatic reconciliation from Fix 1.
+`FIELD_UNITS` (`mcp_server.py`) gains the six `bp_*` units (`mmHg`/
+`mmHg`/`mmHg`/`mmHg`/`count`/`text`, already documented in
+`REFERENCE_GARMIN.md` but never carried over here since `v1.7.1.14`).
+Field-count comments in `mcp_server.py` and `REFERENCE_BROKER.md`
+corrected from "54 fields" to the actual 55 (`_FIELD_MAP`'s real
+length — 32 pre-`v1.7.1.16` + 23 new).
+
 ## v1.7.1.16 — wind_speed_max Priority Fix + 23 Health Field Registrations
 
 Derived from a live MCP test session with a frontier model (Claude Sonnet

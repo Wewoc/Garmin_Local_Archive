@@ -211,12 +211,18 @@ _SCHEMA_STATEMENTS = [
         hash TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS mcp_field_registry (
+        domain TEXT PRIMARY KEY,
+        fields_json TEXT NOT NULL
+    )
+    """,
 ]
 
 
 def init_db() -> None:
     """
-    Creates all seven tables if they do not already exist. Idempotent —
+    Creates all ten tables if they do not already exist. Idempotent —
     safe to call on every mcp_server.py boot, not just the first ever
     run. Does not populate any table; that is sync_all()'s job
     (clients/mcp_update.py).
@@ -376,6 +382,76 @@ def get_day_status(day: str) -> dict | None:
     if row is None:
         return None
     return {"quality": row["quality"], "context": row["context"], "fit": row["fit"]}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Field Registry — mcp_field_registry (v1.7.1.17)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_registered_fields(domain: str) -> set[str] | None:
+    """Returns the field set stored for this domain at the last sync,
+    or None if the domain has never been registered at all (fresh DB
+    or brand-new domain — distinct from "registered with an empty
+    set"). domain is "health" or "context:<source>"."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT fields_json FROM mcp_field_registry WHERE domain = ?", (domain,)
+    ).fetchone()
+    return set(json.loads(row["fields_json"])) if row is not None else None
+
+
+def set_registered_fields(domain: str, fields: set[str]) -> None:
+    """Inserts or replaces the stored field set for one domain."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO mcp_field_registry (domain, fields_json)
+        VALUES (?, ?)
+        ON CONFLICT(domain) DO UPDATE SET fields_json = excluded.fields_json
+        """,
+        (domain, json.dumps(sorted(fields))),
+    )
+    conn.commit()
+
+
+def reset_health_sync_state() -> None:
+    """Sets last_attempt_synced to NULL for every row in
+    mcp_health_days, forcing a resync of every day on the next
+    sync_all() pass without deleting the rows themselves.
+    get_health_compare_value() never returns None from the live
+    archive (see its own docstring), so a NULL cached value reliably
+    mismatches on the next comparison."""
+    conn = get_connection()
+    conn.execute("UPDATE mcp_health_days SET last_attempt_synced = NULL")
+    conn.commit()
+
+
+def reset_context_source(source: str) -> None:
+    """Removes `source` from complete_sources_json and
+    attempted_sources_json in every row of mcp_context_days, forcing
+    _sync_context_days() to re-query that source for every day on the
+    next pass — same read-modify-write loop as the existing Context
+    helpers (get_context_day_state()/upsert_context_day())."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT date, complete_sources_json, attempted_sources_json FROM mcp_context_days"
+    ).fetchall()
+    for row in rows:
+        complete = set(json.loads(row["complete_sources_json"]))
+        attempted = set(json.loads(row["attempted_sources_json"]))
+        if source not in complete and source not in attempted:
+            continue
+        complete.discard(source)
+        attempted.discard(source)
+        conn.execute(
+            """
+            UPDATE mcp_context_days
+            SET complete_sources_json = ?, attempted_sources_json = ?
+            WHERE date = ?
+            """,
+            (json.dumps(sorted(complete)), json.dumps(sorted(attempted)), row["date"]),
+        )
+    conn.commit()
 
 
 # Shared by get_health_range()/get_context_range() (v1.7.1.1, Ziel 1/2) —

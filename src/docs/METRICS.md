@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-09-14 07:29 UTC · Version: 1.7.1.16
+Generated: 2026-09-14 12:42 UTC · Version: 1.7.1.17
 
 ## Test Counts
 
@@ -13,11 +13,11 @@ Generated: 2026-09-14 07:29 UTC · Version: 1.7.1.16
 | test_local_context.py | 299 | 299 | 0 |
 | test_dashboard.py | 469 | 469 | 0 |
 | test_broker.py | 136 | 136 | 0 |
-| test_mcp.py | 186 | 186 | 0 |
+| test_mcp.py | 200 | 200 | 0 |
 | test_app_logic.py | 169 | 169 | 0 |
 | test_qt_app.py | 80 | 80 | 0 |
 | test_static.py | 16 | 16 | 0 |
-| **Total** | **2143** | **2143** | **0** |
+| **Total** | **2157** | **2157** | **0** |
 
 ## Modules
 

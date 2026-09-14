@@ -456,9 +456,14 @@ Deliberately named `test_mcp.py`, not `test_mcp_map.py` — a growing
 collection file for the whole MCP layer; `clients/mcp_server.py`
 (v1.7 Teilbauauftrag b) and the v1.7.1 SQLite Proxy (`clients/mcp_sql.py`,
 `clients/mcp_update.py`) both added their sections here rather than
-spawning further narrowly-named test files, as anticipated. Check and
-section totals are tracked in `docs/METRICS.md` (`test_mcp.py`) — not
-restated here to avoid drift.
+spawning further narrowly-named test files, as anticipated — most
+recently Section 9 (v1.7.1.17), covering
+`mcp_update._reconcile_field_registry()`'s seed-vs-reset decision logic
+(mocked, same scoping choice as the rest of this file — see that
+section's own comment for why a real-SQLite test of `mcp_sql.py`'s new
+field-registry functions is still an open gap). Check and section
+totals are tracked in `docs/METRICS.md` (`test_mcp.py`) — not restated
+here to avoid drift.
 
 Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
 `gateway_map` (routing targets), `clients/mcp_sql.py`,

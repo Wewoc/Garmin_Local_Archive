@@ -170,6 +170,55 @@ def _start_update_log(base_dir: Path, timestamp: str) -> logging.FileHandler | N
     return handler
 
 
+def _reconcile_field_registry() -> dict:
+    """
+    Compares the live field registry (maps/mcp_map.py's
+    list_available_fields()) against what was registered on the last
+    sync (mcp_sql.get_registered_fields()) — health as one domain,
+    context per-source ("context:<source>") — and resets the affected
+    sync-delta state whenever a domain's live field set has grown
+    since it was last registered, so the next _sync_health_days()/
+    _sync_context_days() pass picks up the new field for every
+    already-cached day instead of requiring a manual mcp_cache.db
+    deletion (see CHANGELOG.md's v1.7.1.16 "Migration note" and
+    REFERENCE_MCP.md's "Cache rebuild note" — this closes exactly that
+    gap).
+
+    First run against a fresh/new DB (stored is None): seeds the
+    registry only, no reset — there is nothing to resync yet, an empty
+    cache does not need to be "fixed".
+
+    Returns {"health": bool, "context:<source>": bool, ...} for every
+    domain checked this run — True where a reset fired. sync_all()
+    uses this to populate its own field_registry_resets result key.
+    """
+    resets: dict[str, bool] = {}
+
+    live_health = set(
+        mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", []))
+    stored_health = mcp_sql.get_registered_fields("health")
+    if stored_health is not None and live_health - stored_health:
+        mcp_sql.reset_health_sync_state()
+        logger.info("Field registry: health gained %s, resetting sync state",
+                    sorted(live_health - stored_health))
+        resets["health"] = True
+    mcp_sql.set_registered_fields("health", live_health)
+
+    context_fields = mcp_map.list_available_fields(domain="context")["fields"]["context"]
+    for source, fields in context_fields.items():
+        domain = f"context:{source}"
+        live_fields = set(fields)
+        stored_fields = mcp_sql.get_registered_fields(domain)
+        if stored_fields is not None and live_fields - stored_fields:
+            mcp_sql.reset_context_source(source)
+            logger.info("Field registry: %s gained %s, resetting sync state",
+                        domain, sorted(live_fields - stored_fields))
+            resets[domain] = True
+        mcp_sql.set_registered_fields(domain, live_fields)
+
+    return resets
+
+
 def _sync_health_days() -> tuple[int, int]:
     """
     Form A, health: get_stats() for the archive's real date_min/date_max
@@ -645,6 +694,9 @@ def sync_all(is_boot: bool = False) -> dict:
             "log_files_failed": int,
             "structured_log_entries_updated": int,  # quality_log + source_api_log combined
             "structured_log_entries_failed": int,
+            "field_registry_resets": list[str],  # domains reset this run — see
+                                                  # _reconcile_field_registry(), empty in
+                                                  # the normal case
             "duration_seconds": float,
             "marker": str,                    # shared sync marker, see module docstring
         }
@@ -683,6 +735,7 @@ def sync_all(is_boot: bool = False) -> dict:
 
         try:
             mcp_sql.init_db()
+            field_registry_resets = _reconcile_field_registry()
 
             health_days_updated, health_days_failed = _sync_health_days()
             context_days_updated, context_days_failed = _sync_context_days()
@@ -725,6 +778,7 @@ def sync_all(is_boot: bool = False) -> dict:
                 "log_files_failed": log_files_failed,
                 "structured_log_entries_updated": structured_entries_updated,
                 "structured_log_entries_failed": structured_entries_failed,
+                "field_registry_resets": sorted(k for k, v in field_registry_resets.items() if v),
                 "duration_seconds": duration,
                 "marker": marker,
             }
