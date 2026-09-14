@@ -564,40 +564,37 @@ check("query_health unknown-field: unrecognized value yields generic 'unknown fi
 check("query_health unknown-field: health key stays an empty dict on error",
       _qh_unknown.get("health") == {})
 
-# 3b. Short-prefix gap, resolved via explicit alias mapping (v1.7.1.9
-#     Session 2): "steps" is a real, common short-form for
-#     "steps_series", but difflib ratio(steps, steps_series) = 0.588 --
-#     well under any defensible cutoff (verified down to cutoff=0.7).
-#     Confirmed structural, not a tunable parameter (see
-#     REFERENCE_BROKER.md v1.7.1.9 entry) -- Session 2 added an
-#     explicit HEALTH_FIELD_ALIASES mapping, checked before outcome 1's
-#     near-match logic. "steps" now auto-resolves exactly like a
-#     near-match typo would (same _meta keys), just via the alias path
-#     instead of difflib.
-_HEALTH_ALIAS_MOCK = {"health": {"garmin": {"steps_series": {
-    "values": [{"date": _TEST_DATE, "series": [{"ts": _TEST_DATE + "T00:00:00", "value": 120}]}],
-    "fallback": False, "source_resolution": "intraday",
-}}}, "_meta": {}}
-with patch("mcp_sql.get_health_range", return_value=_HEALTH_ALIAS_MOCK) as _m_sql_steps, \
+# 3b. steps short-form is ambiguous, not an alias (v1.7.1.17 correction
+#     of the v1.7.1.9 Session 2 alias). "steps" was a real, common
+#     short-form for "steps_series" when that alias was added — but
+#     v1.7.1.16 registered "steps_total" (the daily aggregate) in the
+#     same _FIELD_MAP without updating this alias, so "steps" kept
+#     silently resolving to steps_series only. Live test run 19
+#     (mcp_test/results/lauf_19_20260914_v17116/) surfaced several
+#     models answering "Wie viele Schritte bin ich insgesamt gegangen?"
+#     with the wrong (steps_series) value. Moved to HEALTH_FIELD_AMBIGUOUS,
+#     same shape/mechanism as the pre-existing spo2/stress entries (3d
+#     below) — error + did_you_mean with both real candidates, no
+#     auto-resolve.
+with patch("mcp_sql.get_health_range") as _m_sql_steps, \
      patch("maps.mcp_map.query_health") as _m_live_steps:
     _qh_steps = mcp_server.query_health("steps", _TEST_DATE, _TEST_DATE, "daily")
-check("query_health unknown-field: 'steps' alias auto-resolves to steps_series",
-      "error" not in _qh_steps)
-check("query_health unknown-field: 'steps' alias never reaches mcp_map (sqlite branch active)",
-      not _m_live_steps.called)
-check("query_health unknown-field: 'steps' alias — _meta.field_resolved_from set to caller's input",
-      _qh_steps.get("_meta", {}).get("field_resolved_from") == "steps")
-check("query_health unknown-field: 'steps' alias — _meta.field_used set to steps_series",
-      _qh_steps.get("_meta", {}).get("field_used") == "steps_series")
-check("query_health unknown-field: 'steps' alias — mcp_sql.get_health_range called with resolved field",
-      _m_sql_steps.call_args.kwargs.get("field") == "steps_series")
+check("query_health unknown-field: 'steps' is ambiguous, not a generic unknown-field error",
+      "ambiguous" in _qh_steps.get("error", ""))
+check("query_health unknown-field: 'steps' did_you_mean lists both real candidates",
+      _qh_steps.get("did_you_mean") == ["steps_total", "steps_series"])
+check("query_health unknown-field: 'steps' never reaches mcp_sql/mcp_map",
+      not _m_sql_steps.called and not _m_live_steps.called)
+check("query_health unknown-field: 'steps' has no field_used (nothing resolved)",
+      "field_used" not in _qh_steps.get("_meta", {}))
 
 # 3b-bis. v1.7.1.16 correction — "steps_total" (the actual registered
-#         daily-total field) must NOT be caught by the "steps" alias
-#         above (different string, HEALTH_FIELD_ALIASES has no entry
-#         for "steps_total") and must resolve directly via _FIELD_MAP,
-#         no field_resolved_from/field_used. Regression guard for the
-#         live-discovered "steps" naming collision (NOTES_v1_7_1_16.md).
+#         daily-total field) must NOT be caught by the "steps" ambiguous
+#         entry above (different string, HEALTH_FIELD_AMBIGUOUS has no
+#         entry for "steps_total") and must resolve directly via
+#         _FIELD_MAP, no field_resolved_from/field_used. Regression
+#         guard for the live-discovered "steps" naming collision
+#         (NOTES_v1_7_1_16.md).
 _HEALTH_STEPS_TOTAL_MOCK = {"health": {"garmin": {"steps_total": {
     "values": [{"date": _TEST_DATE, "value": 8500}],
     "fallback": False, "source_resolution": "daily",
@@ -1563,6 +1560,90 @@ os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS_ENABLED", None)
 os.environ.pop("GARMIN_MCP_EXTRA_ALLOWED_HOSTS", None)
 importlib.reload(cfg)
 importlib.reload(mcp_server)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  9. clients/mcp_update.py — _reconcile_field_registry() (v1.7.1.17)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# The field-registry mechanism itself (mcp_sql.mcp_field_registry +
+# get_registered_fields()/set_registered_fields()/reset_health_sync_state()/
+# reset_context_source()) has no dedicated real-DB test file in this
+# project (test_mcp_sql.py/test_mcp_update.py do not exist — only this
+# file covers the MCP layer, and it mocks mcp_sql throughout rather than
+# exercising a real SQLite connection, same scoping choice section 8f's
+# own comment already flags for sync_all()). This section covers
+# _reconcile_field_registry()'s own decision logic (seed vs. reset) via
+# the same mock style as the rest of this file, not the underlying SQL —
+# mcp_sql.py's four new functions themselves remain untested against a
+# real DB, a gap worth closing separately if this mechanism proves
+# fragile in practice.
+
+section("mcp_update 9. _reconcile_field_registry() — field-growth detection")
+
+import mcp_update
+
+_LAF_HEALTH_SEED = {"fields": {"health": {"garmin": ["field_a", "field_b"]}}}
+_LAF_CONTEXT_SEED = {"fields": {"context": {"weather": ["temperature_max"]}}}
+
+def _laf_side_effect(domain=None):
+    return _LAF_HEALTH_SEED if domain == "health" else _LAF_CONTEXT_SEED
+
+# ── 9a. First-ever run (stored is None) — seeds the registry, no reset ────────
+with patch("maps.mcp_map.list_available_fields", side_effect=_laf_side_effect), \
+     patch("mcp_sql.get_registered_fields", return_value=None), \
+     patch("mcp_sql.set_registered_fields") as _m_set_seed, \
+     patch("mcp_sql.reset_health_sync_state") as _m_reset_health_seed, \
+     patch("mcp_sql.reset_context_source") as _m_reset_context_seed:
+    _resets_seed = mcp_update._reconcile_field_registry()
+check("_reconcile_field_registry: first run (stored=None) reports no resets",
+      _resets_seed == {})
+check("_reconcile_field_registry: first run never calls reset_health_sync_state",
+      not _m_reset_health_seed.called)
+check("_reconcile_field_registry: first run never calls reset_context_source",
+      not _m_reset_context_seed.called)
+check("_reconcile_field_registry: first run still seeds the health registry",
+      _m_set_seed.call_args_list[0].args == ("health", {"field_a", "field_b"}))
+
+# ── 9b. Health domain gained a field since last sync — triggers reset ─────────
+def _grf_health_grown(domain):
+    return {"field_a"} if domain == "health" else {"temperature_max"}
+
+with patch("maps.mcp_map.list_available_fields", side_effect=_laf_side_effect), \
+     patch("mcp_sql.get_registered_fields", side_effect=_grf_health_grown), \
+     patch("mcp_sql.set_registered_fields") as _m_set_health, \
+     patch("mcp_sql.reset_health_sync_state") as _m_reset_health, \
+     patch("mcp_sql.reset_context_source") as _m_reset_context_unaffected:
+    _resets_health = mcp_update._reconcile_field_registry()
+check("_reconcile_field_registry: health field growth ('field_b' new) is reported as reset",
+      _resets_health.get("health") is True)
+check("_reconcile_field_registry: health growth calls reset_health_sync_state exactly once",
+      _m_reset_health.call_count == 1)
+check("_reconcile_field_registry: unchanged context source is not reported as reset",
+      "context:weather" not in _resets_health)
+check("_reconcile_field_registry: unchanged context source never calls reset_context_source",
+      not _m_reset_context_unaffected.called)
+check("_reconcile_field_registry: registry re-written to the new live field set after reset",
+      _m_set_health.call_args_list[0].args == ("health", {"field_a", "field_b"}))
+
+# ── 9c. Context source gained a field — triggers reset for that source only ───
+def _grf_context_grown(domain):
+    return {"field_a", "field_b"} if domain == "health" else set()
+
+with patch("maps.mcp_map.list_available_fields", side_effect=_laf_side_effect), \
+     patch("mcp_sql.get_registered_fields", side_effect=_grf_context_grown), \
+     patch("mcp_sql.set_registered_fields"), \
+     patch("mcp_sql.reset_health_sync_state") as _m_reset_health_unaffected, \
+     patch("mcp_sql.reset_context_source") as _m_reset_context:
+    _resets_context = mcp_update._reconcile_field_registry()
+check("_reconcile_field_registry: context source growth is reported as reset",
+      _resets_context.get("context:weather") is True)
+check("_reconcile_field_registry: context growth calls reset_context_source('weather') exactly once",
+      _m_reset_context.call_args.args == ("weather",))
+check("_reconcile_field_registry: unaffected health domain is not reported as reset",
+      "health" not in _resets_context)
+check("_reconcile_field_registry: unaffected health domain never calls reset_health_sync_state",
+      not _m_reset_health_unaffected.called)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

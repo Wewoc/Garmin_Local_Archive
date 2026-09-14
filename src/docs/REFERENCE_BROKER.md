@@ -263,10 +263,11 @@ rule, kept for quick readability. When a field's unit changes or a field is
 added/removed, update both places. `list_fields()` in the corresponding
 `*_map.py` module remains the actual source of truth for which fields exist.
 
-**`health_map` → `garmin`** (54 fields — 31 pre-`v1.7.1.16` + 23 new;
-note the pre-existing count here was already one short of the actual
-`_FIELD_MAP` length at the time, 32 — not reconciled retroactively, see
-`NOTES_v1_7_1_16.md`)
+**`health_map` → `garmin`** (55 fields — 32 pre-`v1.7.1.16` + 23 new;
+corrected `v1.7.1.17` — the previous "54 (31 pre)" header had
+undercounted the pre-`v1.7.1.16` total by one, out of sync with both
+`_FIELD_MAP` and this file's own field table below, see
+`NOTES_v1_7_1_17.md`)
 
 | Field | Value | Description |
 |---|---|---|
