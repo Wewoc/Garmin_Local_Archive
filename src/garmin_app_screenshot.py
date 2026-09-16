@@ -272,6 +272,26 @@ DEMO_LOG = [
     "✓ Sync complete — 5 days processed.",
 ]
 
+# Demo MCP server log (Chat tab, datasource "mcp") — matches the tool
+# call the demo chat conversation below narrates (intraday heart rate
+# for 2026-06-05). Format mirrors clients/mcp_server.py's real
+# operational log (%(asctime)s %(levelname)s %(name)s: %(message)s);
+# the startup/boot-sync lines are the module's real log messages, the
+# POST line is the streamable-http transport's own uvicorn access log
+# — no fabricated internal log statement.
+DEMO_MCP_LOG = (
+    "2026-06-06 09:14:02 INFO clients.mcp_server: Starting Garmin Local "
+    "Archive MCP server (headless) on 127.0.0.1:8756\n"
+    "2026-06-06 09:14:02 INFO clients.mcp_server: Operational log started "
+    "under C:\\Users\\Demo\\garmin_data\\garmin_data\\log\\mcp — boot log closed\n"
+    "2026-06-06 09:14:03 INFO clients.mcp_server: Starting SQLite proxy "
+    "boot sync...\n"
+    "2026-06-06 09:14:04 INFO clients.mcp_server: Boot sync complete: "
+    "{'rows_indexed': 5312, 'days_covered': 290}\n"
+    "2026-06-06 09:22:17 INFO uvicorn.access: 127.0.0.1:54331 - "
+    "\"POST /mcp HTTP/1.1\" 200 OK\n"
+)
+
 
 class ScreenshotApp(GarminApp):
     """
@@ -444,10 +464,13 @@ class ScreenshotApp(GarminApp):
             self._log(line)
 
     def _load_demo_chat(self):
-        """Populate the Ollama-Chat tab (panel_chat.py) with demo state —
-        no live Ollama call, no file I/O. Two exchanges: one answerable
-        from current summary data, one that surfaces the current
-        summary-only limitation (full intraday resolution planned for v1.9)."""
+        """Populate the Chat tab (panel_chat.py) with demo state —
+        no live Ollama/MCP call, no file I/O. Opens on datasource "mcp"
+        (Baustein 9 split-view) so the screenshot shows the v1.7.2 live-
+        query path (right pane: matching demo MCP server log) instead of
+        the pre-v1.7.2 summary-only limitation. Two exchanges: one
+        answerable from the daily snapshot either way, one that only the
+        "mcp" datasource can answer (intraday resolution)."""
         pc = self._panel_chat
         pc._age_label.setText("Context files: health_garmin.json — 2026-06-06 (today)")
         pc._reach_label.setText("Ollama: reachable")
@@ -460,6 +483,12 @@ class ScreenshotApp(GarminApp):
         pc._input.setEnabled(True)
         pc._send_btn.setEnabled(True)
         pc._start_btn.setEnabled(False)
+
+        pc._datasource_combo.blockSignals(True)
+        pc._datasource_combo.setCurrentText("mcp")
+        pc._datasource_combo.blockSignals(False)
+        pc._chat_apply_datasource_visibility(True)
+        pc._log_view.setPlainText(DEMO_MCP_LOG)
 
         pc._chat_append_line(
             "You",
@@ -475,11 +504,12 @@ class ScreenshotApp(GarminApp):
             "Can you show me my heart rate curve minute-by-minute for yesterday?")
         pc._chat_append_line(
             "Assistant",
-            "I currently only have access to your daily summary data — "
-            "resting HR, sleep duration, HRV, Body Battery, etc. "
-            "Minute-level intraday values aren't wired in yet; that's "
-            "planned for v1.9. For yesterday I can tell you: resting HR "
-            "52 bpm, HRV 58 ms, sleep 7.6h at \"high\" quality.")
+            "Pulling intraday heart rate for 2026-06-05 from the archive "
+            "via the MCP server... It stayed in the low 50s overnight "
+            "(49 bpm min at 03:40), rose through the morning to a daytime "
+            "average of 64 bpm, with a brief spike to 88 bpm around 14:15 "
+            "(a 30-minute walk), then settled back into the high 50s by "
+            "22:00.")
 
     def _disable_all_buttons(self):
         """Walk every QPushButton and replace command with no-op."""

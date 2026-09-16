@@ -16,10 +16,10 @@
 <a href="src/screenshots/GUI-Page_1.jpg"><img src="src/screenshots/GUI-Page_1.jpg" width="150" title="Home tab — fixed top area with connection status, archive stats by device, and Daily Actions (Sync / Mirror / Timer); dashboard viewer below."></a>
 <a href="src/screenshots/GUI-Page_2.jpg"><img src="src/screenshots/GUI-Page_2.jpg" width="150" title="Files tab — in-app XLSX viewer with date, steps, resting HR, body battery, sleep duration and quality per day."></a>
 <a href="src/screenshots/GUI-Page_3.jpg"><img src="src/screenshots/GUI-Page_3.jpg" width="150" title="Settings tab — two-column layout: credentials, paths, and sync config on the left; sync controls, timer, mirror, and output options on the right."></a>
-<a href="src/screenshots/GUI-Page_4.jpg"><img src="src/screenshots/GUI-Page_4.jpg" width="150" title="Ollama-Chat tab — native chat against a local Ollama model, working from your archived daily summary data (HRV, sleep, Body Battery, resting HR). Minute-level intraday detail is planned for v1.9."></a>
+<a href="src/screenshots/GUI-Page_4.jpg"><img src="src/screenshots/GUI-Page_4.jpg" width="150" title="Chat tab — chat against a local Ollama model or a Cloud LLM (Anthropic/OpenAI), with optional live tool-calling against your archive via the MCP server for questions the daily summary alone can't answer. Chat sessions can be saved and resumed."></a>
 <a href="src/screenshots/GUI-Page_5.jpg"><img src="src/screenshots/GUI-Page_5.jpg" width="150" title="MCP Server tab — backend, port and headless-mode selection, Save Settings and Start MCP Server buttons."></a>
 
-<sub>Home · Files · Settings · Ollama-Chat · MCP Server — click any tab to view full size.</sub>
+<sub>Home · Files · Settings · Chat · MCP Server — click any tab to view full size.</sub>
 
 ---
 
@@ -41,7 +41,7 @@ Standard version: install dependencies first — `pip install -r requirements.tx
 
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
-- **AI and health data — handle with care:** If you use an external AI service (ChatGPT, Claude, Gemini) to interpret your data: never upload documents containing your name, date of birth, or other identifying information. Cloud AI services store what you send — linked to your account. Use a local model (Ollama) or at minimum a session without login. AI responses on health topics are statistically generated — not medically validated. Treat them as a first orientation, not a conclusion.
+- **AI and health data — handle with care:** If you use an external AI service (ChatGPT, Claude, Gemini) to interpret your data: never upload documents containing your name, date of birth, or other identifying information. Cloud AI services store what you send — linked to your account. Use a local model (Ollama) or at minimum a session without login. This includes the app's own in-app **Chat** tab — its optional Cloud backend (Anthropic/OpenAI, v1.7.2) sends your question and any archive data the model requests to that provider's API, same as pasting into their website; the Ollama backend stays fully local, always. AI responses on health topics are statistically generated — not medically validated. Treat them as a first orientation, not a conclusion.
 - **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data and air quality data by Open-Meteo — accuracy and availability are not guaranteed. Air quality data (CAMS dataset) is available from approximately 2020 onwards.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
@@ -158,9 +158,32 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 
 ---
 
-### Ollama-Chat
+### Chat
 
-A native Ollama chat panel is built into the app (**Ollama-Chat** tab, v1.6.6) — no separate setup beyond having Ollama itself installed and a model pulled. It currently works against summary data only; full intraday resolution is planned for v1.9. For connecting external tools (Open WebUI, AnythingLLM) for more advanced document/RAG workflows, see `info/README_APP.md`.
+A native chat panel is built into the app (**Chat** tab, v1.6.6, renamed
+from "Ollama-Chat" in v1.7.2) — no separate setup beyond having Ollama
+itself installed and a model pulled, or a Cloud API key configured. Two
+independent choices, made before Start:
+
+- **Backend** — a local Ollama model (fully local, no setup beyond Ollama
+  itself), or a Cloud LLM (Anthropic or OpenAI, v1.7.2 — requires an API
+  key, configured on the **MCP Server** tab; see the AI disclaimer above
+  for what that means for your data).
+- **Source** — the archived daily-summary snapshot (fast, no live query,
+  the original v1.6.6 behavior), or live **MCP tool-calling** (v1.7.2) —
+  the model queries your archive on demand via the same MCP server external
+  tools use, for questions the daily snapshot alone can't answer.
+
+Replies stream in as they're generated for every combination except
+Ollama + MCP tool-calling (Ollama's own streaming support for tool-calling
+is not yet reliable upstream, so that one path waits for the complete
+answer). Chat sessions auto-save and can be reloaded later via the
+**Chat History** button — a session using live MCP data can always be
+resumed; a session using the daily snapshot can only be resumed if that
+snapshot hasn't changed since, otherwise it opens read-only. For connecting
+external tools (Open WebUI, AnythingLLM, Claude Desktop) for more advanced
+document/RAG workflows instead, see `info/README_APP.md` and the **MCP
+Server** section below.
 
 ---
 
@@ -255,21 +278,29 @@ See `info/MAINTENANCE.md` for full technical documentation, how to add new field
 
 ## Testing
 
-Eight test suites cover the full pipeline — no network, no API required:
+Fourteen test suites cover the full pipeline — no network, no API required
+(the Chat tab's Cloud LLM/MCP-tool-calling tests mock every SDK/HTTP call,
+same as everything else here):
 
 ```bash
-python tests/test_local.py          # Garmin pipeline
-python tests/test_local_context.py  # Context pipeline (external APIs mocked)
-python tests/test_dashboard.py      # Dashboard pipeline
-python tests/test_broker.py         # Broker layer (health_map / gateway_map routing, metadata_map)
-python tests/test_mcp.py            # MCP layer (mcp_map protocol translation)
-python tests/test_app_logic.py      # App layer (entry points, path resolution)
-pytest tests/test_qt_app.py         # PyQt6 App layer
-python tests/test_static.py         # ruff + bandit + regression guards
-python tests/test_build_output.py   # Build output validation (run after build)
+python tests/test_local.py                    # Garmin pipeline
+python tests/test_local_context.py            # Context pipeline (external APIs mocked)
+python tests/test_dashboard.py                # Dashboard pipeline
+python tests/test_broker.py                   # Broker layer (health_map / gateway_map routing, metadata_map)
+python tests/test_mcp.py                      # MCP layer (mcp_map protocol translation)
+python tests/test_app_logic.py                # App layer (entry points, path resolution)
+pytest tests/test_qt_app.py                   # PyQt6 App layer
+python tests/test_static.py                   # ruff + bandit + regression guards
+python tests/test_build_output.py             # Build output validation (run after build)
+pytest tests/test_cloud_llm.py                # Chat tab — Cloud LLM connector (v1.7.2)
+pytest tests/test_mcp_tool_chat.py            # Chat tab — Ollama + MCP tool-calling (v1.7.2)
+pytest tests/test_cloud_tool_chat.py          # Chat tab — Cloud + MCP tool-calling, streaming (v1.7.2)
+pytest tests/test_chat_session_store.py       # Chat tab — session save/load/resume (v1.7.2)
+pytest tests/test_cloud_credential_store.py   # Chat tab — API key storage in Windows Credential Manager (v1.7.2)
+pytest tests/test_mcp_process.py              # MCP Server Start/Stop process control (v1.7.2)
 ```
 
-`build_all.py` runs `test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_broker.py`, and `test_static.py` as pre-build gates — a failing test aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` is run manually via `pytest`.
+`build_all.py` runs `test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_broker.py`, and `test_static.py` as pre-build gates — a failing test aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` and the six Chat-tab/MCP-process suites above are run manually via `pytest`.
 
 GUI changes are verified manually before release. Full CI/CD with automated builds and release packaging is planned for a later version.
 

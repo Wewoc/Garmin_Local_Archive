@@ -170,6 +170,19 @@ def _register_embedded_packages() -> None:
         return
     import types
     scripts = Path(sys._MEIPASS) / "scripts"
+    # scripts root itself (garmin_collector-3_experiment, Baustein 28) —
+    # frozen_paths.py/version.py/build_manifest.py/garmin_app_base.py all
+    # live directly here, not in a subfolder. clients/cloud_llm_client.py
+    # does `import frozen_paths` at module level (reached via
+    # mcp_server_gui.py's `import cloud_llm_client`, the default non-
+    # headless branch of main() below) — without this, that import raised
+    # ModuleNotFoundError: No module named 'frozen_paths' in a real T3.3
+    # run (confirmed live, garmin_collector-3_experiment). This module had
+    # only ever added scripts/garmin, scripts/clients and a synthetic
+    # maps package — never the root itself, unlike garmin_app.py's T2
+    # bootstrap (sys.path.insert(0, str(_scripts))), which always has.
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
     garmin_dir = scripts / "garmin"
     if garmin_dir.exists() and str(garmin_dir) not in sys.path:
         sys.path.insert(0, str(garmin_dir))
@@ -367,16 +380,27 @@ def _start_operational_log(base_dir: Path) -> logging.FileHandler | None:
 
 
 def _cloud_llm_config_available() -> bool:
-    """True if MCP_LLM_CONFIG_FILE exists and has non-empty required values
-    (provider, api_key, model). False (not an error) if missing, empty, or
-    incomplete — Option 2 (cloud LLM backend) simply isn't usable; Ollama
-    remains available regardless."""
+    """True if MCP_LLM_CONFIG_FILE has non-empty provider/model AND that
+    provider has an API key stored in Windows Credential Manager
+    (Baustein 23, garmin_collector-3_experiment — the key itself no
+    longer lives in MCP_LLM_CONFIG_FILE at all, see
+    clients/cloud_credential_store.py's own docstring). False (not an
+    error) if missing, empty, or incomplete — Option 2 (cloud LLM
+    backend) simply isn't usable; Ollama remains available regardless.
+
+    Local import, not a module-top-level one like mcp_update/mcp_sql
+    above — this is the only call site in this file that needs
+    cloud_credential_store.py, an informational check only (see
+    module docstring's own "Cloud LLM config" paragraph)."""
     try:
         data = json.loads(cfg.MCP_LLM_CONFIG_FILE.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return False
-    return bool(data.get("provider")) and bool(data.get("api_key")) \
-        and bool(data.get("model"))
+    provider = data.get("provider")
+    if not (provider and data.get("model")):
+        return False
+    import cloud_credential_store
+    return bool(cloud_credential_store.get_api_key(provider))
 
 
 def _run_startup_sync() -> None:

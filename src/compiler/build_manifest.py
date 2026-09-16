@@ -20,6 +20,7 @@ SHARED_SCRIPTS = [
     "app/__init__.py",
     "app/dialogs.py",
     "app/dialog_force_refetch.py",
+    "app/dialog_chat_history.py",
     "app/garmin_app_settings.py",
     "app/garmin_dashboard_presets.py",
     "app/garmin_app_controller.py",
@@ -89,6 +90,17 @@ SHARED_SCRIPTS = [
     "clients/mcp_server_gui.py",
     "clients/mcp_sql.py",
     "clients/mcp_update.py",
+    "clients/chat_session_store.py",
+    "clients/cloud_credential_store.py",
+    # v1.7.2 — In-App Chat: MCP tool-calling, Cloud LLM connector
+    "clients/mcp_client.py",
+    "clients/mcp_process.py",
+    "clients/mcp_tool_chat.py",
+    "clients/openai_tool_schema.py",
+    "clients/cloud_llm_client.py",
+    "clients/cloud_llm_anthropic.py",
+    "clients/cloud_llm_openai.py",
+    "clients/cloud_tool_chat.py",
     # maps (routing only)
     "maps/__init__.py",
     "maps/health_map.py",
@@ -170,6 +182,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/panel_archive.py":     ["class PanelArchive"],
     "app/panel_timer.py":       ["class PanelTimer"],
     "app/dialogs.py":           ["class PasswordConfirmDialog"],
+    "app/dialog_chat_history.py": ["class ChatHistoryDialog"],
     "app/panel_outputs.py":     ["class PanelOutputs"],
     "layouts/dash_encryptor.py": ["def encrypt_html"],
     "layouts/dash_autosize.py": ["def compute_autosize_bounds", "def autosize_note"],
@@ -219,6 +232,16 @@ SCRIPT_SIGNATURES_BASE = {
     "clients/mcp_server_gui.py": ["def run_gui"],
     "clients/mcp_sql.py": ["def init_db", "def get_connection"],
     "clients/mcp_update.py": ["def sync_all"],
+    "clients/chat_session_store.py": ["def list_sessions", "def save_session", "def load_session"],
+    "clients/cloud_credential_store.py": ["def get_api_key", "def store_api_key", "def clear_api_key"],
+    "clients/mcp_client.py": ["def is_reachable", "def list_tools", "def call_tool"],
+    "clients/mcp_process.py": ["def start", "def stop", "def is_running"],
+    "clients/mcp_tool_chat.py": ["def converse"],
+    "clients/openai_tool_schema.py": ["def to_openai_style_tools"],
+    "clients/cloud_llm_client.py": ["def chat", "def chat_with_tools", "def chat_stream", "def chat_stream_with_tools"],
+    "clients/cloud_llm_anthropic.py": ["def chat", "def chat_with_tools", "def chat_stream", "def chat_stream_with_tools"],
+    "clients/cloud_llm_openai.py": ["def chat", "def chat_with_tools", "def chat_stream", "def chat_stream_with_tools"],
+    "clients/cloud_tool_chat.py": ["def converse", "def converse_stream"],
     "theme.py": ["ACTIVE_THEME", "_THEMES"],
 }
 # ── Docs ──────────────────────────────────────────────────────────────────────
@@ -243,40 +266,28 @@ REQUIRED_DATA_FILES = [
 ]
 
 
-# ── Runtime dependencies (Target 3 only — must be installed for bundling) ─────
-
-RUNTIME_DEPS = [
-    "garminconnect",
-    "openpyxl",
-    "keyring",
-    "cryptography",
-    "requests",
-    # MCP server SDK chain (v1.7 Teil e) — must be installed on the build
-    # machine so PyInstaller can bundle them into T3.3 (mcp_server.exe).
-    # Exact versions verified via pip freeze — see requirements.txt for
-    # pinning rationale.
-    "mcp",
-    "anyio",
-    "httpx",
-    "httpx-sse",
-    "jsonschema",
-    "pydantic",
-    "pydantic-settings",
-    "pyjwt",
-    "python-multipart",
-    "pywin32",
-    "sse-starlette",
-    "starlette",
-    "typing-extensions",
-    "typing-inspection",
-    "uvicorn",
-]
+# ── Build venv (PyInstaller build isolation, garmin_collector-3_experiment,
+# Baustein 27) ──────────────────────────────────────────────────────────────
+# Fixed, shared location — deliberately OUTSIDE any project copy (this repo,
+# test2/, test3/, test4/, garmin_collector-*_work/, ...) so every copy on
+# this machine builds against the exact same isolated Python environment
+# instead of each needing its own multi-hundred-MB copy of PyQt6 etc., and
+# so that packages installed globally for a DIFFERENT, unrelated project on
+# this machine (e.g. torch/pandas/scipy, installed for a document/OCR tool)
+# can never again be swept into a GLA PyInstaller build the way they were
+# here — see PROTOKOLL_experiment.md, Baustein 26, for the >8 GB T3 ZIP and
+# the ~3 GB T2 EXE this caused. Plain string, not a Path object — this
+# module stays import-free by design (see module docstring above); build.py
+# and build_standalone.py wrap it in Path() themselves. Replaces the old
+# RUNTIME_DEPS list (removed here) — build.py/build_standalone.py now
+# install the venv straight from requirements.txt (the actually-maintained,
+# complete dependency list) instead of a second, narrower, drift-prone copy.
+BUILD_VENV_DIR = r"D:\Garmin\.venv_gla"
 
 
 # ── Hidden imports (PyInstaller --hidden-import, both targets) ────────────────
-# COMMON: needed by the GUI build (T2, Python required on target). Kept
-# narrow deliberately — no unverified additions for T2 in this consolidation
-# (v1.6.5.5). T2 = COMMON only.
+# COMMON: needed by the GUI build (T2, Python required on target). T2 = COMMON
+# only.
 # T3_EXTRA: additional modules only T3 (fully embedded, no Python on target)
 # needs PyInstaller to detect. T3 = COMMON + T3_EXTRA.
 
@@ -300,6 +311,33 @@ HIDDEN_IMPORTS_COMMON = [
     "cryptography.hazmat.primitives.hmac",
     "cryptography.hazmat.primitives.hashes",
     "PyQt6.QtNetwork",
+    # MCP client + Cloud LLM SDKs (v1.7.2, moved here post-v1.7.2 review,
+    # garmin_collector-3_experiment) — clients/mcp_client.py,
+    # clients/cloud_llm_anthropic.py and clients/cloud_llm_openai.py are
+    # loose scripts run inside garmin_app.exe (T2) itself, same as every
+    # other clients/ module. T2 is a PyInstaller --onefile build: its
+    # embedded interpreter has NO "normal site-packages" a loose script
+    # could fall back on at runtime — only what PyInstaller's own Analysis
+    # phase (or this list) actually bundles is present. Confirmed missing
+    # via a real T2 run (garmin_collector-3_experiment): mcp_client.py's
+    # own `import httpx` raised ModuleNotFoundError inside the chat panel.
+    # Only the MCP *client*-side chain is listed here (verified against
+    # mcp/client/streamable_http.py and mcp/client/session.py — the latter
+    # lazy-imports jsonschema at line ~430) — the server-side ASGI chain
+    # (uvicorn/starlette/sse_starlette/pydantic_settings/jwt/multipart/
+    # win32api/win32con, plus mcp.server.fastmcp itself) stays in
+    # HIDDEN_IMPORTS_T3_EXTRA below: only T3.3 (mcp_server.exe) runs an
+    # actual MCP server, T2's chat panel only ever connects as a client.
+    "mcp",
+    "anyio",
+    "httpx",
+    "httpx_sse",
+    "jsonschema",
+    "pydantic",
+    "typing_extensions",
+    "typing_inspection",
+    "anthropic",
+    "openai",
 ]
 
 HIDDEN_IMPORTS_T3_EXTRA = [
@@ -315,16 +353,13 @@ HIDDEN_IMPORTS_T3_EXTRA = [
     "lxml.etree",
     "sqlite3",
     "_sqlite3",
-    # MCP server SDK chain (v1.7 Teil e) — T3.3 (mcp_server.exe) only,
-    # T2 does not need these (loose scripts, resolved via requirements.txt
-    # + normal site-packages at runtime, not PyInstaller hidden-imports).
-    "mcp",
+    # MCP server-only SDK chain (v1.7 Teil e) — T3.3 (mcp_server.exe) only.
+    # The client-side chain (mcp, anyio, httpx, httpx_sse, jsonschema,
+    # pydantic, typing_extensions, typing_inspection, anthropic, openai)
+    # moved to HIDDEN_IMPORTS_COMMON above (post-v1.7.2 review,
+    # garmin_collector-3_experiment) once it turned out T2 needs it too —
+    # see the comment there for the client/server split rationale.
     "mcp.server.fastmcp",
-    "anyio",
-    "httpx",
-    "httpx_sse",
-    "jsonschema",
-    "pydantic",
     "pydantic_settings",
     "jwt",
     "multipart",
@@ -332,7 +367,5 @@ HIDDEN_IMPORTS_T3_EXTRA = [
     "win32con",
     "sse_starlette",
     "starlette",
-    "typing_extensions",
-    "typing_inspection",
     "uvicorn",
 ]
