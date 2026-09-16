@@ -53,6 +53,6 @@ provides additional health data (e.g. from a connected smart scale).
 -> Details: USER_GUIDE.txt, "API Capability Scan"
 
 ───────────────────────────────────────────────────────────
-  For the built-in Ollama Chat: see USER_GUIDE.txt, Section 10.
+  For the built-in Chat (Ollama or Cloud): see USER_GUIDE.txt, Section 10.
   More details: USER_GUIDE.txt
 ═══════════════════════════════════════════════════════════

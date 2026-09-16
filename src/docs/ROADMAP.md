@@ -6,30 +6,86 @@
 
 ---
 
-**Currently stable — v1.7.1.17**
+**Currently stable — v1.7.2**
 
 ---
 
-### v1.7.2 — Ollama Chat Tool-Calling Integration
+### ~~v1.7.2 — Ollama Chat Tool-Calling Integration~~ ✓ released
 
-Connects the existing in-app Ollama chat panel (`app/panel_chat.py`, v1.6.6)
-to the Proxy, replacing the current daily-aggregate-only context export.
+Connected the in-app chat panel (`app/panel_chat.py`, v1.6.6) to the MCP
+Proxy — the original goal below was met, and the build grew well past it once
+underway (see `CHANGELOG.md` for the full scope: Cloud LLM connector,
+Cloud+MCP tool-calling, streaming, chat session history, WCM-backed
+credentials). Built as an isolated experiment branch
+(`garmin_collector-3_experiment`) before merging back here.
 
-**Current limitation:** `panel_chat.py` currently reads `health_garmin.json`/
-`health_garmin_prompt.md` — daily aggregates only, to avoid blowing the
-context window on a stateless `/api/chat` call that resends the full system
-message every turn. Intraday resolution (e.g. heart rate history for a
-specific night) is missing from the model's context as a result.
+**Original limitation this closed:** `panel_chat.py` used to read
+`health_garmin.json`/`health_garmin_prompt.md` only — daily aggregates, to
+avoid blowing the context window on a stateless `/api/chat` call that resent
+the full system message every turn. Intraday resolution (e.g. heart rate
+history for a specific night) was missing from the model's context as a
+result.
 
-**What changes:** instead of a second, larger static export file, the model
-queries on demand via the Proxy when the chat history actually requires
-intraday detail — the same single entry point external MCP clients (Ollama,
-Open WebUI) use. The routing switch (v1.7.1) means most in-app chat queries
-are point queries and get answered directly via `mcp_map.py`, with no SQLite
-detour — `panel_chat.py` doesn't need to know or care. Requires
-`panel_chat.py` to gain a tool/function-calling
-interface against Ollama — a real extension beyond the current sync
-request/response pattern, not a config change.
+**What changed:** instead of a second, larger static export file, the model
+now queries on demand via the MCP Proxy when the chat history actually
+requires intraday detail — the same entry point external MCP clients
+(Open WebUI, Claude Desktop, ...) already use — chosen by a new "Source"
+dropdown (`json` snapshot / `mcp` live) alongside a "Backend" dropdown
+(`ollama` / `cloud`, the latter speaking to Anthropic or OpenAI instead of a
+local model). `panel_chat.py` gained a real tool/function-calling turn loop
+(`clients/mcp_tool_chat.py`/`clients/cloud_tool_chat.py`) — a genuine
+extension beyond the previous sync request/response pattern, not a config
+change, as anticipated below.
+
+**Not carried over from the original plan, decided during the build:**
+Ollama+MCP streaming stays out permanently (Ollama's own streaming +
+tool-calling support is currently unreliable upstream — see `CHANGELOG.md`);
+qwen3/qwen2.5-coder stays an advisory hint for the `mcp` source, not an
+enforced model restriction.
+
+---
+
+### v1.7.2.1 — Post-v1.7.2 Follow-ups
+
+Small, deliberately deferred items from the v1.7.2 build, not urgent enough
+to have held up that release:
+
+- ~~**Stop-mechanism verification for `.bat`/`.exe` launch paths**~~ ✓
+  resolved — a real T2/T3 build cycle (Bausteine 24–34, see `CHANGELOG.md`)
+  exercised this live and found the launch path was fine, but the stop path
+  itself was not: `netstat`'s 5s timeout was too short on real hardware, and
+  a direct-kill-by-remembered-PID approach would have missed the actual
+  server process for both a `.bat`-launched T2 and a `--onefile` T3.3
+  bootloader. Fixed (`clients/mcp_process.py::_kill_pid_tree()`, a tree-kill)
+  and confirmed working live in T2/T3.1/T3.3. The same real-build cycle also
+  surfaced and fixed a set of build-only issues that were never part of this
+  follow-up list to begin with (PyInstaller hidden-import gaps for both
+  targets, a >8 GB T3 ZIP from an unrelated project's ML packages leaking
+  into the build, a frozen `sys.path` gap breaking the Cloud backend in
+  T3.3, a Chat-panel view-not-cleared-on-restart bug) — full detail in
+  `CHANGELOG.md`'s "Post-doc-review fixes" section and
+  `PROTOKOLL_experiment.md`.
+- **Live verification against the real Anthropic/OpenAI APIs** — every Cloud
+  code path (`cloud_llm_anthropic.py`/`cloud_llm_openai.py`/
+  `cloud_tool_chat.py`) is grounded against the installed SDKs' own type
+  stubs and covered by mocked-SDK tests only; no API key was available
+  during the v1.7.2 build. A real end-to-end smoke test (Start, one message,
+  one tool call) is the last gap before production use. **Still open.**
+- **Ollama+MCP streaming** — not planned at all (see `CHANGELOG.md` v1.7.2
+  and "Not planned" below), listed here only so it isn't mistaken for an
+  oversight when reading this file top-to-bottom.
+- **`mcp_update.py` port-conflict error presentation** — a manual `.bat`
+  launch while another MCP server instance already holds the port crashes
+  with a raw, unhandled traceback instead of a clean message; the detection
+  logic itself is correct (guards against two parallel boot syncs), only the
+  failure presentation is unhandled. Found during the same real-build cycle,
+  not yet fixed. **New, open.**
+- **`daily_update.exe` (T3.2) hidden-import scope** — bundles the same full
+  hidden-import set as T3.1/T3.3 (PyQt6, tkinter, the whole MCP/Cloud-LLM
+  chain), though the headless sync task needs none of it. Cosmetic/size
+  only, no correctness impact; would need target-specific hidden-import
+  lists instead of one shared list across all of T2+T3.1+T3.2+T3.3. Found
+  during the same real-build cycle, not yet fixed. **New, open.**
 
 ---
 
@@ -454,6 +510,21 @@ v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left
 - Generated SBOM + hash-locked dependency lockfile (`TODO_HARDENING.md` D2 — dossier value only, no urgency for a hobby tool)
 - Formal documented vulnerability-handling process beyond the existing `SECURITY.md` disclosure channel (`TODO_HARDENING.md` D3)
 - Removing the Sync Garmin / Sync Context / Create Reports buttons — discussed and analysed twice (v1.6.0), decided against: the Stop button for both sync paths hangs off the same widgets, so removal would take Stop functionality with it, and the CSV button belongs to the Context section thematically. Low benefit, real risk of silent side effects. Recorded here as a decision taken, not as a pending item — it sat on a parking list without a target version and was never one.
+- Streaming for the Ollama+MCP tool-calling path (v1.7.2) — Ollama's own
+  streaming + tool-calling combination is currently unreliable upstream:
+  confirmed against a High-severity open Ollama issue — with `stream: true`
+  and `tools` both set, the tool call arrives as one complete block with no
+  accompanying explanatory text, even when the model would normally produce
+  some. Established client libraries work around this by forcing
+  `stream: false` whenever tools are involved, which is what this project's
+  Ollama+MCP path already does. Cloud+MCP (Anthropic/OpenAI) streams
+  normally — this exclusion is Ollama-specific, not a general limitation of
+  the tool-calling architecture. Revisit only if Ollama's own upstream
+  support changes.
+- qwen3/qwen2.5-coder enforcement for the Chat tab's `mcp` source (v1.7.2) —
+  stays an advisory hint (`_mcp_model_hint`), not an enforced restriction;
+  any installed Ollama model remains technically selectable. Decision taken
+  during the v1.7.2 build, not a gap.
 
 ---
 

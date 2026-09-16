@@ -76,6 +76,14 @@ layer of its own. It enters the Broker Layer exclusively through
 `maps/mcp_map.py`, the same entry-point principle the GUI/App layer uses
 via `health_map`/`context_map` — same rule, different process.
 
+**(v1.7.2)** The GUI/App layer's own In-App Chat tab (`app/panel_chat.py`)
+is, architecturally, just one more MCP client — it talks to the MCP Server
+over the same streamable-http tool-calling interface any external client
+(Open WebUI, Claude Desktop, ...) uses, via `clients/mcp_client.py`, not a
+privileged in-process shortcut into `mcp_map.py`/the Broker Layer. No new
+layer, no new rule — the existing "external consumer, no direct pipeline
+access" principle above already covers it.
+
 **No cross-connections between layers** — neither the Garmin pipeline nor
 the Context pipeline ever reaches directly into dashboards; dashboards
 never read the filesystem directly, only through a broker. The MCP Server
@@ -481,6 +489,14 @@ hidden-import lists from it rather than maintaining their own copies.
 required file exists and contains an expected function/class signature —
 the build aborts immediately on a mismatch rather than producing a broken
 EXE that fails at runtime.
+
+Both build scripts run PyInstaller from a shared, isolated venv
+(`compiler/build_manifest.py::BUILD_VENV_DIR`), not the system Python —
+prevents a package installed for a different project on the build machine
+from being swept into a GLA build (a >8 GB T3 ZIP was traced to exactly
+that; see `CHANGELOG.md`). `compiler/build_gui.py` ("🦄 Garmin Local
+Archiv Builder") is an optional Tkinter front end for the same
+copy-then-build workflow, not a new build target.
 
 ---
 

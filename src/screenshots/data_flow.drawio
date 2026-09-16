@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Seite-1" id="xxizT5hO4jLxtiOqMOSN">
-    <mxGraphModel dx="3743" dy="1542" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="2642" dy="1088" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -343,10 +343,13 @@
         <mxCell id="R0hBJxIENf9GrV4WnLih-109" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontColor=#aaaaaa;" value="MCP-Server" vertex="1">
           <mxGeometry height="20" width="260" x="535" y="1240.67" as="geometry" />
         </mxCell>
-        <mxCell id="R0hBJxIENf9GrV4WnLih-111" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffff88;fontSize=10;fontStyle=1;arcSize=30;strokeColor=#36393d;" value="External MCP Client" vertex="1">
-          <mxGeometry height="32" width="120" x="2200" y="701.63" as="geometry" />
+        <mxCell id="R0hBJxIENf9GrV4WnLih-111" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffff88;fontSize=10;fontStyle=1;arcSize=30;strokeColor=#36393d;" value="External Chat Client" vertex="1">
+          <mxGeometry height="32" width="120" x="2200" y="733.63" as="geometry" />
         </mxCell>
         <mxCell id="4p0p6bTGjDQIT-Neh-ck-18" edge="1" parent="1" source="R0hBJxIENf9GrV4WnLih-115" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="R0hBJxIENf9GrV4WnLih-111">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="KuzBUM6DkevM-dRea9DK-2" edge="1" parent="1" source="R0hBJxIENf9GrV4WnLih-115" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="KuzBUM6DkevM-dRea9DK-1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-115" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffff88;fontSize=10;fontStyle=1;arcSize=30;strokeColor=#36393d;" value="mcp_server" vertex="1">
@@ -598,6 +601,9 @@
         </mxCell>
         <mxCell id="4p0p6bTGjDQIT-Neh-ck-42" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;" value="archive.gla" vertex="1">
           <mxGeometry height="34" width="130" x="917.5" y="1336.6700000000003" as="geometry" />
+        </mxCell>
+        <mxCell id="KuzBUM6DkevM-dRea9DK-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffff88;fontSize=10;fontStyle=1;arcSize=30;strokeColor=#36393d;" value="GLA-Chat-Panel" vertex="1">
+          <mxGeometry height="32" width="120" x="2200" y="669.63" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

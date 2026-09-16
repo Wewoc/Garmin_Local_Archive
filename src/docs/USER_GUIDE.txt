@@ -21,7 +21,7 @@ CONTENTS
   7. Automated Daily Sync via Task Scheduler
   8. Troubleshooting
   9. Data Structure
-  10. Ollama Chat
+  10. Chat
   11. MCP Server
   12. Buttons Reference
 
@@ -555,29 +555,47 @@ Background timer sessions are named
 — open them in any text editor if you need to diagnose a problem.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-10. OLLAMA CHAT
+10. CHAT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Native chat against a local Ollama instance, directly inside the app —
-no external tool required for quick questions about your data.
+Native chat panel, directly inside the app — no external tool required
+for quick questions about your data. Formerly named "Ollama-Chat";
+renamed to "Chat" in v1.7.2 when Cloud LLM support was added alongside
+Ollama.
 
-Requirements:
-  - Ollama installed and running: https://ollama.com/download
-    (started via "ollama serve", or runs automatically after install)
-  - At least one model pulled -- sizing guide (rule of thumb: VRAM in GB
-    minus 2 = usable model size) is in README_APP.md, "Option A --
-    Built-in Chat"
+Two independent choices, made before Start:
 
-The chat runs against your existing Health Analysis export -- it does
-not generate data itself. Build one first: Home tab -> "Create Reports",
-or Settings -> Outputs -> "Create All Dashboards" (see Section 4).
+  Backend
+    Ollama       Fully local, runs on your own machine. Requires Ollama
+                 installed and running, plus at least one model pulled
+                 -- sizing guide (rule of thumb: VRAM in GB minus 2 =
+                 usable model size) is in README_APP.md, "Option A --
+                 Built-in Chat".
+    Cloud        Anthropic or OpenAI (v1.7.2). Requires an API key,
+                 configured on the "MCP Server" tab (see Section 11) --
+                 the key is stored in the Windows Credential Manager,
+                 one entry per provider, never written to disk in
+                 plaintext. Sends your questions and the data needed to
+                 answer them to that provider's servers -- see the AI/
+                 health disclaimer in README_APP.md for what that means.
+
+  Source
+    Summary (default)   Runs against your existing Health Analysis
+                         export -- fast, no live query. Build one first:
+                         Home tab -> "Create Reports", or Settings ->
+                         Outputs -> "Create All Dashboards" (Section 4).
+    MCP tool-calling     (v1.7.2) The model queries your archive live via
+                         the same MCP server external tools use (Section
+                         11), for questions the daily snapshot alone
+                         can't answer.
 
 Using it:
-  Open the "Ollama-Chat" tab -> click "Start"
-  The tab shows the age of your current Health Analysis export and
-  a quick Ollama-reachability check before you click Start -- no
-  request is sent until you do. If it shows "not found", the chat can
-  still be started, but has no data to answer questions about.
+  Open the "Chat" tab -> choose Backend and Source -> click "Start"
+  For Ollama+Summary, the tab shows the age of your current Health
+  Analysis export and a quick Ollama-reachability check before you
+  click Start -- no request is sent until you do. If it shows "not
+  found", the chat can still be started, but has no data to answer
+  questions about.
 
   Once started: pick a model from the dropdown, type a question,
   press Enter or click Send. Larger models can take a while to
@@ -586,17 +604,31 @@ Using it:
   "Neuer Chat" clears the conversation and reloads context.
   Switching the model does the same automatically.
 
-Limitation:
-  Currently, the chat only works against summary data -- full
-  intraday resolution via the MCP layer (mcp_map.py, built in v1.7)
-  is planned for v1.7.2.
+Streaming:
+  Replies stream in as they're generated for every Backend/Source
+  combination except Ollama + MCP tool-calling. Ollama's own streaming
+  support for tool-calling is not yet reliable upstream (sourced,
+  tracked upstream as ollama/ollama#12557), so that one combination
+  waits for the complete answer instead of streaming it.
+
+Chat History:
+  Chat sessions auto-save as you go and can be reloaded later via the
+  "Chat History" button, which lists past sessions by date/backend/
+  model. A session using live MCP data can always be resumed. A session
+  using the daily-summary snapshot can only be resumed if that snapshot
+  hasn't changed since the session was saved -- otherwise it opens
+  read-only (the underlying data has moved on, so continuing the
+  conversation could produce inconsistent answers).
 
 Troubleshooting:
   -> "Ollama: not reachable" -- make sure Ollama is running
      (ollama serve), then reopen the tab
-  -> No models in the dropdown -- pull one first: ollama pull <model>
+  -> No models in the dropdown (Ollama) -- pull one first:
+     ollama pull <model>
   -> "health_garmin.json: not found" -- no Health Analysis export exists
      yet; build one first (see "Using it" above), then reopen the tab
+  -> Cloud backend greyed out / key not found -- configure the API key
+     on the "MCP Server" tab first (Section 11)
   -> Errors during a chat appear directly in the chat window --
      no separate log file needed
 
@@ -616,9 +648,12 @@ Using it (from the main app):
   "Start MCP Server"
 
   cloud backend (optional):
-    enter provider / API key / model
-    Note: the key is stored in plaintext on disk -- a warning is
-    shown on screen. Not re-loaded back into the field after saving.
+    provider dropdown: Anthropic or OpenAI (v1.7.2) -- enter API key /
+    model. The same key is also what the Chat tab's Cloud backend uses
+    (Section 10) -- one entry per provider, configured here, not there.
+    Note: the key is stored in the Windows Credential Manager, one
+    entry per provider (v1.7.2) -- never written to disk in plaintext.
+    Not re-loaded back into the field after saving.
 
   Headless checkbox (off by default): skips the server's own window
   entirely and runs it straight in the background -- for

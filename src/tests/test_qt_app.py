@@ -518,6 +518,134 @@ class TestPasswordConfirmDialog:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  ChatHistoryDialog (Baustein 21, garmin_collector-3_experiment)
+# ══════════════════════════════════════════════════════════════════════════════
+# Same "call internal methods directly, never .exec()" pattern as
+# TestPasswordConfirmDialog above — no automated way to drive a real
+# modal event loop in this environment.
+
+class TestChatHistoryDialog:
+
+    @pytest.fixture
+    def app_mock(self):
+        from unittest.mock import MagicMock
+        app = MagicMock()
+        app.BG     = "#12101f"
+        app.BG2    = "#1a1729"
+        app.BG3    = "#231f38"
+        app.ACCENT  = "#a259f7"
+        app.ACCENT2 = "#6e3fcf"
+        app.TEXT   = "#eaeaea"
+        app.TEXT2  = "#a0a0b0"
+        return app
+
+    def _fake_parent(self, qtbot, app_mock):
+        from PyQt6.QtWidgets import QWidget
+        parent = QWidget()
+        parent._app = app_mock
+        qtbot.addWidget(parent)
+        return parent
+
+    def _sessions(self):
+        return [
+            {"path": "/base/chats/chat_2026-09-15_143205_ollama_json.json",
+             "created_at": "2026-09-15T14:32:05", "backend": "ollama",
+             "datasource": "json", "model": "qwen3:14b", "provider": "",
+             "preview": "how many steps yesterday?"},
+            {"path": "/base/chats/chat_2026-09-14_090000_cloud_mcp.json",
+             "created_at": "2026-09-14T09:00:00", "backend": "cloud",
+             "datasource": "mcp", "model": "claude-sonnet-4-6",
+             "provider": "anthropic", "preview": ""},
+        ]
+
+    def test_lists_every_session(self, qtbot, app_mock):
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        qtbot.addWidget(dlg)
+        assert dlg._list.count() == 2
+
+    def test_empty_list_shows_placeholder_no_crash(self, qtbot, app_mock):
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, [])
+        qtbot.addWidget(dlg)
+        assert dlg._list.count() == 0
+
+    def test_load_and_delete_disabled_without_selection(self, qtbot, app_mock):
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        qtbot.addWidget(dlg)
+        assert not dlg._load_btn.isEnabled()
+        assert not dlg._delete_btn.isEnabled()
+
+    def test_selecting_a_row_enables_load_and_delete(self, qtbot, app_mock):
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        qtbot.addWidget(dlg)
+        dlg._list.setCurrentRow(0)
+        assert dlg._load_btn.isEnabled()
+        assert dlg._delete_btn.isEnabled()
+
+    def test_on_load_sets_result_and_accepts(self, qtbot, app_mock):
+        from PyQt6.QtWidgets import QDialog
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        qtbot.addWidget(dlg)
+        dlg._list.setCurrentRow(1)
+        dlg._on_load()
+        assert dlg.get_result() == (
+            "load", "/base/chats/chat_2026-09-14_090000_cloud_mcp.json")
+        assert dlg.result() == QDialog.DialogCode.Accepted
+
+    def test_on_delete_confirmed_sets_result(self, qtbot, app_mock):
+        # Not qtbot.addWidget(dlg) here, deliberately — mocking
+        # QMessageBox.question (a PyQt6 static method) while a dialog is
+        # registered with qtbot triggers a benign teardown-only
+        # "wrapped C/C++ object already deleted" error from qtbot's own
+        # widget-closing pass (reproduced outside pytest-qt without this
+        # issue — a pytest-qt/mock-patch interaction, not a bug in this
+        # dialog). dlg is never shown, so plain Python GC reclaims it
+        # once the test returns; nothing here needs qtbot's cleanup.
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        dlg._list.setCurrentRow(0)
+        with patch.object(QMessageBox, "question",
+                           return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
+        assert dlg.get_result() == (
+            "delete", "/base/chats/chat_2026-09-15_143205_ollama_json.json")
+
+    def test_on_delete_declined_keeps_dialog_open_no_result(self, qtbot, app_mock):
+        # Same qtbot.addWidget() omission as the test above, same reason.
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        dlg._list.setCurrentRow(0)
+        with patch.object(QMessageBox, "question",
+                           return_value=QMessageBox.StandardButton.No):
+            dlg._on_delete()
+        assert dlg.get_result() is None
+
+    def test_double_click_loads(self, qtbot, app_mock):
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        qtbot.addWidget(dlg)
+        dlg._list.setCurrentRow(0)
+        dlg._list.itemDoubleClicked.emit(dlg._list.item(0))
+        assert dlg.get_result()[0] == "load"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  5. PanelTimer
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -815,6 +943,366 @@ class TestPanelChat:
         panel._chat_on_error(Exception("boom"))
         assert panel._history == []
 
+    # ── Phase 1 Streaming (Baustein 20) ──────────────────────────────────
+
+    def test_start_stream_line_shows_speaker_label(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_start_stream_line("Assistant")
+        assert "Assistant:" in panel._chat_view.toPlainText()
+
+    def test_append_stream_chunk_continues_same_line(self, qtbot, app_mock):
+        # The whole point of _chat_append_stream_chunk() over
+        # _chat_append_line()/QTextEdit.append(): chunks land inline,
+        # no extra paragraph break is introduced between them.
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_start_stream_line("Assistant")
+        panel._chat_append_stream_chunk("Hel")
+        panel._chat_append_stream_chunk("lo")
+        assert panel._chat_view.toPlainText().strip() == "Assistant: Hello"
+
+    def test_chat_on_stream_done_resets_state_and_appends_history(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._send_btn.setEnabled(False)
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_on_stream_done("hello back")
+        assert panel._request_running is False
+        assert panel._send_btn.isEnabled()
+        assert panel._history[-1] == {"role": "assistant", "content": "hello back"}
+
+    def test_chat_on_stream_error_pops_trailing_user_message(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_on_stream_error("", Exception("boom"))
+        assert panel._request_running is False
+        assert panel._history == []
+
+    def test_chat_on_stream_error_with_partial_text_marks_interrupted(self, qtbot, app_mock):
+        # Unlike the total-failure case above, some text already
+        # streamed into the view before the connection dropped — it
+        # must stay visible, with a follow-up note marking it
+        # interrupted, and still not be written into history.
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_start_stream_line("Assistant")
+        panel._chat_append_stream_chunk("Hel")
+        panel._chat_on_stream_error("Hel", Exception("connection lost"))
+        assert panel._history == []
+        view_text = panel._chat_view.toPlainText()
+        assert "Assistant: Hel" in view_text
+        assert "interrupted" in view_text.lower()
+
+    # ── Chat-Session-Logging/Resume (Baustein 21) ────────────────────────
+
+    def test_chat_history_button_exists_and_enabled_before_start(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        assert panel._chat_history_btn.isEnabled()
+
+    def test_render_history_skips_system_and_content_less_assistant(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [
+            {"role": "system", "content": "sys prompt"},
+            {"role": "user", "content": "how many steps?"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1"}]},
+            {"role": "tool", "content": "8000", "tool_call_id": "c1"},
+            {"role": "assistant", "content": "You took 8000 steps."},
+        ]
+        panel._chat_render_history()
+        text = panel._chat_view.toPlainText()
+        assert "sys prompt" not in text
+        assert "how many steps?" in text
+        assert "You took 8000 steps." in text
+        assert "8000\n" not in text or "tool" not in text.lower()
+
+    def test_save_session_calls_store_and_updates_path(self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [{"role": "user", "content": "hi"}]
+        fake_store = MagicMock()
+        fake_path = tmp_path / "chats" / "chat_x_ollama_json.json"
+        fake_store.save_session.return_value = fake_path
+        with patch("app.panel_chat._load_chat_session_store", return_value=fake_store):
+            panel._chat_save_session()
+        fake_store.save_session.assert_called_once()
+        args, kwargs = fake_store.save_session.call_args
+        assert args[0] == str(tmp_path)
+        assert args[1] is None  # first save, no path yet
+        session_data = args[2]
+        assert session_data["backend"] == "ollama"
+        assert session_data["datasource"] == "json"
+        assert session_data["messages"] == panel._history
+        assert panel._chat_session_path == fake_path
+
+    def test_save_session_noop_without_base_dir(self, qtbot, app_mock):
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {"base_dir": ""}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        with patch("app.panel_chat._load_chat_session_store", return_value=fake_store):
+            panel._chat_save_session()
+        fake_store.save_session.assert_not_called()
+
+    def test_reply_handlers_trigger_auto_save(self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [{"role": "user", "content": "hi"}]
+        with patch.object(panel, "_chat_save_session") as save:
+            panel._chat_on_reply("hello back")
+        save.assert_called_once()
+
+        panel._history = [{"role": "user", "content": "hi"}]
+        with patch.object(panel, "_chat_save_session") as save:
+            panel._chat_on_stream_done("hello back")
+        save.assert_called_once()
+
+        with patch.object(panel, "_chat_save_session") as save:
+            panel._chat_on_mcp_reply(
+                {"content": "answer", "messages": [], "hit_max_turns": False})
+        save.assert_called_once()
+
+    def test_stop_resets_session_path(self, qtbot, app_mock):
+        from pathlib import Path as _Path
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_session_path = _Path("/base/chats/x.json")
+        panel._chat_session_created_at = "2026-09-15T14:00:00"
+        panel._chat_on_stop()
+        assert panel._chat_session_path is None
+        assert panel._chat_session_created_at is None
+
+    def test_new_chat_resets_session_path(self, qtbot, app_mock):
+        from pathlib import Path as _Path
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_session_path = _Path("/base/chats/x.json")
+        panel._chat_session_created_at = "2026-09-15T14:00:00"
+        panel._chat_loaded_model = "qwen3:14b"
+        panel._chat_on_new_chat()
+        assert panel._chat_session_path is None
+        assert panel._chat_session_created_at is None
+        assert panel._chat_loaded_model is None
+
+    def test_new_chat_reopens_combos_when_loaded_not_started(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setEnabled(False)
+        panel._datasource_combo.setEnabled(False)
+        panel._chat_loaded_not_started = True
+        panel._chat_on_new_chat()
+        assert panel._backend_combo.isEnabled()
+        assert panel._datasource_combo.isEnabled()
+        assert panel._chat_loaded_not_started is False
+
+    def test_new_chat_leaves_combos_locked_for_a_running_session(self, qtbot, app_mock):
+        # The normal, pre-Baustein-21 case: combos locked by a genuine
+        # Start, New Chat mid-session must NOT unlock them.
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setEnabled(False)
+        panel._datasource_combo.setEnabled(False)
+        panel._chat_loaded_not_started = False
+        panel._chat_on_new_chat()
+        assert not panel._backend_combo.isEnabled()
+        assert not panel._datasource_combo.isEnabled()
+
+    def test_start_clears_loaded_not_started_flag(self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_loaded_not_started = True
+        with patch("app.panel_chat._load_ollama_client"):
+            panel._chat_on_start()
+        assert panel._chat_loaded_not_started is False
+
+    def test_resume_pending_skips_history_reset_once(self, qtbot, app_mock, tmp_path):
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        loaded_history = [{"role": "user", "content": "loaded turn"}]
+        panel._history = loaded_history
+        panel._chat_resume_pending = True
+        panel._chat_load_system_prompt()
+        assert panel._history == loaded_history
+        assert panel._chat_resume_pending is False
+
+        # A later, non-resume call still resets normally.
+        panel._history = [{"role": "user", "content": "stale"}]
+        panel._chat_load_system_prompt()
+        assert panel._history == []
+
+    def test_open_history_load_delegates_to_load_session(self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtWidgets import QDialog
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        fake_store.list_sessions.return_value = []
+        fake_dialog = MagicMock()
+        fake_dialog.exec.return_value = QDialog.DialogCode.Accepted
+        fake_dialog.get_result.return_value = ("load", "/base/chats/x.json")
+        with patch("app.panel_chat._load_chat_session_store", return_value=fake_store), \
+             patch("app.panel_chat.ChatHistoryDialog", return_value=fake_dialog), \
+             patch.object(panel, "_chat_on_load_session") as load_session:
+            panel._chat_on_open_history()
+        load_session.assert_called_once_with(fake_store, "/base/chats/x.json")
+
+    def test_open_history_delete_calls_store_delete(self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtWidgets import QDialog
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        fake_store.list_sessions.return_value = []
+        fake_dialog = MagicMock()
+        fake_dialog.exec.return_value = QDialog.DialogCode.Accepted
+        fake_dialog.get_result.return_value = ("delete", "/base/chats/x.json")
+        with patch("app.panel_chat._load_chat_session_store", return_value=fake_store), \
+             patch("app.panel_chat.ChatHistoryDialog", return_value=fake_dialog):
+            panel._chat_on_open_history()
+        fake_store.delete_session.assert_called_once_with("/base/chats/x.json")
+
+    def test_open_history_rejected_dialog_does_nothing(self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtWidgets import QDialog
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        fake_store.list_sessions.return_value = []
+        fake_dialog = MagicMock()
+        fake_dialog.exec.return_value = QDialog.DialogCode.Rejected
+        with patch("app.panel_chat._load_chat_session_store", return_value=fake_store), \
+             patch("app.panel_chat.ChatHistoryDialog", return_value=fake_dialog):
+            panel._chat_on_open_history()
+        fake_store.delete_session.assert_not_called()
+
+    def test_load_session_resumable_mcp_locks_combos_and_enables_start(
+            self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        fake_store.load_session.return_value = {
+            "created_at": "2026-09-15T14:00:00", "backend": "ollama",
+            "datasource": "mcp", "model": "qwen3:14b", "provider": "",
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        fake_store.is_resumable.return_value = True
+        panel._chat_on_load_session(fake_store, "/base/chats/x.json")
+        assert panel._backend_combo.currentText() == "ollama"
+        assert panel._datasource_combo.currentText() == "mcp"
+        assert not panel._backend_combo.isEnabled()
+        assert not panel._datasource_combo.isEnabled()
+        assert panel._start_btn.isEnabled()
+        assert panel._new_chat_btn.isEnabled()
+        assert panel._chat_resume_pending is True
+        assert panel._chat_loaded_not_started is True
+        assert "hi" in panel._chat_view.toPlainText()
+
+    def test_load_session_non_resumable_json_disables_start_shows_warning(
+            self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        fake_store.load_session.return_value = {
+            "created_at": "2026-09-15T14:00:00", "backend": "ollama",
+            "datasource": "json", "model": "qwen3:14b", "provider": "",
+            "source_hash": "deadbeef",
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        fake_store.is_resumable.return_value = False
+        panel._chat_on_load_session(fake_store, "/base/chats/x.json")
+        assert not panel._start_btn.isEnabled()
+        assert "read-only" in panel._chat_view.toPlainText().lower()
+
+    def test_load_session_cloud_shows_session_level_label(self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        fake_store.load_session.return_value = {
+            "created_at": "2026-09-15T14:32:05", "backend": "cloud",
+            "datasource": "mcp", "model": "claude-sonnet-4-6",
+            "provider": "anthropic", "messages": [],
+        }
+        fake_store.is_resumable.return_value = True
+        panel._chat_on_load_session(fake_store, "/base/chats/x.json")
+        text = panel._chat_view.toPlainText()
+        assert "cloud" in text.lower()
+        assert "anthropic" in text
+        assert "claude-sonnet-4-6" in text
+
+    def test_load_session_read_error_shows_system_message(self, qtbot, app_mock):
+        from unittest.mock import MagicMock
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+
+        class _FakeError(Exception):
+            pass
+        fake_store.ChatSessionError = _FakeError
+        fake_store.load_session.side_effect = _FakeError("boom")
+        panel._chat_on_load_session(fake_store, "/base/chats/x.json")
+        assert "Could not load session" in panel._chat_view.toPlainText()
+
+    def test_models_loaded_preselects_loaded_model(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_loaded_model = "qwen3:14b"
+        panel._chat_on_models_loaded(["phi4:14b", "qwen3:14b"], None)
+        assert panel._model_combo.currentText() == "qwen3:14b"
+        assert panel._chat_loaded_model is None
+
     def test_refresh_age_display_file_missing(self, qtbot, app_mock):
         from app.panel_chat import PanelChat
         panel = PanelChat(app_mock)
@@ -870,6 +1358,762 @@ class TestPanelChat:
         panel._chat_on_model_changed(0)
         assert panel._history == []
 
+    # ── Backend/Datenquelle dropdowns (garmin_collector-3_experiment
+    # addendum, replaces an earlier "Use MCP tools" checkbox — session
+    # feedback: "das war im Konzept anders beschrieben") ────────────────
+
+    def test_backend_and_datasource_combos_enabled_from_the_start(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        # Unlike model_combo/input/send_btn (gated behind Start), these two
+        # must be choosable before Start — Start's own behavior depends on
+        # the selected backend.
+        assert panel._backend_combo.isEnabled()
+        assert panel._datasource_combo.isEnabled()
+        assert panel._backend_combo.currentText() == "ollama"
+        assert panel._datasource_combo.currentText() == "json"
+        # isVisible() checks the whole parent chain up to a shown
+        # top-level window — panel.show() is never called here, so even a
+        # correctly-set-visible child reports False. isVisibleTo(panel)
+        # checks visibility relative to panel instead, which is what
+        # setVisible()'s own flag actually controls (same fix already
+        # applied in TestPanelMcp below for the analogous cloud-box case).
+        assert panel._model_combo.isVisibleTo(panel)
+        assert not panel._cloud_info_label.isVisibleTo(panel)
+
+    def test_backend_changed_to_cloud_swaps_visible_widget(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("cloud")
+        assert not panel._model_combo.isVisibleTo(panel)
+        assert panel._cloud_info_label.isVisibleTo(panel)
+
+    def test_backend_changed_resets_history(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._backend_combo.setCurrentText("cloud")
+        assert panel._history == []
+
+    def test_datasource_changed_resets_history(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._datasource_combo.setCurrentText("mcp")
+        assert panel._history == []
+
+    def test_new_chat_skips_system_prompt_when_datasource_mcp(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._system_prompt = "You are helpful."
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_on_new_chat()
+        # Unlike test_new_chat_resets_history_and_clears_view above
+        # (datasource "json"), datasource "mcp" must NOT seed the
+        # JSON-snapshot system prompt — mcp_tool_chat.converse() injects
+        # its own instead.
+        assert panel._history == []
+
+    def test_send_with_cloud_backend_and_incomplete_config_shows_guard_message(
+            self, qtbot, app_mock):
+        # Cloud-LLM-Connector Baustein — self._cloud_provider/_model/
+        # _api_key are only populated by _chat_on_cloud_config_loaded()
+        # (i.e. after a real Start); here they are still the empty-string
+        # __init__ defaults, so Send must refuse before ever attempting a
+        # call that could only fail.
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("cloud")
+        panel._input.setText("hello")
+        panel._chat_on_send()
+        # No request was ever attempted — input/history untouched, unlike
+        # a real failed turn (_chat_on_error() pops history, clears input).
+        assert panel._history == []
+        assert panel._input.text() == "hello"
+        assert "No usable cloud configuration" in panel._chat_view.toPlainText()
+
+    def test_cloud_config_loaded_no_file(self, qtbot, app_mock, tmp_path):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", tmp_path / "missing.json"):
+            panel._chat_on_cloud_config_loaded()
+        assert "No cloud configuration saved" in panel._cloud_info_label.text()
+        assert panel._send_btn.isEnabled()
+
+    def test_cloud_config_loaded_warns_on_missing_key(self, qtbot, app_mock, tmp_path):
+        # Baustein 23: no key in WCM for this provider — mocked here
+        # rather than relying on the real Credential Manager being
+        # empty for "anthropic" on whatever machine runs this test.
+        import json
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        cfg_file = tmp_path / "cloud.json"
+        cfg_file.write_text(
+            json.dumps({"provider": "anthropic", "model": "claude-sonnet-4-6"}),
+            encoding="utf-8")
+        fake_store = MagicMock()
+        fake_store.get_api_key.return_value = None
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \
+             patch("app.panel_chat._load_cloud_credential_store", return_value=fake_store):
+            panel._chat_on_cloud_config_loaded()
+        text = panel._cloud_info_label.text()
+        assert "anthropic / claude-sonnet-4-6" in text
+        assert "no API key saved" in text
+
+    # ── Cloud LLM connector (garmin_collector-3_experiment, Baustein 14) ────
+
+    def test_cloud_config_loaded_stores_provider_model_key_normalized(
+            self, qtbot, app_mock, tmp_path):
+        # Provider field is free text on the MCP tab (app/panel_mcp.py's
+        # _mcp_cloud_provider) — "  Anthropic " must resolve the same way
+        # as "anthropic" once stored, matching cloud_llm_client.chat()'s
+        # own normalization.
+        # Baustein 23: the API key itself comes from Windows Credential
+        # Manager (clients/cloud_credential_store.py), not the JSON file
+        # — mocked here via _load_cloud_credential_store().
+        import json
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        cfg_file = tmp_path / "cloud.json"
+        cfg_file.write_text(
+            json.dumps({"provider": "  Anthropic ", "model": "claude-sonnet-4-6"}),
+            encoding="utf-8")
+        fake_store = MagicMock()
+        fake_store.get_api_key.return_value = "sk-test"
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \
+             patch("app.panel_chat._load_cloud_credential_store", return_value=fake_store):
+            panel._chat_on_cloud_config_loaded()
+        assert panel._cloud_provider == "anthropic"
+        assert panel._cloud_model == "claude-sonnet-4-6"
+        assert panel._cloud_api_key == "sk-test"
+        fake_store.get_api_key.assert_called_once_with("anthropic")
+
+    def test_send_with_cloud_and_mcp_and_incomplete_config_shows_guard_message(
+            self, qtbot, app_mock):
+        # Baustein 18 — Cloud + MCP tool-calling is built now, but the
+        # same "no usable cloud configuration" guard from the plain-cloud
+        # path still applies regardless of datasource.
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("cloud")
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._input.setText("hello")
+        panel._chat_on_send()
+        assert panel._history == []
+        assert panel._input.text() == "hello"
+        assert "No usable cloud configuration" in panel._chat_view.toPlainText()
+
+    def test_send_with_cloud_and_mcp_and_complete_config_starts_request(
+            self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("cloud")
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._cloud_provider = "anthropic"
+        panel._cloud_model = "claude-sonnet-4-6"
+        panel._cloud_api_key = "sk-test"
+        panel._input.setText("hello")
+        with patch("app.panel_chat._load_cloud_tool_chat"), \
+             patch("app.panel_chat._load_cloud_llm_client"), \
+             patch("app.panel_chat._load_mcp_client"):
+            panel._chat_on_send()
+        assert panel._history == [{"role": "user", "content": "hello"}]
+        assert panel._input.text() == ""
+        assert not panel._send_btn.isEnabled()
+        assert panel._request_running is True
+
+    def test_send_with_cloud_and_complete_config_starts_request(self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("cloud")
+        panel._cloud_provider = "anthropic"
+        panel._cloud_model = "claude-sonnet-4-6"
+        panel._cloud_api_key = "sk-test"
+        panel._input.setText("hello")
+        with patch("app.panel_chat._load_cloud_llm_client"):
+            panel._chat_on_send()
+        assert panel._history == [{"role": "user", "content": "hello"}]
+        assert panel._input.text() == ""
+        assert not panel._send_btn.isEnabled()
+        assert panel._request_running is True
+
+    class _SyncThread:
+        """Test-only stand-in for threading.Thread that runs target()
+        synchronously inside start() instead of spawning a real OS
+        thread — lets a test exercise a real worker() closure's own
+        exception handling (garmin_collector-3_experiment, post-v1.7.2
+        review: a lazy-import failure inside worker() used to run
+        unguarded ahead of any try block, silently killing the
+        background thread with zero _app._dispatch() call — the UI
+        stayed on "Waiting for response" forever, no error, no log)
+        without violating this suite's own "no real threading.Thread"
+        rule (see the class-level comment above — a real thread would
+        hit the live Ollama/MCP HTTP clients). _app._dispatch() itself
+        stays a MagicMock (as in every other test here) — it records
+        the call instead of running the lambda, so the tests below
+        invoke the captured lambda manually to observe its effect."""
+
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    def test_send_ollama_mcp_import_failure_dispatches_error_not_silent_hang(
+            self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("ollama")
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._input.setText("hello")
+        with patch("threading.Thread", self._SyncThread), \
+             patch("app.panel_chat._load_ollama_client",
+                   side_effect=RuntimeError("boom")):
+            panel._chat_on_send()
+        assert app_mock._dispatch.called
+        app_mock._dispatch.call_args[0][0]()  # run the dispatched callback
+        assert panel._request_running is False
+        assert panel._send_btn.isEnabled()
+        assert panel._history == []
+        assert "boom" in panel._chat_view.toPlainText()
+
+    def test_send_ollama_mcp_unclassified_exception_dispatches_error(
+            self, qtbot, app_mock):
+        # Distinct from the import-failure test above: this one fails
+        # inside converse() itself (imports succeed), with an exception
+        # type that is neither McpClientError nor OllamaError — the new
+        # generic `except Exception` fallback net, not the import guard.
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("ollama")
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._input.setText("hello")
+        fake_mcp_tool_chat = MagicMock()
+        fake_mcp_tool_chat.converse.side_effect = ValueError("unexpected")
+        # McpClientError/OllamaError must be real exception classes for
+        # the worker's `except mcp_client.McpClientError`/`except
+        # ollama_client.OllamaError` clauses to even evaluate — a bare
+        # MagicMock() attribute there raises its own TypeError
+        # ("catching classes that do not inherit from BaseException")
+        # while Python is still trying to match the ValueError below.
+        fake_mcp_client = MagicMock()
+        fake_mcp_client.McpClientError = type("FakeMcpClientError", (Exception,), {})
+        fake_ollama_client = MagicMock()
+        fake_ollama_client.OllamaError = type("FakeOllamaError", (Exception,), {})
+        with patch("threading.Thread", self._SyncThread), \
+             patch("app.panel_chat._load_ollama_client", return_value=fake_ollama_client), \
+             patch("app.panel_chat._load_mcp_tool_chat", return_value=fake_mcp_tool_chat), \
+             patch("app.panel_chat._load_mcp_client", return_value=fake_mcp_client):
+            panel._chat_on_send()
+        assert app_mock._dispatch.called
+        app_mock._dispatch.call_args[0][0]()
+        assert panel._request_running is False
+        assert "unexpected" in panel._chat_view.toPlainText()
+
+    def test_send_cloud_mcp_import_failure_dispatches_error_not_silent_hang(
+            self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("cloud")
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._cloud_provider = "anthropic"
+        panel._cloud_model = "claude-sonnet-4-6"
+        panel._cloud_api_key = "sk-test"
+        panel._input.setText("hello")
+        with patch("threading.Thread", self._SyncThread), \
+             patch("app.panel_chat._load_cloud_tool_chat",
+                   side_effect=RuntimeError("boom")):
+            panel._chat_on_send()
+        assert app_mock._dispatch.called
+        app_mock._dispatch.call_args[0][0]()
+        assert panel._request_running is False
+        assert panel._history == []
+        assert "boom" in panel._chat_view.toPlainText()
+
+    def test_send_cloud_only_import_failure_dispatches_stream_error_not_silent_hang(
+            self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setCurrentText("cloud")
+        panel._cloud_provider = "anthropic"
+        panel._cloud_model = "claude-sonnet-4-6"
+        panel._cloud_api_key = "sk-test"
+        panel._input.setText("hello")
+        with patch("threading.Thread", self._SyncThread), \
+             patch("app.panel_chat._load_cloud_llm_client",
+                   side_effect=RuntimeError("boom")):
+            panel._chat_on_send()
+        assert app_mock._dispatch.called
+        app_mock._dispatch.call_args[0][0]()
+        assert panel._request_running is False
+        assert panel._history == []
+        assert "boom" in panel._chat_view.toPlainText()
+
+    def test_send_ollama_only_import_failure_dispatches_stream_error_not_silent_hang(
+            self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._input.setText("hello")
+        with patch("threading.Thread", self._SyncThread), \
+             patch("app.panel_chat._load_ollama_client",
+                   side_effect=RuntimeError("boom")):
+            panel._chat_on_send()
+        assert app_mock._dispatch.called
+        app_mock._dispatch.call_args[0][0]()
+        assert panel._request_running is False
+        assert panel._history == []
+        assert "boom" in panel._chat_view.toPlainText()
+
+    def test_chat_on_mcp_reply_replaces_history_and_resets_state(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._send_btn.setEnabled(False)
+        panel._history = [{"role": "user", "content": "steps?"}]
+        result = {
+            "content": "4,024 steps.",
+            "messages": [
+                {"role": "user", "content": "steps?"},
+                {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
+                {"role": "tool", "content": "{...}", "tool_call_id": "1"},
+                {"role": "assistant", "content": "4,024 steps.", "tool_calls": []},
+            ],
+            "hit_max_turns": False,
+        }
+        panel._chat_on_mcp_reply(result)
+        assert panel._request_running is False
+        assert panel._send_btn.isEnabled()
+        assert panel._history == result["messages"]
+        assert "4,024 steps." in panel._chat_view.toPlainText()
+
+    def test_chat_on_mcp_reply_flags_max_turns(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        result = {"content": "partial", "messages": [], "hit_max_turns": True}
+        panel._chat_on_mcp_reply(result)
+        assert "turn limit" in panel._chat_view.toPlainText()
+
+    # ── Cloud+MCP Streaming (Baustein 22, Phase 2 Streaming) ─────────────
+
+    def test_chat_on_mcp_stream_done_resets_state_and_replaces_history(
+            self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._send_btn.setEnabled(False)
+        panel._history = [{"role": "user", "content": "steps?"}]
+        event = {
+            "messages": [
+                {"role": "user", "content": "steps?"},
+                {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
+                {"role": "tool", "content": "{...}", "tool_call_id": "1"},
+                {"role": "assistant", "content": "4,024 steps.", "tool_calls": []},
+            ],
+            "hit_max_turns": False,
+        }
+        panel._chat_on_mcp_stream_done(event)
+        assert panel._request_running is False
+        assert panel._send_btn.isEnabled()
+        assert panel._history == event["messages"]
+
+    def test_chat_on_mcp_stream_done_flags_max_turns(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        event = {"messages": [], "hit_max_turns": True}
+        panel._chat_on_mcp_stream_done(event)
+        assert "turn limit" in panel._chat_view.toPlainText()
+
+    def test_cloud_mcp_worker_routes_text_events_to_new_bubble_per_turn(
+            self, qtbot, app_mock):
+        # Verifies the event-dispatch logic inside _chat_on_send()'s
+        # Cloud+MCP worker directly (mirrors how streaming chunk
+        # dispatch was tested in Baustein 20 — no real background
+        # thread, no real converse_stream(), just the same
+        # started/_chat_start_stream_line/_chat_append_stream_chunk
+        # wiring the worker itself uses).
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+
+        events = [
+            {"type": "text", "text": "Let"},
+            {"type": "text", "text": " me check."},
+            {"type": "tool_call", "name": "query_health"},
+            {"type": "text", "text": "You took 8000 steps."},
+            {"type": "final", "messages": [
+                {"role": "assistant", "content": "You took 8000 steps.",
+                 "tool_calls": []}],
+             "hit_max_turns": False},
+        ]
+
+        started = False
+        for event in events:
+            etype = event["type"]
+            if etype == "text":
+                if not started:
+                    panel._chat_start_stream_line("Assistant")
+                    started = True
+                panel._chat_append_stream_chunk(event["text"])
+            elif etype == "tool_call":
+                started = False
+                panel._chat_append_system(f"🔧 Calling {event['name']}…")
+            elif etype == "final":
+                panel._chat_on_mcp_stream_done(event)
+
+        text = panel._chat_view.toPlainText()
+        assert "Let me check." in text
+        assert "Calling query_health" in text
+        assert "You took 8000 steps." in text
+        # Two separate "Assistant:" bubbles — one per turn — not one
+        # combined block.
+        assert text.count("Assistant:") == 2
+        assert panel._history == events[-1]["messages"]
+
+    def test_chat_on_mcp_unreachable_pops_trailing_user_message(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._request_running = True
+        panel._history = [{"role": "user", "content": "hi"}]
+        panel._chat_on_mcp_unreachable(Exception("MCP server not reachable"))
+        assert panel._request_running is False
+        assert panel._history == []
+        assert "MCP Server tab" in panel._chat_view.toPlainText()
+
+    # ── Start/Stop button pair (garmin_collector-3_experiment, Baustein 8b) ─
+
+    def test_stop_button_disabled_before_start(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        assert not panel._stop_btn.isEnabled()
+
+    def test_start_with_datasource_json_does_not_touch_mcp_process(
+            self, qtbot, app_mock):
+        # The mcp_process.start() gate and the ollama-model-loading worker
+        # it may precede run on different threads/timings — asserting on
+        # mcp_process itself only needs the synchronous part _chat_on_
+        # start() runs before ever spawning that worker thread, so this
+        # deliberately does not wait for or assert on the async model-
+        # loading outcome (already covered by test_chat_on_models_loaded-
+        # style tests above without going through _chat_on_start() at all).
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        mcp_process = MagicMock()
+        with patch("app.panel_chat._load_mcp_process", return_value=mcp_process), \
+             patch("app.panel_chat._load_ollama_client"):
+            panel._chat_on_start()
+        mcp_process.start.assert_not_called()
+
+    def test_start_with_datasource_mcp_starts_server_first(self, qtbot, app_mock):
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        mcp_process = MagicMock()
+        mcp_process.start.return_value = (True, "MCP server already running.")
+        with patch("app.panel_chat._load_mcp_process", return_value=mcp_process), \
+             patch("app.panel_chat._load_ollama_client"):
+            panel._chat_on_start()
+        mcp_process.start.assert_called_once()
+
+    def test_start_with_datasource_mcp_aborts_if_server_start_fails(
+            self, qtbot, app_mock):
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        mcp_process = MagicMock()
+        mcp_process.start.return_value = (False, "Could not find mcp_server.py.")
+        with patch("app.panel_chat._load_mcp_process", return_value=mcp_process), \
+             patch("app.panel_chat._load_ollama_client") as load_ollama:
+            panel._chat_on_start()
+        # Never even reaches the ollama model-loading step.
+        load_ollama.assert_not_called()
+        assert panel._start_btn.isEnabled()
+        assert not panel._stop_btn.isEnabled()
+        assert "Could not find mcp_server.py" in panel._chat_view.toPlainText()
+
+    def test_stop_resets_ui_state_and_reenables_start(self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_on_models_loaded(["qwen3:1.7b"], None)
+        assert panel._stop_btn.isEnabled()
+
+        with patch("app.panel_chat._load_mcp_process") as load_mcp_process:
+            panel._chat_on_stop()
+        # datasource is "json" by default — mcp_process is never touched.
+        load_mcp_process.assert_not_called()
+        assert not panel._stop_btn.isEnabled()
+        assert not panel._input.isEnabled()
+        assert not panel._send_btn.isEnabled()
+        assert panel._start_btn.isEnabled()
+
+    def test_stop_with_datasource_mcp_stops_the_server(self, qtbot, app_mock):
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._chat_on_models_loaded(["qwen3:1.7b"], None)
+        mcp_process = MagicMock()
+        mcp_process.stop.return_value = (True, "MCP server stopped (PID 1234).")
+        with patch("app.panel_chat._load_mcp_process", return_value=mcp_process):
+            panel._chat_on_stop()
+        mcp_process.stop.assert_called_once()
+        assert "MCP server stopped (PID 1234)." in panel._chat_view.toPlainText()
+
+    def test_start_after_stop_clears_old_chat_view(self, qtbot, app_mock):
+        # garmin_collector-3_experiment, Baustein 30 — Timo, live: Stop
+        # then Start again left the old conversation visible on screen,
+        # even though _chat_load_system_prompt() already resets
+        # self._history (the model-facing data). Found: only
+        # _chat_on_new_chat() ever cleared _chat_view, not the plain
+        # Stop-then-Start path.
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_on_models_loaded(["qwen3:1.7b"], None)
+        panel._chat_view.append("You: old question\nAssistant: old answer")
+        assert "old question" in panel._chat_view.toPlainText()
+
+        # A later Start (no intervening "Neuer Chat" click) must clear
+        # the view the same way _chat_on_new_chat() already does.
+        panel._chat_on_models_loaded(["qwen3:1.7b"], None)
+        assert "old question" not in panel._chat_view.toPlainText()
+
+    # ── Backend/Datenquelle locked while running (Baustein 12) ──────────────
+    # Session feedback: switching either dropdown mid-chat used to only
+    # reset history without actually locking anything, letting a live
+    # mcp-backed conversation be silently mixed with a json one.
+
+    def test_backend_and_datasource_locked_after_start_click(self, qtbot, app_mock):
+        from unittest.mock import patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        with patch("app.panel_chat._load_ollama_client"):
+            panel._chat_on_start()
+        assert not panel._backend_combo.isEnabled()
+        assert not panel._datasource_combo.isEnabled()
+
+    def test_backend_and_datasource_reenabled_after_mcp_start_failure(
+            self, qtbot, app_mock):
+        from unittest.mock import MagicMock, patch
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        mcp_process = MagicMock()
+        mcp_process.start.return_value = (False, "Could not find mcp_server.py.")
+        with patch("app.panel_chat._load_mcp_process", return_value=mcp_process), \
+             patch("app.panel_chat._load_ollama_client"):
+            panel._chat_on_start()
+        assert panel._backend_combo.isEnabled()
+        assert panel._datasource_combo.isEnabled()
+
+    def test_backend_and_datasource_reenabled_after_ollama_unreachable(
+            self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setEnabled(False)
+        panel._datasource_combo.setEnabled(False)
+        panel._chat_on_models_loaded([], "connection refused")
+        assert panel._backend_combo.isEnabled()
+        assert panel._datasource_combo.isEnabled()
+
+    def test_backend_and_datasource_reenabled_after_stop(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._backend_combo.setEnabled(False)
+        panel._datasource_combo.setEnabled(False)
+        panel._chat_on_stop()
+        assert panel._backend_combo.isEnabled()
+        assert panel._datasource_combo.isEnabled()
+
+    # ── MCP log split-view (garmin_collector-3_experiment, Baustein 9) ──────
+
+    def test_log_container_hidden_by_default(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        assert not panel._log_container.isVisibleTo(panel)
+        assert not panel._log_tail_timer.isActive()
+
+    def test_datasource_mcp_shows_log_and_starts_timer(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        assert panel._log_container.isVisibleTo(panel)
+        assert panel._log_tail_timer.isActive()
+
+    def test_datasource_back_to_json_hides_log_and_stops_timer(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        panel._datasource_combo.setCurrentText("json")
+        assert not panel._log_container.isVisibleTo(panel)
+        assert not panel._log_tail_timer.isActive()
+
+    def test_tail_mcp_log_no_directory_is_noop(self, qtbot, app_mock, tmp_path):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel._chat_tail_mcp_log()  # garmin_data/log/mcp/ does not exist
+        assert panel._log_view.toPlainText() == ""
+
+    def test_tail_mcp_log_reads_new_content_incrementally(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        log_dir = tmp_path / "garmin_data" / "log" / "mcp"
+        log_dir.mkdir(parents=True)
+        log_file = log_dir / "mcp_2026-09-14_120000.log"
+        log_file.write_text("line one\n", encoding="utf-8")
+
+        panel._chat_tail_mcp_log()
+        assert panel._log_view.toPlainText().strip() == "line one"
+
+        # A second tick with no new content must not duplicate what is
+        # already shown — this is what the tracked file position is for.
+        panel._chat_tail_mcp_log()
+        assert panel._log_view.toPlainText().count("line one") == 1
+
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write("line two\n")
+        panel._chat_tail_mcp_log()
+        text = panel._log_view.toPlainText()
+        assert "line one" in text and "line two" in text
+
+    def test_tail_mcp_log_switches_to_newest_file_and_resets_view(
+            self, qtbot, app_mock, tmp_path):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        log_dir = tmp_path / "garmin_data" / "log" / "mcp"
+        log_dir.mkdir(parents=True)
+        old_file = log_dir / "mcp_2026-09-14_090000.log"
+        old_file.write_text("old server run\n", encoding="utf-8")
+        panel._chat_tail_mcp_log()
+        assert "old server run" in panel._log_view.toPlainText()
+
+        # A later server start writes a lexicographically newer filename —
+        # the next tick must switch to it and drop the old content, not
+        # append the new file's lines onto the stale view.
+        new_file = log_dir / "mcp_2026-09-14_150000.log"
+        new_file.write_text("new server run\n", encoding="utf-8")
+        panel._chat_tail_mcp_log()
+        text = panel._log_view.toPlainText()
+        assert "new server run" in text
+        assert "old server run" not in text
+
+    # ── Model hint + sorting, Start/Stop row merge (Baustein 10) ────────────
+
+    def test_mcp_model_hint_hidden_by_default(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        assert not panel._mcp_model_hint.isVisibleTo(panel)
+
+    def test_mcp_model_hint_shown_for_datasource_mcp(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._datasource_combo.setCurrentText("mcp")
+        assert panel._mcp_model_hint.isVisibleTo(panel)
+        panel._datasource_combo.setCurrentText("json")
+        assert not panel._mcp_model_hint.isVisibleTo(panel)
+
+    def test_sort_models_qwen_first(self, qtbot, app_mock):
+        from app.panel_chat import _sort_models_qwen_first
+        models = ["phi4:14b", "qwen3:14b", "mistral-nemo:latest",
+                  "qwen2.5-coder:7b", "Hermes3:latest", "qwen3:1.7b"]
+        assert _sort_models_qwen_first(models) == [
+            "qwen2.5-coder:7b", "qwen3:1.7b", "qwen3:14b",
+            "Hermes3:latest", "mistral-nemo:latest", "phi4:14b",
+        ]
+
+    def test_sort_models_qwen_first_no_qwen_models(self, qtbot, app_mock):
+        from app.panel_chat import _sort_models_qwen_first
+        assert _sort_models_qwen_first(["phi4:14b", "gemma3:4b"]) == [
+            "gemma3:4b", "phi4:14b"]
+
+    def test_models_loaded_populates_combo_qwen_first(self, qtbot, app_mock):
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        panel._chat_on_models_loaded(
+            ["phi4:14b", "qwen3:14b", "qwen2.5-coder:7b"], None)
+        items = [panel._model_combo.itemText(i)
+                 for i in range(panel._model_combo.count())]
+        assert items == ["qwen2.5-coder:7b", "qwen3:14b", "phi4:14b"]
+
+    def test_start_stop_buttons_exist_and_still_gate_correctly(self, qtbot, app_mock):
+        # Baustein 10, session feedback: "start/stop verschieben damit
+        # mehr platz für den chat ist" — Start/Stop moved onto the
+        # Backend/Datenquelle row (see _build_ui()'s "Config row"
+        # comment). A headless test without panel.show() cannot
+        # meaningfully assert pixel position/row membership (every
+        # widget added via addLayout() on a layout with no wrapping
+        # QWidget shares the same parentWidget() regardless of which
+        # row it visually renders on) — this instead re-confirms the
+        # behavioral contract that actually matters survived the move:
+        # Stop starts disabled, Start does not.
+        from app.panel_chat import PanelChat
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        assert panel._start_btn.isEnabled()
+        assert not panel._stop_btn.isEnabled()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  8. PanelMcp
@@ -904,6 +2148,33 @@ class TestPanelMcp:
         panel = PanelMcp(app_mock)
         qtbot.addWidget(panel)
         assert panel is not None
+
+    def test_mcp_stop_server_logs_success(self, qtbot, app_mock):
+        # garmin_collector-3_experiment, Baustein 8b — symmetric Stop
+        # button, shares clients/mcp_process.py with the Chat panel's own
+        # Start/Stop pair.
+        from unittest.mock import MagicMock, patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        mcp_process = MagicMock()
+        mcp_process.stop.return_value = (True, "MCP server stopped (PID 1234).")
+        with patch("app.panel_mcp._load_mcp_process", return_value=mcp_process):
+            panel._mcp_stop_server()
+        mcp_process.stop.assert_called_once()
+        app_mock._log.assert_called_once()
+        assert "MCP server stopped (PID 1234)." in app_mock._log.call_args[0][0]
+
+    def test_mcp_stop_server_logs_failure(self, qtbot, app_mock):
+        from unittest.mock import MagicMock, patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        mcp_process = MagicMock()
+        mcp_process.stop.return_value = (False, "MCP server is not running.")
+        with patch("app.panel_mcp._load_mcp_process", return_value=mcp_process):
+            panel._mcp_stop_server()
+        assert "MCP server is not running." in app_mock._log.call_args[0][0]
 
     def test_default_backend_is_ollama_box_visible(self, qtbot, app_mock):
         # Korrektur: isVisible() checks the entire parent chain up to a
@@ -1022,48 +2293,111 @@ class TestPanelMcp:
         with patch("garmin_config.MCP_LLM_CONFIG_FILE", tmp_path / "missing.json"):
             panel._mcp_refresh_cloud_key_status()
         assert "No cloud config file" in panel._mcp_cloud_key_status.text()
+        # Provider-Dropdown (garmin_collector-3_experiment) — no accidental
+        # default selection when there is nothing on disk yet.
+        assert panel._mcp_cloud_provider.currentIndex() == -1
 
-    def test_save_cloud_config_writes_file_and_clears_key_field(
+    # ── Provider dropdown (garmin_collector-3_experiment) ───────────────────
+
+    def test_cloud_provider_dropdown_populated_from_cloud_llm_client(
+            self, qtbot, app_mock):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        items = [panel._mcp_cloud_provider.itemText(i)
+                 for i in range(panel._mcp_cloud_provider.count())]
+        assert items == ["anthropic", "openai"]
+
+    def test_cloud_config_status_selects_known_provider(
             self, qtbot, app_mock, tmp_path):
-        from unittest.mock import patch
+        # _load_cloud_credential_store() mocked so the key-status label
+        # refresh this now triggers does not depend on whatever the real
+        # Windows Credential Manager happens to hold on the test machine.
+        import json
+        from unittest.mock import MagicMock, patch
         from app.panel_mcp import PanelMcp
         panel = PanelMcp(app_mock)
         qtbot.addWidget(panel)
         cfg_file = tmp_path / "cloud.json"
-        panel._mcp_cloud_provider.setText("anthropic")
+        cfg_file.write_text(json.dumps(
+            {"provider": "openai", "model": "gpt-4.1"}),
+            encoding="utf-8")
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \
+             patch("app.panel_mcp._load_cloud_credential_store",
+                   return_value=MagicMock()):
+            panel._mcp_refresh_cloud_key_status()
+        assert panel._mcp_cloud_provider.currentText() == "openai"
+
+    def test_cloud_config_status_preserves_unknown_legacy_provider(
+            self, qtbot, app_mock, tmp_path):
+        # A value saved before this dropdown existed (or a typo from the
+        # old free-text field) must not be silently dropped on load.
+        # _load_cloud_credential_store() mocked, same reason as the test
+        # above.
+        import json
+        from unittest.mock import MagicMock, patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        cfg_file = tmp_path / "cloud.json"
+        cfg_file.write_text(json.dumps(
+            {"provider": "gemini", "model": "some-model"}),
+            encoding="utf-8")
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \
+             patch("app.panel_mcp._load_cloud_credential_store",
+                   return_value=MagicMock()):
+            panel._mcp_refresh_cloud_key_status()
+        assert panel._mcp_cloud_provider.currentText() == "gemini"
+
+    def test_save_cloud_config_writes_file_and_clears_key_field(
+            self, qtbot, app_mock, tmp_path):
+        # Baustein 23: the API key goes to Windows Credential Manager
+        # (mocked via _load_cloud_credential_store()), not the JSON file
+        # — only provider/model are written there now.
+        from unittest.mock import MagicMock, patch
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        cfg_file = tmp_path / "cloud.json"
+        panel._mcp_cloud_provider.setCurrentText("anthropic")
         panel._mcp_cloud_key.setText("sk-test-123")
         panel._mcp_cloud_model.setText("claude-sonnet-4-6")
-        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file):
+        fake_store = MagicMock()
+        fake_store.get_api_key.return_value = None
+        fake_store.store_api_key.return_value = True
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \
+             patch("app.panel_mcp._load_cloud_credential_store", return_value=fake_store):
             panel._mcp_save_cloud_config()
         import json
         saved = json.loads(cfg_file.read_text(encoding="utf-8"))
-        assert saved == {
-            "provider": "anthropic",
-            "api_key": "sk-test-123",
-            "model": "claude-sonnet-4-6",
-        }
+        assert saved == {"provider": "anthropic", "model": "claude-sonnet-4-6"}
         assert panel._mcp_cloud_key.text() == ""
+        fake_store.store_api_key.assert_called_once_with("anthropic", "sk-test-123")
 
     def test_save_cloud_config_empty_key_keeps_existing(
             self, qtbot, app_mock, tmp_path):
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         from app.panel_mcp import PanelMcp
         panel = PanelMcp(app_mock)
         qtbot.addWidget(panel)
         cfg_file = tmp_path / "cloud.json"
         import json
         cfg_file.write_text(json.dumps({
-            "provider": "anthropic", "api_key": "existing-key",
-            "model": "old-model",
+            "provider": "anthropic", "model": "old-model",
         }), encoding="utf-8")
-        panel._mcp_cloud_provider.setText("anthropic")
+        panel._mcp_cloud_provider.setCurrentText("anthropic")
         panel._mcp_cloud_key.setText("")  # leave empty — keep existing
         panel._mcp_cloud_model.setText("new-model")
-        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file):
+        fake_store = MagicMock()
+        fake_store.get_api_key.return_value = "existing-key"
+        with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \
+             patch("app.panel_mcp._load_cloud_credential_store", return_value=fake_store):
             panel._mcp_save_cloud_config()
         saved = json.loads(cfg_file.read_text(encoding="utf-8"))
-        assert saved["api_key"] == "existing-key"
         assert saved["model"] == "new-model"
+        assert "api_key" not in saved
+        # Empty key field must not overwrite the existing WCM entry.
+        fake_store.store_api_key.assert_not_called()
 
     def test_save_cloud_config_missing_required_field_warns_no_write(
             self, qtbot, app_mock, tmp_path):
@@ -1072,7 +2406,7 @@ class TestPanelMcp:
         panel = PanelMcp(app_mock)
         qtbot.addWidget(panel)
         cfg_file = tmp_path / "cloud.json"
-        panel._mcp_cloud_provider.setText("")  # missing
+        panel._mcp_cloud_provider.setCurrentIndex(-1)  # missing
         panel._mcp_cloud_key.setText("sk-test")
         panel._mcp_cloud_model.setText("some-model")
         with patch("garmin_config.MCP_LLM_CONFIG_FILE", cfg_file), \

@@ -51,6 +51,21 @@ def _register_embedded_packages():
         return
     import types
     scripts   = Path(sys._MEIPASS) / "scripts"
+    # scripts root itself (garmin_collector-3_experiment, Baustein 28) —
+    # frozen_paths.py/version.py/build_manifest.py/garmin_app_base.py all
+    # live directly here, not in a subfolder. clients/cloud_llm_client.py
+    # does `import frozen_paths` at module level; app/panel_chat.py's own
+    # lazy loaders only ever call frozen_paths.add_to_path(root, "clients")
+    # (never add_to_path(root) alone) — the ONLY place in this repo that
+    # added the root itself was app/panel_outputs.py's dashboard-export
+    # code path, an unrelated accidental side effect Cloud-chat happened
+    # to depend on if it ran first. Confirmed missing the hard way in
+    # clients/mcp_server.py's own copy of this function (real T3.3 run,
+    # ModuleNotFoundError: No module named 'frozen_paths') — fixed there
+    # and mirrored here before the same gap gets hit in T3.1, since Cloud
+    # backend was never actually exercised in T3.1 either.
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
     garmin_dir = scripts / "garmin"
     if garmin_dir.exists():
         sys.path.insert(0, str(garmin_dir))

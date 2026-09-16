@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.1.17
+# Garmin Local Archive — Desktop App v1.7.2
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -103,7 +103,7 @@ The app window is divided into two areas:
 - **Home** — Dashboard viewer (HTML dashboards)
 - **Files** — Excel viewer
 - **Settings** — all configuration panels
-- **Ollama-Chat** — native chat against a local Ollama instance (v1.6.6)
+- **Chat** — native chat panel (v1.6.6, renamed from "Ollama-Chat" in v1.7.2). Backend: local Ollama or Cloud LLM (Anthropic/OpenAI, v1.7.2). Source: archived daily summary or live MCP tool-calling (v1.7.2). Streaming replies, session history with resume
 - **MCP Server** — local LLM access to your archive via the Model Context Protocol (v1.7)
 
 -> For how to use each tab day-to-day, see USER_GUIDE.txt.
@@ -234,13 +234,16 @@ Connect a local AI model to your health data. All options run entirely on your m
 
 1. Install Ollama: https://ollama.com/download
 2. Pull a model that fits your GPU (see table below)
-3. Open the **Ollama-Chat** tab in the app, click **Start**
+3. Open the **Chat** tab in the app, choose Backend **Ollama**, click **Start**
 
 That's it — no Docker, no separate desktop app. The panel loads the same
-health-analysis system prompt used by the external options below.
-Currently works against summary data only; full intraday resolution is
-planned for v1.9. For document upload / knowledge-base RAG across your
-whole archive, use Open WebUI or AnythingLLM below instead.
+health-analysis system prompt used by the external options below. By
+default it works against the archived daily-summary snapshot; switch
+Source to **MCP tool-calling** (v1.7.2) to let the model query your full
+archive live instead — see `README.md`'s own Chat section for the
+Backend/Source matrix and streaming/session-history details. For document
+upload / knowledge-base RAG across your whole archive, use Open WebUI or
+AnythingLLM below instead.
 
 **Which model fits your GPU?** Rule of thumb: **VRAM in GB − 2 = usable
 model size** (Q4 quantization, Ollama's default). Rough guide, not a
