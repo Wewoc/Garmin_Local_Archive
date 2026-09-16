@@ -896,6 +896,75 @@ with patch("requests.post", return_value=_mock_resp(500, raise_http_error=True))
     except ollama_client.OllamaError:
         check("chat: 500 raises generic OllamaError", True)
 
+
+# ── chat_stream() (Baustein 20, Phase 1 Streaming) ───────────────────────────
+
+def _mock_stream_resp(status_code=200, lines=None, json_data=None, text="",
+                       raise_http_error=False):
+    """Streaming counterpart to _mock_resp() above — adds iter_lines()
+    (NDJSON body) and close(); the error paths (404/400/etc, same
+    classification as chat()) still read resp.json()/resp.text via the
+    base helper, so both are supported on the same mock."""
+    resp = _mock_resp(status_code, json_data, text, raise_http_error)
+    resp.iter_lines.return_value = lines or []
+    resp.close.return_value = None
+    return resp
+
+
+_stream_lines = [
+    b'{"message": {"content": "Hel"}, "done": false}',
+    b'{"message": {"content": "lo"}, "done": false}',
+    b'{"message": {"content": ""}, "done": true}',
+]
+with patch("requests.post", return_value=_mock_stream_resp(200, _stream_lines)):
+    _stream_chunks = list(ollama_client.chat_stream(
+        "qwen3:14b", [{"role": "user", "content": "hi"}]))
+check("chat_stream success: yields incremental chunks",
+      _stream_chunks == ["Hel", "lo"])
+
+# Blank keep-alive lines in the NDJSON body are skipped, not an error.
+with patch("requests.post", return_value=_mock_stream_resp(
+        200, [b"", b'{"message": {"content": "hi"}, "done": true}'])):
+    _stream_chunks_blank = list(ollama_client.chat_stream("qwen3:14b", []))
+check("chat_stream: blank keep-alive lines skipped",
+      _stream_chunks_blank == ["hi"])
+
+with patch("requests.post", side_effect=requests.exceptions.Timeout()):
+    try:
+        list(ollama_client.chat_stream("qwen3:14b", []))
+        check("chat_stream: Timeout raises OllamaTimeout", False)
+    except ollama_client.OllamaTimeout:
+        check("chat_stream: Timeout raises OllamaTimeout", True)
+
+with patch("requests.post", side_effect=requests.exceptions.ConnectionError()):
+    try:
+        list(ollama_client.chat_stream("qwen3:14b", []))
+        check("chat_stream: connection error raises OllamaUnreachable", False)
+    except ollama_client.OllamaUnreachable:
+        check("chat_stream: connection error raises OllamaUnreachable", True)
+
+with patch("requests.post", return_value=_mock_stream_resp(404)):
+    try:
+        list(ollama_client.chat_stream("nonexistent-model", []))
+        check("chat_stream: 404 raises OllamaModelNotFound", False)
+    except ollama_client.OllamaModelNotFound:
+        check("chat_stream: 404 raises OllamaModelNotFound", True)
+
+with patch("requests.post", return_value=_mock_stream_resp(
+        400, json_data={"error": "context length exceeded"})):
+    try:
+        list(ollama_client.chat_stream("qwen3:14b", []))
+        check("chat_stream: 400 'context' body raises OllamaContextLimitExceeded", False)
+    except ollama_client.OllamaContextLimitExceeded:
+        check("chat_stream: 400 'context' body raises OllamaContextLimitExceeded", True)
+
+with patch("requests.post", return_value=_mock_stream_resp(500, raise_http_error=True)):
+    try:
+        list(ollama_client.chat_stream("qwen3:14b", []))
+        check("chat_stream: 500 raises generic OllamaError", False)
+    except ollama_client.OllamaError:
+        check("chat_stream: 500 raises generic OllamaError", True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  22. theme.py — active_theme fallback behavior
 # ══════════════════════════════════════════════════════════════════════════════

@@ -96,7 +96,7 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 
 | Script | What it does |
 |---|---|
-| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings / Ollama-Chat / MCP Server. PyQt6 QMainWindow. |
+| `garmin_app_base.py` | Assembler — fixed top (panel_home) + QTabWidget: Home / Files / Settings / Chat / MCP Server (fourth tab renamed from "Ollama-Chat" to "Chat" in v1.7.2). PyQt6 QMainWindow. |
 | `app/garmin_app_settings.py` | Settings persistence, keyring helpers, constants. No GUI — importable in any context. |
 | `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No GUI. |
 | `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer / Documentation). Home tab: Dashboard viewer. (v1.6.0+) |
@@ -105,9 +105,19 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
 | `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
 | `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
-| `app/panel_chat.py` | Ollama-Chat panel — native chat against a local Ollama instance, no external tool required. Model dropdown, chat history, "Neuer Chat" reset. (v1.6.6) |
-| `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — used exclusively by `app/panel_chat.py`. (v1.6.6) |
-| `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). (v1.7) |
+| `app/panel_chat.py` | Chat panel (v1.6.6, renamed from "Ollama-Chat" v1.7.2) — Ollama or Cloud (Anthropic/OpenAI) backend, plain chat or MCP tool-calling source, streaming, chat session history. See `REFERENCE_GLOBAL.md`'s Module reference table for the full v1.7.2 architecture. |
+| `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — `chat()`/`chat_stream()` (plain) + `chat_with_tools()` (no streaming counterpart — Ollama's own streaming+tool-calling support is unreliable upstream, v1.7.2). Used by `app/panel_chat.py`. (v1.6.6) |
+| `clients/mcp_client.py` | Leaf-Node HTTP client for the MCP server's tool-calling endpoint — `is_reachable`/`list_tools`/`call_tool`. Used by `app/panel_chat.py`'s tool-calling turn loops. (v1.7.2) |
+| `clients/mcp_process.py` | Leaf-Node Start/Stop process control for `clients/mcp_server.py`, shared between `app/panel_chat.py` and `app/panel_mcp.py`. (v1.7.2) |
+| `clients/mcp_tool_chat.py` | Ollama + MCP agentic turn loop (`converse()`) — call, inspect `tool_calls`, execute via `mcp_client`, feed back, repeat. (v1.7.2) |
+| `clients/openai_tool_schema.py` | Leaf-Node OpenAI-style tool-schema translator, shared by Ollama and OpenAI. (v1.7.2) |
+| `clients/cloud_llm_client.py` | Cloud LLM dispatcher — normalizes `chat`/`chat_with_tools`/`chat_stream`/`chat_stream_with_tools` across providers for `app/panel_chat.py`. (v1.7.2) |
+| `clients/cloud_llm_anthropic.py` / `clients/cloud_llm_openai.py` | Cloud LLM providers behind `cloud_llm_client.py`, wrapping the official Anthropic/OpenAI SDKs. (v1.7.2) |
+| `clients/cloud_tool_chat.py` | Cloud + MCP agentic turn loop — `converse()`/`converse_stream()` (streaming, Cloud-only), sitting on `cloud_llm_client.py` instead of Ollama's. (v1.7.2) |
+| `clients/chat_session_store.py` | Leaf-Node chat session persistence under `<base_dir>/chats/` — one file per conversation, auto-saved after every turn, hash-gated resume eligibility. (v1.7.2) |
+| `clients/cloud_credential_store.py` | Leaf-Node Cloud LLM API key storage via Windows Credential Manager, one entry per provider — same `keyring` mechanism as `garmin_security.py`'s token encryption key. (v1.7.2) |
+| `app/dialog_chat_history.py` | `ChatHistoryDialog` — lists saved chat sessions with Load/Delete, opened from `app/panel_chat.py`'s "Chat History" button. (v1.7.2) |
+| `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). Cloud Provider field is a dropdown (v1.7.2), API key stored in Windows Credential Manager rather than the config file (v1.7.2). (v1.7) |
 | `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
 | `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
@@ -120,6 +130,7 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `compiler/build_manifest.py` | Single source of truth for `SHARED_SCRIPTS` — the module list shared between `build.py` and `build_standalone.py`. Pure data, no logic, no side effects. |
 | `compiler/build_all.py` | Runs Target 2 then Target 3 sequentially; aborts Target 3 if Target 2 fails. Includes the Plotly pre-build check (pinned SHA256) before any test or build step. |
+| `compiler/build_gui.py` (`bat/run_build_gui.bat`) | "🦄 Garmin Local Archiv Builder" (garmin_collector-3_experiment, Baustein 31) — Tkinter GUI wrapping the manual "copy working dir into a separate build folder, then run build_all.py" workflow into one window. Pick a build target directory, confirm the (explicitly shown) destructive copy, watch a live, elapsed-time-stamped (`[H:MM:SS]` since Start, a stopwatch — not wall-clock) log of the Qt-test gate + `build_all.py`, Cancel/Stop via `taskkill /PID <pid> /T /F` (same tree-kill technique as `clients/mcp_process.py::_kill_pid_tree()`, needed because `build_all.py` spawns further children — PyInstaller itself — that a plain terminate() would not reach). Running `build_all.py` as this GUI's own child means PyInstaller (a grandchild) inherits the same redirected stdout — its console output reaches the GUI's log without any change to `build.py`'s/`build_standalone.py`'s own `build_exe()`, which still writes straight to the real console via `subprocess.run()` (a pre-existing gap in `build_all.py`'s own file-based `_Tee` logging, unresolved there — see `PROTOKOLL_experiment.md`). Only copies the source tree — the shared build venv (`compiler/build_manifest.py::BUILD_VENV_DIR`) is untouched, found and reused from the new location exactly as before. |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation. Exit codes 0–5 distinguish success, migration-required, missing settings, API error, dashboard error, and update-available. |
 | `version.py` | Single source of truth for `APP_VERSION` — no dependencies, safe for all build targets |
 
@@ -203,6 +214,17 @@ no `_log_queue`/polling architecture and is not affected by this pattern.
 
 ## Building a release
 
+Both `build.py` and `build_standalone.py` build against a shared,
+isolated venv (`compiler/build_manifest.py::BUILD_VENV_DIR`, fixed
+path outside any project copy) instead of `sys.executable` — created on
+first use, reused afterwards, kept in sync with `requirements.txt` on
+every run. Prevents packages installed globally for an unrelated
+project on the same machine from being swept into a PyInstaller build
+(garmin_collector-3_experiment, Baustein 27 — an unrelated ML/OCR
+project's `torch`/`pandas`/`scipy` had inflated the T3 ZIP past 8 GB
+and the T2 EXE to ~3 GB via `openai`'s optional `pandas` extras path;
+see `PROTOKOLL_experiment.md`, Bausteine 26/27).
+
 **Target 2:**
 ```bash
 python compiler/build.py
@@ -219,6 +241,13 @@ Produces `Garmin_Local_Archive_Standalone.exe`, `daily_update.exe`, and `Garmin_
 ```bash
 python compiler/build_all.py
 ```
+
+**GUI wrapper (`bat/run_build_gui.bat` / `python compiler/build_gui.py`):**
+copies the working directory into a separate, chosen build folder
+(build artefacts never land inside the working directory), then runs
+the same Qt-test-gate + `build_all.py` sequence with a live,
+elapsed-time-stamped log — see `compiler/build_gui.py`'s own module
+docstring and the table entry above for the full reasoning.
 
 Upload `Garmin_Local_Archive.zip` and `Garmin_Local_Archive_Standalone.zip` to the GitHub release page.
 
@@ -809,6 +838,44 @@ pytest tests/test_qt_app.py -v
 
 Check and class totals are tracked in `docs/METRICS.md` (`test_qt_app.py`) — not restated here to avoid drift (same convention as `MAINTENANCE_GARMIN.md` / `test_app_logic.py` above). Requires `pytest`, `pytest-qt`, `PyQt6` (all in `requirements.txt`). Tests Qt-specific behaviour — panel instantiation, Signal/Slot contracts, widget state, cross-thread dispatch patterns. Does NOT duplicate `test_app_logic.py` — that suite covers Settings/Controller logic which remains tkinter-free.
 
+### `tests/test_cloud_llm.py` / `test_mcp_tool_chat.py` / `test_cloud_tool_chat.py` / `test_chat_session_store.py` / `test_cloud_credential_store.py` / `test_mcp_process.py` — In-App Chat (v1.7.2)
+
+```bash
+pytest tests/test_cloud_llm.py tests/test_mcp_tool_chat.py tests/test_cloud_tool_chat.py tests/test_chat_session_store.py tests/test_cloud_credential_store.py tests/test_mcp_process.py -v
+```
+
+Six new, separate, lightweight pytest files (v1.7.2) for the In-App Chat's
+new leaf-node modules — plain Python, no Qt, no live API/MCP-server call
+anywhere (every SDK/HTTP/`keyring`/`subprocess` call is mocked). Not folded
+into `test_app_logic.py`/`test_qt_app.py`: these modules have no
+project-internal imports beyond `frozen_paths`/`garmin_config`/stdlib, so a
+separate file avoids pulling in either the full `garmin_app_base` stack or
+PyQt6 for logic that needs neither. `test_cloud_llm.py` covers
+`cloud_llm_client`/`cloud_llm_anthropic`/`cloud_llm_openai`;
+`test_mcp_tool_chat.py` covers `mcp_tool_chat.converse()`/
+`openai_tool_schema.py`; `test_cloud_tool_chat.py` covers
+`cloud_tool_chat.converse()`/`converse_stream()`; `test_chat_session_store.py`
+covers session save/load/list/delete/resume-eligibility against a real
+filesystem (`tmp_path`); `test_cloud_credential_store.py` covers the WCM
+round-trip with `keyring` mocked via `patch.dict("sys.modules", ...)`, same
+pattern `tests/test_local.py` already uses for `garmin_security.py`.
+`test_mcp_process.py` (Baustein 29, garmin_collector-3_experiment, added
+post-doc-review after this module turned out to have no test coverage of
+its own — every `app/panel_*.py` test mocked it wholesale) covers
+`_find_listening_pid()`, `start()`'s PID-remembering, and `stop()`'s two
+paths (remembered-PID tree-kill first, `netstat`-based fallback), all with
+`subprocess.run`/`subprocess.Popen` mocked — no real process ever spawned.
+Wired into `run_tests.ps1` as six separate `pytest -v` steps (after
+`test_qt_app.py`, before `test_static.py`) — run directly via `pytest` as
+shown above, or via `run_tests.ps1` for the full suite. Check totals
+tracked in `docs/METRICS.md`.
+
+Run after any change to: `clients/cloud_llm_client.py`,
+`clients/cloud_llm_anthropic.py`, `clients/cloud_llm_openai.py`,
+`clients/mcp_tool_chat.py`, `clients/openai_tool_schema.py`,
+`clients/cloud_tool_chat.py`, `clients/chat_session_store.py`,
+`clients/cloud_credential_store.py`, `clients/mcp_process.py`.
+
 **Test result v1.6.0:** 316 / 261 / 303 / 128 / 42 / 2 — all green
 
 **Test result v1.6.0.2:** 339 / 261 / 303 / 128 / 42 / 2 — all green
@@ -876,13 +943,19 @@ All source folders are Python packages with `__init__.py`:
 - `clients/` — external tool/service clients (v1.6.6): no data silo, no
   Sole-Write-Authority, distinct from `garmin/`'s pipeline scope. Flat
   imports like `garmin/`/`app/`, not registered as a `sys.modules` package
-  (no relative imports inside `clients/`). Two residents: `ollama_client.py`
-  (v1.6.6, HTTP client, no state, no own `sys.path` handling — reached only
-  via `app/panel_chat.py`'s `frozen_paths.add_to_path()` lazy import) and
-  `mcp_server.py` (v1.7 Teilbauauftrag b, standalone streamable-http server
-  process since v1.7.0.1 — stdio originally, see `docs/CHANGELOG.md`), own
-  `sys.path` root anchor analogous to `scheduler/daily_update.py` since it
-  is never launched from a running GUI process)
+  (no relative imports inside `clients/`). Started with two residents in
+  v1.6.6 and grew steadily through v1.7–v1.7.2 (MCP server/client plumbing,
+  Cloud LLM connectors, tool-calling, chat-session/credential storage) — full
+  current list and one-line purpose per file is the Module reference table
+  in `docs/REFERENCE_GLOBAL.md`, not restated here to avoid drift. Two
+  residents carry import handling notable enough to call out here:
+  `ollama_client.py` (v1.6.6, HTTP client, no state, no own `sys.path`
+  handling — reached only via `app/panel_chat.py`'s
+  `frozen_paths.add_to_path()` lazy import) and `mcp_server.py` (v1.7
+  Teilbauauftrag b, standalone streamable-http server process since
+  v1.7.0.1 — stdio originally, see `docs/CHANGELOG.md`), own `sys.path`
+  root anchor analogous to `scheduler/daily_update.py` since it is never
+  launched from a running GUI process)
 
 **Import pattern:**
 - Entry points (`garmin_app.py`, `tests/`) use `sys.path.insert` to reach `garmin/`
@@ -902,7 +975,7 @@ All source folders are Python packages with `__init__.py`:
 | Location | sys.path setup |
 |---|---|
 | `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `app/`, `clients/` (v1.6.6) |
-| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); subfolder loop from `parent.parent` incl. `app/`; `context` additionally registered as `types.ModuleType` in `sys.modules`. **`clients/` deliberately excluded** — Ollama Chat is a GUI-only feature, never reached from the headless entry point (v1.6.6) |
+| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); subfolder loop from `parent.parent` incl. `app/`; `context` additionally registered as `types.ModuleType` in `sys.modules`. **`clients/` deliberately excluded** — the Chat tab (formerly "Ollama Chat") is a GUI-only feature, never reached from the headless entry point (v1.6.6) |
 | `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` + `scripts/app/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`). `clients/` excluded here too, same reasoning as Dev/T2 above |
 | `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE, incl. `clients/` (v1.6.6) |
 | `garmin_app_standalone.py` — Dev | same subfolder loop (incl. `app/`, `clients/`) |
@@ -911,6 +984,7 @@ All source folders are Python packages with `__init__.py`:
 | `tests/test_local_context.py` | `sys.path.insert(0, .../garmin)` + `sys.path.insert(0, root)` |
 | `maps/garmin_health_map.py` | `sys.path.insert(0, .../garmin)` — bridge between packages |
 | `context/` plugins | `sys.path.insert(0, .../garmin)` — for `garmin_config` |
+| `clients/mcp_process.py` | `sys.path.insert(0, .../garmin)` — same one-line pattern as `maps/garmin_health_map.py` above, for `garmin_config` (`MCP_HTTP_PORT` default). Added post-Baustein-23 (garmin_collector-3_experiment) — previously had none; its two importers' lazy loaders (`app/panel_chat.py`/`app/panel_mcp.py`'s own `_load_mcp_process()`) only ever add `"clients"`, never `"garmin"`, so the import silently relied on `garmin/` already being on `sys.path` from `garmin_app_base.py`'s own app-wide startup instead |
 | `app/panel_chat.py` | `frozen_paths.add_to_path(root, "clients")` inside a lazy import helper — not at module top-level, so `panel_chat.py` stays importable before `sys.path` is fully wired up (v1.6.6) |
 | All modules inside `garmin/` | None — `sys.path.insert` removed in v1.4 |
 | `clients/ollama_client.py` | None — flat, no internal relative imports, no `garmin_config` dependency (v1.6.6) |

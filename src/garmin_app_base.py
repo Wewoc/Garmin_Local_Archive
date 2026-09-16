@@ -381,7 +381,7 @@ class GarminApp(QMainWindow):
         right_tabs.addTab(settings_tab, "Settings")
 
         # ── Tab 3: Chat ───────────────────────────────────────────────────────
-        right_tabs.addTab(self._panel_chat, "Ollama-Chat")
+        right_tabs.addTab(self._panel_chat, "Chat")
 
         # ── Tab 4: MCP Server ────────────────────────────────────────────────
         # Korrektur: panel_mcp.py has no QScrollArea wrapper of its own

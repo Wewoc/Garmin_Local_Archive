@@ -66,7 +66,47 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
+import frozen_paths
 import garmin_config as cfg
+
+
+def _load_cloud_credential_store():
+    """Lazy import, same pattern as _load_mcp_process() below —
+    clients/cloud_credential_store.py (Baustein 23, WCM-backed cloud
+    API key storage, one entry per provider) lives in clients/
+    alongside cloud_llm_client.py."""
+    root = frozen_paths.scripts_root()
+    frozen_paths.add_to_path(root, "clients")
+    import cloud_credential_store
+    return cloud_credential_store
+
+
+def _load_mcp_process():
+    """Lazy import — mirrors app/panel_chat.py's own client-module
+    loaders (see that file's _load_ollama_client() for the full
+    reasoning). The Stop button below (garmin_collector-3_experiment,
+    see PROTOKOLL_experiment.md, "Baustein 8b") uses the same
+    clients/mcp_process.py as the Chat panel's own Start/Stop pair —
+    the only clients/ import this panel has ever needed, since
+    _resolve_mcp_server_launch_command() below only resolves a PATH for
+    Popen, it does not import mcp_server.py as a module."""
+    root = frozen_paths.scripts_root()
+    frozen_paths.add_to_path(root, "clients")
+    import mcp_process
+    return mcp_process
+
+
+def _load_cloud_llm_client():
+    """Lazy import, same pattern as _load_mcp_process() above —
+    clients/cloud_llm_client.py (the Cloud-LLM dispatcher, see that
+    module's own docstring) is the single source of truth for which
+    cloud providers are actually supported. Used here only to populate
+    the Provider dropdown (_PROVIDERS.keys()) — this panel never calls
+    .chat() itself, app/panel_chat.py's Start/Send flow does."""
+    root = frozen_paths.scripts_root()
+    frozen_paths.add_to_path(root, "clients")
+    import cloud_llm_client
+    return cloud_llm_client
 
 
 def _resolve_mcp_server_launch_command() -> list[str] | None:
@@ -183,6 +223,19 @@ class PanelMcp(QWidget):
         self._mcp_backend.currentTextChanged.connect(self._mcp_on_backend_changed)
         backend_row.addWidget(backend_lbl)
         backend_row.addWidget(self._mcp_backend)
+        # ▼ fallback label — Qt6/Windows suppresses the native drop-down
+        # arrow once a QComboBox has a stylesheet. Same fix already
+        # applied to app/panel_chat.py's three dropdowns (Baustein 11) —
+        # this exact combo was the other known instance of the bug,
+        # flagged in NOTES_v1.7.2_chat_panel_konzept.md but left open
+        # until now.
+        _backend_arrow = QLabel("▼")
+        _backend_arrow.setFont(QFont("Segoe UI", 7))
+        _backend_arrow.setStyleSheet(
+            f"color: {self._app.TEXT2}; background: {self._app.BG3}; "
+            f"padding: 0px 6px 0px 0px;")
+        _backend_arrow.setFixedWidth(16)
+        backend_row.addWidget(_backend_arrow)
         backend_row.addStretch()
         outer.addLayout(backend_row)
         outer.addSpacing(10)
@@ -266,13 +319,19 @@ class PanelMcp(QWidget):
         cloud_lay.setContentsMargins(10, 10, 10, 10)
         cloud_lay.setSpacing(8)
 
-        warn = QLabel(
-            "⚠  Saved as plaintext to ~/.garmin_mcp_llm_config.json — not "
-            "encrypted. WCM/AES encryption is a later roadmap item.")
-        warn.setFont(QFont("Segoe UI", 8))
-        warn.setStyleSheet(f"color: {self._app.YELLOW};")
-        warn.setWordWrap(True)
-        cloud_lay.addWidget(warn)
+        # Baustein 23 (garmin_collector-3_experiment): the API key itself
+        # no longer goes into MCP_LLM_CONFIG_FILE at all — it is stored in
+        # Windows Credential Manager instead, one entry per provider (see
+        # clients/cloud_credential_store.py), same mechanism
+        # garmin/garmin_security.py already uses for the Garmin token
+        # encryption key. Only provider/model stay in the JSON file below.
+        info = QLabel(
+            "🔒  API key stored in Windows Credential Manager, one entry "
+            "per provider — never written to disk in plaintext.")
+        info.setFont(QFont("Segoe UI", 8))
+        info.setStyleSheet(f"color: {self._app.TEXT2};")
+        info.setWordWrap(True)
+        cloud_lay.addWidget(info)
 
         def _cloud_field(label: str, password: bool = False) -> QLineEdit:
             # Korrektur: setFixedWidth() on both label and entry left no
@@ -303,8 +362,58 @@ class PanelMcp(QWidget):
             cloud_lay.addLayout(row)
             return entry
 
-        self._mcp_cloud_provider = _cloud_field("Provider")
-        self._mcp_cloud_provider.setPlaceholderText("e.g. anthropic, openai")
+        # Dropdown, not free text (garmin_collector-3_experiment session
+        # decision — closes the silent-typo failure mode a plain
+        # QLineEdit allowed; see NOTES_v1.7.2_chat_panel_konzept.md's
+        # own "Provider-Feld sollte von Freitext auf Dropdown umgestellt
+        # werden" note). Options loaded from clients/cloud_llm_client.py's
+        # _PROVIDERS — the same dispatcher registry app/panel_chat.py's
+        # cloud branch actually consults, not a separately hand-kept
+        # list here, so a future third provider cannot drift out of
+        # sync between the two. Row built inline, not via _cloud_field()
+        # above (that helper is QLineEdit-specific).
+        provider_row = QHBoxLayout()
+        provider_row.setSpacing(8)
+        provider_lbl = QLabel("Provider")
+        provider_lbl.setFixedWidth(100)
+        provider_lbl.setFont(QFont("Segoe UI", 9))
+        provider_lbl.setStyleSheet(f"color: {self._app.TEXT2};")
+        self._mcp_cloud_provider = QComboBox()
+        self._mcp_cloud_provider.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._mcp_cloud_provider.setFont(QFont("Segoe UI", 9))
+        self._mcp_cloud_provider.setStyleSheet(
+            f"QComboBox {{ background: {self._app.BG3}; color: {self._app.TEXT}; "
+            f"border: none; padding: 5px 10px; }}"
+            f"QComboBox::drop-down {{ border: none; }}"
+            f"QComboBox QAbstractItemView {{ background: {self._app.BG3}; "
+            f"color: {self._app.TEXT}; "
+            f"selection-background-color: {self._app.ACCENT2}; }}")
+        self._mcp_cloud_provider.addItems(
+            sorted(_load_cloud_llm_client()._PROVIDERS.keys()))
+        # Baustein 23 — switching providers refreshes the key-status label
+        # for whichever one is now selected (WCM holds one entry per
+        # provider, see clients/cloud_credential_store.py's own docstring:
+        # "schnell und einfach wechseln" was the whole point of that
+        # design). Also fires from _mcp_set_cloud_provider()'s own
+        # setCurrentIndex() call below whenever that actually changes the
+        # selection — harmless if this label refresh then runs twice for
+        # the same value.
+        self._mcp_cloud_provider.currentTextChanged.connect(
+            self._mcp_refresh_cloud_key_status_label)
+        provider_row.addWidget(provider_lbl)
+        provider_row.addWidget(self._mcp_cloud_provider)
+        # ▼ fallback label — same Qt6/Windows stylesheet-suppresses-the-
+        # native-arrow reason as the LLM-backend dropdown above.
+        _provider_arrow = QLabel("▼")
+        _provider_arrow.setFont(QFont("Segoe UI", 7))
+        _provider_arrow.setStyleSheet(
+            f"color: {self._app.TEXT2}; background: {self._app.BG3}; "
+            f"padding: 0px 6px 0px 0px;")
+        _provider_arrow.setFixedWidth(16)
+        provider_row.addWidget(_provider_arrow)
+        cloud_lay.addLayout(provider_row)
+
         self._mcp_cloud_key = _cloud_field("API key", password=True)
         self._mcp_cloud_key.setPlaceholderText("leave empty to keep current key")
         self._mcp_cloud_model = _cloud_field("Model")
@@ -356,6 +465,23 @@ class PanelMcp(QWidget):
         start_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         start_btn.clicked.connect(self._mcp_start_server)
         save_row.addWidget(start_btn)
+
+        # Stop — NOTES_v1.7.2_chat_panel_konzept.md explicitly calls for
+        # this panel to get one too ("MCP-Tab braucht ebenfalls einen
+        # Stop-Button"), symmetric to the Chat panel's own Start/Stop
+        # pair (garmin_collector-3_experiment, Baustein 8b). Pure
+        # addition — _mcp_start_server()/_resolve_mcp_server_launch_
+        # command() above are untouched.
+        stop_btn = QPushButton("⏹️  Stop MCP Server")
+        stop_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        stop_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT}; "
+            f"border: none; padding: 8px 18px; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
+        stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        stop_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        stop_btn.clicked.connect(self._mcp_stop_server)
+        save_row.addWidget(stop_btn)
 
         save_row.addStretch()
         outer.addLayout(save_row)
@@ -449,45 +575,79 @@ class PanelMcp(QWidget):
 
     # ── Cloud config file (garmin_config.MCP_LLM_CONFIG_FILE) ───────────────
 
+    def _mcp_set_cloud_provider(self, provider: str):
+        """Selects provider in the dropdown, inserting it as an extra
+        item first if it is not one of clients/cloud_llm_client.py's
+        known providers (a value saved before this dropdown existed —
+        this panel used a free-text field until garmin_collector-3_
+        experiment — or a typo from that old field) — so a previously-
+        saved value is never silently lost/blanked on load. Empty
+        string (no config on disk yet) clears the selection rather
+        than falling back to whatever item happens to be first."""
+        if not provider:
+            self._mcp_cloud_provider.setCurrentIndex(-1)
+            return
+        idx = self._mcp_cloud_provider.findText(provider)
+        if idx < 0:
+            self._mcp_cloud_provider.addItem(provider)
+            idx = self._mcp_cloud_provider.findText(provider)
+        self._mcp_cloud_provider.setCurrentIndex(idx)
+
     def _mcp_refresh_cloud_key_status(self):
-        """Shows whether a key is currently on disk, without reading or
-        displaying it — see module docstring."""
+        """Loads provider/model from garmin_config.MCP_LLM_CONFIG_FILE
+        (Baustein 23: the API key itself no longer lives in this file —
+        see _mcp_save_cloud_config() below) and refreshes the key-status
+        label for whichever provider ends up selected."""
         import garmin_config as cfg
         try:
             data = __import__("json").loads(
                 cfg.MCP_LLM_CONFIG_FILE.read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError):
-            self._mcp_cloud_provider.setText("")
+            self._mcp_set_cloud_provider("")
             self._mcp_cloud_model.setText("")
             self._mcp_cloud_key_status.setText("No cloud config file on disk.")
             return
-        self._mcp_cloud_provider.setText(str(data.get("provider", "")))
+        self._mcp_set_cloud_provider(str(data.get("provider", "")))
         self._mcp_cloud_model.setText(str(data.get("model", "")))
-        has_key = bool(data.get("api_key"))
+        self._mcp_refresh_cloud_key_status_label()
+
+    def _mcp_refresh_cloud_key_status_label(self):
+        """Shows whether the CURRENTLY SELECTED provider (dropdown, not
+        necessarily the one last saved to MCP_LLM_CONFIG_FILE) has an API
+        key stored in Windows Credential Manager (Baustein 23, one WCM
+        entry per provider) — without reading or displaying the key
+        itself. Re-run on every provider-dropdown change, not only on
+        load — see the currentTextChanged connection above, and
+        clients/cloud_credential_store.py's own docstring for why a
+        per-provider entry was chosen ("schnell und einfach wechseln")."""
+        provider = self._mcp_cloud_provider.currentText().strip()
+        if not provider:
+            self._mcp_cloud_key_status.setText("")
+            return
+        store = _load_cloud_credential_store()
+        has_key = bool(store.get_api_key(provider))
         self._mcp_cloud_key_status.setText(
-            "API key is set on disk — leave the field empty to keep it."
-            if has_key else "No API key set.")
+            f"API key stored for {provider} in Windows Credential Manager "
+            "— leave the field empty to keep it."
+            if has_key else f"No API key stored for {provider}.")
 
     def _mcp_save_cloud_config(self):
-        """Writes garmin_config.MCP_LLM_CONFIG_FILE. This panel is the
-        first and only writer of this file — same three required fields
-        clients/mcp_server.py::_cloud_llm_config_available() checks."""
+        """Writes provider/model to garmin_config.MCP_LLM_CONFIG_FILE
+        (this panel is the first and only writer of that file) and the
+        API key to Windows Credential Manager (Baustein 23,
+        clients/cloud_credential_store.py — one entry per provider, never
+        written into the JSON file at all anymore, see that module's own
+        docstring for why)."""
         import json
         import garmin_config as cfg
 
-        provider = self._mcp_cloud_provider.text().strip()
+        provider = self._mcp_cloud_provider.currentText().strip()
         model    = self._mcp_cloud_model.text().strip()
         new_key  = self._mcp_cloud_key.text().strip()
 
-        existing_key = ""
-        try:
-            existing = json.loads(
-                cfg.MCP_LLM_CONFIG_FILE.read_text(encoding="utf-8"))
-            existing_key = existing.get("api_key", "")
-        except (FileNotFoundError, ValueError):
-            pass
-
-        api_key = new_key if new_key else existing_key
+        store = _load_cloud_credential_store()
+        existing_key = store.get_api_key(provider) if provider else None
+        api_key = new_key if new_key else (existing_key or "")
 
         if not provider or not api_key or not model:
             QMessageBox.warning(
@@ -496,7 +656,13 @@ class PanelMcp(QWidget):
                 "leave API key empty only if a key is already saved.")
             return
 
-        data = {"provider": provider, "api_key": api_key, "model": model}
+        if new_key and not store.store_api_key(provider, new_key):
+            QMessageBox.critical(
+                self, "MCP Cloud Config",
+                "Could not save the API key to Windows Credential Manager.")
+            return
+
+        data = {"provider": provider, "model": model}
         try:
             cfg.MCP_LLM_CONFIG_FILE.write_text(
                 json.dumps(data, indent=2), encoding="utf-8")
@@ -506,7 +672,7 @@ class PanelMcp(QWidget):
             return
 
         self._mcp_cloud_key.clear()
-        self._mcp_refresh_cloud_key_status()
+        self._mcp_refresh_cloud_key_status_label()
         self._app._log("✓ MCP cloud config saved.")
 
     # ── Save ──────────────────────────────────────────────────────────────────
@@ -586,3 +752,18 @@ class PanelMcp(QWidget):
             "  First start (or a long gap since the last one) may take "
             "a while — the server is building/updating its local cache "
             "before it starts answering.")
+
+    # ── Stop (garmin_collector-3_experiment, Baustein 8b) ────────────────────
+
+    def _mcp_stop_server(self):
+        """Pragmatic, not ownership-based (see clients/mcp_process.py's
+        own module docstring, and NOTES_v1.7.2_chat_panel_konzept.md's
+        Stop reasoning): stops the server regardless of who started it
+        or from which panel — including a Chat-tab session with
+        datasource "mcp" set. That session's own next tool call (or its
+        own Stop button) surfaces the resulting unreachable-server error
+        exactly as it already does for an externally-killed server today
+        — no special cross-panel notification needed here."""
+        mcp_process = _load_mcp_process()
+        ok, message = mcp_process.stop()
+        self._app._log(f"✓ {message}" if ok else f"✗ {message}")

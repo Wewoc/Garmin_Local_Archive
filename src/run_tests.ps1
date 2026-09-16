@@ -72,6 +72,12 @@ Run-And-Tee "python" @("tests/test_broker.py")          "test_broker.py"
 Run-And-Tee "python" @("tests/test_mcp.py")              "test_mcp.py"
 Run-And-Tee "python" @("tests/test_app_logic.py")       "test_app_logic.py"
 Run-And-Tee "pytest"  @("tests/test_qt_app.py", "-v")   "test_qt_app.py"
+Run-And-Tee "pytest"  @("tests/test_cloud_llm.py", "-v")            "test_cloud_llm.py"
+Run-And-Tee "pytest"  @("tests/test_mcp_tool_chat.py", "-v")        "test_mcp_tool_chat.py"
+Run-And-Tee "pytest"  @("tests/test_cloud_tool_chat.py", "-v")      "test_cloud_tool_chat.py"
+Run-And-Tee "pytest"  @("tests/test_chat_session_store.py", "-v")   "test_chat_session_store.py"
+Run-And-Tee "pytest"  @("tests/test_cloud_credential_store.py", "-v") "test_cloud_credential_store.py"
+Run-And-Tee "pytest"  @("tests/test_mcp_process.py", "-v")           "test_mcp_process.py"
 Run-And-Tee "python" @("tests/test_static.py")          "test_static.py"
 
 # Gesamt-Zusammenfassung

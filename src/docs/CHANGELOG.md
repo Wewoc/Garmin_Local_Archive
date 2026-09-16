@@ -1,5 +1,177 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.2 — In-App Chat: MCP Tool-Calling, Cloud LLM Connector, Streaming, Session History
+
+Delivers the In-App Chat tab (renamed from "Ollama-Chat" to "Chat") from a
+plain, stateless Ollama Q&A panel into an agentic assistant: it can call the
+MCP server's own tools to answer questions that need live data instead of the
+daily-aggregate snapshot, speak to Anthropic/OpenAI as an alternative to a
+local Ollama model, stream every plain-chat and Cloud+MCP reply token-by-token,
+and save/resume conversations across sessions. Built as
+`garmin_collector-3_experiment`, an isolated experiment branch (34 numbered
+"Bausteine", full session log in that repo's `PROTOKOLL_experiment.md` and
+`changelog/anchor_delivery_v172exp-*.md`) — merged back here as this release.
+
+**New modules:**
+- `clients/mcp_client.py` — typed HTTP client for the MCP server's own
+  streamable-http endpoint (`is_reachable`/`list_tools`/`call_tool`),
+  consumed by the chat panel's tool-calling turn loops
+- `clients/mcp_process.py` — Start/Stop process control for
+  `clients/mcp_server.py`, shared between the Chat tab and the MCP Server tab
+- `clients/mcp_tool_chat.py` — Ollama + MCP agentic turn loop (`converse()`):
+  call → inspect `tool_calls` → execute via `mcp_client` → feed result back →
+  repeat, capped at `MAX_TOOL_TURNS`
+- `clients/openai_tool_schema.py` — `to_openai_style_tools()`, the
+  OpenAI-style tool-schema translator shared by Ollama and OpenAI (Ollama's
+  own tool-calling schema was modeled on OpenAI's, so one converter serves
+  both)
+- `clients/cloud_llm_client.py` — Cloud LLM dispatcher: normalizes
+  `chat()`/`chat_with_tools()`/`chat_stream()`/`chat_stream_with_tools()`
+  across providers so callers never know which one is configured; adding a
+  provider means adding one `cloud_llm_<name>.py` module plus one line here
+- `clients/cloud_llm_anthropic.py` / `clients/cloud_llm_openai.py` — the two
+  providers behind that dispatcher, each wrapping the official SDK
+  (`anthropic>=1.5,<2`, `openai>=3.14,<4`). Anthropic needs real two-way
+  message/tool-schema translation (`input_schema` instead of `parameters`,
+  tool calls as `tool_use` content blocks instead of a separate field);
+  OpenAI needs none, reusing `openai_tool_schema.py` unchanged
+- `clients/cloud_tool_chat.py` — Cloud + MCP counterpart to
+  `mcp_tool_chat.py` (`converse()`/`converse_stream()`), sitting on
+  `cloud_llm_client.chat_with_tools()`/`chat_stream_with_tools()` instead of
+  Ollama's
+- `clients/chat_session_store.py` — chat session persistence under
+  `<base_dir>/chats/`, one JSON file per conversation, auto-saved after every
+  turn; SHA-256 content hash of `health_garmin.json` gates whether a
+  `json`-datasource session can still be resumed live or only viewed
+  read-only (`mcp`-datasource sessions are always resumable — the data is
+  live at query time, never bound to a snapshot)
+- `clients/cloud_credential_store.py` — stores the Cloud LLM API key in
+  Windows Credential Manager, one entry per provider, via the same `keyring`
+  mechanism `garmin/garmin_security.py` already uses for the Garmin token
+  encryption key (no additional AES/PBKDF2 layer needed for a short string).
+  `MCP_LLM_CONFIG_FILE` no longer carries the key at all — only
+  `provider`/`model`
+- `app/dialog_chat_history.py` — `ChatHistoryDialog`, lists saved chat
+  sessions with Load/Delete, opened from the Chat tab's new "Chat History"
+  button
+
+**Changed modules:**
+- `app/panel_chat.py` — Backend (`ollama`/`cloud`) and Source
+  (`json`/`mcp`) dropdowns replace the earlier "Use MCP tools" checkbox;
+  both lock for the duration of a running session once Start succeeds
+  (previously a mid-chat switch only reset history without preventing a live
+  `mcp`-backed conversation from silently mixing with a `json` one). Split
+  view (MCP log tail) when Source is `mcp`. Plain chat and Cloud+MCP replies
+  now stream token-by-token, one chat bubble per turn for Cloud+MCP, with a
+  short "🔧 Calling `<tool>`…" marker between turns — Ollama+MCP stays
+  non-streaming by deliberate, permanent choice (Ollama's own
+  streaming+tool-calling combination is currently unreliable upstream,
+  confirmed against a High-severity open Ollama issue). New "Chat History"
+  button next to Start/Stop; every completed turn auto-saves via
+  `chat_session_store.py`; loading a saved session locks Backend/Source
+  immediately and renders the transcript read-only before Start is even
+  clicked. Tab renamed from "Ollama-Chat" to "Chat" (`garmin_app_base.py`).
+- `app/panel_mcp.py` / `clients/mcp_server_gui.py` — Provider field is now a
+  dropdown sourced from `cloud_llm_client._PROVIDERS` instead of free text
+  (closes a silent-typo failure mode); API key status label refreshes live
+  per selected provider; warning label changed from "saved as plaintext,
+  not encrypted" to reflect the new WCM storage.
+- `clients/ollama_client.py` — `chat_with_tools()` (native + a
+  content-text-JSON fallback for models that emit an otherwise-correct tool
+  call outside the `tool_calls` field) and `chat_stream()` added; `chat()`
+  untouched (duplicated rather than risk already-tested code, same
+  precedent `chat_with_tools()` itself set).
+- `clients/mcp_server.py` — `_cloud_llm_config_available()` now checks
+  Windows Credential Manager instead of the (now key-less)
+  `MCP_LLM_CONFIG_FILE`.
+- `requirements.txt` (repo root) — added `mcp>=1.28,<2`, `anthropic>=1.5,<2`,
+  `openai>=3.14,<4`.
+
+**Post-doc-review fixes (real Windows builds — Bausteine 24–34):** the doc
+round above closed against a build that had never actually run end-to-end on
+Windows. A real T2/T3 build cycle (plus a code review) surfaced a further
+round of fixes, all captured in `PROTOKOLL_experiment.md` and their own
+`changelog/anchor_delivery_v172exp-19` through `-29`:
+- Provider-name normalization closed on its write side too
+  (`clients/cloud_credential_store.py::_username()`, single chokepoint) — the
+  read side alone (above) left a save-then-read mismatch for a legacy-cased
+  provider value.
+- `clients/mcp_process.py` gained its own `sys.path` bridge to `garmin/`,
+  no longer silently dependent on app-wide startup already having done it.
+- The Chat panel's own worker threads (all four Backend×Source
+  combinations) could die silently on a lazy-import failure with zero error
+  shown — `app/panel_chat.py`'s workers now guard that import separately
+  from the business-logic `try:`, so a failure always reaches the UI.
+- PyInstaller hidden-import gaps closed for both targets: T2 was missing the
+  entire MCP-client + Cloud-LLM chain (`httpx`/`mcp`/`anyio`/`jsonschema`/
+  `pydantic`/`anthropic`/`openai`) — moved from `HIDDEN_IMPORTS_T3_EXTRA` to
+  `HIDDEN_IMPORTS_COMMON`, since T2 needs the client side too and T3 already
+  had it. T3's own gap (`anthropic`/`openai` missing outright, breaking the
+  T3.1 self-test) was fixed first and is what surfaced the T2 gap.
+- The T3 ZIP had grown from ~380 MB to >8 GB, and T2 briefly inherited the
+  same growth once it gained the `anthropic`/`openai` hidden imports: `openai`
+  has an optional `pandas` extras path that PyInstaller's Analysis follows
+  regardless of whether it is ever used, and an unrelated project's
+  `torch`/`pandas`/`scipy` happened to be installed on the same build
+  machine's global Python. Fixed at the root: both build targets now build
+  against a shared, isolated venv (`compiler/build_manifest.py::
+  BUILD_VENV_DIR`, `D:\Garmin\.venv_gla`) instead of `sys.executable`, so a
+  package installed for a different project on the same machine can never
+  again be swept into a GLA build.
+- Both frozen `_register_embedded_packages()` copies (`clients/mcp_server.py`
+  and `garmin_app_standalone.py`) never added the `scripts` root itself to
+  `sys.path`, only its subfolders — `clients/cloud_llm_client.py`'s
+  module-level `import frozen_paths` (reached via `mcp_server_gui.py`) raised
+  `ModuleNotFoundError` in a real T3.3 run. Both fixed; T3.1 had the same gap,
+  just never triggered (Cloud backend was never exercised there).
+- The MCP Stop button (Chat panel and MCP Server tab) now tries the PID
+  `start()` itself remembered first (`clients/mcp_process.py::
+  _kill_pid_tree()`, `taskkill /T /F` — a tree-kill, since a `.bat`-launched
+  T2 process or a `--onefile` T3.3 bootloader means the remembered PID is not
+  always the actual listener), falling back to the pre-existing `netstat`
+  scan only if that fails — verified live, working in T2/T3.1/T3.3.
+- Starting the Chat panel again after Stop (no "Neuer Chat" click in
+  between) left the previous conversation visible on screen even though the
+  model-facing history was already reset — `app/panel_chat.py::
+  _chat_load_system_prompt()` now clears the view too.
+- New `compiler/build_gui.py` ("🦄 Garmin Local Archiv Builder", Tkinter,
+  `bat/run_build_gui.bat`) — copies the working directory into a chosen,
+  cleared build folder and runs the Qt-test-gate + `compiler/build_all.py`
+  with a live, elapsed-time-stamped log; running `build_all.py` as its own
+  child means PyInstaller's own console output (previously missing from
+  `build_all_log.txt`) reaches the log automatically. Verified end-to-end on
+  a real Windows build (T2 + T3, all three EXEs).
+
+**Deliberately not built / not planned:**
+- Streaming for Ollama+MCP — permanent, not deferred: Ollama's own
+  streaming+tool-calling support is currently unreliable (see above);
+  established client libraries work around this the same way this project
+  already does (non-streaming whenever tools are involved).
+- qwen3/qwen2.5-coder enforcement for the `mcp` datasource — stays an
+  advisory hint (`_mcp_model_hint`), any installed Ollama model remains
+  technically selectable.
+- Live verification against the real Anthropic/OpenAI APIs — every Cloud
+  code path is grounded against the installed SDKs' own type stubs and
+  covered by mocked-SDK tests, but no API key was available during this
+  experiment; pending a live smoke test before production use.
+- `mcp_update.py`'s raw traceback on a manual `.bat` launch while another
+  instance already holds the port (detection itself is correct, only the
+  error presentation is unhandled) — flagged, not yet fixed.
+- `daily_update.exe` (T3.2) bundles the same full hidden-import set as
+  T3.1/T3.3 (PyQt6, tkinter, the whole MCP/Cloud-LLM chain) though the
+  headless sync task needs none of it — cosmetic/size only, not a
+  correctness issue; not yet split out.
+
+**Test result:** 302 / 302 (`test_qt_app.py`, `test_cloud_llm.py`,
+`test_mcp_tool_chat.py`, `test_cloud_tool_chat.py`,
+`test_chat_session_store.py`, `test_cloud_credential_store.py`,
+`test_mcp_process.py`) + 176 / 176 (`test_app_logic.py`) + 16 / 16
+(`test_static.py`) + 1892 / 1892 (`test_local.py`/`test_local_context.py`/
+`test_dashboard.py`/`test_broker.py`/`test_mcp.py`, unaffected by this
+release — no pipeline/broker code touched) — 2386 total, all green, `ruff`
+clean. Verified against real T2/T3 Windows builds (previous doc round was
+tests-only; see the fixes above).
+
 ## v1.7.1.17 — Sync Field-Registry Reconciliation + steps Ambiguity Fix + Doc Cleanup
 
 Closes the structural gap `v1.7.1.16`'s own "Migration note" and

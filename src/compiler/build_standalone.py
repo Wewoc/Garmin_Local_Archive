@@ -30,7 +30,6 @@ import build_manifest as manifest
 
 EMBEDDED_SCRIPTS  = manifest.EMBEDDED_SCRIPTS
 INFO_INCLUDE      = manifest.INFO_INCLUDE_T3
-RUNTIME_DEPS      = manifest.RUNTIME_DEPS
 
 SCRIPT_SIGNATURES = {
     **manifest.SCRIPT_SIGNATURES_BASE,
@@ -40,27 +39,44 @@ SCRIPT_SIGNATURES = {
 }
 
 
-def check_dependencies(root: Path):
-    print("\n[1/3] Checking build dependencies ...")
+def ensure_build_venv(root: Path) -> Path:
+    """Creates (if missing) or reuses the shared, isolated build venv at
+    manifest.BUILD_VENV_DIR, installs requirements.txt + PyInstaller into
+    it, and returns its python.exe. Replaces the old check_dependencies()
+    (garmin_collector-3_experiment, Baustein 27) — that function checked
+    RUNTIME_DEPS (a second, narrower, drift-prone copy of the dependency
+    list — already missing anthropic/openai/curl_cffi/ua_generator/lxml)
+    against whatever Python happened to be sys.executable. On this machine
+    that same Python also has an unrelated project's torch/pandas/scipy
+    installed, which PyInstaller swept into the T3 ZIP (>8 GB) the moment
+    HIDDEN_IMPORTS_T3_EXTRA required openai — see PROTOKOLL_experiment.md,
+    Baustein 26. Building against a venv containing ONLY requirements.txt's
+    packages (the actually-maintained, complete dependency list) makes
+    that structurally impossible, regardless of what else gets
+    pip-installed globally on this machine later. venv creation itself
+    still uses sys.executable (any Python can create a venv — that step
+    never touches site-packages). Same venv/function as build.py's own
+    ensure_build_venv() — both build scripts share manifest.BUILD_VENV_DIR,
+    so T2 and T3 build from the identical isolated environment."""
+    print("\n[1/3] Checking build venv ...")
+    venv_dir = Path(manifest.BUILD_VENV_DIR)
+    venv_python = venv_dir / "Scripts" / "python.exe"
 
-    try:
-        import PyInstaller
-        print(f"  ✓ PyInstaller {PyInstaller.__version__} already installed")
-    except ImportError:
-        print("  Installing PyInstaller ...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
-        print("  ✓ PyInstaller installed")
+    if not venv_python.exists():
+        print(f"  Not found at {venv_dir} — creating ...")
+        subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+        print("  ✓ venv created")
+    else:
+        print(f"  ✓ venv already exists — reusing: {venv_dir}")
 
-    print("\n  Checking runtime dependencies (must be installed for bundling) ...")
-    for pkg in RUNTIME_DEPS:
-        try:
-            import importlib.metadata
-            ver = importlib.metadata.version(pkg)
-            print(f"  ✓ {pkg} {ver}")
-        except Exception:
-            print(f"  Installing {pkg} ...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
-            print(f"  ✓ {pkg} installed")
+    req_file = root.parent / "requirements.txt"
+    print(f"  Installing/verifying {req_file} + PyInstaller in venv ...")
+    subprocess.check_call([str(venv_python), "-m", "pip", "install", "-q",
+                            "-r", str(req_file)])
+    subprocess.check_call([str(venv_python), "-m", "pip", "install", "-q",
+                            "pyinstaller"])
+    print("  ✓ venv ready")
+    return venv_python
 
 
 def validate_scripts(root: Path):
@@ -131,8 +147,8 @@ def embed_dest(subfolder) -> str:
     return f"scripts/{subfolder}"
 
 
-def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
-              onedir: bool = False):
+def build_exe(root: Path, name: str, entry_point: Path, venv_python: Path,
+              windowed: bool = True, onedir: bool = False):
     print(f"\n  Building {name}.exe ...")
     print(f"  Entry point: {entry_point}")
     print(f"  Embedding {len(EMBEDDED_SCRIPTS)} scripts as data ...")
@@ -180,7 +196,7 @@ def build_exe(root: Path, name: str, entry_point: Path, windowed: bool = True,
     packaging_flag = "--onedir" if onedir else "--onefile"
 
     cmd = [
-        sys.executable, "-m", "PyInstaller",
+        str(venv_python), "-m", "PyInstaller",
         packaging_flag,
         "--name", name,
         "--distpath", str(root),
@@ -264,7 +280,7 @@ def main():
 
     root = Path(__file__).parent.parent   # compiler/ → src/
 
-    check_dependencies(root)
+    venv_python = ensure_build_venv(root)
     validate_scripts(root)
 
     # info/ für ZIP aus docs/ befüllen
@@ -290,6 +306,7 @@ def main():
     build_exe(root,
               name="Garmin_Local_Archive_Standalone",
               entry_point=root / "garmin_app_standalone.py",
+              venv_python=venv_python,
               windowed=True,
               onedir=True)
     # --- T3.2: Headless — --onefile (Task Scheduler, startup time irrelevant) ---
@@ -297,6 +314,7 @@ def main():
     build_exe(root,
               name="daily_update",
               entry_point=root / "scheduler" / "daily_update.py",
+              venv_python=venv_python,
               windowed=False,
               onedir=False)
     # --- T3.3: MCP Server — --onefile (standalone process, no Python
@@ -318,6 +336,7 @@ def main():
     build_exe(root,
               name="mcp_server",
               entry_point=root / "clients" / "mcp_server.py",
+              venv_python=venv_python,
               windowed=False,
               onedir=False)
 

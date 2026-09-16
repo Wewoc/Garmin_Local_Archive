@@ -62,11 +62,19 @@ Persistence — two separate files:
     and never run against the file at the same time in practice).
     base_dir here is a real, user-editable field (no GLA instance to
     mirror from), unlike panel_mcp.py's read-only mirror value.
-  - garmin_config.MCP_LLM_CONFIG_FILE (provider, api_key, model) — cloud
-    LLM credentials, same file panel_mcp.py's Cloud Config section
-    already owns; this window is simply a second writer with the same
-    read-merge-write shape (_save_cloud_config() below mirrors
-    panel_mcp.py::_mcp_save_cloud_config() field-for-field).
+  - garmin_config.MCP_LLM_CONFIG_FILE (provider, model — no longer
+    api_key, see below) — cloud LLM provider/model, same file
+    panel_mcp.py's Cloud Config section already owns; this window is
+    simply a second writer with the same read-merge-write shape
+    (_save_cloud_config() below mirrors
+    panel_mcp.py::_mcp_save_cloud_config() field-for-field). The API
+    key itself (Baustein 23, garmin_collector-3_experiment) lives in
+    Windows Credential Manager instead, one entry per provider —
+    clients/cloud_credential_store.py, same mechanism
+    garmin/garmin_security.py already uses for the Garmin token
+    encryption key. This window is a second, independent WCM writer
+    for that store too, same "mutually exclusive operating modes"
+    exception already documented for MCP_SERVER_CONFIG_FILE above.
 
 Ollama model selection removed (see NOTES_v1.7.0.1vorbereitung.md,
 Zusatzpunkt): MCP itself never calls an LLM — the MCP host (Ollama,
@@ -93,6 +101,8 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import garmin_config as cfg
+import cloud_llm_client
+import cloud_credential_store
 
 # ── Queue-based log forwarding ───────────────────────────────────────────
 # Architectural model: garmin_app_standalone.py's _QueueWriter/
@@ -190,18 +200,25 @@ def _save_cloud_config(provider: str, model: str, new_key: str,
                         logger: logging.Logger) -> tuple[bool, str]:
     """Read-merge-write, field-for-field mirror of
     panel_mcp.py::_mcp_save_cloud_config() — an empty new_key keeps
-    whatever key is already on disk (same "leave empty to keep current
-    key" convention). Returns (ok, message) instead of showing a dialog
-    directly — the caller decides how to present it in this window."""
-    existing = _load_cloud_config()
-    existing_key = existing.get("api_key", "")
-    api_key = new_key if new_key else existing_key
+    whatever key is already stored for this provider (same "leave
+    empty to keep current key" convention). Returns (ok, message)
+    instead of showing a dialog directly — the caller decides how to
+    present it in this window.
+
+    Baustein 23: the API key goes to Windows Credential Manager
+    (cloud_credential_store.py, one entry per provider), not into
+    MCP_LLM_CONFIG_FILE — only provider/model are written there now."""
+    existing_key = cloud_credential_store.get_api_key(provider) if provider else None
+    api_key = new_key if new_key else (existing_key or "")
 
     if not provider or not api_key or not model:
         return False, ("Provider, API key and Model are all required — "
                         "leave API key empty only if a key is already saved.")
 
-    data = {"provider": provider, "api_key": api_key, "model": model}
+    if new_key and not cloud_credential_store.store_api_key(provider, new_key):
+        return False, "Could not save the API key to Windows Credential Manager."
+
+    data = {"provider": provider, "model": model}
     try:
         cfg.MCP_LLM_CONFIG_FILE.write_text(
             json.dumps(data, indent=2), encoding="utf-8")
@@ -436,14 +453,29 @@ def run_gui(mcp_instance, logger: logging.Logger,
     cloud_frame = ttk.Frame(root, padding=(10, 4))
     ttk.Label(
         cloud_frame,
-        text="⚠ Saved as plaintext to ~/.garmin_mcp_llm_config.json — "
-             "not encrypted.",
+        text="🔒 API key stored in Windows Credential Manager, one entry "
+             "per provider — never written to disk in plaintext.",
     ).grid(row=0, column=0, columnspan=2, sticky="w")
 
     ttk.Label(cloud_frame, text="Provider:").grid(row=1, column=0, sticky="w", pady=(4, 0))
-    cloud_provider_var = tk.StringVar(value=saved_cloud.get("provider", ""))
-    ttk.Entry(cloud_frame, textvariable=cloud_provider_var, width=30).grid(
-        row=1, column=1, sticky="w", pady=(4, 0))
+    _saved_provider = saved_cloud.get("provider", "")
+    # Dropdown, not free text (session decision, garmin_collector-3_
+    # experiment — closes the silent-typo failure mode a plain Entry
+    # allowed). Options come from cloud_llm_client._PROVIDERS — the same
+    # dispatcher registry app/panel_chat.py's cloud branch actually
+    # consults — not a separately hand-kept list here, so a future
+    # third provider cannot drift out of sync between the two. A
+    # previously-saved value that predates this change (or a typo from
+    # the old free-text field) is appended as an extra option rather
+    # than silently dropped, so nothing already on disk is lost.
+    _provider_values = sorted(cloud_llm_client._PROVIDERS.keys())
+    if _saved_provider and _saved_provider not in _provider_values:
+        _provider_values.append(_saved_provider)
+    cloud_provider_var = tk.StringVar(value=_saved_provider)
+    cloud_provider_combo = ttk.Combobox(
+        cloud_frame, textvariable=cloud_provider_var, width=28,
+        values=_provider_values, state="readonly")
+    cloud_provider_combo.grid(row=1, column=1, sticky="w", pady=(4, 0))
 
     ttk.Label(cloud_frame, text="API key:").grid(row=2, column=0, sticky="w", pady=(4, 0))
     cloud_key_var = tk.StringVar(value="")
@@ -455,11 +487,33 @@ def run_gui(mcp_instance, logger: logging.Logger,
     ttk.Entry(cloud_frame, textvariable=cloud_model_var, width=30).grid(
         row=3, column=1, sticky="w", pady=(4, 0))
 
-    cloud_key_status_var = tk.StringVar(
-        value="API key is set on disk — leave the field empty to keep it."
-        if saved_cloud.get("api_key") else "No API key set.")
+    cloud_key_status_var = tk.StringVar(value="")
     ttk.Label(cloud_frame, textvariable=cloud_key_status_var).grid(
         row=4, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+    def _refresh_cloud_key_status_label(*_args):
+        """Shows whether the CURRENTLY SELECTED provider (dropdown, not
+        necessarily the one last saved) has an API key stored in
+        Windows Credential Manager (Baustein 23, one WCM entry per
+        provider — "schnell und einfach wechseln", Timo decision, see
+        clients/cloud_credential_store.py's own docstring). Bound to
+        the dropdown's own <<ComboboxSelected>> event below, not just
+        called once at window setup, so switching providers updates
+        this immediately — same behavior app/panel_mcp.py's Qt
+        equivalent (_mcp_refresh_cloud_key_status_label()) has."""
+        provider = cloud_provider_var.get().strip()
+        if not provider:
+            cloud_key_status_var.set("")
+            return
+        has_key = bool(cloud_credential_store.get_api_key(provider))
+        cloud_key_status_var.set(
+            f"API key stored for {provider} in Windows Credential Manager "
+            "— leave the field empty to keep it." if has_key
+            else f"No API key stored for {provider}.")
+
+    cloud_provider_combo.bind(
+        "<<ComboboxSelected>>", _refresh_cloud_key_status_label)
+    _refresh_cloud_key_status_label()
 
     def _on_save_cloud_config():
         ok, message = _save_cloud_config(
@@ -472,10 +526,7 @@ def run_gui(mcp_instance, logger: logging.Logger,
             messagebox.showwarning("MCP Cloud Config", message)
             return
         cloud_key_var.set("")
-        refreshed = _load_cloud_config()
-        cloud_key_status_var.set(
-            "API key is set on disk — leave the field empty to keep it."
-            if refreshed.get("api_key") else "No API key set.")
+        _refresh_cloud_key_status_label()
 
     ttk.Button(cloud_frame, text="Save Cloud Credentials",
                command=_on_save_cloud_config).grid(

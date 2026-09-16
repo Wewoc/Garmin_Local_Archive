@@ -4,6 +4,18 @@ keyring
 cryptography
 requests
 
+# Cloud LLM connector (garmin_collector-3_experiment, Cloud-LLM-Connector
+# Baustein) — clients/cloud_llm_anthropic.py / cloud_llm_openai.py.
+# Official SDKs, not hand-rolled requests clients: each provider's own
+# API-surface churn is then mostly absorbed by SDK version bumps instead
+# of requiring code changes here. Range-pinned (verified via pip install,
+# versions below installed 2026-09-15) rather than exact-pinned like the
+# MCP chain further down — a minor/patch bump should stay compatible per
+# each SDK's own semver; a major jump (the upper bound below) is the one
+# case expected to need a code review.
+anthropic>=1.5,<2
+openai>=3.14,<4
+
 # MCP server (v1.7) — pinned exact versions, not >=/no-pin like the rest
 # of this file. Reason: mcp_server.py's FastMCP/tool-decorator usage was
 # built and tested against exactly these versions (verified via pip freeze,
