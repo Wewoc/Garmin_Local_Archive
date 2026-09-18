@@ -78,6 +78,10 @@ def backup_raw(date_str: str, force: bool = False) -> bool:
         return False
 
 
+# Codereview v1.7.0.1: ~90% identical to garmin_backup_source.py's
+# _consolidate_source_months() (raw vs. source, otherwise same flow incl.
+# Force-Replace block). Deliberately not merged — touches backup
+# integrity, see PROTOKOLL_experiment.md.
 def _consolidate_raw_months(current_month: str, force_filenames: set[str] | None = None) -> None:
     """
     Zips all completed month directories in backup/raw/.

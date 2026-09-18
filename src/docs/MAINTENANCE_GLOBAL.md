@@ -104,7 +104,8 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/panel_connection.py` | Connection panel — connection test, data management (Export to Mirror / Import from Mirror / Restore / Silo-Check / Repair / Reset Token), dialogs. Indicators delegated to panel_home. |
 | `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
 | `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
-| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. |
+| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. Four popups now one-line delegates into `app/popups/` (v1.7.2.1 — Codereview & Cleanup), see next row. |
+| `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`, `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py`, `app/popups/_dashboard_build.py` | Dashboard/config popups extracted from `panel_outputs.py` (v1.7.2.1), one file per popup plus the shared `_dashboard_build.py` build/encrypt engine (`run_dashboards()`/`run_encrypted()`). See `REFERENCE_GLOBAL.md`'s Module reference table. |
 | `app/panel_chat.py` | Chat panel (v1.6.6, renamed from "Ollama-Chat" v1.7.2) — Ollama or Cloud (Anthropic/OpenAI) backend, plain chat or MCP tool-calling source, streaming, chat session history. See `REFERENCE_GLOBAL.md`'s Module reference table for the full v1.7.2 architecture. |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — `chat()`/`chat_stream()` (plain) + `chat_with_tools()` (no streaming counterpart — Ollama's own streaming+tool-calling support is unreliable upstream, v1.7.2). Used by `app/panel_chat.py`. (v1.6.6) |
 | `clients/mcp_client.py` | Leaf-Node HTTP client for the MCP server's tool-calling endpoint — `is_reachable`/`list_tools`/`call_tool`. Used by `app/panel_chat.py`'s tool-calling turn loops. (v1.7.2) |
@@ -119,7 +120,9 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/dialog_chat_history.py` | `ChatHistoryDialog` — lists saved chat sessions with Load/Delete, opened from `app/panel_chat.py`'s "Chat History" button. (v1.7.2) |
 | `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). Cloud Provider field is a dropdown (v1.7.2), API key stored in Windows Credential Manager rather than the config file (v1.7.2). (v1.7) |
 | `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
-| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. |
+| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. Four tools remain thin `maps/mcp_map.py` wrappers defined directly here; `query_health`/`query_context` moved out to their own files (v1.7.2.1, next two rows) and are registered back programmatically (`mcp.tool()(query_health)`) to avoid a circular import with `mcp`. |
+| `clients/mcp_field_registry.py`, `clients/mcp_query_common.py` | Pure-data/shared-helper layer behind the MCP query tools (v1.7.2.1, split out of `mcp_server.py`): `mcp_field_registry.py` holds `FIELD_UNITS`/alias/ambiguity dicts/`_CONTEXT_CATEGORY_BUNDLES` (no logic); `mcp_query_common.py` holds `_route_query()`/`_get_field_unit()`/`_enrich_with_units()` (no `mcp`/`mcp_sql`/`mcp_map` dependency, so every query file can import it without a circular import). |
+| `clients/mcp_health.py`, `clients/mcp_context.py` | `query_health()`/`query_context()` and their routing/alias/fuzzy-match/bundle-resolution logic (v1.7.2.1, split out of `mcp_server.py`) — each calls `maps/mcp_map.py` directly on its own live branch. See `REFERENCE_MCP.md`'s `(v1.7.2.1)` entry for the full split rationale. |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
 | `clients/mcp_sql.py` | SQLite aggregation-cache access layer for the MCP server (v1.7.1) — a local, always-reconstructible cache that speeds up date-range queries over the archive. Pure consumer, never a source: `garmin_backup.py`/`garmin_mirror.py` never touch it, and a lost cache file just triggers a rebuild on the next sync. |
 | `clients/mcp_update.py` | Delta-sync logic for the SQLite cache above (v1.7.1) — runs automatically at server startup and on demand via the `refresh_cache()` MCP tool, so an LLM can ask for fresher data without restarting the server. |
@@ -500,7 +503,13 @@ Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
 `mcp_update.sync_all` in its `refresh_cache()` delegation check, does not
 exercise a real SQLite connection), `garmin_config.py` (Section 8 mocks
 `clients/mcp_server.py`, which now imports `garmin_config` — v1.7
-Teilbauauftrag c).
+Teilbauauftrag c), `clients/mcp_health.py`/`clients/mcp_context.py`/
+`clients/mcp_query_common.py`/`clients/mcp_field_registry.py` (v1.7.2.1
+— `query_health()`/`query_context()` and their shared helpers now live
+here; forcing the live `_route_query()` branch in a test must patch
+`mcp_health._route_query`/`mcp_context._route_query`, not
+`mcp_server._route_query`, which now only affects the four query tools
+still defined directly in `mcp_server.py`).
 
 `clients/mcp_server.py` (v1.7 Teilbauauftrag b) has dedicated automated
 coverage as `test_mcp.py` Section 8 (registration + delegation) — added
@@ -913,7 +922,7 @@ Run after any change to: `garmin_app_base.py`, `garmin_app.py`, `garmin_app_stan
 python tests/test_build_output.py
 ```
 
-**Check count: see `docs/METRICS.md`** (not restated here to avoid drift — this count has scaled with `REQUIRED_DATA_FILES` and `SHARED_SCRIPTS` across many versions and a hardcoded figure here has previously gone stale). 8 sections. Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest). `build_manifest` is imported from `compiler/`. `REQUIRED_DATA_FILES` is a list of `(subdir, filename)` tuples (v1.6.0.4.4+) — generic across both build targets, not hardcoded to `garmin/`. Check count scales with the number of entries in `REQUIRED_DATA_FILES` (sections 1, 2, 4, 8) and with `SHARED_SCRIPTS` (sections 1, 2, 4, 8 — one check per listed script/package-init).
+Check totals tracked in `docs/METRICS.md` (not restated here to avoid drift — this count has scaled with `REQUIRED_DATA_FILES` and `SHARED_SCRIPTS` across many versions and a hardcoded figure here has previously gone stale). 8 sections. Sections 1–2 always run (no build required): `build_manifest` consistency + source integrity. Sections 3–8 run after a completed build: Target 2 EXE + `scripts/` structure + `py_compile` syntax check + ZIP contents; Target 3 EXE + ZIP; embed path reconstruction for Standalone (`--add-data` destination paths verified against manifest). `build_manifest` is imported from `compiler/`. `REQUIRED_DATA_FILES` is a list of `(subdir, filename)` tuples (v1.6.0.4.4+) — generic across both build targets, not hardcoded to `garmin/`. The total scales with the number of entries in `REQUIRED_DATA_FILES` (sections 1, 2, 4, 8) and with `SHARED_SCRIPTS` (sections 1, 2, 4, 8 — one check per listed script/package-init).
 
 Run after: called automatically by `build_all.py` as post-build step. Can also be run standalone to verify source integrity without a build.
 

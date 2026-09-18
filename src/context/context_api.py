@@ -156,6 +156,9 @@ def _parse_hourly_to_daily_max(response: dict, fields: list) -> tuple[dict[str, 
     return summary, by_date
 
 
+# Codereview v1.7.0.1: this function and _parse_brightsky() below share a
+# near-identical aggregation elif-chain (mean/max/sum/mode). Cosmetic, no
+# risk — deliberately not touched.
 def _parse_hourly_to_daily(response: dict, fields: list,
                             aggregation_map: dict) -> tuple[dict[str, dict], dict[str, dict]]:
     """

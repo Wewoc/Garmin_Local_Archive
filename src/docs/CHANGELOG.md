@@ -1,5 +1,56 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.2.1 — Codereview & Cleanup: panel_outputs.py / mcp_server.py Split, Timer Dispatch
+
+Internal cleanup after v1.7.2 (In-App Chat) — panel_outputs.py and
+mcp_server.py had accumulated size and duplication across several
+feature rounds. No visible behavior change: every extraction was
+verified body-identical (AST comparison), and for the MCP layer
+additionally via real dynamic imports and real tool calls against the
+actual SQLite/live query chain. Full session log in
+`PROTOKOLL_experiment.md`, details per finding in
+`changelog/anchor_delivery_v1701-*.md`.
+
+**New modules:**
+- `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`,
+  `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py` —
+  the four dashboard/config popups, extracted one file each from
+  `panel_outputs.py`
+- `app/popups/_dashboard_build.py` — shared dashboard-build/encrypt engine;
+  also deduplicates two ~86-line byte-identical worker functions
+  (`_run_custom_dashboard_encrypted`/`_run_encrypted_dashboards`) into one
+  parameterized `run_encrypted()`
+- `clients/mcp_field_registry.py` — pure-data field-unit/alias/
+  category-bundle registry, extracted from `mcp_server.py`
+- `clients/mcp_query_common.py` — shared query-routing helpers
+  (`_route_query`/`_get_field_unit`/`_enrich_with_units`), used by
+  `mcp_server.py` and the two new query modules below
+- `clients/mcp_health.py` / `clients/mcp_context.py` — `query_health`/
+  `query_context` and their routing/alias/fuzzy-match logic, moved out of
+  `mcp_server.py`; registered back via programmatic `mcp.tool()(...)`
+  decoration (avoids a circular import with `mcp_server.py`)
+
+**Changed modules:**
+- `app/panel_outputs.py` — four popups replaced by one-line delegates into
+  `app/popups/`; 2443 → 1202 lines (−51%); 6 dead imports removed
+- `clients/mcp_server.py` — query-serving core (7 functions + 1 constant)
+  moved to the three new `clients/mcp_*.py` files above; 1753 → 688 lines
+  (−61%); stale module-docstring claims about its own scope corrected
+- `app/panel_timer.py` — `_timer_loop`'s two duplicated mode-dispatch
+  elif-chains replaced by a `_mode_runners` dict
+- `compiler/build_manifest.py` — all new files registered in
+  `SHARED_SCRIPTS`/`SCRIPT_SIGNATURES_BASE`
+- `tests/test_mcp.py` — three `patch("mcp_server._route_query", ...)`
+  calls corrected to `mcp_health`/`mcp_context` after the split above
+  (Python resolves the name against the function's *defining* module, not
+  `mcp_server`) — found and reproduced via a real test run, not just
+  theorized
+- `docs/MAINTENANCE_GLOBAL.md` — line 916 reworded to fix a `doc_guard.py`
+  false-positive (`no_match_found`)
+
+**Test result:** 2386 checks across 14 suites — all green, ruff 0 errors,
+bandit 0 HIGH.
+
 ## v1.7.2 — In-App Chat: MCP Tool-Calling, Cloud LLM Connector, Streaming, Session History
 
 Delivers the In-App Chat tab (renamed from "Ollama-Chat" to "Chat") from a

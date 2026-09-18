@@ -6,46 +6,11 @@
 
 ---
 
-**Currently stable — v1.7.2**
+**Currently stable — v1.7.2.1**
 
 ---
 
-### ~~v1.7.2 — Ollama Chat Tool-Calling Integration~~ ✓ released
-
-Connected the in-app chat panel (`app/panel_chat.py`, v1.6.6) to the MCP
-Proxy — the original goal below was met, and the build grew well past it once
-underway (see `CHANGELOG.md` for the full scope: Cloud LLM connector,
-Cloud+MCP tool-calling, streaming, chat session history, WCM-backed
-credentials). Built as an isolated experiment branch
-(`garmin_collector-3_experiment`) before merging back here.
-
-**Original limitation this closed:** `panel_chat.py` used to read
-`health_garmin.json`/`health_garmin_prompt.md` only — daily aggregates, to
-avoid blowing the context window on a stateless `/api/chat` call that resent
-the full system message every turn. Intraday resolution (e.g. heart rate
-history for a specific night) was missing from the model's context as a
-result.
-
-**What changed:** instead of a second, larger static export file, the model
-now queries on demand via the MCP Proxy when the chat history actually
-requires intraday detail — the same entry point external MCP clients
-(Open WebUI, Claude Desktop, ...) already use — chosen by a new "Source"
-dropdown (`json` snapshot / `mcp` live) alongside a "Backend" dropdown
-(`ollama` / `cloud`, the latter speaking to Anthropic or OpenAI instead of a
-local model). `panel_chat.py` gained a real tool/function-calling turn loop
-(`clients/mcp_tool_chat.py`/`clients/cloud_tool_chat.py`) — a genuine
-extension beyond the previous sync request/response pattern, not a config
-change, as anticipated below.
-
-**Not carried over from the original plan, decided during the build:**
-Ollama+MCP streaming stays out permanently (Ollama's own streaming +
-tool-calling support is currently unreliable upstream — see `CHANGELOG.md`);
-qwen3/qwen2.5-coder stays an advisory hint for the `mcp` source, not an
-enforced model restriction.
-
----
-
-### v1.7.2.1 — Post-v1.7.2 Follow-ups
+### v1.7.2.2
 
 Small, deliberately deferred items from the v1.7.2 build, not urgent enough
 to have held up that release:
@@ -86,6 +51,13 @@ to have held up that release:
   only, no correctness impact; would need target-specific hidden-import
   lists instead of one shared list across all of T2+T3.1+T3.2+T3.3. Found
   during the same real-build cycle, not yet fixed. **New, open.**
+- **Custom Dashboard Builder — intraday field support** — the popup is
+  daily-only by its own docstring ("intraday fields are out of scope,
+  deferred", v1.6.4 scope). Checked during the v1.7.2.1 codereview:
+  `health_map.get()` already threads a `resolution` parameter through —
+  the daily-only restriction sits only in the popup's own field-picker
+  and `_build()`'s output shape, so this would be a real, multi-layer
+  extension, not a side-effect of any cleanup round. Not started.
 
 ---
 

@@ -254,6 +254,19 @@ class PanelTimer(QWidget):
                                 "⏱  Connection OK — background timer running.")
 
         _mode_cycle = ["repair", "quality", "fill", "source_backfill", "steps_backfill"]
+        # Codereview v1.7.0.1, Baustein 3.1: replaces two identical
+        # if/elif mode-dispatch chains (primary dispatch below + the
+        # "skipped" fallback loop further down) with one lookup each.
+        # Local dict, not a module-level constant — needs bound `self`
+        # methods, rebuilt fresh each _timer_loop() call (once per
+        # background-thread run, not per while-iteration).
+        _mode_runners = {
+            "repair":          self._timer_run_repair,
+            "quality":         self._timer_run_quality,
+            "fill":            self._timer_run_fill,
+            "source_backfill": self._timer_run_source_backfill,
+            "steps_backfill":  self._timer_run_steps_backfill,
+        }
 
         while not _stale():
             s = self._app._panel_settings._collect_settings()
@@ -273,16 +286,7 @@ class PanelTimer(QWidget):
                 skipped = False
             else:
                 mode = self._app._timer_next_mode
-                if mode == "repair":
-                    days = self._timer_run_repair(s)
-                elif mode == "quality":
-                    days = self._timer_run_quality(s)
-                elif mode == "source_backfill":
-                    days = self._timer_run_source_backfill(s)
-                elif mode == "steps_backfill":
-                    days = self._timer_run_steps_backfill(s)
-                else:
-                    days = self._timer_run_fill(s)
+                days = _mode_runners[mode](s)
                 skipped = days is None
 
             if not skipped:
@@ -292,16 +296,7 @@ class PanelTimer(QWidget):
                 remaining_modes = [m for m in _mode_cycle if m != mode]
                 days = None
                 for other_mode in remaining_modes:
-                    if other_mode == "repair":
-                        candidate = self._timer_run_repair(s)
-                    elif other_mode == "quality":
-                        candidate = self._timer_run_quality(s)
-                    elif other_mode == "source_backfill":
-                        candidate = self._timer_run_source_backfill(s)
-                    elif other_mode == "steps_backfill":
-                        candidate = self._timer_run_steps_backfill(s)
-                    else:
-                        candidate = self._timer_run_fill(s)
+                    candidate = _mode_runners[other_mode](s)
                     if candidate is not None:
                         days = candidate
                         mode = other_mode
