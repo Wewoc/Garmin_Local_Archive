@@ -74,7 +74,12 @@ responsibility boundary.
 process outside this layer diagram — not part of the GUI/App layer, not a
 layer of its own. It enters the Broker Layer exclusively through
 `maps/mcp_map.py`, the same entry-point principle the GUI/App layer uses
-via `health_map`/`context_map` — same rule, different process.
+via `health_map`/`context_map` — same rule, different process. Two of its
+query tools, `query_health`/`query_context`, live in their own files
+(`clients/mcp_health.py`/`clients/mcp_context.py`, v1.7.2.1) and cross
+into `maps/mcp_map.py` directly on their own live branch — same process,
+same single entry point, just no longer both defined in `mcp_server.py`
+itself.
 
 **(v1.7.2)** The GUI/App layer's own In-App Chat tab (`app/panel_chat.py`)
 is, architecturally, just one more MCP client — it talks to the MCP Server

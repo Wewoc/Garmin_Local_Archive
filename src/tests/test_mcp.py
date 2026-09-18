@@ -892,7 +892,7 @@ check("mcp_server.get_archive_metadata: SQLite branch forwards explicit date_fro
 #        any call site — this section is what proves that promise holds
 #        structurally, not just in the comment.
 
-with patch("mcp_server._route_query", return_value="live"), \
+with patch("mcp_health._route_query", return_value="live"), \
      patch("maps.mcp_map.query_health", return_value={"health": {}, "_meta": {}}) as _m_live, \
      patch("mcp_sql.get_health_range") as _m_sql:
     mcp_server.query_health("hrv_last_night", _TEST_DATE, _TEST_DATE, "daily")
@@ -900,7 +900,7 @@ with patch("mcp_server._route_query", return_value="live"), \
     _m_sql.assert_not_called()
 check("mcp_server.query_health: live branch calls mcp_map.query_health, not mcp_sql", True)
 
-with patch("mcp_server._route_query", return_value="live"), \
+with patch("mcp_context._route_query", return_value="live"), \
      patch("maps.mcp_map.query_context", return_value={"context": {}, "_meta": {}}) as _m_live, \
      patch("mcp_sql.get_context_range") as _m_sql:
     mcp_server.query_context("temperature_max", _TEST_DATE, _TEST_DATE, "daily")
@@ -961,7 +961,7 @@ if _a_series_field is not None:
 #    proving the weiche now applies uniformly, no field-name branching
 #    left in front of it.
 if _a_series_field is not None:
-    with patch("mcp_server._route_query", return_value="live"), \
+    with patch("mcp_context._route_query", return_value="live"), \
          patch("maps.mcp_map.query_context",
                return_value={"context": {}, "_meta": {}}) as _m_live, \
          patch("mcp_sql.get_context_range") as _m_sql:
