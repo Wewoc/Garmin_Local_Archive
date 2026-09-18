@@ -1135,6 +1135,9 @@ def _run_schema_migration(quality_data: dict) -> None:
 
     log.info(f"  Schema migration complete: {ok} rewritten, {failed} skipped/failed.")
 
+# Codereview v1.7.0.1: 378 lines, reviewed (nesting depth 7) — long but
+# not tangled, numbered sequential steps each delegated to a helper.
+# Splitting possible, low priority, see TODO_codereview_v1.7.0.1.md.
 def main(stop_event=None):
     # Register the stop event with collector + garmin_api before anything runs.
     # subprocess mode (T1/T2) passes None — stop handled via process terminate.

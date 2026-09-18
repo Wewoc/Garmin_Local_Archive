@@ -836,3 +836,70 @@ only applies on the live path (`mcp_map.get_archive_metadata()` →
 no `note` — deliberate on that path (documented in its own internal
 docstring already), but previously not surfaced at this public tool's
 docstring level.
+
+---
+
+## (v1.7.2.1) Query-serving core split — mcp_health.py / mcp_context.py / mcp_query_common.py
+
+Internal codereview cleanup, no behavior change (every moved function
+body verified AST-identical to the pre-split original). `query_health()`
+and `query_context()` had grown into `clients/mcp_server.py`'s largest
+functions by far, despite that file's own module docstring describing it
+as thin `@mcp.tool()` wrappers — this split makes the docstring's claim
+true again.
+
+**New files:**
+- `clients/mcp_query_common.py` — `_route_query(kind)`, `_get_field_unit(field)`,
+  `_enrich_with_units(result, domain)`. Fully self-contained (no `mcp`/
+  `mcp_sql`/`mcp_map` dependency) — used by the four query tools still
+  defined directly in `mcp_server.py` (`query_fit_activities`, `query_raw`,
+  `get_archive_metadata`, `list_available_fields`) and by `mcp_health.py`/
+  `mcp_context.py` below.
+- `clients/mcp_field_registry.py` — gained `_CONTEXT_CATEGORY_BUNDLES`
+  (moved here from `mcp_server.py`, alongside `FIELD_UNITS`/the alias
+  dicts already here since `v1.7.0.1`/Codereview Baustein 2.1) —
+  `query_health()`'s cross-domain check needs it, and this neutral module
+  avoids a direct `mcp_health.py` ↔ `mcp_context.py` dependency.
+- `clients/mcp_health.py` — `query_health(field, date_from, date_to, resolution="daily")`,
+  moved verbatim out of `mcp_server.py`.
+- `clients/mcp_context.py` — `_resolve_context_bundle()`, `_fetch_context_field()`,
+  `query_context(field, date_from, date_to, resolution="daily")`, moved
+  verbatim out of `mcp_server.py`.
+
+**Why two new files instead of one `mcp_health.py` importing from
+`mcp_context.py` (or vice versa):** `query_health()`/`query_context()`
+are `@mcp.tool()`-decorated, and `mcp = FastMCP(...)` lives in
+`mcp_server.py` — a new file importing `mcp` back from `mcp_server.py`
+to decorate its own function would be circular. Both are instead defined
+undecorated in their own file and registered programmatically from
+`mcp_server.py`:
+
+```python
+from mcp_health import query_health
+query_health = mcp.tool()(query_health)   # noqa: E402 — after mcp = FastMCP(...)
+
+from mcp_context import query_context
+query_context = mcp.tool()(query_context) # noqa: E402 — after mcp = FastMCP(...)
+```
+
+A decorator is syntactic sugar for `f = dec(f)` — behaviorally identical
+to `@mcp.tool()` at the definition site. `mcp_server.query_health`/
+`mcp_server.query_context` still resolve exactly as before for external
+callers and for `tests/test_mcp.py`'s qualified `import mcp_server` +
+`mcp_server.query_health(...)` access pattern.
+
+**Consequence for `_route_query()` patching in tests:** a bare name like
+`_route_query()` resolves at call time against its *defining* module's
+`__globals__` — since `query_health()`/`query_context()` are now defined
+in `mcp_health.py`/`mcp_context.py`, forcing their live branch requires
+`patch("mcp_health._route_query", ...)`/`patch("mcp_context._route_query", ...)`,
+not `patch("mcp_server._route_query", ...)` (which still correctly
+targets the four query tools that remain defined directly in
+`mcp_server.py`). Found and fixed post-split via a real test-suite run,
+not just static analysis — see `CHANGELOG.md` v1.7.2.1.
+
+**`mcp_server.py`'s own scope after this split:** four thin `maps/mcp_map.py`
+wrappers defined directly (`query_fit_activities`, `query_raw`,
+`get_archive_metadata`, `list_available_fields`) plus the two
+programmatic registrations above — 1753 → 688 lines total across this
+split and the `v1.7.0.1`/Codereview Baustein 2.1 constant extraction.

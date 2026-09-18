@@ -64,11 +64,11 @@ a given rule, see `CHANGELOG.md`.
 
 ## MCP Server / Proxy
 
-- `clients/mcp_server.py` is the only crossing point between the `clients/` world and the broker layer, via `maps/mcp_map.py` — no exception for internal-only consumers, even ones the server itself doesn't register as a tool
-- `mcp_sql.py` is a pure SQLite data-access layer — no validation or bundle-resolution logic; that logic lives entirely in the `mcp_server.py` wrapper
+- `clients/mcp_server.py`, `clients/mcp_health.py`, and `clients/mcp_context.py` are the only crossing points between the `clients/` world and the broker layer, via `maps/mcp_map.py` (v1.7.2.1 — `query_health()`/`query_context()` moved into their own files, each calling `mcp_map.query_health()`/`mcp_map.query_context()` on its own live branch) — no exception for internal-only consumers, even ones not registered as a tool
+- `mcp_sql.py` is a pure SQLite data-access layer — no validation or bundle-resolution logic; that logic lives in `clients/mcp_health.py`/`clients/mcp_context.py` (v1.7.2.1 — moved out of the `mcp_server.py` wrapper) plus the shared `clients/mcp_query_common.py` helpers
 - SQLite is always a derived, reconstructible cache — never written independently, never a fourth data silo. `garmin_backup.py`/`garmin_mirror.py` do not need to know it exists; a lost or corrupt cache file forces a rebuild, not data loss
-- `_route_query()` is the single decision point every query tool passes through before branching into the SQLite or live-broker path
-- `FIELD_UNITS` (unit annotations for `query_health()`/`query_context()`/`list_available_fields()`) is deliberately kept local to `clients/mcp_server.py`, not placed in any `maps/` broker — the SQLite branch never reaches `mcp_map.py` today, so a broker-level unit source would currently be unreachable for any real request
+- `_route_query()` (`clients/mcp_query_common.py`, v1.7.2.1) is the single decision point every query tool passes through before branching into the SQLite or live-broker path
+- `FIELD_UNITS` (unit annotations for `query_health()`/`query_context()`/`list_available_fields()`) is deliberately kept local to `clients/mcp_field_registry.py` (v1.7.2.1 — moved out of `mcp_server.py`), not placed in any `maps/` broker — the SQLite branch never reaches `mcp_map.py` today, so a broker-level unit source would currently be unreachable for any real request
 
 ---
 

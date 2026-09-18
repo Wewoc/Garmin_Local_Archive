@@ -193,6 +193,10 @@ def check_source_backfill_needed() -> int:
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Codereview v1.7.0.1: ~90% identical to garmin_backup.py's
+# _consolidate_raw_months() (source vs. raw, otherwise same flow incl.
+# Force-Replace block). Deliberately not merged — touches backup
+# integrity, see PROTOKOLL_experiment.md.
 def _consolidate_source_months(current_month: str, force_filenames: set[str] | None = None) -> None:
     """
     Zips all completed month directories in backup/source/.

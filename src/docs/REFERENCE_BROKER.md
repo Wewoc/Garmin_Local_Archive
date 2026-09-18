@@ -449,8 +449,9 @@ reading the keys of the returned dict, not by choosing one in advance.
 
 This broker-layer contract is unchanged by `v1.7.1.16` — the brightsky/DWD-
 vs-weather/Open-Meteo priority merge lives one layer up, in
-`clients/mcp_server.py`'s `query_context()` wrapper (`_fetch_context_field()`
-helper), not in `context_map.get()` itself. See `REFERENCE_MCP.md`'s
+`clients/mcp_context.py`'s `query_context()` wrapper (`_fetch_context_field()`
+helper, moved out of `mcp_server.py` in v1.7.2.1), not in `context_map.get()`
+itself. See `REFERENCE_MCP.md`'s
 `(v1.7.1.16)` entry for the merge's own contract and which resolution
 paths it now covers.
 
