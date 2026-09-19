@@ -85,12 +85,6 @@ SHARED_SCRIPTS = [
     "garmin/garmin_silo_repair.py",
     "garmin/garmin_live_fetch.py",
     "garmin/garmin_extended_anaysis.py",
-    # export / repair tooling — regenerate_raw.py remains a standalone CLI
-    # tool ("Source Replay", referenced by garmin_backup_source.py) but is
-    # no longer called from panel_archive.py::_on_silo_repair(); that path
-    # was moved in-process in v1.6.5.7 and the repair logic itself was
-    # extracted to garmin_silo_repair.py above in the same session arc.
-    "export/regenerate_raw.py",
     # clients (external tool/service integrations — e.g. Ollama, the MCP
     # server; flat imports like garmin/ and app/, no relative imports
     # inside the package, no sys.modules registration needed)

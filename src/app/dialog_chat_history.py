@@ -26,12 +26,14 @@ Usage
 -----
     dlg = ChatHistoryDialog(self, sessions)
     if dlg.exec() == QDialog.DialogCode.Accepted:
-        action, path = dlg.get_result()   # action: "load" | "delete"
+        action, data = dlg.get_result()   # action: "load" | "delete"
+        # "load"   -> data is a single path string (Load stays single-select)
+        # "delete" -> data is a list of path strings (multi-select allowed)
 """
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QMessageBox,
+    QListWidget, QListWidgetItem, QMessageBox, QAbstractItemView,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -41,11 +43,14 @@ class ChatHistoryDialog(QDialog):
     """
     Modal dialog listing saved chat sessions, newest first (the order
     `sessions` already arrives in — this dialog does not re-sort).
-    Load and Delete act on the currently selected row; both start
-    disabled until a row is selected. Delete asks for confirmation
-    (QMessageBox.question, same pattern as panel_archive.py's/
-    panel_outputs.py's own destructive actions) before returning —
-    still only reports the choice, see module docstring.
+    Multi-select is allowed (ExtendedSelection — ctrl/shift-click).
+    Delete acts on every selected row; Load only ever acts on exactly
+    one, so it disables itself the moment more than one row is
+    selected. Both start disabled until a row is selected. Delete asks
+    for confirmation (QMessageBox.question, same pattern as
+    panel_archive.py's/panel_outputs.py's own destructive actions)
+    before returning — still only reports the choice, see module
+    docstring.
 
     Parameters
     ----------
@@ -78,6 +83,7 @@ class ChatHistoryDialog(QDialog):
         lay.addWidget(heading)
 
         self._list = QListWidget()
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.setFont(QFont("Segoe UI", 9))
         self._list.setStyleSheet(
             f"QListWidget {{ background: {bg2}; color: {text}; border: none; }}"
@@ -142,15 +148,19 @@ class ChatHistoryDialog(QDialog):
         lay.addLayout(btn_row)
 
     def _update_button_state(self):
-        has_selection = bool(self._list.selectedItems())
-        self._load_btn.setEnabled(has_selection)
-        self._delete_btn.setEnabled(has_selection)
+        count = len(self._list.selectedItems())
+        self._load_btn.setEnabled(count == 1)
+        self._delete_btn.setEnabled(count >= 1)
 
     def _selected_path(self) -> str | None:
         items = self._list.selectedItems()
         if not items:
             return None
         return items[0].data(Qt.ItemDataRole.UserRole)
+
+    def _selected_paths(self) -> list[str]:
+        return [item.data(Qt.ItemDataRole.UserRole)
+                for item in self._list.selectedItems()]
 
     def _on_load(self):
         path = self._selected_path()
@@ -160,22 +170,27 @@ class ChatHistoryDialog(QDialog):
         self.accept()
 
     def _on_delete(self):
-        path = self._selected_path()
-        if path is None:
+        paths = self._selected_paths()
+        if not paths:
             return
+        if len(paths) == 1:
+            prompt = "Delete this saved chat? This cannot be undone."
+        else:
+            prompt = f"Delete {len(paths)} saved chats? This cannot be undone."
         answer = QMessageBox.question(
-            self, "Delete Chat",
-            "Delete this saved chat? This cannot be undone.",
+            self, "Delete Chat", prompt,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        self._result = ("delete", path)
+        self._result = ("delete", paths)
         self.accept()
 
     def get_result(self):
-        """Returns (action, path) — action is "load" or "delete",
-        path is the string path of the selected session — or None if
-        the dialog was closed without choosing either (Close button,
-        Esc, or a declined delete confirmation followed by Close)."""
+        """Returns (action, data) or None if the dialog was closed
+        without choosing either (Close button, Esc, or a declined
+        delete confirmation followed by Close).
+        action == "load"   -> data is a single path string
+        action == "delete" -> data is a list of path strings (always
+                               a list, even for a single selection)"""
         return self._result
