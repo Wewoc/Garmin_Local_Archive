@@ -477,7 +477,7 @@ Leaf-Node — stdlib + cryptography only, no project-module imports.
 
 | Function | Purpose |
 |---|---|
-| `encrypt_html(html_content, password)` | Takes a finished HTML string, returns a self-decrypting HTML. AES-256-GCM, PBKDF2-HMAC-SHA256 (100,000 iterations), random salt + IV. Decrypt dialog and Web Crypto API JS are inline — no external assets. |
+| `encrypt_html(html_content, password, *, bg=…, bg2=…, accent=…, accent2=…, text=…, text2=…, red=…)` | Takes a finished HTML string, returns a self-decrypting HTML. AES-256-GCM, PBKDF2-HMAC-SHA256 (100,000 iterations), random salt + IV. Decrypt dialog and Web Crypto API JS are inline — no external assets. Theme colors are plain keyword-only strings (default: the original fixed Violet-Legacy palette) — the caller passes its own `self._app.*` theme colors; no `theme.py` import here, this file stays a Leaf-Node. |
 
 **Output:** self-contained HTML with embedded ciphertext + browser-side decryption.
 **Raises:** `ValueError` on empty input or password. `RuntimeError` on encryption failure or missing cryptography library.

@@ -1554,6 +1554,14 @@ check("output contains PBKDF2",                "PBKDF2" in _enc_result)
 check("output does not contain plaintext",     _sample_html not in _enc_result)
 check("output is longer than input",           len(_enc_result) > len(_sample_html))
 
+# Theme colors are keyword-only, threaded through into the lock-screen CSS
+# (v1.7.2.2 — used to be hardcoded to the old fixed Violet-Legacy palette)
+_enc_themed = _enc_mod.encrypt_html(
+    _sample_html, "testpassword123", bg="#001122", accent="#ff8800")
+check("custom bg color appears in output",     "#001122" in _enc_themed)
+check("custom accent color appears in output", "#ff8800" in _enc_themed)
+check("default call still uses old palette",   "#12101f" in _enc_result)
+
 # ValueError on empty input
 try:
     _enc_mod.encrypt_html("", "password")

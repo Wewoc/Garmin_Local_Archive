@@ -589,6 +589,16 @@ class TestChatHistoryDialog:
         assert dlg._load_btn.isEnabled()
         assert dlg._delete_btn.isEnabled()
 
+    def test_multi_select_dims_load_keeps_delete_enabled(self, qtbot, app_mock):
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        qtbot.addWidget(dlg)
+        dlg._list.item(0).setSelected(True)
+        dlg._list.item(1).setSelected(True)
+        assert not dlg._load_btn.isEnabled()
+        assert dlg._delete_btn.isEnabled()
+
     def test_on_load_sets_result_and_accepts(self, qtbot, app_mock):
         from PyQt6.QtWidgets import QDialog
         from app.dialog_chat_history import ChatHistoryDialog
@@ -620,7 +630,26 @@ class TestChatHistoryDialog:
                            return_value=QMessageBox.StandardButton.Yes):
             dlg._on_delete()
         assert dlg.get_result() == (
-            "delete", "/base/chats/chat_2026-09-15_143205_ollama_json.json")
+            "delete", ["/base/chats/chat_2026-09-15_143205_ollama_json.json"])
+
+    def test_on_delete_confirmed_multi_select_returns_all_paths(self, qtbot, app_mock):
+        # Same qtbot.addWidget() omission as test_on_delete_confirmed_sets_result, same reason.
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        from app.dialog_chat_history import ChatHistoryDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ChatHistoryDialog(parent, self._sessions())
+        dlg._list.item(0).setSelected(True)
+        dlg._list.item(1).setSelected(True)
+        with patch.object(QMessageBox, "question",
+                           return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
+        action, paths = dlg.get_result()
+        assert action == "delete"
+        assert set(paths) == {
+            "/base/chats/chat_2026-09-15_143205_ollama_json.json",
+            "/base/chats/chat_2026-09-14_090000_cloud_mcp.json",
+        }
 
     def test_on_delete_declined_keeps_dialog_open_no_result(self, qtbot, app_mock):
         # Same qtbot.addWidget() omission as the test above, same reason.
@@ -1191,11 +1220,33 @@ class TestPanelChat:
         fake_store.list_sessions.return_value = []
         fake_dialog = MagicMock()
         fake_dialog.exec.return_value = QDialog.DialogCode.Accepted
-        fake_dialog.get_result.return_value = ("delete", "/base/chats/x.json")
+        fake_dialog.get_result.return_value = ("delete", ["/base/chats/x.json"])
         with patch("app.panel_chat._load_chat_session_store", return_value=fake_store), \
              patch("app.panel_chat.ChatHistoryDialog", return_value=fake_dialog):
             panel._chat_on_open_history()
         fake_store.delete_session.assert_called_once_with("/base/chats/x.json")
+
+    def test_open_history_delete_multi_select_calls_store_delete_for_each(
+            self, qtbot, app_mock, tmp_path):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtWidgets import QDialog
+        from app.panel_chat import PanelChat
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path)}
+        panel = PanelChat(app_mock)
+        qtbot.addWidget(panel)
+        fake_store = MagicMock()
+        fake_store.list_sessions.return_value = []
+        fake_dialog = MagicMock()
+        fake_dialog.exec.return_value = QDialog.DialogCode.Accepted
+        fake_dialog.get_result.return_value = (
+            "delete", ["/base/chats/x.json", "/base/chats/y.json"])
+        with patch("app.panel_chat._load_chat_session_store", return_value=fake_store), \
+             patch("app.panel_chat.ChatHistoryDialog", return_value=fake_dialog):
+            panel._chat_on_open_history()
+        assert fake_store.delete_session.call_count == 2
+        fake_store.delete_session.assert_any_call("/base/chats/x.json")
+        fake_store.delete_session.assert_any_call("/base/chats/y.json")
 
     def test_open_history_rejected_dialog_does_nothing(self, qtbot, app_mock, tmp_path):
         from unittest.mock import MagicMock, patch
@@ -1345,7 +1396,7 @@ class TestPanelChat:
         panel._chat_on_new_chat()
         assert panel._history == []
 
-    def test_model_changed_triggers_new_chat_only_when_enabled(self, qtbot, app_mock):
+    def test_model_changed_does_not_reset_history(self, qtbot, app_mock):
         from app.panel_chat import PanelChat
         panel = PanelChat(app_mock)
         qtbot.addWidget(panel)
@@ -1356,7 +1407,7 @@ class TestPanelChat:
 
         panel._model_combo.setEnabled(True)
         panel._chat_on_model_changed(0)
-        assert panel._history == []
+        assert panel._history == [{"role": "user", "content": "hi"}]
 
     # ── Backend/Datenquelle dropdowns (garmin_collector-3_experiment
     # addendum, replaces an earlier "Use MCP tools" checkbox — session
