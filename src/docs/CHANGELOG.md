@@ -273,6 +273,15 @@ Field-count comments in `mcp_server.py` and `REFERENCE_BROKER.md`
 corrected from "54 fields" to the actual 55 (`_FIELD_MAP`'s real
 length — 32 pre-`v1.7.1.16` + 23 new).
 
+**Addendum (2026-09-19, found while restructuring `REFERENCE_MCP.md`
+into a topic-organized reference):** Fix 3's doc corrections above did
+not extend to `REFERENCE_MCP.md`'s own description of
+`HEALTH_FIELD_ALIASES`/`HEALTH_FIELD_AMBIGUOUS` — it kept listing
+`steps` under the alias table (3 entries: `steps`, `hrv`, `hill`)
+instead of the ambiguity table per Fix 2 above, and stayed that way
+through the file's later `v1.7.2.1` split-description section too.
+Corrected in the rewrite.
+
 ## v1.7.1.16 — wind_speed_max Priority Fix + 23 Health Field Registrations
 
 Derived from a live MCP test session with a frontier model (Claude Sonnet
@@ -698,6 +707,18 @@ Two pure test fixture corrections without changes to production code:
 - `NOTES_v1.7.1.12.md` — complete session documentation: all six goals (original three + three found during testing), rejected alias candidates with justification, open issues for follow-up sessions.
 
 **Test result:** 780 / 299 / 465 / 136 / 170 / 169 / 80 / 16 — all green.
+
+**Addendum (2026-09-19, found while restructuring `REFERENCE_MCP.md`
+into a topic-organized reference):** "36 entries"/"all 36 aliases
+resolved" above was a miscount, not a later addition — the original
+test catalog for this session
+(`mcp_test/question_catalog/alt/question_catalog_v17112_context_field_resolution.py`,
+ids `cf139`–`cf198`) already covers 60 `CONTEXT_FIELD_ALIASES` cases,
+including the German-language variants (`birkenpollen_belaestigung`,
+`beifußpollenbelastung`, `olivenpollenbelastung`, etc.) — the table's
+own header comment miscounted at the time of writing. `CONTEXT_FIELD_ALIASES`
+has been at (approximately) this size since this release, not grown
+undocumented afterwards.
 ---
 
 ## v1.7.1.11 — Context-Pipeline Intraday: raw/summary Split + `_series` Fields
