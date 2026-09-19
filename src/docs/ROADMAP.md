@@ -10,54 +10,99 @@
 
 ---
 
-### v1.7.2.2
+### v1.7.2.2 — Chat Panel Polish & Quick Fixes (planned)
 
-Small, deliberately deferred items from the v1.7.2 build, not urgent enough
-to have held up that release:
+Small, independently shippable fixes and polish items — no architecture changes.
 
-- ~~**Stop-mechanism verification for `.bat`/`.exe` launch paths**~~ ✓
-  resolved — a real T2/T3 build cycle (Bausteine 24–34, see `CHANGELOG.md`)
-  exercised this live and found the launch path was fine, but the stop path
-  itself was not: `netstat`'s 5s timeout was too short on real hardware, and
-  a direct-kill-by-remembered-PID approach would have missed the actual
-  server process for both a `.bat`-launched T2 and a `--onefile` T3.3
-  bootloader. Fixed (`clients/mcp_process.py::_kill_pid_tree()`, a tree-kill)
-  and confirmed working live in T2/T3.1/T3.3. The same real-build cycle also
-  surfaced and fixed a set of build-only issues that were never part of this
-  follow-up list to begin with (PyInstaller hidden-import gaps for both
-  targets, a >8 GB T3 ZIP from an unrelated project's ML packages leaking
-  into the build, a frozen `sys.path` gap breaking the Cloud backend in
-  T3.3, a Chat-panel view-not-cleared-on-restart bug) — full detail in
-  `CHANGELOG.md`'s "Post-doc-review fixes" section and
-  `PROTOKOLL_experiment.md`.
-- **Live verification against the real Anthropic/OpenAI APIs** — every Cloud
-  code path (`cloud_llm_anthropic.py`/`cloud_llm_openai.py`/
-  `cloud_tool_chat.py`) is grounded against the installed SDKs' own type
-  stubs and covered by mocked-SDK tests only; no API key was available
-  during the v1.7.2 build. A real end-to-end smoke test (Start, one message,
-  one tool call) is the last gap before production use. **Still open.**
-- **Ollama+MCP streaming** — not planned at all (see `CHANGELOG.md` v1.7.2
-  and "Not planned" below), listed here only so it isn't mistaken for an
-  oversight when reading this file top-to-bottom.
-- **`mcp_update.py` port-conflict error presentation** — a manual `.bat`
-  launch while another MCP server instance already holds the port crashes
-  with a raw, unhandled traceback instead of a clean message; the detection
-  logic itself is correct (guards against two parallel boot syncs), only the
-  failure presentation is unhandled. Found during the same real-build cycle,
-  not yet fixed. **New, open.**
-- **`daily_update.exe` (T3.2) hidden-import scope** — bundles the same full
-  hidden-import set as T3.1/T3.3 (PyQt6, tkinter, the whole MCP/Cloud-LLM
-  chain), though the headless sync task needs none of it. Cosmetic/size
-  only, no correctness impact; would need target-specific hidden-import
-  lists instead of one shared list across all of T2+T3.1+T3.2+T3.3. Found
-  during the same real-build cycle, not yet fixed. **New, open.**
-- **Custom Dashboard Builder — intraday field support** — the popup is
-  daily-only by its own docstring ("intraday fields are out of scope,
-  deferred", v1.6.4 scope). Checked during the v1.7.2.1 codereview:
-  `health_map.get()` already threads a `resolution` parameter through —
-  the daily-only restriction sits only in the popup's own field-picker
-  and `_build()`'s output shape, so this would be a real, multi-layer
-  extension, not a side-effect of any cleanup round. Not started.
+**Chat panel**
+- Model switch mid-chat no longer resets the conversation — `_chat_on_model_changed()`
+  stops calling `_chat_on_new_chat()`. Different context-window/style behavior between
+  models (the original v1.6.6 KONZEPT §4 reasoning for the reset) is accepted as a
+  known, non-blocking risk. Existing context-limit error handling already covers an
+  overflow triggered by switching to a smaller-context model mid-chat. Session
+  auto-save already writes the active model on every turn, so the saved session file
+  naturally reflects the last model used — no schema change needed.
+- Chat History dialog (`dialog_chat_history.py`) — multi-select for "Delete Chat"
+  (currently single-selection only); "Load" button dims once more than one chat is
+  selected.
+- Visual contrast between "You" and "Assistant" turns (accent color) plus a blank
+  line between them — currently too hard to tell apart at a glance.
+- Ollama model dropdown sort order (qwen3 first) + `README_APP.md` model
+  recommendation table refresh — grounded in `mcp_test/` benchmark data (avg.
+  response time per model, `lauf_22-2` 2026-09-17 and `lauf_20` 2026-09-14 runs).
+  `granite4.1` still needs a correctness/quality pass before it can be recommended
+  on equal footing with qwen3/qwen2.5-coder — only timing data exists for it so far.
+
+**Encrypted Dashboards**
+- `dash_encryptor.py`'s HTML lock screen still hardcodes hex colors instead of
+  pulling from `theme.py` — the dashboard content behind the lock screen already
+  does. Single-file fix, string injection into the generated HTML.
+
+**Low priority, only if it fits well**
+- `garmin_extended_anaysis.py` availability in T3 — may already be bundled (listed
+  in `build_manifest.py`'s file list); needs a real T1/T2/T3 build-target comparison
+  before the actual gap, if any, is known.
+
+---
+
+### v1.7.2.3 — Context Archive Integrity Check (planned)
+
+Settings/Data Collection gets an integrity-check function for the context archive,
+parallel in spirit to Force Refetch:
+- Scans for missing days in the archive (should not normally happen)
+- Validates coordinates per day, builds a day/coordinate list, plus place/country
+- Collapsible list UI, collapsed by default; days without coordinates listed first
+- A Force Refetch path that overwrites the flagged days
+- A targeted `mcp_update` push for only the fixed days, to bring the MCP-facing
+  SQL copy back in sync
+
+Not started — needs its own module cross-check (likely touches `panel_archive.py`,
+`garmin_force_refetch.py`, `dialog_force_refetch.py`, and the MCP update chain)
+before a build order is set.
+
+---
+
+### v1.7.2.4 — Updater, T3 only (planned)
+
+Self-update button: check for a new version, download in the background, swap
+files, restart the app. **Scope: T3 only** — T2 (Standard EXE) keeps today's
+notify-only popup (`_check_version()` / `_show_update_popup()` in
+`garmin_app_base.py`, already shared across T1/T2/T3.1) unchanged, no
+auto-apply.
+
+**"T3" here means the whole combined package, not just the GUI.**
+`build_combined_zip()` in `compiler/build_standalone.py` packs T3.1's
+`--onedir` folder (GUI EXE + `_internal/`), T3.2 (`daily_update.exe`), and
+T3.3 (`mcp_server.exe`) flat into one install directory — all three sibling
+files in the same folder on the user's machine. An updater that replaces
+that folder wholesale (which is exactly how Velopack's package-replace model
+works) updates all three automatically as one unit — daily_update.exe and
+mcp_server.exe don't need separate handling.
+
+**Update dialog — three options, not two:** extends the existing two-button
+popup (`_show_update_popup()`) to three:
+- **Update** (new) — triggers the actual download/apply/restart flow
+- **Open GitHub** — unchanged (manual fallback)
+- **Dismiss** — unchanged
+
+**Why T3-only:** T3 ships as a self-contained `--onedir`-based folder, which
+is exactly what an updater framework can replace wholesale. T2 is
+structurally different — a `--onefile` launcher EXE plus a sidecar
+`scripts/` folder of raw `.py` files, and it requires Python already
+installed on the target machine (see the Build targets table in
+`REFERENCE_GLOBAL.md`) — no clean "replace the package" story, would need
+its own separate, bespoke update mechanism. Download data backs up
+narrowing scope to T3: as of 2026-09-19, `Garmin_Local_Archive_Standalone.zip`
+(T3) accounts for ~73% of all downloads (157/218) and grew ~5x faster than
+`Garmin_Local_Archive.zip` (T2) over the preceding six weeks (+67 vs. +13)
+— see `D:\Garmin\Tools\GitHub-Insights\download_analysis_v4-kompact.xlsx`.
+
+**Candidate solution: [Velopack](https://velopack.io/)** — explicitly
+supports GitHub Releases as the update-hosting source, works with
+PyInstaller `--onedir` output (matches T3.1 as built), `UpdateManager` API
+for check/download/apply from inside the app. Cost: adds a .NET SDK
+dependency to the build machine only (for the `vpk` packaging CLI, not
+for end users) — new to an otherwise pure Python/PyInstaller build chain.
 
 ---
 
@@ -119,7 +164,7 @@ No adapter is a commitment. Each is evaluated independently when development beg
 
 ## Planned — v1.8
 
-### v1.8 — FIT Pipeline
+### v1.8.0 — FIT Pipeline
 
 Standalone plugin pipeline for Garmin activity data (.fit files). The existing
 Health pipeline is not modified — the FIT pipeline runs as an independent,
@@ -177,7 +222,7 @@ Those follow after PyQt6 migration is stable and the pipeline is proven.
 - `scheduler/daily_update.py` — FIT Sync path must be fully headless;
   no GUI dependency allowed
 
-*Pre-condition: v1.8 FIT Pipeline stable.*
+*Pre-condition: v1.8.0 FIT Pipeline stable.*
 
 ---
 
@@ -217,26 +262,63 @@ Historical data available without time limit (Open-Meteo) — no urgency.
 
 ---
 
-### v1.8.3 — PDF Report
+### v1.8.3 — FIT MCP Integration
+
+Wires FIT data into the MCP SQLite proxy and hardens MCP field resolution
+for the FIT domain — two distinct pieces of work, not one.
+
+**1. Sync plumbing (small)**
+`mcp_update.py` populates `mcp_fit_days` — the placeholder table already
+reserved in `mcp_sql.py`'s schema (stub pattern mirroring
+`gateway_map._DOMAIN_BROKERS['fit': None]`, "created but never written
+until fit_map.py lands") — the same way it already syncs
+`mcp_health_days`/`mcp_context_days` from `health_map`/`context_map`. Also
+fills in the existing `fit` column in the shared `mcp_day_status` table.
+
+**2. MCP field-resolution hardening for FIT (large, empirical)**
+Health and Context each went through their own multi-session hardening
+cycle (`mcp_field_registry.py`'s `HEALTH_FIELD_ALIASES`/`_AMBIGUOUS` and
+`CONTEXT_FIELD_ALIASES`/`_AMBIGUOUS`, plus dedicated resolver modules
+`mcp_health.py`/`mcp_context.py`) — every alias entry and difflib cutoff
+value came from real multi-model test runs against `mcp_test/`, not from
+analysis alone. FIT needs the same treatment from scratch: a new
+`mcp_fit.py` resolver mirroring the existing two, its own
+`FIT_FIELD_ALIASES`/`FIT_FIELD_AMBIGUOUS` tables, and a new `mcp_test/`
+question catalog run against multiple Ollama models to find silent
+field-name mis-resolutions (pace vs. speed, distance vs. elevation gain,
+sport-specific fields, etc.) before the cutoff/alias tables can be trusted.
+
+*Pre-condition: v1.8.0 FIT Pipeline stable, v1.8.2 Context Integration in
+place — FIT data needs to actually exist and be trustworthy before its MCP
+exposure is worth hardening.*
+
+---
+
+### v1.8.4 — PDF Report
 
 A standalone workflow for generating a formatted health report as PDF — separate from the Create Reports pipeline. Triggered via a dedicated **PDF Report** button in the Outputs section of the GUI (not via the Create Reports dialog, to avoid collision with Daily Update and the existing report workflow).
 
-**Workflow:**
+**Workflow (updated — LLM step now goes through the in-app pipeline, not manual copy-paste):**
 
 1. User clicks **PDF Report** — a separate console/dialog opens
 2. User selects sections (HRV, Sleep, Activity, ...) and date range
 3. App generates `/dashboards/pdf-report/yyyy-mm-dd/report_data.json` and a prompt file with output structure instructions for the LLM
-4. Console displays: instructions for the LLM step — user runs their local LLM externally and saves the response as `LLM-Output.md` in the same folder
-5. User confirms → app checks whether `LLM-Output.md` exists → renders PDF with or without LLM analysis
+4. **Default:** app calls the local LLM directly through the existing MCP/Ollama pipeline (`ollama_client.py`/`mcp_tool_chat.py`, the same one `panel_chat.py` uses — hardened for health/context since v1.7.2, extended to FIT by v1.8.3) and writes `LLM-Output.md` itself, no manual step.
+   **Fallback:** manual path stays available for anyone who wants a different/cloud LLM (Open WebUI, ChatGPT, anything) — same "drop `LLM-Output.md` into the folder yourself" flow as before, still needed for any model outside the local Ollama setup.
+5. App checks whether `LLM-Output.md` exists → renders PDF with or without LLM analysis
 
 **Output folder:** `/dashboards/pdf-report/yyyy-mm-dd/`
 - `report_data.json` — section data for LLM input
-- `LLM-Output.md` — optional, user-provided LLM response
+- `LLM-Output.md` — LLM response, either auto-generated (default path) or user-provided (fallback path); still optional either way
 - `report_yyyy-mm-dd.pdf` — final report
 
 **Page 1:** mandatory disclaimer — no medical product, no diagnosis, no therapy recommendation.
 
-**LLM step is fully optional** — report renders completely without it. No API calls, no cloud dependency, no model lock-in. User chooses their own LLM (Open WebUI, ChatGPT, anything).
+**LLM step is fully optional** — report renders completely without it. No cloud dependency, no model lock-in on the default path (local Ollama only); the manual fallback path is what opens the door to cloud models, by the user's own explicit choice.
+
+*Pre-condition: v1.8.3 FIT MCP Integration in place — the automatic LLM
+step reuses that hardened field resolution, so report sections drawing on
+FIT data should not go live before FIT itself is reliable through MCP.*
 
 ---
 
@@ -411,6 +493,8 @@ Extension to support multiple data sources (Strava, Komoot, ...) alongside Garmi
 **Architecture principle — plugin modules:** Global actors (`writer`, `normalizer`, `sync`, `security`) remain source-agnostic. Each source provides a `*_master.py` plugin that delivers source-specific details on demand — paths, formats, validation rules, token location. Adding a new source means writing a new plugin and its source-specific actors (`*_api.py`, `*_quality.py`). All global actors work without modification.
 
 **Translation layer:** `health_map.py` is the single point of truth for mapping fields between sources and the common schema. Dashboard and export scripts have no knowledge of source details — they only query `health_map`. Adding a new source means extending `health_map` — all scripts work automatically.
+
+**Dashboards on `gateway_map`:** dashboards currently import `health_map`/`fit_map`/`context_map` directly — a deliberate v1.6.7 decision (see `gateway_map.py`'s own docstring) to keep them coupled only to what they actually use. Revisit once a second source (e.g. Strava) actually exists: bundling all domains behind `gateway_map` then avoids re-wiring every dashboard specialist for each new source. Not worth the extra indirection before that point — confirmed in the v1.7.2.2 planning session (2026-09-19).
 
 ---
 
