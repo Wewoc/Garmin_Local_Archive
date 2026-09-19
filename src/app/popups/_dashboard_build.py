@@ -200,7 +200,11 @@ def run_encrypted(panel, dash_runner, selections, date_from, date_to,
 
                     html_content = html_path.read_text(encoding="utf-8")
                     encrypted    = dash_encryptor.encrypt_html(
-                        html_content, password)
+                        html_content, password,
+                        bg=panel._app.BG, bg2=panel._app.BG2,
+                        accent=panel._app.ACCENT, accent2=panel._app.ACCENT2,
+                        text=panel._app.TEXT, text2=panel._app.TEXT2,
+                        red=panel._app.RED)
 
                     html_path.unlink()
                     enc_path.write_text(encrypted, encoding="utf-8")

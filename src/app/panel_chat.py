@@ -1057,10 +1057,15 @@ class PanelChat(QWidget):
             self._chat_loaded_not_started = False
 
     def _chat_on_model_changed(self, _index: int):
-        # Different models have different context limits/styles — carrying
-        # history across a model switch is a deliberate non-goal (KONZEPT §4).
-        if self._model_combo.isEnabled():
-            self._chat_on_new_chat()
+        # v1.7.2.2: deliberately a no-op. Switching models mid-chat used to
+        # reset the conversation (KONZEPT §4 — different models have
+        # different context limits/styles); that reset is no longer
+        # triggered here. Different-context-window risk is covered by the
+        # existing context-limit error handling, and _chat_save_session()
+        # already reads the model live from _model_combo on every turn, so
+        # the saved session file reflects whichever model was last used —
+        # no separate reset needed.
+        pass
 
     def _chat_apply_backend_visibility(self, is_cloud: bool):
         """Swaps which widget is visible for the given backend — cloud
@@ -1176,11 +1181,12 @@ class PanelChat(QWidget):
         result = dlg.get_result()
         if result is None:
             return
-        action, path = result
+        action, data = result
         if action == "delete":
-            store.delete_session(path)
+            for path in data:
+                store.delete_session(path)
         elif action == "load":
-            self._chat_on_load_session(store, path)
+            self._chat_on_load_session(store, data)
 
     def _chat_on_load_session(self, store, path):
         """Loads a saved session picked in ChatHistoryDialog — restores
@@ -1555,7 +1561,8 @@ class PanelChat(QWidget):
     def _chat_append_line(self, speaker: str, text: str):
         safe = (text.replace("&", "&amp;").replace("<", "&lt;")
                      .replace(">", "&gt;").replace("\n", "<br>"))
-        self._chat_view.append(f"<b>{speaker}:</b> {safe}")
+        self._chat_view.append(
+            f"<br><b style='color:{self._app.ACCENT};'>{speaker}:</b> {safe}")
 
     def _chat_append_system(self, text: str):
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -1568,7 +1575,8 @@ class PanelChat(QWidget):
         later chunks (_chat_append_stream_chunk() below) can be
         inserted inline via the cursor instead of
         QTextEdit.append()'s own always-new-paragraph behavior."""
-        self._chat_view.append(f"<b>{speaker}:</b> ")
+        self._chat_view.append(
+            f"<br><b style='color:{self._app.ACCENT};'>{speaker}:</b> ")
         self._chat_view.moveCursor(QTextCursor.MoveOperation.End)
 
     def _chat_append_stream_chunk(self, text: str):

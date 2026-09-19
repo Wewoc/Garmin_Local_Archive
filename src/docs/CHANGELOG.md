@@ -1,5 +1,62 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.2.2 — Chat Panel Polish & Quick Fixes
+
+Small, independently shippable fixes and polish items from the chat panel
+and encrypted-dashboards export — no architecture changes. Model switching
+no longer wipes the conversation, Chat History gained multi-select delete,
+chat turns are easier to tell apart at a glance, the Ollama model dropdown
+sort order was verified (already in place), the MCP model table got an
+informal timing-tendency section, and the encrypted-dashboard lock screen
+now follows the active app theme instead of a hardcoded palette.
+`garmin_extended_anaysis.py`'s T3 availability was investigated and
+deliberately left as-is (see ROADMAP.md's "Not planned" section) — bundled
+correctly on T3, but its trigger is a no-op there by design gap, not worth
+fixing for a hidden Easter Egg.
+
+**Changed modules:**
+- `app/panel_chat.py` — `_chat_on_model_changed()` reduced to a documented
+  no-op (model switch mid-chat no longer resets history); `_chat_append_line()`/
+  `_chat_start_stream_line()` now color both "You"/"Assistant" speaker labels
+  with the active accent color and add a leading blank line between turns;
+  `_chat_on_open_history()`'s delete branch now loops over a list of paths
+  instead of a single path
+- `app/dialog_chat_history.py` — `QListWidget` switched to `ExtendedSelection`;
+  Load stays enabled only for exactly one selection, Delete for one or more;
+  `get_result()` returns a path list for `"delete"` (always a list, even for
+  a single selection), unchanged single-string contract for `"load"`
+- `app/popups/_dashboard_build.py` — passes the active `self._app` theme
+  colors (`BG`/`BG2`/`ACCENT`/`ACCENT2`/`TEXT`/`TEXT2`/`RED`) into
+  `dash_encryptor.encrypt_html()`
+- `layouts/dash_encryptor.py` — `encrypt_html()`/`_build_wrapper()` gain
+  optional keyword-only theme color parameters (default: the previous fixed
+  Violet-Legacy palette) instead of hardcoded hex colors in the lock-screen
+  CSS; stays a Leaf-Node (no `theme.py` import — colors are plain strings
+  from the caller)
+- `tests/test_qt_app.py` — `test_model_changed_triggers_new_chat_only_when_enabled`
+  renamed/inverted to `test_model_changed_does_not_reset_history`; new
+  multi-select tests for `ChatHistoryDialog` and `PanelChat`'s open-history
+  delete path
+- `tests/test_dashboard.py` — three new checks for `encrypt_html()`'s theme
+  parameters (custom colors appear in output; default call keeps the old
+  palette)
+- `docs/README_APP.md` — new "Response time — informal tendency, not a
+  benchmark" section under the MCP model suitability table, grounded in
+  `mcp_test/` timing runs (external to this repo), explicit about the gaps
+  that keep it from being a real benchmark
+- `docs/REFERENCE_DASHBOARD.md` — `encrypt_html()` signature entry updated
+  for the new keyword-only theme parameters
+- `docs/ROADMAP.md` — v1.7.2.2 items resolved; `garmin_extended_anaysis.py`
+  T3 item moved to "Not planned" with the investigation's finding
+- `version.py` — `APP_VERSION` → `1.7.2.2`
+
+**Test result:** targeted `pytest` runs per Baustein (7 + 14 + 84 relevant
+tests, all green) plus the full `tests/test_dashboard.py` suite (472/472,
+0 failed) run in-session. The canonical four-script suite
+(`test_local.py`/`test_local_context.py`/`test_dashboard.py`/
+`test_app_logic.py`) was not run end-to-end in this session — pending a
+manual run before release.
+
 ## v1.7.2.1 — Codereview & Cleanup: panel_outputs.py / mcp_server.py Split, Timer Dispatch
 
 Internal cleanup after v1.7.2 (In-App Chat) — panel_outputs.py and

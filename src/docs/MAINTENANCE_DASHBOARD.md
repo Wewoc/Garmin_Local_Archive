@@ -160,7 +160,7 @@ Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) 
 | 15 | `garmin_health_map` broker contract — incl. `live`/`live_pct`/`live_nested` routes (v1.6.5): percentage math, nested lookup + HRV fallback chain + divisor, missing-file behaviour for both types, field-without-live-route negative case. `dst_transition` key present and boolean in the intraday contract (v1.6.5.6) |
 | 15b | `layouts/render/live.py` — Live Tracking renderer (v1.6.5): structure (DOCTYPE, title, disclaimer, footer), no-Plotly check, integer formatting (no stray `.0`), qualifier badge, feedback label, phase-bar legend, dark-theme token, archive-fallback note, `ValueError` on missing `today`/`last_night` |
 | 16 | Specialist return contract — alle 7 specialists |
-| 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards |
+| 17 | `dash_encryptor` — `encrypt_html()` output structure, ValueError guards, keyword-only theme color parameters (custom colors appear in output, default call keeps the old fixed palette — v1.7.2.2) |
 | 18 | `heatmap_garmin` specialist + complex plotter — six metrics pivoted to date×hour matrices, tab navigation, ValueError guard (v1.6.3.1) |
 | 19 | `custom_dash_builder` — `list_available_fields()` exclusions, ad-hoc module contract (`.META`/`.build`/`.__name__`), integration with `dash_runner.build()` using no file on disk (v1.6.4) |
 | 20 | `garmin_dashboard_presets` — `load_presets()`/`save_preset()`/`delete_preset()` round-trip, missing-file default, no-op delete (v1.6.4) |

@@ -6,42 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.2.1**
-
----
-
-### v1.7.2.2 — Chat Panel Polish & Quick Fixes (planned)
-
-Small, independently shippable fixes and polish items — no architecture changes.
-
-**Chat panel**
-- Model switch mid-chat no longer resets the conversation — `_chat_on_model_changed()`
-  stops calling `_chat_on_new_chat()`. Different context-window/style behavior between
-  models (the original v1.6.6 KONZEPT §4 reasoning for the reset) is accepted as a
-  known, non-blocking risk. Existing context-limit error handling already covers an
-  overflow triggered by switching to a smaller-context model mid-chat. Session
-  auto-save already writes the active model on every turn, so the saved session file
-  naturally reflects the last model used — no schema change needed.
-- Chat History dialog (`dialog_chat_history.py`) — multi-select for "Delete Chat"
-  (currently single-selection only); "Load" button dims once more than one chat is
-  selected.
-- Visual contrast between "You" and "Assistant" turns (accent color) plus a blank
-  line between them — currently too hard to tell apart at a glance.
-- Ollama model dropdown sort order (qwen3 first) + `README_APP.md` model
-  recommendation table refresh — grounded in `mcp_test/` benchmark data (avg.
-  response time per model, `lauf_22-2` 2026-09-17 and `lauf_20` 2026-09-14 runs).
-  `granite4.1` still needs a correctness/quality pass before it can be recommended
-  on equal footing with qwen3/qwen2.5-coder — only timing data exists for it so far.
-
-**Encrypted Dashboards**
-- `dash_encryptor.py`'s HTML lock screen still hardcodes hex colors instead of
-  pulling from `theme.py` — the dashboard content behind the lock screen already
-  does. Single-file fix, string injection into the generated HTML.
-
-**Low priority, only if it fits well**
-- `garmin_extended_anaysis.py` availability in T3 — may already be bundled (listed
-  in `build_manifest.py`'s file list); needs a real T1/T2/T3 build-target comparison
-  before the actual gap, if any, is known.
+**Currently stable — v1.7.2.2**
 
 ---
 
@@ -581,6 +546,22 @@ v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left
   stays an advisory hint (`_mcp_model_hint`), not an enforced restriction;
   any installed Ollama model remains technically selectable. Decision taken
   during the v1.7.2 build, not a gap.
+- `garmin_extended_anaysis.py` (Easter Egg) on T3 (v1.7.2.2) — investigated,
+  not fixed. The file is already bundled on both T2 and T3
+  (`build_manifest.py`'s `SHARED_SCRIPTS`), so it's not a bundling gap as
+  originally suspected. The actual issue: the hidden trigger (a click on the
+  header unicorn) calls `_run_extended_analysis()`, which `garmin_app_base.py`
+  defines as a no-op stub ("Subclass (garmin_app.py) overrides with
+  `_find_python()` access") — `garmin_app.py` (T1/T2) overrides it with a real
+  `subprocess.Popen([_find_python(), script], ...)` call, but
+  `garmin_app_standalone.py` (T3) never does, so on T3 the click silently does
+  nothing. A real fix would need either a fourth standalone PyInstaller exe
+  (next to the GUI, `daily_update.exe`, `mcp_server.exe`) or an in-process
+  rewrite (e.g. `runpy` instead of a subprocess'd new console window) — both
+  disproportionate effort for a hidden Easter Egg with no functional role
+  (`MAINTENANCE_GLOBAL.md`/`MINDSET.md`: intentionally excluded from the
+  regular reference docs, project-humor module, separately CC-BY-licensed).
+  Left as a silent no-op on T3, decided against fixing.
 
 ---
 

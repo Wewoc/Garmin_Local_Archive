@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.2.1
+# Garmin Local Archive — Desktop App v1.7.2.2
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -338,3 +338,45 @@ internal tests across multiple sessions (v1.7.1.11–v1.7.1.15, over
 Rough guide, not a guarantee — results depend on the exact question
 phrasing and may shift with future Ollama/model versions. Test tool and
 methodology: [mcp-llm-tester](https://github.com/Wewoc/GLA-NeedfulThings/tree/main/mcp-llm-tester).
+
+#### Response time — informal tendency, not a benchmark (2026-09-19)
+
+Two ad-hoc timing runs give a rough sense of per-model reply speed —
+tendency only, not a controlled benchmark. Raw per-question timings in
+`mcp_test/results/` (not published as part of this repo).
+
+**Run 20, 2026-09-14 — 25 simple single-field questions per model:**
+
+| Model | Avg | Median | Max | Timeouts/errors |
+|---|---|---|---|---|
+| `granite4.1:3b` | 10.2s | 6.6s | 38.6s | 0/25 |
+| `granite4.1:8b` | 10.8s | 7.9s | 31.6s | 0/25 |
+| `qwen3:4b` | 33.4s | 31.4s | 56.6s | 0/25 |
+
+**Run 22-2, 2026-09-17 — 60 multi-step long-range/correlation questions per model:**
+
+| Model | Avg | Median | Max | Timeouts/errors |
+|---|---|---|---|---|
+| `granite4.1:8b` | 44.3s | 40.5s | 146.7s | 6/60 |
+| `qwen2.5-coder:14b` | 32.5s | 15.6s | 262.2s | 7/60 |
+| `qwen3:14b` | 104.2s | 94.2s | 218.9s | 1/60 |
+| `qwen3:8b` | 85.9s | 70.2s | 306.0s | 6/60 |
+
+**Gaps this leaves open — why this is a tendency, not a measured truth:**
+- Different question catalogs per run (simple single-field lookups vs.
+  multi-step long-range correlation questions) — times are **not
+  comparable across the two tables above**. `granite4.1:8b` appears in
+  both: 10.8s on the easy catalog, 44.3s on the hard one — same model,
+  same hardware, just a harder question set.
+- Single run per model/catalog combination, not repeated — no variance
+  or confidence data, one unusually slow or fast run can shift the
+  average shown.
+- Background system load on the test machine during a run isn't
+  controlled or logged per run.
+- Timeouts/errors (up to 7 of 60 for some models) are dropped from the
+  average rather than counted as a worst-case penalty — a model that
+  times out often can look artificially fast here.
+- No correctness/quality pass exists yet for `granite4.1` (unlike the
+  models in the Suitability table above) — timing alone says nothing
+  about whether its answers are usable, so it stays out of that table
+  despite competitive-looking numbers here.

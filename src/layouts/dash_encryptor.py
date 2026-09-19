@@ -14,7 +14,14 @@ Entschlüsselung läuft vollständig im Browser via Web Crypto API (SubtleCrypto
 Kein Server, kein Python-Callback, kein externes Asset.
 
 Public interface:
-    encrypt_html(html_content: str, password: str) -> str
+    encrypt_html(html_content: str, password: str, *, bg=..., bg2=...,
+                 accent=..., accent2=..., text=..., text2=..., red=...) -> str
+
+Theme colors are plain keyword-only strings, not a theme.py import — this
+file stays independent of theme.py's structure; the caller (which already
+has app/theme context) decides what to pass. Defaults reproduce the
+original fixed Violet-Legacy palette this file used before v1.7.2.2, so a
+call without theme kwargs (e.g. the test suite) is byte-identical to before.
 """
 
 import base64
@@ -26,7 +33,11 @@ _SALT_LEN          = 16   # bytes
 _IV_LEN            = 12   # bytes — AES-GCM standard nonce
 
 
-def encrypt_html(html_content: str, password: str) -> str:
+def encrypt_html(html_content: str, password: str, *,
+                  bg: str = "#12101f", bg2: str = "#1a1729",
+                  accent: str = "#a259f7", accent2: str = "#6e3fcf",
+                  text: str = "#eaeaea", text2: str = "#a0a0b0",
+                  red: str = "#e94560") -> str:
     """
     Verschlüsselt einen HTML-String mit AES-256-GCM (PBKDF2-HMAC-SHA256 Key Derivation).
 
@@ -34,6 +45,10 @@ def encrypt_html(html_content: str, password: str) -> str:
     ----------
     html_content : str  — fertiger HTML-String (UTF-8)
     password     : str  — Passwort das der Nutzer eingegeben hat
+    bg, bg2, accent, accent2, text, text2, red : str — Hex-Farben für den
+        Lock-Screen (keyword-only). Default reproduziert die alte fest
+        einprogrammierte Violet-Legacy-Palette — der Aufrufer übergibt
+        stattdessen typischerweise die aktiven self._app.*-Theme-Farben.
 
     Returns
     -------
@@ -89,14 +104,15 @@ def encrypt_html(html_content: str, password: str) -> str:
         "cipher":     cipher_b64,
     }, separators=(",", ":"))
 
-    return _build_wrapper(meta)
+    return _build_wrapper(meta, bg, bg2, accent, accent2, text, text2, red)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Wrapper-HTML — Decrypt-Dialog + Web Crypto API
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_wrapper(meta_json: str) -> str:
+def _build_wrapper(meta_json: str, bg: str, bg2: str, accent: str,
+                    accent2: str, text: str, text2: str, red: str) -> str:
     """
     Baut das self-decrypting HTML-Dokument.
     meta_json enthält: iterations, salt (b64), iv (b64), cipher (b64).
@@ -110,35 +126,35 @@ def _build_wrapper(meta_json: str) -> str:
 <title>🔒 Encrypted Dashboard</title>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  html, body {{ height: 100%; background: #12101f; color: #eaeaea;
+  html, body {{ height: 100%; background: {bg}; color: {text};
                font-family: 'Segoe UI', sans-serif; }}
   #gla-lock {{
     display: flex; flex-direction: column; align-items: center;
     justify-content: center; min-height: 100vh; padding: 24px;
   }}
   #gla-lock-box {{
-    background: #1a1729; border: 1px solid #a259f7;
+    background: {bg2}; border: 1px solid {accent};
     border-radius: 8px; padding: 32px 36px; width: 100%;
     max-width: 380px; text-align: center;
   }}
-  #gla-lock-box h1 {{ font-size: 15px; color: #a259f7;
+  #gla-lock-box h1 {{ font-size: 15px; color: {accent};
                       letter-spacing: 0.12em; margin-bottom: 6px; }}
-  #gla-lock-box p  {{ font-size: 12px; color: #a0a0b0; margin-bottom: 22px; }}
+  #gla-lock-box p  {{ font-size: 12px; color: {text2}; margin-bottom: 22px; }}
   #gla-pin {{
     width: 100%; padding: 10px 14px; font-size: 15px;
-    background: #12101f; color: #eaeaea; border: 1px solid #6e3fcf;
+    background: {bg}; color: {text}; border: 1px solid {accent2};
     border-radius: 4px; margin-bottom: 14px; text-align: center;
     letter-spacing: 0.08em;
   }}
-  #gla-pin:focus {{ outline: none; border-color: #a259f7; }}
+  #gla-pin:focus {{ outline: none; border-color: {accent}; }}
   #gla-unlock-btn {{
     width: 100%; padding: 10px; font-size: 14px; font-weight: 700;
-    background: #a259f7; color: #fff; border: none; border-radius: 4px;
+    background: {accent}; color: #fff; border: none; border-radius: 4px;
     cursor: pointer;
   }}
-  #gla-unlock-btn:hover {{ background: #6e3fcf; }}
+  #gla-unlock-btn:hover {{ background: {accent2}; }}
   #gla-error {{
-    display: none; margin-top: 12px; font-size: 12px; color: #e94560;
+    display: none; margin-top: 12px; font-size: 12px; color: {red};
   }}
   #gla-content {{ display: none; }}
 </style>
