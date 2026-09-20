@@ -470,13 +470,17 @@ The headless sync writes a log to garmin_data/log/daily.
 Connection fails
   -> Check email and password
   -> Log into Garmin Connect in a browser (MFA may be required)
-  -> Click "Reset Token" in Settings, then reconnect
+  -> Just try Sync Data / Connect again — a rejected or expired token
+     is detected and cleared automatically, prompting a fresh login
+     (with MFA if required). There is no separate "Reset Token" button
+     anymore.
 
 App asks for MFA code
   -> Enter the code from Garmin/email — it is saved afterwards
 
 After app update: Garmin rejects the saved token
-  -> Settings -> "Reset Token" -> log in again
+  -> Just reconnect / run Sync Data again — the app detects the
+     rejected token and prompts a fresh login automatically
   -> (Garmin server-side security measure for new binaries)
 
 Sync stops / no progress
@@ -496,6 +500,10 @@ Context data missing / no weather or pollen
      Open-Meteo API temporarily unavailable — retry later
   -> Context data is only loaded for days already in the archive
      (Garmin sync must run first)
+  -> Data was fetched at the wrong location for some days (e.g. wrong
+     Google Maps link, or a travel entry with the wrong dates)? Use
+     "Context-Check" (Settings -> Data Management) to find and repair
+     those days — see Section 12, "Buttons Reference".
 
 Stress / Body Battery missing from Excel or dashboard
   -> Run `regenerate_summaries.py` once to rebuild all summary files
@@ -719,6 +727,27 @@ Silo-Check
     automatically
     "N days missing, N no backup" — some days have no backup; a
     dialog lists them so you can re-fetch manually via Sync Data
+
+Context-Check
+  Same idea as Silo-Check, but for the context archive (weather,
+  pollen, Brightsky, air quality) under Settings -> Data Management.
+  Scans for missing days and for days whose stored location doesn't
+  plausibly match your configured coordinates (e.g. after a wrong
+  Google Maps link was used, or a travel entry in local_config.csv
+  had the wrong dates). Read-only until you act on it.
+  Results open in a dialog with collapsible sections. For a flagged
+  day, click "Fix" and either paste a Google Maps link for the
+  correct location or use the day's own suggested coordinates, then
+  confirm. This re-downloads that day's data at the corrected
+  location — it is a real re-fetch, not just a label correction,
+  since a flagged day's underlying values were fetched at the wrong
+  place to begin with.
+  Note: if you use the Chat tab (MCP / live-archive mode) or an
+  external MCP client, a just-repaired day may show no data for that
+  source until the MCP server's next sync — either its next restart,
+  or an LLM/MCP client explicitly calling its "refresh_cache" tool.
+  This is expected; it prevents the old, already-known-wrong value
+  from being served in the meantime.
 
 Documentation
   Opens a dialog with three entries: Quickstart (first-time setup),

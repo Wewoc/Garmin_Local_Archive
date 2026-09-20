@@ -454,6 +454,57 @@ def reset_context_source(source: str) -> None:
     conn.commit()
 
 
+def invalidate_context_day(day: str, sources: set[str]) -> None:
+    """Removes the given sources from complete_sources_json,
+    attempted_sources_json, AND payload_json for one day — finer-grained
+    sibling of reset_context_source() above (that one clears a source
+    across every day; this one clears every given source for one day,
+    v1.7.2.3 — used by mcp_update.py::sync_all() to consume
+    context_silo_repair.py's pending-resync marker, see
+    PROTOKOLL_experiment.md Baustein 5). No-op if the day has no row
+    yet — nothing to invalidate, _sync_context_days() queries a
+    never-seen day fresh regardless.
+
+    v1.7.2.3 correction (2026-09-20, Timo): payload_json deletion added
+    — the original version only cleared the two bookkeeping sets and
+    left payload_json's stale values in place. That was silently wrong:
+    get_context_range() (what query_context(), the actual LLM-facing MCP
+    tool, calls for every request today — _route_query() is hard-pinned
+    to "sqlite", the live branch is unreachable placeholder code) reads
+    payload_json directly and has no concept of complete_sources at all.
+    A query landing between this call and _sync_context_days()
+    successfully re-fetching the source moments later would have
+    silently returned the OLD, now-known-wrong value as if it were
+    current — exactly the "part A already New York, part B still
+    Herford" contradiction Timo flagged. Deleting the payload here means
+    that window returns "no data for this source" instead — an honest
+    gap, not a wrong answer presented as a real one. If the re-fetch
+    that follows in the same sync_all() pass fails, the source stays
+    correctly absent rather than reverting to stale data."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT payload_json, complete_sources_json, attempted_sources_json "
+        "FROM mcp_context_days WHERE date = ?",
+        (day,),
+    ).fetchone()
+    if row is None:
+        return
+    payload = json.loads(row["payload_json"])
+    for source in sources:
+        payload.pop(source, None)
+    complete = set(json.loads(row["complete_sources_json"])) - sources
+    attempted = set(json.loads(row["attempted_sources_json"])) - sources
+    conn.execute(
+        """
+        UPDATE mcp_context_days
+        SET payload_json = ?, complete_sources_json = ?, attempted_sources_json = ?
+        WHERE date = ?
+        """,
+        (json.dumps(payload), json.dumps(sorted(complete)), json.dumps(sorted(attempted)), day),
+    )
+    conn.commit()
+
+
 # Shared by get_health_range()/get_context_range() (v1.7.1.1, Ziel 1/2) —
 # same weekday-table construction as maps/mcp_map.py's private
 # _build_meta(), deliberately reimplemented here rather than imported

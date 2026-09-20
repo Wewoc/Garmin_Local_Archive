@@ -265,9 +265,10 @@ garmin_data/
 └── log/        – session logs, quality register, encrypted token
 
 context_data/
-├── weather/raw/    – daily weather archive (Open-Meteo)
-├── pollen/raw/     – daily pollen archive (Open-Meteo Air Quality)
-└── brightsky/raw/  – daily weather archive (Brightsky DWD)
+├── weather/summary/     – daily weather archive (Open-Meteo)
+├── pollen/summary|raw/  – daily / hourly pollen archive (Open-Meteo Air Quality)
+├── brightsky/summary|raw/    – daily / hourly weather archive (Brightsky DWD)
+└── airquality/summary|raw/   – daily / hourly air quality archive (Open-Meteo Air Quality)
 ```
 
 ---

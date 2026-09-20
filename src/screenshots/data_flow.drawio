@@ -374,19 +374,19 @@
           <mxGeometry height="162.55" width="130" x="1117.5" y="1896.1000000000001" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-122" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1D9E75;fontSize=10;fontStyle=1;verticalAlign=top;dashed=1;fontColor=#1D9E75;arcSize=16;" value="Garmin Core Processing" vertex="1">
-          <mxGeometry height="420" width="700" x="1017.5" y="1425.65" as="geometry" />
+          <mxGeometry height="405.65" width="700" x="1017.5" y="1440" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-123" edge="1" parent="1" source="R0hBJxIENf9GrV4WnLih-124" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="R0hBJxIENf9GrV4WnLih-138">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="1092.51" y="1660.03" />
-              <mxPoint x="1177.49" y="1660.03" />
-              <mxPoint x="1177.49" y="1643.69" />
+              <mxPoint x="1105" y="1660.03" />
+              <mxPoint x="1177.5" y="1660.03" />
+              <mxPoint x="1177.5" y="1643.7" />
             </Array>
           </mxGeometry>
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-124" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1D9E75;fontSize=9;dashed=1;" value="" vertex="1">
-          <mxGeometry height="190" width="130" x="1027.5" y="1455.65" as="geometry" />
+          <mxGeometry height="190" width="130" x="1040" y="1457.3000000000002" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-125" edge="1" parent="1" source="R0hBJxIENf9GrV4WnLih-126" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="R0hBJxIENf9GrV4WnLih-127">
           <mxGeometry relative="1" as="geometry">
@@ -491,19 +491,19 @@
           <mxGeometry height="36" width="130" x="1317.5" y="1340" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-147" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;fontSize=8;" value="_assess" vertex="1">
-          <mxGeometry height="28" width="100" x="1042.5" y="1470.65" as="geometry" />
+          <mxGeometry height="28" width="100" x="1055" y="1472.3000000000002" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-148" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;fontSize=8;" value="_io" vertex="1">
-          <mxGeometry height="28" width="100" x="1042.5" y="1503.65" as="geometry" />
+          <mxGeometry height="28" width="100" x="1055" y="1505.3000000000002" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-149" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;fontSize=8;" value="_maint" vertex="1">
-          <mxGeometry height="28" width="100" x="1042.5" y="1536.65" as="geometry" />
+          <mxGeometry height="28" width="100" x="1055" y="1538.3000000000002" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-150" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;fontSize=8;" value="_scan" vertex="1">
-          <mxGeometry height="28" width="100" x="1042.5" y="1569.65" as="geometry" />
+          <mxGeometry height="28" width="100" x="1055" y="1571.3000000000002" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-151" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;fontSize=8;" value="_stats" vertex="1">
-          <mxGeometry height="28" width="100" x="1042.5" y="1602.65" as="geometry" />
+          <mxGeometry height="28" width="100" x="1055" y="1604.3000000000002" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-152" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_source_writer" vertex="1">
           <mxGeometry height="36" width="160" x="1528.5" y="1687.3000000000002" as="geometry" />
@@ -533,7 +533,7 @@
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
               <mxPoint x="960" y="1774.8" />
-              <mxPoint x="960" y="1635.7" />
+              <mxPoint x="960" y="1642.83" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -579,7 +579,7 @@
           <mxGeometry height="34" width="130" x="1096.75" y="1335.67" as="geometry" />
         </mxCell>
         <mxCell id="4p0p6bTGjDQIT-Neh-ck-35" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1D9E75;fontSize=10;fontStyle=1;verticalAlign=top;dashed=1;fontColor=#1D9E75;arcSize=16;" value="Backup" vertex="1">
-          <mxGeometry height="165" width="170" x="1077.5" y="1216.67" as="geometry" />
+          <mxGeometry height="202.8" width="170" x="1078.25" y="1220.6" as="geometry" />
         </mxCell>
         <mxCell id="4p0p6bTGjDQIT-Neh-ck-36" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1D9E75;fontSize=10;fontStyle=1;verticalAlign=top;dashed=1;fontColor=#1D9E75;arcSize=16;" value="Mirror" vertex="1">
           <mxGeometry height="210.65" width="170" x="897.5" y="1216.67" as="geometry" />
@@ -622,6 +622,18 @@
         </mxCell>
         <mxCell id="lwlDz_VOJ3lYD4_B2PIu-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffff88;fontSize=10;fontStyle=1;arcSize=30;strokeColor=#36393d;" value="mcp_query_common" vertex="1">
           <mxGeometry height="32" width="120" x="1965" y="814" as="geometry" />
+        </mxCell>
+        <mxCell id="eA2E1GN42a-R3ANn5bya-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#D85A30;fontSize=9;dashed=1;arcSize=16;" value="" vertex="1">
+          <mxGeometry height="120" width="160" x="2078.25" y="1239.17" as="geometry" />
+        </mxCell>
+        <mxCell id="eA2E1GN42a-R3ANn5bya-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="context_silo_check" vertex="1">
+          <mxGeometry height="36" width="120" x="2098.25" y="1250.3400000000001" as="geometry" />
+        </mxCell>
+        <mxCell id="eA2E1GN42a-R3ANn5bya-3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=10;fontStyle=1;arcSize=30;" value="context_silo_repair" vertex="1">
+          <mxGeometry height="36" width="120" x="2098.25" y="1309.17" as="geometry" />
+        </mxCell>
+        <mxCell id="eA2E1GN42a-R3ANn5bya-4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;" value="garmin_silo_repair" vertex="1">
+          <mxGeometry height="34" width="130" x="1098.25" y="1381" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

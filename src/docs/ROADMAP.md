@@ -6,24 +6,33 @@
 
 ---
 
-**Currently stable — v1.7.2.2**
+**Currently stable — v1.7.2.3**
 
 ---
 
-### v1.7.2.3 — Context Archive Integrity Check (planned)
+### ~~v1.7.2.3 — Context Archive Integrity Check~~ ✓ released
 
-Settings/Data Collection gets an integrity-check function for the context archive,
-parallel in spirit to Force Refetch:
-- Scans for missing days in the archive (should not normally happen)
-- Validates coordinates per day, builds a day/coordinate list, plus place/country
-- Collapsible list UI, collapsed by default; days without coordinates listed first
-- A Force Refetch path that overwrites the flagged days
-- A targeted `mcp_update` push for only the fixed days, to bring the MCP-facing
-  SQL copy back in sync
+Data Collection gained a Context-Check function, parallel in spirit to
+Force Refetch:
+- Scans for missing days in the context archive (should not normally happen)
+- Validates coordinates per day via haversine distance against the day's
+  configured location (default 2 km tolerance)
+- Collapsible findings dialog, days without a plausible coordinate listed
+- A real re-fetch (`context_silo_repair.fix_coordinates()`) for flagged
+  days/sources, not a metadata-only coordinate patch — a flagged finding
+  means the underlying fetched values are wrong, not just their label
+- A pending-resync marker consumed automatically by the next MCP sync
+  (server startup or `refresh_cache()`), keeping the SQLite proxy
+  (`mcp_cache.db`) in sync with archive repairs without the GUI touching
+  the database directly
 
-Not started — needs its own module cross-check (likely touches `panel_archive.py`,
-`garmin_force_refetch.py`, `dialog_force_refetch.py`, and the MCP update chain)
-before a build order is set.
+Alongside this: GUI reorganization (Data Management moved from the
+Connection tab into Data Collection; Export/Import-to-Mirror and Reset
+Token removed) and removal of the now-dead `check_mirror()`. Verified
+against the real production archive, not only mocks — see
+`CHANGELOG.md` v1.7.2.3 for the two real bugs this live round-trip found
+and fixed. Full session log: `PROTOKOLL_experiment.md`, details per
+Baustein in `changelog/anchor_delivery_v1723-*.md`.
 
 ---
 
@@ -68,6 +77,44 @@ PyInstaller `--onedir` output (matches T3.1 as built), `UpdateManager` API
 for check/download/apply from inside the app. Cost: adds a .NET SDK
 dependency to the build machine only (for the `vpk` packaging CLI, not
 for end users) — new to an otherwise pure Python/PyInstaller build chain.
+
+---
+
+### v1.7.2.5 — Split up panel_outputs.py (planned)
+
+`app/panel_outputs.py` has grown to ~1400 lines and now bundles seven
+largely independent feature blocks behind one `_build_ui()` grid: Sync
+Garmin + Live Fetch, Force Refetch, Context-Check (v1.7.2.3), Context
+Sync, Import, Dashboard-build, and the Output helpers (including the
+~165-line `_create_task_scheduler_xml()` dialog alone). Same shape of
+problem the dashboard popups already had before `app/popups/` was split
+out (Codereview v1.7.0.1) — this extends that precedent to the rest of
+the file.
+
+**Proposed shape:** new `app/outputs/` package, parallel to
+`app/popups/`, one module per feature block (sync, force_refetch,
+context_check, context_sync, import, dashboards, output_helpers) — each
+holding the actual orchestration logic. `panel_outputs.py` keeps
+`_build_ui()` itself (the grid), the shared widget helpers
+(`_section_widget()`/`_action_btn()`/`_tip()`), and the three
+cross-panel accessor methods (`set_restore_button_state()` etc., called
+from `panel_archive.py`) — those stay because the widgets they touch
+belong to this panel (E-7: widget references stay with their owning
+panel). Everything else becomes a thin delegate call, same "button
+wiring needs zero changes" pattern the popups split already
+established.
+
+Naming note: `app/panels/` was the first name considered but rejected —
+collides with the existing `Panel*` class naming (`PanelOutputs`,
+`PanelArchive`, etc., which *are* the panels); `app/outputs/` avoids
+that clash and mirrors `app/popups/` directly.
+
+Not started — pure refactor, no behavior change, but touches ~1000
+lines across seven new files. Flagged during the v1.7.2.3 session as
+worth its own dedicated round rather than folding into other work,
+since a "no behavior change" refactor of this size is exactly where
+subtle mistakes (closures capturing `self` wrong, thread-dispatch
+wiring) tend to slip in if rushed.
 
 ---
 

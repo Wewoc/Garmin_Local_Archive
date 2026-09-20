@@ -21,6 +21,7 @@ SHARED_SCRIPTS = [
     "app/dialogs.py",
     "app/dialog_force_refetch.py",
     "app/dialog_chat_history.py",
+    "app/dialog_context_check.py",
     # app/popups/ — extracted panel_outputs.py popups (Codereview v1.7.0.1).
     # Listed after app/__init__.py above, so prepare_scripts_dir()'s
     # per-entry dst.parent.mkdir(exist_ok=True) (no parents=True) always
@@ -132,6 +133,8 @@ SHARED_SCRIPTS = [
     "context/pollen_plugin.py",
     "context/brightsky_plugin.py",
     "context/airquality_plugin.py",
+    "context/context_silo_check.py",   # v1.7.2.3 — Context Archive Integrity Check
+    "context/context_silo_repair.py",  # v1.7.2.3 — Context Archive Integrity Check
     # dashboards (specialists + runner)
     "dashboards/__init__.py",
     "dashboards/dash_runner.py",
@@ -184,13 +187,14 @@ SCRIPT_SIGNATURES_BASE = {
     "app/garmin_app_settings.py": ["def load_settings", "def save_settings", "def load_password", "def save_password"],
     "app/garmin_dashboard_presets.py": ["def load_presets", "def save_preset", "def delete_preset"],
     "dashboards/custom_dash_builder.py": ["def build_ad_hoc_specialist", "def list_available_fields"],
-    "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def check_mirror", "def timer_run_source_backfill", "def timer_run_steps_backfill"],
+    "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def timer_run_source_backfill", "def timer_run_steps_backfill"],
     "app/panel_settings.py":    ["class PanelSettings"],
     "app/panel_connection.py":  ["class PanelConnection"],
     "app/panel_archive.py":     ["class PanelArchive"],
     "app/panel_timer.py":       ["class PanelTimer"],
     "app/dialogs.py":           ["class PasswordConfirmDialog"],
     "app/dialog_chat_history.py": ["class ChatHistoryDialog"],
+    "app/dialog_context_check.py": ["class ContextCheckResultDialog", "class ContextCoordinateFixDialog"],
     "app/panel_outputs.py":     ["class PanelOutputs"],
     "app/popups/capability_scan.py": ["def open_popup"],
     "app/popups/dashboard_create.py": ["def open_popup"],
@@ -227,6 +231,8 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_force_refetch.py": ["def snapshot_source", "def restore_snapshot"],
     "garmin/garmin_silo_check.py":    ["def check_silos"],
     "garmin/garmin_silo_repair.py":   ["def repair_silos"],
+    "context/context_silo_check.py":  ["def check_context_archive"],
+    "context/context_silo_repair.py": ["def fix_coordinates"],
     "garmin/garmin_live_fetch.py":    ["def fetch_live"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
     "layouts/render/recovery_context.py": ["def render", "def _render_recovery_context"],

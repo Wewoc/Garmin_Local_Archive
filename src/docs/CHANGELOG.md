@@ -1,5 +1,122 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.2.3 — Context Archive Integrity Check & MCP Resync
+
+New Data Collection function: Context-Check scans the context archive for
+missing days and implausible coordinates (haversine distance vs. the
+day's configured location, default 2 km tolerance), shows the findings in
+a collapsible dialog, and repairs flagged days with a real re-fetch (not
+a label patch — a flagged day's underlying values are wrong, not just its
+coordinate tag) via a Google-Maps-link or per-finding coordinate. Ships
+together with the mechanism that keeps the MCP SQLite proxy
+(`mcp_cache.db`) in sync with these repairs: a repair marks a pending
+resync entry, consumed automatically by the next MCP sync (server
+startup, or `refresh_cache()`) — no direct write into `mcp_cache.db` from
+the GUI process, single-writer-process boundary unchanged. Verified
+against the real production archive, not only mocks — the live round-trip
+surfaced two real bugs (see below), both fixed and covered by regression
+tests. Alongside this: GUI reorganization (Data Management moved from the
+Connection tab into Data Collection, Export/Import-to-Mirror and Reset
+Token removed as redundant/unused), and removal of the now-dead
+`check_mirror()`.
+
+**New modules:**
+- `context/context_silo_check.py` — `check_context_archive(base_dir,
+  default_lat, default_lon, radius_km)`: missing-day scan + per-day
+  coordinate plausibility check (haversine distance), returns findings +
+  totals. Read-only, mirrors `garmin_silo_check.py`'s Leaf-Node precedent.
+- `context/context_silo_repair.py` — `fix_coordinates(base_dir, fixes)`:
+  real re-fetch + re-write per flagged day/source via
+  `context_api.fetch()` + `context_writer.write()` (not a metadata-only
+  patch), then marks each repaired `(date, source)` in a pending-resync
+  file for the MCP sync side to pick up.
+- `app/dialog_context_check.py` — `ContextCheckResultDialog` (findings,
+  collapsible sections) and `ContextCoordinateFixDialog` (Google-Maps-link
+  or per-finding coordinate entry, builds the fix list for
+  `fix_coordinates()`).
+
+**Changed modules:**
+- `app/panel_outputs.py` — new "Data Management" section (Restore Data,
+  Silo-Check + Repair, Force Refetch, moved in from `panel_connection.py`)
+  plus the new "Context-Check" row (`_on_context_check()`,
+  `_open_context_check_dialog()`, `_reset_after_coordinate_fix()`); a
+  write-exclusion guard (`self._app._ctx_running`) prevents the
+  coordinate-fix flow from running concurrently with a context sync,
+  matching the project's single-writer-per-process GUI convention.
+- `app/panel_connection.py` — Data Management section (Restore Data /
+  Silo-Check / Repair / Force Refetch) moved out to `panel_outputs.py`;
+  Export-to-Mirror, Import-from-Mirror, and Reset Token removed (redundant
+  with the existing Daily Actions Mirror popup, or unused); `_build_ui()`
+  now builds an otherwise-empty layout container.
+- `app/panel_archive.py` — all `set_restore_button_state()` /
+  `set_silo_check_button_state()` / `set_silo_repair_button_state()` call
+  sites repointed from `panel_connection` to `panel_outputs`.
+- `app/garmin_app_controller.py` — dead `check_mirror()` removed (no
+  callers since the Export/Import-Mirror removal above).
+- `garmin_app_base.py`, `app/panel_settings.py` — `_startup_mirror_check`
+  thread-start call sites removed along with the button it updated;
+  unused `threading` import dropped from `panel_settings.py`.
+- `garmin/garmin_config.py` — new `CONTEXT_RESYNC_PENDING_FILE` path
+  (`CONTEXT_DIR/_mcp_resync_pending.json`).
+- `maps/metadata_map.py` — new `get_context_resync_pending()`, registered
+  in `maps/gateway_map.py` under metadata kind `"context_resync_pending"`.
+- `clients/mcp_sql.py` — new `invalidate_context_day(day, sources)`:
+  clears the bookkeeping sets (`complete_sources_json`/
+  `attempted_sources_json`) **and** pops each invalidated source out of
+  `payload_json` itself — a query during the pending-resync window now
+  returns "no data" instead of a stale, already-known-wrong value.
+- `clients/mcp_update.py` — new `_apply_pending_context_resync()`, called
+  from `sync_all()` right after `init_db()`. Pending entries carry a
+  microsecond `marked_at` timestamp; re-marking the same `(date, source)`
+  replaces the existing pending entry instead of being skipped, and the
+  ack file (dedup against already-applied entries) compares the full
+  `(date, source, marked_at)` triple and is pruned against the current
+  pending set on every run — two back-to-back repairs of the same day are
+  now both applied instead of the second one being silently swallowed.
+- `context/context_collector.py` — new `_consume_context_resync_ack()`,
+  called at the start of `run()`, clears the pending-resync marker once
+  the file side has caught up.
+- `compiler/build_manifest.py` — `context_silo_check.py`/
+  `context_silo_repair.py`/`dialog_context_check.py` added to
+  `SHARED_SCRIPTS` + `SCRIPT_SIGNATURES_BASE`; `check_mirror` signature
+  entry removed.
+
+**Verification:** full mocked test suite plus a real round-trip against
+the production archive (`D:/Garmin_Data`) — a day's location was set to
+New York via the repair flow, checked, and reverted to Herford, with
+`sync_all()` run between each step. This surfaced two genuine bugs, not
+caught by mocks alone: (1) the pending-marker/ack dedup keyed only on
+`(date, source)`, so a second real repair of the same day was silently
+dropped — fixed with the `marked_at` triple described above; (2)
+`invalidate_context_day()` cleared bookkeeping only, leaving stale
+`payload_json` values queryable during the resync window — fixed as
+described above. Both fixes are covered by dedicated regression tests
+(`test_mcp.py` §11g, `test_local_context.py` §14i) that reproduce the
+exact failure sequence found live.
+
+**Known limitations, deliberately out of scope:** the two-strikes-then-
+accept-empty gap for genuinely *missing* (not overwritten) days is
+unaffected by this delivery — Timo confirmed missing days are already
+picked up by the regular sync path, no dedicated handling needed. The
+time window between a repair's pending marker and the next `sync_all()`
+pass is narrowed to "no stale data" but not eliminated — a query in that
+window returns no data for the affected source until the MCP server's
+next start (or a manual `refresh_cache()`) actually runs; closing that
+window immediately would require the GUI process to call into the
+already-running MCP server (a real inter-process call, e.g. via the
+`mcp` SDK's client side against the existing `refresh_cache()` tool) —
+confirmed as architecturally possible without touching the
+single-writer-process assumption, but not built, since regular resync
+timing (next MCP start) already covers Timo's stated need.
+
+**Test result:** full regression run — `test_local.py` 788/788,
+`test_local_context.py` 341/341, `test_dashboard.py` 472/472,
+`test_app_logic.py` 176/176, `test_broker.py` 141/141, `test_mcp.py`
+231/231, `pytest tests/test_qt_app.py` 175/175, `test_static.py`
+(ruff + bandit + regression guards) 16/16 — 2340 checks total, all
+green. Plus the real live-archive round-trip described above
+(`D:/Garmin_Data`, not a test fixture).
+
 ## v1.7.2.2 — Chat Panel Polish & Quick Fixes
 
 Small, independently shippable fixes and polish items from the chat panel

@@ -482,7 +482,7 @@ result = get_metadata("stats")
 
 result = get_metadata("quality_log", date_from="2026-08-01", date_to="2026-08-27")
 # result == {"data": {...filtered...}, "error": None}
-# (v1.7.0.4) date_from/date_to only affect five of the thirteen kinds —
+# (v1.7.0.4) date_from/date_to only affect five of the fourteen kinds —
 # see REFERENCE_MCP.md's mcp_map.py's get_archive_metadata() entry for
 # the full list and the 30-day default behaviour when neither is given.
 
@@ -522,6 +522,26 @@ result = get_metadata("quality_log", date_from="2026-08-01", date_to="2026-08-27
 # hash is None for a day whose raw/ file does not exist yet — not an
 # error, same "day genuinely not written yet" principle every other
 # metadata_map function already uses.
+
+# v1.7.2.3 — a fourteenth kind, "context_resync_pending", internal sync
+# use only, also never exposed via get_archive_metadata(). No arguments
+# beyond kind itself — date_from/date_to are not accepted (not one of
+# the five date-filterable kinds). Returns the full contents of
+# context/context_silo_repair.py's pending-resync marker file
+# (garmin_config.CONTEXT_RESYNC_PENDING_FILE), read via
+# metadata_map.get_context_resync_pending(). Missing file is not an
+# error — returns an empty list, same "nothing pending" meaning as any
+# other missing-marker-file read in this project.
+#
+# result = get_metadata("context_resync_pending")
+# result == {"data": [{"date": "2026-09-19", "source": "weather",
+#                       "marked_at": "2026-09-19T18:03:11.482193+00:00"}, ...],
+#            "error": None}
+#
+# Used exclusively by clients/mcp_update.py's
+# _apply_pending_context_resync() to invalidate stale SQLite-cache
+# entries for repaired context days — see REFERENCE_CONTEXT.md/
+# REFERENCE_MCP.md for the full mechanism.
 ```
 
 `fit_map.py` (v1.8) is planned as a peer to `health_map.py` and

@@ -55,6 +55,8 @@ below for the exact naming and JSON shape of each.
 | `brightsky_map.py` | Resolves generic field names to Brightsky archive files | Write files, call APIs |
 | `airquality_map.py` | Resolves generic field names to air quality archive files | Write files, call APIs |
 | `_context_io.py` (v1.7.1.11) | Shared read helpers for the four `*_map.py` modules above — `read_summary_field()` (daily), `read_raw_field()` (hourly, timestamped) | Write files, call APIs, know about any specific source |
+| `context_silo_check.py` (v1.7.2.3) | Read-only integrity scan — missing days, coordinate plausibility per day | Write files, call APIs |
+| `context_silo_repair.py` (v1.7.2.3) | Real re-fetch + re-write for flagged days/sources, via `context_api`/`context_writer` | Patch metadata only, write outside `context_writer.write()` |
 
 ---
 
@@ -116,6 +118,7 @@ unaffected — they receive one value per calendar day directly from the API.
 | `_build_location_map(date_from, date_to, csv_entries, default_lat, default_lon)` | Builds `{date_str: (lat, lon)}` for every date — CSV priority, GUI fallback |
 | `_split_into_segments(location_map)` | Splits location map into contiguous segments with identical coordinates |
 | `_resolve_date_range()` | Reads `date_min` and `max(last_api, last_bulk, date_max)` from `quality_log` |
+| `_consume_context_resync_ack(base)` (v1.7.2.3) | Called at the start of `run()`. Compares the MCP-side resync ack file against the pending-resync marker (`CONTEXT_RESYNC_PENDING_FILE`) by `(date, source, marked_at)` triple; clears the marker once every entry is acked. No-op if no marker exists |
 
 **Return structure of `run()`:**
 ```python
@@ -161,6 +164,36 @@ unaffected — they receive one value per calendar day directly from the API.
 | `write_file(dest_path, data)` | Writes a pre-built context dict atomically to `dest_path`. Used by `garmin_import_mirror`. Returns `bool` |
 
 **Sole write authority for `context_data/`.** No other module writes there.
+`context_silo_repair.py` (below) does not write files itself — every
+write goes through `context_writer.write()`/`write_file()`, same as any
+other caller.
+
+---
+
+## `context_silo_check.py` (v1.7.2.3)
+
+Read-only. No writes, no API calls.
+
+| Function | Purpose |
+|---|---|
+| `check_context_archive(base_dir, default_lat=0.0, default_lon=0.0, radius_km=COORDINATE_DRIFT_RADIUS_KM)` | Scans the archive for missing days (per plugin, against the quality-log date range) and coordinate plausibility (per day, per source, haversine distance against the day's configured location from `local_config.csv`/GUI fallback). Returns `{"missing_days": ..., "bad_coordinates": ..., "day_location": ..., "totals": ..., "checked_at": ...}` |
+
+`COORDINATE_DRIFT_RADIUS_KM = 2.0` — default tolerance radius. A day's
+stored coordinate outside this radius from its configured location is
+flagged as `bad_coordinates`; this means the underlying fetched *values*
+are wrong for that location, not just the coordinate label (see
+`context_silo_repair.py` below for why the fix is a real re-fetch).
+
+---
+
+## `context_silo_repair.py` (v1.7.2.3)
+
+| Function | Purpose |
+|---|---|
+| `fix_coordinates(base_dir, fixes)` | `fixes`: `list[{"date", "source", "lat", "lon"}]`. For each entry: real re-fetch via `context_api.fetch()` + re-write via `context_writer.write()` at the corrected coordinate (not a label patch — a flagged finding means the archived values themselves are wrong), then marks the `(date, source)` pair pending for MCP resync. Returns `{"ok": int, "failed": int, "items": [...]}` |
+| `_mark_pending_resync(base, entries)` | Writes/merges `context_data/_mcp_resync_pending.json` (`cfg.CONTEXT_RESYNC_PENDING_FILE`) via `context_writer.write_file()`. Keyed by `(date, source)`; re-marking the same pair **replaces** the existing entry (fresh microsecond `marked_at` timestamp) rather than being skipped — two repairs of the same day in quick succession must both survive |
+
+**Requires `sys.path.insert(0, .../garmin)` before `import garmin_config as cfg`** — this module has no plugin import to add that path as a side effect (unlike `context_collector.py`), so it sets it up explicitly itself.
 
 ---
 

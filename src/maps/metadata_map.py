@@ -402,6 +402,33 @@ def get_token_log() -> dict:
         return {"data": None, "error": str(exc)}
 
 
+def get_context_resync_pending() -> dict:
+    """
+    Pending context_data/ resync markers written by
+    context/context_silo_repair.py after a coordinate correction —
+    internal sync bookkeeping (v1.7.2.3), NOT registered as an MCP tool
+    in clients/mcp_server.py, same "filename-only introspection" category
+    as list_daily_log_filenames() etc. below. Used exclusively by
+    clients/mcp_update.py::sync_all() to force-resync specific
+    (date, source) pairs whose file was overwritten after
+    mcp_context_days had already cached them — context_data/ has no
+    content-hash check for context days (unlike raw fields), so it would
+    not otherwise notice such an overwrite. See
+    context/context_silo_repair.py's module docstring for the full
+    rationale.
+
+    A missing file is the normal case (no coordinate repair has ever
+    run) — treated as an empty pending list, not an error.
+    """
+    if not cfg.CONTEXT_RESYNC_PENDING_FILE.exists():
+        return {"data": [], "error": None}
+    try:
+        full = _read_json_file(cfg.CONTEXT_RESYNC_PENDING_FILE)
+        return {"data": full.get("pending", []), "error": None}
+    except Exception as exc:
+        return {"data": None, "error": str(exc)}
+
+
 def get_capability_config() -> dict:
     """Raw content of garmin_api_capability_config.json."""
     try:

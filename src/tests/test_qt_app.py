@@ -272,33 +272,6 @@ class TestPanelConnection:
         panel._set_indicator("api", "reset")
         assert app_mock.TEXT2 in app_mock._panel_home._conn_indicators["api"].styleSheet()
 
-    def test_mirror_button_disabled_by_default(self, qtbot, app_mock):
-        from app.panel_connection import PanelConnection
-        panel = PanelConnection(app_mock)
-        qtbot.addWidget(panel)
-        assert not panel._mirror_btn.isEnabled()
-
-    def test_restore_button_disabled_by_default(self, qtbot, app_mock):
-        from app.panel_connection import PanelConnection
-        panel = PanelConnection(app_mock)
-        qtbot.addWidget(panel)
-        assert not panel._restore_btn.isEnabled()
-
-    def test_set_mirror_button_state_enable(self, qtbot, app_mock):
-        from app.panel_connection import PanelConnection
-        panel = PanelConnection(app_mock)
-        qtbot.addWidget(panel)
-        panel.set_mirror_button_state(True, text="🔁  Mirroring...")
-        assert panel._mirror_btn.isEnabled()
-        assert panel._mirror_btn.text() == "🔁  Mirroring..."
-
-    def test_set_restore_button_state_enable(self, qtbot, app_mock):
-        from app.panel_connection import PanelConnection
-        panel = PanelConnection(app_mock)
-        qtbot.addWidget(panel)
-        panel.set_restore_button_state(True, text="Restore Data")
-        assert panel._restore_btn.isEnabled()
-
     def test_prompt_signal_defined_at_class_level(self, qtbot, app_mock):
         from app.panel_connection import PanelConnection
         assert hasattr(PanelConnection, "_prompt_requested")
@@ -821,6 +794,19 @@ class TestPanelOutputs:
         qtbot.addWidget(panel)
         assert panel is not None
 
+    def test_restore_button_disabled_by_default(self, qtbot, app_mock):
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        assert not panel._restore_btn.isEnabled()
+
+    def test_set_restore_button_state_enable(self, qtbot, app_mock):
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        panel.set_restore_button_state(True, text="Restore Data")
+        assert panel._restore_btn.isEnabled()
+
     def test_ctx_btn_enabled_by_default(self, qtbot, app_mock):
         from app.panel_outputs import PanelOutputs
         panel = PanelOutputs(app_mock)
@@ -870,6 +856,158 @@ class TestPanelOutputs:
         qtbot.addWidget(panel)
         panel._copy_last_error_log()
         app_mock._log.assert_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ContextCheckResultDialog / ContextCoordinateFixDialog (v1.7.2.3)
+# ══════════════════════════════════════════════════════════════════════════════
+# Same "call internal methods directly, never .exec()" pattern as
+# TestPasswordConfirmDialog above — no automated way to drive a real
+# modal event loop in this environment.
+
+class TestDialogContextCheck:
+
+    @pytest.fixture
+    def app_mock(self):
+        from unittest.mock import MagicMock
+        app = MagicMock()
+        app.BG     = "#12101f"
+        app.BG3    = "#231f38"
+        app.TEXT   = "#eaeaea"
+        app.TEXT2  = "#a0a0b0"
+        app.ACCENT = "#a259f7"
+        return app
+
+    def _fake_parent(self, qtbot, app_mock):
+        from PyQt6.QtWidgets import QWidget
+        parent = QWidget()
+        parent._app = app_mock
+        qtbot.addWidget(parent)
+        return parent
+
+    def _make_result(self, bad_coordinates=None, missing=None, day_location=None):
+        return {
+            "totals": {"days_in_range": 10, "weather": 10, "pollen": 10,
+                       "brightsky": 10, "airquality": 10},
+            "missing_days": missing or {"weather": [], "pollen": [],
+                                         "brightsky": [], "airquality": []},
+            "bad_coordinates": bad_coordinates or [],
+            "day_location": day_location or [],
+            "checked_at": "2026-09-20T10:00:00Z",
+        }
+
+    def _findings(self):
+        return [
+            {"date": "2026-01-05", "source": "weather", "reason": "drift",
+             "stored": (52.10, 8.40), "expected": (52.1235, 8.6539), "distance_km": 17.3},
+            {"date": "2026-01-06", "source": "pollen", "reason": "zero",
+             "stored": (0.0, 0.0), "expected": (52.1235, 8.6539), "distance_km": None},
+        ]
+
+    # ── ContextCheckResultDialog ────────────────────────────────────────────────
+
+    def test_result_dialog_fix_button_disabled_when_no_bad_coordinates(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCheckResultDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCheckResultDialog(parent=parent, result=self._make_result(bad_coordinates=[]))
+        qtbot.addWidget(dlg)
+        assert not dlg._fix_btn.isEnabled()
+
+    def test_result_dialog_fix_button_enabled_with_bad_coordinates(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCheckResultDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCheckResultDialog(
+            parent=parent, result=self._make_result(bad_coordinates=self._findings()))
+        qtbot.addWidget(dlg)
+        assert dlg._fix_btn.isEnabled()
+        assert "2" in dlg._fix_btn.text()
+
+    def test_result_dialog_handles_missing_days_present(self, qtbot, app_mock):
+        """Missing-days section (informational, no button) renders without crashing."""
+        from app.dialog_context_check import ContextCheckResultDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        result = self._make_result(
+            missing={"weather": [], "pollen": ["2026-01-01"],
+                     "brightsky": [], "airquality": []})
+        dlg = ContextCheckResultDialog(parent=parent, result=result)
+        qtbot.addWidget(dlg)
+        assert dlg is not None
+
+    def test_result_dialog_handles_all_clean_result(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCheckResultDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCheckResultDialog(parent=parent, result=self._make_result())
+        qtbot.addWidget(dlg)
+        assert not dlg._fix_btn.isEnabled()
+
+    # ── ContextCoordinateFixDialog ──────────────────────────────────────────────
+
+    def test_fix_dialog_checkboxes_pre_checked(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCoordinateFixDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCoordinateFixDialog(parent=parent, findings=self._findings())
+        qtbot.addWidget(dlg)
+        assert len(dlg._checkboxes) == 2
+        assert all(cb.isChecked() for cb, _ in dlg._checkboxes)
+
+    def test_fix_dialog_get_fixes_default_uses_expected_coordinate(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCoordinateFixDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCoordinateFixDialog(parent=parent, findings=self._findings())
+        qtbot.addWidget(dlg)
+        assert dlg.get_fixes() == [
+            {"date": "2026-01-05", "source": "weather", "lat": 52.1235, "lon": 8.6539},
+            {"date": "2026-01-06", "source": "pollen", "lat": 52.1235, "lon": 8.6539},
+        ]
+
+    def test_fix_dialog_get_fixes_respects_unchecked(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCoordinateFixDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCoordinateFixDialog(parent=parent, findings=self._findings())
+        qtbot.addWidget(dlg)
+        dlg._checkboxes[0][0].setChecked(False)
+        fixes = dlg.get_fixes()
+        assert len(fixes) == 1
+        assert fixes[0]["date"] == "2026-01-06"
+
+    def test_fix_dialog_maps_link_overrides_all_checked(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCoordinateFixDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCoordinateFixDialog(parent=parent, findings=self._findings())
+        qtbot.addWidget(dlg)
+        dlg._maps_url.setText("https://www.google.com/maps/@52.5000,13.4000,15z")
+        dlg._on_apply_link()
+        fixes = dlg.get_fixes()
+        assert all(f["lat"] == 52.5 and f["lon"] == 13.4 for f in fixes)
+
+    def test_fix_dialog_invalid_link_falls_back_to_expected(self, qtbot, app_mock):
+        """A URL with no @lat,lon pattern must not silently poison every fix
+        with garbage coordinates — falls back to each finding's own expected value."""
+        from app.dialog_context_check import ContextCoordinateFixDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCoordinateFixDialog(parent=parent, findings=self._findings())
+        qtbot.addWidget(dlg)
+        dlg._maps_url.setText("https://www.google.com/maps/not-a-real-link")
+        dlg._on_apply_link()
+        assert dlg._link_lat is None
+        fixes = dlg.get_fixes()
+        assert fixes[0]["lat"] == 52.1235
+
+    def test_fix_dialog_empty_link_field_does_not_set_link_coords(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCoordinateFixDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCoordinateFixDialog(parent=parent, findings=self._findings())
+        qtbot.addWidget(dlg)
+        dlg._on_apply_link()  # clicked with an empty field
+        assert dlg._link_lat is None
+        assert dlg.get_fixes()[0]["lat"] == 52.1235
+
+    def test_fix_dialog_no_findings_builds_without_crashing(self, qtbot, app_mock):
+        from app.dialog_context_check import ContextCoordinateFixDialog
+        parent = self._fake_parent(qtbot, app_mock)
+        dlg = ContextCoordinateFixDialog(parent=parent, findings=[])
+        qtbot.addWidget(dlg)
+        assert dlg.get_fixes() == []
 
 
 # ══════════════════════════════════════════════════════════════════════════════
