@@ -165,9 +165,6 @@ class GarminApp(QMainWindow):
         threading.Thread(
             target=self._panel_archive._startup_integrity_check,
             daemon=True).start()
-        threading.Thread(
-            target=self._panel_archive._startup_mirror_check,
-            daemon=True).start()
 
     def _ensure_mobile_landing(self):
         """Write index.html into dashboards/ if not yet present. Main Thread."""

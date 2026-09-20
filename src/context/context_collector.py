@@ -21,6 +21,7 @@ Plugin registry: add new plugins by importing and adding to _PLUGINS list.
 """
 
 import csv
+import json
 import logging
 import shutil
 import sys
@@ -202,6 +203,62 @@ def _resolve_date_range(base_dir: str = None) -> tuple[str, str] | tuple[None, N
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  MCP resync-marker cleanup (v1.7.2.3 — see PROTOKOLL_experiment.md,
+#  Baustein 5, for the full cross-module design/reasoning trail)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _consume_context_resync_ack(base: Path) -> None:
+    """
+    Reads clients/mcp_update.py's context-resync ack record — a file it
+    owns under garmin_data/log/mcp/, never context_data/ — and removes
+    the acknowledged entries from context_silo_repair.py's pending-resync
+    marker via context_writer.write_file(). context_writer remains sole
+    write authority for context_data/; this function only ever READS the
+    foreign ack file, it never writes there, so no write-authority
+    conflict either direction.
+
+    Idempotent: a second read of the same ack content removes nothing
+    further, since the matching pending entries are already gone. Runs
+    unconditionally at the start of every Sync Context call — both files
+    are typically tiny (a handful of repaired days at most), so the
+    extra read is negligible; a missing ack or pending file is the
+    normal case (no coordinate repair has run yet) and is a silent no-op.
+
+    v1.7.2.3 correction (2026-09-20): matching uses the full
+    (date, source, marked_at) triple, not just (date, source) — see
+    context_silo_repair.py's _mark_pending_resync() docstring for why
+    marked_at exists. Matching on (date, source) alone would remove a
+    pending entry that was re-marked (a second real repair) AFTER
+    mcp_update.py acked an earlier occurrence of the same (date,
+    source), discarding a not-yet-synced correction.
+    """
+    ack_path     = base / "garmin_data" / "log" / "mcp" / "context_resync_ack.json"
+    pending_path = base / "context_data" / "_mcp_resync_pending.json"
+    if not ack_path.exists() or not pending_path.exists():
+        return
+    try:
+        acked = json.loads(ack_path.read_text(encoding="utf-8")).get("acked", [])
+    except (OSError, json.JSONDecodeError):
+        return
+    if not acked:
+        return
+    acked_keys = {(e.get("date"), e.get("source"), e.get("marked_at")) for e in acked}
+    try:
+        pending = json.loads(pending_path.read_text(encoding="utf-8")).get("pending", [])
+    except (OSError, json.JSONDecodeError):
+        return
+    remaining = [e for e in pending
+                 if (e.get("date"), e.get("source"), e.get("marked_at")) not in acked_keys]
+    if len(remaining) == len(pending):
+        return  # nothing acknowledged yet was actually pending — no-op
+    context_writer.write_file(pending_path, {"pending": remaining})
+    log.info(
+        f"  context_collector: cleared {len(pending) - len(remaining)} "
+        f"acknowledged context-resync marker(s)"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Public interface
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -253,6 +310,8 @@ def run(settings: dict = None, stop_event=None,
                 _source_root = _plugin.OUTPUT_DIR.parent
                 if _source_root.exists():
                     shutil.rmtree(_source_root, ignore_errors=True)
+
+        _consume_context_resync_ack(base)
     _ensure_csv()
 
     # Default location from GUI settings

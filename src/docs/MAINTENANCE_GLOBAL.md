@@ -101,10 +101,13 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/garmin_app_controller.py` | Application logic — ENV construction, archive stats, connection checks, timer calculations. No GUI. |
 | `app/panel_home.py` | Fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer / Documentation). Home tab: Dashboard viewer. (v1.6.0+) |
 | `app/panel_settings.py` | Settings panel — credentials, paths, sync config, context location. |
-| `app/panel_connection.py` | Connection panel — connection test, data management (Export to Mirror / Import from Mirror / Restore / Silo-Check / Repair / Reset Token), dialogs. Indicators delegated to panel_home. |
+| `app/panel_connection.py` | Connection panel — connection test, dialogs only (v1.7.2.3 — Data Management moved to `panel_outputs.py`, Export/Import-to-Mirror + Reset Token removed as redundant/unused). Indicators delegated to panel_home. |
 | `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
 | `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
-| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons. Four popups now one-line delegates into `app/popups/` (v1.7.2.1 — Codereview & Cleanup), see next row. |
+| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons, Data Management (Restore/Silo-Check/Repair/Force Refetch, moved in from `panel_connection.py`, v1.7.2.3) + Context-Check (v1.7.2.3). Four popups now one-line delegates into `app/popups/` (v1.7.2.1 — Codereview & Cleanup), see next row. |
+| `app/dialog_context_check.py` | Context-Check findings dialog + coordinate-fix dialog (v1.7.2.3) — opened from `panel_outputs.py`. |
+| `context/context_silo_check.py` | Read-only context archive integrity scan — missing days, coordinate plausibility (v1.7.2.3). |
+| `context/context_silo_repair.py` | Real re-fetch + re-write for flagged context days/sources, via `context_api`/`context_writer` (v1.7.2.3). |
 | `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`, `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py`, `app/popups/_dashboard_build.py` | Dashboard/config popups extracted from `panel_outputs.py` (v1.7.2.1), one file per popup plus the shared `_dashboard_build.py` build/encrypt engine (`run_dashboards()`/`run_encrypted()`). See `REFERENCE_GLOBAL.md`'s Module reference table. |
 | `app/panel_chat.py` | Chat panel (v1.6.6, renamed from "Ollama-Chat" v1.7.2) — Ollama or Cloud (Anthropic/OpenAI) backend, plain chat or MCP tool-calling source, streaming, chat session history. See `REFERENCE_GLOBAL.md`'s Module reference table for the full v1.7.2 architecture. |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — `chat()`/`chat_stream()` (plain) + `chat_with_tools()` (no streaming counterpart — Ollama's own streaming+tool-calling support is unreliable upstream, v1.7.2). Used by `app/panel_chat.py`. (v1.6.6) |
@@ -125,7 +128,7 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `clients/mcp_health.py`, `clients/mcp_context.py` | `query_health()`/`query_context()` and their routing/alias/fuzzy-match/bundle-resolution logic (v1.7.2.1, split out of `mcp_server.py`) — each calls `maps/mcp_map.py` directly on its own live branch. See `REFERENCE_MCP.md`'s `(v1.7.2.1)` entry for the full split rationale. |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
 | `clients/mcp_sql.py` | SQLite aggregation-cache access layer for the MCP server (v1.7.1) — a local, always-reconstructible cache that speeds up date-range queries over the archive. Pure consumer, never a source: `garmin_backup.py`/`garmin_mirror.py` never touch it, and a lost cache file just triggers a rebuild on the next sync. |
-| `clients/mcp_update.py` | Delta-sync logic for the SQLite cache above (v1.7.1) — runs automatically at server startup and on demand via the `refresh_cache()` MCP tool, so an LLM can ask for fresher data without restarting the server. |
+| `clients/mcp_update.py` | Delta-sync logic for the SQLite cache above (v1.7.1) — runs automatically at server startup and on demand via the `refresh_cache()` MCP tool, so an LLM can ask for fresher data without restarting the server. **(v1.7.2.3)** Also consumes the context-archive pending-resync marker (`context_silo_repair.py`) on every sync, invalidating (`mcp_sql.invalidate_context_day()`) and acking each repaired day/source — see `REFERENCE_MCP.md`/`REFERENCE_CONTEXT.md`. |
 | `app/dialogs.py` | Shared GUI dialog classes (e.g. `PasswordConfirmDialog`) used by `panel_archive.py`/`panel_outputs.py`. No project-module imports beyond PyQt6, no business logic. |
 | `app/dialog_force_refetch.py` | Force-Refetch calendar dialog — lets the user pick one or more days for a deliberate Force-Refetch. Two-widget split: a reusable `DateToggleCalendar` (quality background + selection highlight, deliberately non-red to stay distinguishable from the "failed" quality color) carries no Force-Refetch-specific logic itself. (v1.7.1.7) |
 | `app/garmin_dashboard_presets.py` | Sole owner of the Custom Dashboard preset file — stores named field selections for the Custom Dashboard Builder. Same persistence pattern as `garmin_app_settings.py`, separate file, separate ownership. No GUI, no pipeline imports — importable headless. (v1.6.4) |
@@ -450,7 +453,7 @@ python tests/test_local_context.py
 
 No network — Open-Meteo API is mocked. Cleans up after itself. Check and section totals are tracked in `docs/METRICS.md` (`test_local_context.py`) — not restated here to avoid drift.
 
-Run after any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `weather_map`, `pollen_map`, `context_map`.
+Run after any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `weather_map`, `pollen_map`, `context_map`, `context_silo_check`, `context_silo_repair` (v1.7.2.3).
 
 ### `tests/test_dashboard.py` — Dashboard pipeline
 
@@ -470,7 +473,7 @@ Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gate
 python tests/test_broker.py
 ```
 
-No network, no GUI, no API calls. Routing-contract checks for `health_map` and `gateway_map` — moved out of `test_dashboard.py` (v1.6.9.2), where they sat mixed in with Dashboard-specific specialist/plotter tests. `context_map`'s own fan-out routing (multi-source `get()`, KeyError-skip, per-source exception degrade, `list_fields()`/`list_sources()`) gained dedicated coverage in Section 1b — closes the gap noted above. Check and section totals are tracked in `docs/METRICS.md` (`tests/test_broker.py`) — not restated here to avoid drift.
+No network, no GUI, no API calls. Routing-contract checks for `health_map` and `gateway_map` — moved out of `test_dashboard.py` (v1.6.9.2), where they sat mixed in with Dashboard-specific specialist/plotter tests. `context_map`'s own fan-out routing (multi-source `get()`, KeyError-skip, per-source exception degrade, `list_fields()`/`list_sources()`) gained dedicated coverage in Section 1b — closes the gap noted above. `gateway_map`'s `_expected_kinds`/metadata-kind envelope loop covers the new `"context_resync_pending"` kind (v1.7.2.3, `maps/metadata_map.get_context_resync_pending()`) alongside the pre-existing ones. Check and section totals are tracked in `docs/METRICS.md` (`tests/test_broker.py`) — not restated here to avoid drift.
 
 Run after any change to: `health_map`, `context_map`, `gateway_map`, `garmin_health_map` (routing target), `weather_map`/`pollen_map`/`brightsky_map`/`airquality_map` (context_map's own routing targets).
 
@@ -496,6 +499,18 @@ section's own comment for why a real-SQLite test of `mcp_sql.py`'s new
 field-registry functions is still an open gap). Check and section
 totals are tracked in `docs/METRICS.md` (`test_mcp.py`) — not restated
 here to avoid drift.
+
+**Section 10/11 added (v1.7.2.3)** — the context-archive resync
+mechanism. Section 10 is a real-SQLite test (not mocked, unlike most of
+this file) of `mcp_sql.invalidate_context_day()`: bookkeeping-set
+clearing plus the newer `payload_json` deletion, single- and
+multi-source calls, non-invalidated sources left untouched. Section 11
+mocks `mcp_update._apply_pending_context_resync()`'s ack/pending
+comparison; **11g** is a regression guard reproducing the exact bug a
+real live-archive round-trip found — two repairs of the same
+`(date, source)` before the first was synced must both be applied, not
+have the second silently deduplicated away (fixed via the `marked_at`
+triple, see `REFERENCE_MCP.md`/`CHANGELOG.md` v1.7.2.3).
 
 Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
 `gateway_map` (routing targets), `clients/mcp_sql.py`,
@@ -905,6 +920,7 @@ Classes:
 - `TestPanelChat` (13, v1.6.7 Teil B) — instantiation, disabled-before-start state, send no-op on empty input / while request running, `_chat_on_reply`/`_chat_on_error` state reset + history handling (trailing-user pop, no-pop, empty-history no-crash), age-display file-missing + corrupt-JSON no-crash, `_chat_on_new_chat` with/without system prompt, `_chat_on_model_changed` gated by combo enabled-state. Smoke-level only — no test starts a real `threading.Thread`; worker-callback methods are called directly instead, since a real thread would hit the live Ollama HTTP client. Full worker-thread-flow testing deliberately out of scope (see `NOTES_v167_B_01.md`).
 - `TestPanelMcp` (17, v1.7 Teilbauauftrag d) — instantiation, default/switched backend-box visibility (`isVisibleTo(panel)`, not `isVisible()` — the latter depends on the whole parent chain up to a shown top-level window, which these tests never create), `get_mcp_settings()`/`load_mcp_settings()` round-trip incl. missing-key defaults (v1.7.0.1 removed the Ollama-model dropdown and its three dedicated tests outright — `get_mcp_settings()`/`load_mcp_settings()` now cover `mcp_http_port`/`mcp_headless` instead of the old `mcp_ollama_model`, and the earlier `mcp_enabled` field is likewise gone), three cloud-config-file tests (write, empty-key-keeps-existing, missing-required-field warns without writing) — all via `tmp_path` + `unittest.mock.patch("garmin_config.MCP_LLM_CONFIG_FILE", ...)`, never touching the real `~/.garmin_mcp_llm_config.json`. v1.7.0.2 added four more — checkbox enables/dims the "Extra allowed hosts" field, live preview reflects the parsed host list, preview shows the disabled message when unchecked, `get_mcp_settings()` includes both new keys — plus extended the existing settings-dict-equality tests with the same two keys. `_mcp_save_server_config()` (v1.7 Teilbauauftrag f, mirrors into `MCP_SERVER_CONFIG_FILE`) and `_mcp_start_server()`/`_resolve_mcp_server_launch_command()`/`_mcp_server_is_running()` (v1.7 Teilbauauftrag g, the Start button's launch/liveness logic) not yet covered by dedicated tests — flagged for a follow-up session; verified manually via real T1/T2/T3.3 builds instead (see NOTES_v1.7_teilg.md).
 - `TestGarminAppBase` (4) — app instantiation, all panels created, log widget write, timer fields in collect_settings
+- `TestDialogContextCheck` (11, v1.7.2.3) — `ContextCheckResultDialog`/`ContextCoordinateFixDialog`: Fix button disabled/enabled by `bad_coordinates` presence, `get_fixes()` with a parsed Maps link vs. per-finding "expected" coordinates. Same "call internal methods directly, never `.exec()`" pattern as `TestPasswordConfirmDialog` — no automated way to drive a real modal event loop in this environment.
 
 Run after any change to: `app/panel_*.py`, `garmin_app_base.py` (Qt version). Built panel-by-panel alongside the v1.5.4 migration. No network, no GUI, no build required.
 

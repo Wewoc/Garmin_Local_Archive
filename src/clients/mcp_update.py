@@ -86,6 +86,7 @@ Entstehungsgeschichte: siehe CHANGELOG.md v1.7.1.
 """
 
 import datetime
+import json
 import logging
 import socket
 import threading
@@ -168,6 +169,126 @@ def _start_update_log(base_dir: Path, timestamp: str) -> logging.FileHandler | N
             pass
 
     return handler
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Context-resync marker consumption (v1.7.2.3 — see PROTOKOLL_experiment.md,
+#  Baustein 5, for the full cross-module design/reasoning trail)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_CONTEXT_RESYNC_ACK_FILENAME = "context_resync_ack.json"
+
+
+def _context_resync_ack_path(base_dir: Path) -> Path:
+    return base_dir / "garmin_data" / "log" / "mcp" / _CONTEXT_RESYNC_ACK_FILENAME
+
+
+def _resync_key(entry: dict) -> tuple[str, str, str]:
+    """(date, source, marked_at) — see context_silo_repair.py's
+    _mark_pending_resync() docstring for why marked_at is part of the
+    identity (v1.7.2.3 correction, 2026-09-20): two real repairs of the
+    same (date, source) must be distinguishable, not collapse into one
+    "already acked" entry."""
+    return (entry.get("date"), entry.get("source"), entry.get("marked_at"))
+
+
+def _read_context_resync_ack(base_dir: Path) -> set[tuple[str, str, str]]:
+    """This module's own record of which pending-resync markers
+    (identified by the full (date, source, marked_at) triple — see
+    _resync_key()) it has already invalidated — own territory under
+    garmin_data/log/mcp/, same as this module's rolling update logs,
+    never context_data/ itself. Not per-run: sync_all() runs at *every*
+    MCP server boot, so without a persistent record the same
+    already-handled markers would be re-invalidated and re-queried on
+    every single restart (Timo, v1.7.2.3). Pruned against the current
+    pending set by _apply_pending_context_resync() on every call — see
+    that function's docstring for why an unbounded/permanent record is
+    wrong here."""
+    path = _context_resync_ack_path(base_dir)
+    if not path.exists():
+        return set()
+    try:
+        acked = json.loads(path.read_text(encoding="utf-8")).get("acked", [])
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {_resync_key(e) for e in acked}
+
+
+def _write_context_resync_ack(base_dir: Path, acked: set[tuple[str, str, str]]) -> None:
+    path = _context_resync_ack_path(base_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    payload = {"acked": [{"date": d, "source": s, "marked_at": m}
+                          for d, s, m in sorted(acked)]}
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _apply_pending_context_resync(base_dir: Path) -> list[dict]:
+    """
+    Consumes context_silo_repair.py's pending-resync marker — read via
+    mcp_map.get_archive_metadata("context_resync_pending"), the only
+    crossing point into context_data/ (module docstring) — before the
+    normal sync passes below run, so an invalidated day is picked back
+    up by _sync_context_days() in the same pass.
+
+    Soll/Ist check against this module's own ack record
+    (_read_context_resync_ack()) before touching SQLite at all: only
+    entries not yet acknowledged are invalidated.
+
+    v1.7.2.3 correction (2026-09-20, found via a real archive round-trip
+    — see PROTOKOLL_experiment.md): the ack is now pruned to the
+    CURRENT pending set on every call (`acked &= pending_keys`) before
+    the comparison, and matching uses the full (date, source, marked_at)
+    triple (_resync_key()), not just (date, source). The original
+    version kept every acked (date, source) pair forever and matched on
+    that pair alone — correct for "don't reprocess the same still-open
+    entry on the next boot", but wrong for "a second real repair of the
+    same (date, source), issued before context_collector.py's next Sync
+    Context run had a chance to clear the first one from pending" — that
+    second repair silently vanished, matching an already-acked key from
+    the first. Pruning-then-triple-matching fixes both: a still-open
+    entry (same marked_at) is still deduplicated across boots, a
+    genuinely new repair (fresh marked_at) is always processed, and the
+    ack file never grows without bound.
+
+    Per-entry error handling (same "one bad unit never aborts the whole
+    pass" principle every other _sync_*() function in this module
+    follows): a failing invalidate_context_day() call is logged and
+    skipped, and that entry is deliberately NOT added to the ack record,
+    so it is retried on the next pass rather than silently lost.
+
+    Returns the {"date", "source", "marked_at"} entries actually
+    invalidated this run — folded into sync_all()'s own result dict for
+    visibility.
+    """
+    pending_result = mcp_map.get_archive_metadata("context_resync_pending")
+    pending = pending_result.get("data") or []
+    if not pending:
+        return []
+
+    pending_keys = {_resync_key(e) for e in pending}
+    acked = _read_context_resync_ack(base_dir) & pending_keys
+    new_entries = [e for e in pending if _resync_key(e) not in acked]
+    if not new_entries:
+        return []
+
+    applied = []
+    for entry in new_entries:
+        day, source = entry.get("date"), entry.get("source")
+        try:
+            mcp_sql.invalidate_context_day(day, {source})
+            applied.append(entry)
+        except Exception as exc:
+            logger.warning("Context resync: could not invalidate %s/%s: %s",
+                            day, source, exc)
+
+    if applied:
+        acked |= {_resync_key(e) for e in applied}
+        _write_context_resync_ack(base_dir, acked)
+        logger.info("Context resync: invalidated %d pending marker(s)", len(applied))
+
+    return applied
 
 
 def _reconcile_field_registry() -> dict:
@@ -697,6 +818,10 @@ def sync_all(is_boot: bool = False) -> dict:
             "field_registry_resets": list[str],  # domains reset this run — see
                                                   # _reconcile_field_registry(), empty in
                                                   # the normal case
+            "context_resync_applied": list[dict],  # {"date","source"} pairs
+                                                  # invalidated this run — see
+                                                  # _apply_pending_context_resync(),
+                                                  # empty in the normal case
             "duration_seconds": float,
             "marker": str,                    # shared sync marker, see module docstring
         }
@@ -735,6 +860,7 @@ def sync_all(is_boot: bool = False) -> dict:
 
         try:
             mcp_sql.init_db()
+            context_resync_applied = _apply_pending_context_resync(cfg.BASE_DIR)
             field_registry_resets = _reconcile_field_registry()
 
             health_days_updated, health_days_failed = _sync_health_days()
@@ -779,6 +905,7 @@ def sync_all(is_boot: bool = False) -> dict:
                 "structured_log_entries_updated": structured_entries_updated,
                 "structured_log_entries_failed": structured_entries_failed,
                 "field_registry_resets": sorted(k for k, v in field_registry_resets.items() if v),
+                "context_resync_applied": context_resync_applied,
                 "duration_seconds": duration,
                 "marker": marker,
             }

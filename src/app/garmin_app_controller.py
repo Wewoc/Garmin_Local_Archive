@@ -599,16 +599,3 @@ def check_integrity(s: dict) -> dict:
         reason = f"check_integrity: setup or check failed: {e}"
         log.warning(f"  {reason}")
         return {"missing_days": [], "no_backup": [], "total_checked": 0, "error": reason}
-
-
-def check_mirror(s: dict) -> bool:
-    """
-    Returns True if the configured mirror_dir is reachable.
-    Returns False on any failure or if mirror_dir is not set.
-    """
-    try:
-        import garmin_mirror as _mirror
-        mirror_dir = s.get("mirror_dir", "").strip()
-        return _mirror.is_reachable(mirror_dir)
-    except Exception:
-        return False

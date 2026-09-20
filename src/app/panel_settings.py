@@ -17,7 +17,6 @@ Rules:
 """
 
 import re
-import threading
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -448,9 +447,6 @@ class PanelSettings(QWidget):
             if not path.endswith(".gla"):
                 path += ".gla"
             self._mirror_dir.setText(path)
-            threading.Thread(
-                target=self._app._panel_archive._startup_mirror_check,
-                daemon=True).start()
 
     def _set_location_from_maps(self):
         url = self._maps_url.text().strip()
