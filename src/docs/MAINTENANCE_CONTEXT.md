@@ -42,6 +42,12 @@ Open-Meteo Weather delivers no intraday data.
 |---|---|
 | `context_writer.py` | `context_data/` (all subfolders — `summary/` and `raw/`, v1.7.1.11) |
 
+`context_silo_repair.py` (v1.7.2.3) does not own any write path itself —
+it repairs flagged days by calling `context_api.fetch()` +
+`context_writer.write()`/`write_file()`, same as any other caller. This
+keeps the sole-write-authority invariant intact even though the repair
+flow lives outside `context_collector.run()`'s normal loop.
+
 ### Invariants
 
 - `maps/` modules never write files — routing and reading only
@@ -52,6 +58,9 @@ Open-Meteo Weather delivers no intraday data.
 - `context_api.fetch()` never raises — `OSError` caught in `_fetch_chunk()` (returns `None`); `fetch()` returns `{"summary": {}, "raw": {}}` on network failure (v1.7.1.11 — was a bare empty dict before the raw/summary split)
 - `context_collector.run()` never raises — `Exception` caught around fetch+write block (`failed += 1`); always returns a result dict
 - `context_writer.already_written()` is a two-stage check for plugins that declare `RAW_OUTPUT_DIR` (pollen/brightsky/airquality): a day counts as written only if both `summary/` and `raw/` files exist (v1.7.1.11)
+- `context_silo_check.py` never writes files — read-only, mirrors `garmin_silo_check.py`'s Leaf-Node precedent (v1.7.2.3)
+- A `bad_coordinates` finding means the archived *values* are wrong for that location, not just the coordinate label — `context_silo_repair.fix_coordinates()` always does a real re-fetch, never a metadata-only patch (v1.7.2.3)
+- The MCP resync pending marker (`CONTEXT_RESYNC_PENDING_FILE`) is keyed by `(date, source, marked_at)`, not just `(date, source)` — a second repair of the same day before the first has been synced must produce a distinguishable new entry, not be silently deduplicated away (v1.7.2.3, found via a real live-archive round-trip, see `CHANGELOG.md`)
 
 ---
 
@@ -83,6 +92,9 @@ After any change to: `context_collector`, `context_api`, `context_writer`, `weat
 11. `context_map` — routing to all three sources, unknown field returns `{}`, `list_sources()`, `list_fields()` for all sources
 12. `context_collector` — CSV helpers: `_ensure_csv()`, `_load_csv()`, `_build_location_map()`, `_split_into_segments()`; malformed CSV row skipped
 13. `context_collector` — `run()` with mocked archive + network for all three plugins, skip on second run, stop event, no-location error, empty archive error, network error → dict returned
+14. `context_collector._consume_context_resync_ack()` (v1.7.2.3) — ack/pending comparison by `(date, source, marked_at)`, marker cleared once fully acked, no-op when no marker exists; **14i** regression: a stale ack entry with an old `marked_at` must not remove a freshly re-marked pending entry
+15. `context_silo_check.check_context_archive()` (v1.7.2.3) — missing-day detection, coordinate plausibility (haversine) against configured location, default-radius edge cases, malformed/missing CSV entries
+16. `context_silo_repair.fix_coordinates()` (v1.7.2.3) — real re-fetch via mocked network, `marked_at` set on first repair and changed on a repeat repair of the same day
 
 **Section B — `garmin_backup` (v1.5.1+, extended v1.5.4.3):**
 - backup_raw, consolidate, backup_quality_log, restore, check_raw_integrity, restore_raw_days, _zip_contains
@@ -96,7 +108,7 @@ After any change to: `context_collector`, `context_api`, `context_writer`, `weat
 
 ### When to run
 
-After any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `brightsky_plugin`, `airquality_plugin`, `weather_map`, `pollen_map`, `brightsky_map`, `airquality_map`, `context_map`, or context-related constants in `garmin_config`.
+After any change to: `context_collector`, `context_api`, `context_writer`, `weather_plugin`, `pollen_plugin`, `brightsky_plugin`, `airquality_plugin`, `weather_map`, `pollen_map`, `brightsky_map`, `airquality_map`, `context_map`, `context_silo_check`, `context_silo_repair`, or context-related constants in `garmin_config`.
 
 ---
 
@@ -229,3 +241,19 @@ Two possible causes:
 ### Wrong coordinates for a date
 
 Edit `local_config.csv` — add or update the row covering that date range. Delete the affected files in `context_data/` and re-run API Sync to refetch with correct coordinates.
+
+### Context-Check (v1.7.2.3)
+
+A day the Context-Check flags under `bad_coordinates` is not a display
+glitch — the archived values themselves were fetched at the wrong
+location. Use Data Collection → Context-Check → 🔧 Fix, either paste a
+Google Maps link (parsed via `_MAPS_URL_RE`) or use each finding's own
+"expected" coordinate. The fix triggers a real re-fetch, not a label
+patch.
+
+**After a fix, an MCP query may still show old/no data for a while:**
+the repair marks the day/source pending (`CONTEXT_RESYNC_PENDING_FILE`);
+it is only picked up on the MCP server's next sync (server start, or the
+`refresh_cache()` tool) — see `REFERENCE_MCP.md`. During that window a
+query returns "no data" for the affected source (not the stale old
+value, since v1.7.2.3) rather than the already-correct new value.

@@ -15,7 +15,8 @@ Rules:
   - All widget references stored as self._xyz
   - Panel-private helpers use _archive_* prefix (E-7)
   - Workers never touch widgets — use self._app._dispatch()
-  - Accessor calls go via self._app._panel_connection.set_*_button_state()
+  - Accessor calls go via self._app._panel_outputs.set_*_button_state()
+    (restore/silo — moved from panel_connection.py, v1.7.2.3 Baustein 3)
 """
 
 import json
@@ -242,7 +243,7 @@ class PanelArchive(QWidget):
         error   = result.get("error")
 
         def _update():
-            pc = self._app._panel_connection
+            pc = self._app._panel_outputs
             if error:
                 # Check itself failed — distinct from "checked, nothing missing".
                 # Without this, a failed check silently looks identical to a clean archive.
@@ -312,7 +313,7 @@ class PanelArchive(QWidget):
                 if len(failed) > 10:
                     self._app._log_bg(f"    … and {len(failed) - 10} more")
                 self._app._dispatch(
-                    lambda: self._app._panel_connection.set_restore_button_state(
+                    lambda: self._app._panel_outputs.set_restore_button_state(
                         False, text="Restore Data"))
             except Exception as e:
                 self._app._log_bg(f"✗ Restore failed: {e}")
@@ -603,10 +604,10 @@ class PanelArchive(QWidget):
         self._silo_running = True
         self._last_silo_result = None
         self._app._dispatch(
-            lambda: self._app._panel_connection.set_silo_check_button_state(
+            lambda: self._app._panel_outputs.set_silo_check_button_state(
                 False, text="🔍  Checking…"))
         self._app._dispatch(
-            lambda: self._app._panel_connection.set_silo_repair_button_state(False))
+            lambda: self._app._panel_outputs.set_silo_repair_button_state(False))
         self._app._log("🔍  Silo-Check started …")
 
         def _do_check():
@@ -664,16 +665,16 @@ class PanelArchive(QWidget):
                 has_findings = total_findings > 0
                 self._app._dispatch(
                     lambda hf=has_findings: (
-                        self._app._panel_connection.set_silo_check_button_state(
+                        self._app._panel_outputs.set_silo_check_button_state(
                             True, text="🔍  Silo-Check"),
-                        self._app._panel_connection.set_silo_repair_button_state(
+                        self._app._panel_outputs.set_silo_repair_button_state(
                             hf, text="🔧  Repair"),
                     ))
 
             except Exception as e:
                 self._app._log_bg(f"✗ Silo-Check failed: {e}")
                 self._app._dispatch(
-                    lambda: self._app._panel_connection.set_silo_check_button_state(
+                    lambda: self._app._panel_outputs.set_silo_check_button_state(
                         True, text="🔍  Silo-Check"))
             finally:
                 self._silo_running = False
@@ -696,10 +697,10 @@ class PanelArchive(QWidget):
 
         self._silo_running = True
         self._app._dispatch(
-            lambda: self._app._panel_connection.set_silo_repair_button_state(
+            lambda: self._app._panel_outputs.set_silo_repair_button_state(
                 False, text="🔧  Repairing…"))
         self._app._dispatch(
-            lambda: self._app._panel_connection.set_silo_check_button_state(False))
+            lambda: self._app._panel_outputs.set_silo_check_button_state(False))
         self._app._log("🔧  Silo-Repair started — re-scanning first …")
 
         def _do_repair():
@@ -710,9 +711,9 @@ class PanelArchive(QWidget):
                 self._app._log_bg(f"✗ Silo-Repair: re-scan failed: {e}")
                 self._app._dispatch(
                     lambda: (
-                        self._app._panel_connection.set_silo_repair_button_state(
+                        self._app._panel_outputs.set_silo_repair_button_state(
                             True, text="🔧  Repair"),
-                        self._app._panel_connection.set_silo_check_button_state(True),
+                        self._app._panel_outputs.set_silo_check_button_state(True),
                     ))
                 self._silo_running = False
                 return
@@ -762,51 +763,15 @@ class PanelArchive(QWidget):
 
             self._last_silo_result = None
             self._app._dispatch(lambda: (
-                self._app._panel_connection.set_silo_check_button_state(
+                self._app._panel_outputs.set_silo_check_button_state(
                     True, text="🔍  Silo-Check"),
-                self._app._panel_connection.set_silo_repair_button_state(
+                self._app._panel_outputs.set_silo_repair_button_state(
                     False, text="🔧  Repair"),
                 self._app._panel_archive._refresh_archive_info(),
             ))
             self._silo_running = False
 
         threading.Thread(target=_do_repair, daemon=True).start()
-
-    # ── Mirror check ───────────────────────────────────────────────────────────
-
-    def _startup_mirror_check(self):
-        """Checks at startup if mirror_dir is reachable (C3). Worker-safe.
-
-        Path.exists() on Windows can block indefinitely for unreachable
-        network paths (UNC, mapped drives, OneDrive). The check runs in
-        a dedicated daemon thread with no join() — it dispatches the UI
-        update whenever it completes, without blocking startup.
-
-        Import from Mirror uses a file picker — button always enabled.
-        Mirror (write) button depends on mirror_dir being reachable.
-        """
-        # Import button always active — user picks .gla via file dialog
-        self._app._dispatch(
-            lambda: self._app._panel_connection.set_import_mirror_button_state(True))
-
-        s          = self._app._panel_settings._collect_settings()
-        mirror_dir = s.get("mirror_dir", "").strip()
-
-        if not mirror_dir:
-            return
-
-        def _check():
-            reachable = False
-            try:
-                reachable = _controller.check_mirror(s)
-            except Exception:
-                pass
-
-            self._app._dispatch(
-                lambda: self._app._panel_connection.set_mirror_button_state(
-                    reachable, text="⬡  Export to Mirror"))
-
-        threading.Thread(target=_check, daemon=True).start()
 
     # ── Mirror operation ───────────────────────────────────────────────────────
 
@@ -897,7 +862,6 @@ class PanelArchive(QWidget):
             self._app._dispatch(self._app._panel_timer._timer_update_btn)
 
         self._mirror_running = True
-        self._app._panel_connection.set_import_mirror_button_state(False)
         self._app._log("📥  Import from Mirror started …")
 
         def _do_import():
@@ -932,7 +896,6 @@ class PanelArchive(QWidget):
                 self._app._dispatch(lambda: (
                     self._app._panel_archive._refresh_archive_info(),
                     self._app._panel_timer._timer_resume_after_sync(timer_was_active),
-                    self._app._panel_connection.set_import_mirror_button_state(True),
                 ))
 
         threading.Thread(target=_do_import, daemon=True).start()
@@ -977,8 +940,6 @@ class PanelArchive(QWidget):
         password = dlg.get_result()
 
         self._mirror_running = True
-        self._app._panel_connection.set_mirror_button_state(
-            False, text="🔁  Mirroring…")
         self._app._log("🔁  Data Mirror started …")
 
         def _do_mirror():
@@ -995,9 +956,6 @@ class PanelArchive(QWidget):
                 self._app._log_bg(f"✗ Mirror failed: {e}")
             finally:
                 self._mirror_running = False
-                self._app._dispatch(
-                    lambda: self._app._panel_connection.set_mirror_button_state(
-                        True, text="⬡  Export to Mirror"))
 
         threading.Thread(target=_do_mirror, daemon=True).start()
 

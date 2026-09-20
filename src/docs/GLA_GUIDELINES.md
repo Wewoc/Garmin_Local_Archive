@@ -376,6 +376,30 @@ a Leaf Node), which itself delegates to the existing owner modules
 (`garmin_writer`, `garmin_quality`, `garmin_normalizer`) and never writes
 directly.
 
+### Context archive integrity check (`context_silo_check.py`, v1.7.2.3)
+
+Same detection/repair split, applied to `context_data/` instead of
+`garmin_data/`: `context_silo_check.py` (read-only — missing days,
+coordinate plausibility via haversine distance against the day's
+configured location) finds problems, `context_silo_repair.py` fixes
+them — but unlike `garmin_silo_repair.py`, a flagged coordinate means
+the archived *values* themselves are wrong for that location, not just
+a label, so the fix is a real re-fetch (`context_api.fetch()` +
+`context_writer.write()`), never a metadata-only patch. Sole-write
+authority for `context_data/` is unaffected — every write still goes
+through `context_writer.py`.
+
+**Keeping the MCP SQLite proxy in sync without breaking single-writer-
+process:** a repair also marks the affected `(date, source)` pending in
+`CONTEXT_RESYNC_PENDING_FILE` — `context/` never touches `mcp_cache.db`
+directly, only `clients/mcp_sql.py` does, and only from inside
+`clients/mcp_server.py`'s own process (see `REFERENCE_MCP.md`/
+`clients/mcp_sql.py`'s connection-model docstring). The marker is
+consumed by that process's own next `sync_all()` run (server startup or
+`refresh_cache()`), which invalidates the stale SQLite row — no new
+crossing point, no relaxation of "only `mcp_server.py` opens this
+database."
+
 ---
 
 ## 8. Quality model

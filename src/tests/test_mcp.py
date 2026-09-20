@@ -1647,6 +1647,219 @@ check("_reconcile_field_registry: unaffected health domain never calls reset_hea
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  10. clients/mcp_sql.py — invalidate_context_day() (v1.7.2.3)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Real SQLite DB, not mocked — closes exactly the gap section 9's own
+# comment flags (mcp_sql.py's functions untested against a real DB).
+# invalidate_context_day() is a pure DB primitive (SELECT + set
+# difference + UPDATE), cheap and deterministic to exercise for real.
+
+section("mcp_sql 10. invalidate_context_day() — real DB")
+
+import mcp_sql
+mcp_sql.init_db()
+
+mcp_sql.upsert_context_day(
+    "2026-03-05", {"weather": {"temp": 20}, "pollen": {"birch": 1.0}},
+    {"weather", "pollen", "brightsky"}, {"weather", "pollen", "brightsky"})
+mcp_sql.invalidate_context_day("2026-03-05", {"weather"})
+_state_after_one = mcp_sql.get_context_day_state("2026-03-05")
+check("invalidate_context_day: removes the given source from complete_sources",
+      "weather" not in _state_after_one["complete_sources"])
+check("invalidate_context_day: removes the given source from attempted_sources",
+      "weather" not in _state_after_one["attempted_sources"])
+check("invalidate_context_day: leaves other sources' complete_sources untouched",
+      {"pollen", "brightsky"} <= _state_after_one["complete_sources"])
+check("invalidate_context_day: leaves other sources' attempted_sources untouched",
+      {"pollen", "brightsky"} <= _state_after_one["attempted_sources"])
+# v1.7.2.3 correction (2026-09-20, Timo): payload must be deleted too —
+# get_context_range() (what the live LLM-facing query_context() tool
+# actually reads, _route_query() is hard-pinned to "sqlite") reads
+# payload_json directly and knows nothing about complete_sources. Leaving
+# the old payload in place would silently serve stale data as if current.
+check("invalidate_context_day: DELETES the invalidated source's payload "
+      "(not just bookkeeping — a live query must see 'no data', not stale data)",
+      "weather" not in _state_after_one["payload"])
+check("invalidate_context_day: leaves other sources' payload untouched",
+      _state_after_one["payload"].get("pollen") == {"birch": 1.0})
+
+mcp_sql.upsert_context_day(
+    "2026-03-06", {"weather": {"temp": 1}, "pollen": {"birch": 1},
+                   "brightsky": {"temp": 2}, "airquality": {"pm": 3}},
+    {"weather", "pollen", "brightsky", "airquality"},
+    {"weather", "pollen", "brightsky", "airquality"})
+mcp_sql.invalidate_context_day("2026-03-06", {"weather", "pollen"})
+_state_multi = mcp_sql.get_context_day_state("2026-03-06")
+check("invalidate_context_day: removes multiple sources in one call",
+      _state_multi["complete_sources"] == {"brightsky", "airquality"})
+check("invalidate_context_day: removes multiple sources' payload in one call",
+      "weather" not in _state_multi["payload"] and "pollen" not in _state_multi["payload"])
+check("invalidate_context_day: multi-source call leaves untouched sources' payload intact",
+      _state_multi["payload"].get("brightsky") == {"temp": 2} and
+      _state_multi["payload"].get("airquality") == {"pm": 3})
+
+try:
+    mcp_sql.invalidate_context_day("2099-01-01", {"weather"})
+    _noop_no_row_ok = True
+except Exception:
+    _noop_no_row_ok = False
+check("invalidate_context_day: day with no row at all — no-op, no exception",
+      _noop_no_row_ok)
+
+mcp_sql.upsert_context_day("2026-03-07", {}, {"pollen"}, {"pollen"})
+mcp_sql.invalidate_context_day("2026-03-07", {"weather"})
+_state_absent_source = mcp_sql.get_context_day_state("2026-03-07")
+check("invalidate_context_day: removing a source that was never present — no-op, no crash",
+      _state_absent_source["complete_sources"] == {"pollen"})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  11. clients/mcp_update.py — context-resync marker consumption (v1.7.2.3)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Same mock style as section 9 — mcp_sql.invalidate_context_day is
+# mocked here (its own correctness against a real DB is section 10's
+# job). This section covers _apply_pending_context_resync()'s own
+# decision logic: the Soll/Ist check against the ack (Timo's explicit
+# requirement — sync_all() runs at every MCP boot, so an already-acked
+# entry must never be re-invalidated), per-entry error handling (a
+# failing entry must not be acked, so it is retried later), the ack
+# file read/write round-trip including corrupt-file handling, and
+# (11g) the real bug found via a live-archive round-trip on 2026-09-20:
+# a SECOND real repair of the same (date, source) must still be applied,
+# not silently swallowed by the first repair's ack entry.
+
+section("mcp_update 11. context-resync marker consumption")
+
+_CRA_BASE = _TMPDIR / "resync_test"
+_CRA_BASE.mkdir(parents=True, exist_ok=True)
+_ack_file = lambda base: base / "garmin_data" / "log" / "mcp" / "context_resync_ack.json"
+
+# ── 11a. No pending markers at all ─────────────────────────────────────────────
+with patch("maps.mcp_map.get_archive_metadata", return_value={"data": [], "error": None}), \
+     patch("mcp_sql.invalidate_context_day") as _m_inv_none:
+    _applied_none = mcp_update._apply_pending_context_resync(_CRA_BASE)
+check("_apply_pending_context_resync: empty pending returns an empty list",
+      _applied_none == [])
+check("_apply_pending_context_resync: empty pending never calls invalidate_context_day",
+      not _m_inv_none.called)
+check("_apply_pending_context_resync: no ack file written when nothing was pending",
+      not _ack_file(_CRA_BASE).exists())
+
+# ── 11b. Fresh pending, nothing acked yet ──────────────────────────────────────
+_pending_fresh = [{"date": "2026-03-05", "source": "weather", "marked_at": "T1"},
+                   {"date": "2026-03-06", "source": "pollen", "marked_at": "T1"}]
+with patch("maps.mcp_map.get_archive_metadata",
+           return_value={"data": _pending_fresh, "error": None}), \
+     patch("mcp_sql.invalidate_context_day") as _m_inv_fresh:
+    _applied_fresh = mcp_update._apply_pending_context_resync(_CRA_BASE)
+check("_apply_pending_context_resync: fresh pending — both entries applied",
+      _applied_fresh == _pending_fresh)
+check("_apply_pending_context_resync: fresh pending — invalidate_context_day called twice",
+      _m_inv_fresh.call_count == 2)
+check("_apply_pending_context_resync: invalidate_context_day called with (date, {source})",
+      _m_inv_fresh.call_args_list[0].args == ("2026-03-05", {"weather"}))
+_ack_after_fresh = json.loads(_ack_file(_CRA_BASE).read_text(encoding="utf-8"))
+check("_apply_pending_context_resync: ack file written with both entries (incl. marked_at)",
+      {(e["date"], e["source"], e["marked_at"]) for e in _ack_after_fresh["acked"]}
+      == {("2026-03-05", "weather", "T1"), ("2026-03-06", "pollen", "T1")})
+
+# ── 11c. Soll/Ist check — same pending again, already acked ───────────────────
+with patch("maps.mcp_map.get_archive_metadata",
+           return_value={"data": _pending_fresh, "error": None}), \
+     patch("mcp_sql.invalidate_context_day") as _m_inv_repeat:
+    _applied_repeat = mcp_update._apply_pending_context_resync(_CRA_BASE)
+check("_apply_pending_context_resync: already-acked pending — applied list is empty",
+      _applied_repeat == [])
+check("_apply_pending_context_resync: already-acked pending — invalidate_context_day "
+      "never called (Soll/Ist check — this is the core requirement)",
+      not _m_inv_repeat.called)
+
+# ── 11d. Mixed — one already acked, one genuinely new ──────────────────────────
+_pending_mixed = _pending_fresh + [{"date": "2026-03-07", "source": "brightsky", "marked_at": "T1"}]
+with patch("maps.mcp_map.get_archive_metadata",
+           return_value={"data": _pending_mixed, "error": None}), \
+     patch("mcp_sql.invalidate_context_day") as _m_inv_mixed:
+    _applied_mixed = mcp_update._apply_pending_context_resync(_CRA_BASE)
+check("_apply_pending_context_resync: mixed pending — only the new entry is applied",
+      _applied_mixed == [{"date": "2026-03-07", "source": "brightsky", "marked_at": "T1"}])
+check("_apply_pending_context_resync: mixed pending — invalidate_context_day called once",
+      _m_inv_mixed.call_count == 1)
+
+# ── 11e. A failing entry is skipped, not acked (retried on the next pass) ─────
+_CRA_BASE2 = _TMPDIR / "resync_test_errors"
+_CRA_BASE2.mkdir(parents=True, exist_ok=True)
+_pending_err = [{"date": "2026-04-01", "source": "weather", "marked_at": "T1"},
+                {"date": "2026-04-02", "source": "pollen", "marked_at": "T1"}]
+
+def _inv_side_effect(day, sources):
+    if day == "2026-04-01":
+        raise RuntimeError("simulated DB error")
+
+with patch("maps.mcp_map.get_archive_metadata",
+           return_value={"data": _pending_err, "error": None}), \
+     patch("mcp_sql.invalidate_context_day", side_effect=_inv_side_effect):
+    _applied_err = mcp_update._apply_pending_context_resync(_CRA_BASE2)
+check("_apply_pending_context_resync: a failing entry is excluded from the applied list",
+      _applied_err == [{"date": "2026-04-02", "source": "pollen", "marked_at": "T1"}])
+_ack_after_err = json.loads(_ack_file(_CRA_BASE2).read_text(encoding="utf-8"))
+_ack_keys_err = {(e["date"], e["source"], e["marked_at"]) for e in _ack_after_err["acked"]}
+check("_apply_pending_context_resync: the failing entry is NOT written to the ack "
+      "(must be retried, not silently lost)",
+      ("2026-04-01", "weather", "T1") not in _ack_keys_err)
+check("_apply_pending_context_resync: the succeeding entry IS written to the ack",
+      ("2026-04-02", "pollen", "T1") in _ack_keys_err)
+
+# ── 11f. Ack file read/write round-trip + corrupt-file handling ───────────────
+_ack_rt_base = _TMPDIR / "ack_roundtrip"
+mcp_update._write_context_resync_ack(_ack_rt_base, {("2026-01-01", "weather", "T1")})
+check("_write_context_resync_ack / _read_context_resync_ack: round-trip preserves the set",
+      mcp_update._read_context_resync_ack(_ack_rt_base) == {("2026-01-01", "weather", "T1")})
+check("_read_context_resync_ack: missing file returns an empty set, no exception",
+      mcp_update._read_context_resync_ack(_TMPDIR / "ack_missing") == set())
+
+_ack_file(_ack_rt_base).write_text("{ not valid json", encoding="utf-8")
+check("_read_context_resync_ack: corrupt JSON degrades to an empty set, no exception",
+      mcp_update._read_context_resync_ack(_ack_rt_base) == set())
+
+# ── 11g. Regression: a SECOND real repair of the same (date, source) must ─────
+#         still be applied — the exact bug found via a live-archive round-trip
+#         (New York -> back to Herford) on 2026-09-20. Matching on (date,
+#         source) alone made the second repair's identical key look
+#         "already acked" from the first, silently dropping it.
+_CRA_BASE3 = _TMPDIR / "resync_test_repeat"
+_CRA_BASE3.mkdir(parents=True, exist_ok=True)
+_pending_t1 = [{"date": "2026-05-01", "source": "weather", "marked_at": "T1"}]
+with patch("maps.mcp_map.get_archive_metadata",
+           return_value={"data": _pending_t1, "error": None}), \
+     patch("mcp_sql.invalidate_context_day") as _m_inv_t1:
+    _applied_t1 = mcp_update._apply_pending_context_resync(_CRA_BASE3)
+check("_apply_pending_context_resync (11g): first repair (T1) is applied",
+      _applied_t1 == _pending_t1 and _m_inv_t1.call_count == 1)
+
+# context_silo_repair.py would now REPLACE the pending entry with a fresh
+# marked_at (T2) — simulated here directly, same as _mark_pending_resync()
+# does on a second real repair of the same (date, source).
+_pending_t2 = [{"date": "2026-05-01", "source": "weather", "marked_at": "T2"}]
+with patch("maps.mcp_map.get_archive_metadata",
+           return_value={"data": _pending_t2, "error": None}), \
+     patch("mcp_sql.invalidate_context_day") as _m_inv_t2:
+    _applied_t2 = mcp_update._apply_pending_context_resync(_CRA_BASE3)
+check("_apply_pending_context_resync (11g): second repair (T2, same date/source) "
+      "is ALSO applied, not silently dropped as 'already acked'",
+      _applied_t2 == _pending_t2 and _m_inv_t2.call_count == 1)
+
+# The stale T1 ack entry must be pruned once T2 is the only thing pending —
+# keeps the ack file from growing without bound.
+_ack_after_t2 = json.loads(_ack_file(_CRA_BASE3).read_text(encoding="utf-8"))
+_ack_keys_t2 = {(e["date"], e["source"], e["marked_at"]) for e in _ack_after_t2["acked"]}
+check("_apply_pending_context_resync (11g): stale T1 ack entry pruned once "
+      "superseded by T2 (ack does not grow without bound)",
+      _ack_keys_t2 == {("2026-05-01", "weather", "T2")})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

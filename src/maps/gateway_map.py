@@ -169,6 +169,11 @@ _METADATA_KINDS = {
     # always forward both arguments for this kind, never call the
     # zero-arg branch.
     "raw_file_hashes":      metadata_map.get_raw_file_hashes,
+    # v1.7.2.3 — pending context_data/ resync markers (coordinate
+    # repairs that need to force-resync into mcp_context_days), same
+    # internal-sync-only rationale as the three filename-only kinds
+    # above. No date_from/date_to — see metadata_map.py's own docstring.
+    "context_resync_pending": metadata_map.get_context_resync_pending,
 }
 
 # Kinds whose metadata_map function accepts date_from/date_to (v1.7.0.4;

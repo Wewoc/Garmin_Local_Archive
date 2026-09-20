@@ -186,7 +186,25 @@ it*.
 
 **`refresh_cache()`:** manually triggers the same SQLite sync the server
 already runs once at startup (`clients/mcp_update.py::sync_all()`).
-Blocks until the sync finishes.
+Blocks until the sync finishes. **(v1.7.2.3)** This is also the only way
+a context-archive repair (`context/context_silo_repair.py`) becomes
+visible to `query_context()` before the server's next restart — `sync_all()`
+consumes the pending-resync marker and invalidates the affected SQLite
+rows (`mcp_sql.invalidate_context_day()`) as part of the same run. See
+`clients/mcp_update.py`'s entry in `REFERENCE_GLOBAL.md`'s Module
+reference table for the mechanism, `REFERENCE_CONTEXT.md` for the
+archive-repair side.
+
+**Practical consequence of the routing weiche always being `"sqlite"`
+(v1.7.2.3 finding):** because the live branch below is unreachable
+today, `query_context()` always reads `mcp_sql.get_context_range()`,
+which reads `payload_json` directly — with no reference at all to
+`complete_sources`/`attempted_sources`. A day whose pending-resync entry
+has not yet been synced therefore genuinely has no fresher value to
+fall back to; `invalidate_context_day()` clearing that day's
+`payload_json` (not just the bookkeeping sets) is what keeps such a
+query from returning a stale, already-known-wrong value instead of "no
+data" during that window.
 
 **Startup:** windowed by default (the app window owns the server
 process — closing the window closes the server); `garmin_config.MCP_HEADLESS`

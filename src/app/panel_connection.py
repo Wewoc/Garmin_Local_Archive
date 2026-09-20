@@ -7,7 +7,7 @@ app/panel_connection.py
 Garmin Local Archive — Connection Panel
 
 PanelConnection — PyQt6 QWidget for connection test, status indicators,
-token/enc-key/MFA prompts, reset token, and archive info.
+token/enc-key/MFA prompts, and archive info.
 
 Rules:
   - __init__(self, app) — app is the GarminApp(QMainWindow) instance
@@ -21,7 +21,7 @@ import threading
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDialog, QLineEdit, QFrame, QSizePolicy,
+    QDialog, QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont
@@ -330,178 +330,13 @@ class PanelConnection(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(20, 4, 20, 4)
         lay.setSpacing(0)
-
-        # Section header
-        header = QLabel("DATA MANAGEMENT")
-        header.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
-        header.setStyleSheet(f"color: {self._app.ACCENT};")
-        lay.addWidget(header)
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(f"color: {self._app.ACCENT};")
-        line.setFixedHeight(1)
-        lay.addWidget(line)
-        lay.addSpacing(6)
-
-        # Connection indicators + buttons row
-        conn_row = QHBoxLayout()
-        conn_row.setSpacing(4)
-
-        # _conn_indicators lives in panel_home — panel_connection delegates
-        # all indicator writes via _set_indicator() → panel_home._conn_indicators.
-
-        def _btn(text, color, fg):
-            b = QPushButton(text)
-            b.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            b.setStyleSheet(
-                f"QPushButton {{ background: {color}; color: {fg}; "
-                f"border: none; padding: 7px 14px; }}"
-                f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
-                f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
-                f"background: {self._app.BG3}; }}")
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            return b
-
-        self._mirror_btn = _btn("⬡  Export to Mirror", self._app.BG3, self._app.TEXT2)
-        self._mirror_btn.setEnabled(False)
-        self._mirror_btn.setToolTip(
-            "Create an encrypted backup of the archive (.gla container).\n"
-            "Available after a successful connection.")
-        self._mirror_btn.clicked.connect(
-            lambda: self._app._panel_archive._on_mirror())
-
-        self._import_mirror_btn = _btn("📥  Import from Mirror",
-                                       self._app.BG3, self._app.TEXT2)
-        self._import_mirror_btn.setEnabled(False)
-        self._import_mirror_btn.setToolTip(
-            "Restore data from an existing .gla mirror container.\n"
-            "Existing data with higher quality is not overwritten.")
-        self._import_mirror_btn.clicked.connect(
-            lambda: self._app._panel_archive._on_import_mirror())
-
-        self._restore_btn = _btn("Restore Data", self._app.BG3, self._app.TEXT2)
-        self._restore_btn.setEnabled(False)
-        self._restore_btn.setToolTip(
-            "Restore raw data from the backup folder.\n"
-            "Enabled after a Silo-Check detects recoverable files.")
-        self._restore_btn.clicked.connect(
-            lambda: self._app._panel_archive._on_restore_data())
-
-        reset_btn = _btn("🔑  Reset Token", self._app.BG3, self._app.TEXT2)
-        reset_btn.setToolTip(
-            "Delete the saved Garmin session token.\n"
-            "The next sync will require a full SSO login.")
-        reset_btn.clicked.connect(self._reset_token)
-
-        self._silo_check_btn = _btn("🔍  Silo-Check", self._app.BG3, self._app.TEXT2)
-        self._silo_check_btn.setEnabled(True)
-        self._silo_check_btn.setToolTip(
-            "Check raw/, summary/ and source/ for consistency.\n"
-            "Detects missing or mismatched files across silos.")
-        self._silo_check_btn.clicked.connect(
-            lambda: self._app._panel_archive._on_silo_check())
-
-        self._silo_repair_btn = _btn("🔧  Repair", self._app.BG3, self._app.TEXT2)
-        self._silo_repair_btn.setEnabled(False)
-        self._silo_repair_btn.setToolTip(
-            "Repair silo inconsistencies found by Silo-Check.\n"
-            "Enabled after a completed check with findings.")
-        self._silo_repair_btn.clicked.connect(
-            lambda: self._app._panel_archive._on_silo_repair())
-
-        for b in [self._mirror_btn, self._import_mirror_btn,
-                  self._restore_btn, reset_btn,
-                  self._silo_check_btn, self._silo_repair_btn]:
-            conn_row.addWidget(b)
-
-        lay.addLayout(conn_row)
+        # DATA MANAGEMENT (Restore Data / Silo-Check / Repair) moved to
+        # panel_outputs.py, v1.7.2.3 Baustein 3 — this panel now holds no
+        # widgets of its own beyond the empty layout container it's embedded
+        # in; its remaining job is connection-test/token/enc-key/MFA dialog
+        # logic and the _set_indicator() delegate below.
         # Archive info widgets (fail/recheck/missing/range/device-table/integrity)
         # live in panel_home — not duplicated here.
-
-    # ── Accessors — sole authorised write-path for mirror/restore/silo buttons ─
-
-    def set_silo_check_button_state(self, enabled: bool, text: str = None):
-        """Called from PanelArchive — Main Thread only."""
-        self._silo_check_btn.setEnabled(enabled)
-        if text is not None:
-            self._silo_check_btn.setText(text)
-        fg = self._app.TEXT if enabled else self._app.TEXT2
-        self._silo_check_btn.setStyleSheet(
-            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
-            f"border: none; padding: 7px 14px; }}"
-            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
-            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
-            f"background: {self._app.BG3}; }}")
-        self._silo_check_btn.style().unpolish(self._silo_check_btn)
-        self._silo_check_btn.style().polish(self._silo_check_btn)
-        self._silo_check_btn.update()
-
-    def set_silo_repair_button_state(self, enabled: bool, text: str = None):
-        """Called from PanelArchive — Main Thread only."""
-        self._silo_repair_btn.setEnabled(enabled)
-        if text is not None:
-            self._silo_repair_btn.setText(text)
-        fg = self._app.TEXT if enabled else self._app.TEXT2
-        self._silo_repair_btn.setStyleSheet(
-            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
-            f"border: none; padding: 7px 14px; }}"
-            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
-            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
-            f"background: {self._app.BG3}; }}")
-        self._silo_repair_btn.style().unpolish(self._silo_repair_btn)
-        self._silo_repair_btn.style().polish(self._silo_repair_btn)
-        self._silo_repair_btn.update()
-
-    def set_mirror_button_state(self, enabled: bool,
-                                text: str = None, color: str = None):
-        """Called from PanelArchive — Main Thread only."""
-        self._mirror_btn.setEnabled(enabled)
-        if text is not None:
-            self._mirror_btn.setText(text)
-        fg = color if color is not None else (
-            self._app.TEXT if enabled else self._app.TEXT2)
-        bg = self._app.BG3
-        self._mirror_btn.setStyleSheet(
-            f"QPushButton {{ background: {bg}; color: {fg}; "
-            f"border: none; padding: 7px 14px; }}"
-            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
-            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
-            f"background: {self._app.BG3}; }}")
-        self._mirror_btn.style().unpolish(self._mirror_btn)
-        self._mirror_btn.style().polish(self._mirror_btn)
-        self._mirror_btn.update()
-
-    def set_import_mirror_button_state(self, enabled: bool,
-                                       text: str = None):
-        """Called from PanelArchive — Main Thread only."""
-        self._import_mirror_btn.setEnabled(enabled)
-        if text is not None:
-            self._import_mirror_btn.setText(text)
-        fg = self._app.TEXT if enabled else self._app.TEXT2
-        self._import_mirror_btn.setStyleSheet(
-            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
-            f"border: none; padding: 7px 14px; }}"
-            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
-            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
-            f"background: {self._app.BG3}; }}")
-        self._import_mirror_btn.style().unpolish(self._import_mirror_btn)
-        self._import_mirror_btn.style().polish(self._import_mirror_btn)
-        self._import_mirror_btn.update()
-
-    def set_restore_button_state(self, enabled: bool,
-                                 text: str = None, color: str = None,
-                                 command=None):
-        """Called from PanelArchive — Main Thread only."""
-        self._restore_btn.setEnabled(enabled)
-        if text is not None:
-            self._restore_btn.setText(text)
-        if command is not None:
-            try:
-                self._restore_btn.clicked.disconnect()
-            except RuntimeError:
-                pass
-            self._restore_btn.clicked.connect(command)
 
     # ── Indicator ──────────────────────────────────────────────────────────────
 
@@ -642,17 +477,3 @@ class PanelConnection(QWidget):
         self._prompt_requested.emit("mfa", _cb)
         response_event.wait()
         return result[0]
-
-    # ── Reset token ────────────────────────────────────────────────────────────
-
-    def _reset_token(self):
-        import garmin_security
-        ok = garmin_security.clear_token()
-        garmin_security.log_token_event("invalidated", "manual_reset")
-        self._app._panel_home._set_indicator("token", "reset")
-        self._app._connection_verified = False
-        if ok:
-            self._app._log("🔑  Token reset — next sync will require a new login.")
-        else:
-            self._app._log("⚠️  Token reset incomplete — check log for details. "
-                            "Next sync may prompt unexpectedly.")

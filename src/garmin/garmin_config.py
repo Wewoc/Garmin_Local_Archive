@@ -114,6 +114,14 @@ CONTEXT_POLLEN_RAW_DIR     = CONTEXT_DIR / "pollen"     / "raw"
 CONTEXT_BRIGHTSKY_RAW_DIR  = CONTEXT_DIR / "brightsky"  / "raw"
 CONTEXT_AIRQUALITY_RAW_DIR = CONTEXT_DIR / "airquality" / "raw"
 
+# Pending-resync marker (sole writer: context_writer.py, via
+# context_silo_repair.py) — (date, source) pairs whose context_data/
+# file was re-fetched after already being cached in mcp_context_days,
+# consumed by clients/mcp_update.py::sync_all() on its next pass
+# (v1.7.2.3, see PROTOKOLL_experiment.md Baustein 5). Read-only for
+# metadata_map.py/mcp_update.py — only context_writer.py ever writes it.
+CONTEXT_RESYNC_PENDING_FILE = CONTEXT_DIR / "_mcp_resync_pending.json"
+
 # Location for external API calls — set via GUI (geocoded from place name)
 # Falls back to ENV for headless/testing use
 CONTEXT_LATITUDE  = float(os.environ.get("GARMIN_CONTEXT_LAT",  "0.0"))

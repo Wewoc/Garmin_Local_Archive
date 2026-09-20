@@ -85,7 +85,6 @@ its own — reads and decides, never writes. See also `GLA_HANDBUCH.md` §14.
 | `build_env_dict(s, refresh_failed=False)` | Pure ENV dict builder — no side effects, no `os.environ` write. Caller decides how to apply (`Popen env=` or `os.environ`) |
 | `check_connection(s, callbacks)` | Tests Garmin Connect connectivity in a background thread. Communicates exclusively via callbacks — no GUI access, no `self.after()` |
 | `check_integrity(s)` | Runs `garmin_backup.check_raw_integrity()`. Returns `{"missing_days", "no_backup", "total_checked", "error"}` — `error` passed through verbatim from `check_raw_integrity()` or set locally if the ENV/config setup itself fails (v1.6.5.7, Netz 3 Kandidat 2) |
-| `check_mirror(s)` | Returns `True` if the configured `mirror_dir` is reachable |
 | `get_archive_stats(base_dir)` | Wraps `garmin_quality.get_archive_stats()`. Empty dict on any failure |
 | `get_source_stats(s)` | `{"total", "present"}` — all `source/` files vs. those within the last 180 days. INTENTIONAL DIRECT READ |
 
@@ -197,7 +196,7 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 - Path 3 (SSO): `on_sso_required()` → confirm → `generate_enc_key()` (auto, no dialog) → `Garmin(email, pw, prompt_mfa=_logged_mfa_prompt if on_mfa_required else None)` → `login(token_dir)` → `save_token()` → `log_token_event("created", "sso_login")` (garminconnect ≥ 0.3.0). `_logged_mfa_prompt()` wraps `on_mfa_required` (when set) — logs `log_token_event("mfa", "challenge_presented", solved="yes"|"no")` with the resolved code or cancellation, try/finally so a crash inside the callback is still logged (v1.6.5.9). If MFA is required and no callback is available, `_is_mfa_no_callback_error(e)` detects it in the except-block → `log_token_event("blocked", "mfa_required_no_callback")` instead of the generic failure path (v1.6.5.9)
 - Path 3b (key missing): `log_token_event("invalidated", "enc_key_missing_wcm")` → `on_key_required()` → store key → retry Path 1
 
-**Manual reset** (`panel_connection.py::_reset_token()`): `clear_token()` → `log_token_event("invalidated", "manual_reset")` — outside the `login()` flow, GUI button only. Deliberately does NOT clear an unresolved MFA block (v1.6.5.9) — a deleted token says nothing about whether the MFA problem itself is resolved, only a real successful SSO proves that.
+**Manual reset — removed (v1.7.2.3).** `panel_connection.py::_reset_token()` and its Reset Token button were removed as unused; there is no GUI-triggered manual `clear_token()` call anymore. `clear_token()` itself is unaffected — it is still invoked automatically by the `login()` flow (Paths 1/2/3b above) on an expired, rejected, or missing-key token. Deliberately did NOT clear an unresolved MFA block (v1.6.5.9) while it existed — a deleted token says nothing about whether the MFA problem itself is resolved, only a real successful SSO proves that; this distinction is now moot for the manual path since it no longer exists.
 
 ---
 
@@ -904,7 +903,6 @@ the broker response contract, see `REFERENCE_BROKER.md`.
 | `_prompt_enc_key(mode)` | Modal encryption key input — `"setup"` or `"recovery"` |
 | `_prompt_token_expired()` | Warning popup for 429 risk on SSO fallback |
 | `_test_conn()` | Inner function in `_timer_loop()` — uses `garmin_api.login()` with full ENV setup and reload. No raw SSO. |
-| `_reset_token()` | Clears encrypted token and resets lamp |
 | `_toggle_log_level()` | Switches GUI log display between INFO and DEBUG |
 | `_toggle_timer()` | Starts or stops background timer |
 | `_timer_loop(generation)` | Main timer loop, in `panel_timer.py` — six modes, candidate logic delegated to `garmin_app_controller.py` (see its own section below) |

@@ -39,6 +39,7 @@ import theme
 from .dialog_force_refetch import (
     ForceRefetchDialog, ForceRefetchProgressDialog, ForceRefetchReviewDialog,
 )
+from .dialog_context_check import ContextCheckResultDialog, ContextCoordinateFixDialog
 from .popups import (
     capability_scan, dashboard_create, custom_dashboard, encrypted_dashboards,
 )
@@ -150,8 +151,55 @@ class PanelOutputs(QWidget):
             self._tip("Discover optional Garmin API endpoints for your account"))
         lay.addLayout(scan_row)
 
+        # ── Data Management ─────────────────────────────────────────────────────
+        # Moved from panel_connection.py (v1.7.2.3 Baustein 3) — Restore Data /
+        # Silo-Check / Repair, plus Force Refetch (moved down from Data
+        # Collection above) now live together here.
+        lay.addWidget(self._section_widget("Data Management"))
+
+        restore_row = QHBoxLayout()
+        restore_row.setContentsMargins(20, 2, 20, 2)
+        restore_row.setSpacing(4)
+        self._restore_btn = self._action_btn(
+            "Restore Data", self._app.BG3, self._app.TEXT2,
+            lambda: self._app._panel_archive._on_restore_data())
+        self._restore_btn.setEnabled(False)
+        self._restore_btn.setToolTip(
+            "Restore raw data from the backup folder.\n"
+            "Enabled after a Silo-Check detects recoverable files.")
+        self._restore_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                        QSizePolicy.Policy.Fixed)
+        restore_row.addWidget(self._restore_btn)
+        restore_row.addWidget(
+            self._tip("Restore missing raw files from local backup"))
+        lay.addLayout(restore_row)
+
+        silo_row = QHBoxLayout()
+        silo_row.setContentsMargins(20, 2, 20, 2)
+        silo_row.setSpacing(4)
+        self._silo_check_btn = self._action_btn(
+            "🔍  Silo-Check", self._app.BG3, self._app.TEXT2,
+            lambda: self._app._panel_archive._on_silo_check())
+        self._silo_check_btn.setEnabled(True)
+        self._silo_check_btn.setToolTip(
+            "Check raw/, summary/ and source/ for consistency.\n"
+            "Detects missing or mismatched files across silos.")
+        self._silo_repair_btn = self._action_btn(
+            "🔧  Repair", self._app.BG3, self._app.TEXT2,
+            lambda: self._app._panel_archive._on_silo_repair())
+        self._silo_repair_btn.setEnabled(False)
+        self._silo_repair_btn.setToolTip(
+            "Repair silo inconsistencies found by Silo-Check.\n"
+            "Enabled after a completed check with findings.")
+        silo_row.addWidget(self._silo_check_btn)
+        silo_row.addWidget(self._silo_repair_btn)
+        silo_row.addWidget(
+            self._tip("Check raw/summary/source consistency across the archive"))
+        lay.addLayout(silo_row)
+
         # Force-Refetch row (v1.7.1.7, Baustein 5 Schritt 1 — button only,
-        # calendar dialog + comparison/commit flow follow in later steps)
+        # calendar dialog + comparison/commit flow follow in later steps;
+        # moved here from Data Collection, v1.7.2.3 Baustein 3)
         force_refetch_row = QHBoxLayout()
         force_refetch_row.setContentsMargins(20, 2, 20, 2)
         force_refetch_row.setSpacing(4)
@@ -164,6 +212,20 @@ class PanelOutputs(QWidget):
         force_refetch_row.addWidget(
             self._tip("Re-fetch a specific day, bypassing quality protection"))
         lay.addLayout(force_refetch_row)
+
+        # Context-Check row (v1.7.2.3 Baustein 4 — new function)
+        context_check_row = QHBoxLayout()
+        context_check_row.setContentsMargins(20, 2, 20, 2)
+        context_check_row.setSpacing(4)
+        self._context_check_btn = self._action_btn(
+            "🧭  Context-Check", self._app.BG3, self._app.TEXT2,
+            self._on_context_check)
+        self._context_check_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                              QSizePolicy.Policy.Fixed)
+        context_check_row.addWidget(self._context_check_btn)
+        context_check_row.addWidget(
+            self._tip("Check context_data/ for missing days and bad coordinates"))
+        lay.addLayout(context_check_row)
 
         # ── Export ────────────────────────────────────────────────────────────
         lay.addWidget(self._section_widget("Export"))
@@ -308,6 +370,56 @@ class PanelOutputs(QWidget):
         lbl.setStyleSheet(f"color: {self._app.TEXT2};")
         lbl.setFixedWidth(300)
         return lbl
+
+    # ── Accessors — sole authorised write-path for restore/silo buttons ────────
+    # Moved from panel_connection.py (v1.7.2.3 Baustein 3) together with the
+    # Data Management row itself — called from PanelArchive.
+
+    def set_silo_check_button_state(self, enabled: bool, text: str = None):
+        """Called from PanelArchive — Main Thread only."""
+        self._silo_check_btn.setEnabled(enabled)
+        if text is not None:
+            self._silo_check_btn.setText(text)
+        fg = self._app.TEXT if enabled else self._app.TEXT2
+        self._silo_check_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
+            f"border: none; padding: 7px 14px; text-align: left; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
+            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
+            f"background: {self._app.BG3}; }}")
+        self._silo_check_btn.style().unpolish(self._silo_check_btn)
+        self._silo_check_btn.style().polish(self._silo_check_btn)
+        self._silo_check_btn.update()
+
+    def set_silo_repair_button_state(self, enabled: bool, text: str = None):
+        """Called from PanelArchive — Main Thread only."""
+        self._silo_repair_btn.setEnabled(enabled)
+        if text is not None:
+            self._silo_repair_btn.setText(text)
+        fg = self._app.TEXT if enabled else self._app.TEXT2
+        self._silo_repair_btn.setStyleSheet(
+            f"QPushButton {{ background: {self._app.BG3}; color: {fg}; "
+            f"border: none; padding: 7px 14px; text-align: left; }}"
+            f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}"
+            f"QPushButton:disabled {{ color: {self._app.TEXT2}; "
+            f"background: {self._app.BG3}; }}")
+        self._silo_repair_btn.style().unpolish(self._silo_repair_btn)
+        self._silo_repair_btn.style().polish(self._silo_repair_btn)
+        self._silo_repair_btn.update()
+
+    def set_restore_button_state(self, enabled: bool,
+                                 text: str = None, color: str = None,
+                                 command=None):
+        """Called from PanelArchive — Main Thread only."""
+        self._restore_btn.setEnabled(enabled)
+        if text is not None:
+            self._restore_btn.setText(text)
+        if command is not None:
+            try:
+                self._restore_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self._restore_btn.clicked.connect(command)
 
     def _on_theme_apply(self):
         """Save the selected theme number to settings. Does not restart the
@@ -693,6 +805,128 @@ class PanelOutputs(QWidget):
                 self._app._log(f"  ✗ {entry['date']}: {entry.get('error', 'error')}")
 
         self._app._panel_archive._refresh_archive_info()
+
+    # ── Context-Archive Check (v1.7.2.3 Baustein 4) ────────────────────────────
+
+    def _on_context_check(self):
+        """Runs context_silo_check.check_context_archive() in a background
+        thread — a full pass reads every context_data/ file individually
+        for the coordinate check (~35s on a multi-year archive), so this
+        must never run on the Main Thread. Same precondition guards as
+        _on_force_refetch() above."""
+        if self._app._is_running():
+            QMessageBox.warning(self._app, "Context-Check",
+                "A Garmin sync is currently running.\nPlease wait until it finishes.")
+            return
+        if self._app._ctx_running:
+            QMessageBox.warning(self._app, "Context-Check",
+                "Context sync is running.\nPlease wait until it finishes.")
+            return
+
+        s = self._app._panel_settings._collect_settings()
+        base_dir = s.get("base_dir", "")
+        if not base_dir:
+            self._app._log("✗ Context-Check: no data folder set.")
+            return
+        try:
+            default_lat = float(s.get("context_latitude") or 0.0)
+            default_lon = float(s.get("context_longitude") or 0.0)
+        except (TypeError, ValueError):
+            default_lat = default_lon = 0.0
+
+        self._context_check_btn.setEnabled(False)
+        self._context_check_btn.setText("🧭  Checking…")
+        self._app._log("🧭  Context-Check started …")
+
+        def _do_check():
+            try:
+                root = frozen_paths.scripts_root()
+                frozen_paths.add_to_path(root)
+                from context import context_silo_check
+                result = context_silo_check.check_context_archive(
+                    base_dir, default_lat=default_lat, default_lon=default_lon)
+            except Exception as e:
+                self._app._log_bg(f"✗ Context-Check failed: {e}")
+                self._app._dispatch(self._reset_context_check_btn)
+                return
+
+            def _show_result():
+                self._reset_context_check_btn()
+                total_missing = sum(len(v) for v in result["missing_days"].values())
+                self._app._log(
+                    f"🧭  Context-Check complete — {total_missing} missing, "
+                    f"{len(result['bad_coordinates'])} bad coordinate(s)")
+                self._open_context_check_dialog(result, base_dir)
+
+            self._app._dispatch(_show_result)
+
+        threading.Thread(target=_do_check, daemon=True).start()
+
+    def _reset_context_check_btn(self):
+        """Main Thread only."""
+        self._context_check_btn.setEnabled(True)
+        self._context_check_btn.setText("🧭  Context-Check")
+
+    def _open_context_check_dialog(self, result: dict, base_dir: str):
+        """Main Thread only — opens the result dialog, and on "Koordinaten
+        korrigieren" the follow-up fix dialog, chaining exec() calls the
+        same way _on_force_refetch() chains its preview/review dialogs."""
+        dlg = ContextCheckResultDialog(parent=self, result=result)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        fix_dlg = ContextCoordinateFixDialog(parent=self, findings=result["bad_coordinates"])
+        if fix_dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        fixes = fix_dlg.get_fixes()
+        if not fixes:
+            return
+
+        # Re-checked here, not just at _on_context_check()'s start — the
+        # ~35s read-only scan plus two modal dialogs is a long enough
+        # window for a Sync Context run to have started in the meantime.
+        # context_data/ has exactly one writer (context_writer.py, used
+        # by both context_collector.run() and context_silo_repair.py) —
+        # the GUI's existing convention is one write operation at a time,
+        # via the shared _ctx_running flag every other context-touching
+        # action (_on_force_refetch, _on_silo_check, _on_mirror) already
+        # checks. This fix keeps that convention rather than introducing
+        # a second, parallel guard.
+        if self._app._ctx_running:
+            QMessageBox.warning(self._app, "Context-Check",
+                "Context sync is running.\nPlease try the coordinate fix again afterwards.")
+            return
+
+        self._app._ctx_running = True
+        self._context_check_btn.setEnabled(False)
+        self._ctx_btn.setEnabled(False)
+
+        def _do_fix():
+            try:
+                self._app._log_bg(
+                    f"📍  Koordinaten-Korrektur gestartet — {len(fixes)} Tag(e) "
+                    f"werden mit korrigierter Koordinate neu abgerufen …")
+                root = frozen_paths.scripts_root()
+                frozen_paths.add_to_path(root)
+                from context import context_silo_repair
+                repair_result = context_silo_repair.fix_coordinates(base_dir, fixes)
+                for item in repair_result["items"]:
+                    if item["status"] == "error":
+                        self._app._log_bg(
+                            f"    ✗ {item['date']} {item['source']}: {item['reason']}")
+                self._app._log_bg(
+                    f"📍  Koordinaten-Korrektur fertig: {repair_result['ok']} behoben, "
+                    f"{repair_result['failed']} Fehler")
+            finally:
+                self._app._dispatch(self._reset_after_coordinate_fix)
+
+        threading.Thread(target=_do_fix, daemon=True).start()
+
+    def _reset_after_coordinate_fix(self):
+        """Main Thread only."""
+        self._app._ctx_running = False
+        self._context_check_btn.setEnabled(True)
+        self._ctx_btn.setEnabled(True)
 
     def _run_import(self):
         """Open file dialog and run bulk import."""

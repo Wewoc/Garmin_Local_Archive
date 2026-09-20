@@ -922,6 +922,351 @@ check("run network error: weather written=0",
 check("run network error: brightsky written=0",
       run_net_err["plugins"]["brightsky"]["written"] == 0)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  14. context_collector — _consume_context_resync_ack() (v1.7.2.3)
+# ══════════════════════════════════════════════════════════════════════════════
+section("14. context_collector — _consume_context_resync_ack()")
+
+_CRA_TEST_BASE = _TMPDIR / "resync_ack_test"
+_CRA_TEST_BASE.mkdir(parents=True, exist_ok=True)
+_cra_ack_path     = _CRA_TEST_BASE / "garmin_data" / "log" / "mcp" / "context_resync_ack.json"
+_cra_pending_path = _CRA_TEST_BASE / "context_data" / "_mcp_resync_pending.json"
+
+def _cra_write(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+# 14a. Both files missing — no-op, no crash, nothing created
+context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+check("_consume_context_resync_ack: both files missing — no crash, nothing created",
+      not _cra_pending_path.exists() and not _cra_ack_path.exists())
+
+# 14b. Ack missing, pending exists — no-op, pending left untouched
+_cra_write(_cra_pending_path, {"pending": [
+    {"date": "2026-03-05", "source": "weather", "marked_at": "T1"}]})
+context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+check("_consume_context_resync_ack: no ack file yet — pending left untouched",
+      json.loads(_cra_pending_path.read_text(encoding="utf-8"))["pending"] ==
+      [{"date": "2026-03-05", "source": "weather", "marked_at": "T1"}])
+
+# 14c. Pending missing, ack exists — no-op, no crash
+_cra_pending_path.unlink()
+_cra_write(_cra_ack_path, {"acked": [
+    {"date": "2026-03-05", "source": "weather", "marked_at": "T1"}]})
+try:
+    context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+    _cra_no_crash_no_pending = True
+except Exception:
+    _cra_no_crash_no_pending = False
+check("_consume_context_resync_ack: no pending file — no crash",
+      _cra_no_crash_no_pending)
+
+# 14d. Ack entries don't match anything in pending — no rewrite at all
+_cra_write(_cra_pending_path, {"pending": [
+    {"date": "2026-09-01", "source": "pollen", "marked_at": "T1"}]})
+_cra_mtime_before = _cra_pending_path.stat().st_mtime_ns
+context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+check("_consume_context_resync_ack: ack doesn't match pending — file not rewritten at all",
+      _cra_pending_path.stat().st_mtime_ns == _cra_mtime_before)
+
+# 14e. Partial match — only the acknowledged entry is removed, the rest stays
+_cra_write(_cra_pending_path, {"pending": [
+    {"date": "2026-03-05", "source": "weather", "marked_at": "T1"},
+    {"date": "2026-09-01", "source": "pollen", "marked_at": "T1"},
+]})
+context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+_cra_remaining = json.loads(_cra_pending_path.read_text(encoding="utf-8"))["pending"]
+check("_consume_context_resync_ack: removes only the acknowledged entry, keeps the rest",
+      _cra_remaining == [{"date": "2026-09-01", "source": "pollen", "marked_at": "T1"}])
+
+# 14f. Idempotent — running again with the same ack changes nothing further
+context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+_cra_remaining2 = json.loads(_cra_pending_path.read_text(encoding="utf-8"))["pending"]
+check("_consume_context_resync_ack: idempotent — second call removes nothing more",
+      _cra_remaining2 == [{"date": "2026-09-01", "source": "pollen", "marked_at": "T1"}])
+
+# 14g. Corrupt ack JSON — graceful no-op, pending untouched
+_cra_ack_path.write_text("{ not valid json", encoding="utf-8")
+context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+check("_consume_context_resync_ack: corrupt ack JSON — no crash, pending untouched",
+      json.loads(_cra_pending_path.read_text(encoding="utf-8"))["pending"] ==
+      [{"date": "2026-09-01", "source": "pollen", "marked_at": "T1"}])
+
+# 14h. Corrupt pending JSON — graceful no-op, no crash
+_cra_write(_cra_ack_path, {"acked": [
+    {"date": "2026-09-01", "source": "pollen", "marked_at": "T1"}]})
+_cra_pending_path.write_text("{ not valid json", encoding="utf-8")
+try:
+    context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+    _cra_no_crash_corrupt_pending = True
+except Exception:
+    _cra_no_crash_corrupt_pending = False
+check("_consume_context_resync_ack: corrupt pending JSON — no crash",
+      _cra_no_crash_corrupt_pending)
+
+# 14i. Regression (found via live-archive round-trip, 2026-09-20): an ack
+#      entry with an OLD marked_at must NOT remove a pending entry for the
+#      same (date, source) that was re-marked with a NEWER marked_at — that
+#      would discard a not-yet-synced second repair.
+_cra_write(_cra_pending_path, {"pending": [
+    {"date": "2026-05-01", "source": "weather", "marked_at": "T2"}]})
+_cra_write(_cra_ack_path, {"acked": [
+    {"date": "2026-05-01", "source": "weather", "marked_at": "T1"}]})
+context_collector._consume_context_resync_ack(_CRA_TEST_BASE)
+check("_consume_context_resync_ack: stale ack (old marked_at) does not remove "
+      "a re-marked pending entry (new marked_at) for the same date/source",
+      json.loads(_cra_pending_path.read_text(encoding="utf-8"))["pending"] ==
+      [{"date": "2026-05-01", "source": "weather", "marked_at": "T2"}])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  15. context_silo_check — check_context_archive() (v1.7.2.3)
+# ══════════════════════════════════════════════════════════════════════════════
+section("15. context_silo_check — check_context_archive()")
+
+from context import context_silo_check
+
+_CSC_BASE = _TMPDIR / "silo_check_test"
+_CSC_BASE.mkdir(parents=True, exist_ok=True)
+
+def _csc_write_quality_log(base, dates):
+    qlog = base / "garmin_data" / "log" / "quality_log.json"
+    qlog.parent.mkdir(parents=True, exist_ok=True)
+    qlog.write_text(json.dumps({"days": [{"date": d} for d in dates]}), encoding="utf-8")
+
+_CSC_PREFIX = {"weather": "weather_", "pollen": "pollen_",
+               "brightsky": "brightsky_", "airquality": "airquality_"}
+
+def _csc_write_context_file(base, source, day, lat, lon):
+    d = base / "context_data" / source / "summary"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{_CSC_PREFIX[source]}{day}.json").write_text(
+        json.dumps({"date": day, "latitude": lat, "longitude": lon, "fields": {}}),
+        encoding="utf-8")
+
+# ── Empty archive — no quality_log at all ──────────────────────────────────────
+_result_empty = context_silo_check.check_context_archive(str(_CSC_BASE))
+check("check_context_archive: no quality_log — empty result, no crash",
+      _result_empty["totals"]["days_in_range"] == 0 and
+      _result_empty["missing_days"]["weather"] == [])
+
+# ── Missing days per source ─────────────────────────────────────────────────────
+_csc_write_quality_log(_CSC_BASE, ["2026-01-01", "2026-01-02", "2026-01-03"])
+for _day in ["2026-01-01", "2026-01-02", "2026-01-03"]:
+    _csc_write_context_file(_CSC_BASE, "weather", _day, 52.0, 8.0)
+_csc_write_context_file(_CSC_BASE, "pollen", "2026-01-01", 52.0, 8.0)
+_csc_write_context_file(_CSC_BASE, "pollen", "2026-01-03", 52.0, 8.0)  # day 2 missing
+_result_missing = context_silo_check.check_context_archive(
+    str(_CSC_BASE), default_lat=52.0, default_lon=8.0)
+check("check_context_archive: weather has no missing days",
+      _result_missing["missing_days"]["weather"] == [])
+check("check_context_archive: pollen missing exactly day 2",
+      _result_missing["missing_days"]["pollen"] == ["2026-01-02"])
+check("check_context_archive: airquality (never written) missing all 3 days",
+      _result_missing["missing_days"]["airquality"] ==
+      ["2026-01-01", "2026-01-02", "2026-01-03"])
+check("check_context_archive: totals reflect files actually on disk",
+      _result_missing["totals"]["weather"] == 3 and _result_missing["totals"]["pollen"] == 2)
+
+# ── Brightsky DACH-bounding-box exemption ──────────────────────────────────────
+_result_outside_dach = context_silo_check.check_context_archive(
+    str(_CSC_BASE), default_lat=40.7128, default_lon=-74.0060)  # New York
+check("check_context_archive: brightsky exempt outside the DACH bounding box",
+      _result_outside_dach["missing_days"]["brightsky"] == [])
+check("check_context_archive: airquality still reported missing outside DACH "
+      "(only brightsky has the geographic exemption)",
+      _result_outside_dach["missing_days"]["airquality"] ==
+      ["2026-01-01", "2026-01-02", "2026-01-03"])
+
+_result_inside_dach = context_silo_check.check_context_archive(
+    str(_CSC_BASE), default_lat=52.0, default_lon=8.0)
+check("check_context_archive: brightsky reported missing inside the DACH bounding box",
+      _result_inside_dach["missing_days"]["brightsky"] ==
+      ["2026-01-01", "2026-01-02", "2026-01-03"])
+
+# ── day_location — CSV entries take priority over the default ─────────────────
+_csc_csv = _CSC_BASE / "local_config.csv"
+_csc_csv.write_text(
+    "date_from;date_to;country;place;latitude;longitude\n"
+    "2026-01-02;2026-01-02;Germany;Herford;52.1235;8.6539\n",
+    encoding="utf-8")
+_result_csv = context_silo_check.check_context_archive(
+    str(_CSC_BASE), default_lat=52.0, default_lon=8.0)
+_loc_by_date = {e["date"]: e for e in _result_csv["day_location"]}
+check("check_context_archive: CSV-covered day uses the CSV coordinate, not the default",
+      (_loc_by_date["2026-01-02"]["lat"], _loc_by_date["2026-01-02"]["lon"])
+      == (52.1235, 8.6539))
+check("check_context_archive: CSV-covered day carries its place/country",
+      _loc_by_date["2026-01-02"]["place"] == "Herford")
+check("check_context_archive: day outside the CSV range falls back to the default, no place",
+      _loc_by_date["2026-01-01"]["place"] is None and
+      (_loc_by_date["2026-01-01"]["lat"], _loc_by_date["2026-01-01"]["lon"]) == (52.0, 8.0))
+check("check_context_archive: day_location sorted with no-place days first",
+      _result_csv["day_location"][0]["place"] is None)
+_csc_csv.unlink()
+
+# ── Coordinate plausibility ──────────────────────────────────────────────────────
+_CSC_BASE2 = _TMPDIR / "silo_check_coords"
+_CSC_BASE2.mkdir(parents=True, exist_ok=True)
+_csc_write_quality_log(_CSC_BASE2, ["2026-02-01"])
+
+_csc_write_context_file(_CSC_BASE2, "weather", "2026-02-01", 52.1239, 8.6541)  # ~40m off
+_result_drift_ok = context_silo_check.check_context_archive(
+    str(_CSC_BASE2), default_lat=52.1235, default_lon=8.6539)
+check("check_context_archive: small drift within the default 2km radius — no finding",
+      _result_drift_ok["bad_coordinates"] == [])
+
+_csc_write_context_file(_CSC_BASE2, "weather", "2026-02-01", 52.5200, 13.4050)  # Berlin, ~350km
+_result_drift_bad = context_silo_check.check_context_archive(
+    str(_CSC_BASE2), default_lat=52.1235, default_lon=8.6539)
+check("check_context_archive: large drift beyond the radius — reported as 'drift'",
+      len(_result_drift_bad["bad_coordinates"]) == 1 and
+      _result_drift_bad["bad_coordinates"][0]["reason"] == "drift")
+check("check_context_archive: 'drift' finding reports a sensible distance_km",
+      _result_drift_bad["bad_coordinates"][0]["distance_km"] > 200)
+
+_csc_write_context_file(_CSC_BASE2, "weather", "2026-02-01", 0.0, 0.0)
+_result_zero = context_silo_check.check_context_archive(
+    str(_CSC_BASE2), default_lat=52.1235, default_lon=8.6539, radius_km=999999.0)
+check("check_context_archive: 0.0/0.0 is always 'zero', even with a huge radius",
+      _result_zero["bad_coordinates"][0]["reason"] == "zero")
+
+_csc_write_context_file(_CSC_BASE2, "weather", "2026-02-01", 95.0, 8.6539)
+_result_oor = context_silo_check.check_context_archive(
+    str(_CSC_BASE2), default_lat=52.1235, default_lon=8.6539)
+check("check_context_archive: out-of-range latitude reported as 'out_of_range'",
+      _result_oor["bad_coordinates"][0]["reason"] == "out_of_range")
+
+# ── A missing file is never also reported as a bad-coordinate finding ─────────
+_CSC_BASE3 = _TMPDIR / "silo_check_missing_not_double"
+_CSC_BASE3.mkdir(parents=True, exist_ok=True)
+_csc_write_quality_log(_CSC_BASE3, ["2026-02-05"])
+_result_no_double = context_silo_check.check_context_archive(
+    str(_CSC_BASE3), default_lat=52.1235, default_lon=8.6539)
+check("check_context_archive: a missing file is never also reported as bad_coordinates",
+      _result_no_double["bad_coordinates"] == [] and
+      "2026-02-05" in _result_no_double["missing_days"]["weather"])
+
+# ── Custom radius_km is honored ─────────────────────────────────────────────────
+_CSC_BASE4 = _TMPDIR / "silo_check_custom_radius"
+_CSC_BASE4.mkdir(parents=True, exist_ok=True)
+_csc_write_quality_log(_CSC_BASE4, ["2026-02-10"])
+_csc_write_context_file(_CSC_BASE4, "weather", "2026-02-10", 52.1300, 8.6600)  # ~0.8km off
+_result_tight_radius = context_silo_check.check_context_archive(
+    str(_CSC_BASE4), default_lat=52.1235, default_lon=8.6539, radius_km=0.1)
+check("check_context_archive: a tighter custom radius flags drift the default radius accepts",
+      len(_result_tight_radius["bad_coordinates"]) == 1)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  16. context_silo_repair — fix_coordinates() (v1.7.2.3)
+# ══════════════════════════════════════════════════════════════════════════════
+section("16. context_silo_repair — fix_coordinates()")
+
+from context import context_silo_repair
+
+_CSR_BASE = _TMPDIR / "silo_repair_test"
+_CSR_BASE.mkdir(parents=True, exist_ok=True)
+
+_csr_response = json.dumps({
+    "daily": {
+        "time": ["2026-04-01"],
+        "temperature_2m_max": [25.0],
+        "temperature_2m_min": [15.0],
+        "precipitation_sum":  [0.0],
+        "wind_speed_10m_max": [10.0],
+        "uv_index_max":       [5.0],
+        "sunshine_duration":  [30000.0],
+    }
+}).encode("utf-8")
+
+class _CsrMockResp:
+    def read(self): return _csr_response
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+
+_csr_call_urls = []
+def _csr_mock_urlopen(url, timeout=30):
+    _csr_call_urls.append(url)
+    return _CsrMockResp()
+
+with patch("urllib.request.urlopen", side_effect=_csr_mock_urlopen):
+    _fix_result = context_silo_repair.fix_coordinates(str(_CSR_BASE), [
+        {"date": "2026-04-01", "source": "weather", "lat": 52.5200, "lon": 13.4050},
+    ])
+check("fix_coordinates: successful repair reported as 'repaired'",
+      _fix_result["ok"] == 1 and _fix_result["items"][0]["status"] == "repaired")
+check("fix_coordinates: real API call made with the corrected coordinate",
+      any("latitude=52.52" in u for u in _csr_call_urls))
+
+_fixed_file = _CSR_BASE / "context_data" / "weather" / "summary" / "weather_2026-04-01.json"
+_fixed_content = json.loads(_fixed_file.read_text(encoding="utf-8"))
+check("fix_coordinates: file rewritten with the corrected coordinate",
+      _fixed_content["latitude"] == 52.52)
+check("fix_coordinates: file rewritten with the newly fetched value, not stale data",
+      _fixed_content["fields"]["temperature_2m_max"] == 25.0)
+
+# ── Unknown source ──────────────────────────────────────────────────────────────
+with patch("urllib.request.urlopen", side_effect=_csr_mock_urlopen):
+    _fix_unknown = context_silo_repair.fix_coordinates(str(_CSR_BASE), [
+        {"date": "2026-04-01", "source": "bogus", "lat": 1.0, "lon": 1.0},
+    ])
+check("fix_coordinates: unknown source — error, not a crash",
+      _fix_unknown["failed"] == 1 and _fix_unknown["items"][0]["status"] == "error")
+
+# ── API/network failure ─────────────────────────────────────────────────────────
+def _csr_mock_urlopen_fail(url, timeout=30):
+    raise OSError("simulated network failure")
+with patch("urllib.request.urlopen", side_effect=_csr_mock_urlopen_fail), \
+     patch("time.sleep"):  # skip context_api's real retry backoff
+    _fix_no_data = context_silo_repair.fix_coordinates(str(_CSR_BASE), [
+        {"date": "2026-04-02", "source": "weather", "lat": 52.0, "lon": 8.0},
+    ])
+check("fix_coordinates: API failure — reported as error, not counted as ok",
+      _fix_no_data["ok"] == 0 and _fix_no_data["failed"] == 1)
+check("fix_coordinates: API failure reason is surfaced",
+      _fix_no_data["items"][0]["reason"] == "fetch returned no data")
+
+# ── Pending-resync marker: written on success, not on failure, deduplicated ────
+_pending_marker = _CSR_BASE / "context_data" / "_mcp_resync_pending.json"
+_pending_after_first = json.loads(_pending_marker.read_text(encoding="utf-8"))["pending"]
+_first_entry = next((e for e in _pending_after_first
+                      if e["date"] == "2026-04-01" and e["source"] == "weather"), None)
+check("fix_coordinates: pending marker written after a successful repair",
+      _first_entry is not None)
+check("fix_coordinates: pending marker entry carries a marked_at timestamp",
+      _first_entry is not None and bool(_first_entry.get("marked_at")))
+check("fix_coordinates: pending marker NOT written for a failed repair",
+      not any(e["date"] == "2026-04-02" for e in _pending_after_first))
+
+_marked_at_first = _first_entry["marked_at"]
+
+with patch("urllib.request.urlopen", side_effect=_csr_mock_urlopen):
+    context_silo_repair.fix_coordinates(str(_CSR_BASE), [
+        {"date": "2026-04-01", "source": "weather", "lat": 52.5200, "lon": 13.4050},
+    ])
+_pending_after_repeat = json.loads(_pending_marker.read_text(encoding="utf-8"))["pending"]
+check("fix_coordinates: repeated repair of the same (date, source) — marker deduplicated "
+      "(still one entry, not appended)",
+      len(_pending_after_repeat) == 1)
+# Regression check (2026-09-20 live-archive finding): a second repair of the
+# same (date, source) must REPLACE the entry with a fresh marked_at, not
+# leave the old one in place — an unchanged marked_at is exactly what made
+# mcp_update.py's ack silently swallow the second repair.
+check("fix_coordinates: repeated repair refreshes marked_at (not left stale)",
+      _pending_after_repeat[0]["marked_at"] != _marked_at_first)
+
+# ── Empty fixes list — no marker file created, no crash ────────────────────────
+_CSR_BASE2 = _TMPDIR / "silo_repair_empty"
+_CSR_BASE2.mkdir(parents=True, exist_ok=True)
+_fix_empty = context_silo_repair.fix_coordinates(str(_CSR_BASE2), [])
+check("fix_coordinates: empty fixes list — ok/failed both zero, no crash",
+      _fix_empty == {"ok": 0, "failed": 0, "items": []})
+check("fix_coordinates: empty fixes list — no marker file created",
+      not (_CSR_BASE2 / "context_data" / "_mcp_resync_pending.json").exists())
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Broker-Contract — weather_map, pollen_map, context_map
 # ══════════════════════════════════════════════════════════════════════════════

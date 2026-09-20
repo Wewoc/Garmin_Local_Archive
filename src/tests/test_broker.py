@@ -733,6 +733,7 @@ _expected_kinds = {
     "stats", "device_table", "quality_log", "source_api_log", "token_log",
     "capability_config", "daily_logs", "fail_logs", "recent_logs",
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
+    "context_resync_pending",
 }
 _all_registered_kinds = _expected_kinds | {"raw_file_hashes"}
 check("list_metadata_kinds: matches the registered kind set exactly",
@@ -789,6 +790,34 @@ check("get_metadata('fail_log_filenames'): delegates to metadata_map.list_fail_l
 check("get_metadata('recent_log_filenames'): delegates to metadata_map.list_recent_log_filenames()",
       gateway_map.get_metadata("recent_log_filenames") ==
       metadata_map.list_recent_log_filenames())
+
+# ── v1.7.2.3: context_resync_pending — internal-sync-only kind, same
+#    category as the three filename-only kinds above. Content-level
+#    checks here (missing/present/corrupt file), not just the shallow
+#    envelope loop earlier in this section.
+check("get_metadata('context_resync_pending'): delegates to "
+      "metadata_map.get_context_resync_pending()",
+      gateway_map.get_metadata("context_resync_pending") ==
+      metadata_map.get_context_resync_pending())
+
+_crp_path = cfg.CONTEXT_RESYNC_PENDING_FILE
+check("get_context_resync_pending: no marker file yet — empty list, not an error",
+      metadata_map.get_context_resync_pending() == {"data": [], "error": None})
+
+_crp_path.parent.mkdir(parents=True, exist_ok=True)
+_crp_path.write_text(
+    json.dumps({"pending": [{"date": "2026-03-05", "source": "weather"}]}),
+    encoding="utf-8")
+check("get_context_resync_pending: existing marker — returns its pending list",
+      metadata_map.get_context_resync_pending() ==
+      {"data": [{"date": "2026-03-05", "source": "weather"}], "error": None})
+
+_crp_path.write_text("{ not valid json", encoding="utf-8")
+_crp_corrupt = metadata_map.get_context_resync_pending()
+check("get_context_resync_pending: corrupt JSON — degrades to data=None, error set",
+      _crp_corrupt["data"] is None and _crp_corrupt["error"] is not None)
+
+_crp_path.unlink()  # restore no-marker state for any later section
 check("get_metadata('daily_log_filenames', date_from/date_to): forwards to metadata_map",
       gateway_map.get_metadata("daily_log_filenames", date_from="2026-06-15", date_to="2026-06-16") ==
       metadata_map.list_daily_log_filenames(date_from="2026-06-15", date_to="2026-06-16"))
