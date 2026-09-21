@@ -6,77 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.2.3**
-
----
-
-### ~~v1.7.2.3 — Context Archive Integrity Check~~ ✓ released
-
-Data Collection gained a Context-Check function, parallel in spirit to
-Force Refetch:
-- Scans for missing days in the context archive (should not normally happen)
-- Validates coordinates per day via haversine distance against the day's
-  configured location (default 2 km tolerance)
-- Collapsible findings dialog, days without a plausible coordinate listed
-- A real re-fetch (`context_silo_repair.fix_coordinates()`) for flagged
-  days/sources, not a metadata-only coordinate patch — a flagged finding
-  means the underlying fetched values are wrong, not just their label
-- A pending-resync marker consumed automatically by the next MCP sync
-  (server startup or `refresh_cache()`), keeping the SQLite proxy
-  (`mcp_cache.db`) in sync with archive repairs without the GUI touching
-  the database directly
-
-Alongside this: GUI reorganization (Data Management moved from the
-Connection tab into Data Collection; Export/Import-to-Mirror and Reset
-Token removed) and removal of the now-dead `check_mirror()`. Verified
-against the real production archive, not only mocks — see
-`CHANGELOG.md` v1.7.2.3 for the two real bugs this live round-trip found
-and fixed. Full session log: `PROTOKOLL_experiment.md`, details per
-Baustein in `changelog/anchor_delivery_v1723-*.md`.
-
----
-
-### v1.7.2.4 — Updater, T3 only (planned)
-
-Self-update button: check for a new version, download in the background, swap
-files, restart the app. **Scope: T3 only** — T2 (Standard EXE) keeps today's
-notify-only popup (`_check_version()` / `_show_update_popup()` in
-`garmin_app_base.py`, already shared across T1/T2/T3.1) unchanged, no
-auto-apply.
-
-**"T3" here means the whole combined package, not just the GUI.**
-`build_combined_zip()` in `compiler/build_standalone.py` packs T3.1's
-`--onedir` folder (GUI EXE + `_internal/`), T3.2 (`daily_update.exe`), and
-T3.3 (`mcp_server.exe`) flat into one install directory — all three sibling
-files in the same folder on the user's machine. An updater that replaces
-that folder wholesale (which is exactly how Velopack's package-replace model
-works) updates all three automatically as one unit — daily_update.exe and
-mcp_server.exe don't need separate handling.
-
-**Update dialog — three options, not two:** extends the existing two-button
-popup (`_show_update_popup()`) to three:
-- **Update** (new) — triggers the actual download/apply/restart flow
-- **Open GitHub** — unchanged (manual fallback)
-- **Dismiss** — unchanged
-
-**Why T3-only:** T3 ships as a self-contained `--onedir`-based folder, which
-is exactly what an updater framework can replace wholesale. T2 is
-structurally different — a `--onefile` launcher EXE plus a sidecar
-`scripts/` folder of raw `.py` files, and it requires Python already
-installed on the target machine (see the Build targets table in
-`REFERENCE_GLOBAL.md`) — no clean "replace the package" story, would need
-its own separate, bespoke update mechanism. Download data backs up
-narrowing scope to T3: as of 2026-09-19, `Garmin_Local_Archive_Standalone.zip`
-(T3) accounts for ~73% of all downloads (157/218) and grew ~5x faster than
-`Garmin_Local_Archive.zip` (T2) over the preceding six weeks (+67 vs. +13)
-— see `D:\Garmin\Tools\GitHub-Insights\download_analysis_v4-kompact.xlsx`.
-
-**Candidate solution: [Velopack](https://velopack.io/)** — explicitly
-supports GitHub Releases as the update-hosting source, works with
-PyInstaller `--onedir` output (matches T3.1 as built), `UpdateManager` API
-for check/download/apply from inside the app. Cost: adds a .NET SDK
-dependency to the build machine only (for the `vpk` packaging CLI, not
-for end users) — new to an otherwise pure Python/PyInstaller build chain.
+**Currently stable — v1.7.2.4**
 
 ---
 
@@ -558,6 +488,9 @@ This module holds its own copy of the disclaimer text instead of calling `dash_l
 **`clients/mcp_server_gui.py` color-theme parity**
 v1.7.0.2 added a GLA-branded text header (`"🦄  GARMIN LOCAL ARCHIVE"`) but deliberately stopped there — the window still runs Tkinter's native "vista" theme, which mostly ignores custom widget colors for `ttk` controls (Checkbutton, Entry, Button). Real color parity with the PyQt6 app's dark/purple palette would need `ttk.Style().theme_use("clam")` first, which also changes the whole widget look away from native Windows rendering — a bigger, separate change, deferred by choice ("just the unicorn" this session).
 
+**Lock file for the self-updater against concurrent triggers**
+The GUI's "Update" button and the unattended `daily_update.exe`/`daily_update.py` auto-apply path (v1.7.2.4, T2 + T3) could in principle both fire at the same moment and try to swap the same install folder. Not built — `updater_helper.ps1` would need its own PID-based mutex, the same fixed-lock-file pattern `process_status.py` already uses elsewhere. Low-probability edge case (two independent triggers landing in the same few seconds), not a correctness gap in the common case.
+
 **MCP server window/taskbar icon**
 No icon asset exists anywhere in this codebase yet — the titlebar "feather" seen on `clients/mcp_server_gui.py`'s window is Tkinter's own stock default, not a GLA icon gone missing. A real icon would need an asset created (or sourced under a free license, e.g. Twemoji/OpenMoji), wired in via `root.iconphoto()`, and — for the standalone build — a `build_manifest.py`/PyInstaller bundling entry so `mcp_server.exe` ships it too.
 
@@ -574,7 +507,7 @@ v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left
 - Mobile app
 - Automatic data sharing, cloud sync, or social comparison features
 - GUI and EXE are Windows-only and will remain so. The collector scripts work on Linux and macOS but are untested and unsupported — use at your own risk.
-- Code signing or automatic updates (see `TODO_HARDENING.md` D1 — decision-gated on commercial scope)
+- Code signing (see `TODO_HARDENING.md` D1 — decision-gated on commercial scope). Automatic updates shipped for T2 + T3 in v1.7.2.4 — not signing the EXEs themselves means the freshly-downloaded files can still trigger a SmartScreen prompt on first run; `updater_helper.ps1` strips Mark-of-the-Web after extraction as a partial, no-cost mitigation, but a real Authenticode certificate remains the only full fix, still gated on the same commercial-scope decision as D1.
 - Generated SBOM + hash-locked dependency lockfile (`TODO_HARDENING.md` D2 — dossier value only, no urgency for a hobby tool)
 - Formal documented vulnerability-handling process beyond the existing `SECURITY.md` disclosure channel (`TODO_HARDENING.md` D3)
 - Removing the Sync Garmin / Sync Context / Create Reports buttons — discussed and analysed twice (v1.6.0), decided against: the Stop button for both sync paths hangs off the same widgets, so removal would take Stop functionality with it, and the CSV button belongs to the Context section thematically. Low benefit, real risk of silent side effects. Recorded here as a decision taken, not as a pending item — it sat on a parking list without a target version and was never one.

@@ -54,10 +54,11 @@ is currently on disk without displaying it.
 Entstehungsgeschichte: siehe CHANGELOG.md v1.7.0.
 """
 
-import socket
 import subprocess
 import sys
 from pathlib import Path
+
+import process_status as _process_status
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -156,20 +157,13 @@ def _resolve_mcp_server_launch_command() -> list[str] | None:
 
 
 def _mcp_server_is_running() -> bool:
-    """TCP-connect probe against 127.0.0.1:MCP_HTTP_PORT (v1.7.0.1) —
-    replaces the PID-lockfile + `tasklist` check this button used under
-    the stdio transport. The server now listens on a real socket, so a
-    successful connect is a direct, unambiguous liveness signal — no
-    stale-file interpretation needed (the old code's "no lock file" and
-    "lock file present but stale" cases collapse into one: connect
-    fails, socket closed cleanly either way). Short timeout — this only
-    needs to catch "already running", not tolerate a slow remote host
-    (there is none, host is always 127.0.0.1)."""
-    try:
-        with socket.create_connection(("127.0.0.1", cfg.MCP_HTTP_PORT), timeout=0.3):
-            return True
-    except OSError:
-        return False
+    """TCP-connect probe against 127.0.0.1:MCP_HTTP_PORT (v1.7.0.1).
+    Delegates to process_status.is_mcp_running() (v1.7.2.4) — extracted
+    there so scheduler/daily_update.py can reuse the identical check
+    without importing PyQt6 into the headless T3.2 build. Kept as a
+    thin wrapper here rather than replaced at every call site, so
+    existing callers/imports in this module don't need to change."""
+    return _process_status.is_mcp_running()
 
 
 class PanelMcp(QWidget):

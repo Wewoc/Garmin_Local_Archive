@@ -38,8 +38,10 @@ a given rule, see `CHANGELOG.md`.
 - Settings tab: two columns — `PanelSettings` on the left (fixed 400px), action panels on the right (flexible)
 - `scheduler/daily_update.py` — GUI-free; a `sys.path` root anchor is set before the first project import; every further project import is lazy (after the environment is configured)
 - `APP_VERSION` comes from `version.py` — never kept in sync manually elsewhere
-- `frozen_paths.py` — sole source for frozen-path resolution (`scripts_root()`, `add_to_path()`, `doc_path()`), Leaf Node in `src/`. Does NOT cover `garmin_app.py`/`garmin_app_standalone.py`'s own `script_dir()`/`script_path()`, nor `dash_runner._load_plotters()` or `dash_plotter_html_complex.py`'s `render/` loader
+- `frozen_paths.py` — sole source for frozen-path resolution (`scripts_root()`, `add_to_path()`, `doc_path()`, `is_t3_standalone()` — v1.7.2.4, `is_t2_standard(reference_file=None)` — v1.7.2.4-Nacherweiterung), Leaf Node in `src/`. Does NOT cover `garmin_app.py`/`garmin_app_standalone.py`'s own `script_dir()`/`script_path()`, nor `dash_runner._load_plotters()` or `dash_plotter_html_complex.py`'s `render/` loader
 - `log_utils.py` — domain-less Leaf Node in `src/`; `with_timestamp(log_fn)` prefixes log-callback messages with a timestamp
+- `process_status.py` (v1.7.2.4) — sole source for "is process X running" where there's no port to probe (GUI, `daily_update.exe`) via a fixed PID-lock-file under `Path.home()` + `ctypes`/`OpenProcess` liveness check; also the sole `is_mcp_running()` (TCP probe), which `app/panel_mcp.py::_mcp_server_is_running()` delegates to rather than duplicating. Leaf Node in `src/`, with a documented exception (`garmin_config` imported lazily for `MCP_HTTP_PORT` — see `REFERENCE_GARMIN.md § Documented Exceptions`)
+- `updater.py` (v1.7.2.4) — sole source for T3 self-update logic (GitHub release asset resolution, download+SHA256-verify+extract). Leaf Node in `src/`, stdlib only, no project imports at all. Fails closed: refuses to apply an update whose release publishes no checksum, rather than applying it unverified
 - `export/backfill_source_backup.py` — imports `SETTINGS_FILE` from `garmin_app_settings` instead of hardcoding it independently — the sole source for the settings path in the project
 
 ## Build

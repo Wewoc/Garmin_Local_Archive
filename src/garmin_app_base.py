@@ -26,6 +26,9 @@ v1.5.4 — PyQt6 migration
   Shared state remains on GarminApp with Owner-Matrix (D-4).
 """
 
+import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -46,7 +49,7 @@ import garmin_redact as _redact
 import theme
 
 from app.panel_settings   import PanelSettings
-from app.panel_mcp        import PanelMcp
+from app.panel_mcp        import PanelMcp, _resolve_mcp_server_launch_command
 from app.panel_connection import PanelConnection
 from app.panel_archive    import PanelArchive
 from app.panel_timer      import PanelTimer
@@ -63,7 +66,10 @@ load_password    = _settings.load_password
 delete_password  = _settings.delete_password
 _open_url        = _settings._open_url
 
-from version import APP_VERSION
+from version import APP_VERSION, is_newer
+import frozen_paths
+import process_status
+import updater
 
 
 
@@ -110,6 +116,11 @@ class GarminApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = load_settings()
+
+        # v1.7.2.4 — lock file so daily_update.exe's own auto-update path
+        # can tell whether the GUI is currently open before a self-update
+        # swap (mirrors the daily_update lock in scheduler/daily_update.py).
+        process_status.write_lock("gui")
 
         # Connect dispatch signal to slot — Qt routes cross-thread emissions
         # via queued connection automatically.
@@ -479,6 +490,11 @@ class GarminApp(QMainWindow):
         s.update(self._panel_timer.get_timer_settings())
         s.update(self._panel_mcp.get_mcp_settings())
         s["active_theme"] = self.settings.get("active_theme", 1)
+        # v1.7.2.4 — same reasoning as active_theme above: not bound to any
+        # Settings-panel widget, carried over directly so closeEvent()'s
+        # _collect_settings() call doesn't silently drop it on every save.
+        s["daily_update_auto_update"] = self.settings.get(
+            "daily_update_auto_update", False)
         return s
 
     def _safe_save(self, s: dict = None):
@@ -563,12 +579,12 @@ class GarminApp(QMainWindow):
                 data = _json.loads(resp.read().decode())
             latest = data.get("tag_name", "").strip()
             title  = data.get("name", "").strip() or latest
-            if latest and latest.lstrip("vV") != APP_VERSION.lstrip("vV"):
-                self._dispatch(self._show_update_popup, latest, title)
+            if latest and is_newer(latest, APP_VERSION):
+                self._dispatch(self._show_update_popup, latest, title, data)
         except Exception:
             pass
 
-    def _show_update_popup(self, latest: str, title: str):
+    def _show_update_popup(self, latest: str, title: str, release_json: dict):
         import webbrowser
         dlg = QMessageBox(self)
         dlg.setWindowTitle("Update Available")
@@ -577,16 +593,106 @@ class GarminApp(QMainWindow):
             f"You are running: {APP_VERSION}"
         )
         dlg.setStyleSheet(f"background: {self.BG}; color: {self.TEXT};")
+        # Third button (self-update, v1.7.2.4 T3, v1.7.2.4-Nacherweiterung
+        # auch T2) ist T2/T3 — T1 (Dev) behält das ursprüngliche
+        # Zwei-Button-Notify-only-Popup.
+        update_btn = None
+        if frozen_paths.is_t3_standalone() or frozen_paths.is_t2_standard():
+            update_btn = dlg.addButton("Update",
+                                        QMessageBox.ButtonRole.AcceptRole)
         open_btn  = dlg.addButton("Open GitHub",
                                    QMessageBox.ButtonRole.AcceptRole)
         dlg.addButton("Dismiss", QMessageBox.ButtonRole.RejectRole)
         dlg.exec()
         try:
-            if dlg.clickedButton() == open_btn:
+            clicked = dlg.clickedButton()
+            if update_btn is not None and clicked == update_btn:
+                self._start_update(latest, release_json)
+            elif clicked == open_btn:
                 webbrowser.open(
                     "https://github.com/Wewoc/Garmin_Local_Archive/releases/latest")
         except RuntimeError:
             pass
+
+    def _start_update(self, latest: str, release_json: dict):
+        """Kicks off the self-update flow (v1.7.2.4 T3, v1.7.2.4-
+        Nacherweiterung auch T2). Download+verify+extract (network I/O)
+        runs in a background thread so the GUI doesn't freeze; the actual
+        file-swap runs afterward in a separate, detached PowerShell
+        process (updater_helper.ps1) — this process can't overwrite its
+        own running files, so it has to hand off and close itself once
+        the helper is started."""
+        is_t3 = frozen_paths.is_t3_standalone()
+        if is_t3:
+            zip_asset_name, checksum_asset_name, gui_exe_name = (
+                updater.T3_ZIP_ASSET_NAME, updater.T3_ZIP_CHECKSUM_ASSET_NAME,
+                "Garmin_Local_Archive_Standalone.exe")
+        else:
+            zip_asset_name, checksum_asset_name, gui_exe_name = (
+                updater.T2_ZIP_ASSET_NAME, updater.T2_ZIP_CHECKSUM_ASSET_NAME,
+                "Garmin_Local_Archive.exe")
+
+        def worker():
+            zip_url = updater.resolve_release_asset(
+                release_json, zip_asset_name)
+            checksum_url = updater.resolve_release_asset(
+                release_json, checksum_asset_name)
+            if not zip_url:
+                self._dispatch(self._log,
+                    f"✗ Update failed: release has no "
+                    f"{'T3' if is_t3 else 'T2'} ZIP asset.")
+                return
+
+            exe_dir = Path(sys.executable).parent
+            try:
+                updater.prepare_update(exe_dir, zip_url, checksum_url)
+            except RuntimeError as exc:
+                self._dispatch(self._log, f"✗ Update failed: {exc}")
+                return
+
+            # MCP holds its own EXE open while running — must be stopped
+            # before the helper can replace it (same lock issue the whole
+            # v1.7.2.4 concept is built around, Baustein 5).
+            mcp_was_running = process_status.is_mcp_running()
+            if mcp_was_running:
+                root = frozen_paths.scripts_root()
+                frozen_paths.add_to_path(root, "clients")
+                import mcp_process
+                mcp_process.stop()
+
+            wait_pids = [str(os.getpid())]
+            daily_update_pid = process_status.get_pid("daily_update")
+            if daily_update_pid:
+                wait_pids.append(str(daily_update_pid))
+
+            helper_script = exe_dir / "updater_helper.ps1"
+            args = [
+                "powershell.exe", "-ExecutionPolicy", "Bypass",
+                "-File", str(helper_script),
+                "-ExeDir", str(exe_dir),
+                "-PendingDir", str(exe_dir / updater.UPDATE_PENDING_DIRNAME),
+                "-WaitPids", ",".join(wait_pids),
+                "-RestartGui",
+                "-GuiExeName", gui_exe_name,
+            ]
+            if mcp_was_running:
+                # Wiederverwendet die bereits bestehende T2-vs-T3.3-
+                # Unterscheidung statt sie hier zu duplizieren (v1.7.2.4-
+                # Nacherweiterung, Baustein 30) — mcp_server.exe für T3,
+                # Starte_MCP_Server.bat für T2.
+                mcp_cmd = _resolve_mcp_server_launch_command()
+                if mcp_cmd:
+                    args += ["-RestartMcpCmd", mcp_cmd[0]]
+
+            subprocess.Popen(
+                args,
+                creationflags=(subprocess.DETACHED_PROCESS
+                               | subprocess.CREATE_NEW_PROCESS_GROUP),
+            )
+            self._dispatch(self.close)
+
+        self._log(f"⏳ Update to {latest}: downloading and verifying ...")
+        threading.Thread(target=worker, daemon=True).start()
 
     # ── Extended Analysis (Easter Egg) ─────────────────────────────────────────
 
@@ -836,6 +942,7 @@ class GarminApp(QMainWindow):
 
     def closeEvent(self, event):
         """D-9: set all stop events, join threads with shared timeout budget, save settings."""
+        process_status.clear_lock("gui")
         self._timer_generation += 1
         self._timer_stop.set()
         self._context_stop_event.set()

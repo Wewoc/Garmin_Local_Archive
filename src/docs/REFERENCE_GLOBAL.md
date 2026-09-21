@@ -119,6 +119,18 @@ All modules import via `import garmin_config as cfg`.
 
 Note: `KEYRING_ENC_USER` (`"token_enc_key"`) does not exist in the codebase — removed in Trockenlauf (Neu-3).
 
+### Process lock files (`process_status.py`, v1.7.2.4)
+
+| Path pattern | Written by | Purpose |
+|---|---|---|
+| `~/.garmin_gui_lock` | `garmin_app_base.py` (`GarminApp.__init__`/`closeEvent`) | Own PID, for `daily_update.exe`'s unattended auto-apply path to tell whether the GUI is open |
+| `~/.garmin_daily_update_lock` | `scheduler/daily_update.py` (`__main__`) | Own PID, for the GUI's own self-update path to tell whether an unattended sync is currently in progress |
+
+Read via `process_status.is_running(name)`/`get_pid(name)` — `name` is
+the part before `_lock` (`"gui"`, `"daily_update"`). Liveness checked
+via `ctypes`/`OpenProcess`, not by file presence alone — a stale file
+left behind by a crash never produces a false positive.
+
 **(v1.7.2)** `clients/cloud_credential_store.py` reuses the same
 `KEYRING_SERVICE` ("GarminLocalArchive") for Cloud LLM API keys — one WCM
 entry per provider under the username `"cloud_llm_<provider>_api_key"`
@@ -165,7 +177,15 @@ it fits directly into one WCM credential entry.
     │                                  Replaces duplicated sys.frozen/_MEIPASS/
     │                                  executable branches across panel_outputs.py
     │                                  (6x), panel_home.py, the garmin_live_fetch
-    │                                  call site, and doc lookups (v1.6.0.4.3)
+    │                                  call site, and doc lookups (v1.6.0.4.3).
+    │                                  is_t3_standalone() (v1.7.2.4) — build-
+    │                                  target gate for the self-updater.
+    │                                  is_t2_standard(reference_file=None)
+    │                                  (v1.7.2.4-Nacherweiterung) — its T2
+    │                                  pendant; takes an explicit reference
+    │                                  file for the non-frozen case, since
+    │                                  daily_update.py never runs frozen
+    │                                  under T2.
     ├── log_utils.py                ← Leaf-Node. with_timestamp(log_fn) — prefixes
     │                                  log-callback messages with a timestamp
     │                                  matching logging.Formatter's format.
@@ -173,6 +193,41 @@ it fits directly into one WCM credential entry.
     │                                  imported by context_collector.py and
     │                                  dash_runner.py without creating a
     │                                  dependency on garmin/ (v1.6.6.1)
+    ├── process_status.py           ← Leaf-Node. is_mcp_running() (TCP probe,
+    │                                  garmin_config imported lazily — see
+    │                                  REFERENCE_GARMIN.md § Documented
+    │                                  Exceptions); write_lock()/clear_lock()/
+    │                                  is_running()/get_pid() — fixed-path
+    │                                  PID-lock-file mechanism under
+    │                                  Path.home() for processes with no port
+    │                                  to probe (GUI, daily_update.exe).
+    │                                  Liveness via ctypes/OpenProcess, not
+    │                                  tasklist/netstat (v1.7.2.4)
+    ├── updater.py                  ← Leaf-Node, stdlib only. Self-updater
+    │                                  (T2 + T3, v1.7.2.4 T3 first,
+    │                                  v1.7.2.4-Nacherweiterung also T2):
+    │                                  resolve_release_asset() (GitHub release
+    │                                  asset lookup by exact name),
+    │                                  prepare_update() (download + SHA256
+    │                                  verify + extract to a sibling
+    │                                  _update_pending/ folder; fail-closed if
+    │                                  the release publishes no checksum).
+    │                                  T2_ZIP_ASSET_NAME/T3_ZIP_ASSET_NAME (+
+    │                                  their .sha256 pendants) — the
+    │                                  functions themselves are target-
+    │                                  agnostic, only the constants differ.
+    ├── updater_helper.ps1          ← Detached PowerShell helper for the
+    │                                  self-updater (T2 + T3) — waits for
+    │                                  given PIDs, moves the old install to
+    │                                  _update_backup/, swaps in the new one,
+    │                                  Unblock-File, restarts GUI/MCP as
+    │                                  needed. -GuiExeName parameter
+    │                                  (default: the T3 name) picks which
+    │                                  EXE to restart — T2 and T3 ship
+    │                                  different GUI filenames. Bundled into
+    │                                  both the T2 ZIP (compiler/build.py)
+    │                                  and the T3 ZIP (build_combined_zip())
+    │                                  (v1.7.2.4 / v1.7.2.4-Nacherweiterung)
     │
     ├── app/                        ← Layer 1+3: settings persistence + application logic (v1.5.2+)
     │   │                              NOTE: this block is a stale duplicate of the fuller
@@ -186,7 +241,7 @@ it fits directly into one WCM credential entry.
     │   ├── panel_connection.py     ← PanelConnection(QWidget) — connection dialogs only (v1.5.4+; Data Management moved out to panel_outputs.py, Export/Import-Mirror + Reset Token removed, v1.7.2.3); indicators delegated to panel_home
     │   ├── panel_archive.py        ← PanelArchive(QWidget) — integrity, mirror, clean, schema migration (v1.5.4+)
     │   ├── panel_timer.py          ← PanelTimer(QWidget) — background timer, loop, controller delegates (v1.5.4+)
-    │   ├── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers, Data Management + Context-Check (v1.5.4+, Data Management + Context-Check added v1.7.2.3)
+    │   ├── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers, Data Management + Context-Check (v1.5.4+, Data Management + Context-Check added v1.7.2.3, Auto-Update checkbox added v1.7.2.4)
     │   ├── dialog_context_check.py ← ContextCheckResultDialog + ContextCoordinateFixDialog(QDialog) — Context-Check findings + coordinate-fix flow (v1.7.2.3)
     │   └── panel_mcp.py            ← PanelMcp(QWidget) — MCP server settings, fifth tab "MCP Server" (v1.7 Teilbauauftrag d)
     │
@@ -285,7 +340,7 @@ it fits directly into one WCM credential entry.
     │   ├── panel_connection.py     ← PanelConnection(QWidget) — connection dialogs only (v1.5.4+; Data Management moved out to panel_outputs.py, Export/Import-Mirror + Reset Token removed, v1.7.2.3); indicators delegated to panel_home
     │   ├── panel_archive.py        ← PanelArchive(QWidget) — integrity, mirror, clean, schema migration (v1.5.4+)
     │   ├── panel_timer.py          ← PanelTimer(QWidget) — background timer, loop, controller delegates (v1.5.4+)
-    │   ├── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers, Data Management + Context-Check (v1.5.4+, Data Management + Context-Check added v1.7.2.3)
+    │   ├── panel_outputs.py        ← PanelOutputs(QWidget) — sync, import, context, dashboard build, output helpers, Data Management + Context-Check (v1.5.4+, Data Management + Context-Check added v1.7.2.3, Auto-Update checkbox added v1.7.2.4)
     │   ├── dialog_context_check.py ← ContextCheckResultDialog + ContextCoordinateFixDialog(QDialog) — Context-Check findings + coordinate-fix flow (v1.7.2.3)
     │   ├── panel_chat.py           ← PanelChat(QWidget) — In-App Chat, Tab 3 "Chat" (v1.6.6, renamed
     │   │                              from "Ollama-Chat" v1.7.2) — see Module reference table below
@@ -519,8 +574,10 @@ findable by heading/table search (see `DOC_DRIFT_REPORT.md`, Punkt B).
 | `clients/mcp_server_gui.py` | Standalone Tkinter window (v1.7 Teilbauauftrag f) — "the window is the server," coupling unchanged in v1.7.0.1 (window closed = process closed), opened by default by `mcp_server.py::main()` unless `garmin_config.MCP_HEADLESS` is set. `run_gui(mcp_instance, logger, boot_handler, start_operational_log)` starts `mcp_instance.run(transport="streamable-http")` — v1.7.0.1, was `"stdio"` — in a `daemon=True` thread before building the window, then blocks in `root.mainloop()` on the main thread; a bind failure (`OSError`) in that thread is caught and surfaced via a status label + warning dialog shortly after the window appears, rather than crashing silently. `start_operational_log` is passed in from `mcp_server.py` (not imported) to avoid a circular import, since that module already imports this one to call `run_gui()`. Reads/writes `garmin_config.MCP_SERVER_CONFIG_FILE` directly (second writer alongside `panel_mcp.py`'s mirror — see that file's docstring for the documented Sole-Write-Authority exception; `mcp_http_port`/`mcp_headless` replace `mcp_ollama_model` as the fourth/fifth mirrored fields — see below) and `garmin_config.MCP_LLM_CONFIG_FILE` (cloud provider/model, same read-merge-write shape as `panel_mcp.py::_mcp_save_cloud_config()` — **(v1.7.2)** the API key itself goes to Windows Credential Manager instead, via `clients/cloud_credential_store.py`, same as `panel_mcp.py`'s own Provider-dropdown + WCM change, see that entry above). Config fields: LLM backend, archive path, Port, Headless checkbox (v1.7.0.1, new — takes effect on the *next* start, not this running instance), or cloud credentials depending on backend — the Ollama model dropdown and its "Refresh" button are gone (v1.7.0.1, along with `garmin_config.MCP_OLLAMA_MODEL`). Log widget unchanged in shape from v1.7 — `_QueueLogHandler` + `root.after(100, ...)` poll loop, now receiving both this window's own log lines and the server's, since both run in this process again. "🔄 Restart Server" button (v1.7.0.1, replacing the v1.7 Teilbauauftrag h button of the same intent) — `_resolve_mcp_server_launch_command()` (shortened, standalone copy of `app/panel_mcp.py`'s function of the same name — `clients/` does not import from `app/`) resolves the T1/T2/T3.3 launch target, launches it via `subprocess.Popen` with the *saved* settings (Save first, then Restart — same two-step as before), then `_poll_reachable()` (`root.after(500, ...)`, 12s timeout) checks `_is_server_reachable()` — a real TCP-connect probe against `127.0.0.1:MCP_HTTP_PORT` — instead of polling a PID lockfile for a changed value. On success calls `root.destroy()`, which ends this process (and the old server's daemon thread with it) — the v1.7 Teilbauauftrag h **known limitation** (poll only confirmed a new PID, not real health) is resolved by construction here: a TCP accept only happens once `mcp.run()` has actually bound and is serving. On timeout the old server is left running and the button re-enables. (v1.7.0.2) Same "Extra allowed hosts" checkbox/field/preview as `app/panel_mcp.py`, backing the same `garmin_config` constants; also gained a `"🦄  GARMIN LOCAL ARCHIVE"` header label (text/font only, matching `garmin_app_base.py`'s branding — no color-theme or icon changes, deliberately out of scope this session). The Headless checkbox's German label was translated to English alongside `panel_mcp.py`'s. |
 | `garmin_app_base.py` | View layer (`GarminApp`) — PyQt6 `QMainWindow`, fixed top (`panel_home`) + `QTabWidget`: Home / Files / Settings / Chat / MCP Server (v1.6.0+, fourth tab added v1.6.6 as "Ollama-Chat", renamed "Chat" v1.7.2, fifth tab added v1.7 Teilbauauftrag d). Settings tab: two-column layout — Settings left (340px), Actions right (flex). `_sheet_arrow` label mirrors `_sheet_combo` visibility (v1.6.0.7). |
 | `qwebengine_hardening.py` | Leaf-Node. `harden(view)` — disables `LocalContentCanAccessFileUrls`, `LocalContentCanAccessRemoteUrls`, `JavascriptCanOpenWindows`, `PluginsEnabled`, `JavascriptCanAccessClipboard` on a `QWebEngineView`. `JavascriptEnabled` stays `True` — Plotly dashboards require it. Idempotent — safe to call multiple times on the same view. Called from `panel_home.py` and `garmin_app_base.py` after each `QWebEngineView()` instantiation. |
-| `frozen_paths.py` | Leaf-Node. Central frozen-path resolution — replaces previously duplicated `sys.frozen`/`sys._MEIPASS`/`sys.executable` branches (`panel_outputs.py` ×6, `panel_home.py`, the `garmin_live_fetch` call site, doc lookups). Three side-effect-separated functions: `scripts_root()` (root for `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` — T3 verified via canonical distinguisher: `dash_runner.py` must actually exist under `scripts/dashboards/`, not just `scripts/` itself), `add_to_path(root, *subs)` (mutates `sys.path` as an explicit, separate step), `doc_path(filename)` (finds bundled docs — `info/` next to the EXE when frozen, three-step dev chain otherwise: repo root → `src/docs/` → `src/scheduler/`; returns `None` if not found, never guesses). |
+| `frozen_paths.py` | Leaf-Node. Central frozen-path resolution — replaces previously duplicated `sys.frozen`/`sys._MEIPASS`/`sys.executable` branches (`panel_outputs.py` ×6, `panel_home.py`, the `garmin_live_fetch` call site, doc lookups). Five side-effect-separated functions: `scripts_root()` (root for `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/` — T3 verified via canonical distinguisher: `dash_runner.py` must actually exist under `scripts/dashboards/`, not just `scripts/` itself), `add_to_path(root, *subs)` (mutates `sys.path` as an explicit, separate step), `doc_path(filename)` (finds bundled docs — `info/` next to the EXE when frozen, three-step dev chain otherwise: repo root → `src/docs/` → `src/scheduler/`; returns `None` if not found, never guesses), `is_t3_standalone()` (v1.7.2.4 — the T3 self-updater build-target gate, a sibling-file check against `daily_update.exe`/`mcp_server.exe`), `is_t2_standard(reference_file=None)` (v1.7.2.4-Nacherweiterung — T2's pendant; the frozen GUI-EXE case resolves the same way as T3's check, but the non-frozen case needs an explicit `reference_file` since `scheduler/daily_update.py` never runs frozen under T2 — `sys.frozen` alone can't tell T2 apart from a T1 dev checkout there). |
 | `log_utils.py` | Leaf-Node (v1.6.6.1). One function: `with_timestamp(log_fn)` — wraps a log callback so every message gets a `"%Y-%m-%d %H:%M:%S "` prefix, matching the format `logging.Formatter` uses elsewhere in the project. Pass-through — returns `None` unchanged if `log_fn` is `None`. Deliberately not placed in `garmin/garmin_utils.py` despite that module's own Leaf-Node status — `dashboards/` has zero project-module imports by design, kept independent of `garmin/`; `log_utils.py` sits at the `src/` root instead, alongside `frozen_paths.py`, so `context/context_collector.py` and `dashboards/dash_runner.py` can both import it without creating a cross-domain dependency. Used to fix inconsistent console-log timestamps between the Garmin page (`logging` module) and the Context/Dashboard pipeline (`log_callback(str)`). |
+| `process_status.py` | Leaf-Node (v1.7.2.4), one documented exception (see `REFERENCE_GARMIN.md § Documented Exceptions`). `is_mcp_running()` — TCP-connect probe against `127.0.0.1:MCP_HTTP_PORT`, extracted from `app/panel_mcp.py::_mcp_server_is_running()` (which now delegates here) so `scheduler/daily_update.py` can reuse the identical check without importing PyQt6. `write_lock(name)`/`clear_lock(name)`/`is_running(name)`/`get_pid(name)` — a fixed-path PID-lock-file mechanism (`Path.home()/f".garmin_{name}_lock"`) for processes with no port to probe (the GUI, `daily_update.exe`); liveness checked via `ctypes`/`OpenProcess`, not `tasklist`/`netstat` (this project already hit real subprocess-spawn timeouts there, see `clients/mcp_process.py`). Built for the self-updater (T2 + T3) — see `updater.py` below. |
+| `updater.py` | Leaf-Node (v1.7.2.4), stdlib only, no project-module imports at all. Client-side logic for the self-updater — T3 first (v1.7.2.4), extended to T2 in a follow-up round (v1.7.2.4-Nacherweiterung). `resolve_release_asset(release_json, asset_name)` — finds a named asset's `browser_download_url` in a GitHub "latest release" API response by exact name (a release carries both the T2 and T3 ZIP side by side; no substring matching). `T2_ZIP_ASSET_NAME`/`T3_ZIP_ASSET_NAME` (+ their `.sha256` pendants) — the only target-specific part; the functions below are target-agnostic. `prepare_update(exe_dir, zip_url, checksum_url)` — downloads the release ZIP, verifies it against its published SHA256 checksum file, extracts it to a sibling `_update_pending/` folder. Fails closed: refuses to apply an update whose release publishes no checksum, rather than applying it unverified; cleans up any stale `_update_pending/` leftover from a previous crashed attempt before starting, and cleans up after itself on any failure. The actual file-swap (waiting for processes to exit, replacing the install, restarting) is a separate, detached PowerShell helper (`updater_helper.ps1`, `-GuiExeName` picks the right EXE per target) — neither the GUI nor `daily_update.exe`/`daily_update.py` can overwrite their own running files while still running. |
 | `theme.py` | Single source of truth for all app/dashboard color tokens (v_theme_01). Five built-in themes (`_THEMES` dict), active one read from settings (`active_theme` key, GUI dropdown in Settings tab, v1.7.1.8). Falls back to Theme 1 if the key is missing or invalid. See `REFERENCE_INVARIANTEN.md` → Dashboards / Layouts for the `theme.py` → `garmin_app_settings` coupling this creates in `dash_layout.py` and `layouts/render/live.py` — both import `theme` directly, the only break in `layouts/`'s otherwise strict independence from `app/`. |
 
 `app/panel_settings.py`, `app/panel_archive.py`, `app/panel_timer.py`,
@@ -591,6 +648,18 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 | 2 — Standard EXE | `garmin_app.py` | `Starte_Daily_Sync.bat` (ZIP root) | `compiler/build.py` | Required |
 | 3.1 — Standalone GUI | `garmin_app_standalone.py` | — | `compiler/build_standalone.py` | Not required |
 | 3.2 — Standalone headless | — | `daily_update.exe` | `compiler/build_standalone.py` | Not required |
+| 3.3 — Standalone MCP server | `mcp_server.exe` (started on demand, `panel_mcp.py`/`clients/mcp_process.py`) | — | `compiler/build_standalone.py` | Not required |
+
+`build_combined_zip()` in `compiler/build_standalone.py` packs T3.1 +
+T3.2 + T3.3 flat into one `Garmin_Local_Archive_Standalone.zip` — all
+three EXEs are siblings in the same install folder on the user's
+machine (this shape is why the v1.7.2.4 self-updater treats them as
+one unit, see `CHANGELOG.md`). **v1.7.2.4** also adds
+`updater_helper.ps1` to that same ZIP and writes a
+`.zip.sha256` checksum file alongside it. **v1.7.2.4-Nacherweiterung**
+does the same for Target 2's ZIP — `compiler/build.py`'s `build_zip()`
+now also bundles `updater_helper.ps1` and writes a `.zip.sha256`
+checksum file, so both distributed targets can self-update.
 
 `compiler/build_all.py` runs `test_local.py`, `test_local_context.py`, and `test_dashboard.py` before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
 `compiler/build_manifest.py` is the single source of truth for all script lists.

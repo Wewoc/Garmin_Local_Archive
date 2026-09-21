@@ -21,6 +21,7 @@ Targets:
   Target 3.2 — Headless:   daily_update.exe                     (this script)
 """
 
+import hashlib
 import subprocess
 import sys
 import zipfile
@@ -223,6 +224,8 @@ def build_combined_zip(root: Path):
     ZIP layout (flat — all contents unpacked directly into the target folder):
         Garmin_Local_Archive_Standalone.exe
         daily_update.exe
+        mcp_server.exe
+        updater_helper.ps1
         _internal/
             ...
         info/
@@ -231,11 +234,19 @@ def build_combined_zip(root: Path):
             README.md
             README_APP.md
             daily_update_task.xml
+
+    Also writes Garmin_Local_Archive_Standalone.zip.sha256 next to the
+    ZIP (v1.7.2.4) — updater.prepare_update() refuses to auto-apply an
+    update whose release doesn't publish this file (fail closed,
+    Baustein 6/12). Upload BOTH files to the GitHub release, not just
+    the ZIP.
     """
-    zip_path  = root / "Garmin_Local_Archive_Standalone.zip"
+    zip_path      = root / "Garmin_Local_Archive_Standalone.zip"
+    checksum_path = root / "Garmin_Local_Archive_Standalone.zip.sha256"
     t31_dir   = root / "Garmin_Local_Archive_Standalone"   # --onedir output folder
     du_exe    = root / "daily_update.exe"
     mcp_exe   = root / "mcp_server.exe"
+    helper_ps1 = root / "updater_helper.ps1"
     info_dir  = root / "info"
 
     print("\n  Creating Garmin_Local_Archive_Standalone.zip (T3.1 + T3.2 + T3.3) ...")
@@ -248,6 +259,9 @@ def build_combined_zip(root: Path):
         sys.exit(1)
     if not mcp_exe.exists():
         print(f"  ✗ T3.3 EXE not found: {mcp_exe}")
+        sys.exit(1)
+    if not helper_ps1.exists():
+        print(f"  ✗ updater_helper.ps1 not found: {helper_ps1}")
         sys.exit(1)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -263,15 +277,31 @@ def build_combined_zip(root: Path):
         # T3.3 — flat single EXE in ZIP root
         zf.write(mcp_exe, "mcp_server.exe")
 
+        # v1.7.2.4 — self-update helper, flat in ZIP root next to the EXEs.
+        # updater.prepare_update()/garmin_app_base.py::_start_update()/
+        # daily_update.py::_apply_update_unattended() all resolve it as
+        # exe_dir / "updater_helper.ps1" — same folder as the EXEs above.
+        zf.write(helper_ps1, "updater_helper.ps1")
+
         # Docs — flat info/ folder in ZIP root
         if info_dir.exists():
             for f in sorted(info_dir.iterdir()):
                 if f.name in INFO_INCLUDE:
                     zf.write(f, f"info/{f.name}")
 
+    # v1.7.2.4 — SHA256 of the finished ZIP, written alongside it. Plain
+    # hex digest, no filename prefix — matches what updater.prepare_update()
+    # already parses (it splits on whitespace and takes the first token,
+    # so either form would work, but there's no need for the second one).
+    digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    checksum_path.write_text(digest, encoding="ascii")
+
     print(f"  -> {zip_path}")
-    print("  ZIP: flat layout — EXE + _internal/ + daily_update.exe + mcp_server.exe + info/")
-    print("  Upload Garmin_Local_Archive_Standalone.zip to GitHub release.")
+    print(f"  -> {checksum_path}")
+    print("  ZIP: flat layout — EXE + _internal/ + daily_update.exe + "
+          "mcp_server.exe + updater_helper.ps1 + info/")
+    print("  Upload BOTH Garmin_Local_Archive_Standalone.zip AND "
+          "Garmin_Local_Archive_Standalone.zip.sha256 to the GitHub release.")
 
 
 def main():

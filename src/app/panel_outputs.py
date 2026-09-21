@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QDialog, QRadioButton, QButtonGroup, QLineEdit,
     QMessageBox, QFileDialog, QFrame,
-    QApplication, QSizePolicy, QComboBox,
+    QApplication, QSizePolicy, QComboBox, QCheckBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -293,6 +293,34 @@ class PanelOutputs(QWidget):
             out_row.addWidget(self._tip(tip))
             lay.addLayout(out_row)
 
+        # ── Daily Sync ───────────────────────────────────────────────────────
+        # v1.7.2.4 — T3-only unattended self-update opt-in, own section
+        # (not folded into Output — a persistent Daily Sync behavior
+        # toggle, not a one-shot output action). Value lives directly on
+        # self._app.settings, carried over by GarminApp._collect_settings()
+        # — same pattern already used for active_theme below, since this
+        # panel has no get_*_settings() method of its own the way
+        # PanelTimer/PanelMcp do.
+        lay.addWidget(self._section_widget("Daily Sync"))
+        auto_row = QHBoxLayout()
+        auto_row.setContentsMargins(20, 2, 20, 2)
+        auto_row.setSpacing(4)
+        self._daily_update_auto_update = QCheckBox(
+            "Auto-apply updates in Daily Sync")
+        self._daily_update_auto_update.setFont(QFont("Segoe UI", 9))
+        self._daily_update_auto_update.setStyleSheet(f"color: {self._app.TEXT};")
+        self._daily_update_auto_update.setChecked(
+            bool(self._app.settings.get("daily_update_auto_update", False)))
+        self._daily_update_auto_update.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._daily_update_auto_update.toggled.connect(
+            self._on_daily_update_auto_update_toggled)
+        auto_row.addWidget(self._daily_update_auto_update)
+        auto_row.addWidget(self._tip(
+            "T3 only: daily_update.exe applies a new version by itself, "
+            "unattended, instead of just notifying"))
+        lay.addLayout(auto_row)
+
         # ── Design ───────────────────────────────────────────────────────────
         lay.addWidget(self._section_widget("Design"))
         design_row = QHBoxLayout()
@@ -420,6 +448,14 @@ class PanelOutputs(QWidget):
             except RuntimeError:
                 pass
             self._restore_btn.clicked.connect(command)
+
+    def _on_daily_update_auto_update_toggled(self, checked: bool):
+        """Persist immediately (v1.7.2.4) — same reasoning as
+        _on_theme_apply() below: a checkbox toggle should stick right
+        away, not depend on the app being closed cleanly afterward to
+        actually save."""
+        self._app.settings["daily_update_auto_update"] = checked
+        self._app._panel_settings._safe_save(self._app.settings)
 
     def _on_theme_apply(self):
         """Save the selected theme number to settings. Does not restart the
