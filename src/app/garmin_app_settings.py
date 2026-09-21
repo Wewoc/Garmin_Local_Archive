@@ -47,6 +47,7 @@ DEFAULT_SETTINGS = {
     "mcp_enabled":                False,
     "mcp_llm_backend":            "ollama",
     "active_theme":               1,
+    "daily_update_auto_update":   False,
 }
 
 

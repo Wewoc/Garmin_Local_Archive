@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.2.3
+# Garmin Local Archive — Desktop App v1.7.2.4
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -122,8 +122,23 @@ The app window is divided into two areas:
 - **Mirror folder** — optional second location for your archive (NAS, USB, external drive). Leave empty to disable. Set once, then use the **Mirror** button to sync.
 - **Theme** *(v1.7.1.8)* — colour scheme for the app window and HTML dashboards, chosen from the Settings → Design dropdown. Six built-in themes (Monochrome + Rust Accent — default, Violet/Legacy, Amber & Copper, Olive & Sand, Toxic, Ice Blue). Choosing a theme opens a restart-to-apply dialog — themes are not applied live to an already-open window.
 - **Delay min / max (s)** — randomized pause between individual Garmin API requests (default: 5 / 20). Garmin Connect has no official public API — this tool uses the same endpoints the mobile app itself calls. A randomized delay within this range keeps request timing within normal usage patterns and helps avoid rate limiting (HTTP 429). Lower values increase the risk of a temporary IP ban — 5/20 is the recommended minimum.
+- **Auto-apply updates in Daily Sync** *(v1.7.2.4)* — checkbox in its own "Daily Sync" section. Saves immediately, no separate Save step needed. See "Updating the app" below for what it does.
 
 Click **Save Settings** — settings are remembered between sessions.
+
+---
+
+## Updating the app
+
+*(v1.7.2.4)*
+
+When a new version is available, a popup appears on startup: **Open GitHub** (opens the release page to download manually) and **Dismiss**, same as before.
+
+A third button, **Update**, also appears — for both the Standard and the Standalone version. Click it and the app downloads the new version, verifies it against a published checksum, applies it, and restarts — no manual download, no re-extracting a ZIP. If the checksum doesn't match (a corrupted or incomplete download), nothing is changed and the app keeps running on the current version.
+
+**Unattended updates via Daily Sync** *(opt-in)*: tick **Auto-apply updates in Daily Sync** (Settings, its own "Daily Sync" section) and the scheduled daily sync applies a new version by itself the next time one is available — no popup, nothing to click. If the app happens to be open at that moment, it closes automatically (any unsaved changes in open fields are lost) and does not reopen afterward; the daily sync itself is unattended, so nothing would open it again automatically. Off by default.
+
+A backup of the previous version is kept (overwritten by the next update) as a safety net, and update files are verified before anything is changed either way.
 
 ---
 

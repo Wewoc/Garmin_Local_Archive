@@ -714,8 +714,22 @@ class TestPanelTimer:
         assert panel._timer_min_days.text()     == "5"
         assert panel._timer_max_days.text()     == "20"
 
-    def test_toggle_timer_starts_when_off(self, qtbot, app_mock):
+    def test_toggle_timer_starts_when_off(self, qtbot, app_mock, monkeypatch):
+        """threading.Thread is mocked for this test only — _toggle_timer()
+        otherwise spawns a real daemon thread that (via _timer_loop's
+        one-time connection test) attempts a real garmin_api.login() import
+        with the fixture's fake credentials. Nothing in this test previously
+        stopped/joined that thread, so it kept running into later tests —
+        harmless on its own, but colliding with a later test's own fresh
+        module imports on Windows triggers a real access violation (found
+        2026-09-21 while adding v1.7.2.4's process_status lock-file I/O to
+        GarminApp.__init__/closeEvent, which shifted timing enough to newly
+        expose this pre-existing race). The state flip under test doesn't
+        need the real thread at all — mocking Thread removes the risk
+        without changing what's being asserted."""
         from app.panel_timer import PanelTimer
+        from unittest.mock import MagicMock
+        monkeypatch.setattr("app.panel_timer.threading.Thread", MagicMock())
         panel = PanelTimer(app_mock)
         qtbot.addWidget(panel)
         panel._toggle_timer()
@@ -799,6 +813,34 @@ class TestPanelOutputs:
         panel = PanelOutputs(app_mock)
         qtbot.addWidget(panel)
         assert not panel._restore_btn.isEnabled()
+
+    def test_daily_update_auto_update_checkbox_defaults_unchecked(
+            self, qtbot, app_mock):
+        """v1.7.2.4 — opt-in, so an absent settings key must mean off,
+        not on (safe default before the user has ever touched it)."""
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        assert panel._daily_update_auto_update.isChecked() is False
+
+    def test_daily_update_auto_update_checkbox_reflects_saved_setting(
+            self, qtbot, app_mock):
+        app_mock.settings = {"daily_update_auto_update": True}
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        assert panel._daily_update_auto_update.isChecked() is True
+
+    def test_daily_update_auto_update_toggle_persists_immediately(
+            self, qtbot, app_mock):
+        """Matches _on_theme_apply()'s behavior: a toggle here writes to
+        self._app.settings and saves right away, not only on app close."""
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        panel._daily_update_auto_update.setChecked(True)
+        assert app_mock.settings["daily_update_auto_update"] is True
+        app_mock._panel_settings._safe_save.assert_called_with(app_mock.settings)
 
     def test_set_restore_button_state_enable(self, qtbot, app_mock):
         from app.panel_outputs import PanelOutputs
@@ -2788,3 +2830,396 @@ class TestGarminAppBase:
             qtbot.addWidget(app)
         s = app._collect_settings()
         assert s.get("active_theme") == 3
+
+    # ── v1.7.2.4 — T3 self-update wiring (Bauauftrag Schritt 9) ─────────────
+
+    def _make_test_app(self, qtbot):
+        """Shared setup for the _start_update() tests below — same
+        patch/subclass pattern as the other TestGarminAppBase tests."""
+        from unittest.mock import patch
+        with patch("garmin_app_base.load_settings", return_value={
+            "email": "", "password": "", "base_dir": "",
+            "sync_mode": "recent", "sync_days": "90",
+            "sync_from": "", "sync_to": "", "sync_auto_fallback": "",
+            "date_from": "", "date_to": "", "age": "35", "sex": "male",
+            "request_delay_min": "5.0", "request_delay_max": "20.0",
+            "context_latitude": "0.0", "context_longitude": "0.0",
+            "context_location": "", "mirror_dir": "",
+            "timer_min_interval": "5", "timer_max_interval": "30",
+            "timer_min_days": "3", "timer_max_days": "10",
+            "backup_raw_backfill_asked": False,
+        }), patch("garmin_app_settings.load_password", return_value=""), \
+            patch("garmin_app_controller.check_migration_needed",
+                  return_value=False):
+            from garmin_app_base import GarminApp
+
+            class _TestApp(GarminApp):
+                def _run(self, *a, **kw): pass
+                def _is_running(self): return False
+                def _stop_collector(self): pass
+                def closeEvent(self, event):
+                    event.accept()
+
+            app = _TestApp()
+            qtbot.addWidget(app)
+        # _dispatch() normally queues onto the Qt event loop for
+        # cross-thread safety — for this synchronous test, call straight
+        # through instead so assertions don't race the event loop.
+        app._dispatch = lambda fn, *a: fn(*a)
+        return app
+
+    def _release_json(self):
+        import updater as _updater
+        return {"assets": [
+            {"name": _updater.T3_ZIP_ASSET_NAME,
+             "browser_download_url": "https://example.com/fake.zip"},
+            {"name": _updater.T3_ZIP_CHECKSUM_ASSET_NAME,
+             "browser_download_url": "https://example.com/fake.zip.sha256"},
+        ]}
+
+    def _release_json_t2(self):
+        """v1.7.2.4-Nacherweiterung — T2-Pendant zu _release_json()."""
+        import updater as _updater
+        return {"assets": [
+            {"name": _updater.T2_ZIP_ASSET_NAME,
+             "browser_download_url": "https://example.com/fake_t2.zip"},
+            {"name": _updater.T2_ZIP_CHECKSUM_ASSET_NAME,
+             "browser_download_url": "https://example.com/fake_t2.zip.sha256"},
+        ]}
+
+    def test_start_update_success_no_mcp(self, qtbot, monkeypatch, tmp_path):
+        """No MCP running: helper gets -RestartGui but no -RestartMcpCmd,
+        prepare_update() is called with the resolved asset URLs, and the
+        app closes itself afterward so the helper can replace its files."""
+        import sys
+        from unittest.mock import MagicMock
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+            def start(self):
+                self._target()
+        monkeypatch.setattr("garmin_app_base.threading.Thread", _ImmediateThread)
+
+        app = self._make_test_app(qtbot)
+
+        # v1.7.2.4-Nacherweiterung — _start_update() ermittelt das Target
+        # jetzt selbst; Test läuft nicht frozen, also explizit auf T3
+        # festnageln (self._release_json() liefert T3-Asset-Namen).
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: True)
+
+        prepare_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.updater.prepare_update",
+            lambda exe_dir, zip_url, checksum_url: (
+                prepare_calls.append((exe_dir, zip_url, checksum_url)),
+                tmp_path)[1])
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.is_mcp_running", lambda: False)
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.get_pid", lambda name: None)
+        popen_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.subprocess.Popen",
+            lambda args, **kw: popen_calls.append(args) or MagicMock())
+        closed = []
+        monkeypatch.setattr(app, "close", lambda: closed.append(True))
+
+        app._start_update("v9.9.9", self._release_json())
+
+        assert len(prepare_calls) == 1
+        assert prepare_calls[0][1] == "https://example.com/fake.zip"
+        assert prepare_calls[0][2] == "https://example.com/fake.zip.sha256"
+        assert len(popen_calls) == 1
+        args = popen_calls[0]
+        assert args[0] == "powershell.exe"
+        assert str(Path(sys.executable).parent / "updater_helper.ps1") == \
+            args[args.index("-File") + 1]
+        assert "-RestartGui" in args
+        assert args[args.index("-GuiExeName") + 1] == \
+            "Garmin_Local_Archive_Standalone.exe"
+        assert "-RestartMcpCmd" not in args
+        assert closed == [True]
+
+    def test_start_update_success_with_mcp_running(self, qtbot, monkeypatch, tmp_path):
+        """MCP running: gets stopped before the helper launches, and the
+        helper is told to restart it afterward (-RestartMcpCmd)."""
+        from unittest.mock import MagicMock
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+            def start(self):
+                self._target()
+        monkeypatch.setattr("garmin_app_base.threading.Thread", _ImmediateThread)
+
+        app = self._make_test_app(qtbot)
+
+        # v1.7.2.4-Nacherweiterung — Target + MCP-Kommando-Auflösung
+        # jetzt explizit auf T3 festnageln statt vom echten (nicht
+        # frozen) Testprozess abhängig zu machen.
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: True)
+        fake_mcp_exe = str(tmp_path / "mcp_server.exe")
+        monkeypatch.setattr(
+            "garmin_app_base._resolve_mcp_server_launch_command",
+            lambda: [fake_mcp_exe])
+
+        monkeypatch.setattr(
+            "garmin_app_base.updater.prepare_update",
+            lambda exe_dir, zip_url, checksum_url: tmp_path)
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.is_mcp_running", lambda: True)
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.get_pid", lambda name: None)
+        mock_mcp_process = MagicMock()
+        import sys as _sys
+        monkeypatch.setitem(_sys.modules, "mcp_process", mock_mcp_process)
+        monkeypatch.setattr(
+            "frozen_paths.scripts_root", lambda: tmp_path, raising=False)
+        monkeypatch.setattr(
+            "frozen_paths.add_to_path", lambda *a, **kw: None, raising=False)
+        popen_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.subprocess.Popen",
+            lambda args, **kw: popen_calls.append(args) or MagicMock())
+        monkeypatch.setattr(app, "close", lambda: None)
+
+        app._start_update("v9.9.9", self._release_json())
+
+        mock_mcp_process.stop.assert_called_once()
+        assert len(popen_calls) == 1
+        args = popen_calls[0]
+        assert "-RestartMcpCmd" in args
+        assert args[args.index("-RestartMcpCmd") + 1] == fake_mcp_exe
+
+    def test_start_update_no_t3_asset_logs_and_stops(self, qtbot, monkeypatch):
+        """Release without a T3 ZIP asset: logs an error, never touches
+        prepare_update()/Popen/close — matches the same "verify before
+        anything destructive" spirit as prepare_update() itself."""
+        from unittest.mock import MagicMock
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+            def start(self):
+                self._target()
+        monkeypatch.setattr("garmin_app_base.threading.Thread", _ImmediateThread)
+
+        app = self._make_test_app(qtbot)
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: True)
+        prepare_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.updater.prepare_update",
+            lambda *a, **kw: prepare_calls.append(1))
+        popen_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.subprocess.Popen",
+            lambda *a, **kw: popen_calls.append(1) or MagicMock())
+        closed = []
+        monkeypatch.setattr(app, "close", lambda: closed.append(True))
+
+        app._start_update("v9.9.9", {"assets": []})
+
+        assert prepare_calls == []
+        assert popen_calls == []
+        assert closed == []
+        assert "release has no T3 ZIP asset" in app.log.toPlainText()
+
+    def test_start_update_prepare_failure_logs_and_stops(self, qtbot, monkeypatch):
+        """prepare_update() raising (network/checksum/zip failure): logs
+        the error, never launches the helper or closes the app."""
+        from unittest.mock import MagicMock
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+            def start(self):
+                self._target()
+        monkeypatch.setattr("garmin_app_base.threading.Thread", _ImmediateThread)
+
+        app = self._make_test_app(qtbot)
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: True)
+
+        def _boom(*a, **kw):
+            raise RuntimeError("checksum mismatch")
+        monkeypatch.setattr("garmin_app_base.updater.prepare_update", _boom)
+        popen_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.subprocess.Popen",
+            lambda *a, **kw: popen_calls.append(1) or MagicMock())
+        closed = []
+        monkeypatch.setattr(app, "close", lambda: closed.append(True))
+
+        app._start_update("v9.9.9", self._release_json())
+
+        assert popen_calls == []
+        assert closed == []
+        assert "checksum mismatch" in app.log.toPlainText()
+
+    # ── v1.7.2.4-Nacherweiterung — T2-Zweig von _start_update() ──────────────
+
+    def test_start_update_success_t2_no_mcp(self, qtbot, monkeypatch, tmp_path):
+        """T2 (is_t3_standalone() False): T2-Asset-Namen werden aufgelöst,
+        -GuiExeName ist Garmin_Local_Archive.exe (kein _Standalone-Suffix),
+        kein -RestartMcpCmd wenn MCP nicht lief."""
+        from unittest.mock import MagicMock
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+            def start(self):
+                self._target()
+        monkeypatch.setattr("garmin_app_base.threading.Thread", _ImmediateThread)
+
+        app = self._make_test_app(qtbot)
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: False)
+
+        prepare_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.updater.prepare_update",
+            lambda exe_dir, zip_url, checksum_url: (
+                prepare_calls.append((exe_dir, zip_url, checksum_url)),
+                tmp_path)[1])
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.is_mcp_running", lambda: False)
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.get_pid", lambda name: None)
+        popen_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.subprocess.Popen",
+            lambda args, **kw: popen_calls.append(args) or MagicMock())
+        closed = []
+        monkeypatch.setattr(app, "close", lambda: closed.append(True))
+
+        app._start_update("v9.9.9", self._release_json_t2())
+
+        assert len(prepare_calls) == 1
+        assert prepare_calls[0][1] == "https://example.com/fake_t2.zip"
+        assert prepare_calls[0][2] == "https://example.com/fake_t2.zip.sha256"
+        assert len(popen_calls) == 1
+        args = popen_calls[0]
+        assert args[args.index("-GuiExeName") + 1] == "Garmin_Local_Archive.exe"
+        assert "-RestartGui" in args
+        assert "-RestartMcpCmd" not in args
+        assert closed == [True]
+
+    def test_start_update_success_t2_with_mcp_running(
+            self, qtbot, monkeypatch, tmp_path):
+        """T2 mit laufendem MCP: -RestartMcpCmd zeigt auf
+        Starte_MCP_Server.bat (T2s MCP-Startweg), nicht auf mcp_server.exe
+        (T3.3) — _resolve_mcp_server_launch_command() liefert das bereits
+        korrekt, hier nur die Weiterleitung in die Popen-Argumente
+        geprüft."""
+        from unittest.mock import MagicMock
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+            def start(self):
+                self._target()
+        monkeypatch.setattr("garmin_app_base.threading.Thread", _ImmediateThread)
+
+        app = self._make_test_app(qtbot)
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: False)
+        fake_bat = str(tmp_path / "Starte_MCP_Server.bat")
+        monkeypatch.setattr(
+            "garmin_app_base._resolve_mcp_server_launch_command",
+            lambda: [fake_bat])
+
+        monkeypatch.setattr(
+            "garmin_app_base.updater.prepare_update",
+            lambda exe_dir, zip_url, checksum_url: tmp_path)
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.is_mcp_running", lambda: True)
+        monkeypatch.setattr(
+            "garmin_app_base.process_status.get_pid", lambda name: None)
+        mock_mcp_process = MagicMock()
+        import sys as _sys
+        monkeypatch.setitem(_sys.modules, "mcp_process", mock_mcp_process)
+        monkeypatch.setattr(
+            "frozen_paths.scripts_root", lambda: tmp_path, raising=False)
+        monkeypatch.setattr(
+            "frozen_paths.add_to_path", lambda *a, **kw: None, raising=False)
+        popen_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.subprocess.Popen",
+            lambda args, **kw: popen_calls.append(args) or MagicMock())
+        monkeypatch.setattr(app, "close", lambda: None)
+
+        app._start_update("v9.9.9", self._release_json_t2())
+
+        mock_mcp_process.stop.assert_called_once()
+        assert len(popen_calls) == 1
+        args = popen_calls[0]
+        assert args[args.index("-GuiExeName") + 1] == "Garmin_Local_Archive.exe"
+        assert "-RestartMcpCmd" in args
+        assert args[args.index("-RestartMcpCmd") + 1] == fake_bat
+
+    def test_start_update_no_t2_asset_logs_and_stops(self, qtbot, monkeypatch):
+        """T2, Release ohne T2-ZIP-Asset: loggt den T2-spezifischen
+        Fehlertext, fasst prepare_update()/Popen/close nicht an."""
+        from unittest.mock import MagicMock
+
+        class _ImmediateThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+            def start(self):
+                self._target()
+        monkeypatch.setattr("garmin_app_base.threading.Thread", _ImmediateThread)
+
+        app = self._make_test_app(qtbot)
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: False)
+        prepare_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.updater.prepare_update",
+            lambda *a, **kw: prepare_calls.append(1))
+        popen_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.subprocess.Popen",
+            lambda *a, **kw: popen_calls.append(1) or MagicMock())
+        closed = []
+        monkeypatch.setattr(app, "close", lambda: closed.append(True))
+
+        app._start_update("v9.9.9", {"assets": []})
+
+        assert prepare_calls == []
+        assert popen_calls == []
+        assert closed == []
+        assert "release has no T2 ZIP asset" in app.log.toPlainText()
+
+    def test_show_update_popup_offers_update_button_for_t2(
+            self, qtbot, monkeypatch):
+        """v1.7.2.4-Nacherweiterung — das Popup-Gate zeigt den dritten
+        Button jetzt auch für T2 (is_t2_standard() True), nicht mehr nur
+        für T3. QMessageBox.exec() wird übersprungen (kein Blocking-
+        Dialog im Test), stattdessen wird direkt geprüft, wie viele
+        AcceptRole-Buttons _show_update_popup() vor dem exec() angelegt
+        hat."""
+        from unittest.mock import MagicMock, patch
+
+        app = self._make_test_app(qtbot)
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t3_standalone", lambda: False)
+        monkeypatch.setattr(
+            "garmin_app_base.frozen_paths.is_t2_standard", lambda: True)
+
+        with patch("garmin_app_base.QMessageBox") as mock_msgbox_cls:
+            mock_dlg = MagicMock()
+            mock_msgbox_cls.return_value = mock_dlg
+            mock_msgbox_cls.ButtonRole.AcceptRole = "accept"
+            mock_msgbox_cls.ButtonRole.RejectRole = "reject"
+            added_labels = []
+            mock_dlg.addButton.side_effect = (
+                lambda label, role: added_labels.append(label))
+            mock_dlg.clickedButton.return_value = None
+
+            app._show_update_popup("v9.9.9", "v9.9.9", {"assets": []})
+
+            assert "Update" in added_labels
