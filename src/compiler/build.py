@@ -10,11 +10,17 @@ Target layout (what gets distributed):
   /release/
   |-- Garmin_Local_Archive.exe   <- built by this script
   |-- Garmin_Local_Archive.zip   <- release package
+  |-- Garmin_Local_Archive.zip.sha256  <- checksum (v1.7.2.4-Nacherweiterung,
+  |                                        self-update, upload alongside the ZIP)
   |-- scripts/                   <- all .py files (required next to .exe at runtime)
   |   |-- garmin_app.py
   |   |-- garmin/
   |   +-- export/
   +-- info/                      <- README, README_APP docs
+
+ZIP also bundles updater_helper.ps1 flat in its root (v1.7.2.4-
+Nacherweiterung) — the self-update swap helper, same file T3's ZIP
+already ships (compiler/build_standalone.py::build_combined_zip()).
 
 Run from root:
     python build.py
@@ -25,6 +31,7 @@ Targets:
   Target 3 — Standalone: python build_standalone.py   (no Python required)
 """
 
+import hashlib
 import subprocess
 import sys
 import zipfile
@@ -163,13 +170,25 @@ def build_exe(root: Path, venv_python: Path):
 
 
 def build_zip(root: Path):
-    exe      = root / f"{APP_NAME}.exe"
-    zip_path = root / f"{APP_NAME}.zip"
-    info_dir = root / "info"
+    exe           = root / f"{APP_NAME}.exe"
+    zip_path      = root / f"{APP_NAME}.zip"
+    checksum_path = root / f"{APP_NAME}.zip.sha256"
+    helper_ps1    = root / "updater_helper.ps1"
+    info_dir      = root / "info"
 
     print("\n[4/4] Creating release ZIP ...")
+
+    if not helper_ps1.exists():
+        print(f"  ✗ updater_helper.ps1 not found: {helper_ps1}")
+        sys.exit(1)
+
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(exe, f"{APP_NAME}.exe")
+
+        # v1.7.2.4-Nacherweiterung — self-update helper, flat in ZIP root
+        # next to the EXE, same resolution (exe_dir / "updater_helper.ps1")
+        # as build_standalone.py's T3 ZIP already uses.
+        zf.write(helper_ps1, "updater_helper.ps1")
 
         # Entry point
         entry = root / "garmin_app.py"
@@ -217,9 +236,17 @@ def build_zip(root: Path):
                 if f.name in INFO_INCLUDE:
                     zf.write(f, f"info/{f.name}")
 
+    # v1.7.2.4-Nacherweiterung — SHA256 of the finished ZIP, written
+    # alongside it, same format as build_standalone.py's T3 checksum.
+    # updater.prepare_update() refuses to auto-apply an update whose
+    # release doesn't publish this file (fail closed).
+    digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    checksum_path.write_text(digest, encoding="ascii")
+
     print(f"  -> {zip_path}")
-    print(f"  ZIP contents: {APP_NAME}.exe + scripts/ + info/")
-    print(f"  Upload {APP_NAME}.zip to the GitHub release.")
+    print(f"  -> {checksum_path}")
+    print(f"  ZIP contents: {APP_NAME}.exe + updater_helper.ps1 + scripts/ + info/")
+    print(f"  Upload BOTH {APP_NAME}.zip AND {APP_NAME}.zip.sha256 to the GitHub release.")
 
 
 def prepare_scripts_dir(root: Path):

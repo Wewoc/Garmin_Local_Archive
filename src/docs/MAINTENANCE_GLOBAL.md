@@ -137,8 +137,8 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `compiler/build_manifest.py` | Single source of truth for `SHARED_SCRIPTS` — the module list shared between `build.py` and `build_standalone.py`. Pure data, no logic, no side effects. |
 | `compiler/build_all.py` | Runs Target 2 then Target 3 sequentially; aborts Target 3 if Target 2 fails. Includes the Plotly pre-build check (pinned SHA256) before any test or build step. |
 | `compiler/build_gui.py` (`bat/run_build_gui.bat`) | "🦄 Garmin Local Archiv Builder" (garmin_collector-3_experiment, Baustein 31) — Tkinter GUI wrapping the manual "copy working dir into a separate build folder, then run build_all.py" workflow into one window. Pick a build target directory, confirm the (explicitly shown) destructive copy, watch a live, elapsed-time-stamped (`[H:MM:SS]` since Start, a stopwatch — not wall-clock) log of the Qt-test gate + `build_all.py`, Cancel/Stop via `taskkill /PID <pid> /T /F` (same tree-kill technique as `clients/mcp_process.py::_kill_pid_tree()`, needed because `build_all.py` spawns further children — PyInstaller itself — that a plain terminate() would not reach). Running `build_all.py` as this GUI's own child means PyInstaller (a grandchild) inherits the same redirected stdout — its console output reaches the GUI's log without any change to `build.py`'s/`build_standalone.py`'s own `build_exe()`, which still writes straight to the real console via `subprocess.run()` (a pre-existing gap in `build_all.py`'s own file-based `_Tee` logging, unresolved there — see `PROTOKOLL_experiment.md`). Only copies the source tree — the shared build venv (`compiler/build_manifest.py::BUILD_VENV_DIR`) is untouched, found and reused from the new location exactly as before. |
-| `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation. Exit codes 0–5 distinguish success, migration-required, missing settings, API error, dashboard error, and update-available. |
-| `version.py` | Single source of truth for `APP_VERSION` — no dependencies, safe for all build targets |
+| `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation. Exit codes 0–5 distinguish success, migration-required, missing settings, API error, dashboard error, and update-available. T2 + T3, opt-in (`daily_update_auto_update` setting): if a newer version is available, applies it unattended instead of just notifying — same mechanism as the GUI's own "Update" button, minus restarting the GUI afterward (v1.7.2.4, extended from T3-only to also T2 in a follow-up round, v1.7.2.4-Nacherweiterung — this script never runs frozen under T2, so its own build-target check needed `frozen_paths.is_t2_standard(__file__)` rather than the `sys.frozen`-based check T3 uses). |
+| `version.py` | Single source of truth for `APP_VERSION` — no dependencies, safe for all build targets. `is_newer(latest, current)` (v1.7.2.4) — real int-tuple version-order comparison, not a string-inequality check |
 
 **Shared infrastructure** — `src/` root, Leaf-Nodes with no project-module dependency
 
@@ -146,10 +146,12 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 |---|---|
 | `theme.py` | Central design color source of truth — one or more complete `THEME_n` color schemes, selected in Settings → Design. Rest of the app resolves colors via `BG`, `ACCENT`, `TEXT` etc., auto-resolved from the active theme. |
 | `crash_handler.py` | Global uncaught-exception capture — `sys.excepthook` (main thread), `threading.excepthook` (worker threads), optional `qInstallMessageHandler` (Qt-native fatal/critical). Writes to a fixed local path independent of `base_dir`, since a crash may itself be caused by `base_dir` being unreachable. Safe to use from both GUI and headless (`daily_update.py`) entry points. |
-| `frozen_paths.py` | Central frozen-path resolution (`sys.frozen` / `sys._MEIPASS` / `sys.executable`) — replaces logic previously duplicated across `panel_outputs.py` (6×), `panel_home.py`, and other call sites. No I/O beyond `Path.exists()` checks. |
+| `frozen_paths.py` | Central frozen-path resolution (`sys.frozen` / `sys._MEIPASS` / `sys.executable`) — replaces logic previously duplicated across `panel_outputs.py` (6×), `panel_home.py`, and other call sites. No I/O beyond `Path.exists()` checks. `is_t3_standalone()` (v1.7.2.4) — the T3 build-target gate for the self-updater. `is_t2_standard(reference_file=None)` (v1.7.2.4-Nacherweiterung) — its T2 pendant; takes an explicit reference file for the non-frozen case, since `scheduler/daily_update.py` never runs frozen under T2. |
 | `log_utils.py` | `with_timestamp()` — wraps a log callback so every message gets a timestamp prefix matching `logging.Formatter`'s `"%Y-%m-%d %H:%M:%S"`, unifying console output between the Garmin page and the Context/Dashboard pipeline. |
 | `qwebengine_hardening.py` | Shared `QWebEngineSettings` hardening for embedded `QWebEngineView` instances, which only ever display content generated by this project. Disables unneeded WebEngine capabilities; JavaScript stays enabled for Plotly. Idempotent. |
 | `garmin_app_screenshot.py` | Screenshot/demo mode — inherits the full UI from `GarminApp` unmodified, overrides only settings/password loading (dummy data), all button commands (no-ops), and `closeEvent` (no save). No credentials, no file I/O, no subprocesses — safe to run on any machine. |
+| `process_status.py` (v1.7.2.4) | `is_mcp_running()` (TCP probe, extracted from `panel_mcp.py` so `daily_update.py` can reuse it without a PyQt6 import) plus `write_lock()`/`clear_lock()`/`is_running()`/`get_pid()` — a fixed-path PID-lock-file mechanism under `Path.home()` for processes with no port to probe (GUI, `daily_update.exe`). One documented exception to "no project-module dependency": lazily imports `garmin_config` inside `is_mcp_running()` for `MCP_HTTP_PORT` (see `REFERENCE_GARMIN.md § Documented Exceptions`). |
+| `updater.py` (v1.7.2.4) | Self-updater core (T3 first, T2 added v1.7.2.4-Nacherweiterung): `resolve_release_asset()` (GitHub release asset lookup by exact name), `prepare_update()` (download + SHA256-verify + extract to a sibling `_update_pending/` folder; refuses to apply an update whose release publishes no checksum). `T2_ZIP_ASSET_NAME`/`T3_ZIP_ASSET_NAME` constants are the only target-specific part. Stdlib only, no exceptions to the Leaf-Node rule. |
 
 **Export & maintenance tools** — `export/`, one-time or offline utilities outside the live pipeline
 
@@ -852,6 +854,27 @@ python tests/test_app_logic.py
 ```
 
 Check and section totals are tracked in `docs/METRICS.md` (`test_app_logic.py`) — not restated here to avoid drift (same convention as `MAINTENANCE_GARMIN.md`).
+
+### `tests/test_updater.py` — self-updater, T2 + T3 (v1.7.2.4)
+
+```bash
+python tests/test_updater.py
+```
+
+Same standalone-script convention as `test_app_logic.py` above (not
+pytest). No network, no GUI — real files, real SHA256 hashes, real
+zip archives, and a real TCP socket via temp directories and
+`file://` URLs, no mocks. Edge-case focus: malformed version strings,
+stale/corrupt lock files, missing/mismatched checksums, unreachable
+download URLs, a stale `_update_pending/` leftover from a crashed
+previous attempt. Covers `version.is_newer()`,
+`frozen_paths.is_t3_standalone()`/`is_t2_standard()` (the latter added
+v1.7.2.4-Nacherweiterung, including its non-frozen `daily_update.py`
+reference-file case), `process_status.py` (lock files +
+`is_mcp_running()`), and `updater.py` (asset resolution +
+`prepare_update()`, T2 and T3 asset names both covered). Check and
+section totals are tracked in `docs/METRICS.md` (`test_updater.py`) —
+not restated here to avoid drift.
 
 ### `tests/test_qt_app.py` — PyQt6 App layer (v1.5.4+)
 

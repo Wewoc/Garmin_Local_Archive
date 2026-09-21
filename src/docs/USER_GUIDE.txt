@@ -442,12 +442,23 @@ settings:
 
 Console behaviour:
 
-  State                  Behaviour
-  All OK                 Console closes automatically
-  Update available       Stays open — yellow notice
-  Error                  Stays open — red notice, check garmin_data/log/daily/
-  Migration required     Stays open — open the app first
-  Settings missing       Stays open — open the app and save settings first
+  State                          Behaviour
+  All OK                         Console closes automatically
+  Update available (default)     Stays open — yellow notice, open GitHub manually
+  Update applied automatically   Console closes automatically (v1.7.2.4, see below)
+  Update auto-apply failed       Stays open — red notice with the reason (v1.7.2.4)
+  Error                          Stays open — red notice, check garmin_data/log/daily/
+  Migration required             Stays open — open the app first
+  Settings missing               Stays open — open the app and save settings first
+
+Automatic updates (v1.7.2.4, both versions): tick "Auto-apply
+updates in Daily Sync" in Settings -> its own "Daily Sync" section. When
+a new version is found, `daily_update` downloads, verifies, and applies
+it by itself — no popup, nothing to click. If the app happens to be
+open at that moment, it closes automatically (any unsaved changes in
+open fields are lost) and does not reopen afterward. Off by default —
+without it, `daily_update` behaves exactly as before (yellow notice,
+open GitHub manually).
 
 Prerequisite: the app must be configured at least once (email,
 password, folder, location saved) before `daily_update` can run.
@@ -742,6 +753,17 @@ Context-Check
   location — it is a real re-fetch, not just a label correction,
   since a flagged day's underlying values were fetched at the wrong
   place to begin with.
+  Note: for a day with no matching row in local_config.csv, the
+  plausibility check compares its stored coordinate against your
+  *current* Settings -> CONTEXT location, not the location that was
+  active when that day was fetched. If you permanently relocate
+  without adding a CSV row for the old period, previously-correct
+  days from before the move will show up as "drift" afterwards — this
+  is expected, not a data defect. Workaround: add a row to
+  local_config.csv covering the old period (old coordinates, date_to
+  = the day before the move) so those days keep being checked against
+  the location that was actually correct for them — see "Sync Context
+  / CSV" below.
   Note: if you use the Chat tab (MCP / live-archive mode) or an
   external MCP client, a just-repaired day may show no data for that
   source until the MCP server's next sync — either its next restart,
@@ -753,6 +775,20 @@ Documentation
   Opens a dialog with three entries: Quickstart (first-time setup),
   User Guide (this document), and README App (installation/security).
   Files open in your default text editor or viewer.
+
+Update (v1.7.2.4, both versions)
+  Appears in the "new version available" popup alongside "Open GitHub"
+  and "Dismiss". Downloads the new version, verifies it against a
+  published checksum, applies it, and restarts the app automatically.
+  If verification fails, nothing is changed and the app keeps running
+  as before.
+
+Auto-apply updates in Daily Sync (v1.7.2.4, both versions)
+  Checkbox under Settings -> its own "Daily Sync" section. Saves
+  immediately. When on, `daily_update` applies a new version by itself
+  the next time one is found, instead of just showing a notice — see
+  Section 7, "Automated Daily Sync", for what that looks like on a
+  scheduled run. Off by default.
 
 Sync Data / Stop
   Downloads missing days from Garmin Connect. Watch the log at the

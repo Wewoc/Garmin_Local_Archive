@@ -1,5 +1,175 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.2.4 — T2 + T3 Self-Updater
+
+Self-update for both distributed targets — Target 2 (Standard) and
+Target 3 (Standalone). T1 (dev checkout) keeps today's notify-only
+popup unchanged; `git pull` is the right tool there, independent of any
+update mechanism. Two triggers share one mechanism: the GUI's new
+"Update" button, and an opt-in unattended auto-apply path in
+`daily_update.exe`/`daily_update.py`. Both download the release ZIP,
+verify it against a published SHA256 checksum (fail closed — an update
+whose release doesn't publish a checksum is refused, not applied
+unverified), extract it, then hand off to a detached PowerShell helper
+that waits for the relevant processes to exit and swaps the install in
+place — neither the GUI nor the daily-sync process can overwrite their
+own running files while still running. No framework (Velopack/tufup/
+WinSparkle all evaluated and rejected — none fit the portable, flat
+T2/T3 install folders, and none solve the actual hard problem). Old
+install contents move to `_update_backup/` (overwritten each update,
+not kept indefinitely) as a one-step rollback safety net. The
+unattended path force-closes an open GUI via `taskkill` instead of
+waiting on it — nobody is watching an unattended run — and never
+restarts the GUI afterward; that is the only difference between the
+two trigger paths.
+
+Built in two rounds: T3 only first (scope originally tied to an
+evaluated framework's `--onedir` assumption), then extended to T2 in a
+follow-up round once that assumption no longer applied and the
+download-share reasoning for staying T3-only was re-examined (see
+`ROADMAP.md`'s former "T2 support for the self-updater" entry, now
+removed — it's built). T2's build-target detection needed its own
+approach: `daily_update.py` never runs frozen under T2 (`Starte_Daily_
+Sync.bat` calls the plain Python interpreter), so `sys.frozen` alone
+can't distinguish it from a T1 dev checkout the way it can for T3's
+frozen EXEs.
+
+**New modules:**
+- `process_status.py` — `is_mcp_running()` (TCP probe against
+  `MCP_HTTP_PORT`, extracted from `panel_mcp.py` so `daily_update.py`
+  can reuse it without importing PyQt6) plus `write_lock()`/
+  `clear_lock()`/`is_running()`/`get_pid()`: a fixed-path,
+  PID-lock-file mechanism for "is process X running" where there's no
+  port to probe (GUI, `daily_update.exe`) — liveness checked via
+  `ctypes`/`OpenProcess`, not `tasklist`/`netstat` (this project already
+  hit real subprocess-spawn timeouts there, see `clients/mcp_process.py`).
+- `updater.py` — `resolve_release_asset()` (finds a named GitHub
+  release asset by exact name, e.g. the T3 ZIP vs. the T2 ZIP sitting
+  next to it) and `prepare_update()` (download, SHA256-verify, extract
+  to a sibling `_update_pending/` folder; cleans up a stale leftover
+  from a previous crashed attempt first, and cleans up after itself on
+  any failure — nothing outside `_update_pending/` is ever touched).
+- `updater_helper.ps1` — the detached file-swap helper. PowerShell
+  instead of a 4th PyInstaller EXE (preinstalled on every Windows
+  10/11 target, no Python needed, no new build artefact). Own lock
+  file guards against two triggers overlapping. Strips
+  Mark-of-the-Web (`Unblock-File`) after the swap to reduce SmartScreen
+  friction on the freshly-downloaded files.
+- `tests/test_updater.py` — dedicated edge-case suite for the three
+  modules above plus `version.is_newer()`/`frozen_paths.is_t3_standalone()`/
+  `frozen_paths.is_t2_standard()` (62 checks).
+
+**Changed modules:**
+- `version.py` — new `is_newer(latest, current)`: real version-order
+  comparison (int-tuple), replacing a naive string-inequality check
+  that was harmless for a dismissible popup but would have risked an
+  unattended downgrade once an update could auto-apply.
+- `frozen_paths.py` — new `is_t3_standalone()` (T3's build-target gate)
+  and `is_t2_standard(reference_file=None)` (T2's pendant — its "not
+  frozen" branch takes an explicit reference file since `daily_update.py`
+  never runs frozen under T2). Both reuse the same sibling-file-
+  existence pattern `_resolve_mcp_server_launch_command()` already used
+  for T2-vs-T3.3. Gate both the GUI's third popup button and
+  `daily_update.py`'s auto-apply path.
+- `updater.py` — `T2_ZIP_ASSET_NAME`/`T2_ZIP_CHECKSUM_ASSET_NAME`
+  alongside the existing T3 constants (the resolution/download/verify
+  functions themselves were already target-agnostic).
+- `garmin_app_base.py` — `_show_update_popup()`'s third "Update" button
+  now gated on T2-or-T3; new `_start_update()` wires the full
+  GUI-triggered flow per target (resolve target-specific assets →
+  `prepare_update()` → stop MCP if running, using
+  `panel_mcp._resolve_mcp_server_launch_command()` to pick the right
+  restart command for either target → launch the helper detached with
+  the right `-GuiExeName` → close self); `_check_version()` now passes
+  the full release JSON through; `write_lock("gui")`/`clear_lock("gui")`
+  at startup/close so the unattended path can tell whether the GUI is
+  open.
+- `scheduler/daily_update.py` — new opt-in unattended auto-apply path
+  (`_apply_update_unattended()`): same mechanism as the GUI, minus
+  `-RestartGui` and with a force-close (`taskkill`) instead of a wait
+  for an open GUI. Resolves `exe_dir` via `sys.executable.parent` for
+  T3 (frozen) or the module's own `_repo_root` for T2 (never frozen);
+  new local `_resolve_mcp_restart_cmd()` instead of reusing
+  `panel_mcp`'s version, to avoid pulling a PyQt6 import chain into
+  this headless script. `_check_version()` now returns `(latest,
+  release_json)`. `_DAILY_SETTINGS_KEYS` extended with the new setting.
+- `app/panel_outputs.py` — new "Daily Sync" section (own header,
+  separate from "Output") holding the "Auto-apply updates in Daily
+  Sync" checkbox, saves immediately on toggle.
+- `app/panel_mcp.py` — `_mcp_server_is_running()` now delegates to
+  `process_status.is_mcp_running()` instead of duplicating the probe;
+  dead `socket` import removed.
+- `app/garmin_app_settings.py` — new `daily_update_auto_update` default
+  (`False`, opt-in).
+- `compiler/build_manifest.py` — `process_status.py`/`updater.py`
+  registered in `SHARED_SCRIPTS` + `SCRIPT_SIGNATURES_BASE`;
+  `frozen_paths.py`'s signature entry extended with
+  `is_t3_standalone`/`is_t2_standard`.
+- `compiler/build_standalone.py` — `build_combined_zip()` bundles
+  `updater_helper.ps1` into the T3 ZIP and writes a SHA256 checksum
+  file alongside it.
+- `compiler/build.py` — `build_zip()` now does the same for the T2 ZIP
+  (parity with `build_standalone.py`): bundles `updater_helper.ps1` and
+  writes a SHA256 checksum file alongside it. Both files must be
+  uploaded to the GitHub release for either target's self-update to
+  work.
+- `updater_helper.ps1` — new `-GuiExeName` parameter (default: the T3
+  name, for backward compatibility) instead of a hardcoded GUI EXE
+  filename, since T2 (`Garmin_Local_Archive.exe`) and T3
+  (`Garmin_Local_Archive_Standalone.exe`) restart different files.
+- `tests/test_qt_app.py` — 11 new tests total (4 for T3's
+  `_start_update()`, 3 for the new checkbox, 4 for T2's `_start_update()`
+  branch and the popup gate); one pre-existing test
+  (`test_toggle_timer_starts_when_off`) fixed for a real,
+  pre-existing background-thread race this session's own timing
+  changes happened to newly expose (see Verification below).
+
+**Verification:** built and verified in 35 documented steps across two
+rounds (T3, then T2 — see `changelog/anchor_delivery_v1-7-2-4-updater-*.md`),
+each with real execution, not mocks where it mattered — real
+ZIP/SHA256/PowerShell runs (including a real `updater_helper.ps1`
+process launch with a substitute GUI EXE name to prove the new
+`-GuiExeName` parameter actually works, not just parses), and two real
+end-to-end builds via `compiler/build_all.py` (one per round, zero
+errors across every gate both times) — the second one building both
+T2 and T3 for real, confirming `build.py`'s `build_zip()` extension
+(Step 3 of the T2 round, previously only verified with substitute file
+content) against an actual `Garmin_Local_Archive.exe`: both release
+ZIPs and their `.sha256` files exist on disk, both checksums
+independently recomputed and matching, both ZIPs verified (via
+`zipfile.namelist()`, not just the build log) to actually contain
+`updater_helper.ps1`. Three real, pre-existing bugs surfaced and fixed
+along the way, none introduced by this feature: (1) an un-joined
+background thread in a GUI test that crashed the whole suite once this
+session's own timing changes shifted just enough to expose the race;
+(2) `process_status.py`/`updater.py` were never added to
+`build_manifest.py` — caught by running the full static-check suite,
+would have silently broken every future T2/T3 build; (3) four existing
+`_start_update()` tests never mocked the build-target check at all
+(the old code didn't have one to mock) — would have silently drifted
+into asserting the wrong target's behavior once `_start_update()`
+started determining its own target. `test_qt_app.py` +
+`test_mcp_process.py` 199/199, `test_updater.py` 62/62,
+`test_static.py` 16/16 (ruff 0 errors, bandit 0 high-severity),
+`test_app_logic.py` 176/176, `test_build_output.py` 1020/1020 (grew
+from 576/576 — new Target 2 sections added for the real T2 build
+check) — all green. `test_local.py`/`test_local_context.py`/
+`test_dashboard.py` pending a separate run.
+
+**Known limitations, not part of this release:** T1 (dev checkout)
+stays notify-only, unchanged (by design — `git pull` is the right tool
+there). No lock file against two update triggers running at the exact
+same moment. No real GitHub release has exercised the live
+check→download→apply path yet for either target — that can only be
+tested against an actual published release (GitHub's `releases/latest`
+endpoint never returns a draft/pre-release), so this release is itself
+the first live test of that path, for both T2 and T3.
+`test_build_output.py` still has no dedicated automated checks for
+`updater_helper.ps1` bundling or the `.sha256` checksum file for
+either target — that verification ran manually against the real
+on-disk artifacts both times (T3 round and T2 round), not via the
+automated suite.
+
 ## v1.7.2.3 — Context Archive Integrity Check & MCP Resync
 
 New Data Collection function: Context-Check scans the context archive for
@@ -1499,6 +1669,75 @@ requiring action.
 **Test result:** 780 / 265 / 465 / 136 / 117 / 165 / 79 / 16 — all green
 (test_local / test_local_context / test_dashboard / test_broker /
 test_mcp / test_app_logic / test_qt_app / test_static).
+
+---
+
+## v1.7.1.6 — MCP Field Units
+
+Every value returned by `query_health()`, `query_context()` (including
+its category-bundle path), and `list_available_fields()` now carries an
+explicit unit (e.g. "ms", "km/h", "0–100", "—" for fields without a
+physical unit) — closing a gap where a local LLM (verified against
+`qwen3:14b`, `qwen2.5-coder:7b`, `mistral-nemo`) reported values under
+the wrong unit, since the unit previously existed only in human-readable
+reference docs (`REFERENCE_BROKER.md`/`REFERENCE_GARMIN.md`/
+`REFERENCE_CONTEXT.md`), unreachable from the MCP tool schema itself.
+
+**Changed modules:**
+- `clients/mcp_server.py` — new `FIELD_UNITS` dict (51 fields, every
+  `query_health()`/`query_context()`-reachable field, no exceptions —
+  a mixed state would itself be a new source of LLM misinterpretation),
+  `_get_field_unit()` (single lookup point) and `_enrich_with_units()`
+  (attaches "unit" per field, handles both the per-source and the
+  already-flattened bundle shape). Wired into `query_health()`,
+  `query_context()` (both the direct-field and the near-match-resolution
+  path), `_resolve_context_bundle()`, and `list_available_fields()`
+  (additive `"units"` key, `"fields"` itself unchanged) — applied AFTER
+  the `_route_query()` switch in every case, so it covers the SQLite and
+  the live branch identically.
+- `sleep_score` — pre-existing gap closed (was retrievable but missing
+  its own reference-table row): `"0–100"`, see `REFERENCE_BROKER.md`/
+  `REFERENCE_GARMIN.md`.
+
+**Architecture note — deliberate MCP-local stopgap:** `FIELD_UNITS` is
+NOT placed in `maps/mcp_map.py`, `maps/health_map.py`, `maps/context_map.py`,
+or `maps/gateway_map.py`. Two reasons, found during this session's own
+review (not in the original session plan): (1) `_route_query()` currently
+always returns `"sqlite"` — the SQLite branch never touches `mcp_map.py`
+at all, so a unit lookup placed there would silently do nothing for every
+real request today; (2) a unit registry placed at the MCP layer would be
+an island, unusable by dashboards or any other broker consumer. Kept
+MCP-local anyway (scope decision, this session), but isolated behind
+`_get_field_unit()`'s narrow signature so a future broker-level
+replacement only requires swapping that one function's body. See
+`KNOWN_ISSUES.md` Cluster F (extended this session) and
+`NOTES_v1716_session2.md` for the full reasoning trail.
+
+**Deliberately not implemented:**
+- `maps/mcp_map.py` — untouched this session (see architecture note
+  above; all four MCP-facing functions carrying units are in
+  `clients/mcp_server.py`).
+- Raw-passthrough fields (`query_raw()`, 13 fields) — no unit concept,
+  out of scope (see `REFERENCE_GARMIN.md`, "Raw-passthrough fields").
+- Consolidation of the pre-existing, unrelated duplicate unit/label
+  dicts already living in several dashboard specialists (Cluster F) —
+  tracked, not touched.
+
+**New/changed test files:**
+- `tests/test_mcp.py` — six new checks: `query_health()` (a field with a
+  physical unit, and `vo2max` as the no-physical-unit case), `query_context()`
+  direct field, both bundle cases (`"pollen"` — single source; `"weather"` —
+  verifies the documented `wind_speed_max` collision keeps one consistent
+  unit across the brightsky/weather source switch), and
+  `mcp_server.list_available_fields()`'s new `"units"` key.
+
+**Test result:** 117 / 117 (`test_mcp.py`) — all green. Full suite
+(`test_local.py`/`test_local_context.py`/`test_dashboard.py`/
+`test_app_logic.py`) — see `NOTES_v1716_session2.md` for the pending
+final confirmation run.
+
+**Drift-Check (`build_dep_map.py`, 2026-08-31_Run-01 → Run-02):**
+0 NEU, 0 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung — clean.
 
 ---
 
@@ -3065,6 +3304,10 @@ underlying data shape (matrix vs. flat series), not a drop-in of this helper.
 **Test result:** 631 / 265 / 453 / 145 / 46 / 15 — all green, ruff 0 errors,
 bandit 0 HIGH.
 
+---
+
+## v1.6.5.9 — Headless Login Hardening
+
 Closes the deferred `skip_strategies`/retry-lock item from `v1.6.5.2`'s
 token-lifecycle analysis — reframed after reading the actual
 `garminconnect` source: headless callers (`garmin_collector.py`'s
@@ -3239,75 +3482,6 @@ deferred to its own session, to avoid growing this one further.
 **Test result:** 621 / 265 / 453 / 145 / 46 / 15 — all green (baseline at
 session start: 536 / 265 / 453 / 145 / 46 / 15), ruff 0 errors, bandit 0
 HIGH.
-
----
-
-## v1.7.1.6 — MCP Field Units
-
-Every value returned by `query_health()`, `query_context()` (including
-its category-bundle path), and `list_available_fields()` now carries an
-explicit unit (e.g. "ms", "km/h", "0–100", "—" for fields without a
-physical unit) — closing a gap where a local LLM (verified against
-`qwen3:14b`, `qwen2.5-coder:7b`, `mistral-nemo`) reported values under
-the wrong unit, since the unit previously existed only in human-readable
-reference docs (`REFERENCE_BROKER.md`/`REFERENCE_GARMIN.md`/
-`REFERENCE_CONTEXT.md`), unreachable from the MCP tool schema itself.
-
-**Changed modules:**
-- `clients/mcp_server.py` — new `FIELD_UNITS` dict (51 fields, every
-  `query_health()`/`query_context()`-reachable field, no exceptions —
-  a mixed state would itself be a new source of LLM misinterpretation),
-  `_get_field_unit()` (single lookup point) and `_enrich_with_units()`
-  (attaches "unit" per field, handles both the per-source and the
-  already-flattened bundle shape). Wired into `query_health()`,
-  `query_context()` (both the direct-field and the near-match-resolution
-  path), `_resolve_context_bundle()`, and `list_available_fields()`
-  (additive `"units"` key, `"fields"` itself unchanged) — applied AFTER
-  the `_route_query()` switch in every case, so it covers the SQLite and
-  the live branch identically.
-- `sleep_score` — pre-existing gap closed (was retrievable but missing
-  its own reference-table row): `"0–100"`, see `REFERENCE_BROKER.md`/
-  `REFERENCE_GARMIN.md`.
-
-**Architecture note — deliberate MCP-local stopgap:** `FIELD_UNITS` is
-NOT placed in `maps/mcp_map.py`, `maps/health_map.py`, `maps/context_map.py`,
-or `maps/gateway_map.py`. Two reasons, found during this session's own
-review (not in the original session plan): (1) `_route_query()` currently
-always returns `"sqlite"` — the SQLite branch never touches `mcp_map.py`
-at all, so a unit lookup placed there would silently do nothing for every
-real request today; (2) a unit registry placed at the MCP layer would be
-an island, unusable by dashboards or any other broker consumer. Kept
-MCP-local anyway (scope decision, this session), but isolated behind
-`_get_field_unit()`'s narrow signature so a future broker-level
-replacement only requires swapping that one function's body. See
-`KNOWN_ISSUES.md` Cluster F (extended this session) and
-`NOTES_v1716_session2.md` for the full reasoning trail.
-
-**Deliberately not implemented:**
-- `maps/mcp_map.py` — untouched this session (see architecture note
-  above; all four MCP-facing functions carrying units are in
-  `clients/mcp_server.py`).
-- Raw-passthrough fields (`query_raw()`, 13 fields) — no unit concept,
-  out of scope (see `REFERENCE_GARMIN.md`, "Raw-passthrough fields").
-- Consolidation of the pre-existing, unrelated duplicate unit/label
-  dicts already living in several dashboard specialists (Cluster F) —
-  tracked, not touched.
-
-**New/changed test files:**
-- `tests/test_mcp.py` — six new checks: `query_health()` (a field with a
-  physical unit, and `vo2max` as the no-physical-unit case), `query_context()`
-  direct field, both bundle cases (`"pollen"` — single source; `"weather"` —
-  verifies the documented `wind_speed_max` collision keeps one consistent
-  unit across the brightsky/weather source switch), and
-  `mcp_server.list_available_fields()`'s new `"units"` key.
-
-**Test result:** 117 / 117 (`test_mcp.py`) — all green. Full suite
-(`test_local.py`/`test_local_context.py`/`test_dashboard.py`/
-`test_app_logic.py`) — see `NOTES_v1716_session2.md` for the pending
-final confirmation run.
-
-**Drift-Check (`build_dep_map.py`, 2026-08-31_Run-01 → Run-02):**
-0 NEU, 0 WEG, 0 GEKIPPT-Regression, 0 GEKIPPT-Verbesserung — clean.
 
 ---
 
@@ -3967,30 +4141,22 @@ bandit 0 HIGH
 
 ---
 
-# v1.6.4.2 — Settings Shadow Copy + Update Notice Title
+## v1.6.4.2 — Settings Cleanup & Update Notice
 
 Two small, self-contained fixes — no new feature.
 
-## Changed modules
+**Changed modules:**
+- `export/backfill_source_backup.py` — `sys.path` extended to include `app/`; `SETTINGS_FILE` is now imported from `garmin_app_settings` instead of being independently hardcoded (`Path.home() / ".garmin_archive_settings.json"`). Finding from the v1.6.4 session's DEPS scan (`settings_persistence_pattern`). Behavior identical, just a single source of truth for the path now.
+- `garmin_app_base.py` — `_check_version()`: now additionally reads the `name` field from the GitHub Release API response (`title = data.get("name", "").strip() or latest`, falling back to `tag_name`). `_show_update_popup()` gets a new `title` parameter and displays the full release title (e.g. "v1.6.4 — Custom Dashboard Builder") instead of just the version number. Comparison logic unchanged — still compares against `tag_name`. `scheduler/daily_update.py`'s standalone, headless `_check_version()` copy is deliberately left untouched (no popup there).
+- `version.py` — `APP_VERSION` bumped to 1.6.4.2.
 
-**`export/backfill_source_backup.py`**
-`sys.path` extended to include `app/`; `SETTINGS_FILE` is now imported from `garmin_app_settings` instead of being independently hardcoded (`Path.home() / ".garmin_archive_settings.json"`). Finding from the v1.6.4 session's DEPS scan (`settings_persistence_pattern`). Behavior identical, just a single source of truth for the path now.
-
-**`garmin_app_base.py`**
-`_check_version()`: now additionally reads the `name` field from the GitHub Release API response (`title = data.get("name", "").strip() or latest`, falling back to `tag_name`). `_show_update_popup()` gets a new `title` parameter and displays the full release title (e.g. "v1.6.4 — Custom Dashboard Builder") instead of just the version number. Comparison logic unchanged — still compares against `tag_name`. `scheduler/daily_update.py`'s standalone, headless `_check_version()` copy is deliberately left untouched (no popup there).
-
-**`version.py`**
-`APP_VERSION` bumped to 1.6.4.2.
-
-## What does not change
-
+**What does not change:**
 - No pipeline touched — both changes live in the App/Script layer
 - `garmin_config`, `garmin_backup_source`, `daily_update.py` — unchanged
 - No new field, no new constant needed in `REFERENCE_GLOBAL.md`
 
-## Test result
+**Test result:** 469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors, bandit 0 HIGH
 
-469 / 261 / 409 / 145 / 46 / 4 — all green, ruff 0 errors, bandit 0 HIGH
 ---
 
 ## v1.6.4.1 — Broker Layer Reference
@@ -4439,6 +4605,39 @@ at Full HD. Aligns DATA MANAGEMENT buttons to left with equal width.
 
 ---
 
+## v1.6.0.5 — Dashboard Render Registry
+
+Replaces the `if/elif` dispatch in `dash_plotter_html_complex.py` with a
+render registry pattern. `dash_plotter_html_complex.py` becomes a pure
+facade (67 lines, was 1217): it looks up the renderer for the incoming
+layout key and delegates — no layout-specific logic remains. Adding a new
+dashboard layout now requires one line in the registry, not an edit to the
+plotter. Additionally, `check_source_backfill_needed()` is now called
+automatically at the end of each normal Daily Sync (Step 9b in
+`garmin_collector.main()`) so unbackedup `source/` files are secured
+without any manual script.
+
+**New modules:**
+- `layouts/render/__init__.py` — package marker
+- `layouts/render/recovery_context.py` — Recovery Context renderer: `_build_tab1`, `_build_tab2`, `_render_recovery_context`, tab navigation (530 lines)
+- `layouts/render/sleep.py` — Sleep Dashboard renderer: `_render_sleep` (214 lines)
+- `layouts/render/explorer.py` — Explorer renderer: `_build_explorer_tab1`, `_render_explorer` (520 lines)
+
+**Changed modules:**
+- `layouts/dash_plotter_html_complex.py` — facade only: `_REGISTRY` dict + `render()` dispatcher. Renderer loading via `importlib.util.spec_from_file_location` — robust against `sys.path` context variations. `render/` registered as package in `sys.modules` on first load.
+- `garmin/garmin_collector.py` — Step 9b added after the normal backup cycle: `check_source_backfill_needed() > 0` → `backfill_source()`. Guard: `ok > 0 and GARMIN_SOURCE_BACKFILL != "1"`. Non-fatal (`try/except` → `log.warning`).
+- `compiler/build_manifest.py` — four new entries in `SHARED_SCRIPTS` (`layouts/render/__init__.py`, `layouts/render/recovery_context.py`, `layouts/render/sleep.py`, `layouts/render/explorer.py`) + three entries in `SCRIPT_SIGNATURES_BASE`.
+
+**What does not change:**
+- Neutral dict contract between specialist and plotter — identical
+- `dash_runner.py` — no changes; calls `plotter.render()` as before
+- All `*_dash.py` specialists — no changes; layout key in return dict drives dispatch as before
+- `test_dashboard.py` — no changes; imports `dash_plotter_html_complex` directly, tests pass against new facade
+
+**Test result:** 439 / 261 / 310 / 136 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
+
+---
+
 ## v1.6.0.4.9.3 — Container Security Tests
 
 Extends `test_local.py` with targeted tests for the encrypted mirror
@@ -4520,39 +4719,6 @@ relative path from `bat/run_test_all.bat`).
 - `src/bat/run_test_all.bat` — moved + cd fix
 
 **Test result:** 420 / 261 / 310 / 136 / 42 / 2 — all green
-
----
-
-## v1.6.0.5 — Dashboard Render Registry
-
-Replaces the `if/elif` dispatch in `dash_plotter_html_complex.py` with a
-render registry pattern. `dash_plotter_html_complex.py` becomes a pure
-facade (67 lines, was 1217): it looks up the renderer for the incoming
-layout key and delegates — no layout-specific logic remains. Adding a new
-dashboard layout now requires one line in the registry, not an edit to the
-plotter. Additionally, `check_source_backfill_needed()` is now called
-automatically at the end of each normal Daily Sync (Step 9b in
-`garmin_collector.main()`) so unbackedup `source/` files are secured
-without any manual script.
-
-**New modules:**
-- `layouts/render/__init__.py` — package marker
-- `layouts/render/recovery_context.py` — Recovery Context renderer: `_build_tab1`, `_build_tab2`, `_render_recovery_context`, tab navigation (530 lines)
-- `layouts/render/sleep.py` — Sleep Dashboard renderer: `_render_sleep` (214 lines)
-- `layouts/render/explorer.py` — Explorer renderer: `_build_explorer_tab1`, `_render_explorer` (520 lines)
-
-**Changed modules:**
-- `layouts/dash_plotter_html_complex.py` — facade only: `_REGISTRY` dict + `render()` dispatcher. Renderer loading via `importlib.util.spec_from_file_location` — robust against `sys.path` context variations. `render/` registered as package in `sys.modules` on first load.
-- `garmin/garmin_collector.py` — Step 9b added after the normal backup cycle: `check_source_backfill_needed() > 0` → `backfill_source()`. Guard: `ok > 0 and GARMIN_SOURCE_BACKFILL != "1"`. Non-fatal (`try/except` → `log.warning`).
-- `compiler/build_manifest.py` — four new entries in `SHARED_SCRIPTS` (`layouts/render/__init__.py`, `layouts/render/recovery_context.py`, `layouts/render/sleep.py`, `layouts/render/explorer.py`) + three entries in `SCRIPT_SIGNATURES_BASE`.
-
-**What does not change:**
-- Neutral dict contract between specialist and plotter — identical
-- `dash_runner.py` — no changes; calls `plotter.render()` as before
-- All `*_dash.py` specialists — no changes; layout key in return dict drives dispatch as before
-- `test_dashboard.py` — no changes; imports `dash_plotter_html_complex` directly, tests pass against new facade
-
-**Test result:** 439 / 261 / 310 / 136 / 42 / 4 — all green, ruff 0 errors, bandit 0 HIGH
 
 ---
 
@@ -4821,34 +4987,35 @@ Architecture Check (2026-06-20) that were not part of the v1.6.0.4.4 bucket.
 ---
 
 ## v1.6.0.4.4.1 — Hotfix: Daily Sync Gap Detection
- 
+
 Fixes a regression introduced in v1.6.0.4.4 where the automated Daily Sync
 aborted with "Gap too large — please open the app" despite the archive being
 only 1–2 days behind.
- 
-## What happened
- 
+
+**What happened:**
+
 v1.6.0.4.4 added secret redaction (`RedactFilter`) to the daily log file —
 a correct security improvement. However, the filter was registered inside
 `_start_daily_log()`, which runs before the archive path is written to
 `os.environ`. This caused `garmin_config` to be imported with the wrong path,
 which in turn caused gap detection to read the wrong `quality_log.json` and
 report a false gap count, triggering the hard stop.
- 
-## Fix
- 
+
+**Fix:**
+
 `RedactFilter` registration is now deferred to a new `_attach_redact_filter()`
 function, called immediately after the archive path is set. Redaction coverage
 is identical at runtime — only the registration timing changes.
- 
-## Affected versions
- 
+
+**Affected versions:**
+
 - v1.6.0.4.4 only
-## Upgrade
- 
+
+**Upgrade:**
+
 Replace `scheduler/daily_update.py` and `version.py` with the files from
 this release. No other changes required.
- 
+
 ---
 
 ## v1.6.0.4.4 — Security and Architecture Fixes (small collection)
@@ -5669,18 +5836,6 @@ for archives where the pattern may occur.
 
 ---
 
-## v1.5.5.4 — Test Infrastructure Consolidation + Maps Logging + AST-Guard
-
-Duplicate test-tracking boilerplate extracted from four manual test scripts
-into a shared `tests/support.py` module. All four suites now import `check()`,
-`section()`, and `summary()` as free functions — no inline implementation.
-Summary output unified to a single format. Four Maps modules gain `log.warning()`
-in their `_read_field()` except-blocks — previously silent JSON/OS errors are now
-observable. New AST-based regression guard in `test_qt_app.py` verifies that
-`scheduler/daily_update.py` stays GUI-free.
-
----
-
 ## v1.5.6.1 — Encrypted Mirror Container
 
 Replaces the plain mirror folder with a single encrypted container file (`mirror.gla`).
@@ -5806,8 +5961,6 @@ are structurally eliminated.
   (no `join()`) to prevent startup delay on network mirror paths.
 
 **Test result:** 319 / 261 / 303 / 128 / 42 — all green
-
----
 
 ---
 
@@ -5954,25 +6107,8 @@ scattered `_upsert_quality + _save_quality_log` call pattern in the collector.
 
 ---
 
-`garmin_quality.py` (~934 lines) converted to a facade. Implementation split into five sub-modules under `garmin/quality/`. All callers remain unchanged — the facade re-exports every public symbol identically.
+## v1.5.5 — Content Validation & Backup Hardening
 
-**New modules:**
-- `garmin/quality/__init__.py` — package init, empty
-- `garmin/quality/_io.py` — Load, Save, Checksum, Defective log, `_safe_get`, `_parse_device_date` alias
-- `garmin/quality/_assess.py` — `assess_quality`, `assess_quality_fields`
-- `garmin/quality/_scan.py` — `get_low_quality_dates`, `_backfill_quality_log`
-- `garmin/quality/_maint.py` — `_QUALITY_RANK`, `_upsert_quality`, `_set_first_day`, `cleanup_before_first_day`
-- `garmin/quality/_stats.py` — `get_archive_stats`
-
-**Changed modules:**
-- `garmin/garmin_quality.py` — converted to facade; all logic delegated to sub-modules via flat imports (`from quality._io import ...`). `QUALITY_LOCK` remains here — never in sub-modules.
-- `compiler/build_manifest.py` — six new entries in `SHARED_SCRIPTS`; signature check for `garmin_quality.py` updated to `from quality._maint import` + `QUALITY_LOCK`.
-
-**Architecture note:** Sub-modules use flat imports (`from quality._io import ...`, not relative `from ._io import ...`) because `garmin/` is on `sys.path` directly — same pattern as `context/`, `maps/`, `dashboards/`.
-
-**Test result:** 314 / 261 / 303 / 128 / 41 — all green · T2 + T3 build clean · GUI verified
-
----
 Three independent improvements to integrity detection, UI feedback, and mirror verification.
 
 **Changed modules:**
@@ -6319,9 +6455,9 @@ Root reduced from 18 to 10 files. Build scripts and scheduler files moved to ded
 
 ---
 
-## [1.4.9.1] - New Design
+## v1.4.9.1 — New Design & Archive Stats
 
-### **Changed - new design**
+**Changed — new design:**
 - Color palette updated: Navy/Red → Dark-Purple/Violet accent
   (`ACCENT #e94560 → #a259f7`, `ACCENT2 #533483 → #6e3fcf`,
   `BG #1a1a2e → #12101f`, `BG2 #16213e → #1a1729`, `BG3 #0f3460 → #231f38`)
@@ -6334,15 +6470,14 @@ Root reduced from 18 to 10 files. Build scripts and scheduler files moved to ded
   and `#6e3fcf` (accents/borders) across `dash_layout_html.py` and
   `dash_plotter_html_mobile.py` — visual identity now consistent with GUI palette
 
-### **Fix**
-- [Fix] dash_plotter_html: replaced f-string HTML assembly with string concatenation to prevent NameError when CSS or JS contains unescaped curly braces
+**Fix:**
+- `dash_plotter_html.py` — replaced f-string HTML assembly with string concatenation to prevent NameError when CSS or JS contains unescaped curly braces
 
-### Project & Ecosystem
-- **Needful Things Repo**: Formalized the separation of the tools ecosystem. The [GLA-NeedfulThings](https://github.com/Wewoc/GLA-NeedfulThings) repository provides independent utilities (Translator, Chat Pipeline, etc.) that function without a local GLA installation[cite: 14].
+**Project & Ecosystem:**
+- **Needful Things Repo**: Formalized the separation of the tools ecosystem. The [GLA-NeedfulThings](https://github.com/Wewoc/GLA-NeedfulThings) repository provides independent utilities (Translator, Chat Pipeline, etc.) that function without a local GLA installation.
 
-## **Archive Info Panel — Missing Days:**
-**New:**
-- `garmin_quality.py` — `get_archive_stats()`: `missing` key added (`possible - present`). If determined in the same calculation step as` coverage_pct `, no additional run.
+**Archive Info Panel — Missing Days:**
+- `garmin_quality.py` — `get_archive_stats()`: `missing` key added (`possible - present`). If determined in the same calculation step as `coverage_pct`, no additional run.
 - `garmin_app_base.py` — Widget `_info_missing` inserted in `row1` after `_info_recheck`. `_refresh_archive_info()`: Label is filled from `stats['missing']`.
 - `garmin_app_screenshot.py` — Demo value `Missing: 37` added.
 
@@ -6727,7 +6862,9 @@ the right fix, not `importlib.reload(garmin_security)` in the GUI.
 
 ---
 
-## v1.4.3 — Test Suite Extension (App Logic + Build Output)
+## v1.4.3 — Test Suite Extension + Value Range Validation + Standalone Hotfix
+
+**Test Suite Extension (App Logic + Build Output):**
 
 Two new test modules completing the test suite. No changes to production code.
 
@@ -6749,22 +6886,8 @@ Two new test modules completing the test suite. No changes to production code.
 **`build_all.py`:**
 - Post-build step added: `test_build_output.py` runs after both builds complete. Exit code 1 aborts and prints failed checks.
 
----
+**Value Range Validation + Test Hardening:**
 
-## v1.4.3 — Standalone Frozen-Path Hotfix
-
-Fixed three path bugs in the standalone EXE — reported via user feedback.
-
-**`garmin_app_standalone.py`:**
-- `script_path()` — subfolder lookup (`garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `export/`) now runs through `script_dir()` as the base in both modes (dev + frozen). In frozen mode the subfolder was previously ignored, leading to `Script not found: …/scripts/garmin_collector.py`.
-- Context collector: corrected `_root` in frozen mode from `_MEIPASS` to `_MEIPASS/scripts/` — `context/` lives under `scripts/context/`, not directly under `_MEIPASS`.
-
-**`build_standalone.py`:**
-- Corrected the `garmin_dataformat.json` packaging target from `scripts` to `scripts/garmin` — `garmin_config.py` looks up the file via `Path(__file__).parent`, which resolves to `scripts/garmin/` in frozen mode.
-
----
-
-## v1.4.3 — Value Range Validation + Test Hardening
 Semantic validation of numeric field values against defined min/max ranges. Test suite extended to 218 checks.
 
 **`garmin/garmin_dataformat.json`:**
@@ -6806,6 +6929,17 @@ Semantic validation of numeric field values against defined min/max ranges. Test
   - Section 9: `validate(None)` → no crash; `validate({})` → critical; `out_of_range` issue type and field name correct; in-range value → no issue
   - Section 14: downgrade count logic; threshold boundary (exactly 3 → no downgrade); `assess_quality()` pure function confirmed
 
+**Standalone Frozen-Path Hotfix:**
+
+Fixed three path bugs in the standalone EXE — reported via user feedback.
+
+**`garmin_app_standalone.py`:**
+- `script_path()` — subfolder lookup (`garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `export/`) now runs through `script_dir()` as the base in both modes (dev + frozen). In frozen mode the subfolder was previously ignored, leading to `Script not found: …/scripts/garmin_collector.py`.
+- Context collector: corrected `_root` in frozen mode from `_MEIPASS` to `_MEIPASS/scripts/` — `context/` lives under `scripts/context/`, not directly under `_MEIPASS`.
+
+**`build_standalone.py`:**
+- Corrected the `garmin_dataformat.json` packaging target from `scripts` to `scripts/garmin` — `garmin_config.py` looks up the file via `Path(__file__).parent`, which resolves to `scripts/garmin/` in frozen mode.
+
 ---
 
 ## v1.4.2 — Bulk Upgrade + Downgrade Protection
@@ -6835,21 +6969,6 @@ Garmin changed their authentication infrastructure in mid-March 2026. The `garth
 
 **`requirements.txt`:**
 - `garminconnect` minimum version bumped to `>=0.3.0`.
-
---- 
-
-### v1.4.0 — Dashboard Features
-
-New functionality built on the clean v1.4.0 base:
-
-- ✅ **Sleep & Recovery Context Dashboard** — `sleep_recovery_context_dash.py` + `dash_plotter_html_complex.py`. HRV, Body Battery, Sleep with sleep phase composition (Deep/Light/REM/Awake %) + temperature and pollen context. Tab 1: daily dual-Y overview + stacked sleep phase bars. Tab 2: intraday drill-down per day. New `raw_pct` field type in `garmin_map`.
-- ✅ **Disclaimer strengthened** — medical disclaimer now includes source citations (AHA, ACSM, Garmin/Firstbeat) and individual variation note.
-- ✅ **Baseline note** — `health_garmin_html-json_dash` adds human-readable explanation of the 90-day dashed baseline line to the disclaimer area.
-
-**Deferred to Stufe 2 (Sleep & Recovery):**
-- Sleep window as shaded band on X-axis (requires `sleepStartTimestampGMT` / `sleepEndTimestampGMT` — data available in raw/)
-- Humidity trace (requires `weather_plugin.py` + `weather_map.py` extension + re-collect)
-- Sleep phase optimal range bands (`sleepScores.remPercentage.optimalStart` etc. available in raw/)
 
 ---
 
@@ -6901,13 +7020,23 @@ Replaces four monolithic export scripts with a modular specialist/plotter archit
 
 - `tests/test_dashboard.py` — 166 checks, 12 sections, no network, no GUI. Covers full pipeline: `garmin_map` intraday normalization → `field_map` routing → layout resources → all specialists → all plotters → runner
 
+**Dashboard Features — Sleep & Recovery Context (added later in this release):**
+- ✅ **Sleep & Recovery Context Dashboard** — `sleep_recovery_context_dash.py` + `dash_plotter_html_complex.py`. HRV, Body Battery, Sleep with sleep phase composition (Deep/Light/REM/Awake %) + temperature and pollen context. Tab 1: daily dual-Y overview + stacked sleep phase bars. Tab 2: intraday drill-down per day. New `raw_pct` field type in `garmin_map`.
+- ✅ **Disclaimer strengthened** — medical disclaimer now includes source citations (AHA, ACSM, Garmin/Firstbeat) and individual variation note.
+- ✅ **Baseline note** — `health_garmin_html-json_dash` adds human-readable explanation of the 90-day dashed baseline line to the disclaimer area.
+
+**Deferred to Stufe 2 (Sleep & Recovery):**
+- Sleep window as shaded band on X-axis (requires `sleepStartTimestampGMT` / `sleepEndTimestampGMT` — data available in raw/)
+- Humidity trace (requires `weather_plugin.py` + `weather_map.py` extension + re-collect)
+- Sleep phase optimal range bands (`sleepScores.remPercentage.optimalStart` etc. available in raw/)
+
 **Hotfix — garminconnect 0.3.x compatibility (April 2026):**
 
 - `garmin/garmin_api.py` — Path 3 (SSO) angepasst: `return_on_mfa=True` + `resume_login()` entfernt, ersetzt durch `prompt_mfa=on_mfa_required` im Konstruktor und `client.login(token_dir)`. Hintergrund: Garmin hat im März 2026 den Auth-Flow geändert, `garth` ist deprecated, `garminconnect ≥ 0.3.0` verwendet neuen Mobile-SSO-Flow mit `curl_cffi`. Frischer SSO-Login nach Update erforderlich (alter Token inkompatibel).
 
 ---
 
-## v1.3.4— API Structure Validation
+## v1.3.4 — API Structure Validation
 
 Introduces a dedicated validation layer at the pipeline entry point. Closes the gap between raw API data and the normalizer, which previously assumed structural correctness without verification.
 
@@ -7076,6 +7205,25 @@ Introduces schema versioning for summary files and origin tracking for quality l
 
 ---
 
+## v1.2.1b — Code Hygiene
+
+Technical debt cleanup. No functional changes.
+
+**Build:**
+- `build_manifest.py` added — single source of truth for all script lists and signatures shared between build scripts. `SHARED_SCRIPTS`, `SCRIPT_SIGNATURES_BASE`, `RUNTIME_DEPS`, `INFO_INCLUDE_T2/T3`, `DOCS` defined here. Both build scripts import from it — adding a new module requires one edit in one place.
+- `build.py` + `build_standalone.py`: all hardcoded lists removed, imported from `build_manifest`. Step numbering unified to `[1/4]`–`[4/4]`.
+- `build_all.py` added — runs both build targets sequentially. Standalone build is not started if the standard build fails.
+
+**Shared utilities:**
+- `garmin_utils.py` added — shared helpers with no project-module dependencies. Contains `parse_device_date()` (consolidated from `garmin_api.py` and `garmin_quality.py`) and `parse_sync_dates()` (extracted from `garmin_config.py`).
+- `garmin_config.py`: SYNC_DATES parsing loop replaced by `garmin_utils.parse_sync_dates()`. `from datetime import date` import removed. Docstring principle ("no logic") now holds.
+- `garmin_api.py` + `garmin_quality.py`: local `_parse_device_date()` definitions removed, replaced with `_parse_device_date = utils.parse_device_date` alias.
+
+**Testing:**
+- `test_local.py`: new section 8 (`garmin_utils`) with 11 checks covering `parse_device_date` and `parse_sync_dates`. Makes import failures from `garmin_utils` immediately identifiable instead of surfacing as a cascading `ImportError` in section 1.
+
+---
+
 ## v1.2.1 — Bug Fixes + Security + Polish
 
 Bug fixes, security improvements, and GUI polish. No architectural changes.
@@ -7098,25 +7246,6 @@ Bug fixes, security improvements, and GUI polish. No architectural changes.
 
 **Testing:**
 - `test_local.py`: 3 new QUALITY_LOCK tests, 2 `fetch_raw` mocks updated to tuple return, `_derive_aes_key` tests updated for salt parameter, `import threading` moved to top-level. Total: 112 checks (previously 98).
-
----
-
-## v1.2.1b — Code Hygiene
-
-Technical debt cleanup. No functional changes.
-
-**Build:**
-- `build_manifest.py` added — single source of truth for all script lists and signatures shared between build scripts. `SHARED_SCRIPTS`, `SCRIPT_SIGNATURES_BASE`, `RUNTIME_DEPS`, `INFO_INCLUDE_T2/T3`, `DOCS` defined here. Both build scripts import from it — adding a new module requires one edit in one place.
-- `build.py` + `build_standalone.py`: all hardcoded lists removed, imported from `build_manifest`. Step numbering unified to `[1/4]`–`[4/4]`.
-- `build_all.py` added — runs both build targets sequentially. Standalone build is not started if the standard build fails.
-
-**Shared utilities:**
-- `garmin_utils.py` added — shared helpers with no project-module dependencies. Contains `parse_device_date()` (consolidated from `garmin_api.py` and `garmin_quality.py`) and `parse_sync_dates()` (extracted from `garmin_config.py`).
-- `garmin_config.py`: SYNC_DATES parsing loop replaced by `garmin_utils.parse_sync_dates()`. `from datetime import date` import removed. Docstring principle ("no logic") now holds.
-- `garmin_api.py` + `garmin_quality.py`: local `_parse_device_date()` definitions removed, replaced with `_parse_device_date = utils.parse_device_date` alias.
-
-**Testing:**
-- `test_local.py`: new section 8 (`garmin_utils`) with 11 checks covering `parse_device_date` and `parse_sync_dates`. Makes import failures from `garmin_utils` immediately identifiable instead of surfacing as a cascading `ImportError` in section 1.
 
 ---
 

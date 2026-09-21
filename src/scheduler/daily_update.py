@@ -20,16 +20,33 @@ Workflow:
   7. Exit
 
 Exit codes (Task Scheduler):
-  0 = success
+  0 = success (also returned after a successful unattended auto-update
+      hand-off, v1.7.2.4 — see below; the update itself is applied by
+      updater_helper.ps1 after this process exits, not by this code)
   1 = migration required (folder structure or schema) — open the app
   2 = settings missing — open the app
   3 = API error (Garmin and/or Context) — check log/daily/
   4 = dashboard error — check log/daily/
-  5 = update available — open GitHub
+  5 = update available — open GitHub (T1, or T2/T3 with the
+      "daily_update_auto_update" setting off; also returned if T2/T3
+      auto-apply itself failed — see log for the reason)
 
 Console behaviour:
   - All OK           → window closes automatically (sys.exit(0))
   - Error / Update   → window stays open, press Enter to close
+
+Unattended self-update (v1.7.2.4 T3, v1.7.2.4-Nacherweiterung auch T2,
+opt-in via the "daily_update_auto_update" setting): reuses the same
+mechanism as the GUI's own "Update" button
+(garmin_app_base.py::_start_update) — download+verify+extract here,
+then hand off to the detached updater_helper.ps1 for the actual file
+swap, since this process can't overwrite its own running files. One
+difference from the GUI path: no -RestartGui is passed (nobody's
+watching an unattended run), and if the GUI happens to be open, it's
+force-closed via taskkill rather than waited on — nothing would ever
+close it on its own here. T2 detection can't rely on sys.frozen (this
+script never runs frozen under T2 — Starte_Daily_Sync.bat calls the
+plain interpreter) — see frozen_paths.is_t2_standard().
 
 Build targets:
   T1 — python daily_update.py
@@ -44,6 +61,7 @@ silently use default paths instead of the user's settings.
 import logging
 import json
 import os
+import subprocess
 import sys
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -63,7 +81,10 @@ if _scripts_early.exists() and str(_scripts_early) not in sys.path:
 #  Constants
 # ══════════════════════════════════════════════════════════════════════════════
 
-from version import APP_VERSION  # v1.6.0.4.4.1
+from version import APP_VERSION, is_newer  # v1.6.0.4.4.1
+import process_status
+import frozen_paths
+import updater
 
 KEYRING_SERVICE = "GarminLocalArchive"
 KEYRING_USER    = "garmin_password"
@@ -80,6 +101,7 @@ _DAILY_SETTINGS_KEYS = {
     "context_latitude", "context_longitude",
     "request_delay_min", "request_delay_max",
     "sync_days",          # → GARMIN_DAYS_BACK
+    "daily_update_auto_update",  # v1.7.2.4 — T3 unattended self-update opt-in
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -217,19 +239,113 @@ def _check_schema_migration(base_dir: Path) -> bool:
 #  Version check
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _check_version() -> str | None:
-    """Check GitHub for a newer release. Returns latest tag if newer, else None."""
+def _check_version() -> tuple[str | None, dict | None]:
+    """Check GitHub for a newer release. Returns (latest tag, release
+    JSON) if newer, else (None, None). The release JSON is new in
+    v1.7.2.4 — needed by _apply_update_unattended() to resolve the T3
+    ZIP/checksum asset URLs; callers that only care about the tag can
+    ignore the second value."""
     url = "https://api.github.com/repos/Wewoc/Garmin_Local_Archive/releases/latest"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "GarminLocalArchive"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode())
         latest = data.get("tag_name", "").strip()
-        if latest and latest.lstrip("vV") != APP_VERSION.lstrip("vV"):
-            return latest
+        if latest and is_newer(latest, APP_VERSION):
+            return latest, data
     except Exception:
         pass
+    return None, None
+
+
+def _resolve_mcp_restart_cmd(exe_dir: Path) -> str | None:
+    """Same T2-vs-T3.3 sibling-file check as
+    panel_mcp._resolve_mcp_server_launch_command() — not reused directly
+    (v1.7.2.4-Nacherweiterung, Baustein 31) because that function's
+    "not frozen" branch resolves relative to panel_mcp.py's own
+    location and would additionally pull in a PyQt6 import chain into
+    this headless script for the T2 case (daily_update.py itself never
+    runs frozen under T2). exe_dir is already correctly resolved by the
+    caller for both T2 and T3.2, so a plain sibling-file check here is
+    both simpler and correct for both."""
+    exe_path = exe_dir / "mcp_server.exe"
+    if exe_path.exists():
+        return str(exe_path)
+    bat_path = exe_dir / "Starte_MCP_Server.bat"
+    if bat_path.exists():
+        return str(bat_path)
     return None
+
+
+def _apply_update_unattended(release_json: dict, is_t3: bool) -> None:
+    """Unattended auto-apply path (v1.7.2.4 T3, v1.7.2.4-Nacherweiterung
+    auch T2) — same mechanism as garmin_app_base.py's _start_update(),
+    one difference at the end (Baustein 4/9/15): no -RestartGui, since
+    nobody is sitting at this machine to hand the window back to. If the
+    GUI happens to be open, it gets force-closed via taskkill (Timo's
+    decision, Baustein 3/4: "wenn es geht das GUI schließen") rather
+    than waited on — nothing would ever close it on its own during an
+    unattended run. Raises RuntimeError on any failure (no ZIP asset,
+    download/checksum/zip error) — caller decides how to log/report,
+    nothing on disk outside _update_pending/ is touched before this
+    returns successfully.
+
+    is_t3 comes from the caller (main() already had to know it for the
+    gate check) rather than being re-derived here — daily_update.py's
+    own process is never frozen under T2, so is_t3_standalone() alone
+    can't tell T2 apart from T1 from inside this function; the caller
+    already did that work with is_t2_standard(__file__)."""
+    if is_t3:
+        zip_asset_name, checksum_asset_name = (
+            updater.T3_ZIP_ASSET_NAME, updater.T3_ZIP_CHECKSUM_ASSET_NAME)
+    else:
+        zip_asset_name, checksum_asset_name = (
+            updater.T2_ZIP_ASSET_NAME, updater.T2_ZIP_CHECKSUM_ASSET_NAME)
+
+    zip_url = updater.resolve_release_asset(release_json, zip_asset_name)
+    checksum_url = updater.resolve_release_asset(
+        release_json, checksum_asset_name)
+    if not zip_url:
+        raise RuntimeError(
+            f"release has no {'T3' if is_t3 else 'T2'} ZIP asset")
+
+    # T3.2 (daily_update.exe, frozen): sys.executable is this EXE, its
+    # parent is already the install root. T2 (never frozen): _repo_root
+    # (module-level, scheduler/../ = install root) is the equivalent —
+    # sys.executable would be the Python interpreter here, not this app.
+    exe_dir = Path(sys.executable).parent if is_t3 else _repo_root
+    updater.prepare_update(exe_dir, zip_url, checksum_url)
+
+    gui_pid = process_status.get_pid("gui")
+    if gui_pid:
+        subprocess.run(["taskkill", "/PID", str(gui_pid), "/F"],
+                        capture_output=True)
+
+    mcp_was_running = process_status.is_mcp_running()
+    if mcp_was_running:
+        root = frozen_paths.scripts_root()
+        frozen_paths.add_to_path(root, "clients")
+        import mcp_process
+        mcp_process.stop()
+
+    helper_script = exe_dir / "updater_helper.ps1"
+    args = [
+        "powershell.exe", "-ExecutionPolicy", "Bypass",
+        "-File", str(helper_script),
+        "-ExeDir", str(exe_dir),
+        "-PendingDir", str(exe_dir / updater.UPDATE_PENDING_DIRNAME),
+        "-WaitPids", str(os.getpid()),
+    ]
+    if mcp_was_running:
+        mcp_cmd = _resolve_mcp_restart_cmd(exe_dir)
+        if mcp_cmd:
+            args += ["-RestartMcpCmd", mcp_cmd]
+
+    subprocess.Popen(
+        args,
+        creationflags=(subprocess.DETACHED_PROCESS
+                       | subprocess.CREATE_NEW_PROCESS_GROUP),
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -536,7 +652,7 @@ def main() -> int:
         return 1
 
     # ── 5. Version check (non-blocking) ───────────────────────────────────────
-    update_available = _check_version()
+    update_available, release_json = _check_version()
     if update_available:
         log.warning(f"  A new version is available: {update_available}")
         log.warning(f"  You are running: {APP_VERSION}")
@@ -587,6 +703,23 @@ def main() -> int:
         return 4
 
     if update_available:
+        auto_apply = bool(s.get("daily_update_auto_update", False))
+        is_t3 = frozen_paths.is_t3_standalone()
+        is_updatable_target = is_t3 or frozen_paths.is_t2_standard(__file__)
+        if auto_apply and is_updatable_target:
+            log.warning(f"  Update available: {update_available} — "
+                        f"applying automatically.")
+            try:
+                _apply_update_unattended(release_json, is_t3)
+                log.info("  Update handed off to updater_helper.ps1 — "
+                         "this process will now exit.")
+                _close_daily_log()
+                return 0
+            except RuntimeError as exc:
+                log.error(f"  Auto-update failed: {exc}")
+                _close_daily_log()
+                return 5
+
         log.warning("  All sync steps completed successfully.")
         log.warning(f"  Update available: {update_available}")
         _close_daily_log()
@@ -598,7 +731,15 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    exit_code = main()
+    # v1.7.2.4 — lock file so the GUI (or this script's own auto-update
+    # path) can tell whether a daily_update run is currently in progress
+    # before attempting a self-update swap. Pure Path.home() I/O, no
+    # garmin_config dependency — safe this early, before ENVs are set.
+    process_status.write_lock("daily_update")
+    try:
+        exit_code = main()
+    finally:
+        process_status.clear_lock("daily_update")
     if exit_code != 0:
         print()
         input("Press Enter to close ...")
