@@ -158,8 +158,7 @@ check) — all green. `test_local.py`/`test_local_context.py`/
 
 **Known limitations, not part of this release:** T1 (dev checkout)
 stays notify-only, unchanged (by design — `git pull` is the right tool
-there). No lock file against two update triggers running at the exact
-same moment. No real GitHub release has exercised the live
+there). No real GitHub release has exercised the live
 check→download→apply path yet for either target — that can only be
 tested against an actual published release (GitHub's `releases/latest`
 endpoint never returns a draft/pre-release), so this release is itself
