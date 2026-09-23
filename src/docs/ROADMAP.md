@@ -10,6 +10,93 @@
 
 ---
 
+### v1.7.2.4.1 — Self-Updater: Startup Handshake + Auto-Rollback (planned)
+
+`updater_helper.ps1`'s file-swap (v1.7.2.4) has a backup safety net
+(`_update_backup/`) but no automated use of it: after moving the new
+files into place and restarting the GUI, the script exits without
+checking whether the restarted process actually survives. A corrupted
+extraction or a bad build currently fails silently from the updater's
+point of view — the user has to notice the crash themselves, navigate
+into the install folder, and manually copy the backup back. Found
+during the v1.7.2.4 changelog review (2026-09-23); the handshake shape
+below (rather than a plain liveness poll) came out of that same
+review's discussion of a "still running after N seconds" check's
+weaknesses.
+
+**Proposed shape (startup handshake, not a bare timeout):** a plain
+"is the PID still alive after N seconds" check is a weak signal — a
+process can stay alive while stuck (e.g. waiting on a dialog) without
+that meaning startup actually succeeded, and a fixed short timeout
+races against first-launch Windows Defender scanning of the freshly
+extracted binaries. Instead:
+
+- `garmin_app_base.py` writes a marker file (e.g.
+  `_update_success.flag`) into `ExeDir` once its own startup has
+  reached a well-defined "up and interactive" point — after UI init,
+  not gated behind the existing migration dialog (see open point
+  below).
+- `updater_helper.ps1` deletes any stale leftover flag before
+  restarting the GUI (a crashed previous run must not produce a false
+  positive), then polls for the flag for a generous timeout (e.g. up
+  to 60 s, to absorb AV-scan delay on first launch of new binaries)
+  instead of a single short check.
+- Flag present in time → success, flag deleted, done (today's
+  behavior). Flag absent at timeout, or the process exits before it
+  appears → treated as a failed update: `_update_backup/`'s contents
+  are moved back over the just-applied files, the *old* GUI is
+  restarted, and the script reports failure instead of "Update
+  applied successfully."
+
+**Open design point — the existing migration dialog:** `garmin_app_
+base.py::_check_migration()` can block startup on a user-confirmation
+dialog ("Migrate now?") before the app is otherwise fully up. If the
+success flag is written only after that dialog resolves, a user who
+simply hasn't clicked "Yes" yet within the timeout would trigger a
+false rollback while the app is in fact fine. The flag must be written
+once the UI itself is interactive and responsive, independent of
+whether an unrelated confirmation dialog happens to be open — needs
+confirming against the actual startup sequence before implementation,
+not just asserted here.
+
+**Data-safety caveat (real, but scoped correctly):** a rollback
+reverts the program files, not any state the newer version already
+wrote. `mcp_cache.db` (`BASE_DIR`, outside `ExeDir`) is not directly at
+risk the way a general "rollback vs. schema migration" concern might
+suggest — its schema is additive-only (`CREATE TABLE IF NOT EXISTS`,
+no `ALTER TABLE` anywhere) and the whole file is a rebuildable proxy
+cache over the archive, not the source of truth; worst case is a
+resync, not a permanently broken reader. The real instance of this
+class of risk in this codebase is the *archive structure* migration
+gated behind `_check_migration()`/`run_migration()` — if a newer
+version's structure migration ran and completed before a crash, a
+rolled-back older `.exe` could face an archive layout it doesn't
+expect. Out of scope for this round (that migration is already
+interactive/opt-in, not silent); noted here so it isn't lost.
+
+Scope limited to the **GUI-triggered path** (`-RestartGui`) for this
+round. The unattended `daily_update.exe`/`daily_update.py` auto-apply
+path force-closes the GUI and deliberately does *not* restart it
+(v1.7.2.4, "einziger Unterschied" between the two trigger paths) — so
+there is nothing to hand-shake with there without either launching
+something new just to probe it, or adding a headless `--verify-only`
+self-check. Left as a known, named gap rather than folded into this
+round.
+
+**Touches:** `updater_helper.ps1` (flag-wait loop + rollback branch),
+`app/garmin_app_base.py` (flag write on reaching "up and interactive",
+placed before/independent of the migration dialog), `tests/
+test_updater.py` (new rollback-path regression tests).
+
+Also folds in two stale-docs fixes surfaced during the same review:
+the v1.7.2.4 changelog's "Known limitations" still lists "no lock file
+against two update triggers" — the lock (`_update_helper.lock`) was
+actually added within that same v1.7.2.4 commit; and the matching
+ROADMAP entry ("Lock file for the self-updater against concurrent
+triggers") is obsolete for the same reason and gets removed.
+
+---
+
 ### v1.7.2.5 — Split up panel_outputs.py (planned)
 
 `app/panel_outputs.py` has grown to ~1400 lines and now bundles seven
@@ -507,9 +594,6 @@ This module holds its own copy of the disclaimer text instead of calling `dash_l
 
 **`clients/mcp_server_gui.py` color-theme parity**
 v1.7.0.2 added a GLA-branded text header (`"🦄  GARMIN LOCAL ARCHIVE"`) but deliberately stopped there — the window still runs Tkinter's native "vista" theme, which mostly ignores custom widget colors for `ttk` controls (Checkbutton, Entry, Button). Real color parity with the PyQt6 app's dark/purple palette would need `ttk.Style().theme_use("clam")` first, which also changes the whole widget look away from native Windows rendering — a bigger, separate change, deferred by choice ("just the unicorn" this session).
-
-**Lock file for the self-updater against concurrent triggers**
-The GUI's "Update" button and the unattended `daily_update.exe`/`daily_update.py` auto-apply path (v1.7.2.4, T2 + T3) could in principle both fire at the same moment and try to swap the same install folder. Not built — `updater_helper.ps1` would need its own PID-based mutex, the same fixed-lock-file pattern `process_status.py` already uses elsewhere. Low-probability edge case (two independent triggers landing in the same few seconds), not a correctness gap in the common case.
 
 **MCP server window/taskbar icon**
 No icon asset exists anywhere in this codebase yet — the titlebar "feather" seen on `clients/mcp_server_gui.py`'s window is Tkinter's own stock default, not a GLA icon gone missing. A real icon would need an asset created (or sourced under a free license, e.g. Twemoji/OpenMoji), wired in via `root.iconphoto()`, and — for the standalone build — a `build_manifest.py`/PyInstaller bundling entry so `mcp_server.exe` ships it too.
