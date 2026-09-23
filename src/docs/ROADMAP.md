@@ -48,6 +48,26 @@ wiring) tend to slip in if rushed.
 
 ---
 
+### v1.7.2.6 — Constant & helper dedup (planned)
+
+Six confirmed cases of duplicated rather than shared code, found while
+reviewing cross-file coherence:
+
+- `_load_cloud_credential_store()` / `_load_mcp_process()` /
+  `_load_cloud_llm_client()` — identical in `panel_mcp.py` and
+  `panel_chat.py`, factor into a shared helper.
+- `_date_range()` — identical in `maps/_context_io.py`,
+  `maps/garmin_health_map.py`, `context/context_api.py`, consolidate.
+- `ensure_build_venv()` — identical in `compiler/build.py` and
+  `compiler/build_standalone.py`, consolidate.
+- `QUALITY_RANK` / `_QUALITY_RANK` — identical dict under two names
+  (`garmin_import_mirror.py` / `quality/_maint.py`), merge to one source.
+- `INFO_INCLUDE_T2` / `INFO_INCLUDE_T3` in `build_manifest.py` —
+  identical set under two names, check whether merge is correct or the
+  split is intentional.
+
+---
+
 ### v1.7.3 — Export Layer
  
 A new output layer parallel to `dashboards/` — reads via the Broker Layer,
