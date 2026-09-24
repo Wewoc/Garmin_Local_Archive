@@ -781,7 +781,9 @@ Update (v1.7.2.4, both versions)
   and "Dismiss". Downloads the new version, verifies it against a
   published checksum, applies it, and restarts the app automatically.
   If verification fails, nothing is changed and the app keeps running
-  as before.
+  as before. (v1.7.2.4.1) If the new version is applied but then fails
+  to start, it's rolled back to the previous version automatically —
+  no manual recovery needed.
 
 Auto-apply updates in Daily Sync (v1.7.2.4, both versions)
   Checkbox under Settings -> its own "Daily Sync" section. Saves
