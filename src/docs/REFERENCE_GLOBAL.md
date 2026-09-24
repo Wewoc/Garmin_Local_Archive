@@ -216,6 +216,15 @@ it fits directly into one WCM credential entry.
     │                                  their .sha256 pendants) — the
     │                                  functions themselves are target-
     │                                  agnostic, only the constants differ.
+    │                                  UPDATE_SUCCESS_FLAG_NAME +
+    │                                  write_success_flag(exe_dir) (v1.7.2.4.1)
+    │                                  — startup handshake with
+    │                                  updater_helper.ps1, called by both
+    │                                  garmin_app.py/garmin_app_standalone.py
+    │                                  right after window.show(), only when
+    │                                  sys.frozen. Best-effort (swallows
+    │                                  OSError) — a write failure must never
+    │                                  block app startup.
     ├── updater_helper.ps1          ← Detached PowerShell helper for the
     │                                  self-updater (T2 + T3) — waits for
     │                                  given PIDs, moves the old install to
@@ -227,7 +236,23 @@ it fits directly into one WCM credential entry.
     │                                  different GUI filenames. Bundled into
     │                                  both the T2 ZIP (compiler/build.py)
     │                                  and the T3 ZIP (build_combined_zip())
-    │                                  (v1.7.2.4 / v1.7.2.4-Nacherweiterung)
+    │                                  (v1.7.2.4 / v1.7.2.4-Nacherweiterung).
+    │                                  v1.7.2.4.1 — after restarting the GUI
+    │                                  (-RestartGui path only), polls up to
+    │                                  -SuccessTimeoutSeconds (default 60)
+    │                                  for updater.write_success_flag()'s
+    │                                  marker. Timeout: force-kills the
+    │                                  still-running new GUI process first
+    │                                  (a hung native loader dialog, e.g. a
+    │                                  missing DLL, keeps it and its file
+    │                                  handles alive even with no Python
+    │                                  code ever having run), then restores
+    │                                  _update_backup/ and restarts the old
+    │                                  GUI. Unattended daily_update.exe
+    │                                  trigger never sets -RestartGui, so
+    │                                  this handshake/rollback never applies
+    │                                  there — it force-closes and never
+    │                                  restarts the GUI by design (v1.7.2.4).
     │
     ├── app/                        ← Layer 1+3: settings persistence + application logic (v1.5.2+)
     │   │                              NOTE: this block is a stale duplicate of the fuller

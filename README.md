@@ -39,7 +39,9 @@ verifies, and applies it in place, then restarts the app. Verified
 against a published checksum before anything is touched; if that check
 fails, nothing is changed. There's also an opt-in "Auto-apply updates
 in Daily Sync" setting for unattended updates via the scheduled daily
-sync.
+sync. **(v1.7.2.4.1)** if the new version fails to start after an
+update, it's automatically rolled back to the previous working version
+— no manual recovery needed.
 
 ---
 
@@ -307,7 +309,7 @@ pytest tests/test_cloud_tool_chat.py          # Chat tab — Cloud + MCP tool-ca
 pytest tests/test_chat_session_store.py       # Chat tab — session save/load/resume (v1.7.2)
 pytest tests/test_cloud_credential_store.py   # Chat tab — API key storage in Windows Credential Manager (v1.7.2)
 pytest tests/test_mcp_process.py              # MCP Server Start/Stop process control (v1.7.2)
-python tests/test_updater.py                  # T2 + T3 self-updater (v1.7.2.4)
+python tests/test_updater.py                  # T2 + T3 self-updater (v1.7.2.4, v1.7.2.4.1)
 ```
 
 `build_all.py` runs `test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_broker.py`, and `test_static.py` as pre-build gates — a failing test aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` and the six Chat-tab/MCP-process suites above are run manually via `pytest`.
