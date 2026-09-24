@@ -46,6 +46,14 @@ Windows Defender scanning of the freshly extracted binaries.
 - `docs/CHANGELOG.md` — removed a stale "no lock file against two
   update triggers" line from the v1.7.2.4 entry below; the lock file
   was actually added within that same release.
+- `garmin_app_base.py` (`_start_update()`) / `scheduler/daily_update.py`
+  (`_apply_update_unattended()`) — the `subprocess.Popen()` call that
+  launches `updater_helper.ps1` used `DETACHED_PROCESS`, which gives the
+  child process no console at all. Windows PowerShell's console host
+  can't initialize without one — the helper silently failed to run
+  *at all*, for either trigger, since v1.7.2.4 (see Verification below).
+  Changed to `CREATE_NEW_CONSOLE`, matching `updater_helper.ps1`'s own
+  documented intent (a visible console that stays open on failure).
 
 **Verification:** a live end-to-end test against a real local T3 build
 (`compiler/build_all.py`, no GitHub release needed since
@@ -62,6 +70,23 @@ real build afterward: clean rollback, old GUI restarted normally,
 correct failure message. `tests/test_updater.py` 80/80, `test_static.py`
 16/16, `pytest tests/test_qt_app.py -k start_update` 7/7 — all green.
 
+A second, more fundamental bug surfaced only after this version was
+first published and actually clicked for real: the "Update" button
+downloaded and closed the app, then nothing happened — no update, no
+error. Root cause confirmed by isolating the exact launch call outside
+the app entirely: a minimal script with *no* console output at all
+failed to run under the same `DETACHED_PROCESS` flag the updater used,
+proving the PowerShell host itself never started, regardless of script
+content. The same launch pattern is used by both trigger paths and
+predates this release (unchanged since v1.7.2.4) — the self-updater's
+actual trigger had likely never worked until now, since nothing had
+exercised the real `subprocess.Popen()` call path this way before (an
+earlier live-build test in this same round used a direct interactive
+PowerShell invocation instead, which has a console and could not have
+caught this). Fixed and re-verified the same way (isolated launch-call
+reproduction, `CREATE_NEW_CONSOLE` succeeds where `DETACHED_PROCESS`
+silently failed) before this release was corrected in place.
+
 **Known limitations, not part of this release:** the download/checksum
 path (`prepare_update()`) is unchanged and still only testable against
 an actual published GitHub release, same limitation as v1.7.2.4 itself.
@@ -69,7 +94,9 @@ The live test above covered T3 only, not T2 — same underlying code
 path, but not separately exercised against a real T2 build. MCP restart
 and a real two-concurrent-triggers lock collision were not exercised in
 the live test (no MCP running at the time; the lock-collision path is
-covered only by the test suite's simulated PID).
+covered only by the test suite's simulated PID). No automated test
+pins `creationflags` to `CREATE_NEW_CONSOLE` — a future refactor could
+silently reintroduce `DETACHED_PROCESS` without any test failing.
 
 ## v1.7.2.4 — T2 + T3 Self-Updater
 

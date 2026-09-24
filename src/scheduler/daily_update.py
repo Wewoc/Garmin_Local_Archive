@@ -343,7 +343,7 @@ def _apply_update_unattended(release_json: dict, is_t3: bool) -> None:
 
     subprocess.Popen(
         args,
-        creationflags=(subprocess.DETACHED_PROCESS
+        creationflags=(subprocess.CREATE_NEW_CONSOLE
                        | subprocess.CREATE_NEW_PROCESS_GROUP),
     )
 

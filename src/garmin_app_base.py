@@ -686,7 +686,7 @@ class GarminApp(QMainWindow):
 
             subprocess.Popen(
                 args,
-                creationflags=(subprocess.DETACHED_PROCESS
+                creationflags=(subprocess.CREATE_NEW_CONSOLE
                                | subprocess.CREATE_NEW_PROCESS_GROUP),
             )
             self._dispatch(self.close)
