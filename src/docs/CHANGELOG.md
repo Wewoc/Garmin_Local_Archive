@@ -1,5 +1,76 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.2.4.1 — Self-Updater: Startup Handshake + Auto-Rollback
+
+`updater_helper.ps1`'s file-swap (v1.7.2.4) had a backup safety net
+(`_update_backup/`) but never used it automatically: after moving the
+new files into place and restarting the GUI, the script exited without
+checking whether the restart actually succeeded. A corrupted extraction
+or a bad build failed silently from the updater's point of view. Fixed
+with a startup handshake instead of a bare "is the PID still alive"
+timeout — a process can stay alive while stuck without startup having
+actually succeeded, and a short fixed timeout would race first-launch
+Windows Defender scanning of the freshly extracted binaries.
+
+**Changed modules:**
+- `updater.py` — new `UPDATE_SUCCESS_FLAG_NAME` constant and
+  `write_success_flag(exe_dir)` helper: writes an empty marker file,
+  best-effort (a write failure is swallowed, never blocks app startup).
+- `garmin_app_standalone.py` (T3) / `garmin_app.py` (T2) — write the
+  success flag right after `window.show()`, before entering the Qt
+  event loop, only when `sys.frozen` (no rollback mechanism exists in a
+  dev checkout). Chosen over two alternatives considered (a `showEvent()`
+  override, or a separately scheduled `QTimer.singleShot(0, ...)`)
+  because it needs no assumption about Qt's internal event/timer
+  ordering relative to the existing migration-confirmation dialog
+  (`_check_migration()`) — it runs before that dialog could even open.
+- `updater_helper.ps1` — after restarting the GUI, polls up to
+  `-SuccessTimeoutSeconds` (new parameter, default 60) for the flag
+  instead of declaring success immediately. Flag present in time:
+  success, as before. Flag absent at timeout: the still-running new GUI
+  process is force-killed first (`Stop-Process -Force`, waited on),
+  then the just-applied files are removed, `_update_backup/`'s contents
+  are moved back into place, the *old* GUI is restarted, and the run is
+  reported as a failure. The process-kill step was not part of the
+  original design — see Verification below. MCP's restart now happens
+  after the GUI handshake instead of before, so it always targets
+  whichever binaries actually ended up in place. Scope limited to the
+  GUI-triggered (`-RestartGui`) path: the unattended `daily_update.exe`
+  path force-closes the GUI and never restarts it, so there is nothing
+  to hand-shake with there.
+- `tests/test_updater.py` — new checks for `write_success_flag()`, plus
+  a real `powershell.exe` integration test of `updater_helper.ps1`
+  itself (first automated test of this script): success path, rollback
+  path (with a deliberately hung fake GUI process, to exercise the
+  process-kill fix), and lock-file collision.
+- `docs/CHANGELOG.md` — removed a stale "no lock file against two
+  update triggers" line from the v1.7.2.4 entry below; the lock file
+  was actually added within that same release.
+
+**Verification:** a live end-to-end test against a real local T3 build
+(`compiler/build_all.py`, no GitHub release needed since
+`updater_helper.ps1` never touches the download step itself) surfaced a
+real bug the test suite alone had not caught: a build with a missing
+core DLL doesn't crash silently — Windows shows a blocking native
+"Failed to load Python DLL" dialog, and the process stays alive (with
+an open handle on its own EXE) until someone dismisses it. The original
+rollback logic didn't wait for or kill that process before trying to
+delete/overwrite its files, so `Move-Item` failed on the still-locked
+GUI EXE and the rollback stopped halfway — the fix above (force-kill
+before touching files) closes that gap, re-verified against a fresh
+real build afterward: clean rollback, old GUI restarted normally,
+correct failure message. `tests/test_updater.py` 80/80, `test_static.py`
+16/16, `pytest tests/test_qt_app.py -k start_update` 7/7 — all green.
+
+**Known limitations, not part of this release:** the download/checksum
+path (`prepare_update()`) is unchanged and still only testable against
+an actual published GitHub release, same limitation as v1.7.2.4 itself.
+The live test above covered T3 only, not T2 — same underlying code
+path, but not separately exercised against a real T2 build. MCP restart
+and a real two-concurrent-triggers lock collision were not exercised in
+the live test (no MCP running at the time; the lock-collision path is
+covered only by the test suite's simulated PID).
+
 ## v1.7.2.4 — T2 + T3 Self-Updater
 
 Self-update for both distributed targets — Target 2 (Standard) and

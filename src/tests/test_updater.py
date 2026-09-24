@@ -459,6 +459,162 @@ check("fresh extraction still succeeds after cleaning a stale leftover",
       (_result6 / "Garmin_Local_Archive_Standalone.exe").read_text() == "exe_d")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  7. updater.py — write_success_flag() (v1.7.2.4.1 startup handshake)
+# ══════════════════════════════════════════════════════════════════════════════
+section("7. updater.py — write_success_flag()")
+
+check("UPDATE_SUCCESS_FLAG_NAME matches updater_helper.ps1's hardcoded "
+      "literal (same string duplicated across Python/PowerShell, not "
+      "parametrised, same as _update_pending/_update_backup)",
+      updater.UPDATE_SUCCESS_FLAG_NAME == "_update_success.flag")
+
+_flag_install = _TMPDIR / "flag_install"; _flag_install.mkdir()
+_flag_path = _flag_install / updater.UPDATE_SUCCESS_FLAG_NAME
+updater.write_success_flag(_flag_install)
+check("write_success_flag() creates the flag file at exe_dir",
+      _flag_path.exists())
+check("write_success_flag() creates it empty (only existence matters)",
+      _flag_path.read_text() == "")
+
+updater.write_success_flag(_flag_install)
+check("calling it again (flag already present) does not raise",
+      _flag_path.exists())
+
+_missing_dir = _TMPDIR / "flag_install_does_not_exist" / "nested"
+try:
+    updater.write_success_flag(_missing_dir)
+    _flag_no_raise = True
+except Exception:
+    _flag_no_raise = False
+check("exe_dir does not exist -> swallowed (OSError), no exception "
+      "(best-effort, must never block app startup)",
+      _flag_no_raise)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  8. updater_helper.ps1 — startup handshake + auto-rollback (v1.7.2.4.1,
+#     real powershell.exe subprocess, first automated test of this script)
+# ══════════════════════════════════════════════════════════════════════════════
+section("8. updater_helper.ps1 — startup handshake + auto-rollback")
+
+import subprocess
+
+_PS1_HELPER = _ROOT / "updater_helper.ps1"
+_HELPER_LOG = _TMPDIR / "helper_gui_launches.log"
+
+
+def _run_helper(exe_dir: Path, pending_dir: Path, gui_exe_name: str,
+                 timeout_s: int = 2):
+    """Runs the real updater_helper.ps1 against a fake ExeDir/PendingDir.
+    stdin=DEVNULL so a failure path's Read-Host can never block the test."""
+    return subprocess.run(
+        ["powershell.exe", "-ExecutionPolicy", "Bypass",
+         "-File", str(_PS1_HELPER),
+         "-ExeDir", str(exe_dir),
+         "-PendingDir", str(pending_dir),
+         "-RestartGui",
+         "-GuiExeName", gui_exe_name,
+         "-SuccessTimeoutSeconds", str(timeout_s)],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        timeout=timeout_s + 30)
+
+
+# -- success path: the "new GUI" writes the flag right away -------------------
+_h_exe1 = _TMPDIR / "helper_exe1"; _h_exe1.mkdir()
+(_h_exe1 / "old_file.txt").write_text("old content")
+_h_pending1 = _TMPDIR / "helper_pending1"; _h_pending1.mkdir()
+(_h_pending1 / "new_file.txt").write_text("new content")
+(_h_pending1 / "fake_gui.bat").write_text(
+    "@echo off\r\n"
+    'echo. > "%~dp0_update_success.flag"\r\n')
+
+_res_ok = _run_helper(_h_exe1, _h_pending1, "fake_gui.bat")
+check("success path: exit code 0",
+      _res_ok.returncode == 0)
+check("success path: stdout reports success",
+      "Update applied successfully." in _res_ok.stdout)
+check("success path: new file swapped into ExeDir",
+      (_h_exe1 / "new_file.txt").exists())
+check("success path: old file moved into _update_backup/",
+      (_h_exe1 / "_update_backup" / "old_file.txt").exists())
+check("success path: success flag consumed (deleted again)",
+      not (_h_exe1 / "_update_success.flag").exists())
+
+# -- rollback path: the "new GUI" never writes the flag, and hangs ------------
+# Same fake_gui.bat filename on both sides of the swap (old and new versions
+# share the GUI EXE's name across an update) - content differs so the test
+# can tell, via a shared log file outside ExeDir/PendingDir, which one a
+# given Start-Process call actually launched.
+#
+# The "new" one hangs (ping, not an instant exit) rather than just skipping
+# the flag write - cmd.exe keeps its own file handle on fake_gui.bat open
+# for as long as the batch script is still running, which reproduces the
+# real bug found on 2026-09-24: a real build with a missing DLL doesn't
+# crash cleanly, it hangs behind a native Windows error dialog, and the
+# still-running process (and its open handle on its own EXE) blocks the
+# rollback's Move-Item unless the helper kills it first. Without that fix,
+# this exact test reproduces the "cannot create a file that already
+# exists" failure a plain instant-exit fake GUI would never trigger.
+_h_exe2 = _TMPDIR / "helper_exe2"; _h_exe2.mkdir()
+(_h_exe2 / "fake_gui.bat").write_text(
+    f'@echo off\r\necho old_launched >> "{_HELPER_LOG}"\r\n')
+(_h_exe2 / "old_marker.txt").write_text("old content")
+_h_pending2 = _TMPDIR / "helper_pending2"; _h_pending2.mkdir()
+(_h_pending2 / "fake_gui.bat").write_text(
+    f'@echo off\r\necho new_launched >> "{_HELPER_LOG}"\r\nping -n 60 127.0.0.1 >nul\r\n')
+(_h_pending2 / "new_marker.txt").write_text("new content")
+
+_res_bad = _run_helper(_h_exe2, _h_pending2, "fake_gui.bat")
+check("rollback path: non-zero exit code",
+      _res_bad.returncode != 0)
+check("rollback path: stdout reports failure, not success",
+      "UPDATE FAILED" in _res_bad.stdout
+      and "Update applied successfully." not in _res_bad.stdout)
+check("rollback path: stdout names the actual timeout used (2s, not the "
+      "hardcoded default) - the message stayed in sync with the new param",
+      "within 2 seconds" in _res_bad.stdout)
+check("rollback path: the new (broken) version's marker file is gone from "
+      "ExeDir after rollback",
+      not (_h_exe2 / "new_marker.txt").exists())
+check("rollback path: the old version's marker file is back in ExeDir",
+      (_h_exe2 / "old_marker.txt").exists())
+check("rollback path: old fake_gui.bat content restored in ExeDir "
+      "(not the new one)",
+      "old_launched" in (_h_exe2 / "fake_gui.bat").read_text())
+def _wait_for_log_lines(path: Path, expected: list[str], timeout_s: float = 5):
+    """Start-Process launches detached, non-waited-on child processes - the
+    parent script (and this test's subprocess.run call) can return before a
+    child cmd.exe has actually flushed its echo to disk. Poll briefly
+    instead of asserting on the very first read."""
+    import time
+    deadline = time.monotonic() + timeout_s
+    lines = []
+    while time.monotonic() < deadline:
+        if path.exists():
+            lines = path.read_text().split()
+            if lines == expected:
+                return lines
+        time.sleep(0.2)
+    return lines
+
+
+check("rollback path: both the new (broken) and the restored old GUI were "
+      "actually launched, in that order",
+      _wait_for_log_lines(_HELPER_LOG, ["new_launched", "old_launched"])
+      == ["new_launched", "old_launched"])
+
+# -- lock file: a second concurrent run is refused, not a silent collision ----
+_h_exe3 = _TMPDIR / "helper_exe3"; _h_exe3.mkdir()
+(_h_exe3 / "_update_helper.lock").write_text(str(_os.getpid()))
+_h_pending3 = _TMPDIR / "helper_pending3"; _h_pending3.mkdir()
+_res_locked = _run_helper(_h_exe3, _h_pending3, "fake_gui.bat")
+check("existing lock file with a live PID (this test process) -> refused, "
+      "non-zero exit",
+      _res_locked.returncode != 0
+      and "already in progress" in _res_locked.stdout)
+
+
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 import shutil
 shutil.rmtree(_TMPDIR, ignore_errors=True)

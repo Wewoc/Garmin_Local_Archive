@@ -476,4 +476,13 @@ if __name__ == "__main__":
 
     window = GarminApp()
     window.show()
+
+    if getattr(sys, "frozen", False):
+        # v1.7.2.4.1 — Startup-Handshake: signalisiert updater_helper.ps1
+        # nach einem Self-Update-Neustart, dass die GUI tatsächlich bis
+        # zum sichtbaren Fenster durchgelaufen ist. Kein Rollback-
+        # Mechanismus im Dev-Checkout, daher nur wenn frozen.
+        import updater
+        updater.write_success_flag(Path(sys.executable).parent)
+
     sys.exit(qapp.exec())

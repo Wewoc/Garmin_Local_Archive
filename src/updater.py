@@ -37,6 +37,15 @@ prepare_update(exe_dir, zip_url, checksum_url) — lädt das Release-ZIP,
     Checksum-Mismatch, defektes ZIP) wird _update_pending/ wieder
     entfernt — die laufende Installation bleibt in jedem Fall
     unberührt, ein Fehler hier kann sie nie beschädigen.
+
+write_success_flag(exe_dir) — v1.7.2.4.1 Startup-Handshake: schreibt eine
+    leere Marker-Datei nach exe_dir, Signal für updater_helper.ps1, dass
+    der Neustart nach einem Self-Update tatsächlich bis zum sichtbaren
+    Fenster durchgelaufen ist. Wird von beiden Entry-Points (garmin_app.py
+    T2, garmin_app_standalone.py T3) direkt nach window.show() aufgerufen,
+    nur wenn sys.frozen — kein Rollback-Mechanismus im Dev-Checkout, also
+    auch keine Flag-Datei dort. Best-effort: ein Schreibfehler wird
+    verschluckt statt den App-Start zu blockieren.
 """
 
 import hashlib
@@ -57,6 +66,10 @@ T2_ZIP_CHECKSUM_ASSET_NAME  = T2_ZIP_ASSET_NAME + ".sha256"
 
 UPDATE_PENDING_DIRNAME = "_update_pending"
 
+# v1.7.2.4.1 — Startup-Handshake zwischen der (neu gestarteten) GUI und
+# updater_helper.ps1. Leere Datei, nur ihre Existenz zählt.
+UPDATE_SUCCESS_FLAG_NAME = "_update_success.flag"
+
 
 def resolve_release_asset(release_json: dict, asset_name: str) -> str | None:
     """
@@ -71,6 +84,20 @@ def resolve_release_asset(release_json: dict, asset_name: str) -> str | None:
         if asset.get("name") == asset_name:
             return asset.get("browser_download_url")
     return None
+
+
+def write_success_flag(exe_dir: Path) -> None:
+    """
+    Schreibt die leere Erfolgs-Flag-Datei (UPDATE_SUCCESS_FLAG_NAME) nach
+    `exe_dir`. Best-effort — ein Schreibfehler (z. B. exe_dir gerade nicht
+    beschreibbar) wird verschluckt, nicht geworfen: dieser Aufruf ist ein
+    reiner Diagnose-Seitenkanal für updater_helper.ps1 und darf den
+    eigentlichen App-Start nie verhindern.
+    """
+    try:
+        (exe_dir / UPDATE_SUCCESS_FLAG_NAME).touch()
+    except OSError:
+        pass
 
 
 def _download(url: str, dest: Path) -> None:

@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-09-21 12:46 UTC · Version: 1.7.2.4
+Generated: 2026-09-24 17:53 UTC · Version: 1.7.2.4.1
 
 ## Test Counts
 
@@ -15,8 +15,8 @@ Generated: 2026-09-21 12:46 UTC · Version: 1.7.2.4
 | test_broker.py | 141 | 141 | 0 |
 | test_mcp.py | 231 | 231 | 0 |
 | test_app_logic.py | 176 | 176 | 0 |
-| test_updater.py | 54 | 54 | 0 |
-| test_qt_app.py | 182 | 182 | 0 |
+| test_updater.py | 80 | 80 | 0 |
+| test_qt_app.py | 186 | 186 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -24,7 +24,7 @@ Generated: 2026-09-21 12:46 UTC · Version: 1.7.2.4
 | test_cloud_credential_store.py | 14 | 14 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 16 | 16 | 0 |
-| **Total** | **2540** | **2540** | **0** |
+| **Total** | **2570** | **2570** | **0** |
 
 ## Modules
 

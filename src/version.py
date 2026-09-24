@@ -6,7 +6,7 @@
 # Imported by garmin_app_base.py and daily_update.py.
 # No third-party imports, no tkinter — safe for all build targets.
 
-APP_VERSION = "1.7.2.4"
+APP_VERSION = "1.7.2.4.1"
 
 
 def is_newer(latest: str, current: str) -> bool:
