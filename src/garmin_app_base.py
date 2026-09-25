@@ -621,7 +621,16 @@ class GarminApp(QMainWindow):
         file-swap runs afterward in a separate, detached PowerShell
         process (updater_helper.ps1) — this process can't overwrite its
         own running files, so it has to hand off and close itself once
-        the helper is started."""
+        the helper is started.
+
+        v1.7.2.4.1, Variante A (2026-09-25): T3 gets the full automatic
+        restart + startup handshake + auto-rollback. T2 (--onefile) only
+        gets the file swap — no automatic restart, no handshake, no
+        auto-rollback — after an intermittent, externally caused onefile
+        extraction failure kept crashing T2's automatic restart even with
+        retries and a tested Defender exclusion (T2 is only ~10% of
+        downloads, not worth risking T3's reliability to chase further).
+        """
         is_t3 = frozen_paths.is_t3_standalone()
         if is_t3:
             zip_asset_name, checksum_asset_name, gui_exe_name = (
@@ -661,6 +670,17 @@ class GarminApp(QMainWindow):
                 mcp_process.stop()
 
             wait_pids = [str(os.getpid())]
+            if not is_t3:
+                # T2's GUI is built --onefile: a bootloader process
+                # extracts to a temp folder and launches this process as
+                # its child - os.getpid() is the child, never the
+                # bootloader. Confirmed via testing that the bootloader
+                # can still be alive for a brief window (~0.5s) after
+                # this child process exits, which raced the file-swap
+                # below on a real machine (T2-only failure, 2026-09-24).
+                # T3's GUI is --onedir (no bootloader/child split), so
+                # this doesn't apply there.
+                wait_pids.append(str(os.getppid()))
             daily_update_pid = process_status.get_pid("daily_update")
             if daily_update_pid:
                 wait_pids.append(str(daily_update_pid))
@@ -672,9 +692,20 @@ class GarminApp(QMainWindow):
                 "-ExeDir", str(exe_dir),
                 "-PendingDir", str(exe_dir / updater.UPDATE_PENDING_DIRNAME),
                 "-WaitPids", ",".join(wait_pids),
-                "-RestartGui",
                 "-GuiExeName", gui_exe_name,
             ]
+            if is_t3:
+                args.append("-RestartGui")
+            # v1.7.2.4.1, Variante A (2026-09-25): T2's GUI is --onefile and
+            # self-extracts on every launch - an intermittent, externally
+            # caused extraction failure (see updater_helper.ps1's own
+            # docstring) kept crashing the automatic restart even with
+            # retries and a tested Defender exclusion. T2 is only ~10% of
+            # downloads (T3 ~73%, v1.7.2.4 concept data) - not worth risking
+            # T3's reliability to chase this further. T2 now applies the
+            # swap without -RestartGui: no automatic restart, no handshake,
+            # no auto-rollback - the same as any update always could, the
+            # user just restarts the app themselves (see _finish() below).
             if mcp_was_running:
                 # Wiederverwendet die bereits bestehende T2-vs-T3.3-
                 # Unterscheidung statt sie hier zu duplizieren (v1.7.2.4-
@@ -689,7 +720,16 @@ class GarminApp(QMainWindow):
                 creationflags=(subprocess.CREATE_NEW_CONSOLE
                                | subprocess.CREATE_NEW_PROCESS_GROUP),
             )
-            self._dispatch(self.close)
+
+            def _finish():
+                if not is_t3:
+                    QMessageBox.information(
+                        self, "Update",
+                        "Update applied. Please restart Garmin Local "
+                        "Archive manually to use the new version.")
+                self.close()
+
+            self._dispatch(_finish)
 
         self._log(f"⏳ Update to {latest}: downloading and verifying ...")
         threading.Thread(target=worker, daemon=True).start()

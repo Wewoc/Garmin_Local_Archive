@@ -14,6 +14,7 @@ Scope: Qt-specific behaviour — Signals, Slots, Widget state,
 v1.5.4 — Panel-by-panel, built alongside the migration.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -2857,6 +2858,7 @@ class TestGarminAppBase:
                 def _run(self, *a, **kw): pass
                 def _is_running(self): return False
                 def _stop_collector(self): pass
+                def _startup_bg_checks(self): pass
                 def closeEvent(self, event):
                     event.accept()
 
@@ -2941,6 +2943,10 @@ class TestGarminAppBase:
             "Garmin_Local_Archive_Standalone.exe"
         assert "-RestartMcpCmd" not in args
         assert closed == [True]
+        # T3's GUI is --onedir (no bootloader/child split) - only this
+        # process's own PID, not the parent, unlike T2's --onefile case.
+        wait_pids = args[args.index("-WaitPids") + 1].split(",")
+        assert wait_pids == [str(os.getpid())]
 
     def test_start_update_success_with_mcp_running(self, qtbot, monkeypatch, tmp_path):
         """MCP running: gets stopped before the helper launches, and the
@@ -3065,7 +3071,11 @@ class TestGarminAppBase:
     def test_start_update_success_t2_no_mcp(self, qtbot, monkeypatch, tmp_path):
         """T2 (is_t3_standalone() False): T2-Asset-Namen werden aufgelöst,
         -GuiExeName ist Garmin_Local_Archive.exe (kein _Standalone-Suffix),
-        kein -RestartMcpCmd wenn MCP nicht lief."""
+        kein -RestartMcpCmd wenn MCP nicht lief. v1.7.2.4.1 Variante A
+        (2026-09-25): kein -RestartGui mehr für T2 (onefile-Extraktion
+        crashte den automatischen Neustart auch mit Retry + Defender-
+        Ausschluss weiterhin) - stattdessen ein Hinweis-Dialog vor dem
+        Schließen, dass manuell neu gestartet werden muss."""
         from unittest.mock import MagicMock
 
         class _ImmediateThread:
@@ -3095,6 +3105,10 @@ class TestGarminAppBase:
             lambda args, **kw: popen_calls.append(args) or MagicMock())
         closed = []
         monkeypatch.setattr(app, "close", lambda: closed.append(True))
+        info_calls = []
+        monkeypatch.setattr(
+            "garmin_app_base.QMessageBox.information",
+            lambda *a, **kw: info_calls.append(a) or None)
 
         app._start_update("v9.9.9", self._release_json_t2())
 
@@ -3104,9 +3118,18 @@ class TestGarminAppBase:
         assert len(popen_calls) == 1
         args = popen_calls[0]
         assert args[args.index("-GuiExeName") + 1] == "Garmin_Local_Archive.exe"
-        assert "-RestartGui" in args
+        assert "-RestartGui" not in args
         assert "-RestartMcpCmd" not in args
         assert closed == [True]
+        # T2 gets no automatic restart (Variante A) - but a manual-restart
+        # notice must still be shown before the app closes on its own.
+        assert len(info_calls) == 1
+        # T2's GUI is --onefile - the swap itself still must wait for the
+        # bootloader parent process (os.getppid()), not just this child
+        # (os.getpid()), even though there's no automatic restart anymore.
+        wait_pids = args[args.index("-WaitPids") + 1].split(",")
+        assert str(os.getpid()) in wait_pids
+        assert str(os.getppid()) in wait_pids
 
     def test_start_update_success_t2_with_mcp_running(
             self, qtbot, monkeypatch, tmp_path):
@@ -3151,6 +3174,8 @@ class TestGarminAppBase:
             "garmin_app_base.subprocess.Popen",
             lambda args, **kw: popen_calls.append(args) or MagicMock())
         monkeypatch.setattr(app, "close", lambda: None)
+        monkeypatch.setattr(
+            "garmin_app_base.QMessageBox.information", lambda *a, **kw: None)
 
         app._start_update("v9.9.9", self._release_json_t2())
 
@@ -3158,6 +3183,7 @@ class TestGarminAppBase:
         assert len(popen_calls) == 1
         args = popen_calls[0]
         assert args[args.index("-GuiExeName") + 1] == "Garmin_Local_Archive.exe"
+        assert "-RestartGui" not in args  # Variante A (2026-09-25)
         assert "-RestartMcpCmd" in args
         assert args[args.index("-RestartMcpCmd") + 1] == fake_bat
 

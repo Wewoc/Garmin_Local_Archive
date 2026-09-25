@@ -239,20 +239,35 @@ it fits directly into one WCM credential entry.
     │                                  (v1.7.2.4 / v1.7.2.4-Nacherweiterung).
     │                                  v1.7.2.4.1 — after restarting the GUI
     │                                  (-RestartGui path only), polls up to
-    │                                  -SuccessTimeoutSeconds (default 60)
-    │                                  for updater.write_success_flag()'s
-    │                                  marker. Timeout: force-kills the
-    │                                  still-running new GUI process first
-    │                                  (a hung native loader dialog, e.g. a
-    │                                  missing DLL, keeps it and its file
-    │                                  handles alive even with no Python
-    │                                  code ever having run), then restores
-    │                                  _update_backup/ and restarts the old
-    │                                  GUI. Unattended daily_update.exe
-    │                                  trigger never sets -RestartGui, so
-    │                                  this handshake/rollback never applies
-    │                                  there — it force-closes and never
-    │                                  restarts the GUI by design (v1.7.2.4).
+    │                                  -SuccessTimeoutSeconds (default 60,
+    │                                  per attempt) for
+    │                                  updater.write_success_flag()'s marker,
+    │                                  retrying the launch up to
+    │                                  -MaxLaunchAttempts times (default 3)
+    │                                  before giving up. Each failed attempt:
+    │                                  force-kills the still-running new GUI
+    │                                  process first (a hung native loader
+    │                                  dialog, e.g. a missing DLL, keeps it
+    │                                  and its file handles alive even with
+    │                                  no Python code ever having run).
+    │                                  Exhausted: restores _update_backup/
+    │                                  and restarts the old GUI. Unattended
+    │                                  daily_update.exe trigger never sets
+    │                                  -RestartGui, so this handshake/
+    │                                  rollback never applies there — it
+    │                                  force-closes and never restarts the
+    │                                  GUI by design (v1.7.2.4). Neither does
+    │                                  T2's GUI-button trigger anymore
+    │                                  (v1.7.2.4.1 Variante A) —
+    │                                  garmin_app_base.py stopped passing
+    │                                  -RestartGui for T2 after its --onefile
+    │                                  build kept failing the handshake even
+    │                                  with retries, an intermittent
+    │                                  extraction failure external to this
+    │                                  codebase (see CHANGELOG.md). T2 still
+    │                                  gets the file swap, just no automatic
+    │                                  restart/handshake/rollback — the user
+    │                                  restarts it manually.
     │
     ├── app/                        ← Layer 1+3: settings persistence + application logic (v1.5.2+)
     │   │                              NOTE: this block is a stale duplicate of the fuller

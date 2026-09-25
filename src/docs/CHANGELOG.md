@@ -54,6 +54,22 @@ Windows Defender scanning of the freshly extracted binaries.
   *at all*, for either trigger, since v1.7.2.4 (see Verification below).
   Changed to `CREATE_NEW_CONSOLE`, matching `updater_helper.ps1`'s own
   documented intent (a visible console that stays open on failure).
+  `-WaitPids` also now includes `os.getppid()` for T2 in
+  `garmin_app_base.py` (and for T3 in `daily_update.py`, whose
+  `daily_update.exe` is `--onefile` too) — a `--onefile` build runs as a
+  bootloader parent process plus a child process, and `os.getpid()` alone
+  is always the child, never the bootloader, which can still be alive for
+  a brief window after the child exits.
+- `updater_helper.ps1` — new `-MaxLaunchAttempts` parameter (default 3):
+  the GUI-restart step now retries that many times before rolling back,
+  instead of giving up after a single attempt. `-SuccessTimeoutSeconds`
+  now applies per attempt rather than in total.
+- `garmin_app_base.py` (`_start_update()`) — T2 no longer passes
+  `-RestartGui` to `updater_helper.ps1` at all: the file swap still
+  happens, but there is no automatic restart, startup handshake, or
+  auto-rollback for T2 anymore. A dialog tells the user to restart the
+  app manually. T3 is unaffected — it keeps the full handshake and
+  auto-rollback. See Verification below for why.
 
 **Verification:** a live end-to-end test against a real local T3 build
 (`compiler/build_all.py`, no GitHub release needed since
@@ -87,16 +103,41 @@ caught this). Fixed and re-verified the same way (isolated launch-call
 reproduction, `CREATE_NEW_CONSOLE` succeeds where `DETACHED_PROCESS`
 silently failed) before this release was corrected in place.
 
+A third issue surfaced once the fix above made T2's automatic restart
+actually run for the first time: T2's GUI is built `--onefile`, which
+self-extracts to a fresh temporary folder on every single launch (not
+just once after an update, unlike T3's `--onedir` install). Cold leftover
+extraction folders from failed launches showed the cause directly: some
+contained only 2 of the ~2700 files a working extraction has — the
+PyInstaller bootloader itself had aborted mid-extraction, so "Failed to
+load Python DLL" was misleading (that one file was present and correctly
+sized; its own dependencies were simply never extracted). Intermittent,
+not deterministic — roughly half of sampled attempts on the test machine
+succeeded outright. Windows Defender's real-time/on-access scanning of
+the resulting burst of newly written files was the leading suspect, but
+a dedicated Defender exclusion for the extraction path did not fix it,
+and neither did retrying the launch up to 3 times (`-MaxLaunchAttempts`,
+added for this). Since the cause turned out to be external to this
+codebase and T2 is only around 10% of downloads (T3 around 73%), further
+retries were not worth risking T3's reliability over: T2's automatic
+restart, startup handshake, and auto-rollback were removed again for this
+release. T2 still gets the file swap; the user just restarts the app
+themselves afterward, same as any update always could before v1.7.2.4.1.
+`tests/test_updater.py` 89/89 (grew from 80/80 with two new retry-path
+checks), `test_static.py` 16/16, `pytest tests/test_qt_app.py -k
+start_update` 7/7 — all green.
+
 **Known limitations, not part of this release:** the download/checksum
 path (`prepare_update()`) is unchanged and still only testable against
 an actual published GitHub release, same limitation as v1.7.2.4 itself.
-The live test above covered T3 only, not T2 — same underlying code
-path, but not separately exercised against a real T2 build. MCP restart
+T2 no longer has an automatic restart, startup handshake, or
+auto-rollback (see above) — a corrupted or bad T2 build now fails exactly
+like it did before v1.7.2.4.1, with no automated recovery. MCP restart
 and a real two-concurrent-triggers lock collision were not exercised in
-the live test (no MCP running at the time; the lock-collision path is
-covered only by the test suite's simulated PID). No automated test
-pins `creationflags` to `CREATE_NEW_CONSOLE` — a future refactor could
-silently reintroduce `DETACHED_PROCESS` without any test failing.
+any live test (no MCP running at the time; the lock-collision path is
+covered only by the test suite's simulated PID). No automated test pins
+`creationflags` to `CREATE_NEW_CONSOLE` — a future refactor could
+silently reintroduce that regression without any test failing.
 
 ## v1.7.2.4 — T2 + T3 Self-Updater
 

@@ -42,9 +42,12 @@ Parameters:
                   MCP wasn't running before the update - mcp_server.exe
                   for T3, clients/Starte_MCP_Server.bat for T2.
   -SuccessTimeoutSeconds  How long to poll for the startup handshake flag
-                  before rolling back (default 60, see v1.7.2.4.1 below).
-                  Only exposed as a parameter so tests/test_updater.py can
-                  pass a short value instead of waiting out a real 60s.
+                  per launch attempt before giving up on it (default 60,
+                  see v1.7.2.4.1 below). Only exposed as a parameter so
+                  tests/test_updater.py can pass a short value instead of
+                  waiting out a real 60s.
+  -MaxLaunchAttempts  How many times to (re-)launch the new GUI before
+                  rolling back (default 3, see v1.7.2.4.1 below).
 
 Own lock file (_update_helper.lock in ExeDir) guards against two helper
 runs overlapping - GUI-triggered and daily_update.exe-triggered updates
@@ -66,19 +69,37 @@ a bare "is the PID still alive" check is a weak signal - a process can
 stay alive while stuck without startup having actually succeeded, and a
 short fixed timeout races first-launch Windows Defender scanning of the
 freshly extracted binaries. Instead, this script deletes any stale
-leftover success flag, starts the new GUI, and polls up to 60s for the
-GUI to write it back (updater.write_success_flag() on the Python side,
-called once the app has reached a visible window). Flag missing at
-timeout: the new GUI process is force-killed first if it is still running
-(a hung native loader dialog, e.g. a missing DLL, keeps the process and
-its file handles alive even though no Python code ever ran - found via a
-real test, 2026-09-24), then the just-applied files are removed,
-_update_backup/'s contents are moved back into place, the *old* GUI is
-restarted, and the run is reported as a failure like any other error here
-- not "Update applied successfully." Scope limited to the GUI-triggered
-path deliberately: the
-unattended daily_update.exe trigger force-closes the GUI and does not
-restart it, so there would be nothing to hand-shake with.
+leftover success flag, starts the new GUI, and polls up to
+-SuccessTimeoutSeconds for the GUI to write it back
+(updater.write_success_flag() on the Python side, called once the app has
+reached a visible window). Flag missing at timeout: the new GUI process
+is force-killed first if it is still running (a hung native loader
+dialog, e.g. a missing DLL, keeps the process and its file handles alive
+even though no Python code ever ran - found via a real test, 2026-09-24),
+then the launch is retried, up to -MaxLaunchAttempts times in total.
+
+Retries exist because a --onefile GUI (T2) self-extracts to a fresh temp
+folder on every single launch, not just once after an update like T3's
+--onedir install - a burst of ~2700 newly written files that can trip up
+Windows Defender's real-time/on-access scanning (IOAVProtectionEnabled)
+badly enough that the PyInstaller bootloader's own extraction gives up
+partway through (confirmed on a real machine, 2026-09-25: two cold leftover
+_MEI* temp folders from failed launches contained only 2 of the ~2700
+files the working ones had - the bootloader had aborted extraction after
+writing just VCRUNTIME140.dll and python313.dll, so "Failed to load Python
+DLL" was misleading - the file was present and correctly sized, but its
+own dependencies never got extracted). Not deterministic (roughly half of
+sampled attempts on that machine succeeded outright), so a few retries
+measurably improve the odds without needing to fix - or being able to fix
+from here - the antivirus interaction that's the real, external cause.
+
+Only after all -MaxLaunchAttempts attempts fail: the just-applied files
+are removed, _update_backup/'s contents are moved back into place, the
+*old* GUI is restarted, and the run is reported as a failure like any
+other error here - not "Update applied successfully." Scope limited to
+the GUI-triggered path deliberately: the unattended daily_update.exe
+trigger force-closes the GUI and does not restart it, so there would be
+nothing to hand-shake with.
 #>
 
 param(
@@ -88,7 +109,8 @@ param(
     [switch]$RestartGui,
     [string]$GuiExeName = "Garmin_Local_Archive_Standalone.exe",
     [string]$RestartMcpCmd = "",
-    [int]$SuccessTimeoutSeconds = 60
+    [int]$SuccessTimeoutSeconds = 60,
+    [int]$MaxLaunchAttempts = 3
 )
 
 $ErrorActionPreference = "Stop"
@@ -142,28 +164,33 @@ try {
     # -- 4. Restart the GUI, with the v1.7.2.4.1 startup handshake ----------
     if ($RestartGui) {
         $successFlag = Join-Path $ExeDir "_update_success.flag"
-        Remove-Item $successFlag -Force -ErrorAction SilentlyContinue
+        $launchSucceeded = $false
 
-        $newGuiProcess = Start-Process (Join-Path $ExeDir $GuiExeName) -PassThru
-
-        $deadline = (Get-Date).AddSeconds($SuccessTimeoutSeconds)
-        while (-not (Test-Path $successFlag) -and (Get-Date) -lt $deadline) {
-            Start-Sleep -Milliseconds 500
-        }
-
-        if (Test-Path $successFlag) {
+        for ($attempt = 1; $attempt -le $MaxLaunchAttempts; $attempt++) {
             Remove-Item $successFlag -Force -ErrorAction SilentlyContinue
-        } else {
-            # New version never signalled a successful startup - roll back.
-            # Same "wait until the process is actually gone before touching
-            # its files" discipline as section 1 above: a hung native loader
-            # dialog (e.g. a missing DLL) keeps the process - and its file
-            # handles - alive even though no Python code, and therefore no
-            # crash_handler.py, ever ran (found via a real test against a
-            # deliberately corrupted build, 2026-09-24). Without this,
-            # Remove-Item/Move-Item below can silently leave a half-rolled-
-            # back install: some files restored, others still the broken
-            # new ones because they were locked at the time.
+
+            $newGuiProcess = Start-Process (Join-Path $ExeDir $GuiExeName) -PassThru
+
+            $deadline = (Get-Date).AddSeconds($SuccessTimeoutSeconds)
+            while ((-not (Test-Path $successFlag)) -and ((Get-Date) -lt $deadline) `
+                   -and (-not $newGuiProcess.HasExited)) {
+                Start-Sleep -Milliseconds 500
+            }
+
+            if (Test-Path $successFlag) {
+                Remove-Item $successFlag -Force -ErrorAction SilentlyContinue
+                $launchSucceeded = $true
+                break
+            }
+
+            # This attempt failed (crashed or hung without ever signalling
+            # success) - kill it before the next attempt or the rollback
+            # below, same "wait until the process is actually gone before
+            # touching its files" discipline as section 1 above. A hung
+            # native loader dialog (e.g. a missing DLL) keeps the process -
+            # and its file handles - alive even though no Python code, and
+            # therefore no crash_handler.py, ever ran (found via a real
+            # test against a deliberately corrupted build, 2026-09-24).
             if (-not $newGuiProcess.HasExited) {
                 Stop-Process -Id $newGuiProcess.Id -Force -ErrorAction SilentlyContinue
                 $killDeadline = (Get-Date).AddSeconds(10)
@@ -172,6 +199,14 @@ try {
                 }
             }
 
+            if ($attempt -lt $MaxLaunchAttempts) {
+                Write-Host "Launch attempt $attempt of $MaxLaunchAttempts did not signal success - retrying ..."
+            }
+        }
+
+        if (-not $launchSucceeded) {
+            # New version never signalled a successful startup after
+            # $MaxLaunchAttempts attempts - roll back.
             Get-ChildItem $ExeDir -Force |
                 Where-Object { $_.Name -notin @("_update_pending", "_update_backup", "_update_helper.lock") } |
                 ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
@@ -181,7 +216,7 @@ try {
 
             Start-Process (Join-Path $ExeDir $GuiExeName)
 
-            throw "New version did not signal a successful startup within $SuccessTimeoutSeconds seconds - rolled back to the previous version."
+            throw "New version did not signal a successful startup after $MaxLaunchAttempts attempt(s) ($SuccessTimeoutSeconds seconds each) - rolled back to the previous version."
         }
     }
 
