@@ -24,6 +24,21 @@ sys.path.insert(0, str(_ROOT / "maps"))
 sys.path.insert(0, str(_ROOT / "dashboards"))
 sys.path.insert(0, str(_ROOT / "layouts"))
 
+# ── Script-style test files (support.py's check()/summary(), not pytest) ──────
+# summary() calls sys.exit() at import time — a bare `pytest` run here would
+# crash mid-collection. Run these via `python tests/test_X.py` or run_tests.ps1.
+collect_ignore = [
+    "test_local.py",
+    "test_local_context.py",
+    "test_dashboard.py",
+    "test_broker.py",
+    "test_mcp.py",
+    "test_app_logic.py",
+    "test_updater.py",
+    "test_static.py",
+    "test_build_output.py",
+]
+
 
 @pytest.fixture(scope="session")
 def qapp_cls():

@@ -1,5 +1,57 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.2.4.2 — Testsuite hardening: mock boundaries closed around the updater GUI
+
+Triggered by an observation: in a previous session all tests were green,
+yet the updater feature (v1.7.2.4) still didn't work. A full audit of the
+entire test suite (16 files) found the real cause: not too few
+error-path tests, but mock boundaries sitting exactly at the risky spot —
+`is_t3_standalone()`/`is_t2_standard()` and `subprocess.Popen` were
+mocked away entirely in the updater GUI tests, so the real click →
+frozen-detection → Popen chain was never exercised as one piece. Six-item
+catalog (see `changelog/KATALOG_testsuite-ueberarbeitung.md`), implemented
+and verified one item at a time.
+
+**Changed modules:**
+- `tests/conftest.py` — `collect_ignore` for 9 script-style test files
+  (use `tests/support.py`'s `check()`/`summary()` instead of pytest;
+  `summary()` calls `sys.exit()` at import time, so a bare `pytest`
+  invocation used to crash mid-collection).
+- `tests/test_local_context.py` — reactivated 6 structurally unreachable
+  tests (were placed after the `summary()` call, never ran under any
+  invocation mode); also fixed a stale test assumption about
+  `_parse_hourly_to_daily()`'s return value (tuple since v1.7.1.11,
+  tests still expected a bare dict).
+- `docs/MAINTENANCE_CONTEXT.md` — corrected a wrong note claiming the
+  6 tests above ran under `pytest`.
+- `tests/test_build_output.py` — added missing updater delivery-file
+  checks (`updater_helper.ps1`, `mcp_server.exe`, both `.sha256` files,
+  for both T2 and T3).
+- `tests/test_qt_app.py` — narrowed the mock boundary in the 8 updater
+  GUI tests: `is_t3_standalone()`/`is_t2_standard()` now run for real
+  against a simulated `sys.frozen`/`sys.executable` directory structure
+  instead of being mocked outright. New contract test checks
+  `_start_update()`'s Popen flags against `updater_helper.ps1`'s actual
+  `param()` block. New click test drives a real `qtbot` click on the
+  "Update" button through the full chain down to the (still mocked)
+  `Popen` call.
+- `run_tests.ps1` — briefly wired in `test_build_output.py`, then backed
+  that out again (regex conflict with the local `generate_metrics.py`
+  tool, which parses `run_tests.ps1`'s summary). `test_build_output.py`
+  itself remains covered by `compiler/build_all.py`'s post-build gate,
+  unchanged.
+
+**Verification:** full `run_tests.ps1` run, all 15 suites green, 0
+failures (788/349/472/141/231/176/89/188/53/12/18/29/14/13/16 checks).
+`pytest tests/test_qt_app.py` run in isolation 3× in a row, 188/188 green
+each time. `pytest tests/ --collect-only` went from 325 to 327 tests.
+Several counter-tests (deliberately simulated drift/breakage) confirmed
+the new tests would actually catch real regressions.
+
+Scope deliberately limited to the parts that directly explain the
+reported incident — cloud/credential wire-format tests and weak-assertion
+cleanup (catalog items C/D) deferred, no active bug behind those.
+
 ## v1.7.2.4.1 — Self-Updater: Startup Handshake + Auto-Rollback
 
 `updater_helper.ps1`'s file-swap (v1.7.2.4) had a backup safety net
