@@ -44,7 +44,7 @@ import garmin_config as cfg
 importlib.reload(cfg)
 
 # ── Import context modules ─────────────────────────────────────────────────────
-from context import weather_plugin, pollen_plugin, brightsky_plugin
+from context import weather_plugin, pollen_plugin, brightsky_plugin, airquality_plugin
 from context import context_api, context_writer, context_collector
 from maps import weather_map, pollen_map, brightsky_map, context_map
 
@@ -1606,90 +1606,53 @@ check("consolidate Bug3: directory removed after append",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  C. airquality_plugin — structural checks
+# ══════════════════════════════════════════════════════════════════════════════
+section("C. airquality_plugin — structural checks")
+
+check("AGGREGATION_MAP covers every API_FIELDS entry — no silent fallback",
+      not [f for f in airquality_plugin.API_FIELDS
+           if f not in airquality_plugin.AGGREGATION_MAP])
+check("AGGREGATION_MAP has no extra keys absent from API_FIELDS",
+      not [f for f in airquality_plugin.AGGREGATION_MAP
+           if f not in airquality_plugin.API_FIELDS])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  D. context_api._parse_hourly_to_daily — unit tests
+# ══════════════════════════════════════════════════════════════════════════════
+section("D. context_api._parse_hourly_to_daily — unit tests")
+
+_phtd_resp_mean = {"hourly": {"time": ["2026-01-01T00:00", "2026-01-01T01:00", "2026-01-01T02:00"],
+                               "pm2_5": [10.0, 20.0, 30.0]}}
+phtd_result_mean, _phtd_raw_mean = context_api._parse_hourly_to_daily(_phtd_resp_mean, ["pm2_5"], {"pm2_5": "mean"})
+check("_parse_hourly_to_daily: date key present",   "2026-01-01" in phtd_result_mean)
+check("_parse_hourly_to_daily: mean calculated correctly",
+      phtd_result_mean["2026-01-01"]["pm2_5"] == 20.0)
+
+_phtd_resp_none = {"hourly": {"time": ["2026-01-01T00:00", "2026-01-01T01:00"],
+                               "pm2_5": [None, 10.0]}}
+phtd_result_none, _phtd_raw_none = context_api._parse_hourly_to_daily(_phtd_resp_none, ["pm2_5"], {"pm2_5": "mean"})
+check("_parse_hourly_to_daily: None values excluded from aggregation",
+      phtd_result_none["2026-01-01"]["pm2_5"] == 10.0)
+
+_phtd_resp_allnone = {"hourly": {"time": ["2026-01-01T00:00"], "pm2_5": [None]}}
+phtd_result_allnone, _phtd_raw_allnone = context_api._parse_hourly_to_daily(_phtd_resp_allnone, ["pm2_5"], {"pm2_5": "mean"})
+check("_parse_hourly_to_daily: all-None series returns None, no crash",
+      phtd_result_allnone["2026-01-01"]["pm2_5"] is None)
+
+_phtd_resp_multiday = {"hourly": {"time": ["2026-01-01T12:00", "2026-01-02T12:00"],
+                                   "pm2_5": [10.0, 40.0]}}
+phtd_result_multiday, _phtd_raw_multiday = context_api._parse_hourly_to_daily(_phtd_resp_multiday, ["pm2_5"], {"pm2_5": "mean"})
+check("_parse_hourly_to_daily: values bucketed to correct day (day 1)",
+      phtd_result_multiday["2026-01-01"]["pm2_5"] == 10.0)
+check("_parse_hourly_to_daily: values bucketed to correct day (day 2)",
+      phtd_result_multiday["2026-01-02"]["pm2_5"] == 40.0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + Results
 # ══════════════════════════════════════════════════════════════════════════════
 shutil.rmtree(_TMPDIR, ignore_errors=True)
 
 summary()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  airquality_plugin — structural checks
-# ══════════════════════════════════════════════════════════════════════════════
-
-def test_airquality_plugin_aggregation_map_coverage():
-    """AGGREGATION_MAP must cover every API_FIELDS entry — no silent fallback."""
-    from context import airquality_plugin
-    missing = [f for f in airquality_plugin.API_FIELDS
-               if f not in airquality_plugin.AGGREGATION_MAP]
-    assert not missing, f"AGGREGATION_MAP missing fields: {missing}"
-
-
-def test_airquality_plugin_aggregation_map_no_extra():
-    """AGGREGATION_MAP must not contain keys absent from API_FIELDS."""
-    from context import airquality_plugin
-    extra = [f for f in airquality_plugin.AGGREGATION_MAP
-             if f not in airquality_plugin.API_FIELDS]
-    assert not extra, f"AGGREGATION_MAP has extra keys not in API_FIELDS: {extra}"
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  context_api._parse_hourly_to_daily — unit tests
-# ══════════════════════════════════════════════════════════════════════════════
-
-def test_parse_hourly_to_daily_mean():
-    """Daily mean is calculated correctly from known hourly values."""
-    from context import context_api
-    response = {
-        "hourly": {
-            "time":  ["2026-01-01T00:00", "2026-01-01T01:00", "2026-01-01T02:00"],
-            "pm2_5": [10.0, 20.0, 30.0],
-        }
-    }
-    aggregation_map = {"pm2_5": "mean"}
-    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
-    assert "2026-01-01" in result
-    assert result["2026-01-01"]["pm2_5"] == 20.0
-
-
-def test_parse_hourly_to_daily_none_handling():
-    """None values in hourly data are excluded from aggregation."""
-    from context import context_api
-    response = {
-        "hourly": {
-            "time":  ["2026-01-01T00:00", "2026-01-01T01:00"],
-            "pm2_5": [None, 10.0],
-        }
-    }
-    aggregation_map = {"pm2_5": "mean"}
-    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
-    assert result["2026-01-01"]["pm2_5"] == 10.0
-
-
-def test_parse_hourly_to_daily_all_none():
-    """All-None hourly series returns None for the day — no crash."""
-    from context import context_api
-    response = {
-        "hourly": {
-            "time":  ["2026-01-01T00:00"],
-            "pm2_5": [None],
-        }
-    }
-    aggregation_map = {"pm2_5": "mean"}
-    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
-    assert result["2026-01-01"]["pm2_5"] is None
-
-
-def test_parse_hourly_to_daily_multiday():
-    """Values from different days are bucketed correctly."""
-    from context import context_api
-    response = {
-        "hourly": {
-            "time":  ["2026-01-01T12:00", "2026-01-02T12:00"],
-            "pm2_5": [10.0, 40.0],
-        }
-    }
-    aggregation_map = {"pm2_5": "mean"}
-    result = context_api._parse_hourly_to_daily(response, ["pm2_5"], aggregation_map)
-    assert result["2026-01-01"]["pm2_5"] == 10.0
-    assert result["2026-01-02"]["pm2_5"] == 40.0
