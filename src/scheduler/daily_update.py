@@ -328,13 +328,25 @@ def _apply_update_unattended(release_json: dict, is_t3: bool) -> None:
         import mcp_process
         mcp_process.stop()
 
+    wait_pids = [str(os.getpid())]
+    if is_t3:
+        # daily_update.exe (T3.2) is built --onefile: a bootloader
+        # process extracts to a temp folder and launches this process as
+        # its child - os.getpid() is the child, never the bootloader,
+        # which can still be alive for a brief window after this child
+        # exits (confirmed via testing on the GUI's own onefile build,
+        # 2026-09-24). T2's daily_update.py runs via the plain Python
+        # interpreter (never frozen), so there is no bootloader here to
+        # wait for - os.getppid() would just be an unrelated shell.
+        wait_pids.append(str(os.getppid()))
+
     helper_script = exe_dir / "updater_helper.ps1"
     args = [
         "powershell.exe", "-ExecutionPolicy", "Bypass",
         "-File", str(helper_script),
         "-ExeDir", str(exe_dir),
         "-PendingDir", str(exe_dir / updater.UPDATE_PENDING_DIRNAME),
-        "-WaitPids", str(os.getpid()),
+        "-WaitPids", ",".join(wait_pids),
     ]
     if mcp_was_running:
         mcp_cmd = _resolve_mcp_restart_cmd(exe_dir)

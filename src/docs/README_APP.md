@@ -138,7 +138,7 @@ A third button, **Update**, also appears — for both the Standard and the Stand
 
 **Unattended updates via Daily Sync** *(opt-in)*: tick **Auto-apply updates in Daily Sync** (Settings, its own "Daily Sync" section) and the scheduled daily sync applies a new version by itself the next time one is available — no popup, nothing to click. If the app happens to be open at that moment, it closes automatically (any unsaved changes in open fields are lost) and does not reopen afterward; the daily sync itself is unattended, so nothing would open it again automatically. Off by default.
 
-A backup of the previous version is kept (overwritten by the next update) as a safety net, and update files are verified before anything is changed either way. *(v1.7.2.4.1)* For the GUI **Update** button, that backup is now also used automatically: if the new version fails to start, the app rolls itself back to the previous working version without any manual steps.
+A backup of the previous version is kept (overwritten by the next update) as a safety net, and update files are verified before anything is changed either way. *(v1.7.2.4.1)* For the **Standalone** version's GUI **Update** button, that backup is now also used automatically: the app restarts itself after applying the update, and if the new version fails to start, it rolls itself back to the previous working version without any manual steps. The **Standard** version's Update button still applies the update and closes as before — start it again yourself to use the new version.
 
 ---
 

@@ -35,13 +35,15 @@ Standard version: install dependencies first — `pip install -r requirements.tx
 
 **Both versions (v1.7.2.4):** an **Update** button appears next to the
 usual update notification once a new version is available — downloads,
-verifies, and applies it in place, then restarts the app. Verified
-against a published checksum before anything is touched; if that check
-fails, nothing is changed. There's also an opt-in "Auto-apply updates
-in Daily Sync" setting for unattended updates via the scheduled daily
-sync. **(v1.7.2.4.1)** if the new version fails to start after an
-update, it's automatically rolled back to the previous working version
-— no manual recovery needed.
+verifies, and applies it in place. Verified against a published checksum
+before anything is touched; if that check fails, nothing is changed.
+There's also an opt-in "Auto-apply updates in Daily Sync" setting for
+unattended updates via the scheduled daily sync. **(v1.7.2.4.1)** the
+Standalone version restarts itself automatically afterward, and if the
+new version fails to start, it's automatically rolled back to the
+previous working version — no manual recovery needed. The standard
+version applies the update the same way it always has: it closes, and
+you start it again yourself.
 
 ---
 

@@ -505,9 +505,12 @@ _HELPER_LOG = _TMPDIR / "helper_gui_launches.log"
 
 
 def _run_helper(exe_dir: Path, pending_dir: Path, gui_exe_name: str,
-                 timeout_s: int = 2):
+                 timeout_s: int = 2, max_attempts: int = 1):
     """Runs the real updater_helper.ps1 against a fake ExeDir/PendingDir.
-    stdin=DEVNULL so a failure path's Read-Host can never block the test."""
+    stdin=DEVNULL so a failure path's Read-Host can never block the test.
+    max_attempts defaults to 1 (not the script's own default of 3) so
+    existing single-shot success/rollback checks below don't have to
+    account for retries - the retry behaviour itself gets its own tests."""
     return subprocess.run(
         ["powershell.exe", "-ExecutionPolicy", "Bypass",
          "-File", str(_PS1_HELPER),
@@ -515,9 +518,10 @@ def _run_helper(exe_dir: Path, pending_dir: Path, gui_exe_name: str,
          "-PendingDir", str(pending_dir),
          "-RestartGui",
          "-GuiExeName", gui_exe_name,
-         "-SuccessTimeoutSeconds", str(timeout_s)],
+         "-SuccessTimeoutSeconds", str(timeout_s),
+         "-MaxLaunchAttempts", str(max_attempts)],
         capture_output=True, text=True, stdin=subprocess.DEVNULL,
-        timeout=timeout_s + 30)
+        timeout=(timeout_s * max_attempts) + 30)
 
 
 # -- success path: the "new GUI" writes the flag right away -------------------
@@ -571,9 +575,10 @@ check("rollback path: non-zero exit code",
 check("rollback path: stdout reports failure, not success",
       "UPDATE FAILED" in _res_bad.stdout
       and "Update applied successfully." not in _res_bad.stdout)
-check("rollback path: stdout names the actual timeout used (2s, not the "
-      "hardcoded default) - the message stayed in sync with the new param",
-      "within 2 seconds" in _res_bad.stdout)
+check("rollback path: stdout names the actual attempt count/timeout used, "
+      "not a hardcoded default - the message stayed in sync with the "
+      "new params",
+      "after 1 attempt(s) (2 seconds each)" in _res_bad.stdout)
 check("rollback path: the new (broken) version's marker file is gone from "
       "ExeDir after rollback",
       not (_h_exe2 / "new_marker.txt").exists())
@@ -603,6 +608,63 @@ check("rollback path: both the new (broken) and the restored old GUI were "
       "actually launched, in that order",
       _wait_for_log_lines(_HELPER_LOG, ["new_launched", "old_launched"])
       == ["new_launched", "old_launched"])
+
+# -- retry path: fails once, succeeds on the 2nd attempt (v1.7.2.4.1, ------
+# Baustein: retry against a real, intermittent onefile-bootloader failure,
+# 2026-09-25) - the fake GUI here fails fast (no flag, clean exit) instead
+# of hanging, since a real onefile crash observed on 2026-09-25 also
+# exited fast (native error dialog closed almost immediately), not a hang.
+_h_exe4 = _TMPDIR / "helper_exe4"; _h_exe4.mkdir()
+_h_pending4 = _TMPDIR / "helper_pending4"; _h_pending4.mkdir()
+(_h_pending4 / "fake_gui.bat").write_text(
+    '@echo off\r\n'
+    'set /a n=0\r\n'
+    'if exist "%~dp0_attempt_counter.txt" set /p n=<"%~dp0_attempt_counter.txt"\r\n'
+    'set /a n=%n%+1\r\n'
+    'echo %n% > "%~dp0_attempt_counter.txt"\r\n'
+    'if %n% GEQ 2 echo. > "%~dp0_update_success.flag"\r\n')
+
+_res_retry = _run_helper(_h_exe4, _h_pending4, "fake_gui.bat",
+                          timeout_s=5, max_attempts=3)
+check("retry path: exit code 0 (eventually succeeded)",
+      _res_retry.returncode == 0)
+check("retry path: stdout reports success, not failure",
+      "Update applied successfully." in _res_retry.stdout)
+check("retry path: stdout logged the first failed attempt before retrying",
+      "Launch attempt 1 of 3 did not signal success - retrying"
+      in _res_retry.stdout)
+check("retry path: flag consumed after the successful 2nd attempt",
+      not (_h_exe4 / "_update_success.flag").exists())
+check("retry path: the fake GUI actually ran twice (counter proves it, "
+      "not just a lucky first-attempt timing coincidence)",
+      (_h_exe4 / "_attempt_counter.txt").read_text().strip() == "2")
+
+# -- retry path: exhausts every attempt, still rolls back ---------------------
+_h_exe5 = _TMPDIR / "helper_exe5"; _h_exe5.mkdir()
+(_h_exe5 / "fake_gui.bat").write_text(
+    f'@echo off\r\necho old_launched >> "{_HELPER_LOG}"\r\n')
+(_h_exe5 / "old_marker.txt").write_text("old content")
+_h_pending5 = _TMPDIR / "helper_pending5"; _h_pending5.mkdir()
+(_h_pending5 / "fake_gui.bat").write_text(
+    f'@echo off\r\necho new_launched >> "{_HELPER_LOG}"\r\n')
+(_h_pending5 / "new_marker.txt").write_text("new content")
+
+_HELPER_LOG.unlink(missing_ok=True)
+_res_exhausted = _run_helper(_h_exe5, _h_pending5, "fake_gui.bat",
+                              timeout_s=1, max_attempts=3)
+check("retry-exhausted path: non-zero exit code",
+      _res_exhausted.returncode != 0)
+check("retry-exhausted path: stdout names the full attempt count",
+      "after 3 attempt(s) (1 seconds each)" in _res_exhausted.stdout)
+check("retry-exhausted path: the fake new GUI was actually launched 3 "
+      "times before giving up, then the old one once more",
+      _wait_for_log_lines(
+          _HELPER_LOG,
+          ["new_launched", "new_launched", "new_launched", "old_launched"])
+      == ["new_launched", "new_launched", "new_launched", "old_launched"])
+check("retry-exhausted path: old version fully restored in ExeDir",
+      (_h_exe5 / "old_marker.txt").exists()
+      and not (_h_exe5 / "new_marker.txt").exists())
 
 # -- lock file: a second concurrent run is refused, not a silent collision ----
 _h_exe3 = _TMPDIR / "helper_exe3"; _h_exe3.mkdir()
