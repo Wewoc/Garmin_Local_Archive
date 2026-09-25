@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.2.4.1**
+**Currently stable — v1.7.2.4.2**
 
 ---
 

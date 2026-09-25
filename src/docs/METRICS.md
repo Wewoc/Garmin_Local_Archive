@@ -3,20 +3,20 @@
 
 # METRICS
 
-Generated: 2026-09-24 17:53 UTC · Version: 1.7.2.4.1
+Generated: 2026-09-25 16:47 UTC · Version: 1.7.2.4.2
 
 ## Test Counts
 
 | Suite | Checks | Passed | Failed |
 |---|---|---|---|
 | test_local.py | 788 | 788 | 0 |
-| test_local_context.py | 341 | 341 | 0 |
+| test_local_context.py | 349 | 349 | 0 |
 | test_dashboard.py | 472 | 472 | 0 |
 | test_broker.py | 141 | 141 | 0 |
 | test_mcp.py | 231 | 231 | 0 |
 | test_app_logic.py | 176 | 176 | 0 |
-| test_updater.py | 80 | 80 | 0 |
-| test_qt_app.py | 186 | 186 | 0 |
+| test_updater.py | 89 | 89 | 0 |
+| test_qt_app.py | 188 | 188 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -24,7 +24,7 @@ Generated: 2026-09-24 17:53 UTC · Version: 1.7.2.4.1
 | test_cloud_credential_store.py | 14 | 14 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 16 | 16 | 0 |
-| **Total** | **2570** | **2570** | **0** |
+| **Total** | **2589** | **2589** | **0** |
 
 ## Modules
 

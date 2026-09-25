@@ -877,7 +877,9 @@ adds `updater.write_success_flag()` coverage, plus the first
 automated test that runs `updater_helper.ps1` itself via a real
 `powershell.exe` subprocess (not just its Python-side callers): success
 path, rollback path (including a deliberately hung fake GUI process, to
-exercise the process-kill-before-rollback step), and lock-file
+exercise the process-kill-before-rollback step), retry path (fails once,
+succeeds on the 2nd of up to `-MaxLaunchAttempts` launches), retry-
+exhausted path (all attempts fail, still rolls back), and lock-file
 collision. Check and section totals are tracked in `docs/METRICS.md`
 (`test_updater.py`) — not restated here to avoid drift.
 

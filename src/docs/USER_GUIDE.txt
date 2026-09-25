@@ -779,11 +779,13 @@ Documentation
 Update (v1.7.2.4, both versions)
   Appears in the "new version available" popup alongside "Open GitHub"
   and "Dismiss". Downloads the new version, verifies it against a
-  published checksum, applies it, and restarts the app automatically.
-  If verification fails, nothing is changed and the app keeps running
-  as before. (v1.7.2.4.1) If the new version is applied but then fails
-  to start, it's rolled back to the previous version automatically —
-  no manual recovery needed.
+  published checksum, and applies it. If verification fails, nothing is
+  changed and the app keeps running as before. (v1.7.2.4.1) Standalone
+  version: restarts itself automatically afterward, and if the new
+  version fails to start, it's rolled back to the previous version
+  automatically - no manual recovery needed. Standard version: applies
+  the update and closes, same as before - start it again yourself to
+  use the new version.
 
 Auto-apply updates in Daily Sync (v1.7.2.4, both versions)
   Checkbox under Settings -> its own "Daily Sync" section. Saves

@@ -41,12 +41,16 @@ _BUILD_ROOT  = _ROOT
 _SCRIPTS_DIR = _BUILD_ROOT / "scripts"
 _T2_EXE      = _BUILD_ROOT / "Garmin_Local_Archive.exe"
 _T2_ZIP      = _BUILD_ROOT / "Garmin_Local_Archive.zip"
+_T2_CHECKSUM = _BUILD_ROOT / "Garmin_Local_Archive.zip.sha256"
 _T3_DIR      = _BUILD_ROOT / "Garmin_Local_Archive_Standalone"         # --onedir folder
 _T3_EXE      = _T3_DIR / "Garmin_Local_Archive_Standalone.exe"         # EXE inside folder
 _T3_ZIP      = _BUILD_ROOT / "Garmin_Local_Archive_Standalone.zip"
+_T3_CHECKSUM = _BUILD_ROOT / "Garmin_Local_Archive_Standalone.zip.sha256"
+_MCP_EXE     = _BUILD_ROOT / "mcp_server.exe"                          # T3.3 (--onefile)
 
-_T2_BUILT = _T2_EXE.exists()
-_T3_BUILT = _T3_DIR.exists() and _T3_EXE.exists()                      # onedir: folder + EXE
+_T2_BUILT  = _T2_EXE.exists()
+_T3_BUILT  = _T3_DIR.exists() and _T3_EXE.exists()                     # onedir: folder + EXE
+_MCP_BUILT = _MCP_EXE.exists()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  1. build_manifest — Konsistenz
@@ -216,6 +220,14 @@ else:
         for subdir, name in manifest.REQUIRED_DATA_FILES:
             check(f"ZIP contains scripts/{subdir}/{name}",
                   f"scripts/{subdir}/{name}" in _names)
+        # v1.7.2.4-Nacherweiterung — self-update delivery files (build.py::build_zip())
+        check("ZIP contains updater_helper.ps1",
+              "updater_helper.ps1" in _names)
+
+if not _T2_BUILT:
+    skip("Garmin_Local_Archive.zip.sha256 exists", "no build found")
+else:
+    check("Garmin_Local_Archive.zip.sha256 exists", _T2_CHECKSUM.exists())
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. Target 3 — Standalone EXE + ZIP
@@ -244,8 +256,15 @@ else:
     check("daily_update.exe exists", True)
     check("daily_update.exe size > 0 bytes", _DU_EXE.stat().st_size > 0)
 
-if not _T3_BUILT or not _DU_BUILT:
-    skip("combined ZIP checks", "one or both targets missing")
+# T3.3 — --onefile (MCP server)
+if not _MCP_BUILT:
+    skip("mcp_server.exe exists", "no build found")
+else:
+    check("mcp_server.exe exists", True)
+    check("mcp_server.exe size > 0 bytes", _MCP_EXE.stat().st_size > 0)
+
+if not _T3_BUILT or not _DU_BUILT or not _MCP_BUILT:
+    skip("combined ZIP checks", "one or more targets missing")
 elif not _T3_ZIP.exists():
     skip("combined ZIP checks", "Garmin_Local_Archive_Standalone.zip not found")
 else:
@@ -260,12 +279,23 @@ else:
         # T3.2 flat in ZIP root
         check("combined ZIP contains daily_update.exe (flat in root)",
               "daily_update.exe" in _names_sa)
+        # T3.3 flat in ZIP root
+        check("combined ZIP contains mcp_server.exe (flat in root)",
+              "mcp_server.exe" in _names_sa)
+        # v1.7.2.4 — self-update helper, flat in ZIP root
+        check("combined ZIP contains updater_helper.ps1",
+              "updater_helper.ps1" in _names_sa)
         # info/ flat in ZIP root
         check("combined ZIP contains info/QUICKSTART.txt",
               "info/QUICKSTART.txt" in _names_sa)
         _script_entries = [n for n in _names_sa if n.startswith("scripts/")]
         check("combined ZIP has no scripts/ folder (all embedded)",
               len(_script_entries) == 0)
+
+if not _T3_BUILT or not _DU_BUILT or not _MCP_BUILT:
+    skip("Garmin_Local_Archive_Standalone.zip.sha256 exists", "one or more targets missing")
+else:
+    check("Garmin_Local_Archive_Standalone.zip.sha256 exists", _T3_CHECKSUM.exists())
 
 section("8. Target 3 — Embed-Vollständigkeit (add-data Rekonstruktion)")
 

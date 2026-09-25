@@ -68,7 +68,7 @@ flow lives outside `context_collector.run()`'s normal loop.
 
 Check and section totals are tracked in `docs/METRICS.md` (`test_local_context.py`) — not restated here to avoid drift. `write_file()` (v1.5.6) is a thin atomic wrapper, tested implicitly via import round-trip; no dedicated section.
 
-**Note on invocation mode:** the `docs/METRICS.md` figure reflects `check()`-based checks inside the numbered sections only, via the plain `python tests/test_local_context.py` invocation. A handful of standalone pytest-style test functions (`test_airquality_plugin_*`, `test_parse_hourly_to_daily_*`) exist after the `summary()` call at file end and run under `pytest tests/test_local_context.py` but not under the plain script invocation — the two invocation modes report different totals. This is unrelated to `docs/METRICS.md` accuracy.
+**airquality_plugin / `_parse_hourly_to_daily` coverage:** sections C and D, `check()`-based like the rest of the file — counted in the normal `docs/METRICS.md` total. (Previously these existed as standalone pytest-style functions placed after the `summary()` call; unreachable under any invocation, since `summary()` calls `sys.exit()` at module level and Python must finish executing the whole module — including that exit — before pytest or the script runner ever sees them. Fixed 2026-09-25, see `changelog/anchor_delivery_testsuite-rework-a2-dead-tests.md`.)
 
 
 ```bash
