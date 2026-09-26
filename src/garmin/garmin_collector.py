@@ -879,8 +879,23 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
     → patch_source_field().
 
     Non-fatal: any per-day failure is logged as a warning; the loop continues.
-    Becomes a no-op once no day in the window is missing 'steps' anymore —
-    the candidate filter in timer_run_steps_backfill() is self-terminating.
+    All four failure paths (missing raw/ file, get_steps_data returning no
+    data, write_day failing, and the generic except-Exception below) call
+    quality.record_field_backfill_failure() to increment
+    entry["field_backfill_attempts"]["steps"] — the candidate filter in
+    timer_run_steps_backfill() gives up on a day once that count reaches
+    its limit, so a permanently-failing day does not get retried forever
+    (there is no age cutoff otherwise).
+
+    A fifth, non-obvious case: write_day() can succeed while record_attempt()'s
+    quality_log update is still silently blocked by _upsert_quality()'s
+    day-level downgrade guard (the freshly assessed whole-day label ranks
+    below the entry's stored label — e.g. an already-inconsistent archive
+    state). steps then exists in raw/ but fields/backfilled_fields never
+    reflect it. The success path re-reads the entry right after
+    record_attempt() and, if fields["steps"] didn't actually land as "high",
+    treats it the same as a failure (increments field_backfill_attempts too)
+    so the give-up limit still applies instead of retrying forever.
     """
     if not cfg.SYNC_DATES:
         log.info("  Steps backfill: no GARMIN_SYNC_DATES — nothing to do.")
@@ -905,13 +920,19 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
             try:
                 existing_raw = writer.read_raw(date_str)
                 if not existing_raw:
-                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — no raw/ file, skipped")
+                    attempt_count = quality.record_field_backfill_failure(
+                        quality_data, date.fromisoformat(date_str), "steps")
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — "
+                                f"no raw/ file, skipped (attempt {attempt_count})")
                     failed += 1
                     continue
 
                 steps_data, success = api.api_call(client, "get_steps_data", date_str, label="steps")
                 if not success or steps_data is None:
-                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — get_steps_data failed")
+                    attempt_count = quality.record_field_backfill_failure(
+                        quality_data, date.fromisoformat(date_str), "steps")
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — "
+                                f"get_steps_data failed (attempt {attempt_count})")
                     failed += 1
                     continue
 
@@ -920,7 +941,10 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
                 summary    = normalizer.summarize(normalized)
 
                 if not writer.write_day(normalized, summary, date_str):
-                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — write_day failed")
+                    attempt_count = quality.record_field_backfill_failure(
+                        quality_data, date.fromisoformat(date_str), "steps")
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — "
+                                f"write_day failed (attempt {attempt_count})")
                     failed += 1
                     continue
 
@@ -934,6 +958,24 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
                     fields=fields,
                     backfilled_fields={"steps": backfilled_at},
                 )
+
+                # record_attempt() can be silently blocked by _upsert_quality()'s
+                # day-level downgrade guard (freshly computed day label ranks below
+                # the stored one) — steps is already written to raw/ at this point,
+                # but quality_log's fields/backfilled_fields would then never reflect
+                # it, leaving the day a candidate forever. Verify the bookkeeping
+                # actually landed; if not, still count this as a failed attempt so
+                # the give-up limit in timer_run_steps_backfill() eventually engages.
+                _entry_after = next(
+                    (e for e in quality_data.get("days", []) if e.get("date") == date_str), None
+                )
+                if not _entry_after or (_entry_after.get("fields") or {}).get("steps") != "high":
+                    attempt_count = quality.record_field_backfill_failure(
+                        quality_data, date.fromisoformat(date_str), "steps")
+                    log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — "
+                                f"quality_log update blocked (day-level downgrade guard) — "
+                                f"steps written to raw/ but not reflected in fields "
+                                f"(attempt {attempt_count})")
 
                 patch_ok = source_writer.patch_source_field(date_str, "steps", steps_data)
                 if not patch_ok:
@@ -960,11 +1002,152 @@ def _run_steps_backfill(client, quality_data: dict) -> None:
                 ok += 1
 
             except Exception as e:
+                quality.record_field_backfill_failure(
+                    quality_data, date.fromisoformat(date_str), "steps")
                 log.warning(f"  Steps backfill [{i}/{total}]: {date_str} — error: {e}")
                 failed += 1
 
     log.info(f"  Steps backfill complete: {ok} enriched, {failed} failed, "
              f"{source_patch_failed} source/ patch(es) failed.")
+
+
+# Structural fields garmin_import.load_bulk() never extracts from a Garmin
+# bulk export, regardless of the day's age — see
+# changelog/anchor_delivery_bulk-api-backfill-diagnose.md. Independently
+# duplicated (not imported) in app/garmin_app_controller.py::BULK_GAP_FIELDS
+# — a static field-name list, not logic; see that module's own comment.
+BULK_GAP_FIELDS = (
+    "hrv", "spo2", "body_battery", "respiration",
+    "training_status", "race_predictions", "max_metrics",
+)
+
+
+def _run_bulk_field_backfill(client, quality_data: dict) -> None:
+    """
+    Runs in the Background Timer bulk_field_backfill mode only — triggered
+    by GARMIN_BULK_FIELD_BACKFILL=1 + GARMIN_SYNC_DATES (the timer picks
+    candidates via timer_run_bulk_field_backfill() and passes them as
+    GARMIN_SYNC_DATES).
+
+    Always does a full day fetch (_fetch_and_assess(), all 15 baseline
+    endpoints) — a bulk day is typically missing several of the 7
+    BULK_GAP_FIELDS at once, so one fetch covers all of them in a single
+    pass instead of needing one cycle per field. But unlike an early
+    version of this function, the result is never written as a full-day
+    replace: bulk and api use incompatible raw shapes for fields bulk
+    *does* populate (e.g. bulk's "stress" uses short key names like
+    "restDuration" where api uses "restStressDuration") — a full replace
+    could silently downgrade such a field even though the day's overall
+    quality label doesn't regress (_check_downgrade() only compares the
+    whole-day label, never individual fields). Found via a live run
+    against 2023-12-31 — see
+    changelog/anchor_delivery_bulk-field-backfill-additive-merge-fix.md.
+
+    Per day: _fetch_and_assess() -> read the existing raw/ file -> merge
+    every top-level key from the fresh fetch into it via
+    garmin_merge.merge_field() (same additive, "never overwrites a
+    non-empty value" primitive steps_backfill already uses for a single
+    field) -> re-normalize/assess the merged result -> write + record.
+    By construction this can never downgrade any field, so no separate
+    downgrade check is needed here (unlike bulk_recheck's day-level one).
+
+    For every BULK_GAP_FIELDS entry still not "high" after the merge,
+    batched in one quality.record_field_backfill_failures() call (not
+    the singular record_field_backfill_failure() — a bulk day routinely
+    has several open fields at once, and the singular function would
+    persist/backup once per field instead of once per day).
+    This function never touches bulk_recheck's own day-level
+    attempts/recheck bookkeeping (a separate, independent give-up
+    mechanism for the 180-day intraday-degradation window) — the two
+    concerns are orthogonal.
+
+    Non-fatal: any per-day failure is logged as a warning; the loop
+    continues. Becomes a no-op once every source="bulk" day has either
+    all 7 fields at "high" or has exhausted its per-field attempts.
+    """
+    if not cfg.SYNC_DATES:
+        log.info("  Bulk field backfill: no GARMIN_SYNC_DATES — nothing to do.")
+        return
+
+    import garmin_merge as merge
+
+    candidates = [d.isoformat() for d in sorted(cfg.SYNC_DATES)]
+    log.info(f"  Bulk field backfill: {len(candidates)} day(s) to re-fetch")
+
+    ok     = 0
+    failed = 0
+    total  = len(candidates)
+
+    with quality.QUALITY_LOCK:
+        for i, date_str in enumerate(candidates, 1):
+            if _is_stopped():
+                log.info(f"  Bulk field backfill: stopped after {ok} days.")
+                break
+            existing   = next(
+                (e for e in quality_data.get("days", [])
+                 if e.get("date") == date_str),
+                None,
+            )
+            pre_fields = (existing or {}).get("fields") or {}
+            try:
+                label, normalized, summary, fields, val_result = \
+                    _fetch_and_assess(client, date_str)
+
+                if normalized is None:
+                    # Validator critical — nothing usable to merge in.
+                    still_open = [f for f in BULK_GAP_FIELDS if pre_fields.get(f) != "high"]
+                    if still_open:
+                        quality.record_field_backfill_failures(
+                            quality_data, date.fromisoformat(date_str), still_open)
+                    log.warning(f"  Bulk field backfill [{i}/{total}]: {date_str} — "
+                                f"validator critical, skipped")
+                    failed += 1
+                    continue
+
+                existing_raw = writer.read_raw(date_str) or {}
+                merged_raw   = existing_raw
+                for raw_key, raw_value in normalized.items():
+                    merged_raw = merge.merge_field(merged_raw, raw_key, raw_value)
+
+                merged_summary = normalizer.summarize(merged_raw)
+                merged_label   = quality.assess_quality(merged_raw)
+                merged_fields  = quality.assess_quality_fields(merged_raw)
+
+                if not writer.write_day(merged_raw, merged_summary, date_str):
+                    still_open = [f for f in BULK_GAP_FIELDS if pre_fields.get(f) != "high"]
+                    if still_open:
+                        quality.record_field_backfill_failures(
+                            quality_data, date.fromisoformat(date_str), still_open)
+                    log.warning(f"  Bulk field backfill [{i}/{total}]: {date_str} — write_day failed")
+                    failed += 1
+                    continue
+
+                quality.record_attempt(
+                    quality_data, date.fromisoformat(date_str), merged_label,
+                    f"Bulk field backfill: {merged_label}",
+                    written=True,
+                    source="api",
+                    fields=merged_fields,
+                    validator_result=val_result,
+                )
+
+                still_open = [f for f in BULK_GAP_FIELDS if merged_fields.get(f) != "high"]
+                if still_open:
+                    quality.record_field_backfill_failures(
+                        quality_data, date.fromisoformat(date_str), still_open)
+
+                log.info(f"  Bulk field backfill [{i}/{total}]: {date_str} — {merged_label}")
+                ok += 1
+
+            except Exception as e:
+                still_open = [f for f in BULK_GAP_FIELDS if pre_fields.get(f) != "high"]
+                if still_open:
+                    quality.record_field_backfill_failures(
+                        quality_data, date.fromisoformat(date_str), still_open)
+                log.warning(f"  Bulk field backfill [{i}/{total}]: {date_str} — error: {e}")
+                failed += 1
+
+    log.info(f"  Bulk field backfill complete: {ok} processed, {failed} failed.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1317,6 +1500,10 @@ def main(stop_event=None):
     # ── 5d. Steps backfill — enrich already-archived days with steps field ────
     if os.environ.get("GARMIN_STEPS_BACKFILL") == "1":
         _run_steps_backfill(client, quality_data)
+
+    # ── 5e. Bulk field backfill — re-fetch bulk days missing structural fields ─
+    if os.environ.get("GARMIN_BULK_FIELD_BACKFILL") == "1":
+        _run_bulk_field_backfill(client, quality_data)
 
     # ── 6. Set first_day ──────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:

@@ -199,6 +199,77 @@ def set_unknown_device_name(data: dict, name: str) -> int:
     return count
 
 
+def record_field_backfill_failure(data: dict, day: date, field: str) -> int:
+    """
+    Increments the failed-attempt counter for one field's backfill pass
+    (`entry["field_backfill_attempts"][field]` in quality_log.json).
+    Returns the new count. Persists immediately (own `_save_quality_log`
+    call) — same "record and persist right away" contract as
+    `record_attempt()`.
+
+    Separate from `attempts` / `_upsert_quality()`'s day-level failed-
+    quality counter — this tracks failed attempts of a single per-field
+    backfill pass (e.g. steps_backfill's get_steps_data call returning no
+    data), independent of the day's overall quality label. Generic by
+    design — usable by any per-field backfill mode (steps_backfill today,
+    intended for the planned bulk structural backfill too), not steps-
+    specific.
+
+    Give-up threshold (mirrors bulk_recheck's "attempts >= 2 →
+    recheck=False" pattern) is enforced by the caller (the relevant
+    timer_run_*_backfill candidate filter), not here — this function only
+    counts and persists.
+
+    No-op (returns 0) if no entry exists for `day` — a field-backfill pass
+    only ever patches an already-archived day, never creates one.
+    """
+    from quality._io import _save_quality_log
+    day_str = day.isoformat()
+    for entry in data.get("days", []):
+        if entry.get("date") == day_str:
+            attempts = entry.get("field_backfill_attempts") or {}
+            attempts[field] = attempts.get(field, 0) + 1
+            entry["field_backfill_attempts"] = attempts
+            _save_quality_log(data)
+            return attempts[field]
+    return 0
+
+
+def record_field_backfill_failures(data: dict, day: date, fields: list) -> dict:
+    """
+    Batched sibling of record_field_backfill_failure() — increments the
+    failed-attempt counter for several fields' backfill passes on the
+    same day in one call, persisting (_save_quality_log(), including its
+    backup_quality_log() snapshot + year-consolidation scan) exactly
+    once instead of once per field.
+
+    Added after a live run showed _run_bulk_field_backfill() calling the
+    singular function once per still-failing BULK_GAP_FIELDS entry — up
+    to 7 per day — triggering 7 redundant full quality_log.json writes
+    and backup snapshots for a single day processed. steps_backfill only
+    ever tracks one field ("steps"), so it keeps using the singular
+    function; this one is for callers that may need several fields at
+    once.
+
+    Returns {field: new_count} for every field in `fields`, or {} (no
+    call to _save_quality_log()) if no entry exists for `day` — same
+    "day must already be archived" contract as the singular function.
+    """
+    from quality._io import _save_quality_log
+    day_str = day.isoformat()
+    for entry in data.get("days", []):
+        if entry.get("date") == day_str:
+            attempts = entry.get("field_backfill_attempts") or {}
+            result = {}
+            for field in fields:
+                attempts[field] = attempts.get(field, 0) + 1
+                result[field] = attempts[field]
+            entry["field_backfill_attempts"] = attempts
+            _save_quality_log(data)
+            return result
+    return {}
+
+
 def record_attempt(data: dict, day, label: str, reason: str,
                    written: bool = None, source: str = "api",
                    fields: dict = None,

@@ -182,6 +182,31 @@ of scope.
   `backfill_source()` name-check pattern unchecked; `garmin_writer.py`
   raw/summary atomicity gap now more relevant since Force-Refetch touches
   deliberately-risky days).
+- **Resolved (v1.7.3):** `_run_bulk_field_backfill()` is a deliberate
+  exception to the `_write_assessed()`-only-after-downgrade-check
+  invariant above — it never calls `_write_assessed()`/`_check_downgrade()`
+  at all. Instead every top-level raw key from the fresh fetch is merged
+  additively into the existing `raw/` file via `garmin_merge.merge_field()`
+  (never overwrites a non-empty value), which cannot downgrade a field by
+  construction — a separate downgrade check would be redundant. Found live:
+  bulk and api use incompatible raw shapes for fields bulk already
+  populates (e.g. `stress.restDuration` vs. `stress.restStressDuration`),
+  so a full-day replace (the mode's first, superseded implementation)
+  could silently downgrade such a field even though the day's overall
+  quality label never regressed. New generic give-up mechanism,
+  independent of the existing day-level `attempts`/`recheck` bookkeeping:
+  `quality.record_field_backfill_failure()` (single field) /
+  `record_field_backfill_failures()` (batched — one persist/backup call
+  for several fields, not one per field) increment
+  `entry["field_backfill_attempts"][field]`; `timer_run_steps_backfill()`
+  and the new `timer_run_bulk_field_backfill()` both read it via
+  `FIELD_BACKFILL_ATTEMPT_LIMIT = 2` (mirrors `bulk_recheck`'s existing
+  day-level "2 attempts, then final" pattern). See
+  `changelog/anchor_delivery_bulk-field-backfill-additive-merge-fix.md`
+  and the two anchor-deliveries preceding it for the full diagnosis
+  history (live-verified, including a full `mirror.gla` restore
+  specifically to re-run the days first touched by the superseded
+  full-replace implementation).
 
 ---
 
@@ -258,7 +283,14 @@ missing source file (6 checks). `_upsert_quality()` / `record_attempt()` —
 `backfilled_fields` parameter, additive merge across calls (4 checks). Section E2:
 `garmin_collector._run_steps_backfill()` — no-op on empty `SYNC_DATES`, correct
 `api.api_call()` invocation, merge result in `raw/`, `backfilled_fields` + `fields`
-recorded, stop-event respected, per-day error resilience (10 checks).
+recorded, stop-event respected, per-day error resilience, `write_day()` failure and
+the generic `except Exception` path both increment `field_backfill_attempts.steps`
+(v1.7.3 — previously only two of four failure paths were tracked, found while
+live-verifying the give-up limit), plus a downgrade-guard case where `write_day()`
+succeeds but `record_attempt()`'s `quality_log` update is itself silently blocked
+by `_upsert_quality()`'s day-level downgrade guard — the success path still
+increments `field_backfill_attempts.steps` in that case (found via an external
+diagnostic tool after the rest of this section was written) (16 checks).
 
 C3. `garmin_import_mirror` — `detect_source`: container / nonexistent path / plain folder (3 checks). (v1.6.0.4.9.3)
 D. `garmin_source_writer` + `garmin_source_quality` (v1.6.0.2 / v1.6.0.4.6) — `SOURCE_DIR` + `SOURCE_API_LOG` path derivation, `write_source` round-trip + overwrite + error cases (None/str input), `update_log` round-trip + overwrite + multi-date + `intraday_present`. `assess_source` (5 checks), `compare_source` truth table (6 checks), `assess_source_from_file` (2 checks), `write_source` guard behavior — skip + skip_warn (4 checks), `update_log intraday_present` (3 checks). Leaf-Node AST check migrated to `garmin_source_quality` (stdlib-only).
@@ -376,6 +408,50 @@ tmp-ZIP cleanup (Baustein 2, `anchor_delivery_17117-04`) — resolved with a
 `log.debug()` instead of `pass`, restoring the Baseline-0 guarantee
 without changing behaviour (the underlying error was already surfaced via
 the enclosing `log.error()` one level up).
+
+M. **Background Timer — Bulk Field Backfill + Steps Backfill fixes (v1.7.3).**
+Closes the structural gap `garmin_import.load_bulk()` leaves in `hrv`/
+`spo2`/`body_battery`/`respiration`/`training_status`/`race_predictions`/
+`max_metrics` regardless of the day's age, live-verified against the real
+archive (including a full `mirror.gla` restore) — see
+`changelog/anchor_delivery_bulk-field-backfill-additive-merge-fix.md` for
+the full diagnosis/fix history.
+- `quality/_maint.py` — `record_field_backfill_failure()` (single field,
+  persists immediately) and `record_field_backfill_failures()` (batched —
+  added after a live run showed the singular function triggering 7-8
+  redundant `quality_log.json` writes per bulk day). Both generic,
+  independent of the existing day-level `attempts`/`recheck` mechanism.
+- `garmin_app_controller.timer_run_steps_backfill()` — filter changed from
+  key-presence (`"steps" not in fields`) to value comparison
+  (`fields.get("steps") == "high"`); 140-day window removed (the
+  underlying degradation assumption was disproven live — see
+  `changelog/anchor_delivery_bulk-api-backfill-diagnose.md`), replaced by
+  the new `FIELD_BACKFILL_ATTEMPT_LIMIT = 2` give-up threshold.
+- `garmin_collector._run_steps_backfill()` success path — found via an
+  external diagnostic tool run after the rest of this section shipped:
+  `record_attempt()` can itself be silently blocked by
+  `_upsert_quality()`'s day-level downgrade guard even though
+  `write_day()` already succeeded (freshly assessed whole-day label
+  ranks below the entry's stored label, e.g. an already-inconsistent
+  archive state) — `steps` then exists in `raw/` but `quality_log.json`
+  never reflects it, and the day is re-selected as a candidate forever.
+  The success path now re-reads the entry right after `record_attempt()`
+  and counts it as a failed attempt too if `fields["steps"]` didn't
+  actually land as `"high"` — see
+  `changelog/anchor_delivery_steps-backfill-downgrade-guard-fix.md`.
+- `garmin_app_controller.timer_run_bulk_field_backfill()` (new) —
+  candidate filter tests, all-fields-`"high"` exclusion, `api`-source
+  exclusion, attempts-limit exclusion, mixed-fields-still-open inclusion
+  (Section 23, `test_app_logic.py`).
+- `garmin_collector._run_bulk_field_backfill()` (new, Section E5,
+  `test_local.py`) — the actual regression test: an existing non-empty
+  raw field (bulk-shaped `stress`) is never overwritten by a fresh fetch
+  with a different value; a field bulk never had is merged in additively;
+  a field untouched by the fetch response stays exactly as-is; batched
+  attempts-recording verified via a spy on the real
+  `record_field_backfill_failures()` (confirms one call covering all open
+  fields, not one call per field); error path records attempts for all
+  still-open fields.
 
 ### What is NOT tested
 

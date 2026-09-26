@@ -126,19 +126,21 @@ class PanelTimer(QWidget):
     # ── Button state ───────────────────────────────────────────────────────────
 
     def _timer_update_btn(self):
-        """Updates timer button appearance (panel_home). Main Thread only."""
-        btn = self._app._panel_home._timer_btn
-        if self._app._timer_active:
-            btn.setText("⏱  Timer: On")
-            btn.setStyleSheet(
-                f"QPushButton {{ background: {self._app.GREEN}; color: #0a0a1a; "
-                f"border: none; padding: 7px 14px; }}")
-        else:
-            btn.setText("⏱  Timer: Off")
-            btn.setStyleSheet(
-                f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
-                f"border: none; padding: 7px 14px; }}"
-                f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
+        """Updates timer button appearance — both the panel_home quick-access
+        button and this panel's own button (BACKGROUND TIMER section) stay in
+        sync. Main Thread only."""
+        for btn in (self._app._panel_home._timer_btn, self._timer_btn):
+            if self._app._timer_active:
+                btn.setText("⏱  Timer: On")
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: {self._app.GREEN}; color: #0a0a1a; "
+                    f"border: none; padding: 7px 14px; }}")
+            else:
+                btn.setText("⏱  Timer: Off")
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
+                    f"border: none; padding: 7px 14px; }}"
+                    f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
 
     # ── Toggle ─────────────────────────────────────────────────────────────────
 
@@ -253,7 +255,8 @@ class PanelTimer(QWidget):
             self._app._dispatch(self._app._log,
                                 "⏱  Connection OK — background timer running.")
 
-        _mode_cycle = ["repair", "quality", "fill", "source_backfill", "steps_backfill"]
+        _mode_cycle = ["repair", "quality", "fill", "source_backfill", "steps_backfill",
+                       "bulk_field_backfill"]
         # Codereview v1.7.0.1, Baustein 3.1: replaces two identical
         # if/elif mode-dispatch chains (primary dispatch below + the
         # "skipped" fallback loop further down) with one lookup each.
@@ -261,11 +264,12 @@ class PanelTimer(QWidget):
         # methods, rebuilt fresh each _timer_loop() call (once per
         # background-thread run, not per while-iteration).
         _mode_runners = {
-            "repair":          self._timer_run_repair,
-            "quality":         self._timer_run_quality,
-            "fill":            self._timer_run_fill,
-            "source_backfill": self._timer_run_source_backfill,
-            "steps_backfill":  self._timer_run_steps_backfill,
+            "repair":              self._timer_run_repair,
+            "quality":             self._timer_run_quality,
+            "fill":                self._timer_run_fill,
+            "source_backfill":     self._timer_run_source_backfill,
+            "steps_backfill":      self._timer_run_steps_backfill,
+            "bulk_field_backfill": self._timer_run_bulk_field_backfill,
         }
 
         while not _stale():
@@ -313,7 +317,8 @@ class PanelTimer(QWidget):
                     return
 
             n_days         = random.randint(min_days, max_days)
-            days_pick      = (days[:n_days] if mode in ("bulk", "source_backfill", "steps_backfill")
+            days_pick      = (days[:n_days] if mode in ("bulk", "source_backfill", "steps_backfill",
+                                                          "bulk_field_backfill")
                               else sorted(random.sample(days, min(n_days, len(days)))))
             sync_dates_str = ",".join(d.isoformat() for d in days_pick)
             days_left      = len(days_pick)
@@ -322,12 +327,14 @@ class PanelTimer(QWidget):
             label = {"repair": "Repair", "quality": "Quality",
                      "fill": "Fill", "bulk": "Bulk Recheck",
                      "source_backfill": "Source Backfill",
-                     "steps_backfill": "Steps Backfill"}.get(mode, mode)
+                     "steps_backfill": "Steps Backfill",
+                     "bulk_field_backfill": "Bulk Field Backfill"}.get(mode, mode)
             self._app._dispatch(self._app._log,
                 f"⏱  [{label}] Syncing {days_left} days ({queue_total} in queue)")
             self._app._dispatch(
                 lambda dl=days_left: (
-                    self._app._panel_home._timer_btn.setText(f"⏱  Syncing · {dl}")
+                    [b.setText(f"⏱  Syncing · {dl}")
+                     for b in (self._app._panel_home._timer_btn, self._timer_btn)]
                     if self._app._timer_active else None
                 ))
 
@@ -338,11 +345,12 @@ class PanelTimer(QWidget):
 
             refresh       = mode in ("repair", "quality", "bulk")
             env_overrides = {
-                "GARMIN_SYNC_DATES":         sync_dates_str,
-                "GARMIN_REFRESH_FAILED":     "1" if refresh else "0",
-                "GARMIN_SESSION_LOG_PREFIX": "garmin_background",
-                "GARMIN_SOURCE_BACKFILL":    "1" if mode == "source_backfill" else "0",
-                "GARMIN_STEPS_BACKFILL":     "1" if mode == "steps_backfill" else "0",
+                "GARMIN_SYNC_DATES":          sync_dates_str,
+                "GARMIN_REFRESH_FAILED":      "1" if refresh else "0",
+                "GARMIN_SESSION_LOG_PREFIX":  "garmin_background",
+                "GARMIN_SOURCE_BACKFILL":     "1" if mode == "source_backfill" else "0",
+                "GARMIN_STEPS_BACKFILL":      "1" if mode == "steps_backfill" else "0",
+                "GARMIN_BULK_FIELD_BACKFILL": "1" if mode == "bulk_field_backfill" else "0",
             }
             sync_done = threading.Event()
 
@@ -376,7 +384,8 @@ class PanelTimer(QWidget):
                 mins, secs = divmod(remaining, 60)
                 self._app._dispatch(
                     lambda t=f"{mins:02d}:{secs:02d}": (
-                        self._app._panel_home._timer_btn.setText(f"⏱  {t}")
+                        [b.setText(f"⏱  {t}")
+                         for b in (self._app._panel_home._timer_btn, self._timer_btn)]
                         if self._app._timer_active else None
                     ))
                 self._app._timer_stop.wait(timeout=1)
@@ -400,3 +409,6 @@ class PanelTimer(QWidget):
 
     def _timer_run_steps_backfill(self, s: dict):
         return _controller.timer_run_steps_backfill(s)
+
+    def _timer_run_bulk_field_backfill(self, s: dict):
+        return _controller.timer_run_bulk_field_backfill(s)

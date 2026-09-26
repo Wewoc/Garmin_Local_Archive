@@ -1622,6 +1622,13 @@ _stb_err_date1 = (date.today() - _timedelta(days=60)).isoformat()
 _stb_err_date2 = (date.today() - _timedelta(days=61)).isoformat()
 _stb_sync_err  = f"{_stb_err_date1},{_stb_err_date2}"
 
+# raw/ muss existieren, sonst greift der frühere "keine raw/-Datei"-Zweig
+# zuerst und der hier eigentlich getestete except-Exception-Pfad (über den
+# gemockten api_call unten) wird nie erreicht.
+for _d in (_stb_err_date1, _stb_err_date2):
+    _stb_err_raw = {"date": _d, "heart_rates": {"heartRateValues": [[0, 60]]}}
+    writer.write_day(_stb_err_raw, normalizer.summarize(_stb_err_raw), _d)
+
 _qd_stb_err = {"first_day": "2024-01-01", "devices": [], "days": [
     _make_api_entry(_stb_err_date1),
     _make_api_entry(_stb_err_date2),
@@ -1642,7 +1649,120 @@ with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _stb_sync_err}):
         except Exception:
             check("steps_backfill: per-day error → no crash, loop continues", False)
 
+_stb_err_entry1 = next(e for e in _qd_stb_err["days"] if e["date"] == _stb_err_date1)
+_stb_err_entry2 = next(e for e in _qd_stb_err["days"] if e["date"] == _stb_err_date2)
+check("steps_backfill: except-Exception path increments field_backfill_attempts.steps",
+      _stb_err_entry1.get("field_backfill_attempts", {}).get("steps") == 1)
+check("steps_backfill: successful day has no field_backfill_attempts entry",
+      "field_backfill_attempts" not in _stb_err_entry2)
+
 # ── reload cfg zurücksetzen ──────────────────────────────────────────────────
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+# ── 4b. write_day() liefert False → vierter Fehlerpfad, erst jetzt ─────────
+#       nachgerüstet (war beim ursprünglichen Baustein-2-Fix übersehen worden,
+#       symmetrisch zum bereits korrekt behandelten Fall in
+#       _run_bulk_field_backfill()) — zählt jetzt ebenfalls den Attempt.
+_stb_wd_date = (date.today() - _timedelta(days=71)).isoformat()
+_stb_wd_raw  = {"date": _stb_wd_date, "heart_rates": {"heartRateValues": [[0, 60]]}}
+writer.write_day(_stb_wd_raw, normalizer.summarize(_stb_wd_raw), _stb_wd_date)
+
+_qd_stb_wd = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stb_wd_date),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _stb_wd_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      return_value=(_stb_patched_steps, True)), \
+         patch.object(collector_bf.writer, "write_day", return_value=False):
+        collector_bf._run_steps_backfill(MagicMock(), _qd_stb_wd)
+
+_stb_wd_entry = next(e for e in _qd_stb_wd["days"] if e["date"] == _stb_wd_date)
+check("steps_backfill: write_day failure path increments field_backfill_attempts.steps",
+      _stb_wd_entry.get("field_backfill_attempts", {}).get("steps") == 1)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ── 4c. record_attempt() silently blocked by _upsert_quality()'s day-level ──
+#       downgrade guard even though write_day() succeeded (Netz-2 tool finding,
+#       "steps_async"). Stored entry already claims "high" (e.g. an
+#       already-inconsistent archive state); the merged raw here has nothing
+#       else, so its freshly assessed day-level label is "failed" — lower
+#       rank than the stored one, so _upsert_quality() returns before setting
+#       fields/backfilled_fields at all. The post-check added alongside this
+#       test must still count it as a failed attempt so the give-up limit
+#       eventually applies instead of retrying the day forever.
+_stb_dg_date = (date.today() - _timedelta(days=72)).isoformat()
+_stb_dg_raw  = {"date": _stb_dg_date}
+writer.write_day(_stb_dg_raw, normalizer.summarize(_stb_dg_raw), _stb_dg_date)
+
+_qd_stb_dg = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stb_dg_date, quality_label="high"),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _stb_dg_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf.api, "api_call",
+                      return_value=(_stb_patched_steps, True)):
+        collector_bf._run_steps_backfill(MagicMock(), _qd_stb_dg)
+
+_stb_dg_raw_after = writer.read_raw(_stb_dg_date)
+check("steps_backfill downgrade-guard: steps still written to raw/ despite blocked quality_log update",
+      _stb_dg_raw_after.get("steps") == _stb_patched_steps)
+
+_stb_dg_entry = next(e for e in _qd_stb_dg["days"] if e["date"] == _stb_dg_date)
+check("steps_backfill downgrade-guard: quality_log entry left blocked (fields.steps not 'high')",
+      _stb_dg_entry.get("quality") == "high" and
+      _stb_dg_entry.get("fields", {}).get("steps") != "high")
+check("steps_backfill downgrade-guard: field_backfill_attempts.steps still incremented",
+      _stb_dg_entry.get("field_backfill_attempts", {}).get("steps") == 1)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ── 5. get_steps_data returns success=False → attempt counter increments ───
+# (explicit failure branch, distinct from the except-Exception path above),
+# and after FIELD_BACKFILL_ATTEMPT_LIMIT real failures the day drops out of
+# timer_run_steps_backfill()'s own candidate list.
+_stb_gu_date = (date.today() - _timedelta(days=70)).isoformat()
+_stb_gu_raw  = {"date": _stb_gu_date, "heart_rates": {"heartRateValues": [[0, 60]]}}
+writer.write_day(_stb_gu_raw, normalizer.summarize(_stb_gu_raw), _stb_gu_date)
+
+_qd_stb_gu = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_api_entry(_stb_gu_date),
+]}
+quality._save_quality_log(_qd_stb_gu, skip_backup=True)
+
+for _n in (1, 2):
+    with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _stb_gu_date}):
+        _il.reload(_cfg_tmp)
+        with patch.object(collector_bf.api, "api_call",
+                          return_value=(None, False)):
+            collector_bf._run_steps_backfill(MagicMock(), _qd_stb_gu)
+    _stb_gu_entry = next(e for e in _qd_stb_gu["days"] if e["date"] == _stb_gu_date)
+    check(f"steps_backfill give-up: success=False path — attempts == {_n} after fail #{_n}",
+          _stb_gu_entry.get("field_backfill_attempts", {}).get("steps") == _n)
+
+quality._save_quality_log(_qd_stb_gu, skip_backup=True)
+
+_app_dir_gu = str(Path(__file__).parent.parent / "app")
+if _app_dir_gu not in sys.path:
+    sys.path.insert(0, _app_dir_gu)
+import garmin_app_controller as controller_gu
+
+_stb_gu_candidates = controller_gu.timer_run_steps_backfill({"base_dir": str(_TMPDIR)})
+_stb_gu_still_candidate = (
+    _stb_gu_candidates is not None
+    and date.fromisoformat(_stb_gu_date) in _stb_gu_candidates
+)
+check("steps_backfill give-up: day excluded once attempts reach FIELD_BACKFILL_ATTEMPT_LIMIT",
+      not _stb_gu_still_candidate)
+
 os.environ.pop("GARMIN_SYNC_DATES", None)
 _il.reload(_cfg_tmp)
 
@@ -1914,6 +2034,180 @@ quality._save_quality_log(_qd_e4src, skip_backup=True)
 _e4src_candidates_final = controller_e4.timer_run_source_backfill({"base_dir": str(_TMPDIR)})
 check("abort source: Lauf 2 — Kandidatenliste danach leer",
       _e4src_candidates_final is None)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  E5. _run_bulk_field_backfill
+# ══════════════════════════════════════════════════════════════════════════════
+section("E5. _run_bulk_field_backfill")
+
+def _make_bulk_entry(date_str, quality_label="standard", fields=None):
+    return {
+        "date": date_str, "quality": quality_label, "reason": "t", "recheck": False,
+        "attempts": 0, "write": True, "source": "bulk", "last_checked": date_str,
+        "last_attempt": None, "validator_result": "ok", "validator_schema_version": "1.0",
+        "validator_issues": [], "fields": fields if fields is not None else {"heart_rates": "medium"},
+        "device_id": None, "device_name": "",
+    }
+
+# ── 1. No-Op: GARMIN_SYNC_DATES leer → keine Candidates ─────────────────────
+_qd_bfb_empty = {"first_day": "2024-01-01", "devices": [], "days": []}
+with patch.dict(os.environ, {}, clear=False):
+    os.environ.pop("GARMIN_SYNC_DATES", None)
+    _il.reload(_cfg_tmp)
+    _mock_client_bfb_noop = MagicMock()
+    with patch.object(collector_bf, "_fetch_and_assess") as mock_bfb_noop:
+        collector_bf._run_bulk_field_backfill(_mock_client_bfb_noop, _qd_bfb_empty)
+check("bulk_field_backfill: empty SYNC_DATES → no fetch",
+      mock_bfb_noop.call_count == 0)
+
+# ── 2. Additiver Merge — der eigentliche Regressions-Fix: ein Feld, das ─────
+#      Bulk schon (in eigener Roh-Form) befüllt hatte, darf beim Re-Fetch ──
+#      NIE überschrieben werden, selbst wenn der neue Wert "anders" ist. ───
+#      Ein Feld, das Bulk nie hatte, wird additiv aufgefüllt. ──────────────
+_bfb_date1 = (date.today() - _timedelta(days=900)).isoformat()
+
+_bfb_old_stress = {"averageStressLevel": 31, "restDuration": 36900}  # bulk-shaped
+_bfb_existing_raw = {
+    "date": _bfb_date1,
+    "stress": _bfb_old_stress,
+    "heart_rates": {"restingHeartRate": 60},
+    # user_summary/stats.totalSteps or restingHeartRate is what
+    # assess_quality() actually reads for the day-level "standard" label —
+    # without this the merged day would assess as "failed" and
+    # _upsert_quality()'s own downgrade guard would (correctly) block the
+    # whole quality_log update, same as it would for a too-sparse real day.
+    "user_summary": {"totalSteps": 2354, "restingHeartRate": 60},
+}
+writer.write_day(_bfb_existing_raw, normalizer.summarize(_bfb_existing_raw), _bfb_date1)
+
+_bfb_fresh_normalized = {
+    "date": _bfb_date1,
+    "stress": {"averageStressLevel": 27, "restStressDuration": 43200},  # api-shaped, DIFFERENT
+    "spo2": {"averageSpO2": 95, "lowestSpO2": 90},                      # bulk never had this
+    "hrv": {},                                                          # bulk never had this, but empty
+}
+_bfb_patched_result = ("standard", _bfb_fresh_normalized, {}, {}, {"status": "ok", "issues": []})
+
+_qd_bfb1 = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_bulk_entry(_bfb_date1),
+]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _bfb_date1}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      return_value=_bfb_patched_result) as mock_bfb1:
+        collector_bf._run_bulk_field_backfill(MagicMock(), _qd_bfb1)
+
+check("bulk_field_backfill: _fetch_and_assess called once",
+      mock_bfb1.call_count == 1)
+check("bulk_field_backfill: _fetch_and_assess called with correct date",
+      mock_bfb1.call_args[0][1] == _bfb_date1)
+
+_bfb1_raw_after = writer.read_raw(_bfb_date1)
+check("bulk_field_backfill: existing non-empty field (stress) is NEVER overwritten by the fresh fetch",
+      _bfb1_raw_after.get("stress") == _bfb_old_stress)
+check("bulk_field_backfill: field bulk never had (spo2) gets merged in from the fresh fetch",
+      _bfb1_raw_after.get("spo2") == _bfb_fresh_normalized["spo2"])
+check("bulk_field_backfill: field not touched by the fresh fetch (heart_rates) stays as-is",
+      _bfb1_raw_after.get("heart_rates") == {"restingHeartRate": 60})
+
+_bfb1_entry = next(e for e in _qd_bfb1["days"] if e["date"] == _bfb_date1)
+check("bulk_field_backfill: source updated to api",
+      _bfb1_entry.get("source") == "api")
+check("bulk_field_backfill: quality_log fields reflect the merged (not the raw fresh) result — "
+      "spo2 improves from bulk's 'failed' (never had it) to 'medium' (aggregate now present)",
+      _bfb1_entry.get("fields", {}).get("spo2") == "medium")
+check("bulk_field_backfill: spo2 not yet 'high' (no intraday) → still gets an attempt recorded "
+      "(correctly stays eligible for a future attempt, not yet given up on)",
+      _bfb1_entry.get("field_backfill_attempts", {}).get("spo2") == 1)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+# ── 2b. Batching: mehrere offene Lücken-Felder → genau EIN Aufruf von ──────
+#       record_field_backfill_failures(), nicht einer pro Feld (Fix nach
+#       Live-Lauf: 7-8 redundante quality_log-Saves/Backups pro Tag beobachtet)
+_bfb_date1b = (date.today() - _timedelta(days=903)).isoformat()
+_qd_bfb1b = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_bulk_entry(_bfb_date1b),
+]}
+# Kein existing raw/ — alles wird additiv aus dem Fetch übernommen, die
+# meisten Lücken-Felder bleiben trotzdem "failed" (leere/keine Nutzdaten
+# in _bfb_fresh_normalized für hrv/body_battery/respiration/training_status/
+# race_predictions/max_metrics).
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _bfb_date1b}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      return_value=_bfb_patched_result), \
+         patch.object(collector_bf.quality, "record_field_backfill_failures",
+                      side_effect=quality.record_field_backfill_failures) as mock_plural, \
+         patch.object(collector_bf.quality, "record_field_backfill_failure") as mock_singular:
+        collector_bf._run_bulk_field_backfill(MagicMock(), _qd_bfb1b)
+
+check("bulk_field_backfill: batches all open gap fields into one record_field_backfill_failures() call",
+      mock_plural.call_count == 1)
+check("bulk_field_backfill: never calls the singular record_field_backfill_failure()",
+      mock_singular.call_count == 0)
+check("bulk_field_backfill: batched call covers several still-open gap fields",
+      len(mock_plural.call_args[0][2]) >= 5)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+# ── 3. Bereits-hohe Lücken-Felder bleiben unverändert (kein neuer Versuch), ──
+#      auch wenn der frische Fetch für dasselbe Feld einen anderen Wert ─────
+#      liefert — additiver Merge lässt "high"-Felder unangetastet. ──────────
+_bfb_date2 = (date.today() - _timedelta(days=901)).isoformat()
+
+_bfb_old_spo2 = {"averageSpO2": 98, "lowestSpO2": 95, "spO2SingleValues": [[0, 98]]}
+_bfb_existing_raw2 = {"date": _bfb_date2, "spo2": _bfb_old_spo2}
+writer.write_day(_bfb_existing_raw2, normalizer.summarize(_bfb_existing_raw2), _bfb_date2)
+
+_qd_bfb2 = {"first_day": "2024-01-01", "devices": [], "days": [
+    _make_bulk_entry(_bfb_date2, quality_label="high",
+                     fields={"spo2": "high"}),
+]}
+
+_bfb_fresh2 = ("standard", {"date": _bfb_date2, "spo2": {"averageSpO2": 50}}, {}, {},
+               {"status": "ok", "issues": []})
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _bfb_date2}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess", return_value=_bfb_fresh2):
+        collector_bf._run_bulk_field_backfill(MagicMock(), _qd_bfb2)
+
+_bfb2_raw_after = writer.read_raw(_bfb_date2)
+check("bulk_field_backfill: already-populated gap field (spo2) is never overwritten either",
+      _bfb2_raw_after.get("spo2") == _bfb_old_spo2)
+
+os.environ.pop("GARMIN_SYNC_DATES", None)
+_il.reload(_cfg_tmp)
+
+# ── 4. Fehler pro Tag → kein Crash, Attempts trotzdem für offene Felder ──────
+_bfb_err_date  = (date.today() - _timedelta(days=902)).isoformat()
+_bfb_err_entry = _make_bulk_entry(
+    _bfb_err_date, fields={"heart_rates": "medium", "hrv": "failed"})
+_qd_bfb_err = {"first_day": "2024-01-01", "devices": [], "days": [_bfb_err_entry]}
+
+with patch.dict(os.environ, {"GARMIN_SYNC_DATES": _bfb_err_date}):
+    _il.reload(_cfg_tmp)
+    with patch.object(collector_bf, "_fetch_and_assess",
+                      side_effect=RuntimeError("simulated API error")):
+        try:
+            collector_bf._run_bulk_field_backfill(MagicMock(), _qd_bfb_err)
+            check("bulk_field_backfill: per-day error → no crash, loop continues", True)
+        except Exception:
+            check("bulk_field_backfill: per-day error → no crash, loop continues", False)
+
+_bfb_err_after = next(e for e in _qd_bfb_err["days"] if e["date"] == _bfb_err_date)
+check("bulk_field_backfill: except-Exception path records attempts for all still-open gap fields",
+      all(_bfb_err_after.get("field_backfill_attempts", {}).get(f) == 1
+          for f in collector_bf.BULK_GAP_FIELDS))
 
 os.environ.pop("GARMIN_SYNC_DATES", None)
 _il.reload(_cfg_tmp)

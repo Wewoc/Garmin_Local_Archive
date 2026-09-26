@@ -679,18 +679,26 @@ _stb_base    = _TMPDIR / "stb_test"
 _stb_log_dir = _stb_base / "garmin_data" / "log"
 _stb_log_dir.mkdir(parents=True, exist_ok=True)
 
-_stb_eligible  = (_dt.date.today() - _dt.timedelta(days=10)).isoformat()
-_stb_has_steps = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()
-_stb_standard  = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
-_stb_bulk      = (_dt.date.today() - _dt.timedelta(days=40)).isoformat()
-_stb_too_old   = (_dt.date.today() - _dt.timedelta(days=150)).isoformat()
+_stb_eligible         = (_dt.date.today() - _dt.timedelta(days=10)).isoformat()
+_stb_has_steps        = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()
+_stb_standard         = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
+_stb_bulk             = (_dt.date.today() - _dt.timedelta(days=40)).isoformat()
+_stb_very_old         = (_dt.date.today() - _dt.timedelta(days=1000)).isoformat()
+_stb_medium_steps     = (_dt.date.today() - _dt.timedelta(days=15)).isoformat()
+_stb_attempts_exhausted  = (_dt.date.today() - _dt.timedelta(days=25)).isoformat()
+_stb_attempts_below      = (_dt.date.today() - _dt.timedelta(days=35)).isoformat()
 
 (_stb_log_dir / "quality_log.json").write_text(json.dumps({"days": [
     {"date": _stb_eligible,  "source": "api",  "quality": "high",     "fields": {"heart_rates": "high"}},
     {"date": _stb_has_steps, "source": "api",  "quality": "high",     "fields": {"heart_rates": "high", "steps": "high"}},
     {"date": _stb_standard,  "source": "api",  "quality": "standard", "fields": {"heart_rates": "medium"}},
     {"date": _stb_bulk,      "source": "bulk", "quality": "high",     "fields": {"heart_rates": "high"}},
-    {"date": _stb_too_old,   "source": "api",  "quality": "high",     "fields": {"heart_rates": "high"}},
+    {"date": _stb_very_old,  "source": "api",  "quality": "high",     "fields": {"heart_rates": "high"}},
+    {"date": _stb_medium_steps, "source": "api", "quality": "high",   "fields": {"heart_rates": "high", "steps": "medium"}},
+    {"date": _stb_attempts_exhausted, "source": "api", "quality": "high",
+     "fields": {"heart_rates": "high"}, "field_backfill_attempts": {"steps": 2}},
+    {"date": _stb_attempts_below, "source": "api", "quality": "high",
+     "fields": {"heart_rates": "high"}, "field_backfill_attempts": {"steps": 1}},
 ]}), encoding="utf-8")
 
 _stb_s      = {"base_dir": str(_stb_base)}
@@ -710,9 +718,18 @@ check("steps_backfill: excludes standard-quality day",
 check("steps_backfill: excludes bulk-sourced day",
       _stb_result is not None and
       _dt.date.fromisoformat(_stb_bulk) not in _stb_result)
-check("steps_backfill: excludes day older than 140 days",
+check("steps_backfill: includes very old day (no age cutoff anymore)",
       _stb_result is not None and
-      _dt.date.fromisoformat(_stb_too_old) not in _stb_result)
+      _dt.date.fromisoformat(_stb_very_old) in _stb_result)
+check("steps_backfill: includes day where fields.steps == 'medium' (value check, not key presence)",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_medium_steps) in _stb_result)
+check("steps_backfill: excludes day where field_backfill_attempts.steps reached the limit",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_attempts_exhausted) not in _stb_result)
+check("steps_backfill: includes day where field_backfill_attempts.steps is below the limit",
+      _stb_result is not None and
+      _dt.date.fromisoformat(_stb_attempts_below) in _stb_result)
 check("steps_backfill: result sorted oldest first",
       _stb_result is None or _stb_result == sorted(_stb_result))
 check("panel_timer: _timer_run_steps_backfill defined",
@@ -995,6 +1012,71 @@ with patch.object(settings_mod, "load_settings", return_value={"active_theme": 9
 # real-settings state so no later test/run in the same process inherits
 # a patched module.
 importlib.reload(_theme_mod)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  23. Controller — timer_run_bulk_field_backfill
+# ══════════════════════════════════════════════════════════════════════════════
+section("23. Controller — timer_run_bulk_field_backfill")
+
+_bfb_no_log = {"base_dir": str(_TMPDIR / "no_such_bfb_dir")}
+check("bulk_field_backfill: no log → None",
+      controller_mod.timer_run_bulk_field_backfill(_bfb_no_log) is None)
+
+_bfb_base    = _TMPDIR / "bfb_test"
+_bfb_log_dir = _bfb_base / "garmin_data" / "log"
+_bfb_log_dir.mkdir(parents=True, exist_ok=True)
+
+_bfb_needs_backfill = (_dt.date.today() - _dt.timedelta(days=800)).isoformat()
+_bfb_all_high       = (_dt.date.today() - _dt.timedelta(days=810)).isoformat()
+_bfb_api_source     = (_dt.date.today() - _dt.timedelta(days=820)).isoformat()
+_bfb_limit_reached  = (_dt.date.today() - _dt.timedelta(days=830)).isoformat()
+_bfb_mixed          = (_dt.date.today() - _dt.timedelta(days=840)).isoformat()
+
+(_bfb_log_dir / "quality_log.json").write_text(json.dumps({"days": [
+    # missing several gap fields, no attempts yet -> candidate
+    {"date": _bfb_needs_backfill, "source": "bulk", "quality": "standard",
+     "fields": {"heart_rates": "medium", "hrv": "failed", "spo2": "failed"}},
+    # all 7 gap fields already "high" -> not a candidate
+    {"date": _bfb_all_high, "source": "bulk", "quality": "high",
+     "fields": {f: "high" for f in controller_mod.BULK_GAP_FIELDS}},
+    # api-sourced -> never a bulk_field_backfill candidate, regardless of fields
+    {"date": _bfb_api_source, "source": "api", "quality": "standard",
+     "fields": {"hrv": "failed"}},
+    # every gap field's attempts already at the limit -> not a candidate
+    {"date": _bfb_limit_reached, "source": "bulk", "quality": "standard",
+     "fields": {f: "failed" for f in controller_mod.BULK_GAP_FIELDS},
+     "field_backfill_attempts": {f: 2 for f in controller_mod.BULK_GAP_FIELDS}},
+    # 6 of 7 gap fields high, one (spo2) still below its attempts limit
+    # -> still a candidate, one open field is enough
+    {"date": _bfb_mixed, "source": "bulk", "quality": "standard",
+     "fields": {**{f: "high" for f in controller_mod.BULK_GAP_FIELDS}, "spo2": "failed"},
+     "field_backfill_attempts": {"spo2": 1}},
+]}), encoding="utf-8")
+
+_bfb_s      = {"base_dir": str(_bfb_base)}
+_bfb_result = controller_mod.timer_run_bulk_field_backfill(_bfb_s)
+
+check("bulk_field_backfill: returns list when candidates exist",
+      isinstance(_bfb_result, list) and len(_bfb_result) >= 1)
+check("bulk_field_backfill: includes bulk day missing gap fields",
+      _bfb_result is not None and
+      _dt.date.fromisoformat(_bfb_needs_backfill) in _bfb_result)
+check("bulk_field_backfill: excludes bulk day with all gap fields already high",
+      _bfb_result is not None and
+      _dt.date.fromisoformat(_bfb_all_high) not in _bfb_result)
+check("bulk_field_backfill: excludes api-sourced day",
+      _bfb_result is not None and
+      _dt.date.fromisoformat(_bfb_api_source) not in _bfb_result)
+check("bulk_field_backfill: excludes day where every gap field hit the attempts limit",
+      _bfb_result is not None and
+      _dt.date.fromisoformat(_bfb_limit_reached) not in _bfb_result)
+check("bulk_field_backfill: includes day where only one gap field is still below its limit",
+      _bfb_result is not None and
+      _dt.date.fromisoformat(_bfb_mixed) in _bfb_result)
+check("bulk_field_backfill: result sorted oldest first",
+      _bfb_result is None or _bfb_result == sorted(_bfb_result))
+check("panel_timer: _timer_run_bulk_field_backfill defined",
+      "def _timer_run_bulk_field_backfill(" in _timer_src_text)
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 shutil.rmtree(_TMPDIR, ignore_errors=True)
