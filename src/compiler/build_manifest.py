@@ -189,7 +189,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/garmin_app_settings.py": ["def load_settings", "def save_settings", "def load_password", "def save_password"],
     "app/garmin_dashboard_presets.py": ["def load_presets", "def save_preset", "def delete_preset"],
     "dashboards/custom_dash_builder.py": ["def build_ad_hoc_specialist", "def list_available_fields"],
-    "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def timer_run_source_backfill", "def timer_run_steps_backfill"],
+    "app/garmin_app_controller.py": ["def build_env_dict", "def check_connection", "def timer_run_repair", "def check_integrity", "def timer_run_source_backfill", "def timer_run_steps_backfill", "def timer_run_bulk_field_backfill"],
     "app/panel_settings.py":    ["class PanelSettings"],
     "app/panel_connection.py":  ["class PanelConnection"],
     "app/panel_archive.py":     ["class PanelArchive"],

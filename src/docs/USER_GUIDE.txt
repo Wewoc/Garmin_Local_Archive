@@ -313,6 +313,14 @@ Two time windows matter here, and they are not the same thing:
 In short: 180 days is how long the timer keeps trying; ~120 days is
 the hard deadline it is racing against.
 
+Steps Backfill and Bulk Field Backfill (items 6 and 7 below) are
+deliberate exceptions to both windows — they are not racing Garmin's
+intraday cutoff at all, so neither has an age limit. Steps Backfill
+turned out not to be affected by the ~120-day cutoff the way heart
+rate/stress/etc. are; Bulk Field Backfill closes a gap in what the
+official export format contains in the first place, which has nothing
+to do with how old the day is.
+
 Start:
   Click "Timer: Off" -> set interval -> click "Start Timer"
 
@@ -335,12 +343,30 @@ The timer works through a priority queue each run:
    within the 180-day safety window, for as long as Garmin can still
    deliver full intraday resolution for those days. Becomes a no-op
    once complete — runs invisibly in the background.
-6. Steps Backfill (v1.6.3) — if you were running GLA before step count
-   intraday support was added, high-quality days already in your
-   archive may be missing this field. The timer adds it retroactively,
-   oldest first, within a 140-day window — only a single lightweight
-   API call per day, no re-fetch of everything else. Becomes a no-op
+6. Steps Backfill (v1.6.3, no age limit since v1.7.3) — if you were
+   running GLA before step count intraday support was added,
+   high-quality days already in your archive may be missing this
+   field. The timer adds it retroactively, oldest first — only a
+   single lightweight API call per day, no re-fetch of everything
+   else. No age limit: step counts turned out not to be affected by
+   Garmin's ~120-day intraday cutoff the same way heart rate/stress/
+   etc. are, so even years-old days can still recover this field. A
+   day gives up after 2 failed attempts (so a day that genuinely never
+   gets a steps value back is not retried forever). Becomes a no-op
    once complete.
+7. Bulk Field Backfill (v1.7.3) — if you imported a Garmin GDPR
+   export, the official export never contains a handful of fields at
+   all — HRV, SpO2, Body Battery, respiration, training status, race
+   predictions, max metrics — regardless of how old the day is (this
+   is a gap in what the export format contains, not the ~120-day
+   intraday cutoff above). Lowest priority, runs after everything
+   else: the timer re-fetches each bulk-imported day once via the
+   live API and fills in whichever of those fields it can, without
+   ever overwriting data the export already had. A field gives up
+   after 2 failed attempts, independently per field, so a field your
+   device genuinely never recorded does not block the rest of that
+   day or get retried forever. Becomes a no-op once every bulk day is
+   either complete or has exhausted its attempts.
 
 What the timer does while running, in short:
   - Checks for missing days and downloads them
@@ -348,6 +374,8 @@ What the timer does while running, in short:
     still within the 180-day safety window)
   - Retroactively adds newly supported data fields (like step count)
     to days already archived at full quality
+  - Fills in the handful of fields the official Garmin export never
+    contains for bulk-imported days, regardless of the day's age
   - Runs in the background without blocking the rest of the app
 
 When all queues are empty the timer stops automatically and logs

@@ -6,11 +6,11 @@
 
 ---
 
-**Currently stable — v1.7.2.4.2**
+**Currently stable — v1.7.3**
 
 ---
 
-### v1.7.2.5 — Split up panel_outputs.py (planned)
+### v1.7.3.1 — Split up panel_outputs.py (planned)
 
 `app/panel_outputs.py` has grown to ~1400 lines and now bundles seven
 largely independent feature blocks behind one `_build_ui()` grid: Sync
@@ -48,7 +48,7 @@ wiring) tend to slip in if rushed.
 
 ---
 
-### v1.7.2.6 — Constant & helper dedup (planned)
+### v1.7.3.2 — Constant & helper dedup (planned)
 
 Six confirmed cases of duplicated rather than shared code, found while
 reviewing cross-file coherence:
@@ -68,7 +68,7 @@ reviewing cross-file coherence:
 
 ---
 
-### v1.7.3 — Export Layer
+### v1.7.4 — Export Layer
  
 A new output layer parallel to `dashboards/` — reads via the Broker Layer,
 writes to external formats and databases. GLA becomes local data infrastructure

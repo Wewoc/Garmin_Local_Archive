@@ -333,6 +333,15 @@ def check_connection(s: dict, callbacks: dict) -> None:
 
 # ── Timer calculations ─────────────────────────────────────────────────────────
 
+# Give-up threshold for per-field backfill candidate filters — mirrors
+# bulk_recheck's "attempts >= 2 -> recheck=False" pattern. Generic, shared
+# across any timer_run_*_backfill that tracks failures via
+# quality.record_field_backfill_failure()'s entry["field_backfill_attempts"]
+# dict (steps_backfill today; intended for the planned bulk structural
+# backfill mode too) — not steps-specific.
+FIELD_BACKFILL_ATTEMPT_LIMIT = 2
+
+
 def timer_run_repair(s: dict) -> list | None:
     """Returns list of date objects with quality='failed'. None if empty."""
     try:
@@ -475,22 +484,31 @@ def timer_run_source_backfill(s: dict) -> list | None:
 
 
 def timer_run_steps_backfill(s: dict) -> list | None:
-    """Returns high-quality API days within the Steps backfill window that
-    are missing the 'steps' field. None if empty.
+    """Returns high-quality API days missing the 'steps' field. None if empty.
 
     Called by the Background Timer steps_backfill mode — lowest priority,
     runs after Bulk Recheck, Repair, Quality, Fill, and Source Backfill are
     all exhausted. Returns candidates oldest first; the timer picks
     min_days..max_days per cycle via days[:n_days] (same as source_backfill).
 
-    Window is capped at STEPS_BACKFILL_WINDOW_DAYS (140) — a margin above the
-    ~135-day empirically measured Garmin intraday degradation cutoff. Beyond
-    that window Garmin itself no longer returns intraday data for any field,
-    so there is nothing left to recover regardless of this window's size.
+    No age cutoff (removed — the previous 140-day "~135-day empirically
+    measured Garmin intraday degradation cutoff" assumption was disproven
+    for this specific field: a live re-fetch of a 2.7-year-old bulk day
+    recovered a full steps array; see
+    changelog/anchor_delivery_bulk-api-backfill-diagnose.md). Instead,
+    self-termination for a permanently-failing day is handled by
+    FIELD_BACKFILL_ATTEMPT_LIMIT: once entry["field_backfill_attempts"]
+    ["steps"] (incremented by quality.record_field_backfill_failure() on
+    each failed _run_steps_backfill() attempt) reaches the limit, the day
+    is excluded regardless of age.
 
-    Self-terminating by construction: once a day is backfilled, "steps"
-    appears in its fields dict and it naturally drops out of this filter on
-    the next scan — no separate completion marker is needed.
+    Self-terminating on success by construction: once a day is backfilled,
+    fields["steps"] becomes "high" and it naturally drops out of this
+    filter on the next scan — no separate completion marker is needed.
+    A day can have fields["steps"] == "medium" (daily total present,
+    intraday absent — see assess_quality_fields()) without ever having
+    been backfilled; checking for "high" specifically (not mere key
+    presence) is what keeps those days eligible.
 
     INTENTIONAL DIRECT READ — read-only analytical fast-path.
     No mutation, no ownership transfer, no QUALITY_LOCK required.
@@ -500,14 +518,11 @@ def timer_run_steps_backfill(s: dict) -> list | None:
     adding one would inflate the module into a query gateway.
     Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
     """
-    STEPS_BACKFILL_WINDOW_DAYS = 140
-
     try:
         log_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
         if not log_file.exists():
             return None
-        data   = json.loads(log_file.read_text(encoding="utf-8"))
-        cutoff = date.today() - timedelta(days=STEPS_BACKFILL_WINDOW_DAYS)
+        data = json.loads(log_file.read_text(encoding="utf-8"))
         days = []
         for e in data.get("days", []):
             if e.get("quality") != "high":
@@ -515,7 +530,10 @@ def timer_run_steps_backfill(s: dict) -> list | None:
             if e.get("source") != "api":
                 continue
             fields = e.get("fields") or {}
-            if "steps" in fields:
+            if fields.get("steps") == "high":
+                continue
+            attempts = (e.get("field_backfill_attempts") or {}).get("steps", 0)
+            if attempts >= FIELD_BACKFILL_ATTEMPT_LIMIT:
                 continue
             date_str = e.get("date")
             if not date_str:
@@ -524,7 +542,85 @@ def timer_run_steps_backfill(s: dict) -> list | None:
                 d = date.fromisoformat(date_str)
             except ValueError:
                 continue
-            if d < cutoff:
+            days.append(d)
+        days.sort()
+        return days if days else None
+    except Exception:
+        return None
+
+
+# Structural fields garmin_import.load_bulk() never extracts from a Garmin
+# bulk export, regardless of the day's age — see
+# changelog/anchor_delivery_bulk-api-backfill-diagnose.md. Independently
+# duplicated (not imported) in garmin_collector.py::BULK_GAP_FIELDS — a
+# static field-name list, not logic; app/ intentionally does not import
+# garmin/ modules (Layer 3 boundary, see this module's own docstring).
+BULK_GAP_FIELDS = (
+    "hrv", "spo2", "body_battery", "respiration",
+    "training_status", "race_predictions", "max_metrics",
+)
+
+
+def timer_run_bulk_field_backfill(s: dict) -> list | None:
+    """Returns source="bulk" days missing at least one structural gap
+    field. None if empty.
+
+    Called by the Background Timer bulk_field_backfill mode — lowest
+    priority, runs after Bulk Recheck, Repair, Quality, Fill, Source
+    Backfill, and Steps Backfill are all exhausted. Returns candidates
+    oldest first; the timer picks min_days..max_days per cycle via
+    days[:n_days] (same as source_backfill/steps_backfill).
+
+    Targets a different gap than timer_run_bulk_recheck(): that function
+    addresses Garmin's own 180-day intraday-degradation window (time-
+    series resolution, INTRADAY_RETRY_WINDOW_DAYS). This function
+    addresses a structural gap in garmin_import.load_bulk() itself — it
+    never extracts hrv, spo2, body_battery, respiration, training_status,
+    race_predictions, or max_metrics from a bulk export, regardless of the
+    day's age. No age cutoff, no dependency on the day's `recheck` flag.
+
+    Self-terminating per field, not per day: a day stays a candidate as
+    long as at least one BULK_GAP_FIELDS entry is both != "high" and has
+    not yet reached FIELD_BACKFILL_ATTEMPT_LIMIT failed attempts
+    (field_backfill_attempts, tracked by quality.record_field_backfill_failures()
+    — the batched sibling of the record_field_backfill_failure() mechanism
+    timer_run_steps_backfill() uses; same underlying field, one call per
+    day here instead of one per field). A field Garmin genuinely never
+    returns for this device/period (e.g. no SpO2 sensor) gives up on its
+    own without blocking the other six fields, or the day as a whole.
+
+    INTENTIONAL DIRECT READ — read-only analytical fast-path.
+    No mutation, no ownership transfer, no QUALITY_LOCK required.
+    os.replace() atomicity guarantees reader sees either the old or the
+    new complete file — never a partial write.
+    garmin_quality provides no filtered-list API for these queries;
+    adding one would inflate the module into a query gateway.
+    Documented exception: see REFERENCE_GARMIN.md § Documented Exceptions.
+    """
+    try:
+        log_file = Path(s["base_dir"]) / "garmin_data" / "log" / "quality_log.json"
+        if not log_file.exists():
+            return None
+        data = json.loads(log_file.read_text(encoding="utf-8"))
+        days = []
+        for e in data.get("days", []):
+            if e.get("source") != "bulk":
+                continue
+            fields   = e.get("fields") or {}
+            attempts = e.get("field_backfill_attempts") or {}
+            needs_backfill = any(
+                fields.get(f) != "high"
+                and attempts.get(f, 0) < FIELD_BACKFILL_ATTEMPT_LIMIT
+                for f in BULK_GAP_FIELDS
+            )
+            if not needs_backfill:
+                continue
+            date_str = e.get("date")
+            if not date_str:
+                continue
+            try:
+                d = date.fromisoformat(date_str)
+            except ValueError:
                 continue
             days.append(d)
         days.sort()

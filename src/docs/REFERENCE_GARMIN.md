@@ -97,9 +97,10 @@ its own — reads and decides, never writes. See also `GLA_HANDBUCH.md` §14.
 | Quality | `timer_run_quality(s)` | `quality="standard"` + `recheck=True` + `source≠"bulk"` + ≤180 Tage |
 | Fill | `timer_run_fill(s)` | Tage im Datumsbereich ohne Raw-Datei in `raw/` |
 | Source Backfill | `timer_run_source_backfill(s)` | API-Tage (≤180d) ohne `source/`-Datei, kein Bulk |
-| Steps Backfill | `timer_run_steps_backfill(s)` | `quality="high"` + `source="api"` + `"steps" not in fields` + ≤140 Tage (Garmin-Intraday-Degradierungsfenster). Self-terminierend — Kandidat verschwindet automatisch sobald `steps` im `fields`-Dict der Tages-Entry steht (v1.6.3) |
+| Steps Backfill | `timer_run_steps_backfill(s)` | `quality="high"` + `source="api"` + `fields.steps != "high"` (schließt `"medium"`/`"low"`/`"failed"`/fehlend ein) + `field_backfill_attempts.steps < FIELD_BACKFILL_ATTEMPT_LIMIT` (2, analog `bulk_recheck`s Attempts-Limit). Kein Alters-Cutoff mehr (die frühere 140-Tage-Grenze beruhte auf einer widerlegten Annahme, siehe `changelog/anchor_delivery_bulk-api-backfill-diagnose.md`). Self-terminierend — Kandidat verschwindet sobald `fields.steps` auf `"high"` steht, oder sobald das Attempts-Limit erreicht ist (v1.6.3; Filter auf Wertvergleich + generisches Attempts-Limit statt Alters-Cutoff korrigiert) |
+| Bulk Field Backfill | `timer_run_bulk_field_backfill(s)` | `source="bulk"` + mindestens eines von `BULK_GAP_FIELDS` (`hrv`/`spo2`/`body_battery`/`respiration`/`training_status`/`race_predictions`/`max_metrics` — von `load_bulk()` strukturell nie extrahiert) ist `!= "high"` **und** dessen `field_backfill_attempts.<feld> < FIELD_BACKFILL_ATTEMPT_LIMIT`. Kein Alters-Cutoff, kein `recheck`-Flag — getrennt von `bulk_recheck`, das nur die 180-Tage-Intraday-Degradierung abdeckt. Voller Tages-Fetch (`_fetch_and_assess()`, alle 15 Endpunkte auf einmal — ein Bulk-Tag fehlt meist mehrere der 7 Felder gleichzeitig, ein einziger Fetch deckt alle ab), aber additiver Schlüssel-für-Schlüssel-Merge beim Schreiben (`garmin_merge.merge_field()`, dieselbe "nie einen nicht-leeren Wert überschreiben"-Primitive wie bei `steps_backfill`) statt vollem Ersetzen — Bulk und API nutzen für Felder, die Bulk selbst befüllt (z. B. `stress`), inkompatible Roh-Strukturen; ein voller Ersatz könnte ein Feld schlechter machen, obwohl das Tages-Gesamtlabel nicht sinkt (`_check_downgrade()` vergleicht nur das Label, nie einzelne Felder). Kein separater Downgrade-Check nötig — additiver Merge kann per Konstruktion nicht schlechter machen. Self-terminierend pro Feld: ein Tag bleibt Kandidat solange mindestens eines der 7 Felder noch nicht aufgegeben hat, auch wenn andere Felder ihr Limit schon erreicht haben (v1.7.3) |
 
-All six candidate functions return a sorted `list[date]` (oldest first) or
+All seven candidate functions return a sorted `list[date]` (oldest first) or
 `None` if there is nothing to do. `panel_timer.py`'s `_timer_loop()` cycles
 through them by priority and dispatches the picked batch to
 `garmin_collector.py` via `GARMIN_SYNC_DATES` + a mode-specific ENV flag.
@@ -116,7 +117,7 @@ Intentional deviations from the invariants above. Each exception is stable by de
 | `regenerate_raw.py` reads/writes `quality_log.json` directly via `_load_quality_log`/`_save_quality_log` | `export/regenerate_raw.py` | Maintenance utility — runs offline, outside the live pipeline, analogous to `regenerate_summaries.py`. Uses `garmin_writer.write_day()` for `raw/`/`summary/` writes (unlike `regenerate_summaries.py`); direct quality-log access is needed to apply downgrade-protected replay. `QUALITY_LOCK` is held correctly around both read and write. |
 | `garmin_validator.py` imports `garmin_config` | `garmin/garmin_validator.py` | `garmin_config` is a pure constants module with no project-module imports. `garmin_validator` needs `DATAFORMAT_FILE` path. Leaf-node status refers to pipeline modules — `garmin_config` is infrastructure. |
 | `process_status.py` imports `garmin_config` (lazily, inside `is_mcp_running()`) | `process_status.py` | Same reasoning as `garmin_validator.py` above — needs `MCP_HTTP_PORT`, `garmin_config` is infrastructure, not a pipeline import. Kept lazy (not module-level) specifically so this Leaf-Node stays safe to import from `scheduler/daily_update.py` at any point in its startup sequence — a module-level import here would risk the same premature-`GARMIN_OUTPUT_DIR`-caching bug `daily_update.py` already guards against elsewhere (v1.7.2.4). |
-| Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality`, `timer_run_source_backfill`, `timer_run_steps_backfill` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
+| Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality`, `timer_run_source_backfill`, `timer_run_steps_backfill`, `timer_run_bulk_field_backfill` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
 
 ---
 
@@ -419,11 +420,12 @@ daily path).
 
 | Function | Purpose |
 |---|---|
-| `main()` | Full sync orchestration: import mode (0) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → login → devices → device_id backfill → source backfill (5c) → first_day → date resolution → fetch loop → save |
+| `main()` | Full sync orchestration: import mode (0) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → login → devices → device_id backfill → source backfill (5c) → steps backfill (5d) → bulk field backfill (5e, `GARMIN_BULK_FIELD_BACKFILL=1`, v1.7.3) → first_day → date resolution → fetch loop → save |
 | `_fetch_and_assess(client, date_str, enabled_candidates=None, force=False)` | Fetch → validate → normalize → assess. No file writes of its own beyond `write_source()` (see below). Returns `(label, normalized, summary, fields, val_result)`. `enabled_candidates` (v1.6.8) — optional list of API-Capability-Scan candidate method names, pre-filtered by the caller (double-gate); turned into `extra_endpoints` for `api.fetch_raw()`. `None` (default) — used by `_run_source_backfill()`, which does not take part in the Capability Scan (scope boundary, v1.6.8). `force` (v1.7.1.7) passed straight through to the internal `write_source()` call — cannot be applied afterwards separately, since `write_source()` is called internally |
 | `run_capability_scan(client, window_days=7)` | Probes the 19 optional health-endpoint candidates (`garmin_api_capability.CANDIDATE_ENDPOINTS`) over the last `window_days` days. Runs entirely under `quality.QUALITY_LOCK` (reused, not a new lock — see Invariants). Per-candidate try/except — one failing candidate never aborts the rest. Payload discarded, only the tri-state result (`found`/`not_observed`/`error`) persisted via `garmin_api_capability.update_endpoint()`/`save_config()`. Returns `{"scanned", "found", "not_observed", "error"}` (v1.6.8) |
 | `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)`. Delegates the actual rank comparison to `quality.is_downgrade()` (v1.6.5.7 — canonical location, also used by `export/regenerate_raw.py` and `garmin_silo_repair.py`; previously duplicated in each) |
-| `_run_steps_backfill(client, quality_data)` | Backfills `steps_series` for existing high-quality API days. Per day: `api_call()` → `merge_field()` → `normalize()`/`summarize()` → `write_day()` → `record_attempt()` (with `backfilled_fields`) → `patch_source_field()`. On `patch_source_field()` failure: one automatic retry, then `log.error()` (not `warning`) if it still fails — `source/` will not be auto-retried on a future run, since the candidate filter checks `fields` from `raw/`, already correct at that point (v1.6.5.7) |
+| `_run_steps_backfill(client, quality_data)` | Backfills `steps_series` for existing high-quality API days. Per day: `api_call()` → `merge_field()` → `normalize()`/`summarize()` → `write_day()` → `record_attempt()` (with `backfilled_fields`) → `patch_source_field()`. On `patch_source_field()` failure: one automatic retry, then `log.error()` (not `warning`) if it still fails — `source/` will not be auto-retried on a future run, since the candidate filter checks `fields` from `raw/`, already correct at that point (v1.6.5.7). All four per-day failure paths (missing `raw/` file, `get_steps_data` returning no data, `write_day()` failing, generic `except Exception`) call `quality.record_field_backfill_failure()` — the give-up counter `timer_run_steps_backfill()`'s candidate filter reads (v1.7.3). Fifth case, found via an external diagnostic tool: `record_attempt()` itself can be silently blocked by `_upsert_quality()`'s day-level downgrade guard even after `write_day()` succeeded (freshly assessed whole-day label ranks below the entry's stored one) — the success path re-reads the entry right after `record_attempt()` and calls `record_field_backfill_failure()` too if `fields["steps"]` didn't actually land as `"high"`, so the give-up limit still applies instead of an infinite retry (v1.7.3) |
+| `_run_bulk_field_backfill(client, quality_data)` | Closes the structural gap `garmin_import.load_bulk()` leaves in `hrv`/`spo2`/`body_battery`/`respiration`/`training_status`/`race_predictions`/`max_metrics` (`BULK_GAP_FIELDS`) regardless of the day's age. Per day: `_fetch_and_assess()` (full 15-endpoint fetch) → every top-level raw key merged additively into the existing `raw/` file via `garmin_merge.merge_field()` (never overwrites a field bulk already populated, even in its own incompatible shape) → re-normalize/assess the merged result → `write_day()` → `record_attempt()` → `quality.record_field_backfill_failures()` (batched — one persist call, not one per open field) for every `BULK_GAP_FIELDS` entry still not `"high"`. No day-level downgrade check needed — additive merge cannot regress a field by construction. Never touches `bulk_recheck`'s own day-level `attempts`/`recheck` bookkeeping (v1.7.3) |
 | `_write_assessed(normalized, summary, date_str, label)` | Writes pre-assessed day to disk. Returns `bool` |
 | `run_import(path, progress_callback, stop_event)` | Bulk import orchestration via `garmin_import.load_bulk()`. Returns `{"ok", "skipped", "failed"}` — a day with `quality: "failed"` now counts in `failed`, not `ok` (v1.6.5.8, Fix 3; previously only an actual exception in the loop incremented `failed`). `main()`'s delegated exit code for the import mode (`sys.exit(0 if result["failed"] == 0 else 1)`) follows this count |
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
@@ -665,9 +667,24 @@ unchanged.
       "attempts": 0,
       "last_checked": "2026-03-22",
       "last_attempt": "2026-03-22T14:32:11",
+      "device_id": "3952922857",
+      "device_name": "fenix 5x",
       "validator_result": "ok",
       "validator_issues": [],
-      "validator_schema_version": "1.1"
+      "validator_schema_version": "1.1",
+      "fields": {
+        "heart_rates": "high", "stress": "high", "sleep": "high",
+        "hrv": "medium", "spo2": "high", "stats": "high", "steps": "high",
+        "body_battery": "high", "respiration": "high", "activities": "failed",
+        "training_status": "medium", "training_readiness": "failed",
+        "race_predictions": "medium", "max_metrics": "failed"
+      },
+      "backfilled_fields": {
+        "steps": "2026-09-26T11:35:23"
+      },
+      "field_backfill_attempts": {
+        "max_metrics": 1
+      }
     }
   ]
 }
