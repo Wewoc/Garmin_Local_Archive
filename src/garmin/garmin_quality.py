@@ -71,6 +71,8 @@ from quality._maint import (
     _set_first_day,
     cleanup_before_first_day,
     record_attempt,
+    record_field_backfill_failure,
+    record_field_backfill_failures,
     set_unknown_device_name,
 )
 

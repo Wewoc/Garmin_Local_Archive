@@ -185,7 +185,8 @@ adopted there in a future step; not bundled with this delivery (separate scope).
 
 **Headless scope (v1.6.5.3):** `daily_update.py` performs the daily sync only —
 it has no equivalent to the GUI Timer's maintenance modes (`repair`, `quality`,
-`fill`, `source_backfill`, `steps_backfill`, `bulk_recheck`, `check_integrity`).
+`fill`, `source_backfill`, `steps_backfill`, `bulk_recheck`,
+`bulk_field_backfill` (v1.7.3), `check_integrity`).
 This is a deliberate scope boundary, not an oversight: these modes are
 interventions on the archive that benefit from someone watching and able to
 abort — the same reasoning behind excluding `_run_live_fetch()` from headless

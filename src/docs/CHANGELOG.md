@@ -1,5 +1,126 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.3 — Background Timer: Bulk Field Backfill + Steps Backfill Fixes
+
+Closes the structural gap between bulk-imported days and API-synced days:
+`garmin_import.load_bulk()` never extracts `hrv`/`spo2`/`body_battery`/
+`respiration`/`training_status`/`race_predictions`/`max_metrics` from a
+Garmin bulk export, regardless of the day's age — a new, lowest-priority
+Background Timer mode (`bulk_field_backfill`) closes that gap via a full
+API re-fetch, merged additively into the existing raw file so fields
+Bulk already populated (in its own, API-incompatible shape) are never
+downgraded. Found and fixed along the way: `timer_run_steps_backfill()`'s
+candidate filter couldn't distinguish `"medium"` from `"high"` (key
+presence vs. value), and had no give-up mechanism once its 140-day
+window was removed. Live-verified against the real archive throughout
+— including a full `mirror.gla` restore specifically to re-run the four
+bulk days first touched by an intermediate (already-superseded) version
+of this mode's write path.
+
+**New modules:**
+- `support-tools/archive-maintenance/compare_raw_source.py` — read-only
+  diagnostic, structurally compares two `garmin_raw_*.json` files
+  (bulk vs. api) against the known bulk-gap field list. No API calls,
+  no archive writes.
+- `support-tools/api-raw-probe/` (`fetch_raw_days.py` +
+  `api_raw_probe_config.py` + `README.md`) — standalone tool that
+  fetches specific days fresh via `garmin_api.fetch_raw()` (reusing the
+  existing saved GLA login/token) and saves them to its own
+  `downloads/` folder. Never touches `raw/`, `source/`, or
+  `quality_log.json` — analysis only.
+
+**Changed modules:**
+- `garmin/quality/_maint.py` — two new generic functions:
+  `record_field_backfill_failure(data, day, field)` (single field,
+  persists immediately) and `record_field_backfill_failures(data, day,
+  fields)` (batched — one persist/backup call for several fields at
+  once, added after a live run showed the singular function triggering
+  7-8 redundant `quality_log.json` writes per bulk day). Both increment
+  `entry["field_backfill_attempts"][field]`, independent of the
+  existing day-level `attempts`/`recheck` bookkeeping.
+- `garmin/garmin_quality.py` — facade exports for both new functions.
+- `garmin/garmin_collector.py` — `_run_steps_backfill()`: all four
+  failure paths (missing `raw/` file, `get_steps_data` returning no
+  data, `write_day()` failing, generic `except Exception`) now call
+  `record_field_backfill_failure()` — previously only two of four were
+  tracked, found incrementally while live-verifying the give-up limit.
+  A fifth, non-obvious case found via an external diagnostic tool run
+  after this section was first written: the success path's
+  `record_attempt()` call can itself be silently blocked by
+  `_upsert_quality()`'s day-level downgrade guard (freshly assessed
+  whole-day label ranks below the entry's stored label — e.g. an
+  already-inconsistent archive state) even though `write_day()` already
+  succeeded, leaving `steps` present in `raw/` but never reflected in
+  `quality_log.json` and the day permanently re-selected as a candidate.
+  The success path now re-reads the entry right after `record_attempt()`
+  and, if `fields["steps"]` didn't actually land as `"high"`, calls
+  `record_field_backfill_failure()` too, so the give-up limit still
+  applies.
+  New `BULK_GAP_FIELDS` constant + `_run_bulk_field_backfill()`: per
+  candidate day, full fetch via the existing `_fetch_and_assess()`,
+  then every top-level raw key merged additively into the existing
+  `raw/` file via `garmin_merge.merge_field()` (same "never overwrite a
+  non-empty value" primitive `_run_steps_backfill()` already used for a
+  single field) instead of a full-day replace — found via live
+  verification that bulk and api use incompatible raw shapes for
+  fields bulk already populates (e.g. `stress.restDuration` vs.
+  `stress.restStressDuration`), so a full replace could silently
+  downgrade a field even though the day's overall quality label didn't
+  regress. `main()` gains step 5e (`GARMIN_BULK_FIELD_BACKFILL=1`).
+- `app/garmin_app_controller.py` — `timer_run_steps_backfill()`: filter
+  changed from `"steps" not in fields` (key presence) to
+  `fields.get("steps") == "high"` (value comparison); the 140-day
+  `STEPS_BACKFILL_WINDOW_DAYS` cutoff removed entirely (the underlying
+  "~135-day empirically measured degradation" assumption was disproven
+  live — a 2.7-year-old bulk day's steps intraday array came back fully
+  intact on re-fetch) and replaced by the new generic
+  `FIELD_BACKFILL_ATTEMPT_LIMIT = 2` give-up threshold (mirrors
+  `bulk_recheck`'s existing day-level "2 attempts, then final"
+  pattern). New `BULK_GAP_FIELDS` constant + `timer_run_bulk_field_backfill()`
+  — candidates are `source="bulk"` days with at least one
+  `BULK_GAP_FIELDS` entry still below its attempt limit; no age cutoff,
+  no dependency on the day's `recheck` flag (a separate, independent
+  concern from `timer_run_bulk_recheck()`'s own 180-day intraday-
+  degradation window, which is unchanged).
+- `app/panel_timer.py` — new `bulk_field_backfill` mode: `_mode_cycle`
+  entry (lowest priority, after Steps Backfill), `_mode_runners` /
+  `days_pick` / label-dict entries, `GARMIN_BULK_FIELD_BACKFILL`
+  env override, delegate method. `_timer_update_btn()` and both
+  countdown/syncing-status dispatch sites now update the panel's own
+  timer button in addition to `panel_home`'s quick-access button — the
+  former was being built but never refreshed after construction, found
+  while checking a live discrepancy between the two.
+- `app/panel_settings.py` — `_collect_settings()`'s four `timer_*`
+  fields now read live from `PanelTimer.get_timer_settings()` instead
+  of the cached `self._app.settings` dict — that function was never
+  called from anywhere, so editing the Min/Max Interval or Days-per-Run
+  fields (and even "Save Settings") never reached the running timer.
+- `docs/REFERENCE_GARMIN.md` — Timer mode table gains the new
+  `Bulk Field Backfill` row and an updated `Steps Backfill` row;
+  Documented Exceptions table lists `timer_run_bulk_field_backfill`.
+- `compiler/build_manifest.py` — `timer_run_bulk_field_backfill` added
+  to `garmin_app_controller.py`'s signature list.
+- `tests/test_app_logic.py` — new Section 23 (bulk/api source
+  filtering, all-fields-high exclusion, attempts-limit exclusion,
+  mixed-fields-still-open inclusion) plus new Section 19 checks
+  (`"medium"` value now included, no age cutoff, attempts-limit
+  exclusion/inclusion).
+- `tests/test_local.py` — Section E5 rewritten from scratch around the
+  additive-merge behavior (existing non-empty field never overwritten,
+  missing field merged in, batched-attempts spy test); Section E2
+  extended with a `write_day()`-failure case, a real give-up
+  end-to-end test (two live failures → day drops out of the real
+  candidate list), and a downgrade-guard case reproducing the
+  `record_attempt()`-silently-blocked scenario above.
+- `support-tools/api-raw-probe/fetch_raw_days.py` — one `ruff` E402
+  fix (missing `# noqa` on an import placed after the required
+  `sys.path` setup).
+
+**Test result:** 2625 checks across all 15 suites — all green
+(`run_tests.ps1`), `ruff check .` — 0 errors.
+
+---
+
 ## v1.7.2.4.2 — Testsuite hardening: mock boundaries closed around the updater GUI
 
 Triggered by an observation: in a previous session all tests were green,

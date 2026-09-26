@@ -393,11 +393,14 @@ class PanelSettings(QWidget):
             "mirror_dir":                self._mirror_dir.text().strip(),
             "backup_raw_backfill_asked": self._app.settings.get(
                 "backup_raw_backfill_asked", False),
-            # Timer settings owned by PanelTimer — forwarded from app.settings
-            "timer_min_interval": self._app.settings.get("timer_min_interval", "5"),
-            "timer_max_interval": self._app.settings.get("timer_max_interval", "30"),
-            "timer_min_days":     self._app.settings.get("timer_min_days", "3"),
-            "timer_max_days":     self._app.settings.get("timer_max_days", "10"),
+            # Timer settings owned by PanelTimer — read live from its own
+            # widgets (get_timer_settings()), not from the possibly-stale
+            # self._app.settings cache. Previously read from self._app.settings
+            # here, which meant an edited interval/days field was never picked
+            # up by the running timer, and "Save Settings" just re-persisted
+            # the same stale value right back (get_timer_settings() was never
+            # called from anywhere until this fix).
+            **self._app._panel_timer.get_timer_settings(),
         }
 
     def _toggle_log_level(self):

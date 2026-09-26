@@ -265,7 +265,7 @@ The project is structured into five focused layers — Garmin pipeline, Context 
 
 The diagram above shows how the layers connect. Each module is self-contained and designed to be extended — for a script-by-script reference (what each module does, owns, and how to add new ones), see [`docs/MAINTENANCE_GLOBAL.md`](src/docs/MAINTENANCE_GLOBAL.md).
 
-The desktop app includes a **Background Timer** — once started, it automatically repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~120 days), fills missing days, keeps a raw API-response backup current, and retroactively adds newly supported data fields (like step count) to already-archived days, with no further manual steps in between. The timer must be started manually and only runs while the app is open — it does not resume automatically after a restart.
+The desktop app includes a **Background Timer** — once started, it automatically repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~120 days), fills missing days, keeps a raw API-response backup current, retroactively adds newly supported data fields (like step count) to already-archived days, and re-fetches bulk-imported days for the handful of data fields the official Garmin export never contains at all (HRV, SpO2, Body Battery, respiration, training status, race predictions, max metrics) — regardless of how old the day is, since that gap has nothing to do with intraday resolution — with no further manual steps in between. The timer must be started manually and only runs while the app is open — it does not resume automatically after a restart.
 
 Data is stored in two root folders:
 
