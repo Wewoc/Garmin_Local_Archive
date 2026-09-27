@@ -124,6 +124,79 @@ No adapter is a commitment. Each is evaluated independently when development beg
 
 ---
 
+### v1.7.4.1 — MCP Statistical Support Functions
+
+Two independent statistical support features for the MCP layer: correlation
+analysis, baseline/anomaly detection, and gap detection. Split into two building
+blocks with different computation characteristics — one precomputed at
+sync time, one computed at query time.
+
+**Block A — Baseline / Anomaly / Gaps (precomputed, `mcp_update` + `mcp_sql`)**
+
+Per-day, per-field values that depend only on a fixed lookback window —
+same shape as the existing rolling-baseline logic in
+`dashboards/health_garmin_html-json_dash.py` (`_rolling_avg()`,
+`BASELINE_DAYS = 90`) and the existing `missing_days` gap detection in
+`context/context_silo_check.py`.
+
+- New columns on the existing SQLite day cache: `baseline_avg`,
+  `ref_low`/`ref_high`, `anomaly_flag` per field
+- Computed once per sync in `clients/mcp_update.py`, alongside the existing
+  `sync_all()` pass — no new sync trigger
+- Gap detection extended from context-only (`missing_days`) to health
+  fields, same mechanism
+- New MCP tools: `baselines(field, date_from, date_to)`,
+  `anomalies(field, date_from, date_to)`, `gaps(domain, date_from, date_to)`
+  — `anomalies()` reports both single-day outliers (z-score deviation) and
+  streaks (>=5 consecutive days on one side of the mean), computed on
+  the same already-loaded time series, no extra query
+
+**Known risk — cache staleness (must be solved, not deferred):**
+the existing SQLite cache only rebuilds a day's row when that day's own
+`quality_log` `compare_value` changes (documented limitation,
+`REFERENCE_BROKER.md`). A rolling baseline depends on the preceding 90
+days, not just its own day — a backfill/repair five days earlier would
+silently leave a day's baseline stale under the current invalidation
+logic. Fix must ship with this block, e.g. always recomputing the last
+`BASELINE_DAYS` rows on every sync pass rather than relying on
+per-day `compare_value` diffing.
+
+**Block B — Correlate (query-time, new `clients/mcp_stats.py`)**
+
+Pearson/Spearman correlation with lag support (-7 to +7 days) between two
+arbitrary fields over an arbitrary date range — cannot be precomputed
+(combinatorial field-pair × lag space, unbounded date ranges requested by
+the LLM). Sits alongside `mcp_health.py`/`mcp_context.py` architecturally,
+reads via the existing `query_health`/`query_context`/`gateway_map` path,
+no new broker.
+
+- New module `clients/mcp_stats.py` — `correlate(field_a, field_b,
+  date_from, date_to, lag_days=0)`, registered as a new MCP tool in
+  `clients/mcp_server.py`, same registration pattern as `query_health`/
+  `query_context` (imported, then `mcp.tool()(correlate)`, to avoid the
+  same circular-import issue documented for those two)
+- `field_a`/`field_b` resolve through the same decision order as
+  `query_health()`/`query_context()` (alias tables, ambiguity check,
+  `difflib` fuzzy match — see `mcp_field_registry.py`) — no separate,
+  second field-name resolution dialect inside this new module
+- No SQL/cache involvement — computed fresh per call
+
+**What changes:**
+- `clients/mcp_update.py` — baseline/anomaly/gap computation added to
+  `sync_all()`
+- `clients/mcp_sql.py` — new columns on the day-cache schema
+- `clients/mcp_server.py` — four new tool registrations
+  (`baselines`, `anomalies`, `gaps`, `correlate`)
+- New file `clients/mcp_stats.py`
+
+**What does not change:**
+- Broker Layer (`health_map`/`context_map`/`gateway_map`) — untouched,
+  both blocks read through existing contracts
+- Dashboard Layer — unaffected; `_rolling_avg()` in the dashboard module
+  is not imported, only used as the reference implementation to port from.
+
+---
+
 ## Planned — v1.8
 
 ### v1.8.0 — FIT Pipeline
