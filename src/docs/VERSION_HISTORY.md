@@ -2,6 +2,10 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](src/docs/CHANGELOG.md).
 
+## v1.7.3.2 — Demo Archive for Trying the MCP Server
+
+- New synthetic demo archive (180 days of fictional health + weather/pollen data) lets anyone try the MCP server's AI querying without a real Garmin account — no setup beyond pointing the app at the downloaded folder.
+
 ## v1.7.3 — Background Timer Fills In Gaps From Old Bulk Imports
 
 - Days imported from an older bulk export are missing several optional health metrics (HRV, SpO2, Body Battery, respiration, training status, race predictions, max metrics) — the background timer now fetches these automatically over time, without ever overwriting data the import already had.

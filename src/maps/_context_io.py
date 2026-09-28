@@ -22,20 +22,13 @@ Rules:
 
 import json
 import logging
-from datetime import date, timedelta
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from date_utils import date_range
+
 log = logging.getLogger(__name__)
-
-
-def _date_range(date_from: str, date_to: str) -> list[str]:
-    d   = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
-    out = []
-    while d <= end:
-        out.append(d.isoformat())
-        d += timedelta(days=1)
-    return out
 
 
 def read_summary_field(output_dir: Path, file_prefix: str, internal_key: str,
@@ -43,7 +36,7 @@ def read_summary_field(output_dir: Path, file_prefix: str, internal_key: str,
     """Read daily values from summary/*.json. Source-agnostic version of
     the previous per-module _read_field() — identical behaviour."""
     values = []
-    for ds in _date_range(date_from, date_to):
+    for ds in date_range(date_from, date_to):
         f     = output_dir / f"{file_prefix}{ds}.json"
         value = None
         if f.exists():
@@ -64,7 +57,7 @@ def read_raw_field(raw_dir: Path, file_prefix: str, internal_key: str,
     pass-through into the broker's series return shape, not a
     reconstruction from a fixed-length index."""
     values = []
-    for ds in _date_range(date_from, date_to):
+    for ds in date_range(date_from, date_to):
         f      = raw_dir / f"{file_prefix}{ds}.json"
         series = []
         if f.exists():

@@ -17,8 +17,12 @@ import sys
 from pathlib import Path
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Fixed v1.7.3.2 — sys.path resolution was one level short (this script
+# used to live in export/, one level shallower than
+# support-tools/archive-maintenance/, and the path math was never
+# updated after the move).
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "garmin"))
 
 try:
     import garmin_config as cfg

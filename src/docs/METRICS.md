@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-09-28 07:55 UTC · Version: 1.7.3.1
+Generated: 2026-09-28 15:20 UTC · Version: 1.7.3.2
 
 ## Test Counts
 
@@ -23,10 +23,10 @@ Generated: 2026-09-28 07:55 UTC · Version: 1.7.3.1
 | test_chat_session_store.py | 29 | 29 | 0 |
 | test_cloud_credential_store.py | 14 | 14 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
-| test_static.py | 16 | 16 | 0 |
-| **Total** | **2625** | **2625** | **0** |
+| test_static.py | 17 | 17 | 0 |
+| **Total** | **2626** | **2626** | **0** |
 
 ## Modules
 
-Total: 146 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 148 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 

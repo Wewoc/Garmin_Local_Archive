@@ -1,5 +1,118 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.3.2 — Constant & Helper Dedup, CVE Whitelist Update, Demo Export Generator
+
+### Constant & Helper Dedup
+
+Six cases of duplicated (not shared) code found during a cross-file
+coherence review, planned in ROADMAP.md as v1.7.3.2. Each case was
+analyzed individually before touching code — two turned out to need a
+different fix than a naive merge: `garmin_import_mirror.py`'s local
+`QUALITY_RANK` copy was an intentional architecture boundary (must not
+import `quality._maint` directly), fixed by switching to the existing
+`garmin_quality` facade re-export instead of merging; `ensure_build_venv()`
+could not move into `build_manifest.py` (that module declares itself
+pure data, no logic) and got its own new leaf module instead.
+`_date_range()`'s target module was corrected mid-session from
+`garmin/garmin_utils.py` to a new root-level `date_utils.py`, to avoid
+giving `maps/`/`context/` a new dependency on `garmin/` they didn't
+already need — mirrors the existing `log_utils.py` precedent. Full
+analysis and per-case verification in `PROTOKOLL_experiment.md` and the
+six `changelog/anchor_delivery_v1732-dedup-*.md` files.
+
+**New modules:**
+- `date_utils.py` — shared `date_range()` helper, replaces three
+  identical local copies
+- `compiler/build_venv.py` — shared `ensure_build_venv()`, build-time
+  only, not bundled
+- `app/_client_loader.py` — shared `_load_client_module()`, backs 11
+  named lazy-import wrappers in `panel_mcp.py`/`panel_chat.py`
+
+**Changed modules:**
+- `compiler/build_manifest.py` — `INFO_INCLUDE_T2`/`INFO_INCLUDE_T3`
+  merged into one `INFO_INCLUDE` constant; new modules registered in
+  `SHARED_SCRIPTS`/`SCRIPT_SIGNATURES_BASE`
+- `compiler/build.py`, `compiler/build_standalone.py` — read the merged
+  `INFO_INCLUDE`; delegate to `build_venv.ensure_build_venv()`
+- `frozen_paths.py` — comment updated for the `INFO_INCLUDE` merge
+- `maps/_context_io.py`, `maps/garmin_health_map.py`,
+  `context/context_api.py` — local `_date_range()` removed, now import
+  `date_utils.date_range()`
+- `app/panel_mcp.py`, `app/panel_chat.py` — 11 lazy-import loader
+  functions reduced to one-line delegates onto
+  `_client_loader._load_client_module()`; original docstrings kept
+  verbatim
+- `garmin/garmin_import_mirror.py` — local `_QUALITY_RANK` copy
+  removed, `_analyse_raw_delta()` now reads `QUALITY_RANK` via the
+  `garmin_quality` facade (lazy import, matching the file's existing
+  pattern)
+
+### CVE Whitelist MCP Update + Critical Filter
+
+`cve_whitelist.py` was never extended since the MCP feature landed in
+v1.7 — every pip-audit finding for the MCP chain and Cloud-LLM connector
+packages (`mcp`, `httpx`, `anthropic`, `openai`, plus 13 FastMCP
+server-runtime dependencies) was silently classified `not_relevant`,
+including the four packages GLA calls directly. The report now also
+collapses non-critical verdicts (`unsure`/`not_relevant`) to a single
+count line by default, so the one verdict backed by real evidence
+(`relevant`) doesn't get buried — full per-finding output via `--full`.
+A bug in the fix itself, found during live verification: the Ollama
+fallback used to answer "relevant" even for the 13 evidence-free
+entries, producing a false CRITICAL verdict; fixed by short-circuiting
+to `unsure` whenever `used_functions` is empty.
+
+**Changed modules:**
+- `tests/cve_whitelist.py` — 17 new whitelist entries (4 with verified
+  GLA call sites: `mcp`, `httpx`, `anthropic`, `openai`; 13 with
+  deliberately empty `used_functions` — FastMCP's own server-runtime
+  dependency chain, no direct GLA import found)
+- `tests/check_cve_whitelist.py` — `relevant` verdict now labeled
+  "⚠ CRITICAL"; `build_report()` collapses `unsure`/`not_relevant` to a
+  count line by default, new `--full` flag for the complete report;
+  `_ollama_check_unsure()` short-circuits to `"unsure", ""` for an
+  empty `used_functions` list
+
+### Demo Export Generator
+
+New standalone tool that generates a synthetic 180-day archive (health +
+weather/pollen context) for public demos and the MCP showcase — GLA's
+MCP server is otherwise unusable to anyone without their own real
+archive. Health data is written through the real
+`garmin_normalizer.summarize()` + `garmin_writer.write_day()` path,
+populated only at the fields `summarize()` actually reads; context data
+uses fixed average values for weather and pollen instead of live API
+calls, written through the real `context_writer.write()` with a
+`SOURCE_TAG` suffix (`-demo-fictional`) so the source is clearly marked.
+`GARMIN_OUTPUT_DIR` is redirected to the target folder before any
+pipeline module is imported, so the real archive can never be touched by
+accident. Weather deliberately gets no `raw/` folder, matching real
+archives (Open-Meteo never delivers hourly weather). README + optional
+ZIP packaging included.
+
+**New modules:**
+- `support-tools/demo-export/generate_demo_archive.py` — CLI generator
+  (`--out`, `--days`, `--seed`, `--lat`/`--lon`, `--no-zip`, `--dry-run`)
+
+**Changed modules (found in passing, fixed same-day):**
+- `support-tools/archive-maintenance/regenerate_raw.py`,
+  `backfill_source_backup.py`, `regenerate_summaries.py` — `sys.path`
+  resolution for `garmin/` (and `app/` in `backfill_source_backup.py`)
+  was one `.parent` short, pointing at a non-existent
+  `support-tools/garmin` instead of `src/garmin` — a leftover from
+  before these scripts moved out of `export/`. Fixed to match
+  `compare_raw_source.py`'s correct pattern in the same folder.
+
+**Test result:** `test_static.py` 17/17; `test_local.py` 812/812;
+`test_local_context.py` 349/349; `test_broker.py` 141/141;
+`test_qt_app.py` 188/188; `test_build_output.py` 620/620 — all green,
+no regressions across the Dedup work. CVE tooling: two live pip-audit
+runs against the real installed environment (first surfaced the Ollama
+empty-list bug, second confirmed the fix). Demo Export Generator: no
+automated suite (support tool) — two manual runs against the real
+pipeline (5-day without ZIP, 2-day with ZIP), redirected to a scratchpad
+folder outside the repo and outside the real archive, 0 errors.
+
 ## v1.7.3.1 — Codereview & Cleanup: panel_outputs.py Split into app/outputs/
 
 Internal cleanup, same shape as v1.7.2.1's popups split extended to the

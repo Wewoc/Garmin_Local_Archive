@@ -36,8 +36,11 @@ from pathlib import Path
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 # garmin/ must be on sys.path for all pipeline imports.
-# export/ sits one level below src/ root; garmin/ is a sibling of export/.
-sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
+# support-tools/archive-maintenance/ sits two levels below src/ root;
+# garmin/ is a sibling of support-tools/ (fixed v1.7.3.2 — this script
+# used to live in export/, one level shallower, and the path math was
+# never updated after the move to support-tools/archive-maintenance/).
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "garmin"))
 
 try:
     import garmin_config as cfg

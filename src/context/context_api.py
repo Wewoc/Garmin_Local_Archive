@@ -24,11 +24,16 @@ Aggregation:
 
 import json
 import logging
+import sys
 import time
 import urllib.request
 import urllib.parse
 from datetime import date, timedelta
+from pathlib import Path
 from statistics import mean, mode as stats_mode
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from date_utils import date_range
 
 log = logging.getLogger(__name__)
 
@@ -38,16 +43,6 @@ _RETRY_BACKOFF = 1.0  # initial backoff in seconds — doubled on each retry
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _date_range(date_from: str, date_to: str) -> list[str]:
-    d   = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
-    out = []
-    while d <= end:
-        out.append(d.isoformat())
-        d += timedelta(days=1)
-    return out
-
 
 def _chunks(lst: list, size: int):
     for i in range(0, len(lst), size):
@@ -291,7 +286,7 @@ def fetch(plugin, date_from: str, date_to: str,
         for daily plugins (weather) — v1.7.1.11.
     """
     skip_dates  = skip_dates or set()
-    all_dates   = _date_range(date_from, date_to)
+    all_dates   = date_range(date_from, date_to)
     missing     = [d for d in all_dates if d not in skip_dates]
     adapter     = getattr(plugin, "FETCH_ADAPTER", "open_meteo")
     resolution  = plugin.API_RESOLUTION

@@ -55,9 +55,9 @@ GITHUB_REPOS = [
         "label": "garmin-givemydata (ecosystem sentinel)",
     },
     {
-        "repo":  "drkostas/garmin-auth",
+        "repo":  "anup-shesh/garmin-local-mcp",
         "type":  "sentinel",
-        "label": "garmin-auth (OAuth/token self-healing sentinel)",
+        "label": "MCP (ecosystem sentinel)",
     },
     {
         "repo":  "arpanghosh8453/garmin-grafana",
