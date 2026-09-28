@@ -47,6 +47,15 @@ you start it again yourself.
 
 ---
 
+## Try it first
+
+No Garmin account yet, or just want to see it in action? A synthetic
+180-day demo archive (fictional data, clearly marked as such) lets you
+explore dashboards, Chat and the MCP server without connecting a real
+account. See [QUICKSTART.txt](src/docs/QUICKSTART.txt), "Try it first".
+
+---
+
 ## Project status & disclaimer
 
 > GNU General Public License v3.0 — provided as-is, without warranty of any kind, express or implied.
@@ -194,7 +203,7 @@ answer). Chat sessions auto-save and can be reloaded later via the
 resumed; a session using the daily snapshot can only be resumed if that
 snapshot hasn't changed since, otherwise it opens read-only. For connecting
 external tools (Open WebUI, AnythingLLM, Claude Desktop) for more advanced
-document/RAG workflows instead, see `info/README_APP.md` and the **MCP
+document/RAG workflows instead, see [`docs/README_APP.md`](src/docs/README_APP.md) and the **MCP
 Server** section below.
 
 ---
@@ -226,12 +235,27 @@ your choice, no default push toward either. Point your MCP-compatible
 client (Claude Desktop, Open WebUI, or similar) at the server and start
 asking questions.
 
-**Don't have your own archive yet?** A synthetic 180-day demo archive
-(fictional health + weather/pollen data, clearly marked as such) ships
-under [`src/support-tools/demo-export/`](src/support-tools/demo-export/)
-— point `GARMIN_OUTPUT_DIR` at the extracted ZIP and the MCP server works
-immediately, no Garmin account required. See that folder's own
-`DEMO_ARCHIVE_README.md` for details and known limitations.
+**Connect:** Streamable HTTP at `http://127.0.0.1:<port>/mcp` (default
+port `8756`, configurable on the MCP Server tab) — bound to localhost
+only, not reachable from other machines by default. See "Extra allowed
+hosts" above for Docker clients.
+
+**Tools exposed** (see [`docs/REFERENCE_MCP.md`](src/docs/REFERENCE_MCP.md) for full signatures):
+
+| Tool | What it does |
+|---|---|
+| `query_health` | Daily health metrics (e.g. sleep, stress, heart rate, body battery) for a date or date range |
+| `query_context` | Weather, pollen and air-quality data for a date or date range |
+| `query_fit_activities` | FIT activity data — *planned, not yet available* (see `docs/ROADMAP.md`, "FIT Pipeline") |
+| `query_raw` | Unprocessed archive data for a given domain, for deeper inspection |
+| `get_archive_metadata` | Archive coverage and quality info (date ranges, missing days, data quality) |
+| `list_available_fields` | Which fields the archive actually contains, per domain |
+| `refresh_cache` | Rebuilds the server's local query cache on demand, e.g. right after a sync |
+
+Example: *"How did my sleep and stress compare over the last two weeks?"*
+— the model calls the tools above itself and answers from your real
+archive, no manual export needed. No archive yet? See
+[Try it first](#try-it-first) above.
 
 ---
 
@@ -292,7 +316,7 @@ context_data/
 
 ---
 
-See `info/MAINTENANCE.md` for full technical documentation, how to add new fields, troubleshooting, and developer notes.
+See [`docs/MAINTENANCE_GLOBAL.md`](src/docs/MAINTENANCE_GLOBAL.md) for full technical documentation, how to add new fields, troubleshooting, and developer notes.
 
 ---
 

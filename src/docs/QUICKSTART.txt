@@ -9,6 +9,24 @@ Three documents:
 
 Terms of use and liability: see README_APP.md, "Project status & disclaimer".
 
+TRY IT FIRST (optional) — no Garmin account needed
+────────────────────────────────────────────────────
+A synthetic 180-day demo archive (fictional data, clearly marked as
+such) lets you explore dashboards, Chat and the MCP server before
+connecting your own account.
+
+1. Unzip demo_archive.zip
+   -> src/support-tools/demo-export/demo_archive.zip (GitHub)
+   Note the path to the extracted folder.
+2. Settings tab -> set Data folder to that path -> "Save Settings"
+3. Optional: Settings tab -> Export -> "Create Reports" to generate
+   the dashboards (or try "Custom Dashboard" / "Encrypted Dashboards"
+   right below it)
+4. Optional: MCP Server tab -> configure and start the server, or
+   open the Chat tab, to query the demo archive directly
+
+Ready to connect your real account? Continue below.
+
 FIRST-TIME SETUP
 ────────────────
 1. Open the Settings tab
