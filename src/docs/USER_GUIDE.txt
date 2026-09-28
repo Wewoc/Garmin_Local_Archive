@@ -207,7 +207,7 @@ Files tab: Excel overview of all archived days (v).
 Rebuild dashboards:
   Settings tab -> Outputs -> "Create All Dashboards"
 
-Create Reports (Home tab) opens a popup with all available dashboards
+Create Reports (Settings tab -> Export) opens a popup with all available dashboards
 and their output formats:
 
   Dashboard            HTML   Mobile HTML   Excel   JSON
@@ -629,7 +629,7 @@ Two independent choices, made before Start:
   Source
     Summary (default)   Runs against your existing Health Analysis
                          export -- fast, no live query. Build one first:
-                         Home tab -> "Create Reports", or Settings ->
+                         Settings tab -> Export -> "Create Reports", or
                          Outputs -> "Create All Dashboards" (Section 4).
     MCP tool-calling     (v1.7.2) The model queries your archive live via
                          the same MCP server external tools use (Section
