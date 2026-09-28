@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.3
+# Garmin Local Archive — Desktop App v1.7.3.2
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -107,6 +107,12 @@ The app window is divided into two areas:
 - **MCP Server** — local LLM access to your archive via the Model Context Protocol (v1.7)
 
 -> For how to use each tab day-to-day, see USER_GUIDE.txt.
+
+-> Don't have your own archive yet? A synthetic 180-day demo archive
+(ZIP + its own README) is available from the project's GitHub repo
+under `src/support-tools/demo-export/` — not bundled with this app
+install, download it separately, then point `GARMIN_OUTPUT_DIR` at it
+to try the MCP Server tab without a real Garmin account.
 
 ---
 

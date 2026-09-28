@@ -226,6 +226,13 @@ your choice, no default push toward either. Point your MCP-compatible
 client (Claude Desktop, Open WebUI, or similar) at the server and start
 asking questions.
 
+**Don't have your own archive yet?** A synthetic 180-day demo archive
+(fictional health + weather/pollen data, clearly marked as such) ships
+under [`src/support-tools/demo-export/`](src/support-tools/demo-export/)
+— point `GARMIN_OUTPUT_DIR` at the extracted ZIP and the MCP server works
+immediately, no Garmin account required. See that folder's own
+`DEMO_ARCHIVE_README.md` for details and known limitations.
+
 ---
 
 ## Architecture

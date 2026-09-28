@@ -19,6 +19,7 @@ SHARED_SCRIPTS = [
     # app layer
     "app/__init__.py",
     "app/dialogs.py",
+    "app/_client_loader.py",
     "app/dialog_force_refetch.py",
     "app/dialog_chat_history.py",
     "app/dialog_context_check.py",
@@ -62,6 +63,7 @@ SHARED_SCRIPTS = [
     "qwebengine_hardening.py",
     "frozen_paths.py",
     "log_utils.py",
+    "date_utils.py",
     "process_status.py",
     "updater.py",
     # garmin pipeline
@@ -206,6 +208,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/panel_archive.py":     ["class PanelArchive"],
     "app/panel_timer.py":       ["class PanelTimer"],
     "app/dialogs.py":           ["class PasswordConfirmDialog"],
+    "app/_client_loader.py":    ["def _load_client_module"],
     "app/dialog_chat_history.py": ["class ChatHistoryDialog"],
     "app/dialog_context_check.py": ["class ContextCheckResultDialog", "class ContextCoordinateFixDialog"],
     "app/panel_outputs.py":     ["class PanelOutputs"],
@@ -268,6 +271,7 @@ SCRIPT_SIGNATURES_BASE = {
     "qwebengine_hardening.py": ["def harden"],
     "frozen_paths.py": ["def scripts_root", "def add_to_path", "def doc_path", "def is_t3_standalone", "def is_t2_standard"],
     "log_utils.py": ["def with_timestamp"],
+    "date_utils.py": ["def date_range"],
     "process_status.py": ["def is_mcp_running", "def write_lock", "def clear_lock", "def is_running", "def get_pid"],
     "updater.py": ["def resolve_release_asset", "def prepare_update"],
     "garmin/garmin_redact.py": ["def redact"],
@@ -298,10 +302,8 @@ SCRIPT_SIGNATURES_BASE = {
 
 DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
 
-INFO_INCLUDE_T2 = {"README.md", "README_APP.md", "daily_update_task.xml",
-                   "QUICKSTART.txt", "USER_GUIDE.txt"}
-INFO_INCLUDE_T3 = {"README.md", "README_APP.md", "daily_update_task.xml",
-                   "QUICKSTART.txt", "USER_GUIDE.txt"}
+INFO_INCLUDE = {"README.md", "README_APP.md", "daily_update_task.xml",
+                "QUICKSTART.txt", "USER_GUIDE.txt"}
 
 # ── Required non-Python files (must be present alongside scripts) ─────────────
 # Paths relative to garmin/ — build scripts prepend the folder.

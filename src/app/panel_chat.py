@@ -242,10 +242,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QTextCursor
 
-import frozen_paths
 import garmin_config as cfg
 
 from .dialog_chat_history import ChatHistoryDialog
+from ._client_loader import _load_client_module
 
 
 def _load_ollama_client():
@@ -260,10 +260,7 @@ def _load_ollama_client():
     separate from garmin/ (Sole-Write-Authority over the Garmin pipeline
     silos only). Flat-import style like garmin/ and app/ — no relative
     imports inside clients/, so no sys.modules package registration needed."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import ollama_client
-    return ollama_client
+    return _load_client_module("ollama_client")
 
 
 def _load_mcp_tool_chat():
@@ -272,10 +269,7 @@ def _load_mcp_tool_chat():
     end-to-end-verified in garmin_collector-3_experiment, see that
     repo's PROTOKOLL_experiment.md) lives in clients/ alongside
     ollama_client.py/mcp_client.py."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import mcp_tool_chat
-    return mcp_tool_chat
+    return _load_client_module("mcp_tool_chat")
 
 
 def _load_mcp_client():
@@ -283,10 +277,7 @@ def _load_mcp_client():
     internal use of it) so _chat_on_send()'s MCP-mode worker can catch
     McpClientError specifically, the same way it already catches
     OllamaError for the plain Ollama-only path below."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import mcp_client
-    return mcp_client
+    return _load_client_module("mcp_client")
 
 
 def _load_cloud_tool_chat():
@@ -294,10 +285,7 @@ def _load_cloud_tool_chat():
     cloud_tool_chat.py (the Cloud-LLM + MCP tool-calling turn loop,
     mirrors mcp_tool_chat.py but sits on cloud_llm_client.chat_with_tools()
     instead of ollama_client's) lives in clients/ alongside the rest."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import cloud_tool_chat
-    return cloud_tool_chat
+    return _load_client_module("cloud_tool_chat")
 
 
 def _load_mcp_process():
@@ -305,10 +293,7 @@ def _load_mcp_process():
     (Start/Stop process control for clients/mcp_server.py, shared with
     app/panel_mcp.py's own new Stop button) lives in clients/ alongside
     the other three."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import mcp_process
-    return mcp_process
+    return _load_client_module("mcp_process")
 
 
 def _load_cloud_llm_client():
@@ -316,10 +301,7 @@ def _load_cloud_llm_client():
     (the Cloud-LLM dispatcher; never imports a provider module like
     cloud_llm_anthropic.py directly, see that file's own docstring for
     the split) lives in clients/ alongside the other four."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import cloud_llm_client
-    return cloud_llm_client
+    return _load_client_module("cloud_llm_client")
 
 
 def _load_cloud_credential_store():
@@ -327,10 +309,7 @@ def _load_cloud_credential_store():
     cloud_credential_store.py (WCM-backed cloud API key storage, one
     entry per provider, Baustein 23) lives in clients/ alongside the
     other six."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import cloud_credential_store
-    return cloud_credential_store
+    return _load_client_module("cloud_credential_store")
 
 
 def _load_chat_session_store():
@@ -339,10 +318,7 @@ def _load_chat_session_store():
     lives in clients/ alongside the other five. Never imported by
     app/dialog_chat_history.py itself — that dialog only displays what
     this panel already fetched, see that module's own docstring."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import chat_session_store
-    return chat_session_store
+    return _load_client_module("chat_session_store")
 
 
 def _sort_models_qwen_first(models: list[str]) -> list[str]:

@@ -157,7 +157,17 @@ def _ollama_check_unsure(description: str, used_functions: list[str]) -> tuple[s
     Returns (verdict, matched_function_or_empty). Any failure (Ollama not
     running, timeout, malformed response) falls back to "unsure" — never
     raises, never blocks the report.
+
+    An empty used_functions list is short-circuited to "unsure" before
+    the call: with nothing to compare against, Ollama has been observed
+    to still answer "relevant" (confirmed live run, 2026-09-28 — anyio/
+    pydantic-settings/starlette entries), which would produce a
+    "relevant" verdict with no matched function at all — the one thing
+    "relevant" is supposed to guarantee.
     """
+    if not used_functions:
+        return "unsure", ""
+
     func_list = ", ".join(used_functions)
     prompt = (
         f"A security advisory describes a vulnerability with this "
@@ -244,13 +254,19 @@ def build_findings(dependencies: list[dict]) -> list[dict]:
 _VERDICT_ORDER = ["relevant", "unsure", "not_relevant"]
 
 _VERDICT_LABELS = {
-    "relevant":     "RELEVANT — whitelisted function name found in description",
+    "relevant":     "⚠ CRITICAL — whitelisted function name found in description",
     "unsure":       "UNSURE — package is used by GLA, no function match confirmed",
     "not_relevant": "NOT RELEVANT — package not in GLA's used-function whitelist",
 }
 
 
-def build_report(findings: list[dict]) -> str:
+def build_report(findings: list[dict], full: bool = False) -> str:
+    """
+    full=False (default): only the "relevant" group is printed in detail —
+    "unsure"/"not_relevant" collapse to a single count line, so the one
+    verdict backed by an actual keyword match doesn't get buried. Pass
+    full=True (main(): --full) for the complete per-finding report.
+    """
     lines = []
     lines.append("=" * 70)
     lines.append("CVE WHITELIST CHECK — pip-audit findings cross-referenced")
@@ -276,6 +292,13 @@ def build_report(findings: list[dict]) -> str:
         lines.append(_VERDICT_LABELS[verdict])
         lines.append("-" * 70)
         lines.append("")
+
+        if verdict != "relevant" and not full:
+            lines.append(
+                f"  {len(group)} finding(s) — run with --full to see details."
+            )
+            lines.append("")
+            continue
 
         for f in group:
             fix = ", ".join(f["fix_versions"]) if f["fix_versions"] else "none published"
@@ -348,8 +371,10 @@ def main() -> int:
         print()
         return 0
 
+    full = "--full" in sys.argv[1:]
+
     findings = build_findings(dependencies)
-    print(build_report(findings))
+    print(build_report(findings, full=full))
 
     return 0
 

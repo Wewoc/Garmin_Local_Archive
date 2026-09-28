@@ -38,51 +38,16 @@ import zipfile
 from pathlib import Path
 
 import build_manifest as manifest
+import build_venv
 
 APP_NAME = "Garmin_Local_Archive"
 
 SCRIPTS         = manifest.SCRIPTS
-INFO_INCLUDE    = manifest.INFO_INCLUDE_T2
+INFO_INCLUDE    = manifest.INFO_INCLUDE
 SCRIPT_SIGNATURES = {
     **manifest.SCRIPT_SIGNATURES_BASE,
     "garmin_app.py": ["class GarminApp"],
 }
-
-
-def ensure_build_venv(root: Path) -> Path:
-    """Creates (if missing) or reuses the shared, isolated build venv at
-    manifest.BUILD_VENV_DIR, installs requirements.txt + PyInstaller into
-    it, and returns its python.exe. Replaces the old check_dependencies()
-    (garmin_collector-3_experiment, Baustein 27) — that function only ever
-    verified pyinstaller/keyring/cryptography against whatever Python
-    happened to be sys.executable, which on this machine also has an
-    unrelated project's torch/pandas/scipy installed; PyInstaller was
-    sweeping those into the T2 EXE the moment HIDDEN_IMPORTS_COMMON
-    started requiring anthropic/openai (see PROTOKOLL_experiment.md,
-    Baustein 26). Building against a venv containing ONLY
-    requirements.txt's packages makes that structurally impossible,
-    regardless of what else gets pip-installed globally on this machine
-    later. venv creation itself still uses sys.executable (any Python can
-    create a venv — that step never touches site-packages)."""
-    print("\n[1/4] Checking build venv ...")
-    venv_dir = Path(manifest.BUILD_VENV_DIR)
-    venv_python = venv_dir / "Scripts" / "python.exe"
-
-    if not venv_python.exists():
-        print(f"  Not found at {venv_dir} — creating ...")
-        subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
-        print("  ✓ venv created")
-    else:
-        print(f"  ✓ venv already exists — reusing: {venv_dir}")
-
-    req_file = root.parent / "requirements.txt"
-    print(f"  Installing/verifying {req_file} + PyInstaller in venv ...")
-    subprocess.check_call([str(venv_python), "-m", "pip", "install", "-q",
-                            "-r", str(req_file)])
-    subprocess.check_call([str(venv_python), "-m", "pip", "install", "-q",
-                            "pyinstaller"])
-    print("  ✓ venv ready")
-    return venv_python
 
 
 def validate_scripts(root: Path):
@@ -304,7 +269,7 @@ def main():
 
     root = Path(__file__).parent.parent   # compiler/ → src/
 
-    venv_python = ensure_build_venv(root)
+    venv_python = build_venv.ensure_build_venv(root, step="1/4")
 
     validate_scripts(root)
 

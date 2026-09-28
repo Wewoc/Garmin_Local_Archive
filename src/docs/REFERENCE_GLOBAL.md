@@ -193,6 +193,16 @@ it fits directly into one WCM credential entry.
     │                                  imported by context_collector.py and
     │                                  dash_runner.py without creating a
     │                                  dependency on garmin/ (v1.6.6.1)
+    ├── date_utils.py                ← Leaf-Node. date_range(date_from, date_to)
+    │                                  — ISO date list, inclusive. Domain-less,
+    │                                  same category as log_utils.py — same
+    │                                  reasoning: maps/_context_io.py,
+    │                                  maps/garmin_health_map.py, and
+    │                                  context/context_api.py each had an
+    │                                  identical local copy; consolidated here
+    │                                  instead of garmin/garmin_utils.py so
+    │                                  neither maps/ nor context/ gains a new
+    │                                  garmin/ dependency (v1.7.3.2)
     ├── process_status.py           ← Leaf-Node. is_mcp_running() (TCP probe,
     │                                  garmin_config imported lazily — see
     │                                  REFERENCE_GARMIN.md § Documented
@@ -299,7 +309,12 @@ it fits directly into one WCM credential entry.
     │   ├── build.py
     │   ├── build_all.py
     │   ├── build_manifest.py       ← Single source of truth for all script lists
-    │   └── build_standalone.py
+    │   ├── build_standalone.py
+    │   └── build_venv.py           ← ensure_build_venv(root, step) — shared
+    │                                  by build.py/build_standalone.py (v1.7.3.2,
+    │                                  replaces two identical copies). Not in
+    │                                  SHARED_SCRIPTS — build-time tool, not
+    │                                  bundled into the shipped app.
     │
     ├── scheduler/                  ← Daily Sync entry points
     │   ├── daily_update.py         ← Entry Point Daily Sync (headless, all targets)
@@ -373,6 +388,7 @@ it fits directly into one WCM credential entry.
 ├── app/                        ← GUI logic layer (v1.5.2+): settings, controller, panel Mixins (v1.5.3+)
     │   ├── __init__.py
     │   ├── dialogs.py              ← PasswordConfirmDialog(QDialog) — shared password entry/confirm dialog. mode="setup": two fields + match-check (new passwords). mode="unlock": one field, no confirm (existing passwords, e.g. mirror import where unlock_meta() validates anyway). Used by panel_archive.py (Mirror Container) and panel_outputs.py (Encrypted Dashboards). PyQt6-only import, no project-module imports, no business logic
+    │   ├── _client_loader.py       ← _load_client_module(name) (v1.7.3.2) — shared lazy-import helper (add clients/ to sys.path, import the named module) backing the 11 named _load_X() wrappers in panel_mcp.py (3) and panel_chat.py (8); replaces 11 identical copies of the same 4-line body. Each panel keeps its own named wrapper + docstring — see Module reference table below
     │   ├── garmin_app_settings.py  ← Layer 1: settings persistence, keyring helpers, constants (no tkinter/Qt)
     │   ├── garmin_app_controller.py ← Layer 3: application logic, ENV, timer, checks (no GUI)
     │   ├── panel_home.py           ← PanelHome(QWidget) — fixed top area: connection indicators, archive status, device table, Daily Actions (Daily Sync / Mirror / Timer); Home tab: Dashboard viewer (v1.6.0+)
@@ -586,6 +602,8 @@ findable by heading/table search (see `DOC_DRIFT_REPORT.md`, Punkt B).
 | Module | Role |
 |---|---|
 | `app/dialogs.py` | `PasswordConfirmDialog(QDialog)` — shared password entry/confirm dialog. `mode="setup"`: two fields + match-check (new passwords). `mode="unlock"`: one field, no confirm (existing passwords — e.g. mirror import, where `unlock_meta()` validates anyway). Used by `panel_archive.py` (Mirror Container) and `panel_outputs.py` (Encrypted Dashboards). PyQt6-only import, no project-module imports, no business logic. |
+| `app/_client_loader.py` | `_load_client_module(name)` (v1.7.3.2) — adds `clients/` to `sys.path` (`frozen_paths.add_to_path()`, idempotent) and imports the named module. Backs 11 named `_load_X()` wrapper functions in `panel_mcp.py` (3) and `panel_chat.py` (8), previously 11 identical copies of the same 4-line lazy-import body. Each wrapper keeps its own name and docstring — a call site still reads `_load_mcp_process()`, not `_load_client_module("mcp_process")` — chosen over a fully parametrized call-site rewrite so the names stay grep-able and each wrapper's module-specific rationale isn't lost. |
+| `date_utils.py` | `date_range(date_from, date_to) -> list[str]` (v1.7.3.2) — ISO date strings, inclusive. Leaf-Node, domain-less, same category as `log_utils.py`. Replaces three identical local `_date_range()` copies in `maps/_context_io.py`, `maps/garmin_health_map.py`, `context/context_api.py` — placed at the `src/`-root rather than `garmin/garmin_utils.py` specifically so `maps/`/`context/` don't gain a new `garmin/` dependency for a function with no Garmin-specific content. |
 | `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`, `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py`, `app/popups/_dashboard_build.py` | Dashboard/config popups (v1.7.2.1 — Codereview & Cleanup), extracted from `panel_outputs.py`: the first four each expose one `open_popup(panel)`, called from a one-line delegate method still on `PanelOutputs` (button-wiring unchanged). `_dashboard_build.py` is the shared build/encrypt engine both `custom_dashboard.py` and `encrypted_dashboards.py` depend on (`run_dashboards()`/`run_encrypted()`) — neither popup imports the other. |
 | `app/outputs/output_helpers.py`, `bulk_import.py`, `force_refetch.py`, `context_check.py`, `dashboards.py`, `context_sync.py`, `sync.py` | The remaining seven feature blocks of `panel_outputs.py` (v1.7.3.1 — Codereview & Cleanup), extending the `app/popups/` precedent to the rest of the file. Each exposes one or more module-level functions taking the owning `PanelOutputs` instance as an explicit `panel` parameter (e.g. `sync.run_collector(panel, *, on_done=None)`); `panel_outputs.py` keeps a one-line delegate per public entry point with the *same* signature — required for `run_collector`/`run_live_fetch`/`run_context_sync`/`run_all_dashboards`, since `panel_home.py`'s Daily Sync chain and `panel_home.py`'s Update-Live button call these directly with keyword arguments from outside `panel_outputs.py`, not just via `_build_ui()`'s button wiring. `stop_context_sync`/`on_context_sync_done` also keep delegates — called directly as `panel._method()` in `tests/test_qt_app.py::TestPanelOutputs`. Helpers with no caller outside their own module (`_check_raw_backfill_popup`, `context_check.py`'s three reset/dialog helpers) stay module-private, no delegate. `_stop_btn` (and the other Data-Collection/Data-Management widgets) stay on `PanelOutputs` itself (E-7) — `garmin_app.py`/`garmin_app_standalone.py` access `panel._panel_outputs._stop_btn` directly. |
 | `app/panel_connection.py` | `PanelConnection(QWidget)` — connection dialogs only; indicators delegated to `panel_home.py` (v1.5.4+). **(v1.7.2.3)** Data Management (Restore Data / Silo-Check / Repair / Force Refetch) moved out to `app/panel_outputs.py` — `panel_archive.py`'s call sites (`set_restore_button_state()` etc.) repointed there. Export-to-Mirror and Import-from-Mirror removed (redundant with the existing Daily Actions Mirror popup); Reset Token removed as unused. `_build_ui()` now builds an otherwise-empty layout container. |
@@ -705,4 +723,4 @@ checksum file, so both distributed targets can self-update.
 `compiler/build_all.py` runs `test_local.py`, `test_local_context.py`, and `test_dashboard.py` before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
 `compiler/build_manifest.py` is the single source of truth for all script lists.
 
-**Post-v1.7.2 (garmin_collector-3_experiment, Bausteine 27/31/32/33):** both `compiler/build.py`'s and `compiler/build_standalone.py`'s `build_exe()` now invoke PyInstaller from a shared, isolated venv (`compiler/build_manifest.py::BUILD_VENV_DIR`, `D:\Garmin\.venv_gla`) instead of `sys.executable` — `ensure_build_venv()` creates it on first use, installs `requirements.txt` + PyInstaller into it, and reuses it afterwards. Prevents a package installed globally for a different project on the same build machine from being swept into a GLA build (root cause of a >8 GB T3 ZIP, see `CHANGELOG.md`). New `compiler/build_gui.py` ("🦄 Garmin Local Archiv Builder", `bat/run_build_gui.bat`) wraps the manual "copy working dir into a build folder, then run `build_all.py`" workflow into one Tkinter window with a live, elapsed-time-stamped log — not a new build target, just a GUI front end for the existing `build_all.py` sequence (Qt-test gate + `build_all.py`, unchanged). Verified end-to-end on a real Windows build.
+**Post-v1.7.2 (garmin_collector-3_experiment, Bausteine 27/31/32/33):** both `compiler/build.py`'s and `compiler/build_standalone.py`'s `build_exe()` now invoke PyInstaller from a shared, isolated venv (`compiler/build_manifest.py::BUILD_VENV_DIR`, `D:\Garmin\.venv_gla`) instead of `sys.executable` — `ensure_build_venv()` creates it on first use, installs `requirements.txt` + PyInstaller into it, and reuses it afterwards. Prevents a package installed globally for a different project on the same build machine from being swept into a GLA build (root cause of a >8 GB T3 ZIP, see `CHANGELOG.md`). New `compiler/build_gui.py` ("🦄 Garmin Local Archiv Builder", `bat/run_build_gui.bat`) wraps the manual "copy working dir into a build folder, then run `build_all.py`" workflow into one Tkinter window with a live, elapsed-time-stamped log — not a new build target, just a GUI front end for the existing `build_all.py` sequence (Qt-test gate + `build_all.py`, unchanged). Verified end-to-end on a real Windows build. **(v1.7.3.2)** `ensure_build_venv()` itself used to be two identical copies, one in each of `build.py`/`build_standalone.py` — now lives once in `compiler/build_venv.py`, both scripts call `build_venv.ensure_build_venv(root, step=...)`; `step` is each script's own progress-print prefix ("1/4" vs "1/3" — the two scripts have a different total step count, unrelated to this change).
