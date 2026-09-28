@@ -30,7 +30,7 @@ Architecture boundary:
 import json
 import logging
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # garmin_health_map lives in maps/ — garmin/ is one level up (sibling package)
@@ -38,6 +38,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
 import garmin_config as cfg
 import garmin_api_capability as capability
+
+# date_utils.py is domain-less, lives in src/-Root (not garmin/) — second bridge
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from date_utils import date_range
 
 log = logging.getLogger(__name__)
 
@@ -501,16 +505,6 @@ _RAW_PASSTHROUGH_FIELDS = {
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _date_range(date_from: str, date_to: str) -> list[str]:
-    d   = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
-    result = []
-    while d <= end:
-        result.append(d.isoformat())
-        d += timedelta(days=1)
-    return result
-
-
 def _get_nested(obj: dict, key: str):
     """Resolve a dot-separated key path within a dict. Returns None if missing."""
     parts = key.split(".")
@@ -654,7 +648,7 @@ def _read_raw_pct(field: str, date_from: str, date_to: str) -> dict:
     section, dto_key, seconds_key, total_key = _FIELD_MAP[field]["raw_pct"]
 
     values = []
-    for ds in _date_range(date_from, date_to):
+    for ds in date_range(date_from, date_to):
         f     = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
         value = None
         if f.exists():
@@ -681,7 +675,7 @@ def _read_daily(field: str, date_from: str, date_to: str) -> dict:
     section, key = _FIELD_MAP[field]["daily"]
 
     values = []
-    for ds in _date_range(date_from, date_to):
+    for ds in date_range(date_from, date_to):
         f = cfg.SUMMARY_DIR / f"{cfg.SUMMARY_FILE_PREFIX}{ds}.json"
         value = None
         if f.exists():
@@ -715,7 +709,7 @@ def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
     section, array_key, extract = _FIELD_MAP[field]["intraday"]
 
     values = []
-    for ds in _date_range(date_from, date_to):
+    for ds in date_range(date_from, date_to):
         f = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
         series = None
         dst_transition = False
@@ -1028,7 +1022,7 @@ def get_raw(field: str, date_from: str, date_to: str) -> dict:
     endpoint = _RAW_PASSTHROUGH_FIELDS[field]
 
     values = []
-    for ds in _date_range(date_from, date_to):
+    for ds in date_range(date_from, date_to):
         f = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
         payload = None
         if f.exists():

@@ -19,6 +19,7 @@ SHARED_SCRIPTS = [
     # app layer
     "app/__init__.py",
     "app/dialogs.py",
+    "app/_client_loader.py",
     "app/dialog_force_refetch.py",
     "app/dialog_chat_history.py",
     "app/dialog_context_check.py",
@@ -32,6 +33,17 @@ SHARED_SCRIPTS = [
     "app/popups/dashboard_create.py",
     "app/popups/custom_dashboard.py",
     "app/popups/encrypted_dashboards.py",
+    # app/outputs/ — extracted panel_outputs.py feature blocks (v1.7.3.1).
+    # Same dst.parent.mkdir(exist_ok=True) ordering concern as app/popups/
+    # above — listed after app/__init__.py so scripts/app/ already exists.
+    "app/outputs/__init__.py",
+    "app/outputs/output_helpers.py",
+    "app/outputs/bulk_import.py",
+    "app/outputs/force_refetch.py",
+    "app/outputs/context_check.py",
+    "app/outputs/dashboards.py",
+    "app/outputs/context_sync.py",
+    "app/outputs/sync.py",
     "app/garmin_app_settings.py",
     "app/garmin_dashboard_presets.py",
     "app/garmin_app_controller.py",
@@ -51,6 +63,7 @@ SHARED_SCRIPTS = [
     "qwebengine_hardening.py",
     "frozen_paths.py",
     "log_utils.py",
+    "date_utils.py",
     "process_status.py",
     "updater.py",
     # garmin pipeline
@@ -195,6 +208,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/panel_archive.py":     ["class PanelArchive"],
     "app/panel_timer.py":       ["class PanelTimer"],
     "app/dialogs.py":           ["class PasswordConfirmDialog"],
+    "app/_client_loader.py":    ["def _load_client_module"],
     "app/dialog_chat_history.py": ["class ChatHistoryDialog"],
     "app/dialog_context_check.py": ["class ContextCheckResultDialog", "class ContextCoordinateFixDialog"],
     "app/panel_outputs.py":     ["class PanelOutputs"],
@@ -203,6 +217,18 @@ SCRIPT_SIGNATURES_BASE = {
     "app/popups/custom_dashboard.py": ["def open_popup"],
     "app/popups/encrypted_dashboards.py": ["def open_popup"],
     "app/popups/_dashboard_build.py": ["def run_dashboards", "def run_encrypted"],
+    "app/outputs/output_helpers.py": [
+        "def open_data_folder", "def open_last_html", "def copy_last_error_log",
+        "def open_local_config", "def create_task_scheduler_xml",
+    ],
+    "app/outputs/bulk_import.py": ["def run_import"],
+    "app/outputs/force_refetch.py": ["def on_force_refetch"],
+    "app/outputs/context_check.py": ["def on_context_check"],
+    "app/outputs/dashboards.py": ["def run_all_dashboards"],
+    "app/outputs/context_sync.py": [
+        "def run_context_sync", "def stop_context_sync", "def on_context_sync_done",
+    ],
+    "app/outputs/sync.py": ["def run_collector", "def run_live_fetch"],
     "layouts/dash_encryptor.py": ["def encrypt_html"],
     "layouts/dash_autosize.py": ["def compute_autosize_bounds", "def autosize_note"],
     "app/panel_home.py":        ["class PanelHome"],
@@ -245,6 +271,7 @@ SCRIPT_SIGNATURES_BASE = {
     "qwebengine_hardening.py": ["def harden"],
     "frozen_paths.py": ["def scripts_root", "def add_to_path", "def doc_path", "def is_t3_standalone", "def is_t2_standard"],
     "log_utils.py": ["def with_timestamp"],
+    "date_utils.py": ["def date_range"],
     "process_status.py": ["def is_mcp_running", "def write_lock", "def clear_lock", "def is_running", "def get_pid"],
     "updater.py": ["def resolve_release_asset", "def prepare_update"],
     "garmin/garmin_redact.py": ["def redact"],
@@ -275,10 +302,8 @@ SCRIPT_SIGNATURES_BASE = {
 
 DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
 
-INFO_INCLUDE_T2 = {"README.md", "README_APP.md", "daily_update_task.xml",
-                   "QUICKSTART.txt", "USER_GUIDE.txt"}
-INFO_INCLUDE_T3 = {"README.md", "README_APP.md", "daily_update_task.xml",
-                   "QUICKSTART.txt", "USER_GUIDE.txt"}
+INFO_INCLUDE = {"README.md", "README_APP.md", "daily_update_task.xml",
+                "QUICKSTART.txt", "USER_GUIDE.txt"}
 
 # ── Required non-Python files (must be present alongside scripts) ─────────────
 # Paths relative to garmin/ — build scripts prepend the folder.

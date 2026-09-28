@@ -67,8 +67,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
-import frozen_paths
 import garmin_config as cfg
+
+from ._client_loader import _load_client_module
 
 
 def _load_cloud_credential_store():
@@ -76,10 +77,7 @@ def _load_cloud_credential_store():
     clients/cloud_credential_store.py (Baustein 23, WCM-backed cloud
     API key storage, one entry per provider) lives in clients/
     alongside cloud_llm_client.py."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import cloud_credential_store
-    return cloud_credential_store
+    return _load_client_module("cloud_credential_store")
 
 
 def _load_mcp_process():
@@ -91,10 +89,7 @@ def _load_mcp_process():
     the only clients/ import this panel has ever needed, since
     _resolve_mcp_server_launch_command() below only resolves a PATH for
     Popen, it does not import mcp_server.py as a module."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import mcp_process
-    return mcp_process
+    return _load_client_module("mcp_process")
 
 
 def _load_cloud_llm_client():
@@ -104,10 +99,7 @@ def _load_cloud_llm_client():
     cloud providers are actually supported. Used here only to populate
     the Provider dropdown (_PROVIDERS.keys()) — this panel never calls
     .chat() itself, app/panel_chat.py's Start/Send flow does."""
-    root = frozen_paths.scripts_root()
-    frozen_paths.add_to_path(root, "clients")
-    import cloud_llm_client
-    return cloud_llm_client
+    return _load_client_module("cloud_llm_client")
 
 
 def _resolve_mcp_server_launch_command() -> list[str] | None:

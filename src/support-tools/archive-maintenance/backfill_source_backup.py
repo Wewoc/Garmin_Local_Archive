@@ -8,16 +8,20 @@ backfill_source_backup.py
 Einmaliges Script — kopiert alle bestehenden source/-Dateien nach backup/source/.
 Ausführen einmalig nach Einführung von garmin_backup_source.py (v1.6.0.4).
 
-Ablage: src/export/ (neben regenerate_summaries.py)
-Ausführung: python export/backfill_source_backup.py
+Ablage: src/support-tools/archive-maintenance/ (neben regenerate_summaries.py)
+Ausführung: python support-tools/archive-maintenance/backfill_source_backup.py
 """
 
 import sys
 from pathlib import Path
 
 # ── Path setup ────────────────────────────────────────────────────────────────
-sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
-sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
+# Fixed v1.7.3.2 — this script used to live in export/, one level
+# shallower than support-tools/archive-maintenance/; the path math was
+# never updated after the move (see compare_raw_source.py's _SRC_ROOT
+# pattern in the same folder for the correct reference).
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "garmin"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))
 
 # ── ENV: GARMIN_OUTPUT_DIR aus garmin_settings lesen wenn nicht gesetzt ───────
 import os as _os

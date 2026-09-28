@@ -104,11 +104,12 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/panel_connection.py` | Connection panel — connection test, dialogs only (v1.7.2.3 — Data Management moved to `panel_outputs.py`, Export/Import-to-Mirror + Reset Token removed as redundant/unused). Indicators delegated to panel_home. |
 | `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
 | `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
-| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons, Data Management (Restore/Silo-Check/Repair/Force Refetch, moved in from `panel_connection.py`, v1.7.2.3) + Context-Check (v1.7.2.3). Four popups now one-line delegates into `app/popups/` (v1.7.2.1 — Codereview & Cleanup), see next row. |
+| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons, Data Management (Restore/Silo-Check/Repair/Force Refetch, moved in from `panel_connection.py`, v1.7.2.3) + Context-Check (v1.7.2.3). Four popups now one-line delegates into `app/popups/` (v1.7.2.1 — Codereview & Cleanup); the remaining seven feature blocks now one-line delegates into `app/outputs/` (v1.7.3.1 — Codereview & Cleanup), see rows below. 1471 → 577 lines. |
 | `app/dialog_context_check.py` | Context-Check findings dialog + coordinate-fix dialog (v1.7.2.3) — opened from `panel_outputs.py`. |
 | `context/context_silo_check.py` | Read-only context archive integrity scan — missing days, coordinate plausibility (v1.7.2.3). |
 | `context/context_silo_repair.py` | Real re-fetch + re-write for flagged context days/sources, via `context_api`/`context_writer` (v1.7.2.3). |
 | `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`, `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py`, `app/popups/_dashboard_build.py` | Dashboard/config popups extracted from `panel_outputs.py` (v1.7.2.1), one file per popup plus the shared `_dashboard_build.py` build/encrypt engine (`run_dashboards()`/`run_encrypted()`). See `REFERENCE_GLOBAL.md`'s Module reference table. |
+| `app/outputs/output_helpers.py`, `bulk_import.py`, `force_refetch.py`, `context_check.py`, `dashboards.py`, `context_sync.py`, `sync.py` | The remaining seven `panel_outputs.py` feature blocks (v1.7.3.1), extending the `app/popups/` precedent to the rest of the file. See `REFERENCE_GLOBAL.md`'s Module reference table for the full delegate/signature rules. |
 | `app/panel_chat.py` | Chat panel (v1.6.6, renamed from "Ollama-Chat" v1.7.2) — Ollama or Cloud (Anthropic/OpenAI) backend, plain chat or MCP tool-calling source, streaming, chat session history. See `REFERENCE_GLOBAL.md`'s Module reference table for the full v1.7.2 architecture. |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — `chat()`/`chat_stream()` (plain) + `chat_with_tools()` (no streaming counterpart — Ollama's own streaming+tool-calling support is unreliable upstream, v1.7.2). Used by `app/panel_chat.py`. (v1.6.6) |
 | `clients/mcp_client.py` | Leaf-Node HTTP client for the MCP server's tool-calling endpoint — `is_reachable`/`list_tools`/`call_tool`. Used by `app/panel_chat.py`'s tool-calling turn loops. (v1.7.2) |
@@ -130,6 +131,7 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `clients/mcp_sql.py` | SQLite aggregation-cache access layer for the MCP server (v1.7.1) — a local, always-reconstructible cache that speeds up date-range queries over the archive. Pure consumer, never a source: `garmin_backup.py`/`garmin_mirror.py` never touch it, and a lost cache file just triggers a rebuild on the next sync. |
 | `clients/mcp_update.py` | Delta-sync logic for the SQLite cache above (v1.7.1) — runs automatically at server startup and on demand via the `refresh_cache()` MCP tool, so an LLM can ask for fresher data without restarting the server. **(v1.7.2.3)** Also consumes the context-archive pending-resync marker (`context_silo_repair.py`) on every sync, invalidating (`mcp_sql.invalidate_context_day()`) and acking each repaired day/source — see `REFERENCE_MCP.md`/`REFERENCE_CONTEXT.md`. |
 | `app/dialogs.py` | Shared GUI dialog classes (e.g. `PasswordConfirmDialog`) used by `panel_archive.py`/`panel_outputs.py`. No project-module imports beyond PyQt6, no business logic. |
+| `app/_client_loader.py` (v1.7.3.2) | `_load_client_module(name)` — shared lazy-import helper (adds `clients/` to `sys.path`, imports the named module) backing 11 named `_load_X()` wrapper functions in `panel_mcp.py` (3) and `panel_chat.py` (8), previously 11 identical copies of the same body. |
 | `app/dialog_force_refetch.py` | Force-Refetch calendar dialog — lets the user pick one or more days for a deliberate Force-Refetch. Two-widget split: a reusable `DateToggleCalendar` (quality background + selection highlight, deliberately non-red to stay distinguishable from the "failed" quality color) carries no Force-Refetch-specific logic itself. (v1.7.1.7) |
 | `app/garmin_dashboard_presets.py` | Sole owner of the Custom Dashboard preset file — stores named field selections for the Custom Dashboard Builder. Same persistence pattern as `garmin_app_settings.py`, separate file, separate ownership. No GUI, no pipeline imports — importable headless. (v1.6.4) |
 | `garmin_app.py` + `build.py` | Desktop GUI entry point + standard EXE build (Python required on target) |
@@ -148,6 +150,7 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `crash_handler.py` | Global uncaught-exception capture — `sys.excepthook` (main thread), `threading.excepthook` (worker threads), optional `qInstallMessageHandler` (Qt-native fatal/critical). Writes to a fixed local path independent of `base_dir`, since a crash may itself be caused by `base_dir` being unreachable. Safe to use from both GUI and headless (`daily_update.py`) entry points. |
 | `frozen_paths.py` | Central frozen-path resolution (`sys.frozen` / `sys._MEIPASS` / `sys.executable`) — replaces logic previously duplicated across `panel_outputs.py` (6×), `panel_home.py`, and other call sites. No I/O beyond `Path.exists()` checks. `is_t3_standalone()` (v1.7.2.4) — the T3 build-target gate for the self-updater. `is_t2_standard(reference_file=None)` (v1.7.2.4-Nacherweiterung) — its T2 pendant; takes an explicit reference file for the non-frozen case, since `scheduler/daily_update.py` never runs frozen under T2. |
 | `log_utils.py` | `with_timestamp()` — wraps a log callback so every message gets a timestamp prefix matching `logging.Formatter`'s `"%Y-%m-%d %H:%M:%S"`, unifying console output between the Garmin page and the Context/Dashboard pipeline. |
+| `date_utils.py` (v1.7.3.2) | `date_range(date_from, date_to) -> list[str]` — ISO date strings, inclusive. Replaces three identical local copies in `maps/_context_io.py`, `maps/garmin_health_map.py`, `context/context_api.py`; placed here rather than `garmin/garmin_utils.py` so `maps/`/`context/` don't gain a new `garmin/` dependency for a function with no Garmin-specific content. |
 | `qwebengine_hardening.py` | Shared `QWebEngineSettings` hardening for embedded `QWebEngineView` instances, which only ever display content generated by this project. Disables unneeded WebEngine capabilities; JavaScript stays enabled for Plotly. Idempotent. |
 | `garmin_app_screenshot.py` | Screenshot/demo mode — inherits the full UI from `GarminApp` unmodified, overrides only settings/password loading (dummy data), all button commands (no-ops), and `closeEvent` (no save). No credentials, no file I/O, no subprocesses — safe to run on any machine. |
 | `process_status.py` (v1.7.2.4) | `is_mcp_running()` (TCP probe, extracted from `panel_mcp.py` so `daily_update.py` can reuse it without a PyQt6 import) plus `write_lock()`/`clear_lock()`/`is_running()`/`get_pid()` — a fixed-path PID-lock-file mechanism under `Path.home()` for processes with no port to probe (GUI, `daily_update.exe`). One documented exception to "no project-module dependency": lazily imports `garmin_config` inside `is_mcp_running()` for `MCP_HTTP_PORT` (see `REFERENCE_GARMIN.md § Documented Exceptions`). |
@@ -389,9 +392,9 @@ points: `garmin_collector.py._start_session_log()` registers `RedactFilter()`
 on the session `FileHandler` (covers every `log.*()` call from any module,
 including session log files later copied to `log/fail/`); `garmin_app_base.py._log()`
 calls `redact()` directly before writing to the GUI log widget (this path
-does not go through the `logging` module). `panel_outputs.py._copy_last_error_log()`
-needs no separate redaction — the fail-log file it reads is already
-redacted at write time.
+does not go through the `logging` module). `app/outputs/output_helpers.py::copy_last_error_log()`
+(moved out of `panel_outputs.py` in v1.7.3.1) needs no separate redaction —
+the fail-log file it reads is already redacted at write time.
 
 ### `__file__` in frozen builds
 
@@ -408,10 +411,10 @@ side effect:
   Frozen: canonical T2/T3 distinguisher (see table above).
 - `add_to_path(root, *subs) -> None` — explicit `sys.path` mutation.
   Without `subs`, inserts `root` itself. Kept separate from `scripts_root()`
-  because one call site (`_run_custom_dashboard_encrypted` in
-  `panel_outputs.py`) needs the root without touching `sys.path` at all —
-  folding the mutation into the root getter would have needed an opt-out
-  flag there.
+  because one call site (`run_encrypted` in `app/popups/_dashboard_build.py`,
+  moved there from `panel_outputs.py` in v1.7.2.1) needs the root without
+  touching `sys.path` at all — folding the mutation into the root getter
+  would have needed an opt-out flag there.
 - `doc_path(filename) -> Path | None` — mirrors
   `compiler/build.py::prepare_scripts_dir()`'s search order for shipped
   docs (`README_APP.md`, `QUICKSTART.txt`, `USER_GUIDE.txt`,
@@ -846,6 +849,18 @@ logged but never aborts the build. Also runnable standalone via
 `run_cve_check.bat` (plain `.bat`, no PowerShell — chosen after a real
 PowerShell encoding/syntax failure during integration attempts, see
 `NOTES_v1_6_0_4_4.md`).
+
+**(v1.7.3.2)** Whitelist extended with the MCP chain + Cloud-LLM connector
+(17 entries — `mcp`/`httpx`/`anthropic`/`openai` with verified GLA call
+sites, plus 13 FastMCP server-runtime dependencies with deliberately
+empty `used_functions`), never updated since the MCP feature landed in
+v1.7. Report default now collapses `unsure`/`not_relevant` to a single
+count line per verdict, so the one verdict backed by real evidence
+(`relevant`, now labeled "⚠ CRITICAL") isn't buried — `--full` prints
+every finding in detail, same as before this change. `used_functions`
+being empty short-circuits the Ollama upsure-check straight to `unsure`
+— an empty list previously still got asked, and Ollama was observed to
+answer "relevant" with no function to actually point at.
 
 ### `tests/test_app_logic.py` — App layer
 

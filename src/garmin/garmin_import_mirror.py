@@ -77,13 +77,6 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Quality rank for downgrade protection — intentional local copy of quality._maint.QUALITY_RANK.
-# Not imported from quality._maint directly: this module must not depend on the quality
-# sub-package internals. garmin_quality (the facade) is the only permitted entry point
-# for quality operations; _maint is an internal implementation detail.
-# Keep in sync with quality/_maint.py :: QUALITY_RANK if labels change. (v1.5.7)
-_QUALITY_RANK = {"high": 2, "standard": 1, "failed": 0}
-
 # Context subdirectories to scan (relative to context_data/) — folder fallback
 _CONTEXT_SUBDIRS = ["weather/raw", "pollen/raw", "brightsky/raw", "airquality/raw"]
 
@@ -306,6 +299,8 @@ def _analyse_raw_delta(quality_src: dict, quality_dst: dict) -> tuple[list, int]
     Returns (to_copy: list[dict], skipped: int).
     Each entry in to_copy is a quality_log day dict from source.
     """
+    import garmin_quality as quality
+
     dst_by_date = {
         e["date"]: e
         for e in quality_dst.get("days", [])
@@ -321,14 +316,14 @@ def _analyse_raw_delta(quality_src: dict, quality_dst: dict) -> tuple[list, int]
             continue
 
         src_label = entry.get("quality", "failed")
-        src_rank  = _QUALITY_RANK.get(src_label, 0)
+        src_rank  = quality.QUALITY_RANK.get(src_label, 0)
 
         dst_entry = dst_by_date.get(date_str)
         if dst_entry is None:
             to_copy.append(entry)
         else:
             dst_label = dst_entry.get("quality", "failed")
-            dst_rank  = _QUALITY_RANK.get(dst_label, 0)
+            dst_rank  = quality.QUALITY_RANK.get(dst_label, 0)
             if src_rank > dst_rank:
                 to_copy.append(entry)
             else:

@@ -112,7 +112,7 @@ def doc_path(filename: str) -> Path | None:
     Findet eine mitgelieferte Doku-Datei. None wenn nicht gefunden.
 
     Frozen (T2 + T3): info/ neben der EXE — beide Targets befüllen
-    info/ identisch aus INFO_INCLUDE_T2 / INFO_INCLUDE_T3.
+    info/ identisch aus build_manifest.INFO_INCLUDE.
 
     Dev: dieselbe Suchkette wie build.py::prepare_scripts_dir() beim
     Befüllen von info/ — Repo-Root, dann src/docs/, dann src/scheduler/.
