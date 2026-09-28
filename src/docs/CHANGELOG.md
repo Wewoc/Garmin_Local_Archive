@@ -1,5 +1,49 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.3.1 — Codereview & Cleanup: panel_outputs.py Split into app/outputs/
+
+Internal cleanup, same shape as v1.7.2.1's popups split extended to the
+rest of the file: `app/panel_outputs.py` had grown to 1471 lines,
+bundling seven largely independent feature blocks (Sync Garmin + Live
+Fetch, Force Refetch, Context-Check, Context Sync, Import,
+Dashboard-build, Output helpers) behind one `_build_ui()` grid. No
+visible behavior change — every extraction was built and verified in an
+isolated working copy first (dry run against the full test suite +
+`ruff`/`bandit`), then applied to the real files and re-verified there,
+then live-confirmed by Timo in the running app (Daily Sync chain
+included — the path with the highest external coupling, since
+`panel_home.py` calls three of the seven relocated functions directly
+with keyword arguments). Full session log in `PROTOKOLL_experiment.md`,
+per-Baustein diffs in `changelog/anchor_delivery_panel-outputs-split-*.md`.
+
+**New modules:**
+- `app/outputs/__init__.py` — package marker
+- `app/outputs/output_helpers.py` — folder/log/task-scheduler-XML helpers
+- `app/outputs/bulk_import.py` — Import Bulk Export dialog + run
+- `app/outputs/force_refetch.py` — Force-Refetch calendar → preview →
+  review → commit flow
+- `app/outputs/context_check.py` — Context-Archive Check + coordinate-fix flow
+- `app/outputs/dashboards.py` — all-dashboards build (Daily Sync chain)
+- `app/outputs/context_sync.py` — weather/pollen Context Sync
+- `app/outputs/sync.py` — Sync Garmin + Live Fetch, highest external
+  coupling (called from `panel_home.py`'s Daily Sync chain and from
+  `garmin_app.py`/`garmin_app_standalone.py`'s Stop-button wiring)
+
+**Changed modules:**
+- `app/panel_outputs.py` — seven feature blocks replaced by one-line
+  delegates into `app/outputs/`; 1471 → 577 lines (−61%). Keeps
+  `_build_ui()`, the shared widget helpers, the three cross-panel
+  accessor methods (E-7: widgets stay with their owning panel), and the
+  small Design/Daily-Sync-checkbox handlers.
+- `compiler/build_manifest.py` — eight new files registered in
+  `SHARED_SCRIPTS`/`SCRIPT_SIGNATURES_BASE`
+
+**Test result:** 2625 checks across 15 suites — all green, ruff 0
+errors, bandit 0 HIGH. Dependency-map delta: 14/14 exception handlers
+and 20/20 fileio call sites moved 1:1 from `panel_outputs.py` to
+`app/outputs/*.py` with identical risk classification each —
+0 regressions.
+
 ## v1.7.3 — Background Timer: Bulk Field Backfill + Steps Backfill Fixes
 
 Closes the structural gap between bulk-imported days and API-synced days:

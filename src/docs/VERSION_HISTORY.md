@@ -4,7 +4,7 @@ Feature-driven log — for technical details, see [CHANGELOG.md](src/docs/CHANGE
 
 ## v1.7.3 — Background Timer Fills In Gaps From Old Bulk Imports
 
-- Days imported from an older bulk export (before Garmin switched to full API sync in 2024) are missing several optional health metrics (HRV, SpO2, Body Battery, respiration, training status, race predictions, max metrics) — the background timer now fetches these automatically over time, without ever overwriting data the import already had.
+- Days imported from an older bulk export are missing several optional health metrics (HRV, SpO2, Body Battery, respiration, training status, race predictions, max metrics) — the background timer now fetches these automatically over time, without ever overwriting data the import already had.
 - Fixed: the Timer's own Min/Max Interval and Days-per-Run settings fields were not actually being applied.
 
 ## v1.7.2.4.x — Self-Updater

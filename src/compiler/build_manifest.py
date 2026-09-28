@@ -32,6 +32,17 @@ SHARED_SCRIPTS = [
     "app/popups/dashboard_create.py",
     "app/popups/custom_dashboard.py",
     "app/popups/encrypted_dashboards.py",
+    # app/outputs/ — extracted panel_outputs.py feature blocks (v1.7.3.1).
+    # Same dst.parent.mkdir(exist_ok=True) ordering concern as app/popups/
+    # above — listed after app/__init__.py so scripts/app/ already exists.
+    "app/outputs/__init__.py",
+    "app/outputs/output_helpers.py",
+    "app/outputs/bulk_import.py",
+    "app/outputs/force_refetch.py",
+    "app/outputs/context_check.py",
+    "app/outputs/dashboards.py",
+    "app/outputs/context_sync.py",
+    "app/outputs/sync.py",
     "app/garmin_app_settings.py",
     "app/garmin_dashboard_presets.py",
     "app/garmin_app_controller.py",
@@ -203,6 +214,18 @@ SCRIPT_SIGNATURES_BASE = {
     "app/popups/custom_dashboard.py": ["def open_popup"],
     "app/popups/encrypted_dashboards.py": ["def open_popup"],
     "app/popups/_dashboard_build.py": ["def run_dashboards", "def run_encrypted"],
+    "app/outputs/output_helpers.py": [
+        "def open_data_folder", "def open_last_html", "def copy_last_error_log",
+        "def open_local_config", "def create_task_scheduler_xml",
+    ],
+    "app/outputs/bulk_import.py": ["def run_import"],
+    "app/outputs/force_refetch.py": ["def on_force_refetch"],
+    "app/outputs/context_check.py": ["def on_context_check"],
+    "app/outputs/dashboards.py": ["def run_all_dashboards"],
+    "app/outputs/context_sync.py": [
+        "def run_context_sync", "def stop_context_sync", "def on_context_sync_done",
+    ],
+    "app/outputs/sync.py": ["def run_collector", "def run_live_fetch"],
     "layouts/dash_encryptor.py": ["def encrypt_html"],
     "layouts/dash_autosize.py": ["def compute_autosize_bounds", "def autosize_note"],
     "app/panel_home.py":        ["class PanelHome"],
