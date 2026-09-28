@@ -104,11 +104,12 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/panel_connection.py` | Connection panel — connection test, dialogs only (v1.7.2.3 — Data Management moved to `panel_outputs.py`, Export/Import-to-Mirror + Reset Token removed as redundant/unused). Indicators delegated to panel_home. |
 | `app/panel_archive.py` | Archive panel — integrity check, restore, clean archive, mirror operation. |
 | `app/panel_timer.py` | Timer panel — background timer UI, loop, controller delegates. |
-| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons, Data Management (Restore/Silo-Check/Repair/Force Refetch, moved in from `panel_connection.py`, v1.7.2.3) + Context-Check (v1.7.2.3). Four popups now one-line delegates into `app/popups/` (v1.7.2.1 — Codereview & Cleanup), see next row. |
+| `app/panel_outputs.py` | Outputs panel — sync, import, context sync, dashboard build, output buttons, Data Management (Restore/Silo-Check/Repair/Force Refetch, moved in from `panel_connection.py`, v1.7.2.3) + Context-Check (v1.7.2.3). Four popups now one-line delegates into `app/popups/` (v1.7.2.1 — Codereview & Cleanup); the remaining seven feature blocks now one-line delegates into `app/outputs/` (v1.7.3.1 — Codereview & Cleanup), see rows below. 1471 → 577 lines. |
 | `app/dialog_context_check.py` | Context-Check findings dialog + coordinate-fix dialog (v1.7.2.3) — opened from `panel_outputs.py`. |
 | `context/context_silo_check.py` | Read-only context archive integrity scan — missing days, coordinate plausibility (v1.7.2.3). |
 | `context/context_silo_repair.py` | Real re-fetch + re-write for flagged context days/sources, via `context_api`/`context_writer` (v1.7.2.3). |
 | `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`, `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py`, `app/popups/_dashboard_build.py` | Dashboard/config popups extracted from `panel_outputs.py` (v1.7.2.1), one file per popup plus the shared `_dashboard_build.py` build/encrypt engine (`run_dashboards()`/`run_encrypted()`). See `REFERENCE_GLOBAL.md`'s Module reference table. |
+| `app/outputs/output_helpers.py`, `bulk_import.py`, `force_refetch.py`, `context_check.py`, `dashboards.py`, `context_sync.py`, `sync.py` | The remaining seven `panel_outputs.py` feature blocks (v1.7.3.1), extending the `app/popups/` precedent to the rest of the file. See `REFERENCE_GLOBAL.md`'s Module reference table for the full delegate/signature rules. |
 | `app/panel_chat.py` | Chat panel (v1.6.6, renamed from "Ollama-Chat" v1.7.2) — Ollama or Cloud (Anthropic/OpenAI) backend, plain chat or MCP tool-calling source, streaming, chat session history. See `REFERENCE_GLOBAL.md`'s Module reference table for the full v1.7.2 architecture. |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — `chat()`/`chat_stream()` (plain) + `chat_with_tools()` (no streaming counterpart — Ollama's own streaming+tool-calling support is unreliable upstream, v1.7.2). Used by `app/panel_chat.py`. (v1.6.6) |
 | `clients/mcp_client.py` | Leaf-Node HTTP client for the MCP server's tool-calling endpoint — `is_reachable`/`list_tools`/`call_tool`. Used by `app/panel_chat.py`'s tool-calling turn loops. (v1.7.2) |
@@ -389,9 +390,9 @@ points: `garmin_collector.py._start_session_log()` registers `RedactFilter()`
 on the session `FileHandler` (covers every `log.*()` call from any module,
 including session log files later copied to `log/fail/`); `garmin_app_base.py._log()`
 calls `redact()` directly before writing to the GUI log widget (this path
-does not go through the `logging` module). `panel_outputs.py._copy_last_error_log()`
-needs no separate redaction — the fail-log file it reads is already
-redacted at write time.
+does not go through the `logging` module). `app/outputs/output_helpers.py::copy_last_error_log()`
+(moved out of `panel_outputs.py` in v1.7.3.1) needs no separate redaction —
+the fail-log file it reads is already redacted at write time.
 
 ### `__file__` in frozen builds
 
@@ -408,10 +409,10 @@ side effect:
   Frozen: canonical T2/T3 distinguisher (see table above).
 - `add_to_path(root, *subs) -> None` — explicit `sys.path` mutation.
   Without `subs`, inserts `root` itself. Kept separate from `scripts_root()`
-  because one call site (`_run_custom_dashboard_encrypted` in
-  `panel_outputs.py`) needs the root without touching `sys.path` at all —
-  folding the mutation into the root getter would have needed an opt-out
-  flag there.
+  because one call site (`run_encrypted` in `app/popups/_dashboard_build.py`,
+  moved there from `panel_outputs.py` in v1.7.2.1) needs the root without
+  touching `sys.path` at all — folding the mutation into the root getter
+  would have needed an opt-out flag there.
 - `doc_path(filename) -> Path | None` — mirrors
   `compiler/build.py::prepare_scripts_dir()`'s search order for shipped
   docs (`README_APP.md`, `QUICKSTART.txt`, `USER_GUIDE.txt`,

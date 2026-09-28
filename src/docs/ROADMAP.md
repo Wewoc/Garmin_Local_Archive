@@ -6,45 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.3**
-
----
-
-### v1.7.3.1 — Split up panel_outputs.py (planned)
-
-`app/panel_outputs.py` has grown to ~1400 lines and now bundles seven
-largely independent feature blocks behind one `_build_ui()` grid: Sync
-Garmin + Live Fetch, Force Refetch, Context-Check (v1.7.2.3), Context
-Sync, Import, Dashboard-build, and the Output helpers (including the
-~165-line `_create_task_scheduler_xml()` dialog alone). Same shape of
-problem the dashboard popups already had before `app/popups/` was split
-out (Codereview v1.7.0.1) — this extends that precedent to the rest of
-the file.
-
-**Proposed shape:** new `app/outputs/` package, parallel to
-`app/popups/`, one module per feature block (sync, force_refetch,
-context_check, context_sync, import, dashboards, output_helpers) — each
-holding the actual orchestration logic. `panel_outputs.py` keeps
-`_build_ui()` itself (the grid), the shared widget helpers
-(`_section_widget()`/`_action_btn()`/`_tip()`), and the three
-cross-panel accessor methods (`set_restore_button_state()` etc., called
-from `panel_archive.py`) — those stay because the widgets they touch
-belong to this panel (E-7: widget references stay with their owning
-panel). Everything else becomes a thin delegate call, same "button
-wiring needs zero changes" pattern the popups split already
-established.
-
-Naming note: `app/panels/` was the first name considered but rejected —
-collides with the existing `Panel*` class naming (`PanelOutputs`,
-`PanelArchive`, etc., which *are* the panels); `app/outputs/` avoids
-that clash and mirrors `app/popups/` directly.
-
-Not started — pure refactor, no behavior change, but touches ~1000
-lines across seven new files. Flagged during the v1.7.2.3 session as
-worth its own dedicated round rather than folding into other work,
-since a "no behavior change" refactor of this size is exactly where
-subtle mistakes (closures capturing `self` wrong, thread-dispatch
-wiring) tend to slip in if rushed.
+**Currently stable — v1.7.3.1**
 
 ---
 

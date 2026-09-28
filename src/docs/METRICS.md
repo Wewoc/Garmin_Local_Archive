@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-09-26 13:24 UTC · Version: 1.7.3
+Generated: 2026-09-28 07:55 UTC · Version: 1.7.3.1
 
 ## Test Counts
 
@@ -28,5 +28,5 @@ Generated: 2026-09-26 13:24 UTC · Version: 1.7.3
 
 ## Modules
 
-Total: 138 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 146 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
