@@ -4,6 +4,7 @@
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![No Cloud](https://img.shields.io/badge/cloud-none-brightgreen)
 ![Release](https://img.shields.io/github/v/release/Wewoc/Garmin_Local_Archive)
+[![Garmin Local Archive MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/Wewoc/Garmin_Local_Archive/badges/score.svg)](https://glama.ai/mcp/servers/Wewoc/Garmin_Local_Archive)
 
 **Archive and analyze your Garmin Health data local.**
 
