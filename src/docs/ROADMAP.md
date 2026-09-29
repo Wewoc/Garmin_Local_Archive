@@ -139,6 +139,43 @@ no new broker.
 
 ---
 
+### v1.7.4.2 — MCP Tool Descriptions — Agent-Facing Cleanup
+
+Glama's automated TDQS review (Sep 2026) scored `query_context` C (2.9/5.0),
+citing Conciseness 1/5 and Usage Guidelines 2/5: the docstrings exposed as
+MCP tool descriptions embed the full session-by-session engineering
+changelog (`v1.7.1.3` through `v1.7.1.12`, internal file references,
+`NOTES_*.md` pointers) — useful for a future Claude Code session reading
+the code, but noise for the LLM client actually calling the tool.
+
+`query_health` (B, 3.4/5.0) and `query_raw` (B, 3.1/5.0) confirm the
+pattern, but the weak dimension differs per tool: `query_health`'s low
+score is Conciseness (2/5) — same changelog-in-docstring cause as
+`query_context`. `query_raw`'s is Behavior (2/5) and Completeness (2/5)
+instead — missing disclosure/coverage, not verbosity, so a pure
+docstring-split won't fix it alone; that one likely also needs the
+description itself to state more (side effects, what "raw" means vs.
+the processed domain tools).
+
+Split each docstring into two parts: a short, agent-facing description
+(what the tool does, parameter formats, when to use it vs. sibling tools)
+that the MCP SDK actually exposes as `description`, and the existing
+session history moved to a `#`-comment block above the function —
+preserved for future sessions, no longer part of what `mcp.tool()` picks
+up as the tool's description.
+
+Candidates: `query_health` (B, 3.4/5.0 — Conciseness 2/5), `query_context`
+(C, 2.9/5.0 — Conciseness 1/5, Usage Guidelines 2/5), `query_raw` (B,
+3.1/5.0 — Behavior 2/5, Completeness 2/5, different root cause, see
+above).
+
+**What changes:**
+- `clients/mcp_health.py`, `clients/mcp_context.py`, `clients/mcp_server.py`
+  (`query_raw` is defined directly there) — docstrings restructured, no
+  behavior change
+
+---
+
 ## Planned — v1.8
 
 ### v1.8.0 — FIT Pipeline
