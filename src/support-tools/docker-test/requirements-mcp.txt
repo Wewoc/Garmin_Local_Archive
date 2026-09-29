@@ -1,0 +1,21 @@
+# Minimal dependency set for running clients/mcp_server.py standalone in
+# Docker — a subset of the top-level requirements.txt with the Windows-only
+# (pywin32), GUI (PyQt6/PyQt6-WebEngine), and dev/test packages removed.
+# mcp_server.py's own import chain (garmin_config, maps/*, mcp_sql,
+# mcp_health, mcp_context, mcp_field_registry, date_utils) never touches
+# keyring, garminconnect, or pywin32 — those are only needed by the full
+# GLA desktop app.
+mcp>=1.28,<2
+anyio==4.13.0
+httpx==0.28.1
+httpx-sse==0.4.3
+jsonschema==4.26.0
+pydantic==2.12.5
+pydantic-settings==2.12.0
+PyJWT==2.13.0
+python-multipart==0.0.32
+sse-starlette==3.4.8
+starlette==1.0.0
+typing-extensions==4.15.0
+typing-inspection==0.4.2
+uvicorn==0.46.0
