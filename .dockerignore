@@ -1,0 +1,11 @@
+.git
+src/screenshots
+src/tests
+src/docs
+src/compiler
+src/bat
+src/.pytest_cache
+src/.check_deps_cache.json
+src/test_all_log.txt
+src/support-tools/*
+!src/support-tools/docker-test
