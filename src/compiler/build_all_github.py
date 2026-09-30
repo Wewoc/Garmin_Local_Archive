@@ -34,6 +34,14 @@ from pathlib import Path
 
 os.environ.setdefault("GLA_BUILD_VENV_DIR", r"D:\_gla_ci_venv")
 
+# Windows' console/subprocess default encoding is cp1252, not UTF-8 — same
+# class of problem build_all.py's own _Tee already works around for ITS
+# output. Reconfiguring here covers every print() in this module (e.g. the
+# ✓ below) that runs after build_all.main() has restored the real
+# stdout/stderr streams.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import requests
 
 import build_all
@@ -65,6 +73,7 @@ def _release_notes() -> str:
     result = subprocess.run(
         ["git", "log", "-1", "--pretty=%B"],
         cwd=str(_root.parent), capture_output=True, text=True, check=True,
+        encoding="utf-8",
     )
     return result.stdout.strip()
 
