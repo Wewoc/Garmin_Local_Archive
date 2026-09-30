@@ -1,0 +1,39 @@
+name: Build Venv Path Probe (Windows, experimental)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check D: drive exists and is writable
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem
+          New-Item -ItemType Directory -Path "D:\Garmin" -Force | Out-Null
+          "probe" | Out-File -FilePath "D:\Garmin\write_test.txt"
+          Get-Content "D:\Garmin\write_test.txt"
+          Write-Host "D:\Garmin is writable."
+
+      - name: Create venv at D:\Garmin\.venv_gla (same path build_manifest.py hardcodes)
+        run: python -m venv D:\Garmin\.venv_gla
+
+      - name: Install requirements + PyInstaller into it (same as build_venv.py::ensure_build_venv)
+        run: |
+          D:\Garmin\.venv_gla\Scripts\python.exe -m pip install -q -r requirements.txt
+          D:\Garmin\.venv_gla\Scripts\python.exe -m pip install -q pyinstaller
+          D:\Garmin\.venv_gla\Scripts\python.exe -m pip show pyinstaller
+
+      - name: Cleanup
+        if: always()
+        run: Remove-Item -Recurse -Force D:\Garmin -ErrorAction SilentlyContinue
+        shell: pwsh
