@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.3.3**
+**Currently stable — v1.7.3.4**
 
 ---
 
@@ -535,9 +535,6 @@ Local overview of archive health built from session logs — days synced vs fail
 
 **Activities dashboard**
 Training load, activity volume and sport-specific metrics (swim/bike/run) visualised over time. Activity data is already collected — it just isn't used beyond the summary.
-
-**Test suite & CI/CD**
-Core pipeline is covered by five test suites (218 + 134 + 211 + 80 checks + 8 sections for build output). Build integrity is covered by `validate_scripts()` in both build scripts and `test_build_output.py` as post-build gate. Full CI/CD with GitHub Actions for automated builds and release packaging is intentionally deferred — no timeline, no commitment, but the intention is there.
 
 **Device-time vs. viewer-time display mode**
 v1.6.5.6 chose device-local time (from `startTimestampGMT`/`Local`, archived every day) as the intraday display basis — reisetreu by construction, but it means a day recorded while traveling shows in the device's time zone, not the viewer's current one. A toggle to show viewer-clock time instead (system clock, DST-correct year-round, loses device-time fidelity for travel days) would be a small, independent add-on if it's ever wanted. GPS-derived time zone (from FIT activities) would only close the remaining gap — a travel day that also happens to be a DST transition day — and isn't worth building ahead of the FIT pipeline. Natural anchor point: the travel block already planned for `quality_context.json` (v1.8.2).
