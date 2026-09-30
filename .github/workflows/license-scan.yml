@@ -1,7 +1,8 @@
 name: License Bestandsscan
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ "main" ]
 
 jobs:
   scan:
