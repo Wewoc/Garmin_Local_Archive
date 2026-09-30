@@ -37,19 +37,6 @@ def open_data_folder(panel):
     os.startfile(str(folder))
 
 
-def open_last_html(panel):
-    html = panel._app._last_html
-    if not html or not Path(html).exists():
-        base  = Path(
-            panel._app._panel_settings._collect_settings()["base_dir"])
-        files = list(base.glob("*.html"))
-        if not files:
-            panel._app._log("✗ No HTML files found in data folder.")
-            return
-        html = str(max(files, key=lambda f: f.stat().st_mtime))
-    os.startfile(html)
-
-
 def copy_last_error_log(panel):
     fail_dir = (
         Path(panel._app._panel_settings._collect_settings()["base_dir"])

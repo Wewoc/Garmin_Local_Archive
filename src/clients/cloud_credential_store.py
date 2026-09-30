@@ -103,16 +103,3 @@ def store_api_key(provider: str, api_key: str) -> bool:
     except Exception:
         return False
 
-
-def clear_api_key(provider: str) -> bool:
-    """Deletes provider's API key from WCM. Returns True on success,
-    False on any failure (including "no key was stored for this
-    provider" — same broad except-Exception contract as
-    garmin_security.clear_token()'s own WCM delete step, not a special
-    "already absent" case)."""
-    try:
-        import keyring
-        keyring.delete_password(KEYRING_SERVICE, _username(provider))
-        return True
-    except Exception:
-        return False

@@ -513,15 +513,6 @@ class ScreenshotApp(GarminApp):
 
     def _disable_all_buttons(self):
         """Walk every QPushButton and replace command with no-op."""
-        def _walk(widget):
-            if isinstance(widget, QPushButton):
-                try:
-                    widget.clicked.disconnect()
-                except RuntimeError:
-                    pass
-                widget.setCursor(Qt.CursorShape.ArrowCursor)
-            for child in widget.findChildren(type(widget).__mro__[0]):
-                pass  # findChildren handles recursion
         # Use Qt's own recursive widget walk
         for btn in self.findChildren(QPushButton):
             try:

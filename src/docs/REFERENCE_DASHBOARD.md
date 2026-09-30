@@ -564,7 +564,6 @@ per specialist type, called exclusively by `dash_plotter_json.py`.
 | Function | Purpose |
 |---|---|
 | `get(template_key)` | Returns the template function for `template_key`. Raises `KeyError` if not registered. |
-| `list_templates()` | Returns all registered template keys as `list[str]`. |
 | `health_analysis(data)` | Template for `health_garmin_*_dash.py` specialists — profile, metric summary table, flagged-days block, assistant instructions. Returns a ready-to-use Markdown string for Open WebUI / Ollama context. |
 
 **Registry:** `TEMPLATES = {"health_analysis": health_analysis, ...}` — extended with one entry per template as new specialist types are added.

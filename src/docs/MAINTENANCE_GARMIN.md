@@ -542,9 +542,9 @@ Garmin stores intraday detail for ~1–2 years. Older data returns daily aggrega
 
 ---
 
-## Chunked sync
+## Per-day resume safety
 
-`SYNC_CHUNK_SIZE` (default 10) — days processed per chunk before `quality_log.json` is flushed. If interrupted, next run resumes from first unwritten day. Set to `0` for single-pass. Does not affect `run_import()`.
+`_save_quality_log()` is called after every individual day (upgrade, downgrade, and error paths alike) — every day is its own atomic resume point. If interrupted, the next run resumes from the first unwritten day. Replaces the earlier chunk-based flushing (`SYNC_CHUNK_SIZE`, removed v1.4.2) — no separate checkpoint state needed. Does not affect `run_import()`.
 
 ---
 

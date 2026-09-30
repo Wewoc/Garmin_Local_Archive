@@ -87,23 +87,6 @@ class TestStoreApiKey:
             assert ccs.store_api_key("anthropic", "sk-test-123") is False
 
 
-class TestClearApiKey:
-
-    def test_deletes_returns_true(self):
-        mock_kr = MagicMock()
-        with patch.dict("sys.modules", {"keyring": mock_kr}):
-            ok = ccs.clear_api_key("anthropic")
-        assert ok is True
-        mock_kr.delete_password.assert_called_once_with(
-            "GarminLocalArchive", "cloud_llm_anthropic_api_key")
-
-    def test_wcm_failure_returns_false(self):
-        mock_kr = MagicMock()
-        mock_kr.delete_password.side_effect = Exception("WCM delete error")
-        with patch.dict("sys.modules", {"keyring": mock_kr}):
-            assert ccs.clear_api_key("anthropic") is False
-
-
 class TestProviderNormalization:
     # garmin_collector-3_experiment, post-Baustein-23 review: a Save
     # from app/panel_mcp.py or clients/mcp_server_gui.py only ever
@@ -128,13 +111,6 @@ class TestProviderNormalization:
             ccs.store_api_key("OpenAI", "sk-test")
         mock_kr.set_password.assert_called_once_with(
             "GarminLocalArchive", "cloud_llm_openai_api_key", "sk-test")
-
-    def test_clear_api_key_normalizes_mixed_case(self):
-        mock_kr = MagicMock()
-        with patch.dict("sys.modules", {"keyring": mock_kr}):
-            ccs.clear_api_key("Anthropic")
-        mock_kr.delete_password.assert_called_once_with(
-            "GarminLocalArchive", "cloud_llm_anthropic_api_key")
 
     def test_unnormalized_write_reaches_normalized_read(self):
         # The exact regression scenario: a legacy "Anthropic" value

@@ -117,8 +117,3 @@ def get(field: str, date_from: str, date_to: str,
 def list_fields() -> list[str]:
     """Return all registered generic field names."""
     return list(_FIELD_MAP.keys())
-
-
-def get_label(field: str) -> tuple[str, str]:
-    """Return (label, unit) for a generic field name."""
-    return _LABEL_MAP.get(field, (field, ""))

@@ -550,7 +550,6 @@ class ForceRefetchReviewDialog(QDialog):
     def __init__(self, parent, results: list[dict]):
         super().__init__(parent)
         self._app = parent._app
-        self._results = results
         self._checkboxes: dict[str, QCheckBox] = {}  # date_str -> checkbox
 
         self.setWindowTitle("Force Refetch — Review")

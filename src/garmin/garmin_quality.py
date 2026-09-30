@@ -26,7 +26,7 @@ Implementation is split across garmin/quality/ sub-modules:
   _assess.py — assess_quality (high/standard/failed), assess_quality_fields
   _scan.py   — get_low_quality_dates, _backfill_quality_log
   _maint.py  — QUALITY_RANK, _upsert_quality, _set_first_day,
-               cleanup_before_first_day, set_unknown_device_name
+               set_unknown_device_name
   _stats.py  — get_archive_stats
 
 This facade re-exports all public symbols — callers remain unchanged.
@@ -69,7 +69,6 @@ from quality._maint import (
     is_downgrade,
     _upsert_quality,
     _set_first_day,
-    cleanup_before_first_day,
     record_attempt,
     record_field_backfill_failure,
     record_field_backfill_failures,

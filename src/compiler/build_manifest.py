@@ -218,7 +218,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/popups/encrypted_dashboards.py": ["def open_popup"],
     "app/popups/_dashboard_build.py": ["def run_dashboards", "def run_encrypted"],
     "app/outputs/output_helpers.py": [
-        "def open_data_folder", "def open_last_html", "def copy_last_error_log",
+        "def open_data_folder", "def copy_last_error_log",
         "def open_local_config", "def create_task_scheduler_xml",
     ],
     "app/outputs/bulk_import.py": ["def run_import"],
@@ -287,7 +287,7 @@ SCRIPT_SIGNATURES_BASE = {
     "clients/mcp_sql.py": ["def init_db", "def get_connection"],
     "clients/mcp_update.py": ["def sync_all"],
     "clients/chat_session_store.py": ["def list_sessions", "def save_session", "def load_session"],
-    "clients/cloud_credential_store.py": ["def get_api_key", "def store_api_key", "def clear_api_key"],
+    "clients/cloud_credential_store.py": ["def get_api_key", "def store_api_key"],
     "clients/mcp_client.py": ["def is_reachable", "def list_tools", "def call_tool"],
     "clients/mcp_process.py": ["def start", "def stop", "def is_running"],
     "clients/mcp_tool_chat.py": ["def converse"],

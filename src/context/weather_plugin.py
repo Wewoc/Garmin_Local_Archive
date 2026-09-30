@@ -23,7 +23,6 @@ import garmin_config as cfg
 # ── Plugin identity ────────────────────────────────────────────────────────────
 
 NAME        = "weather"
-DESCRIPTION = "Open-Meteo daily weather data (temperature, precipitation, wind, UV, sunshine)"
 
 # ── API ────────────────────────────────────────────────────────────────────────
 
