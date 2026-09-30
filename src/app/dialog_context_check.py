@@ -271,7 +271,6 @@ class ContextCoordinateFixDialog(QDialog):
     def __init__(self, parent, findings: list[dict]):
         super().__init__(parent)
         self._app = parent._app
-        self._findings = findings
         self._checkboxes: list[tuple[QCheckBox, dict]] = []
         self._link_lat: float | None = None
         self._link_lon: float | None = None

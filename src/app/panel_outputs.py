@@ -564,9 +564,6 @@ class PanelOutputs(QWidget):
     def _open_data_folder(self):
         return output_helpers.open_data_folder(self)
 
-    def _open_last_html(self):
-        return output_helpers.open_last_html(self)
-
     def _copy_last_error_log(self):
         return output_helpers.copy_last_error_log(self)
 

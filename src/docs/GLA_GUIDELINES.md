@@ -315,7 +315,7 @@ calls out to the network.
 dashboards/{name}_dash.py   — specialist: declares META, fetches data via
       │                        health_map/context_map, returns a neutral dict
       ▼
-layouts/dash_runner.py      — orchestrates: scans available specialists,
+dashboards/dash_runner.py   — orchestrates: scans available specialists,
       │                        drives the build for the requested formats
       ▼
 layouts/dash_plotter_*.py   — plotter: renders the neutral dict to one

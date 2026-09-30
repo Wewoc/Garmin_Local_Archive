@@ -102,7 +102,6 @@ Feature-driven log — for technical details, see [CHANGELOG.md](src/docs/CHANGE
 - Complete overhaul of the user interface to a more modern window system.
 - Dashboards can now be viewed directly in the app, without an external browser.
 - Login flow secured: active confirmation required before every first-time login.
-- New splash screen on program startup.
 
 ## v1.5.0.x – v1.5.1.x — Automatic Archive Backup
 

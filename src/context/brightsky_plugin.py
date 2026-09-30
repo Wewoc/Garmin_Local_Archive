@@ -34,11 +34,6 @@ import garmin_config as cfg
 # ── Plugin identity ────────────────────────────────────────────────────────────
 
 NAME        = "brightsky"
-DESCRIPTION = (
-    "Brightsky DWD hourly weather data aggregated to daily values "
-    "(temperature, humidity, precipitation, sunshine, wind, cloud cover, "
-    "pressure, condition). Germany only. Historical from 2010-01-01."
-)
 
 # ── Adapter ────────────────────────────────────────────────────────────────────
 

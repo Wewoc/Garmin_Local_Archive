@@ -46,6 +46,7 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 import garmin_app_settings as _settings
 import garmin_app_controller as _controller
 import garmin_redact as _redact
+import qwebengine_hardening
 import theme
 
 from app.panel_settings   import PanelSettings
@@ -185,7 +186,7 @@ class GarminApp(QMainWindow):
             if not base_dir:
                 return
             import garmin_mobile_landing as _landing
-            _landing.write_index_html(base_dir)
+            _landing.ensure_index_html(base_dir)
         except Exception:
             pass
 
@@ -337,6 +338,7 @@ class GarminApp(QMainWindow):
         tab3_lay.addLayout(xlsx_combo_row)
 
         self._xlsx_view = QWebEngineView()
+        qwebengine_hardening.harden(self._xlsx_view)
         self._xlsx_view.setSizePolicy(QSizePolicy.Policy.Expanding,
                                       QSizePolicy.Policy.Expanding)
         self._xlsx_view.setStyleSheet(f"background: {self.BG};")

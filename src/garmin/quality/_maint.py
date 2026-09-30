@@ -16,8 +16,6 @@ from datetime import date, datetime
 
 import garmin_config as cfg
 
-from garmin_utils import extract_date_from_filename
-
 log = logging.getLogger(__name__)
 
 # Quality rank — defined here, re-exported via facade (without leading underscore)
@@ -356,65 +354,3 @@ def _set_first_day(data: dict, client) -> None:
     else:
         log.warning("  Could not determine first_day — will retry on next run.")
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Clean archive
-# ══════════════════════════════════════════════════════════════════════════════
-
-def cleanup_before_first_day(data: dict, dry_run: bool = False) -> dict:
-    """
-    Removes all raw/ and summary/ files before first_day, and removes
-    corresponding entries from quality_log.json.
-
-    dry_run=True: only counts and returns stats, does not delete anything.
-    Returns {"files_deleted": int, "entries_removed": int, "first_day": str}.
-    """
-    from quality._io import _save_quality_log
-
-    first_day_str = data.get("first_day")
-    if not first_day_str:
-        log.warning("  cleanup_before_first_day: first_day not set — nothing to clean.")
-        return {"files_deleted": 0, "entries_removed": 0, "first_day": None}
-
-    try:
-        cutoff = date.fromisoformat(first_day_str)
-    except ValueError:
-        log.warning(f"  cleanup_before_first_day: invalid first_day '{first_day_str}'.")
-        return {"files_deleted": 0, "entries_removed": 0, "first_day": first_day_str}
-
-    files_deleted = 0
-
-    # Delete raw files before cutoff
-    for f in cfg.RAW_DIR.glob("garmin_raw_*.json"):
-        d = extract_date_from_filename(f)
-        if d is None:
-            continue
-        if d < cutoff:
-            if not dry_run:
-                f.unlink(missing_ok=True)
-            files_deleted += 1
-
-    # Delete summary files before cutoff
-    for f in cfg.SUMMARY_DIR.glob("garmin_*.json"):
-        d = extract_date_from_filename(f, prefix="garmin_")
-        if d is None:
-            continue
-        if d < cutoff:
-            if not dry_run:
-                f.unlink(missing_ok=True)
-            files_deleted += 1
-
-    # Remove entries from quality log
-    before = len(data["days"])
-    data["days"] = [e for e in data["days"] if e.get("date", "9999") >= first_day_str]
-    entries_removed = before - len(data["days"])
-
-    if not dry_run:
-        _save_quality_log(data)
-
-    if dry_run:
-        log.info(f"  cleanup_before_first_day (dry run): {files_deleted} files, {entries_removed} log entries would be removed")
-    else:
-        log.info(f"  cleanup_before_first_day: {files_deleted} files deleted, {entries_removed} log entries removed")
-
-    return {"files_deleted": files_deleted, "entries_removed": entries_removed, "first_day": first_day_str}

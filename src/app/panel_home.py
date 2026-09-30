@@ -29,6 +29,7 @@ from datetime import date
 from pathlib import Path
 
 import frozen_paths
+import qwebengine_hardening
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -349,6 +350,7 @@ class PanelHome(QWidget):
         tab_lay.addLayout(dash_combo_row)
 
         self._dash_view = QWebEngineView()
+        qwebengine_hardening.harden(self._dash_view)
         self._dash_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._dash_view.setStyleSheet(f"background: {self._app.BG};")

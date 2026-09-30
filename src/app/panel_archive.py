@@ -7,8 +7,8 @@ app/panel_archive.py
 Garmin Local Archive — Archive Panel
 
 PanelArchive — PyQt6 QWidget for archive info display, integrity check,
-restore data, clean archive, schema migration dialog, failed-days dialog,
-and mirror operation.
+restore data, schema migration dialog, failed-days dialog, and mirror
+operation.
 
 Rules:
   - __init__(self, app) — app is the GarminApp(QMainWindow) instance
@@ -25,17 +25,13 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDialog, QListWidget, QMessageBox, QFrame, QTableWidgetItem, QInputDialog,
+    QWidget, QDialog, QMessageBox, QTableWidgetItem, QInputDialog,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 import garmin_app_controller as _controller
 import garmin_quality as _quality
 from .dialogs import PasswordConfirmDialog
-
-_WCM_MIRROR_KEY = "gla_mirror_password"
 
 
 class PanelArchive(QWidget):
@@ -319,137 +315,6 @@ class PanelArchive(QWidget):
                 self._app._log_bg(f"✗ Restore failed: {e}")
 
         threading.Thread(target=_do_restore, daemon=True).start()
-
-    # ── Clean archive ──────────────────────────────────────────────────────────
-
-    def _clean_archive(self):
-        """Opens Clean Archive dialog. Main Thread only."""
-        import json as _json
-        s        = self._app._panel_settings._collect_settings()
-        base_dir = Path(s["base_dir"]).expanduser() if s["base_dir"] else None
-        if not base_dir:
-            self._app._log("✗ Clean Archive: no data folder set.")
-            return
-        quality_log = base_dir / "garmin_data" / "log" / "quality_log.json"
-        if not quality_log.exists():
-            self._app._log("✗ Clean Archive: quality_log.json not found.")
-            return
-        try:
-            data = _json.loads(quality_log.read_text(encoding="utf-8"))
-        except Exception as e:
-            self._app._log(f"✗ Clean Archive: could not read quality_log.json: {e}")
-            return
-
-        first_day_str = data.get("first_day")
-        if not first_day_str:
-            self._app._log("✗ Clean Archive: first_day not set in quality_log.json.")
-            return
-        try:
-            cutoff = date.fromisoformat(first_day_str)
-        except ValueError:
-            self._app._log(
-                f"✗ Clean Archive: invalid first_day value '{first_day_str}'.")
-            return
-
-        to_delete = []
-        raw_dir     = base_dir / "garmin_data" / "raw"
-        summary_dir = base_dir / "garmin_data" / "summary"
-        for folder, pattern, prefix in [
-            (raw_dir,     "garmin_raw_*.json", "garmin_raw_"),
-            (summary_dir, "garmin_*.json",     "garmin_"),
-        ]:
-            if not folder.exists():
-                continue
-            for f in sorted(folder.glob(pattern)):
-                try:
-                    d = date.fromisoformat(f.stem.replace(prefix, ""))
-                    if d < cutoff:
-                        to_delete.append(f)
-                except ValueError:
-                    pass
-
-        entries_to_remove = [
-            e for e in data.get("days", [])
-            if e.get("date", "9999") < first_day_str
-        ]
-
-        if not to_delete and not entries_to_remove:
-            self._app._log(
-                f"✓ Clean Archive: nothing to clean before {first_day_str}.")
-            return
-
-        # ── Dialog ────────────────────────────────────────────────────────────
-        dlg = QDialog(self._app)
-        dlg.setWindowTitle("Clean Archive")
-        dlg.setModal(True)
-        dlg.setMinimumWidth(480)
-        dlg.setStyleSheet(f"background: {self._app.BG}; color: {self._app.TEXT};")
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(20, 14, 20, 14)
-        lay.setSpacing(8)
-
-        title = QLabel("🗑  Clean Archive")
-        title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {self._app.TEXT};")
-        lay.addWidget(title)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {self._app.ACCENT};")
-        lay.addWidget(sep)
-
-        info = QLabel(f"first_day:  {first_day_str}")
-        info.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        info.setStyleSheet(f"color: {self._app.ACCENT};")
-        lay.addWidget(info)
-
-        hint = QLabel("The following files will be permanently deleted:")
-        hint.setFont(QFont("Segoe UI", 9))
-        hint.setStyleSheet(f"color: {self._app.TEXT2};")
-        lay.addWidget(hint)
-
-        listbox = QListWidget()
-        listbox.setStyleSheet(
-            f"background: {self._app.BG3}; color: {self._app.TEXT2}; "
-            f"border: none; font-family: Consolas; font-size: 8pt;")
-        listbox.setFixedHeight(200)
-        for f in to_delete:
-            listbox.addItem(f.name)
-        for e in entries_to_remove:
-            listbox.addItem(f"[log entry] {e.get('date', '?')}")
-        lay.addWidget(listbox)
-
-        btn_row = QHBoxLayout()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        cancel_btn.setStyleSheet(
-            f"QPushButton {{ background: {self._app.BG3}; color: {self._app.TEXT2}; "
-            f"border: none; padding: 6px 18px; }}")
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.clicked.connect(dlg.reject)
-
-        delete_btn = QPushButton("🗑  Löschen")
-        delete_btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        delete_btn.setStyleSheet(
-            "QPushButton { background: #e94560; color: #eaeaea; "
-            "border: none; padding: 6px 18px; }")
-        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        def do_delete():
-            result = _quality.cleanup_before_first_day(data, dry_run=False)
-            dlg.accept()
-            n_files   = result.get("files_deleted", 0)
-            n_entries = result.get("entries_removed", 0)
-            self._app._log(
-                f"✓ Clean Archive: {n_files} files deleted, "
-                f"{n_entries} log entries removed"
-            )
-        delete_btn.clicked.connect(do_delete)
-        btn_row.addWidget(cancel_btn)
-        btn_row.addStretch()
-        btn_row.addWidget(delete_btn)
-        lay.addLayout(btn_row)
-        dlg.exec()
 
     # ── Schema migration check ─────────────────────────────────────────────────
 
@@ -958,25 +823,3 @@ class PanelArchive(QWidget):
                 self._mirror_running = False
 
         threading.Thread(target=_do_mirror, daemon=True).start()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Module-level helpers — WCM for mirror password
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _archive_load_mirror_password() -> str | None:
-    """Loads mirror password from WCM. Returns None if not stored."""
-    try:
-        import keyring
-        return keyring.get_password("garmin_local_archive", _WCM_MIRROR_KEY)
-    except Exception:
-        return None
-
-
-def _archive_save_mirror_password(password: str) -> None:
-    """Saves mirror password to WCM. Silent on failure."""
-    try:
-        import keyring
-        keyring.set_password("garmin_local_archive", _WCM_MIRROR_KEY, password)
-    except Exception:
-        pass

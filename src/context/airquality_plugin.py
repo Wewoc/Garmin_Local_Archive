@@ -24,7 +24,6 @@ import garmin_config as cfg
 # ── Plugin identity ────────────────────────────────────────────────────────────
 
 NAME        = "airquality"
-DESCRIPTION = "Open-Meteo daily air quality data — PM2.5, PM10, European AQI, NO2, Ozone (daily mean from hourly)"
 
 # ── API ────────────────────────────────────────────────────────────────────────
 

@@ -6,7 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.3.2**
+**Currently stable — v1.7.3.3**
 
 ---
 
@@ -611,6 +611,20 @@ v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left
   (`MAINTENANCE_GLOBAL.md`/`MINDSET.md`: intentionally excluded from the
   regular reference docs, project-humor module, separately CC-BY-licensed).
   Left as a silent no-op on T3, decided against fixing.
+- `dash_runner.py` `html_complex` filename bug (found v1.7.3.3) — `scan()`
+  normalizes the `"html_complex"` format key to `"html"` for GUI display,
+  but `build()`'s output-filename lookup uses that normalized key instead
+  of the original, so every `html_complex` specialist (Sleep Dashboard,
+  Sleep & Recovery, Explorer, Heatmap, Live Tracking) writes its file
+  under `{module_name}.html` instead of the name declared in its own
+  `META["formats"]`. In practice harmless for the GUI dashboard viewer
+  (scans the `dashboards/` folder generically, no fixed filename
+  expected) — only `garmin_mobile_landing.py`'s hardcoded Sleep Dashboard
+  lookup broke, worked around locally there (v1.7.3.3). Root cause not
+  fixed — real fix is `build()` using the already-computed `plotter_key`
+  instead of `fmt` for the filename lookup ([dash_runner.py:247]). Left
+  open, not a committed timeline — revisit if another fixed-filename
+  consumer of an `html_complex` specialist is ever added.
 
 ---
 

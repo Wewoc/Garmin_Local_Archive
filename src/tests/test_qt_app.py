@@ -1057,7 +1057,7 @@ class TestDialogContextCheck:
 #  7. PanelChat
 # ══════════════════════════════════════════════════════════════════════════════
 # Smoke-level only — no real threading.Thread runs (would hit the real
-# Ollama HTTP client). Worker-callback methods (_chat_on_reply/_chat_on_error/
+# Ollama HTTP client). Worker-callback methods (_chat_on_stream_done/_chat_on_error/
 # etc.) are called directly instead of via the background thread, mirroring
 # the pattern already used for TestPanelOutputs/TestPanelTimer.
 
@@ -1112,18 +1112,6 @@ class TestPanelChat:
         panel._input.setText("hello")
         panel._chat_on_send()
         assert panel._history == []
-
-    def test_chat_on_reply_resets_state_and_appends_history(self, qtbot, app_mock):
-        from app.panel_chat import PanelChat
-        panel = PanelChat(app_mock)
-        qtbot.addWidget(panel)
-        panel._request_running = True
-        panel._send_btn.setEnabled(False)
-        panel._history = [{"role": "user", "content": "hi"}]
-        panel._chat_on_reply("hello back")
-        assert panel._request_running is False
-        assert panel._send_btn.isEnabled()
-        assert panel._history[-1] == {"role": "assistant", "content": "hello back"}
 
     def test_chat_on_error_pops_trailing_user_message(self, qtbot, app_mock):
         from app.panel_chat import PanelChat
@@ -1278,11 +1266,6 @@ class TestPanelChat:
         from app.panel_chat import PanelChat
         panel = PanelChat(app_mock)
         qtbot.addWidget(panel)
-        panel._history = [{"role": "user", "content": "hi"}]
-        with patch.object(panel, "_chat_save_session") as save:
-            panel._chat_on_reply("hello back")
-        save.assert_called_once()
-
         panel._history = [{"role": "user", "content": "hi"}]
         with patch.object(panel, "_chat_save_session") as save:
             panel._chat_on_stream_done("hello back")

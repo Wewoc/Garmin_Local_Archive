@@ -1414,15 +1414,6 @@ class PanelChat(QWidget):
         self._elapsed_seconds += 1
         self._status_label.setText(f"Waiting for response — {self._elapsed_seconds}s")
 
-    def _chat_on_reply(self, reply: str):
-        self._elapsed_timer.stop()
-        self._request_running = False
-        self._send_btn.setEnabled(True)
-        self._status_label.setText("")
-        self._history.append({"role": "assistant", "content": reply})
-        self._chat_append_line("Assistant", reply)
-        self._chat_save_session()
-
     def _chat_on_error(self, error: Exception):
         self._elapsed_timer.stop()
         self._request_running = False
@@ -1435,12 +1426,13 @@ class PanelChat(QWidget):
         self._chat_append_system(str(error))
 
     def _chat_on_stream_done(self, full_text: str):
-        """Streaming counterpart to _chat_on_reply() (Baustein 20,
-        Phase 1 Streaming). full_text was already rendered
-        chunk-by-chunk into self._chat_view via
-        _chat_append_stream_chunk() while the worker was running — only
-        the bookkeeping tail of _chat_on_reply() remains here (history/
-        status/button), no _chat_append_line() call, or the reply would
+        """Terminal handler for the plain (non-MCP) chat path (Baustein 20,
+        Phase 1 Streaming — replaced the older, non-streaming
+        _chat_on_reply(), removed once nothing called it anymore).
+        full_text was already rendered chunk-by-chunk into
+        self._chat_view via _chat_append_stream_chunk() while the worker
+        was running — only the bookkeeping tail (history/status/button)
+        remains here, no _chat_append_line() call, or the reply would
         appear twice."""
         self._elapsed_timer.stop()
         self._request_running = False
@@ -1473,7 +1465,7 @@ class PanelChat(QWidget):
             self._chat_append_system(str(error))
 
     def _chat_on_mcp_reply(self, result: dict):
-        """MCP-mode counterpart to _chat_on_reply() above. result is
+        """Terminal handler for the MCP-tool-calling chat path. result is
         mcp_tool_chat.converse()'s return dict — {"content", "messages",
         "hit_max_turns"}. self._history is replaced with result["messages"]
         wholesale (not appended-to) — it already carries the user turn
@@ -1509,7 +1501,8 @@ class PanelChat(QWidget):
         Phase 1 methods, one bubble per turn instead of one for the
         whole conversation) and each tool call got its own marker via
         _chat_append_system() — only the bookkeeping tail remains
-        here, same split as _chat_on_stream_done() vs _chat_on_reply()."""
+        here, same split as _chat_on_stream_done() vs _chat_on_mcp_reply()
+        (streaming vs whole-turn-at-once, not plain-chat vs MCP)."""
         self._elapsed_timer.stop()
         self._request_running = False
         self._send_btn.setEnabled(True)
