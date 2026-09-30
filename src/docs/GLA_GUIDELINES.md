@@ -527,6 +527,15 @@ that; see `CHANGELOG.md`). `compiler/build_gui.py` ("🦄 Garmin Local
 Archiv Builder") is an optional Tkinter front end for the same
 copy-then-build workflow, not a new build target.
 
+**(v1.7.3.4)** T2+T3 can also be built via GitHub Actions
+(`.github/workflows/build-release.yml`, `workflow_dispatch`-only — a
+manual, one-click trigger, never automatic on push). It runs the same
+`build_all.py` pipeline through a thin CI-only wrapper
+(`compiler/build_all_github.py`) and, only on success, publishes a
+GitHub Release with the four build outputs attached. Local builds via
+`build_all.py`/`build_gui.py` are unaffected and remain the primary
+path.
+
 ---
 
 ## 12. garmin_config.py — coupling risk

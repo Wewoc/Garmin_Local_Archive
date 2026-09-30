@@ -4,6 +4,7 @@
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![No Cloud](https://img.shields.io/badge/cloud-none-brightgreen)
 ![Release](https://img.shields.io/github/v/release/Wewoc/Garmin_Local_Archive)
+[![Tests](https://github.com/Wewoc/Garmin_Local_Archive/actions/workflows/test-suite.yml/badge.svg)](https://github.com/Wewoc/Garmin_Local_Archive/actions/workflows/test-suite.yml)
 [![Garmin Local Archive MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/Wewoc/Garmin_Local_Archive/badges/score.svg)](https://glama.ai/mcp/servers/Wewoc/Garmin_Local_Archive)
 
 **Archive and analyze your Garmin Health data local.**
@@ -64,7 +65,7 @@ account. See [QUICKSTART.txt](src/docs/QUICKSTART.txt), "Try it first".
 
 **Scope & limitations:** Local-first, personal use, no enterprise ambitions.
 - Relies on python-garminconnect. Since Garmin does not offer a public API for personal use, moste non-commercial tools share this dependency. To mitigate unannounced upstream changes, GLA automatically detects and logs structural API shifts.
-- Local test suites cover the full pipeline plus a separate build-output validation suite — no automated build/test CI yet; CodeQL security scanning runs via GitHub Actions on every push/PR to main
+- Local test suites cover the full pipeline plus a separate build-output validation suite. The full suite also runs automatically via GitHub Actions on every push to main (Windows runner), alongside dead-code and CVE-relevance checks; CodeQL security scanning runs on every push/PR to main
 - HTML dashboards require a one-time internet connection to download Plotly (~3 MB) — cached locally after that
 - Per-day checkpointing: an interrupted sync resumes from the last completed day, no full re-sync required
 - Historical data quality depends on Garmin servers
@@ -340,7 +341,7 @@ python tests/test_updater.py                  # T2 + T3 self-updater (v1.7.2.4, 
 
 `build_all.py` runs `test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_broker.py`, and `test_static.py` as pre-build gates — a failing test aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` and the six Chat-tab/MCP-process suites above are run manually via `pytest`.
 
-GUI changes are verified manually before release. Full CI/CD with automated builds and release packaging is planned for a later version.
+GUI changes are verified manually before release. Automated builds and release packaging run via a manually-triggered GitHub Actions workflow (`build-release.yml`) — not on every push, kept as a deliberate one-click step so not every commit cuts a release.
 
 ---
 
