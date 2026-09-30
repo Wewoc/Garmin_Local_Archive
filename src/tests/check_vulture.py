@@ -131,11 +131,21 @@ def filter_whitelisted(findings: list[dict]) -> tuple[list[dict], int]:
     vulture_whitelist.VULTURE_WHITELIST. Scoped by file, not by name alone —
     see check_vulture.py's module docstring for why.
 
+    File paths are compared with backslashes normalized to forward slashes
+    on both sides: vulture_whitelist.py's keys were written from a Windows
+    run (backslashes, per its own docstring), while Vulture on a Linux CI
+    runner reports forward slashes — without normalizing, every whitelist
+    entry with a subdirectory silently fails to match.
+
     Returns (remaining findings, count filtered out).
     """
+    whitelist = {
+        (file.replace("\\", "/"), name): reason
+        for (file, name), reason in vulture_whitelist.VULTURE_WHITELIST.items()
+    }
     remaining = [
         f for f in findings
-        if (f["file"], f["name"]) not in vulture_whitelist.VULTURE_WHITELIST
+        if (f["file"].replace("\\", "/"), f["name"]) not in whitelist
     ]
     return remaining, len(findings) - len(remaining)
 
