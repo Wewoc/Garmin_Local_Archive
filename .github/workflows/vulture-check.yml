@@ -1,11 +1,11 @@
-name: License Bestandsscan
+name: Vulture Dead Code Check
 
 on:
   push:
     branches: [ "main" ]
 
 jobs:
-  scan:
+  vulture:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -16,12 +16,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install ScanCode Toolkit
-        run: pip install scancode-toolkit
-
-      - name: Install pip-licenses
-        run: pip install pip-licenses
-
       - name: Install project dependencies (Linux-kompatibel)
         run: |
           if [ -f requirements.txt ]; then
@@ -29,16 +23,16 @@ jobs:
             pip install -r requirements_linux.txt || true
           fi
 
-      - name: Dependency license list
-        run: pip-licenses --format=markdown --with-urls > dependency_licenses.md
+      - name: Install Vulture
+        run: pip install vulture
 
-      - name: Codebase license/copyright scan
-        run: scancode -clip --json-pp scancode_report.json .
+      - name: Run dead code check
+        run: python tests/check_vulture.py
+        working-directory: src
 
-      - name: Upload reports
+      - name: Upload vulture report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: license-scan-reports
-          path: |
-            dependency_licenses.md
-            scancode_report.json
+          name: vulture-report
+          path: src/vulture.json
