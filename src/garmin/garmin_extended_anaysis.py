@@ -948,8 +948,8 @@ def chakra_status(value, low_thresh, high_thresh, inverted: bool) -> str:
     return "open"
 
 
-def chakra_recommendation(name: str, status: str, hrv_delta: int, steps_delta: int, ce: int) -> str:
-    rec_index = (hrv_delta + steps_delta + ce) % 10
+def chakra_recommendation(name: str, status: str, hrv_delta: int, steps_delta: int, bb_delta: int, ce: int) -> str:
+    rec_index = (hrv_delta + steps_delta + bb_delta + ce) % 10
     key = (name, status)
     pool = CHAKRA_RECOMMENDATIONS.get(key, ["The algorithm has no recommendation for this configuration."])
     return pool[rec_index % len(pool)]
@@ -1137,11 +1137,13 @@ def build_html(today: dict, summaries_30: list[dict], profile: dict,
     bl_stress = compute_baseline(all_stress)
     bl_sleep  = compute_baseline(all_sleep)
     bl_steps  = compute_baseline(all_steps)
+    bl_bb     = compute_baseline(all_bb)
 
     hrv_delta    = discretise_delta(hrv,    bl_hrv)
     stress_delta = discretise_delta(stress, bl_stress)
     sleep_delta  = discretise_delta(sleep_h,bl_sleep)
     steps_delta  = discretise_delta(steps,  bl_steps)
+    bb_delta     = discretise_delta(body_battery, bl_bb)
 
     # ── Crystal energy ──
     ce = crystal_energy(today_str)
@@ -1223,7 +1225,7 @@ def build_html(today: dict, summaries_30: list[dict], profile: dict,
     for name, sanskrit, color, element, metric_name, field_key, low, high, inv in CHAKRA_DEFS:
         val    = chakra_values_map.get(field_key)
         status = chakra_status(val, low, high, inv)
-        rec    = chakra_recommendation(name, status, hrv_delta, steps_delta, ce)
+        rec    = chakra_recommendation(name, status, hrv_delta, steps_delta, bb_delta, ce)
         status_icon = {"open": "✓", "blocked": "⚠", "overstimulated": "⚡"}[status]
         status_color = {"open": "#4caf50", "blocked": "#f44336", "overstimulated": "#ff9800"}[status]
         chakra_rows.append((color, name, sanskrit, element, metric_name,
@@ -1309,8 +1311,6 @@ def build_html(today: dict, summaries_30: list[dict], profile: dict,
         f"showlegend: false, hoverinfo: 'none' }}]);\n"
         f"    {rainbow_trail_js}"
     )
-    rainbow_js = "// no rainbow today" if ce < 80 else "// 🌈 Crystal Energy Index > 80. The timeline gets a rainbow gradient. This is not a bug."
-
     chakra_rows_html = ""
     for color, name, sanskrit, element, metric_name, val, status, icon, scolor, rec in chakra_rows:
         val_str = f"{val:.0f}" if isinstance(val, (int, float)) else "—"
@@ -1614,6 +1614,7 @@ def build_html(today: dict, summaries_30: list[dict], profile: dict,
         <div class="chart-container"><div id="chart_biorhythm"></div></div>
         <div class="chart-container"><div id="chart_cosmic"></div></div>
         <div class="chart-container"><div id="chart_ce"></div></div>
+        <div class="chart-container"><div id="chart_activity"></div></div>
     </div>
 
     <!-- § 11 ASTROLOGICAL PROFILE -->
@@ -1753,6 +1754,21 @@ def build_html(today: dict, summaries_30: list[dict], profile: dict,
         yaxis: {{ ...layout_base.yaxis, title: 'Crystal Energy (0–100)', range: [0, 110] }},
         yaxis2: {{ gridcolor: '#21262d', linecolor: '#30363d', tickfont: {{ color: '#8b949e' }},
                    title: 'HRV (ms)', overlaying: 'y', side: 'right' }},
+        height: 280,
+    }});
+
+    // Chart 5: Activity
+    Plotly.newPlot('chart_activity', [
+        {{ x: DATES, y: {json.dumps(steps_series)}, name: 'Steps', mode: 'lines+markers',
+           line: {{ color: '#f59e0b', width: 2 }}, marker: {{ size: 4 }} }},
+        {{ x: DATES, y: {json.dumps(sleep_series)}, name: 'Sleep (h)', mode: 'lines+markers',
+           line: {{ color: '#38bdf8', width: 2 }}, marker: {{ size: 4 }}, yaxis: 'y2' }},
+    ], {{
+        ...layout_base,
+        title: {{ text: '§ 10.5 — Steps / Sleep · 30 days', font: {{ color: '#e6edf3', size: 13 }} }},
+        yaxis: {{ ...layout_base.yaxis, title: 'Steps' }},
+        yaxis2: {{ gridcolor: '#21262d', linecolor: '#30363d', tickfont: {{ color: '#8b949e' }},
+                   title: 'Sleep (h)', overlaying: 'y', side: 'right' }},
         height: 280,
     }});
 

@@ -265,7 +265,7 @@ avoiding stale paths when `GARMIN_OUTPUT_DIR` is set after the module was first 
 | Function | Purpose |
 |---|---|
 | `validate(raw)` | Validates raw dict against cached schema. Returns `{"status", "schema_version", "timestamp", "issues"}`. Never modifies input. Fail-Closed: returns `"critical"` with a `missing_required` issue on `field: "schema"` if schema is absent (v1.5.6.3) |
-| `reload_schema()` | Reloads `garmin_dataformat.json` from disk — called by self-healing loop on version mismatch |
+| `reload_schema()` | Reloads `garmin_dataformat.json` from disk. Not called in production — schema is already fresh at every app start (loaded at module import), and self-healing runs once right after that. Test-only utility |
 | `current_version()` | Returns currently cached schema version string |
 
 **Issue types:**
@@ -367,7 +367,6 @@ matching on unknown text.
 | `_save_quality_log(data, skip_backup)` | `skip_backup=True` suppresses backup trigger. Default `False` triggers `garmin_backup.backup_quality_log()` |
 | `get_low_quality_dates(folder, known_dates)` | Scans `raw/` for files not in quality log |
 | `_set_first_day(data, client)` | Determines and persists `first_day`. Never overwrites existing value |
-| `cleanup_before_first_day(data, dry_run)` | Removes files and log entries before `first_day` |
 
 **Quality levels (v1.5.7+):**
 
@@ -917,7 +916,6 @@ the broker response contract, see `REFERENCE_BROKER.md`.
 | `_build_env(s, refresh_failed)` | Builds full ENV dict for subprocess |
 | `_apply_env(s, refresh_failed)` | Writes directly to `os.environ` (standalone only) |
 | `_check_failed_days_popup(...)` | Shows Ja/Nein popup for failed/low days with `recheck=true` |
-| `_clean_archive()` | Removes files before `first_day` after confirmation |
 | `_prompt_enc_key(mode)` | Modal encryption key input — `"setup"` or `"recovery"` |
 | `_prompt_token_expired()` | Warning popup for 429 risk on SSO fallback |
 | `_test_conn()` | Inner function in `_timer_loop()` — uses `garmin_api.login()` with full ENV setup and reload. No raw SSO. |

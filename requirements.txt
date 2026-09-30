@@ -51,3 +51,4 @@ pytest-cov
 pip-audit
 ruff
 bandit
+vulture

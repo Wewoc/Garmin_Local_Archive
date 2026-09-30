@@ -1,5 +1,95 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.3.3 — Vulture Dead-Code Cleanup + Discovered Bugs
+
+### Vulture Dead-Code Cleanup
+
+All 24 findings from the first full `check_vulture.py` run
+(2026-09-30) worked through individually — three flagged for extra
+caution (possible security/architecture implications), the rest
+grouped by pattern after those three were cleared. Full per-finding
+analysis and root-cause research in `changelog/anchor_delivery_1-7-*.md`
+and `PROTOKOLL.md`. Result: 0 findings remaining (down from 24), no new
+`vulture_whitelist.py` entries except one (`reload_schema`).
+
+**Security fix:** `qwebengine_hardening.harden()` was never actually
+called despite being documented as wired in since v1.6.0.4.4 — both
+embedded `QWebEngineView` instances (dashboard viewer, XLSX preview) ran
+without the intended hardening (file/remote URL access, JS popups,
+plugins, clipboard all left at Qt defaults). Root cause confirmed via
+git history: never wired, not a later regression. Now actually called
+after both view constructions.
+
+**Bug found via user report, not part of the original 24:** Sleep
+Dashboard showed "not available" in the Mobile Landing Page. Root cause
+traced to `dashboards/dash_runner.py`: the `"html_complex"` format key
+is normalized to `"html"` for GUI display, but the output filename
+lookup in `build()` uses the normalized key instead of the original —
+affects all 5 `html_complex` specialists (Sleep Dashboard, Sleep &
+Recovery, Explorer, Heatmap, Live Tracking), each written under
+`{module_name}.html` instead of its declared filename. Only
+`garmin_mobile_landing.py` is affected in practice (hardcodes an exact
+filename; the GUI dashboard viewer scans the folder generically). Fixed
+locally in `garmin_mobile_landing.py` (correct filename looked up); the
+underlying `dash_runner.py` bug is **not** fixed — tracked in
+ROADMAP.md.
+
+**Feature removal (completes an incomplete cleanup from v1.5.6):**
+`cleanup_before_first_day()` and its GUI entry point (`_clean_archive()`
+in `panel_archive.py`) are gone. The "Clean Archive" button itself was
+intentionally removed in v1.5.6 ("Mirror Import", legacy feature no
+longer needed) — the backend function was left behind unreachable and
+is now removed too.
+
+**Changed modules:**
+- `app/panel_home.py`, `garmin_app_base.py` — `qwebengine_hardening.harden()`
+  actually called after each `QWebEngineView()` construction
+- `garmin/garmin_validator.py`, `docs/REFERENCE_GARMIN.md` — `reload_schema()`
+  docstring corrected (never called in production by design, not a gap)
+- `app/panel_chat.py`, `tests/test_qt_app.py` — dead `_chat_on_reply()`
+  removed (superseded by `_chat_on_stream_done()` since streaming was
+  added, Baustein 20)
+- `context/airquality_plugin.py`, `weather_plugin.py`, `pollen_plugin.py`,
+  `brightsky_plugin.py`, `docs/REFERENCE_CONTEXT.md` — unused
+  `DESCRIPTION` constant removed (redundant with each module's own
+  docstring)
+- `garmin/garmin_extended_anaysis.py` (Easter Egg module) — dead
+  `rainbow_js` placeholder removed; `all_bb`/`bb_delta` now feeds
+  `chakra_recommendation()` like its four sibling metrics; new "§ 10.5 —
+  Steps / Sleep" chart renders `steps_series`/`sleep_series`, previously
+  computed and discarded
+- `app/panel_archive.py` — mirror-password WCM helpers and
+  `_clean_archive()` removed (dead since the "always prompt, no WCM
+  caching" security decision / the v1.5.6 button removal, respectively)
+- `layouts/dash_prompt_templates.py`, `maps/airquality_map.py` — unused
+  registry-introspection helpers `list_templates()`/`get_label()` removed
+- `app/panel_outputs.py`, `app/outputs/output_helpers.py`,
+  `clients/cloud_credential_store.py` — `_open_last_html()`/`open_last_html()`
+  and `clear_api_key()` removed (buttons intentionally removed from the
+  UI previously, functions left behind)
+- `compiler/build_manifest.py` — signature entries for the removed
+  functions above dropped
+- `layouts/garmin_mobile_landing.py` — Sleep Dashboard filename lookup
+  corrected (see bug above); `_ensure_mobile_landing()`'s call switched
+  from `write_index_html()` to `ensure_index_html()` — was regenerating
+  `index.html` on every app start instead of only when absent
+- `garmin/quality/_maint.py`, `garmin/garmin_quality.py`,
+  `docs/REFERENCE_GARMIN.md` — `cleanup_before_first_day()` removed
+  (see feature removal above)
+- `garmin/garmin_config.py`, `docs/MAINTENANCE_GARMIN.md`,
+  `docs/REFERENCE_GLOBAL.md` — deprecated `SYNC_CHUNK_SIZE` constant
+  removed (chunk logic itself removed in v1.4.2, constant left behind)
+- `garmin_app_screenshot.py` — dead `_walk()` first draft removed
+  (superseded by Qt's own `findChildren()` recursion, right below it)
+- `app/dialog_context_check.py`, `app/dialog_force_refetch.py` —
+  unused `self._findings`/`self._results` instance attributes removed
+  (the constructor parameter is used directly, the attribute never was)
+
+**Test result:** 2620 checks across 15 suites — all green, ruff 0
+errors, bandit 0 HIGH
+
+---
+
 ## v1.7.3.2 — Constant & Helper Dedup, CVE Whitelist Update, Demo Export Generator
 
 ### Constant & Helper Dedup

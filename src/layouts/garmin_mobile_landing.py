@@ -139,7 +139,11 @@ def write_index_html(base_dir: Path | None = None) -> bool:
             return ""
 
         dash_mobile = _read_dash("health_garmin_mobile.html")
-        dash_sleep  = _read_dash("sleep_dashboard.html")
+        # Actual filename on disk, not "sleep_dashboard.html" (the intended
+        # name, still shown in the UI label below) — dash_runner.py's
+        # html_complex format-key resolution writes it under the specialist
+        # module's own filename instead. Tracked separately, not fixed here.
+        dash_sleep  = _read_dash("sleep_garmin_html-xls_dash.html")
 
         # ── Render and write index.html atomically ────────────────────────────
         out_dir.mkdir(parents=True, exist_ok=True)

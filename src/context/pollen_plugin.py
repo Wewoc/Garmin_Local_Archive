@@ -25,7 +25,6 @@ import garmin_config as cfg
 # ── Plugin identity ────────────────────────────────────────────────────────────
 
 NAME        = "pollen"
-DESCRIPTION = "Open-Meteo daily pollen data — birch, grass, alder, mugwort, olive, ragweed (daily max from hourly)"
 
 # ── API ────────────────────────────────────────────────────────────────────────
 

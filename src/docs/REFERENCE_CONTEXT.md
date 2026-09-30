@@ -69,7 +69,6 @@ Plugins are **metadata-only** — no executable logic. Adding a new source means
 | Attribute | Type | Description |
 |---|---|---|
 | `NAME` | str | Unique source identifier (e.g. `"weather"`) |
-| `DESCRIPTION` | str | Human-readable description |
 | `API_URL_HISTORICAL` | str | Endpoint for historical data |
 | `API_URL_FORECAST` | str | Endpoint for recent/forecast data |
 | `HISTORICAL_LAG_DAYS` | int | Days before today where historical ends and forecast begins |

@@ -21,7 +21,9 @@ Responsibilities:
 
 Public functions:
   validate(raw)       → dict   — validate raw dict, return result object
-  reload_schema()     → None   — reload schema from disk (self-healing loop)
+  reload_schema()     → None   — force a schema reload from disk (test-only;
+                                  schema is already reloaded fresh at every
+                                  app start, see reload_schema() docstring)
   current_version()   → str    — return cached schema version string
 
 Result object structure:
@@ -128,8 +130,12 @@ _load_schema()
 def reload_schema() -> None:
     """
     Reloads garmin_dataformat.json from disk.
-    Called by the self-healing loop in garmin_collector.py after a
-    schema version mismatch is detected.
+    Not called anywhere in production — the schema is already loaded fresh
+    at module import, and the self-healing loop in garmin_collector.py
+    only runs once at app start, right after that import (the app is
+    started/closed once per day, not kept open across a schema edit).
+    Exposed as a public function for tests and for a possible future
+    runtime-reload path.
     """
     log.info("[VALIDATOR] Reloading schema from disk ...")
     _load_schema()

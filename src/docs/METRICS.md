@@ -3,30 +3,34 @@
 
 # METRICS
 
-Generated: 2026-09-28 15:20 UTC · Version: 1.7.3.2
+Generated: 2026-09-30 16:55 UTC · Version: 1.7.3.3
 
 ## Test Counts
 
 | Suite | Checks | Passed | Failed |
 |---|---|---|---|
-| test_local.py | 812 | 812 | 0 |
+| test_local.py | 811 | 811 | 0 |
 | test_local_context.py | 349 | 349 | 0 |
-| test_dashboard.py | 472 | 472 | 0 |
+| test_dashboard.py | 471 | 471 | 0 |
 | test_broker.py | 141 | 141 | 0 |
 | test_mcp.py | 231 | 231 | 0 |
 | test_app_logic.py | 188 | 188 | 0 |
 | test_updater.py | 89 | 89 | 0 |
-| test_qt_app.py | 188 | 188 | 0 |
+| test_qt_app.py | 187 | 187 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
 | test_chat_session_store.py | 29 | 29 | 0 |
-| test_cloud_credential_store.py | 14 | 14 | 0 |
+| test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 17 | 17 | 0 |
-| **Total** | **2626** | **2626** | **0** |
+| **Total** | **2620** | **2620** | **0** |
 
 ## Modules
 
 Total: 148 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+
+## Dead Code (Vulture)
+
+Scanned: 2026-09-30 16:54 UTC · Findings: 0 · Whitelisted: 68
 

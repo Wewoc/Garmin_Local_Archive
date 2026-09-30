@@ -632,8 +632,7 @@ check("unknown template: graceful fallback",    "No prompt template" in _unk_pro
 
 # Template-Registry
 import dash_prompt_templates as prompt_tmpl
-check("templates list_templates not empty",     len(prompt_tmpl.list_templates()) > 0)
-check("templates health_analysis registered",   "health_analysis" in prompt_tmpl.list_templates())
+check("templates health_analysis registered",   "health_analysis" in prompt_tmpl.TEMPLATES)
 check("templates get returns callable",         callable(prompt_tmpl.get("health_analysis")))
 try:
     prompt_tmpl.get("nonexistent")

@@ -170,8 +170,3 @@ def get(template_key: str) -> callable:
     if template_key not in TEMPLATES:
         raise KeyError(f"dash_prompt_templates: unknown template '{template_key}'")
     return TEMPLATES[template_key]
-
-
-def list_templates() -> list[str]:
-    """Return all registered template keys."""
-    return list(TEMPLATES.keys())
