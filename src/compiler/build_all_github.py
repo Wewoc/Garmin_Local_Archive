@@ -32,6 +32,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import requests
+
+import build_all
+
+# Neither of these needs to happen before the imports above — build_all's
+# own GLA_BUILD_VENV_DIR read and this module's prints all happen later,
+# inside main() — kept below the imports so ruff's E402 (module level
+# import not at top of file) stays clean.
 os.environ.setdefault("GLA_BUILD_VENV_DIR", r"D:\_gla_ci_venv")
 
 # Windows' console/subprocess default encoding is cp1252, not UTF-8 — same
@@ -41,10 +49,6 @@ os.environ.setdefault("GLA_BUILD_VENV_DIR", r"D:\_gla_ci_venv")
 # stdout/stderr streams.
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-import requests
-
-import build_all
 
 _root = Path(__file__).parent.parent   # compiler/ → src/
 
