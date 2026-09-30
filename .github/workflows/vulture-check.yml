@@ -1,0 +1,38 @@
+name: Vulture Dead Code Check
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  vulture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project dependencies (Linux-kompatibel)
+        run: |
+          if [ -f requirements.txt ]; then
+            grep -vi '^pywin32' requirements.txt > requirements_linux.txt
+            pip install -r requirements_linux.txt || true
+          fi
+
+      - name: Install Vulture
+        run: pip install vulture
+
+      - name: Run dead code check
+        run: python tests/check_vulture.py
+        working-directory: src
+
+      - name: Upload vulture report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulture-report
+          path: src/vulture.json

@@ -1,0 +1,43 @@
+name: Test Suite Feasibility (Windows, experimental)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project dependencies
+        run: pip install -r requirements.txt
+
+      - name: Qt smoke test WITHOUT offscreen platform (expected to show the raw display error, if any)
+        working-directory: src
+        continue-on-error: true
+        run: pytest tests/test_qt_app.py -v
+
+      - name: Qt smoke test WITH QT_QPA_PLATFORM=offscreen
+        working-directory: src
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/test_qt_app.py -v
+
+      - name: Full run_tests.ps1 WITH QT_QPA_PLATFORM=offscreen
+        working-directory: src
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pwsh -File run_tests.ps1
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-feasibility-log
+          path: src/test_all_log.txt
