@@ -14,6 +14,7 @@ dedup) — only the step-number prefix in the progress print differed
 caller via `step`.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,8 +24,11 @@ import build_manifest as manifest
 
 def ensure_build_venv(root: Path, step: str) -> Path:
     """Creates (if missing) or reuses the shared, isolated build venv at
-    manifest.BUILD_VENV_DIR, installs requirements.txt + PyInstaller into
-    it, and returns its python.exe. Replaces the old check_dependencies()
+    manifest.BUILD_VENV_DIR (or GLA_BUILD_VENV_DIR, if set — used by
+    build_all_github.py so a CI runner never touches the local dev
+    machines' hardcoded D:\\Garmin\\.venv_gla), installs requirements.txt
+    + PyInstaller into it, and returns its python.exe. Replaces the old
+    check_dependencies()
     (garmin_collector-3_experiment, Baustein 27) — that function verified
     dependencies (pyinstaller/keyring/cryptography, or for T3 the
     narrower, drift-prone RUNTIME_DEPS copy) against whatever Python
@@ -41,7 +45,7 @@ def ensure_build_venv(root: Path, step: str) -> Path:
     (T3) — both build from the identical isolated environment; `step` is
     the caller's own progress-print prefix (e.g. "1/4" vs "1/3")."""
     print(f"\n[{step}] Checking build venv ...")
-    venv_dir = Path(manifest.BUILD_VENV_DIR)
+    venv_dir = Path(os.environ.get("GLA_BUILD_VENV_DIR", manifest.BUILD_VENV_DIR))
     venv_python = venv_dir / "Scripts" / "python.exe"
 
     if not venv_python.exists():

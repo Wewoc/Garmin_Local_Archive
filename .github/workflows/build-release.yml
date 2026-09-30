@@ -1,0 +1,48 @@
+name: Build & Release (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Als Pre-Release veroeffentlichen (statt als Latest Release)"
+        required: true
+        type: boolean
+        default: false
+      release_notes_override:
+        description: "Release-Text ueberschreiben (leer = HEAD-Commit-Message verwenden)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run build and publish release
+        working-directory: src/compiler
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GLA_RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+          GLA_RELEASE_NOTES_OVERRIDE: ${{ inputs.release_notes_override }}
+        run: python build_all_github.py
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: src/build_all_log.txt

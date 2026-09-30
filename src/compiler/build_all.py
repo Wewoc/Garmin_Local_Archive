@@ -169,7 +169,7 @@ def ensure_plotly_bundle(root: Path) -> None:
     print(f"  ✓ Plotly {layout_html.get_plotly_version()} fetched and verified.")
 
 
-if __name__ == "__main__":
+def main() -> None:
     _root = Path(__file__).parent.parent   # compiler/ → Root/
 
     # Timestamped log, tee'd alongside the console — same convention as
@@ -286,3 +286,7 @@ if __name__ == "__main__":
         sys.stdout, sys.stderr = _real_stdout, _real_stderr
         _logfile.close()
         print(f"  Full log: {_logpath}")
+
+
+if __name__ == "__main__":
+    main()
