@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Check D: drive exists and is writable
+      - name: "Check D: drive exists and is writable"
         shell: pwsh
         run: |
           Get-PSDrive -PSProvider FileSystem
