@@ -1,5 +1,105 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.3.4 — CI/CD: automated tests, dead-code/CVE gates, manual release build
+
+First real automated CI/CD for the repo — closes the "Test suite &
+CI/CD" item that had sat under ROADMAP.md's "Under consideration"
+since it was deliberately deferred with no timeline.
+
+**New GitHub Actions workflows (all on `main`, ubuntu-latest unless noted):**
+- `test-suite.yml` — runs `run_tests.ps1` (all 15 suites) on
+  `windows-latest` on every push to `main`. `run_tests.ps1` itself
+  never sets a non-zero exit code on a failing suite (no
+  `$LASTEXITCODE` check anywhere in the script) — added a post-step
+  that parses `test_all_log.txt`'s per-suite summary and fails the job
+  if any suite reports a failure, so the check is actually meaningful
+  rather than always green. Not a merge gate by design (pushes to
+  `main` are already tested locally first) — purpose is public
+  transparency, real results visible on every push.
+- `vulture-check.yml` — gates on `check_vulture.py`'s exit code
+  (dead-code findings after whitelist filtering). Precondition — full
+  triage of the Vulture TODO list — already satisfied by v1.7.3.3.
+- `cve-check.yml` — report-only (mirrors `license-scan.yml`'s
+  artifact-upload pattern); `check_cve_whitelist.py` always exits 0 by
+  design, so this can never fail the job, only surface findings. Runs
+  on push plus a weekly cron (new CVEs can surface without a code
+  change).
+- `build-release.yml` — `workflow_dispatch`-only (manual, one click —
+  not every push should cut a release). Runs the full local build
+  pipeline unchanged (`build_all.py`'s tests + Target 2 + Target 3 +
+  post-build validation) via a new CI-only entry point,
+  `compiler/build_all_github.py`; only on success, publishes a GitHub
+  Release (tag `vX.Y.Z` from `version.py`) with the four build outputs
+  as assets. Release notes default to the HEAD commit's message body,
+  overridable via a workflow input; a second input picks
+  pre-release/latest.
+- `license-scan.yml` trigger switched from `workflow_dispatch`-only to
+  push/`main`, matching the other three.
+
+**Bug fixed (pre-existing, surfaced by the new Vulture CI gate):**
+`vulture_whitelist.py`'s keys use Windows backslash path separators
+(the file's own docstring says so — it was built from a local Windows
+run), but Vulture on the Linux CI runner reports forward slashes.
+`check_vulture.py`'s `filter_whitelisted()` did an exact-tuple match,
+so every whitelist entry with a subdirectory silently failed to match
+on Linux — the first CI run showed 60 "new" findings that were all
+already-documented false positives. Fixed by normalizing both sides to
+forward slashes before comparing; verified not to change matching
+behavior on Windows (backslash→slash cancels out identically on both
+sides).
+
+**Two Windows cp1252 encoding bugs found on the first real
+`build-release.yml` run (v1.7.3.3 test pre-release, since deleted):**
+the release notes (derived from `git log -1 --pretty=%B`) had em-dashes
+mangled to `â€”` because the subprocess call didn't force UTF-8
+decoding, and the final success `print()` (uses a ✓) crashed with
+`UnicodeEncodeError` on the Windows console — cosmetic (the Release and
+all 4 assets had already published successfully) but made a fully
+successful run report red. Both fixed; not otherwise caught because the
+build itself had never run in CI before.
+
+**`build_all.py` refactored (no behavior change):** script body moved
+from `if __name__ == "__main__":` into a `main()` function so it can be
+imported by `build_all_github.py` — a local `python build_all.py` run
+is unaffected. `build_venv.py::ensure_build_venv()` now honors an
+optional `GLA_BUILD_VENV_DIR` env var, falling back to the existing
+hardcoded `build_manifest.BUILD_VENV_DIR` (`D:\Garmin\.venv_gla`) when
+unset, so CI builds in its own venv without touching local dev
+machines' path.
+
+**Verified, not merged as permanent automation:** a `workflow_dispatch`
+probe confirmed `D:\Garmin\.venv_gla` (the hardcoded local build-venv
+path) works unmodified on a `windows-latest` GitHub runner — D: drive
+present and writable, venv creation + `requirements.txt` +
+PyInstaller install all succeeded. Same probe-first approach used to
+confirm `test_qt_app.py` (pytest-qt) runs cleanly on `windows-latest`,
+even without `QT_QPA_PLATFORM=offscreen` (kept set anyway in
+`test-suite.yml`/`build-release.yml` for robustness) — GitHub's Windows
+runners have a working desktop session, unlike Linux runners.
+
+**New modules:**
+- `.github/workflows/test-suite.yml`, `vulture-check.yml`,
+  `cve-check.yml`, `build-release.yml`
+- `compiler/build_all_github.py`
+
+**Changed modules:**
+- `tests/check_vulture.py` — `filter_whitelisted()` normalizes path
+  separators before comparing (see bug above)
+- `compiler/build_all.py` — body wrapped in `main()`, no behavior
+  change
+- `compiler/build_venv.py` — optional `GLA_BUILD_VENV_DIR` env
+  override in `ensure_build_venv()`
+- `.github/workflows/license-scan.yml` — trigger changed from
+  `workflow_dispatch` to push/`main`
+- `version.py` — `1.7.3.3` → `1.7.3.4`
+
+**Test result:** all 15 suites green via `test-suite.yml` on
+`windows-latest` CI (includes `test_static.py`'s ruff + bandit checks,
+0 errors / 0 HIGH). `vulture-check.yml` green (0 findings after
+whitelist). `cve-check.yml` report-only, no blocking findings.
+
+---
+
 ## v1.7.3.3 — Vulture Dead-Code Cleanup + Discovered Bugs
 
 ### Vulture Dead-Code Cleanup
