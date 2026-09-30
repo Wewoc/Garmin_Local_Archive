@@ -1,0 +1,47 @@
+name: Test Suite (Windows)
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite
+        working-directory: src
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pwsh -File run_tests.ps1
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: src/test_all_log.txt
+
+      - name: Fail if any suite reported failures
+        shell: pwsh
+        run: |
+          $log = Get-Content -Path "src/test_all_log.txt" -Raw
+          $failed = [regex]::Matches($log, '(\d+)\s+checks?\s+—\s+\d+\s+passed,\s+(\d+)\s+failed') |
+            ForEach-Object { [int]$_.Groups[2].Value } |
+            Measure-Object -Sum |
+            Select-Object -ExpandProperty Sum
+          if ($failed -gt 0) {
+            Write-Host "$failed failed check(s) — see test-log artifact for details."
+            exit 1
+          }
+          Write-Host "All suites passed."
