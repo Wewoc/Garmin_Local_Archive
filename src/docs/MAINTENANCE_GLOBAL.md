@@ -92,6 +92,16 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `dash_layout*.py` | Passive resources — color tokens, CSS variables, disclaimer, prompt templates |
 | `garmin_mobile_landing.py` | Mobile landing page generator — writes `index.html` with archive status to `dashboards/` after every sync |
 
+**Export layer** — `exports/` (v1.7.4)
+
+| Script | What it does |
+|---|---|
+| `export_common.py` | Stateless `collect()` — reads health/context/metadata via the Shared Cache Layer (`clients/mcp_sql.py`), domain- and date-range-filtered. Called independently by every adapter, no adapter-to-adapter passthrough. |
+| `export_runner.py` | Auto-discovers `*_adapter.py` modules (`scan()`), orchestrates a build across selected adapters (`build()`). Triggers `mcp_update.sync_all()` once per run before the adapter loop; non-fatal on failure. |
+| `export_adapters/json_adapter.py` | Writes `collect()`'s result 1:1 as JSON. |
+| `export_adapters/csv_adapter.py` | Wide CSV, one row per day, `health_<field>`/`context_<source>_<field>` columns. Series/intraday fields intentionally excluded. Delimiter/decimal-separator choice (`;`+`,` or `,`+`.`). Metadata written to a separate `export_metadata.csv`. |
+| `export_adapters/influxdb_adapter.py` | InfluxDB Line Protocol, full resolution incl. series/intraday fields — target use case: `garmin-grafana`. Two measurements (`health`/`context`), no metadata. |
+
 **Desktop app**
 
 | Script | What it does |
@@ -109,6 +119,8 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `context/context_silo_check.py` | Read-only context archive integrity scan — missing days, coordinate plausibility (v1.7.2.3). |
 | `context/context_silo_repair.py` | Real re-fetch + re-write for flagged context days/sources, via `context_api`/`context_writer` (v1.7.2.3). |
 | `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`, `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py`, `app/popups/_dashboard_build.py` | Dashboard/config popups extracted from `panel_outputs.py` (v1.7.2.1), one file per popup plus the shared `_dashboard_build.py` build/encrypt engine (`run_dashboards()`/`run_encrypted()`). See `REFERENCE_GLOBAL.md`'s Module reference table. |
+| `app/popups/export_data.py`, `app/popups/_export_build.py` | Export Data popup (per-adapter grid: Health/Context/Metadata toggles) + worker-thread build backend, analogous to `dashboard_create.py`/`_dashboard_build.py`. "Save & Add to Daily Sync" persists `settings["export_auto_run"]`. (v1.7.4) |
+| `app/outputs/export_auto.py` | Runs the saved `export_auto_run` selection from the GUI's "Daily Sync" button chain — threaded counterpart to `daily_update.py::_run_export()`. (v1.7.4) |
 | `app/outputs/output_helpers.py`, `bulk_import.py`, `force_refetch.py`, `context_check.py`, `dashboards.py`, `context_sync.py`, `sync.py` | The remaining seven `panel_outputs.py` feature blocks (v1.7.3.1), extending the `app/popups/` precedent to the rest of the file. See `REFERENCE_GLOBAL.md`'s Module reference table for the full delegate/signature rules. |
 | `app/panel_chat.py` | Chat panel (v1.6.6, renamed from "Ollama-Chat" v1.7.2) — Ollama or Cloud (Anthropic/OpenAI) backend, plain chat or MCP tool-calling source, streaming, chat session history. See `REFERENCE_GLOBAL.md`'s Module reference table for the full v1.7.2 architecture. |
 | `clients/ollama_client.py` | Leaf-Node HTTP client for the local Ollama API (`localhost:11434`) — `chat()`/`chat_stream()` (plain) + `chat_with_tools()` (no streaming counterpart — Ollama's own streaming+tool-calling support is unreliable upstream, v1.7.2). Used by `app/panel_chat.py`. (v1.6.6) |
@@ -862,6 +874,48 @@ being empty short-circuits the Ollama upsure-check straight to `unsure`
 — an empty list previously still got asked, and Ollama was observed to
 answer "relevant" with no function to actually point at.
 
+### `tests/test_export.py` — Export Layer (v1.7.4)
+
+```bash
+python tests/test_export.py
+```
+
+No network, no GUI. Edge-case focus (series vs. daily field, missing/
+`None` values, source-name collisions, malformed input, non-blocking
+adapter/sync failures) rather than happy-path, plus a real-SQLite
+integration section (no mocks) against `clients/mcp_sql.py`. Check and
+section totals are tracked in `docs/METRICS.md` (`test_export.py`) —
+not restated here to avoid drift.
+
+Run after any change to: `exports/export_common.py`,
+`exports/export_runner.py`, any `exports/export_adapters/*.py`,
+`maps/gateway_map.py` (`list_fields()`/`_fanout()`),
+`clients/mcp_sql.py`/`clients/mcp_update.py` (Shared Cache Layer reads).
+
+`scheduler/daily_update.py::_run_export()` and `app/outputs/export_auto.py`
+have no dedicated automated test file yet — verified only via real
+end-to-end runs (see `TODO_export_layer.md`).
+
+The dashboard date range is controlled in one place:
+`garmin_app_settings.dashboard_range()` (Baustein 28). Do not re-implement
+the "empty = last 30 days" logic in a dashboard-building path — call the
+helper, otherwise the popup, GUI Daily Sync and `daily_update.exe` drift
+apart again (the GUI Daily Sync previously built 90 days through a
+`garmin_???-??-??` glob typo while `daily_update.py` built the full
+archive).
+
+`scheduler/daily_update.py::_load_settings()` returns the same full,
+`DEFAULT_SETTINGS`-merged dict as the GUI's `garmin_app_settings.load_settings()`
+(Baustein 26, v1.7.4) — no scheduler-specific allow-list filtering
+anymore. Until this fix, a separate `_DAILY_SETTINGS_KEYS` allow-list
+silently dropped any settings key not manually added there; this is how
+`export_auto_run` reached the scheduler as `enabled=False` even though
+it was correctly saved — `_run_export()` returned before logging
+anything, so the daily log showed no trace of a skipped Export step at
+all. A field the scheduler's own code doesn't read is simply ignored by
+that code now, same pattern as everywhere else in the project — no
+second place to remember when a new settings key is added.
+
 ### `tests/test_app_logic.py` — App layer
 
 
@@ -1047,8 +1101,8 @@ All source folders are Python packages with `__init__.py`:
 | Location | sys.path setup |
 |---|---|
 | `garmin_app.py` — Dev | all subfolders inserted: `garmin/`, `maps/`, `dashboards/`, `layouts/`, `context/`, `app/`, `clients/` (v1.6.6) |
-| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); subfolder loop from `parent.parent` incl. `app/`; `context` additionally registered as `types.ModuleType` in `sys.modules`. **`clients/` deliberately excluded** — the Chat tab (formerly "Ollama Chat") is a GUI-only feature, never reached from the headless entry point (v1.6.6) |
-| `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` + `scripts/app/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`). `clients/` excluded here too, same reasoning as Dev/T2 above |
+| `scheduler/daily_update.py` — Dev/T2 | sys.path root anchor at top (before `from version import`); subfolder loop from `parent.parent` incl. `app/`, `exports`, `clients` (v1.7.4 — `clients` added Baustein 12 for `mcp_sql`/`mcp_update` imports, `exports` added Baustein 7 for `_run_export()`; superseded the earlier "GUI-only, Chat tab" exclusion reasoning from v1.6.6); `context` additionally registered as `types.ModuleType` in `sys.modules` |
+| `daily_update.exe` — T3.2 frozen | `scripts/` + `scripts/garmin/` + `scripts/app/` in `sys.path`; all package subdirs (`dashboards/`, `layouts/`, `maps/`, `context/`, `exports/`, `clients/`) registered in `sys.modules` **and** added to `sys.path` — required for flat imports (`import dash_runner`). `exports/`/`clients/` added v1.7.4, same reasoning as the Dev/T2 row above |
 | `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE, incl. `clients/` (v1.6.6) |
 | `garmin_app_standalone.py` — Dev | same subfolder loop (incl. `app/`, `clients/`) |
 | `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; `clients/` the same way, flat `sys.path.insert` alongside `garmin_dir`/`app_dir` (v1.6.6) — not the `sys.modules` package-registration loop used by `context/`/`maps/`/`dashboards/`/`layouts/`; others via package registration |
@@ -1058,11 +1112,12 @@ All source folders are Python packages with `__init__.py`:
 | `context/` plugins | `sys.path.insert(0, .../garmin)` — for `garmin_config` |
 | `clients/mcp_process.py` | `sys.path.insert(0, .../garmin)` — same one-line pattern as `maps/garmin_health_map.py` above, for `garmin_config` (`MCP_HTTP_PORT` default). Added post-Baustein-23 (garmin_collector-3_experiment) — previously had none; its two importers' lazy loaders (`app/panel_chat.py`/`app/panel_mcp.py`'s own `_load_mcp_process()`) only ever add `"clients"`, never `"garmin"`, so the import silently relied on `garmin/` already being on `sys.path` from `garmin_app_base.py`'s own app-wide startup instead |
 | `app/panel_chat.py` | `frozen_paths.add_to_path(root, "clients")` inside a lazy import helper — not at module top-level, so `panel_chat.py` stays importable before `sys.path` is fully wired up (v1.6.6) |
+| `app/popups/export_data.py`, `app/outputs/export_auto.py` | `frozen_paths.add_to_path(root, "exports", "maps")` inside the function body (not module top-level) — same lazy-import pattern as `app/panel_chat.py`'s `clients/` loader. (v1.7.4) |
 | All modules inside `garmin/` | None — `sys.path.insert` removed in v1.4 |
 | `clients/ollama_client.py` | None — flat, no internal relative imports, no `garmin_config` dependency (v1.6.6) |
 | `clients/mcp_server.py` | `_SRC_ROOT` (`src/`, for `from maps import mcp_map`) **and** `_SRC_ROOT/garmin` (for the flat `import garmin_config` — same bridge need as `maps/`/`context/` modules, added v1.7 Teilbauauftrag c). Not `frozen_paths.add_to_path()` — that helper is GUI-context-bound, this is a standalone subprocess. Frozen case (`_register_embedded_packages()`) additionally registers `scripts/clients` (v1.7 Teilbauauftrag f) — `main()` imports `clients/mcp_server_gui.py` (`from mcp_server_gui import run_gui`, unchanged name in v1.7.0.1, called by default unless `garmin_config.MCP_HEADLESS` is set), which resolves for free under T1/Dev via Python's automatic `sys.path[0] = script directory`, but needed an explicit entry once frozen (T3.3), same reasoning as the `garmin_dir` entry beside it. |
 
-⚠ When adding a new subfolder: add it to the `sys.path` loop in both entry points **and** to `_register_embedded_packages()` in `garmin_app_standalone.py`. Worked example: `clients/` (v1.6.6) — added to both entry points' loops, added as a flat `sys.path.insert` in `_register_embedded_packages()`, deliberately **not** added to `scheduler/daily_update.py` (no headless use case) and **not** added to `garmin_app.py::script_path()` (never subprocess-launched).
+⚠ When adding a new subfolder: add it to the `sys.path` loop in both entry points **and** to `_register_embedded_packages()` in `garmin_app_standalone.py`. Worked example: `clients/` (v1.6.6) — added to both entry points' loops, added as a flat `sys.path.insert` in `_register_embedded_packages()`, deliberately **not** added to `garmin_app.py::script_path()` (never subprocess-launched). (`scheduler/daily_update.py` originally followed the same "no headless use case" reasoning but gained `clients/`/`exports/` in v1.7.4 — see the Module path resolution table above.)
 
 ---
 

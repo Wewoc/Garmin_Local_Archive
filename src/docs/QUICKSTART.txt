@@ -19,7 +19,7 @@ connecting your own account.
    -> src/support-tools/demo-export/demo_archive.zip (GitHub)
    Note the path to the extracted folder.
 2. Settings tab -> set Data folder to that path -> "Save Settings"
-3. Optional: Settings tab -> Export -> "Create Reports" to generate
+3. Optional: Settings tab -> Dashboards -> "Create Dashboards" to generate
    the dashboards (or try "Custom Dashboard" / "Encrypted Dashboards"
    right below it)
 4. Optional: MCP Server tab -> configure and start the server, or
@@ -42,7 +42,7 @@ FIRST-TIME SETUP
 
 RUN YOUR FIRST SYNC
 ────────────────────
-- Click "Daily Sync" (purple button at the top)
+- Click "Daily Sync" (big button at the top)
 - Downloads recent days including weather and pollen data
 - Green dot top-left = connection successful
 - Progress appears in the log at the bottom

@@ -30,7 +30,9 @@ changelog/anchor_delivery_demo-export-generator-pflichtabgleich.md):
     Open-Meteo never delivers intraday weather data (see
     context/weather_plugin.py). Pollen raw/ has one flat value repeated
     for every hour, not real hourly variation.
-  - quality_log.json / device_table.json are not populated.
+  - device_table.json is not populated (no device/trainings-status
+    simulation here — quality_log.json entries carry device_id=None,
+    same as a real "no device match" day).
   - The SQLite query cache is not pre-built — it builds itself on the
     MCP server's first start (see clients/mcp_server.py::main() ->
     _run_startup_sync()), so this script does not need to touch it.
@@ -302,6 +304,7 @@ real user's location.
 Every generated file carries a machine-readable marker:
 - Health files (raw/, summary/): top-level key `"_fictional_demo_data": true`
 - Context files (weather/, pollen/): `"source"` field ends in `-demo-fictional`
+- `quality_log.json`: each day entry's `"source"` field is `"demo-fictional"`
 
 ## Known limitations
 
@@ -312,8 +315,10 @@ Every generated file carries a machine-readable marker:
   Open-Meteo never delivers intraday weather data. Pollen raw/ files
   repeat the same flat average value for every hour of the day, not
   real hourly variation.
-- `quality_log.json` / `device_table.json` are not populated —
-  archive-metadata queries for those two kinds return empty.
+- `device_table.json` is not populated (no device/training-status
+  simulation) — archive-metadata queries for that kind return empty.
+  Every `quality_log.json` day entry has `device_id: null`, same as a
+  real "no device match" day.
 
 ## Using it
 
@@ -369,6 +374,7 @@ def main() -> None:
 
     import garmin_normalizer as gn   # noqa: E402
     import garmin_writer as writer   # noqa: E402
+    import garmin_quality as quality # noqa: E402
     import context_writer            # noqa: E402
     import weather_plugin            # noqa: E402
     import pollen_plugin             # noqa: E402
@@ -380,13 +386,31 @@ def main() -> None:
     print(f"Generating {len(date_strs)} fictional days: {date_strs[0]} .. {date_strs[-1]}")
 
     ok = 0
-    for date_str in date_strs:
+    quality_data = {"first_day": date_strs[0], "devices": [], "days": []}
+    for day, date_str in zip(dates, date_strs):
         normalized = _build_normalized_day(rng, date_str)
         summary    = gn.summarize(normalized)
         summary["_fictional_demo_data"] = True
-        if writer.write_day(normalized, summary, date_str):
+        written = writer.write_day(normalized, summary, date_str)
+        if written:
             ok += 1
+        # "standard" (not "high"/"failed") — synthetic days are neither
+        # real intraday-complete nor a real fetch failure; "demo-fictional"
+        # source mirrors the same marker convention _demo_plugin() already
+        # uses for context SOURCE_TAG. device_id=None — no device/
+        # training-status simulation, see module docstring.
+        quality._upsert_quality(
+            quality_data, day, "standard", "synthetic demo data",
+            written=written, source="demo-fictional",
+            device_id=None, device_name="",
+        )
     print(f"  Health data: {ok}/{len(date_strs)} days written.")
+
+    # skip_backup=True — a demo archive has no need for garmin_backup's
+    # monthly/yearly snapshot convention, would just leave an unused ZIP
+    # behind in the output folder.
+    quality._save_quality_log(quality_data, skip_backup=True)
+    print(f"  quality_log.json: {len(quality_data['days'])} day(s) written.")
 
     _write_context_data(date_strs, weather_plugin, pollen_plugin, context_writer, args.lat, args.lon)
 

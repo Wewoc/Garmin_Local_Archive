@@ -38,9 +38,9 @@ the identical build/encrypt/report tail lives here now.
 import os
 import threading
 from pathlib import Path
-from datetime import date, timedelta
 
 import frozen_paths
+import garmin_app_settings as _settings
 
 
 def run_dashboards(panel, dash_runner, selections, date_from=None, date_to=None):
@@ -52,14 +52,11 @@ def run_dashboards(panel, dash_runner, selections, date_from=None, date_to=None)
     Settings when omitted — existing Create Reports flow unaffected.
     """
     s = panel._app._panel_settings._collect_settings()
+    default_from, default_to = _settings.dashboard_range(s)
     if date_from is None:
-        date_from = s.get("date_from", "").strip()
-        if not date_from:
-            date_from = (date.today() - timedelta(days=30)).isoformat()
+        date_from = default_from
     if date_to is None:
-        date_to = s.get("date_to", "").strip()
-        if not date_to:
-            date_to = date.today().isoformat()
+        date_to = default_to
     output_dir = Path(s["base_dir"]) / "dashboards"
     output_dir.mkdir(parents=True, exist_ok=True)
 

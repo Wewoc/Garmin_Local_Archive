@@ -33,6 +33,8 @@ SHARED_SCRIPTS = [
     "app/popups/dashboard_create.py",
     "app/popups/custom_dashboard.py",
     "app/popups/encrypted_dashboards.py",
+    "app/popups/export_data.py",       # v1.7.4 Export Layer
+    "app/popups/_export_build.py",     # v1.7.4 Export Layer
     # app/outputs/ — extracted panel_outputs.py feature blocks (v1.7.3.1).
     # Same dst.parent.mkdir(exist_ok=True) ordering concern as app/popups/
     # above — listed after app/__init__.py so scripts/app/ already exists.
@@ -44,6 +46,7 @@ SHARED_SCRIPTS = [
     "app/outputs/dashboards.py",
     "app/outputs/context_sync.py",
     "app/outputs/sync.py",
+    "app/outputs/export_auto.py",       # v1.7.4 Export Layer, Baustein 17
     "app/garmin_app_settings.py",
     "app/garmin_dashboard_presets.py",
     "app/garmin_app_controller.py",
@@ -163,6 +166,14 @@ SHARED_SCRIPTS = [
     "dashboards/heatmap_garmin_html_dash.py",
     "dashboards/live_tracking_html_dash.py",
     "dashboards/custom_dash_builder.py",
+    # exports (adapters + runner) — Export Layer, v1.7.4
+    "exports/__init__.py",
+    "exports/export_common.py",
+    "exports/export_runner.py",
+    "exports/export_adapters/__init__.py",
+    "exports/export_adapters/json_adapter.py",
+    "exports/export_adapters/csv_adapter.py",
+    "exports/export_adapters/influxdb_adapter.py",
     # layouts (plotters + passive resources)
     "layouts/__init__.py",
     "layouts/dash_layout.py",
@@ -217,6 +228,13 @@ SCRIPT_SIGNATURES_BASE = {
     "app/popups/custom_dashboard.py": ["def open_popup"],
     "app/popups/encrypted_dashboards.py": ["def open_popup"],
     "app/popups/_dashboard_build.py": ["def run_dashboards", "def run_encrypted"],
+    "app/popups/export_data.py": ["def open_popup"],
+    "app/popups/_export_build.py": ["def run_export"],
+    "exports/export_common.py": ["def collect"],
+    "exports/export_runner.py": ["def scan", "def build"],
+    "exports/export_adapters/json_adapter.py": ["def build"],
+    "exports/export_adapters/csv_adapter.py": ["def build"],
+    "exports/export_adapters/influxdb_adapter.py": ["def build"],
     "app/outputs/output_helpers.py": [
         "def open_data_folder", "def copy_last_error_log",
         "def open_local_config", "def create_task_scheduler_xml",
@@ -229,6 +247,7 @@ SCRIPT_SIGNATURES_BASE = {
         "def run_context_sync", "def stop_context_sync", "def on_context_sync_done",
     ],
     "app/outputs/sync.py": ["def run_collector", "def run_live_fetch"],
+    "app/outputs/export_auto.py": ["def run_export_auto"],
     "layouts/dash_encryptor.py": ["def encrypt_html"],
     "layouts/dash_autosize.py": ["def compute_autosize_bounds", "def autosize_note"],
     "app/panel_home.py":        ["class PanelHome"],

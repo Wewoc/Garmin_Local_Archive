@@ -529,6 +529,11 @@ def _get_nested(obj: dict, key: str):
 
 _OFFSET_SOURCE_SECTIONS = ("heart_rates", "stress", "respiration", "spo2")
 
+# Days already warned about in this process run — _device_offset() is called
+# once per intraday field per day, so without this the same day logs the
+# same warning repeatedly (once per field reading that day).
+_warned_offset_days: set[str] = set()
+
 
 def _parse_naive(ts: str) -> datetime:
     """Parse a Garmin ISO timestamp string (naive, ignores sub-second digits)."""
@@ -573,7 +578,10 @@ def _device_offset(data: dict) -> tuple[float, bool]:
             continue
         start_off, end_off = offsets
         return start_off, (start_off != end_off)
-    log.warning("garmin_health_map: no usable GMT/Local offset pair found for this day — defaulting to UTC (0h)")
+    day = data.get("date") or data.get("calendarDate") or "?"
+    if day not in _warned_offset_days:
+        _warned_offset_days.add(day)
+        log.warning(f"garmin_health_map: no usable GMT/Local offset pair for {day} — defaulting to UTC (0h)")
     return 0.0, False
 
 

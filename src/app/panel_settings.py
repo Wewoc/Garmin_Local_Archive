@@ -118,8 +118,11 @@ class PanelSettings(QWidget):
             "Earliest date for auto sync (YYYY-MM-DD).\n"
             "Syncs from this date to today if no recent data exists.")
 
-        # Export Date Range
-        s4 = self._section("Export Date Range")
+        # Export Dashboard Range — scope narrowed in name (v1.7.4): this
+        # field is specifically for Excel/dashboard export, not the newer
+        # Export Data feature (exports/), which always uses the full
+        # archive range instead of reading this field.
+        s4 = self._section("Export Dashboard Range")
         self._date_from = self._field(s4, "From", width=100)
         self._date_from.setToolTip(
             "Start date for Excel/dashboard export (YYYY-MM-DD).\n"
@@ -128,7 +131,7 @@ class PanelSettings(QWidget):
         self._date_to.setToolTip(
             "End date for Excel/dashboard export (YYYY-MM-DD).\n"
             "Leave empty — default: today.")
-        hint = QLabel("Leave empty for all available data")
+        hint = QLabel("Leave empty for the last 30 days")
         hint.setFont(QFont("Segoe UI", 7))
         hint.setStyleSheet(f"color: {self._app.TEXT2};")
         s4.addWidget(hint)
@@ -393,6 +396,14 @@ class PanelSettings(QWidget):
             "mirror_dir":                self._mirror_dir.text().strip(),
             "backup_raw_backfill_asked": self._app.settings.get(
                 "backup_raw_backfill_asked", False),
+            # v1.7.4 Baustein 22: export_auto_run has no own widget (set via
+            # the Export Data popup's "Save & Add to Daily Sync" button), so
+            # it needs the same passthrough as context_latitude/longitude and
+            # backup_raw_backfill_asked above — without it, _collect_settings()
+            # silently dropped it, making run_export_auto() always see an
+            # empty {} (cfg.get("enabled") == False) and the GUI "Daily Sync"
+            # chain skip Export Data with no log output at all.
+            "export_auto_run": self._app.settings.get("export_auto_run"),
             # Timer settings owned by PanelTimer — read live from its own
             # widgets (get_timer_settings()), not from the possibly-stale
             # self._app.settings cache. Previously read from self._app.settings

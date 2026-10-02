@@ -211,6 +211,14 @@ other domains degrade to `{"error": "domain has no raw-passthrough support"}`
 (or `[]` for `list_raw_fields()`) rather than hard-failing — same principle
 as the `"fit"`-not-yet-available case above.
 
+`list_fields(domain=None)` (v1.7.4 Export Layer) — same fan-out shape,
+returns registered field names per domain, flattened across each
+domain's sources (same shape as `list_raw_fields()`). Added for
+consumers that need to enumerate "all fields" for a domain rather than
+naming one field at a time. Internally, `get()`, `get_raw()`,
+`list_raw_fields()`, and `list_fields()` now share one `_fanout()`
+domain-validation/dispatch helper (v1.7.4 refactor, no behavior change).
+
 ### Building your own tool against a local archive
 
 `gateway_map.get()` is the recommended entry point if you're writing your

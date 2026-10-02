@@ -216,6 +216,11 @@ def main() -> None:
             print("\n  ✗ MCP tests failed — build aborted.")
             sys.exit(1)
 
+        test_export_path = _root / "tests" / "test_export.py"
+        if run_and_tee([sys.executable, str(test_export_path)]) != 0:
+            print("\n  ✗ Export Layer tests failed — build aborted.")
+            sys.exit(1)
+
         test_static_path = _root / "tests" / "test_static.py"
         if run_and_tee([sys.executable, str(test_static_path)]) != 0:
             print("\n  ✗ Static analysis failed — build aborted.")
