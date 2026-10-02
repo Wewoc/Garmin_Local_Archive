@@ -47,151 +47,401 @@ import theme
 
 
 # ── Demo dashboard HTML (embedded — no file dependency) ───────────────────────
-# dashboard_desktop.html inlined — Chart.js loaded from cdnjs (requires internet)
-
-# Header background/text and the two theme-linked tokens below are the
-# only theme-linked parts of this otherwise fixed light-mode demo report
-# (same pattern as dash_layout_html.py/_MOBILE_CSS — see theme01-03).
-_DEMO_HTML_TEMPLATE = """
-<!DOCTYPE html>
+# Sleep Dashboard demo (layouts/render/sleep.py output shape) — inlined,
+# no file dependency. :root block is theme-linked 1:1 to theme.py's roles
+# (bg0/bg/bg2/bg3/accent/accent2/text/text2/green/yellow/red); the sleep-
+# phase colors, score/HRV gradients and quality badges stay fixed per
+# theme.py's own convention (functional colors, not theme-bound).
+_DEMO_SLEEP_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=1200">
-<title>Garmin Health Analysis — Desktop</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sleep Dashboard</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-width:1200px}
-.app{width:1200px;margin:0 auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12)}
-.header{background:__THEME_BG3__;color:#e8edf5;padding:16px 28px}
-.header h1{font-size:18px;font-weight:500;letter-spacing:.01em;margin-bottom:3px}
-.header p{font-size:12px;color:#8a9ab8;letter-spacing:.02em}
-.notice{background:#fffbea;border-bottom:1px solid #f0d878;padding:10px 28px;font-size:12px;color:#7a6010;display:flex;align-items:center;gap:8px}
-.meta{padding:11px 28px;font-size:13px;color:#555;display:flex;gap:24px;border-bottom:1px solid #e8eaed;background:#fafbfc}
-.meta strong{color:__THEME_BG3__}
-.legend-row{padding:8px 28px;display:flex;gap:24px;align-items:center;border-bottom:1px solid #e8eaed;background:#fafbfc}
-.leg{display:flex;align-items:center;gap:7px;font-size:12px;color:#666}
-.l-solid{width:30px;height:2px;background:__THEME_ACCENT__}
-.l-dash{width:30px;height:0;border-top:2px dashed __THEME_ACCENT__;opacity:.6}
-.l-rect{width:18px;height:12px;background:#cde8c8;border:1px solid #a6cfa0;border-radius:2px}
-.tabs{display:flex;padding:0 28px;border-bottom:1px solid #dde0e6;background:#fff}
-.tab{padding:11px 18px;font-size:13px;cursor:pointer;border:none;border-bottom:2px solid transparent;background:none;color:#666;font-family:inherit}
-.tab.active{color:#2660b0;border-bottom-color:#2660b0;font-weight:500}
-.tab:hover:not(.active){color:#333}
-.chart-section{padding:16px 28px 12px;background:#fff}
-.y-label{font-size:11px;color:#888;margin-bottom:6px}
-.chart-wrap{position:relative;width:100%;height:340px}
-.footer{text-align:center;font-size:11px;color:#999;padding:12px 28px;border-top:1px solid #e8eaed;background:#fafbfc}
-.footer a{color:__THEME_ACCENT__;text-decoration:none}
+:root {
+  --bg0:     __THEME_BG0__;
+  --bg:      __THEME_BG__;
+  --bg2:     __THEME_BG2__;
+  --bg3:     __THEME_BG3__;
+  --accent:  __THEME_ACCENT__;
+  --accent2: __THEME_ACCENT2__;
+  --text:    __THEME_TEXT__;
+  --text2:   __THEME_TEXT2__;
+  --green:   __THEME_GREEN__;
+  --yellow:  __THEME_YELLOW__;
+  --red:     __THEME_RED__;
+}
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: var(--bg0); color: var(--text); }
+  header { background: var(--bg2); color: var(--text); padding: 16px 24px; border-bottom: 1px solid var(--bg3); }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header p  { font-size: 13px; color: var(--text2); margin-top: 4px; }
+  .disclaimer { font-size: 11px; color: var(--text2); padding: 8px 24px 0; background: var(--bg); }
+  footer { text-align: center; padding: 16px; font-size: 11px; color: var(--text2); }
+</style>
+<style>
+/* Sleep-phase colors (Deep/Light/REM/Awake), score/HRV value gradients
+   (hsl(...) inline styles), and quality badges (EXCELLENT/GOOD/FAIR/POOR)
+   are functional colors and deliberately NOT theme-bound — see theme.py
+   header notes ("They should look the same regardless of the chosen
+   theme"). Only the table's structural surface colors follow the theme. */
+.sleep-table { width:100%; border-collapse:collapse; font-family:Arial,sans-serif; font-size:13px; }
+.sleep-table th { background:var(--bg2); color:var(--text2); padding:8px 10px; text-align:left; font-size:12px; font-weight:600; border-bottom:2px solid var(--accent); }
+.sleep-table tr:nth-child(even) { background:var(--bg); }
+.sleep-table tr:nth-child(odd)  { background:var(--bg0); }
+.sleep-table tr:hover           { background:var(--bg3); }
+.sleep-table td { color: var(--text); }
 </style>
 </head>
 <body>
-<div class="app">
-  <div class="header">
-    <h1>🦄 GARMIN LOCAL ARCHIVE - Garmin Health Analysis</h1>
-    <p>2024-06-01 → 2025-03-15 &nbsp;·&nbsp; 90-day rolling baseline &nbsp;·&nbsp; Age/fitness-adjusted reference ranges</p>
+
+<header>
+  <h1>🦄 GARMIN LOCAL ARCHIVE - Sleep Dashboard</h1>
+  <p>2025-04-01 → 2025-04-14 · Sleep · HRV · Body Battery</p>
+</header>
+<div class="disclaimer">For personal informational use only — not medical advice. Data sourced from Garmin Connect via unofficial API.</div>
+
+<div style="padding:16px 24px;">
+<table class="sleep-table">
+<thead>
+<tr>
+  <th>Date</th>
+  <th>Sleep Phases</th>
+  <th>Duration</th>
+  <th>Score</th>
+  <th>Quality</th>
+  <th>Feedback</th>
+  <th style="border-left:2px solid #2d6a9f;">HRV</th>
+  <th>Body Battery</th>
+  <th>HRV 7d Ø</th>
+</tr>
+</thead>
+<tbody>
+
+<!-- Row 1: EXCELLENT night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-14</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:19.2;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 19.2%">D</div>
+      <div style="flex:52.1;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 52.1%">L</div>
+      <div style="flex:22.4;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 22.4%">R</div>
+      <div style="flex:6.3;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 6.3%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(101, 65%, 45%);">7.8h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(110, 65%, 45%);">88</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f5e5;color:#1a7a4a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">EXCELLENT</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">High Resting Heart Rate · Not Enough Deep</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(104, 65%, 45%);">62</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(114, 65%, 45%);">91</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(53, 65%, 45%);font-size:12px;">52.1</td>
+</tr>
+
+<!-- Row 2: GOOD night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-13</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:16.5;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 16.5%">D</div>
+      <div style="flex:55.3;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 55.3%">L</div>
+      <div style="flex:20.8;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 20.8%">R</div>
+      <div style="flex:7.4;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 7.4%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(78, 65%, 45%);">7.4h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(93, 65%, 45%);">82</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f0f0;color:#1a6a6a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">GOOD</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">Not Enough Deep</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(90, 65%, 45%);">58</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(96, 65%, 45%);">84</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(50, 65%, 45%);font-size:12px;">50.9</td>
+</tr>
+
+<!-- Row 3: FAIR night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-12</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:12.1;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 12.1%">D</div>
+      <div style="flex:58.7;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 58.7%">L</div>
+      <div style="flex:18.2;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 18.2%">R</div>
+      <div style="flex:11.0;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 11.0%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(42, 65%, 45%);">6.9h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(67, 65%, 45%);">72</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#fff3cc;color:#8a6a00;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">FAIR</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">Long But Not Enough REM</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(60, 65%, 45%);">48</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(72, 65%, 45%);">72</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(40, 65%, 45%);font-size:12px;">46.6</td>
+</tr>
+
+<!-- Row 4: GOOD night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-11</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:17.8;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 17.8%">D</div>
+      <div style="flex:53.4;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 53.4%">L</div>
+      <div style="flex:21.6;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 21.6%">R</div>
+      <div style="flex:7.2;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 7.2%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(90, 65%, 45%);">7.6h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(87, 65%, 45%);">80</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f0f0;color:#1a6a6a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">GOOD</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">—</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(84, 65%, 45%);">56</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(102, 65%, 45%);">87</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(39, 65%, 45%);font-size:12px;">46.3</td>
+</tr>
+
+<!-- Row 5: POOR night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-10</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:8.4;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 8.4%">D</div>
+      <div style="flex:62.1;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 62.1%">L</div>
+      <div style="flex:13.6;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 13.6%">R</div>
+      <div style="flex:15.9;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 15.9%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(12, 65%, 45%);">6.1h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(27, 65%, 45%);">58</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#ffe0d0;color:#8a2000;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">POOR</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">Short · Not Enough Deep · Not Enough REM</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(18, 65%, 45%);">31</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(24, 65%, 45%);">47</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(39, 65%, 45%);font-size:12px;">46.4</td>
+</tr>
+
+<!-- Row 6: FAIR night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-09</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:14.3;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 14.3%">D</div>
+      <div style="flex:56.8;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 56.8%">L</div>
+      <div style="flex:19.7;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 19.7%">R</div>
+      <div style="flex:9.2;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 9.2%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(54, 65%, 45%);">7.1h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(60, 65%, 45%);">70</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#fff3cc;color:#8a6a00;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">FAIR</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">High Stress · Not Enough Deep</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(48, 65%, 45%);">44</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(60, 65%, 45%);">68</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(50, 65%, 45%);font-size:12px;">51.0</td>
+</tr>
+
+<!-- Row 7: EXCELLENT night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-08</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:21.1;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 21.1%">D</div>
+      <div style="flex:49.6;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 49.6%">L</div>
+      <div style="flex:23.8;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 23.8%">R</div>
+      <div style="flex:5.5;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 5.5%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(108, 65%, 45%);">8.1h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(115, 65%, 45%);">91</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f5e5;color:#1a7a4a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">EXCELLENT</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">—</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(110, 65%, 45%);">66</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(118, 65%, 45%);">96</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(53, 65%, 45%);font-size:12px;">52.1</td>
+</tr>
+
+<!-- Row 8: GOOD night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-07</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:15.9;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 15.9%">D</div>
+      <div style="flex:54.2;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 54.2%">L</div>
+      <div style="flex:22.1;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 22.1%">R</div>
+      <div style="flex:7.8;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 7.8%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(72, 65%, 45%);">7.3h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(84, 65%, 45%);">78</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f0f0;color:#1a6a6a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">GOOD</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">Not Enough Deep</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(78, 65%, 45%);">53</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(90, 65%, 45%);">80</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(45, 65%, 45%);font-size:12px;">48.7</td>
+</tr>
+
+<!-- Row 9: POOR night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-06</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:9.7;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 9.7%">D</div>
+      <div style="flex:60.4;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 60.4%">L</div>
+      <div style="flex:15.8;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 15.8%">R</div>
+      <div style="flex:14.1;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 14.1%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(6, 65%, 45%);">6.0h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(21, 65%, 45%);">55</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#ffe0d0;color:#8a2000;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">POOR</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">Short · High Resting Heart Rate</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(12, 65%, 45%);">28</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(18, 65%, 45%);">44</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(43, 65%, 45%);font-size:12px;">48.0</td>
+</tr>
+
+<!-- Row 10: FAIR night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-05</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:13.5;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 13.5%">D</div>
+      <div style="flex:57.2;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 57.2%">L</div>
+      <div style="flex:20.3;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 20.3%">R</div>
+      <div style="flex:9.0;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 9.0%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(48, 65%, 45%);">7.0h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(63, 65%, 45%);">71</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#fff3cc;color:#8a6a00;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">FAIR</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">Long But Not Enough REM · Not Enough Deep</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(54, 65%, 45%);">46</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(66, 65%, 45%);">70</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(53, 65%, 45%);font-size:12px;">52.0</td>
+</tr>
+
+<!-- Row 11: GOOD night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-04</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:18.2;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 18.2%">D</div>
+      <div style="flex:52.7;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 52.7%">L</div>
+      <div style="flex:21.9;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 21.9%">R</div>
+      <div style="flex:7.2;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 7.2%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(84, 65%, 45%);">7.5h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(90, 65%, 45%);">81</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f0f0;color:#1a6a6a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">GOOD</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">—</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(87, 65%, 45%);">57</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(99, 65%, 45%);">85</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(56, 65%, 45%);font-size:12px;">53.5</td>
+</tr>
+
+<!-- Row 12: EXCELLENT night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-03</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:20.4;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 20.4%">D</div>
+      <div style="flex:50.3;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 50.3%">L</div>
+      <div style="flex:23.1;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 23.1%">R</div>
+      <div style="flex:6.2;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 6.2%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(96, 65%, 45%);">7.7h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(112, 65%, 45%);">89</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f5e5;color:#1a7a4a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">EXCELLENT</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">—</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(100, 65%, 45%);">63</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(114, 65%, 45%);">93</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(54, 65%, 45%);font-size:12px;">52.3</td>
+</tr>
+
+<!-- Row 13: GOOD night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-02</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:16.0;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 16.0%">D</div>
+      <div style="flex:54.9;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 54.9%">L</div>
+      <div style="flex:21.3;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 21.3%">R</div>
+      <div style="flex:7.8;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 7.8%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(75, 65%, 45%);">7.4h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(81, 65%, 45%);">77</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#d4f0f0;color:#1a6a6a;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">GOOD</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">Not Enough Deep</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(75, 65%, 45%);">52</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(84, 65%, 45%);">78</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(41, 65%, 45%);font-size:12px;">47.0</td>
+</tr>
+
+<!-- Row 14: FAIR night -->
+<tr>
+  <td style="white-space:nowrap;padding:6px 10px;color:#ccc;">2025-04-01</td>
+  <td style="padding:6px 10px;min-width:160px;">
+    <div style="display:flex;width:100%;height:18px;border-radius:3px;overflow:hidden;">
+      <div style="flex:11.8;background:#2d6a9f;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Deep: 11.8%">D</div>
+      <div style="flex:59.3;background:#7eb8d4;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="Light: 59.3%">L</div>
+      <div style="flex:18.9;background:#9b7fc7;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;overflow:hidden;" title="REM: 18.9%">R</div>
+      <div style="flex:10.0;background:#d4c5a9;display:flex;align-items:center;justify-content:center;font-size:9px;color:#555;overflow:hidden;" title="Awake: 10.0%">A</div>
+    </div>
+  </td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(30, 65%, 45%);">6.8h</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(57, 65%, 45%);">69</td>
+  <td style="padding:6px 10px;text-align:center;"><span style="background:#fff3cc;color:#8a6a00;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">FAIR</span></td>
+  <td style="padding:6px 10px;"><span style="color:#aaa;font-size:12px;">High Resting Heart Rate · Not Enough Deep</span></td>
+  <td style="padding:6px 10px;text-align:center;border-left:2px solid var(--bg3);font-weight:700;color:hsl(42, 65%, 45%);">42</td>
+  <td style="padding:6px 10px;text-align:center;font-weight:700;color:hsl(54, 65%, 45%);">65</td>
+  <td style="padding:6px 10px;text-align:center;color:hsl(29, 65%, 45%);font-size:12px;">42.0</td>
+</tr>
+
+</tbody>
+</table>
+
+<!-- Phase legend -->
+<div style="display:flex;gap:16px;margin-top:12px;padding:8px 4px;flex-wrap:wrap;">
+  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);">
+    <div style="width:14px;height:14px;background:#2d6a9f;border-radius:2px;"></div> Deep
   </div>
-  <div class="notice">⚠&nbsp; Informational only — not medical advice. Reference ranges are general health guidelines (AHA, ACSM, Garmin/Firstbeat). Consult a healthcare professional for medical decisions.</div>
-  <div class="meta">
-    <span>Age: <strong>38</strong></span>
-    <span>Sex: <strong>male</strong></span>
-    <span>VO2max: <strong>47.2</strong></span>
-    <span>Fitness level: <strong>excellent</strong></span>
+  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);">
+    <div style="width:14px;height:14px;background:#7eb8d4;border-radius:2px;"></div> Light
   </div>
-  <div class="legend-row">
-    <div class="leg"><div class="l-solid"></div>Daily value</div>
-    <div class="leg"><div class="l-dash"></div>90d baseline</div>
-    <div class="leg"><div class="l-rect"></div>Reference range</div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);">
+    <div style="width:14px;height:14px;background:#9b7fc7;border-radius:2px;"></div> REM
   </div>
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab(0,this)">HRV</button>
-    <button class="tab" onclick="switchTab(1,this)">Resting HR</button>
-    <button class="tab" onclick="switchTab(2,this)">Sleep</button>
-    <button class="tab" onclick="switchTab(3,this)">Body Battery</button>
-    <button class="tab" onclick="switchTab(4,this)">Stress</button>
-    <button class="tab" onclick="switchTab(5,this)">SpO2</button>
+  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);">
+    <div style="width:14px;height:14px;background:#d4c5a9;border-radius:2px;"></div> Awake
   </div>
-  <div class="chart-section">
-    <div class="chart-wrap"><canvas id="mainChart" role="img" aria-label="Health metric time series">Loading…</canvas></div>
-  </div>
-  <div class="footer">
-    Generated locally &nbsp;·&nbsp; No data sent externally &nbsp;·&nbsp; <a href="https://github.com/Wewoc/Garmin_Local_Archive">github.com/Wewoc/Garmin_Local_Archive</a> &nbsp;·&nbsp; GNU GPL v3 &nbsp;·&nbsp; <em>Synthetic demo data</em>
+  <div style="margin-left:16px;font-size:11px;color:var(--text2);">
+    Color intensity: gradient against personal reference ranges (HRV 30–80 ms · Duration 7.0–9.0 h · Body Battery 50–100)
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script>
-const N=288;
-function gen(base,amp,noise,trend){
-  const a=[];
-  let rng=42;
-  function rand(){rng=(rng*1664525+1013904223)&0xffffffff;return(rng>>>0)/0xffffffff;}
-  for(let i=0;i<N;i++){
-    const v=base+trend*(i/N)+amp*Math.sin(i/20)*Math.cos(i/7)+(rand()-.5)*noise;
-    a.push(Math.round(v*10)/10);
-  }
-  return a;
-}
-function moving(arr,w){
-  return arr.map((_,i)=>{
-    const s=Math.max(0,i-w+1),sl=arr.slice(s,i+1);
-    return Math.round(sl.reduce((a,b)=>a+b,0)/sl.length*10)/10;
-  });
-}
-const labels=[];
-for(let i=0;i<N;i++){const d=new Date(2024,5,1);d.setDate(d.getDate()+i);labels.push(d.toISOString().slice(0,10));}
-const DS={
-  hrv:{raw:gen(56,8,6,-8),ref:[45,85],yLabel:'HRV (ms)',yMin:25,yMax:110,color:'__THEME_ACCENT__'},
-  rhr:{raw:gen(52,4,3,4),ref:[45,65],yLabel:'HR (bpm)',yMin:35,yMax:80,color:'#b84a2e'},
-  sleep:{raw:gen(6.8,0.8,.5,-.3),ref:[7,9],yLabel:'Sleep (h)',yMin:3,yMax:10,color:'#5a3db8'},
-  bb:{raw:gen(72,15,8,-10),ref:[60,100],yLabel:'Body Battery',yMin:0,yMax:100,color:'#2e8b57'},
-  stress:{raw:gen(35,12,8,5),ref:[20,50],yLabel:'Stress',yMin:0,yMax:100,color:'#c07a10'},
-  spo2:{raw:gen(97,1,.5,0),ref:[95,100],yLabel:'SpO2 (%)',yMin:90,yMax:100,color:'#2a8faa'},
-};
-const keys=['hrv','rhr','sleep','bb','stress','spo2'];
-let chart=null;
-function buildChart(idx){
-  const k=keys[idx],d=DS[k],base=moving(d.raw,90);
-  if(chart){chart.destroy();chart=null;}
-  const ctx=document.getElementById('mainChart').getContext('2d');
-  chart=new Chart(ctx,{
-    type:'line',
-    data:{labels,datasets:[
-      {label:'ref_hi',data:Array(N).fill(d.ref[1]),fill:'-1',backgroundColor:'rgba(180,225,170,.32)',borderColor:'transparent',borderWidth:0,pointRadius:0,tension:0,order:3},
-      {label:'ref_lo',data:Array(N).fill(d.ref[0]),fill:false,borderColor:'transparent',borderWidth:0,pointRadius:0,tension:0,order:3},
-      {label:'90d baseline',data:base,borderColor:d.color,borderWidth:1.5,borderDash:[5,4],pointRadius:0,fill:false,tension:.4,order:2},
-      {label:'Daily value',data:d.raw,borderColor:d.color,borderWidth:1.5,pointRadius:1.8,pointBackgroundColor:d.color,fill:false,tension:0,order:1},
-    ]},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
-      plugins:{
-        legend:{display:false},
-        tooltip:{filter:i=>i.datasetIndex>=2,callbacks:{label:ctx=>ctx.datasetIndex===2?'90d: '+ctx.formattedValue:'Value: '+ctx.formattedValue}}
-      },
-      scales:{
-        x:{type:'category',ticks:{maxTicksLimit:10,maxRotation:0,font:{size:11},color:'#888'},grid:{color:'rgba(0,0,0,.04)'}},
-        y:{min:d.yMin,max:d.yMax,title:{display:true,text:d.yLabel,font:{size:11},color:'#888'},ticks:{font:{size:11},color:'#888'},grid:{color:'rgba(0,0,0,.05)'}}
-      }
-    }
-  });
-}
-function switchTab(idx,el){
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  el.classList.add('active');
-  buildChart(idx);
-}
-buildChart(0);
-</script>
+</div>
+
+<footer>Garmin Local Archive · <span style="color:var(--accent);">github.com/Wewoc/Garmin_Local_Archive</span> · Demo data — not real health data</footer>
 </body>
 </html>
-
 """
 
-DEMO_HTML = (
-    _DEMO_HTML_TEMPLATE
-    .replace("__THEME_BG3__",    theme.BG3)
-    .replace("__THEME_ACCENT__", theme.ACCENT)
+DEMO_SLEEP_HTML = (
+    _DEMO_SLEEP_HTML_TEMPLATE
+    .replace("__THEME_BG0__",     theme.BG0)
+    .replace("__THEME_BG__",      theme.BG)
+    .replace("__THEME_BG2__",     theme.BG2)
+    .replace("__THEME_BG3__",     theme.BG3)
+    .replace("__THEME_ACCENT__",  theme.ACCENT)
+    .replace("__THEME_ACCENT2__", theme.ACCENT2)
+    .replace("__THEME_TEXT__",    theme.TEXT)
+    .replace("__THEME_TEXT2__",   theme.TEXT2)
+    .replace("__THEME_GREEN__",   theme.GREEN)
+    .replace("__THEME_YELLOW__",  theme.YELLOW)
+    .replace("__THEME_RED__",     theme.RED)
 )
 
 # ── Demo XLSX table (embedded — no file dependency) ───────────────────────────
@@ -303,7 +553,7 @@ class ScreenshotApp(GarminApp):
                               disables all buttons.
       closeEvent            — destroys window without saving anything.
       _refresh_archive_info — static demo values.
-      _scan_dashboards      — loads embedded DEMO_HTML into Tab 2, no file I/O.
+      _scan_dashboards      — loads embedded DEMO_SLEEP_HTML into Tab 2, no file I/O.
       _scan_xlsx_files      — loads embedded DEMO_XLSX_HTML into Tab 3, no file I/O.
 
     Everything else (layout, colours, fonts, sections, widgets) is inherited
@@ -524,13 +774,13 @@ class ScreenshotApp(GarminApp):
     # ── Override: demo dashboard — no real files ───────────────────────────────
 
     def _scan_dashboards(self, auto_load: str = None):
-        """Load embedded DEMO_HTML into Tab 2. No file scan, no real data."""
+        """Load embedded DEMO_SLEEP_HTML into Tab 2. No file scan, no real data."""
         self._panel_home._dash_combo.blockSignals(True)
         self._panel_home._dash_combo.clear()
-        self._panel_home._dash_combo.addItem("Garmin Health Analysis (Demo)")
+        self._panel_home._dash_combo.addItem("Sleep Dashboard (Demo)")
         self._panel_home._dash_combo.setEnabled(True)
         self._panel_home._dash_combo.blockSignals(False)
-        self._panel_home._dash_view.setHtml(DEMO_HTML, QUrl("about:blank"))
+        self._panel_home._dash_view.setHtml(DEMO_SLEEP_HTML, QUrl("about:blank"))
 
     def _scan_xlsx_files(self):
         """Load embedded DEMO_XLSX_HTML into Tab 3. No file scan, no real data."""

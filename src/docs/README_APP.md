@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.3.3
+# Garmin Local Archive — Desktop App v1.7.4
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -123,7 +123,7 @@ to try the MCP Server tab without a real Garmin account.
 - **Password** — your Garmin Connect password (stored securely in the Windows Credential Manager, never written to disk as plain text)
 - **Data folder** — where to store data (e.g. `C:\Users\YourName\local_archive`)
 - **Sync mode** — `recent` for daily use, `range` for a specific period, `auto` for full history (everything since your oldest device — can take hours, **not recommended**, rate limit risk, use Bulk Import instead)
-- **Export date range** — used by all dashboards. Leave empty to use the oldest/newest file in your archive automatically
+- **Export Dashboard Range** — used by Excel/dashboard export only (not the separate Export Data feature, which always uses the full archive). Leave empty for the last 30 days.
 - **Age / Sex** — used by the Health Analysis dashboard for reference ranges
 - **Mirror folder** — optional second location for your archive (NAS, USB, external drive). Leave empty to disable. Set once, then use the **Mirror** button to sync.
 - **Theme** *(v1.7.1.8)* — colour scheme for the app window and HTML dashboards, chosen from the Settings → Design dropdown. Six built-in themes (Monochrome + Rust Accent — default, Violet/Legacy, Amber & Copper, Olive & Sand, Toxic, Ice Blue). Choosing a theme opens a restart-to-apply dialog — themes are not applied live to an already-open window.

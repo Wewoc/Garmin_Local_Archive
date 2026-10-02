@@ -157,6 +157,8 @@ def run_live_fetch(panel):
         try:
             s = app._panel_settings._collect_settings()
             os.environ["GARMIN_OUTPUT_DIR"] = s.get("base_dir", "")
+            os.environ["GARMIN_REQUEST_DELAY_MIN"] = str(s.get("request_delay_min", "5.0"))
+            os.environ["GARMIN_REQUEST_DELAY_MAX"] = str(s.get("request_delay_max", "20.0"))
 
             root = frozen_paths.scripts_root()
             frozen_paths.add_to_path(

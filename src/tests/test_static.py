@@ -142,7 +142,8 @@ if _missing:
 # ── 3b. Jede .py-Datei in den vollständig erfassten Ordnern ist gelistet ──────
 _FULLY_COVERED_DIRS = [
     "app", "garmin", "garmin/quality", "context", "maps",
-    "dashboards", "layouts", "layouts/render", "export",
+    "dashboards", "layouts", "layouts/render",
+    "exports", "exports/export_adapters",
 ]
 _listed   = set(build_manifest.SHARED_SCRIPTS)
 _unlisted = []
@@ -298,15 +299,28 @@ def _count_spec_from_file_location(path: Path) -> int:
                 count += 1
     return count
 
-# Baseline aus DEPS-Scan v1657_40 (2026-07-30): 10 Fundstellen in
-# Produktivcode (panel_outputs.py 7x, dash_runner.py 2x,
-# dash_plotter_html_complex.py 1x). Alle zehn laden über einen zur Laufzeit
-# berechneten Pfad — kein String-Literal, daher hier kein Ziel-gegen-Manifest-
-# Abgleich möglich (das leistet Sektion 3b bereits für die betroffenen
-# Ordner: dashboards/, layouts/). Ein Anstieg dieser Zahl ist kein Fehler an
-# sich, nur ein Hinweis: eine neue dynamische Lade-Stelle ist aufgetaucht —
-# prüfen, ob ihr Zielordner in _FULLY_COVERED_DIRS (Sektion 3b) steht.
-_SPEC_FROM_FILE_LOCATION_BASELINE = 10
+# Baseline aus DEPS-Scan v1657_40 (2026-07-30): ursprünglich 10 Fundstellen.
+# Angehoben auf 11 (v1.7.4 Export Layer, 2026-10-01): zwei neue, legitime
+# Lade-Stellen dazugekommen — app/popups/export_data.py lädt
+# exports/export_runner.py, exports/export_runner.py selbst lädt die
+# *_adapter.py-Dateien, exakt dasselbe Muster wie dashboard_create.py/
+# dash_runner.py für die Dashboard-Layer. Zielordner (exports/,
+# exports/export_adapters/) wurde entsprechend in _FULLY_COVERED_DIRS
+# (Sektion 3b) ergänzt — dort stand vorher fälschlich "export" (Singular,
+# nicht existentes Verzeichnis), jetzt korrigiert. Alle Fundstellen laden
+# über einen zur Laufzeit berechneten Pfad — kein String-Literal, daher
+# hier kein Ziel-gegen-Manifest-Abgleich möglich (das leistet Sektion 3b
+# bereits für die betroffenen Ordner). Ein weiterer Anstieg dieser Zahl ist
+# kein Fehler an sich, nur ein Hinweis: eine neue dynamische Lade-Stelle ist
+# aufgetaucht — prüfen, ob ihr Zielordner in _FULLY_COVERED_DIRS steht.
+#
+# Angehoben auf 12 (v1.7.4 Export Layer, Baustein 17, 2026-10-01): GUI
+# "Daily Sync"-Button rief export_auto_run nie auf (nur der headless
+# daily_update.py-Pfad) — neue app/outputs/export_auto.py lädt
+# exports/export_runner.py exakt wie app/popups/export_data.py, selber
+# bereits abgedeckter Zielordner (exports/), kein neuer Eintrag in
+# _FULLY_COVERED_DIRS nötig.
+_SPEC_FROM_FILE_LOCATION_BASELINE = 12
 
 _spec_total = sum(
     _count_spec_from_file_location(_ROOT / p)

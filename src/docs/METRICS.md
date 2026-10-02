@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-09-30 16:55 UTC · Version: 1.7.3.3
+Generated: 2026-10-02 09:23 UTC · Version: 1.7.4
 
 ## Test Counts
 
@@ -14,6 +14,7 @@ Generated: 2026-09-30 16:55 UTC · Version: 1.7.3.3
 | test_dashboard.py | 471 | 471 | 0 |
 | test_broker.py | 141 | 141 | 0 |
 | test_mcp.py | 231 | 231 | 0 |
+| test_export.py | 45 | 45 | 0 |
 | test_app_logic.py | 188 | 188 | 0 |
 | test_updater.py | 89 | 89 | 0 |
 | test_qt_app.py | 187 | 187 | 0 |
@@ -24,13 +25,13 @@ Generated: 2026-09-30 16:55 UTC · Version: 1.7.3.3
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 17 | 17 | 0 |
-| **Total** | **2620** | **2620** | **0** |
+| **Total** | **2665** | **2665** | **0** |
 
 ## Modules
 
-Total: 148 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 158 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-09-30 16:54 UTC · Findings: 0 · Whitelisted: 68
+Scanned: 2026-10-02 07:25 UTC · Findings: 0 · Whitelisted: 68
 

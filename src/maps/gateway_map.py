@@ -193,6 +193,41 @@ _DATE_FILTERABLE_KINDS = {
 #  Public interface
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _fanout(domain: str | None, not_available, extractor):
+    """
+    Shared domain-validation + fan-out skeleton for get(), get_raw(),
+    list_raw_fields() and list_fields() — the one piece of logic that
+    was duplicated near-identically across those functions before
+    (v1.7.4 Export Layer session). `not_available` is the per-caller
+    value used when a domain's broker is not yet registered (shape
+    differs: {"error": ...} for get()/get_raw(), [] for the two
+    list_*() functions). `extractor(broker)` runs per registered broker
+    and owns its own error handling — callers catch different
+    exceptions (get() degrades any Exception, get_raw() additionally
+    distinguishes AttributeError for "no raw-passthrough support",
+    list_raw_fields() only AttributeError) — kept caller-specific, not
+    folded in here.
+
+    Raises:
+        ValueError: if domain is set to a string that is not a known
+                    domain key. This is a caller error, distinct from a
+                    domain being known but not yet available.
+    """
+    if domain is not None and domain not in _DOMAIN_BROKERS:
+        raise ValueError(
+            f"Unknown domain {domain!r} — expected one of "
+            f"{sorted(_DOMAIN_BROKERS)} or None"
+        )
+
+    domains_to_query = [domain] if domain is not None else list(_DOMAIN_BROKERS)
+
+    result = {}
+    for domain_name in domains_to_query:
+        broker = _DOMAIN_BROKERS[domain_name]
+        result[domain_name] = not_available if broker is None else extractor(broker)
+    return result
+
+
 def get(field: str, date_from: str, date_to: str,
         resolution: str = "daily", domain: str | None = None) -> dict:
     """
@@ -221,32 +256,52 @@ def get(field: str, date_from: str, date_to: str,
                     domain key. This is a caller error, distinct from a
                     domain being known but not yet available.
     """
-    if domain is not None and domain not in _DOMAIN_BROKERS:
-        raise ValueError(
-            f"Unknown domain {domain!r} — expected one of "
-            f"{sorted(_DOMAIN_BROKERS)} or None"
-        )
-
-    domains_to_query = [domain] if domain is not None else list(_DOMAIN_BROKERS)
-
-    result = {}
-    for domain_name in domains_to_query:
-        broker = _DOMAIN_BROKERS[domain_name]
-        if broker is None:
-            result[domain_name] = {"error": "domain not yet available"}
-            continue
+    def _extract(broker):
         try:
-            result[domain_name] = broker.get(field, date_from, date_to, resolution)
+            return broker.get(field, date_from, date_to, resolution)
         except Exception as exc:
             # Domain broker failed unexpectedly — degrade gracefully,
             # never hard-stop the whole gateway request.
-            result[domain_name] = {"error": str(exc)}
-    return result
+            return {"error": str(exc)}
+    return _fanout(domain, {"error": "domain not yet available"}, _extract)
 
 
 def list_domains() -> list[str]:
     """Return all known domain keys, whether their broker is registered yet or not."""
     return list(_DOMAIN_BROKERS.keys())
+
+
+def list_fields(domain: str | None = None) -> dict[str, list[str]]:
+    """
+    Return registered field names per domain, flattened across each
+    domain's sources — same shape as list_raw_fields(), since field
+    names are the generic, domain-wide names get()'s `field` argument
+    expects (a domain broker resolves which source internally, see
+    context_map.get()). Added for the Export Layer (v1.7.4), which
+    needs to enumerate "all fields" for a domain rather than naming one
+    field at a time, the way dashboard specialists do.
+
+    Kept as general-purpose broker API even if the Export Layer itself
+    later reads through the Shared Cache Layer instead (clients/mcp_sql.py
+    — its range reads already return every cached field without a
+    separate enumeration step, see TODO_export_layer.md) — deliberately
+    not removed in that case, for any future consumer that still needs
+    a plain field listing without going through the cache.
+
+    Args:
+        domain: None -> all registered domain keys. Set to one -> only
+                that domain's fields.
+
+    Raises:
+        ValueError: if domain is set to a string that is not a known
+                    domain key.
+    """
+    def _extract(broker):
+        fields = []
+        for source in broker.list_sources():
+            fields.extend(broker.list_fields(source))
+        return fields
+    return _fanout(domain, [], _extract)
 
 
 def get_metadata(kind: str, date_from: str | None = None,
@@ -333,29 +388,16 @@ def get_raw(field: str, date_from: str, date_to: str,
         ValueError: if domain is set to a string that is not a known
                     domain key.
     """
-    if domain is not None and domain not in _DOMAIN_BROKERS:
-        raise ValueError(
-            f"Unknown domain {domain!r} — expected one of "
-            f"{sorted(_DOMAIN_BROKERS)} or None"
-        )
-
-    domains_to_query = [domain] if domain is not None else list(_DOMAIN_BROKERS)
-
-    result = {}
-    for domain_name in domains_to_query:
-        broker = _DOMAIN_BROKERS[domain_name]
-        if broker is None:
-            result[domain_name] = {"error": "domain not yet available"}
-            continue
+    def _extract(broker):
         try:
-            result[domain_name] = broker.get_raw(field, date_from, date_to)
+            return broker.get_raw(field, date_from, date_to)
         except AttributeError:
-            result[domain_name] = {"error": "domain has no raw-passthrough support"}
+            return {"error": "domain has no raw-passthrough support"}
         except Exception as exc:
             # Domain broker failed unexpectedly — degrade gracefully,
             # never hard-stop the whole gateway request.
-            result[domain_name] = {"error": str(exc)}
-    return result
+            return {"error": str(exc)}
+    return _fanout(domain, {"error": "domain not yet available"}, _extract)
 
 
 def list_raw_fields(domain: str | None = None) -> dict[str, list[str]]:
@@ -373,22 +415,9 @@ def list_raw_fields(domain: str | None = None) -> dict[str, list[str]]:
         ValueError: if domain is set to a string that is not a known
                     domain key.
     """
-    if domain is not None and domain not in _DOMAIN_BROKERS:
-        raise ValueError(
-            f"Unknown domain {domain!r} — expected one of "
-            f"{sorted(_DOMAIN_BROKERS)} or None"
-        )
-
-    domains_to_query = [domain] if domain is not None else list(_DOMAIN_BROKERS)
-
-    result = {}
-    for domain_name in domains_to_query:
-        broker = _DOMAIN_BROKERS[domain_name]
-        if broker is None:
-            result[domain_name] = []
-            continue
+    def _extract(broker):
         try:
-            result[domain_name] = broker.list_raw_fields()
+            return broker.list_raw_fields()
         except AttributeError:
-            result[domain_name] = []
-    return result
+            return []
+    return _fanout(domain, [], _extract)

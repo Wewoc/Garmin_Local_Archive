@@ -19,17 +19,19 @@ panel_outputs.py (confirmed by Grep before this Baustein).
 
 import os
 import threading
-from datetime import date, timedelta
 from pathlib import Path
 
 import frozen_paths
+import garmin_app_settings as _settings
 
 
 def run_all_dashboards(panel, *, on_done=None):
-    """Build all specialists / all formats — no dialog, no date filter.
+    """Build all specialists / all formats — no dialog.
 
     Mirrors daily_update._run_dashboards(): scans all specialists, selects
-    all formats, uses the full archive date range from summary/*.json.
+    all formats, uses the date range from the settings fields
+    date_from/date_to (empty = last 30 days) via
+    garmin_app_settings.dashboard_range().
     Fires on_done on the Main Thread when complete (success or error).
     """
     import importlib.util as _ilu
@@ -72,17 +74,11 @@ def run_all_dashboards(panel, *, on_done=None):
         for fmt in spec["formats"]
     ]
 
-    # Full archive date range — same logic as daily_update
+    # Date range from settings (empty = last 30 days) — same helper as
+    # daily_update.py and the Create Dashboards popup
     s         = app._panel_settings._collect_settings()
     base      = Path(s["base_dir"])
-    summary_dir = base / "garmin_data" / "summary"
-    dates = sorted(
-        f.stem.replace("garmin_", "")
-        for f in summary_dir.glob("garmin_???-??-??.json")
-    ) if summary_dir.exists() else []
-    today     = date.today()
-    date_from = dates[0]  if dates else (today - timedelta(days=90)).isoformat()
-    date_to   = dates[-1] if dates else today.isoformat()
+    date_from, date_to = _settings.dashboard_range(s)
 
     output_dir = base / "dashboards"
     output_dir.mkdir(parents=True, exist_ok=True)

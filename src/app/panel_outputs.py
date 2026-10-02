@@ -33,10 +33,11 @@ import frozen_paths
 import theme
 from .popups import (
     capability_scan, dashboard_create, custom_dashboard, encrypted_dashboards,
+    export_data,
 )
 from .outputs import (
     output_helpers, bulk_import, force_refetch, context_check, dashboards,
-    context_sync, sync,
+    context_sync, sync, export_auto,
 )
 
 
@@ -223,11 +224,11 @@ class PanelOutputs(QWidget):
         lay.addLayout(context_check_row)
 
         # ── Export ────────────────────────────────────────────────────────────
-        lay.addWidget(self._section_widget("Export"))
+        lay.addWidget(self._section_widget("Dashboards"))
         exp_row = QHBoxLayout()
         exp_row.setContentsMargins(20, 2, 20, 2)
         exp_row.setSpacing(4)
-        rep_btn = self._action_btn("📊  Create Reports", self._app.BG3,
+        rep_btn = self._action_btn("📊  Create Dashboards", self._app.BG3,
                                    self._app.TEXT, self._open_dashboard_popup)
         rep_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
                               QSizePolicy.Policy.Fixed)
@@ -263,6 +264,20 @@ class PanelOutputs(QWidget):
         cust_row.addWidget(
             self._tip("Pick any Garmin + Context fields, build a one-off dashboard"))
         lay.addLayout(cust_row)
+
+        # ── Export Data (v1.7.4) ────────────────────────────────────────────────
+        lay.addWidget(self._section_widget("Export Data"))
+        exp_data_row = QHBoxLayout()
+        exp_data_row.setContentsMargins(20, 2, 20, 2)
+        exp_data_row.setSpacing(4)
+        exp_data_btn = self._action_btn("📤  Export Data", self._app.BG3,
+                                        self._app.TEXT, self._open_export_popup)
+        exp_data_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                   QSizePolicy.Policy.Fixed)
+        exp_data_row.addWidget(exp_data_btn)
+        exp_data_row.addWidget(
+            self._tip("Export archive data as JSON for other tools — basedir/export/"))
+        lay.addLayout(exp_data_row)
 
         # ── Output ───────────────────────────────────────────────────────────
         lay.addWidget(self._section_widget("Output"))
@@ -549,12 +564,28 @@ class PanelOutputs(QWidget):
     def _open_encrypted_dashboard_popup(self):
         encrypted_dashboards.open_popup(self)
 
+    # ── Export Data (v1.7.4) ───────────────────────────────────────────────────
+    # Thin delegate, same shape as the dashboard popups above, so
+    # _build_ui()'s button wiring (self._action_btn(..., self._open_export_popup))
+    # needs zero changes if export_data.py's internals change later.
+
+    def _open_export_popup(self):
+        export_data.open_popup(self)
+
     # v1.7.3.1 Baustein 5: moved to app/outputs/dashboards.py — thin
     # delegate kept here with the SAME keyword signature, since
     # panel_home.py's Daily Sync chain calls this from outside
     # panel_outputs.py (confirmed by Grep before this Baustein).
     def _run_all_dashboards(self, *, on_done=None):
         return dashboards.run_all_dashboards(self, on_done=on_done)
+
+    # v1.7.4 Baustein 17: GUI "Daily Sync" button chain never ran the
+    # saved Export Data selection (export_auto_run) — only the headless
+    # daily_update.py did. Same delegate shape as _run_all_dashboards,
+    # since panel_home.py's Daily Sync chain calls this from outside
+    # panel_outputs.py too.
+    def _run_export_auto(self, *, on_done=None):
+        return export_auto.run_export_auto(self, on_done=on_done)
 
     # ── Output helpers ─────────────────────────────────────────────────────────
     # v1.7.3.1 Baustein 1: moved to app/outputs/output_helpers.py — thin

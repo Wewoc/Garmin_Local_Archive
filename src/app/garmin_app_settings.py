@@ -16,6 +16,7 @@ Callers:  garmin_app_base.py (via module import as _settings)
 
 import json
 import os
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -69,6 +70,20 @@ def save_settings(s: dict):
     """
     safe = {k: v for k, v in s.items() if k != "password"}
     SETTINGS_FILE.write_text(json.dumps(safe, indent=2), encoding="utf-8")
+
+
+def dashboard_range(s: dict) -> tuple[str, str]:
+    """Dashboard date range (YYYY-MM-DD, YYYY-MM-DD) from the settings
+    fields date_from/date_to ("Export Dashboard Range"). Empty from =
+    last 30 days, empty to = today. Single source for every path that
+    builds dashboards (popup, GUI Daily Sync, daily_update.py)."""
+    date_from = (s.get("date_from") or "").strip()
+    date_to   = (s.get("date_to") or "").strip()
+    if not date_from:
+        date_from = (date.today() - timedelta(days=30)).isoformat()
+    if not date_to:
+        date_to = date.today().isoformat()
+    return date_from, date_to
 
 
 # ── Keyring helpers ────────────────────────────────────────────────────────────

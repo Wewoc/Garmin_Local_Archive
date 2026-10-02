@@ -317,7 +317,7 @@ matching on unknown text.
 | Function / Class | Purpose |
 |---|---|
 | `redact(text)` | Replaces the current `GARMIN_EMAIL`/`GARMIN_PASSWORD` value (if non-empty) with `[GARMIN_EMAIL]`/`[GARMIN_PASSWORD]` |
-| `RedactFilter` | `logging.Filter` — redacts both values from every `LogRecord`'s `msg` and string `args` as they pass through. Always returns `True` — never suppresses a record, only mutates its text |
+| `RedactFilter` | `logging.Filter` — redacts both values from every `LogRecord`'s `msg` and string `args` as they pass through (tuple args element-wise; a single dict argument — which `logging` unwraps into `record.args` itself — value-wise, keys untouched). Always returns `True` — never suppresses a record, only mutates its text |
 
 ---
 
@@ -889,7 +889,7 @@ section metadata; no `zoneinfo`, no new hidden-import.
 
 | Function | Purpose |
 |---|---|
-| `_device_offset(data)` | Returns `(offset_hours, dst_transition)` for one raw/live file's `data` dict. Tries `_OFFSET_SOURCE_SECTIONS` in order (`heart_rates → stress → respiration → spo2`), first section with a complete `startTimestampGMT/Local` + `endTimestampGMT/Local` pair wins. `dst_transition=True` when start-of-day and end-of-day offset differ (day crosses a DST change) — the offset used is always the start-of-day value, matching how Garmin Connect itself renders the day (it does not correct mid-day either). No usable section → `(0.0, False)` with a `log.warning` — never a silent UTC fallback, never an exception |
+| `_device_offset(data)` | Returns `(offset_hours, dst_transition)` for one raw/live file's `data` dict. Tries `_OFFSET_SOURCE_SECTIONS` in order (`heart_rates → stress → respiration → spo2`), first section with a complete `startTimestampGMT/Local` + `endTimestampGMT/Local` pair wins. `dst_transition=True` when start-of-day and end-of-day offset differ (day crosses a DST change) — the offset used is always the start-of-day value, matching how Garmin Connect itself renders the day (it does not correct mid-day either). No usable section → `(0.0, False)` with a `log.warning` — never a silent UTC fallback, never an exception. The warning fires at most once per calendar day per process run (`_warned_offset_days`, Baustein 27) — not once per field that reads that day |
 | `_section_offset(section_data)` | Computes `(start_offset_hours, end_offset_hours)` from one section's GMT/Local timestamp pair. Returns `None` if either pair is missing or malformed |
 | `_parse_naive(ts)` | Parses a Garmin ISO timestamp string to a naive `datetime`, ignoring sub-second digits (`ts[:19]`) |
 | `_ts_to_iso(ts, offset_hours=0.0)` | Normalizes an epoch-ms value or ISO string to an ISO-8601 string, shifted by `offset_hours`. Stays naive — no offset suffix. A suffix would be reapplied by Plotly's `xaxis: {type:'date'}` in the browser's own timezone, reintroducing the original bug at a different layer |

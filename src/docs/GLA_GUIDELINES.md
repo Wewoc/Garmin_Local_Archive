@@ -57,9 +57,11 @@ responsibility boundary.
 ```
 ┌─────────────────────────────────────────────────────┐
 │  GUI / App  (garmin_app_base.py + Panels)           │
-├─────────────────────────────────────────────────────┤
-│  Export Layer  (dashboards/ · layouts/)             │
-├─────────────────────────────────────────────────────┤
+├──────────────────────────┬──────────────────────────┤
+│  Dashboard Layer         │  Export Layer            │
+│  (dashboards/ · layouts/)│  (exports/ ·             │
+│                          │   export_adapters/)      │
+├──────────────────────────┴──────────────────────────┤
 │  Broker Layer  (maps/health_map · maps/context_map  │
 │                 · maps/gateway_map · maps/mcp_map)  │
 ├──────────────────────────┬──────────────────────────┤
@@ -92,9 +94,18 @@ access" principle above already covers it.
 **No cross-connections between layers** — neither the Garmin pipeline nor
 the Context pipeline ever reaches directly into dashboards; dashboards
 never read the filesystem directly, only through a broker. The MCP Server
-is not a sixth layer but an external consumer alongside the GUI/Export
-layer that enters the Broker Layer exclusively through
+is not a sixth layer but an external consumer alongside the GUI/Dashboard/
+Export layers that enters the Broker Layer exclusively through
 `gateway_map`/`mcp_map` — no direct pipeline access, no write access.
+
+**Shared Cache Layer (v1.7.4):** `clients/mcp_sql.py`/`mcp_update.py`
+started as MCP-only infrastructure but now also serve the Export
+Layer — `exports/export_runner.py` triggers `mcp_update.sync_all()`
+before building, then `export_common.collect()` reads through
+`mcp_sql.py`'s range functions instead of querying `gateway_map`
+directly. Not a sixth layer: both MCP and Export enter the Broker
+Layer's cache the same way, `gateway_map` remains the architectural
+foundation underneath.
 
 `maps/gateway_map.py` adds a selective cross-domain entry point to the
 Broker Layer, for consumers that don't know at runtime which domain owns a
@@ -595,8 +606,8 @@ pipeline code.
 
 ## 14. Test suite
 
-Eight suites cover the full pipeline, no network or GUI required except
-where noted:
+Sixteen suites (run via `run_tests.ps1`) cover the full pipeline, no
+network or GUI required except where noted:
 
 | Suite | Scope |
 |---|---|
@@ -605,9 +616,21 @@ where noted:
 | `test_dashboard.py` | Dashboard pipeline (maps, specialists, plotters) |
 | `test_broker.py` | Broker layer (`health_map`/`gateway_map` routing, `metadata_map`) |
 | `test_mcp.py` | MCP layer (`mcp_map` protocol translation) |
+| `test_export.py` | Export Layer (`exports/` adapters, `export_common.collect()`) |
 | `test_app_logic.py` | App layer (entry points, path resolution) |
+| `test_updater.py` | Self-updater (T2/T3 update flow) |
 | `test_qt_app.py` | PyQt6 App layer (run via `pytest`) |
+| `test_cloud_llm.py` | Cloud LLM connector |
+| `test_mcp_tool_chat.py` | MCP tool-calling turn loop |
+| `test_cloud_tool_chat.py` | Cloud LLM + MCP tool-calling turn loop |
+| `test_chat_session_store.py` | Chat session store |
+| `test_cloud_credential_store.py` | Cloud credential store |
+| `test_mcp_process.py` | MCP server process control |
 | `test_static.py` | Lint + security scan + AST-based regression guards |
+
+`test_build_output.py` is not part of `run_tests.ps1` — it runs as
+`build_all.py`'s post-build validation pass against the actual built
+output (both targets), not the pre-build gate.
 
 Expected coverage varies by layer — the pipeline core (`garmin/`) is
 tested densely since it's the critical data path; the GUI layer is
