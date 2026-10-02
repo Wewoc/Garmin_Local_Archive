@@ -6,63 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.3.4**
-
----
-
-### v1.7.4 — Export Layer
- 
-A new output layer parallel to `dashboards/` — reads via the Broker Layer,
-writes to external formats and databases. GLA becomes local data infrastructure
-for the broader Garmin ecosystem: other tools consume GLA's archive instead of
-fetching from the Garmin API themselves, gaining access to intraday data that
-would otherwise be lost after ~120 days.
- 
-**Architecture**
- 
-The Export Layer sits at the same level as the Dashboard Layer. Both consume
-the Broker Layer — neither has knowledge of pipeline internals.
- 
-```
-Broker Layer  (health_map / fit_map / context_map)
-        ↓                          ↓
-Dashboard Layer              Export Layer
-dashboards/                  exports/
-layouts/                     export_adapters/
-```
- 
-Export adapters are planned to read via `gateway_map.py` rather than
-querying individual domain brokers directly (decided in the v1.6.7
-`gateway_map` session) — one cross-domain entry point instead of each
-adapter importing `health_map`/`fit_map`/`context_map` separately. Not yet
-built; noted here for when this layer is implemented.
- 
-**Design principles**
- 
-- One adapter per target format — no shared state between adapters
-- Adapters are read-only consumers of the Broker Layer
-- No write access to any pipeline component or archive directory
-- Sole-Write-Authority of existing pipeline modules is not affected
-
-**Candidate adapter formats**
- 
-- InfluxDB Line Protocol — enables garmin-grafana and similar tools to consume
-  GLA data without fetching from the Garmin API
-- CSV — generic export for Python analysis, Excel, or LLM input
-- Prometheus exposition format — for monitoring / alerting stacks
-
-No adapter is a commitment. Each is evaluated independently when development begins.
- 
-**What changes:**
-- `exports/` — new top-level directory, parallel to `dashboards/`
-- `exports/export_runner.py` — orchestration; analogous to `dash_runner.py`
-- `exports/export_adapters/` — one module per target format
-
-**What does not change:**
-- Broker Layer — `health_map`, `fit_map`, `context_map`, `gateway_map` unchanged
-- Dashboard Layer — unaffected
-- Pipeline — no access below the Broker Layer
-- Sole owner principle — adapters read via brokers only
+**Currently stable — v1.7.4**
 
 ---
 
@@ -475,6 +419,23 @@ required before any architecture work. Not before v1.10.
 ## Under consideration — v2.0
 
 These are ideas, not commitments. Some may never get built.
+
+**Open mHealth / IEEE 1752.1 export format**
+
+Researched during v1.7.4 (see
+`changelog/anchor_delivery_exportlayer19-open-mhealth-recherche.md`).
+Most of GLA's actual metrics (HRV, Stress series, Body Battery, Sleep
+Score/Qualifier/Feedback, Intensity Minutes) have no schema in either
+standard — a mapped export would be largely incomplete, and no
+concrete consuming tool exists yet. Revisit if one appears, or once
+IEEE P1752.2 (in progress) is published.
+
+**Parquet export adapter**
+
+Deferred after JSON/CSV/InfluxDB shipped in v1.7.4 — its main advantage
+(compression, columnar, faster large-table reads) only pays off at
+archive sizes CSV can't handle, and no consuming tool needs it the way
+InfluxDB does. Revisit with a real need, via its own interface analysis.
 
 **`context_validator.py` — Context Pipeline Validation**
 

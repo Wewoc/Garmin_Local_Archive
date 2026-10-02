@@ -56,7 +56,7 @@ account. See [QUICKSTART.txt](src/docs/QUICKSTART.txt), "Try it first".
 
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
-- **AI and health data — handle with care:** If you use an external AI service (ChatGPT, Claude, Gemini) to interpret your data: never upload documents containing your name, date of birth, or other identifying information. Cloud AI services store what you send — linked to your account. Use a local model (Ollama) or at minimum a session without login. This includes the app's own in-app **Chat** tab — its optional Cloud backend (Anthropic/OpenAI, v1.7.2) sends your question and any archive data the model requests to that provider's API, same as pasting into their website; the Ollama backend stays fully local, always. AI responses on health topics are statistically generated — not medically validated. Treat them as a first orientation, not a conclusion.
+- **AI and health data — handle with care:** If you use an external AI service (ChatGPT, Claude, Gemini) to interpret your data: never upload documents containing your name, date of birth, or other identifying information. Cloud AI services store what you send — linked to your account. Use a local model (Ollama) or at minimum a session without login. This includes the app's own in-app **Chat** tab — its optional Cloud backend (Anthropic/OpenAI) sends your question and any archive data the model requests to that provider's API, same as pasting into their website; the Ollama backend stays fully local, always. AI responses on health topics are statistically generated — not medically validated. Treat them as a first orientation, not a conclusion.
 - **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data and air quality data by Open-Meteo — accuracy and availability are not guaranteed. Air quality data (CAMS dataset) is available from approximately 2020 onwards.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
@@ -158,7 +158,7 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 | **Custom Dashboard** | Pick any combination of Garmin daily fields and Context fields, set a date range, and build a one-off dashboard — no fixed field list, no specialist file written to disk. Field selections can be saved as named presets for reuse. Optional AES-256 encryption for the HTML output. | HTML, Excel |
 
 <img src="src/screenshots/Create_report.jpg" width="800" alt="Garmin Local Archive — Create Report">
-<br><sub>Create Reports — select dashboards and export as HTML, Excel or JSON.</sub>
+<br><sub>Create Dashboards — select dashboards and export as HTML, Excel or JSON.</sub>
 
 <img src="src/screenshots/Dashboard.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>Analysis dashboard — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
@@ -169,23 +169,46 @@ The built-in dashboards cover roughly 90% of what most users are looking for —
 <img src="src/screenshots/dashboard_mobile_landscape.jpg" width="800" alt="Garmin Health Analysis Dashboard">
 <br><sub>Analysis dashboard mobile version — daily values vs 90-day personal baseline vs age/fitness-adjusted reference ranges.</sub>
 
-**Live Tracking** (v1.6.5) — a separate, always-current view: today's progression (Body Battery, Heart Rate, Steps, Stress) plus last night's sleep summary, refreshed automatically after every sync and on demand via an "Update Live" button in the Home tab. Not part of the Create Reports selection above — it has its own trigger, by design.
+**Live Tracking** — a separate, always-current view: today's progression (Body Battery, Heart Rate, Steps, Stress) plus last night's sleep summary, refreshed automatically after every sync and on demand via an "Update Live" button in the Home tab. Not part of the Create Dashboards selection above — it has its own trigger, by design.
+
+---
+
+### Export
+
+Export Data writes your archive to external formats for other tools to
+consume — a separate layer from the dashboards above, reading the same
+broker data. Available from the **Dashboards** section's "Export Data"
+button, per-adapter grid (toggle Health/Context/Metadata independently
+per format):
+
+| Adapter | Format | Notes |
+|---|---|---|
+| JSON | `.json` | Full archive, 1:1 broker output |
+| CSV | `.csv` | One row per day, `health_<field>`/`context_<source>_<field>` columns — built for Excel/LibreOffice. Intraday/series fields excluded (too large for a usable spreadsheet). Metadata in a separate file. Delimiter (`;`/`,`) and decimal separator chosen together, so German Excel opens it correctly. |
+| InfluxDB Line Protocol | `.txt` | Full resolution incl. intraday/series data — for feeding [garmin-grafana](https://github.com/arpanghosh8453/garmin-grafana) or similar tools without a Garmin API call of their own. |
+
+"Save & Add to Daily Sync" persists your selection and runs it
+automatically as part of every daily sync — no need to export by hand
+after each sync.
+
+<img src="src/screenshots/export_data.jpg" width="800" alt="Garmin Local Archive — Export Data">
+<br><sub>Export Data — per-adapter grid for Health/Context/Metadata, JSON/CSV/InfluxDB.</sub>
 
 ---
 
 ### Chat
 
-A native chat panel is built into the app (**Chat** tab, v1.6.6, renamed
-from "Ollama-Chat" in v1.7.2) — no separate setup beyond having Ollama
+A native chat panel is built into the app (**Chat** tab, renamed
+from "Ollama-Chat") — no separate setup beyond having Ollama
 itself installed and a model pulled, or a Cloud API key configured. Two
 independent choices, made before Start:
 
 - **Backend** — a local Ollama model (fully local, no setup beyond Ollama
-  itself), or a Cloud LLM (Anthropic or OpenAI, v1.7.2 — requires an API
+  itself), or a Cloud LLM (Anthropic or OpenAI — requires an API
   key, configured on the **MCP Server** tab; see the AI disclaimer above
   for what that means for your data).
 - **Source** — the archived daily-summary snapshot (fast, no live query,
-  the original v1.6.6 behavior), or live **MCP tool-calling** (v1.7.2) —
+  the original behavior), or live **MCP tool-calling** —
   the model queries your archive on demand via the same MCP server external
   tools use, for questions the daily snapshot alone can't answer.
 
@@ -219,7 +242,7 @@ its own small window, usable even without the main app installed.
 <br><sub>Standalone MCP server window (<code>mcp_server.exe</code>) — runs independently of the main app, with its own archive path, backend selection, and live log.</sub>
 
 Running Open WebUI (or any other MCP client) inside Docker? An opt-in
-"Extra allowed hosts" field on the MCP Server tab (v1.7.0.2) lets you add
+"Extra allowed hosts" field on the MCP Server tab lets you add
 `host.docker.internal` — pre-filled by default — to the server's allowed-
 host list, since the underlying MCP SDK otherwise rejects connections
 that don't arrive as `127.0.0.1`/`localhost`.
@@ -278,15 +301,15 @@ Live sync and Bulk Import both flow through the same validation and quality pipe
 
 ### System Architecture
 
-The diagram below shows how all components relate to each other as of v1.6.x — from API ingestion and context collection through the broker layer to dashboard export. The broker layer also includes `gateway_map` (v1.6.7), a cross-domain routing layer used by the local MCP server (v1.7, see above) among other consumers — existing dashboards are unaffected and continue to query `health_map`/`context_map` directly.
+The diagram below shows how all components relate to each other as of v1.7.x — from API ingestion and context collection through the broker layer to dashboard export. The broker layer also includes `gateway_map`, a cross-domain routing layer used by the local MCP server among other consumers — existing dashboards are unaffected and continue to query `health_map`/`context_map` directly.
 
-![System Architecture v1.6.x](src/screenshots/data_flow.png)
+![System Architecture v1.7.x](src/screenshots/data_flow.png)
 
 ---
 
 ### What is included
 
-The project is structured into five focused layers — Garmin pipeline, Context pipeline, Data brokers, Dashboard layer, Desktop app. Each layer has a single responsibility — collect, validate, assess, broker, or render. No crossover between layers.
+The project is structured into six focused layers — Garmin pipeline, Context pipeline, Data brokers, Dashboard layer, Export/MCP layer, Desktop app. Each layer has a single responsibility — collect, validate, assess, broker, or render. No crossover between layers.
 
 The diagram above shows how the layers connect. Each module is self-contained and designed to be extended — for a script-by-script reference (what each module does, owns, and how to add new ones), see [`docs/MAINTENANCE_GLOBAL.md`](src/docs/MAINTENANCE_GLOBAL.md).
 
@@ -316,7 +339,7 @@ See [`docs/MAINTENANCE_GLOBAL.md`](src/docs/MAINTENANCE_GLOBAL.md) for full tech
 
 ## Testing
 
-Sixteen test suites cover the full pipeline — no network, no API required
+Seventeen test suites cover the full pipeline — no network, no API required
 (the Chat tab's Cloud LLM/MCP-tool-calling tests mock every SDK/HTTP call,
 same as everything else here):
 
@@ -326,17 +349,18 @@ python tests/test_local_context.py            # Context pipeline (external APIs 
 python tests/test_dashboard.py                # Dashboard pipeline
 python tests/test_broker.py                   # Broker layer (health_map / gateway_map routing, metadata_map)
 python tests/test_mcp.py                      # MCP layer (mcp_map protocol translation)
+python tests/test_export.py                   # Export Layer
 python tests/test_app_logic.py                # App layer (entry points, path resolution)
 pytest tests/test_qt_app.py                   # PyQt6 App layer
 python tests/test_static.py                   # ruff + bandit + regression guards
 python tests/test_build_output.py             # Build output validation (run after build)
-pytest tests/test_cloud_llm.py                # Chat tab — Cloud LLM connector (v1.7.2)
-pytest tests/test_mcp_tool_chat.py            # Chat tab — Ollama + MCP tool-calling (v1.7.2)
-pytest tests/test_cloud_tool_chat.py          # Chat tab — Cloud + MCP tool-calling, streaming (v1.7.2)
-pytest tests/test_chat_session_store.py       # Chat tab — session save/load/resume (v1.7.2)
-pytest tests/test_cloud_credential_store.py   # Chat tab — API key storage in Windows Credential Manager (v1.7.2)
-pytest tests/test_mcp_process.py              # MCP Server Start/Stop process control (v1.7.2)
-python tests/test_updater.py                  # T2 + T3 self-updater (v1.7.2.4, v1.7.2.4.1)
+pytest tests/test_cloud_llm.py                # Chat tab — Cloud LLM connector
+pytest tests/test_mcp_tool_chat.py            # Chat tab — Ollama + MCP tool-calling
+pytest tests/test_cloud_tool_chat.py          # Chat tab — Cloud + MCP tool-calling, streaming
+pytest tests/test_chat_session_store.py       # Chat tab — session save/load/resume
+pytest tests/test_cloud_credential_store.py   # Chat tab — API key storage in Windows Credential Manager
+pytest tests/test_mcp_process.py              # MCP Server Start/Stop process control
+python tests/test_updater.py                  # T2 + T3 self-updater
 ```
 
 `build_all.py` runs `test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_broker.py`, and `test_static.py` as pre-build gates — a failing test aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` and the six Chat-tab/MCP-process suites above are run manually via `pytest`.

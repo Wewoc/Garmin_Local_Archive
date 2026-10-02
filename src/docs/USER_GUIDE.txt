@@ -65,7 +65,7 @@ GDPR EXPORT (request now)
 2. FIRST SYNC
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Click "Daily Sync" (purple button at the top) to start the sync.
+Click "Daily Sync" (big button at the top) to start the sync.
 The sync downloads all days not yet in the archive,
 starting from today and going backwards.
 
@@ -199,7 +199,7 @@ Available dashboards (selection):
 Live Tracking (v1.6.5): today's Body Battery, Heart Rate, Steps and Stress
 plus last night's sleep summary — always current. Not part of the dashboard
 list above; it refreshes automatically after every Daily Sync, or on demand
-via the "Update Live" button (purple button area, next to Daily Sync).
+via the "Update Live" button (next to Daily Sync).
 Takes about 30-60 seconds; progress shown in the log.
 
 Files tab: Excel overview of all archived days (v).
@@ -207,7 +207,7 @@ Files tab: Excel overview of all archived days (v).
 Rebuild dashboards:
   Settings tab -> Outputs -> "Create All Dashboards"
 
-Create Reports (Settings tab -> Export) opens a popup with all available dashboards
+Create Dashboards (Settings tab -> Dashboards) opens a popup with all available dashboards
 and their output formats:
 
   Dashboard            HTML   Mobile HTML   Excel   JSON
@@ -220,6 +220,24 @@ and their output formats:
 
 Output is written to `BASE_DIR/dashboards/`. The folder opens
 automatically after a successful build.
+
+Export Data (Settings tab -> Dashboards -> "Export Data"):
+  Writes your archive to external formats, separate from the HTML/
+  Excel dashboards above. Per-adapter grid -- toggle Health/Context/
+  Metadata independently for each format:
+
+    Adapter    Format   Notes
+    JSON       .json    Full archive, 1:1 broker output
+    CSV        .csv     One row per day, wide format (health_<field>/
+                         context_<source>_<field> columns) -- built for
+                         Excel/LibreOffice. Intraday/series fields
+                         excluded. Metadata in a separate file.
+    InfluxDB   .txt     Full resolution incl. intraday/series data --
+                         for garmin-grafana or similar tools.
+
+  "Save & Add to Daily Sync" persists your selection and runs it
+  automatically as part of every Daily Sync (see "Daily Sync button"
+  below) -- no need to export by hand after each sync.
 
 Intraday data — what the Timeseries dashboard shows:
 The Timeseries dashboard renders every data point captured from the
@@ -629,7 +647,7 @@ Two independent choices, made before Start:
   Source
     Summary (default)   Runs against your existing Health Analysis
                          export -- fast, no live query. Build one first:
-                         Settings tab -> Export -> "Create Reports", or
+                         Settings tab -> Dashboards -> "Create Dashboards", or
                          Outputs -> "Create All Dashboards" (Section 4).
     MCP tool-calling     (v1.7.2) The model queries your archive live via
                          the same MCP server external tools use (Section
@@ -810,6 +828,11 @@ Documentation
   User Guide (this document), and README App (installation/security).
   Files open in your default text editor or viewer.
 
+Export Data
+  Opens the per-adapter export popup — see Section 4, "Export Data",
+  for format details. "Save & Add to Daily Sync" saves your current
+  selection so it also runs automatically on the next Daily Sync.
+
 Update (v1.7.2.4, both versions)
   Appears in the "new version available" popup alongside "Open GitHub"
   and "Dismiss". Downloads the new version, verifies it against a
@@ -854,8 +877,10 @@ Sync Context / CSV
 Daily Sync button
   One-click daily workflow. Detects the gap since your last sync,
   then runs in sequence: Garmin Sync -> Context Sync -> Create All ->
-  Live Tracking (fetches today's snapshot in the background, does not
-  block or delay the steps above). If the gap is larger than 7 days a
+  Export Data (only if a selection was saved via "Save & Add to
+  Daily Sync" in the Export Data popup, Section 4) -> Live Tracking
+  (fetches today's snapshot in the background, does not block or
+  delay the steps above). If the gap is larger than 7 days a
   confirmation dialog appears before starting. The button is disabled
   while running.
 

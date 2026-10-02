@@ -94,6 +94,7 @@ function showComplexTab(elementId) {
   });
   document.getElementById(elementId).style.display = 'block';
   document.getElementById('btn-' + elementId).classList.add('active');
+  Plotly.Plots.resize(elementId.replace('chart-', 'heatmap-'));
 }
 """
 

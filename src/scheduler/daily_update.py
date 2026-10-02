@@ -16,7 +16,12 @@ Workflow:
   3. Gap detection  — quality_log.json → last known date → date range
   4. Garmin sync    — garmin_collector.main()
   5. Context sync   — context_collector.run()
-  6. Dashboards     — dash_runner.build() for all specialists (if no API errors)
+  6. Dashboards     — dash_runner.build() for all specialists (if no API errors);
+                      range from settings date_from/date_to, empty = last 30 days
+  6.5. Export Data  — export_runner.build() for the saved selection, if any
+       (v1.7.4, "export_auto_run" setting — opt-in, set via the GUI's
+       Export Data popup "Save & Add to Daily Sync" button; never
+       affects the exit code, unlike Dashboards)
   7. Exit
 
 Exit codes (Task Scheduler):
@@ -91,18 +96,6 @@ KEYRING_USER    = "garmin_password"
 
 GAP_HARD_STOP_DAYS = 7    # gaps larger than this trigger a hard stop
 LOG_DAILY_MAX      = 30   # rolling log file limit
-
-# Keys used by the scheduler — subset of garmin_app_settings.DEFAULT_SETTINGS.
-# sync_mode is always forced to "recent" in _build_env — not needed here.
-# timer_*, mirror_dir, date_from/to, sync_auto_fallback — never read here.
-_DAILY_SETTINGS_KEYS = {
-    "email", "base_dir",
-    "age", "sex",
-    "context_latitude", "context_longitude",
-    "request_delay_min", "request_delay_max",
-    "sync_days",          # → GARMIN_DAYS_BACK
-    "daily_update_auto_update",  # v1.7.2.4 — T3 unattended self-update opt-in
-}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Logging setup — console + daily log file (added after settings are loaded)
@@ -181,13 +174,17 @@ def _close_daily_log() -> None:
 
 def _load_settings() -> dict | None:
     """Load settings via garmin_app_settings — single source of truth.
-    Filters to _DAILY_SETTINGS_KEYS — the scheduler ignores all other fields.
+    Same merged dict (settings + DEFAULT_SETTINGS fallback) as the GUI
+    gets — no scheduler-specific filtering. A field the scheduler doesn't
+    read is simply ignored by the code that doesn't reference it; this
+    avoids the previous _DAILY_SETTINGS_KEYS allow-list, which silently
+    dropped any new settings key not manually added there (e.g.
+    export_auto_run — see Baustein 26).
     Lazy import: garmin_app_settings lives in app/, sys.path built in _setup_paths().
     Returns None if settings file is missing or unreadable."""
     try:
         import garmin_app_settings as _s
-        data = _s.load_settings()
-        return {k: v for k, v in data.items() if k in _DAILY_SETTINGS_KEYS}
+        return _s.load_settings()
     except Exception as e:
         log.error(f"  Could not read settings: {e}")
         return None
@@ -225,7 +222,7 @@ def _check_schema_migration(base_dir: Path) -> bool:
     if not summary_dir.exists():
         return False
 
-    for f in summary_dir.glob("garmin_???-??-??.json"):
+    for f in summary_dir.glob("garmin_????-??-??.json"):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             if data.get("schema_version", 0) < current:
@@ -520,16 +517,9 @@ def _run_dashboards(s: dict) -> bool:
         out_dir  = base / "dashboards"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Date range: full archive
-        summary_dir = base / "garmin_data" / "summary"
-        dates = sorted(
-            f.stem.replace("garmin_", "")
-            for f in summary_dir.glob("garmin_???-??-??.json")
-        ) if summary_dir.exists() else []
-
-        today = date.today()
-        date_from = dates[0]  if dates else (today - timedelta(days=90)).isoformat()
-        date_to   = dates[-1] if dates else today.isoformat()
+        # Date range: settings fields date_from/date_to, empty = last 30 days
+        import garmin_app_settings as _s
+        date_from, date_to = _s.dashboard_range(s)
 
         results = dash_runner.build(
             selections=selections,
@@ -554,6 +544,74 @@ def _run_dashboards(s: dict) -> bool:
         return False
 
 
+def _run_export(s: dict) -> None:
+    """
+    Run the saved Export Data selection, if any (export_auto_run
+    setting — set via the GUI's Export Data popup, "Save & Add to
+    Daily Sync" button). Never affects the exit code: unlike
+    Dashboards, Export Data is an optional convenience for external
+    tools, not a core archive step — a failure here is logged but does
+    not make the overall daily sync run count as failed.
+    """
+    cfg = s.get("export_auto_run") or {}
+    if not cfg.get("enabled"):
+        return
+
+    log.info("=" * 60)
+    log.info("STEP: Export Data")
+    log.info("=" * 60)
+    try:
+        import export_runner
+
+        by_id = {a["id"]: a["module"] for a in export_runner.scan()}
+
+        selections = []
+        for entry in cfg.get("selections", []):
+            adapter_id = entry.get("adapter")
+            mod = by_id.get(adapter_id)
+            if mod is None:
+                log.warning(f"  Adapter '{adapter_id}' not found — skipping "
+                            f"(saved selection may reference a removed adapter)")
+                continue
+            selections.append((mod, entry.get("domains", []), entry.get("metadata", False),
+                               entry.get("options", {})))
+
+        if not selections:
+            log.warning("  No valid adapters in saved selection — skipping")
+            return
+
+        output_dir = Path(cfg.get("path") or (Path(s["base_dir"]) / "export"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        base = Path(s["base_dir"])
+        summary_dir = base / "garmin_data" / "summary"
+        dates = sorted(
+            f.stem.replace("garmin_", "")
+            for f in summary_dir.glob("garmin_????-??-??.json")
+        ) if summary_dir.exists() else []
+
+        today = date.today()
+        date_from = dates[0]  if dates else (today - timedelta(days=90)).isoformat()
+        date_to   = dates[-1] if dates else today.isoformat()
+
+        results = export_runner.build(
+            selections=selections,
+            date_from=date_from,
+            date_to=date_to,
+            output_dir=output_dir,
+            log=lambda msg: log.info(f"  {msg}"),
+        )
+
+        failed = [r for r in results if not r.get("success")]
+        for r in failed:
+            log.warning(f"  ✗ {r['name']}: {r.get('error', 'unknown')}")
+
+        log.info(f"  {len(results) - len(failed)}/{len(results)} export(s) built")
+
+    except Exception as e:
+        log.warning(f"  ✗ Export Data step failed: {e}")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  sys.path setup for T3 (frozen)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -573,7 +631,7 @@ def _setup_paths():
         app_dir = scripts / "app"
         if app_dir.exists():
             sys.path.insert(0, str(app_dir))
-        for pkg in ("context", "maps", "dashboards", "layouts"):
+        for pkg in ("context", "maps", "dashboards", "layouts", "exports", "clients"):
             pkg_dir = scripts / pkg
             if pkg_dir.exists() and pkg not in sys.modules:
                 mod = types.ModuleType(pkg)
@@ -592,7 +650,7 @@ def _setup_paths():
         _scripts = _root / "scripts"
         _base = _scripts if _scripts.exists() else _root
 
-        for _sub in ("garmin", "maps", "dashboards", "layouts", "app"):
+        for _sub in ("garmin", "maps", "dashboards", "layouts", "app", "exports", "clients"):
             _p = str(_base / _sub)
             if _p not in sys.path:
                 sys.path.insert(0, _p)
@@ -700,6 +758,9 @@ def main() -> int:
         dash_ok = _run_dashboards(s)
     else:
         log.warning("  API error(s) detected — skipping dashboards.")
+
+    # ── 10.5. Export Data (optional, never affects exit code) ────────────────
+    _run_export(s)
 
     # ── 11. Exit ──────────────────────────────────────────────────────────────
     log.info("=" * 60)

@@ -63,13 +63,13 @@ def open_popup(panel):
         panel._app._log(f"✗ scan() fehlgeschlagen: {exc}")
         return
     if not specialists:
-        QMessageBox.information(panel._app, "Create Reports",
+        QMessageBox.information(panel._app, "Create Dashboards",
                                 "No dashboards found in dashboards/")
         return
 
     # ── Dialog ────────────────────────────────────────────────────────────
     dlg = QDialog(panel._app)
-    dlg.setWindowTitle("Create Reports")
+    dlg.setWindowTitle("Create Dashboards")
     dlg.setModal(True)
     dlg.setStyleSheet(f"background: {panel._app.BG}; color: {panel._app.TEXT};")
     lay = QVBoxLayout(dlg)
@@ -202,7 +202,7 @@ def open_popup(panel):
             if cb.isChecked():
                 selections.append((specialists[spec_idx]["module"], fmt))
         if not selections:
-            QMessageBox.information(dlg, "Create Reports",
+            QMessageBox.information(dlg, "Create Dashboards",
                                     "Please select at least one format.")
             return
         dlg.accept()

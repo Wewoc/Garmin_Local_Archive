@@ -407,7 +407,8 @@ class PanelHome(QWidget):
 
     def _on_daily_sync(self):
         """Daily Sync button handler. Main Thread only.
-        Gap check → optional dialog → Garmin Sync → Context Sync → Create All."""
+        Gap check → optional dialog → Garmin Sync → Context Sync →
+        Create All → Export Data (if export_auto_run is set, v1.7.4)."""
         gap = self._detect_gap()
         if gap > 7:
             dlg = QDialog(self._app)
@@ -470,9 +471,13 @@ class PanelHome(QWidget):
         def _on_all_done():
             self._daily_sync_btn.setEnabled(True)
 
+        def _on_dashboards_done():
+            self._app._panel_outputs._run_export_auto(
+                on_done=_on_all_done)
+
         def _on_context_done():
             self._app._panel_outputs._run_all_dashboards(
-                on_done=_on_all_done)
+                on_done=_on_dashboards_done)
 
         def _on_garmin_done():
             self._app._panel_outputs._run_context_sync(

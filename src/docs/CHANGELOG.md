@@ -1,5 +1,101 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.4 — Export Layer
+
+New output layer parallel to the Dashboard Layer: `exports/` reads
+archive data exclusively through the Broker Layer (via a new shared
+cache layer, see below) and writes it to external formats — JSON, CSV,
+and InfluxDB Line Protocol adapters shipped. GLA now works as local
+data infrastructure other tools can consume (e.g. `garmin-grafana` via
+the InfluxDB adapter) instead of re-fetching from the Garmin API and
+losing intraday data after ~120 days. GUI gained a new "Export Data"
+panel (per-adapter grid: Health/Context/Metadata toggles) plus
+optional inclusion in the daily sync run ("Update on Sync").
+
+**Shared Cache Layer:** rather than building a second SQLite cache
+redundant with the existing ~200 MB MCP cache, `clients/mcp_sql.py` /
+`mcp_update.py` now serve both MCP and Export as shared infrastructure.
+`export_common.collect()` reads via `mcp_sql.get_health_range()` /
+`get_context_range()` / `get_metadata_range()` instead of enumerating
+fields through `gateway_map` directly; `export_runner.build()` triggers
+`mcp_update.sync_all()` once per export run to keep the cache current
+(non-fatal on failure — export falls back to the existing cache state).
+Concurrent cache access from `mcp_server.py`, the GUI, and
+`daily_update.py` is handled via `PRAGMA busy_timeout=10000` rather
+than a dedicated cross-process lock.
+
+**Also fixed in this session, unrelated to Export itself:**
+- "Update Live" (in-process live fetch) ignored the Advanced Settings
+  request-delay range, always using the 5.0–20.0s hardcoded fallback —
+  `app/outputs/sync.py::run_live_fetch()` was missing the two env-var
+  writes that the subprocess-based sync path already had.
+- Heatmap dashboard: five of six tabs rendered at a fixed, too-narrow
+  width after switching tabs, because Plotly sized them while hidden
+  (`display:none` → `offsetWidth = 0`). Fixed by resizing the panel
+  explicitly on tab activation.
+- Export Data never ran in the headless `daily_update.exe` Daily Sync —
+  its settings key was dropped by a scheduler-only allow-list before
+  `_run_export()` ever saw it, silently, with no log trace. The
+  allow-list is gone; the scheduler now reads the same settings as the
+  GUI.
+- Dashboards built by Daily Sync ignored the "Export Dashboard Range"
+  setting: the GUI button built 90 days (a glob typo), `daily_update.exe`
+  the full archive. All three build paths (Create Dashboards popup, GUI
+  Daily Sync, `daily_update.exe`) now share one helper — settings range,
+  empty = last 30 days.
+- `RedactFilter` turned a dict log argument into its keys, causing a
+  "Logging error" traceback (e.g. on the export cache-sync summary line)
+  and losing that log line. Dict arguments are now redacted value-wise.
+- `garmin_health_map.py` logged a "no usable GMT/Local offset pair"
+  warning once per intraday field instead of once per affected day —
+  flooded the daily log for archive days lacking timezone metadata.
+  Now deduped to one warning per day.
+
+**Deferred, not discarded:** Open mHealth / IEEE 1752.1 export format
+(researched — most of GLA's proprietary metrics, e.g. HRV, have no
+schema in either standard; revisit if a concrete consuming tool shows
+up, or once IEEE P1752.2 covers more domains). Parquet adapter
+(overlaps with CSV at current archive sizes; revisit if a real
+large-archive or tooling need appears).
+
+**New modules:**
+- `exports/export_common.py`, `exports/export_runner.py`
+- `exports/export_adapters/json_adapter.py`, `csv_adapter.py`,
+  `influxdb_adapter.py`
+- `app/popups/export_data.py`, `app/popups/_export_build.py`
+- `tests/test_export.py` (45 checks, edge-case focus + real-SQLite
+  integration section)
+
+**Changed modules:**
+- `maps/gateway_map.py` — new `list_fields(domain=None)`, shared
+  `_fanout()` helper extracted for `get()`/`get_raw()`/
+  `list_raw_fields()`/`list_fields()`
+- `app/panel_outputs.py` — "Export" section renamed to "Dashboards"
+  ("Create Reports" → "Create Dashboards"); new "Export Data" section
+- `app/popups/dashboard_create.py` — window/dialog titles renamed to
+  match
+- `app/panel_settings.py` — "Export Date Range" → "Export Dashboard
+  Range", corrected hint text
+- `scheduler/daily_update.py` — `_setup_paths()` fix, `_run_export()`
+  wired in as step 10.5, three 3-digit-year glob fixes
+- `app/outputs/sync.py` — `run_live_fetch()` now forwards the
+  request-delay settings to the live-fetch env
+- `layouts/render/heatmap.py` — `showComplexTab()` resizes the
+  activated panel
+- `support-tools/demo-export/generate_demo_archive.py` — generates
+  `quality_log.json`
+- `compiler/build_manifest.py` — `exports/` package added
+  (SHARED_SCRIPTS + signatures)
+- `version.py` — `1.7.3.4` → `1.7.4`
+
+**Test result:** all suites green (`test_broker.py` 141/141,
+`test_qt_app.py` 187/187, `test_updater.py` 89/89,
+`test_build_output.py` 661/661, `test_mcp.py` 231/231,
+`test_static.py` 17/17, `test_export.py` 45/45). Real end-to-end runs
+against a live archive for JSON, CSV, and InfluxDB adapters.
+
+---
+
 ## v1.7.3.4 — CI/CD: automated tests, dead-code/CVE gates, manual release build
 
 First real automated CI/CD for the repo — closes the "Test suite &

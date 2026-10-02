@@ -50,8 +50,15 @@ class RedactFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str):
             record.msg = redact(record.msg)
-        if record.args:
+        if isinstance(record.args, tuple) and record.args:
             record.args = tuple(
                 redact(a) if isinstance(a, str) else a for a in record.args
             )
+        elif isinstance(record.args, dict):
+            # logging unwraps a single dict argument into record.args itself —
+            # iterating it as a tuple would turn it into its keys.
+            record.args = {
+                k: redact(v) if isinstance(v, str) else v
+                for k, v in record.args.items()
+            }
         return True
