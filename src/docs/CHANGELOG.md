@@ -1,6 +1,6 @@
 # Garmin Local Archive — Changelog
 
-## v1.7.4.0.1 — run_tests.ps1 exit code, requirements.txt pins, security documentation, landing page escape, build test gate (no release)
+## v1.7.4.0.1 — run_tests.ps1 exit code, requirements.txt pins, security documentation, landing page escape and regression test, build test gate, coverage script (no release)
 
 `run_tests.ps1` now ends with an exit code: 0 when every suite ran
 cleanly, 1 when at least one suite failed, crashed, could not be
@@ -79,6 +79,24 @@ step would have let through. The test now substitutes a small stub for
 absent, so local runs keep rendering with the real file. Verified in a
 copy of `src/` without the bundle (471 / 471, exit 0; before: crash,
 exit 1) and in the working folder with it (471 / 471).
+
+**Added (`tests/test_dashboard.py`, Section 21):** regression test for the
+landing page escaping above. It renders `_render_html()` with a hostile
+device name and integrity text (`</script><img ...>`) and checks that
+nothing appears raw in the HTML, that no extra `</script>` tag appears,
+that `<` is written as `\u003c` inside the status JSON, that the JSON still
+round-trips the original text, and that the page script escapes the
+device name. `garmin_mobile_landing.py` had no test before (0 % coverage).
+476 / 476 checks; the first three checks fail against the old, unescaped
+output.
+
+**Added (`run_coverage.ps1`, `.coveragerc`):** measures line coverage over
+all suites listed in `run_tests.ps1` (the list is read from that file, not
+duplicated) and writes `coverage_out/coverage_report.log`; `-Html` adds an
+HTML report. Measurement only — no gate, no minimum quota, `run_tests.ps1`
+and the build are unchanged. First measurement: 59 % of 17 331 statements;
+GUI code (`app/popups`, `panel_*`) is lowest, the cloud chat, export and
+dashboard layers are mostly above 90 %.
 
 **Changed (documentation):**
 - `SECURITY.md` — new sections "Cloud LLM Chat (optional)", "MCP Server",
