@@ -12,6 +12,8 @@ $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 # Sammelt die Zusammenfassungs-Zeilen aller Suites fuer den Gesamtblock am Ende
 $Script:SuiteSummaries = @()
+# Suiten mit Exit-Code ungleich 0 oder nicht gestartet/erkannt — bestimmt den Exit-Code des Skripts
+$Script:FailedSuites = @()
 
 function Write-Log {
     param([string]$Line)
@@ -24,6 +26,8 @@ function Write-Log {
 function Run-And-Tee {
     param([string]$Command, [string[]]$Arguments, [string]$SuiteLabel)
     $collectedLines = New-Object System.Collections.Generic.List[string]
+    # Zuruecksetzen, damit ein nicht startbares Kommando nicht den Exit-Code der Vor-Suite erbt
+    $global:LASTEXITCODE = $null
     & $Command @Arguments 2>&1 | ForEach-Object {
         $line = if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
         $collectedLines.Add($line)
@@ -31,6 +35,13 @@ function Run-And-Tee {
         $writer.WriteLine($line)
         $writer.Close()
         Write-Host $line
+    }
+
+    $suiteExitCode = $global:LASTEXITCODE
+    if ($null -eq $suiteExitCode) {
+        $Script:FailedSuites += "$SuiteLabel (nicht gestartet)"
+    } elseif ($suiteExitCode -ne 0) {
+        $Script:FailedSuites += "$SuiteLabel (Exit $suiteExitCode)"
     }
 
     # eigenes Format: "  N checks -- N passed, N failed"
@@ -57,6 +68,9 @@ function Run-And-Tee {
     }
 
     $Script:SuiteSummaries += "  $SuiteLabel  Ergebnis nicht erkannt $dashChar siehe Log oben"
+    if ($suiteExitCode -eq 0) {
+        $Script:FailedSuites += "$SuiteLabel (Ergebnis nicht erkannt)"
+    }
 }
 
 # Header
@@ -93,7 +107,17 @@ foreach ($line in $Script:SuiteSummaries) {
 }
 Write-Log $summaryLine
 
+# Fehlgeschlagene Suiten — bewusst NACH dem ZUSAMMENFASSUNG-Block, dessen Format unveraendert bleibt
+if ($Script:FailedSuites.Count -gt 0) {
+    Write-Log ""
+    Write-Log ("  FEHLGESCHLAGEN: " + ($Script:FailedSuites -join ", "))
+}
+
 # Footer
 Write-Log ""
 Write-Log (Get-Date -Format "dd.MM.yyyy HH:mm:ss")
 Write-Host "done."
+
+# Exit-Code: 0 = alle Suiten sauber, 1 = mindestens eine Suite fehlgeschlagen
+if ($Script:FailedSuites.Count -gt 0) { exit 1 }
+exit 0

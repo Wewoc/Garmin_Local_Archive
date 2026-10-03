@@ -640,10 +640,10 @@ show near-zero direct coverage in a coverage report — a structural
 limitation of the subprocess model, not a real gap; the same code path is
 exercised end-to-end by the E2E tests in `test_local.py`.
 
-A pre-build test chain runs the pipeline and static-analysis suites as a
-hard gate before either build target is produced; a smaller post-build
-chain validates the build's own output afterward. `test_qt_app.py` is run
-separately via `pytest`.
+Before either build target is produced, `build_all.py` runs
+`run_tests.ps1` (all suites, one list) as a hard gate and aborts on its
+exit code; a smaller post-build chain validates the build's own output
+afterward.
 
 ---
 

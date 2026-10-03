@@ -1,5 +1,114 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.4.0.1 — run_tests.ps1 exit code, requirements.txt pins, security documentation, landing page escape, build test gate (no release)
+
+`run_tests.ps1` now ends with an exit code: 0 when every suite ran
+cleanly, 1 when at least one suite failed, crashed, could not be
+started, or produced no recognizable result. Until now the script always
+exited 0 and only printed per-suite lines. A suite that crashed before
+printing its summary (shown as "Ergebnis nicht erkannt") or a pytest run
+with errors but no failures ("1 passed, 1 error" is reported as
+`0 failed` in the summary line) could therefore not be told apart from a
+green run by anything reading the exit code or the
+`N checks — M passed, F failed` lines — including the `test-suite.yml`
+post-step from v1.7.3.4, which only counted lines in that format. This
+supersedes the v1.7.3.4 note that the script never sets a non-zero exit
+code.
+
+**Changed (`run_tests.ps1`):** `$LASTEXITCODE` is captured after each
+suite (reset to `$null` first, so a command that cannot be started does
+not inherit the previous suite's code). Failed suites are collected as
+`<suite> (Exit N)`, `(nicht gestartet)` or `(Ergebnis nicht erkannt)`.
+All suites still run to the end. A `FEHLGESCHLAGEN: ...` line is then
+written **after** the `ZUSAMMENFASSUNG` block, whose format is unchanged,
+and the script exits 0 or 1. The "Run test suite" step in
+`test-suite.yml` now fails on its own; the log-parsing post-step stays
+and is redundant for now.
+
+**Changed (`requirements.txt`):**
+- `openpyxl`, `keyring`, `cryptography`, `requests` are now range-pinned
+  to the major version in use (e.g. `cryptography>=46,<47`), the same
+  style as `anthropic` / `openai`. `garminconnect` stays unpinned on
+  purpose, to keep following Garmin API changes.
+- `PyQt6` and `PyQt6-WebEngine` (runtime, bundled into the EXE; the
+  latter ships Chromium) are range-pinned to the minor version in use
+  (`>=6.11,<6.12`) and moved out of the "Development / testing only"
+  block, whose label did not apply to them.
+- `vulture` is range-pinned (`>=2.16,<3`) because `vulture-check.yml` is
+  a hard CI gate that a new major could flip without any code change.
+- `pywin32==311` gained the marker `; sys_platform == "win32"`, so pip
+  and `pip-audit` can resolve the file on Linux CI (the CVE workflow's
+  `pip-audit -r requirements.txt` otherwise cannot resolve it there).
+
+**Changed (`compiler/build_all.py`):** the pre-build test gate no longer
+lists seven suites by hand; it runs `run_tests.ps1` once and aborts on
+its exit code. That closes a drift: `test_updater.py` and the seven
+pytest suites were in `run_tests.ps1` but never in `build_all.py`'s gate,
+so a release build could ship with them failing (only `test_qt_app.py`
+had its own gate, in the local launchers `bat/run_build_all.bat` and
+`bat/run_build_all_-_check_deps.bat` and, as an own stage, the Build
+GUI `compiler/build_gui.py`; all three lost that pytest step, since the
+gate now covers it). All 16 suites now gate the build; the post-build steps (`test_build_output.py`,
+T3.1 self-test, `test_app_logic.py`) are unchanged. `run_and_tee()`
+gained optional `cwd` / `env_extra` parameters; the gate runs from `src/`
+with `QT_QPA_PLATFORM=offscreen` unless the variable is already set.
+Verified by calling the gate command through the new `run_and_tee()` from
+another working directory (exit 0, 16 suites) and with a scratch set of
+failing suites (exit 1). A full `build_all.py` build was not run.
+
+**Changed (`layouts/garmin_mobile_landing.py`):** the device name from
+`device_table.json` (the model name Garmin reports) was inserted into the
+landing page's device table via `innerHTML` without escaping. The page's
+JavaScript now escapes it (new `esc()` helper); the other cells hold dates
+and numbers from the app's own logic and are unchanged. A second sink
+is closed in `_render_html()`: the status data is embedded as JSON in a
+`<script>` block, and `json.dumps` does not escape `<`, so a device name
+containing `</script>` ended the block and ran code. `<` is now written
+as `<`. Checked by rendering the page with hostile device names
+(`<img onerror>`, `</script><script>`, `<!--<script>`) in a real browser
+(headless Edge): all are shown as text and none is executed; the
+`</script>` case did execute before this change.
+
+**Changed (documentation):**
+- `SECURITY.md` — new sections "Cloud LLM Chat (optional)", "MCP Server",
+  "Self-Update" and "Network Connections"; "Plaintext Archive" extended to
+  `chats/`, `sqlite/mcp_cache.db` and Export Layer output; "Out of Scope"
+  extended (cloud LLM providers, GitHub). The old statement "no
+  third-party services beyond the external APIs listed in Out of Scope"
+  is replaced, since the cloud Chat backend, the self-updater and the MCP
+  port were not covered by it. The file now states plainly that the MCP
+  server has no authentication and that the update checksum comes from
+  the same release channel as the ZIP.
+- `README.md` — "the Ollama backend stays fully local, always" corrected:
+  local Ollama models stay local, but an Ollama cloud model (name ending
+  in `-cloud`) is processed on Ollama's servers. "Ollama (fully local,
+  default)" became "Ollama (local models, default)".
+- `USER_GUIDE.txt` — same correction so the docs do not drift apart:
+  "All data stays local. No cloud, no third-party services." now points to
+  the connections listed in `SECURITY.md`, and the Chat backend entry for
+  Ollama no longer says "Fully local" without the Ollama-cloud-model
+  caveat.
+- `README_APP.md` — the Chat/AI section no longer says "all options run
+  entirely on your machine — your data never leaves your PC"; it now
+  limits that to local models and names cloud backends and Ollama cloud
+  models as the exception. The warning box counts an Ollama cloud model
+  as a cloud service.
+- `index.html` — "No data leaves your machine unless you export it
+  yourself" became "Your health data leaves your machine only if you
+  export it or choose the optional Cloud chat backend (Anthropic or
+  OpenAI)"; "No cloud" in the meta and Open Graph descriptions became
+  "No cloud required".
+- `GLA_GUIDELINES.md`, `MAINTENANCE_GLOBAL.md`, `REFERENCE_GLOBAL.md` —
+  the description of the pre-build test gate, of the two build
+  launchers and of the Build GUI now says `build_all.py` runs
+  `run_tests.ps1`.
+
+**Verification:** scratch run of `run_tests.ps1` with fake suites
+(passing, failing, crash before summary, unrecognized output, pytest
+collection error, pytest fixture error, missing command): exit 1 with
+every failure case listed, passing suites not listed; all-green scratch
+run: exit 0. Full real run: 16 suites, 2665 checks, 0 failed, exit 0.
+
 ## v1.7.4 — Export Layer
 
 New output layer parallel to the Dashboard Layer: `exports/` reads

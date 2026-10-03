@@ -11,9 +11,8 @@ Run with:
 
 Wraps Timo's existing manual build workflow (copy the working tree into
 a separate build folder so build artefacts never land inside the
-working directory, then run compiler/build_all.py there — via
-bat/run_build_all.bat's own "Qt tests first, then build_all.py"
-sequence) into one Tkinter window (garmin_collector-3_experiment,
+working directory, then run compiler/build_all.py there — same as
+bat/run_build_all.bat) into one Tkinter window (garmin_collector-3_experiment,
 Baustein 31). Grew out of two independent, already-experienced pain
 points:
 
@@ -54,14 +53,13 @@ would recurse into itself / delete the source), and the working
 directory must not be inside the target (would delete the source when
 the target is cleared).
 
-Cancel/Stop only becomes available once a subprocess (the Qt-test
-gate or the build itself) is actually running, not during the initial
-copy (expected to be far shorter than the build) — taskkill /PID <pid>
-/T /F, same tree-kill technique clients/mcp_process.py::
-_kill_pid_tree() already uses and for the same reason: both
-bat/run_build_all.bat's pytest step and build_all.py itself spawn
-further child processes (PyInstaller itself, in build_all.py's case)
-that a plain Popen.terminate() would not reach.
+Cancel/Stop only becomes available once the build subprocess is
+actually running, not during the initial copy (expected to be far
+shorter than the build) — taskkill /PID <pid> /T /F, same tree-kill
+technique clients/mcp_process.py::_kill_pid_tree() already uses and for
+the same reason: build_all.py spawns further child processes
+(run_tests.ps1 with its test suites, PyInstaller) that a plain
+Popen.terminate() would not reach.
 
 The shared build venv (compiler/build_manifest.py::BUILD_VENV_DIR,
 D:\\Garmin\\.venv_gla) is untouched by this tool — only the source tree
@@ -246,9 +244,8 @@ def run_gui() -> None:
     def _set_subprocess_running(running: bool):
         cancel_btn.configure(state="normal" if running else "disabled")
 
-    # ── Generic streamed-subprocess runner — used for both the Qt-test
-    # gate and build_all.py itself, so the reader-thread/queue-poll
-    # machinery exists exactly once. ────────────────────────────────────
+    # ── Generic streamed-subprocess runner — runs build_all.py; the
+    # reader-thread/queue-poll machinery lives here. ────────────────────
 
     def _reader_thread(proc, q):
         for line in proc.stdout:
@@ -315,10 +312,9 @@ def run_gui() -> None:
 
         root.after(0, lambda: _poll_output(q, _finish))
 
-    # ── Copy + Qt-test-gate + build orchestration ───────────────────────
-    # Mirrors bat/run_build_all.bat exactly: Qt tests first (aborts the
-    # build on failure, same as that .bat's `if errorlevel 1`), then
-    # compiler/build_all.py.
+    # ── Copy + build orchestration ──────────────────────────────────────
+    # Copies the working tree, then runs compiler/build_all.py, whose
+    # pre-build gate runs run_tests.ps1 (all suites).
 
     def _finish_all(returncode: int):
         _set_running(False)
@@ -333,23 +329,9 @@ def run_gui() -> None:
             _log_raw(f"=== Beendet — Exit-Code {returncode} ({_elapsed_str(build_start['t'])}) ===")
 
     def _start_build_all(src_dir: Path):
-        _log_raw("Qt-Tests bestanden — starte build_all.py …")
+        _log_raw("Starte build_all.py …")
         status_var.set("Build läuft …")
         _run_streamed([sys.executable, "compiler/build_all.py"], src_dir, _finish_all)
-
-    def _start_qt_test_gate(src_dir: Path):
-        status_var.set("Führe Qt-Tests aus …")
-        _log_raw("Führe Qt-Tests aus (bat/run_build_all.bat's Gate) …")
-
-        def _on_qt_tests_done(returncode: int):
-            if returncode != 0:
-                _log_raw("Qt-Tests fehlgeschlagen — Build abgebrochen.")
-                _finish_all(returncode)
-                return
-            _start_build_all(src_dir)
-
-        _run_streamed([sys.executable, "-m", "pytest", "tests/test_qt_app.py", "-v"],
-                       src_dir, _on_qt_tests_done)
 
     def _do_copy_and_build(target: Path):
         def _on_mkdir_retry(attempt: int, total: int):
@@ -387,7 +369,7 @@ def run_gui() -> None:
             log_file_handle["fh"] = None
 
         root.after(0, lambda: (_log_raw("Kopieren fertig."),
-                                _start_qt_test_gate(src_dir)))
+                                _start_build_all(src_dir)))
 
     def _on_start():
         target_text = target_var.get().strip()
@@ -451,10 +433,9 @@ def run_gui() -> None:
             return
         _log_raw("Abbruch angefordert …")
         try:
-            # /T (Prozessbaum) — sowohl der Qt-Test-Schritt als auch
-            # build_all.py starten weitere Kindprozesse (PyInstaller
-            # selbst im Fall von build_all.py); ein einfaches
-            # Popen.terminate() würde nur den obersten Prozess treffen,
+            # /T (Prozessbaum) — build_all.py startet weitere Kindprozesse
+            # (run_tests.ps1 mit den Test-Suiten, PyInstaller); ein
+            # einfaches Popen.terminate() würde nur den obersten Prozess treffen,
             # dieselbe Lücke, die clients/mcp_process.py::
             # _kill_pid_tree() für den MCP-Server bereits löst.
             subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],

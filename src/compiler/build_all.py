@@ -75,7 +75,11 @@ def phase(title: str) -> None:
     print("=" * 55)
 
 
-def run_and_tee(cmd: list[str]) -> int:
+def run_and_tee(
+    cmd: list[str],
+    cwd: Path | None = None,
+    env_extra: dict[str, str] | None = None,
+) -> int:
     """subprocess.run() replacement that streams the child process's
     stdout+stderr through print() line by line, so it passes through
     whatever sys.stdout currently is (the _Tee installed in __main__
@@ -93,13 +97,17 @@ def run_and_tee(cmd: list[str]) -> int:
     characters) would then raise UnicodeEncodeError itself, before this
     function ever gets to decode/re-print anything. Same fix
     run_tests.ps1 already applies for its own child processes
-    ($env:PYTHONIOENCODING = "utf-8")."""
+    ($env:PYTHONIOENCODING = "utf-8").
+
+    cwd / env_extra: optional working directory and extra environment
+    variables for the child process (default: inherit both)."""
     child_env = os.environ.copy()
     child_env["PYTHONIOENCODING"] = "utf-8"
+    child_env.update(env_extra or {})
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace", bufsize=1,
-        env=child_env,
+        env=child_env, cwd=cwd,
     )
     for line in proc.stdout:
         print(line, end="")
@@ -189,41 +197,20 @@ def main() -> None:
         phase("Pre-build: verifying Plotly bundle ...")
         ensure_plotly_bundle(_root)
 
-        phase("Pre-build: running test suite ...")
+        phase("Pre-build: running test suite (run_tests.ps1) ...")
 
-        test_path = _root / "tests" / "test_local.py"
-        if run_and_tee([sys.executable, str(test_path)]) != 0:
-            print("\n  ✗ Tests failed — build aborted.")
-            sys.exit(1)
-
-        test_context_path = _root / "tests" / "test_local_context.py"
-        if run_and_tee([sys.executable, str(test_context_path)]) != 0:
-            print("\n  ✗ Context tests failed — build aborted.")
-            sys.exit(1)
-
-        test_dashboard_path = _root / "tests" / "test_dashboard.py"
-        if run_and_tee([sys.executable, str(test_dashboard_path)]) != 0:
-            print("\n  ✗ Dashboard tests failed — build aborted.")
-            sys.exit(1)
-
-        test_broker_path = _root / "tests" / "test_broker.py"
-        if run_and_tee([sys.executable, str(test_broker_path)]) != 0:
-            print("\n  ✗ Broker tests failed — build aborted.")
-            sys.exit(1)
-
-        test_mcp_path = _root / "tests" / "test_mcp.py"
-        if run_and_tee([sys.executable, str(test_mcp_path)]) != 0:
-            print("\n  ✗ MCP tests failed — build aborted.")
-            sys.exit(1)
-
-        test_export_path = _root / "tests" / "test_export.py"
-        if run_and_tee([sys.executable, str(test_export_path)]) != 0:
-            print("\n  ✗ Export Layer tests failed — build aborted.")
-            sys.exit(1)
-
-        test_static_path = _root / "tests" / "test_static.py"
-        if run_and_tee([sys.executable, str(test_static_path)]) != 0:
-            print("\n  ✗ Static analysis failed — build aborted.")
+        # run_tests.ps1 holds the one list of suites, runs all of them and exits 1
+        # if any failed, crashed or gave no recognizable result. cwd = src/ because
+        # the suites are addressed relative to it; Qt runs offscreen unless set.
+        tests_rc = run_and_tee(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-File",
+             str(_root / "run_tests.ps1")],
+            cwd=_root,
+            env_extra={"QT_QPA_PLATFORM": os.environ.get("QT_QPA_PLATFORM", "offscreen")},
+        )
+        if tests_rc != 0:
+            print("\n  ✗ Tests failed — build aborted "
+                  "(see FEHLGESCHLAGEN in the log above).")
             sys.exit(1)
 
         print(f"\n  ✓ [{_ts()}] All tests passed — starting build.\n")

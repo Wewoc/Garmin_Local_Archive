@@ -247,9 +247,9 @@ python build_standalone.py
 > date — check each tool's own documentation for current install steps
 > and options.
 
-Connect a local AI model to your health data. All options run entirely on your machine — your data never leaves your PC.
+Connect a local AI model to your health data. With local models, everything runs on your machine and your data never leaves your PC. Cloud backends and Ollama cloud models are the exception — see the warning below.
 
-> ⚠️ **Before you start:** Both the built-in chat and the prompt file used by the external options contain your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service, remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
+> ⚠️ **Before you start:** Both the built-in chat and the prompt file used by the external options contain your personal health metrics. If you use a local model (Ollama), your data stays on your device. If you use a cloud service — including an Ollama cloud model (name ending in `-cloud`) — remove any identifying details before uploading — name, date of birth, account information. AI interpretations of health data can be plausible but wrong. Always verify concerning findings with a healthcare professional.
 
 ### Option A — Built-in Chat (simplest, no separate setup)
 
