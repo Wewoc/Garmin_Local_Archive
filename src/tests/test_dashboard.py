@@ -331,7 +331,17 @@ section("4. dash_layout_html — HTML assets")
 
 import dash_layout_html as layout_html
 
-check("CSS is string",                          isinstance(layout_html.get_css(), str))
+# A fresh checkout (CI) has no layouts/plotly.min.js — it is not in the repo,
+# build_all.py fetches it, and get_plotly_script() raises instead of falling
+# back to the CDN. Substitute a stub only when the real bundle is absent, so
+# local runs still render with the real file.
+if not (Path(layout_html.__file__).parent / layout_html.get_plotly_local_filename()).exists():
+    def _plotly_stub(layouts_dir):
+        return "<script>/* plotly stub (tests, no bundle in this checkout) */</script>"
+    layout_html.get_plotly_script = _plotly_stub
+    print("  (plotly.min.js not present — dashboards render with a test stub)")
+
+check("CSS is string",                         isinstance(layout_html.get_css(), str))
 check("CSS contains body",                      "body" in layout_html.get_css())
 check("plotly CDN is URL",                      layout_html.get_plotly_cdn().startswith("https://"))
 header = layout_html.build_header("Test Title", "Test Subtitle")
