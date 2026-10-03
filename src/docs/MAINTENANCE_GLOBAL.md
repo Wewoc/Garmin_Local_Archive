@@ -150,7 +150,7 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `garmin_app_standalone.py` + `build_standalone.py` | Desktop GUI entry point + standalone EXE build (no Python required) |
 | `compiler/build_manifest.py` | Single source of truth for `SHARED_SCRIPTS` — the module list shared between `build.py` and `build_standalone.py`. Pure data, no logic, no side effects. |
 | `compiler/build_all.py` | Runs Target 2 then Target 3 sequentially; aborts Target 3 if Target 2 fails. Includes the Plotly pre-build check (pinned SHA256) before any test or build step. |
-| `compiler/build_gui.py` (`bat/run_build_gui.bat`) | "🦄 Garmin Local Archiv Builder" (garmin_collector-3_experiment, Baustein 31) — Tkinter GUI wrapping the manual "copy working dir into a separate build folder, then run build_all.py" workflow into one window. Pick a build target directory, confirm the (explicitly shown) destructive copy, watch a live, elapsed-time-stamped (`[H:MM:SS]` since Start, a stopwatch — not wall-clock) log of the Qt-test gate + `build_all.py`, Cancel/Stop via `taskkill /PID <pid> /T /F` (same tree-kill technique as `clients/mcp_process.py::_kill_pid_tree()`, needed because `build_all.py` spawns further children — PyInstaller itself — that a plain terminate() would not reach). Running `build_all.py` as this GUI's own child means PyInstaller (a grandchild) inherits the same redirected stdout — its console output reaches the GUI's log without any change to `build.py`'s/`build_standalone.py`'s own `build_exe()`, which still writes straight to the real console via `subprocess.run()` (a pre-existing gap in `build_all.py`'s own file-based `_Tee` logging, unresolved there — see `PROTOKOLL_experiment.md`). Only copies the source tree — the shared build venv (`compiler/build_manifest.py::BUILD_VENV_DIR`) is untouched, found and reused from the new location exactly as before. |
+| `compiler/build_gui.py` (`bat/run_build_gui.bat`) | "🦄 Garmin Local Archiv Builder" (garmin_collector-3_experiment, Baustein 31) — Tkinter GUI wrapping the manual "copy working dir into a separate build folder, then run build_all.py" workflow into one window. Pick a build target directory, confirm the (explicitly shown) destructive copy, watch a live, elapsed-time-stamped (`[H:MM:SS]` since Start, a stopwatch — not wall-clock) log of `build_all.py`, Cancel/Stop via `taskkill /PID <pid> /T /F` (same tree-kill technique as `clients/mcp_process.py::_kill_pid_tree()`, needed because `build_all.py` spawns further children — PyInstaller itself — that a plain terminate() would not reach). Running `build_all.py` as this GUI's own child means PyInstaller (a grandchild) inherits the same redirected stdout — its console output reaches the GUI's log without any change to `build.py`'s/`build_standalone.py`'s own `build_exe()`, which still writes straight to the real console via `subprocess.run()` (a pre-existing gap in `build_all.py`'s own file-based `_Tee` logging, unresolved there — see `PROTOKOLL_experiment.md`). Only copies the source tree — the shared build venv (`compiler/build_manifest.py::BUILD_VENV_DIR`) is untouched, found and reused from the new location exactly as before. |
 | `daily_update.py` / `daily_update.exe` | Headless daily sync — runs without the GUI, designed for Windows Task Scheduler automation. Exit codes 0–5 distinguish success, migration-required, missing settings, API error, dashboard error, and update-available. T2 + T3, opt-in (`daily_update_auto_update` setting): if a newer version is available, applies it unattended instead of just notifying — same mechanism as the GUI's own "Update" button, minus restarting the GUI afterward (v1.7.2.4, extended from T3-only to also T2 in a follow-up round, v1.7.2.4-Nacherweiterung — this script never runs frozen under T2, so its own build-target check needed `frozen_paths.is_t2_standard(__file__)` rather than the `sys.frozen`-based check T3 uses). |
 | `version.py` | Single source of truth for `APP_VERSION` — no dependencies, safe for all build targets. `is_newer(latest, current)` (v1.7.2.4) — real int-tuple version-order comparison, not a string-inequality check |
 
@@ -269,7 +269,7 @@ python compiler/build_all.py
 **GUI wrapper (`bat/run_build_gui.bat` / `python compiler/build_gui.py`):**
 copies the working directory into a separate, chosen build folder
 (build artefacts never land inside the working directory), then runs
-the same Qt-test-gate + `build_all.py` sequence with a live,
+the same `build_all.py` run with a live,
 elapsed-time-stamped log — see `compiler/build_gui.py`'s own module
 docstring and the table entry above for the full reasoning.
 
@@ -1048,7 +1048,7 @@ Run after: called automatically by `build_all.py` as post-build step. Can also b
 
 ```bash
 python compiler/build_all.py
-# Pre-build:  test_local → test_local_context → test_dashboard → test_broker → test_static (ruff + bandit)
+# Pre-build:  run_tests.ps1 (all suites, one list; aborts on its exit code)
 # Build:      Target 2 → Target 3
 # Post-build: test_build_output → test_app_logic → run_cve_check (report only, never aborts)
 ```
