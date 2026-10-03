@@ -1765,6 +1765,44 @@ with patch.object(presets_mod, "PRESETS_FILE", _presets_file):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Section 21 — garmin_mobile_landing: escaping of status data in index.html
+# ══════════════════════════════════════════════════════════════════════════════
+section("21. garmin_mobile_landing — _render_html() escaping")
+
+import re as _re21
+import garmin_mobile_landing as _landing
+
+_HOSTILE = "</script><img src=x onerror=alert(1)>"
+_status_ok = {
+    "generated": "2026-03-01 12:00", "failed": 0, "recheck": 0, "missing": 0,
+    "range": "—", "coverage": "—", "last_api": "—", "last_bulk": "—",
+    "integrity": "", "device_table": [{"name": "Forerunner", "days_high": 1}],
+    "total_high": 1, "total_standard": 0, "total_all": 1,
+}
+_status_bad = dict(_status_ok)
+_status_bad["integrity"]    = _HOSTILE
+_status_bad["device_table"] = [{"name": _HOSTILE, "days_high": 1}]
+
+_html_ok  = _landing._render_html(_status_ok)
+_html_bad = _landing._render_html(_status_bad)
+
+check("render: hostile value does not appear raw in HTML",
+      "<img src=x" not in _html_bad)
+check("render: hostile value adds no extra </script> tag",
+      _html_bad.count("</script>") == _html_ok.count("</script>"))
+check("render: '<' is written as \\u003c inside the status JSON",
+      "\\u003c/script>" in _html_bad)
+
+_m21 = _re21.search(r"window\.__GLA_STATUS__ = (.*?);\n</script>", _html_bad, _re21.DOTALL)
+_parsed21 = json.loads(_m21.group(1)) if _m21 else {}
+check("render: status JSON still parses and round-trips the original text",
+      _parsed21.get("integrity") == _HOSTILE
+      and _parsed21.get("device_table", [{}])[0].get("name") == _HOSTILE)
+check("render: device name is HTML-escaped by the page script (esc(row.name))",
+      "esc(row.name" in _html_bad)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

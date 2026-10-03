@@ -1,0 +1,19 @@
+# .coveragerc — Garmin Local Archive
+# Used by run_coverage.ps1 only (measurement, no gate, no minimum quota).
+#
+# parallel     — every suite writes its own data file, run_coverage.ps1 combines them
+# omit tests/* — measure the product code, not the tests themselves
+# zzz_test_*, _test_* — helper modules the suites create and delete at runtime
+#   (no source left at report time); excluded so the report does not fail on them
+
+[run]
+source = .
+parallel = True
+omit =
+    tests/*
+    dashboards/zzz_test_*
+    exports/export_adapters/_test_*
+
+[report]
+skip_empty = True
+ignore_errors = True
