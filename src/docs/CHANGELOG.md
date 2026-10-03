@@ -69,6 +69,17 @@ as `<`. Checked by rendering the page with hostile device names
 (headless Edge): all are shown as text and none is executed; the
 `</script>` case did execute before this change.
 
+**Changed (`tests/test_dashboard.py`):** the suite crashed in a fresh
+checkout (CI): `layouts/plotly.min.js` is not part of the repository
+(`build_all.py` fetches it) and, since v1.6.0.4.4, `get_plotly_script()`
+raises instead of falling back to the CDN. The first CI run after the
+exit-code change (run #10) showed the crash, which the old log-parsing
+step would have let through. The test now substitutes a small stub for
+`dash_layout_html.get_plotly_script` only when the real bundle is
+absent, so local runs keep rendering with the real file. Verified in a
+copy of `src/` without the bundle (471 / 471, exit 0; before: crash,
+exit 1) and in the working folder with it (471 / 471).
+
 **Changed (documentation):**
 - `SECURITY.md` — new sections "Cloud LLM Chat (optional)", "MCP Server",
   "Self-Update" and "Network Connections"; "Plaintext Archive" extended to
