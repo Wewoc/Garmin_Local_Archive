@@ -56,7 +56,7 @@ account. See [QUICKSTART.txt](src/docs/QUICKSTART.txt), "Try it first".
 
 - **Not an official Garmin product:** This tool is not affiliated with, endorsed, or supported by Garmin.
 - **Not medical advice:** All health metrics, reference ranges, and dashboard data are for personal informational use only — not a substitute for medical advice.
-- **AI and health data — handle with care:** If you use an external AI service (ChatGPT, Claude, Gemini) to interpret your data: never upload documents containing your name, date of birth, or other identifying information. Cloud AI services store what you send — linked to your account. Use a local model (Ollama) or at minimum a session without login. This includes the app's own in-app **Chat** tab — its optional Cloud backend (Anthropic/OpenAI) sends your question and any archive data the model requests to that provider's API, same as pasting into their website; the Ollama backend stays fully local, always. AI responses on health topics are statistically generated — not medically validated. Treat them as a first orientation, not a conclusion.
+- **AI and health data — handle with care:** If you use an external AI service (ChatGPT, Claude, Gemini) to interpret your data: never upload documents containing your name, date of birth, or other identifying information. Cloud AI services store what you send — linked to your account. Use a local model (Ollama) or at minimum a session without login. This includes the app's own in-app **Chat** tab — its optional Cloud backend (Anthropic/OpenAI) sends your question and any archive data the model requests to that provider's API, same as pasting into their website; with the Ollama backend, local models stay fully local, while an Ollama cloud model (name ending in `-cloud`) is processed on Ollama's servers. AI responses on health topics are statistically generated — not medically validated. Treat them as a first orientation, not a conclusion.
 - **Context data:** Weather data is provided by Open-Meteo and Brightsky (DWD), pollen data and air quality data by Open-Meteo — accuracy and availability are not guaranteed. Air quality data (CAMS dataset) is available from approximately 2020 onwards.
 - **Early stage:** Core functionality is stable. APIs and internal structure may still change.
 - **No guaranteed support:** Development happens when time and interest allow.
@@ -247,7 +247,7 @@ Running Open WebUI (or any other MCP client) inside Docker? An opt-in
 host list, since the underlying MCP SDK otherwise rejects connections
 that don't arrive as `127.0.0.1`/`localhost`.
 
-Works with Ollama (fully local, default) or an optional cloud LLM backend —
+Works with Ollama (local models, default) or an optional cloud LLM backend —
 your choice, no default push toward either. Point your MCP-compatible
 client (Claude Desktop, Open WebUI, or similar) at the server and start
 asking questions.

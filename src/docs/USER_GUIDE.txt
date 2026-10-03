@@ -605,7 +605,10 @@ Log shows errors but no data
     airquality/summary/    Daily air quality data (Open-Meteo Air Quality)
     airquality/raw/        Hourly air quality readings
 
-All data stays local. No cloud, no third-party services.
+All data is stored locally. The app connects only to the services listed in
+SECURITY.md ("Network Connections"): Garmin Connect, the weather and air
+quality services, GitHub (update check) and, only if you choose the Cloud
+backend in the Chat tab, Anthropic or OpenAI.
 
 Every sync automatically writes a detailed log to your data folder:
 
@@ -631,11 +634,12 @@ Ollama.
 Two independent choices, made before Start:
 
   Backend
-    Ollama       Fully local, runs on your own machine. Requires Ollama
-                 installed and running, plus at least one model pulled
-                 -- sizing guide (rule of thumb: VRAM in GB minus 2 =
-                 usable model size) is in README_APP.md, "Option A --
-                 Built-in Chat".
+    Ollama       Local models run entirely on your own machine (an Ollama
+                 cloud model -- name ending in "-cloud" -- is processed on
+                 Ollama's servers instead). Requires Ollama installed and
+                 running, plus at least one model pulled -- sizing guide
+                 (rule of thumb: VRAM in GB minus 2 = usable model size) is
+                 in README_APP.md, "Option A -- Built-in Chat".
     Cloud        Anthropic or OpenAI (v1.7.2). Requires an API key,
                  configured on the "MCP Server" tab (see Section 11) --
                  the key is stored in the Windows Credential Manager,

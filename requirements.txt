@@ -1,8 +1,11 @@
+# garminconnect stays unpinned on purpose (always the latest, to follow
+# Garmin API changes). The other direct dependencies are range-pinned to the
+# major version in use (installed 2026-10-03) — a major jump needs a review.
 garminconnect
-openpyxl
-keyring
-cryptography
-requests
+openpyxl>=3.1,<4
+keyring>=25,<26
+cryptography>=46,<47
+requests>=2.34,<3
 
 # Cloud LLM connector (garmin_collector-3_experiment, Cloud-LLM-Connector
 # Baustein) — clients/cloud_llm_anthropic.py / cloud_llm_openai.py.
@@ -35,20 +38,26 @@ pydantic==2.12.5
 pydantic-settings==2.12.0
 PyJWT==2.13.0
 python-multipart==0.0.32
-pywin32==311
+# Windows-only; the marker lets pip / pip-audit resolve this file on Linux CI.
+pywin32==311; sys_platform == "win32"
 sse-starlette==3.4.8
 starlette==1.0.0
 typing-extensions==4.15.0
 typing-inspection==0.4.2
 uvicorn==0.46.0
 
+# GUI — runtime dependency, bundled into the EXE (PyQt6-WebEngine ships
+# Chromium). Range-pinned to the minor version in use (installed 2026-10-03).
+PyQt6>=6.11,<6.12
+PyQt6-WebEngine>=6.11,<6.12
+
 # Development / testing only
-PyQt6
-PyQt6-WebEngine
 pytest
 pytest-qt
 pytest-cov
 pip-audit
 ruff
 bandit
-vulture
+# vulture is a hard CI gate (vulture-check.yml): a new major could change
+# its findings without any code change.
+vulture>=2.16,<3

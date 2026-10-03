@@ -191,7 +191,8 @@ def _render_html(status: dict, dash_mobile: str = "", dash_sleep: str = "") -> s
     Both are embedded as hidden <div> blocks — no external file references needed.
     Works with file:// protocol (OneDrive mobile viewer compatible).
     """
-    status_json   = json.dumps(status, ensure_ascii=False, indent=2)
+    # "<" escaped so a value containing "</script>" cannot end the script block
+    status_json   = json.dumps(status, ensure_ascii=False, indent=2).replace("<", "\\u003c")
     html = _HTML_TEMPLATE.replace("__STATUS_JSON_PLACEHOLDER__", status_json)
     html = html.replace("__DASH_MOBILE_PLACEHOLDER__",  dash_mobile)
     html = html.replace("__DASH_SLEEP_PLACEHOLDER__",   dash_sleep)
@@ -448,6 +449,11 @@ function hideDash() {
     var el = document.getElementById(id);
     if (el) el.style.color = color;
   }
+  function esc(v) {
+    return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+  }
 
   setText("generated", "Generated: " + (s.generated || "—"));
 
@@ -475,7 +481,7 @@ function hideDash() {
       tr.innerHTML =
         "<td>" + (row.date_from || "") + "</td>" +
         "<td>" + (row.date_to   || "") + "</td>" +
-        "<td class='name'>" + (row.name || "") + "</td>" +
+        "<td class='name'>" + esc(row.name || "") + "</td>" +
         "<td class='hi'>"  + (row.days_high     || "") + "</td>" +
         "<td class='r'>"   + (row.days_standard  || "") + "</td>" +
         "<td class='r'>"   + (row.days_total     || "") + "</td>";
