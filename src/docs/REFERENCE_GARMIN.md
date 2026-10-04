@@ -228,7 +228,7 @@ sole-write-authority modules it delegates to (`garmin_writer`, `garmin_quality`,
 GUI log — no pipeline logic remains in the panel.
 
 **Test coverage (v1.6.5.8, Netz 2):** all four repair categories now covered
-in `test_local.py` Section I — category #1's remaining edge case
+in `test_silo_repair.py` Section I — category #1's remaining edge case
 (`_backfill_quality_log()` with a non-empty `raw_without_quality`, including
 the silent-skip behaviour on a corrupt raw file and the true-error path on a
 failed `_save_quality_log()`), and #3/#7's replay path against a

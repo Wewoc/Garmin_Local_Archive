@@ -339,12 +339,13 @@ See [`docs/MAINTENANCE_GLOBAL.md`](src/docs/MAINTENANCE_GLOBAL.md) for full tech
 
 ## Testing
 
-Seventeen test suites cover the full pipeline — no network, no API required
+The test suites (one list in `run_tests.ps1`, counts in `docs/METRICS.md`) cover the full pipeline — no network, no API required
 (the Chat tab's Cloud LLM/MCP-tool-calling tests mock every SDK/HTTP call,
 same as everything else here):
 
 ```bash
-python tests/test_local.py                    # Garmin pipeline
+python tests/test_local.py                    # Garmin pipeline — cross-module checks (determinism, invariants, robustness, end-to-end)
+python tests/test_<module>.py                 # Garmin pipeline — one file per module of src/garmin/ (18 files, e.g. test_writer.py, test_quality.py, test_collector.py; shared setup in tests/gla_testenv.py)
 python tests/test_local_context.py            # Context pipeline (external APIs mocked)
 python tests/test_dashboard.py                # Dashboard pipeline
 python tests/test_broker.py                   # Broker layer (health_map / gateway_map routing, metadata_map)
@@ -363,7 +364,7 @@ pytest tests/test_mcp_process.py              # MCP Server Start/Stop process co
 python tests/test_updater.py                  # T2 + T3 self-updater
 ```
 
-`build_all.py` runs `test_local.py`, `test_local_context.py`, `test_dashboard.py`, `test_broker.py`, and `test_static.py` as pre-build gates — a failing test aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` and the six Chat-tab/MCP-process suites above are run manually via `pytest`.
+`build_all.py` runs `run_tests.ps1` — all suites, one list, the pytest ones included — as the pre-build gate; a failing suite aborts the build before either target is built. `test_build_output.py` and `test_app_logic.py` run automatically after both builds complete, as post-build gates. `test_qt_app.py` and the Chat-tab/MCP-process suites are part of that list and can still be run on their own via `pytest`.
 
 GUI changes are verified manually before release. Automated builds and release packaging run via a manually-triggered GitHub Actions workflow (`build-release.yml`) — not on every push, kept as a deliberate one-click step so not every commit cuts a release.
 

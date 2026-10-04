@@ -341,6 +341,29 @@ check("asset present but missing browser_download_url -> None, no crash",
           {"assets": [{"name": updater.T3_ZIP_ASSET_NAME}]},
           updater.T3_ZIP_ASSET_NAME) is None)
 
+# Mutation-test findings (Cosmic Ray pilot): the name match must be exact
+# equality, not an ordering and not an identity check.
+_release_other_first = {
+    "assets": [
+        {"name": "zzz_other.zip",
+         "browser_download_url": "https://example.com/other.zip"},
+        {"name": updater.T3_ZIP_ASSET_NAME,
+         "browser_download_url": "https://example.com/t3.zip"},
+    ],
+}
+check("asset listed after an alphabetically later name is still found, "
+      "not shadowed by it",
+      updater.resolve_release_asset(_release_other_first,
+                                    updater.T3_ZIP_ASSET_NAME)
+      == "https://example.com/t3.zip")
+_name_copy = "".join(list(updater.T3_ZIP_ASSET_NAME))
+check("asset name matches by value, not by object identity (names come "
+      "from parsed JSON)",
+      _name_copy == updater.T3_ZIP_ASSET_NAME
+      and _name_copy is not updater.T3_ZIP_ASSET_NAME
+      and updater.resolve_release_asset(_release, _name_copy)
+      == "https://example.com/t3.zip")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  6. updater.py — prepare_update() (real files, real hashes, real zips)
@@ -416,6 +439,24 @@ except RuntimeError:
 check("checksum mismatch -> RuntimeError raised (fail closed)", _raised3)
 check("checksum mismatch -> pending dir cleaned up, nothing left",
       not (_install3 / updater.UPDATE_PENDING_DIRNAME).exists())
+
+# -- wrong checksum, other direction -------------------------------------------
+# "0" * 64 above sorts below any real digest; this one sorts above it. The
+# comparison must reject a mismatch regardless of which side is larger
+# (Cosmic Ray pilot: "actual != expected" -> "actual > expected" survived).
+_zip3b = _make_release_zip("_c2")
+_checksum3b = _server_dir / (_zip3b.name + ".sha256")
+_checksum3b.write_text("f" * 64)
+_install3b = _TMPDIR / "install3b"; _install3b.mkdir()
+try:
+    updater.prepare_update(_install3b, _file_url(_zip3b), _file_url(_checksum3b))
+    _raised3b = False
+except RuntimeError:
+    _raised3b = True
+check("checksum mismatch (expected sorts above actual) -> RuntimeError raised",
+      _raised3b)
+check("checksum mismatch (expected sorts above actual) -> pending dir cleaned up",
+      not (_install3b / updater.UPDATE_PENDING_DIRNAME).exists())
 
 # -- downloaded file is not a valid zip ----------------------------------------
 _notzip = _server_dir / "not_a_zip.zip"

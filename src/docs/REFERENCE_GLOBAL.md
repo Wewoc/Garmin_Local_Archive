@@ -581,7 +581,9 @@ it fits directly into one WCM credential entry.
     │   └── CONCEPT_V2-0.md
     │
     └── tests/
-        ├── test_local.py           ← Garmin pipeline
+        ├── test_local.py           ← Garmin pipeline, cross-module checks (determinism, invariants, robustness, E2E)
+        ├── test_<module>.py (18)   ← Garmin pipeline, one file per module of garmin/ (v1.7.4.0.2)
+        ├── gla_testenv.py          ← Shared setup and helpers of the Garmin test files (v1.7.4.0.2)
         ├── test_local_context.py   ← Context pipeline
         ├── test_dashboard.py       ← Dashboard pipeline
         ├── test_app_logic.py       ← App layer
@@ -748,7 +750,7 @@ does the same for Target 2's ZIP — `compiler/build.py`'s `build_zip()`
 now also bundles `updater_helper.ps1` and writes a `.zip.sha256`
 checksum file, so both distributed targets can self-update.
 
-`compiler/build_all.py` runs `test_local.py`, `test_local_context.py`, and `test_dashboard.py` before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
+`compiler/build_all.py` runs `run_tests.ps1` (all suites, one list) before the build. After both targets complete, `test_build_output.py` runs as a post-build gate.
 `compiler/build_manifest.py` is the single source of truth for all script lists.
 
 **Post-v1.7.2 (garmin_collector-3_experiment, Bausteine 27/31/32/33):** both `compiler/build.py`'s and `compiler/build_standalone.py`'s `build_exe()` now invoke PyInstaller from a shared, isolated venv (`compiler/build_manifest.py::BUILD_VENV_DIR`, `D:\Garmin\.venv_gla`) instead of `sys.executable` — `ensure_build_venv()` creates it on first use, installs `requirements.txt` + PyInstaller into it, and reuses it afterwards. Prevents a package installed globally for a different project on the same build machine from being swept into a GLA build (root cause of a >8 GB T3 ZIP, see `CHANGELOG.md`). New `compiler/build_gui.py` ("🦄 Garmin Local Archiv Builder", `bat/run_build_gui.bat`) wraps the manual "copy working dir into a build folder, then run `build_all.py`" workflow into one Tkinter window with a live, elapsed-time-stamped log — not a new build target, just a GUI front end for the existing `build_all.py` sequence (`build_all.py`, whose pre-build gate runs `run_tests.ps1`). Verified end-to-end on a real Windows build. **(v1.7.3.2)** `ensure_build_venv()` itself used to be two identical copies, one in each of `build.py`/`build_standalone.py` — now lives once in `compiler/build_venv.py`, both scripts call `build_venv.ensure_build_venv(root, step=...)`; `step` is each script's own progress-print prefix ("1/4" vs "1/3" — the two scripts have a different total step count, unrelated to this change).
