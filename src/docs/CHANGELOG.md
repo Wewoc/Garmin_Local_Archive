@@ -1,5 +1,42 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.4.0.2 — tests for the archive core: writer and validator failure paths (no release)
+
+A coverage measurement (v1.7.4.0.1, `run_coverage.ps1`) put `src/garmin/`
+at 70 % without the Easter-Egg module, with the gaps concentrated in
+error and restore paths of the modules that decide whether the archive
+stays intact. This entry collects the tests added to close them, module
+by module. No production code changes.
+
+**Added (`tests/test_local.py`, Section 5b — `garmin_writer` failure
+paths):** a failed `write_day()` must never half-write. With a day
+already archived, a summary that cannot be stored as JSON now makes
+`write_day()` return `False` while the archived raw and summary files stay
+byte-identical and no `.tmp` file is left behind; the same for a day that
+was never archived (neither file appears). A failing cleanup (`OSError` on
+`unlink`) does not crash. A failing or missing backup trigger
+(`garmin_backup.backup_raw` raising, or the module not importable) does not
+fail the write. `read_summary()` is tested for a valid and for a corrupt
+file (before: only the missing-file case). `garmin_writer.py` went from
+69 % to 100 % line coverage.
+
+**Added (`tests/test_local.py`, Section 9b — `garmin_validator` schema
+load failures):** the validator must fail closed when its schema cannot
+be loaded. Until now the "no schema" test set the in-memory schema to `{}`
+by hand; the actual load failures were never exercised. The schema file
+missing, a JSON file without `fields`, a JSON list instead of an object
+and corrupt JSON each leave the version at `unknown` and make `validate()`
+return `critical`; the real schema is restored afterwards. A non-numeric
+sub-field value (`heart_rates.restingHeartRate = "abc"`) is skipped by the
+range check without a crash. `garmin_validator.py` went from 86 % to 99 %
+(the remaining line is a debug log branch).
+
+**Verification:** `test_local.py` 811 → 837 checks, all passing; `ruff`
+clean. Against a scratch copy, three deliberate regressions each fail the
+suite (writer writing straight to the final file instead of via a temp
+file; validator leaving the schema in place after a failed load; validator
+returning `ok` instead of `critical` without a schema).
+
 ## v1.7.4.0.1 — run_tests.ps1 exit code, requirements.txt pins, security documentation, landing page escape and regression test, build test gate, coverage script (no release)
 
 `run_tests.ps1` now ends with an exit code: 0 when every suite ran
@@ -98,6 +135,20 @@ and the build are unchanged. First measurement: 59 % of 17 331 statements;
 GUI code (`app/popups`, `panel_*`) is lowest, the cloud chat, export and
 dashboard layers are mostly above 90 %.
 
+**Added (`tests/test_updater.py`):** four checks closing gaps found by a
+mutation-testing pilot (Cosmic Ray, run in a scratch copy, not part of the
+repository). Of 126 mutations of `updater.py`, 20 went unnoticed; 17 were
+harmless (read chunk size, timeouts, cleanup flag). Three showed real test
+gaps: the checksum test only rejected a mismatch where the computed digest
+sorts above the published one (a change from `!=` to `>` still passed), and
+`resolve_release_asset()` was only tested with one asset order and with
+identical string literals (a change to `>=` or `is` still passed). New
+checks: a mismatching digest that sorts above the real one is rejected and
+cleaned up; an asset is found even when an alphabetically later name is
+listed before it; names match by value, not by object identity. The three
+mutations now fail the suite (89 → 93 checks, all passing). The code in
+`updater.py` is unchanged.
+
 **Changed (documentation):**
 - `SECURITY.md` — new sections "Cloud LLM Chat (optional)", "MCP Server",
   "Self-Update" and "Network Connections"; "Plaintext Archive" extended to
@@ -131,6 +182,13 @@ dashboard layers are mostly above 90 %.
   the description of the pre-build test gate, of the two build
   launchers and of the Build GUI now says `build_all.py` runs
   `run_tests.ps1`.
+- `ROADMAP.md` — the "Not planned" entry for code signing no longer
+  says "decision-gated on commercial scope" (no longer true) and no
+  longer points to `TODO_HARDENING.md` D1, which is not part of the
+  repository. It now states the actual situation: EXEs are unsigned,
+  SmartScreen may warn on first run, Mark-of-the-Web stripping and the
+  SHA-256 check of automatic updates are the existing mitigations, and
+  signing will be revisited if the warning proves to be a real barrier.
 
 **Verification:** scratch run of `run_tests.ps1` with fake suites
 (passing, failing, crash before summary, unrecognized output, pytest

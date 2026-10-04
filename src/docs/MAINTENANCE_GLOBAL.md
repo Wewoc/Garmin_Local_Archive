@@ -452,14 +452,36 @@ side effect:
 
 ## Test suite
 
-### `tests/test_local.py` — Garmin pipeline
+### `tests/test_*.py` — Garmin pipeline (one file per module)
 
+Since v1.7.4.0.2 the former single `test_local.py` is split into one file per module of `garmin/`.
+Shared setup and helpers live in `tests/gla_testenv.py`; `test_local.py` stays as the cross-module file.
+
+| File | Module(s) under test |
+|---|---|
+| `test_basics.py` | `garmin_config`, `garmin_sync`, `garmin_utils` |
+| `test_security.py` | `garmin_security` (crypto layer) |
+| `test_api.py`, `test_api_capability.py`, `test_live_fetch.py` | `garmin_api`, `garmin_api_capability`, `garmin_live_fetch` |
+| `test_normalizer.py`, `test_validator.py`, `test_writer.py` | `garmin_normalizer`, `garmin_validator`, `garmin_writer` |
+| `test_quality.py` | `garmin_quality`, `quality/*` |
+| `test_backup.py` | `garmin_backup`, `garmin_backup_source` |
+| `test_source_writer.py` | `garmin_source_writer`, `garmin_source_quality`, `garmin_merge` |
+| `test_container_mirror.py` | `garmin_container`, `garmin_mirror` |
+| `test_import_mirror.py` | `garmin_import_mirror` |
+| `test_collector.py` | `garmin_collector` (`main()`, helpers, backfills, self-healing) |
+| `test_garmin_import.py` | `garmin_import`, `garmin_collector.run_import` |
+| `test_silo_check.py`, `test_silo_repair.py` | `garmin_silo_check`, `garmin_silo_repair` |
+| `test_force_refetch.py` | `garmin_force_refetch` |
+| `test_local.py` | cross-module: determinism, invariants, robustness, one end-to-end run |
 
 ```bash
-python tests/test_local.py
+python tests/test_<module>.py     # any single file, e.g. python tests/test_writer.py
+pwsh -File run_tests.ps1          # all suites (the single list)
 ```
 
-No network, no GUI, no API calls. Cleans up after itself. Check and section totals are tracked in `docs/METRICS.md` (`test_local.py`) — not restated here to avoid drift.
+No network, no GUI, no API calls. Every file cleans up after itself and runs on its own. Check totals are tracked in `docs/METRICS.md` (one row per file) — not restated here to avoid drift.
+
+**Adding a test file:** start it with `import gla_testenv` (or `from gla_testenv import cfg, ...`) before any `garmin_*` import — it puts `src/garmin` on `sys.path`, disables logging, creates the temporary `BASE_DIR` and removes it at exit. Keep that import even if ruff reports it unused (`# noqa: F401`). Shared helpers (`_isolated_log_env`, `_cfg_values`, `_craft_container`, `_run_main`, `_day_raw`, ...) are imported from there; helpers that only one module needs stay in its file. Register the file in `run_tests.ps1` (the single list that `build_all.py`, CI, `run_coverage.ps1` and `generate_metrics.py` read) and, if it runs as a script (`check()`/`summary()`), in `collect_ignore` in `tests/conftest.py`.
 
 Run after any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_utils`, `garmin_validator`.
 
@@ -982,7 +1004,7 @@ PyQt6 for logic that needs neither. `test_cloud_llm.py` covers
 covers session save/load/list/delete/resume-eligibility against a real
 filesystem (`tmp_path`); `test_cloud_credential_store.py` covers the WCM
 round-trip with `keyring` mocked via `patch.dict("sys.modules", ...)`, same
-pattern `tests/test_local.py` already uses for `garmin_security.py`.
+pattern `tests/test_security.py` already uses for `garmin_security.py`.
 `test_mcp_process.py` (Baustein 29, garmin_collector-3_experiment, added
 post-doc-review after this module turned out to have no test coverage of
 its own — every `app/panel_*.py` test mocked it wholesale) covers
@@ -1106,7 +1128,7 @@ All source folders are Python packages with `__init__.py`:
 | `garmin_app.py` — T2 frozen | same subfolders from `scripts/` next to EXE, incl. `clients/` (v1.6.6) |
 | `garmin_app_standalone.py` — Dev | same subfolder loop (incl. `app/`, `clients/`) |
 | `garmin_app_standalone.py` — T3 frozen | `garmin/` via `sys.path.insert` in `_register_embedded_packages()`; `clients/` the same way, flat `sys.path.insert` alongside `garmin_dir`/`app_dir` (v1.6.6) — not the `sys.modules` package-registration loop used by `context/`/`maps/`/`dashboards/`/`layouts/`; others via package registration |
-| `tests/test_local.py` | `sys.path.insert(0, .../garmin)` |
+| `tests/gla_testenv.py` (imported by all Garmin test files, `test_local.py` included) | `sys.path.insert(0, .../garmin)` |
 | `tests/test_local_context.py` | `sys.path.insert(0, .../garmin)` + `sys.path.insert(0, root)` |
 | `maps/garmin_health_map.py` | `sys.path.insert(0, .../garmin)` — bridge between packages |
 | `context/` plugins | `sys.path.insert(0, .../garmin)` — for `garmin_config` |
