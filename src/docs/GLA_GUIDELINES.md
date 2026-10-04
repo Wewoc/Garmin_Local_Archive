@@ -606,12 +606,13 @@ pipeline code.
 
 ## 14. Test suite
 
-Sixteen suites (run via `run_tests.ps1`) cover the full pipeline, no
+The suites listed in `run_tests.ps1` (one list; counts in `docs/METRICS.md`) cover the full pipeline, no
 network or GUI required except where noted:
 
 | Suite | Scope |
 |---|---|
-| `test_local.py` | Garmin pipeline (normalizer, writer, quality, sync, collector) |
+| `test_local.py` | Garmin pipeline, cross-module checks (determinism, invariants, robustness, end-to-end) |
+| `test_<module>.py` (18 files) | Garmin pipeline, one file per module of `garmin/` (`test_normalizer`, `test_validator`, `test_writer`, `test_quality`, `test_backup`, `test_container_mirror`, `test_collector`, `test_api`, ...); shared setup in `tests/gla_testenv.py` |
 | `test_local_context.py` | Context pipeline (external APIs mocked) |
 | `test_dashboard.py` | Dashboard pipeline (maps, specialists, plotters) |
 | `test_broker.py` | Broker layer (`health_map`/`gateway_map` routing, `metadata_map`) |
