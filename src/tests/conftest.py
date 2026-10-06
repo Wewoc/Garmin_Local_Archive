@@ -31,6 +31,7 @@ collect_ignore = [
     "test_local.py",
     "test_basics.py",
     "test_security.py",
+    "test_redact.py",
     "test_api_capability.py",
     "test_normalizer.py",
     "test_validator.py",

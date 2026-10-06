@@ -461,6 +461,7 @@ Shared setup and helpers live in `tests/gla_testenv.py`; `test_local.py` stays a
 |---|---|
 | `test_basics.py` | `garmin_config`, `garmin_sync`, `garmin_utils` |
 | `test_security.py` | `garmin_security` (crypto layer) |
+| `test_redact.py` | `garmin_redact` (secret redaction for log output) |
 | `test_api.py`, `test_api_capability.py`, `test_live_fetch.py` | `garmin_api`, `garmin_api_capability`, `garmin_live_fetch` |
 | `test_normalizer.py`, `test_validator.py`, `test_writer.py` | `garmin_normalizer`, `garmin_validator`, `garmin_writer` |
 | `test_quality.py` | `garmin_quality`, `quality/*` |

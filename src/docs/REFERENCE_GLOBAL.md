@@ -582,7 +582,7 @@ it fits directly into one WCM credential entry.
     │
     └── tests/
         ├── test_local.py           ← Garmin pipeline, cross-module checks (determinism, invariants, robustness, E2E)
-        ├── test_<module>.py (18)   ← Garmin pipeline, one file per module of garmin/ (v1.7.4.0.2)
+        ├── test_<module>.py (19)   ← Garmin pipeline, one file per module of garmin/ (v1.7.4.0.2)
         ├── gla_testenv.py          ← Shared setup and helpers of the Garmin test files (v1.7.4.0.2)
         ├── test_local_context.py   ← Context pipeline
         ├── test_dashboard.py       ← Dashboard pipeline

@@ -149,8 +149,8 @@ as a whole instead of counting an error and continuing.
 
 ### v1.7.4.4 — Collector — One Bad Entry Must Not Abort the Sync, Honest Run Summary
 
-Two weaknesses in `garmin/garmin_collector.py::main()`, found while writing
-tests for v1.7.4.0.2.
+Four weaknesses in `garmin/garmin_collector.py::main()` and the quality helper
+it calls, found while writing tests for v1.7.4.0.2 and v1.7.4.0.3.
 
 **1. One invalid date in the quality log aborts the whole run.**
 `main()` builds `known_dates`, `recheck_dates` and `bulk_upgrade_dates` with
@@ -171,14 +171,42 @@ kept in `log/fail/`. The stored entry stays correct (the downgrade guard
 keeps the existing `high`), so only the report is misleading.
 - Planned: count each day once.
 
+**3. A negative session limit cuts off the last missing day.**
+`MAX_DAYS_PER_SESSION` is read as an integer without a check: `0` means
+"unlimited", a value above `0` caps the batch. A negative value (for
+example `-1`) takes neither branch and reaches the slice `missing[:-1]`: every
+missing day except the last one is fetched, and nothing says so. Pinned by
+tests since v1.7.4.0.3.
+- Planned: check the value when `main()` starts — treat a negative value
+  like `0` or stop with a message that names the setting.
+
+**4. A malformed device date becomes `first_day`.**
+`quality._maint._set_first_day()` takes the first usable `first_used` of the
+device list and stores it, apart from the value `"unknown"`, without checking
+that it is a date. A malformed value becomes the archive's `first_day` and
+makes later runs in sync mode `auto` fail on `date.fromisoformat()` — the same
+failure as in point 1, just with a different source. Pinned by tests since
+v1.7.4.0.3 (a value `"zzz"` is stored as it is).
+- Planned: check with `date.fromisoformat()` before storing; keep the
+  existing fallback when the value is not a date.
+
+*Smaller note, no behaviour change:* in the downgrade branch of `main()`
+the manual patch of `attempts` / `recheck` after `_upsert_quality()` is largely
+redundant — `_upsert_quality()` does not reset `attempts` (only the `failed`
+branch increments it) and sets `recheck` to `False` for a kept `high` day. The
+comment "_upsert_quality resets these" does not match. Worth simplifying when
+the branch is touched anyway.
+
 **What changes:**
 - `garmin/garmin_collector.py` — `main()`: tolerant handling of unparseable
-  dates, single counting per day.
+  dates, single counting per day, a check of the session limit.
+- `garmin/quality/_maint.py` — `_set_first_day()`: store only a real date.
 - `tests/test_local.py` — the tests that pin today's behaviour ("Ist-Stand
   ...") are rewritten to the new contract.
 
 **Open point:** whether an unparseable date should be skipped (sync goes on)
-or should stop the run with a clear message that names the entry.
+or should stop the run with a clear message that names the entry; and whether a
+negative session limit should count as "unlimited" or be refused.
 
 ---
 
@@ -778,6 +806,19 @@ Several modules stamp "when this record was written" two different ways — some
 
 **`garmin_utils.py` deprecation**
 `parse_device_date()` uses `datetime.utcfromtimestamp()`, deprecated since Python 3.12. Currently harmless (project targets 3.10+), but worth a one-line swap to `datetime.fromtimestamp(ts, tz=timezone.utc)` before the deprecation becomes a removal.
+
+The same function treats the text `"0"` and the number `0` differently:
+`parse_device_date("0")` returns `1970-01-01`, `parse_device_date(0)` returns
+`None` (pinned by tests since v1.7.4.0.3). Probably both should be `None`; decide
+when the function is touched for the deprecation anyway.
+
+**Credential masking — password inside the e-mail address**
+`garmin_redact.redact()` replaces the password first and the e-mail address
+second. If the password is a substring of the e-mail address (for example
+password `geheim`, address `geheim@example.org`), the address is no longer found as
+a whole and the rest of it (`@example.org`) stays readable in the log. Pinned by tests since
+v1.7.4.0.3. A one-line fix: replace the longer value first (e-mail, then
+password).
 
 **Disclaimer shadow-copy in `dash_prompt_templates.py`**
 This module holds its own copy of the disclaimer text instead of calling `dash_layout.get_disclaimer()` — a second, un-flagged M-2 pattern found during the v1.6.5.6 sibling-sweep, next to the duplicate intraday chart code above. Same fix shape: collapse to the shared getter.

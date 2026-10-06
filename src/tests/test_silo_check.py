@@ -251,4 +251,98 @@ if _sc_py.exists():
 else:
     check("silo_check: Leaf-Node — garmin_silo_check.py found", False)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  G2. garmin_silo_check — set arithmetic with overlapping silos, date parsing,
+#      quality-log reading (v1.7.4.0.3). Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("G2. garmin_silo_check — overlapping silos, parsing, quality log")
+from datetime import date as _date
+from unittest.mock import patch as _patch
+from gla_testenv import _isolated_log_env as _iso_env
+
+
+class _ScLog:
+    """Stands in for silo_check.log and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+
+    def warning(self, msg, *a, **k):
+        self.calls.append(("warning", msg % a if a else msg))
+
+    def debug(self, msg, *a, **k):
+        self.calls.append(("debug", msg % a if a else msg))
+
+    def info(self, msg, *a, **k):
+        self.calls.append(("info", msg % a if a else msg))
+
+
+def _sc_logged(fn, *args, **kwargs):
+    real, rec = silo_check.log, _ScLog()
+    silo_check.log = rec
+    try:
+        return fn(*args, **kwargs), rec.calls
+    finally:
+        silo_check.log = real
+
+
+# -- _extract_date -------------------------------------------------------------------------------------------
+_xd = silo_check._extract_date
+check("G2 _extract_date: a valid stem -> the date", _xd("garmin_raw_2025-08-01", "garmin_raw_") == _date(2025, 8, 1))
+check("G2 _extract_date: the prefix is removed once only -> doubled prefix is no date",
+      _xd("garmin_raw_garmin_raw_2025-08-01", "garmin_raw_") is None)
+check("G2 _extract_date: text that is no date -> None", _xd("garmin_raw_junk", "garmin_raw_") is None)
+check("G2 _extract_date: a value that is not text -> None, no crash", _xd(None, "garmin_raw_") is None)
+
+# -- check_silos with overlapping silos ------------------------------------------------------------------------
+with _iso_env("sc2_sets") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    for _dir in (cfg.RAW_DIR, cfg.SUMMARY_DIR, cfg.SOURCE_DIR):
+        _dir.mkdir(parents=True, exist_ok=True)
+    for _n in (1, 2, 3):
+        (cfg.RAW_DIR / f"garmin_raw_2025-08-0{_n}.json").write_text("{}", encoding="utf-8")
+    for _n in (2, 4):
+        (cfg.SUMMARY_DIR / f"garmin_2025-08-0{_n}.json").write_text("{}", encoding="utf-8")
+    (cfg.SUMMARY_DIR / "garmin_dataformat.json").write_text("{}", encoding="utf-8")   # not a day
+    for _n in (2, 3, 5):
+        (cfg.SOURCE_DIR / f"garmin_source_2025-08-0{_n}.json").write_text("{}", encoding="utf-8")
+    cfg.QUALITY_LOG_FILE.write_text(json.dumps({"days": [
+        {"date": "2025-08-02"}, {"date": "2025-08-03"}, {"date": "2025-08-06"},
+        {"quality": "high"}]}), encoding="utf-8")
+    _r = silo_check.check_silos()
+    _d8 = lambda *ns: [_date(2025, 8, n) for n in ns]          # noqa: E731
+    check("G2 check_silos: raw without quality = raw minus quality",
+          _r["raw_without_quality"] == _d8(1))
+    check("G2 check_silos: source without raw = source minus raw",
+          _r["source_without_raw"] == _d8(5))
+    check("G2 check_silos: summary without raw = summary minus raw",
+          _r["summary_without_raw"] == _d8(4))
+    check("G2 check_silos: raw without summary = raw minus summary",
+          _r["raw_without_summary"] == _d8(1, 3))
+    check("G2 check_silos: totals count files and quality entries (undated entry included)",
+          _r["totals"] == {"raw": 3, "summary": 2, "source": 3, "quality_days": 4})
+    check("G2 check_silos: counts are the lengths of the four lists",
+          _r["counts"] == {"raw_without_quality": 1, "source_without_raw": 1,
+                           "summary_without_raw": 1, "raw_without_summary": 2})
+
+# -- _collect_quality_dates ----------------------------------------------------------------------------------------
+with _iso_env("sc2_quality") as _b:
+    check("G2 _collect_quality_dates: no file -> exactly (empty set, 0)",
+          silo_check._collect_quality_dates() == (set(), 0))
+    cfg.QUALITY_LOG_FILE.write_text(json.dumps({"days": [
+        {"quality": "high"}, {"date": "2025-09-01"}, {"date": "not-a-date"}, {"date": "2025-09-02"}]}),
+        encoding="utf-8")
+    check("G2 _collect_quality_dates: undated and invalid entries are skipped, the rest still read, all counted",
+          silo_check._collect_quality_dates() == ({_date(2025, 9, 1), _date(2025, 9, 2)}, 4))
+    cfg.QUALITY_LOG_FILE.write_text("{broken", encoding="utf-8")
+    _res, _c = _sc_logged(silo_check._collect_quality_dates)
+    check("G2 _collect_quality_dates: broken JSON -> (empty set, 0) and a warning",
+          _res == (set(), 0) and any(lv == "warning" and "could not read quality_log.json" in m
+                                     for lv, m in _c))
+    cfg.QUALITY_LOG_FILE.write_text("{}", encoding="utf-8")
+    from pathlib import Path as _P
+    with _patch.object(_P, "read_text", side_effect=OSError("denied")):
+        _res, _c = _sc_logged(silo_check._collect_quality_dates)
+    check("G2 _collect_quality_dates: unreadable file (OSError) -> (empty set, 0) and a warning",
+          _res == (set(), 0) and any(lv == "warning" and "denied" in m for lv, m in _c))
+
 summary()

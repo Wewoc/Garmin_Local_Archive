@@ -383,6 +383,298 @@ with _isolated_log_env("imp_folder") as _b:
     check("folder import: other GLA version -> warning names both versions",
           "test" in _r["version_warning"] and "9.9.9" in _r["version_warning"])
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4h2. garmin_import_mirror — exact failure results, version and schema decisions,
+#       loops that must go on after a bad entry, skip_backup, small helpers
+#       (v1.7.4.0.3). Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("4h2. garmin_import_mirror — exact results, decisions, loops")
+
+
+class _IMLog:
+    """Stands in for _im.log and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+
+    def _add(self, level, msg):
+        self.calls.append((level, msg))
+
+    def error(self, msg, *a, **k):
+        self._add("error", msg)
+
+    def warning(self, msg, *a, **k):
+        self._add("warning", msg)
+
+    def info(self, msg, *a, **k):
+        self._add("info", msg)
+
+    def debug(self, msg, *a, **k):
+        self._add("debug", msg)
+
+
+def _im_logged(fn, *args, **kwargs):
+    real, rec = _im.log, _IMLog()
+    _im.log = rec
+    try:
+        return fn(*args, **kwargs), rec.calls
+    finally:
+        _im.log = real
+
+
+def _no_error(res):
+    return {k: v for k, v in res.items() if k != "error"}
+
+
+_FAIL_RAW = {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0, "errors": 1, "ok": False}
+_FAIL_DRY = {"raw_to_copy": 0, "context_to_copy": 0, "version_warning": "", "ok": False}
+
+# -- 1. exact failure results --------------------------------------------------------------------
+_unk = _M4H / "folder_plain"
+_r = _im.run_import_mirror(_unk, _M4H, "pw")
+check("4h2 unknown source: exact result",
+      _r == {**_FAIL_RAW, "error": f"Not a recognised mirror source: {_unk}"})
+_r = _im.run_import_mirror(_unk, _M4H, "pw", dry_run=True)
+check("4h2 unknown source, dry run: exact result",
+      _r == {**_FAIL_DRY, "error": f"Not a recognised mirror source: {_unk}"})
+_r = _im.run_import_mirror(_arch, _M4H, "wrong password")
+check("4h2 wrong password: exact result, reason names the HMAC",
+      _no_error(_r) == _FAIL_RAW and "HMAC" in _r["error"])
+_r = _im.run_import_mirror(_arch, _M4H, "wrong password", dry_run=True)
+check("4h2 wrong password, dry run: exact result",
+      _no_error(_r) == _FAIL_DRY and "HMAC" in _r["error"])
+
+with _isolated_log_env("imp2_fail") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _nm = _M4H / "f2_nometa"
+    _mirror_folder(_nm, [], meta=False)
+    _r = _im._run_import_folder(_nm, _b, dry_run=False)
+    check("4h2 folder without mirror_meta.json: exact result",
+          _no_error(_r) == _FAIL_RAW and _r["error"].startswith("cannot read mirror_meta.json"))
+    _r = _im._run_import_folder(_nm, _b, dry_run=True)
+    check("4h2 folder without mirror_meta.json, dry run: exact result",
+          _no_error(_r) == _FAIL_DRY and _r["error"].startswith("cannot read mirror_meta.json"))
+    _nq = _M4H / "f2_noqlog"
+    _mirror_folder(_nq, [], qlog=False)
+    (_nq / "mirror_meta.json").write_text(json.dumps({"gla_version": "old"}), encoding="utf-8")
+    _r = _im.run_import_mirror(_nq, _b, "")
+    check("4h2 folder without quality_log: exact result",
+          _no_error(_r) == _FAIL_RAW and _r["error"].startswith("cannot read mirror quality_log"))
+    _r = _im.run_import_mirror(_nq, _b, "", dry_run=True)
+    check("4h2 folder without quality_log, dry run: version warning is carried along",
+          _no_error(_r) == {**_FAIL_DRY, "version_warning":
+                            "Mirror was created with GLA vold, local version is vtest. Import will proceed."}
+          and _r["error"].startswith("cannot read mirror quality_log"))
+
+    # -- 2. a clean folder import ----------------------------------------------------------------
+    _cl = _M4H / "f2_clean"
+    _mirror_folder(_cl, [(_D1, "high", "api")], raw_for=[_D1],
+                   context=[("weather/raw", "a.json", {"t": 1})])
+    _r = _im.run_import_mirror(_cl, _b, "")
+    check("4h2 clean folder import: exact result, ok True",
+          _r == {"raw_copied": 1, "raw_skipped": 0, "context_copied": 1, "errors": 0, "ok": True})
+
+# -- 3. version warning ------------------------------------------------------------------------------
+check("4h2 version warning: same version -> empty, exact text otherwise",
+      _im._build_version_warning({"gla_version": "test"}) == ""
+      and _im._build_version_warning({"gla_version": "1.2.3"})
+      == "Mirror was created with GLA v1.2.3, local version is vtest. Import will proceed."
+      and _im._build_version_warning({})
+      == "Mirror was created with GLA vunknown, local version is vtest. Import will proceed.")
+_vf = _M4H / "f2_ver"
+
+
+def _folder_with_version(root, ver):
+    shutil.rmtree(root, ignore_errors=True)
+    _mirror_folder(root, [])
+    (root / "mirror_meta.json").write_text(json.dumps({"gla_version": ver}), encoding="utf-8")
+
+
+with _isolated_log_env("imp2_ver") as _b:
+    _folder_with_version(_vf, "test")
+    check("4h2 folder: equal version (read from JSON) -> no warning",
+          _im.run_import_mirror(_vf, _b, "", dry_run=True)["version_warning"] == "")
+    sys.modules["version"].APP_VERSION = "zzz"
+    _folder_with_version(_vf, "aaa")
+    check("4h2 folder: mirror version lower than local -> warning with exact text",
+          _im.run_import_mirror(_vf, _b, "", dry_run=True)["version_warning"]
+          == "Mirror was created with GLA vaaa, local version is vzzz. Import will proceed.")
+    sys.modules["version"].APP_VERSION = "test"
+    _real_version = sys.modules["version"]
+    sys.modules["version"] = _types4.ModuleType("version")     # no APP_VERSION at all
+    try:
+        _folder_with_version(_vf, "aaa")
+        _rf = _im.run_import_mirror(_vf, _b, "", dry_run=True)
+        _rc = _im.run_import_mirror(_arch, _b, "pw", dry_run=True)
+        _bw = _im._build_version_warning({"gla_version": "x"})
+    finally:
+        sys.modules["version"] = _real_version
+    check("4h2 version module without APP_VERSION: no warning, no crash (folder and container)",
+          _rf["ok"] is True and _rf["version_warning"] == ""
+          and _rc["ok"] is True and _rc["version_warning"] == "" and _bw == "")
+
+# -- 4. schema decision ----------------------------------------------------------------------------------
+_FASTPATH_D1 = {"marker": "from-container", "date": _D1}
+
+
+def _summary_d1(_b):
+    return json.loads((cfg.SUMMARY_DIR / f"garmin_{_D1}.json").read_text(encoding="utf-8"))
+
+
+with _isolated_log_env("imp2_schema_low") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with patch.object(normalizer, "CURRENT_SCHEMA_VERSION", 1):
+        _r = _im.run_import_mirror(_arch, _b, "pw")
+    check("4h2 schema: container schema newer than local -> summary recomputed, not taken",
+          _r["ok"] is True and _summary_d1(_b) != _FASTPATH_D1
+          and _summary_d1(_b).get("generated_by") == "garmin_normalizer.py")
+with _isolated_log_env("imp2_schema_missing") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _stub_norm = _types4.ModuleType("garmin_normalizer")        # has no CURRENT_SCHEMA_VERSION
+    _stub_norm.summarize = normalizer.summarize
+    with patch.dict(sys.modules, {"garmin_normalizer": _stub_norm}):
+        _r = _im.run_import_mirror(_arch, _b, "pw")
+    check("4h2 schema: local schema version cannot be read -> summary recomputed",
+          _r["ok"] is True and _summary_d1(_b) != _FASTPATH_D1)
+with _isolated_log_env("imp2_schema_order") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    import garmin_container as _gcx
+    with patch.object(_gcx, "fulfill_order", wraps=_gcx.fulfill_order) as _spy:
+        _im.run_import_mirror(_arch, _b, "pw")
+    _order_ok = _spy.call_args[0][2]
+with _isolated_log_env("imp2_schema_order2") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with patch.object(_gcx, "fulfill_order", wraps=_gcx.fulfill_order) as _spy2, \
+         patch.object(normalizer, "CURRENT_SCHEMA_VERSION", 999):
+        _im.run_import_mirror(_arch, _b, "pw")
+    _order_bad = _spy2.call_args[0][2]
+check("4h2 order: matching schema asks for raw, summary, context, source, device table",
+      set(_order_ok) == {"raw", "summary", "context", "source", "quality_log"}
+      and _order_ok["summary"] == [f"garmin_data/summary/garmin_{d}.json" for d in (_D1, _D2)]
+      and _order_ok["quality_log"] == ["garmin_data/log/device_table.json"])
+check("4h2 order: other schema -> no summary is requested",
+      set(_order_bad) == {"raw", "context", "source", "quality_log"})
+
+# -- 5. detect_source -----------------------------------------------------------------------------------------
+with patch.object(_gcx, "is_container", side_effect=RuntimeError("probe failed")):
+    check("4h2 detect_source: failing container check -> falls back to the folder check",
+          _im.detect_source(_M4H / "folder_ok") == "folder"
+          and _im.detect_source(_M4H / "folder_plain") == "unknown")
+check("4h2 detect_source: a path that is not a path -> 'unknown', no crash",
+      _im.detect_source(12345) == "unknown" and _im.detect_source(None) == "unknown")
+
+# -- 6. delta rules: unknown quality labels rank lowest -----------------------------------------------------------
+def _delta(src_q, dst_q):
+    s = {"days": [{"date": "2024-05-01", **({"quality": src_q} if src_q else {})}]}
+    d = {"days": [{"date": "2024-05-01", **({"quality": dst_q} if dst_q else {})}]}
+    c, k = _im._analyse_raw_delta(s, d)
+    return len(c), k
+
+
+check("4h2 delta: unknown vs failed -> skipped (equal rank)", _delta("weird", "failed") == (0, 1))
+check("4h2 delta: failed vs unknown -> skipped (equal rank)", _delta("failed", "weird") == (0, 1))
+check("4h2 delta: standard vs unknown -> copied", _delta("standard", "weird") == (1, 0))
+check("4h2 delta: unknown vs standard -> skipped", _delta("weird", "standard") == (0, 1))
+check("4h2 delta: no quality label on either side counts as failed -> skipped",
+      _delta(None, None) == (0, 1))
+check("4h2 delta: high vs missing label -> copied", _delta("high", None) == (1, 0))
+
+with _isolated_log_env("imp2_ctxdelta") as _b:
+    (_b / "context_data" / "weather" / "raw").mkdir(parents=True)
+    (_b / "context_data" / "weather" / "raw" / "there.json").write_text("{}", encoding="utf-8")
+    _paths = ["context_data/weather/raw/there.json", "context_data/weather/raw/new.json"]
+    _o, _c = _im_logged(_im._analyse_context_delta_container, _paths, _b)
+    check("4h2 context delta (container): all files are ordered, only an existing one is logged as overwrite",
+          _o == _paths
+          and ("debug", "  import_mirror: context overwrite — context_data/weather/raw/there.json") in _c
+          and not any("new.json" in m for _, m in _c if "overwrite" in m))
+
+# -- 7. loops go on after a bad entry -------------------------------------------------------------------------------
+_GOOD_SRC = b'{"heart_rates": {"x": 1}}'
+with _isolated_log_env("imp2_loops") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _SRC_A = "garmin_data/source/garmin_source_2024-06-01.json"
+    _SRC_B = "garmin_data/source/garmin_source_2024-06-02.json"
+    _res, _calls = _im_logged(_im._import_source_from_bytes,
+                              {_SRC_B: b"{not json", _SRC1: _GOOD_SRC}, [_SRC_A, _SRC_B, _SRC1], _b)
+    check("4h2 source import: missing bytes and bad JSON do not stop the next file",
+          _res == (1, 2) and (cfg.SOURCE_DIR / "garmin_source_2024-02-01.json").exists())
+    check("4h2 source import: summary line with the counts is logged",
+          ("info", "  import_mirror: source import done — 1 written, 2 errors") in _calls)
+    _res, _calls = _im_logged(_im._import_source_from_bytes, {}, [], _b)
+    check("4h2 source import: nothing to import -> (0, 0), no summary line",
+          _res == (0, 0) and not any("source import done" in m for _, m in _calls))
+    _res = _im._import_source_from_bytes({5: b"{}", _SRC1: _GOOD_SRC}, [5, _SRC1], _b)
+    check("4h2 source import: an entry that is not a file name is one error, the next one still goes through",
+          _res == (1, 1))
+
+    _CT_OK = "context_data/x/raw/ok.json"
+    _res = _im._import_context_from_bytes({_CT_OK: b'{"a": 1}'}, ["context_data/x/raw/missing.json", _CT_OK], _b)
+    check("4h2 context import: missing bytes do not stop the next file",
+          _res == (1, 1) and json.loads((_b / _CT_OK).read_text(encoding="utf-8")) == {"a": 1})
+
+    _fl = {f"garmin_data/raw/garmin_raw_{_D1}.json": _jb(_day_raw(_D1)),
+           f"garmin_data/raw/garmin_raw_{_BAD_DATE}.json": _jb(_day_raw(_BAD_DATE))}
+    _res = _im._import_raw_from_bytes(_fl, [{"quality": "high"}, {"date": _D1, "quality": "high"}],
+                                      0, {"days": []}, quality, True)
+    check("4h2 raw import: an entry without a date does not stop the next day", _res == (1, 0, 1))
+    _res, _calls = _im_logged(_im._import_raw_from_bytes, _fl,
+                              [{"date": _BAD_DATE, "quality": "high"}, {"date": _D1, "quality": "high"}],
+                              3, {"days": []}, quality, True)
+    check("4h2 raw import: an invalid date is one error, the next day goes through, skipped count passed on",
+          _res == (1, 3, 1))
+    check("4h2 raw import: invalid date is logged as such, not as a pipeline error",
+          any(lv == "warning" and "invalid date '2024-13-45'" in m for lv, m in _calls)
+          and not any("pipeline error" in m for _, m in _calls))
+
+    _fold2 = _M4H / "f2_loop"
+    shutil.rmtree(_fold2, ignore_errors=True)
+    _mirror_folder(_fold2, [], raw_for=[_D2])
+    _res = _im._import_raw_folder(_fold2, _b, [{"quality": "high"}, {"date": _D2, "quality": "high"}],
+                                  4, {"days": []}, quality)
+    check("4h2 folder raw import: an entry without a date does not stop the next day, skipped passed on",
+          _res == (1, 4, 1))
+    _only_pollen = _M4H / "f2_pollen"
+    shutil.rmtree(_only_pollen, ignore_errors=True)
+    _mirror_folder(_only_pollen, [], context=[("pollen/raw", "a.json", {"x": 1})])
+    _o = _im._analyse_context_delta(_only_pollen, _b)
+    check("4h2 folder context delta: a missing first sub folder does not hide the later ones",
+          len(_o) == 1 and _o[0][0].name == "a.json" and "pollen" in str(_o[0][1]))
+
+# -- 9. skip_backup: per day without backup, one backup at the end -------------------------------------------------------
+with _isolated_log_env("imp2_skip") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with patch.object(quality, "_save_quality_log", wraps=quality._save_quality_log) as _sv:
+        _im.run_import_mirror(_arch, _b, "pw")
+    _kw = [c.kwargs for c in _sv.call_args_list]
+    check("4h2 skip_backup (container): every day saved with skip_backup=True, final save without",
+          _kw == [{"skip_backup": True}, {"skip_backup": True}, {}])
+with _isolated_log_env("imp2_skip_f") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _fs = _M4H / "f2_skip"
+    shutil.rmtree(_fs, ignore_errors=True)
+    _mirror_folder(_fs, [(_D1, "high", "api"), (_D2, "high", "api")], raw_for=[_D1, _D2])
+    with patch.object(quality, "_save_quality_log", wraps=quality._save_quality_log) as _sv:
+        _im.run_import_mirror(_fs, _b, "")
+    _kw = [c.kwargs for c in _sv.call_args_list]
+    check("4h2 skip_backup (folder): every day saved with skip_backup=True, final save without",
+          _kw == [{"skip_backup": True}, {"skip_backup": True}, {}])
+
+# -- 10. device table restore, 11. device extraction ------------------------------------------------------------------------
+with _isolated_log_env("imp2_dt") as _b:
+    _DT = "garmin_data/log/device_table.json"
+    _, _c1 = _im_logged(_im._restore_device_table, {_DT: b"[1]"}, _b)
+    _, _c2 = _im_logged(_im._restore_device_table, {_DT: b"[2]"}, _b)
+    check("4h2 restore device_table: a second restore into the existing folder replaces the file",
+          (_b / "garmin_data" / "log" / "device_table.json").read_bytes() == b"[2]")
+    check("4h2 restore device_table: success is logged, absence is logged as skipped",
+          ("info", "  import_mirror: device_table.json restored") in _c1
+          and ("info", "  import_mirror: device_table.json restored") in _c2
+          and ("debug", "  import_mirror: device_table.json not in container — skipped")
+          in _im_logged(_im._restore_device_table, {}, _b)[1])
+check("4h2 _extract_device: with two recorded devices the first one wins",
+      _im._extract_device({"training_status": {"mostRecentTrainingStatus": {"recordedDevices": [
+          {"deviceId": 1, "deviceName": "A"}, {"deviceId": 2, "deviceName": "B"}]}}}) == ("1", "A"))
+
 if _ver4h_added:
     del sys.modules["version"]
 if _src_root_added:

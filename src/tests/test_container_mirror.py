@@ -427,4 +427,262 @@ check("fulfill_order: empty order → empty dict",     _fo_empty == {})
 shutil.rmtree(_c2_src,    ignore_errors=True)
 shutil.rmtree(_c2_parent, ignore_errors=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4g2. garmin_container, garmin_mirror — format pinned by an independent reader,
+#       return values, magic/version, order handling, path classification
+#       (v1.7.4.0.3). Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("4g2. garmin_container, garmin_mirror — independent reader, edges")
+import hashlib as _hashlib
+import hmac as _hmac4
+import zlib as _zlib4
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM as _AESGCM4
+
+_ver4b_added = "version" not in sys.modules
+if _ver4b_added:
+    _ver4b = _types4.ModuleType("version")
+    _ver4b.APP_VERSION = "test"
+    sys.modules["version"] = _ver4b
+
+
+class _CLogRec:
+    """Stands in for a module logger and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+
+    def _add(self, level, msg):
+        self.calls.append((level, msg))
+
+    def error(self, msg, *a, **k):
+        self._add("error", msg)
+
+    def warning(self, msg, *a, **k):
+        self._add("warning", msg)
+
+    def info(self, msg, *a, **k):
+        self._add("info", msg)
+
+    def debug(self, msg, *a, **k):
+        self._add("debug", msg)
+
+
+def _with_log(module, fn, *args, **kwargs):
+    """fn(*args) with module.log recorded -> (result, calls)."""
+    real, rec = module.log, _CLogRec()
+    module.log = rec
+    try:
+        return fn(*args, **kwargs), rec.calls
+    finally:
+        module.log = real
+
+
+def _dyn(s):
+    """Equal string that is a different object (not interned): for 'is' mutants."""
+    return s[:2] + s[2:]
+
+
+def _indep_read(path, password):
+    """Reads a container with the standard library and AES-GCM only (no garmin_container).
+    Layout: GLA1 | version | salt 16 | HMAC 32 | header length 4 (big endian) | header | sections."""
+    data = Path(path).read_bytes()
+    magic, ver = data[:4], data[4]
+    salt, stored = data[5:21], data[21:53]
+    hlen = int.from_bytes(data[53:57], "big")
+    header_json = data[57:57 + hlen]
+    master = _hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 600000, 32)
+    hmac_ok = _hmac4.compare_digest(_hmac4.new(master, header_json, "sha256").digest(), stored)
+    header = json.loads(header_json)
+    start = 57 + hlen
+    sections = {}
+    for name, info in header["section_index"].items():
+        blob = data[start + info["offset"]: start + info["offset"] + info["length"]]
+        # HKDF-Expand (SHA-256, 32 bytes) = HMAC(master, info + 0x01)
+        key = _hmac4.new(master, b"gla-" + name.encode() + b"\x01", "sha256").digest()
+        compressed = _AESGCM4(key).decrypt(blob[:12], blob[12:], None)
+        sections[name] = (compressed, json.loads(_zlib4.decompress(compressed)), len(blob))
+    return {"magic": magic, "ver": ver, "hmac_ok": hmac_ok, "header": header,
+            "sections": sections, "total": len(data), "start": start}
+
+
+# Section content large and varied enough that zlib levels 5, 6 and 7 give different output
+_BIG4 = b"".join(_hashlib.sha256(str(i).encode()).hexdigest().encode()[: (i % 40) + 8] + b"\n"
+                 for i in range(3000))
+_RAW_BIG = "garmin_data/raw/big.json"
+_ind = _M4 / "indep.gla"
+_r = _craft_container(_ind, {"raw": {_RAW_BIG: _BIG4, _RAW_A: b'{"a": 1}'},
+                             "context": {_CTX_A: b'{"t": 5}'}}, password="indep-pw")
+_rd = _indep_read(_ind, "indep-pw")
+check("4g2 format: magic GLA1, format version 1", _rd["magic"] == b"GLA1" and _rd["ver"] == 1)
+check("4g2 format: header HMAC verifies with PBKDF2-SHA256, 600000 rounds, 32-byte key",
+      _rd["hmac_ok"] is True)
+check("4g2 format: header carries container_meta and the section index",
+      set(_rd["header"]) == {"container_meta", "section_index"}
+      and set(_rd["header"]["container_meta"]) == {"gla_version", "schema_version", "created_at"}
+      and set(_rd["header"]["section_index"]) == {"raw", "context"})
+check("4g2 format: sections decrypt with HKDF(gla-<name>) and a 12-byte nonce, content intact",
+      {k: bytes(v) for k, v in _rd["sections"]["raw"][1].items()} == {_RAW_BIG: _BIG4, _RAW_A: b'{"a": 1}'}
+      and {k: bytes(v) for k, v in _rd["sections"]["context"][1].items()} == {_CTX_A: b'{"t": 5}'})
+_payload = json.dumps(_rd["sections"]["raw"][1], separators=(",", ":")).encode("utf-8")
+check("4g2 format guard: the test payload really tells zlib levels 5/6/7 apart",
+      len({_zlib4.compress(_payload, lv) for lv in (5, 6, 7)}) == 3)
+check("4g2 format: raw section is zlib level 6",
+      _rd["sections"]["raw"][0] == _zlib4.compress(_payload, 6))
+_idx_i = _rd["header"]["section_index"]
+check("4g2 format: section offsets are contiguous and lengths match the blobs",
+      _idx_i["raw"]["offset"] == 0 and _idx_i["context"]["offset"] == _idx_i["raw"]["length"]
+      and _idx_i["raw"]["length"] == _rd["sections"]["raw"][2]
+      and _rd["start"] + _idx_i["context"]["offset"] + _idx_i["context"]["length"] == _rd["total"])
+check("4g2 format: file list in the index",
+      sorted(_idx_i["raw"]["files"]) == sorted([_RAW_BIG, _RAW_A]))
+
+# -- lock: return values ----------------------------------------------------------------
+check("4g2 lock: missing source -> exact result",
+      _gc4.lock(_M4 / "no_such_src", _M4 / "nx.gla", "pw")
+      == {"files_packed": 0, "errors": 1, "ok": False})
+_srcA = _M4 / "srcA"
+shutil.rmtree(_srcA, ignore_errors=True)
+(_srcA / "garmin_data" / "raw").mkdir(parents=True)
+(_srcA / "garmin_data" / "raw" / "garmin_raw_2024-01-01.json").write_text("{}", encoding="utf-8")
+_nested = _M4 / "n1" / "n2" / "c.gla"
+shutil.rmtree(_M4 / "n1", ignore_errors=True)
+_r = _gc4.lock(_srcA, _nested, "pw")
+check("4g2 lock: missing parent folders of the target are created",
+      _r == {"files_packed": 1, "errors": 0, "ok": True} and _nested.is_file())
+
+_one = {"raw": {"garmin_data/raw/a.json": b"1"}}
+with patch.object(_gc4, "_collect_sections", lambda _s: dict(_one)):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "noerrkey.gla", "pw")
+check("4g2 lock: collector result without '_errors' -> 0 errors, ok",
+      _r == {"files_packed": 1, "errors": 0, "ok": True})
+for _n_err in (1, 2):
+    with patch.object(_gc4, "_collect_sections", lambda _s, n=_n_err: {**_one, "_errors": n}):
+        _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "witherr.gla", "pw")
+    check(f"4g2 lock: {_n_err} read error(s) reported -> ok False, files still packed",
+          _r == {"files_packed": 1, "errors": _n_err, "ok": False} and (_M4 / "witherr.gla").is_file())
+
+with patch.object(_gc4, "_derive_master", side_effect=RuntimeError("boom")):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "boom.gla", "pw")
+check("4g2 lock: unexpected failure -> exact failure result, no container, no .tmp",
+      _r == {"files_packed": 0, "errors": 1, "ok": False}
+      and not (_M4 / "boom.gla").exists() and not (_M4 / "boom.gla.tmp").exists()
+      and list(_M4.glob("*.tmp")) == [])
+with patch("os.replace", side_effect=OSError("locked")):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "swapfail3.gla", "pw")
+check("4g2 lock: failing swap -> exact failure result",
+      _r == {"files_packed": 0, "errors": 1, "ok": False})
+
+# -- magic and format version: header otherwise intact ---------------------------------------
+_gd = Path(_good4).read_bytes()
+for _tag, _magic in (("greater", b"GLB1"), ("smaller", b"GLA0"), ("shorter", b"GL")):
+    _p4 = _M4 / f"magic_{_tag}.gla"
+    _p4.write_bytes(_magic + _gd[len(_magic):] if len(_magic) == 4 else _magic + _gd[4:])
+    _u = _gc4.unlock_meta(_p4, "pw")
+    check(f"4g2 magic {_tag}: list_files -> []", _gc4.list_files(_p4, "raw") == [])
+    check(f"4g2 magic {_tag}: unlock_meta refuses, names the magic bytes",
+          _u["ok"] is False and "magic bytes mismatch" in _u["error"])
+    check(f"4g2 magic {_tag}: fulfill_order -> {{}}",
+          _gc4.fulfill_order(_p4, "pw", {"raw": [_RAW_A]}) == {})
+for _fv in (0, 2, 255):
+    _b = bytearray(_gd)
+    _b[4] = _fv
+    _p4 = _M4 / f"fmt_{_fv}.gla"
+    _p4.write_bytes(bytes(_b))
+    _u = _gc4.unlock_meta(_p4, "pw")
+    check(f"4g2 format version {_fv}: refused with the version in the message",
+          _u["ok"] is False and _u["error"] == f"Unsupported container format version: {_fv}")
+check("4g2 format version 1 (the real one) is accepted",
+      _gc4.unlock_meta(_good4, "pw")["ok"] is True)
+
+# -- fulfill_order: an empty or unknown entry does not stop the others -------------------------
+_f = _gc4.fulfill_order(_good4, "pw", {"context": [], "raw": [_RAW_A]})
+check("4g2 fulfill_order: an empty file list does not end the loop",
+      _f == {_RAW_A: b'{"a": 1}'})
+_f, _calls = _with_log(_gc4, _gc4.fulfill_order, _good4, "pw",
+                       {"nope": ["x"], "raw": [_RAW_A, "garmin_data/raw/gone.json"]})
+check("4g2 fulfill_order: an unknown section does not end the loop",
+      _f == {_RAW_A: b'{"a": 1}'})
+check("4g2 fulfill_order: unknown section and missing file are logged as warnings",
+      ("warning", "  container: section 'nope' not in index — skipping") in _calls
+      and ("warning", "  container: requested file not found in section: garmin_data/raw/gone.json") in _calls)
+
+# -- is_container: only the first four bytes decide ------------------------------------------------
+for _name, _content, _exp in (("m_less.bin", b"GLA0rest", False), ("m_more.bin", b"GLB1rest", False),
+                              ("m_short.bin", b"GLA", False), ("m_empty.bin", b"", False),
+                              ("m_magic_only.bin", b"GLA1", True), ("m_ok.bin", b"GLA1whatever", True)):
+    (_M4 / _name).write_bytes(_content)
+    check(f"4g2 is_container: {_content[:12]!r} -> {_exp}", _gc4.is_container(_M4 / _name) is _exp)
+check("4g2 is_container: a str path works", _gc4.is_container(str(_good4)) is True)
+
+# -- _classify_file: every branch and its neighbours ---------------------------------------------------
+_cf = _gc4._classify_file
+_CASES = [
+    (("garmin_data", "log", "quality_log.json"), "quality_log"),
+    (("garmin_data", "log", "device_table.json"), "quality_log"),
+    (("garmin_data", "log", "other.json"), None),
+    (("garmin_data", "log", "quality_log.json", "extra"), None),   # too deep for the log rule
+    (("garmin_data", "log"), None),
+    (("garmin_data", "lo", "quality_log.json"), None),
+    (("garmin_data", "logs", "quality_log.json"), None),
+    (("garmin_dat", "log", "quality_log.json"), None),
+    (("garmin_datb", "log", "quality_log.json"), None),
+    (("garmin_data", "raw", "2024-01-01", "x.json"), "raw"),
+    (("garmin_data", "raw"), "raw"),
+    (("garmin_data", "ra", "x"), None), (("garmin_data", "rax", "x"), None),
+    (("garmin_dat", "raw", "x"), None), (("garmin_datb", "raw", "x"), None),
+    (("garmin_data", "summary", "x.json"), "summary"),
+    (("garmin_data", "summary"), "summary"),
+    (("garmin_data", "summar", "x"), None), (("garmin_data", "summarz", "x"), None),
+    (("garmin_dat", "summary", "x"), None), (("garmin_datb", "summary", "x"), None),
+    (("garmin_data", "source", "x.json"), "source"),
+    (("garmin_data", "source"), "source"),
+    (("garmin_data", "sourcd", "x"), None), (("garmin_data", "sourcf", "x"), None),
+    (("garmin_dat", "source", "x"), None), (("garmin_datb", "source", "x"), None),
+    (("context_data", "weather", "raw", "x.json"), "context"),
+    (("context_data",), "context"),
+    (("context_dat", "x"), None), (("context_datb", "x"), None),
+    (("garmin_data",), None),
+    (("garmin_data", "other", "x"), None),
+    (("garmin_token", "x"), None),
+    (("other", "x"), None),
+]
+_bad_cf = [(p, e, _cf(p)) for p, e in _CASES if _cf(p) != e]
+check(f"4g2 _classify_file: {len(_CASES)} paths classified as expected", _bad_cf == [])
+check("4g2 _classify_file: strings that are equal but not the same object classify alike",
+      _cf((_dyn("garmin_data"), _dyn("raw"), "x")) == "raw"
+      and _cf((_dyn("garmin_data"), _dyn("summary"), "x")) == "summary"
+      and _cf((_dyn("garmin_data"), _dyn("source"), "x")) == "source"
+      and _cf((_dyn("garmin_data"), _dyn("log"), _dyn("quality_log.json"))) == "quality_log"
+      and _cf((_dyn("context_data"), "x")) == "context")
+
+# -- garmin_mirror -------------------------------------------------------------------------------------------
+_afile = _M4 / "a_file2"
+_afile.write_text("not a folder", encoding="utf-8")
+_cm = _M4 / "mir_out.gla"
+_r = _mir4.run_mirror(_afile, _cm, "pw")
+check("4g2 run_mirror: source is a file -> exact failure result with the reason",
+      _r == {"files_packed": 0, "errors": 1, "ok": False,
+             "error": f"source not found or not a directory: {_afile}"} and not _cm.exists())
+_r = _mir4.run_mirror(_M4 / "no_such_dir", _cm, "pw")
+check("4g2 run_mirror: source missing -> exact failure result with the reason",
+      _r == {"files_packed": 0, "errors": 1, "ok": False,
+             "error": f"source not found or not a directory: {_M4 / 'no_such_dir'}"})
+with patch.object(_gc4, "lock", return_value={}):
+    _r, _calls = _with_log(_mir4, _mir4.run_mirror, _M4_EMPTY_SRC, _cm, "pw")
+check("4g2 run_mirror: a lock result without counts is logged as 0 files, 0 errors",
+      _r == {} and ("info", "  mirror done: 0 files packed, 0 errors") in _calls)
+_r, _calls = _with_log(_mir4, _mir4.run_mirror, _srcA, _cm, "pw")
+check("4g2 run_mirror: real run -> lock result passed through and logged",
+      _r == {"files_packed": 1, "errors": 0, "ok": True}
+      and ("info", "  mirror done: 1 files packed, 0 errors") in _calls and _cm.is_file())
+check("4g2 is_reachable: parent that is a file -> False",
+      _mir4.is_reachable(_afile / "x.gla") is False)
+check("4g2 is_reachable: parent folder exists -> True, parent missing -> False",
+      _mir4.is_reachable(_M4 / "x.gla") is True
+      and _mir4.is_reachable(_M4 / "no_such_dir" / "x.gla") is False)
+check("4g2 is_reachable: empty / None -> False",
+      _mir4.is_reachable("") is False and _mir4.is_reachable(None) is False)
+
+if _ver4b_added:
+    sys.modules.pop("version", None)
+
 summary()

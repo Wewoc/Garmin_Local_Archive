@@ -1,5 +1,84 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.4.0.3 — mutation testing of `src/garmin/`: closing the test gaps (no release)
+
+A mutation test (Cosmic Ray, run locally) over `src/garmin/` showed which
+deliberate code changes the tests do not notice: the first run caught
+4 090 of 5 713 mutants (71.7 %) and left 1 420 real gaps. This entry
+collects the tests added to close them, module by module. No production
+code changes.
+
+**Added (`test_validator.py`, `test_normalizer.py`, `test_basics.py`):**
+the validator's value-range checks now run through the real
+`assess_quality` (the simulated checks in the old section 14 tested
+nothing and were removed); the normalizer is covered by a table of
+complete expected results for every field and fallback; `garmin_utils`
+and the date helpers are covered at their boundaries (e.g. the
+second/millisecond switch at 1e11).
+
+**Added (`test_container_mirror.py`, `test_import_mirror.py`,
+`test_backup.py`, `test_source_writer.py`):** the container format is
+checked against an independent reader (hashlib / hmac / zlib / AES-GCM),
+not against its own writer; mirror, import-from-mirror and backup
+(monthly archives, source backups, force overwrite, error paths) are
+checked down to counters, log lines and the exact files written;
+`garmin_source_writer` and `garmin_source_quality` reach 100 %.
+
+**Added (`test_silo_check.py`, `test_silo_repair.py`,
+`test_garmin_import.py`, `test_writer.py`):** the silo checks and repair
+steps, the bulk import (ZIP and folder, malformed entries) and the byte
+format of the written raw and summary files (2-space JSON, UTF-8, line
+ends normalized on Windows).
+
+**Added (`test_quality.py`, 176 → 437 checks):** `_assess`, `_io`,
+`_maint`, `_stats` and `_scan` of the quality log are covered by tables
+of expected labels, field qualities, save/load/backup paths, the
+`recheck` / `attempts` bookkeeping, statistics and rounding, and the
+scan for failed days.
+
+**Added (`test_collector.py`, 228 → 383 checks):** the whole collector
+flow — `_fetch_and_assess`, `run_import`, session logs, self-healing,
+schema migration, Force-Refetch preview and commit, the source / steps /
+bulk-field backfills, the capability scan, and `main()` from the entry
+points through the date list, session limit, downgrade guard, device
+lookup and the end-of-run source backup backfill.
+
+**Added (`test_basics.py`, `test_api.py`, `test_api_capability.py`,
+`test_live_fetch.py`):** `garmin_config` (environment variables and the
+MCP server config file, loaded with a fake home), `resolve_date_range`,
+login paths and log lines of `garmin_api`, the capability config file,
+and the counters and messages of `fetch_live`.
+
+**Added (`test_force_refetch.py`, `test_security.py`):** snapshot and
+restore failure paths, unserializable values in the field comparison,
+and the whole security layer: key storage and derivation (compared with
+an independent PBKDF2 calculation), the token folder clean-up with its
+retries, save / load / clear of the encrypted token, and the token event
+log (exact file text, MFA block detection).
+
+**Added (`test_redact.py`, new, 22 checks):** `garmin_redact` — which
+masks the Garmin e-mail address and password in every log sink — had no
+tests at all. Registered in `run_tests.ps1`, `tests/conftest.py` and the
+test tables in `MAINTENANCE_GLOBAL.md` / `MAINTENANCE_GARMIN.md`.
+
+**Findings pinned as current behaviour (not changed):** `run_import`
+writes a day to `raw/` before checking its date, and never checks the
+stop event; a negative `MAX_DAYS_PER_SESSION` cuts off the last missing
+day instead of meaning "unlimited"; `parse_device_date("0")` and
+`parse_device_date(0)` disagree; `_set_first_day` accepts any device
+value except "unknown"; if the password is part of the e-mail address,
+the domain stays readable in the log after masking.
+
+**Verification:** the final measurement over all modules (6 081 mutants)
+caught 5 796; the 277 survivors were 129 documented equivalent mutants
+(changes that cannot alter any observable behaviour) and 148 real gaps
+in `garmin_security`, `garmin_force_refetch` and `quality/_fieldhash`
+(these had been missing from the first run), which were then closed and
+re-measured per module (`garmin_security` 292 / 293, `garmin_force_refetch`
+63 / 63, `quality/_fieldhash` 14 / 14). About 130 documented equivalent
+survivors remain. The full suite (`run_tests.ps1`) runs green, 35 files;
+`ruff` clean.
+
 ## v1.7.4.0.2 — tests for the archive core: writer and validator failure paths (no release)
 
 A coverage measurement (v1.7.4.0.1, `run_coverage.ps1`) put `src/garmin/`

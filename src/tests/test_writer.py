@@ -148,4 +148,31 @@ corrupt_path.write_text("{ not valid json }")
 result_corrupt = writer.read_raw("2024-05-02")
 check("read_raw: corrupt → empty dict",   result_corrupt == {})
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  5c. garmin_writer — exact file contents and a summary folder with missing
+#      parents (v1.7.4.0.3). Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("5c. garmin_writer — exact files, nested folder")
+from gla_testenv import _isolated_log_env
+
+_D5C = "2024-04-05"
+_NORM5C = {"date": _D5C, "name": "Grüße", "nested": {"a": [1, 2]}}
+_SUM5C = {"date": _D5C, "label": "Größe"}
+with _isolated_log_env("w5c_fmt") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    check("5c write_day: returns True", writer.write_day(_NORM5C, _SUM5C, _D5C) is True)
+    check("5c write_day: raw file is 2-space indented UTF-8 (umlauts not escaped), byte for byte (line ends normalised: write_text uses CRLF on Windows)",
+          (cfg.RAW_DIR / f"garmin_raw_{_D5C}.json").read_bytes().replace(b"\r\n", b"\n")
+          == ('{\n  "date": "2024-04-05",\n  "name": "Grüße",\n  "nested": {\n    "a": [\n'
+              '      1,\n      2\n    ]\n  }\n}').encode("utf-8"))
+    check("5c write_day: summary file is 2-space indented UTF-8, byte for byte",
+          (cfg.SUMMARY_DIR / f"garmin_{_D5C}.json").read_bytes().replace(b"\r\n", b"\n")
+          == '{\n  "date": "2024-04-05",\n  "label": "Größe"\n}'.encode("utf-8"))
+
+with _isolated_log_env("w5c_deep") as _b:
+    cfg.SUMMARY_DIR = _b / "a" / "b" / "summary"
+    check("5c write_day: a summary folder with several missing parents is created",
+          writer.write_day(_NORM5C, _SUM5C, _D5C) is True
+          and (cfg.SUMMARY_DIR / f"garmin_{_D5C}.json").is_file())
+
 summary()
