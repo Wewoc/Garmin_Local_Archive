@@ -264,6 +264,115 @@ _i2_7b_summary = json.loads((cfg.SUMMARY_DIR / f"garmin_{_i2_7b_date}.json").rea
 check("silo_repair: #7 schlechtfall → summary['date'] ist null",
       _i2_7b_summary.get("date") is None)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  I3. garmin_silo_repair — counters, loops that go on after a bad item, the
+#      downgrade guard of #3, error paths (v1.7.4.0.3).
+#      Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("I3. garmin_silo_repair — counters, loops, guard, errors")
+from gla_testenv import _isolated_log_env as _iso_env3, _put_log as _put_log3
+
+_E3 = {"raw_without_quality": [], "source_without_raw": [],
+       "summary_without_raw": [], "raw_without_summary": []}
+
+
+def _hr3(d):
+    return {"date": d, "heart_rates": {"restingHeartRate": 55, "heartRateValues": [[1740787200000, 58]]}}
+
+
+def _std3(d):
+    return {"date": d, "stats": {"totalSteps": 1000}}
+
+
+def _dt3(s):
+    return date.fromisoformat(s)
+
+
+def _put3(path, obj):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(obj if isinstance(obj, str) else json.dumps(obj), encoding="utf-8")
+
+
+# -- #3: source file missing / broken must not stop the next date --------------------------------------------
+with _iso_env3("sr3_src") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-06-02.json", _hr3("2025-06-02"))
+    _r = silo_repair.repair_silos({**_E3, "source_without_raw": [_dt3("2025-06-01"), _dt3("2025-06-02")]})
+    check("I3 #3: a missing source file is counted as failed, the next date is still repaired",
+          _r["items"] == [{"category": "3", "date": "2025-06-01", "status": "no_source"},
+                          {"category": "3", "date": "2025-06-02", "status": "repaired", "label": "high"}]
+          and (_r["ok"], _r["failed"]) == (1, 1))
+with _iso_env3("sr3_src_bad") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-06-03.json", "{broken")
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-06-04.json", _hr3("2025-06-04"))
+    _r = silo_repair.repair_silos({**_E3, "source_without_raw": [_dt3("2025-06-03"), _dt3("2025-06-04")]})
+    check("I3 #3: a broken source file is one error with a reason, the next date is still repaired",
+          (_r["ok"], _r["failed"]) == (1, 1) and _r["items"][0]["status"] == "error"
+          and _r["items"][0]["date"] == "2025-06-03" and _r["items"][0]["reason"]
+          and _r["items"][1]["status"] == "repaired")
+
+# -- #3: the downgrade guard looks at the entry of THIS date -------------------------------------------------------
+with _iso_env3("sr3_guard") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put_log3({"days": [{"date": "2025-07-01", "quality": "standard"},
+                        {"date": "2025-07-09", "quality": "standard"},
+                        {"date": "2025-07-02", "quality": "high"}]})
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-07-02.json", _std3("2025-07-02"))
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-07-03.json", _hr3("2025-07-03"))
+    _r = silo_repair.repair_silos({**_E3, "source_without_raw": [_dt3("2025-07-02"), _dt3("2025-07-03")]})
+    check("I3 #3: a day that would be downgraded is skipped (existing and new label named), the next one is repaired",
+          _r["items"] == [{"category": "3", "date": "2025-07-02", "status": "skipped",
+                           "existing": "high", "new": "standard"},
+                          {"category": "3", "date": "2025-07-03", "status": "repaired", "label": "high"}]
+          and (_r["ok"], _r["failed"]) == (1, 0))
+    check("I3 #3: a skipped day leaves no raw file behind",
+          not (cfg.RAW_DIR / "garmin_raw_2025-07-02.json").exists()
+          and (cfg.RAW_DIR / "garmin_raw_2025-07-03.json").exists())
+    _e3 = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("I3 #3: the repaired day is recorded as written in the quality log, the guarded one is untouched",
+          _e3["2025-07-03"].get("write") is True and _e3["2025-07-02"]["quality"] == "high")
+
+# -- #5: orphan summaries --------------------------------------------------------------------------------------------
+with _iso_env3("sr3_orphan") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SUMMARY_DIR / "garmin_2025-08-01.json", {"date": "2025-08-01"})
+    _r = silo_repair.repair_silos({**_E3, "summary_without_raw": [_dt3("2025-08-02"), _dt3("2025-08-01")]})
+    check("I3 #5: an orphan that is already gone is reported as gone, the next one is removed",
+          _r["items"] == [{"category": "5", "date": "2025-08-02", "status": "gone"},
+                          {"category": "5", "date": "2025-08-01", "status": "repaired"}]
+          and (_r["ok"], _r["failed"]) == (1, 0)
+          and not (cfg.SUMMARY_DIR / "garmin_2025-08-01.json").exists())
+    _put3(cfg.SUMMARY_DIR / "garmin_2025-08-03.json", {"date": "2025-08-03"})
+    _put3(cfg.SUMMARY_DIR / "garmin_2025-08-04.json", {"date": "2025-08-04"})
+    with patch.object(Path, "unlink", side_effect=OSError("locked")):
+        _r = silo_repair.repair_silos({**_E3, "summary_without_raw": [_dt3("2025-08-03"), _dt3("2025-08-04")]})
+    check("I3 #5: failing deletes are one error each with the reason, nothing is removed",
+          (_r["ok"], _r["failed"]) == (0, 2)
+          and [i["status"] for i in _r["items"]] == ["error", "error"]
+          and all("locked" in i["reason"] for i in _r["items"])
+          and (cfg.SUMMARY_DIR / "garmin_2025-08-03.json").exists())
+    with patch.object(Path, "unlink", side_effect=OSError("locked")):
+        _r = silo_repair.repair_silos({**_E3, "summary_without_raw": [_dt3("2025-08-03")]})
+    check("I3 #5: one failing delete -> failed is exactly 1", (_r["ok"], _r["failed"]) == (0, 1))
+
+# -- #7: raw without summary ---------------------------------------------------------------------------------------------
+with _iso_env3("sr3_summary") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.RAW_DIR / "garmin_raw_2025-09-02.json", _hr3("2025-09-02"))
+    _r = silo_repair.repair_silos({**_E3, "raw_without_summary": [_dt3("2025-09-01"), _dt3("2025-09-02")]})
+    check("I3 #7: a raw file that is gone is reported as gone (not an error), the next day is repaired",
+          _r["items"] == [{"category": "7", "date": "2025-09-01", "status": "gone"},
+                          {"category": "7", "date": "2025-09-02", "status": "repaired"}]
+          and (_r["ok"], _r["failed"]) == (1, 0)
+          and (cfg.SUMMARY_DIR / "garmin_2025-09-02.json").exists())
+    _put3(cfg.RAW_DIR / "garmin_raw_2025-09-03.json", "{broken")
+    _put3(cfg.RAW_DIR / "garmin_raw_2025-09-04.json", _hr3("2025-09-04"))
+    _r = silo_repair.repair_silos({**_E3, "raw_without_summary": [_dt3("2025-09-03"), _dt3("2025-09-04")]})
+    check("I3 #7: a broken raw file is one error with a reason, the next day is still repaired",
+          (_r["ok"], _r["failed"]) == (1, 1) and _r["items"][0]["status"] == "error"
+          and _r["items"][0]["reason"] and _r["items"][1]["status"] == "repaired")
+
 # ── Aufräumen I2 — isolierte Umgebung zurücksetzen ──────────────────────────
 os.environ["GARMIN_OUTPUT_DIR"] = _i2_orig_env
 importlib.reload(cfg)

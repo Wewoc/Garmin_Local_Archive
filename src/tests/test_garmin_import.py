@@ -312,4 +312,147 @@ check("f3: quality_log entry for failed day exists",  _f3_entry is not None)
 check("f3: quality_log entry quality=failed",         _f3_entry.get("quality") == "failed")
 check("f3: quality_log entry write=False",            _f3_entry.get("write") is False)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4k2. garmin_import — file filters, several files and entries, date and
+#       timestamp edges, folder/ZIP detection (v1.7.4.0.3).
+#       Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("4k2. garmin_import — filters, loops, edges")
+
+
+class _GLog:
+    """Stands in for _gi.log and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+
+    def _add(self, level, msg):
+        self.calls.append((level, msg))
+
+    def error(self, msg, *a, **k):
+        self._add("error", msg)
+
+    def warning(self, msg, *a, **k):
+        self._add("warning", msg)
+
+    def info(self, msg, *a, **k):
+        self._add("info", msg)
+
+
+def _g_logged(fn, *args, **kwargs):
+    real, rec = _gi.log, _GLog()
+    _gi.log = rec
+    try:
+        return fn(*args, **kwargs), rec.calls
+    finally:
+        _gi.log = real
+
+
+def _g_days(names, data):
+    """Runs _process_entries over a fixed file list; reader serves `data` by name."""
+    return {d["date"]: d for d in _gi._process_entries(list(names), reader=lambda n: data.get(n))}
+
+
+# per type: (genuine name, key in the day, builder of a list for one date)
+_TS_2030 = 1893456000                                            # 2030-01-01 00:00 UTC, seconds
+_TS_2024 = 1717243200                                            # 2024-06-01 12:00 UTC, seconds
+
+
+def _uds(d):
+    return [{"calendarDate": d, "totalSteps": 1}]
+
+
+def _sleep(d):
+    return [{"calendarDate": d, "deepSleepSeconds": 1}]
+
+
+def _ready(d):
+    return [{"calendarDate": d, "level": "HIGH"}]
+
+
+def _acts(ts):
+    return [{"summarizedActivitiesExport": [{"name": "A", "startTimeLocal": ts}]}]
+
+
+_TYPES = [
+    ("uds", _G_UDS, "uds", lambda d: _uds(d), "DI_CONNECT/DI-Connect-Aggregator/other.json", "elsewhere/UDSFile_x.json"),
+    ("sleep", _G_SLEEP, "sleep", lambda d: _sleep(d), "DI_CONNECT/DI-Connect-Wellness/other.json", "elsewhere/x_sleepData.json"),
+    ("readiness", _G_READY, "readiness", lambda d: _ready(d),
+     "DI_CONNECT/DI-Connect-Metrics/other.json", "elsewhere/TrainingReadinessDTO_x.json"),
+    ("activities", _G_ACT, "activities", None,
+     "DI_CONNECT/DI-Connect-Fitness/other.json", "elsewhere/summarizedActivities.json"),
+]
+
+# -- file filters: both parts of the name must match, and it must be a .json ----------------------------------
+for _t, _genuine, _key, _mk, _prefix_only, _keyword_only in _TYPES:
+    _good = _acts(_TS_2024) if _t == "activities" else _mk("2024-06-01")
+    _decoy = _acts(_TS_2030) if _t == "activities" else _mk("2030-01-01")
+    _kw = {"uds": "UDSFile_", "sleep": "sleepData", "readiness": "TrainingReadinessDTO",
+           "activities": "summarizedActivities"}[_t]
+    _pref = _genuine.rsplit("/", 1)[0] + "/"
+    _names = [_prefix_only, _keyword_only, "random.json", _pref + _kw + "_x.txt", _genuine]
+    _data = {n: _decoy for n in _names}
+    _data[_genuine] = _good
+    _res = _g_days(_names, _data)
+    check(f"4k2 filter ({_t}): only the file with folder AND keyword AND .json is read",
+          list(_res) == ["2024-06-01"])
+
+# -- several files and entries: a bad one must not stop the next ---------------------------------------------------
+for _t, _genuine, _key, _mk, _p, _k in _TYPES:
+    _gen2 = _genuine.replace(".json", "_b.json") if _t != "activities" else _genuine.replace(".json", "_b.json")
+    _good = _acts(_TS_2024) if _t == "activities" else _mk("2024-06-01")
+    _res = _g_days([_genuine, _gen2], {_genuine: {"not": "a list"}, _gen2: _good})
+    check(f"4k2 loop ({_t}): a file whose content is not a list does not stop the next file",
+          list(_res) == ["2024-06-01"])
+    if _t == "activities":
+        _bad_first = [{"summarizedActivitiesExport": [
+            {"name": "bad", "startTimeLocal": None}, {"name": "worse", "startTimeLocal": "x"},
+            {"name": "ok", "startTimeLocal": _TS_2024}]}]
+        _res = _g_days([_genuine], {_genuine: _bad_first})
+        check("4k2 loop (activities): activities without a usable start time do not stop the next ones",
+              [a["activityName"] for a in _res["2024-06-01"]["activities"]] == ["ok"])
+    else:
+        _entries = [dict(_mk("bad-date")[0]), dict(_mk("2024-06-02")[0])]
+        _res = _g_days([_genuine], {_genuine: _entries})
+        check(f"4k2 loop ({_t}): an entry with an invalid date does not stop the next entry",
+              list(_res) == ["2024-06-02"])
+
+# -- _valid_date, _timestamp_to_date, _meters_to_floors ---------------------------------------------------------------
+check("4k2 _valid_date: only YYYY-MM-DD of exactly 10 characters (3.11 would accept 20240501)",
+      _gi._valid_date("2024-05-01") is True and _gi._valid_date("20240501") is False
+      and _gi._valid_date("2024-05-011") is False and _gi._valid_date("2024-13-01") is False
+      and _gi._valid_date(20240501) is False and _gi._valid_date(None) is False)
+check("4k2 _timestamp_to_date: more than 1e10 is milliseconds, exactly 1e10 and below is seconds",
+      _gi._timestamp_to_date(10000000001) == "1970-04-26"
+      and _gi._timestamp_to_date(10000000000) == "2286-11-20"
+      and _gi._timestamp_to_date(9999999999) == "2286-11-20")
+check("4k2 _timestamp_to_date: ordinary values in ms and s, zero, text digits",
+      _gi._timestamp_to_date(1714564800000) == "2024-05-01"
+      and _gi._timestamp_to_date(1714564800) == "2024-05-01"
+      and _gi._timestamp_to_date(0) == "1970-01-01" and _gi._timestamp_to_date("1714564800") == "2024-05-01")
+check("4k2 _timestamp_to_date: None, junk and out-of-range values -> None",
+      _gi._timestamp_to_date(None) is None and _gi._timestamp_to_date("abc") is None
+      and _gi._timestamp_to_date(10 ** 30) is None)
+check("4k2 _meters_to_floors: rounded, not floored (11 m -> 4)",
+      _gi._meters_to_floors(11) == 4 and _gi._meters_to_floors(10) == 3
+      and _gi._meters_to_floors(30) == 10 and _gi._meters_to_floors(1.4) == 0)
+check("4k2 _meters_to_floors: None and junk -> None",
+      _gi._meters_to_floors(None) is None and _gi._meters_to_floors("x") is None)
+
+# -- parse_day: first aggregate wins ------------------------------------------------------------------------------------
+_pd = _gi.parse_day({"uds": {"allDayStress": {"aggregatorList": [
+    {"averageStressLevel": 11}, {"averageStressLevel": 99}]}}}, "2024-06-01")
+check("4k2 parse_day: with several stress aggregates the first one is used",
+      _pd["stress"]["averageStressLevel"] == 11)
+
+# -- load_bulk: how a path is recognised ---------------------------------------------------------------------------------
+_zzz = _write_export_dir(_M4K / "export.zzz", _gdpr_sample())
+check("4k2 load_bulk: a folder is read as a folder whatever its name ends with",
+      list(_gi.load_bulk(_zzz)) == _days)
+_upper = _write_export_zip(_M4K / "EXPORT.ZIP", _gdpr_sample())
+check("4k2 load_bulk: .ZIP in capitals is read as a ZIP", list(_gi.load_bulk(_upper)) == _days)
+_res, _c = _g_logged(lambda: list(_gi.load_bulk(_M4K / "broken.zip")))
+check("4k2 load_bulk: a file that is no ZIP is reported as a bad ZIP, not as an unexpected error",
+      _res == [] and any(lv == "error" and "bad ZIP file" in m for lv, m in _c)
+      and not any("unexpected error" in m for _, m in _c))
+
 summary()

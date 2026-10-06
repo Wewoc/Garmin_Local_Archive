@@ -209,4 +209,58 @@ check("get_enabled_candidates: order follows CANDIDATE_ENDPOINTS",
 # cleanup
 capability.cfg.CAPABILITY_CONFIG_FILE.unlink(missing_ok=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  K2. garmin_api_capability — schema version, exact file, nested folder,
+#      status and argument-shape dispatch (v1.7.4.0.3).
+#      Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("K2. garmin_api_capability — schema, file format, dispatch")
+import tempfile as _tf9
+import shutil as _sh9
+from pathlib import Path as _P9
+
+check("K2 SCHEMA_VERSION is 1 and a fresh default config carries it",
+      capability.SCHEMA_VERSION == 1 and capability._default_config()["schema_version"] == 1)
+
+_d9 = _P9(_tf9.mkdtemp(prefix="gla_cap9_"))
+_target9 = _d9 / "a" / "b" / "cap.json"
+_conf9 = capability.update_endpoint(capability._default_config(), "get_floors", "found", enabled_by_user=True)
+with patch.object(capability.cfg, "CAPABILITY_CONFIG_FILE", _target9):
+    _ok9 = capability.save_config(_conf9)
+check("K2 save_config: missing parent folders (several levels) are created", _ok9 is True and _target9.is_file())
+check("K2 save_config: the file is the config as JSON with 2-space indentation, byte for byte (line ends normalised)",
+      _target9.read_bytes().replace(b"\r\n", b"\n") == json.dumps(_conf9, indent=2).encode("utf-8"))
+check("K2 save_config: no temporary file is left behind", [p.name for p in _target9.parent.iterdir()] == ["cap.json"])
+_sh9.rmtree(_d9, ignore_errors=True)
+
+
+def _rt9(text):
+    """A copy of the text that is not the interned literal (so `is` cannot match by accident)."""
+    return "".join(list(text))
+
+
+_c9 = {"endpoints": {
+    "get_floors": {"status": _rt9("found"), "enabled_by_user": True},
+    "get_hydration_data": {"status": _rt9("found"), "enabled_by_user": False},
+    "get_hill_score": {"status": _rt9("error"), "enabled_by_user": True},
+    "get_endurance_score": {"status": _rt9("not_observed"), "enabled_by_user": True},
+}}
+check("K2 get_enabled_candidates: only status found AND enabled_by_user (status compared by value, not identity)",
+      capability.get_enabled_candidates(_c9) == ["get_floors"])
+
+_D9 = "2024-05-01"
+with patch.object(capability, "ENDPOINT_ARGS", {
+        "e_none": _rt9("no_args"), "e_range": _rt9("date_range"), "e_single": _rt9("single_date"),
+        "e_before": "aaa_shape", "e_after": "zzz_shape"}):
+    check("K2 build_args: shapes are compared by value; unknown shapes (before and after 'date_range') "
+          "are treated as a single date",
+          (capability.build_args("e_none", _D9), capability.build_args("e_range", _D9),
+           capability.build_args("e_single", _D9), capability.build_args("e_before", _D9),
+           capability.build_args("e_after", _D9), capability.build_args("not_listed", _D9))
+          == ((), (_D9, _D9), (_D9,), (_D9,), (_D9,), (_D9,)))
+check("K2 build_args: the real endpoints keep their documented shapes",
+      capability.build_args("get_pregnancy_summary", _D9) == ()
+      and capability.build_args("get_calories_daily", _D9) == (_D9, _D9)
+      and capability.build_args("get_floors", _D9) == (_D9,))
+
 summary()

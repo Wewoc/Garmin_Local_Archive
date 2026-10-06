@@ -449,4 +449,90 @@ logging.disable(logging.CRITICAL)
 logging.getLogger().setLevel(_ffl_orig_root_level)
 shutil.rmtree(cfg.LOG_FORCE_REFETCH_DIR, ignore_errors=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  L2. garmin_force_refetch and quality/_fieldhash — failure paths, folders that
+#      do not exist yet, serialization problems (v1.7.4.0.3).
+#      Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("L2. force_refetch and _fieldhash — failure paths, nested folders, unserializable values")
+import hashlib
+from pathlib import Path
+
+import quality._fieldhash as _fh14
+from gla_testenv import _TMPDIR, _cfg_values
+
+
+class _Rec14:
+    """Stands in for a module's `log` and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+        for _lvl in ("debug", "info", "warning", "error"):
+            setattr(self, _lvl, (lambda lv: lambda msg, *a, **k: self.calls.append((lv, msg)))(_lvl))
+
+    def msgs(self, level):
+        return [m for lv, m in self.calls if lv == level]
+
+
+_D14 = "2024-08-05"
+_D14B = "2024-08-06"
+_NAME14 = f"garmin_source_{_D14}.json"
+_base14 = _TMPDIR / "ffr14"
+shutil.rmtree(_base14, ignore_errors=True)
+_src14 = _base14 / "a" / "source"
+_bak14 = _base14 / "b" / "c" / "backup" / "force_refetch"
+
+with _cfg_values(SOURCE_DIR=_src14, FORCE_REFETCH_BACKUP_DIR=_bak14):
+    _src14.mkdir(parents=True)
+    (_src14 / _NAME14).write_text('{"m": 1}', encoding="utf-8")
+    _res = force_refetch.snapshot_source(_D14)
+    check("L2 snapshot_source: a backup folder with missing parent folders is created and the file is copied",
+          _res == {"snapshotted": True, "had_prior_data": True} and (_bak14 / _NAME14).read_text(encoding="utf-8") == '{"m": 1}')
+
+    _rec = _Rec14()
+    (_bak14 / _NAME14).unlink()
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")), patch.object(force_refetch, "log", _rec):
+        _res = force_refetch.snapshot_source(_D14)
+    check("L2 snapshot_source: a failing copy -> snapshotted False, had_prior_data still True, the error is logged with date and reason",
+          _res == {"snapshotted": False, "had_prior_data": True}
+          and _rec.msgs("error") == [f"  force_refetch.snapshot_source: failed for {_D14}: disk full"])
+
+    # restore: nothing to restore must not create source/
+    shutil.rmtree(_src14.parent)                  # source/ and its parent are gone
+    _rec = _Rec14()
+    with patch.object(force_refetch, "log", _rec):
+        _ok = force_refetch.restore_snapshot(_D14B)
+    check("L2 restore_snapshot: no snapshot -> False with a warning, source/ is not created",
+          _ok is False and not _src14.exists()
+          and _rec.msgs("warning") == [f"  force_refetch.restore_snapshot: no snapshot found for {_D14B}"])
+
+    (_bak14 / _NAME14).write_text('{"m": 2}', encoding="utf-8")
+    _ok = force_refetch.restore_snapshot(_D14)
+    check("L2 restore_snapshot: a source folder with missing parent folders is created, the file restored, True returned",
+          _ok is True and (_src14 / _NAME14).read_text(encoding="utf-8") == '{"m": 2}')
+
+    shutil.rmtree(_src14.parent)                  # source/ and its parent are gone
+    _rec = _Rec14()
+    with patch.object(Path, "write_bytes", side_effect=OSError("read-only")), patch.object(force_refetch, "log", _rec):
+        _ok = force_refetch.restore_snapshot(_D14)
+    check("L2 restore_snapshot: a failing write -> False, the error is logged with date and reason, the snapshot stays",
+          _ok is False and (_bak14 / _NAME14).exists()
+          and _rec.msgs("error") == [f"  force_refetch.restore_snapshot: failed for {_D14}: read-only"])
+shutil.rmtree(_base14, ignore_errors=True)
+
+# -- _hash_field: values json cannot serialize ----------------------------------------------------------------------
+_mixed = {1: "a", "b": 2}                      # mixed key types: sort_keys raises TypeError
+_circ = []
+_circ.append(_circ)                            # circular reference: json raises ValueError
+for _label, _val in (("mixed key types (TypeError)", _mixed), ("circular reference (ValueError)", _circ)):
+    _rec = _Rec14()
+    with patch.object(_fh14, "log", _rec):
+        _h = _fh14._hash_field(_val)
+    check(f"L2 _hash_field: {_label} -> hash of repr(value), a warning, no crash",
+          _h == hashlib.sha256(repr(_val).encode("utf-8")).hexdigest()
+          and len(_rec.msgs("warning")) == 1
+          and _rec.msgs("warning")[0].startswith("  _fieldhash._hash_field: could not serialize value \u2014 "))
+check("L2 compare_source_fields: unserializable values compare by their repr — equal -> no difference, different -> the field",
+      quality.compare_source_fields({"sleep": {1: "a", "b": 2}}, {"sleep": {1: "a", "b": 2}}) == []
+      and quality.compare_source_fields({"sleep": {1: "a", "b": 2}}, {"sleep": {1: "a", "b": 3}}) == ["sleep"])
+
 summary()

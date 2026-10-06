@@ -3,31 +3,32 @@
 
 # METRICS
 
-Generated: 2026-10-04 14:40 UTC · Version: 1.7.4.0.2
+Generated: 2026-10-06 11:14 UTC · Version: 1.7.4.0.3
 
 ## Test Counts
 
 | Suite | Checks | Passed | Failed |
 |---|---|---|---|
 | test_local.py | 22 | 22 | 0 |
-| test_basics.py | 47 | 47 | 0 |
-| test_security.py | 28 | 28 | 0 |
-| test_api_capability.py | 42 | 42 | 0 |
-| test_normalizer.py | 32 | 32 | 0 |
-| test_validator.py | 47 | 47 | 0 |
-| test_writer.py | 26 | 26 | 0 |
-| test_quality.py | 176 | 176 | 0 |
-| test_backup.py | 138 | 138 | 0 |
-| test_source_writer.py | 58 | 58 | 0 |
-| test_container_mirror.py | 69 | 69 | 0 |
-| test_import_mirror.py | 70 | 70 | 0 |
-| test_collector.py | 228 | 228 | 0 |
-| test_garmin_import.py | 46 | 46 | 0 |
-| test_api.py | 56 | 56 | 0 |
-| test_live_fetch.py | 31 | 31 | 0 |
-| test_silo_check.py | 41 | 41 | 0 |
-| test_silo_repair.py | 46 | 46 | 0 |
-| test_force_refetch.py | 64 | 64 | 0 |
+| test_basics.py | 103 | 103 | 0 |
+| test_security.py | 60 | 60 | 0 |
+| test_redact.py | 22 | 22 | 0 |
+| test_api_capability.py | 49 | 49 | 0 |
+| test_normalizer.py | 151 | 151 | 0 |
+| test_validator.py | 82 | 82 | 0 |
+| test_writer.py | 30 | 30 | 0 |
+| test_quality.py | 437 | 437 | 0 |
+| test_backup.py | 202 | 202 | 0 |
+| test_source_writer.py | 88 | 88 | 0 |
+| test_container_mirror.py | 116 | 116 | 0 |
+| test_import_mirror.py | 111 | 111 | 0 |
+| test_collector.py | 383 | 383 | 0 |
+| test_garmin_import.py | 68 | 68 | 0 |
+| test_api.py | 75 | 75 | 0 |
+| test_live_fetch.py | 44 | 44 | 0 |
+| test_silo_check.py | 55 | 55 | 0 |
+| test_silo_repair.py | 56 | 56 | 0 |
+| test_force_refetch.py | 72 | 72 | 0 |
 | test_local_context.py | 349 | 349 | 0 |
 | test_dashboard.py | 476 | 476 | 0 |
 | test_broker.py | 141 | 141 | 0 |
@@ -43,7 +44,7 @@ Generated: 2026-10-04 14:40 UTC · Version: 1.7.4.0.2
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 17 | 17 | 0 |
-| **Total** | **3130** | **3130** | **0** |
+| **Total** | **4089** | **4089** | **0** |
 
 ## Modules
 
@@ -51,5 +52,5 @@ Total: 158 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-10-04 14:39 UTC · Findings: 0 · Whitelisted: 68
+Scanned: 2026-10-06 11:11 UTC · Findings: 0 · Whitelisted: 68
 
