@@ -163,11 +163,22 @@ check("_meters_to_floors: None, text and numbers",
 check("_total_sleep: no stage -> None, partial stages are summed",
       _gi._total_sleep({}) is None and _gi._total_sleep({"deepSleepSeconds": 100}) == 100)
 
-# Ist-Stand: one malformed entry in a list stops the whole export (ROADMAP v1.7.4.6)
+# Fix 2 (v1.7.4.6): one malformed entry is skipped with a warning, the rest survives
 _bad_exp = _write_export_dir(_M4K / "export_bad_entry", {_G_UDS: [
     {"calendarDate": "2024-05-01", "totalSteps": 1}, "garbage", {"calendarDate": "2024-05-02", "totalSteps": 2}]})
-check("Ist-Stand load_bulk: one malformed entry makes the whole export yield no day at all",
-      list(_gi.load_bulk(_bad_exp)) == [])
+_real_gi_log = _gi.log
+_bad_warnings = []
+_gi.log = type("_L", (), {"warning": staticmethod(lambda m, *a, **k: _bad_warnings.append(m)),
+                          "error": staticmethod(lambda m, *a, **k: None),
+                          "info": staticmethod(lambda m, *a, **k: None)})()
+try:
+    _res_bad = list(_gi.load_bulk(_bad_exp))
+finally:
+    _gi.log = _real_gi_log
+check("load_bulk: a malformed entry is skipped, the valid days before and after it survive",
+      {d["date"] for d in _res_bad} == {"2024-05-01", "2024-05-02"})
+check("load_bulk: the malformed entry is logged as a warning naming the file",
+      any("malformed entry" in m and "garbage" in m for m in _bad_warnings))
 
 # -- run_import ---------------------------------------------------------------------------------------------
 _ev_calls = []
@@ -247,16 +258,16 @@ with _isolated_log_env("gdpr_bad") as _b:
     check("run_import: the failing day leaves no quality log entry",
           set(_qdays()) == {"2024-06-01", "2024-06-03"})
 
-    # Ist-Stand: the date is only validated after write_day() (ROADMAP v1.7.4.6)
+    # Fix 3 (v1.7.4.6): the date is validated before anything is written
     with patch.object(_gi, "load_bulk", return_value=iter(
             [{"date": "2024-13-45", "user_summary": {"totalSteps": 10}}])):
         _r = _col5.run_import("ignored")
-    check("Ist-Stand run_import: an invalid date counts as failed ...", _r["failed"] == 1 and _r["ok"] == 0)
-    check("Ist-Stand run_import: ... but a raw file with that date is left behind",
-          (cfg.RAW_DIR / "garmin_raw_2024-13-45.json").exists())
+    check("run_import: an invalid date counts as failed and nothing is written for it",
+          _r["failed"] == 1 and _r["ok"] == 0
+          and not (cfg.RAW_DIR / "garmin_raw_2024-13-45.json").exists())
 
-# -- Ist-Stand: a better day from a non-API source is overwritten (ROADMAP v1.7.4.6) -----------------------------
-with _isolated_log_env("gdpr_overwrite") as _b:
+# -- Fix 1 (v1.7.4.6): an existing day not worse than the export stays protected -------------------------------
+with _isolated_log_env("gdpr_protect") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
     cfg.RAW_DIR.mkdir(parents=True)
     (cfg.RAW_BACKUP_DIR / "2024-05").mkdir(parents=True)
@@ -266,17 +277,37 @@ with _isolated_log_env("gdpr_overwrite") as _b:
     (cfg.RAW_BACKUP_DIR / "2024-05" / "garmin_raw_2024-05-01.json").write_text(json.dumps(_rich), encoding="utf-8")
     cfg.QUALITY_LOG_FILE.write_text(json.dumps({"first_day": "2024-05-01", "devices": [], "days": [
         {"date": "2024-05-01", "quality": "high", "source": "legacy", "write": True}]}), encoding="utf-8")
-    _col5.run_import(_exp_dir)
+    _r = _col5.run_import(_exp_dir)
     _after = json.loads((cfg.RAW_DIR / "garmin_raw_2024-05-01.json").read_text(encoding="utf-8"))
-    check("Ist-Stand run_import: an existing high day from source 'legacy' loses its intraday values ...",
-          "heartRateValues" not in _after.get("heart_rates", {}) and "user_summary" in _after)
-    check("Ist-Stand run_import: ... the quality log still says high (the downgrade guard only protects the log)",
-          _qdays()["2024-05-01"]["quality"] == "high" and _qdays()["2024-05-01"]["source"] == "legacy")
-    check("Ist-Stand run_import: ... and the backup copy in the month folder is overwritten as well",
-          "heartRateValues" not in json.loads((cfg.RAW_BACKUP_DIR / "2024-05" / "garmin_raw_2024-05-01.json")
-                                              .read_text(encoding="utf-8")).get("heart_rates", {}))
+    check("run_import: an existing 'high' day from a non-API source ('legacy') is protected — "
+          "the export is strictly worse (aggregate-only) and is skipped, not written",
+          _r["skipped"] >= 1
+          and "heartRateValues" in _after.get("heart_rates", {})
+          and _qdays()["2024-05-01"]["quality"] == "high" and _qdays()["2024-05-01"]["source"] == "legacy")
+    check("run_import: the backup copy in the month folder is untouched too",
+          "heartRateValues" in json.loads((cfg.RAW_BACKUP_DIR / "2024-05" / "garmin_raw_2024-05-01.json")
+                                          .read_text(encoding="utf-8")).get("heart_rates", {}))
 
-# -- Ist-Stand: the stop event is registered but never checked in the import loop (ROADMAP v1.7.4.6) ----------------
+# Timo's precision of the architecture decision: EQUAL quality from a non-API
+# source must also stay protected, not just a strictly-better existing day.
+with _isolated_log_env("gdpr_protect_equal") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    cfg.RAW_DIR.mkdir(parents=True)
+    _existing_standard = {"date": "2024-05-01", "user_summary": {"totalSteps": 999, "marker": "existing-legacy"}}
+    (cfg.RAW_DIR / "garmin_raw_2024-05-01.json").write_text(json.dumps(_existing_standard), encoding="utf-8")
+    cfg.QUALITY_LOG_FILE.write_text(json.dumps({"first_day": "2024-05-01", "devices": [], "days": [
+        # same label ("standard") as the export day for 2024-05-01 will assess to,
+        # but from a non-API source — must stay protected per Timo's decision.
+        {"date": "2024-05-01", "quality": "standard", "source": "legacy", "write": True}]}), encoding="utf-8")
+    _r = _col5.run_import(_exp_dir)
+    _after = json.loads((cfg.RAW_DIR / "garmin_raw_2024-05-01.json").read_text(encoding="utf-8"))
+    check("run_import: an existing day of EQUAL quality from a non-API source ('legacy') "
+          "is also protected — not just a strictly better one",
+          _r["skipped"] >= 1
+          and _after.get("user_summary", {}).get("marker") == "existing-legacy"
+          and _qdays()["2024-05-01"]["source"] == "legacy")
+
+# -- Fix 4 (v1.7.4.6): the stop event is honoured, checked once per day --------------------------------------
 with _isolated_log_env("gdpr_stop") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
     _ev = threading.Event()
@@ -285,8 +316,9 @@ with _isolated_log_env("gdpr_stop") as _b:
     check("run_import: the stop event is registered with the collector",
           _col5._stop_event is _ev)
     _col5.set_stop_event(None)
-    check("Ist-Stand run_import: a stop event that is already set does not stop the import",
-          _r["ok"] == 2 and (cfg.RAW_DIR / "garmin_raw_2024-05-02.json").exists())
+    check("run_import: a stop event that is already set stops the import before the first day",
+          _r["ok"] == 0 and _r["skipped"] == 0 and _r["failed"] == 0
+          and not (cfg.RAW_DIR / "garmin_raw_2024-05-02.json").exists())
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Fix 3 (v1.6.5.8) — run_import() quality-failed counting

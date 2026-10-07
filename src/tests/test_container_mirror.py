@@ -248,18 +248,25 @@ check("_collect_sections: excluded folders, token folder and unrelated files are
       not any("__pycache__" in k or "garmin_token" in k or "README" in k or "other.json" in k
               for k in _all_keys))
 
-# Ist-Stand: a leftover .tmp file in raw/ or summary/ is packed into the container
-# (see ROADMAP v1.7.4.3). To be rewritten when .tmp files are left out.
+# Fixed contract (ROADMAP v1.7.4.3, Fall 3): a leftover .tmp file in raw/ or
+# summary/ (left by an aborted writer.write_day()) is never packed into the
+# container — a real .json file in the same folder is still packed, to make
+# sure the new filter does not reach too wide.
 _tree2 = _M4 / "tree_tmp"
 (_tree2 / "garmin_data" / "raw").mkdir(parents=True)
 (_tree2 / "garmin_data" / "summary").mkdir(parents=True)
 (_tree2 / "garmin_data" / "raw" / "garmin_raw_2024-01-01.tmp").write_text("half", encoding="utf-8")
 (_tree2 / "garmin_data" / "summary" / "garmin_2024-01-01.tmp").write_text("half", encoding="utf-8")
+(_tree2 / "garmin_data" / "raw" / "garmin_raw_2024-01-02.json").write_text("{}", encoding="utf-8")
+(_tree2 / "garmin_data" / "summary" / "garmin_2024-01-02.json").write_text("{}", encoding="utf-8")
 _sec2 = _gc4._collect_sections(_tree2)
-check("Ist-Stand container: a stray .tmp in raw/ is packed into the raw section",
-      "garmin_data/raw/garmin_raw_2024-01-01.tmp" in _sec2["raw"])
-check("Ist-Stand container: a stray .tmp in summary/ is packed into the summary section",
-      "garmin_data/summary/garmin_2024-01-01.tmp" in _sec2["summary"])
+check("container: a stray .tmp in raw/ is not packed into the raw section",
+      "garmin_data/raw/garmin_raw_2024-01-01.tmp" not in _sec2["raw"])
+check("container: a stray .tmp in summary/ is not packed into the summary section",
+      "garmin_data/summary/garmin_2024-01-01.tmp" not in _sec2["summary"])
+check("container: a real .json file next to the stray .tmp is still packed (filter is not too wide)",
+      "garmin_data/raw/garmin_raw_2024-01-02.json" in _sec2["raw"]
+      and "garmin_data/summary/garmin_2024-01-02.json" in _sec2["summary"])
 
 # -- garmin_mirror ----------------------------------------------------------------------
 check("is_reachable: a value that is not a path -> False, no crash",

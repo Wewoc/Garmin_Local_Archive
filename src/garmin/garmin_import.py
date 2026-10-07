@@ -217,6 +217,15 @@ def _process_entries(names: list, reader) -> Iterator[dict]:
         if not isinstance(data, list):
             continue
         for entry in data:
+            # Fix 2 (v1.7.4.6) — an entry that is not an object (e.g. a stray
+            # string) is skipped with a warning naming the file, instead of
+            # raising AttributeError on .get() and losing every day in the
+            # whole export (load_bulk()'s outer try/except used to catch this
+            # one bad entry and discard the entire generator before any day
+            # was yielded).
+            if not isinstance(entry, dict):
+                log.warning(f"  load_bulk: {name} — malformed entry (not an object), skipped: {entry!r}")
+                continue
             d = entry.get("calendarDate")
             if not _valid_date(d):
                 continue
@@ -229,6 +238,9 @@ def _process_entries(names: list, reader) -> Iterator[dict]:
         if not isinstance(data, list):
             continue
         for entry in data:
+            if not isinstance(entry, dict):
+                log.warning(f"  load_bulk: {name} — malformed entry (not an object), skipped: {entry!r}")
+                continue
             d = entry.get("calendarDate")
             if not _valid_date(d):
                 continue
@@ -241,6 +253,9 @@ def _process_entries(names: list, reader) -> Iterator[dict]:
         if not isinstance(data, list):
             continue
         for entry in data:
+            if not isinstance(entry, dict):
+                log.warning(f"  load_bulk: {name} — malformed entry (not an object), skipped: {entry!r}")
+                continue
             d = entry.get("calendarDate")
             if not _valid_date(d):
                 continue
@@ -254,8 +269,14 @@ def _process_entries(names: list, reader) -> Iterator[dict]:
             continue
         # summarizedActivities is a list of {summarizedActivitiesExport: [...]}
         for wrapper in data:
+            if not isinstance(wrapper, dict):
+                log.warning(f"  load_bulk: {name} — malformed activities wrapper (not an object), skipped: {wrapper!r}")
+                continue
             acts = wrapper.get("summarizedActivitiesExport") or []
             for act in acts:
+                if not isinstance(act, dict):
+                    log.warning(f"  load_bulk: {name} — malformed activity entry (not an object), skipped: {act!r}")
+                    continue
                 d = _timestamp_to_date(act.get("startTimeLocal"))
                 if not _valid_date(d):
                     continue

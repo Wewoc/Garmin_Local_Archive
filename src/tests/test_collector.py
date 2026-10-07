@@ -173,9 +173,10 @@ with _isolated_log_env("main_dayerr") as _b:
         check("main: a session with an error keeps its log in log/fail/",
               len(_fail_logs_with("Garmin said no")) == 1)
 
-# Ist-Stand: the quality log cannot be saved after a day was written. The downgrade
-# guard keeps the stored 'high' entry, but the run reports the day as saved AND as an
-# error ("1 saved, 1 errors") and keeps a failure log (ROADMAP v1.7.4.4).
+# The quality log cannot be saved after a day was written. The downgrade guard
+# keeps the stored 'high' entry, and the run now counts that day once (saved,
+# not also as an error) while still keeping a failure log for it (ROADMAP v1.7.4.4
+# point 2 — previously counted as both "saved" and "error" for the same day).
 with _isolated_log_env("main_saveerr") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
     _real_save = quality._save_quality_log
@@ -185,18 +186,18 @@ with _isolated_log_env("main_saveerr") as _b:
             raise OSError("disk full")
         return _real_save(data, skip_backup=skip_backup)
 
-    with _cfg_values(**{**_RANGE, "MAX_DAYS_PER_SESSION": 1}):
+    with _cfg_values(**{**_RANGE, "MAX_DAYS_PER_SESSION": 1}, LOG_FAIL_DIR=_b / "fail"):
         with patch.object(quality, "_save_quality_log", side_effect=_save_fails_per_day):
             _code, _exc, _fetch, _ = _run_main()
         _q = _qdays()
-        check("Ist-Stand main: a failing save after a written day -> run goes on, no crash",
+        check("main: a failing save after a written day -> run goes on, no crash",
               _code is None and _exc is None)
-        check("Ist-Stand main: the written day keeps its stored quality (downgrade blocked)",
+        check("main: the written day keeps its stored quality (downgrade blocked)",
               _q["2024-05-01"]["quality"] == "high" and _q["2024-05-01"]["write"] is True
               and (cfg.RAW_DIR / "garmin_raw_2024-05-01.json").exists()
               and (cfg.SUMMARY_DIR / "garmin_2024-05-01.json").exists())
-        check("Ist-Stand main: the run counts that day as saved and as an error, keeps a failure log",
-              len(_fail_logs_with("1 saved, 1 errors")) == 1)
+        check("main: a failing save after a written day counts that day once (saved), keeps a failure log",
+              len(_fail_logs_with("1 saved, 0 errors")) == 1)
 
 # -- downgrade of a bulk day: attempts run out -------------------------------------------------------
 def _fetch_downgrade(client, date_str, extra_endpoints=None):
@@ -236,15 +237,47 @@ with _isolated_log_env("main_bulkflag") as _b:
         check("main: a bulk day older than the window is left alone", _q[_old]["recheck"] is False)
         check("main: a bulk entry without a date is skipped, no crash", _code is None and _exc is None)
 
-# Ist-Stand: one invalid date in the quality log aborts the whole run (ROADMAP v1.7.4.4)
+# one invalid date in the quality log is skipped with a warning; the sync continues (ROADMAP v1.7.4.4)
 with _isolated_log_env("main_baddate") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
     cfg.QUALITY_LOG_FILE.write_text(json.dumps({"first_day": "2024-05-01", "devices": [], "days": [
         {"date": "not-a-date", "quality": "high", "source": "api", "write": True}]}), encoding="utf-8")
     with _cfg_values(**_RANGE):
         _code, _exc, _fetch, _ = _run_main()
-        check("Ist-Stand main: an invalid date in the quality log aborts the run with an error",
-              isinstance(_exc, ValueError) and not _fetch.called)
+        check("main: an invalid date in the quality log is skipped, the sync goes on",
+              _exc is None and _fetch.called)
+        check("main: the skipped entry is named in an integrity_warnings entry",
+              any("not-a-date" in w for w in quality._load_quality_log().get("integrity_warnings", [])))
+
+# a multi-day run with several valid entries and one unparseable date: the bad
+# entry is skipped (named once in integrity_warnings) but left in the log as-is,
+# the valid entries are untouched, and the sync still fetches exactly the one
+# genuinely missing day (ROADMAP v1.7.4.4 point 1)
+with _isolated_log_env("main_baddate_multi") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    for _d in ("2024-05-01", "2024-05-02", "2024-05-04", "2024-05-05"):
+        (cfg.RAW_DIR / f"garmin_raw_{_d}.json").write_text(json.dumps(_day_raw(_d, "high")), encoding="utf-8")
+    cfg.QUALITY_LOG_FILE.write_text(json.dumps({"first_day": "2024-05-01", "devices": [], "days": [
+        {"date": "not-a-date", "quality": "high", "source": "api", "write": True},
+        {"date": "2024-05-01", "quality": "high", "source": "api", "write": True},
+        {"date": "2024-05-02", "quality": "high", "source": "api", "write": True},
+        {"date": "2024-05-04", "quality": "high", "source": "api", "write": True},
+        {"date": "2024-05-05", "quality": "high", "source": "api", "write": True},
+    ]}), encoding="utf-8")
+    with _cfg_values(**_RANGE):
+        _code, _exc, _fetch, _ = _run_main()
+        _q = _qdays()
+        check("main: a multi-day run with one unparseable date fetches only the genuinely missing day",
+              _exc is None and _fetched_dates(_fetch) == ["2024-05-03"])
+        check("main: the four valid entries are left exactly as they were",
+              all(_q[_d]["quality"] == "high" and _q[_d]["source"] == "api"
+                  for _d in ("2024-05-01", "2024-05-02", "2024-05-04", "2024-05-05")))
+        check("main: the bad entry itself stays in the log untouched (only skipped when building the date sets)",
+              _q.get("not-a-date", {}).get("quality") == "high"
+              and _q.get("not-a-date", {}).get("source") == "api")
+        check("main: the bad entry is named exactly once in integrity_warnings",
+              len([w for w in quality._load_quality_log().get("integrity_warnings", []) if "not-a-date" in w]) == 1)
 
 # -- one-time quality log backfill from raw/ ----------------------------------------------------------
 with _isolated_log_env("main_firstday") as _b:
@@ -506,14 +539,14 @@ with _isolated_log_env("migration") as _b:
     _raw_before = json.loads((cfg.RAW_DIR / f"garmin_raw_{_D6[0]}.json").read_text(encoding="utf-8"))
     _qd = {"days": [{"date": d} for d in _D6] + [{"quality": "high"}]}      # _D6[2] has no summary at all
 
-    _real_write_day = _writer5.write_day
+    _real_write_summary_only = _writer5.write_summary_only
 
-    def _write_day_fails_on_05(normalized, summary, date_str):
+    def _write_summary_only_fails_on_05(summary, date_str):
         if date_str == _D6[4]:
             raise OSError("disk full")
-        return _real_write_day(normalized, summary, date_str)
+        return _real_write_summary_only(summary, date_str)
 
-    with patch.object(_writer5, "write_day", side_effect=_write_day_fails_on_05):
+    with patch.object(_writer5, "write_summary_only", side_effect=_write_summary_only_fails_on_05):
         _col5._run_schema_migration(_qd)
     _sm = {d: json.loads((cfg.SUMMARY_DIR / f"garmin_{d}.json").read_text(encoding="utf-8"))
            for d in (_D6[0], _D6[1], _D6[3], _D6[4])}
@@ -528,14 +561,13 @@ with _isolated_log_env("migration") as _b:
           and _sm[_D6[3]]["schema_version"] == _cur - 1)
     check("schema migration: an error on one day leaves that summary alone, others are done",
           _sm[_D6[4]]["schema_version"] == _cur - 1 and _sm[_D6[0]]["schema_version"] == _cur)
-    # Ist-Stand: the run says "Raw files are not modified", but write_day() rewrites raw/
-    # and refreshes the raw backup (ROADMAP v1.7.4.5).
-    check("Ist-Stand migration: raw/ is rewritten too, a raw backup copy appears",
-          (cfg.RAW_BACKUP_DIR / "2024-05" / f"garmin_raw_{_D6[0]}.json").exists())
+    # v1.7.4.5: a migration no longer touches raw/ — no backup copy is created.
+    check("schema migration: raw/ is never touched, no raw backup copy appears",
+          not (cfg.RAW_BACKUP_DIR / "2024-05" / f"garmin_raw_{_D6[0]}.json").exists())
 
-    with patch.object(_writer5, "write_day") as _wd:
+    with patch.object(_writer5, "write_summary_only") as _wso:
         _col5._run_schema_migration({"days": [{"date": _D6[1]}]})
-    check("schema migration: all summaries up to date -> nothing is written", not _wd.called)
+    check("schema migration: all summaries up to date -> nothing is written", not _wso.called)
 
 # -- bulk field backfill ---------------------------------------------------------------------------------
 _BF_DAY = "2024-06-10"
@@ -2037,28 +2069,36 @@ def _imp11(days, qlog=None, validate=None, progress=None):
 _Dn = [f"2024-02-{n:02d}" for n in range(1, 8)]
 _ok_val = lambda raw: {"status": "ok", "issues": []}      # noqa: E731
 
-# skipped days: API high/standard only
+# skipped days: any existing day not worse than the export, any source
 with _isolated_log_env("imp11a") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
     _ql = {"days": [
         {"date": "2024-03-01", "quality": "high", "source": "api"},     # later than every imported day
-        {"date": _Dn[0], "quality": "high", "source": "api"},
-        {"date": _Dn[1], "quality": "standard", "source": "api"},
-        {"date": _Dn[2], "quality": "high", "source": "aaa"},
-        {"date": _Dn[3], "quality": "standard", "source": "bulk"},
-        {"date": _Dn[4], "quality": "failed", "source": "api"}]}
+        {"date": _Dn[0], "quality": "high", "source": "api"},           # equal to export -> protected
+        {"date": _Dn[1], "quality": "standard", "source": "api"},       # worse than export, even from API -> upgraded
+        {"date": _Dn[2], "quality": "high", "source": "aaa"},           # equal, non-API source -> protected
+        {"date": _Dn[3], "quality": "standard", "source": "bulk"},      # worse than export -> upgraded
+        {"date": _Dn[4], "quality": "failed", "source": "api"}]}        # worse than export -> upgraded
     _prog = []
     _res, _rec, _qlog, _saves = _imp11([_day_raw(d, "high") for d in _Dn[:5]], _ql,
                                        progress=lambda *a: _prog.append(a))
-    check("4q run_import: only API days with high/standard are skipped (and the loop goes on after a skip)",
-          _res == {"ok": 3, "skipped": 2, "failed": 0}
-          and [e["date"] for e in _qlog["days"] if e["date"] in _Dn[2:5]
-               and e.get("source") == "bulk"] == _Dn[2:5])
+    _by_date = {e["date"]: e for e in _qlog["days"]}
+    check("4q run_import: an existing day that is not worse than the export (equal or better, any source) "
+          "is skipped and left untouched",
+          _by_date[_Dn[0]]["quality"] == "high" and _by_date[_Dn[0]]["source"] == "api"
+          and _by_date[_Dn[2]]["quality"] == "high" and _by_date[_Dn[2]]["source"] == "aaa")
+    check("4q run_import: an existing day that is worse than the export is upgraded by it, "
+          "even one already sourced from the API",
+          _by_date[_Dn[1]]["source"] == "bulk" and _by_date[_Dn[1]]["quality"] == "high"
+          and _by_date[_Dn[3]]["source"] == "bulk" and _by_date[_Dn[3]]["quality"] == "high"
+          and _by_date[_Dn[4]]["source"] == "bulk" and _by_date[_Dn[4]]["quality"] == "high")
+    check("4q run_import: two protected days are skipped, three upgraded days count as ok, loop goes on",
+          _res == {"ok": 3, "skipped": 2, "failed": 0})
     check("4q run_import: the progress callback is called for every day, skipped or not, with (i, None, date)",
           _prog == [(i, None, d) for i, d in enumerate(_Dn[:5], 1)])
-    check("4q run_import: the skipped days are logged at debug level, the others at info level",
+    check("4q run_import: the skipped days are logged at debug level, the written days at info level",
           [m for m in _rec.msgs("info") if m.startswith("  import [")]
-          == [f"  import [{i}]: {_Dn[i - 1]} — high" for i in (3, 4, 5)])
+          == [f"  import [{i}]: {_Dn[i - 1]} — high" for i in (2, 4, 5)])
 
 # validator status
 with _isolated_log_env("imp11b") as _b:
@@ -2096,15 +2136,19 @@ with _isolated_log_env("imp11c") as _b:
 with _isolated_log_env("imp11d") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
     _bad = _day_raw("2024-13-45", "high")
-    _res, _rec, _qlog, _saves = _imp11([{"x": 1}, _bad, _day_raw(_Dn[0], "high")], {"days": []}, validate=_ok_val)
+    _prog = []
+    _res, _rec, _qlog, _saves = _imp11([{"x": 1}, _bad, _day_raw(_Dn[0], "high")], {"days": []}, validate=_ok_val,
+                                       progress=lambda *a: _prog.append(a))
     check("4q run_import: a missing date and an invalid date count as failed, the loop goes on with the next day",
           _res == {"ok": 1, "skipped": 0, "failed": 2} and [e["date"] for e in _qlog["days"]] == [_Dn[0]]
           and "  import [1]: missing date — skipped" in _rec.msgs("warning")
           and "  import [2]: invalid date '2024-13-45' — skipped" in _rec.msgs("warning"))
-    # Ist-Stand: the day is written to raw/ before its date is checked, so an invalid date leaves a file
-    # that the quality log does not know (noted in the round's findings, not changed here).
-    check("4q Ist-Stand run_import: a day with an invalid date has already been written to raw/",
-          (cfg.RAW_DIR / "garmin_raw_2024-13-45.json").exists())
+    # Fix 3 (v1.7.4.6): the date is validated before anything is written —
+    # an invalid date leaves no raw file behind.
+    check("4q run_import: a day with an invalid date is not written to raw/",
+          not (cfg.RAW_DIR / "garmin_raw_2024-13-45.json").exists())
+    check("4q run_import: the progress callback is called for every day, including a missing or invalid date",
+          _prog == [(1, None, None), (2, None, "2024-13-45"), (3, None, _Dn[0])])
 
 
 # first_day after the import
@@ -2415,15 +2459,15 @@ with _isolated_log_env("mig12") as _b:
     # entries: no date, no summary file, ok, no raw, ok, ok-then-write-error, newer than current
     _qd = {"days": [{"quality": "high"}, {"date": _MD[0]}, {"date": _MD[1]}, {"date": _MD[3]}, {"date": _MD[2]},
                     {"date": _MD[5]}, {"date": _MD[4]}, {"date": _MD[6]}]}
-    _real_wd = _writer5.write_day
+    _real_wso = _writer5.write_summary_only
 
-    def _wd(normalized, summary, date_str):
+    def _wso(summary, date_str):
         if date_str == _MD[5]:
             raise OSError("disk full")
-        return _real_wd(normalized, summary, date_str)
+        return _real_wso(summary, date_str)
 
     _rec = _Rec11()
-    with patch.object(_writer5, "write_day", side_effect=_wd), patch.object(_col5, "log", _rec):
+    with patch.object(_writer5, "write_summary_only", side_effect=_wso), patch.object(_col5, "log", _rec):
         _col5._run_schema_migration(_qd)
     check("4r schema migration: entries without date / summary do not stop the loop; "
           "a summary newer than the current schema is not a candidate",
@@ -2447,12 +2491,13 @@ with _isolated_log_env("mig12") as _b:
     (cfg.RAW_DIR / f"garmin_raw_{_MD[7]}.json").write_text(json.dumps(_day_raw(_MD[7], "high")), encoding="utf-8")
     for _cv, _expect in ((1, True), (0, False)):
         _rec = _Rec11()
-        with patch.object(_normalizer5, "CURRENT_SCHEMA_VERSION", _cv), patch.object(_writer5, "write_day") as _wd2, \
+        with patch.object(_normalizer5, "CURRENT_SCHEMA_VERSION", _cv), \
+                patch.object(_writer5, "write_summary_only") as _wso2, \
                 patch.object(_col5, "log", _rec):
             _col5._run_schema_migration({"days": [{"date": _MD[7]}]})
         check(f"4r schema migration: a summary without schema_version counts as 0 (current version {_cv} -> "
               f"{'rewritten' if _expect else 'up to date'})",
-              (_wd2.called and not _rec.msgs("warning")) is _expect
+              (_wso2.called and not _rec.msgs("warning")) is _expect
               and ("  Schema migration: all summaries up to date — nothing to do." in _rec.msgs("info")) is (not _expect))
 
 # -- commit_force_refetch ----------------------------------------------------------------------------------------------
@@ -3285,7 +3330,7 @@ with _isolated_log_env("main16msg") as _b:
 
 # -- session limit ---------------------------------------------------------------------------------------------------------
 _LIM = {}
-for _limit in (0, 1, 2, 5, 7, -1):
+for _limit in (0, 1, 2, 5, 7):
     with _isolated_log_env(f"main16lim{_limit}") as _b:
         cfg.SUMMARY_DIR = _b / "summary"
         _log15([])
@@ -3296,9 +3341,16 @@ check("4v main session limit: 0 = no limit; a limit below the number of missing 
       _LIM[0] == (_R16, []) and _LIM[5] == (_R16, []) and _LIM[7] == (_R16, [])
       and _LIM[1] == (_R16[:1], ["  Session limit: processing 1 of 5 missing days (MAX_DAYS_PER_SESSION=1)"])
       and _LIM[2] == (_R16[:2], ["  Session limit: processing 2 of 5 missing days (MAX_DAYS_PER_SESSION=2)"]))
-# Ist-Stand: a negative limit is not 'unlimited' — it cuts off the last missing day (missing[:-1]); no message
-check("4v Ist-Stand main session limit: -1 fetches all missing days except the last, without a message",
-      _LIM[-1] == (_R16[:4], []))
+
+# a negative limit is refused outright, named in the message, before anything else runs
+with _isolated_log_env("main16limneg") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _log15([])
+    with _cfg_values(**{**_RANGE, "MAX_DAYS_PER_SESSION": -1}):
+        (_code, _exc, _fetch, _), _rec = _m15()
+    check("main session limit: a negative value aborts before login, names the setting",
+          _code == 1 and not _fetch.called
+          and any("GARMIN_MAX_DAYS_PER_SESSION" in m for m in _rec.msgs("error")))
 
 # -- counters --------------------------------------------------------------------------------------------------------------
 def _fetch_boom_on_03(client, date_str, extra_endpoints=None):

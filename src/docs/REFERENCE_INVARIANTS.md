@@ -57,12 +57,17 @@ a given rule, see `CHANGELOG.md`.
 - Container keys use POSIX forward slashes (`rel.as_posix()`)
 - `mirror.gla` is written atomically: `mirror.gla.tmp` → `fsync()` → `os.replace()`
 - The password for `lock()` may optionally be stored in Windows Credential Manager (user's choice); the password for `unlock_meta()`/`fulfill_order()` is always entered manually
+- `mirror.gla` itself may be stored anywhere (any path, any medium) — only the relative paths read *from* an opened container are constrained: each one must resolve inside `base_dir` before anything is written; a path that would escape it aborts the whole import (fail-closed, v1.7.4.3)
 
 ## Source / Quality / Backup
 
 - `garmin_source_quality.py` — sole owner of source-quality assessment, Leaf Node. Derives `intraday_present` from the raw API response; freeze-when-present strategy (intraday data already present is never overwritten by a degraded response); `assess_source_from_file` distinguishes "absent" from "unreadable"; `compare_source` returns `skip_warn` on unreadable. The `force=True` parameter overrides the whole decision table and forces `"write"` — exclusively for the deliberate Force-Refetch path, never for a normal sync
 - `garmin_source_writer.py::write_source()` / `garmin_collector.py::_fetch_and_assess()` — both forward `force: bool = False` through to `compare_source()`; `_fetch_and_assess()`'s `force` cannot be applied separately afterwards, since `write_source()` is called internally
-- `garmin_backup.py::backup_raw()` / `garmin_backup_source.py::backup_source()` — `force: bool = False` parameter, forwards `{filename}` as `force_filenames` to `_consolidate_raw_months()`/`_consolidate_source_months()`; the replace scope is always per filename, never per month (prevents collateral damage to other already-good days consolidated in the same monthly archive)
+- `garmin_backup.py::backup_raw()` / `garmin_backup_source.py::backup_source()` — `force: bool = False` parameter, forwards `{filename}` as `force_filenames` to `_consolidate_raw_months()`/`_consolidate_source_months()`; the replace scope is always per filename, never per month (prevents collateral damage to other already-good days consolidated in the same monthly archive). `force=True` consolidates against today's month, not the fetched day's own month (v1.7.4.0.4) — otherwise the same consolidation step skips that month as "current" and the replace never happens
+- `garmin_backup.py::backup_quality_log()` refuses to overwrite a monthly snapshot with a log whose day count is less than half the existing snapshot's (v1.7.4.0.4 data-loss guard)
+- `quality._io._load_quality_log()`'s `integrity_warnings` (unreadable file, checksum mismatch, unparseable entry date) is recomputed fresh on every call, not accumulated or cached — a warning source must live inside this function itself, never in a caller's local variable, or it silently disappears on the next independent call (e.g. the Archive Info panel's own refresh) (v1.7.4.0.4, "Variante B")
+- `garmin_collector.py::main()` rejects a negative `GARMIN_MAX_DAYS_PER_SESSION` with a named error instead of silently treating it as anything else (v1.7.4.0.4) — only `0` means "unlimited"
+- `garmin_collector.py::run_import()`'s downgrade protection uses the same `_check_downgrade()` rule as the normal sync, for every source — not just `source == "api"` (v1.7.4.0.4)
 
 ## MCP Server / Proxy
 

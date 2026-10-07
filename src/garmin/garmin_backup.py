@@ -69,8 +69,21 @@ def backup_raw(date_str: str, force: bool = False) -> bool:
         log.debug(f"  backup_raw: {date_str} → backup/raw/{month}/")
 
         # Consolidate completed months (B4)
-        force_filenames = {raw_file.name} if force else None
-        _consolidate_raw_months(current_month=month, force_filenames=force_filenames)
+        # v1.7.4.2: force=True must make the forced date's own month directory
+        # reachable by the Force-Replace block in _consolidate_raw_months().
+        # current_month=month (the forced date's own month) always satisfies
+        # "month_name >= current_month" there, so that exact month is skipped
+        # on every call — the replace block can never fire through backup_raw().
+        # Using today's real calendar month as current_month instead (only
+        # when force=True) lets an already-completed month (month < today's
+        # month) be treated as completed and consolidated with the forced
+        # filename; a date still in the open current month keeps the old
+        # skip — nothing to replace yet (see ROADMAP v1.7.4.2, Open point).
+        # Non-force calls keep the prior current_month=month behaviour,
+        # byte-for-byte unchanged.
+        force_filenames   = {raw_file.name} if force else None
+        consolidate_month = date.today().strftime("%Y-%m") if force else month
+        _consolidate_raw_months(current_month=consolidate_month, force_filenames=force_filenames)
         return True
 
     except Exception as e:
@@ -222,8 +235,34 @@ def backup_quality_log() -> None:
         month_str = today.strftime("%Y-%m")
         snap_path = cfg.LOG_BACKUP_DIR / f"quality_log_{month_str}.zip"
 
-        # Monthly snapshot — overwrite if exists (latest state of this month)
         payload = cfg.QUALITY_LOG_FILE.read_bytes()
+
+        # Data-loss guard (v1.7.4.1 follow-up): refuse to overwrite an
+        # existing snapshot with a log that lost more than half its day
+        # entries. days[] only grows in normal operation, so a drop this
+        # large can only mean corruption/partial rebuild, never legitimate use.
+        if snap_path.exists():
+            try:
+                new_days = len(json.loads(payload).get("days", []))
+                with zipfile.ZipFile(snap_path, "r") as zf:
+                    old_days = len(json.loads(
+                        zf.read("quality_log.json").decode("utf-8")
+                    ).get("days", []))
+                if old_days > 0 and new_days < old_days * 0.5:
+                    log.warning(
+                        f"  backup_quality_log: refusing to overwrite "
+                        f"{snap_path.name} — new log has {new_days} day(s), "
+                        f"existing snapshot has {old_days}."
+                    )
+                    _consolidate_log_years(current_year=today.year)
+                    return
+            except Exception as e:
+                log.warning(
+                    f"  backup_quality_log: day-count guard failed, "
+                    f"proceeding with overwrite: {e}"
+                )
+
+        # Monthly snapshot — overwrite if exists (latest state of this month)
         with zipfile.ZipFile(snap_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("quality_log.json", payload)
         log.debug(f"  backup: quality_log snapshot → {snap_path.name}")

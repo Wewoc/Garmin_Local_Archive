@@ -16,6 +16,7 @@ No API logic, no quality log access, no date strategy logic.
 
 Public functions:
   write_day(normalized, summary, date_str) -> bool
+  write_summary_only(summary, date_str)    -> bool
   read_raw(date_str)                       -> dict
   read_summary(date_str)                   -> dict
 """
@@ -93,6 +94,55 @@ def write_day(normalized: dict, summary: dict, date_str: str) -> bool:
                     tmp.unlink(missing_ok=True)
                 except OSError:
                     pass
+        return False
+
+
+def write_summary_only(summary: dict, date_str: str) -> bool:
+    """
+    Writes only the summary file for a single day. raw/ and its backup
+    are never touched — unlike write_day(), no raw_path/tmp_raw is
+    computed and backup_raw() is never triggered.
+
+    Used by the schema-migration loop in garmin_collector.py
+    (_run_schema_migration()), which only recomputes summary/ from an
+    already-archived, frozen raw/ file. raw/ must stay byte-for-byte
+    untouched even if a future normalize() change would produce a
+    different result than what is already on disk.
+
+    Parameters
+    ----------
+    summary  : dict — compact daily summary as returned by garmin_normalizer.summarize()
+    date_str : str  — date in YYYY-MM-DD format
+
+    Returns
+    -------
+    bool — True if the summary file was written successfully, False on any error
+    """
+    tmp_summary = None
+    try:
+        cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+
+        summary_path = cfg.SUMMARY_DIR / f"garmin_{date_str}.json"
+        tmp_summary  = cfg.SUMMARY_DIR / f"garmin_{date_str}.tmp"
+
+        tmp_summary.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+        os.replace(tmp_summary, summary_path)
+        tmp_summary = None
+
+        log.debug(f"  Writer: summary written for {date_str} (raw/ untouched)")
+        return True
+
+    except Exception as e:
+        log.error(f"  Writer: failed to write summary for {date_str}: {e}")
+        if tmp_summary is not None:
+            try:
+                tmp_summary.unlink(missing_ok=True)
+            except OSError:
+                pass
         return False
 
 

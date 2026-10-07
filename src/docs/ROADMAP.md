@@ -6,302 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.4**
-
----
-
-### v1.7.4.1 — Quality Log — Recovery from an Unreadable File
-
-If `quality_log.json` cannot be read as JSON, or has no valid `days` list,
-`_load_quality_log()` (`garmin/quality/_io.py`) logs "starting fresh" and
-returns an empty log. Automatic restore from the monthly backup ZIPs
-(`restore_quality_log()`) exists, but only for a checksum mismatch on a
-readable file — not for an unreadable one.
-
-**Current behaviour (pinned by tests since v1.7.4.0.2):**
-- The next sync finds no `first_day` and rebuilds the log from the `raw/`
-  files (`_backfill_quality_log()`), re-assessing each day. `raw/` and
-  `summary/` are not touched, so the archive data itself survives.
-- Lost in that rebuild: the source of each day (`api` / `bulk`, which drives
-  the re-fetch logic), device history and names, attempt counters,
-  per-field details, validator results and the entries for days that
-  failed.
-- `_save_quality_log()` then overwrites the unreadable file without keeping
-  a copy, and `backup_quality_log()` replaces the current month's snapshot
-  with the rebuilt, reduced log. Older monthly snapshots remain.
-
-**Planned behaviour:**
-- Keep a copy of the unreadable file in the defective-log folder
-  (`AUTORESTORE_DIR`, as already done for a checksum mismatch) before
-  anything overwrites it.
-- Restore from the newest valid monthly backup, the same path a checksum
-  mismatch already takes.
-- Only if no valid backup exists, fall back to today's behaviour (empty log,
-  rebuilt from `raw/`).
-- In every case add an entry to `integrity_warnings`, so the Archive Info
-  panel shows its yellow label instead of continuing silently.
-
-**What changes:**
-- `garmin/quality/_io.py` — `_load_quality_log()` plus a small helper that
-  copies the unreadable file; no schema change.
-- `tests/test_local.py` — the tests that pin today's behaviour are rewritten
-  to the new contract.
-
-**Open point:** whether `backup_quality_log()` should refuse to overwrite a
-monthly snapshot with a log that is much smaller than the snapshot it
-replaces. Not decided.
-
----
-
-### v1.7.4.2 — Backup — Force-Refetch Must Update the Consolidated ZIP
-
-Force-Refetch (v1.7.1.7) re-fetches single days. For a day that lies in an
-already consolidated month, `backup_raw(date, force=True)` and
-`backup_source(date, force=True)` are meant to replace that day's entry
-inside the month ZIP (the Force-Replace block in
-`_consolidate_raw_months()` / `_consolidate_source_months()`). In practice
-the ZIP keeps the old version.
-
-**Current behaviour (pinned by tests since v1.7.4.0.2):**
-- `backup_raw()` consolidates with `current_month` set to the month of the
-  date being backed up, and the consolidation skips exactly that month. The
-  new file lands in the month directory (`backup/raw/YYYY-MM/`) next to the
-  ZIP; the ZIP entry stays the old version.
-- The next ordinary backup of a later month consolidates that directory
-  without force: the ZIP entry stays old, the directory with the new file is
-  deleted. From then on the backup permanently holds the old version of the
-  day.
-- The Force-Replace block is therefore not reachable through
-  `backup_raw()` / `backup_source()`; it only runs when the consolidation
-  function is called directly with a later `current_month`.
-- `raw/` and `source/` themselves hold the new version; only the backup is
-  stale. A restore would bring the old version back.
-- `backup_source()` has the identical code and the identical behaviour.
-
-**Planned behaviour:**
-- With `force=True`, the month directory of the forced date is consolidated
-  too, with the forced filename, so the ZIP entry is replaced.
-- Scope stays per filename: no other entry of the ZIP is touched.
-- If the integrity check or the swap fails, the old ZIP stays as it was and
-  the directory is kept as fallback (already the behaviour of the
-  Force-Replace block).
-
-**What changes:**
-- `garmin/garmin_backup.py` — `backup_raw()`;
-  `garmin/garmin_backup_source.py` — `backup_source()`. The same change in
-  both; the two modules are near-identical copies and are deliberately not
-  merged (backup integrity).
-- `tests/test_local.py` — the tests that pin today's behaviour are rewritten
-  to the new contract.
-
-**Open point:** a date in the current calendar month has no ZIP yet, so there
-is nothing to replace and the directory copy is already overwritten; only
-completed months matter.
-
----
-
-### v1.7.4.3 — Mirror Import — Validate Container Paths and Dates Before Writing
-
-Three weaknesses in the mirror import (`garmin/garmin_import_mirror.py`) and
-the container packer (`garmin/garmin_container.py`), found while writing
-tests for v1.7.4.0.2. None needs a code change to the happy path.
-
-**1. Container paths are used unchecked (path traversal).**
-`_import_context_from_bytes()` builds `base_dir / rel_path` from the file
-list stored in the container. A container that lists
-`context_data/../../escaped_probe.json` makes the import succeed and write
-that file **outside** `base_dir` (reproduced in a throw-away folder). It
-takes a deliberately built container and its password, but a container
-received from someone else is exactly that case. The legacy folder import
-is not affected (its paths come from a real directory listing).
-- Planned: reject every relative path that does not resolve to a location
-  inside `base_dir` (count it as an error, write nothing); apply the same
-  check to every path taken from a container, including the source files.
-
-**2. A date is validated after the files are written.**
-`_import_raw_from_bytes()` (and the folder variant) call
-`writer.write_day(raw, summary, date_str)` first and only then
-`date.fromisoformat(date_str)`. An invalid date in the container's quality
-log therefore leaves a raw and a summary file without a quality-log entry
-(an orphan the silo check would report), while the day is counted as an
-error.
-- Planned: validate the date first; skip the entry before anything is
-  written.
-
-**3. A stray `.tmp` file is packed into the container.**
-`_collect_sections()` walks `garmin_data/raw/**` and `garmin_data/summary/**`
-without looking at the file ending, so a leftover `garmin_raw_<date>.tmp`
-(left by an aborted write) ends up in the `.gla` and is restored by an
-import. All readers elsewhere ignore it because they look for `*.json`.
-- Planned: leave `*.tmp` files out of the container.
-
-**What changes:**
-- `garmin/garmin_import_mirror.py` — path check in the container import,
-  date check before `write_day()` in both import variants.
-- `garmin/garmin_container.py` — `_collect_sections()` skips `*.tmp`.
-- `tests/test_local.py` — the tests that pin today's behaviour
-  ("Ist-Stand ...") are rewritten to the new contract.
-
-**Open point:** whether an import that meets a rejected path should abort
-as a whole instead of counting an error and continuing.
-
----
-
-### v1.7.4.4 — Collector — One Bad Entry Must Not Abort the Sync, Honest Run Summary
-
-Four weaknesses in `garmin/garmin_collector.py::main()` and the quality helper
-it calls, found while writing tests for v1.7.4.0.2 and v1.7.4.0.3.
-
-**1. One invalid date in the quality log aborts the whole run.**
-`main()` builds `known_dates`, `recheck_dates` and `bulk_upgrade_dates` with
-`date.fromisoformat(e["date"])` over every entry of the quality log, without
-a guard. An entry whose date cannot be parsed (a hand-edited log, a bug
-elsewhere) raises a `ValueError` before the login step: no day is fetched, and
-the same error repeats on every following run until the entry is repaired by
-hand. Reproduced with a one-entry log.
-- Planned: skip such entries with a warning that names them, and raise an
-  integrity warning so the Archive Info panel shows it; the sync itself
-  carries on.
-
-**2. A day can be counted twice in the run summary.**
-If saving the quality log fails right after a day was written, the per-day
-save re-raises into the loop's own error handler. The day is then counted as
-saved and as an error ("Done. 1 saved, 1 errors."), and the session log is
-kept in `log/fail/`. The stored entry stays correct (the downgrade guard
-keeps the existing `high`), so only the report is misleading.
-- Planned: count each day once.
-
-**3. A negative session limit cuts off the last missing day.**
-`MAX_DAYS_PER_SESSION` is read as an integer without a check: `0` means
-"unlimited", a value above `0` caps the batch. A negative value (for
-example `-1`) takes neither branch and reaches the slice `missing[:-1]`: every
-missing day except the last one is fetched, and nothing says so. Pinned by
-tests since v1.7.4.0.3.
-- Planned: check the value when `main()` starts — treat a negative value
-  like `0` or stop with a message that names the setting.
-
-**4. A malformed device date becomes `first_day`.**
-`quality._maint._set_first_day()` takes the first usable `first_used` of the
-device list and stores it, apart from the value `"unknown"`, without checking
-that it is a date. A malformed value becomes the archive's `first_day` and
-makes later runs in sync mode `auto` fail on `date.fromisoformat()` — the same
-failure as in point 1, just with a different source. Pinned by tests since
-v1.7.4.0.3 (a value `"zzz"` is stored as it is).
-- Planned: check with `date.fromisoformat()` before storing; keep the
-  existing fallback when the value is not a date.
-
-*Smaller note, no behaviour change:* in the downgrade branch of `main()`
-the manual patch of `attempts` / `recheck` after `_upsert_quality()` is largely
-redundant — `_upsert_quality()` does not reset `attempts` (only the `failed`
-branch increments it) and sets `recheck` to `False` for a kept `high` day. The
-comment "_upsert_quality resets these" does not match. Worth simplifying when
-the branch is touched anyway.
-
-**What changes:**
-- `garmin/garmin_collector.py` — `main()`: tolerant handling of unparseable
-  dates, single counting per day, a check of the session limit.
-- `garmin/quality/_maint.py` — `_set_first_day()`: store only a real date.
-- `tests/test_local.py` — the tests that pin today's behaviour ("Ist-Stand
-  ...") are rewritten to the new contract.
-
-**Open point:** whether an unparseable date should be skipped (sync goes on)
-or should stop the run with a clear message that names the entry; and whether a
-negative session limit should count as "unlimited" or be refused.
-
----
-
-### v1.7.4.5 — Schema Migration — Do Not Rewrite raw/
-
-`_run_schema_migration()` (`garmin/garmin_collector.py`) is documented as a
-summary-only operation: "Raw files are read-only. Only summary/ files are
-overwritten", and the run logs "Raw files are not modified." It calls
-`writer.write_day(normalized, summary, date_str)`, which writes the raw file
-as well.
-
-**Current behaviour (pinned by tests since v1.7.4.0.2):**
-- For every migrated day the raw file is rewritten (temp file and replace)
-  and the raw backup for that day is refreshed (`backup_raw()`), besides the
-  new summary.
-- The content stays the same today, because `normalize(raw, "api")` passes
-  the dict through unchanged (checked with a day that carries non-ASCII text
-  and extra fields). Formatting and escaping of the file can change, since the
-  writer serialises with its own settings.
-- The log message and the docstring are therefore not literally true. More
-  important: a future change to `normalize()` would silently rewrite the
-  archive's raw data during what is presented as a summary-only migration.
-
-**Planned behaviour:**
-- A migration writes the summary only; raw/ and its backup stay untouched.
-  The log line then says what really happens.
-
-**What changes:**
-- `garmin/garmin_writer.py` — a summary-only write function next to
-  `write_day()` (same temp-file-and-replace pattern).
-- `garmin/garmin_collector.py` — `_run_schema_migration()` uses it.
-- `tests/test_local.py` — the test that pins today's behaviour ("Ist-Stand
-  migration") is rewritten to the new contract.
-
-**Open point:** whether the summary-only writer should also be used by the
-`garmin_import_mirror` fast path and by other callers that only change the
-summary.
-
----
-
-### v1.7.4.6 — GDPR Import — Never Overwrite a Better Day, Survive a Bad Entry, Honour Stop
-
-Four weaknesses in the import of a Garmin data export
-(`garmin/garmin_collector.py::run_import()` and `garmin/garmin_import.py`),
-found while writing tests for v1.7.4.0.2. The first one can lose data.
-
-**1. A better day is overwritten by an export day (data loss).**
-`run_import()` skips an existing day only when its source is `api`. For every
-other day it calls `writer.write_day()` first and consults the quality log's
-downgrade guard only afterwards. An existing day with source `legacy` (every
-archive older than v1.2.2 carries this source) or any other non-API source
-is therefore replaced by the export's aggregate-only version. Reproduced:
-a `legacy` / `high` day with intraday heart-rate values is imported against
-an export that has the same date; afterwards the raw file has no intraday
-values, while the quality log still says `high` (the guard only protects the
-log entry). `write_day()` also refreshes the raw backup, so the copy in the
-month folder is overwritten with the poorer data too; only a month that was
-already consolidated into a ZIP keeps its old entry.
-- Planned: decide before writing, with the same rule the normal sync uses
-  (`_check_downgrade()`): a day that is not worse than the export day is
-  skipped and counted as skipped; nothing is written for it.
-
-**2. One malformed entry stops the whole export.**
-`_process_entries()` calls `.get()` on every list entry. A single entry that
-is not an object (reproduced with a string between two valid entries) raises
-inside the indexing step; `load_bulk()` catches it with one error line and
-yields **no day at all**, including the valid ones. The import then reports
-"0 written, 0 failed".
-- Planned: skip a bad entry with a warning that names the file; keep the rest.
-
-**3. A date is validated after the files are written.**
-Same ordering as in the mirror import (see v1.7.4.3): `write_day()` runs
-before `date.fromisoformat(date_str)`. A day whose date is not a real date but
-that carries data leaves a raw file (and summary) for that date behind and is
-counted as failed (reproduced with `2024-13-45`).
-- Planned: validate the date first.
-
-**4. The stop request is not honoured.**
-`run_import()` registers the stop event ("so the bulk loop can abort via
-`_is_stopped()`", docstring) but the loop never calls `_is_stopped()`. With
-the event already set, all days are still imported (reproduced). Whether this
-matters in practice depends on how the GUI stops an import (in subprocess mode
-the process is terminated instead); not checked.
-- Planned: check `_is_stopped()` once per day, before the day is processed.
-
-**What changes:**
-- `garmin/garmin_collector.py` — `run_import()`: decide before writing,
-  validate the date first, honour the stop event.
-- `garmin/garmin_import.py` — `_process_entries()`: tolerate entries that are
-  not objects.
-- `tests/test_local.py` — the tests that pin today's behaviour ("Ist-Stand
-  ...") are rewritten to the new contract.
-
-**Open point:** whether an existing day of equal quality from a non-API source
-should be overwritten by the export (today it is) or skipped.
+**Currently stable — v1.7.4.0.4**
 
 ---
 
@@ -829,6 +534,20 @@ v1.7.0.2 added a GLA-branded text header (`"🦄  GARMIN LOCAL ARCHIVE"`) but de
 **MCP server window/taskbar icon**
 No icon asset exists anywhere in this codebase yet — the titlebar "feather" seen on `clients/mcp_server_gui.py`'s window is Tkinter's own stock default, not a GLA icon gone missing. A real icon would need an asset created (or sourced under a free license, e.g. Twemoji/OpenMoji), wired in via `root.iconphoto()`, and — for the standalone build — a `build_manifest.py`/PyInstaller bundling entry so `mcp_server.exe` ships it too.
 
+**`repair_silos()` Kategorie 7 — `date: null` in the written summary**
+
+Found by an independent GLA-Netz-2 diagnostic run (2026-10-06), not by the
+project's own test suite — not yet pinned by a test. When `repair_silos()`
+rebuilds a missing `summary/` file from an existing `raw/` file whose
+content has no `date` key, the written summary file's *content* carries
+`"date": null` — the filename itself is still correct (it comes from
+`check_silos()`, not from the content). Root cause: `summarize()`
+(`garmin_normalizer.py`) takes the date from the content dict unchanged
+(`raw.get("date")`), and `repair_silos()`'s Kategorie-7 branch
+(`garmin_silo_repair.py`) passes `raw` through unmodified. The repair
+itself still succeeds; only matters if a downstream consumer reads the
+`date` field from inside the summary file instead of from its filename.
+
 **MCP transport_security — `allowed_origins` extension**
 v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left `allowed_origins` at the SDK's own three defaults — a server-to-server HTTP client typically sends no `Origin` header at all, and the SDK's own validator passes automatically when it's absent. Revisit only if a real `Invalid Origin header` rejection shows up in the log for some other MCP client.
 
@@ -877,6 +596,13 @@ v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left
   (`MAINTENANCE_GLOBAL.md`/`MINDSET.md`: intentionally excluded from the
   regular reference docs, project-humor module, separately CC-BY-licensed).
   Left as a silent no-op on T3, decided against fixing.
+- `write_summary_only()` (v1.7.4.0.4) used by `garmin_import_mirror.py`'s
+  schema-match fast path too — considered and decided against during the
+  v1.7.4.0.4 build: that fast path always needs a real `raw/` write (it is
+  importing a day that doesn't exist locally yet, not recomputing a
+  summary for an already-archived day), so the schema-migration case
+  isn't actually analogous. Revisit only if a genuinely summary-only
+  mirror-import case turns up.
 - `dash_runner.py` `html_complex` filename bug (found v1.7.3.3) — `scan()`
   normalizes the `"html_complex"` format key to `"html"` for GUI display,
   but `build()`'s output-filename lookup uses that normalized key instead

@@ -188,25 +188,29 @@ for _k in _BK_KINDS:
             _res = _bak("2024-08-27")
         check(f"{_n} backup of a day: write failure -> False, no crash", _res == False)
 
-    # -- Ist-Stand: Force-Refetch of a day in an already consolidated month -----
-    # The new version never reaches the ZIP (see ROADMAP v1.7.4.2). To be rewritten
-    # to the new contract when that is fixed.
+    # -- Force-Refetch of a day in an already consolidated month (v1.7.4.2) -----
+    # Fixed contract: force=True makes the forced date's own month reachable
+    # by the Force-Replace block, so the ZIP entry is replaced immediately —
+    # no waiting for a later backup. Third step is now an idempotency check,
+    # not a loss proof: Timo's call (2026-10-06) — kept deliberately instead
+    # of dropped, catches exactly the order/state bug class this v1.7.4 round
+    # is about: an unrelated later backup must not re-touch an
+    # already-replaced entry.
     with _isolated_log_env(f"bk_force_ist_{_n}"):
         _bk_src(_k).mkdir(parents=True)
         _bk_dir(_k).mkdir(parents=True)
         _zip_write(_bk_zip(_k, "2024-08"), {_x27: "old-27"})
         (_bk_src(_k) / _x27).write_text("new-27", encoding="utf-8")
-        check(f"{_n} Ist-Stand force backup: call succeeds", _bak("2024-08-27", force=True) == True)
-        check(f"{_n} Ist-Stand force backup: the ZIP still holds the old version",
-              _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "old-27")
-        check(f"{_n} Ist-Stand force backup: the new version waits in the month directory",
-              (_bk_dir(_k) / "2024-08" / _x27).read_text(encoding="utf-8") == "new-27")
+        check(f"{_n} force backup: call succeeds", _bak("2024-08-27", force=True) == True)
+        check(f"{_n} force backup: the ZIP now holds the new version",
+              _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "new-27")
+        check(f"{_n} force backup: the month directory is consolidated away",
+              not (_bk_dir(_k) / "2024-08").exists())
         _later = _bk_fn(_k, "2024-10-01")
         (_bk_src(_k) / _later).write_text("later", encoding="utf-8")
         _bak("2024-10-01")
-        check(f"{_n} Ist-Stand force backup: a later ordinary backup drops the new version",
-              not (_bk_dir(_k) / "2024-08").exists()
-              and _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "old-27")
+        check(f"{_n} force backup: a later ordinary backup does not re-touch the already-replaced entry",
+              _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "new-27")
 
     # -- backfill and the check that counts missing backups ---------------------
     with _isolated_log_env(f"bk_backfill_{_n}"):
@@ -437,9 +441,27 @@ for _k in _BK_KINDS:
             _ok2 = _bak("2024-08-27", force=True)
         check(f"4f2 {_n} backup: both calls succeed (existing month folder is fine)",
               _ok1 is True and _ok2 is True)
-        check(f"4f2 {_n} backup: without force no file may replace a ZIP entry, with force exactly this day",
+        check(f"4f2 {_n} backup: without force the date's own month is passed through unchanged "
+              f"(v1.7.4.2: with force, today's real month is passed instead, so the forced month "
+              f"becomes reachable by the Force-Replace block)",
               _calls == [{"current_month": "2024-08", "force_filenames": None},
-                         {"current_month": "2024-08", "force_filenames": {_fn27}}])
+                         {"current_month": _CUR, "force_filenames": {_fn27}}])
+
+    # -- 1b. force-refetched date whose month IS the current (still open) month —
+    # ROADMAP v1.7.4.2 Open point: nothing to replace yet, no ZIP exists for an
+    # open month, so the forced file simply lands in the month directory, same
+    # as a non-force backup would.
+    with _isolated_log_env(f"bk2_curmonth_{_n}"):
+        _bk_src(_k).mkdir(parents=True)
+        _today_day = f"{_CUR}-01"
+        _today_fn  = _bk_fn(_k, _today_day)
+        (_bk_src(_k) / _today_fn).write_text("today-content", encoding="utf-8")
+        check(f"4f2 {_n} backup: force-refetch of a day in the open current month succeeds",
+              _bak(_today_day, force=True) == True)
+        check(f"4f2 {_n} backup: no ZIP exists yet for the open month",
+              not _bk_zip(_k, _CUR).exists())
+        check(f"4f2 {_n} backup: the file lands directly in the month directory",
+              (_bk_dir(_k) / _CUR / _today_fn).read_text(encoding="utf-8") == "today-content")
 
     # -- 2. several months in one consolidation run
     with _isolated_log_env(f"bk2_months_{_n}"):
@@ -605,6 +627,28 @@ with _isolated_log_env("bk2_qlog_deep"):
         _q_backup_mod.backup_quality_log()
     check("4f2 backup_quality_log: a target folder with missing parents is created, snapshot written",
           (_deep / f"quality_log_{date.today().strftime('%Y-%m')}.zip").is_file())
+
+# -- 6b. quality_log backup: data-loss guard (v1.7.4.1) ---------------------
+# days[] only grows in normal operation — a drop of more than half the day
+# count can only mean corruption/partial rebuild, never legitimate use.
+with _isolated_log_env("bk2_qlog_shrink_guard"):
+    _put_log({"days": [{"date": f"2024-01-{i:02d}", "quality": "high"} for i in range(1, 11)]})
+    _q_backup_mod.backup_quality_log()
+    _put_log({"days": [{"date": "2024-01-01", "quality": "high"},
+                        {"date": "2024-01-02", "quality": "high"}]})
+    _q_backup_mod.backup_quality_log()
+    _snap = cfg.LOG_BACKUP_DIR / f"quality_log_{date.today().strftime('%Y-%m')}.zip"
+    check("4f2 backup_quality_log: a drop below half the day count is refused, no crash, snapshot unchanged",
+          len(json.loads(_zip_read(_snap)["quality_log.json"])["days"]) == 10)
+
+with _isolated_log_env("bk2_qlog_shrink_ok"):
+    _put_log({"days": [{"date": f"2024-01-{i:02d}", "quality": "high"} for i in range(1, 11)]})
+    _q_backup_mod.backup_quality_log()
+    _put_log({"days": [{"date": f"2024-01-{i:02d}", "quality": "high"} for i in range(1, 7)]})
+    _q_backup_mod.backup_quality_log()
+    _snap = cfg.LOG_BACKUP_DIR / f"quality_log_{date.today().strftime('%Y-%m')}.zip"
+    check("4f2 backup_quality_log: a mild drop (above the 50% guard) still overwrites normally",
+          len(json.loads(_zip_read(_snap)["quality_log.json"])["days"]) == 6)
 
 
 def _glob_in_order(reverse):

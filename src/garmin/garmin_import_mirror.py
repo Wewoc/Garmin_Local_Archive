@@ -182,12 +182,24 @@ def _run_import_container(
     with quality.QUALITY_LOCK:
         quality_dst = quality._load_quality_log()
         raw_order, raw_skip = _analyse_raw_delta(quality_src, quality_dst)
-        ctx_order = _analyse_context_delta_container(
-            ctx_files_in_container, base_dir
-        )
-        src_order = _analyse_source_delta_container(
-            src_files_in_container, base_dir
-        )
+        try:
+            ctx_order = _analyse_context_delta_container(
+                ctx_files_in_container, base_dir
+            )
+            src_order = _analyse_source_delta_container(
+                src_files_in_container, base_dir
+            )
+        except _PathTraversalError as e:
+            # Fall 1 (ROADMAP v1.7.4.3): abort the whole import, nothing is
+            # written — caught here, before fulfill_order()/any write.
+            error_msg = f"rejected container path (escapes base_dir): {e.rel_path}"
+            log.error(f"  import_mirror: {error_msg}")
+            if dry_run:
+                return {"raw_to_copy": 0, "context_to_copy": 0,
+                        "version_warning": version_warning, "ok": False,
+                        "error": error_msg}
+            return {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0,
+                    "errors": 1, "ok": False, "error": error_msg}
 
         if dry_run:
             return {
@@ -289,6 +301,28 @@ def _build_version_warning(container_meta: dict) -> str:
     return ""
 
 
+class _PathTraversalError(Exception):
+    """A container-supplied relative path resolves outside base_dir."""
+    def __init__(self, rel_path: str):
+        self.rel_path = rel_path
+        super().__init__(f"container path escapes base_dir: {rel_path}")
+
+
+def _safe_container_path(base_dir: Path, rel_path: str) -> Path | None:
+    """
+    Resolves base_dir / rel_path and returns it only if the result stays
+    inside base_dir. Returns None (reject) for any path that climbs out,
+    e.g. via '../' segments (ROADMAP v1.7.4.3, Fall 1).
+    """
+    try:
+        base_resolved = base_dir.resolve()
+        candidate = (base_dir / rel_path).resolve()
+        candidate.relative_to(base_resolved)
+        return base_dir / rel_path
+    except (ValueError, OSError):
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal — delta analysis
 # ══════════════════════════════════════════════════════════════════════════════
@@ -344,10 +378,17 @@ def _analyse_context_delta_container(
     Container variant: compares container context file list against local disk.
     Source wins — all container context files are imported (overwrite allowed).
     Returns list of relative paths to request from fulfill_order().
+
+    Raises _PathTraversalError if any path resolves outside base_dir — the
+    caller aborts the whole import without writing anything (ROADMAP
+    v1.7.4.3, Fall 1: a rejected path is a security signal, not an ordinary
+    data error — fail closed, not skip-and-continue).
     """
     order = []
     for rel_path in ctx_files_in_container:
-        dst = base_dir / rel_path
+        dst = _safe_container_path(base_dir, rel_path)
+        if dst is None:
+            raise _PathTraversalError(rel_path)
         order.append(rel_path)
         if dst.exists():
             log.debug(f"  import_mirror: context overwrite — {rel_path}")
@@ -366,9 +407,17 @@ def _analyse_source_delta_container(
     garmin_source_writer.write_source() via the Conservative guard — existing
     high-resolution source files are never overwritten by degraded responses.
     Returns list of relative paths to request from fulfill_order().
+
+    Raises _PathTraversalError on the same rule as
+    _analyse_context_delta_container() (ROADMAP v1.7.4.3, Fall 1).
+    write_source() itself only ever uses the filename's date part, so this
+    is defense-in-depth here rather than today's actual exploit path — the
+    roadmap asks for the same check on every container path regardless.
     """
     order = []
     for rel_path in src_files_in_container:
+        if _safe_container_path(base_dir, rel_path) is None:
+            raise _PathTraversalError(rel_path)
         order.append(rel_path)
     log.info(f"  import_mirror: source delta — {len(order)} file(s) to process")
     return order
@@ -520,6 +569,13 @@ def _import_raw_from_bytes(
             continue
 
         try:
+            day = _date.fromisoformat(date_str)
+        except ValueError:
+            log.warning(f"  import_mirror: invalid date '{date_str}' — skipping")
+            errors += 1
+            continue
+
+        try:
             # normalize() skipped — raw is already normalized
             if schema_match:
                 sum_rel   = f"garmin_data/summary/garmin_{date_str}.json"
@@ -540,13 +596,6 @@ def _import_raw_from_bytes(
             written = writer.write_day(raw_data, summary, date_str)
 
             reason = f"Quality: {label} — mirror import"
-            try:
-                day = _date.fromisoformat(date_str)
-            except ValueError:
-                log.warning(f"  import_mirror: invalid date '{date_str}' — skipping")
-                errors += 1
-                continue
-
             device_id, device_name = _extract_device(raw_data)
             quality._upsert_quality(
                 quality_dst, day, label, reason,
@@ -616,9 +665,15 @@ def _import_context_from_bytes(
             log.warning(f"  import_mirror: context bytes not found: {rel_path}")
             errors += 1
             continue
+        dst_path = _safe_container_path(base_dir, rel_path)
+        if dst_path is None:
+            # Should be unreachable — _analyse_context_delta_container()
+            # already aborts the whole import on this (Fall 1).
+            log.error(f"  import_mirror: rejected path at write time: {rel_path}")
+            errors += 1
+            continue
         try:
             data     = json.loads(data_bytes.decode("utf-8"))
-            dst_path = base_dir / rel_path
             success  = context_writer.write_file(dst_path, data)
             if success:
                 copied += 1
@@ -752,13 +807,19 @@ def _import_raw_folder(
             errors += 1
             continue
         try:
+            day = _date.fromisoformat(date_str)
+        except ValueError:
+            log.warning(f"  import_mirror (folder): invalid date '{date_str}' — skipping")
+            errors += 1
+            continue
+
+        try:
             raw_data = json.loads(raw_file.read_text(encoding="utf-8"))
             summary  = normalizer.summarize(raw_data)
             label    = quality.assess_quality(raw_data)
             fields   = quality.assess_quality_fields(raw_data)
             written  = writer.write_day(raw_data, summary, date_str)
             reason   = f"Quality: {label} — mirror import (folder)"
-            day      = _date.fromisoformat(date_str)
             device_id, device_name = _extract_device(raw_data)
             quality._upsert_quality(
                 quality_dst, day, label, reason,

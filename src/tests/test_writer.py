@@ -175,4 +175,52 @@ with _isolated_log_env("w5c_deep") as _b:
           writer.write_day(_NORM5C, _SUM5C, _D5C) is True
           and (cfg.SUMMARY_DIR / f"garmin_{_D5C}.json").is_file())
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  5d. garmin_writer — write_summary_only() (v1.7.4.5)
+# ══════════════════════════════════════════════════════════════════════════════
+section("5d. garmin_writer — write_summary_only()")
+
+import garmin_backup as _gb5d
+
+# -- happy path: only summary/ is written, raw/ and backup are never touched --
+with _isolated_log_env("w5d_happy") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _D5H   = "2024-04-08"
+    _sum5h = normalizer.summarize({"date": _D5H, "heart_rates": {"restingHeartRate": 58}})
+    with patch.object(_gb5d, "backup_raw") as _br5h:
+        _ok_5h = writer.write_summary_only(_sum5h, _D5H)
+    check("write_summary_only: returns True", _ok_5h == True)
+    check("write_summary_only: summary file created",
+          (cfg.SUMMARY_DIR / f"garmin_{_D5H}.json").exists())
+    check("write_summary_only: no raw file is created",
+          not (cfg.RAW_DIR / f"garmin_raw_{_D5H}.json").exists())
+    check("write_summary_only: backup_raw() is never called",
+          not _br5h.called)
+
+    # -- an already-archived raw file stays byte-identical ------------------------
+    _D5I     = "2024-04-09"
+    _raw5i   = {"date": _D5I, "heart_rates": {"restingHeartRate": 61}}
+    _sum5i_1 = normalizer.summarize(_raw5i)
+    check("5i setup: write_day archives raw + summary for comparison",
+          writer.write_day(_raw5i, _sum5i_1, _D5I) == True)
+    _raw5i_before = (cfg.RAW_DIR / f"garmin_raw_{_D5I}.json").read_bytes()
+
+    _sum5i_2 = {**_sum5i_1, "schema_version": _sum5i_1.get("schema_version", 0) + 1}
+    check("write_summary_only: rewriting the summary leaves the archived raw file byte-identical",
+          writer.write_summary_only(_sum5i_2, _D5I) == True
+          and (cfg.RAW_DIR / f"garmin_raw_{_D5I}.json").read_bytes() == _raw5i_before)
+    check("write_summary_only: the summary file itself is updated",
+          json.loads((cfg.SUMMARY_DIR / f"garmin_{_D5I}.json").read_text(encoding="utf-8"))["schema_version"]
+          == _sum5i_2["schema_version"])
+
+    # -- failure path: unserialisable summary -> False, no .tmp left behind -------
+    _D5J        = "2024-04-10"
+    _bad_sum_5j = {"date": _D5J, "unserialisable": object()}
+    check("write_summary_only: unserialisable summary -> returns False",
+          writer.write_summary_only(_bad_sum_5j, _D5J) == False)
+    check("write_summary_only: failed write creates no summary file",
+          not (cfg.SUMMARY_DIR / f"garmin_{_D5J}.json").exists())
+    check("write_summary_only: failed write leaves no .tmp file behind",
+          _tmp_leftovers() == [])
+
 summary()

@@ -317,9 +317,23 @@ def _set_first_day(data: dict, client) -> None:
     log.info("  first_day not set — detecting from account ...")
     first_day = None
 
-    # 1. Try devices
+    # 1. Try devices — only a value that parses as a real date is accepted; a
+    # malformed first_used (hand-edited device_table, API glitch) is skipped with
+    # a warning and falls through to the next source instead of becoming
+    # first_day and later crashing a sync-mode-"auto" run's date.fromisoformat()
+    # (ROADMAP v1.7.4.4 point 4). "unknown" is still skipped, as before.
     devices = data.get("devices") or []
-    first_dates = [d["first_used"] for d in devices if d.get("first_used") and d["first_used"] != "unknown"]
+    first_dates = []
+    for d in devices:
+        fu = d.get("first_used")
+        if not fu or fu == "unknown":
+            continue
+        try:
+            date.fromisoformat(fu)
+        except (ValueError, TypeError):
+            log.warning(f"  Ignoring malformed device first_used: {fu!r}")
+            continue
+        first_dates.append(fu)
     if first_dates:
         first_day = min(first_dates)
         log.info(f"  first_day from devices: {first_day}")
