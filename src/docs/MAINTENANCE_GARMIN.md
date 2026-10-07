@@ -207,6 +207,42 @@ of scope.
   history (live-verified, including a full `mirror.gla` restore
   specifically to re-run the days first touched by the superseded
   full-replace implementation).
+- **Resolved (v1.7.4.0.4, 2026-10-06):** six gaps a mutation test pinned
+  as current behaviour in v1.7.4.0.3 are now actually fixed, each with
+  an extended test contract (not just "doesn't break"). Quality-log
+  recovery: `_load_quality_log()` saves and tries to restore an
+  unreadable file instead of silently starting empty, and now checks
+  every entry's `date` on *every* load (not just once in `main()`) —
+  moved here deliberately so the warning survives an independent call,
+  e.g. the Archive Info panel's own refresh ("Variante B", chosen over
+  a `main()`-local patch for exactly that reason). Found and fixed in
+  the same pass: `_compute_checksum()` computed `source` before vs.
+  after migration defaults were applied, causing a false mismatch (and
+  a spurious restore) for any entry without an explicit `source` field —
+  previously masked because `backup_quality_log()` always overwrote the
+  monthly snapshot unconditionally; the new data-loss guard (below)
+  surfaced it. Backup: `backup_raw()`/`backup_source()`'s Force-Refetch
+  branch now actually runs (previously dead — see `REFERENCE_GARMIN.md`);
+  `backup_quality_log()` refuses to overwrite a snapshot with less than
+  half its day count. Collector: a negative `MAX_DAYS_PER_SESSION` is
+  rejected instead of silently reaching `missing[:-1]`; a day can no
+  longer be counted in both the saved and the error tally; `main()`
+  tolerates an unparseable quality-log date instead of crashing before
+  login. GDPR import (`run_import()`): downgrade protection now uses
+  `_check_downgrade()` for every source, not just `source == "api"`
+  (previously an existing `legacy`/non-API day with intraday data could
+  be silently replaced by the export's aggregate-only version); date
+  validated before any write (`except (ValueError, TypeError)` — a
+  non-string date from a malformed entry used to crash it); stop event
+  actually checked (`_is_stopped()` was registered but never read).
+  `garmin_import.py`'s four bulk-entry loops tolerate a malformed
+  (non-object) entry instead of aborting the whole generator. Schema
+  migration: `_run_schema_migration()` now uses the new
+  `write_summary_only()` — `raw/` is genuinely untouched, not just by
+  convention (the log line/docstring claim was previously not quite
+  true). Full detail per fix: `changelog/anchor_delivery_v1741-*.md`
+  through `anchor_delivery_v1746-*.md`; decisions and the two
+  self-found bugs above: `PROTOKOLL.md`, Baustein 6 and 8.
 
 ---
 

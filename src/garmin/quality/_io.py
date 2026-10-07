@@ -27,6 +27,14 @@ log = logging.getLogger(__name__)
 _parse_device_date = utils.parse_device_date
 
 
+def _is_parseable_date(value) -> bool:
+    try:
+        date.fromisoformat(value)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
 def _safe_get(d, *keys, default=None):
@@ -45,15 +53,24 @@ def _safe_get(d, *keys, default=None):
 def _compute_checksum(data: dict) -> str:
     """
     Computes SHA-256 hash over stable core fields of each day entry:
-    date, write, quality, source — always present after a save, never added by migration.
+    date, write, quality, source.
     Extended in v1.5.5 to include quality + source (previously only date + write).
     Migration bridge: _compute_checksum_legacy() detects pre-v1.5.5 checksums on first load.
+
+    'source' defaults to "legacy" when the key is absent (v1.7.4.x fix) — the
+    same default _load_quality_log()'s migration applies to an entry missing
+    'source'. A save that omits 'source' (not "always present" as previously
+    assumed here) must hash the same value the next load's migration would
+    produce, otherwise the recomputed checksum mismatches the stored one and
+    triggers a spurious restore-from-backup for an otherwise healthy entry.
+    'write' needs no such default: its migration default (None) already
+    equals what a plain .get() returns for an absent key.
     """
     stable = [
         {
             "date":    e.get("date"),
             "quality": e.get("quality"),
-            "source":  e.get("source"),
+            "source":  e.get("source", "legacy"),
             "write":   e.get("write"),
         }
         for e in sorted(data.get("days", []), key=lambda e: e.get("date", ""))
@@ -243,12 +260,59 @@ def _load_quality_log() -> dict:
                             "  garmin_backup not available — skipping auto-restore."
                         )
 
+        # v1.7.4.4: an entry whose date cannot be parsed is flagged here, on every
+        # load — not only during a main() sync run that happens to touch it — so
+        # the Archive Info Panel (or anything else calling _load_quality_log())
+        # sees it reliably, the same way a checksum mismatch already does.
+        if source == cfg.QUALITY_LOG_FILE:
+            bad_dates = sorted({
+                e["date"] for e in data.get("days", [])
+                if "date" in e and not _is_parseable_date(e["date"])
+            })
+            for bad in bad_dates:
+                msg = f"Skipping quality log entry with unparseable date: {bad!r}"
+                log.warning(f"  {msg}")
+                integrity_warnings.append(msg)
+
         data["integrity_warnings"] = integrity_warnings
         return data
 
     except Exception as e:
-        log.warning(f"  Could not read quality log: {e} — starting fresh.")
-        return {"first_day": None, "devices": [], "days": [], "integrity_warnings": []}
+        log.warning(f"  Could not read quality log: {e}")
+
+        # Recovery path only applies to quality_log.json itself — an
+        # unreadable legacy failed_days.json during migration keeps
+        # today's behaviour (out of scope for this roadmap item), including
+        # no integrity_warnings entry.
+        if source == cfg.QUALITY_LOG_FILE:
+            integrity_warnings = ["log unreadable"]
+            _save_unreadable_log(source)
+
+            restored = None
+            try:
+                import garmin_backup as _backup
+                restored = _backup.restore_quality_log()
+            except ImportError:
+                log.warning("  garmin_backup not available — skipping auto-restore.")
+            except Exception as restore_exc:
+                log.warning(f"  Auto-restore from unreadable log failed: {restore_exc}")
+
+            if restored is not None:
+                log.info("  quality_log.json restored from backup after read failure.")
+                restored["integrity_warnings"] = integrity_warnings
+                return restored
+
+            log.warning("  No valid backup found — starting fresh.")
+        else:
+            integrity_warnings = []
+            log.warning("  Starting fresh.")
+
+        return {
+            "first_day": None,
+            "devices": [],
+            "days": [],
+            "integrity_warnings": integrity_warnings,
+        }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -439,3 +503,24 @@ def _save_defective_log(data: dict) -> None:
         log.info(f"  Defective log saved to: {zip_path.name}")
     except Exception as e:
         log.warning(f"  Could not save defective log: {e}")
+
+
+def _save_unreadable_log(source_path) -> None:
+    """
+    Saves a raw copy of an unreadable quality_log.json (or legacy
+    failed_days.json) to AUTORESTORE_DIR before it gets overwritten by a
+    fresh/restored log. Mirrors _save_defective_log(), but copies the raw
+    bytes as-is rather than a parsed dict, since the source could not be
+    parsed as JSON. Filename: auto-restore-unreadable-YYYY-MM-DD.zip
+    Silently skips on any error — defective state preservation is best-effort.
+    """
+    try:
+        cfg.AUTORESTORE_DIR.mkdir(parents=True, exist_ok=True)
+        ts       = datetime.now().strftime("%Y-%m-%d")
+        zip_path = cfg.AUTORESTORE_DIR / f"auto-restore-unreadable-{ts}.zip"
+        payload  = source_path.read_bytes()
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("quality_log_unreadable.json", payload)
+        log.info(f"  Unreadable log saved to: {zip_path.name}")
+    except Exception as e:
+        log.warning(f"  Could not save unreadable log copy: {e}")

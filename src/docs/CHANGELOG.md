@@ -1,5 +1,102 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.4.0.4 — Mutation Testing Follow-Up: Six Behaviour Fixes
+
+v1.7.4.0.3 closed the test gaps a mutation test found in `src/garmin/`
+without changing production code; this round fixes the six real gaps
+that round's tests pinned as "current behaviour, not yet changed"
+(ROADMAP v1.7.4.1–v1.7.4.6). Each fix extends its own test contract —
+not just "doesn't break", but actually proves the new behaviour.
+
+**Quality Log — recovery from an unreadable file:** `_load_quality_log()`
+(`garmin/quality/_io.py`) used to silently start from an empty log if
+`quality_log.json` couldn't be parsed. It now saves a copy to
+`AUTORESTORE_DIR` first, then tries `restore_quality_log()` from the
+newest monthly backup (the same path a checksum mismatch already took);
+only if no valid backup exists does it fall back to the old behaviour.
+`integrity_warnings` is set in every case, including — after a design
+correction during implementation — for an unparsable `date` on any
+entry, checked on every load (not just once per sync) so the Archive
+Info panel's warning stays visible. `backup_quality_log()` now also
+refuses to overwrite a monthly snapshot with a log that has less than
+half its day count.
+
+**Backup — Force-Refetch now updates the consolidated ZIP:**
+`backup_raw(date, force=True)` / `backup_source(date, force=True)`
+always consolidated against the month of the fetched day itself, which
+that same consolidation step then skips as "already current month" —
+the force-replace branch was unreachable. Fixed identically in both
+`garmin_backup.py` and `garmin_backup_source.py`.
+
+**Mirror import — path validation and earlier date checks:** a
+container-supplied relative path that resolves outside `base_dir` now
+aborts the whole import (`_PathTraversalError`, fail-closed — a security
+signal, not an ordinary data error) instead of silently writing through
+it; the date is validated before any write instead of after; a stray
+`.tmp` file in the container is excluded from classification.
+
+**Collector — honest handling of bad quality-log entries and session
+limits:** `main()` now skips quality-log entries with an unparsable date
+when building its date sets, instead of letting `date.fromisoformat()`
+crash; a negative `GARMIN_MAX_DAYS_PER_SESSION` is rejected with a clear
+error instead of silently being treated as "unlimited"; a day can no
+longer be counted twice in one session; `_set_first_day()` skips a
+malformed device `first_used` value (logged) instead of accepting it
+and crashing a later `date.fromisoformat()`.
+
+**Schema migration — `raw/` stays untouched:** `_run_schema_migration()`
+recomputes and rewrites only `summary/` via a new `write_summary_only()`
+(`garmin_writer.py`), never `raw/` — `raw/` is historically frozen, only
+`summary/` is allowed to reflect a newer `normalize()`.
+
+**GDPR / bulk import — downgrade protection, malformed entries, stop
+respected:** `run_import()` now checks the stop event first in its loop
+(an import can actually be aborted mid-way); validates each day's date
+before any write (`except (ValueError, TypeError)` — a non-string date
+from a malformed export entry no longer crashes it); and reuses
+`_check_downgrade()` so an existing day that isn't worse than the
+imported one is protected, including equal quality from a non-API
+source. `garmin_import.py`'s four bulk-entry loops (UDS/Sleep/Readiness/
+Activities) now skip a malformed (non-object) entry with a warning
+instead of crashing.
+
+**Found and fixed during implementation, not part of the original six:**
+a checksum computed before migration defaults were applied vs. after
+caused a false mismatch (and a spurious restore) for any day entry
+without an explicit `source` field — fixed in `_compute_checksum()`
+(`source` now defaults to `"legacy"`, matching the load migration); a
+flaky test in `test_collector.py` (`LOG_FAIL_DIR` wasn't isolated like
+its neighbours, causing intermittent cross-test log collisions) is now
+isolated like the rest.
+
+**Changed modules:**
+- `garmin/quality/_io.py` — `_is_parseable_date()`, `_save_unreadable_log()`,
+  rebuilt `_load_quality_log()` except-branch, `_compute_checksum()`
+  `source` default fix
+- `garmin/quality/_maint.py` — `_set_first_day()` device-date validation
+- `garmin/garmin_backup.py`, `garmin/garmin_backup_source.py` —
+  Force-Refetch consolidation month fix; data-loss guard in
+  `backup_quality_log()`
+- `garmin/garmin_import_mirror.py` — `_PathTraversalError`,
+  `_safe_container_path()`, earlier date validation in both raw-import
+  variants
+- `garmin/garmin_container.py` — `.tmp` exclusion in `_classify_file()`
+- `garmin/garmin_collector.py` — `_valid_dated_entries()`, session-limit
+  guard, `_day_counted`, `run_import()` stop-check ordering, date
+  validation, downgrade protection
+- `garmin/garmin_writer.py` — new `write_summary_only()`
+- `garmin/garmin_import.py` — malformed-entry guards in all four bulk
+  loops
+- `tests/test_quality.py`, `test_backup.py`, `test_container_mirror.py`,
+  `test_import_mirror.py`, `test_collector.py`, `test_writer.py`,
+  `test_garmin_import.py`, `test_static.py` — extended to pin the new
+  behaviour, not just to avoid breaking on it
+
+**Test result:** all 27 suites green, repeated runs (incl. 8× for the
+previously flaky test) — no regressions.
+
+---
+
 ## v1.7.4.0.3 — mutation testing of `src/garmin/`: closing the test gaps (no release)
 
 A mutation test (Cosmic Ray, run locally) over `src/garmin/` showed which

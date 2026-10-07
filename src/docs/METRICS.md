@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-10-06 11:14 UTC · Version: 1.7.4.0.3
+Generated: 2026-10-07 06:34 UTC · Version: 1.7.4.0.4
 
 ## Test Counts
 
@@ -16,13 +16,13 @@ Generated: 2026-10-06 11:14 UTC · Version: 1.7.4.0.3
 | test_api_capability.py | 49 | 49 | 0 |
 | test_normalizer.py | 151 | 151 | 0 |
 | test_validator.py | 82 | 82 | 0 |
-| test_writer.py | 30 | 30 | 0 |
-| test_quality.py | 437 | 437 | 0 |
-| test_backup.py | 202 | 202 | 0 |
+| test_writer.py | 40 | 40 | 0 |
+| test_quality.py | 445 | 445 | 0 |
+| test_backup.py | 210 | 210 | 0 |
 | test_source_writer.py | 88 | 88 | 0 |
-| test_container_mirror.py | 116 | 116 | 0 |
-| test_import_mirror.py | 111 | 111 | 0 |
-| test_collector.py | 383 | 383 | 0 |
+| test_container_mirror.py | 117 | 117 | 0 |
+| test_import_mirror.py | 120 | 120 | 0 |
+| test_collector.py | 391 | 391 | 0 |
 | test_garmin_import.py | 68 | 68 | 0 |
 | test_api.py | 75 | 75 | 0 |
 | test_live_fetch.py | 44 | 44 | 0 |
@@ -44,7 +44,7 @@ Generated: 2026-10-06 11:14 UTC · Version: 1.7.4.0.3
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 17 | 17 | 0 |
-| **Total** | **4089** | **4089** | **0** |
+| **Total** | **4133** | **4133** | **0** |
 
 ## Modules
 
@@ -52,5 +52,5 @@ Total: 158 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-10-06 11:11 UTC · Findings: 0 · Whitelisted: 68
+Scanned: 2026-10-06 18:08 UTC · Findings: 0 · Whitelisted: 68
 

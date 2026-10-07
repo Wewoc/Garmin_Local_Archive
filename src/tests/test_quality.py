@@ -446,24 +446,61 @@ with _isolated_log_env("mismatch_norestore"):
     check("load: checksum mismatch and no valid backup -> warning raised, current log kept",
           d["integrity_warnings"] == ["log mismatch 2024"] and len(d["days"]) == 1)
 
-# Current behaviour for an unreadable file (Ist-Stand). To be replaced by the
-# recovery described in ROADMAP v1.7.4.1 (copy of the file, restore from backup).
-with _isolated_log_env("unreadable"):
+# Unreadable quality_log.json (ROADMAP v1.7.4.1): a copy of the unreadable
+# file is saved to AUTORESTORE_DIR, then a restore from the newest valid
+# monthly backup is attempted — same path a checksum mismatch already takes.
+# Only if no valid backup exists does the log fall back to empty/rebuilt
+# (prior behaviour). The migration-only failed_days.json read is excluded.
+import zipfile as _zf4b
+
+with _isolated_log_env("unreadable_restored"):
+    cfg.LOG_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    _snap = {"first_day": "2024-01-01", "devices": [],
+             "days": [{"date": "2024-01-01", "quality": "high", "write": True}]}
+    with _zf4b.ZipFile(cfg.LOG_BACKUP_DIR / "quality_log_2024-01.zip", "w") as _zf:
+        _zf.writestr("quality_log.json", json.dumps(_snap))
     cfg.QUALITY_LOG_FILE.write_text("{broken json", encoding="utf-8")
-    with patch.object(_q_backup_mod, "restore_quality_log") as _restore_mock:
+    d = quality._load_quality_log()
+    check("unreadable log + valid backup: restored days match the backup",
+          d["days"] == _snap["days"])
+    check("unreadable log + valid backup: integrity_warnings flags it",
+          d["integrity_warnings"] == ["log unreadable"])
+    _copies = list(cfg.AUTORESTORE_DIR.glob("auto-restore-unreadable-*.zip"))
+    check("unreadable log + valid backup: a copy of the broken file was saved",
+          len(_copies) == 1)
+    with _zf4b.ZipFile(_copies[0], "r") as _zf:
+        check("unreadable log + valid backup: the copy holds the original raw bytes",
+              _zf.read("quality_log_unreadable.json").decode("utf-8") == "{broken json")
+
+with _isolated_log_env("unreadable_norestore"):
+    cfg.QUALITY_LOG_FILE.write_text("{broken json", encoding="utf-8")
+    with patch.object(_q_backup_mod, "restore_quality_log", return_value=None):
         d = quality._load_quality_log()
-    check("Ist-Stand unreadable log: no crash, empty log with a 'days' list",
+    check("unreadable log, no backup: empty log, no crash",
           d["days"] == [] and d["first_day"] is None)
-    check("Ist-Stand unreadable log: no integrity warning is raised",
+    check("unreadable log, no backup: integrity_warnings flags it",
+          d["integrity_warnings"] == ["log unreadable"])
+    check("unreadable log, no backup: a copy was saved immediately, not only on next save",
+          len(list(cfg.AUTORESTORE_DIR.glob("auto-restore-unreadable-*.zip"))) == 1)
+
+with _isolated_log_env("unreadable_noimport"):
+    cfg.QUALITY_LOG_FILE.write_text("{broken json", encoding="utf-8")
+    with patch.dict(sys.modules, {"garmin_backup": None}):
+        d = quality._load_quality_log()
+    check("unreadable log, garmin_backup not importable: no crash, empty log",
+          d["days"] == [] and d["first_day"] is None)
+    check("unreadable log, garmin_backup not importable: integrity_warnings flags it",
+          d["integrity_warnings"] == ["log unreadable"])
+
+with _isolated_log_env("unreadable_migration_excluded"):
+    (cfg.LOG_DIR / "failed_days.json").write_text("{broken json", encoding="utf-8")
+    d = quality._load_quality_log()
+    check("unreadable legacy failed_days.json: migration case stays excluded, empty log",
+          d["days"] == [] and d["first_day"] is None)
+    check("unreadable legacy failed_days.json: no integrity warning for this case",
           d["integrity_warnings"] == [])
-    check("Ist-Stand unreadable log: restore from backup is not attempted",
-          not _restore_mock.called)
-    check("Ist-Stand unreadable log: loading alone leaves the file untouched",
-          cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8") == "{broken json")
-    quality._save_quality_log(d)
-    check("Ist-Stand unreadable log: the next save overwrites it, no copy is kept",
-          json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))["days"] == []
-          and not cfg.AUTORESTORE_DIR.exists())
+    check("unreadable legacy failed_days.json: no AUTORESTORE_DIR copy for this case",
+          not list(cfg.AUTORESTORE_DIR.glob("auto-restore-unreadable-*.zip")))
 
 
 # ── 4c. save paths ────────────────────────────────────────────────────────────
@@ -1517,9 +1554,17 @@ with patch.object(cfg, "SYNC_AUTO_FALLBACK", ""):
     check("4o first_day: the earliest known device date wins and the account is not asked",
           _data["first_day"] == "2024-01-05" and _cl.calls == 0)
     _data = {"devices": [{"first_used": "zzz"}], "days": []}
-    quality._set_first_day(_data, None)
-    check("4o first_day: every device value except 'unknown' is taken (no date format check here)",
-          _data["first_day"] == "zzz")
+    _, _c = _mlogged(quality._set_first_day, _data, None)
+    check("4o first_day: a malformed device value ('zzz') is ignored with a warning, first_day stays unset",
+          not _data.get("first_day")
+          and any(lv == "warning" and "zzz" in m for lv, m in _c))
+
+    _data = {"devices": [{"first_used": "0000-bad"}, {"first_used": "2023-07-07"}], "days": []}
+    _, _c = _mlogged(quality._set_first_day, _data, None)
+    check("4o first_day: with one malformed and one valid device date, the valid one wins "
+          "(not just because it happens to sort higher)",
+          _data["first_day"] == "2023-07-07"
+          and any(lv == "warning" and "0000-bad" in m for lv, m in _c))
     _data = {"devices": [{"first_used": "2023-05-05"}, {"first_used": "2024-01-05"}], "days": []}
     quality._set_first_day(_data, None)
     check("4o first_day: several device dates -> the earliest", _data["first_day"] == "2023-05-05")

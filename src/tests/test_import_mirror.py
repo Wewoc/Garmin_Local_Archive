@@ -231,11 +231,12 @@ with _isolated_log_env("imp_errors") as _b:
           .get("generated_by") == "garmin_normalizer.py")
     _ql = {e["date"] for e in quality._load_quality_log()["days"]}
     check("import: failed days get no quality log entry", _D3 not in _ql and _D4 not in _ql)
-    # Ist-Stand: the date is validated only after write_day() (ROADMAP v1.7.4.3).
-    check("Ist-Stand import: an invalid date still leaves a raw file behind",
-          (cfg.RAW_DIR / f"garmin_raw_{_BAD_DATE}.json").exists())
-    check("Ist-Stand import: ... and a summary file, but no quality log entry",
-          (cfg.SUMMARY_DIR / f"garmin_{_BAD_DATE}.json").exists() and _BAD_DATE not in _ql)
+    # Fixed contract (ROADMAP v1.7.4.3, Fall 2): the date is validated before
+    # write_day() — an invalid date leaves neither a raw nor a summary file.
+    check("import: an invalid date leaves no raw file behind",
+          not (cfg.RAW_DIR / f"garmin_raw_{_BAD_DATE}.json").exists())
+    check("import: ... no summary file either, and no quality log entry",
+          not (cfg.SUMMARY_DIR / f"garmin_{_BAD_DATE}.json").exists() and _BAD_DATE not in _ql)
 
 # a wrong password in a dry run, and an unexpected error while writing one day
 _r = _im.run_import_mirror(_arch, _M4H, "wrong password", dry_run=True)
@@ -288,7 +289,9 @@ with _isolated_log_env("imp_direct") as _b:
         _im._restore_device_table({"garmin_data/log/device_table.json": b"[]"}, _b)
     check("restore device_table: write failure -> no crash", True)
 
-# -- Ist-Stand: a container path can lead out of base_dir (ROADMAP v1.7.4.3) -----------
+# -- A container path that climbs out of base_dir aborts the whole import ---------------
+# (ROADMAP v1.7.4.3, Fall 1: fail closed, a rejected path is a security signal,
+# not an ordinary data error).
 _evil = _M4H / "evil.gla"
 _craft_container(_evil, _mirror_sections(
     days=[], context={"context_data/../../escaped_probe.json": _jb({"x": 1})}))
@@ -297,10 +300,67 @@ with _isolated_log_env("imp_escape") as _b:
     _archive = _b / "archive"
     _archive.mkdir()
     _r = _im.run_import_mirror(_evil, _archive, "pw")
-    check("Ist-Stand import: a container path that climbs out of base_dir is not rejected",
-          _r["ok"] == True and _r["context_copied"] == 1)
-    check("Ist-Stand import: ... and the file is written outside base_dir",
-          (_b / "escaped_probe.json").exists())
+    check("import: a container path that climbs out of base_dir aborts the whole import",
+          _r["ok"] == False and bool(_r.get("error")))
+    check("import: ... no context copy is reported",
+          "context_copied" not in _r or _r.get("context_copied", 0) == 0)
+    check("import: ... and the file was not written outside base_dir",
+          not (_b / "escaped_probe.json").exists())
+
+# -- Neu: Abbruch des gesamten Imports bei Fall 1 — ein gültiger raw-Tag im selben
+# Container darf nicht importiert werden, wenn ein anderer Eintrag einen
+# Path-Traversal-Versuch enthält (ROADMAP v1.7.4.3, Fall 1, Architektur-Entscheidung
+# "fail closed" statt "einen Fehler zählen und weitermachen").
+_evil_mixed = _M4H / "evil_mixed.gla"
+_craft_container(_evil_mixed, _mirror_sections(
+    days=[(_D1, "high", "bulk")],
+    raws={_D1: _day_raw(_D1, "high")},
+    context={"context_data/../../escaped_probe2.json": _jb({"x": 1})}))
+with _isolated_log_env("imp_escape_abort_all") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _archive = _b / "archive"
+    _archive.mkdir()
+    _r = _im.run_import_mirror(_evil_mixed, _archive, "pw")
+    check("new: a rejected path aborts the whole import (ok False, error set)",
+          _r["ok"] == False and bool(_r.get("error")))
+    check("new: ... the valid raw day from the same run was not imported",
+          _r.get("raw_copied", 0) == 0
+          and not (_archive / "garmin_data" / "raw" / f"garmin_raw_{_D1}.json").exists())
+    check("new: ... and the escaped file was not written outside base_dir",
+          not (_b / "escaped_probe2.json").exists())
+
+# -- Neu: ein bösartiger Pfad in den SOURCE-Daten löst denselben
+# Gesamtabbruch aus wie bei Context (ROADMAP v1.7.4.3, Fall 1) -----------
+_evil_src = _M4H / "evil_src.gla"
+_craft_container(_evil_src, _mirror_sections(
+    days=[(_D1, "high", "bulk")],
+    raws={_D1: _day_raw(_D1, "high")},
+    # garmin_data/source/ is two levels deep — it takes three '../' to actually
+    # climb out of base_dir (two would only resolve back to base_dir itself).
+    source={"garmin_data/source/../../../escaped_source_probe.json": _jb({"x": 1})}))
+with _isolated_log_env("imp_escape_src") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _archive = _b / "archive"
+    _archive.mkdir()
+    _r = _im.run_import_mirror(_evil_src, _archive, "pw")
+    check("new: a malicious SOURCE path aborts the whole import (ok False, error set)",
+          _r["ok"] == False and bool(_r.get("error")))
+    check("new: ... no raw day from the same run was written",
+          _r.get("raw_copied", 0) == 0
+          and not (_archive / "garmin_data" / "raw" / f"garmin_raw_{_D1}.json").exists())
+    check("new: ... and the escaped file was not written outside base_dir",
+          not (_b / "escaped_source_probe.json").exists())
+
+# -- Neu: derselbe Abbruch gilt auch für dry_run=True (GUI-Vorlauf) -------
+with _isolated_log_env("imp_escape_dry") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _archive = _b / "archive"
+    _archive.mkdir()
+    _r = _im.run_import_mirror(_evil, _archive, "pw", dry_run=True)
+    check("new: dry_run also aborts on a rejected path (ok False, error set)",
+          _r["ok"] == False and bool(_r.get("error")))
+    check("new: ... nothing is written in dry_run (no file outside base_dir)",
+          not (_b / "escaped_probe.json").exists())
 
 # -- legacy folder import ----------------------------------------------------------------
 def _mirror_folder(root, days, raw_for=(), context=(), meta=True, qlog=True):
@@ -358,9 +418,10 @@ with _isolated_log_env("imp_folder") as _b:
                          .read_text(encoding="utf-8")) == {"temp": 7})
     check("folder import: a day without raw file and an invalid date count as errors",
           _r["errors"] == 2 and _r["ok"] == False)
-    # Ist-Stand: same as the container import, write_day() runs before the date check.
-    check("Ist-Stand folder import: an invalid date still leaves a raw file behind",
-          (cfg.RAW_DIR / f"garmin_raw_{_BAD_DATE}.json").exists()
+    # Fixed contract (ROADMAP v1.7.4.3, Fall 2): same fix as the container import —
+    # the date is validated before write_day(), so an invalid date leaves no raw file.
+    check("folder import: an invalid date leaves no raw file behind",
+          not (cfg.RAW_DIR / f"garmin_raw_{_BAD_DATE}.json").exists()
           and _BAD_DATE not in {e["date"] for e in quality._load_quality_log()["days"]})
 
     check("folder import: context delta lists only existing sub folders",

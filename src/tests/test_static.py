@@ -203,7 +203,9 @@ _SILENT_HANDLER_BASELINE = {
     "garmin/garmin_import_mirror.py": 5,
     "garmin/garmin_backup.py":        0,
     "garmin/garmin_security.py":      0,
-    "garmin/garmin_writer.py":        2,
+    "garmin/garmin_writer.py":        3,  # v1.7.4.5: write_summary_only() mirrors
+                                          # write_day()'s existing best-effort .tmp
+                                          # cleanup (except OSError: pass) 1:1
 }
 
 for _rel, _baseline in _SILENT_HANDLER_BASELINE.items():
