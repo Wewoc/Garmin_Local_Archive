@@ -528,65 +528,153 @@ def query_fit_activities(field: str, date_from: str, date_to: str,
     return mcp_map.query_fit_activities(field, date_from, date_to, resolution)
 
 
+# ── query_raw: previous docstring (replaced v1.7.5.1) ──
+# Not part of the MCP tool description — the docstring below is what
+# mcp.tool() exposes to the calling LLM. Kept for future sessions.
+# Note (v1.7.5.1): the text below promised field/domain filtering that the
+# SQLite path (the only active one) does not apply — see ROADMAP.md
+# v1.7.5.2 and the Ist-Stand check in tests/test_mcp.py. The new docstring
+# states this limitation instead.
+#
+# Query raw, unprocessed archive data for a passthrough field over a
+# date range. domain restricts the query to one domain ("health",
+# "fit", "context") — omit to search all domains.
+# ────────────────────────────────────────────────────────
 @mcp.tool()
 def query_raw(field: str, date_from: str, date_to: str,
               domain: str | None = None) -> dict:
-    """Query raw, unprocessed archive data for a passthrough field over a
-    date range. domain restricts the query to one domain ("health",
-    "fit", "context") — omit to search all domains."""
+    """Query archived Garmin data as stored in raw/, without value
+    extraction, for fields the processed tools cannot reduce to a daily
+    value (lists, event logs). Interpreting the content is up to the
+    caller, and no units are provided. Use query_health instead whenever
+    the data you need exists there.
+
+    field: one of the raw field names (health domain only; these are NOT
+    listed by list_available_fields): daily_weigh_ins,
+    menstrual_calendar_data, pregnancy_summary, lifestyle_logging_data,
+    nutrition_daily_food_log, nutrition_daily_meals,
+    nutrition_daily_settings, floors, intensity_minutes_data,
+    body_battery_events, lactate_threshold, running_tolerance.
+    date_from/date_to: ISO "YYYY-MM-DD", inclusive. domain: only "health"
+    holds raw data.
+
+    Known limitation: field and domain are currently not applied. Every
+    call returns all cached raw fields of the health domain for the date
+    range, so the response can be large — pick the entry you need from the
+    result — and an unknown field name is not reported as an error.
+
+    Result: {"health": {field: {"values": [{"date": ..., "raw": ...}],
+    "source_resolution": "raw"}}}. A day with no stored data has no entry.
+    Read-only; does not change the archive."""
     if _route_query("raw") == "sqlite":
         return mcp_sql.get_raw_range(date_from, date_to)
     return mcp_map.query_raw(field, date_from, date_to, domain=domain)
 
 
+# ── get_archive_metadata: previous docstring (replaced v1.7.5.1) ──
+# Not part of the MCP tool description — the docstring below is what
+# mcp.tool() exposes to the calling LLM. Kept for future sessions.
+# Note (v1.7.5.1): the v1.7.1.16 paragraph and the "Live path" paragraph
+# below describe the LIVE branch (30-day default + "note"), which is not
+# the one taken today (_route_query() pins every query to SQLite).
+#
+# Request archive-state metadata. kind selects the artefact:
+# "stats" (coverage/quality overview — use this for "how big/healthy
+# is my archive" questions), "device_table", "quality_log",
+# "source_api_log", "token_log", "capability_config", "daily_logs",
+# "fail_logs", "recent_logs".
+#
+# date_from/date_to (ISO "YYYY-MM-DD", inclusive) optionally narrow
+# "quality_log", "source_api_log", "daily_logs", "fail_logs", and
+# "recent_logs" to a date range — ignored for the other four kinds.
+#
+# v1.7.1.16 clarification (no behavior change): the 30-day-default-
+# plus-"note" convenience described below only exists on the LIVE
+# path (mcp_map.get_archive_metadata() -> metadata_map.py). On the
+# SQLite-cached path (mcp_sql.get_metadata_range() — the one actually
+# taken today, see _route_query()), omitting both dates for one of
+# the five date-filterable kinds instead returns an empty result with
+# no "note" at all; this is deliberate on that path (see
+# mcp_sql.get_metadata_range()'s own docstring: "no 30-day-default
+# fallback in this cache read"), not a bug — but the difference was
+# previously undocumented at this public tool's own docstring level.
+#
+# Live path: omit both to get the last 30 days of that kind rather
+# than the full archive history; the response then includes a "note"
+# field saying so. Pass both explicitly for a specific or wider range
+# on either path.
+# ────────────────────────────────────────────────────────
 @mcp.tool()
 def get_archive_metadata(kind: str, date_from: str | None = None,
                           date_to: str | None = None) -> dict:
-    """Request archive-state metadata. kind selects the artefact:
-    "stats" (coverage/quality overview — use this for "how big/healthy
-    is my archive" questions), "device_table", "quality_log",
-    "source_api_log", "token_log", "capability_config", "daily_logs",
-    "fail_logs", "recent_logs".
+    """Read archive-state metadata: how complete and healthy the archive is,
+    plus sync and quality logs. kind selects the artefact:
+    - "stats": small coverage/quality overview (total, high/standard/failed
+      counts, date range, coverage_pct, last sync, integrity warnings). Use
+      this for "how big/complete/healthy is my archive" questions.
+    - "device_table": devices seen in the archive, with date range and
+      number of days each.
+    - "quality_log": per-day quality register.
+    - "source_api_log": one record per data fetch (time, source, validator
+      status, endpoints fetched).
+    - "token_log": token events (created/invalidated/blocked/valid), never
+      token contents.
+    - "capability_config": which optional Garmin endpoints are enabled
+      (may be empty).
+    - "daily_logs", "fail_logs", "recent_logs": sanitized sync log lines,
+      one entry per log file.
 
-    date_from/date_to (ISO "YYYY-MM-DD", inclusive) optionally narrow
-    "quality_log", "source_api_log", "daily_logs", "fail_logs", and
-    "recent_logs" to a date range — ignored for the other four kinds.
+    date_from/date_to (ISO "YYYY-MM-DD", inclusive) are needed for
+    "quality_log", "source_api_log", "daily_logs", "fail_logs" and
+    "recent_logs": without both dates these return an empty result (no
+    error, no default range). They are ignored for the other kinds. The
+    log kinds are large (a single week of daily_logs is several hundred
+    KB), so request only the days you need and prefer "stats" for
+    overview questions.
 
-    v1.7.1.16 clarification (no behavior change): the 30-day-default-
-    plus-"note" convenience described below only exists on the LIVE
-    path (mcp_map.get_archive_metadata() -> metadata_map.py). On the
-    SQLite-cached path (mcp_sql.get_metadata_range() — the one actually
-    taken today, see _route_query()), omitting both dates for one of
-    the five date-filterable kinds instead returns an empty result with
-    no "note" at all; this is deliberate on that path (see
-    mcp_sql.get_metadata_range()'s own docstring: "no 30-day-default
-    fallback in this cache read"), not a bug — but the difference was
-    previously undocumented at this public tool's own docstring level.
-
-    Live path: omit both to get the last 30 days of that kind rather
-    than the full archive history; the response then includes a "note"
-    field saying so. Pass both explicitly for a specific or wider range
-    on either path."""
+    Result: {"data": ..., "error": None}. An unknown kind raises an error."""
     if _route_query("metadata") == "sqlite":
         return mcp_sql.get_metadata_range(kind, date_from=date_from, date_to=date_to)
     return mcp_map.get_archive_metadata(kind, date_from=date_from, date_to=date_to)
 
 
+# ── list_available_fields: previous docstring (replaced v1.7.5.1) ──
+# Not part of the MCP tool description — the docstring below is what
+# mcp.tool() exposes to the calling LLM. Kept for future sessions.
+# The v1.7.1.6 paragraph below documents the "units" key; the new
+# docstring describes it in its current form.
+#
+# List all queryable fields, grouped by domain and source. Use this
+# first if the set of available fields is unknown — omit domain for a
+# full overview, or pass "health"/"context"/"fit" to narrow it.
+#
+# v1.7.1.6 unit field (this session): the result gains a "units" key
+# alongside the existing "fields" key — a flat {field_name: unit}
+# dict covering every field returned under "fields" for the requested
+# domain(s). Additive only: "fields" itself keeps its original shape
+# unchanged (a nested {domain: {source: [field, ...]}} name list), so
+# existing callers reading "fields" (e.g. mcp_context.py's
+# _resolve_context_bundle(), which iterates the plain name lists) are
+# unaffected. See FIELD_UNITS in mcp_field_registry.py for the unit
+# values and their source.
+# ────────────────────────────────────────────────────────
 @mcp.tool()
 def list_available_fields(domain: str | None = None) -> dict:
-    """List all queryable fields, grouped by domain and source. Use this
-    first if the set of available fields is unknown — omit domain for a
-    full overview, or pass "health"/"context"/"fit" to narrow it.
+    """List the queryable fields, grouped by domain and source. Call this
+    first when the exact field name for query_health or query_context is
+    unknown (the fields of query_raw are not listed here; they are named in
+    that tool's description). Omit domain for the full overview, or pass
+    "health" or "context" to narrow it — the narrowed result is much
+    smaller. "fit" returns an empty list (not available yet); an unknown
+    domain returns no fields rather than an error.
 
-    v1.7.1.6 unit field (this session): the result gains a "units" key
-    alongside the existing "fields" key — a flat {field_name: unit}
-    dict covering every field returned under "fields" for the requested
-    domain(s). Additive only: "fields" itself keeps its original shape
-    unchanged (a nested {domain: {source: [field, ...]}} name list), so
-    existing callers reading "fields" (e.g. mcp_context.py's
-    _resolve_context_bundle(), which iterates the plain name lists) are
-    unaffected. See FIELD_UNITS in mcp_field_registry.py for the unit
-    values and their source."""
+    Result: "domains" (the domain names), "metadata_kinds" (the archive-
+    state kinds get_archive_metadata works with), "fields"
+    ({domain: {source: [field, ...]}}; an empty list for "fit") and
+    "units" ({field: unit} covering every field returned; values such as
+    "index" or "text" mark fields without a physical unit). A field name
+    ending in "_series" holds an intraday timeseries; any other name holds
+    one value per day."""
     if _route_query("fields") == "sqlite":
         # Stöpsel, same principle as query_fit_activities' branch above —
         # list_available_fields() reflects the code's own field

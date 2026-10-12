@@ -739,6 +739,18 @@ _all_registered_kinds = _expected_kinds | {"raw_file_hashes"}
 check("list_metadata_kinds: matches the registered kind set exactly",
       set(gateway_map.list_metadata_kinds()) == _all_registered_kinds)
 
+# v1.7.5.1 Schritt 5: include_internal=False hides the five kinds registered
+# for the SQLite proxy's internal sync only; the default stays the full set.
+_internal_only = {
+    "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
+    "raw_file_hashes", "context_resync_pending",
+}
+check("list_metadata_kinds(include_internal=False): omits exactly the internal-sync-only kinds",
+      set(gateway_map.list_metadata_kinds(include_internal=False))
+      == _all_registered_kinds - _internal_only)
+check("list_metadata_kinds: default is unchanged (include_internal=True)",
+      gateway_map.list_metadata_kinds() == gateway_map.list_metadata_kinds(include_internal=True))
+
 for _kind in sorted(_expected_kinds):
     _result = gateway_map.get_metadata(_kind)
     check(f"get_metadata({_kind!r}): returns data/error envelope",

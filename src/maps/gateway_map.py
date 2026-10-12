@@ -188,6 +188,17 @@ _DATE_FILTERABLE_KINDS = {
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
 }
 
+# Kinds registered above for the SQLite proxy's internal sync only
+# (clients/mcp_update.py) — not among the nine LLM-facing kinds and not
+# accepted by get_archive_metadata() on the SQLite path
+# (clients/mcp_sql.py::get_metadata_range() raises ValueError for them).
+# Used by list_metadata_kinds(include_internal=False) so the MCP overview
+# does not advertise kinds the tool then rejects.
+_INTERNAL_ONLY_KINDS = {
+    "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
+    "raw_file_hashes", "context_resync_pending",
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Public interface
@@ -357,16 +368,27 @@ def get_metadata(kind: str, date_from: str | None = None,
     return _METADATA_KINDS[kind]()
 
 
-def list_metadata_kinds() -> list[str]:
-    """Return all known metadata kind keys."""
-    return list(_METADATA_KINDS.keys())
+def list_metadata_kinds(include_internal: bool = True) -> list[str]:
+    """Return all known metadata kind keys.
+
+    include_internal=False omits the kinds registered for the SQLite
+    proxy's internal sync only (_INTERNAL_ONLY_KINDS) — those are not
+    accepted by the MCP tool get_archive_metadata(), so an MCP-facing
+    overview (mcp_map.list_available_fields()) must not advertise them.
+    The default stays True so every existing caller sees the unchanged,
+    full registry.
+    """
+    if include_internal:
+        return list(_METADATA_KINDS.keys())
+    return [k for k in _METADATA_KINDS if k not in _INTERNAL_ONLY_KINDS]
 
 
 def get_raw(field: str, date_from: str, date_to: str,
             domain: str | None = None) -> dict:
     """
     Request a raw-passthrough field from one or all registered domain
-    brokers. Same fan-out shape as get(), but for unprocessed data — see
+    brokers. Same fan-out shape as get(), but for data as archived in raw/ (no value
+    extraction) — see
     garmin_health_map.get_raw() for the rationale (v1.6.8). Only "health"
     currently supports raw-passthrough; other domains degrade gracefully
     rather than hard-failing, same principle as get()'s "fit" handling.

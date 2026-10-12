@@ -102,8 +102,8 @@ result = health_get_raw(field, date_from, date_to, source="garmin")
 
 Separate from `get()`/`list_fields()` by design — see `REFERENCE_GARMIN.md`
 → "Raw-passthrough fields" for the rationale. Returns the archived `raw/`
-payload for a Capability-Scan endpoint **unprocessed** — no `"value"`
-extraction, the caller interprets the structure itself. `source` defaults
+payload for a Capability-Scan endpoint as archived (no `"value"`
+extraction), the caller interprets the structure itself. `source` defaults
 to `"garmin"`, the only source currently registered for raw-passthrough.
 
 `list_raw_fields(source="garmin")` returns the registered raw-field names
@@ -356,7 +356,7 @@ for the Composite-field-type evaluation that led to this choice.
 Not part of `list_fields()`/`get()` — a deliberately separate access path,
 see `health_map.get_raw()` above and `REFERENCE_GARMIN.md` →
 "Raw-passthrough fields" for the rationale. No unit/description column —
-these are unprocessed Garmin payloads, structure varies per endpoint, the
+these are Garmin payloads as archived in `raw/` (no value extraction), structure varies per endpoint, the
 caller interprets them.
 
 | Field | Source endpoint |

@@ -515,7 +515,7 @@ Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gate
 python tests/test_broker.py
 ```
 
-No network, no GUI, no API calls. Routing-contract checks for `health_map` and `gateway_map` — moved out of `test_dashboard.py` (v1.6.9.2), where they sat mixed in with Dashboard-specific specialist/plotter tests. `context_map`'s own fan-out routing (multi-source `get()`, KeyError-skip, per-source exception degrade, `list_fields()`/`list_sources()`) gained dedicated coverage in Section 1b — closes the gap noted above. `gateway_map`'s `_expected_kinds`/metadata-kind envelope loop covers the new `"context_resync_pending"` kind (v1.7.2.3, `maps/metadata_map.get_context_resync_pending()`) alongside the pre-existing ones. Check and section totals are tracked in `docs/METRICS.md` (`tests/test_broker.py`) — not restated here to avoid drift.
+No network, no GUI, no API calls. Routing-contract checks for `health_map` and `gateway_map` — moved out of `test_dashboard.py` (v1.6.9.2), where they sat mixed in with Dashboard-specific specialist/plotter tests. `context_map`'s own fan-out routing (multi-source `get()`, KeyError-skip, per-source exception degrade, `list_fields()`/`list_sources()`) gained dedicated coverage in Section 1b — closes the gap noted above. `gateway_map`'s `_expected_kinds`/metadata-kind envelope loop covers the new `"context_resync_pending"` kind (v1.7.2.3, `maps/metadata_map.get_context_resync_pending()`) alongside the pre-existing ones; `list_metadata_kinds(include_internal=False)` is pinned to omit exactly the five internal-sync-only kinds while the default stays the full registry (v1.7.5.1). Check and section totals are tracked in `docs/METRICS.md` (`tests/test_broker.py`) — not restated here to avoid drift.
 
 Run after any change to: `health_map`, `context_map`, `gateway_map`, `garmin_health_map` (routing target), `weather_map`/`pollen_map`/`brightsky_map`/`airquality_map` (context_map's own routing targets).
 
@@ -593,6 +593,23 @@ unresolvable `field_a`/`field_b` (prefixed error, `did_you_mean` when
 available), and out-of-range `lag_days`. Section 18 calls `correlate()`
 through `mcp_server.correlate()` directly, same registered-tool-call
 pattern as Section 16.
+
+**Section 8a-ter added (v1.7.5.1)** — pins the tool descriptions the MCP
+SDK exposes to LLM clients. Looped over every registered tool, so a future
+tool is covered automatically: description non-empty and at most 2000
+characters, no internal references (note files, version numbers, module
+names — heuristic regex list, extend it when a new kind of reference
+shows up). Targeted checks: `query_raw` names exactly the registered
+raw-passthrough fields (parsed from the text between "listed by
+list_available_fields):" and "date_from/date_to" — a reworded text makes
+this check go red on purpose, adjust text and pattern together) and does
+not call the data "unprocessed" or "normalized"; `get_archive_metadata`
+names all nine accepted kinds and none of the five internal-sync-only
+ones; `query_health`/`query_context`/`query_raw` point to their sibling
+tools. Sections 6 and 8 additionally check that `list_available_fields()`'s
+`metadata_kinds` omits the five internal-sync-only kinds and equals the set
+`mcp_sql.get_metadata_range()` accepts — compared against the kind sets, not
+by calling it (the real SQLite file has no tables at that point in the run).
 
 Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
 `gateway_map` (routing targets), `clients/mcp_sql.py`,

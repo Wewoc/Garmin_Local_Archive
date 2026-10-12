@@ -72,6 +72,11 @@ get_archive_metadata(kind, date_from=None, date_to=None) -> dict
 list_available_fields(domain=None) -> dict
 # {"domains": [...], "metadata_kinds": [...],
 #  "fields": {"health": {...}, "context": {...}, "fit": []}}
+# "metadata_kinds" lists only the nine LLM-facing kinds
+# (gateway_map.list_metadata_kinds(include_internal=False)) — the five
+# kinds registered for the SQLite proxy's internal sync (the three
+# *_filenames kinds, raw_file_hashes, context_resync_pending) are left out,
+# since get_archive_metadata() rejects them on the SQLite path (v1.7.5.1).
 
 # Internal sync use only, NOT registered as MCP tools in
 # clients/mcp_server.py — clients/mcp_update.py is the only intended

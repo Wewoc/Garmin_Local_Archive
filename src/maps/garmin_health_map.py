@@ -478,7 +478,7 @@ _FIELD_MAP = {
 #  (list-of-entries structure, empty/unknown schema at Timo's account, or
 #  event-log structure) — see NOTES_v168_D_01.md "Blocker-Typen" for the
 #  per-field reasoning. Rather than leave them archived-but-unreachable,
-#  they are exposed unprocessed via get_raw()/list_raw_fields() — separate
+#  they are exposed as archived in raw/ (no value extraction) via get_raw()/list_raw_fields() — separate
 #  from get()/list_fields() so existing dashboards (which assume a scalar
 #  "value") are structurally unaffected. Interpretation is the caller's
 #  responsibility. Status: open for community feedback, see GitHub issue
@@ -1006,9 +1006,11 @@ def list_raw_fields() -> list[str]:
 
 def get_raw(field: str, date_from: str, date_to: str) -> dict:
     """
-    Return the unprocessed raw/ payload for a Capability-Scan endpoint,
-    without interpretation. Unlike get(), there is no "value" extraction —
-    the caller receives exactly what Garmin returned for that day, and is
+    Return the archived raw/ entry for a Capability-Scan endpoint,
+    without interpretation. raw/ is the normalized silo, but for
+    API-fetched days the normalizer passes endpoint payloads through
+    unchanged, so this is the endpoint response as Garmin delivered it.
+    Unlike get(), there is no "value" extraction — the caller is
     responsible for interpreting it. See REFERENCE_BROKER.md
     "Raw-Passthrough-Felder" for the rationale.
 
