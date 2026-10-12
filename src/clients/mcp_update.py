@@ -89,6 +89,7 @@ import datetime
 import json
 import logging
 import socket
+import statistics
 import threading
 from pathlib import Path
 
@@ -115,6 +116,36 @@ _RECENT_LOG_KINDS = ["daily_logs", "fail_logs", "recent_logs"]
 # intraday-availability window that constant governs (Timo confirmed,
 # NOTES_v1.7.1.1_session2.md — no prev_high-style coupling for raw).
 RAW_RETRY_WINDOW_DAYS = 14
+
+# v1.7.5 Block A — rolling baseline/anomaly recompute. BASELINE_WINDOW_DAYS
+# mirrors dashboards/health_garmin_html-json_dash.py's BASELINE_DAYS (the
+# reference implementation this was ported from) — the width of the
+# rolling window a single day's baseline is averaged over.
+# BASELINE_RECOMPUTE_DAYS is deliberately wider than BASELINE_WINDOW_DAYS:
+# it is the pauschal "how far back do we redo this on every sync" fix for
+# the cache-staleness risk ROADMAP.md names (a backfill/correction landing
+# on day D can only affect baselines for days D+1..D+90 — recomputing the
+# last 140 days on every pass covers a correction anywhere inside the
+# known ~140-day intraday-retention window, not just within the baseline
+# window itself; Timo-Entscheidung, 2026-10-07, see PROTOKOLL.md same
+# date — deliberately no targeted invalidation, no automatic detection of
+# older corrections, documented as a manual-reset-only limitation instead).
+# BASELINE_STDEV_MULTIPLIER (mean +/- N*stdev) is the width of the
+# statistical reference range anomaly_flag is judged against — unrelated
+# to the dashboard's own age/fitness-adjusted ref_low/ref_high (those come
+# from layouts/reference_ranges.py and need profile data this sync layer
+# has no access to; Timo confirmed the two are intentionally different
+# concepts, 2026-10-07). N=3 (~99.7% of a normal distribution), not the
+# more common N=2 (~95%) — vital-sign day-to-day variance (HRV, resting
+# HR, sleep) is itself substantial and biologically normal, so N=2 would
+# flag roughly 1 in 20 days per field as "anomalous" purely from natural
+# noise; N=3 cuts that false-positive rate to roughly 1 in 300 (Timo,
+# 2026-10-07: "+-2 ist für Vitalwerte etwas eng gefasst"). Always relative
+# to each field's OWN stdev (computed fresh per field below), never a
+# shared absolute threshold across fields of different units/scales.
+BASELINE_WINDOW_DAYS = 90
+BASELINE_RECOMPUTE_DAYS = 140
+BASELINE_STDEV_MULTIPLIER = 3
 
 # Maps each of the three recent-log kinds to the matching filename-only
 # introspection function and the matching content-reading function on
@@ -406,6 +437,129 @@ def _sync_health_days() -> tuple[int, int]:
             logger.warning("Health day %s failed to sync, skipping: %s", day, exc)
             failed += 1
             continue
+
+    return updated, failed
+
+
+def _sync_health_baselines() -> tuple[int, int]:
+    """
+    v1.7.5 Block A: rolling baseline/anomaly recompute, pauschal over
+    the last BASELINE_RECOMPUTE_DAYS days on every sync pass (see the
+    constants' own comments above for why — cache-staleness fix,
+    Timo-Entscheidung 2026-10-07). Anchored on the archive's own
+    date_max, not wall-clock "today", so a sync run against an archive
+    that is itself not fully up to date still recomputes relative to
+    the data that actually exists.
+
+    Reads only from the already-synced mcp_health_days cache via
+    mcp_sql.get_health_range() (one range read covering
+    BASELINE_RECOMPUTE_DAYS + BASELINE_WINDOW_DAYS days, not a
+    per-day/per-field live query) — never the live archive directly,
+    same "SQLite is the only read path for this sync layer" principle
+    _sync_health_days() already follows for its own writes. Everything
+    this function writes is therefore fully reconstructible from
+    mcp_health_days alone, which is itself fully reconstructible from
+    the live archive (see mcp_sql.py's own module docstring) — a lost
+    mcp_cache.db loses nothing this function would need to recreate.
+
+    *_series (intraday) fields are skipped — a rolling daily average
+    over a minute-by-minute timeseries is not a meaningful "baseline".
+    Categorical/text-valued fields (e.g. sleep_score_feedback,
+    hrv_status) are also effectively excluded — their values are
+    filtered out at read time (see values_by_field construction below),
+    so they always end up with an empty window (baseline_avg/ref_low/
+    ref_high/anomaly_flag all None), never attempted against
+    statistics.mean()/stdev(), which would raise on a non-numeric value
+    (found via a real-archive run, 2026-10-07).
+
+    A field/day with fewer than 2 values in its 90-day window gets
+    ref_low/ref_high/anomaly_flag all None (not enough data to judge,
+    distinct from "judged and found normal") — baseline_avg can still
+    be a plain mean down to a single available value.
+
+    Returns (entries_updated, entries_failed) — same per-unit failure
+    surfacing principle as every other _sync_* function in this module;
+    one failing (day, field) combination is logged and skipped, it
+    never aborts the rest of the pass.
+    """
+    stats_result = mcp_map.get_archive_metadata("stats")
+    date_max = stats_result["data"]["date_max"]
+    if date_max is None:
+        return 0, 0  # empty archive — nothing to sync
+
+    anchor = datetime.date.fromisoformat(date_max)
+    recompute_from = anchor - datetime.timedelta(days=BASELINE_RECOMPUTE_DAYS - 1)
+    window_start = recompute_from - datetime.timedelta(days=BASELINE_WINDOW_DAYS)
+
+    fields_result = mcp_map.list_available_fields(domain="health")
+    field_names = [
+        f for f in fields_result["fields"]["health"].get("garmin", [])
+        if not f.endswith("_series")
+    ]
+
+    range_result = mcp_sql.get_health_range(window_start.isoformat(), date_max)
+    values_by_field: dict[str, dict[str, float]] = {}
+    for field in field_names:
+        field_result = range_result["health"].get(field, {})
+        values_by_field[field] = {
+            v["date"]: v["value"]
+            for v in field_result.get("values", [])
+            # v["value"] is not None: no entry for this day. isinstance check
+            # (2026-10-07, real-archive run): several health fields are
+            # categorical/text, not numeric (e.g. sleep_score_feedback,
+            # sleep_score_qualifier, hrv_status, hrv_feedback) — a rolling
+            # mean/stdev is meaningless for them and statistics.mean()/
+            # stdev() raise on a non-numeric value. Filtered out here, once,
+            # rather than guarded separately at every later read site (window
+            # building and the day's own value both read through this same
+            # dict) -- isinstance(..., bool) excluded too since bool is a
+            # subclass of int in Python and no health field is boolean-valued.
+            if v.get("value") is not None
+            and isinstance(v["value"], (int, float))
+            and not isinstance(v["value"], bool)
+        }
+
+    recompute_dates = [
+        (recompute_from + datetime.timedelta(days=i)).isoformat()
+        for i in range(BASELINE_RECOMPUTE_DAYS)
+    ]
+
+    updated = 0
+    failed = 0
+    for field in field_names:
+        by_date = values_by_field.get(field, {})
+        for day in recompute_dates:
+            try:
+                d = datetime.date.fromisoformat(day)
+                window = [
+                    by_date[prior_day]
+                    for i in range(1, BASELINE_WINDOW_DAYS + 1)
+                    if (prior_day := (d - datetime.timedelta(days=i)).isoformat()) in by_date
+                ]
+
+                baseline_avg = round(statistics.mean(window), 2) if window else None
+                if len(window) >= 2:
+                    spread = statistics.stdev(window) * BASELINE_STDEV_MULTIPLIER
+                    ref_low = round(baseline_avg - spread, 2)
+                    ref_high = round(baseline_avg + spread, 2)
+                else:
+                    ref_low = None
+                    ref_high = None
+
+                day_value = by_date.get(day)
+                if day_value is None or ref_low is None:
+                    anomaly_flag = None
+                else:
+                    anomaly_flag = day_value < ref_low or day_value > ref_high
+
+                mcp_sql.upsert_health_baseline(
+                    day, field, baseline_avg, ref_low, ref_high, anomaly_flag)
+                updated += 1
+            except Exception as exc:
+                logger.warning(
+                    "Baseline for %s/%s failed to sync, skipping: %s", field, day, exc)
+                failed += 1
+                continue
 
     return updated, failed
 
@@ -807,6 +961,10 @@ def sync_all(is_boot: bool = False) -> dict:
         {
             "health_days_updated": int,
             "health_days_failed": int,
+            "baselines_updated": int,         # v1.7.5 Block A — pauschal
+                                               # recompute count, last
+                                               # BASELINE_RECOMPUTE_DAYS days
+            "baselines_failed": int,
             "context_days_updated": int,
             "context_days_failed": int,
             "fit_days_updated": int,          # always 0 — FIT stub
@@ -864,6 +1022,7 @@ def sync_all(is_boot: bool = False) -> dict:
             field_registry_resets = _reconcile_field_registry()
 
             health_days_updated, health_days_failed = _sync_health_days()
+            baselines_updated, baselines_failed = _sync_health_baselines()
             context_days_updated, context_days_failed = _sync_context_days()
             raw_days_touched, raw_fields_failed = _sync_raw_fields()
 
@@ -894,6 +1053,8 @@ def sync_all(is_boot: bool = False) -> dict:
             result = {
                 "health_days_updated": health_days_updated,
                 "health_days_failed": health_days_failed,
+                "baselines_updated": baselines_updated,
+                "baselines_failed": baselines_failed,
                 "context_days_updated": context_days_updated,
                 "context_days_failed": context_days_failed,
                 "fit_days_updated": 0,

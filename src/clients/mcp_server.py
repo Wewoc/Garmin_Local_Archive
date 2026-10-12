@@ -498,6 +498,17 @@ from mcp_context import query_context  # noqa: E402 — after mcp = FastMCP(...)
 query_context = mcp.tool()(query_context)
 
 
+# baselines/anomalies/gaps (v1.7.5 Block A) / correlate (v1.7.5 Block B)
+# added in clients/mcp_stats.py. Same programmatic-registration
+# reasoning as query_health/query_context above — see those comments
+# for the full rationale.
+from mcp_stats import baselines, anomalies, gaps, correlate  # noqa: E402 — after mcp = FastMCP(...) construction, v1.7.5
+baselines = mcp.tool()(baselines)
+anomalies = mcp.tool()(anomalies)
+gaps = mcp.tool()(gaps)
+correlate = mcp.tool()(correlate)
+
+
 
 @mcp.tool()
 def query_fit_activities(field: str, date_from: str, date_to: str,

@@ -764,6 +764,24 @@ Running without the main app:
   right after a sync if you want the very latest data available
   immediately instead of waiting for the next restart.
 
+  Baselines and anomalies (v1.7.5): your LLM client can ask "is
+  anything unusual in my recent HRV/heart rate/sleep" -- this
+  compares each day against your own personal 90-day average rather
+  than a fixed medical threshold, and is recalculated automatically
+  for the last ~140 days on every sync. If you ever correct or
+  backfill health data from further back than that (rare), the
+  affected days won't update on their own -- delete
+  sqlite/mcp_cache.db and restart the server to force a complete
+  refresh, same as for any other cache question above.
+
+  Correlations (v1.7.5): your LLM client can ask whether two things
+  move together over time -- "does pollen affect my HRV", "is my
+  stress higher a few days before I sleep badly" -- across any
+  combination of health and context fields, with an optional day
+  shift for "does X today predict Y a few days later" questions.
+  This is always computed fresh when asked, not cached, so it always
+  reflects your latest synced data.
+
 Don't have your own archive yet? A synthetic 180-day demo archive (ZIP
 + its own README, fictional data clearly marked as such) is available
 from the project's GitHub repo under src/support-tools/demo-export/ --

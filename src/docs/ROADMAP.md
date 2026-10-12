@@ -6,80 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.4.0.4**
-
----
-
-### v1.7.5 — MCP Statistical Support Functions
-
-Two independent statistical support features for the MCP layer: correlation
-analysis, baseline/anomaly detection, and gap detection. Split into two building
-blocks with different computation characteristics — one precomputed at
-sync time, one computed at query time.
-
-**Block A — Baseline / Anomaly / Gaps (precomputed, `mcp_update` + `mcp_sql`)**
-
-Per-day, per-field values that depend only on a fixed lookback window —
-same shape as the existing rolling-baseline logic in
-`dashboards/health_garmin_html-json_dash.py` (`_rolling_avg()`,
-`BASELINE_DAYS = 90`) and the existing `missing_days` gap detection in
-`context/context_silo_check.py`.
-
-- New columns on the existing SQLite day cache: `baseline_avg`,
-  `ref_low`/`ref_high`, `anomaly_flag` per field
-- Computed once per sync in `clients/mcp_update.py`, alongside the existing
-  `sync_all()` pass — no new sync trigger
-- Gap detection extended from context-only (`missing_days`) to health
-  fields, same mechanism
-- New MCP tools: `baselines(field, date_from, date_to)`,
-  `anomalies(field, date_from, date_to)`, `gaps(domain, date_from, date_to)`
-  — `anomalies()` reports both single-day outliers (z-score deviation) and
-  streaks (>=5 consecutive days on one side of the mean), computed on
-  the same already-loaded time series, no extra query
-
-**Known risk — cache staleness (must be solved, not deferred):**
-the existing SQLite cache only rebuilds a day's row when that day's own
-`quality_log` `compare_value` changes (documented limitation,
-`REFERENCE_BROKER.md`). A rolling baseline depends on the preceding 90
-days, not just its own day — a backfill/repair five days earlier would
-silently leave a day's baseline stale under the current invalidation
-logic. Fix must ship with this block, e.g. always recomputing the last
-`BASELINE_DAYS` rows on every sync pass rather than relying on
-per-day `compare_value` diffing.
-
-**Block B — Correlate (query-time, new `clients/mcp_stats.py`)**
-
-Pearson/Spearman correlation with lag support (-7 to +7 days) between two
-arbitrary fields over an arbitrary date range — cannot be precomputed
-(combinatorial field-pair × lag space, unbounded date ranges requested by
-the LLM). Sits alongside `mcp_health.py`/`mcp_context.py` architecturally,
-reads via the existing `query_health`/`query_context`/`gateway_map` path,
-no new broker.
-
-- New module `clients/mcp_stats.py` — `correlate(field_a, field_b,
-  date_from, date_to, lag_days=0)`, registered as a new MCP tool in
-  `clients/mcp_server.py`, same registration pattern as `query_health`/
-  `query_context` (imported, then `mcp.tool()(correlate)`, to avoid the
-  same circular-import issue documented for those two)
-- `field_a`/`field_b` resolve through the same decision order as
-  `query_health()`/`query_context()` (alias tables, ambiguity check,
-  `difflib` fuzzy match — see `mcp_field_registry.py`) — no separate,
-  second field-name resolution dialect inside this new module
-- No SQL/cache involvement — computed fresh per call
-
-**What changes:**
-- `clients/mcp_update.py` — baseline/anomaly/gap computation added to
-  `sync_all()`
-- `clients/mcp_sql.py` — new columns on the day-cache schema
-- `clients/mcp_server.py` — four new tool registrations
-  (`baselines`, `anomalies`, `gaps`, `correlate`)
-- New file `clients/mcp_stats.py`
-
-**What does not change:**
-- Broker Layer (`health_map`/`context_map`/`gateway_map`) — untouched,
-  both blocks read through existing contracts
-- Dashboard Layer — unaffected; `_rolling_avg()` in the dashboard module
-  is not imported, only used as the reference implementation to port from.
+**Currently stable — v1.7.5**
 
 ---
 
@@ -117,6 +44,83 @@ above).
 - `clients/mcp_health.py`, `clients/mcp_context.py`, `clients/mcp_server.py`
   (`query_raw` is defined directly there) — docstrings restructured, no
   behavior change
+
+`query_raw`'s docstring split does NOT include fixing the field/domain
+filter gap below — see v1.7.5.2. The split should disclose that gap
+honestly (a short note, with a pointer to v1.7.5.2) rather than describe
+filtering behavior the current SQLite path does not actually have.
+
+---
+
+### v1.7.5.2 — query_raw field/domain filter gap (SQLite path)
+
+Found 2026-10-07 while scoping v1.7.5.1's docstring work (see
+PROTOKOLL.md same date). `query_raw(field, date_from, date_to, domain)`
+promises, in its own docstring, that `domain` restricts the search and
+`field` selects one passthrough field. On the SQLite path
+(`clients/mcp_server.py::query_raw()` calling
+`mcp_sql.get_raw_range(date_from, date_to)`), neither argument is
+forwarded — `get_raw_range()` itself takes no `field`/`domain`
+parameter at all and always returns every cached raw field for the
+"health" domain only (`clients/mcp_sql.py`'s own docstring: "Only the
+'health' domain is populated"). Since `_route_query()`
+(`clients/mcp_query_common.py`) hard-pins every query kind to
+`"sqlite"` today, this is not a dormant edge case on an unused branch —
+it is the only code path `query_raw()` actually ever takes.
+
+**Current behavior (pinned by an Ist-Stand check, `tests/test_mcp.py`,
+"Ist-Stand: query_raw (SQLite path) ignores field/domain"):** a request
+for one specific field returns every cached raw health field,
+unfiltered; a `domain="context"` or `domain="fit"` request silently
+returns health data instead of context/fit data or an empty/error
+result.
+
+**Planned behavior:** `get_raw_range()` gains a `field` filter
+parameter (same filtering principle `get_health_range()`/
+`get_context_range()` already apply, v1.7.1.1/.3), and `query_raw()`
+passes its own `field` argument through on the SQLite path, matching
+what the docstring already promises. `domain` handling needs its own
+decision — today `mcp_raw_fields` only ever holds health data, so a
+`domain="context"`/`"fit"` request has no data to return regardless;
+whether that should become an explicit error (clearer to the caller)
+or stay a silently-empty result is an open point for the Bauauftrag.
+
+**What changes:**
+- `clients/mcp_sql.py` — `get_raw_range()` gains a `field` parameter
+- `clients/mcp_server.py` — `query_raw()` forwards `field` (and decides
+  how to handle `domain` on the SQLite path)
+
+---
+
+### v1.7.5.3 — "stress_index" near-match resolves to the wrong field
+
+Found 2026-10-12 while analyzing a real LLM test run against `correlate()`
+(mcp_test, Lauf 26, question catalog `question_catalog_blockB_correlate_full.py`).
+`"stress"` is already a registered ambiguous alias (`HEALTH_FIELD_AMBIGUOUS`,
+`mcp_field_registry.py`) resolving to a `did_you_mean` between `stress_avg`/
+`stress_series` — but `"stress_index"` does not match that key exactly and
+falls through to the `difflib.get_close_matches(cutoff=0.65)` near-match
+step instead, which picks purely by string distance.
+
+**Current behavior (pinned by an Ist-Stand check):** `"stress_index"`
+silently resolves to `stress_max`, verified directly against the real
+candidate list:
+```python
+difflib.get_close_matches("stress_index", [...], cutoff=0.65)  # -> ['stress_max']
+```
+`stress_avg` would be the semantically closer field, but `difflib` has no
+semantic notion of "index" vs. "average" vs. "maximum" — this is a correct
+resolution by the existing algorithm's own rules, just not the field a
+user likely meant. No crash, no empty result — visible only via
+`_meta.field_used` if one looks for it.
+
+**Planned behavior:** add `"stress_index"` as an explicit alias entry in
+`HEALTH_FIELD_ALIASES` pointing at the same ambiguous `"stress"` handling
+(or directly at `stress_avg`, decision for the Bauauftrag) rather than
+letting it fall through to the near-match step.
+
+**What changes:**
+- `clients/mcp_field_registry.py` — one new `HEALTH_FIELD_ALIASES` entry
 
 ---
 

@@ -45,6 +45,100 @@ from mcp_field_registry import (
 from mcp_query_common import _route_query, _enrich_with_units
 
 
+def resolve_health_field(field: str) -> dict:
+    """
+    Resolves a caller-supplied health field name to its canonical
+    registered name — the same alias/ambiguity/cross-domain/near-match
+    decision order query_health() applies before dispatching a query
+    (v1.7.1.9/.12, see that function's own docstring for the full
+    history/rationale of each step). Extracted (2026-10-07, v1.7.5) so
+    clients/mcp_stats.py's baselines()/anomalies() can resolve a field
+    name the same way query_health() does, instead of requiring an
+    exact canonical name — found necessary via a real LLM test run
+    where most models naturally said "hrv"/"body_battery" rather than
+    the canonical "hrv_last_night"/"body_battery_max", which those two
+    tools previously could not resolve at all (PROTOKOLL.md, 2026-10-07,
+    "Reihenfolge-Korrektur: Feldauflösungs-Extraktion vorgezogen").
+
+    Deliberately excludes two things query_health() itself still
+    handles before/around this function, not inside it:
+      - the "sleep_score" fan-out (not a field rename, a different
+        multi-field merged response shape)
+      - building the final response envelope ("health"/"_meta" keys) —
+        this function is response-envelope-agnostic by design, so a
+        caller with a different envelope (e.g. mcp_stats.py's
+        baselines()/anomalies()) can use the same resolution logic.
+
+    Returns one of:
+      {"resolved_field": str, "field_resolved_from": str | None,
+       "field_used": str | None} — field_resolved_from/field_used are
+      both None when `field` was already the exact canonical name (no
+      substitution happened); both set to the same pair query_health()
+      already uses when an alias/near-match substitution happened.
+      {"error": str, "did_you_mean": list[str] | None} — resolution
+      failed; caller must not proceed to a data query. did_you_mean is
+      only present when difflib found candidates.
+
+    Case-insensitive (2026-10-07, same real LLM test run as the
+    extraction itself): every registry/field name in this codebase is
+    lowercase (verified, no exception), so the caller-supplied field is
+    lowercased once, up front, for every lookup below — "HRV" now
+    resolves exactly like "hrv". A case-only correction counts as a
+    substitution (field_resolved_from/field_used set), same as an
+    alias or near-match hit, since the caller's original input was not
+    used verbatim.
+    """
+    original_field = field
+    field = field.lower()
+
+    if field in HEALTH_FIELD_ALIASES:
+        resolved_field = HEALTH_FIELD_ALIASES[field]
+        return {"resolved_field": resolved_field,
+                "field_resolved_from": original_field, "field_used": resolved_field}
+
+    if field in HEALTH_FIELD_AMBIGUOUS:
+        candidates = HEALTH_FIELD_AMBIGUOUS[field]
+        return {
+            "error": (
+                f"field {field!r} is ambiguous between a daily value and "
+                f"a time series -- please specify one of: "
+                f"{', '.join(candidates)}"
+            ),
+            "did_you_mean": candidates,
+        }
+
+    if field in _CONTEXT_CATEGORY_BUNDLES:
+        return {"error": f"field {field!r} belongs to query_context, not query_health"}
+
+    known_health_fields = set(
+        mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
+    )
+    known_context_fields: set[str] = set()
+    for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+        known_context_fields.update(_source_fields)
+
+    if field not in known_health_fields and field in known_context_fields:
+        return {"error": f"field {field!r} belongs to query_context, not query_health"}
+
+    if field not in known_health_fields:
+        close_matches = difflib.get_close_matches(
+            field, known_health_fields, n=3, cutoff=0.65
+        )
+        if len(close_matches) == 1:
+            resolved_field = close_matches[0]
+            return {"resolved_field": resolved_field,
+                    "field_resolved_from": original_field, "field_used": resolved_field}
+
+        result = {"error": f"unknown field {field!r}"}
+        if close_matches:
+            result["did_you_mean"] = close_matches
+        return result
+
+    if field != original_field:
+        return {"resolved_field": field, "field_resolved_from": original_field, "field_used": field}
+    return {"resolved_field": field, "field_resolved_from": None, "field_used": None}
+
+
 def query_health(field: str, date_from: str, date_to: str,
                   resolution: str = "daily") -> dict:
     """Query Garmin health data (e.g. heart rate, sleep, stress, body
@@ -176,121 +270,28 @@ def query_health(field: str, date_from: str, date_to: str,
         result["_meta"]["field_resolved_from"] = "sleep_score"
         return _enrich_with_units(result, "health")
 
-    if field in HEALTH_FIELD_ALIASES:
-        resolved_field = HEALTH_FIELD_ALIASES[field]
-        if _route_query("health") == "sqlite":
-            result = mcp_sql.get_health_range(date_from, date_to, field=resolved_field)
-        else:
-            result = mcp_map.query_health(resolved_field, date_from, date_to, resolution)
-        result.setdefault("_meta", {})
-        result["_meta"]["field_resolved_from"] = field
-        result["_meta"]["field_used"] = resolved_field
-        return _enrich_with_units(result, "health")
-
-    if field in HEALTH_FIELD_AMBIGUOUS:
-        # v1.7.1.12 -- checked here, BEFORE the bundle/difflib logic
-        # below, same ordering principle as HEALTH_FIELD_ALIASES above
-        # (a known-ambiguous hit is more certain than letting it fall
-        # through to whatever difflib happens to resolve at the current
-        # cutoff). NOT resolved -- no field_used/field_resolved_from,
-        # the caller must re-ask with the exact name. See
-        # HEALTH_FIELD_AMBIGUOUS's own comment above for why "spo2" and
-        # "stress" are here and "respiration" deliberately is not.
-        candidates = HEALTH_FIELD_AMBIGUOUS[field]
-        return {
-            "health": {},
-            "error": (
-                f"field {field!r} is ambiguous between a daily value and "
-                f"a time series -- please specify one of: "
-                f"{', '.join(candidates)}"
-            ),
-            "did_you_mean": candidates,
-            "_meta": {},
-        }
-
-    if field in _CONTEXT_CATEGORY_BUNDLES:
-        # A bundle name (e.g. "weather") is a query_context-only
-        # concept -- it is never itself a registered health field, so
-        # without this check it would silently fall through to outcome
-        # 3 below and likely produce a did_you_mean suggestion against
-        # unrelated health fields. Routed to the same domain-confusion
-        # error as outcome 2, since a bundle name IS something
-        # query_context understands, just not under this tool.
-        return {
-            "health": {},
-            "error": f"field {field!r} belongs to query_context, not query_health",
-            "_meta": {},
-        }
-
-    known_health_fields = set(
-        mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
-    )
-
-    # v1.7.1.12 -- Domain-Einordnung VOR dem Aehnlichkeitsvergleich
-    # (Timo-Entscheidung, siehe NOTES_v1.7.1.12.md Ziel 5): known_
-    # context_fields wird jetzt hier, VOR dem difflib-Block, berechnet
-    # und geprueft -- vorher lief dieser Check erst NACH dem
-    # len(close_matches)==1-Zweig, wodurch ein exaktes, registriertes
-    # Context-Feld bei cutoff=0.65 regelmaessig faelschlich auf ein
-    # aehnlich benanntes Health-Feld auto-resolved wurde, BEVOR die
-    # Domain-Confusion-Pruefung ueberhaupt erreicht werden konnte
-    # (z.B. "sunshine_duration" -> faelschlich "sleep_duration",
-    # "pressure_avg"/"pressure_avg_series" -> faelschlich "stress_avg"/
-    # "stress_series"). Ein Feld, das exakt in der anderen Domain
-    # registriert ist, wird jetzt sofort korrekt eingeordnet, ohne dass
-    # difflib je die Chance bekommt es zuerst der falschen Domain
-    # zuzuordnen -- Einordnung vor Aehnlichkeitsvergleich, nicht danach.
-    known_context_fields: set[str] = set()
-    for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
-        known_context_fields.update(_source_fields)
-
-    if field not in known_health_fields and field in known_context_fields:
-        return {
-            "health": {},
-            "error": f"field {field!r} belongs to query_context, not query_health",
-            "_meta": {},
-        }
-
-    if field not in known_health_fields:
-        # v1.7.1.11 Session 5 (Testlauf, 2026-09-09) -- cutoff testweise
-        # von 0.8 auf 0.65 gesenkt, um empirisch zu pruefen, ob sich
-        # damit mehr echte Nahtreffer (z.B. steps -> steps_series,
-        # Wortumstellungen wie min_temperature -> temperature_min)
-        # zuverlaessig aufloesen lassen, ohne unerwuenschte
-        # Fehltreffer bei kurzen/generischen Feldnamen zu erzeugen.
-        # Kalibriert gegen die 25 haeufigsten requested/expected-
-        # Diskrepanzen aus Lauf 11 (context-Domaene): 0.65 deckt ~52%
-        # der gewichteten Faelle ab (0.80: ~5%), mit dem groessten
-        # Einzelsprung gegenueber 0.70. Reiner Testwert fuer diese
-        # Session -- KEINE endgueltige Entscheidung. Vor v1.7.1.10
-        # wurde eine generelle Cutoff-Absenkung bereits einmal geprueft
-        # und wegen Fehltreffer-Risiko bewusst verworfen -- dieser
-        # Lauf soll das empirisch nachpruefen, nicht ueberschreiben.
-        close_matches = difflib.get_close_matches(
-            field, known_health_fields, n=3, cutoff=0.65
-        )
-        if len(close_matches) == 1:
-            resolved_field = close_matches[0]
-            if _route_query("health") == "sqlite":
-                result = mcp_sql.get_health_range(date_from, date_to, field=resolved_field)
-            else:
-                result = mcp_map.query_health(resolved_field, date_from, date_to, resolution)
-            result.setdefault("_meta", {})
-            result["_meta"]["field_resolved_from"] = field
-            result["_meta"]["field_used"] = resolved_field
-            return _enrich_with_units(result, "health")
-
+    # v1.7.5 -- resolution logic extracted to resolve_health_field()
+    # (see that function's own docstring for why and for the exact
+    # decision order, unchanged from before this extraction) so
+    # clients/mcp_stats.py's baselines()/anomalies() can reuse it.
+    resolution_result = resolve_health_field(field)
+    if "error" in resolution_result:
         error_result = {
             "health": {},
-            "error": f"unknown field {field!r}",
+            "error": resolution_result["error"],
             "_meta": {},
         }
-        if close_matches:
-            error_result["did_you_mean"] = close_matches
+        if "did_you_mean" in resolution_result:
+            error_result["did_you_mean"] = resolution_result["did_you_mean"]
         return error_result
 
+    resolved_field = resolution_result["resolved_field"]
     if _route_query("health") == "sqlite":
-        result = mcp_sql.get_health_range(date_from, date_to, field=field)
+        result = mcp_sql.get_health_range(date_from, date_to, field=resolved_field)
     else:
-        result = mcp_map.query_health(field, date_from, date_to, resolution)
+        result = mcp_map.query_health(resolved_field, date_from, date_to, resolution)
+    result.setdefault("_meta", {})
+    if resolution_result["field_resolved_from"] is not None:
+        result["_meta"]["field_resolved_from"] = resolution_result["field_resolved_from"]
+        result["_meta"]["field_used"] = resolution_result["field_used"]
     return _enrich_with_units(result, "health")

@@ -1,5 +1,88 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.5 — MCP Statistical Support Functions
+
+Two new statistical capabilities for the MCP layer, split by computation
+timing. **Block A** (precomputed at sync time): rolling 90-day baseline
+and statistical reference range (`baseline_avg +/- 3` standard
+deviations) per health field/day, plus anomaly/streak detection and gap
+detection extended from context-only to health. **Block B** (computed at
+query time, new `clients/mcp_stats.py` module): Pearson and Spearman
+correlation with lag support (-7 to +7 days) between any two fields,
+health or context, any combination — e.g. "does pollen affect my HRV",
+computed fresh per call, no new cache.
+
+New MCP tools: `baselines(field, date_from, date_to)`,
+`anomalies(field, date_from, date_to)`, `gaps(domain, date_from, date_to)`,
+`correlate(field_a, field_b, date_from, date_to, lag_days=0)`.
+
+**Cache-staleness fix shipped with Block A:** the existing SQLite cache
+only rebuilt a day's row when that day's own `quality_log` `compare_value`
+changed — insufficient for a rolling baseline that depends on the
+preceding 90 days, not just its own day. Fixed by always recomputing the
+last 140 days' baselines on every sync pass rather than relying on
+per-day diffing.
+
+**Found and fixed during a real-archive/real-LLM sanity run (unit tests
+with mocked data alone missed both):**
+- `_sync_health_baselines()` crashed on categorical health fields
+  (`sleep_score_feedback`, `hrv_status`, etc. — non-numeric values
+  can't go through `statistics.mean()`/`stdev()`). Fixed by filtering
+  to numeric, non-bool values before computing.
+- `baselines()`/`anomalies()` had no field-alias resolution at all,
+  unlike `query_health()` — a real multi-model test run showed this
+  silently failing for the large majority of HRV/Body-Battery requests
+  (models naturally said "hrv"/"body_battery", not the canonical field
+  names). Fixed by extracting the existing alias/ambiguity/cross-domain/
+  near-match logic out of `query_health()`/`query_context()` into
+  reusable `resolve_health_field()`/`resolve_context_field()` functions,
+  now called by `baselines()`/`anomalies()`/`correlate()` as well.
+  Also found and fixed in the same pass: an uppercase field name
+  ("HRV") didn't resolve even though the lowercase form did — both
+  resolvers now normalize case first.
+- `correlate()`'s own first implementation assumed context fields
+  always return in one flattened shape; `_fetch_context_field()` only
+  returns that shape for the `wind_speed_max` source-collision case,
+  nesting one level deeper by source for every other field. Every
+  cross-domain (Health x Context) correlation silently returned
+  `data_points: 0` until fixed via a new `_extract_context_values()`
+  helper handling both shapes.
+
+**New modules:**
+- `clients/mcp_stats.py` — `baselines()`, `anomalies()`, `gaps()`,
+  `correlate()`
+- New `mcp_test/` question catalogs: `question_catalog_blockA_stats_full.py`
+  (14 questions), `question_catalog_blockB_correlate_full.py` (9 questions)
+
+**Changed modules:**
+- `clients/mcp_sql.py` — new `mcp_health_baselines` table,
+  `upsert_health_baseline()`/`get_health_baselines_range()`, gap-detection
+  helpers (`_compute_health_gaps()`/`_compute_context_gaps()`/
+  `get_gaps_range()`)
+- `clients/mcp_update.py` — `_sync_health_baselines()` wired into
+  `sync_all()`
+- `clients/mcp_health.py` — `resolve_health_field()` extracted; case
+  normalization
+- `clients/mcp_context.py` — `resolve_context_field()` extracted; case
+  normalization
+- `clients/mcp_server.py` — four new tool registrations (`baselines`,
+  `anomalies`, `gaps`, `correlate`)
+- `compiler/build_manifest.py` — `clients/mcp_stats.py` added
+  (SHARED_SCRIPTS + signatures)
+- `docs/REFERENCE_MCP.md`, `docs/MAINTENANCE_GLOBAL.md`,
+  `docs/USER_GUIDE.txt` — new tool documentation
+- `version.py` — `1.7.4.0.4` → `1.7.5`
+
+**Test result:** all 34 suites green, 4177 checks total
+(`test_mcp.py` 275/275, `test_static.py` 17/17, `test_updater.py`
+93/93 included). Real end-to-end verification against a live archive
+plus three real multi-model LLM test runs (Läufe 25/25-2/26, 3-5
+Ollama models x 2 prompt variants each) using the two new question
+catalogs — full detail in `mcp_test/MCP_TESTLAUF_BERICHT_FINAL.md`
+Teil F and `mcp_test/Stuff/reports/lauf25-26_report_v175_blockA-blockB-statistik-tools.md`.
+
+---
+
 ## v1.7.4.0.4 — Mutation Testing Follow-Up: Six Behaviour Fixes
 
 v1.7.4.0.3 closed the test gaps a mutation test found in `src/garmin/`

@@ -40,6 +40,7 @@ Calendar dates used in Section 7 verified against a real calendar:
 2026-03-01 is a Sunday, 2026-03-02 is a Monday.
 """
 
+import datetime
 import json
 import os
 import sys
@@ -301,12 +302,16 @@ _registered_names = {t.name for t in _registered_tools}
 # sync trigger). list_daily_log_filenames()/list_fail_log_filenames()/
 # list_recent_log_filenames() are deliberately NOT registered here —
 # internal sync-only functions, see NOTES_v1.7.1_session2.md.
-check("mcp_server: exactly seven tools registered", len(_registered_tools) == 7)
-check("mcp_server: registered tool names match mcp_map.py 1:1, plus refresh_cache",
+#
+# v1.7.5 Block A — baselines()/anomalies()/gaps() added as three more
+# tools (clients/mcp_stats.py), ten total. v1.7.5 Block B — correlate()
+# added as an eleventh.
+check("mcp_server: exactly eleven tools registered", len(_registered_tools) == 11)
+check("mcp_server: registered tool names match mcp_map.py 1:1, plus refresh_cache/baselines/anomalies/gaps/correlate",
       _registered_names == {
           "query_health", "query_context", "query_fit_activities",
           "query_raw", "get_archive_metadata", "list_available_fields",
-          "refresh_cache",
+          "refresh_cache", "baselines", "anomalies", "gaps", "correlate",
       })
 
 # ── 8a-bis. unit field (v1.7.1.6) — mcp_server.list_available_fields() ───────
@@ -869,6 +874,25 @@ with patch("mcp_sql.get_raw_range", return_value={"health": {}, "_meta": {}}) as
     _m_sql.assert_called_once_with("2000-01-01", "2000-01-01")
     _m_live.assert_not_called()
 check("mcp_server.query_raw: SQLite branch calls mcp_sql.get_raw_range, not mcp_map", True)
+
+# Ist-Stand (v1.7.5.1 Fund, 2026-10-07): the assertion above already shows
+# get_raw_range() is called with only (date_from, date_to) — neither
+# `field` nor `domain` is forwarded, and get_raw_range() itself accepts
+# neither parameter (see clients/mcp_sql.py's own docstring, "Only the
+# 'health' domain is populated"). Since _route_query() hard-pins every
+# query to the SQLite branch today (clients/mcp_query_common.py), this is
+# not a dormant edge case — it is query_raw()'s actual, only-ever-taken
+# code path. This check pins today's behavior (a request for one specific
+# field returns every cached raw field, unfiltered) without fixing it —
+# see ROADMAP.md, "query_raw field/domain filter gap (SQLite path)" for
+# the planned fix.
+with patch("mcp_sql.get_raw_range", return_value={
+        "health": {"floors": {"values": []}, "steps_series": {"values": []}},
+        "_meta": {}}):
+    _qr_unfiltered = mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain="health")
+check("Ist-Stand: query_raw (SQLite path) ignores field/domain — returns "
+      "fields beyond the one requested",
+      "steps_series" in _qr_unfiltered.get("health", {}))
 
 with patch("mcp_sql.get_metadata_range", return_value={"data": {}, "error": None}) as _m_sql, \
      patch("maps.mcp_map.get_archive_metadata") as _m_live:
@@ -1857,6 +1881,446 @@ _ack_keys_t2 = {(e["date"], e["source"], e["marked_at"]) for e in _ack_after_t2[
 check("_apply_pending_context_resync (11g): stale T1 ack entry pruned once "
       "superseded by T2 (ack does not grow without bound)",
       _ack_keys_t2 == {("2026-05-01", "weather", "T2")})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  12. clients/mcp_sql.py — get_gaps_range() edge cases (v1.7.5 Block A)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Real SQLite DB (same shared connection sections 10-11 already use),
+# not mocked — these are pure DB-read primitives, cheap and
+# deterministic to exercise for real.
+
+section("mcp_sql 12. get_gaps_range() — health/context edge cases")
+
+# "standard" quality must NOT count as a gap — only None (no entry at
+# all) or "failed" do (see _compute_health_gaps()'s own docstring).
+mcp_sql.upsert_structured_log_entry(
+    "quality_log", "2026-04-01", {"date": "2026-04-01", "quality": "standard"}, "q1")
+mcp_sql.upsert_structured_log_entry(
+    "quality_log", "2026-04-02", {"date": "2026-04-02", "quality": "failed"}, "q2")
+# 2026-04-03 intentionally left with no quality_log row at all.
+_health_gaps = mcp_sql.get_gaps_range("health", "2026-04-01", "2026-04-03")
+check("get_gaps_range health: 'standard' quality is NOT a gap",
+      "2026-04-01" not in _health_gaps["gaps"])
+check("get_gaps_range health: 'failed' quality IS a gap",
+      "2026-04-02" in _health_gaps["gaps"])
+check("get_gaps_range health: a day with no quality_log row at all IS a gap",
+      "2026-04-03" in _health_gaps["gaps"])
+
+# Context: attempted-but-not-complete (one source tried, nothing
+# delivered) must NOT count as a gap — only an empty attempted_sources
+# set (or no row at all) does (see _compute_context_gaps()'s docstring).
+mcp_sql.upsert_context_day("2026-04-01", {}, complete_sources=set(),
+                            attempted_sources={"weather"})
+mcp_sql.upsert_context_day("2026-04-02", {}, complete_sources=set(),
+                            attempted_sources=set())
+_context_gaps = mcp_sql.get_gaps_range("context", "2026-04-01", "2026-04-03")
+check("get_gaps_range context: attempted-but-empty-result is NOT a gap",
+      "2026-04-01" not in _context_gaps["gaps"])
+check("get_gaps_range context: empty attempted_sources IS a gap",
+      "2026-04-02" in _context_gaps["gaps"])
+check("get_gaps_range context: a day with no row at all IS a gap",
+      "2026-04-03" in _context_gaps["gaps"])
+
+_fit_gaps = mcp_sql.get_gaps_range("fit", "2026-04-01", "2026-04-03")
+check("get_gaps_range fit: degrades to empty gaps + explicit error",
+      _fit_gaps["gaps"] == [] and _fit_gaps["error"] == "domain not yet available")
+
+try:
+    mcp_sql.get_gaps_range("banana", "2026-04-01", "2026-04-03")
+    check("get_gaps_range: unknown domain raises ValueError", False)
+except ValueError:
+    check("get_gaps_range: unknown domain raises ValueError", True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  13. clients/mcp_sql.py — baseline CRUD edge cases (v1.7.5 Block A)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("mcp_sql 13. upsert_health_baseline()/get_health_baselines_range() — edge cases")
+
+mcp_sql.upsert_health_baseline("2026-04-10", "hrv_last_night", 55.0, 45.0, 65.0, False)
+mcp_sql.upsert_health_baseline("2026-04-10", "resting_heart_rate", 60.0, 50.0, 70.0, True)
+mcp_sql.upsert_health_baseline("2026-04-11", "hrv_last_night", 56.0, None, None, None)
+
+_filtered = mcp_sql.get_health_baselines_range("2026-04-10", "2026-04-11", field="hrv_last_night")
+check("get_health_baselines_range: field filter excludes other fields",
+      "resting_heart_rate" not in _filtered["health_baselines"])
+check("get_health_baselines_range: field filter keeps the requested field",
+      "hrv_last_night" in _filtered["health_baselines"])
+
+_entries_by_date = {
+    v["date"]: v for v in _filtered["health_baselines"]["hrv_last_night"]["values"]
+}
+check("upsert_health_baseline: anomaly_flag False round-trips as False (not None/0)",
+      _entries_by_date["2026-04-10"]["anomaly_flag"] is False)
+check("upsert_health_baseline: anomaly_flag None round-trips as None (not-enough-data, "
+      "distinct from 'judged normal')",
+      _entries_by_date["2026-04-11"]["anomaly_flag"] is None)
+check("upsert_health_baseline: ref_low/ref_high None round-trip as None",
+      _entries_by_date["2026-04-11"]["ref_low"] is None and
+      _entries_by_date["2026-04-11"]["ref_high"] is None)
+
+_unfiltered = mcp_sql.get_health_baselines_range("2026-04-10", "2026-04-10")
+check("get_health_baselines_range: no field filter returns every field for the day",
+      {"hrv_last_night", "resting_heart_rate"} <= set(_unfiltered["health_baselines"]))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  14. clients/mcp_update.py — _sync_health_baselines() edge cases (v1.7.5 Block A)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("mcp_update 14. _sync_health_baselines() — edge cases")
+
+with patch("mcp_update.mcp_map.get_archive_metadata", return_value={"data": {"date_max": None}}):
+    _empty_updated, _empty_failed = mcp_update._sync_health_baselines()
+check("_sync_health_baselines: empty archive (date_max=None) returns (0, 0)",
+      _empty_updated == 0 and _empty_failed == 0)
+
+_anchor = "2026-04-20"
+with patch("mcp_update.mcp_map.get_archive_metadata",
+           return_value={"data": {"date_max": _anchor}}), \
+     patch("mcp_update.mcp_map.list_available_fields",
+           return_value={"fields": {"health": {"garmin": [
+               "hrv_last_night", "heart_rate_series"]}}}), \
+     patch("mcp_update.mcp_sql.get_health_range",
+           return_value={"health": {}}):  # no cached values for any field at all
+    _calls_no_data = []
+    with patch("mcp_update.mcp_sql.upsert_health_baseline",
+               side_effect=lambda *a: _calls_no_data.append(a)):
+        _nodata_updated, _nodata_failed = mcp_update._sync_health_baselines()
+_anchor_call = [c for c in _calls_no_data if c[0] == _anchor and c[1] == "hrv_last_night"][0]
+check("_sync_health_baselines: field with zero data in window -> baseline_avg None",
+      _anchor_call[2] is None)
+check("_sync_health_baselines: field with zero data in window -> ref_low/ref_high/"
+      "anomaly_flag all None",
+      _anchor_call[3] is None and _anchor_call[4] is None and _anchor_call[5] is None)
+check("_sync_health_baselines: *_series fields are skipped entirely",
+      all(c[1] != "heart_rate_series" for c in _calls_no_data))
+check("_sync_health_baselines: no failures when every upsert succeeds",
+      _nodata_failed == 0)
+
+# One specific (day, field) upsert raises -> must be logged/counted, must NOT
+# abort the rest of the pass (same per-unit principle every other _sync_*
+# function in this module already has test coverage for).
+_fake_values = {_anchor: 50.0}
+with patch("mcp_update.mcp_map.get_archive_metadata",
+           return_value={"data": {"date_max": _anchor}}), \
+     patch("mcp_update.mcp_map.list_available_fields",
+           return_value={"fields": {"health": {"garmin": ["hrv_last_night"]}}}), \
+     patch("mcp_update.mcp_sql.get_health_range",
+           return_value={"health": {"hrv_last_night": {
+               "values": [{"date": _anchor, "value": 50.0}]}}}):
+    def _raise_for_anchor(day, field, *a):
+        if day == _anchor:
+            raise RuntimeError("simulated failure")
+    with patch("mcp_update.mcp_sql.upsert_health_baseline", side_effect=_raise_for_anchor):
+        _partial_updated, _partial_failed = mcp_update._sync_health_baselines()
+check("_sync_health_baselines: one failing (day, field) is counted as failed",
+      _partial_failed == 1)
+check("_sync_health_baselines: the rest of the pass still completes (doesn't abort)",
+      _partial_updated == mcp_update.BASELINE_RECOMPUTE_DAYS - 1)
+
+# Regression guard (found 2026-10-07 via a real-archive run): several
+# health fields are categorical/text, not numeric (sleep_score_feedback,
+# sleep_score_qualifier, hrv_status, hrv_feedback, confirmed via real
+# boot-log output) -- statistics.mean()/stdev() raise on a non-numeric
+# value, which made every single day for every one of these fields fail
+# on every sync, forever (not a one-off error, a permanent log-spam
+# source). Fixed by filtering non-numeric/bool values out of
+# values_by_field at read time, once, rather than guarding every later
+# read site separately.
+with patch("mcp_update.mcp_map.get_archive_metadata",
+           return_value={"data": {"date_max": _anchor}}), \
+     patch("mcp_update.mcp_map.list_available_fields",
+           return_value={"fields": {"health": {"garmin": ["sleep_score_feedback"]}}}), \
+     patch("mcp_update.mcp_sql.get_health_range",
+           return_value={"health": {"sleep_score_feedback": {"values": [
+               {"date": _anchor, "value": "POSITIVE_DEEP"}]}}}):
+    _calls_categorical = []
+    with patch("mcp_update.mcp_sql.upsert_health_baseline",
+               side_effect=lambda *a: _calls_categorical.append(a)):
+        _cat_updated, _cat_failed = mcp_update._sync_health_baselines()
+check("_sync_health_baselines: a categorical/text field (e.g. "
+      "sleep_score_feedback) does NOT fail",
+      _cat_failed == 0)
+_cat_anchor_call = [c for c in _calls_categorical if c[0] == _anchor][0]
+check("_sync_health_baselines: a categorical field's baseline_avg stays "
+      "None (not computed, not crashed)",
+      _cat_anchor_call[2] is None)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  15. clients/mcp_stats.py — anomalies() streak edge cases (v1.7.5 Block A)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("mcp_stats 15. anomalies() — streak detection edge cases")
+
+import mcp_stats
+
+_UNKNOWN_FIELD_RESULT = mcp_stats.anomalies("nonexistent_field", "2026-05-01", "2026-05-10")
+check("anomalies: unresolvable field name -> empty outliers/streaks + error, no crash",
+      _UNKNOWN_FIELD_RESULT["outliers"] == [] and _UNKNOWN_FIELD_RESULT["streaks"] == []
+      and "error" in _UNKNOWN_FIELD_RESULT)
+
+_NO_DATA_RESULT = mcp_stats.anomalies("spo2_avg", "2026-05-01", "2026-05-10")
+check("anomalies: valid, registered field with no baseline entries yet -> "
+      "empty outliers/streaks, no error, no crash",
+      _NO_DATA_RESULT["outliers"] == [] and _NO_DATA_RESULT["streaks"] == []
+      and "error" not in _NO_DATA_RESULT)
+
+_STREAK_FIELD = "resting_heart_rate"
+_STREAK_BASE = datetime.date(2026, 5, 1)
+
+
+def _seed_day(offset, value, baseline_avg=50.0, flag=False):
+    day = (_STREAK_BASE + datetime.timedelta(days=offset)).isoformat()
+    mcp_sql.upsert_health_baseline(day, _STREAK_FIELD, baseline_avg, 40.0, 60.0, flag)
+    mcp_sql.upsert_health_day(day, {
+        _STREAK_FIELD: {"garmin": {
+            "values": [{"date": day, "value": value}],
+            "fallback": False, "source_resolution": "daily"}}}, f"cv{offset}")
+    return day
+
+
+# Exactly 4 consecutive "above" days — must NOT count (threshold is >=5).
+for i in range(4):
+    _seed_day(i, 60.0)
+_seed_day(4, 50.0)  # back on the mean, breaks the run
+_four_day_result = mcp_stats.anomalies(_STREAK_FIELD, _STREAK_BASE.isoformat(),
+                                        (_STREAK_BASE + datetime.timedelta(days=4)).isoformat())
+check("anomalies: a 4-day run does NOT count as a streak (threshold is >=5)",
+      _four_day_result["streaks"] == [])
+
+# A 6-day "below" run, interrupted by one day with a missing value in the
+# middle — must NOT be stitched across the gap into one streak.
+_STREAK_FIELD_2 = "sleep_duration"
+for i in range(3):
+    _seed_day_name = (_STREAK_BASE + datetime.timedelta(days=10 + i)).isoformat()
+    mcp_sql.upsert_health_baseline(_seed_day_name, _STREAK_FIELD_2, 50.0, 40.0, 60.0, False)
+    mcp_sql.upsert_health_day(_seed_day_name, {
+        _STREAK_FIELD_2: {"garmin": {
+            "values": [{"date": _seed_day_name, "value": 40.0}],
+            "fallback": False, "source_resolution": "daily"}}}, f"g{i}")
+_gap_day = (_STREAK_BASE + datetime.timedelta(days=13)).isoformat()
+mcp_sql.upsert_health_baseline(_gap_day, _STREAK_FIELD_2, 50.0, 40.0, 60.0, False)
+# No upsert_health_day for _gap_day — this day has a baseline but no value.
+for i in range(3):
+    _seed_day_name = (_STREAK_BASE + datetime.timedelta(days=14 + i)).isoformat()
+    mcp_sql.upsert_health_baseline(_seed_day_name, _STREAK_FIELD_2, 50.0, 40.0, 60.0, False)
+    mcp_sql.upsert_health_day(_seed_day_name, {
+        _STREAK_FIELD_2: {"garmin": {
+            "values": [{"date": _seed_day_name, "value": 40.0}],
+            "fallback": False, "source_resolution": "daily"}}}, f"g{4 + i}")
+_gap_split_result = mcp_stats.anomalies(
+    _STREAK_FIELD_2, (_STREAK_BASE + datetime.timedelta(days=10)).isoformat(),
+    (_STREAK_BASE + datetime.timedelta(days=16)).isoformat())
+check("anomalies: a missing-value day splits a run into two shorter pieces "
+      "(3+3), neither reaching the 5-day threshold",
+      _gap_split_result["streaks"] == [])
+
+# A streak that runs all the way to the last day in the requested range —
+# still counted (open-ended at the query boundary, not excluded).
+_STREAK_FIELD_3 = "body_battery_max"
+for i in range(5):
+    _seed_day_name = (_STREAK_BASE + datetime.timedelta(days=20 + i)).isoformat()
+    mcp_sql.upsert_health_baseline(_seed_day_name, _STREAK_FIELD_3, 50.0, 40.0, 60.0, False)
+    mcp_sql.upsert_health_day(_seed_day_name, {
+        _STREAK_FIELD_3: {"garmin": {
+            "values": [{"date": _seed_day_name, "value": 60.0}],
+            "fallback": False, "source_resolution": "daily"}}}, f"h{i}")
+_open_ended_result = mcp_stats.anomalies(
+    _STREAK_FIELD_3, (_STREAK_BASE + datetime.timedelta(days=20)).isoformat(),
+    (_STREAK_BASE + datetime.timedelta(days=24)).isoformat())
+check("anomalies: a 5-day streak reaching the end of the query range is still counted",
+      len(_open_ended_result["streaks"]) == 1 and
+      len(_open_ended_result["streaks"][0]["dates"]) == 5)
+
+# A value exactly equal to baseline_avg breaks any streak (side=None).
+_STREAK_FIELD_4 = "stress_avg"
+for i in range(3):
+    _seed_day_name = (_STREAK_BASE + datetime.timedelta(days=30 + i)).isoformat()
+    mcp_sql.upsert_health_baseline(_seed_day_name, _STREAK_FIELD_4, 50.0, 40.0, 60.0, False)
+    mcp_sql.upsert_health_day(_seed_day_name, {
+        _STREAK_FIELD_4: {"garmin": {
+            "values": [{"date": _seed_day_name, "value": 60.0}],
+            "fallback": False, "source_resolution": "daily"}}}, f"e{i}")
+_equal_day = (_STREAK_BASE + datetime.timedelta(days=33)).isoformat()
+mcp_sql.upsert_health_baseline(_equal_day, _STREAK_FIELD_4, 50.0, 40.0, 60.0, False)
+mcp_sql.upsert_health_day(_equal_day, {
+    _STREAK_FIELD_4: {"garmin": {
+        "values": [{"date": _equal_day, "value": 50.0}],  # exactly == baseline_avg
+        "fallback": False, "source_resolution": "daily"}}}, "e-equal")
+for i in range(3):
+    _seed_day_name = (_STREAK_BASE + datetime.timedelta(days=34 + i)).isoformat()
+    mcp_sql.upsert_health_baseline(_seed_day_name, _STREAK_FIELD_4, 50.0, 40.0, 60.0, False)
+    mcp_sql.upsert_health_day(_seed_day_name, {
+        _STREAK_FIELD_4: {"garmin": {
+            "values": [{"date": _seed_day_name, "value": 60.0}],
+            "fallback": False, "source_resolution": "daily"}}}, f"e{4 + i}")
+_equal_split_result = mcp_stats.anomalies(
+    _STREAK_FIELD_4, (_STREAK_BASE + datetime.timedelta(days=30)).isoformat(),
+    (_STREAK_BASE + datetime.timedelta(days=36)).isoformat())
+check("anomalies: a value exactly equal to baseline_avg breaks a streak (3+3, "
+      "neither half reaches 5)",
+      _equal_split_result["streaks"] == [])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  16. clients/mcp_server.py — baselines()/anomalies()/gaps() registration
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("mcp_server 16. baselines()/anomalies()/gaps() — registered tool call")
+
+mcp_sql.upsert_health_baseline("2026-06-01", "hrv_last_night", 55.0, 45.0, 65.0, False)
+_ms_baselines = mcp_server.baselines("hrv_last_night", "2026-06-01", "2026-06-01")
+check("mcp_server.baselines: resolves and returns the seeded entry",
+      _ms_baselines["health_baselines"]["hrv_last_night"]["values"][0]["baseline_avg"] == 55.0)
+
+_ms_anomalies = mcp_server.anomalies("hrv_last_night", "2026-06-01", "2026-06-01")
+check("mcp_server.anomalies: resolves without error, returns the expected shape",
+      "outliers" in _ms_anomalies and "streaks" in _ms_anomalies)
+
+mcp_sql.upsert_structured_log_entry(
+    "quality_log", "2026-06-01", {"date": "2026-06-01", "quality": "high"}, "z1")
+_ms_gaps = mcp_server.gaps("health", "2026-06-01", "2026-06-01")
+check("mcp_server.gaps: resolves and correctly excludes a 'high'-quality day",
+      "2026-06-01" not in _ms_gaps["gaps"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  17. clients/mcp_stats.py — correlate() (v1.7.5 Block B)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Real SQLite DB (same shared connection as sections 10-16), not mocked
+# -- lag/Pearson/Spearman arithmetic is exactly the kind of logic a
+# mock would hide bugs in (see Baustein 14's own real-archive-run
+# precedent for correlate()'s sibling tools).
+
+section("mcp_stats 17. correlate() — lag, Pearson/Spearman, cross-domain")
+
+import math
+
+_CORR_BASE = datetime.date(2026, 7, 1)
+
+# A linear ramp is perfectly correlated at ANY lag (an additive shift
+# doesn't change linear correlation) -- not a useful lag-discrimination
+# signal. An oscillating signal is: only the lag actually used to
+# construct the data should come out near-perfect.
+_signal = [math.sin(i * 0.7) * 10 for i in range(30)]
+for i in range(30):
+    _d = (_CORR_BASE + datetime.timedelta(days=i)).isoformat()
+    _payload = {"sleep_duration": {"garmin": {
+        "values": [{"date": _d, "value": _signal[i]}],
+        "fallback": False, "source_resolution": "daily"}}}
+    if i - 3 >= 0:
+        _payload["stress_avg"] = {"garmin": {
+            "values": [{"date": _d, "value": _signal[i - 3]}],
+            "fallback": False, "source_resolution": "daily"}}
+    mcp_sql.upsert_health_day(_d, _payload, f"corr{i}")
+
+_corr_from = _CORR_BASE.isoformat()
+_corr_to = (_CORR_BASE + datetime.timedelta(days=29)).isoformat()
+
+_r_true_lag = mcp_stats.correlate("sleep_duration", "stress_avg", _corr_from, _corr_to, lag_days=3)
+check("correlate: the lag actually used to construct the data (3) is near-perfect",
+      abs(_r_true_lag["pearson"] - 1.0) < 0.0001)
+check("correlate: data_points reflects the real overlap after the shift (27, not 30)",
+      _r_true_lag["data_points"] == 27)
+
+_r_wrong_lag = mcp_stats.correlate("sleep_duration", "stress_avg", _corr_from, _corr_to, lag_days=0)
+check("correlate: an incorrect lag (0) on an oscillating signal is clearly NOT near-perfect",
+      _r_wrong_lag["pearson"] < 0.9)
+
+# Monotonic but non-linear (x -> x^3): Spearman must be perfect (rank
+# order preserved), Pearson must NOT be (the relationship isn't
+# linear) -- the one check that actually distinguishes the two
+# coefficients from each other, not just "both compute a number".
+for i in range(1, 15):
+    _d = (_CORR_BASE + datetime.timedelta(days=40 + i)).isoformat()
+    mcp_sql.upsert_health_day(_d, {"resting_heart_rate": {"garmin": {
+        "values": [{"date": _d, "value": float(i)}],
+        "fallback": False, "source_resolution": "daily"}}}, f"nl{i}")
+    mcp_sql.upsert_context_day(
+        _d, {"weather": {"temperature_max": {
+            "values": [{"date": _d, "value": float(i) ** 3}],
+            "fallback": False, "source_resolution": "daily"}}},
+        complete_sources={"weather"}, attempted_sources={"weather"})
+
+_nl_from = (_CORR_BASE + datetime.timedelta(days=41)).isoformat()
+_nl_to = (_CORR_BASE + datetime.timedelta(days=54)).isoformat()
+_r_nonlinear = mcp_stats.correlate("resting_heart_rate", "temperature_max", _nl_from, _nl_to)
+check("correlate: cross-domain (health field_a + context field_b) resolves correctly, no explicit domain arg",
+      _r_nonlinear["data_points"] == 14)
+check("correlate: Spearman is perfect for a monotonic-but-nonlinear relationship (x -> x^3)",
+      _r_nonlinear["spearman"] == 1.0)
+check("correlate: Pearson is NOT perfect for the same nonlinear relationship "
+      "(the whole point of offering both)",
+      _r_nonlinear["pearson"] < 1.0)
+
+# wind_speed_max: the one context field with a documented multi-source
+# collision -- _fetch_context_field() returns an already-flattened
+# shape for it, every other context field returns one source-nested
+# level deeper. correlate() must handle both, not just the common case.
+for i in range(10):
+    _d = (_CORR_BASE + datetime.timedelta(days=60 + i)).isoformat()
+    mcp_sql.upsert_context_day(
+        _d, {"brightsky": {"wind_speed_max": {
+            "values": [{"date": _d, "value": float(i)}],
+            "fallback": False, "source_resolution": "daily"}}},
+        complete_sources={"brightsky"}, attempted_sources={"brightsky"})
+    mcp_sql.upsert_health_day(_d, {"resting_heart_rate": {"garmin": {
+        "values": [{"date": _d, "value": float(i)}],
+        "fallback": False, "source_resolution": "daily"}}}, f"ws{i}")
+_r_collision = mcp_stats.correlate(
+    "resting_heart_rate", "wind_speed_max",
+    (_CORR_BASE + datetime.timedelta(days=60)).isoformat(),
+    (_CORR_BASE + datetime.timedelta(days=69)).isoformat())
+check("correlate: wind_speed_max's flattened context shape is read correctly "
+      "(not just the normal per-source-nested shape)",
+      _r_collision["data_points"] == 10 and abs(_r_collision["pearson"] - 1.0) < 0.0001)
+
+# Error paths.
+_r_unknown = mcp_stats.correlate("totally_made_up_field_xyz", "resting_heart_rate",
+                                  _corr_from, _corr_to)
+check("correlate: an unresolvable field_a produces a field_a-prefixed error, no crash",
+      "error" in _r_unknown and _r_unknown["error"].startswith("field_a:"))
+
+for _i in range(5):
+    _d = (_CORR_BASE + datetime.timedelta(days=80 + _i)).isoformat()
+    mcp_sql.upsert_health_day(_d, {
+        "spo2_avg": {"garmin": {
+            "values": [{"date": _d, "value": 97.0}],  # constant -- zero variance
+            "fallback": False, "source_resolution": "daily"}},
+        "body_battery_max": {"garmin": {
+            "values": [{"date": _d, "value": float(50 + _i)}],
+            "fallback": False, "source_resolution": "daily"}},
+    }, f"zv{_i}")
+_r_zero_var = mcp_stats.correlate(
+    "spo2_avg", "body_battery_max",
+    (_CORR_BASE + datetime.timedelta(days=80)).isoformat(),
+    (_CORR_BASE + datetime.timedelta(days=84)).isoformat())
+check("correlate: zero-variance field degrades to pearson/spearman=None + a note, no crash",
+      _r_zero_var["pearson"] is None and _r_zero_var["spearman"] is None
+      and "not computable" in _r_zero_var.get("note", ""))
+
+_r_bad_lag = mcp_stats.correlate("resting_heart_rate", "resting_heart_rate",
+                                  _corr_from, _corr_to, lag_days=99)
+check("correlate: lag_days outside [-7, 7] is rejected with an error, not silently clamped",
+      "error" in _r_bad_lag)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  18. clients/mcp_server.py — correlate() registration (v1.7.5 Block B)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("mcp_server 18. correlate() — registered tool call")
+
+_ms_correlate = mcp_server.correlate("sleep_duration", "stress_avg", _corr_from, _corr_to, lag_days=3)
+check("mcp_server.correlate: resolves and returns the expected shape",
+      "pearson" in _ms_correlate and "spearman" in _ms_correlate
+      and abs(_ms_correlate["pearson"] - 1.0) < 0.0001)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

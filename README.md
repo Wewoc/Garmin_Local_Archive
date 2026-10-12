@@ -268,6 +268,10 @@ hosts" above for Docker clients.
 | `get_archive_metadata` | Archive coverage and quality info (date ranges, missing days, data quality) |
 | `list_available_fields` | Which fields the archive actually contains, per domain |
 | `refresh_cache` | Rebuilds the server's local query cache on demand, e.g. right after a sync |
+| `baselines` | A health field's rolling 90-day average and normal range, day by day |
+| `anomalies` | Days (or multi-day streaks) where a health field broke from its own recent pattern |
+| `gaps` | Days with no usable data in a given domain and date range |
+| `correlate` | How closely two fields move together over time — any combination of health and context, with optional lag (e.g. "does X today predict Y a few days later") |
 
 Example: *"How did my sleep and stress compare over the last two weeks?"*
 — the model calls the tools above itself and answers from your real

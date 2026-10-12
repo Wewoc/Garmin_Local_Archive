@@ -139,6 +139,7 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. Four tools remain thin `maps/mcp_map.py` wrappers defined directly here; `query_health`/`query_context` moved out to their own files (v1.7.2.1, next two rows) and are registered back programmatically (`mcp.tool()(query_health)`) to avoid a circular import with `mcp`. |
 | `clients/mcp_field_registry.py`, `clients/mcp_query_common.py` | Pure-data/shared-helper layer behind the MCP query tools (v1.7.2.1, split out of `mcp_server.py`): `mcp_field_registry.py` holds `FIELD_UNITS`/alias/ambiguity dicts/`_CONTEXT_CATEGORY_BUNDLES` (no logic); `mcp_query_common.py` holds `_route_query()`/`_get_field_unit()`/`_enrich_with_units()` (no `mcp`/`mcp_sql`/`mcp_map` dependency, so every query file can import it without a circular import). |
 | `clients/mcp_health.py`, `clients/mcp_context.py` | `query_health()`/`query_context()` and their routing/alias/fuzzy-match/bundle-resolution logic (v1.7.2.1, split out of `mcp_server.py`) — each calls `maps/mcp_map.py` directly on its own live branch. See `REFERENCE_MCP.md`'s `(v1.7.2.1)` entry for the full split rationale. |
+| `clients/mcp_stats.py` | `baselines()`/`anomalies()`/`gaps()` (v1.7.5 Block A) — rolling baseline/anomaly statistics and gap detection, reading `clients/mcp_sql.py`'s cache only (never the live archive directly). `correlate()` (v1.7.5 Block B) — lag correlation between any two fields, computed fresh per call through `query_health()`/`query_context()`'s own live/SQLite routing, no cache of its own. See `REFERENCE_MCP.md`'s `clients/mcp_stats.py` entry. |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
 | `clients/mcp_sql.py` | SQLite aggregation-cache access layer for the MCP server (v1.7.1) — a local, always-reconstructible cache that speeds up date-range queries over the archive. Pure consumer, never a source: `garmin_backup.py`/`garmin_mirror.py` never touch it, and a lost cache file just triggers a rebuild on the next sync. |
 | `clients/mcp_update.py` | Delta-sync logic for the SQLite cache above (v1.7.1) — runs automatically at server startup and on demand via the `refresh_cache()` MCP tool, so an LLM can ask for fresher data without restarting the server. **(v1.7.2.3)** Also consumes the context-archive pending-resync marker (`context_silo_repair.py`) on every sync, invalidating (`mcp_sql.invalidate_context_day()`) and acking each repaired day/source — see `REFERENCE_MCP.md`/`REFERENCE_CONTEXT.md`. |
@@ -553,11 +554,52 @@ real live-archive round-trip found — two repairs of the same
 have the second silently deduplicated away (fixed via the `marked_at`
 triple, see `REFERENCE_MCP.md`/`CHANGELOG.md` v1.7.2.3).
 
+**Sections 12-16 added (v1.7.5 Block A)** — the Baseline/Anomaly/Gap
+statistical support tools, real-SQLite where the function under test
+is a pure DB primitive (Sections 12/13, same precedent as Section 10),
+mocked where it is sync-pass orchestration (Section 14, same precedent
+as Section 11). Section 12 covers `mcp_sql.get_gaps_range()`'s
+boundary cases ("standard" quality vs. "failed"/no-entry for health,
+attempted-but-empty vs. empty-attempted-sources for context, FIT
+degradation, unknown-domain `ValueError`). Section 13 covers
+`upsert_health_baseline()`/`get_health_baselines_range()`'s field
+filter and `None`/`True`/`False` round-tripping for `anomaly_flag`.
+Section 14 covers `mcp_update._sync_health_baselines()`'s empty-archive
+short-circuit, no-data fields, `*_series` exclusion, and — the one
+real regression guard in this group — that a single failing (day,
+field) upsert is counted but does not abort the rest of the pass.
+Section 15 covers `mcp_stats.anomalies()`'s streak-detection boundary:
+exactly 4 consecutive days does not qualify (threshold is 5), a
+missing-value day splits a run instead of bridging it, a streak open
+at the end of the query range still counts, and a value exactly equal
+to `baseline_avg` breaks a run. Section 16 calls the three new tools
+through `mcp_server.baselines()`/`anomalies()`/`gaps()` directly, same
+registered-tool-call pattern Section 8 already uses for
+`query_health`/`query_context`.
+
+**Sections 17-18 added (v1.7.5 Block B)** — `correlate()`, real SQLite
+(same precedent as Sections 12/13, no mocking: Pearson/Spearman are
+pure-function results that must match an independently reasoned
+expectation, not just "was called"). Section 17 covers: perfect linear
+correlation (Pearson), a monotonic-but-nonlinear relationship where
+Spearman and Pearson diverge (x -> x^3), `lag_days` shifting (positive
+and negative, using an oscillating test signal — a linear-ramp signal
+was tried first and rejected, since additive lag shift cannot change
+its correlation, making it useless for proving lag direction/magnitude
+is applied correctly), cross-domain Health x Context pairing (the
+`_extract_context_values()` fix's own regression guard), zero-variance
+`StatisticsError` degrade (`note` set, other coefficient unaffected),
+unresolvable `field_a`/`field_b` (prefixed error, `did_you_mean` when
+available), and out-of-range `lag_days`. Section 18 calls `correlate()`
+through `mcp_server.correlate()` directly, same registered-tool-call
+pattern as Section 16.
+
 Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
 `gateway_map` (routing targets), `clients/mcp_sql.py`,
 `clients/mcp_update.py` (v1.7.1 — `test_mcp.py` mocks
 `mcp_update.sync_all` in its `refresh_cache()` delegation check, does not
-exercise a real SQLite connection), `garmin_config.py` (Section 8 mocks
+exercise a real SQLite connection), `clients/mcp_stats.py` (v1.7.5 —
+Sections 12-18 above), `garmin_config.py` (Section 8 mocks
 `clients/mcp_server.py`, which now imports `garmin_config` — v1.7
 Teilbauauftrag c), `clients/mcp_health.py`/`clients/mcp_context.py`/
 `clients/mcp_query_common.py`/`clients/mcp_field_registry.py` (v1.7.2.1

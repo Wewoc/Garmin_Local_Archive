@@ -81,7 +81,13 @@ query tools, `query_health`/`query_context`, live in their own files
 (`clients/mcp_health.py`/`clients/mcp_context.py`, v1.7.2.1) and cross
 into `maps/mcp_map.py` directly on their own live branch — same process,
 same single entry point, just no longer both defined in `mcp_server.py`
-itself.
+itself. Four more tools (`baselines`/`anomalies`/`gaps`/`correlate`,
+`clients/mcp_stats.py`, v1.7.5) live the same way — `baselines()`/
+`anomalies()`/`correlate()` reuse `query_health()`'s/`query_context()`'s
+own field resolution (`resolve_health_field()`/`resolve_context_field()`)
+rather than inventing a second dialect, and `correlate()` reads through
+the same `query_health`/`query_context` data paths with no new broker
+of its own.
 
 **(v1.7.2)** The GUI/App layer's own In-App Chat tab (`app/panel_chat.py`)
 is, architecturally, just one more MCP client — it talks to the MCP Server

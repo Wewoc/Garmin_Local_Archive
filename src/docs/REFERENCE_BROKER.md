@@ -478,6 +478,27 @@ registration) — but the SQLite cache does need a full rebuild (delete
 registered field for historical days. See `NOTES_v1_7_1_16.md` for the
 verification trail (confirmed working back to 2019-10-13).
 
+**Known limitation — `mcp_health_baselines` staleness window (v1.7.5
+Block A).** The rolling 90-day baseline/anomaly cache
+(`mcp_sql.mcp_health_baselines`, see `REFERENCE_MCP.md`'s
+`clients/mcp_stats.py` entry) is recomputed pauschal for the last
+`BASELINE_RECOMPUTE_DAYS=140` days on every sync
+(`mcp_update.py::_sync_health_baselines()`), not via targeted
+invalidation — a correction landing on day D affects the baseline of
+every day from D+1 to D+90, and 140 days comfortably covers that for
+any correction within the known ~140-day intraday-retention window.
+A correction to a day older than that is **not** automatically
+detected or repaired (Timo-Entscheidung, 2026-10-07: automatic
+detection of such an old correction was judged not worth the added
+complexity/error surface for a correction pattern that is, in
+practice, near-term — see `ROADMAP.md`'s v1.7.5 entry and
+`PROTOKOLL.md`'s matching 2026-10-07 section for the full reasoning).
+Manual repair for that rare case: `mcp_sql.reset_health_sync_state()`
+forces a full resync (and therefore a full baseline recompute) on the
+next sync pass — the same effect an end user gets more simply by
+deleting `sqlite/mcp_cache.db` and restarting the server (see
+`USER_GUIDE.txt`, "Local cache").
+
 ---
 
 ## `gateway_map.get_metadata()` — archive-state introspection (v1.6.9.1)
