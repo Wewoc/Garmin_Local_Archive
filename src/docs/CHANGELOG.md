@@ -1,5 +1,264 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.5 — MCP Statistical Support Functions
+
+Two new statistical capabilities for the MCP layer, split by computation
+timing. **Block A** (precomputed at sync time): rolling 90-day baseline
+and statistical reference range (`baseline_avg +/- 3` standard
+deviations) per health field/day, plus anomaly/streak detection and gap
+detection extended from context-only to health. **Block B** (computed at
+query time, new `clients/mcp_stats.py` module): Pearson and Spearman
+correlation with lag support (-7 to +7 days) between any two fields,
+health or context, any combination — e.g. "does pollen affect my HRV",
+computed fresh per call, no new cache.
+
+New MCP tools: `baselines(field, date_from, date_to)`,
+`anomalies(field, date_from, date_to)`, `gaps(domain, date_from, date_to)`,
+`correlate(field_a, field_b, date_from, date_to, lag_days=0)`.
+
+**Cache-staleness fix shipped with Block A:** the existing SQLite cache
+only rebuilt a day's row when that day's own `quality_log` `compare_value`
+changed — insufficient for a rolling baseline that depends on the
+preceding 90 days, not just its own day. Fixed by always recomputing the
+last 140 days' baselines on every sync pass rather than relying on
+per-day diffing.
+
+**Found and fixed during a real-archive/real-LLM sanity run (unit tests
+with mocked data alone missed both):**
+- `_sync_health_baselines()` crashed on categorical health fields
+  (`sleep_score_feedback`, `hrv_status`, etc. — non-numeric values
+  can't go through `statistics.mean()`/`stdev()`). Fixed by filtering
+  to numeric, non-bool values before computing.
+- `baselines()`/`anomalies()` had no field-alias resolution at all,
+  unlike `query_health()` — a real multi-model test run showed this
+  silently failing for the large majority of HRV/Body-Battery requests
+  (models naturally said "hrv"/"body_battery", not the canonical field
+  names). Fixed by extracting the existing alias/ambiguity/cross-domain/
+  near-match logic out of `query_health()`/`query_context()` into
+  reusable `resolve_health_field()`/`resolve_context_field()` functions,
+  now called by `baselines()`/`anomalies()`/`correlate()` as well.
+  Also found and fixed in the same pass: an uppercase field name
+  ("HRV") didn't resolve even though the lowercase form did — both
+  resolvers now normalize case first.
+- `correlate()`'s own first implementation assumed context fields
+  always return in one flattened shape; `_fetch_context_field()` only
+  returns that shape for the `wind_speed_max` source-collision case,
+  nesting one level deeper by source for every other field. Every
+  cross-domain (Health x Context) correlation silently returned
+  `data_points: 0` until fixed via a new `_extract_context_values()`
+  helper handling both shapes.
+
+**New modules:**
+- `clients/mcp_stats.py` — `baselines()`, `anomalies()`, `gaps()`,
+  `correlate()`
+- New `mcp_test/` question catalogs: `question_catalog_blockA_stats_full.py`
+  (14 questions), `question_catalog_blockB_correlate_full.py` (9 questions)
+
+**Changed modules:**
+- `clients/mcp_sql.py` — new `mcp_health_baselines` table,
+  `upsert_health_baseline()`/`get_health_baselines_range()`, gap-detection
+  helpers (`_compute_health_gaps()`/`_compute_context_gaps()`/
+  `get_gaps_range()`)
+- `clients/mcp_update.py` — `_sync_health_baselines()` wired into
+  `sync_all()`
+- `clients/mcp_health.py` — `resolve_health_field()` extracted; case
+  normalization
+- `clients/mcp_context.py` — `resolve_context_field()` extracted; case
+  normalization
+- `clients/mcp_server.py` — four new tool registrations (`baselines`,
+  `anomalies`, `gaps`, `correlate`)
+- `compiler/build_manifest.py` — `clients/mcp_stats.py` added
+  (SHARED_SCRIPTS + signatures)
+- `docs/REFERENCE_MCP.md`, `docs/MAINTENANCE_GLOBAL.md`,
+  `docs/USER_GUIDE.txt` — new tool documentation
+- `version.py` — `1.7.4.0.4` → `1.7.5`
+
+**Test result:** all 34 suites green, 4177 checks total
+(`test_mcp.py` 275/275, `test_static.py` 17/17, `test_updater.py`
+93/93 included). Real end-to-end verification against a live archive
+plus three real multi-model LLM test runs (Läufe 25/25-2/26, 3-5
+Ollama models x 2 prompt variants each) using the two new question
+catalogs — full detail in `mcp_test/MCP_TESTLAUF_BERICHT_FINAL.md`
+Teil F and `mcp_test/Stuff/reports/lauf25-26_report_v175_blockA-blockB-statistik-tools.md`.
+
+---
+
+## v1.7.4.0.4 — Mutation Testing Follow-Up: Six Behaviour Fixes
+
+v1.7.4.0.3 closed the test gaps a mutation test found in `src/garmin/`
+without changing production code; this round fixes the six real gaps
+that round's tests pinned as "current behaviour, not yet changed"
+(ROADMAP v1.7.4.1–v1.7.4.6). Each fix extends its own test contract —
+not just "doesn't break", but actually proves the new behaviour.
+
+**Quality Log — recovery from an unreadable file:** `_load_quality_log()`
+(`garmin/quality/_io.py`) used to silently start from an empty log if
+`quality_log.json` couldn't be parsed. It now saves a copy to
+`AUTORESTORE_DIR` first, then tries `restore_quality_log()` from the
+newest monthly backup (the same path a checksum mismatch already took);
+only if no valid backup exists does it fall back to the old behaviour.
+`integrity_warnings` is set in every case, including — after a design
+correction during implementation — for an unparsable `date` on any
+entry, checked on every load (not just once per sync) so the Archive
+Info panel's warning stays visible. `backup_quality_log()` now also
+refuses to overwrite a monthly snapshot with a log that has less than
+half its day count.
+
+**Backup — Force-Refetch now updates the consolidated ZIP:**
+`backup_raw(date, force=True)` / `backup_source(date, force=True)`
+always consolidated against the month of the fetched day itself, which
+that same consolidation step then skips as "already current month" —
+the force-replace branch was unreachable. Fixed identically in both
+`garmin_backup.py` and `garmin_backup_source.py`.
+
+**Mirror import — path validation and earlier date checks:** a
+container-supplied relative path that resolves outside `base_dir` now
+aborts the whole import (`_PathTraversalError`, fail-closed — a security
+signal, not an ordinary data error) instead of silently writing through
+it; the date is validated before any write instead of after; a stray
+`.tmp` file in the container is excluded from classification.
+
+**Collector — honest handling of bad quality-log entries and session
+limits:** `main()` now skips quality-log entries with an unparsable date
+when building its date sets, instead of letting `date.fromisoformat()`
+crash; a negative `GARMIN_MAX_DAYS_PER_SESSION` is rejected with a clear
+error instead of silently being treated as "unlimited"; a day can no
+longer be counted twice in one session; `_set_first_day()` skips a
+malformed device `first_used` value (logged) instead of accepting it
+and crashing a later `date.fromisoformat()`.
+
+**Schema migration — `raw/` stays untouched:** `_run_schema_migration()`
+recomputes and rewrites only `summary/` via a new `write_summary_only()`
+(`garmin_writer.py`), never `raw/` — `raw/` is historically frozen, only
+`summary/` is allowed to reflect a newer `normalize()`.
+
+**GDPR / bulk import — downgrade protection, malformed entries, stop
+respected:** `run_import()` now checks the stop event first in its loop
+(an import can actually be aborted mid-way); validates each day's date
+before any write (`except (ValueError, TypeError)` — a non-string date
+from a malformed export entry no longer crashes it); and reuses
+`_check_downgrade()` so an existing day that isn't worse than the
+imported one is protected, including equal quality from a non-API
+source. `garmin_import.py`'s four bulk-entry loops (UDS/Sleep/Readiness/
+Activities) now skip a malformed (non-object) entry with a warning
+instead of crashing.
+
+**Found and fixed during implementation, not part of the original six:**
+a checksum computed before migration defaults were applied vs. after
+caused a false mismatch (and a spurious restore) for any day entry
+without an explicit `source` field — fixed in `_compute_checksum()`
+(`source` now defaults to `"legacy"`, matching the load migration); a
+flaky test in `test_collector.py` (`LOG_FAIL_DIR` wasn't isolated like
+its neighbours, causing intermittent cross-test log collisions) is now
+isolated like the rest.
+
+**Changed modules:**
+- `garmin/quality/_io.py` — `_is_parseable_date()`, `_save_unreadable_log()`,
+  rebuilt `_load_quality_log()` except-branch, `_compute_checksum()`
+  `source` default fix
+- `garmin/quality/_maint.py` — `_set_first_day()` device-date validation
+- `garmin/garmin_backup.py`, `garmin/garmin_backup_source.py` —
+  Force-Refetch consolidation month fix; data-loss guard in
+  `backup_quality_log()`
+- `garmin/garmin_import_mirror.py` — `_PathTraversalError`,
+  `_safe_container_path()`, earlier date validation in both raw-import
+  variants
+- `garmin/garmin_container.py` — `.tmp` exclusion in `_classify_file()`
+- `garmin/garmin_collector.py` — `_valid_dated_entries()`, session-limit
+  guard, `_day_counted`, `run_import()` stop-check ordering, date
+  validation, downgrade protection
+- `garmin/garmin_writer.py` — new `write_summary_only()`
+- `garmin/garmin_import.py` — malformed-entry guards in all four bulk
+  loops
+- `tests/test_quality.py`, `test_backup.py`, `test_container_mirror.py`,
+  `test_import_mirror.py`, `test_collector.py`, `test_writer.py`,
+  `test_garmin_import.py`, `test_static.py` — extended to pin the new
+  behaviour, not just to avoid breaking on it
+
+**Test result:** all 27 suites green, repeated runs (incl. 8× for the
+previously flaky test) — no regressions.
+
+---
+
+## v1.7.4.0.3 — mutation testing of `src/garmin/`: closing the test gaps (no release)
+
+A mutation test (Cosmic Ray, run locally) over `src/garmin/` showed which
+deliberate code changes the tests do not notice: the first run caught
+4 090 of 5 713 mutants (71.7 %) and left 1 420 real gaps. This entry
+collects the tests added to close them, module by module. No production
+code changes.
+
+**Added (`test_validator.py`, `test_normalizer.py`, `test_basics.py`):**
+the validator's value-range checks now run through the real
+`assess_quality` (the simulated checks in the old section 14 tested
+nothing and were removed); the normalizer is covered by a table of
+complete expected results for every field and fallback; `garmin_utils`
+and the date helpers are covered at their boundaries (e.g. the
+second/millisecond switch at 1e11).
+
+**Added (`test_container_mirror.py`, `test_import_mirror.py`,
+`test_backup.py`, `test_source_writer.py`):** the container format is
+checked against an independent reader (hashlib / hmac / zlib / AES-GCM),
+not against its own writer; mirror, import-from-mirror and backup
+(monthly archives, source backups, force overwrite, error paths) are
+checked down to counters, log lines and the exact files written;
+`garmin_source_writer` and `garmin_source_quality` reach 100 %.
+
+**Added (`test_silo_check.py`, `test_silo_repair.py`,
+`test_garmin_import.py`, `test_writer.py`):** the silo checks and repair
+steps, the bulk import (ZIP and folder, malformed entries) and the byte
+format of the written raw and summary files (2-space JSON, UTF-8, line
+ends normalized on Windows).
+
+**Added (`test_quality.py`, 176 → 437 checks):** `_assess`, `_io`,
+`_maint`, `_stats` and `_scan` of the quality log are covered by tables
+of expected labels, field qualities, save/load/backup paths, the
+`recheck` / `attempts` bookkeeping, statistics and rounding, and the
+scan for failed days.
+
+**Added (`test_collector.py`, 228 → 383 checks):** the whole collector
+flow — `_fetch_and_assess`, `run_import`, session logs, self-healing,
+schema migration, Force-Refetch preview and commit, the source / steps /
+bulk-field backfills, the capability scan, and `main()` from the entry
+points through the date list, session limit, downgrade guard, device
+lookup and the end-of-run source backup backfill.
+
+**Added (`test_basics.py`, `test_api.py`, `test_api_capability.py`,
+`test_live_fetch.py`):** `garmin_config` (environment variables and the
+MCP server config file, loaded with a fake home), `resolve_date_range`,
+login paths and log lines of `garmin_api`, the capability config file,
+and the counters and messages of `fetch_live`.
+
+**Added (`test_force_refetch.py`, `test_security.py`):** snapshot and
+restore failure paths, unserializable values in the field comparison,
+and the whole security layer: key storage and derivation (compared with
+an independent PBKDF2 calculation), the token folder clean-up with its
+retries, save / load / clear of the encrypted token, and the token event
+log (exact file text, MFA block detection).
+
+**Added (`test_redact.py`, new, 22 checks):** `garmin_redact` — which
+masks the Garmin e-mail address and password in every log sink — had no
+tests at all. Registered in `run_tests.ps1`, `tests/conftest.py` and the
+test tables in `MAINTENANCE_GLOBAL.md` / `MAINTENANCE_GARMIN.md`.
+
+**Findings pinned as current behaviour (not changed):** `run_import`
+writes a day to `raw/` before checking its date, and never checks the
+stop event; a negative `MAX_DAYS_PER_SESSION` cuts off the last missing
+day instead of meaning "unlimited"; `parse_device_date("0")` and
+`parse_device_date(0)` disagree; `_set_first_day` accepts any device
+value except "unknown"; if the password is part of the e-mail address,
+the domain stays readable in the log after masking.
+
+**Verification:** the final measurement over all modules (6 081 mutants)
+caught 5 796; the 277 survivors were 129 documented equivalent mutants
+(changes that cannot alter any observable behaviour) and 148 real gaps
+in `garmin_security`, `garmin_force_refetch` and `quality/_fieldhash`
+(these had been missing from the first run), which were then closed and
+re-measured per module (`garmin_security` 292 / 293, `garmin_force_refetch`
+63 / 63, `quality/_fieldhash` 14 / 14). About 130 documented equivalent
+survivors remain. The full suite (`run_tests.ps1`) runs green, 35 files;
+`ruff` clean.
+
 ## v1.7.4.0.2 — tests for the archive core: writer and validator failure paths (no release)
 
 A coverage measurement (v1.7.4.0.1, `run_coverage.ps1`) put `src/garmin/`

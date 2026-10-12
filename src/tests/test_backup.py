@@ -188,25 +188,29 @@ for _k in _BK_KINDS:
             _res = _bak("2024-08-27")
         check(f"{_n} backup of a day: write failure -> False, no crash", _res == False)
 
-    # -- Ist-Stand: Force-Refetch of a day in an already consolidated month -----
-    # The new version never reaches the ZIP (see ROADMAP v1.7.4.2). To be rewritten
-    # to the new contract when that is fixed.
+    # -- Force-Refetch of a day in an already consolidated month (v1.7.4.2) -----
+    # Fixed contract: force=True makes the forced date's own month reachable
+    # by the Force-Replace block, so the ZIP entry is replaced immediately —
+    # no waiting for a later backup. Third step is now an idempotency check,
+    # not a loss proof: Timo's call (2026-10-06) — kept deliberately instead
+    # of dropped, catches exactly the order/state bug class this v1.7.4 round
+    # is about: an unrelated later backup must not re-touch an
+    # already-replaced entry.
     with _isolated_log_env(f"bk_force_ist_{_n}"):
         _bk_src(_k).mkdir(parents=True)
         _bk_dir(_k).mkdir(parents=True)
         _zip_write(_bk_zip(_k, "2024-08"), {_x27: "old-27"})
         (_bk_src(_k) / _x27).write_text("new-27", encoding="utf-8")
-        check(f"{_n} Ist-Stand force backup: call succeeds", _bak("2024-08-27", force=True) == True)
-        check(f"{_n} Ist-Stand force backup: the ZIP still holds the old version",
-              _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "old-27")
-        check(f"{_n} Ist-Stand force backup: the new version waits in the month directory",
-              (_bk_dir(_k) / "2024-08" / _x27).read_text(encoding="utf-8") == "new-27")
+        check(f"{_n} force backup: call succeeds", _bak("2024-08-27", force=True) == True)
+        check(f"{_n} force backup: the ZIP now holds the new version",
+              _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "new-27")
+        check(f"{_n} force backup: the month directory is consolidated away",
+              not (_bk_dir(_k) / "2024-08").exists())
         _later = _bk_fn(_k, "2024-10-01")
         (_bk_src(_k) / _later).write_text("later", encoding="utf-8")
         _bak("2024-10-01")
-        check(f"{_n} Ist-Stand force backup: a later ordinary backup drops the new version",
-              not (_bk_dir(_k) / "2024-08").exists()
-              and _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "old-27")
+        check(f"{_n} force backup: a later ordinary backup does not re-touch the already-replaced entry",
+              _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "new-27")
 
     # -- backfill and the check that counts missing backups ---------------------
     with _isolated_log_env(f"bk_backfill_{_n}"):
@@ -365,6 +369,425 @@ with _isolated_log_env("bk_restore_raw"):
     check("restore_raw_days: unreadable quality_log disables the guard, restore still runs",
           _rr["restored"] == ["2024-08-27"]
           and (cfg.RAW_DIR / _name).read_bytes() == _payload.encode("utf-8"))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  4f2. garmin_backup, garmin_backup_source — several months at once, counters
+#       and log lines, the failure of one month must not stop the next, glob
+#       order, integrity check, restore loops (v1.7.4.0.3).
+#       Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("4f2. garmin_backup, garmin_backup_source — months, counters, loops")
+
+
+class _BLog:
+    """Stands in for a module logger and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+
+    def _add(self, level, msg):
+        self.calls.append((level, msg))
+
+    def error(self, msg, *a, **k):
+        self._add("error", msg)
+
+    def warning(self, msg, *a, **k):
+        self._add("warning", msg)
+
+    def info(self, msg, *a, **k):
+        self._add("info", msg)
+
+    def debug(self, msg, *a, **k):
+        self._add("debug", msg)
+
+
+def _blogged(mod, fn, *args, **kwargs):
+    real, rec = mod.log, _BLog()
+    mod.log = rec
+    try:
+        return fn(*args, **kwargs), rec.calls
+    finally:
+        mod.log = real
+
+
+def _mk_month(k, month, days, content="x"):
+    d = _bk_dir(k) / month
+    d.mkdir(parents=True, exist_ok=True)
+    for day in days:
+        (d / _bk_fn(k, f"{month}-{day}")).write_text(content, encoding="utf-8")
+    return d
+
+
+def _put_src(k, day, content="{}"):
+    _bk_src(k).mkdir(parents=True, exist_ok=True)
+    (_bk_src(k) / _bk_fn(k, day)).write_text(content, encoding="utf-8")
+
+
+_BF = {"raw": ("backfill_raw", "errors"), "source": ("backfill_source", "failed")}
+_CUR = date.today().strftime("%Y-%m")
+
+for _k in _BK_KINDS:
+    _n, _mod = _k["name"], _k["mod"]
+    _cons = getattr(_mod, _k["consolidate"])
+    _bak = getattr(_mod, _k["backup"])
+    _fn27 = _bk_fn(_k, "2024-08-27")
+    _zname = lambda m: f"{_k['zip_prefix']}{m}.zip"      # noqa: E731
+
+    # -- 1. force is passed on to the consolidation, two backups into one month folder
+    with _isolated_log_env(f"bk2_wire_{_n}"):
+        _put_src(_k, "2024-08-27")
+        _calls = []
+        with patch.object(_mod, _k["consolidate"], side_effect=lambda **kw: _calls.append(kw)):
+            _ok1 = _bak("2024-08-27")
+            _ok2 = _bak("2024-08-27", force=True)
+        check(f"4f2 {_n} backup: both calls succeed (existing month folder is fine)",
+              _ok1 is True and _ok2 is True)
+        check(f"4f2 {_n} backup: without force the date's own month is passed through unchanged "
+              f"(v1.7.4.2: with force, today's real month is passed instead, so the forced month "
+              f"becomes reachable by the Force-Replace block)",
+              _calls == [{"current_month": "2024-08", "force_filenames": None},
+                         {"current_month": _CUR, "force_filenames": {_fn27}}])
+
+    # -- 1b. force-refetched date whose month IS the current (still open) month —
+    # ROADMAP v1.7.4.2 Open point: nothing to replace yet, no ZIP exists for an
+    # open month, so the forced file simply lands in the month directory, same
+    # as a non-force backup would.
+    with _isolated_log_env(f"bk2_curmonth_{_n}"):
+        _bk_src(_k).mkdir(parents=True)
+        _today_day = f"{_CUR}-01"
+        _today_fn  = _bk_fn(_k, _today_day)
+        (_bk_src(_k) / _today_fn).write_text("today-content", encoding="utf-8")
+        check(f"4f2 {_n} backup: force-refetch of a day in the open current month succeeds",
+              _bak(_today_day, force=True) == True)
+        check(f"4f2 {_n} backup: no ZIP exists yet for the open month",
+              not _bk_zip(_k, _CUR).exists())
+        check(f"4f2 {_n} backup: the file lands directly in the month directory",
+              (_bk_dir(_k) / _CUR / _today_fn).read_text(encoding="utf-8") == "today-content")
+
+    # -- 2. several months in one consolidation run
+    with _isolated_log_env(f"bk2_months_{_n}"):
+        _bk_dir(_k).mkdir(parents=True)
+        (_bk_dir(_k) / "2024-04.txt").write_text("not a month folder", encoding="utf-8")
+        _mk_month(_k, "2024-05", ["01"])
+        _mk_month(_k, "2024-06", ["01"])
+        _cons(current_month="2024-09")
+        check(f"4f2 {_n} consolidate: a plain file between the month folders does not stop the run",
+              _bk_zip(_k, "2024-05").exists() and _bk_zip(_k, "2024-06").exists()
+              and not (_bk_dir(_k) / "2024-05").exists() and not (_bk_dir(_k) / "2024-06").exists()
+              and (_bk_dir(_k) / "2024-04.txt").exists())
+    with _isolated_log_env(f"bk2_future_{_n}"):
+        _mk_month(_k, "2024-06", ["01"])
+        _mk_month(_k, "2024-07", ["01"])
+        _mk_month(_k, "2024-08", ["01"])
+        _cons(current_month="2024-07")
+        check(f"4f2 {_n} consolidate: the current month and any later month are left alone",
+              _bk_zip(_k, "2024-06").exists() and not (_bk_dir(_k) / "2024-06").exists()
+              and (_bk_dir(_k) / "2024-07").exists() and (_bk_dir(_k) / "2024-08").exists()
+              and not _bk_zip(_k, "2024-07").exists() and not _bk_zip(_k, "2024-08").exists())
+    with _isolated_log_env(f"bk2_empty_{_n}"):
+        _bk_dir(_k).mkdir(parents=True)
+        (_bk_dir(_k) / "2024-05").mkdir()
+        _mk_month(_k, "2024-06", ["01"])
+        _cons(current_month="2024-09")
+        check(f"4f2 {_n} consolidate: an empty month folder is removed and the next month is still packed",
+              not (_bk_dir(_k) / "2024-05").exists() and _bk_zip(_k, "2024-06").exists()
+              and not (_bk_dir(_k) / "2024-06").exists())
+
+    # -- 3. appended counter and its log line
+    with _isolated_log_env(f"bk2_append_{_n}"):
+        _bk_old_zip_new_dir(_k)
+        _, _c = _blogged(_mod, _cons, current_month="2024-09")
+        _app = [m for lv, m in _c if lv == "info" and "file(s) appended" in m]
+        check(f"4f2 {_n} consolidate: log names exactly 1 appended file and the ZIP",
+              len(_app) == 1 and f"→ 1 file(s) appended to {_zname('2024-08')}" in _app[0])
+    with _isolated_log_env(f"bk2_noappend_{_n}"):
+        _bk_dir(_k).mkdir(parents=True)
+        _zip_write(_bk_zip(_k, "2024-08"), {_fn27: "old-27"})
+        _mk_month(_k, "2024-08", ["27"], content="new-27")
+        _, _c = _blogged(_mod, _cons, current_month="2024-09")
+        check(f"4f2 {_n} consolidate: nothing new in the folder -> no 'appended' line, ZIP entry kept",
+              not any("appended" in m for _, m in _c)
+              and _zip_read(_bk_zip(_k, "2024-08")) == {_fn27: "old-27"})
+
+    # -- 4. integrity failure in the first month does not stop the second
+    with _isolated_log_env(f"bk2_integrity_{_n}"):
+        _bk_dir(_k).mkdir(parents=True)
+        for _m in ("2024-05", "2024-06"):
+            _zip_write(_bk_zip(_k, _m), {_bk_fn(_k, f"{_m}-01"): "old"})
+            _mk_month(_k, _m, ["02"])
+        with patch.object(zipfile.ZipFile, "testzip", return_value="bad"):
+            _, _c = _blogged(_mod, _cons, current_month="2024-09")
+        _errs = [m for lv, m in _c if lv == "error"]
+        check(f"4f2 {_n} consolidate: integrity failure is reported for every month, folders kept",
+              any("integrity check failed after append for 2024-05" in m for m in _errs)
+              and any("integrity check failed after append for 2024-06" in m for m in _errs)
+              and (_bk_dir(_k) / "2024-05").exists() and (_bk_dir(_k) / "2024-06").exists())
+
+    # -- 5. a failing force-replace in one month does not stop the next one
+    for _cleanup_fails in (False, True):
+        _tag = "cleanup_fails" if _cleanup_fails else "swap_fails"
+        with _isolated_log_env(f"bk2_{_tag}_{_n}"):
+            _bk_dir(_k).mkdir(parents=True)
+            _zip_write(_bk_zip(_k, "2024-05"), {_bk_fn(_k, "2024-05-26"): "old-26",
+                                                _bk_fn(_k, "2024-05-27"): "old-27"})
+            _mk_month(_k, "2024-05", ["27"], content="new-27")
+            _mk_month(_k, "2024-06", ["01"])
+            _force = {_bk_fn(_k, "2024-05-27")}
+            _patches = [patch("os.replace", side_effect=OSError("locked"))]
+            if _cleanup_fails:
+                _patches.append(patch.object(Path, "unlink", side_effect=OSError("also locked")))
+            for _p in _patches:
+                _p.start()
+            try:
+                _, _c = _blogged(_mod, _cons, current_month="2024-09", force_filenames=_force)
+            finally:
+                for _p in _patches:
+                    _p.stop()
+            _errs = [m for lv, m in _c if lv == "error"]
+            check(f"4f2 {_n} consolidate ({_tag}): the failure is logged, the month folder is kept",
+                  any("force-replace failed for 2024-05" in m for m in _errs)
+                  and (_bk_dir(_k) / "2024-05").exists()
+                  and _zip_read(_bk_zip(_k, "2024-05"))[_bk_fn(_k, "2024-05-27")] == "old-27")
+            check(f"4f2 {_n} consolidate ({_tag}): the next month is still packed",
+                  _bk_zip(_k, "2024-06").exists() and not (_bk_dir(_k) / "2024-06").exists())
+            check(f"4f2 {_n} consolidate ({_tag}): the failed month is not reported as a consolidation failure",
+                  not any("failed to consolidate" in m for m in _errs))
+            if _cleanup_fails and _n == "raw":
+                check("4f2 raw consolidate (cleanup_fails): the cleanup failure is logged at debug level",
+                      any(lv == "debug" and "tmp zip cleanup failed for 2024-05" in m for lv, m in _c))
+    for _p_dir in _bk_dir(_k).glob("*.tmp"):
+        _p_dir.unlink()
+
+    # -- 10. backfill: counters, ZIP without the file, which months get consolidated
+    _bf_name, _bf_err = _BF[_n]
+    _bf = getattr(_mod, _bf_name)
+    with _isolated_log_env(f"bk2_bf_none_{_n}"):
+        check(f"4f2 {_n} {_bf_name}: no source folder -> exact empty result",
+              _bf() == {"copied": 0, "skipped": 0, _bf_err: 0})
+    with _isolated_log_env(f"bk2_bf_counts_{_n}"):
+        for _d in ("2024-03-01", "2024-03-02", "2024-03-03"):
+            _put_src(_k, _d)
+        _mk_month(_k, "2024-03", ["01", "02"])
+        _r = _bf()
+        check(f"4f2 {_n} {_bf_name}: 2 already backed up, 1 copied -> exact counts",
+              _r == {"copied": 1, "skipped": 2, _bf_err: 0})
+    with _isolated_log_env(f"bk2_bf_zip_{_n}"):
+        _put_src(_k, "2024-08-05")
+        _bk_dir(_k).mkdir(parents=True)
+        _zip_write(_bk_zip(_k, "2024-08"), {_bk_fn(_k, "2024-08-01"): "other day"})
+        _r = _bf()
+        check(f"4f2 {_n} {_bf_name}: ZIP of the month exists but lacks the file -> it is copied",
+              _r == {"copied": 1, "skipped": 0, _bf_err: 0}
+              and _bk_fn(_k, "2024-08-05") in _zip_read(_bk_zip(_k, "2024-08")))
+    with _isolated_log_env(f"bk2_bf_current_{_n}"):
+        _put_src(_k, f"{_CUR}-15")
+        _old = _mk_month(_k, "2024-03", ["01"])          # an old month that is still a folder
+        _bf()
+        check(f"4f2 {_n} {_bf_name}: only the current month touched -> no consolidation of old folders",
+              _old.exists() and not _bk_zip(_k, "2024-03").exists()
+              and (_bk_dir(_k) / _CUR / _bk_fn(_k, f"{_CUR}-15")).exists())
+    with _isolated_log_env(f"bk2_bf_future_{_n}"):
+        _put_src(_k, "2099-01-01")
+        _old = _mk_month(_k, "2024-03", ["01"])          # an old month that is still a folder
+        _bf()
+        check(f"4f2 {_n} {_bf_name}: only a later month touched -> no consolidation of old folders",
+              _old.exists() and not _bk_zip(_k, "2024-03").exists())
+    with _isolated_log_env(f"bk2_bf_spy_{_n}"):
+        _put_src(_k, "2024-05-01")
+        _put_src(_k, "2024-06-01")
+        with patch.object(_mod, _k["consolidate"], wraps=_cons) as _spy:
+            _bf()
+        check(f"4f2 {_n} {_bf_name}: several old months touched -> one consolidation run, not one per month",
+              _spy.call_count == 1 and _bk_zip(_k, "2024-05").exists() and _bk_zip(_k, "2024-06").exists())
+
+    # -- 11. _zip_contains
+    with _isolated_log_env(f"bk2_zc_{_n}"):
+        _bk_dir(_k).mkdir(parents=True)
+        _zc = _mod._zip_contains
+        _zp = _bk_dir(_k) / "z.zip"
+        _zip_write(_zp, {"a.json": "1"})
+        (_bk_dir(_k) / "notzip.zip").write_bytes(b"this is not a zip")
+        check(f"4f2 {_n} _zip_contains: present -> True, absent -> False, corrupt -> False, missing ZIP -> False",
+              _zc(_zp, "a.json") is True and _zc(_zp, "b.json") is False
+              and _zc(_bk_dir(_k) / "notzip.zip", "a.json") is False
+              and _zc(_bk_dir(_k) / "nothing.zip", "a.json") is False)
+
+# -- 6. quality_log backup: nested target folder, yearly ZIPs in both glob orders
+with _isolated_log_env("bk2_qlog_twice"):
+    _put_log({"days": [{"date": "2024-01-01", "quality": "high"}]})
+    _q_backup_mod.backup_quality_log()
+    _put_log({"days": [{"date": "2024-01-02", "quality": "high"}]})
+    _q_backup_mod.backup_quality_log()
+    _snap = cfg.LOG_BACKUP_DIR / f"quality_log_{date.today().strftime('%Y-%m')}.zip"
+    check("4f2 backup_quality_log: a second backup in the same month replaces the snapshot",
+          json.loads(_zip_read(_snap)["quality_log.json"])["days"][0]["date"] == "2024-01-02")
+with _isolated_log_env("bk2_qlog_deep"):
+    _put_log({"days": []})
+    _deep = cfg.LOG_BACKUP_DIR.parent / "deep" / "er" / "backup"
+    with _mock.patch.object(cfg, "LOG_BACKUP_DIR", _deep):
+        _q_backup_mod.backup_quality_log()
+    check("4f2 backup_quality_log: a target folder with missing parents is created, snapshot written",
+          (_deep / f"quality_log_{date.today().strftime('%Y-%m')}.zip").is_file())
+
+# -- 6b. quality_log backup: data-loss guard (v1.7.4.1) ---------------------
+# days[] only grows in normal operation — a drop of more than half the day
+# count can only mean corruption/partial rebuild, never legitimate use.
+with _isolated_log_env("bk2_qlog_shrink_guard"):
+    _put_log({"days": [{"date": f"2024-01-{i:02d}", "quality": "high"} for i in range(1, 11)]})
+    _q_backup_mod.backup_quality_log()
+    _put_log({"days": [{"date": "2024-01-01", "quality": "high"},
+                        {"date": "2024-01-02", "quality": "high"}]})
+    _q_backup_mod.backup_quality_log()
+    _snap = cfg.LOG_BACKUP_DIR / f"quality_log_{date.today().strftime('%Y-%m')}.zip"
+    check("4f2 backup_quality_log: a drop below half the day count is refused, no crash, snapshot unchanged",
+          len(json.loads(_zip_read(_snap)["quality_log.json"])["days"]) == 10)
+
+with _isolated_log_env("bk2_qlog_shrink_ok"):
+    _put_log({"days": [{"date": f"2024-01-{i:02d}", "quality": "high"} for i in range(1, 11)]})
+    _q_backup_mod.backup_quality_log()
+    _put_log({"days": [{"date": f"2024-01-{i:02d}", "quality": "high"} for i in range(1, 7)]})
+    _q_backup_mod.backup_quality_log()
+    _snap = cfg.LOG_BACKUP_DIR / f"quality_log_{date.today().strftime('%Y-%m')}.zip"
+    check("4f2 backup_quality_log: a mild drop (above the 50% guard) still overwrites normally",
+          len(json.loads(_zip_read(_snap)["quality_log.json"])["days"]) == 6)
+
+
+def _glob_in_order(reverse):
+    real = Path.glob
+
+    def fake(self, pattern, *a, **k):
+        found = sorted(real(self, pattern, *a, **k))
+        return iter(found[::-1] if reverse else found)
+    return fake
+
+
+for _rev in (False, True):
+    with _isolated_log_env(f"bk2_years_{_rev}"):
+        cfg.LOG_BACKUP_DIR.mkdir(parents=True)
+        for _nm in ("quality_log_0aaa-01.zip", "quality_log_2022-01.zip", "quality_log_2022-02.zip",
+                    "quality_log_2023-05.zip", "quality_log_2025-03.zip", "quality_log_2031-01.zip",
+                    "quality_log_zzzz-01.zip"):
+            _zip_write(cfg.LOG_BACKUP_DIR / _nm, {"quality_log.json": "{}"})
+        with patch.object(Path, "glob", _glob_in_order(_rev)):
+            _, _c = _blogged(_q_backup_mod, _q_backup_mod._consolidate_log_years, 2025)
+        _made = sorted(p.name for p in cfg.LOG_BACKUP_DIR.glob("quality_log_????.zip"))
+        _order = "newest first" if _rev else "oldest first"
+        check(f"4f2 yearly ZIPs ({_order}): past years are built, current/future years and bad names are not",
+              _made == ["quality_log_2022.zip", "quality_log_2023.zip"])
+        with zipfile.ZipFile(cfg.LOG_BACKUP_DIR / "quality_log_2022.zip") as _z:
+            check(f"4f2 yearly ZIPs ({_order}): the year ZIP holds exactly that year's monthly ZIPs",
+                  sorted(_z.namelist()) == ["quality_log_2022-01.zip", "quality_log_2022-02.zip"])
+        check(f"4f2 yearly ZIPs ({_order}): unparseable names are logged as warnings",
+              sum(1 for lv, m in _c if lv == "warning" and "could not parse year" in m) == 2)
+with _isolated_log_env("bk2_years_exists"):
+    cfg.LOG_BACKUP_DIR.mkdir(parents=True)
+    for _nm in ("quality_log_2022-01.zip", "quality_log_2023-05.zip"):
+        _zip_write(cfg.LOG_BACKUP_DIR / _nm, {"quality_log.json": "{}"})
+    _zip_write(cfg.LOG_BACKUP_DIR / "quality_log_2022.zip", {"marker": "keep me"})
+    _q_backup_mod._consolidate_log_years(2025)
+    check("4f2 yearly ZIPs: an existing year ZIP is not rebuilt and does not stop the next year",
+          _zip_read(cfg.LOG_BACKUP_DIR / "quality_log_2022.zip") == {"marker": "keep me"}
+          and (cfg.LOG_BACKUP_DIR / "quality_log_2023.zip").exists())
+
+# -- 7. restore_quality_log: latest first, corrupt latest falls back
+with _isolated_log_env("bk2_restore_ql"):
+    cfg.LOG_BACKUP_DIR.mkdir(parents=True)
+    _zip_write(cfg.LOG_BACKUP_DIR / "quality_log_2024-05.zip",
+               {"quality_log.json": json.dumps({"days": [{"date": "A"}]})})
+    _zip_write(cfg.LOG_BACKUP_DIR / "quality_log_2024-06.zip",
+               {"quality_log.json": json.dumps({"days": [{"date": "B"}]})})
+    check("4f2 restore_quality_log: with two valid snapshots the latest one wins",
+          _q_backup_mod.restore_quality_log() == {"days": [{"date": "B"}]})
+    with patch.object(zipfile.ZipFile, "testzip",
+                      new=lambda self: "bad" if str(self.filename).endswith("2024-06.zip") else None):
+        _got = _q_backup_mod.restore_quality_log()
+    check("4f2 restore_quality_log: corrupt latest snapshot -> the older valid one is used",
+          _got == {"days": [{"date": "A"}]})
+
+# -- 8. check_raw_integrity in detail
+with _isolated_log_env("bk2_integrity_none"):
+    check("4f2 check_raw_integrity: no quality log -> exact empty result",
+          _q_backup_mod.check_raw_integrity()
+          == {"missing_days": [], "no_backup": [], "total_checked": 0, "error": None})
+    cfg.QUALITY_LOG_FILE.write_text("{broken", encoding="utf-8")
+    _ri = _q_backup_mod.check_raw_integrity()
+    check("4f2 check_raw_integrity: unreadable quality log -> empty lists, 0 checked, reason given",
+          {k: v for k, v in _ri.items() if k != "error"}
+          == {"missing_days": [], "no_backup": [], "total_checked": 0}
+          and _ri["error"].startswith("could not read quality_log:"))
+with _isolated_log_env("bk2_integrity_entries"):
+    cfg.RAW_DIR.mkdir(parents=True)
+    _bk_raw = cfg.RAW_BACKUP_DIR
+    _bk_raw.mkdir(parents=True)
+    _zip_write(_bk_raw / "raw_backup_2024-08.zip", {"garmin_raw_2024-08-09.json": "{}"})
+    (_bk_raw / "2024-09").mkdir()
+    (_bk_raw / "2024-09" / "garmin_raw_2024-09-04.json").write_text("{}", encoding="utf-8")
+    _put_log({"days": [
+        {"write": True},                                   # no date: skipped, must not stop the loop
+        {"date": "2024-08-01", "write": 1},                # truthy but not True: not counted
+        {"date": "2024-08-02", "write": "yes"},            # truthy but not True: not counted
+        {"date": "2024-08-03", "write": True},             # missing; ZIP exists but lacks the day
+        {"date": "2024-09-04", "write": True},             # missing; folder backup exists
+    ]})
+    _ri, _c = _blogged(_q_backup_mod, _q_backup_mod.check_raw_integrity)
+    check("4f2 check_raw_integrity: only write=True counts, undated entry skipped, loop goes on",
+          _ri == {"missing_days": ["2024-08-03", "2024-09-04"], "no_backup": ["2024-08-03"],
+                  "total_checked": 3, "error": None})
+    check("4f2 check_raw_integrity: warning names the numbers",
+          ("warning", "  check_raw_integrity: 2 missing raw files (1 without backup)") in _c)
+    (cfg.RAW_DIR / "garmin_raw_2024-08-03.json").write_text("{}", encoding="utf-8")
+    (cfg.RAW_DIR / "garmin_raw_2024-09-04.json").write_text("{}", encoding="utf-8")
+    _ri, _c = _blogged(_q_backup_mod, _q_backup_mod.check_raw_integrity)
+    check("4f2 check_raw_integrity: everything present -> no missing days and no warning",
+          _ri["missing_days"] == [] and _ri["no_backup"] == []
+          and not any(lv == "warning" for lv, _ in _c))
+
+# -- 9. restore_raw_days: nested target folder, loops go on after each restored day
+with _isolated_log_env("bk2_restore_loops"):
+    _deep_raw = cfg.RAW_DIR.parent / "deep" / "er" / "raw"
+    _bk_raw = cfg.RAW_BACKUP_DIR
+    _bk_raw.mkdir(parents=True)
+    for _d in ("2024-08-01", "2024-08-02"):
+        (_bk_raw / "2024-08").mkdir(exist_ok=True)
+        (_bk_raw / "2024-08" / f"garmin_raw_{_d}.json").write_text(f"dir-{_d}", encoding="utf-8")
+    _zip_write(_bk_raw / "raw_backup_2024-09.zip", {"garmin_raw_2024-09-01.json": "zip-1",
+                                                    "garmin_raw_2024-09-02.json": "zip-2"})
+    with _mock.patch.object(cfg, "RAW_DIR", _deep_raw):
+        _deep_raw.parent.mkdir(parents=True)
+        _deep_raw.mkdir()
+        (_deep_raw / "garmin_raw_2024-07-01.json").write_text("current", encoding="utf-8")
+        _put_log({"days": [{"date": "2024-07-01", "quality": "high"}]})
+        _rr = _q_backup_mod.restore_raw_days(["2024-07-01", "2024-08-01", "2024-08-02",
+                                              "2024-09-01", "2024-09-02"])
+        check("4f2 restore_raw_days: skipped day, two from folders, two from the ZIP - all handled",
+              _rr == {"restored": ["2024-08-01", "2024-08-02", "2024-09-01", "2024-09-02"],
+                      "skipped_already_current": ["2024-07-01"], "failed": [], "errors": {}})
+        check("4f2 restore_raw_days: the files carry the backed-up content, the skipped one is untouched",
+              (_deep_raw / "garmin_raw_2024-08-02.json").read_text(encoding="utf-8") == "dir-2024-08-02"
+              and (_deep_raw / "garmin_raw_2024-09-02.json").read_text(encoding="utf-8") == "zip-2"
+              and (_deep_raw / "garmin_raw_2024-07-01.json").read_text(encoding="utf-8") == "current")
+with _isolated_log_env("bk2_restore_deep"):
+    _deep_raw = cfg.RAW_DIR.parent / "deep2" / "er" / "raw"
+    cfg.RAW_BACKUP_DIR.mkdir(parents=True)
+    _zip_write(cfg.RAW_BACKUP_DIR / "raw_backup_2024-09.zip", {"garmin_raw_2024-09-01.json": "zip-1"})
+    with _mock.patch.object(cfg, "RAW_DIR", _deep_raw):
+        _rr = _q_backup_mod.restore_raw_days(["2024-09-01"])
+    check("4f2 restore_raw_days: a target folder with missing parents is created",
+          _rr["restored"] == ["2024-09-01"] and (_deep_raw / "garmin_raw_2024-09-01.json").is_file())
+
+# -- 10b. check_raw_backfill_needed: ZIP without the file, failing check is logged
+with _isolated_log_env("bk2_needed"):
+    cfg.RAW_DIR.mkdir(parents=True)
+    cfg.RAW_BACKUP_DIR.mkdir(parents=True)
+    (cfg.RAW_DIR / "garmin_raw_2024-08-05.json").write_text("{}", encoding="utf-8")
+    _zip_write(cfg.RAW_BACKUP_DIR / "raw_backup_2024-08.zip", {"garmin_raw_2024-08-01.json": "{}"})
+    check("4f2 check_raw_backfill_needed: ZIP exists but lacks the file -> counted",
+          _q_backup_mod.check_raw_backfill_needed() == 1)
+    with patch.object(_q_backup_mod, "_zip_contains", side_effect=RuntimeError("probe")):
+        _n_need, _c = _blogged(_q_backup_mod, _q_backup_mod.check_raw_backfill_needed)
+    check("4f2 check_raw_backfill_needed: a failing check is logged per file and does not crash",
+          _n_need == 0 and any(lv == "warning" and
+                               "check_raw_backfill_needed: failed for garmin_raw_2024-08-05.json" in m
+                               for lv, m in _c))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  B. garmin_backup (v1.5.1)

@@ -13,13 +13,14 @@ alternatives, and test-run numbers for the mechanisms below live in
 
 ## Scope
 
-This file covers six modules:
+This file covers seven modules:
 - `maps/mcp_map.py` — thin protocol translation onto `gateway_map`.
 - `clients/mcp_server.py` — MCP tool registration, transport, routing entry point.
 - `clients/mcp_query_common.py` — shared query-serving helpers (`_route_query`, `_get_field_unit`, `_enrich_with_units`).
 - `clients/mcp_field_registry.py` — the field-unit and alias/ambiguity registries.
 - `clients/mcp_health.py` — `query_health()`.
 - `clients/mcp_context.py` — `query_context()`, `_resolve_context_bundle()`, `_fetch_context_field()`.
+- `clients/mcp_stats.py` — `baselines()`, `anomalies()`, `gaps()`, `correlate()` (v1.7.5).
 
 ---
 
@@ -133,19 +134,20 @@ raises for data-availability reasons:
 ## `clients/mcp_server.py` — tool registration, routing, transport
 
 Standalone MCP server process (`mcp>=1.28,<2`), streamable-http
-transport. Registers **seven MCP tools**:
+transport. Registers **eleven MCP tools**:
 
 - Five defined directly here, as thin `@mcp.tool()` wrappers with no
   broker/delegation logic of their own: `query_fit_activities`,
   `query_raw`, `get_archive_metadata`, `list_available_fields`,
   `refresh_cache`.
-- Two, `query_health` and `query_context`, live in their own files
-  (`clients/mcp_health.py` / `clients/mcp_context.py`) and are imported
-  here, then registered programmatically —
-  `query_health = mcp.tool()(query_health)` — rather than with
-  `@mcp.tool()` at the definition site, since the shared `mcp` `FastMCP`
-  instance lives in this module and importing it into those two files
-  would be circular.
+- Six live in their own files and are imported here, then registered
+  programmatically — `query_health = mcp.tool()(query_health)` —
+  rather than with `@mcp.tool()` at the definition site, since the
+  shared `mcp` `FastMCP` instance lives in this module and importing it
+  into those files would be circular: `query_health`/`query_context`
+  (`clients/mcp_health.py` / `clients/mcp_context.py`), and
+  `baselines`/`anomalies`/`gaps`/`correlate` (`clients/mcp_stats.py`,
+  v1.7.5).
 
 The three `list_*_log_filenames()` functions plus `get_raw_file_hashes()`/
 `list_raw_fields()` (see `mcp_map.py` above) are **not** part of either
@@ -289,12 +291,113 @@ detail that goes stale the next time a field is added.
 
 ---
 
-## Field-name resolution (`query_health()` / `query_context()`)
+## `clients/mcp_stats.py` — statistical support tools (v1.7.5)
 
-Both tools resolve the caller's `field` argument through the same
-decision order before ever touching the archive — the mechanism that
-decides *which field is the right one* when the caller's input is not
-an exact, registered name. Diagram (reads left to right):
+Four MCP tools. `baselines()`/`anomalies()`/`gaps()` (Block A) read
+the Baseline/Anomaly cache (`mcp_sql.mcp_health_baselines`, populated
+by `mcp_update.py::_sync_health_baselines()`) and the Gap-Detection
+read-time functions (`mcp_sql.get_gaps_range()`). `correlate()`
+(Block B, added 2026-10-08) computes fresh per call — no cache, no
+new broker — reading through the same `query_health()`/
+`query_context()` data paths as every other live query. Undecorated
+at definition, registered programmatically in `mcp_server.py`, same
+pattern as `query_health`/`query_context` (see above).
+
+```python
+baselines(field, date_from, date_to) -> dict
+# {"health_baselines": {field: {"values": [{"date", "baseline_avg",
+#  "ref_low", "ref_high", "anomaly_flag"}, ...], "unit": str}}, "_meta": {...}}
+
+anomalies(field, date_from, date_to) -> dict
+# {"field": str, "outliers": [date, ...],
+#  "streaks": [{"side": "above"|"below", "dates": [date, ...]}, ...],
+#  "_meta": {...}}
+
+gaps(domain, date_from, date_to) -> dict
+# {"gaps": [date, ...], "_meta": {...}}
+# domain="fit" always degrades to {"gaps": [], "error": "domain not
+# yet available", "_meta": {...}} — no FIT pipeline exists yet.
+# Unknown domain raises ValueError.
+
+correlate(field_a, field_b, date_from, date_to, lag_days=0) -> dict
+# {"field_a": str, "field_b": str, "lag_days": int, "data_points": int,
+#  "pearson": float | None, "spearman": float | None,
+#  "_meta": {...}?, "note": str?}
+# {"error": str, "did_you_mean": [str, ...]?}  (field_a/field_b resolution
+#  failure, or lag_days outside [-MAX_LAG_DAYS, MAX_LAG_DAYS])
+```
+
+**`baselines()`** — rolling `BASELINE_WINDOW_DAYS=90`-day average per
+field/day plus a statistical reference range (`baseline_avg +/-
+BASELINE_STDEV_MULTIPLIER=3` standard deviations of that same window,
+computed fresh per field — never a shared absolute threshold across
+fields of different units). Deliberately unrelated to the Dashboard
+Layer's own age/fitness-adjusted `ref_low`/`ref_high`
+(`layouts/reference_ranges.py`) — that needs profile data (age, sex,
+VO2max) this sync-time computation has no access to; the two concepts
+share a name but not a computation.
+
+**`anomalies()`** — two findings computed from the same already-loaded
+data, no extra query: `outliers` (days with `anomaly_flag=True` in the
+baseline cache — a single day statistically far outside its own
+90-day history) and `streaks` (`MIN_STREAK_DAYS=5` or more consecutive
+days consistently above or below that day's `baseline_avg`, even when
+none of them individually crosses the outlier threshold — catches a
+slow drift an outlier check alone would miss). A day with no value, no
+baseline yet, or a value exactly equal to `baseline_avg` breaks a
+streak in progress.
+
+**`gaps()`** — a day is a gap if it was never synced at all, or was
+synced but came back unusable: `quality == "failed"` (health,
+`QUALITY_RANK`'s own lowest rank) or an empty `attempted_sources` set
+(context). Deliberately not based on `context/context_silo_check.py`'s
+file-existence mechanism — that module checks `context_data/` files on
+disk and has no Health equivalent; this reuses already-cached SQLite
+data instead.
+
+**Cache-staleness fix (v1.7.5 Block A):** see `REFERENCE_BROKER.md`'s
+"Known limitation" entry on `mcp_health_baselines` for the pauschal
+140-day recompute and its documented limit.
+
+**`correlate()`** (v1.7.5 Block B) — Pearson (linear) and Spearman
+(monotonic, rank-based, no `scipy` dependency — own tie-averaging
+rank transform) correlation between any two fields, health or
+context, any combination, over an arbitrary date range. `lag_days`
+(`-MAX_LAG_DAYS=7` to `+MAX_LAG_DAYS=7`) shifts `field_b` relative to
+`field_a`: a positive lag pairs `field_a` on a given day against
+`field_b` `lag_days` days later. Both coefficients are computed
+independently — one can be `None` with a `note` (e.g. "zero variance
+in at least one field") while the other still returns a value.
+`data_points` counts only dates present in both series after the lag
+shift, dropped automatically otherwise (no interpolation, no
+imputation). Field resolution for `field_a`/`field_b` goes through
+the exact same `resolve_health_field()`/`resolve_context_field()` as
+`baselines()`/`anomalies()` (tried health first, then context — an
+arbitrary but deterministic tie-break, not a priority judgement) —
+no separate resolution dialect for this tool. On a resolution
+failure, the error is prefixed `"field_a: ..."` / `"field_b: ..."` so
+the caller knows which of the two arguments was the problem.
+Context-side value extraction goes through `mcp_context._fetch_context_field()`
+rather than `mcp_sql.get_context_range()` directly, so a field with
+more than one source (e.g. `wind_speed_max`) gets the same per-day
+source-priority merge `query_context()` itself applies.
+
+---
+
+## Field-name resolution (`resolve_health_field()` / `resolve_context_field()`)
+
+Extracted (v1.7.5) from `query_health()`/`query_context()`'s own former
+inline logic into `clients/mcp_health.py::resolve_health_field()` /
+`clients/mcp_context.py::resolve_context_field()`, so `baselines()`/
+`anomalies()`/`correlate()` (`clients/mcp_stats.py`) resolve a field
+name the same way instead of requiring an exact canonical name —
+found necessary via a real LLM test run where models naturally said
+"hrv"/"body_battery" rather than the canonical registered names,
+which those tools previously could not resolve at all. Every one of
+these five tools now goes through the same decision order before ever
+touching the archive — the mechanism that decides *which field is the
+right one* when the caller's input is not an exact, registered name.
+Diagram (reads left to right):
 
 ![MCP field-name resolution decision flow](../screenshots/mcp_field_resolution.png)
 

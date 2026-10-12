@@ -56,7 +56,8 @@ def _make_garmin(login_error=None, summary_error=None):
 
 
 def _login(garmin_cls, *, token_file=False, enc_key="key", gen_key=True, store_key=True,
-           load_token=False, unresolved_mfa=False, save_token=True, during=None, **callbacks):
+           load_token=False, unresolved_mfa=False, save_token=True, during=None,
+           token_dir=None, **callbacks):
     """Runs api.login() against the fake garminconnect. Returns (result, error, mocks).
     during: optional callable run while the mocks are still active (e.g. to call the
     MFA prompt); its outcome is stored in mocks["_during"] as ("ok", value) / ("error", exc)."""
@@ -84,7 +85,7 @@ def _login(garmin_cls, *, token_file=False, enc_key="key", gen_key=True, store_k
     patched = {k: v for k, v in mocks.items() if k != "_during"}
     with patch.dict(sys.modules, {"garminconnect": fake}), \
          patch.multiple(_gs7, **patched), \
-         _cfg_values(GARMIN_TOKEN_FILE=_tf, GARMIN_TOKEN_DIR=_tf.parent / "tokendir",
+         _cfg_values(GARMIN_TOKEN_FILE=_tf, GARMIN_TOKEN_DIR=token_dir or (_tf.parent / "tokendir"),
                      GARMIN_EMAIL="user@example.com", GARMIN_PASSWORD="pw"):
         try:
             result = _api7.login(**callbacks)
@@ -426,5 +427,186 @@ with patch("garmin_api.api_call", side_effect=_fr_fail_side_effect), \
         extra_endpoints=[("get_hydration_data", ("2024-01-01",), "get_hydration_data")])
 check("fetch_raw: failed extra endpoint tracked in failed_endpoints",
       "get_hydration_data" in _fr_failed_list)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  4l2. garmin_api — truncated log/event details, key and token paths, log
+#       lines, fetch_raw pause and stop, device list log (v1.7.4.0.3).
+#       Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("4l2. garmin_api — details, log lines, pause, device log")
+import importlib as _il8
+import shutil
+from pathlib import Path
+
+
+class _Rec8:
+    """Stands in for garmin_api.log and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+        for _lvl in ("debug", "info", "warning", "error", "critical"):
+            setattr(self, _lvl, (lambda lv: lambda msg, *a, **k: self.calls.append((lv, msg)))(_lvl))
+
+    def msgs(self, level=None):
+        return [m for lv, m in self.calls if level is None or lv == level]
+
+
+def _chained8(msg, cause_msg):
+    _e = RuntimeError(msg)
+    _e.__cause__ = ValueError(cause_msg)
+    return _e
+
+
+def _event8(mocks, kind, reason):
+    """Keyword arguments of the log_token_event(kind, reason, ...) call, or None."""
+    for _c in mocks["log_token_event"].call_args_list:
+        if _c.args[:2] == (kind, reason):
+            return _c.kwargs
+    return None
+
+
+# -- truncation of details in the log line and in the token events ------------------------------------
+_E150 = "429 " + "e" * 146
+_G, _created = _make_garmin(summary_error=_chained8(_E150, "c" * 150))
+_rec = _Rec8()
+with patch.object(_api7, "log", _rec):
+    _res, _err, _m = _login(_G, load_token=True)
+check("login: the rate-limit log line shows exactly the first 60 characters of the error",
+      any(("(" + _E150[:60] + ")") in x for x in _rec.msgs("warning")))
+check("login: the 'blocked' event carries the first 100 characters of the error and of its cause",
+      _event8(_m, "blocked", "rate_limited") == {
+          "exception_type": "RuntimeError", "detail": _E150[:100],
+          "cause_type": "ValueError", "cause_detail": "c" * 100})
+check("login: the error raised afterwards keeps the complete text",
+      _err is not None and str(_err) == "Token probe failed: " + _E150)
+
+_E2 = "token rejected " + "r" * 150
+_G, _created = _make_garmin(summary_error=_chained8(_E2, "k" * 150))
+_res, _err, _m = _login(_G, load_token=True, on_token_expired=lambda: False)
+check("login: the 'invalidated' event carries the first 100 characters of the error and of its cause",
+      _event8(_m, "invalidated", "rejected_by_garmin") == {
+          "exception_type": "RuntimeError", "detail": _E2[:100],
+          "cause_type": "ValueError", "cause_detail": "k" * 100})
+
+# -- encryption key: when a new key is generated, when a typed key is stored ------------------------
+_G, _created = _make_garmin()
+_rec = _Rec8()
+with patch.object(_api7, "log", _rec):
+    _res, _err, _m = _login(_G, token_file=True, enc_key="key")
+check("login: token file and key present -> no key generation, token not cleared",
+      not _m["clear_token"].called and _event8(_m, "invalidated", "enc_key_missing_wcm") is None
+      and not any("auto-generating" in x for x in _rec.msgs("warning")))
+_G, _created = _make_garmin()
+_rec = _Rec8()
+with patch.object(_api7, "log", _rec):
+    _res, _err, _m = _login(_G, token_file=False, enc_key=None)
+check("login: no token file (first setup) and no key -> the 'missing key' repair does not run",
+      not _m["clear_token"].called and _event8(_m, "invalidated", "enc_key_missing_wcm") is None
+      and not any("auto-generating" in x for x in _rec.msgs("warning")))
+_G, _created = _make_garmin()
+_rec = _Rec8()
+with patch.object(_api7, "log", _rec):
+    _res, _err, _m = _login(_G, token_file=True, enc_key=None)
+check("login: token file present but key missing -> warned, token cleared, event logged",
+      _m["clear_token"].called and _event8(_m, "invalidated", "enc_key_missing_wcm") == {}
+      and any("auto-generating" in x for x in _rec.msgs("warning"))
+      and any("Saved token cleared" in x for x in _rec.msgs("warning")))
+
+_STORE_WARN = "Manually entered enc_key could not be stored"
+for _store, _expect_warn in ((True, False), (False, True)):
+    _G, _created = _make_garmin()
+    _rec = _Rec8()
+    with patch.object(_api7, "log", _rec):
+        _res, _err, _m = _login(_G, enc_key=None, gen_key=False, store_key=_store,
+                                on_key_required=lambda: "typed-key")
+    check(f"login: typed key, storing {'works' if _store else 'fails'} -> warning only on failure",
+          any(_STORE_WARN in x for x in _rec.msgs("warning")) is _expect_warn)
+_G, _created = _make_garmin()
+_res, _err, _m = _login(_G, enc_key=None, gen_key=False, on_key_required=lambda: "")
+check("login: an empty typed key is not stored", not _m["store_enc_key"].called)
+
+# -- token folder, token save ---------------------------------------------------------------------------------------
+_deep = _TMPDIR / "api4l2" / "one" / "two" / "tokendir"
+shutil.rmtree(_TMPDIR / "api4l2", ignore_errors=True)
+_G, _created = _make_garmin()
+_res, _err, _m = _login(_G, token_dir=_deep)
+check("login: SSO creates the token folder including missing parent folders",
+      _res is not None and _deep.is_dir())
+shutil.rmtree(_TMPDIR / "api4l2", ignore_errors=True)
+
+for _saved in (True, False):
+    _G, _created = _make_garmin()
+    _rec = _Rec8()
+    with patch.object(_api7, "log", _rec):
+        _res, _err, _m = _login(_G, save_token=_saved)
+    check(f"login: token save {'works' if _saved else 'fails'} -> warning only on failure, success is logged",
+          any("token could not be saved" in x for x in _rec.msgs("warning")) is (not _saved)
+          and any("Login successful (SSO)" in x for x in _rec.msgs("info")))
+
+# -- api_call: label or method name in the log lines -------------------------------------------------------
+_fake_gc8 = _types7.ModuleType("garminconnect")
+_fake_gc8.GarminConnectTooManyRequestsError = _FakeTooMany
+for _label, _shown in (("lab", "lab"), ("", "get_x")):
+    _rec = _Rec8()
+    with patch("garmin_api.time.sleep"), patch.dict(sys.modules, {"garminconnect": _fake_gc8}), \
+            patch.object(_api7, "log", _rec):
+        _api7.api_call(_Client(get_x=lambda *a: {"v": 1}), "get_x", label=_label)
+        _api7.api_call(_Client(get_x=_raises(RuntimeError("boom"))), "get_x", label=_label)
+    check(f"api_call: label {_label!r} -> the log lines name {_shown!r}",
+          _rec.msgs("debug") == [f"    Fetching {_shown} ...", f"    Fetching {_shown} ..."]
+          and _rec.msgs("warning") == [f"    ✗ {_shown}: boom"])
+
+# -- fetch_raw: the stop check inside the loop, the pause after it ---------------------------------------
+_stops = iter([False, True])
+_calls8 = []
+
+
+def _fake_stopped8():
+    return next(_stops, False)
+
+
+with patch("garmin_api._is_stopped", _fake_stopped8), \
+        patch("garmin_api.api_call", side_effect=lambda *a, **k: _calls8.append(a[1]) or (None, True)), \
+        patch("garmin_api.time.sleep"):
+    _api7.fetch_raw(MagicMock(), "2024-05-01")
+check("fetch_raw: a stop request in the middle of the loop ends it (no further endpoint is asked)",
+      _calls8 == ["get_sleep_data"])
+
+_uni8, _sl8 = [], []
+with patch("garmin_api.api_call", return_value=(None, True)), \
+        patch("garmin_api.random.uniform", side_effect=lambda a, b: _uni8.append((a, b)) or 12.5), \
+        patch("garmin_api.time.sleep", side_effect=lambda s: _sl8.append(s)):
+    _api7.fetch_raw(MagicMock(), "2024-05-01")
+check("fetch_raw: after the loop one pause of random.uniform(10, 20) seconds",
+      _uni8 == [(10, 20)] and _sl8 == [12.5])
+
+# -- get_devices: log lines -------------------------------------------------------------------------------------------
+_cl = MagicMock()
+_cl.get_devices.return_value = [
+    {"productDisplayName": "Fenix 7", "deviceId": 1, "registeredDate": "2022-05-01T10:00:00",
+     "lastUsed": "2024-05-01"},
+    {"deviceTypeName": "Edge", "unitId": 2},
+]
+_rec = _Rec8()
+with patch.object(_api7, "log", _rec):
+    _api7.get_devices(_cl)
+check("get_devices: logs the count and one line per device (name, first use or '?', last use)",
+      _rec.msgs("info") == [
+          "  Registered devices (2):",
+          "    " + "Fenix 7".ljust(30) + "  first: " + "2022-05-01".ljust(10) + "  last: 2024-05-01",
+          "    " + "Edge".ljust(30) + "  first: " + "?".ljust(10) + "  last: unknown"]
+      and _rec.msgs("warning") == [])
+
+# -- the module directory is put in front of sys.path on import (last test: it reloads the module) ------
+_sp_saved = list(sys.path)
+try:
+    sys.path.insert(0, "gla_sentinel_path")
+    _il8.reload(_api7)
+    _front = sys.path[0]
+    _sentinel_at = sys.path.index("gla_sentinel_path")
+finally:
+    sys.path[:] = _sp_saved
+    _api7.set_stop_event(None)
+check("garmin_api import: its own folder is inserted at position 0 of sys.path",
+      _front == str(Path(_api7.__file__).parent) and _sentinel_at == 1)
 
 summary()

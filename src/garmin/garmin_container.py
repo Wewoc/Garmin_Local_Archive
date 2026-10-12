@@ -543,6 +543,11 @@ def _classify_file(parts: tuple) -> str | None:
     if not parts:
         return None
 
+    # A leftover *.tmp from an aborted writer.write_day() — never pack it
+    # (ROADMAP v1.7.4.3, Fall 3). All readers elsewhere expect *.json anyway.
+    if parts[-1].endswith(".tmp"):
+        return None
+
     # quality_log section: garmin_data/log/quality_log.json + device_table.json
     if (len(parts) == 3
             and parts[0] == "garmin_data"

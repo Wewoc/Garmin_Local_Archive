@@ -218,12 +218,23 @@ _SCHEMA_STATEMENTS = [
         fields_json TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS mcp_health_baselines (
+        date TEXT NOT NULL,
+        field TEXT NOT NULL,
+        baseline_avg REAL,
+        ref_low REAL,
+        ref_high REAL,
+        anomaly_flag INTEGER,
+        PRIMARY KEY (date, field)
+    )
+    """,
 ]
 
 
 def init_db() -> None:
     """
-    Creates all ten tables if they do not already exist. Idempotent —
+    Creates all eleven tables if they do not already exist. Idempotent —
     safe to call on every mcp_server.py boot, not just the first ever
     run. Does not populate any table; that is sync_all()'s job
     (clients/mcp_update.py).
@@ -413,6 +424,76 @@ def set_registered_fields(domain: str, fields: set[str]) -> None:
         (domain, json.dumps(sorted(fields))),
     )
     conn.commit()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Baseline/Anomaly — mcp_health_baselines (v1.7.5 Block A)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def upsert_health_baseline(day: str, field: str, baseline_avg: float | None,
+                            ref_low: float | None, ref_high: float | None,
+                            anomaly_flag: bool | None) -> None:
+    """Inserts or replaces one (day, field) baseline/anomaly entry.
+    Called unconditionally for every (day, field) pair the pauschal
+    140-day recompute touches on each sync pass — no delta check
+    against a prior value, unlike upsert_health_day()'s compare-value
+    gate. Any of the four value columns may be None (e.g. a field with
+    fewer than BASELINE_DAYS of prior history yet)."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO mcp_health_baselines
+            (date, field, baseline_avg, ref_low, ref_high, anomaly_flag)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(date, field) DO UPDATE SET
+            baseline_avg = excluded.baseline_avg,
+            ref_low = excluded.ref_low,
+            ref_high = excluded.ref_high,
+            anomaly_flag = excluded.anomaly_flag
+        """,
+        (day, field, baseline_avg, ref_low, ref_high,
+         None if anomaly_flag is None else int(anomaly_flag)),
+    )
+    conn.commit()
+
+
+def get_health_baselines_range(date_from: str, date_to: str,
+                                field: str | None = None) -> dict:
+    """
+    Reads mcp_health_baselines for every day in [date_from, date_to],
+    reassembled into a get_health_range()-compatible per-field shape:
+    {"health_baselines": {field: {"values": [{"date", "baseline_avg",
+    "ref_low", "ref_high", "anomaly_flag"}, ...]}, ...}, "_meta": {...}}.
+    field optionally narrows to one field, same filter convention as
+    get_health_range(). A day/field never computed (e.g. outside the
+    pauschal 140-day recompute window, or not yet synced at all)
+    contributes no entry — not an error, same "not yet written"
+    principle every other range reader in this module already uses.
+    """
+    conn = get_connection()
+    query = ("SELECT date, field, baseline_avg, ref_low, ref_high, anomaly_flag "
+              "FROM mcp_health_baselines WHERE date BETWEEN ? AND ?")
+    params: list = [date_from, date_to]
+    if field is not None:
+        query += " AND field = ?"
+        params.append(field)
+    rows = conn.execute(query, params).fetchall()
+
+    by_field: dict[str, dict] = {}
+    for row in rows:
+        entry = by_field.setdefault(row["field"], {"values": []})
+        entry["values"].append({
+            "date": row["date"],
+            "baseline_avg": row["baseline_avg"],
+            "ref_low": row["ref_low"],
+            "ref_high": row["ref_high"],
+            "anomaly_flag": None if row["anomaly_flag"] is None else bool(row["anomaly_flag"]),
+        })
+
+    return {
+        "health_baselines": by_field,
+        "_meta": _build_range_meta(date_from, date_to),
+    }
 
 
 def reset_health_sync_state() -> None:
@@ -747,6 +828,106 @@ def get_context_range(date_from: str, date_to: str,
 
     return {
         "context": by_source,
+        "_meta": _build_range_meta(date_from, date_to),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Gap Detection — mcp_structured_logs (health) / mcp_context_days (context)
+#  (v1.7.5 Block A)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _date_range(date_from: str, date_to: str) -> list[str]:
+    """Every ISO date string in [date_from, date_to], inclusive —
+    shared by both gap helpers below so a day with no cache row at all
+    (not just a cached-but-failed day) is still considered, same
+    principle get_raw_range()'s own day-by-day loop already uses."""
+    import datetime as _dt
+    start = _dt.date.fromisoformat(date_from)
+    stop = _dt.date.fromisoformat(date_to)
+    days = []
+    cur = start
+    while cur <= stop:
+        days.append(cur.isoformat())
+        cur += _dt.timedelta(days=1)
+    return days
+
+
+def _compute_health_gaps(date_from: str, date_to: str) -> list[str]:
+    """A health day is a gap if it has no quality_log entry at all
+    (never synced) or its cached quality is "failed" (synced, no
+    usable data) — QUALITY_RANK's own lowest rank
+    (garmin/quality/_maint.py). Deliberately NOT based on
+    context_silo_check.py's file-existence mechanism — that module is
+    Context-domain-specific (checks context_data/ files on disk) and
+    has no Health equivalent; this reuses the already-cached
+    quality_log data instead, no new data source needed."""
+    entries = get_structured_log_range("quality_log", date_from, date_to)
+    quality_by_date = {e["date"]: e.get("quality") for e in entries}
+    return [
+        day for day in _date_range(date_from, date_to)
+        if quality_by_date.get(day) in (None, "failed")
+    ]
+
+
+def _compute_context_gaps(date_from: str, date_to: str) -> list[str]:
+    """A context day is a gap if it has no mcp_context_days row at all
+    (never synced) or its attempted_sources set is empty (synced, but
+    nothing was ever queried for that day) — reuses the per-day
+    completeness bookkeeping the v1.7.1.1 context-completeness fix
+    already introduced (see get_context_day_state()'s docstring),
+    rather than a second, independent gap mechanism."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT date, attempted_sources_json FROM mcp_context_days "
+        "WHERE date BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).fetchall()
+    attempted_by_date = {
+        row["date"]: json.loads(row["attempted_sources_json"]) for row in rows
+    }
+    return [
+        day for day in _date_range(date_from, date_to)
+        if not attempted_by_date.get(day)
+    ]
+
+
+def get_gaps_range(domain: str, date_from: str, date_to: str) -> dict:
+    """
+    Single entry point for the gaps() MCP tool — mirrors
+    get_metadata_range()'s "one routing function, caller doesn't need
+    to know the per-domain mechanism" principle. "health" and
+    "context" each have a cheap, already-cached-data-only gap
+    computation (see the two private helpers above); "fit" degrades
+    the same way every other FIT-domain read in this codebase does
+    (gateway_map._DOMAIN_BROKERS['fit': None] stub pattern) — empty
+    result plus an explicit "domain not yet available" error, not a
+    crash.
+
+    Returns:
+        {"gaps": list[str], "_meta": {...}} for "health"/"context",
+        {"gaps": [], "error": "domain not yet available", "_meta": {...}}
+        for "fit".
+
+    Raises:
+        ValueError: if domain is not one of the three known domains —
+                    same caller-error principle as get_metadata_range().
+    """
+    if domain == "health":
+        gap_dates = _compute_health_gaps(date_from, date_to)
+    elif domain == "context":
+        gap_dates = _compute_context_gaps(date_from, date_to)
+    elif domain == "fit":
+        return {
+            "gaps": [],
+            "error": "domain not yet available",
+            "_meta": _build_range_meta(date_from, date_to),
+        }
+    else:
+        raise ValueError(f"Unknown domain {domain!r} — expected 'health', 'context', or 'fit'")
+
+    return {
+        "gaps": gap_dates,
         "_meta": _build_range_meta(date_from, date_to),
     }
 

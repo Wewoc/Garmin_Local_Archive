@@ -270,6 +270,89 @@ def _fetch_context_field(field: str, date_from: str, date_to: str,
     return mcp_map.query_context(field, date_from, date_to, resolution)
 
 
+def resolve_context_field(field: str) -> dict:
+    """
+    Resolves a caller-supplied context field name to its canonical
+    registered name — the same alias/ambiguity/cross-domain/near-match
+    decision order query_context() applies before dispatching a query
+    (v1.7.1.4/.12, see that function's own docstring for the full
+    history/rationale of each step). Extracted (2026-10-07, v1.7.5),
+    same reasoning and same sibling function as
+    clients/mcp_health.py::resolve_health_field() — see that
+    function's docstring for the real-world finding that motivated
+    this.
+
+    Deliberately excludes two things query_context() itself still
+    handles before/around this function, not inside it:
+      - category-bundle names ("weather"/"pollen"/"air") — not a field
+        rename, a different multi-field merged response shape produced
+        by _resolve_context_bundle()
+      - building the final response envelope ("context"/"_meta" keys)
+        — this function is response-envelope-agnostic by design
+
+    Returns one of:
+      {"resolved_field": str, "field_resolved_from": str | None,
+       "field_used": str | None} — field_resolved_from/field_used are
+      both None when `field` was already the exact canonical name (no
+      substitution happened); both set to the same pair query_context()
+      already uses when an alias/near-match substitution happened.
+      {"error": str, "did_you_mean": list[str] | None} — resolution
+      failed; caller must not proceed to a data query. did_you_mean is
+      only present when difflib found candidates.
+
+    Case-insensitive (2026-10-07) — same reasoning and same approach
+    as resolve_health_field()'s sibling docstring note: every registry
+    name in this codebase is lowercase, so the input is lowercased
+    once, up front. A case-only correction counts as a substitution.
+    """
+    original_field = field
+    field = field.lower()
+
+    if field in CONTEXT_FIELD_ALIASES:
+        resolved_field = CONTEXT_FIELD_ALIASES[field]
+        return {"resolved_field": resolved_field,
+                "field_resolved_from": original_field, "field_used": resolved_field}
+
+    if field in CONTEXT_FIELD_AMBIGUOUS:
+        candidates = CONTEXT_FIELD_AMBIGUOUS[field]
+        return {
+            "error": (
+                f"field {field!r} is ambiguous between a daily value and "
+                f"a time series -- please specify one of: "
+                f"{', '.join(candidates)}"
+            ),
+            "did_you_mean": candidates,
+        }
+
+    known_context_fields: set[str] = set()
+    for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+        known_context_fields.update(_source_fields)
+    known_health_fields = set(
+        mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
+    )
+
+    if field not in known_context_fields and field in known_health_fields:
+        return {"error": f"field {field!r} belongs to query_health, not query_context"}
+
+    if field not in known_context_fields:
+        close_matches = difflib.get_close_matches(
+            field, known_context_fields, n=3, cutoff=0.65
+        )
+        if len(close_matches) == 1:
+            resolved_field = close_matches[0]
+            return {"resolved_field": resolved_field,
+                    "field_resolved_from": original_field, "field_used": resolved_field}
+
+        result = {"error": f"unknown field {field!r}"}
+        if close_matches:
+            result["did_you_mean"] = close_matches
+        return result
+
+    if field != original_field:
+        return {"resolved_field": field, "field_resolved_from": original_field, "field_used": field}
+    return {"resolved_field": field, "field_resolved_from": None, "field_used": None}
+
+
 def query_context(field: str, date_from: str, date_to: str,
                    resolution: str = "daily") -> dict:
     """Query external context data (weather, pollen, air quality) for a
@@ -356,98 +439,31 @@ def query_context(field: str, date_from: str, date_to: str,
          existing unknown-field difflib logic below.
     See NOTES_v1.7.1.12.md for the full candidate-by-candidate analysis
     behind both tables."""
-    if field in CONTEXT_FIELD_ALIASES:
-        resolved_field = CONTEXT_FIELD_ALIASES[field]
-        # v1.7.1.16 -- routed through _fetch_context_field() instead of
-        # calling mcp_sql/mcp_map directly, so an alias landing on
-        # "wind_speed_max" (e.g. "max_wind_speed", "wind_speed",
-        # "max_wind_speed_dwd", "wind_max") gets the brightsky/DWD-vs-
-        # weather/Open-Meteo priority merge too, not just an exact-name
-        # request -- see _fetch_context_field()'s own docstring.
-        result = _fetch_context_field(resolved_field, date_from, date_to, resolution)
-        result.setdefault("_meta", {})
-        result["_meta"]["field_resolved_from"] = field
-        result["_meta"]["field_used"] = resolved_field
-        return _enrich_with_units(result, "context")
-
-    if field in CONTEXT_FIELD_AMBIGUOUS:
-        candidates = CONTEXT_FIELD_AMBIGUOUS[field]
-        return {
-            "context": {},
-            "error": (
-                f"field {field!r} is ambiguous between a daily value and "
-                f"a time series -- please specify one of: "
-                f"{', '.join(candidates)}"
-            ),
-            "did_you_mean": candidates,
-            "_meta": {},
-        }
-
     if field in _CONTEXT_CATEGORY_BUNDLES:
         return _resolve_context_bundle(field, date_from, date_to, resolution)
 
-    known_context_fields: set[str] = set()
-    for _source_fields in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
-        known_context_fields.update(_source_fields)
-
-    # v1.7.1.12 -- Domain-Einordnung VOR dem Aehnlichkeitsvergleich,
-    # spiegelbildlich zur selben Korrektur in mcp_health.py::query_health()
-    # (siehe dortiger Kommentar fuer die volle Begruendung, seit Baustein
-    # 2.2 in einer eigenen Datei). known_health_fields
-    # wird jetzt hier, VOR dem difflib-Block, berechnet und geprueft --
-    # vorher fuehrte das bei cutoff=0.65 z.B. dazu, dass "sleep_duration"
-    # faelschlich auf "sunshine_duration" auto-resolved wurde, BEVOR die
-    # Domain-Confusion-Pruefung ueberhaupt erreicht werden konnte.
-    known_health_fields = set(
-        mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
-    )
-
-    if field not in known_context_fields and field in known_health_fields:
-        return {
-            "context": {},
-            "error": f"field {field!r} belongs to query_health, not query_context",
-            "_meta": {},
-        }
-
-    if field not in known_context_fields:
-        # v1.7.1.11 Session 5 (Testlauf, 2026-09-09) -- cutoff testweise
-        # von 0.8 auf 0.65 gesenkt, siehe identischer Kommentar in
-        # mcp_health.py::query_health() fuer Begruendung und Kalibrierung.
-        close_matches = difflib.get_close_matches(
-            field, known_context_fields, n=3, cutoff=0.65
-        )
-        if len(close_matches) == 1:
-            resolved_field = close_matches[0]
-            # v1.7.1.11 Session 4 -- Rueckbau: "_series" durchlaeuft
-            # dieselbe Weiche wie jedes andere Feld, kein Sonderpfad mehr
-            # (siehe Docstring-Zusatz oben, NOTES_v1.7.1.11.md Session 4).
-            # v1.7.1.16 -- routed through _fetch_context_field() instead
-            # of calling mcp_sql/mcp_map directly, same reasoning as the
-            # CONTEXT_FIELD_ALIASES branch above: a near-match landing on
-            # "wind_speed_max" must get the source-priority merge too.
-            result = _fetch_context_field(resolved_field, date_from, date_to, resolution)
-            result.setdefault("_meta", {})
-            result["_meta"]["field_resolved_from"] = field
-            result["_meta"]["field_used"] = resolved_field
-            return _enrich_with_units(result, "context")
-
+    # v1.7.5 -- resolution logic extracted to resolve_context_field()
+    # (see that function's own docstring for why and for the exact
+    # decision order, unchanged from before this extraction) so
+    # clients/mcp_stats.py can reuse it. Routed through
+    # _fetch_context_field() rather than mcp_sql/mcp_map directly
+    # (v1.7.1.16) so a resolved field landing on "wind_speed_max" still
+    # gets the brightsky/DWD-vs-weather/Open-Meteo priority merge.
+    resolution_result = resolve_context_field(field)
+    if "error" in resolution_result:
         error_result = {
             "context": {},
-            "error": f"unknown field {field!r}",
+            "error": resolution_result["error"],
             "_meta": {},
         }
-        if close_matches:
-            error_result["did_you_mean"] = close_matches
+        if "did_you_mean" in resolution_result:
+            error_result["did_you_mean"] = resolution_result["did_you_mean"]
         return error_result
 
-    # v1.7.1.11 Session 4 -- Rueckbau: "_series" durchlaeuft dieselbe
-    # Weiche wie jedes andere Feld, kein Sonderpfad mehr (siehe
-    # Docstring-Zusatz oben, NOTES_v1.7.1.11.md Session 4).
-    #
-    # v1.7.1.16 -- the wind_speed_max source-priority merge (previously
-    # inline here) moved into _fetch_context_field() above, shared with
-    # the CONTEXT_FIELD_ALIASES and difflib near-match branches earlier
-    # in this function -- see that function's docstring for why.
-    return _enrich_with_units(
-        _fetch_context_field(field, date_from, date_to, resolution), "context"
-    )
+    resolved_field = resolution_result["resolved_field"]
+    result = _fetch_context_field(resolved_field, date_from, date_to, resolution)
+    result.setdefault("_meta", {})
+    if resolution_result["field_resolved_from"] is not None:
+        result["_meta"]["field_resolved_from"] = resolution_result["field_resolved_from"]
+        result["_meta"]["field_used"] = resolution_result["field_used"]
+    return _enrich_with_units(result, "context")

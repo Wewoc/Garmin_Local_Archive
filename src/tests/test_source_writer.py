@@ -301,6 +301,249 @@ if _sq_src.exists():
 else:
     check("source_quality leaf-node: file found for AST check", False)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  D2. garmin_source_writer, garmin_source_quality — decisions by value, exact
+#      file formats, failure paths and their cleanup (v1.7.4.0.3).
+#      Closes the survivors of the mutation test.
+# ══════════════════════════════════════════════════════════════════════════════
+section("D2. garmin_source_writer, garmin_source_quality — formats, failures")
+from unittest.mock import patch
+from gla_testenv import _isolated_log_env, _cfg_values
+
+
+class _SLog:
+    """Stands in for a module logger and records (level, message)."""
+    def __init__(self):
+        self.calls = []
+
+    def _add(self, level, msg):
+        self.calls.append((level, msg))
+
+    def warning(self, msg, *a, **k):
+        self._add("warning", msg)
+
+    def info(self, msg, *a, **k):
+        self._add("info", msg)
+
+    def debug(self, msg, *a, **k):
+        self._add("debug", msg)
+
+    def error(self, msg, *a, **k):
+        self._add("error", msg)
+
+
+def _slogged(mod, fn, *args, **kwargs):
+    real, rec = mod.log, _SLog()
+    mod.log = rec
+    try:
+        return fn(*args, **kwargs), rec.calls
+    finally:
+        mod.log = real
+
+
+_VAL_OK = {"status": "ok", "issues": []}
+_D = "2024-07-01"
+
+
+def _env(name):
+    """Isolated source dirs plus an own source_api_log.json path below the same base."""
+    class _Ctx:
+        def __enter__(self):
+            self._a = _isolated_log_env(name)
+            self.base = self._a.__enter__()
+            self._b = _cfg_values(SOURCE_API_LOG=self.base / "log" / "source_api_log.json")
+            self._b.__enter__()
+            return self.base
+
+        def __exit__(self, *exc):
+            self._b.__exit__(*exc)
+            return self._a.__exit__(*exc)
+    return _Ctx()
+
+
+# -- schema version of the log entries ----------------------------------------------------------------
+with _env("sw2_schema") as _b:
+    source_writer.update_log(_D, _VAL_OK, ["sleep"], [], 10)
+    _e = json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))[_D]
+    check("D2 update_log: schema_version is 1 (identity of the log format, bump consciously)",
+          source_writer.SOURCE_LOG_SCHEMA_VERSION == 1 and _e["schema_version"] == 1)
+
+# -- decisions are compared by value, anything unknown means write ---------------------------------------
+import sys
+import garmin_source_quality as _sqm
+for _dec, _expect_changed, _expect_warn in (
+        ("".join(["sk", "ip"]), False, False),                  # equal to 'skip', not the same object
+        ("".join(["skip", "_warn"]), False, True),              # equal to 'skip_warn'
+        ("aaa", True, False),                                   # sorts before 'skip' -> still a write
+        ("skip_a", True, False),                                # sorts between 'skip' and 'skip_warn'
+        ("zzz", True, False)):
+    with _env("sw2_dec") as _b:
+        cfg.SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+        _dst = cfg.SOURCE_DIR / f"garmin_source_{_D}.json"
+        _dst.write_text('{"old": true}', encoding="utf-8")
+        with patch.object(_sqm, "compare_source", return_value=_dec):
+            _ok, _c = _slogged(source_writer, source_writer.write_source, {"new": True}, _D)
+        _changed = json.loads(_dst.read_text(encoding="utf-8")) == {"new": True}
+        check(f"D2 write_source: decision {_dec!r} -> {'written' if _expect_changed else 'file kept'}",
+              _ok is True and _changed is _expect_changed
+              and any("degraded response blocked" in m for lv, m in _c) is _expect_warn)
+
+# -- exact file formats -----------------------------------------------------------------------------------
+_UML = {"name": "Grüße", "n": [1, 2], "d": {"k": "ä"}}
+with _env("sw2_fmt") as _b:
+    source_writer.write_source(_UML, _D)
+    _dst = cfg.SOURCE_DIR / f"garmin_source_{_D}.json"
+    check("D2 write_source: compact JSON, umlauts as UTF-8 (not \\u escapes)",
+          _dst.read_bytes() == '{"name":"Grüße","n":[1,2],"d":{"k":"ä"}}'.encode("utf-8"))
+    source_writer.update_log(_D, {"status": "ok", "issues": [{"field": "Grüße"}]}, ["sleep"], [], 1)
+    _txt = cfg.SOURCE_API_LOG.read_text(encoding="utf-8")
+    check("D2 update_log: 2-space indent and umlauts as UTF-8",
+          _txt.startswith('{\n  "2024-07-01": {\n    "fetched_at"') and "Grüße" in _txt
+          and "\\u00fc" not in _txt)
+    source_writer.patch_source_field(_D, "extra", {"s": "Grün"})
+    check("D2 patch_source_field: compact JSON with the merged field, umlauts as UTF-8",
+          _dst.read_bytes() == '{"name":"Grüße","n":[1,2],"d":{"k":"ä"},"extra":{"s":"Grün"}}'.encode("utf-8"))
+    _txt2 = cfg.SOURCE_API_LOG.read_text(encoding="utf-8")
+    check("D2 patch_source_field: the annotated log keeps 2-space indent and UTF-8",
+          _txt2.startswith('{\n  "2024-07-01": {\n    "fetched_at"')
+          and '"backfilled_fields": {\n      "extra"' in _txt2 and "Grüße" in _txt2)
+
+# -- update_log details ------------------------------------------------------------------------------------
+with _env("sw2_log") as _b:
+    _dd = "".join(["da", "te"])                                  # 'date' as a new object
+    source_writer.update_log(_D, _VAL_OK, ["activities", _dd, "sleep", "body_battery"], ["x"], 1)
+    _e = json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))[_D]
+    check("D2 update_log: the key 'date' is dropped from endpoints_fetched, all others kept in order",
+          _e["endpoints_fetched"] == ["activities", "sleep", "body_battery"]
+          and _e["endpoints_failed"] == ["x"])
+    check("D2 update_log: missing_optional issues are not listed, others by field name",
+          (source_writer.update_log("2024-07-02", {"status": "warning", "issues": [
+              {"type": "missing_optional", "field": "a"}, {"type": "out_of_range", "field": "b"},
+              {"type": "type_mismatch"}]}, [], [], 1) is True)
+          and json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))["2024-07-02"]["validator_issues"]
+          == ["b", ""])
+
+with _env("sw2_log_deep") as _b:
+    with _cfg_values(SOURCE_API_LOG=_b / "a" / "b" / "c" / "source_api_log.json"):
+        _ok = source_writer.update_log(_D, _VAL_OK, [], [], 1)
+        check("D2 update_log: a log path with several missing folders is created",
+              _ok is True and cfg.SOURCE_API_LOG.is_file())
+
+with _env("sw2_log_bad") as _b:
+    cfg.SOURCE_API_LOG.parent.mkdir(parents=True, exist_ok=True)
+    cfg.SOURCE_API_LOG.write_text("{broken", encoding="utf-8")
+    _ok, _c = _slogged(source_writer, source_writer.update_log, _D, _VAL_OK, [], [], 1)
+    check("D2 update_log: unreadable existing log -> False, history left untouched, protective warning",
+          _ok is False and cfg.SOURCE_API_LOG.read_text(encoding="utf-8") == "{broken"
+          and any("skipping update to protect existing history" in m for lv, m in _c))
+
+with _env("sw2_log_assess") as _b:
+    with patch.object(_sqm, "assess_source", side_effect=RuntimeError("probe")):
+        _ok, _c = _slogged(source_writer, source_writer.update_log, _D, _VAL_OK, [], [], 1, {"a": 1})
+    _e = json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))[_D]
+    check("D2 update_log: failing intraday assessment is logged, the entry is written without it",
+          _ok is True and "intraday_present" not in _e
+          and any("assess_source failed" in m for lv, m in _c))
+
+# -- failure paths: result, leftover .tmp, a failing cleanup must not escape -----------------------------------
+def _fail_replace():
+    return patch("os.replace", side_effect=OSError("locked"))
+
+
+with _env("sw2_fail_write") as _b:
+    cfg.SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    with _fail_replace():
+        _ok, _c = _slogged(source_writer, source_writer.write_source, {"a": 1}, _D)
+    check("D2 write_source: failing swap -> False, no .tmp left, warning names the day",
+          _ok is False and not list(cfg.SOURCE_DIR.glob("*.tmp"))
+          and any(lv == "warning" and f"write_source failed for {_D}" in m for lv, m in _c))
+    with _fail_replace(), patch.object(source_writer, "_cleanup_tmp", side_effect=RuntimeError("x")):
+        _ok = source_writer.write_source({"a": 1}, _D)
+    check("D2 write_source: a failing cleanup does not escape -> False", _ok is False)
+    with patch.object(sys.modules["garmin_backup_source"], "backup_source", side_effect=RuntimeError("bk")):
+        _ok, _c = _slogged(source_writer, source_writer.write_source, {"a": 1}, _D)
+    check("D2 write_source: failing backup is only a warning, the write still counts as success",
+          _ok is True and (cfg.SOURCE_DIR / f"garmin_source_{_D}.json").exists()
+          and any(lv == "warning" and f"backup_source failed for {_D}: bk" in m for lv, m in _c))
+
+with _env("sw2_fail_log") as _b:
+    with _fail_replace():
+        _ok = source_writer.update_log(_D, _VAL_OK, [], [], 1)
+    check("D2 update_log: failing swap -> False, no .tmp left",
+          _ok is False and not list(cfg.SOURCE_API_LOG.parent.glob("*.tmp")))
+    with _fail_replace(), patch.object(source_writer, "_cleanup_tmp", side_effect=RuntimeError("x")):
+        _ok = source_writer.update_log(_D, _VAL_OK, [], [], 1)
+    check("D2 update_log: a failing cleanup does not escape -> False", _ok is False)
+
+with _env("sw2_fail_patch") as _b:
+    cfg.SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    _dst = cfg.SOURCE_DIR / f"garmin_source_{_D}.json"
+    _tmp = _dst.with_suffix(".json.tmp")
+    _dst.write_text("{broken", encoding="utf-8")
+    _tmp.write_text("leftover", encoding="utf-8")
+    _ok, _c = _slogged(source_writer, source_writer.patch_source_field, _D, "steps", [1])
+    check("D2 patch_source_field: unreadable source file -> False, leftover .tmp removed, warning",
+          _ok is False and not _tmp.exists()
+          and any(lv == "warning" and f"patch_source_field failed for {_D}" in m for lv, m in _c))
+    with patch.object(source_writer, "_cleanup_tmp", side_effect=RuntimeError("x")):
+        _ok = source_writer.patch_source_field(_D, "steps", [1])
+    check("D2 patch_source_field: a failing cleanup does not escape -> False", _ok is False)
+    _dst.write_text('{"date": "x"}', encoding="utf-8")
+    with _fail_replace():
+        _ok = source_writer.patch_source_field(_D, "steps", [1])
+    check("D2 patch_source_field: failing swap -> False, source file unchanged, no .tmp",
+          _ok is False and json.loads(_dst.read_text(encoding="utf-8")) == {"date": "x"}
+          and not _tmp.exists())
+
+with _env("sw2_patch_log") as _b:
+    source_writer.write_source({"date": "x"}, _D)
+    cfg.SOURCE_API_LOG.parent.mkdir(parents=True, exist_ok=True)
+    cfg.SOURCE_API_LOG.write_text("{broken", encoding="utf-8")
+    _ok, _c = _slogged(source_writer, source_writer.patch_source_field, _D, "steps", [1])
+    check("D2 patch_source_field: broken log is only a warning, the patch itself still counts",
+          _ok is True and json.loads((cfg.SOURCE_DIR / f"garmin_source_{_D}.json")
+                                     .read_text(encoding="utf-8"))["steps"] == [1]
+          and any(lv == "warning" and "log annotation failed" in m for lv, m in _c))
+    cfg.SOURCE_API_LOG.unlink()                                  # start a fresh, readable log
+    source_writer.update_log(_D, _VAL_OK, [], [], 1)
+    source_writer.patch_source_field(_D, "steps", [2])
+    source_writer.patch_source_field(_D, "floors", [3])
+    _bf = json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))[_D]["backfilled_fields"]
+    check("D2 patch_source_field: every patched field gets its own timestamp in the log",
+          set(_bf) == {"steps", "floors"} and all(v.endswith("Z") for v in _bf.values()))
+
+# -- _cleanup_tmp ------------------------------------------------------------------------------------------------
+with _env("sw2_cleanup") as _b:
+    _t = _b / "x.json.tmp"
+    _t.write_text("x", encoding="utf-8")
+    source_writer._cleanup_tmp(_t)
+    source_writer._cleanup_tmp(_t)                               # already gone: no error
+    check("D2 _cleanup_tmp: removes an existing file, a missing one is fine", not _t.exists())
+    _t.write_text("x", encoding="utf-8")
+    with patch.object(Path, "unlink", side_effect=OSError("locked")):
+        source_writer._cleanup_tmp(_t)
+    check("D2 _cleanup_tmp: a failing delete does not raise", _t.exists())
+
+# -- garmin_source_quality: unreadable file, defaults ---------------------------------------------------------------
+with _env("sw2_sq") as _b:
+    cfg.SOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    _bad = cfg.SOURCE_DIR / "garmin_source_2024-07-09.json"
+    _bad.write_text("{broken", encoding="utf-8")
+    _a, _c = _slogged(_sqm, _sqm.assess_source_from_file, _bad)
+    check("D2 assess_source_from_file: unreadable file -> exactly {'unreadable': True}, warning names the file",
+          _a == {"unreadable": True}
+          and any(lv == "warning" and "could not read existing file garmin_source_2024-07-09.json" in m
+                  for lv, m in _c))
+check("D2 compare_source: a missing 'intraday_present' counts as False on both sides",
+      _sqm.compare_source({}, {}) == "write"
+      and _sqm.compare_source({}, {"intraday_present": True}) == "write"
+      and _sqm.compare_source({"intraday_present": True}, {}) == "skip_warn"
+      and _sqm.compare_source({"intraday_present": True}, {"intraday_present": True}) == "skip")
+check("D2 compare_source: force always writes, whatever exists",
+      all(_sqm.compare_source(e, n, force=True) == "write"
+          for e in (None, {"unreadable": True}, {"intraday_present": True}, {"intraday_present": False})
+          for n in ({"intraday_present": True}, {"intraday_present": False})))
+
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 if _sw_file.exists():
     _sw_file.unlink()

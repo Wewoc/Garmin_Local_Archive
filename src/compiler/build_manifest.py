@@ -117,6 +117,7 @@ SHARED_SCRIPTS = [
     "clients/mcp_server_gui.py",
     "clients/mcp_sql.py",
     "clients/mcp_update.py",
+    "clients/mcp_stats.py",
     "clients/chat_session_store.py",
     "clients/cloud_credential_store.py",
     # v1.7.2 — In-App Chat: MCP tool-calling, Cloud LLM connector
@@ -305,6 +306,7 @@ SCRIPT_SIGNATURES_BASE = {
     "clients/mcp_server_gui.py": ["def run_gui"],
     "clients/mcp_sql.py": ["def init_db", "def get_connection"],
     "clients/mcp_update.py": ["def sync_all"],
+    "clients/mcp_stats.py": ["def baselines", "def anomalies", "def gaps"],
     "clients/chat_session_store.py": ["def list_sessions", "def save_session", "def load_session"],
     "clients/cloud_credential_store.py": ["def get_api_key", "def store_api_key"],
     "clients/mcp_client.py": ["def is_reachable", "def list_tools", "def call_tool"],

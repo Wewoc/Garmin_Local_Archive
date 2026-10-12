@@ -207,6 +207,42 @@ of scope.
   history (live-verified, including a full `mirror.gla` restore
   specifically to re-run the days first touched by the superseded
   full-replace implementation).
+- **Resolved (v1.7.4.0.4, 2026-10-06):** six gaps a mutation test pinned
+  as current behaviour in v1.7.4.0.3 are now actually fixed, each with
+  an extended test contract (not just "doesn't break"). Quality-log
+  recovery: `_load_quality_log()` saves and tries to restore an
+  unreadable file instead of silently starting empty, and now checks
+  every entry's `date` on *every* load (not just once in `main()`) —
+  moved here deliberately so the warning survives an independent call,
+  e.g. the Archive Info panel's own refresh ("Variante B", chosen over
+  a `main()`-local patch for exactly that reason). Found and fixed in
+  the same pass: `_compute_checksum()` computed `source` before vs.
+  after migration defaults were applied, causing a false mismatch (and
+  a spurious restore) for any entry without an explicit `source` field —
+  previously masked because `backup_quality_log()` always overwrote the
+  monthly snapshot unconditionally; the new data-loss guard (below)
+  surfaced it. Backup: `backup_raw()`/`backup_source()`'s Force-Refetch
+  branch now actually runs (previously dead — see `REFERENCE_GARMIN.md`);
+  `backup_quality_log()` refuses to overwrite a snapshot with less than
+  half its day count. Collector: a negative `MAX_DAYS_PER_SESSION` is
+  rejected instead of silently reaching `missing[:-1]`; a day can no
+  longer be counted in both the saved and the error tally; `main()`
+  tolerates an unparseable quality-log date instead of crashing before
+  login. GDPR import (`run_import()`): downgrade protection now uses
+  `_check_downgrade()` for every source, not just `source == "api"`
+  (previously an existing `legacy`/non-API day with intraday data could
+  be silently replaced by the export's aggregate-only version); date
+  validated before any write (`except (ValueError, TypeError)` — a
+  non-string date from a malformed entry used to crash it); stop event
+  actually checked (`_is_stopped()` was registered but never read).
+  `garmin_import.py`'s four bulk-entry loops tolerate a malformed
+  (non-object) entry instead of aborting the whole generator. Schema
+  migration: `_run_schema_migration()` now uses the new
+  `write_summary_only()` — `raw/` is genuinely untouched, not just by
+  convention (the log line/docstring claim was previously not quite
+  true). Full detail per fix: `changelog/anchor_delivery_v1741-*.md`
+  through `anchor_delivery_v1746-*.md`; decisions and the two
+  self-found bugs above: `PROTOKOLL.md`, Baustein 6 and 8.
 
 ---
 
@@ -242,7 +278,7 @@ No subprocesses — runs collector in a thread via `_run_module()`. Uses `import
 
 ## `test_local.py`
 
-> **Since v1.7.4.0.2 the sections below live in one file per module** (see `MAINTENANCE_GLOBAL.md`, "Test suite"); the numbers and letters (1–16, A–L, 4b–4l) are the historical section labels, still used in test comments and the changelog. Mapping: 1, 2, 8 → `test_basics.py`; 3 → `test_normalizer.py`; 4, 4b–4e, A → `test_quality.py`; 4f, B, F → `test_backup.py`; D → `test_source_writer.py`; 4g, C, C2, C3 → `test_container_mirror.py`; 4h, C4 → `test_import_mirror.py`; 4i, 4j, 6, 15, E, E2–E5, 16 → `test_collector.py`; 4k and Fix 3 → `test_garmin_import.py`; 4l, J → `test_api.py`; K → `test_api_capability.py`; H → `test_live_fetch.py`; 5, 5b, 10 → `test_writer.py`; 7 → `test_security.py`; 9, 9b, 14 → `test_validator.py`; G → `test_silo_check.py`; I, I2 → `test_silo_repair.py`; L → `test_force_refetch.py`; 11, 12, 13 → `test_local.py` (cross-module).
+> **Since v1.7.4.0.2 the sections below live in one file per module** (see `MAINTENANCE_GLOBAL.md`, "Test suite"); the numbers and letters (1–16, A–L, 4b–4l) are the historical section labels, still used in test comments and the changelog. Mapping: 1, 2, 8 → `test_basics.py`; 3 → `test_normalizer.py`; 4, 4b–4e, A → `test_quality.py`; 4f, B, F → `test_backup.py`; D → `test_source_writer.py`; 4g, C, C2, C3 → `test_container_mirror.py`; 4h, C4 → `test_import_mirror.py`; 4i, 4j, 6, 15, E, E2–E5, 16 → `test_collector.py`; 4k and Fix 3 → `test_garmin_import.py`; 4l, J → `test_api.py`; K → `test_api_capability.py`; H → `test_live_fetch.py`; 5, 5b, 10 → `test_writer.py`; 7 → `test_security.py`; R → `test_redact.py`; 9, 9b, 14 → `test_validator.py`; G → `test_silo_check.py`; I, I2 → `test_silo_repair.py`; L → `test_force_refetch.py`; 11, 12, 13 → `test_local.py` (cross-module).
 
 `compare_source` truth table (8 checks — +2 für unreadable→skip_warn, v1.6.0.4.9)
 `unlock_meta` / `fulfill_order` / `detect_source` error-path tests (18 checks — v1.6.0.4.9.3)

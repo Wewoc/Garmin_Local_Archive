@@ -90,8 +90,21 @@ def backup_source(date_str: str, force: bool = False) -> bool:
         log.debug(f"  backup_source: {date_str} → backup/source/{month}/")
 
         # Consolidate completed months
-        force_filenames = {src.name} if force else None
-        _consolidate_source_months(current_month=month, force_filenames=force_filenames)
+        # v1.7.4.2: force=True must make the forced date's own month directory
+        # reachable by the Force-Replace block in _consolidate_source_months().
+        # current_month=month (the forced date's own month) always satisfies
+        # "month_name >= current_month" there, so that exact month is skipped
+        # on every call — the replace block can never fire through
+        # backup_source(). Using today's real calendar month as current_month
+        # instead (only when force=True) lets an already-completed month
+        # (month < today's month) be treated as completed and consolidated
+        # with the forced filename; a date still in the open current month
+        # keeps the old skip — nothing to replace yet (see ROADMAP v1.7.4.2,
+        # Open point). Non-force calls keep the prior current_month=month
+        # behaviour, byte-for-byte unchanged.
+        force_filenames   = {src.name} if force else None
+        consolidate_month = date.today().strftime("%Y-%m") if force else month
+        _consolidate_source_months(current_month=consolidate_month, force_filenames=force_filenames)
         return True
 
     except Exception as e:

@@ -188,31 +188,187 @@ check("validator restored: valid day passes again",
       validator_mod.validate({"date": "2024-01-01"})["status"] == "ok")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  14. v1.4.3 — VALUE RANGE VALIDATION
+#  9c. garmin_validator — critical path, loop continuation, range limits (v1.7.4.0.3)
+#  Closes the survivors of the mutation test: the "critical" branch, the three
+#  `continue` statements of the loops, the range limits and the `required` default.
 # ══════════════════════════════════════════════════════════════════════════════
-section("14. v1.4.3 — VALUE RANGE VALIDATION")
+section("9c. garmin_validator — critical path, loops, range limits")
 
-# out_of_range warnings → quality downgrade in collector logic
-# Simuliert: validator liefert >3 out_of_range issues, label wird auf low gedrückt
-_oor_issues = [
-    {"type": "out_of_range", "field": f"heart_rates.field{i}",
-     "severity": "warning", "expected": "20–300", "actual": 999}
-    for i in range(4)
-]
-_val_result_oor = {"status": "warning", "issues": _oor_issues,
-                   "schema_version": "1.0", "timestamp": "2024-01-01T00:00:00"}
 
-_oor_count = sum(1 for i in _val_result_oor.get("issues", [])
-                 if i.get("type") == "out_of_range")
-check("downgrade: >3 out_of_range → count correct",  _oor_count == 4)
-check("downgrade: >3 out_of_range → cap to low",     "low" if _oor_count > 3 else "high" == "low")
+class _LogRec:
+    """Stands in for validator_mod.log and records (level, message)."""
+    def __init__(self):
+        self.calls = []
 
-# exactly 3 → no downgrade
-_val_result_3 = {"status": "warning", "issues": _oor_issues[:3],
-                 "schema_version": "1.0", "timestamp": "2024-01-01T00:00:00"}
-_oor_count_3 = sum(1 for i in _val_result_3.get("issues", [])
-                   if i.get("type") == "out_of_range")
-check("downgrade: exactly 3 → no downgrade",         _oor_count_3 <= 3)
+    def warning(self, msg, *a, **k):
+        self.calls.append(("warning", msg))
+
+    def debug(self, msg, *a, **k):
+        self.calls.append(("debug", msg))
+
+    def info(self, msg, *a, **k):
+        self.calls.append(("info", msg))
+
+
+def _validate_logged(raw):
+    """validate(raw) with the validator's logger recorded. Returns (result, calls)."""
+    real, rec = validator_mod.log, _LogRec()
+    validator_mod.log = rec
+    try:
+        return validator_mod.validate(raw), rec.calls
+    finally:
+        validator_mod.log = real
+
+
+def _types(res, field):
+    return [i["type"] for i in res["issues"] if i["field"] == field]
+
+
+# 1. Required field missing — exact issue
+_r = validator_mod.validate({})
+check("9c required missing: status critical", _r["status"] == "critical")
+check("9c required missing: exact issue",
+      [i for i in _r["issues"] if i["field"] == "date"] == [
+          {"field": "date", "type": "missing_required", "expected": "str",
+           "actual": "absent", "severity": "critical"}])
+
+# 2. Required field with the wrong type -> critical
+_r = validator_mod.validate({"date": 20240101})
+_iss = [i for i in _r["issues"] if i["field"] == "date"]
+check("9c required wrong type: status critical", _r["status"] == "critical")
+check("9c required wrong type: exact issue",
+      _iss == [{"field": "date", "type": "type_mismatch", "expected": "str",
+                "actual": "int", "severity": "critical"}])
+
+# 3. Optional field with the wrong type -> warning
+_r = validator_mod.validate({"date": "2024-01-01", "sleep": "x"})
+_iss = [i for i in _r["issues"] if i["field"] == "sleep"]
+check("9c optional wrong type: status warning", _r["status"] == "warning")
+check("9c optional wrong type: exact issue",
+      _iss == [{"field": "sleep", "type": "type_mismatch", "expected": "dict",
+                "actual": "str", "severity": "warning"}])
+
+# 4. Log lines: the critical and the warning case are told apart
+_, _calls = _validate_logged({})
+check("9c log: required missing -> one warning-level line with CRITICAL",
+      len(_calls) == 1 and _calls[0][0] == "warning"
+      and "[VALIDATOR] [CRITICAL]" in _calls[0][1]
+      and "Missing required field 'date'" in _calls[0][1]
+      and "Day skipped to prevent archive corruption" in _calls[0][1])
+_, _calls = _validate_logged({"date": 20240101})
+check("9c log: required wrong type -> CRITICAL, day skipped",
+      len(_calls) == 1 and "[VALIDATOR] [CRITICAL] 20240101:" in _calls[0][1]
+      and "wrong type" in _calls[0][1] and "Day skipped" in _calls[0][1]
+      and "degraded" not in _calls[0][1])
+_, _calls = _validate_logged({"date": "2024-01-01", "sleep": "x"})
+check("9c log: optional wrong type -> WARNING, degraded mode",
+      len(_calls) == 1 and "[VALIDATOR] [WARNING] 2024-01-01:" in _calls[0][1]
+      and "degraded mode" in _calls[0][1] and "CRITICAL" not in _calls[0][1])
+_, _calls = _validate_logged({"date": "2024-01-01", "garmin_new_metric": 1})
+check("9c log: unexpected field -> WARNING",
+      len(_calls) == 1 and "[VALIDATOR] [WARNING]" in _calls[0][1]
+      and "Unexpected field 'garmin_new_metric'" in _calls[0][1])
+_, _calls = _validate_logged({"date": "2024-01-01"})
+check("9c log: clean day logs nothing at warning level",
+      not any(lvl == "warning" for lvl, _ in _calls))
+
+# 5. _log_issue: critical/warning go to warning, everything else to debug
+_real_log, _rec = validator_mod.log, _LogRec()
+validator_mod.log = _rec
+try:
+    validator_mod._log_issue("critical", "d", "m")
+    validator_mod._log_issue("warning", "d", "m")
+    validator_mod._log_issue("info", "d", "m")
+finally:
+    validator_mod.log = _real_log
+check("9c _log_issue: levels and format",
+      _rec.calls == [("warning", "[VALIDATOR] [CRITICAL] d: m"),
+                     ("warning", "[VALIDATOR] [WARNING] d: m"),
+                     ("debug", "[VALIDATOR] [INFO] d: m")])
+
+# Controlled schema for the loop and limit tests (restored by reload_schema())
+_S = {
+    "date":    {"type": "str", "required": True},
+    "opt1":    {"type": "dict"},                       # no "required" key
+    "mid":     {"type": "dict", "required": False,
+                "sub_fields": {"x": {"min": 0, "max": 10}, "y": {"min": 0, "max": 10}}},
+    "last":    {"type": "list", "required": False},
+    "lo_only": {"type": "dict", "required": False, "sub_fields": {"v": {"min": 5}}},
+    "hi_only": {"type": "dict", "required": False, "sub_fields": {"v": {"max": 5}}},
+    "must":    {"type": "int", "required": True},
+}
+
+
+def _check_custom(raw):
+    validator_mod._schema = _S
+    return validator_mod.validate(raw)
+
+
+try:
+    # 6. An absent optional field does not end the field loop
+    _r = _check_custom({"date": "d", "last": "x", "must": 1})
+    check("9c loop: field after absent optionals is still checked",
+          _types(_r, "last") == ["type_mismatch"])
+    _r = _check_custom({"date": "d"})
+    check("9c loop: required field behind absent optionals is still reported",
+          _types(_r, "must") == ["missing_required"] and _r["status"] == "critical")
+
+    # 11. A field without "required" is optional (default False)
+    _r = _check_custom({"date": "d", "must": 1})
+    check("9c default: field without 'required' is optional",
+          _types(_r, "opt1") == ["missing_optional"] and _r["status"] == "ok")
+
+    # 7./8. An absent, None or non-numeric sub_field does not end the sub_field loop
+    _r = _check_custom({"date": "d", "must": 1, "mid": {"y": 99}})
+    check("9c sub loop: absent sub_field, next one still checked",
+          _types(_r, "mid.y") == ["out_of_range"] and _types(_r, "mid.x") == [])
+    _r = _check_custom({"date": "d", "must": 1, "mid": {"x": "n/a", "y": 99}})
+    check("9c sub loop: non-numeric sub_field, next one still checked",
+          _types(_r, "mid.y") == ["out_of_range"] and _types(_r, "mid.x") == [])
+    _r = _check_custom({"date": "d", "must": 1, "mid": {"x": None, "y": 99}})
+    check("9c sub loop: None sub_field, next one still checked",
+          _types(_r, "mid.y") == ["out_of_range"])
+
+    # 9. Range limits: inclusive at both ends
+    for _val, _flag in [(0, False), (10, False), (5, False), (-1, True), (11, True),
+                        (10.5, True), (-0.1, True), (0.0, False)]:
+        _r = _check_custom({"date": "d", "must": 1, "mid": {"x": _val}})
+        check(f"9c range x={_val}: {'flagged' if _flag else 'ok'}",
+              (_types(_r, "mid.x") == ["out_of_range"]) == _flag)
+    _r = _check_custom({"date": "d", "must": 1, "mid": {"x": 11}})
+    _oor = [i for i in _r["issues"] if i["field"] == "mid.x"]
+    check("9c range: exact out_of_range issue",
+          _oor == [{"field": "mid.x", "type": "out_of_range", "expected": "0–10",
+                    "actual": 11, "severity": "warning"}])
+    check("9c range: out_of_range -> status warning", _r["status"] == "warning")
+
+    # 10. Only a minimum / only a maximum
+    for _val, _flag in [(4, True), (5, False), (1000, False)]:
+        _r = _check_custom({"date": "d", "must": 1, "lo_only": {"v": _val}})
+        check(f"9c min only v={_val}: {'flagged' if _flag else 'ok'}",
+              (_types(_r, "lo_only.v") == ["out_of_range"]) == _flag)
+    for _val, _flag in [(6, True), (5, False), (-1000, False)]:
+        _r = _check_custom({"date": "d", "must": 1, "hi_only": {"v": _val}})
+        check(f"9c max only v={_val}: {'flagged' if _flag else 'ok'}",
+              (_types(_r, "hi_only.v") == ["out_of_range"]) == _flag)
+finally:
+    validator_mod.reload_schema()
+
+# Range limits of the shipped schema (heart_rates.restingHeartRate 20-300)
+for _val, _flag in [(20, False), (300, False), (19, True), (301, True)]:
+    _r = validator_mod.validate({"date": "2024-01-01", "heart_rates": {"restingHeartRate": _val}})
+    check(f"9c shipped schema restingHeartRate={_val}: {'flagged' if _flag else 'ok'}",
+          (_types(_r, "heart_rates.restingHeartRate") == ["out_of_range"]) == _flag)
+check("9c restored: shipped schema active again",
+      validator_mod.current_version() == _schema_version_real)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  14. v1.4.3 — assess_quality ignores out-of-range values (stays pure)
+#  (v1.7.4.0.3: the simulated "downgrade" checks that only recomputed the rule inside
+#  the test were removed — the real downgrade runs through _fetch_and_assess() in
+#  test_collector.py, the validator's own range check is covered in 9 and 9c)
+# ══════════════════════════════════════════════════════════════════════════════
+section("14. v1.4.3 — assess_quality stays pure with out-of-range data")
 
 # assess_quality with out_of_range data — quality stays pure (no validator_result param)
 import garmin_quality as quality_mod
@@ -227,14 +383,5 @@ check("assess_quality: stays pure (no validator param)", _label == "high")
 _raw_low = {"date": "2024-01-01", "heart_rates": {"restingHeartRate": 999}}
 _label_low = quality_mod.assess_quality(_raw_low)
 check("assess_quality: no intraday → not high",      _label_low != "high")
-
-# quality downgrade: >3 warnings + high label → low
-_raw_q = {
-    "date": "2024-01-01",
-    "heart_rates": {"heartRateValues": [[0, 60]], "restingHeartRate": 999},
-}
-_q_label = quality_mod.assess_quality(_raw_q)  # would be "high"
-_simulated = "standard" if _oor_count > 3 and _q_label == "high" else _q_label
-check("downgrade simulation: high → standard",       _simulated == "standard")
 
 summary()
