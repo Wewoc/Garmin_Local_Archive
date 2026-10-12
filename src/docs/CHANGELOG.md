@@ -1,5 +1,80 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.5.1 — MCP Tool Descriptions: Agent-Facing Cleanup
+
+Glama's automated TDQS review (Sep 2026) rated `query_context` C,
+`query_health` B and `query_raw` B: the docstrings the MCP SDK exposes as
+tool descriptions carried the full session-by-session engineering history
+(version numbers, internal file and note references), and gave an LLM
+client little guidance on when to use which tool. Each affected docstring
+is now split in two: a short, agent-facing description (what the tool
+does, parameter formats, which sibling tool to use instead, real limits
+and result shape) and the original history, moved verbatim into a `#`
+comment block above the function. No behaviour change in the five tools'
+bodies.
+
+Description size: `query_context` ~5000 → 924 characters, `query_health`
+~5500 → 1127, `query_raw` 1186, `list_available_fields` 874,
+`get_archive_metadata` 1319. `baselines`/`anomalies`/`gaps`/`correlate`
+were already short and are unchanged.
+
+**Found and fixed while checking the descriptions against the real
+behaviour:**
+- `list_available_fields()` advertised 14 `metadata_kinds`, but
+  `get_archive_metadata()` accepts nine on the SQLite path — the other
+  five (`daily_log_filenames`, `fail_log_filenames`, `recent_log_filenames`,
+  `raw_file_hashes`, `context_resync_pending`) are registered for the
+  internal sync only and raised `ValueError`. The MCP overview now lists
+  only the nine usable kinds; `gateway_map.list_metadata_kinds()` keeps
+  its full default via a new `include_internal` parameter.
+- The raw-passthrough fields of `query_raw` were not discoverable through
+  any MCP tool; the description now names them.
+- "Raw" was described as "unprocessed" in several places. `raw/` is the
+  normalized silo, but `normalize()` is an identity for API-fetched days,
+  so the accurate wording is "as archived in `raw/`, without value
+  extraction" (reserve "unmodified" for `source/`). Reworded in
+  `REFERENCE_BROKER.md`, `REFERENCE_GARMIN.md` and the `get_raw()`
+  docstrings.
+- The old `query_health` text still described `steps` as an alias for
+  `steps_series`; since v1.7.1.12 it is an ambiguous name answered with a
+  `did_you_mean` list. The description follows the current behaviour.
+- `query_raw`'s old description promised `field`/`domain` filtering that
+  the SQLite path (the only active one) does not apply. The description
+  now states this limitation; the filter itself is still ROADMAP
+  v1.7.5.2.
+
+**Changed modules:**
+- `clients/mcp_context.py`, `clients/mcp_health.py`,
+  `clients/mcp_server.py` — tool descriptions split as described above
+  (`query_context`, `query_health`, `query_raw`, `list_available_fields`,
+  `get_archive_metadata`)
+- `maps/gateway_map.py` — `list_metadata_kinds(include_internal=True)`,
+  `_INTERNAL_ONLY_KINDS`
+- `maps/mcp_map.py` — `list_available_fields()` lists only the nine
+  LLM-facing metadata kinds
+- `maps/garmin_health_map.py` — `get_raw()` docstring and one comment
+  reworded
+- `docs/REFERENCE_MCP.md`, `docs/REFERENCE_BROKER.md`,
+  `docs/REFERENCE_GARMIN.md` — `metadata_kinds` note, "raw" wording
+- `tests/test_mcp.py`, `tests/test_broker.py` — new checks: every tool
+  description is non-empty, at most 2000 characters and free of internal
+  references; `query_raw` names exactly the registered raw fields;
+  `get_archive_metadata` names exactly its nine kinds; sibling-tool
+  pointers are present; the overview lists only kinds the SQLite path
+  accepts
+
+**Test result:** all suites green, 4211 checks total (`test_mcp.py`
+307/307, `test_broker.py` 143/143, `test_static.py` 17/17,
+`test_updater.py` 93/93 included). The new description checks were
+mutation-checked (injected note references, version numbers, module names,
+a removed and a renamed raw field, an over-long text — all detected).
+Checked against a running MCP server with 17 read-only protocol calls
+(all 11 tools list with the new descriptions, error cases return
+structured results). Whether the shorter texts steer small local models
+better has not been measured yet.
+
+---
+
 ## v1.7.5 — MCP Statistical Support Functions
 
 Two new statistical capabilities for the MCP layer, split by computation

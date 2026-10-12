@@ -139,105 +139,134 @@ def resolve_health_field(field: str) -> dict:
     return {"resolved_field": field, "field_resolved_from": None, "field_used": None}
 
 
+# ── query_health: session history (moved out of the docstring, v1.7.5.1) ──
+# Not part of the MCP tool description — the docstring below is what
+# mcp.tool() exposes to the calling LLM. Kept verbatim for future sessions.
+# Note (v1.7.5.1): the text below is verbatim history. Where it names "steps"
+# as an alias for steps_series (v1.7.1.9), that is superseded — since
+# v1.7.1.12 "steps" is in HEALTH_FIELD_AMBIGUOUS (mcp_field_registry.py):
+# steps_total / steps_series, returned as error + did_you_mean.
+#
+# Query Garmin health data (e.g. heart rate, sleep, stress, body
+# battery) for a field over a date range. resolution is "daily" or
+# "intraday" — most fields only support one of the two (e.g.
+# resting_heart_rate is daily-only, heart_rate_series is
+# intraday-only); pass the field name that matches what you want,
+# see list_available_fields() for the full list. This parameter is
+# accepted for forward compatibility but not currently used to pick
+# between two resolutions of the same field, since no field in this
+# archive currently offers both — each field's own stored resolution
+# already determines whether the answer is a single daily value or
+# a full timeseries.
+#
+# v1.7.1.1 field-filter fix (2026-08-28 session): field is now
+# passed through to the SQLite branch — previously it was silently
+# dropped, so every call returned all ~26 health fields regardless
+# of what was asked for, including this archive's intraday *_series
+# fields (full day-long timeseries), inflating a single-value
+# answer to hundreds of KB and confusing small local LLMs
+# summarizing the result.
+#
+# v1.7.1.6 unit field: every field in the returned result now
+# carries a "unit" key alongside "values"/"fallback"/
+# "source_resolution" — see FIELD_UNITS in mcp_field_registry.py. Applied AFTER the
+# routing weiche below, so it covers both branches identically
+# (today, only the SQLite branch is ever actually taken — see
+# _route_query()'s docstring).
+#
+# v1.7.1.9 unknown-field detection (this session): mirrors
+# query_context()'s v1.7.1.4 fix, applied here with a delayed
+# session (see that function's docstring for the original rationale
+# -- a valid-but-dataless field and an unregistered field previously
+# returned the identical silent {"health": {}}, leaving the caller
+# unable to tell the two apart). Checked BEFORE the _route_query()
+# switch below, so it applies regardless of which branch (sqlite/
+# live) ends up serving the request -- the field registry itself
+# (mcp_map.list_available_fields) is unrelated to that routing
+# decision.
+#
+# Three unknown-field outcomes, checked in this order:
+#   1. Unambiguous near-match against the known health field names
+#      (e.g. a typo) -> auto-resolved, field_used replaces the
+#      caller's input transparently, but the substitution is always
+#      visible via _meta.field_resolved_from / _meta.field_used —
+#      never a silent rewrite.
+#   2. The field IS registered, but under query_context's domain,
+#      not query_health's (e.g. "temperature_max") -> a
+#      domain-specific error naming query_context, no did_you_mean
+#      list (a health-domain suggestion would be wrong here).
+#   3. Neither of the above (no close match, and not a
+#      query_context field either) -> a generic "unknown field"
+#      error, with a did_you_mean suggestion list when difflib found
+#      any candidates, without one when it found none.
+#
+# A valid field's result (with or without data in range) is returned
+# exactly as before this session — none of the above runs unless
+# field is unrecognized.
+#
+# Deliberately NOT addressed here (see AKTIONSPLAN_v1.7.1.9_
+# health_fallback.md Abschnitt 3/4 for the full analysis): a model
+# that picks a completely unrelated but real, registered field
+# instead of a near-match typo (verified empirically against the
+# 2026-09-05 test run's Hermes3 cases, e.g. resting_heart_rate
+# returned for a steps question) is not a field-registry problem —
+# no near-match exists for the fallback to catch, since the wrong
+# field is itself a valid, unrelated field name. Tracked as a
+# parking-lot item (query_health docstring example-field guidance),
+# not pulled into this fix.
+#
+# v1.7.1.9 Session 2 -- sleep_score fan-out: "sleep_score" is itself
+# an already-valid, registered field (unlike the alias candidates
+# below), so it would never reach the unknown-field checks above --
+# it always short-circuits straight to the normal valid-field path.
+# Checked here, BEFORE the bundle check, precisely because it is
+# valid and would otherwise never trigger any of the outcomes below.
+# Fans out to the two closely related fields sleep_score_feedback
+# and sleep_score_qualifier and returns all three together in the
+# same {"garmin": {field: {...}}} shape a normal multi-field result
+# already has -- no new result shape, _enrich_with_units() handles
+# it unchanged. _meta.field_resolved_from is set to "sleep_score" so
+# the fan-out is visible; no field_used, since all three delivered
+# field names are already the dict's own keys, unlike the 1:1 alias
+# case where the substitution would otherwise be invisible. A direct
+# call to "sleep_score_feedback" or "sleep_score_qualifier" is NOT
+# affected -- only the exact bare "sleep_score" triggers this.
+#
+# v1.7.1.9 Session 2 -- short-form alias mapping: three short-form
+# field names (steps, hrv, hill) sit far enough below any workable
+# difflib cutoff against their real target field names (steps_series,
+# hrv_last_night, hill_score -- confirmed down to cutoff=0.7, see
+# NOTES_v1.7.1.9.md Session 2) that no cutoff tuning can catch them
+# without introducing new ambiguities elsewhere. HEALTH_FIELD_ALIASES
+# below resolves these explicitly, checked before outcome 1's
+# near-match logic (an alias hit is more certain than a near-match
+# and should not have to pass through it). "spo2" was considered and
+# explicitly excluded (real collision between spo2_avg and
+# spo2_series, no reliable disambiguation signal available -- see
+# NOTES_v1.7.1.9.md Session 2 for the full analysis).
+# ────────────────────────────────────────────────────────────────────────
 def query_health(field: str, date_from: str, date_to: str,
                   resolution: str = "daily") -> dict:
     """Query Garmin health data (e.g. heart rate, sleep, stress, body
-    battery) for a field over a date range. resolution is "daily" or
-    "intraday" — most fields only support one of the two (e.g.
-    resting_heart_rate is daily-only, heart_rate_series is
-    intraday-only); pass the field name that matches what you want,
-    see list_available_fields() for the full list. This parameter is
-    accepted for forward compatibility but not currently used to pick
-    between two resolutions of the same field, since no field in this
-    archive currently offers both — each field's own stored resolution
-    already determines whether the answer is a single daily value or
-    a full timeseries.
+    battery, steps) for one field over a date range. Use query_context
+    instead for weather, pollen and air quality; call list_available_fields
+    first if the exact field name is unknown.
 
-    v1.7.1.1 field-filter fix (2026-08-28 session): field is now
-    passed through to the SQLite branch — previously it was silently
-    dropped, so every call returned all ~26 health fields regardless
-    of what was asked for, including this archive's intraday *_series
-    fields (full day-long timeseries), inflating a single-value
-    answer to hundreds of KB and confusing small local LLMs
-    summarizing the result.
+    field: a health field name, e.g. "resting_heart_rate", "hrv_last_night",
+    "body_battery_max", "steps_series". A "_series" suffix means intraday
+    timeseries data; a plain name means one value per day. Pass the field
+    that matches what you want — "sleep_score" returns three related
+    fields together (sleep_score, sleep_score_feedback,
+    sleep_score_qualifier). date_from/date_to: ISO "YYYY-MM-DD", inclusive.
+    resolution is accepted but ignored — the field name alone decides the
+    shape.
 
-    v1.7.1.6 unit field: every field in the returned result now
-    carries a "unit" key alongside "values"/"fallback"/
-    "source_resolution" — see FIELD_UNITS in mcp_field_registry.py. Applied AFTER the
-    routing weiche below, so it covers both branches identically
-    (today, only the SQLite branch is ever actually taken — see
-    _route_query()'s docstring).
-
-    v1.7.1.9 unknown-field detection (this session): mirrors
-    query_context()'s v1.7.1.4 fix, applied here with a delayed
-    session (see that function's docstring for the original rationale
-    -- a valid-but-dataless field and an unregistered field previously
-    returned the identical silent {"health": {}}, leaving the caller
-    unable to tell the two apart). Checked BEFORE the _route_query()
-    switch below, so it applies regardless of which branch (sqlite/
-    live) ends up serving the request -- the field registry itself
-    (mcp_map.list_available_fields) is unrelated to that routing
-    decision.
-
-    Three unknown-field outcomes, checked in this order:
-      1. Unambiguous near-match against the known health field names
-         (e.g. a typo) -> auto-resolved, field_used replaces the
-         caller's input transparently, but the substitution is always
-         visible via _meta.field_resolved_from / _meta.field_used —
-         never a silent rewrite.
-      2. The field IS registered, but under query_context's domain,
-         not query_health's (e.g. "temperature_max") -> a
-         domain-specific error naming query_context, no did_you_mean
-         list (a health-domain suggestion would be wrong here).
-      3. Neither of the above (no close match, and not a
-         query_context field either) -> a generic "unknown field"
-         error, with a did_you_mean suggestion list when difflib found
-         any candidates, without one when it found none.
-
-    A valid field's result (with or without data in range) is returned
-    exactly as before this session — none of the above runs unless
-    field is unrecognized.
-
-    Deliberately NOT addressed here (see AKTIONSPLAN_v1.7.1.9_
-    health_fallback.md Abschnitt 3/4 for the full analysis): a model
-    that picks a completely unrelated but real, registered field
-    instead of a near-match typo (verified empirically against the
-    2026-09-05 test run's Hermes3 cases, e.g. resting_heart_rate
-    returned for a steps question) is not a field-registry problem —
-    no near-match exists for the fallback to catch, since the wrong
-    field is itself a valid, unrelated field name. Tracked as a
-    parking-lot item (query_health docstring example-field guidance),
-    not pulled into this fix.
-
-    v1.7.1.9 Session 2 -- sleep_score fan-out: "sleep_score" is itself
-    an already-valid, registered field (unlike the alias candidates
-    below), so it would never reach the unknown-field checks above --
-    it always short-circuits straight to the normal valid-field path.
-    Checked here, BEFORE the bundle check, precisely because it is
-    valid and would otherwise never trigger any of the outcomes below.
-    Fans out to the two closely related fields sleep_score_feedback
-    and sleep_score_qualifier and returns all three together in the
-    same {"garmin": {field: {...}}} shape a normal multi-field result
-    already has -- no new result shape, _enrich_with_units() handles
-    it unchanged. _meta.field_resolved_from is set to "sleep_score" so
-    the fan-out is visible; no field_used, since all three delivered
-    field names are already the dict's own keys, unlike the 1:1 alias
-    case where the substitution would otherwise be invisible. A direct
-    call to "sleep_score_feedback" or "sleep_score_qualifier" is NOT
-    affected -- only the exact bare "sleep_score" triggers this.
-
-    v1.7.1.9 Session 2 -- short-form alias mapping: three short-form
-    field names (steps, hrv, hill) sit far enough below any workable
-    difflib cutoff against their real target field names (steps_series,
-    hrv_last_night, hill_score -- confirmed down to cutoff=0.7, see
-    NOTES_v1.7.1.9.md Session 2) that no cutoff tuning can catch them
-    without introducing new ambiguities elsewhere. HEALTH_FIELD_ALIASES
-    below resolves these explicitly, checked before outcome 1's
-    near-match logic (an alias hit is more certain than a near-match
-    and should not have to pass through it). "spo2" was considered and
-    explicitly excluded (real collision between spo2_avg and
-    spo2_series, no reliable disambiguation signal available -- see
-    NOTES_v1.7.1.9.md Session 2 for the full analysis)."""
+    Unknown or ambiguous field names return an "error", often with a
+    "did_you_mean" list of candidates (e.g. "steps" or "stress" without
+    suffix: choose the daily or the _series variant). A clear typo or alias
+    is resolved automatically; _meta.field_resolved_from / field_used then
+    show what was substituted. A field with no data in the range returns
+    empty values, not an error. Every field carries a "unit"."""
     if field == "sleep_score":
         # Correction (v1.7.1.9 Session 2, post-Lauf-8): get_health_range()
         # already reads through the source-name layer itself (see its own

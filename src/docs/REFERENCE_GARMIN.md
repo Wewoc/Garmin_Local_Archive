@@ -68,7 +68,7 @@ garmin_app.py (GUI)
 - The 15 baseline `fetch_raw()` endpoints always run — the API-Capability-Scan config can never disable them, only add optional candidates (v1.6.8, Archive-First)
 - API-Capability-Scan candidates are double-gated before joining a sync run: `enabled_by_user == True` **and** `status == "found"` — a hand-edited config file can never activate an endpoint that was never confirmed present (v1.6.8)
 - Capability config is read once per sync run as an immutable snapshot, inside the same `QUALITY_LOCK` the sync loop already holds — `run_capability_scan()` reuses this same lock rather than introducing a second one: it never writes `quality_log.json` itself, but does share the Garmin client with the sync, and the two must never run concurrently (v1.6.8)
-- API-Capability-Scan candidates reach `summary/` — and therefore `get()`/`list_fields()` — only if `garmin_normalizer.summarize()` is explicitly extended for that candidate; landing in `raw/` alone is not sufficient, `summarize()` is a fixed field list, not a generic passthrough. Seven candidates are wired this way: `body_weight`, `calories_resting` (v1.6.8 pilot), `hydration_ml`, `endurance_score`, `hill_score`, `fitness_age` (v1.6.8 Session 4), `blood_pressure` (six `bp_*` scalar fields, v1.7.1.14, Issue #7). The remaining 12 are exposed unprocessed via `get_raw()`/`list_raw_fields()` instead — see "Raw-passthrough fields" below — rather than left archived-but-unreachable
+- API-Capability-Scan candidates reach `summary/` — and therefore `get()`/`list_fields()` — only if `garmin_normalizer.summarize()` is explicitly extended for that candidate; landing in `raw/` alone is not sufficient, `summarize()` is a fixed field list, not a generic passthrough. Seven candidates are wired this way: `body_weight`, `calories_resting` (v1.6.8 pilot), `hydration_ml`, `endurance_score`, `hill_score`, `fitness_age` (v1.6.8 Session 4), `blood_pressure` (six `bp_*` scalar fields, v1.7.1.14, Issue #7). The remaining 12 are exposed as archived in `raw/` (no value extraction) via `get_raw()`/`list_raw_fields()` instead — see "Raw-passthrough fields" below — rather than left archived-but-unreachable
 - `list_fields(active_only=True)` additionally excludes API-Capability-Scan candidate fields whose endpoint is not `enabled_by_user` in the capability config — used by the Custom Dashboard field picker and Explorer (v1.6.8 Session 4, "Governance B"). Baseline fields and raw-passthrough fields are unaffected: baseline fields are absent from the gating dict by design, raw-passthrough fields aren't part of `list_fields()`'s registry at all
 
 ---
@@ -642,7 +642,7 @@ As of v1.6.8 Session 4, all 19 are broker-reachable in some form. 7 are
 interpreted into `summary/` fields (`body_weight`, `calories_resting`,
 `hydration_ml`, `endurance_score`, `hill_score`, `fitness_age`,
 `blood_pressure` — the last added v1.7.1.14, Issue #7), the remaining 12
-are exposed unprocessed via `get_raw()`/`list_raw_fields()` — see
+are exposed as archived in `raw/` (no value extraction) via `get_raw()`/`list_raw_fields()` — see
 "Raw-passthrough fields" below. `get_daily_weigh_ins`'s suspected
 duplicate status against `get_body_composition` is now confirmed —
 byte-identical on accounts without a smart scale (`sourceType:
@@ -847,7 +847,7 @@ at the pilot account, or event-log structure (see `NOTES_v168_D_02.md`
 "Blocker-Typen" for the per-field reasoning; `blood_pressure` moved out
 of this group in v1.7.1.14, Issue #7 — see below). Rather than leave
 them archived-but-broker-invisible, `garmin_health_map.py` exposes them
-unprocessed via a second, deliberately separate access path — kept
+as archived in `raw/` (no value extraction) via a second, deliberately separate access path — kept
 entirely out of `_FIELD_MAP`/`get()`/`list_fields()` so existing
 dashboards (which all assume the scalar `{"values": [{"date", "value"}]}`
 shape) are structurally unaffected:

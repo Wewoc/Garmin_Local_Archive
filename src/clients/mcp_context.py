@@ -353,92 +353,114 @@ def resolve_context_field(field: str) -> dict:
     return {"resolved_field": field, "field_resolved_from": None, "field_used": None}
 
 
+# ── query_context: session history (moved out of the docstring, v1.7.5.1) ──
+# Not part of the MCP tool description — the docstring below is what
+# mcp.tool() exposes to the calling LLM. Kept verbatim for future sessions.
+#
+# Query external context data (weather, pollen, air quality) for a
+# field over a date range. Fans out across all sources that recognize
+# the field.
+#
+# v1.7.1.3 field-filter fix: field is now passed through to the
+# SQLite branch — previously it was silently dropped (this call site
+# never forwarded it at all), so every call returned all four
+# context categories (weather/brightsky/airquality/pollen) regardless
+# of what was asked for, inflating a single-value answer to hundreds
+# of KB and confusing small local LLMs summarizing the result. Same
+# fix as query_health()'s v1.7.1.1/v1.7.1.2 field-filter, applied
+# here with a one-session delay.
+#
+# v1.7.1.4 unknown-field detection (this session): a field that is
+# valid for query_context() but unregistered anywhere in the context
+# domain previously returned the same silent {"context": {}} as a
+# registered field with no data in the requested range — the caller
+# (LLM or human) could not tell "field does not exist" apart from
+# "field exists, no data here". This is checked BEFORE the
+# _route_query() switch below, so the check applies regardless of
+# which branch (sqlite/live) ends up serving the request — the field
+# registry itself (mcp_map.list_available_fields) is unrelated to
+# that routing decision.
+#
+# Three unknown-field outcomes, checked in this order:
+#   1. Unambiguous near-match against the known context field names
+#      (e.g. a typo) -> auto-resolved, field_used replaces the
+#      caller's input transparently, but the substitution is always
+#      visible via _meta.field_resolved_from / _meta.field_used —
+#      never a silent rewrite.
+#   2. The field IS registered, but under query_health's domain, not
+#      query_context's (e.g. "sleep") -> a domain-specific error
+#      naming query_health, no did_you_mean list (a context-domain
+#      suggestion would be wrong here).
+#   3. Neither of the above (e.g. a category name like "weather", or
+#      no close match at all) -> a generic "unknown field" error,
+#      with a did_you_mean suggestion list when difflib found any
+#      candidates, without one when it found none.
+#
+# A valid field's result (with or without data in range) is returned
+# exactly as before this session — none of the above runs unless
+# field is unrecognized.
+#
+# v1.7.1.5 category bundles (this session): a field value naming a
+# known bundle key ("weather"/"pollen"/"air") is resolved BEFORE any
+# of the three unknown-field outcomes above -- a bundle name is never
+# a registered field itself, so without this check it would always
+# fall through to the generic "unknown field" branch. Each bundle
+# field is queried individually through the SAME sqlite/live routing
+# weiche used everywhere else in this function -- the bundle path
+# only adds collection, flattening, and collision tie-breaking on top,
+# it does not bypass or duplicate the existing data-access path. See
+# _CONTEXT_CATEGORY_BUNDLES above for the priority-list mechanics.
+#
+# v1.7.1.11 Session 4 -- resolution is decided by the field name
+# itself, same principle as query_health(): a "_series" suffix always
+# means intraday/timeseries data, a plain field name always means a
+# single daily value -- no field in this archive offers both under
+# one name, so the caller already knows which shape to expect before
+# the query even runs. This holds regardless of which branch
+# (sqlite/live) below ends up serving the request -- both branches
+# return the same "values" contract (see mcp_sql.get_context_range()
+# / clients/mcp_sql.py, and maps/_context_io.py's read_summary_field()/
+# read_raw_field() for the underlying {"date","value"} vs.
+# {"date","series"} shapes).
+#
+# v1.7.1.12 -- CONTEXT_FIELD_ALIASES / CONTEXT_FIELD_AMBIGUOUS checked
+# here, BEFORE the bundle check, mirroring query_health()'s
+# HEALTH_FIELD_ALIASES ordering (an alias hit is more certain than a
+# near-match and should not have to pass through the bundle or
+# difflib logic). Three outcomes now precede the pre-existing bundle/
+# unknown-field handling below:
+#   1. CONTEXT_FIELD_ALIASES hit -> auto-resolved, field_used/
+#      field_resolved_from set, same as the alias path in
+#      query_health().
+#   2. CONTEXT_FIELD_AMBIGUOUS hit -> NOT resolved. Returns the
+#      existing error/did_you_mean shape with a field-specific error
+#      message and the known candidate list as did_you_mean -- no new
+#      response shape (see CONTEXT_FIELD_AMBIGUOUS's own comment for
+#      the rationale). field_used/field_resolved_from are NOT set.
+#   3. Neither -> falls through unchanged to the bundle check and the
+#      existing unknown-field difflib logic below.
+# See NOTES_v1.7.1.12.md for the full candidate-by-candidate analysis
+# behind both tables.
+# ────────────────────────────────────────────────────────────────────────
 def query_context(field: str, date_from: str, date_to: str,
                    resolution: str = "daily") -> dict:
-    """Query external context data (weather, pollen, air quality) for a
-    field over a date range. Fans out across all sources that recognize
-    the field.
+    """Query external context data (weather, pollen, air quality) for one
+    field over a date range. Use query_health for Garmin body data (heart
+    rate, sleep, stress, ...) instead; call list_available_fields first if
+    the exact field name is unknown.
 
-    v1.7.1.3 field-filter fix: field is now passed through to the
-    SQLite branch — previously it was silently dropped (this call site
-    never forwarded it at all), so every call returned all four
-    context categories (weather/brightsky/airquality/pollen) regardless
-    of what was asked for, inflating a single-value answer to hundreds
-    of KB and confusing small local LLMs summarizing the result. Same
-    fix as query_health()'s v1.7.1.1/v1.7.1.2 field-filter, applied
-    here with a one-session delay.
+    field: a context field name (e.g. "temperature_max",
+    "pollen_grass_series"), or a category name — "weather", "pollen" or
+    "air" — to get the main fields of that category at once. A "_series"
+    suffix means intraday timeseries data; a plain name means one value per
+    day. date_from/date_to: ISO "YYYY-MM-DD", inclusive. resolution is
+    accepted but ignored — the field name alone decides the shape.
 
-    v1.7.1.4 unknown-field detection (this session): a field that is
-    valid for query_context() but unregistered anywhere in the context
-    domain previously returned the same silent {"context": {}} as a
-    registered field with no data in the requested range — the caller
-    (LLM or human) could not tell "field does not exist" apart from
-    "field exists, no data here". This is checked BEFORE the
-    _route_query() switch below, so the check applies regardless of
-    which branch (sqlite/live) ends up serving the request — the field
-    registry itself (mcp_map.list_available_fields) is unrelated to
-    that routing decision.
-
-    Three unknown-field outcomes, checked in this order:
-      1. Unambiguous near-match against the known context field names
-         (e.g. a typo) -> auto-resolved, field_used replaces the
-         caller's input transparently, but the substitution is always
-         visible via _meta.field_resolved_from / _meta.field_used —
-         never a silent rewrite.
-      2. The field IS registered, but under query_health's domain, not
-         query_context's (e.g. "sleep") -> a domain-specific error
-         naming query_health, no did_you_mean list (a context-domain
-         suggestion would be wrong here).
-      3. Neither of the above (e.g. a category name like "weather", or
-         no close match at all) -> a generic "unknown field" error,
-         with a did_you_mean suggestion list when difflib found any
-         candidates, without one when it found none.
-
-    A valid field's result (with or without data in range) is returned
-    exactly as before this session — none of the above runs unless
-    field is unrecognized.
-
-    v1.7.1.5 category bundles (this session): a field value naming a
-    known bundle key ("weather"/"pollen"/"air") is resolved BEFORE any
-    of the three unknown-field outcomes above -- a bundle name is never
-    a registered field itself, so without this check it would always
-    fall through to the generic "unknown field" branch. Each bundle
-    field is queried individually through the SAME sqlite/live routing
-    weiche used everywhere else in this function -- the bundle path
-    only adds collection, flattening, and collision tie-breaking on top,
-    it does not bypass or duplicate the existing data-access path. See
-    _CONTEXT_CATEGORY_BUNDLES above for the priority-list mechanics.
-
-    v1.7.1.11 Session 4 -- resolution is decided by the field name
-    itself, same principle as query_health(): a "_series" suffix always
-    means intraday/timeseries data, a plain field name always means a
-    single daily value -- no field in this archive offers both under
-    one name, so the caller already knows which shape to expect before
-    the query even runs. This holds regardless of which branch
-    (sqlite/live) below ends up serving the request -- both branches
-    return the same "values" contract (see mcp_sql.get_context_range()
-    / clients/mcp_sql.py, and maps/_context_io.py's read_summary_field()/
-    read_raw_field() for the underlying {"date","value"} vs.
-    {"date","series"} shapes).
-
-    v1.7.1.12 -- CONTEXT_FIELD_ALIASES / CONTEXT_FIELD_AMBIGUOUS checked
-    here, BEFORE the bundle check, mirroring query_health()'s
-    HEALTH_FIELD_ALIASES ordering (an alias hit is more certain than a
-    near-match and should not have to pass through the bundle or
-    difflib logic). Three outcomes now precede the pre-existing bundle/
-    unknown-field handling below:
-      1. CONTEXT_FIELD_ALIASES hit -> auto-resolved, field_used/
-         field_resolved_from set, same as the alias path in
-         query_health().
-      2. CONTEXT_FIELD_AMBIGUOUS hit -> NOT resolved. Returns the
-         existing error/did_you_mean shape with a field-specific error
-         message and the known candidate list as did_you_mean -- no new
-         response shape (see CONTEXT_FIELD_AMBIGUOUS's own comment for
-         the rationale). field_used/field_resolved_from are NOT set.
-      3. Neither -> falls through unchanged to the bundle check and the
-         existing unknown-field difflib logic below.
-    See NOTES_v1.7.1.12.md for the full candidate-by-candidate analysis
-    behind both tables."""
+    Unknown or ambiguous field names return an "error", often with a
+    "did_you_mean" list of candidates. A clear typo or alias is resolved
+    automatically; _meta.field_resolved_from / field_used then show what was
+    substituted. A field with no data in the range returns empty values, not
+    an error."""
     if field in _CONTEXT_CATEGORY_BUNDLES:
         return _resolve_context_bundle(field, date_from, date_to, resolution)
 

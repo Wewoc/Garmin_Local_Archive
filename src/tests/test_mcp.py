@@ -203,6 +203,24 @@ section("mcp_map 6. list_available_fields() — overview")
 _laf_all = mcp_map.list_available_fields()
 check("list_available_fields: domains key present", "domains" in _laf_all)
 check("list_available_fields: metadata_kinds key present", "metadata_kinds" in _laf_all)
+
+# v1.7.5.1 Schritt 5 (Fund 2026-10-12): the overview used to advertise all
+# registered kinds, including five registered for the SQLite proxy's
+# internal sync only — get_archive_metadata() rejects those with a
+# ValueError on the SQLite path (the only active one), so an LLM following
+# the overview hit an error. The overview now lists the nine LLM-facing
+# kinds only; gateway_map.list_metadata_kinds() itself keeps its full
+# default (test_broker.py pins that side).
+_INTERNAL_KINDS = {
+    "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
+    "raw_file_hashes", "context_resync_pending",
+}
+check("list_available_fields: metadata_kinds omits the internal-sync-only kinds",
+      not (set(_laf_all["metadata_kinds"]) & _INTERNAL_KINDS))
+check("list_available_fields: metadata_kinds is exactly the nine LLM-facing kinds",
+      set(_laf_all["metadata_kinds"]) ==
+      set(gateway_map.list_metadata_kinds()) - _INTERNAL_KINDS
+      and len(_laf_all["metadata_kinds"]) == len(set(_laf_all["metadata_kinds"])))
 check("list_available_fields: fields.health present with garmin source",
       "garmin" in _laf_all["fields"]["health"])
 check("list_available_fields: fields.context present with four sources",
@@ -313,6 +331,72 @@ check("mcp_server: registered tool names match mcp_map.py 1:1, plus refresh_cach
           "query_raw", "get_archive_metadata", "list_available_fields",
           "refresh_cache", "baselines", "anomalies", "gaps", "correlate",
       })
+
+# ── 8a-ter. Tool descriptions (v1.7.5.1) ─────────────────────────────────────
+#
+# What the MCP SDK exposes as each tool's `description` is its docstring,
+# and an LLM client picks and calls tools from that text alone. Glama's
+# TDQS review (Sep 2026) rated query_context/query_health/query_raw down
+# for session-changelog noise and missing usage guidance, so these checks
+# pin the cleaned-up state (history lives in #-comment blocks above the
+# functions instead). The loop covers every registered tool, so a future
+# twelfth tool is checked automatically.
+#
+# The reference patterns are a heuristic list, not a proof: add a pattern
+# here when a new kind of internal reference shows up in a description.
+# The 2000-character cap sits above today's longest description (about
+# 1300) but well below the pre-cleanup size (about 5000).
+import re as _re
+
+_INTERNAL_REF = _re.compile(
+    r"NOTES_|KONZEPT_|AKTIONSPLAN|\bv\d+\.\d+\.\d+|\.py\b|\.md\b|this session"
+    r"|_route_query|mcp_sql|mcp_map|gateway_map|metadata_map"
+)
+_tool_desc = {t.name: (t.description or "") for t in _registered_tools}
+for _tn in sorted(_tool_desc):
+    check(f"description of {_tn}: not empty and at most 2000 characters",
+          0 < len(_tool_desc[_tn]) <= 2000)
+    check(f"description of {_tn}: no internal references (notes files, versions, module names)",
+          _INTERNAL_REF.search(_tool_desc[_tn]) is None)
+
+# query_raw: the field names are not discoverable via list_available_fields,
+# so the description is the agent's only source for them — it must name
+# exactly the registered raw-passthrough fields. The names are parsed from
+# the text between "listed by list_available_fields):" and "date_from/date_to";
+# if that wording changes this check goes red on purpose — adjust text and
+# pattern together.
+_raw_desc = _tool_desc["query_raw"]
+_raw_block = _re.search(r"listed by list_available_fields\):(.*?)date_from/date_to",
+                        _raw_desc, _re.S)
+_raw_named = ({n.strip().rstrip(".") for n in _raw_block.group(1).replace("\n", " ").split(",")}
+              if _raw_block else set())
+check("description of query_raw: names exactly the registered raw fields",
+      _raw_named == set(mcp_map.list_raw_fields("health")["health"]))
+check("description of query_raw: does not call the data 'unprocessed' or 'normalized'",
+      "unprocessed" not in _raw_desc and "normalized" not in _raw_desc)
+
+# get_archive_metadata: the nine kinds the SQLite path accepts are named in
+# quotes; the five internal-sync-only kinds are not.
+_meta_desc = _tool_desc["get_archive_metadata"]
+_nine_kinds = (mcp_server.mcp_sql._SNAPSHOT_KINDS
+               | mcp_server.mcp_sql._STRUCTURED_LOG_KINDS
+               | mcp_server.mcp_sql._RECENT_LOG_KINDS)
+check("description of get_archive_metadata: names all nine accepted kinds",
+      all(f'"{k}"' in _meta_desc for k in _nine_kinds))
+check("description of get_archive_metadata: names none of the internal-sync-only kinds",
+      not any(k in _meta_desc for k in (
+          "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
+          "raw_file_hashes", "context_resync_pending")))
+
+# Usage guidance between sibling tools (the Glama "Usage Guidelines" gap).
+check("description of query_health: points to query_context and list_available_fields",
+      "query_context" in _tool_desc["query_health"]
+      and "list_available_fields" in _tool_desc["query_health"])
+check("description of query_context: points to query_health and list_available_fields",
+      "query_health" in _tool_desc["query_context"]
+      and "list_available_fields" in _tool_desc["query_context"])
+check("description of query_raw: points to query_health",
+      "query_health" in _raw_desc)
 
 # ── 8a-bis. unit field (v1.7.1.6) — mcp_server.list_available_fields() ───────
 #
@@ -907,6 +991,16 @@ with patch("mcp_sql.get_metadata_range", return_value={"data": [], "error": None
     _m_sql.assert_called_once_with("quality_log", date_from="2026-06-01", date_to="2026-06-30")
     _m_live.assert_not_called()
 check("mcp_server.get_archive_metadata: SQLite branch forwards explicit date_from/date_to", True)
+
+# v1.7.5.1 Schritt 5: every kind the overview advertises must be one the
+# SQLite path (the only active one) actually accepts — no ValueError.
+#   Compared against mcp_sql's own kind sets (what get_metadata_range()
+#   dispatches on) instead of calling it, so no SQLite access is needed.
+_sqlite_accepted = (mcp_server.mcp_sql._SNAPSHOT_KINDS
+                    | mcp_server.mcp_sql._STRUCTURED_LOG_KINDS
+                    | mcp_server.mcp_sql._RECENT_LOG_KINDS)
+check("list_available_fields: every advertised metadata kind is accepted by the SQLite path",
+      set(mcp_map.list_available_fields()["metadata_kinds"]) == _sqlite_accepted)
 
 # ── 8d. Delegation, live branch — forcing _route_query() to "live" must
 #        route every wrapper to mcp_map instead, with mcp_sql untouched.

@@ -162,7 +162,8 @@ Leaf Nodes:
 
 ### Plugin Principle
 
-`weather_plugin.py` and `pollen_plugin.py` contain **metadata only**
+`weather_plugin.py`, `pollen_plugin.py`, `brightsky_plugin.py` and
+`airquality_plugin.py` contain **metadata only**
 (endpoints, field names, file prefixes). No executable logic. A new
 context plugin means a new plugin file — no change to the collector or
 writer.

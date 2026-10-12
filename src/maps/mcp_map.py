@@ -321,7 +321,7 @@ def list_available_fields(domain: str | None = None) -> dict:
     Returns:
         {
             "domains": [...],            # gateway_map.list_domains()
-            "metadata_kinds": [...],     # gateway_map.list_metadata_kinds()
+            "metadata_kinds": [...],     # gateway_map.list_metadata_kinds(include_internal=False)
             "fields": {
                 "health": {"garmin": [...]},
                 "context": {"weather": [...], "pollen": [...], ...},
@@ -349,6 +349,6 @@ def list_available_fields(domain: str | None = None) -> dict:
 
     return {
         "domains": domains,
-        "metadata_kinds": gateway_map.list_metadata_kinds(),
+        "metadata_kinds": gateway_map.list_metadata_kinds(include_internal=False),
         "fields": fields,
     }
