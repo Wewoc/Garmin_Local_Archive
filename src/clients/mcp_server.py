@@ -397,7 +397,7 @@ def _run_startup_sync() -> None:
     the MCP_HEADLESS branch — both _run_headless() below and
     mcp_server_gui.py::run_gui() (called from the windowed branch) then
     proceed unchanged afterwards, so this logic lives in exactly one
-    place rather than being duplicated into mcp_server_gui.py (Timo
+    place rather than being duplicated into mcp_server_gui.py (maintainer
     decision, NOTES_v1.7.1_session2.md).
 
     Result is logged only — the LLM is not connected yet at this point

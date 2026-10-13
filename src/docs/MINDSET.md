@@ -133,7 +133,7 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **Claude** | Encryption key auto-generated instead of manual setup | — | Insight: manual master password creates barrier for first-time use; auto-generation with Credential Manager preserves security model |
 | **Dialog** | `garmin_writer.py` as separate layer | *"You'd need to put a writer.py alongside it"* | Analysed consequences, showed where it helps for the roadmap |
 | **Dialog** | `correlation_concept.md` | *"Weather data, moon phases"* — then: *"as md, that's too good"* | Esoteric list, including Mercury retrograde with zero explanation |
-| **Dialog** | `scan_critical_deps.py` as pre-build safety net | *"First the scan, then the anchor"* | Proposed the scan/config pattern; Timo enforced it as mandatory |
+| **Dialog** | `scan_critical_deps.py` as pre-build safety net | *"First the scan, then the anchor"* | Proposed the scan/config pattern; the maintainer enforced it as mandatory |
 | **Dialog** | Airquality plugin as third context source | Decision: OpenWeatherMap Air Pollution API for PM2.5, PM10, NO2 | Architecture: plugin-only, broker extension, no schema change |
 | **Dialog** | Standalone EXE as third build target | *"Scripts for purists, EXE for everyone else"* | Analysed the consequences, worked out the three-target solution |
 | **Dialog** | Module structure (collector / normalizer / quality / writer) | *"If we're touching it anyway, why not do it properly?"* | Technical formulation of boundaries, identified cross-dependencies |

@@ -8,7 +8,7 @@ Garmin Local Archive — Cloud LLM API Key Storage via Windows Credential Manage
 
 Leaf-Node. Stores/retrieves/clears cloud LLM provider API keys in WCM
 (Baustein 23, garmin_collector-3_experiment), one entry per provider —
-Timo decision: "einen wcm eintrag pro anbieter machen, dann kann man
+Maintainer decision: "einen wcm eintrag pro anbieter machen, dann kann man
 schnell und einfach wechseln" (switching providers back and forth
 never requires re-entering a key that was already saved once).
 

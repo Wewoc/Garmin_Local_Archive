@@ -113,7 +113,7 @@ _RECENT_LOG_KINDS = ["daily_logs", "fail_logs", "recent_logs"]
 # purpose as garmin_quality.py's INTRADAY_RETRY_WINDOW_DAYS, but a
 # deliberately independent constant: raw-passthrough fields (weigh-ins,
 # blood pressure, etc.) have no factual link to the Garmin device's
-# intraday-availability window that constant governs (Timo confirmed,
+# intraday-availability window that constant governs (the maintainer confirmed,
 # NOTES_v1.7.1.1_session2.md — no prev_high-style coupling for raw).
 RAW_RETRY_WINDOW_DAYS = 14
 
@@ -127,19 +127,19 @@ RAW_RETRY_WINDOW_DAYS = 14
 # on day D can only affect baselines for days D+1..D+90 — recomputing the
 # last 140 days on every pass covers a correction anywhere inside the
 # known ~140-day intraday-retention window, not just within the baseline
-# window itself; Timo-Entscheidung, 2026-10-07, see PROTOKOLL.md same
+# window itself; Maintainer-Entscheidung, 2026-10-07, see PROTOKOLL.md same
 # date — deliberately no targeted invalidation, no automatic detection of
 # older corrections, documented as a manual-reset-only limitation instead).
 # BASELINE_STDEV_MULTIPLIER (mean +/- N*stdev) is the width of the
 # statistical reference range anomaly_flag is judged against — unrelated
 # to the dashboard's own age/fitness-adjusted ref_low/ref_high (those come
 # from layouts/reference_ranges.py and need profile data this sync layer
-# has no access to; Timo confirmed the two are intentionally different
+# has no access to; the maintainer confirmed the two are intentionally different
 # concepts, 2026-10-07). N=3 (~99.7% of a normal distribution), not the
 # more common N=2 (~95%) — vital-sign day-to-day variance (HRV, resting
 # HR, sleep) is itself substantial and biologically normal, so N=2 would
 # flag roughly 1 in 20 days per field as "anomalous" purely from natural
-# noise; N=3 cuts that false-positive rate to roughly 1 in 300 (Timo,
+# noise; N=3 cuts that false-positive rate to roughly 1 in 300 (maintainer,
 # 2026-10-07: "+-2 ist für Vitalwerte etwas eng gefasst"). Always relative
 # to each field's OWN stdev (computed fresh per field below), never a
 # shared absolute threshold across fields of different units/scales.
@@ -231,7 +231,7 @@ def _read_context_resync_ack(base_dir: Path) -> set[tuple[str, str, str]]:
     never context_data/ itself. Not per-run: sync_all() runs at *every*
     MCP server boot, so without a persistent record the same
     already-handled markers would be re-invalidated and re-queried on
-    every single restart (Timo, v1.7.2.3). Pruned against the current
+    every single restart (maintainer, v1.7.2.3). Pruned against the current
     pending set by _apply_pending_context_resync() on every call — see
     that function's docstring for why an unbounded/permanent record is
     wrong here."""
@@ -446,7 +446,7 @@ def _sync_health_baselines() -> tuple[int, int]:
     v1.7.5 Block A: rolling baseline/anomaly recompute, pauschal over
     the last BASELINE_RECOMPUTE_DAYS days on every sync pass (see the
     constants' own comments above for why — cache-staleness fix,
-    Timo-Entscheidung 2026-10-07). Anchored on the archive's own
+    Maintainer-Entscheidung 2026-10-07). Anchored on the archive's own
     date_max, not wall-clock "today", so a sync run against an archive
     that is itself not fully up to date still recomputes relative to
     the data that actually exists.
@@ -668,7 +668,7 @@ def _sync_context_days() -> tuple[int, int]:
     sources are re-queried; a source already in attempted_sources
     (queried once before, still without data) is queried exactly one
     more time and then either gains data (added to complete_sources)
-    or is accepted as permanently empty for that day (Timo: "wenn der
+    or is accepted as permanently empty for that day (maintainer: "wenn der
     tag leer ist und nicht liefern kann als ok markieren" — no
     unbounded retry, no age-window needed the way raw-passthrough
     fields required, since a context source either answers with data
@@ -697,7 +697,7 @@ def _sync_context_days() -> tuple[int, int]:
     # NOTES_v1.7.1.11.md Session 4): "_series" (intraday, raw/) Felder
     # gehoeren wie jedes andere Feld in den proaktiven SQLite-Sync.
     # Zeitreihen ueber JSON direkt abzufragen statt ueber den Cache war
-    # explizit unerwuenscht (Timo, Session-4-Ausloeser). context_sources
+    # explizit unerwuenscht (maintainer, Session-4-Ausloeser). context_sources
     # nutzt wieder die volle, ungefilterte Feldliste aus
     # list_available_fields(domain="context"). _resolve_context_bundle()'s
     # eigener "_series"-Skip (Anchor 6.1) bleibt unabhaengig davon
@@ -754,7 +754,7 @@ def _sync_context_days() -> tuple[int, int]:
                     attempted_sources.add(source)
                 elif source in attempted_sources:
                     # Second empty result in a row for this source —
-                    # accepted as permanently empty for this day (Timo,
+                    # accepted as permanently empty for this day (maintainer,
                     # see docstring). Counted as "complete" too: an
                     # accepted-empty source must not keep re-triggering
                     # sources_to_query on every future sync pass, same
@@ -802,7 +802,7 @@ def _sync_one_raw_field(day: str, field: str) -> bool:
     """
     Queries a single (day, field) raw-passthrough value through
     mcp_map.query_raw() and upserts the result — recheck/attempts/
-    last_attempt computed per the module's own convention (Timo's
+    last_attempt computed per the module's own convention (the maintainer's
     explicit reference to garmin_quality.py's recheck/attempts pattern,
     reimplemented independently rather than imported — see
     mcp_sql.upsert_raw_field()'s docstring for why).
@@ -858,14 +858,14 @@ def _sync_raw_fields() -> tuple[int, int]:
     Form A variant, raw-passthrough: field-granular, hash-gated delta —
     structurally distinct from _sync_health_days()/_sync_context_days()
     because a single existence/compare_value check per day is not
-    enough here (KONZEPT clarified across several rounds with Timo,
+    enough here (KONZEPT clarified across several rounds with the maintainer,
     NOTES_v1.7.1.1_session2.md — see "Sync-Reichweite pro Lauf" /
     "mtime-Idee" / "Speicherort des Tages-Hash" sections for the full
     reasoning trail):
 
       1. list_raw_fields() is read fresh on every call (live field
          registry, never hard-coded — the 13-field count is today's
-         state, not a permanent one, per Timo's original query about
+         state, not a permanent one, per the maintainer's original query about
          garmin_api_capability.py's role here).
       2. get_stats() gives the archive's real date_min/date_max, same
          as every other _sync_*() function — never a hardcoded range.
@@ -879,7 +879,7 @@ def _sync_raw_fields() -> tuple[int, int]:
          "resolved" day alike, without a separate manual-reset code
          path.
       3b. Content hash, not mtime — a mirror/restore rewriting the same
-          bytes must not look like a change (Timo's explicit challenge,
+          bytes must not look like a change (the maintainer's explicit challenge,
           confirmed against metadata_map.py's own pre-existing mtime
           warning for log filenames).
 

@@ -14,7 +14,7 @@ spreadsheet-readable format). Anyone needing intraday data uses the
 JSON adapter instead, which passes it through unchanged.
 
 Row-per-day-with-field-columns, not row-per-(field,day) (2026-10-01,
-same session, Timo after testing the first version against his real
+same session, the maintainer after testing the first version against his real
 archive: "da sollte für health und context pro zeile mehrere werte wie
 puls/stress/body battery ... auftauchen, so ist die csv wertlos") —
 matches how a human actually wants to read daily health/context data

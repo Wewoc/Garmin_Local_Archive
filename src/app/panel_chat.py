@@ -989,7 +989,7 @@ class PanelChat(QWidget):
         # transcript) was never cleared here, only in _chat_on_new_chat()
         # — so the old messages stayed on screen, looking like they were
         # still part of the (actually fresh) conversation. Found live:
-        # Timo — Stop, Start again, old chat still shown. Both must reset
+        # Maintainer — Stop, Start again, old chat still shown. Both must reset
         # together, same as _chat_on_new_chat() already does.
         self._chat_view.clear()
         self._history = []

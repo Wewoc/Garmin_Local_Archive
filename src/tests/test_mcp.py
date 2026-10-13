@@ -436,7 +436,7 @@ for _kind in ("health", "context", "fit", "raw", "metadata", "fields"):
 #        directly — that assumption broke the moment the weiche was wired
 #        in (v1.7.1.1), which is exactly what this suite failed to catch
 #        before this rewrite (NOTES_v1.7.1.1_session2.md, Ziel 7 test-gap
-#        finding — Timo: "ich glaube der ist nur so gut weil wir viel neu
+#        finding — Maintainer: "ich glaube der ist nur so gut weil wir viel neu
 #        gebaut haben aber wenig bestehendes angepasst haben").
 #
 # The @mcp.tool()-decorated functions in mcp_server.py stay directly callable
@@ -1083,7 +1083,7 @@ check("mcp_server.query_context: live branch calls mcp_map.query_context, not mc
 # Session 3 gave "_series" fields a hardcoded live-only bypass in
 # query_context() (two spots: direct field path, typo-resolution path),
 # reasoning that they were excluded from the proactive SQLite sync and
-# would silently return empty from mcp_sql. Session 4 established (Timo,
+# would silently return empty from mcp_sql. Session 4 established (maintainer,
 # NOTES_v1.7.1.11.md Session 4) that ALL context data — daily and
 # "_series" alike — must flow through the same sqlite/live routing
 # weiche as every other field, same as query_health()'s steps_series
@@ -1157,7 +1157,7 @@ if _a_series_field is not None:
 # itself, 0.8846 against "airquality_european_aqi" — both clear
 # cutoff=0.8), failing the "exactly one candidate" assumption. Not a
 # registry problem, an artifact of where the typo lands. Fixed two ways
-# (Timo, Session 4): a real, pre-verified single-candidate case (this
+# (maintainer, Session 4): a real, pre-verified single-candidate case (this
 # check) placing the typo INSIDE the prefix instead, plus a separate
 # check (3b, below) that keeps the original collision case as
 # documented, expected behaviour rather than discarding it.
@@ -1181,7 +1181,7 @@ if _a_series_field is not None:
 # no replacement typo that still resolves uniquely exists in the current
 # registry (verified against a second typo pattern too, same result).
 # See NOTES_v1.7.1.12.md "Ziel 6" for the full analysis. Deliberately
-# NOT fixed via a new alias or a cutoff change this session (Timo) --
+# NOT fixed via a new alias or a cutoff change this session (maintainer) --
 # this test now documents the collision as expected behaviour, same
 # principle as 3b's pre-existing "_series"-internal-typo case.
 _series_typo_field = "pollen_birch_series"
@@ -1842,7 +1842,7 @@ check("invalidate_context_day: leaves other sources' complete_sources untouched"
       {"pollen", "brightsky"} <= _state_after_one["complete_sources"])
 check("invalidate_context_day: leaves other sources' attempted_sources untouched",
       {"pollen", "brightsky"} <= _state_after_one["attempted_sources"])
-# v1.7.2.3 correction (2026-09-20, Timo): payload must be deleted too —
+# v1.7.2.3 correction (2026-09-20, maintainer): payload must be deleted too —
 # get_context_range() (what the live LLM-facing query_context() tool
 # actually reads, _route_query() is hard-pinned to "sqlite") reads
 # payload_json directly and knows nothing about complete_sources. Leaving
@@ -1890,7 +1890,7 @@ check("invalidate_context_day: removing a source that was never present — no-o
 # Same mock style as section 9 — mcp_sql.invalidate_context_day is
 # mocked here (its own correctness against a real DB is section 10's
 # job). This section covers _apply_pending_context_resync()'s own
-# decision logic: the Soll/Ist check against the ack (Timo's explicit
+# decision logic: the Soll/Ist check against the ack (the maintainer's explicit
 # requirement — sync_all() runs at every MCP boot, so an already-acked
 # entry must never be re-invalidated), per-entry error handling (a
 # failing entry must not be acked, so it is retried later), the ack

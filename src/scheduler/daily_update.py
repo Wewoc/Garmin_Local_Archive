@@ -279,7 +279,7 @@ def _apply_update_unattended(release_json: dict, is_t3: bool) -> None:
     auch T2) — same mechanism as garmin_app_base.py's _start_update(),
     one difference at the end (Baustein 4/9/15): no -RestartGui, since
     nobody is sitting at this machine to hand the window back to. If the
-    GUI happens to be open, it gets force-closed via taskkill (Timo's
+    GUI happens to be open, it gets force-closed via taskkill (the maintainer's
     decision, Baustein 3/4: "wenn es geht das GUI schließen") rather
     than waited on — nothing would ever close it on its own during an
     unattended run. Raises RuntimeError on any failure (no ZIP asset,

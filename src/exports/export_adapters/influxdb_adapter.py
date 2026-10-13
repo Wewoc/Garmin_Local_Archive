@@ -11,7 +11,7 @@ similar tools to consume GLA data without fetching from the Garmin API
 (ROADMAP.md v1.7.4). GLA itself does not run or connect to an InfluxDB
 server; this is a batch file export only, same as every other adapter.
 
-Design (v1.7.4 Export Layer session 3, 2026-10-01, Timo's decisions):
+Design (v1.7.4 Export Layer session 3, 2026-10-01, the maintainer's decisions):
 - Full resolution, including intraday/series fields — unlike csv_adapter
   (which skips them as unusable in a spreadsheet), InfluxDB/Grafana's
   whole purpose is time-series graphing, so series data is the main

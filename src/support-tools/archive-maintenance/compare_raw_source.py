@@ -6,7 +6,7 @@
 compare_raw_source.py
 
 Read-only diagnostic: compares two garmin_raw_*.json files structurally to
-check whether the bulk/api size gap (~14.5 KB vs ~1 KB, per Timo's finding)
+check whether the bulk/api size gap (~14.5 KB vs ~1 KB, per the maintainer's finding)
 is a client-side extraction gap or points to a server-side difference.
 
 Does NOT call the Garmin API. Only reads existing raw/ files and reports:

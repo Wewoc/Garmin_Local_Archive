@@ -2117,7 +2117,7 @@ class TestPanelChat:
         assert "MCP server stopped (PID 1234)." in panel._chat_view.toPlainText()
 
     def test_start_after_stop_clears_old_chat_view(self, qtbot, app_mock):
-        # garmin_collector-3_experiment, Baustein 30 — Timo, live: Stop
+        # garmin_collector-3_experiment, Baustein 30 — the maintainer, live: Stop
         # then Start again left the old conversation visible on screen,
         # even though _chat_load_system_prompt() already resets
         # self._history (the model-facing data). Found: only

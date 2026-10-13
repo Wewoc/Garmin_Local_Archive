@@ -192,7 +192,7 @@ for _k in _BK_KINDS:
     # Fixed contract: force=True makes the forced date's own month reachable
     # by the Force-Replace block, so the ZIP entry is replaced immediately —
     # no waiting for a later backup. Third step is now an idempotency check,
-    # not a loss proof: Timo's call (2026-10-06) — kept deliberately instead
+    # not a loss proof: the maintainer's call (2026-10-06) — kept deliberately instead
     # of dropped, catches exactly the order/state bug class this v1.7.4 round
     # is about: an unrelated later backup must not re-touch an
     # already-replaced entry.

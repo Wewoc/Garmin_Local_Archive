@@ -9,14 +9,14 @@ Garmin Local Archive — Build GUI ("🦄 Garmin Local Archiv Builder")
 Run with:
     python compiler/build_gui.py
 
-Wraps Timo's existing manual build workflow (copy the working tree into
+Wraps the maintainer's existing manual build workflow (copy the working tree into
 a separate build folder so build artefacts never land inside the
 working directory, then run compiler/build_all.py there — same as
 bat/run_build_all.bat) into one Tkinter window (garmin_collector-3_experiment,
 Baustein 31). Grew out of two independent, already-experienced pain
 points:
 
-  1. A stale-copy bug: a manual copy Timo believed was fresh still held
+  1. A stale-copy bug: a manual copy the maintainer believed was fresh still held
      an older compiler/build_all.py, and the resulting confusion
      (missing log timestamps) took a real diff to track down — see
      PROTOKOLL_experiment.md. Folding the copy step into the same tool
@@ -38,7 +38,7 @@ points:
      build_all.py's own print()s do, with no change needed to
      build_exe() at all.
 
-Elapsed-time stopwatch, not wall-clock timestamps (Timo: "es reicht
+Elapsed-time stopwatch, not wall-clock timestamps (maintainer: "es reicht
 wenn es eine Art Stoppuhr ist — verstrichene Zeit seit Build-Start,
 damit man sehen kann wie lange es dauert und wo es evtl hängt") — each
 log line is prefixed with [H:MM:SS] counted from this window's own
@@ -117,7 +117,7 @@ def _clear_readonly_and_retry(func, path, exc) -> None:
     that attribute on its own and instead raises immediately, on the
     very first read-only file it hits (garmin_collector-3_experiment,
     Baustein 33: reproduced live with no locking process involved —
-    Timo explicitly ruled that out — and failing instantly, at
+    The maintainer explicitly ruled that out — and failing instantly, at
     [0:00:00], rather than after _mkdir_with_retry()'s several seconds
     of retries, which pointed at rmtree() itself rather than the
     mkdir() race Baustein 32 fixed). Standard Windows-safe rmtree
@@ -228,7 +228,7 @@ def run_gui() -> None:
 
     def _log(line: str):
         """Appends a line prefixed with elapsed time since build_start
-        (Timo: a stopwatch, not a wall-clock timestamp)."""
+        (maintainer: a stopwatch, not a wall-clock timestamp)."""
         if build_start["t"] is not None:
             line = f"{_elapsed_str(build_start['t'])} {line}"
         _log_raw(line)

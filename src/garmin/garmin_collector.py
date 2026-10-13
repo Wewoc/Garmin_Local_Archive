@@ -320,7 +320,7 @@ def run_import(path, progress_callback=None, stop_event=None) -> dict:
                 # function the normal sync uses (_check_downgrade(), see its
                 # call at the API downgrade guard above). An existing day that
                 # is not worse than the export day is protected — this is
-                # deliberately wider than is_downgrade() alone: Timo's
+                # deliberately wider than is_downgrade() alone: the maintainer's
                 # decision extends the protection to the equal-quality case
                 # too, including a non-"api" source (e.g. "legacy"), because
                 # an equal label does not guarantee the export isn't actually

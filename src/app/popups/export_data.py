@@ -355,7 +355,7 @@ def open_popup(panel):
         """Apply-button handler (v1.7.4 Baustein 25). Writes export_auto_run
         with "enabled" taken from sync_cb — unlike the old Save button this
         can also persist enabled=False, i.e. actually turn Daily Sync export
-        back off. Leaves the dialog open (Timo's decision), so Export can
+        back off. Leaves the dialog open (the maintainer's decision), so Export can
         still be used afterwards without reopening the popup. A selection is
         only required when switching ON — switching off keeps whatever
         selection was last saved, just flips the flag."""

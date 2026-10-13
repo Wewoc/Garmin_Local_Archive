@@ -43,7 +43,7 @@ maps/gateway_map.py).
 # no exceptions, including fields with no physical unit (e.g. "index",
 # "text", "—") — a mixed state (some fields with unit, some without)
 # would itself be a new, unpredictable source of LLM misinterpretation
-# (Timo, Session 1 decision). Raw-passthrough fields (query_raw(), 13
+# (maintainer, Session 1 decision). Raw-passthrough fields (query_raw(), 13
 # fields, no unit concept — see REFERENCE_GARMIN.md "Raw-passthrough
 # fields") are deliberately NOT included here — out of this session's
 # scope.

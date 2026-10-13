@@ -15,7 +15,7 @@ only.
 
 chat_with_tools() has NO streaming counterpart, and none is planned —
 not "not yet built" but a deliberate, permanent gap (Baustein 22,
-2026-09-15 session decision, Timo): Ollama's own streaming+tool-calling
+2026-09-15 session decision, maintainer): Ollama's own streaming+tool-calling
 combination is currently unreliable upstream (confirmed against a
 High-severity open Ollama GitHub issue — with stream=true and tools
 both set, tool_calls arrive as one complete block with NO accompanying

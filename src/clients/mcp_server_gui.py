@@ -285,7 +285,7 @@ def run_gui(mcp_instance, logger: logging.Logger,
             boot_handler: logging.FileHandler,
             start_operational_log) -> None:
     """Opens the MCP server window and starts the server together
-    (v1.7.0.1 default entry point — Timo decision, NOTES_
+    (v1.7.0.1 default entry point — maintainer decision, NOTES_
     v1.7.0.1vorbereitung.md Eckpunkt 6: the window stays coupled to the
     server exactly as under the stdio-era "the window is the server"
     model; only the transport and the restart-health-check mechanism
@@ -495,7 +495,7 @@ def run_gui(mcp_instance, logger: logging.Logger,
         """Shows whether the CURRENTLY SELECTED provider (dropdown, not
         necessarily the one last saved) has an API key stored in
         Windows Credential Manager (Baustein 23, one WCM entry per
-        provider — "schnell und einfach wechseln", Timo decision, see
+        provider — "schnell und einfach wechseln", maintainer decision, see
         clients/cloud_credential_store.py's own docstring). Bound to
         the dropdown's own <<ComboboxSelected>> event below, not just
         called once at window setup, so switching providers updates

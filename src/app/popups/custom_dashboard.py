@@ -17,7 +17,7 @@ presets dialog, verbatim except self -> panel and two call sites:
   [(custom_mod, "html_mobile")], ..., log_label="Encrypted Custom
   Dashboard") — shared with encrypted_dashboards.py's own flow. Both
   popups depend only on app/popups/_dashboard_build.py, neither imports
-  the other (Timo's decision, see PROTOKOLL_experiment.md 2026-09-18).
+  the other (the maintainer's decision, see PROTOKOLL_experiment.md 2026-09-18).
 
 panel_outputs.py keeps a one-line delegating method
 (_open_custom_dashboard_popup -> popups.custom_dashboard.open_popup(self))

@@ -1005,7 +1005,7 @@ Dashboard-build, Output helpers) behind one `_build_ui()` grid. No
 visible behavior change — every extraction was built and verified in an
 isolated working copy first (dry run against the full test suite +
 `ruff`/`bandit`), then applied to the real files and re-verified there,
-then live-confirmed by Timo in the running app (Daily Sync chain
+then live-confirmed by the maintainer in the running app (Daily Sync chain
 included — the path with the highest external coupling, since
 `panel_home.py` calls three of the seven relocated functions directly
 with keyword arguments). Full session log in `PROTOKOLL_experiment.md`,
@@ -1616,7 +1616,7 @@ exact failure sequence found live.
 
 **Known limitations, deliberately out of scope:** the two-strikes-then-
 accept-empty gap for genuinely *missing* (not overwritten) days is
-unaffected by this delivery — Timo confirmed missing days are already
+unaffected by this delivery — the maintainer confirmed missing days are already
 picked up by the regular sync path, no dedicated handling needed. The
 time window between a repair's pending marker and the next `sync_all()`
 pass is narrowed to "no stale data" but not eliminated — a query in that
@@ -1627,7 +1627,7 @@ already-running MCP server (a real inter-process call, e.g. via the
 `mcp` SDK's client side against the existing `refresh_cache()` tool) —
 confirmed as architecturally possible without touching the
 single-writer-process assumption, but not built, since regular resync
-timing (next MCP start) already covers Timo's stated need.
+timing (next MCP start) already covers the maintainer's stated need.
 
 **Test result:** full regression run — `test_local.py` 788/788,
 `test_local_context.py` 341/341, `test_dashboard.py` 472/472,
@@ -2829,7 +2829,7 @@ green after the fix; test catalog re-run as Lauf 9 (see above).
 Closes the theme-GUI-switcher feature cycle started in the previous
 session (dropdown + apply in `panel_settings.py`, `active_theme`
 persisted via settings) — test coverage, a build-manifest gap, and a
-Timo-requested default-theme swap surfaced two further latent test
+Maintainer-requested default-theme swap surfaced two further latent test
 defects along the way.
 
 **Changed modules:**
@@ -2875,7 +2875,7 @@ defects along the way.
   `"theme.py": ["ACTIVE_THEME", "_THEMES"]` added per
   `FINAL_DOKU_PROMPT_v4.md` Schritt 4 (constants used as the signature
   fallback, since the module has no `def`/`class`).
-- `theme.py` — `THEME_1` and `THEME_4` color values swapped (Timo
+- `theme.py` — `THEME_1` and `THEME_4` color values swapped (maintainer
   preference): Theme 1 (the fallback default) is now Monochrome + Rust
   Accent; Amber & Copper moves to Theme 4. `"(default)"` name marker
   moved accordingly. No structural change — `_THEMES` dict,
@@ -3138,7 +3138,7 @@ a GUI-panel disclaimer, and a `"bundles"` key in
   actually had more than one candidate source in the bundle, never for
   a field copied through from a single source unchanged. No direct
   `maps.context_map` import in `clients/` — `mcp_map` remains the sole
-  broker-facing surface `clients/` is allowed to call (Timo decision,
+  broker-facing surface `clients/` is allowed to call (maintainer decision,
   `NOTES_v1.7.1.5.md`), fixing an intermediate `ruff F821` regression
   from an earlier draft of this session that briefly referenced
   `context_map` directly.
@@ -3381,19 +3381,19 @@ empty) through the full sync → cache → read → wrapper chain.
 **Architecture decisions, this session:**
 - **`is_boot` breaks `v1.7.1`'s "one mechanism, two identical callers,
   no second code path" principle for `sync_all()`'s port-bind guard
-  specifically** — Timo-approved trade-off: the port-bind guard's
+  specifically** — maintainer-approved trade-off: the port-bind guard's
   underlying assumption (port availability is identical between boot
   and runtime) was simply false, not a symmetry worth preserving. The
   `_REFRESH_LOCK` threading-lock guard (the actual mechanism for
   overlapping `refresh_cache()` calls, case 2 in the module docstring)
   is unaffected and remains identical for both callers.
 - **Source-layer read: take whichever source is present (Option A),
-  not a hard-coded `"garmin"` (Option B)** — Timo-approved. More
+  not a hard-coded `"garmin"` (Option B)** — maintainer-approved. More
   robust against a future second health data source without a further
   correction at this call site, at the cost of not explicitly failing
   loudly if an unexpected source key ever appears.
 - **`resolution` parameter left functionally unused rather than wired
-  into a new daily/intraday branch** — Timo-approved, after discussing
+  into a new daily/intraday branch** — maintainer-approved, after discussing
   and rejecting two alternatives: (1) splitting `query_health()` into
   separate summary/series tools (rejected — would grow the already
   documented `tools/list` context-budget problem, and doesn't remove
@@ -3525,16 +3525,16 @@ existing `v1.7.1.0` module set (`clients/mcp_sql.py`, `clients/mcp_update.py`,
   on every sync pass rather than hard-coding a field count.
 
 **Architecture decisions, this session:**
-- **Scope expansion, Timo-approved:** `_route_query()` was originally
+- **Scope expansion, maintainer-approved:** `_route_query()` was originally
   scoped to Health/Context/Raw only (Ziel 1/2/4 were the stated
   prerequisites in the session start prompt). Building it revealed
   `get_archive_metadata`/`list_available_fields` had no SQLite read
-  path at all — not part of the original eight-goal list. Timo chose
+  path at all — not part of the original eight-goal list. The maintainer chose
   full wiring today over a half-wired placeholder: Ziel 2b
   (`get_metadata_range()` and its two supporting functions) was added
   mid-session rather than deferred.
 - **Nachtraegliche Datenlieferung, automatic detection required:**
-  Timo rejected a simpler "new days + pending fields only" sync
+  The maintainer rejected a simpler "new days + pending fields only" sync
   strategy for raw-passthrough once its blind spot was identified — a
   day whose recheck window had already closed would never notice a
   later GDPR bulk import or silo repair. mtime was considered and
@@ -3548,7 +3548,7 @@ existing `v1.7.1.0` module set (`clients/mcp_sql.py`, `clients/mcp_update.py`,
 - **No code-sharing with `garmin/quality/`:** the `recheck`/`attempts`/
   `last_attempt` convention `mcp_raw_fields` uses was modelled
   explicitly on `garmin/quality/_maint.py::_upsert_quality()`'s
-  existing pattern (per Timo's direct reference), but neither a direct
+  existing pattern (per the maintainer's direct reference), but neither a direct
   import nor an extracted shared helper was built — `garmin_quality.py`
   is a core-archive module (Archive-First/downgrade protection) that
   should not gain a dependency from a cache-layer concern, and
@@ -3693,7 +3693,7 @@ cache file exists.
 introspection functions above were initially considered for a direct
 `clients/`-to-`maps/metadata_map.py` import, bypassing `gateway_map.py`/
 `mcp_map.py`, on the reasoning that they are purely internal and never
-LLM-facing. Corrected against Timo's binding architecture diagram for
+LLM-facing. Corrected against the maintainer's binding architecture diagram for
 this session: the only crossing point between the `clients/` world and
 the broker layer is `mcp_map.py`, with no exception for internal-only
 consumers — all three functions therefore go through the full
@@ -3819,7 +3819,7 @@ Migrates the MCP server from stdio to streamable-http transport. The window/serv
 - T3.3 (`mcp_server.exe`) `windowed=False` deliberately left unchanged in this Bauauftrag — the original reason (stdio needing real console `stdin`/`stdout`) no longer applies under streamable-http, but flipping it risks `sys.stderr` being invalid under `--windowed`, crashing `logging.basicConfig()` before any log handler exists. Untestable in this environment (no Windows build available) — flip only after a real Windows T3.3 build confirms logging still starts cleanly with no console.
 
 **Deliberately not implemented:**
-- `windowed=True` for T3.3 (see Build integration above) — left for Timo to test and decide on a real Windows build.
+- `windowed=True` for T3.3 (see Build integration above) — left for the maintainer to test and decide on a real Windows build.
 
 **Tests:**
 - `tests/test_mcp.py` Section 8 grew from nine to eighteen checks — nine new checks for `MCP_HTTP_PORT`/`MCP_HEADLESS` ENV > file > default precedence and for the `MCP_SERVER_LOCK_FILE`/`MCP_OLLAMA_MODEL` removal.
@@ -3926,7 +3926,7 @@ test_app_logic / test_qt_app / test_static), ruff 0 errors, bandit 0 HIGH.
   `brightsky_map`/`airquality_map`).
 - Verified in isolation this session — Section 1b run standalone (107/107
   green) and `ruff check` against the project's `ruff.toml` (0 errors) —
-  not yet run through `run_tests.ps1` on Timo's machine.
+  not yet run through `run_tests.ps1` on the maintainer's machine.
 
 ---
 
@@ -6384,7 +6384,7 @@ number. See `ROADMAP.md` for the original item list (A1–A5, B1–B3, C1–C3).
   traceability. Integrated as final post-build step in `build_all.py`
   (return code ignored); also runnable standalone via `run_cve_check.bat`.
 - Real-Ollama verification of the `unsure` path deliberately deferred —
-  no synthetic test run; Timo will verify reactively the first time a
+  no synthetic test run; the maintainer will verify reactively the first time a
   real CVE finding triggers an `unsure` classification.
 
 **A2 — Plotly Hash-Pinning + Runtime Consolidation:**

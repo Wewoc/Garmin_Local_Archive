@@ -125,7 +125,7 @@ def prepare_update(exe_dir: Path, zip_url: str, checksum_url: str | None) -> Pat
     Datei und entpackt es nach `exe_dir/_update_pending/`. Liefert bei
     Erfolg den Pfad zu diesem Ordner.
 
-    Wirft RuntimeError mit einer für Timo/das Konsolen-Log lesbaren
+    Wirft RuntimeError mit einer für den Maintainer/das Konsolen-Log lesbaren
     Meldung bei jedem Fehler (Netz, fehlende/nicht passende Checksum,
     defektes ZIP) — nichts außerhalb von _update_pending/ wird von
     dieser Funktion je berührt, ein Fehler hier kann die laufende
