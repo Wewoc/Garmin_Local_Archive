@@ -698,7 +698,8 @@ check("query_health 'steps_total': value present",
 # 3c. Remaining alias candidates (hrv, hill) — same mechanism, lighter
 #     check (mock target only, not full result shape, since 3b already
 #     covers the shared code path in detail).
-for _alias_input, _alias_target in [("hrv", "hrv_last_night"), ("hill", "hill_score")]:
+for _alias_input, _alias_target in [("hrv", "hrv_last_night"), ("hill", "hill_score"),
+                                    ("stress_index", "stress_avg")]:
     _alias_mock = {"health": {"garmin": {_alias_target: {
         "values": [{"date": _TEST_DATE, "value": 42}],
         "fallback": False, "source_resolution": "daily",
@@ -955,28 +956,78 @@ check("query_context unknown-field: valid field has no 'field_resolved_from' in 
 with patch("mcp_sql.get_raw_range", return_value={"health": {}, "_meta": {}}) as _m_sql, \
      patch("maps.mcp_map.query_raw") as _m_live:
     mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain="health")
-    _m_sql.assert_called_once_with("2000-01-01", "2000-01-01")
+    _m_sql.assert_called_once_with("2000-01-01", "2000-01-01", field="floors")
     _m_live.assert_not_called()
-check("mcp_server.query_raw: SQLite branch calls mcp_sql.get_raw_range, not mcp_map", True)
+check("mcp_server.query_raw: SQLite branch calls mcp_sql.get_raw_range (field forwarded), not mcp_map", True)
 
-# Ist-Stand (v1.7.5.1 Fund, 2026-10-07): the assertion above already shows
-# get_raw_range() is called with only (date_from, date_to) — neither
-# `field` nor `domain` is forwarded, and get_raw_range() itself accepts
-# neither parameter (see clients/mcp_sql.py's own docstring, "Only the
-# 'health' domain is populated"). Since _route_query() hard-pins every
-# query to the SQLite branch today (clients/mcp_query_common.py), this is
-# not a dormant edge case — it is query_raw()'s actual, only-ever-taken
-# code path. This check pins today's behavior (a request for one specific
-# field returns every cached raw field, unfiltered) without fixing it —
-# see ROADMAP.md, "query_raw field/domain filter gap (SQLite path)" for
-# the planned fix.
-with patch("mcp_sql.get_raw_range", return_value={
-        "health": {"floors": {"values": []}, "steps_series": {"values": []}},
-        "_meta": {}}):
-    _qr_unfiltered = mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain="health")
-check("Ist-Stand: query_raw (SQLite path) ignores field/domain — returns "
-      "fields beyond the one requested",
-      "steps_series" in _qr_unfiltered.get("health", {}))
+# v1.7.5.2: query_raw() now resolves `field` (shared _match_field), forwards
+# it to get_raw_range(), and rejects a domain other than "health". Replaces
+# the v1.7.5.1 Ist-Stand check that pinned "field/domain are ignored".
+_qr_real_fields = set(mcp_map.list_raw_fields("health")["health"])
+_qr_ok = {"health": {"floors": {"values": [{"date": "2000-01-01", "raw": [1]}],
+                                "source_resolution": "raw"}}, "_meta": {}}
+
+
+def _qr_fresh(*_args, **_kwargs):
+    import copy
+    return copy.deepcopy(_qr_ok)  # query_raw() writes into _meta; no shared state between checks
+
+
+with patch("mcp_sql.get_raw_range", side_effect=_qr_fresh) as _m_sql:
+    _qr_exact = mcp_server.query_raw("floors", "2000-01-01", "2000-01-01")
+    _qr_exact_call = _m_sql.call_args
+check("query_raw: exact field forwarded to get_raw_range as field='floors'",
+      _qr_exact_call.kwargs.get("field") == "floors")
+check("query_raw: exact field -> no field_resolved_from marker in _meta",
+      "field_resolved_from" not in _qr_exact["_meta"])
+
+_qr_typo_matches = difflib.get_close_matches("floor", _qr_real_fields, n=3, cutoff=0.65)
+check("test fixture: 'floor' near-matches exactly one real raw field ('floors')",
+      _qr_typo_matches == ["floors"])
+with patch("mcp_sql.get_raw_range", side_effect=_qr_fresh) as _m_sql:
+    _qr_typo = mcp_server.query_raw("floor", "2000-01-01", "2000-01-01")
+    _qr_typo_call = _m_sql.call_args
+check("query_raw: near-match 'floor' auto-resolved, get_raw_range called with 'floors'",
+      _qr_typo_call.kwargs.get("field") == "floors")
+check("query_raw: near-match marked in _meta (field_resolved_from/field_used)",
+      _qr_typo["_meta"].get("field_resolved_from") == "floor"
+      and _qr_typo["_meta"].get("field_used") == "floors")
+
+with patch("mcp_sql.get_raw_range", side_effect=_qr_fresh) as _m_sql:
+    _qr_upper = mcp_server.query_raw("FLOORS", "2000-01-01", "2000-01-01")
+    _qr_upper_call = _m_sql.call_args
+check("query_raw: 'FLOORS' (case only) resolved to 'floors' and marked",
+      _qr_upper_call.kwargs.get("field") == "floors"
+      and _qr_upper["_meta"].get("field_resolved_from") == "FLOORS")
+
+with patch("mcp_sql.get_raw_range") as _m_sql:
+    _qr_unknown = mcp_server.query_raw("zzzzzz", "2000-01-01", "2000-01-01")
+    _qr_unknown_called = _m_sql.called
+check("query_raw: unknown field -> error dict, nothing queried",
+      "error" in _qr_unknown and _qr_unknown["health"] == {} and not _qr_unknown_called)
+check("query_raw: unknown field without near-match -> no did_you_mean",
+      "did_you_mean" not in _qr_unknown)
+
+with patch("mcp_sql.get_raw_range") as _m_sql:
+    _qr_multi = mcp_server.query_raw("nutrition_daily", "2000-01-01", "2000-01-01")
+    _qr_multi_called = _m_sql.called
+check("query_raw: several near-matches -> error + did_you_mean (real raw fields only), nothing queried",
+      "error" in _qr_multi and not _qr_multi_called
+      and len(_qr_multi.get("did_you_mean", [])) >= 2
+      and set(_qr_multi["did_you_mean"]) <= _qr_real_fields)
+
+for _qr_bad_domain in ("context", "fit", "nonsense"):
+    with patch("mcp_sql.get_raw_range") as _m_sql:
+        _qr_dom = mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain=_qr_bad_domain)
+        _qr_dom_called = _m_sql.called
+    check(f"query_raw: domain={_qr_bad_domain!r} -> error dict, nothing queried",
+          "error" in _qr_dom and _qr_dom["health"] == {} and not _qr_dom_called)
+
+for _qr_good_domain in (None, "health", "Health"):
+    with patch("mcp_sql.get_raw_range", side_effect=_qr_fresh) as _m_sql:
+        _qr_dom_ok = mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain=_qr_good_domain)
+    check(f"query_raw: domain={_qr_good_domain!r} accepted, data returned",
+          "error" not in _qr_dom_ok and "floors" in _qr_dom_ok["health"])
 
 with patch("mcp_sql.get_metadata_range", return_value={"data": {}, "error": None}) as _m_sql, \
      patch("maps.mcp_map.get_archive_metadata") as _m_live:
@@ -2422,5 +2473,66 @@ check("mcp_server.correlate: resolves and returns the expected shape",
 # ══════════════════════════════════════════════════════════════════════════════
 
 shutil.rmtree(_TMPDIR, ignore_errors=True)
+
+section("mcp_query_common 19. _match_field() — shared near-match step (v1.7.5.2)")
+
+from mcp_query_common import _match_field
+import mcp_health
+
+_mf_cands = {"floors", "body_battery_events", "running_tolerance"}
+
+check("_match_field: exact hit, input verbatim -> no substitution marker",
+      _match_field("floors", "floors", _mf_cands) ==
+      {"resolved_field": "floors", "field_resolved_from": None, "field_used": None})
+check("_match_field: exact hit after lower-casing -> marked as substitution",
+      _match_field("floors", "FLOORS", _mf_cands) ==
+      {"resolved_field": "floors", "field_resolved_from": "FLOORS", "field_used": "floors"})
+check("_match_field: exactly one near-match -> auto-resolved and marked",
+      _match_field("floor", "floor", _mf_cands) ==
+      {"resolved_field": "floors", "field_resolved_from": "floor", "field_used": "floors"})
+
+_mf_multi = _match_field("stress_xyz", "stress_xyz", {"stress_avg", "stress_max"})
+check("_match_field: several near-matches -> error + did_you_mean with all of them",
+      "error" in _mf_multi and sorted(_mf_multi.get("did_you_mean", [])) == ["stress_avg", "stress_max"])
+_mf_none = _match_field("zzzzzz", "zzzzzz", _mf_cands)
+check("_match_field: no near-match -> error, no did_you_mean key",
+      "error" in _mf_none and "did_you_mean" not in _mf_none)
+
+# Parity with the resolver whose tail this was extracted from: for inputs that
+# touch neither an alias nor an ambiguity entry, the results must be identical.
+_mf_health = set(
+    mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", [])
+)
+for _mf_in in ["hrv_last_night", "hrv_last_nigth", "HRV_LAST_NIGHT", "zzzzzz"]:
+    check(f"_match_field parity with resolve_health_field: {_mf_in!r}",
+          _match_field(_mf_in.lower(), _mf_in, _mf_health) ==
+          mcp_health.resolve_health_field(_mf_in))
+
+section("mcp_sql 20. get_raw_range() — field filter (v1.7.5.2)")
+
+import mcp_sql as _mcp_sql_raw
+
+_grr_days = {
+    "2000-01-01": {"floors": {"raw": [1]}, "daily_weigh_ins": {"raw": [2]}},
+    "2000-01-02": {"floors": {"raw": [3]}},
+}
+with patch("mcp_sql.get_raw_fields_for_day", side_effect=lambda d: _grr_days.get(d, {})):
+    _grr_all = _mcp_sql_raw.get_raw_range("2000-01-01", "2000-01-02")
+    _grr_one = _mcp_sql_raw.get_raw_range("2000-01-01", "2000-01-02", field="floors")
+    _grr_other = _mcp_sql_raw.get_raw_range("2000-01-01", "2000-01-02", field="daily_weigh_ins")
+    _grr_none = _mcp_sql_raw.get_raw_range("2000-01-01", "2000-01-02", field="running_tolerance")
+
+check("get_raw_range: field=None returns every cached raw field (unchanged default)",
+      set(_grr_all["health"]) == {"floors", "daily_weigh_ins"})
+check("get_raw_range: field='floors' returns only that field, all its days",
+      set(_grr_one["health"]) == {"floors"} and
+      [v["date"] for v in _grr_one["health"]["floors"]["values"]] == ["2000-01-01", "2000-01-02"])
+check("get_raw_range: field='daily_weigh_ins' returns only its single day",
+      set(_grr_other["health"]) == {"daily_weigh_ins"} and
+      len(_grr_other["health"]["daily_weigh_ins"]["values"]) == 1)
+check("get_raw_range: field with no cached data -> empty health dict, _meta still present",
+      _grr_none["health"] == {} and "_meta" in _grr_none)
+check("get_raw_range: filtered values keep the unwrapped raw payload",
+      _grr_one["health"]["floors"]["values"][0]["raw"] == [1])
 
 summary()

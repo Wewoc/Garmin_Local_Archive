@@ -1283,7 +1283,7 @@ def get_raw_fields_for_day(day: str) -> dict[str, dict | None]:
     }
 
 
-def get_raw_range(date_from: str, date_to: str) -> dict:
+def get_raw_range(date_from: str, date_to: str, field: str | None = None) -> dict:
     """
     Reads mcp_raw_fields + mcp_raw_day_hashes for every day in
     [date_from, date_to] and reassembles a query_raw()-compatible
@@ -1323,6 +1323,12 @@ def get_raw_range(date_from: str, date_to: str) -> dict:
     into maps/'s internals (same architecture boundary that already
     keeps this module's recheck/attempts convention independent of
     garmin/quality/'s, see upsert_raw_field()'s docstring).
+
+    field: v1.7.5.2 addition — when given, only this one raw field is
+    assembled and returned (exact match, no near-match resolution here;
+    query_raw() resolves the name before calling), same filtering
+    principle as get_health_range()/get_context_range(). None (the
+    default) returns every cached raw field, as before.
     """
     import datetime as _dt
 
@@ -1338,10 +1344,12 @@ def get_raw_range(date_from: str, date_to: str) -> dict:
 
     by_field: dict[str, dict] = {}
     for day_str, day_fields in fields_by_date.items():
-        for field, payload in day_fields.items():
-            by_field.setdefault(field, {"values": [], "source_resolution": "raw"})
+        for field_name, payload in day_fields.items():
+            if field is not None and field_name != field:
+                continue
+            by_field.setdefault(field_name, {"values": [], "source_resolution": "raw"})
             raw_value = payload["raw"] if isinstance(payload, dict) and "raw" in payload else payload
-            by_field[field]["values"].append({"date": day_str, "raw": raw_value})
+            by_field[field_name]["values"].append({"date": day_str, "raw": raw_value})
 
     return {
         "health": by_field,

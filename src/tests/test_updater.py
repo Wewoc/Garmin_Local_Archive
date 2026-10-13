@@ -279,21 +279,34 @@ section("4. process_status.py — is_mcp_running() (real TCP probe)")
 
 import garmin_config as _cfg
 
-check("nothing listening on MCP_HTTP_PORT -> False",
-      process_status.is_mcp_running() is False)
+# v1.7.5.4 -- probe a free ephemeral port instead of the real
+# MCP_HTTP_PORT, so a running MCP server (or any other process on 8756)
+# cannot collide with this section. is_mcp_running() reads the port at
+# call time, so swapping cfg.MCP_HTTP_PORT temporarily is enough.
+_orig_mcp_port = _cfg.MCP_HTTP_PORT
+_tmp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+_tmp.bind(("127.0.0.1", 0))
+_cfg.MCP_HTTP_PORT = _tmp.getsockname()[1]
+_tmp.close()
 
-_srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 try:
-    _srv.bind(("127.0.0.1", _cfg.MCP_HTTP_PORT))
-    _srv.listen(1)
-    check("a real listener on MCP_HTTP_PORT -> True",
-          process_status.is_mcp_running() is True)
-finally:
-    _srv.close()
+    check("nothing listening on MCP_HTTP_PORT -> False",
+          process_status.is_mcp_running() is False)
 
-check("listener closed again -> back to False",
-      process_status.is_mcp_running() is False)
+    _srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    _srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        _srv.bind(("127.0.0.1", _cfg.MCP_HTTP_PORT))
+        _srv.listen(1)
+        check("a real listener on MCP_HTTP_PORT -> True",
+              process_status.is_mcp_running() is True)
+    finally:
+        _srv.close()
+
+    check("listener closed again -> back to False",
+          process_status.is_mcp_running() is False)
+finally:
+    _cfg.MCP_HTTP_PORT = _orig_mcp_port
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -182,6 +182,10 @@ FIELD_UNITS: dict[str, str] = {
 HEALTH_FIELD_ALIASES: dict[str, str] = {
     "hrv": "hrv_last_night",
     "hill": "hill_score",
+    # v1.7.5.3 -- "stress_index" would otherwise fall through to the
+    # difflib near-match step and resolve to stress_max (string distance
+    # only); stress_avg is the semantically closer daily value.
+    "stress_index": "stress_avg",
 }
 
 

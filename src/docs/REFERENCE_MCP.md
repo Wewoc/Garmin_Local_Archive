@@ -16,7 +16,7 @@ alternatives, and test-run numbers for the mechanisms below live in
 This file covers seven modules:
 - `maps/mcp_map.py` — thin protocol translation onto `gateway_map`.
 - `clients/mcp_server.py` — MCP tool registration, transport, routing entry point.
-- `clients/mcp_query_common.py` — shared query-serving helpers (`_route_query`, `_get_field_unit`, `_enrich_with_units`).
+- `clients/mcp_query_common.py` — shared query-serving helpers (`_route_query`, `_get_field_unit`, `_enrich_with_units`, `_match_field`).
 - `clients/mcp_field_registry.py` — the field-unit and alias/ambiguity registries.
 - `clients/mcp_health.py` — `query_health()`.
 - `clients/mcp_context.py` — `query_context()`, `_resolve_context_bundle()`, `_fetch_context_field()`.
@@ -162,7 +162,9 @@ registered as MCP tools.
 **Error handling:** no translation code. `mcp_map.py`'s degraded results
 (`{"error": ...}` inside an otherwise normal return dict) pass through
 unchanged as ordinary tool payloads (`isError` stays `False`). Genuine
-exceptions (the two `ValueError` cases above) are left unhandled by
+exceptions (the `ValueError` cases above — since v1.7.5.4 in practice only
+`get_archive_metadata()`'s, as `query_raw()` validates `domain` and `field`
+before delegating, see below) are left unhandled by
 design — the MCP SDK automatically converts any uncaught exception
 raised inside a `@mcp.tool()`-decorated function into
 `CallToolResult(isError=True, ...)` with `str(exception)` as the message.
@@ -190,6 +192,19 @@ for a not-yet-existing FIT domain, or for a code-registry read) — this
 file's `mcp_map.py` contract remains the authoritative description of
 what each tool *returns*; the weiche only changes *which module supplies
 it*.
+
+**`query_raw()` argument handling (v1.7.5.4):** runs before
+`_route_query()`, so it applies to both branches. (1) `domain` must be
+`None` or `"health"` (case-insensitive) — anything else returns
+`{"health": {}, "error": ..., "_meta": {}}`, as only the health domain
+holds raw data. (2) `field` is lower-cased and resolved against
+`mcp_map.list_raw_fields("health")["health"]` via `_match_field()`: a
+single near-match is resolved and marked in `_meta.field_resolved_from` /
+`field_used`, otherwise an `error` (with `did_you_mean` when similar names
+exist) comes back and nothing is queried. (3) The resolved name is
+forwarded to `mcp_sql.get_raw_range(date_from, date_to, field=...)`,
+which returns only that field. Both error cases are ordinary payloads
+(`isError` stays `False`), not exceptions.
 
 **`refresh_cache()`:** manually triggers the same SQLite sync the server
 already runs once at startup (`clients/mcp_update.py::sync_all()`).
@@ -223,7 +238,7 @@ requests.
 
 ## `clients/mcp_query_common.py` — shared query-serving helpers
 
-Three helpers with no dependency on `mcp`/`mcp_sql`/`mcp_map`, needed by
+Four helpers with no dependency on `mcp`/`mcp_sql`/`mcp_map`, needed by
 both `mcp_server.py`'s four directly-defined query tools and by
 `mcp_health.py`/`mcp_context.py` (which cannot import them back from
 `mcp_server.py` without a circular import, since `query_health`/
@@ -242,6 +257,15 @@ both `mcp_server.py`'s four directly-defined query tools and by
   same per-field pass already needed for the unit lookup, so a
   resolved-but-no-data response is distinguishable from an
   in-progress/incomplete one.
+- **`_match_field(field, original_field, candidates)`** *(v1.7.5.4)* — the
+  shared near-match step: `difflib`, `n=3`, `cutoff=0.65`. Exact hit →
+  `resolved_field` (with `field_resolved_from` / `field_used` set only when
+  the lower-cased name differs from the caller's input); exactly one
+  near-match → auto-resolved and marked; otherwise `error: unknown field`,
+  plus `did_you_mean` when `difflib` found any candidates. A pure function
+  — no alias or ambiguity tables and no cross-domain hint, callers handle
+  those beforehand. First used by `query_raw()`; `query_health()` and
+  `query_context()` still carry their own copy of this step.
 
 ---
 
@@ -264,10 +288,12 @@ detail that goes stale the next time a field is added.
   Raw-passthrough fields (`query_raw()`) are out of scope — no unit
   concept applies to them.
 - **`HEALTH_FIELD_ALIASES`** — explicit short-form → canonical-name map
-  for `query_health()` (currently `hrv`, `hill`), for prefixes too short
-  relative to their target name for `difflib` to resolve reliably at any
-  workable cutoff. Checked before the near-match step — an alias hit is
-  more certain than a fuzzy match.
+  for `query_health()` (currently `hrv`, `hill`, `stress_index`), for
+  prefixes too short relative to their target name for `difflib` to
+  resolve reliably at any workable cutoff, and (`stress_index`, v1.7.5.3)
+  for a name `difflib` would resolve to the wrong sibling field
+  (`stress_max` instead of `stress_avg`). Checked before the near-match
+  step — an alias hit is more certain than a fuzzy match.
 - **`HEALTH_FIELD_AMBIGUOUS`** — fields where the requested name does not
   reveal whether a daily value or a `_series` (timeseries) was meant
   (currently `spo2`, `stress`, `steps`) — **not** resolved; returns an
@@ -436,6 +462,12 @@ Checked in this order, first match wins:
    / `field_resolved_from` set. More than one candidate, or none →
    generic `error: unknown field`, with `did_you_mean` when `difflib`
    found any candidates at all.
+
+`query_raw()` (v1.7.5.4) uses only steps 6 and 7, through the shared
+`_match_field()` helper in `clients/mcp_query_common.py`, against the
+raw-passthrough field list — it has no alias or ambiguity tables and no
+other domain to confuse a name with. `query_health()` and
+`query_context()` still carry their own copy of step 7.
 
 A valid field's result (with or without data in the requested range) is
 returned exactly as any of the above would leave it once resolved —

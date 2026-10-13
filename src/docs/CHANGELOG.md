@@ -1,5 +1,71 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.5.4 — query_raw Field/Domain Filter, stress_index Alias, Updater Test Port Probe
+
+**Covers the planned versions v1.7.5.2, v1.7.5.3 and v1.7.5.4.** All three
+were built in a single step and are released together as v1.7.5.4; there
+is no separate v1.7.5.2 or v1.7.5.3 release.
+
+**v1.7.5.2 — `query_raw` applies `field` and `domain`.** `query_raw` now
+does what its original description promised: it returns only the requested
+raw field and rejects a domain other than `health`. Since v1.7.5.1 its
+description stated that both arguments were ignored on the SQLite path
+(the only active one); every call returned all cached raw health fields
+for the date range. A misspelled field name is handled like in
+`query_health`/`query_context`: a single near-match is resolved
+automatically and marked in `_meta.field_resolved_from` / `field_used`,
+otherwise an error with `did_you_mean` comes back. A domain other than
+`health` (`context`, `fit`, anything else) returns a clear error instead
+of silently returning health data.
+
+**Found and fixed:**
+- **v1.7.5.3** — `"stress_index"` silently resolved to `stress_max`
+  through the `difflib` near-match step (string distance only). It is now
+  an explicit `HEALTH_FIELD_ALIASES` entry pointing at `stress_avg`.
+- **v1.7.5.4** — `tests/test_updater.py` section 4 (the real TCP probe of
+  `process_status.is_mcp_running()`) failed with `PermissionError`
+  (WinError 10013) whenever a real MCP server was running on
+  `MCP_HTTP_PORT` — and its first check ("nothing listening -> False")
+  would have been wrong in that situation too. The section now probes a
+  free ephemeral port and restores the configured port afterwards;
+  verified green with a running server.
+
+**New helper (v1.7.5.2):** `_match_field()` in
+`clients/mcp_query_common.py` — the shared near-match step (`difflib`,
+cutoff 0.65, auto-resolve on exactly one hit, otherwise error +
+`did_you_mean`), extracted from the tail of
+`resolve_health_field()`/`resolve_context_field()`. `query_raw` is its
+first user; the two existing resolvers still carry their own identical
+copy (migration is a separate follow-up).
+
+**Changed modules:**
+- `clients/mcp_server.py` — `query_raw()`: domain check, field resolution
+  via `_match_field()`, `field` forwarded to the SQLite read; the "Known
+  limitation" paragraph is removed from the tool description (v1.7.5.2)
+- `clients/mcp_sql.py` — `get_raw_range(date_from, date_to, field=None)`
+  (v1.7.5.2)
+- `clients/mcp_query_common.py` — `_match_field()` (v1.7.5.2)
+- `clients/mcp_field_registry.py` — `HEALTH_FIELD_ALIASES["stress_index"]`
+  (v1.7.5.3)
+- `tests/test_mcp.py` — the v1.7.5.1 "Ist-Stand" check that pinned the
+  ignored arguments is replaced by checks for forwarding, near-match
+  resolution, unknown field, ambiguous field, and domain handling; new
+  sections for `_match_field()` (including parity checks against
+  `resolve_health_field()`) and for the `get_raw_range()` field filter
+  (v1.7.5.2); `stress_index` added to the alias checks (v1.7.5.3)
+- `tests/test_updater.py` — section 4 uses a free port (v1.7.5.4)
+- `version.py` — 1.7.5.4
+
+**Test result:** all suites green, 4241 checks total (`test_mcp.py`
+337/337, `test_updater.py` 93/93, `test_static.py` 17/17 included).
+Checked against a running MCP server with nine `query_raw` calls over 42
+days of the real archive (exact field, near-match, upper case, a second
+field, unknown field, ambiguous field, domain `context`/`fit`/`health`):
+all answered as described above. Not covered: migrating
+`resolve_health_field()`/`resolve_context_field()` to `_match_field()`.
+
+---
+
 ## v1.7.5.1 — MCP Tool Descriptions: Agent-Facing Cleanup
 
 Glama's automated TDQS review (Sep 2026) rated `query_context` C,
