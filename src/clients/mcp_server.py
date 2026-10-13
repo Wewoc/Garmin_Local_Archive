@@ -448,7 +448,7 @@ _DEFAULT_ALLOWED_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://
 #  programmatically below instead of staying here with `@mcp.tool()`.
 # ══════════════════════════════════════════════════════════════════════════════
 
-from mcp_query_common import _route_query, _get_field_unit  # noqa: E402
+from mcp_query_common import _route_query, _get_field_unit, _match_field  # noqa: E402
 
 
 mcp = FastMCP(
@@ -532,9 +532,12 @@ def query_fit_activities(field: str, date_from: str, date_to: str,
 # Not part of the MCP tool description — the docstring below is what
 # mcp.tool() exposes to the calling LLM. Kept for future sessions.
 # Note (v1.7.5.1): the text below promised field/domain filtering that the
-# SQLite path (the only active one) does not apply — see ROADMAP.md
-# v1.7.5.2 and the Ist-Stand check in tests/test_mcp.py. The new docstring
-# states this limitation instead.
+# SQLite path (the only active one) did not apply at the time; the v1.7.5.1
+# docstring stated that limitation instead.
+# Note (v1.7.5.2): the limitation is fixed — field is now resolved
+# (_match_field, auto-resolve on one near-match, else error + did_you_mean)
+# and forwarded to mcp_sql.get_raw_range(); a domain other than "health" is
+# an error, as only "health" holds raw data.
 #
 # Query raw, unprocessed archive data for a passthrough field over a
 # date range. domain restricts the query to one domain ("health",
@@ -558,17 +561,41 @@ def query_raw(field: str, date_from: str, date_to: str,
     date_from/date_to: ISO "YYYY-MM-DD", inclusive. domain: only "health"
     holds raw data.
 
-    Known limitation: field and domain are currently not applied. Every
-    call returns all cached raw fields of the health domain for the date
-    range, so the response can be large — pick the entry you need from the
-    result — and an unknown field name is not reported as an error.
+    Only the requested field is returned. A field name that is almost
+    right is corrected automatically (_meta.field_resolved_from /
+    field_used show the substitution); an unknown name returns an error,
+    with did_you_mean when similar names exist. A domain other than
+    "health" returns an error.
 
     Result: {"health": {field: {"values": [{"date": ..., "raw": ...}],
     "source_resolution": "raw"}}}. A day with no stored data has no entry.
     Read-only; does not change the archive."""
+    if domain is not None and domain.lower() != "health":
+        return {
+            "health": {},
+            "error": f"domain {domain!r} holds no raw data -- only 'health' does",
+            "_meta": {},
+        }
+
+    resolution_result = _match_field(
+        field.lower(), field, set(mcp_map.list_raw_fields("health")["health"])
+    )
+    if "error" in resolution_result:
+        error_result = {"health": {}, "error": resolution_result["error"], "_meta": {}}
+        if "did_you_mean" in resolution_result:
+            error_result["did_you_mean"] = resolution_result["did_you_mean"]
+        return error_result
+
+    resolved_field = resolution_result["resolved_field"]
     if _route_query("raw") == "sqlite":
-        return mcp_sql.get_raw_range(date_from, date_to)
-    return mcp_map.query_raw(field, date_from, date_to, domain=domain)
+        result = mcp_sql.get_raw_range(date_from, date_to, field=resolved_field)
+    else:
+        result = mcp_map.query_raw(resolved_field, date_from, date_to, domain=domain)
+    result.setdefault("_meta", {})
+    if resolution_result["field_resolved_from"] is not None:
+        result["_meta"]["field_resolved_from"] = resolution_result["field_resolved_from"]
+        result["_meta"]["field_used"] = resolution_result["field_used"]
+    return result
 
 
 # ── get_archive_metadata: previous docstring (replaced v1.7.5.1) ──

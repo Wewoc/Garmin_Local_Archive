@@ -23,7 +23,14 @@ dependency on mcp_server.py at all, so everyone can import it safely.
 
 _get_field_unit()/_enrich_with_units() need FIELD_UNITS from
 clients/mcp_field_registry.py (Baustein 2.1).
+
+v1.7.5.2: _match_field() added — the shared near-match step (difflib,
+auto-resolve on exactly one hit, else error + did_you_mean). First used
+by query_raw; mcp_health.py/mcp_context.py still carry their own
+identical copy of this block (migration is a separate ROADMAP item).
 """
+
+import difflib
 
 from mcp_field_registry import FIELD_UNITS
 
@@ -88,6 +95,39 @@ def _enrich_with_units(result: dict, domain: str) -> dict:
         result["_meta"]["has_data"] = False
 
     return result
+
+
+def _match_field(field: str, original_field: str, candidates) -> dict:
+    """Matches an (already lower-cased) field name against a set of
+    valid names. Same result shapes and thresholds as the tail of
+    resolve_health_field()/resolve_context_field() (difflib, n=3,
+    cutoff=0.65):
+      - exact hit: {"resolved_field", "field_resolved_from", "field_used"}
+        — the latter two are None when field is the caller's original
+        input verbatim, else set to original_field / the resolved name
+        (a case-only correction counts as a substitution)
+      - exactly one near-match: auto-resolved, same keys, always marked
+      - otherwise: {"error": "unknown field ...", "did_you_mean": [...]}
+        — did_you_mean only present when difflib found candidates
+    Pure function: no alias/ambiguity tables, no cross-domain hints —
+    callers that need those handle them before calling this."""
+    if field not in candidates:
+        close_matches = difflib.get_close_matches(
+            field, candidates, n=3, cutoff=0.65
+        )
+        if len(close_matches) == 1:
+            resolved_field = close_matches[0]
+            return {"resolved_field": resolved_field,
+                    "field_resolved_from": original_field, "field_used": resolved_field}
+
+        result = {"error": f"unknown field {field!r}"}
+        if close_matches:
+            result["did_you_mean"] = close_matches
+        return result
+
+    if field != original_field:
+        return {"resolved_field": field, "field_resolved_from": original_field, "field_used": field}
+    return {"resolved_field": field, "field_resolved_from": None, "field_used": None}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

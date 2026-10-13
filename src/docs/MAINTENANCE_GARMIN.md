@@ -110,7 +110,8 @@ of scope.
   are now broker-reachable — 6 interpreted into `summary/` fields
   (`body_weight`, `calories_resting`, `hydration_ml`, `endurance_score`,
   `hill_score`, `fitness_age`) via `get()`/`list_fields()`, the remaining
-  13 exposed unprocessed via the new `get_raw()`/`list_raw_fields()` path.
+  13 exposed as archived in `raw/` (no value extraction) via the new
+  `get_raw()`/`list_raw_fields()` path.
   Custom Dashboard/Explorer additionally gate the 6 interpreted fields by
   `enabled_by_user` (`list_fields(active_only=True)`, "Governance B"). See
   `REFERENCE_GARMIN.md` → "Raw-passthrough fields" and `NOTES_v168_D_01.md`/

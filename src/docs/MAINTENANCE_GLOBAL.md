@@ -136,8 +136,8 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/dialog_chat_history.py` | `ChatHistoryDialog` — lists saved chat sessions with Load/Delete, opened from `app/panel_chat.py`'s "Chat History" button. (v1.7.2) |
 | `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). Cloud Provider field is a dropdown (v1.7.2), API key stored in Windows Credential Manager rather than the config file (v1.7.2). (v1.7) |
 | `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
-| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. Four tools remain thin `maps/mcp_map.py` wrappers defined directly here; `query_health`/`query_context` moved out to their own files (v1.7.2.1, next two rows) and are registered back programmatically (`mcp.tool()(query_health)`) to avoid a circular import with `mcp`. |
-| `clients/mcp_field_registry.py`, `clients/mcp_query_common.py` | Pure-data/shared-helper layer behind the MCP query tools (v1.7.2.1, split out of `mcp_server.py`): `mcp_field_registry.py` holds `FIELD_UNITS`/alias/ambiguity dicts/`_CONTEXT_CATEGORY_BUNDLES` (no logic); `mcp_query_common.py` holds `_route_query()`/`_get_field_unit()`/`_enrich_with_units()` (no `mcp`/`mcp_sql`/`mcp_map` dependency, so every query file can import it without a circular import). |
+| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. Four tools remain thin `maps/mcp_map.py` wrappers defined directly here; `query_health`/`query_context` moved out to their own files (v1.7.2.1, next two rows) and are registered back programmatically (`mcp.tool()(query_health)`) to avoid a circular import with `mcp`. **(v1.7.5.4)** `query_raw` is no longer a pure thin wrapper: it validates `domain` and `field` before delegating (see `REFERENCE_MCP.md`). |
+| `clients/mcp_field_registry.py`, `clients/mcp_query_common.py` | Pure-data/shared-helper layer behind the MCP query tools (v1.7.2.1, split out of `mcp_server.py`): `mcp_field_registry.py` holds `FIELD_UNITS`/alias/ambiguity dicts/`_CONTEXT_CATEGORY_BUNDLES` (no logic); `mcp_query_common.py` holds `_route_query()`/`_get_field_unit()`/`_enrich_with_units()`, and (v1.7.5.4) `_match_field()`, the shared near-match step (no `mcp`/`mcp_sql`/`mcp_map` dependency, so every query file can import it without a circular import). |
 | `clients/mcp_health.py`, `clients/mcp_context.py` | `query_health()`/`query_context()` and their routing/alias/fuzzy-match/bundle-resolution logic (v1.7.2.1, split out of `mcp_server.py`) — each calls `maps/mcp_map.py` directly on its own live branch. See `REFERENCE_MCP.md`'s `(v1.7.2.1)` entry for the full split rationale. |
 | `clients/mcp_stats.py` | `baselines()`/`anomalies()`/`gaps()` (v1.7.5 Block A) — rolling baseline/anomaly statistics and gap detection, reading `clients/mcp_sql.py`'s cache only (never the live archive directly). `correlate()` (v1.7.5 Block B) — lag correlation between any two fields, computed fresh per call through `query_health()`/`query_context()`'s own live/SQLite routing, no cache of its own. See `REFERENCE_MCP.md`'s `clients/mcp_stats.py` entry. |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
@@ -611,6 +611,26 @@ tools. Sections 6 and 8 additionally check that `list_available_fields()`'s
 `mcp_sql.get_metadata_range()` accepts — compared against the kind sets, not
 by calling it (the real SQLite file has no tables at that point in the run).
 
+**Sections 19-20 added, `query_raw` checks replaced (v1.7.5.4)** — Section
+19 covers the shared `_match_field()` helper: exact name verbatim (no
+substitution marker), case-only correction (marked), exactly one
+near-match (auto-resolved and marked), several near-matches (error +
+`did_you_mean`), none (error without `did_you_mean`) — plus parity checks
+against the real `resolve_health_field()` on the real health registry,
+which pin the helper to the behaviour of the code it was extracted from
+and guard the planned migration of the two resolvers (no equivalent
+parity check exists for the context resolver). Section 20 covers
+`mcp_sql.get_raw_range()`'s `field` filter with a mocked per-day read:
+default unchanged, filter per field, field without data. In the Section 8
+family (the `query_raw` delegation checks), the v1.7.5.1 check that pinned
+`query_raw` "ignores field/domain" is replaced by checks for the new behaviour: `field` forwarded, near-match
+auto-resolved and marked in `_meta` (the fixture verifies that the typo
+has exactly one match in the real raw field list), case-only correction,
+unknown field and ambiguous field returning an error without querying,
+`did_you_mean` limited to real raw fields, `domain` `context`/`fit`/
+unknown returning an error, `None`/`health`/`Health` accepted. The mock
+returns a fresh copy per call because `query_raw` writes into `_meta`.
+
 Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
 `gateway_map` (routing targets), `clients/mcp_sql.py`,
 `clients/mcp_update.py` (v1.7.1 — `test_mcp.py` mocks
@@ -1023,7 +1043,10 @@ previous attempt. Covers `version.is_newer()`,
 `frozen_paths.is_t3_standalone()`/`is_t2_standard()` (the latter added
 v1.7.2.4-Nacherweiterung, including its non-frozen `daily_update.py`
 reference-file case), `process_status.py` (lock files +
-`is_mcp_running()`), and `updater.py` (asset resolution +
+`is_mcp_running()`; since v1.7.5.4 the probe runs on a free ephemeral
+port — `MCP_HTTP_PORT` is swapped temporarily and restored — so a
+running MCP server on the real port cannot collide with the suite), and
+`updater.py` (asset resolution +
 `prepare_update()`, T2 and T3 asset names both covered). **v1.7.2.4.1**
 adds `updater.write_success_flag()` coverage, plus the first
 automated test that runs `updater_helper.ps1` itself via a real

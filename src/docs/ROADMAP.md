@@ -6,101 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.5.1**
-
----
-
-### v1.7.5.2 — query_raw field/domain filter gap (SQLite path)
-
-Found 2026-10-07 while scoping v1.7.5.1's docstring work (see
-PROTOKOLL.md same date). `query_raw(field, date_from, date_to, domain)`
-promised, in its original docstring (v1.7.5.1 replaced that promise with
-an explicit limitation note), that `domain` restricts the search and
-`field` selects one passthrough field. On the SQLite path
-(`clients/mcp_server.py::query_raw()` calling
-`mcp_sql.get_raw_range(date_from, date_to)`), neither argument is
-forwarded — `get_raw_range()` itself takes no `field`/`domain`
-parameter at all and always returns every cached raw field for the
-"health" domain only (`clients/mcp_sql.py`'s own docstring: "Only the
-'health' domain is populated"). Since `_route_query()`
-(`clients/mcp_query_common.py`) hard-pins every query kind to
-`"sqlite"` today, this is not a dormant edge case on an unused branch —
-it is the only code path `query_raw()` actually ever takes.
-
-**Current behavior (pinned by an Ist-Stand check, `tests/test_mcp.py`,
-"Ist-Stand: query_raw (SQLite path) ignores field/domain"):** a request
-for one specific field returns every cached raw health field,
-unfiltered; a `domain="context"` or `domain="fit"` request silently
-returns health data instead of context/fit data or an empty/error
-result.
-
-**Planned behavior:** `get_raw_range()` gains a `field` filter
-parameter (same filtering principle `get_health_range()`/
-`get_context_range()` already apply, v1.7.1.1/.3), and `query_raw()`
-passes its own `field` argument through on the SQLite path, matching
-what the original docstring promised. `domain` handling needs its own
-decision — today `mcp_raw_fields` only ever holds health data, so a
-`domain="context"`/`"fit"` request has no data to return regardless;
-whether that should become an explicit error (clearer to the caller)
-or stay a silently-empty result is an open point for the Bauauftrag.
-
-**What changes:**
-- `clients/mcp_sql.py` — `get_raw_range()` gains a `field` parameter
-- `clients/mcp_server.py` — `query_raw()` forwards `field` (and decides
-  how to handle `domain` on the SQLite path)
-- `clients/mcp_server.py` — once field/domain are applied, remove the
-  "Known limitation" paragraph from `query_raw`'s tool description; the
-  Ist-Stand check in `tests/test_mcp.py` becomes a real filter test
-
----
-
-### v1.7.5.3 — "stress_index" near-match resolves to the wrong field
-
-Found 2026-10-12 while analyzing a real LLM test run against `correlate()`
-(mcp_test, Lauf 26, question catalog `question_catalog_blockB_correlate_full.py`).
-`"stress"` is already a registered ambiguous alias (`HEALTH_FIELD_AMBIGUOUS`,
-`mcp_field_registry.py`) resolving to a `did_you_mean` between `stress_avg`/
-`stress_series` — but `"stress_index"` does not match that key exactly and
-falls through to the `difflib.get_close_matches(cutoff=0.65)` near-match
-step instead, which picks purely by string distance.
-
-**Current behavior (pinned by an Ist-Stand check):** `"stress_index"`
-silently resolves to `stress_max`, verified directly against the real
-candidate list:
-```python
-difflib.get_close_matches("stress_index", [...], cutoff=0.65)  # -> ['stress_max']
-```
-`stress_avg` would be the semantically closer field, but `difflib` has no
-semantic notion of "index" vs. "average" vs. "maximum" — this is a correct
-resolution by the existing algorithm's own rules, just not the field a
-user likely meant. No crash, no empty result — visible only via
-`_meta.field_used` if one looks for it.
-
-**Planned behavior:** add `"stress_index"` as an explicit alias entry in
-`HEALTH_FIELD_ALIASES` pointing at the same ambiguous `"stress"` handling
-(or directly at `stress_avg`, decision for the Bauauftrag) rather than
-letting it fall through to the near-match step.
-
-**What changes:**
-- `clients/mcp_field_registry.py` — one new `HEALTH_FIELD_ALIASES` entry
-
----
-
-### v1.7.5.4 — test_updater.py port probe collides with a running MCP server
-
-Found 2026-10-12 during the v1.7.5.1 test run. `tests/test_updater.py`,
-section 4 (`process_status.is_mcp_running()`, real TCP probe), binds
-`MCP_HTTP_PORT` (8756) itself to prove "nothing listening -> False". With a
-real MCP server running on that port the bind fails with `PermissionError`
-(WinError 10013) and the suite goes red, although nothing is broken —
-it passed as soon as the server was stopped.
-
-**Planned behavior:** the test should not depend on the port being free,
-e.g. probe a different, unused port or skip the "nothing listening" check
-when the real port is already taken.
-
-**What changes:**
-- `tests/test_updater.py` — port handling in section 4
+**Currently stable — v1.7.5.4**
 
 ---
 
@@ -511,6 +417,17 @@ password).
 
 **Disclaimer shadow-copy in `dash_prompt_templates.py`**
 This module holds its own copy of the disclaimer text instead of calling `dash_layout.get_disclaimer()` — a second, un-flagged M-2 pattern found during the v1.6.5.6 sibling-sweep, next to the duplicate intraday chart code above. Same fix shape: collapse to the shared getter.
+
+**`resolve_health_field()` / `resolve_context_field()` — move onto the shared `_match_field()`**
+Since v1.7.5.4 the near-match step (`difflib`, cutoff 0.65, auto-resolve on
+exactly one hit, otherwise error + `did_you_mean`) exists once in
+`clients/mcp_query_common.py::_match_field()`, used by `query_raw`. The tails
+of `resolve_health_field()` (`mcp_health.py`) and `resolve_context_field()`
+(`mcp_context.py`) are still near-verbatim copies of it — an M-2 pattern, not
+a bug. The helper is pinned to the health resolver's behaviour by parity
+tests, so the swap is small and low-risk; do it when those files are touched
+anyway, or fold it into the v1.8.3 FIT resolver (`mcp_fit.py`), which would
+otherwise become a fourth copy.
 
 **`clients/mcp_server_gui.py` color-theme parity**
 v1.7.0.2 added a GLA-branded text header (`"🦄  GARMIN LOCAL ARCHIVE"`) but deliberately stopped there — the window still runs Tkinter's native "vista" theme, which mostly ignores custom widget colors for `ttk` controls (Checkbutton, Entry, Button). Real color parity with the PyQt6 app's dark/purple palette would need `ttk.Style().theme_use("clam")` first, which also changes the whole widget look away from native Windows rendering — a bigger, separate change, deferred by choice ("just the unicorn" this session).

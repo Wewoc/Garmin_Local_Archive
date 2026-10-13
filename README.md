@@ -264,7 +264,7 @@ hosts" above for Docker clients.
 | `query_health` | Daily health metrics (e.g. sleep, stress, heart rate, body battery) for a date or date range |
 | `query_context` | Weather, pollen and air-quality data for a date or date range |
 | `query_fit_activities` | FIT activity data — *planned, not yet available* (see `docs/ROADMAP.md`, "FIT Pipeline") |
-| `query_raw` | Unprocessed archive data for a given domain, for deeper inspection |
+| `query_raw` | Archived data as stored in `raw/`, without value extraction — for list and event fields (e.g. weigh-ins, nutrition logs) that the other tools cannot reduce to a daily value; health domain only |
 | `get_archive_metadata` | Archive coverage and quality info (date ranges, missing days, data quality) |
 | `list_available_fields` | Which fields the archive actually contains, per domain |
 | `refresh_cache` | Rebuilds the server's local query cache on demand, e.g. right after a sync |
