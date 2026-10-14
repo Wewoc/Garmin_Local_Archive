@@ -358,6 +358,23 @@ CONTEXT_FIELD_AMBIGUOUS: dict[str, list[str]] = {
 }
 
 
+# ── Raw-field counterparts (v1.7.5.5) ─────────────────────────────────────
+# Maps a raw-passthrough field name (query_raw) to the processed health
+# field(s) (query_health) that hold the same everyday quantity. Only the
+# pairs that exist are listed; a raw field with no entry here has no
+# processed counterpart (e.g. lactate_threshold) and is still recognised
+# as a raw field by resolve_health_field(), just without a suggestion.
+# The raw field names themselves are NOT kept here -- they come live from
+# mcp_map.list_raw_fields("health"), so this table cannot drift from the
+# registered set; tests/test_mcp.py checks that every counterpart named
+# here is a real health field.
+RAW_FIELD_COUNTERPARTS: dict[str, list[str]] = {
+    "floors": ["floors_climbed"],
+    "daily_weigh_ins": ["body_weight"],
+    "intensity_minutes_data": ["intensity_min_moderate", "intensity_min_vigorous"],
+}
+
+
 # ── Context category bundles (moved here Codereview v1.7.0.1, Baustein
 #    2.2 — was mcp_server.py, needed by both mcp_health.py's domain-
 #    confusion check and mcp_context.py's own bundle resolution;

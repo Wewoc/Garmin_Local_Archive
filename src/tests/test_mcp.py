@@ -345,7 +345,7 @@ check("mcp_server: registered tool names match mcp_map.py 1:1, plus refresh_cach
 # The reference patterns are a heuristic list, not a proof: add a pattern
 # here when a new kind of internal reference shows up in a description.
 # The 2000-character cap sits above today's longest description (about
-# 1300) but well below the pre-cleanup size (about 5000).
+# 1400) but well below the pre-cleanup size (about 5000).
 import re as _re
 
 _INTERNAL_REF = _re.compile(
@@ -397,6 +397,26 @@ check("description of query_context: points to query_health and list_available_f
       and "list_available_fields" in _tool_desc["query_context"])
 check("description of query_raw: points to query_health",
       "query_health" in _raw_desc)
+
+# v1.7.5.5: the counterpart sentence sits outside the parsed field-name block
+# (checked above) and must stay in step with RAW_FIELD_COUNTERPARTS — every
+# raw field and every processed counterpart in that table is named.
+from mcp_field_registry import RAW_FIELD_COUNTERPARTS as _RFC_DESC
+_raw_intro = _raw_desc.split("field: one of the raw field names")[0]
+check("description of query_raw: names every raw field that has a processed counterpart, before the field list",
+      all(_k in _raw_intro for _k in _RFC_DESC))
+check("description of query_raw: names every processed counterpart, before the field list",
+      all(_c in _raw_intro for _cs in _RFC_DESC.values() for _c in _cs))
+check("description of query_raw: counterpart sentence does not disturb the parsed field-name block",
+      _raw_block is not None and "floors_climbed" not in _raw_block.group(1))
+# v1.7.5.5: an archived day with no stored value comes back as "raw": null
+# (mcp_sql.get_raw_fields_for_day keeps None payloads); only a day that is
+# not in the archive has no entry. The description used to claim "no entry"
+# for both.
+check("description of query_raw: says an archived day without a stored value returns \"raw\": null",
+      '"raw": null' in _raw_desc and "not in the archive" in _raw_desc)
+check("description of query_raw: no longer claims a day with no stored data has no entry",
+      "A day with no stored data has no entry" not in _raw_desc)
 
 # ── 8a-bis. unit field (v1.7.1.6) — mcp_server.list_available_fields() ───────
 #
@@ -2534,5 +2554,227 @@ check("get_raw_range: field with no cached data -> empty health dict, _meta stil
       _grr_none["health"] == {} and "_meta" in _grr_none)
 check("get_raw_range: filtered values keep the unwrapped raw payload",
       _grr_one["health"]["floors"]["values"][0]["raw"] == [1])
+
+section("mcp_health 21. resolve_health_field() — raw-field pointer (v1.7.5.5)")
+
+from mcp_field_registry import RAW_FIELD_COUNTERPARTS as _RFC
+
+_rf_raw = set(mcp_map.list_raw_fields("health")["health"])
+_rf_health = set(mcp_map.list_available_fields(domain="health")["fields"]["health"].get("garmin", []))
+_rf_context = set()
+for _rf_src in mcp_map.list_available_fields(domain="context")["fields"]["context"].values():
+    _rf_context.update(_rf_src)
+
+# Guards: the raw check sits before the near-match step, so it must never
+# shadow a real health/context field, and the counterpart table must not
+# drift from the registered fields.
+check("raw fields: none is also a health field (raw check cannot shadow one)",
+      _rf_raw.isdisjoint(_rf_health))
+check("raw fields: none is also a context field",
+      _rf_raw.isdisjoint(_rf_context))
+check("RAW_FIELD_COUNTERPARTS: every key is a registered raw field",
+      set(_RFC) <= _rf_raw)
+check("RAW_FIELD_COUNTERPARTS: every counterpart is a registered health field",
+      all(c in _rf_health for _cs in _RFC.values() for c in _cs))
+
+for _rf_name in sorted(_rf_raw):
+    _rf_res = mcp_health.resolve_health_field(_rf_name)
+    check(f"resolve_health_field({_rf_name!r}): raw field -> error naming query_raw, no resolution",
+          "query_raw" in _rf_res.get("error", "") and "resolved_field" not in _rf_res)
+
+for _rf_name, _rf_cps in _RFC.items():
+    _rf_res = mcp_health.resolve_health_field(_rf_name)
+    check(f"resolve_health_field({_rf_name!r}): did_you_mean is exactly the processed counterpart(s)",
+          _rf_res.get("did_you_mean") == _rf_cps)
+    check(f"resolve_health_field({_rf_name!r}): error names every counterpart",
+          all(repr(c) in _rf_res["error"] for c in _rf_cps))
+
+_rf_nocp = mcp_health.resolve_health_field("lactate_threshold")
+check("resolve_health_field('lactate_threshold'): no counterpart -> no did_you_mean key",
+      "did_you_mean" not in _rf_nocp)
+_rf_bbe = mcp_health.resolve_health_field("body_battery_events")
+check("resolve_health_field('body_battery_events'): raw pointer, not the three body_battery_* near-matches",
+      "query_raw" in _rf_bbe.get("error", "") and "did_you_mean" not in _rf_bbe)
+check("resolve_health_field('intensity_minutes_data'): no longer silently resolved to intensity_min_moderate",
+      "resolved_field" not in mcp_health.resolve_health_field("intensity_minutes_data"))
+
+# Unchanged behaviour next to the new check
+check("resolve_health_field: exact health field still resolves untouched",
+      mcp_health.resolve_health_field("floors_climbed") ==
+      {"resolved_field": "floors_climbed", "field_resolved_from": None, "field_used": None})
+check("resolve_health_field: unrelated unknown name still gets the generic 'unknown field' error",
+      mcp_health.resolve_health_field("zzzzzz").get("error") == "unknown field 'zzzzzz'")
+
+# The pointer reaches every caller of the resolver
+with patch("mcp_sql.get_health_range") as _rf_m_sql:
+    _rf_qh = mcp_server.query_health("floors", _TEST_DATE, _TEST_DATE, "daily")
+    _rf_m_sql.assert_not_called()
+check("query_health('floors'): error with pointer + did_you_mean, health stays empty, nothing queried",
+      _rf_qh.get("health") == {} and "query_raw" in _rf_qh.get("error", "")
+      and _rf_qh.get("did_you_mean") == ["floors_climbed"])
+_rf_bl = mcp_stats.baselines("floors", _TEST_DATE, _TEST_DATE)
+check("baselines('floors'): same pointer reaches the stats tool",
+      "query_raw" in _rf_bl.get("error", "") and _rf_bl.get("did_you_mean") == ["floors_climbed"])
+_rf_an = mcp_stats.anomalies("lactate_threshold", _TEST_DATE, _TEST_DATE)
+check("anomalies('lactate_threshold'): same pointer reaches the stats tool",
+      "query_raw" in _rf_an.get("error", ""))
+_rf_cor = mcp_stats._resolve_and_fetch_field("daily_weigh_ins", _TEST_DATE, _TEST_DATE)
+check("_resolve_and_fetch_field('daily_weigh_ins'): health-side pointer wins over the context 'unknown field'",
+      "query_raw" in _rf_cor.get("error", "") and _rf_cor.get("did_you_mean") == ["body_weight"])
+
+section("mcp_server 22. query_raw() — processed-counterpart hint in _meta (v1.7.5.5)")
+
+from mcp_query_common import _format_counterparts
+
+check("_format_counterparts: quotes and joins every name",
+      _format_counterparts(["a", "b"]) == "'a', 'b'" and _format_counterparts(["a"]) == "'a'")
+
+
+def _qr22(raw_result, field="floors", **kwargs):
+    import copy
+    with patch("mcp_sql.get_raw_range", return_value=copy.deepcopy(raw_result)):
+        return mcp_server.query_raw(field, "2000-01-01", "2000-01-01", **kwargs)
+
+
+_qr22_values = {"health": {"x": {"values": [{"date": "2000-01-01", "raw": [1]}],
+                                 "source_resolution": "raw"}}, "_meta": {}}
+_qr22_empty = {"health": {}, "_meta": {}}
+
+for _qr22_field, _qr22_cps in _RFC.items():
+    for _qr22_label, _qr22_raw in (("with values", _qr22_values), ("without values", _qr22_empty)):
+        _qr22_res = _qr22(_qr22_raw, field=_qr22_field)
+        _qr22_hint = _qr22_res["_meta"].get("hint", "")
+        check(f"query_raw({_qr22_field!r}) {_qr22_label}: hint names every counterpart and query_health",
+              all(repr(c) in _qr22_hint for c in _qr22_cps) and "query_health" in _qr22_hint)
+    check(f"query_raw({_qr22_field!r}): hint uses the same counterpart wording as the resolver error",
+          _format_counterparts(_qr22_cps) in _qr22_res["_meta"]["hint"]
+          and _format_counterparts(_qr22_cps) in mcp_health.resolve_health_field(_qr22_field)["error"])
+
+_qr22_nocp = _qr22(_qr22_values, field="lactate_threshold")
+check("query_raw: raw field without a counterpart -> no hint",
+      "hint" not in _qr22_nocp["_meta"])
+check("query_raw: every raw field outside RAW_FIELD_COUNTERPARTS gets no hint",
+      all("hint" not in _qr22(_qr22_values, field=_n)["_meta"] for _n in sorted(_rf_raw - set(_RFC))))
+
+_qr22_typo = _qr22(_qr22_values, field="floor")
+check("query_raw: near-match 'floor' -> hint for the resolved field, resolution marker kept",
+      "floors_climbed" in _qr22_typo["_meta"].get("hint", "")
+      and _qr22_typo["_meta"].get("field_resolved_from") == "floor")
+check("query_raw: 'FLOORS' (case only) -> hint present",
+      "floors_climbed" in _qr22(_qr22_values, field="FLOORS")["_meta"].get("hint", ""))
+
+_qr22_meta_in = {"health": {}, "_meta": {"date_from_iso": "2000-01-01", "weekdays": {"2000-01-01": "Saturday"}}}
+_qr22_kept = _qr22(_qr22_meta_in)["_meta"]
+check("query_raw: hint is added next to the existing _meta keys, not instead of them",
+      _qr22_kept.get("date_from_iso") == "2000-01-01" and _qr22_kept.get("weekdays") and "hint" in _qr22_kept)
+
+with patch("mcp_server._route_query", return_value="live"), \
+     patch("maps.mcp_map.query_raw", return_value={"health": {}, "_meta": {}}), \
+     patch("mcp_sql.get_raw_range"):
+    _qr22_live = mcp_server.query_raw("daily_weigh_ins", "2000-01-01", "2000-01-01", domain="health")
+check("query_raw: live branch carries the same hint",
+      "body_weight" in _qr22_live["_meta"].get("hint", ""))
+
+with patch("mcp_sql.get_raw_range") as _m_sql:
+    _qr22_err_unknown = mcp_server.query_raw("zzzzzz", "2000-01-01", "2000-01-01")
+    _qr22_err_domain = mcp_server.query_raw("floors", "2000-01-01", "2000-01-01", domain="context")
+check("query_raw: error answers (unknown field, wrong domain) carry no hint",
+      "hint" not in _qr22_err_unknown["_meta"] and "hint" not in _qr22_err_domain["_meta"])
+
+section("mcp_server 23. raw-field pointer, hint and description — edge cases (v1.7.5.5)")
+
+import mcp_field_registry as _mfr23
+
+# Guard: the raw check sits after alias/ambiguity/bundle handling, so a raw name
+# that ever appeared in one of those tables would be answered by that table first.
+_e23_tables = (set(_mfr23.HEALTH_FIELD_ALIASES) | set(_mfr23.HEALTH_FIELD_AMBIGUOUS)
+               | set(_mfr23.CONTEXT_FIELD_ALIASES) | set(_mfr23.CONTEXT_FIELD_AMBIGUOUS)
+               | set(_mfr23._CONTEXT_CATEGORY_BUNDLES))
+check("edge: no raw field name is also an alias/ambiguity/bundle key (those would pre-empt the raw check)",
+      _rf_raw.isdisjoint(_e23_tables))
+check("edge: every processed counterpart still resolves untouched as an exact health field",
+      all(mcp_health.resolve_health_field(_c) ==
+          {"resolved_field": _c, "field_resolved_from": None, "field_used": None}
+          for _cs in _RFC.values() for _c in _cs))
+
+# Case handling: the resolver lower-cases once, so the pointer names the canonical raw name.
+for _e23_in in ("FLOORS", "Floors", "fLoOrS"):
+    _e23_res = mcp_health.resolve_health_field(_e23_in)
+    check(f"edge: resolve_health_field({_e23_in!r}) -> same raw pointer as 'floors', canonical name in the text",
+          _e23_res == mcp_health.resolve_health_field("floors") and "'floors'" in _e23_res["error"])
+
+# Empty / whitespace / padded names: no crash, no raw pointer. Ist-Stand pin: the
+# resolver does not strip, so a padded raw name is a plain unknown field.
+for _e23_in in ("", " ", " floors ", "floors\n", "\tfloors"):
+    _e23_res = mcp_health.resolve_health_field(_e23_in)
+    check(f"edge: resolve_health_field({_e23_in!r}) -> generic unknown field, no raw pointer, no crash",
+          _e23_res.get("error", "").startswith("unknown field") and "query_raw" not in _e23_res["error"])
+
+# Ist-Stand pin (ROADMAP candidate): singular/typo of a raw name is below the
+# near-match cutoff against the HEALTH fields and is not an exact raw name, so
+# the raw pointer does not fire.
+for _e23_in in ("floor", "daily_weigh_in", "lactate_threshhold"):
+    _e23_res = mcp_health.resolve_health_field(_e23_in)
+    check(f"edge: resolve_health_field({_e23_in!r}) (typo/singular) -> still the generic unknown field",
+          _e23_res.get("error", "").startswith("unknown field") and "query_raw" not in _e23_res["error"])
+
+# Runtime drift of the raw list: the pointer disappears cleanly, nothing breaks.
+for _e23_label, _e23_list in (("raw list empty", []),
+                              ("'floors' no longer registered", sorted(_rf_raw - {"floors"}))):
+    with patch("maps.mcp_map.list_raw_fields", return_value={"health": _e23_list}):
+        _e23_res = mcp_health.resolve_health_field("floors")
+        _e23_qr = _qr22(_qr22_values, field="floors")
+    check(f"edge: {_e23_label} -> resolve_health_field('floors') is the generic unknown field",
+          _e23_res.get("error", "").startswith("unknown field") and "query_raw" not in _e23_res["error"])
+    check(f"edge: {_e23_label} -> query_raw('floors') is an unknown-field error with no hint, nothing queried",
+          "error" in _e23_qr and _e23_qr["health"] == {} and "hint" not in _e23_qr["_meta"])
+
+# query_raw with odd names
+_e23_empty = _qr22(_qr22_values, field="")
+check("edge: query_raw('') -> unknown-field error, health empty, no hint",
+      "error" in _e23_empty and _e23_empty["health"] == {} and "hint" not in _e23_empty["_meta"])
+_e23_pad = _qr22(_qr22_values, field=" floors")
+check("edge: query_raw(' floors') (padded) -> auto-resolved to 'floors', marked, hint present",
+      _e23_pad["_meta"].get("field_resolved_from") == " floors"
+      and _e23_pad["_meta"].get("field_used") == "floors" and "hint" in _e23_pad["_meta"])
+_e23_dom = _qr22(_qr22_values, field="floors", domain="HEALTH")
+check("edge: query_raw(domain='HEALTH') -> hint present",
+      "hint" in _e23_dom["_meta"])
+
+# Ist-Stand pin (ROADMAP candidate): the reverse direction. A processed name given
+# to query_raw is a plain unknown field with no pointer to query_health, except
+# where it happens to be a single near-match of a raw name.
+for _e23_in in ("floors_climbed", "body_weight"):
+    _e23_res = _qr22(_qr22_values, field=_e23_in)
+    check(f"edge: query_raw({_e23_in!r}) (processed name) -> unknown-field error, no hint, nothing returned",
+          "error" in _e23_res and _e23_res["health"] == {} and "hint" not in _e23_res["_meta"])
+_e23_im = _qr22(_qr22_values, field="intensity_min_moderate")
+check("edge: query_raw('intensity_min_moderate') -> resolved to the raw field, marked, hint names the processed fields",
+      _e23_im["_meta"].get("field_used") == "intensity_minutes_data"
+      and "'intensity_min_moderate'" in _e23_im["_meta"].get("hint", ""))
+
+# correlate: a raw name on either side returns the error naming that side. field_a
+# is resolved and read before field_b is looked at (Ist-Stand), so a raw name in
+# field_b errors only after field_a's data was fetched; a raw name in field_a
+# errors before anything is read.
+with patch("mcp_sql.get_health_range") as _e23_m_sql:
+    _e23_cor_a = mcp_stats.correlate("floors", "steps_total", _TEST_DATE, _TEST_DATE)
+    _e23_called_a = _e23_m_sql.called
+check("edge: correlate('floors', 'steps_total') -> error names field_a and the raw pointer, no data read",
+      _e23_cor_a.get("error", "").startswith("field_a:") and "query_raw" in _e23_cor_a["error"]
+      and "'floors'" in _e23_cor_a["error"] and not _e23_called_a)
+with patch("mcp_sql.get_health_range", return_value={"health": {"steps_total": {"values": []}}}):
+    _e23_cor_b = mcp_stats.correlate("steps_total", "lactate_threshold", _TEST_DATE, _TEST_DATE)
+check("edge: correlate('steps_total', 'lactate_threshold') -> error names field_b and the raw pointer",
+      _e23_cor_b.get("error", "").startswith("field_b:") and "query_raw" in _e23_cor_b["error"]
+      and "'lactate_threshold'" in _e23_cor_b["error"])
+check("edge: correlate with a raw name that has a counterpart -> did_you_mean carries it",
+      mcp_stats.correlate("daily_weigh_ins", "steps_total", _TEST_DATE, _TEST_DATE).get("did_you_mean")
+      == ["body_weight"])
+
+# description: the hint wording is not part of the parsed field-name block and the
+# wrong-claim sentence is gone (checked in 8a-ter); the live description stays within limits
+check("edge: query_raw description still within the 2000-character cap after the additions",
+      len(_tool_desc["query_raw"]) <= 2000)
 
 summary()

@@ -448,7 +448,8 @@ _DEFAULT_ALLOWED_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://
 #  programmatically below instead of staying here with `@mcp.tool()`.
 # ══════════════════════════════════════════════════════════════════════════════
 
-from mcp_query_common import _route_query, _get_field_unit, _match_field  # noqa: E402
+from mcp_query_common import _route_query, _get_field_unit, _match_field, _format_counterparts  # noqa: E402
+from mcp_field_registry import RAW_FIELD_COUNTERPARTS  # noqa: E402 — v1.7.5.5, query_raw() hint
 
 
 mcp = FastMCP(
@@ -550,7 +551,10 @@ def query_raw(field: str, date_from: str, date_to: str,
     extraction, for fields the processed tools cannot reduce to a daily
     value (lists, event logs). Interpreting the content is up to the
     caller, and no units are provided. Use query_health instead whenever
-    the data you need exists there.
+    the data you need exists there: three of these fields have a
+    processed counterpart there for everyday questions (floors:
+    floors_climbed, daily_weigh_ins: body_weight, intensity_minutes_data:
+    intensity_min_moderate and intensity_min_vigorous).
 
     field: one of the raw field names (health domain only; these are NOT
     listed by list_available_fields): daily_weigh_ins,
@@ -568,8 +572,9 @@ def query_raw(field: str, date_from: str, date_to: str,
     "health" returns an error.
 
     Result: {"health": {field: {"values": [{"date": ..., "raw": ...}],
-    "source_resolution": "raw"}}}. A day with no stored data has no entry.
-    Read-only; does not change the archive."""
+    "source_resolution": "raw"}}}. A day that is not in the archive has no
+    entry; an archived day with nothing stored for the field has
+    "raw": null. Read-only; does not change the archive."""
     if domain is not None and domain.lower() != "health":
         return {
             "health": {},
@@ -595,6 +600,16 @@ def query_raw(field: str, date_from: str, date_to: str,
     if resolution_result["field_resolved_from"] is not None:
         result["_meta"]["field_resolved_from"] = resolution_result["field_resolved_from"]
         result["_meta"]["field_used"] = resolution_result["field_used"]
+    # v1.7.5.5 -- for a raw field with a processed counterpart, name it in
+    # the answer itself (with or without values): the raw entry can be empty
+    # while query_health holds the daily value, and a caller that read the
+    # empty raw answer as "no data" would otherwise never find out.
+    counterparts = RAW_FIELD_COUNTERPARTS.get(resolved_field)
+    if counterparts:
+        result["_meta"]["hint"] = (
+            f"a processed daily value exists for this field: "
+            f"{_format_counterparts(counterparts)} (query_health)"
+        )
     return result
 
 

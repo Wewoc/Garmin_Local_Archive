@@ -6,7 +6,43 @@
 
 ---
 
-**Currently stable — v1.7.5.4**
+**Currently stable — v1.7.5.5**
+
+---
+
+### v1.7.6 — Bulk store (intraday from the GDPR export)
+
+A separate store for bulk data next to the API store.
+
+**What changes:**
+- New store `garmin_data/bulk/`, one JSON file per day with named sections,
+  written by one module only; `raw/`, `source/` and `summary/` are not touched.
+- First section: heart-rate intraday series from the export's monitoring files.
+  The original export files are kept (named by content hash).
+- Import path next to the JSON bulk import: dry-run preview, idempotent re-run.
+- `garmin_health_map.py` reads from a per-field source table; for intraday:
+  API first, then the bulk store; each day reports which one it used.
+- `quality_log.json` gets an optional per-day date field for the bulk section.
+- Backup, mirror and silo check learn the new store.
+- Doc corrections: schema version in `REFERENCE_INVARIANTS.md`, timer-mode
+  wording in `REFERENCE_GARMIN.md`.
+
+### v1.7.6.1 — Bulk JSON import into the bulk store
+
+- The JSON bulk import writes to a second section of the bulk store instead of
+  `raw/`; the original JSON files are kept.
+- The source table covers the remaining fields; `summary/` becomes a resolved,
+  rebuildable view per day.
+
+### v1.7.6.2 — Migration of the mixed archive
+
+- Existing days are split into API store and bulk store, with a full backup,
+  a dry run and a per-year run first.
+- `quality_log.json` records which store has data per day; the two bulk timer
+  modes are removed.
+
+**Not part of it:** FIT activities (v1.8); stress as a replacement for the API
+value.
 
 ---
 
@@ -14,39 +50,55 @@
 
 ### v1.8.0 — FIT Pipeline
 
-Standalone plugin pipeline for Garmin activity data (.fit files). The existing
+Standalone pipeline for Garmin activity data (.fit files). The existing
 Health pipeline is not modified — the FIT pipeline runs as an independent,
-parallel pipeline alongside it. Full concept in `docs/KONZEPT_fit_pipeline_V2.md`.
-
-**Reordering note (2026-08-16):** Originally planned as v1.7, moved behind
-MCP Server / SQLite Proxy / Export Layer. Four gate decisions from the FIT
-concept (activity ID, orchestrator, config ownership, backup scope) are not
-cheaply reversible once made — deliberately not rushed ahead of a
-lower-risk, immediately useful MCP/Proxy build. See
-`NOTES_v1.9-eval_mcp-proxy-reihenfolge.md`.
+parallel pipeline alongside it.
 
 **Architecture:**
-- `garmin/fit/` — isolated pipeline: `fit_master.py`, `fit_api.py`, `fit_import.py`,
-  `fit_parser.py` (stable shell + adapter layer), `fit_normalizer.py`,
-  `fit_quality.py`, `fit_writer.py`
-- `garmin_data/fit/` — own directory: `raw/` (.fit originals), `summary/` (JSON),
-  `tracks/` (GeoJSON, GPS only on demand), `log/`
-- `fit_map.py` — peer broker alongside `health_map.py` and `context_map.py`;
-  already reachable via `gateway_map.py`'s degraded-domain path since v1.7 —
-  `garmin_fit_map.py` registered beneath it
-- Two entry points: Bulk Import (manual .fit files) + Sync (Garmin Connect API)
-- Both paths merge at `fit_parser.py` — identical pipeline from there onward
+- `garmin/fit/` — `fit_master.py` (plugin interface, `get_paths()` only),
+  `fit_collector.py` (orchestrator, same shape as `garmin_collector.py`:
+  `main()` for sync, `run_import()` for import), `fit_api.py`,
+  `fit_import.py`, `fit_parser.py` (stable shell, one adapter: `fitdecode`),
+  `fit_normalizer.py`, `fit_quality.py`, `fit_writer.py`
+- `garmin_data/fit/` — `source/` (.fit originals, unchanged, plus Garmin's
+  activity metadata as `…connect.json`; GPX/TCX from the export stored
+  unparsed in `source/other/`), `summary/` (one JSON per activity), `log/`.
+  No `raw/`, no `tracks/` — both are generated from `source/` on demand.
+- File name `YYYY-MM-DD_<fit_id>`: UTC start date plus an ID derived from
+  the file itself (`manufacturer-serial-time_created`, fallbacks if the
+  serial is missing) — identical for import and sync. Queries use
+  `local_date` from the summary (activity offset → Garmin's
+  `startTimeLocal` → configured time zone).
+- Paths and ENV constants in `garmin_config.py`; `fit_master.get_paths()`
+  passes them through.
+- `fit_map.py` — peer broker alongside `health_map.py` and `context_map.py`,
+  `garmin_fit_map.py` beneath it. Two query shapes: activity list and daily
+  aggregate. Replaces `None` in `gateway_map._DOMAIN_BROKERS["fit"]`.
+- Two entry points, both through `fit_collector`: Import (folder or GDPR
+  export ZIP; history) and Sync (Garmin Connect API; new activities only,
+  matched against the archive by start time). No background-timer mode.
+- Import keeps only activity files (`file_id.type`); other FIT types in the
+  export (monitoring, sleep, HRV) are out of scope here, see v1.7.6.
 
 **Quality model:** matrix per activity — `file_integrity`, `session`, `gps`,
-`fields`, `duplicate`, `merge_candidate`, `extreme_event`, `event_type`.
-Merge candidates flagged silently at import; lazy hint shown when user opens
-the activity. No auto-merge — user decides always.
+`fields`, `duplicate`, plus provenance (`origin`, `original`, `id_rule`,
+`tz_source`, `meta_origin`). An existing `source/` file is never
+overwritten. No merge candidates or extreme-event flags in v1.8.0.
 
-**Documentation:** `docs/MAINTENANCE_FIT.md` and `docs/REFERENCE_FIT.md`
-created with first module and maintained in every session that touches FIT modules.
+**Not in v1.8.0:** backup, mirror and silo check for `garmin_data/fit/` —
+see v1.8.5. Activities without an original file (manual entries) are only
+logged.
 
-*Pre-condition: PyQt6 migration (v1.5.4) complete for GUI control elements
-(Import/Sync buttons in `panel_outputs.py`). Pipeline itself has no blocker.*
+**Build order:** .0.0 skeleton + offline import spine · .0.1 quality matrix
++ fixtures · .0.2 sync · .0.3 broker.
+
+**Documentation and tests:** `docs/MAINTENANCE_FIT.md`,
+`docs/REFERENCE_FIT.md` and `tests/test_fit.py` created with the first
+module and maintained in every session that touches FIT modules. New
+dependency `fitdecode` (pinned); new modules go into
+`compiler/build_manifest.py`'s `SHARED_SCRIPTS` as they are created.
+
+*Pre-condition: none.*
 
 ---
 
@@ -54,7 +106,7 @@ created with first module and maintained in every session that touches FIT modul
 
 Import and Sync control elements for the FIT pipeline added to `panel_outputs.py`.
 Steuerungslogik only — no activity view, no dashboards, no map display.
-Those follow after PyQt6 migration is stable and the pipeline is proven.
+Those follow once the pipeline is proven.
 
 **What changes:**
 - `app/panel_outputs.py` — FIT Import button (Bulk), FIT Sync button;
@@ -62,7 +114,8 @@ Those follow after PyQt6 migration is stable and the pipeline is proven.
 - `REFERENCE_GLOBAL.md` — two new ENV variables:
   `GARMIN_FIT_IMPORT_PATH` (Bulk Import source folder),
   `GARMIN_FIT_SYNC_ENABLED` (FIT Sync on/off, separate from Health Sync)
-- `compiler/build_manifest.py` — all new FIT modules added to `SHARED_SCRIPTS`
+  FIT sync runs together with the daily Health sync; the import folder is
+  chosen per run via dialog, like the Health bulk import.
 
 **What does not change:**
 - Health pipeline controls — unchanged
@@ -80,7 +133,9 @@ Location-aware context collection extended with GPS data from FIT activities
 and a formal state tracking layer (`quality_context.json`).
 
 **Fallback chain (coordinates per day):**
-1. GPS start point from .fit (only when GPS track present and bounding box < 50 km)
+1. GPS start point from the activity summary (only when the activity has GPS
+   and its bounding box is < 50 km). Several GPS activities on one day: the
+   longest one counts; start points more than 50 km apart → step 2 instead.
 2. `quality_context.json` (travel block or home)
 3. `local_config.csv` (manual)
 4. GUI default (home location)
@@ -106,7 +161,8 @@ not into `context_data/`. Implemented via `activity_context_plugin.py`
 (same APIs as context pipeline, output only differs).
 Historical data available without time limit (Open-Meteo) — no urgency.
 
-*Pre-condition: v1.8.1 stable. FIT pipeline delivering GPS tracks reliably.*
+*Pre-condition: v1.8.1 stable. FIT summaries delivering GPS start points and
+bounding boxes reliably.*
 
 ---
 
@@ -116,12 +172,14 @@ Wires FIT data into the MCP SQLite proxy and hardens MCP field resolution
 for the FIT domain — two distinct pieces of work, not one.
 
 **1. Sync plumbing (small)**
-`mcp_update.py` populates `mcp_fit_days` — the placeholder table already
-reserved in `mcp_sql.py`'s schema (stub pattern mirroring
-`gateway_map._DOMAIN_BROKERS['fit': None]`, "created but never written
-until fit_map.py lands") — the same way it already syncs
-`mcp_health_days`/`mcp_context_days` from `health_map`/`context_map`. Also
-fills in the existing `fit` column in the shared `mcp_day_status` table.
+FIT gets its own cache file `BASE_DIR/sqlite/fit_cache.db` with its own
+module next to `mcp_sql.py`: activity rows keyed by `fit_id`, plus a daily
+aggregate. Same consumer invariant as `mcp_cache.db` — rebuildable from the
+archive at any time. The placeholder `mcp_fit_days` and the `fit` column of
+`mcp_day_status` in `mcp_cache.db` stay unused and are documented as
+superseded. Cross-domain queries use SQLite `ATTACH`.
+`query_fit_activities` gets the list shape; its current field signature
+becomes the daily-aggregate form.
 
 **2. MCP field-resolution hardening for FIT (large, empirical)**
 Health and Context each went through their own multi-session hardening
@@ -170,6 +228,26 @@ FIT data should not go live before FIT itself is reliable through MCP.*
 
 ---
 
+### v1.8.5 — FIT archive protection (mandatory)
+
+Adds `garmin_data/fit/` to backup, mirror and silo check.
+
+- Backup, mirror and silo check read their paths from the plugin interface
+  (`fit_master.get_paths()` with path classes: must back up / rebuildable /
+  state), never from a FIT special case.
+- `garmin/health_master.py` as a pure adapter returning the existing
+  `garmin_config` paths — no rename, no move of Health modules.
+- Mirror container: new section for FIT (or a generic mapping via the path
+  classes) in `garmin_container._classify_file()`; `garmin_import_mirror.py`
+  restores it and keeps reading older containers without it.
+- Plugin registry as a static list in code (listed in `build_manifest.py`).
+- Decided before building: whether a plugin is a source (Garmin) or a
+  source × domain (Garmin Health, Garmin FIT).
+
+*Pre-condition: v1.8.0 stable.*
+
+---
+
 ## Planned — v1.9
 
 ### v1.9 — Integration Test Suite (Post-FIT)
@@ -178,7 +256,7 @@ Full integration test suite against the built EXE using synthetic fixture data.
 Four suites parallel to the pipeline structure:
 
 - Health — `garmin_raw` / quality / backup / integrity
-- FIT — `fit_raw` / fit_quality / fit_writer
+- FIT — `fit_source` / fit_quality / fit_writer
 - Context — weather / pollen / brightsky
 - Output — dashboard build / export / archive stats
 
@@ -428,6 +506,18 @@ a bug. The helper is pinned to the health resolver's behaviour by parity
 tests, so the swap is small and low-risk; do it when those files are touched
 anyway, or fold it into the v1.8.3 FIT resolver (`mcp_fit.py`), which would
 otherwise become a fourth copy.
+
+**Raw-field pointers — the two remaining directions**
+Since v1.7.5.5 `query_health` answers an exact raw-passthrough field name with
+a pointer to `query_raw`, and `query_raw` answers the three paired fields with
+a hint naming the processed counterpart (`RAW_FIELD_COUNTERPARTS` in
+`clients/mcp_field_registry.py`). Not covered yet: a misspelled raw name at
+`query_health` (`floor`, `daily_weigh_in`) is still the generic `unknown field`
+— a check against the raw names would close it, natural to do together with the
+resolver move above — and a processed name at `query_raw` (`floors_climbed`,
+`body_weight`) returns `unknown field` without a pointer to `query_health`, which
+the counterpart table could answer in reverse. `intensity_min_moderate` is
+resolved to `intensity_minutes_data` there by the near-match step.
 
 **`clients/mcp_server_gui.py` color-theme parity**
 v1.7.0.2 added a GLA-branded text header (`"🦄  GARMIN LOCAL ARCHIVE"`) but deliberately stopped there — the window still runs Tkinter's native "vista" theme, which mostly ignores custom widget colors for `ttk` controls (Checkbutton, Entry, Button). Real color parity with the PyQt6 app's dark/purple palette would need `ttk.Style().theme_use("clam")` first, which also changes the whole widget look away from native Windows rendering — a bigger, separate change, deferred by choice ("just the unicorn" this session).

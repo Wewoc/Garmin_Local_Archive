@@ -1,5 +1,74 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.5.5 — Raw Fields and Their Processed Counterparts Point to Each Other
+
+Everyday questions about floors climbed, body weight or intensity minutes
+overlap with three raw-passthrough fields reachable through `query_raw`
+(`floors`, `daily_weigh_ins`, `intensity_minutes_data`). Those raw
+fields are empty in most archives, while `query_health` holds the real
+daily value (`floors_climbed`, `body_weight`, `intensity_min_moderate` /
+`intensity_min_vigorous`). LLM clients picked `query_raw`, received
+`"raw": null` and answered "no data". In the other direction,
+`query_health` called with a raw-only name (for example
+`lactate_threshold`) returned a bare `unknown field`. Both tools now
+point to each other; the fix is server-side, so it does not depend on
+how a model reads a tool description.
+
+**What changed:**
+- **`query_health`** (and `baselines`, `anomalies`, `correlate`, which
+  share its field resolver): a raw-passthrough field name now returns
+  `is a raw field -- use query_raw`. For the three fields with a
+  processed counterpart the error also names it and returns it as
+  `did_you_mean`. The check runs before the near-match step, so
+  `intensity_minutes_data` is no longer silently resolved to
+  `intensity_min_moderate` (which dropped the vigorous minutes), and
+  `body_battery_events` gets the raw pointer instead of three
+  `body_battery_*` suggestions.
+- **`query_raw`**: for the three paired fields the answer carries
+  `_meta.hint` naming the processed counterpart(s), with or without
+  values.
+- **`query_raw` tool description**: one sentence names the three pairs;
+  the statement about days without data is corrected — a day that is not
+  in the archive has no entry, an archived day with nothing stored for
+  the field returns `"raw": null`.
+
+**New:** `RAW_FIELD_COUNTERPARTS` in `clients/mcp_field_registry.py` (the
+three pairs, single source for the resolver error, the answer hint and
+the tests; the raw field names themselves still come from
+`list_raw_fields("health")`). `_format_counterparts()` in
+`clients/mcp_query_common.py` (shared wording for error and hint).
+
+**Changed modules:**
+- `clients/mcp_field_registry.py` — `RAW_FIELD_COUNTERPARTS`
+- `clients/mcp_query_common.py` — `_format_counterparts()`
+- `clients/mcp_health.py` — `resolve_health_field()`: raw-field check
+  between the cross-domain checks and the near-match step
+- `clients/mcp_server.py` — `query_raw()`: `_meta.hint`; description
+- `tests/test_mcp.py` — new sections 21 (resolver pointer), 22
+  (`query_raw` hint) and 23 (edge cases: case, empty and padded names,
+  raw list empty or missing a registered name, `correlate` with a raw
+  name on either side, reverse direction); description pins in 8a-ter
+- `version.py` — 1.7.5.5
+
+**Test result:** all suites green, 4321 checks total (`test_mcp.py`
+417/417, up from 337). Checked read-only against the real archive
+(function calls): `query_health` with `floors`, `intensity_minutes_data`
+and `lactate_threshold` returns the new errors, `floors_climbed` and the
+alias `hrv` are unchanged, `query_raw` returns the hint for the three
+paired fields and none for the rest. Checked with local models in two
+runs of the MCP test catalog: asked for floors, body weight or intensity
+minutes in plain words, the models reached the processed field in most
+runs, where before they mostly stopped at the empty raw field.
+
+**Not covered:** a misspelled raw name at `query_health` (`floor`,
+`daily_weigh_in`) is still the generic `unknown field`; a processed name
+at `query_raw` (`floors_climbed`, `body_weight`) is an `unknown field`
+without a pointer to `query_health`. `resolve_health_field()` now reads
+`list_raw_fields("health")` for names that are not health fields, like
+`query_raw` already did.
+
+---
+
 ## v1.7.5.4 — query_raw Field/Domain Filter, stress_index Alias, Updater Test Port Probe
 
 **Covers the planned versions v1.7.5.2, v1.7.5.3 and v1.7.5.4.** All three

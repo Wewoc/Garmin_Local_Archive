@@ -1105,7 +1105,7 @@ def _run_bulk_field_backfill(client, quality_data: dict) -> None:
     persist/backup once per field instead of once per day).
     This function never touches bulk_recheck's own day-level
     attempts/recheck bookkeeping (a separate, independent give-up
-    mechanism for the 180-day intraday-degradation window) — the two
+    mechanism for the 180-day retry window) — the two
     concerns are orthogonal.
 
     Non-fatal: any per-day failure is logged as a warning; the loop
@@ -1452,10 +1452,8 @@ def main(stop_event=None):
         log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
 
         # ── bulk upgrade candidates ───────────────────────────────────────────
-        # All bulk-sourced days within the high-resolution window (~180 days)
+        # All bulk-sourced days within the retry window (~180 days)
         # are flagged for API re-fetch — quality is irrelevant, source is the trigger.
-        # After 180 days Garmin degrades intraday data permanently; the local raw
-        # copy is then the only high-resolution source.
         cutoff = date.today() - timedelta(days=cfg.INTRADAY_RETRY_WINDOW_DAYS)
         bulk_upgraded = 0
         for e in quality_data.get("days", []):

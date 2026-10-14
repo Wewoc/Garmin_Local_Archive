@@ -25,13 +25,7 @@ If used in research or publications, please cite as:
 
 I read an article about analyzing Garmin data with AI. Sounded great — except I didn't want to send my health data to another cloud service. One cloud is already enough.
 
-But there's a second problem that's less obvious and harder to recover from: Garmin Connect stops serving your intraday data at full resolution. The fine-grained stuff — second-by-second heart rate, the stress curve from a difficult afternoon, the breathing pattern during a night your HRV dropped — becomes unavailable through the API after approximately 134 days — measured empirically by comparing API response sizes across 181 consecutive days of archived data (June 2026). The transition is abrupt, not gradual: files older than 134 days drop from ~250 KB to ~20 KB, a factor of roughly 13×. Garmin does not publicly document this behavior as a retention policy — their account-level privacy statement only says data is kept "as long as the account is active," with no stated period for intraday detail. What we have is an empirical observation of what the API returns, not a confirmed statement about what Garmin stores or deletes internally. For you, it's practically gone either way: whatever Garmin does on its end, there's no export that brings this resolution back once the window has closed.
-
-A first measurement in April 2026 had put the threshold closer to 135 days. The two measurements aren't a contradiction — they're two snapshots of a boundary that isn't perfectly fixed and may drift over time. That's also why the documentation elsewhere describes the cutoff as "~120 days": a conservative round number placed below both measured values, so the guidance stays safe even if the real threshold moves again. The code itself goes further in the other direction — `INTRADAY_RETRY_WINDOW_DAYS` is set to 180, well above any measured cutoff, so the timer keeps retrying long after a day would realistically still be recoverable.
-
-This tool exists because of both problems.
-
-There is a third problem that only becomes visible when you try to share the data with someone else — a doctor, a trainer, a researcher. In mechanical engineering, STEP and DXF are universal exchange formats: any CAD system reads them. In healthcare, equivalent standards exist for clinical systems — FHIR for structured records, DICOM for imaging, HL7 for hospital communication. But for consumer wearables, there is no equivalent. Every manufacturer speaks its own dialect. Garmin data is Garmin data. It does not travel.
+There is a second problem that only becomes visible when you try to share the data with someone else — a doctor, a trainer, a researcher. In mechanical engineering, STEP and DXF are universal exchange formats: any CAD system reads them. In healthcare, equivalent standards exist for clinical systems — FHIR for structured records, DICOM for imaging, HL7 for hospital communication. But for consumer wearables, there is no equivalent. Every manufacturer speaks its own dialect. Garmin data is Garmin data. It does not travel.
 
 Garmin Local Archive converts proprietary Garmin data into open, documented JSON formats — readable by any tool, any AI, any script. That is the closer answer to a format question that the healthcare world has not yet solved for wearables.
 
@@ -116,7 +110,6 @@ The purpose is not to assign ownership, but to show how decisions emerged: the h
 | **User** | Multi-device without cloud: Mirror Import as lock-free solution for time-offset operation | Operational requirement: two devices, one account, no cloud sync | Locking mechanism assessed as overengineering for single-user; Mirror Import architecture worked out |
 | **User** | `standard` labels instead of `medium`/`low` — semantic rename as conceptual correction | Observation: 92% of all entries labelled `medium` is not a quality judgement but a label error | Analysis confirmed: label describes an expectation, not the data — rename to `standard` as conceptual correction |
 | **User** | `source/` as third data silo — immutable truth from the server | *"raw/ is derived — what did the server actually deliver?"* | Architecture worked out: `garmin_source_writer.py` as sole owner, non-fatal, write after validator before normalizer |
-| **User** | 134-day degradation horizon empirically measured and verified | PowerShell analysis of file sizes across 181 days — pattern observed, confirmed in dialog | Analysis script written; threshold set conservatively as `INTRADAY_RETRY_WINDOW_DAYS = 180` |
 | **User** | Architecture check as dedicated process after passing tests | Explicit request: structured check across all architecture invariants after test suite run | Ten categories checked systematically; only real finding: `_should_write` discrepancy between collector and test after v1.5.7 migration |
 | **User** | `--onefile` replaced by `--onedir` for T3.1 | Observation: startup time noticeably affected by `%TEMP%` extraction — problem named | Trade-off analysed: startup speed vs. single-file convenience; `--onedir` confirmed as clear win |
 | **User** | `garmin_app_standalone.py` as deliberate redundancy | *"Scripts for purists — they won't have Python anyway"* — two near-identical files accepted as explicit trade-off for build target T3; never framed as clean, but as pragmatically correct for that user type | Identified non-trivial differences: `_STOP_EVENT` injection, `_register_embedded_packages()`, logging redirect — warned against treating both files as truly identical |
@@ -186,8 +179,6 @@ It started with a privacy concern and three scripts.
  
 What it became was not planned. But looking back, every step followed from the one before — not because of a roadmap, but because each problem that surfaced had a right answer, and the right answer kept pointing in the same direction.
  
-The archive captures intraday data before Garmin silently degrades it — because the data matters more than the convenience of fetching it later. Every day synced is a day that cannot be lost.
- 
 The quality system tracks not just whether data exists, but whether it is the right data — because a degraded response overwriting a good one is a silent failure, and silent failures are the kind that hurt most.
  
 The broker layer means no dashboard ever touches a file directly — because the moment two things share access to the same resource, you have a coordination problem waiting to happen.
@@ -204,7 +195,7 @@ The JSON + prompt export means a local model can work with years of personal hea
  
 None of these are features. They are consequences — of taking the original idea seriously enough to follow it wherever it led.
  
-What comes next follows the same logic. An export layer that lets other tools consume GLA's archive instead of fetching degraded data themselves. A FIT pipeline for activity data with the same quality guarantees. An MCP interface so local LLMs can query the full archive directly. A multi-source architecture that brings Strava and Komoot into the same broker.
+What comes next follows the same logic. An export layer that lets other tools consume GLA's archive instead of fetching the data themselves. A FIT pipeline for activity data with the same quality guarantees. An MCP interface so local LLMs can query the full archive directly. A multi-source architecture that brings Strava and Komoot into the same broker.
  
 The list is long. It got that way one right answer at a time.
  

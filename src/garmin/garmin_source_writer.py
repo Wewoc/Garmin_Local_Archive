@@ -17,8 +17,6 @@ Both calls are non-fatal: exceptions are logged as warnings, pipeline continues.
 Invariants:
   - source/ contains exclusively live API responses.
   - Bulk import never writes to source/ — not even during backfill.
-  - Days without a source/ file after the 180-day window cannot be recovered
-    (Garmin degrades intraday resolution permanently beyond that boundary).
   - No lock required — sequential, single owner, no concurrent access.
   - write_source() never overwrites a high-resolution source file with a
     degraded response (Conservative guard — freeze-when-present, v1.6.0.4.6).

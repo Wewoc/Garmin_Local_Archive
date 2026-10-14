@@ -167,7 +167,7 @@ REQUEST_DELAY_MAX = float(os.environ.get("GARMIN_REQUEST_DELAY_MAX", "20.0"))
 REFRESH_FAILED = os.environ.get("GARMIN_REFRESH_FAILED", "0") == "1"
 
 
-# Intraday data retention window — Garmin degrades intraday after ~180 days.
+# Retry window (days) for upgrading days to intraday quality.
 # Used by:
 #   - _upsert_quality(): recheck logic for 'standard' days (Schritt 5)
 #   - garmin_collector: bulk recheck cutoff (Schritt 8)

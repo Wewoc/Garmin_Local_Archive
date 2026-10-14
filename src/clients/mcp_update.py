@@ -126,7 +126,7 @@ RAW_RETRY_WINDOW_DAYS = 14
 # the cache-staleness risk ROADMAP.md names (a backfill/correction landing
 # on day D can only affect baselines for days D+1..D+90 — recomputing the
 # last 140 days on every pass covers a correction anywhere inside the
-# known ~140-day intraday-retention window, not just within the baseline
+# last 140 days, not just within the baseline
 # window itself; Maintainer-Entscheidung, 2026-10-07, see PROTOKOLL.md same
 # date — deliberately no targeted invalidation, no automatic detection of
 # older corrections, documented as a manual-reset-only limitation instead).

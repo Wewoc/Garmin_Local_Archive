@@ -557,7 +557,7 @@ Add the endpoint key to `assess_quality_fields()` in `garmin_quality.py`.
 Every downloaded file is assessed immediately. Result stored in `quality_log.json`.
 
 **Why content-based quality:**
-Garmin stores intraday detail for ~1–2 years. Older data returns daily aggregates only — valid JSON, far less content. File size is unreliable. Content inspection is the only safe method.
+A response for an older day can contain daily aggregates only — valid JSON, far less content. File size is unreliable. Content inspection is the only safe method.
 
 **Quality levels:**
 

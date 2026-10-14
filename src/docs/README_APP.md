@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.5.4
+# Garmin Local Archive — Desktop App v1.7.5.5
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -181,13 +181,13 @@ The top section shows two things at once:
 **Archive info panel** — populated on startup from your local data, no sync required:
 
 - **Days** — total days tracked in the quality log
-- **high / std / fail** — breakdown by quality level (colour-coded). `high` = intraday data present, `std` = full daily data without intraday (typical for older devices or degraded history), `fail` = nothing usable
+- **high / std / fail** — breakdown by quality level (colour-coded). `high` = intraday data present, `std` = full daily data without intraday (typical for older devices or older days), `fail` = nothing usable
 - **Device table** — one row per device showing date range, days high, days standard, total. Double-click the `unknown` row to assign a name to legacy entries (vívoactive era and similar)
 - **Recheck** — days flagged for re-download by the background timer
 - **Range** — earliest and latest date in your archive
 - **Coverage** — percentage of days present vs. possible days in the date range
 - **Last API / Last Bulk** — most recent date imported via live sync or bulk import
-- **Source** — total source files archived · files present within the last 180-day window (e.g. `175 days · 180/180d`). The 180-day window is the Background Timer's own retry buffer, not Garmin's intraday resolution boundary itself — see USER_GUIDE.txt, Section 5, for the distinction between the two.
+- **Source** — total source files archived · files present within the last 180-day window (e.g. `175 days · 180/180d`). The 180-day window is the Background Timer's own retry window — see USER_GUIDE.txt, Section 5.
 
 The panel refreshes automatically after every Sync and Bulk Import.
 

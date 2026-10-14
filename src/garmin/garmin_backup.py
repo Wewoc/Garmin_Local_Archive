@@ -48,7 +48,7 @@ def backup_raw(date_str: str, force: bool = False) -> bool:
     ZIP (see _consolidate_raw_months()). Scope is exactly this one date —
     never the whole month directory — so an unrelated batch of already-good,
     already-consolidated days sharing the same month is never touched or
-    at risk, even if that month sits past the 180-day intraday window.
+    at risk, even if that month sits past the 180-day retry window.
     Used exclusively by the deliberate per-day Force-Refetch path.
 
     Returns True on success, False on any error.
