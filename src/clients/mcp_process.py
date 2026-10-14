@@ -81,7 +81,7 @@ import garmin_config as cfg
 
 CHECK_TIMEOUT = 0.3     # matches panel_mcp.py's own _mcp_server_is_running()
 # 20s, not the original 5s "netstat/taskkill are local, near-instant"
-# assumption (garmin_collector-3_experiment, Baustein 29) — wrong on Timo's
+# assumption (garmin_collector-3_experiment, Baustein 29) — wrong on the maintainer's
 # machine: netstat/taskkill subprocess spawns were observed timing out at
 # 5s, most likely Windows Defender behavior-monitoring overhead on process
 # creation (RealTimeProtection/BehaviorMonitoring confirmed enabled this

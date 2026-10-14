@@ -486,9 +486,9 @@ Block A).** The rolling 90-day baseline/anomaly cache
 (`mcp_update.py::_sync_health_baselines()`), not via targeted
 invalidation — a correction landing on day D affects the baseline of
 every day from D+1 to D+90, and 140 days comfortably covers that for
-any correction within the known ~140-day intraday-retention window.
+any correction within the last 140 days.
 A correction to a day older than that is **not** automatically
-detected or repaired (Timo-Entscheidung, 2026-10-07: automatic
+detected or repaired (maintainer decision, 2026-10-07: automatic
 detection of such an old correction was judged not worth the added
 complexity/error surface for a correction pattern that is, in
 practice, near-term — see `ROADMAP.md`'s v1.7.5 entry and

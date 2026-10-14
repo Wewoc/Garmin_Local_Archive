@@ -136,9 +136,9 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 | `app/dialog_chat_history.py` | `ChatHistoryDialog` — lists saved chat sessions with Load/Delete, opened from `app/panel_chat.py`'s "Chat History" button. (v1.7.2) |
 | `app/panel_mcp.py` | MCP Server panel — backend, port, headless-mode and extra-allowed-hosts selection (the latter for Docker-hosted MCP clients, v1.7.0.2), Save Settings, Start MCP Server (with duplicate-instance protection). Cloud Provider field is a dropdown (v1.7.2), API key stored in Windows Credential Manager rather than the config file (v1.7.2). (v1.7) |
 | `maps/mcp_map.py` | Read-only MCP protocol translator on top of `gateway_map` — three domain query functions plus archive-metadata introspection. (v1.7) |
-| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. Four tools remain thin `maps/mcp_map.py` wrappers defined directly here; `query_health`/`query_context` moved out to their own files (v1.7.2.1, next two rows) and are registered back programmatically (`mcp.tool()(query_health)`) to avoid a circular import with `mcp`. **(v1.7.5.4)** `query_raw` is no longer a pure thin wrapper: it validates `domain` and `field` before delegating (see `REFERENCE_MCP.md`). |
-| `clients/mcp_field_registry.py`, `clients/mcp_query_common.py` | Pure-data/shared-helper layer behind the MCP query tools (v1.7.2.1, split out of `mcp_server.py`): `mcp_field_registry.py` holds `FIELD_UNITS`/alias/ambiguity dicts/`_CONTEXT_CATEGORY_BUNDLES` (no logic); `mcp_query_common.py` holds `_route_query()`/`_get_field_unit()`/`_enrich_with_units()`, and (v1.7.5.4) `_match_field()`, the shared near-match step (no `mcp`/`mcp_sql`/`mcp_map` dependency, so every query file can import it without a circular import). |
-| `clients/mcp_health.py`, `clients/mcp_context.py` | `query_health()`/`query_context()` and their routing/alias/fuzzy-match/bundle-resolution logic (v1.7.2.1, split out of `mcp_server.py`) — each calls `maps/mcp_map.py` directly on its own live branch. See `REFERENCE_MCP.md`'s `(v1.7.2.1)` entry for the full split rationale. |
+| `clients/mcp_server.py` | Standalone MCP server process (streamable-http transport, `127.0.0.1` only — v1.7.0.1) — can run independently of the main app. Optional transport-security allowlist extension for non-localhost MCP clients, e.g. Docker's `host.docker.internal` (v1.7.0.2). Seven MCP tools as of v1.7.1, including a manual `refresh_cache()` trigger for the SQLite proxy below. Four tools remain thin `maps/mcp_map.py` wrappers defined directly here; `query_health`/`query_context` moved out to their own files (v1.7.2.1, next two rows) and are registered back programmatically (`mcp.tool()(query_health)`) to avoid a circular import with `mcp`. **(v1.7.5.4)** `query_raw` is no longer a pure thin wrapper: it validates `domain` and `field` before delegating (see `REFERENCE_MCP.md`). **(v1.7.5.5)** It also adds `_meta["hint"]` for the three raw fields that have a processed counterpart (`RAW_FIELD_COUNTERPARTS`). |
+| `clients/mcp_field_registry.py`, `clients/mcp_query_common.py` | Pure-data/shared-helper layer behind the MCP query tools (v1.7.2.1, split out of `mcp_server.py`): `mcp_field_registry.py` holds `FIELD_UNITS`/alias/ambiguity dicts/`_CONTEXT_CATEGORY_BUNDLES` (no logic); `mcp_query_common.py` holds `_route_query()`/`_get_field_unit()`/`_enrich_with_units()`, and (v1.7.5.4) `_match_field()`, the shared near-match step (no `mcp`/`mcp_sql`/`mcp_map` dependency, so every query file can import it without a circular import). **(v1.7.5.5)** `mcp_field_registry.py` also holds `RAW_FIELD_COUNTERPARTS` (raw field → processed fields; the raw names are never copied there, they come live from `list_raw_fields("health")`); `mcp_query_common.py` also holds `_format_counterparts()`, the shared wording for the resolver error and the `query_raw()` hint. |
+| `clients/mcp_health.py`, `clients/mcp_context.py` | `query_health()`/`query_context()` and their routing/alias/fuzzy-match/bundle-resolution logic (v1.7.2.1, split out of `mcp_server.py`) — each calls `maps/mcp_map.py` directly on its own live branch. See `REFERENCE_MCP.md`'s `(v1.7.2.1)` entry for the full split rationale. **(v1.7.5.5)** `resolve_health_field()` answers an exact raw-passthrough field name with a pointer to `query_raw` before the near-match step; the same function serves `baselines`/`anomalies`/`correlate`. |
 | `clients/mcp_stats.py` | `baselines()`/`anomalies()`/`gaps()` (v1.7.5 Block A) — rolling baseline/anomaly statistics and gap detection, reading `clients/mcp_sql.py`'s cache only (never the live archive directly). `correlate()` (v1.7.5 Block B) — lag correlation between any two fields, computed fresh per call through `query_health()`/`query_context()`'s own live/SQLite routing, no cache of its own. See `REFERENCE_MCP.md`'s `clients/mcp_stats.py` entry. |
 | `clients/mcp_server_gui.py` | Tkinter configuration/log window for the standalone server — backend and archive-path setup, live log, Start/Restart, same extra-allowed-hosts field as the app's own MCP Server tab (v1.7.0.2). (v1.7) |
 | `clients/mcp_sql.py` | SQLite aggregation-cache access layer for the MCP server (v1.7.1) — a local, always-reconstructible cache that speeds up date-range queries over the archive. Pure consumer, never a source: `garmin_backup.py`/`garmin_mirror.py` never touch it, and a lost cache file just triggers a rebuild on the next sync. |
@@ -630,6 +630,32 @@ unknown field and ambiguous field returning an error without querying,
 `did_you_mean` limited to real raw fields, `domain` `context`/`fit`/
 unknown returning an error, `None`/`health`/`Health` accepted. The mock
 returns a fresh copy per call because `query_raw` writes into `_meta`.
+
+**Sections 21-23 added, description pins extended (v1.7.5.5)** — Section 21
+covers the raw-field pointer in `resolve_health_field()`: guards (no raw
+field is also a health or context field, every key of
+`RAW_FIELD_COUNTERPARTS` is a registered raw field, every counterpart a real
+health field), all registered raw names answer with an error naming
+`query_raw` and no resolution, the three pairs return `did_you_mean` equal to
+the counterparts, a raw field without a counterpart has no `did_you_mean`
+key, exact health fields and unrelated unknown names behave as before, and
+the pointer reaches `query_health`, `baselines`, `anomalies` and
+`_resolve_and_fetch_field` (the resolver `correlate` uses). Section 22 covers
+`query_raw()`'s `_meta.hint`: each pair with and without values, the same
+wording as the resolver error (through `_format_counterparts()`), no hint for
+the other raw fields or on error answers, near-match and case-only
+corrections keep their marker next to the hint, existing `_meta` keys
+survive, and the live branch carries the same hint. Section 23 is the
+edge-case round (case, empty and padded names, tables that would pre-empt the
+raw check, the raw list empty or missing a registered name, `query_raw` with
+unusual names, `correlate` with a raw name on either side, `domain="HEALTH"`);
+three findings are pinned there as current behaviour and marked in the test
+(misspelled raw name at `query_health`, processed name at `query_raw`, and
+the resolver now depending on `list_raw_fields`). Section 8a-ter gained
+three checks that the `query_raw` description names every raw field with a
+counterpart and every counterpart before the field list, without disturbing
+the parsed field-name block, and two that pin the corrected "no entry"
+statement.
 
 Run after any change to: `maps/mcp_map.py`, `maps/metadata_map.py`,
 `gateway_map` (routing targets), `clients/mcp_sql.py`,

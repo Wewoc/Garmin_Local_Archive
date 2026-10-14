@@ -17,7 +17,7 @@ panel_outputs.py keeps a one-line delegating method
 (_open_capability_scan_popup -> popups.capability_scan.open_popup(self))
 so _build_ui()'s button wiring and any external caller needs zero
 changes. Static import (app/panel_outputs.py imports this module by
-name), not a dynamic plugin registry — Timo's decision, see
+name), not a dynamic plugin registry — the maintainer's decision, see
 PROTOKOLL_experiment.md 2026-09-18 ("langfristig stabiler, nichts
 laeuft unbemerkt aus dem Ruder").
 

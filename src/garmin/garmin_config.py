@@ -167,7 +167,7 @@ REQUEST_DELAY_MAX = float(os.environ.get("GARMIN_REQUEST_DELAY_MAX", "20.0"))
 REFRESH_FAILED = os.environ.get("GARMIN_REFRESH_FAILED", "0") == "1"
 
 
-# Intraday data retention window — Garmin degrades intraday after ~180 days.
+# Retry window (days) for upgrading days to intraday quality.
 # Used by:
 #   - _upsert_quality(): recheck logic for 'standard' days (Schritt 5)
 #   - garmin_collector: bulk recheck cutoff (Schritt 8)
@@ -340,7 +340,7 @@ else:
     MCP_EXTRA_ALLOWED_HOSTS_ENABLED = bool(_mcp_server_config.get("mcp_extra_hosts_enabled", False))
 
 # Raw comma-separated host list — real default "host.docker.internal"
-# (Timo's own Open-WebUI-in-Docker use case), same ENV > file > default
+# (the maintainer's own Open-WebUI-in-Docker use case), same ENV > file > default
 # precedence as MCP_HTTP_PORT above; "mcp_extra_hosts" key in
 # MCP_SERVER_CONFIG_FILE, same dual-writer exception documented above
 # MCP_SERVER_CONFIG_FILE. Only actually applied when

@@ -288,7 +288,7 @@ with _isolated_log_env("gdpr_protect") as _b:
           "heartRateValues" in json.loads((cfg.RAW_BACKUP_DIR / "2024-05" / "garmin_raw_2024-05-01.json")
                                           .read_text(encoding="utf-8")).get("heart_rates", {}))
 
-# Timo's precision of the architecture decision: EQUAL quality from a non-API
+# The maintainer's precision of the architecture decision: EQUAL quality from a non-API
 # source must also stay protected, not just a strictly-better existing day.
 with _isolated_log_env("gdpr_protect_equal") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
@@ -297,7 +297,7 @@ with _isolated_log_env("gdpr_protect_equal") as _b:
     (cfg.RAW_DIR / "garmin_raw_2024-05-01.json").write_text(json.dumps(_existing_standard), encoding="utf-8")
     cfg.QUALITY_LOG_FILE.write_text(json.dumps({"first_day": "2024-05-01", "devices": [], "days": [
         # same label ("standard") as the export day for 2024-05-01 will assess to,
-        # but from a non-API source — must stay protected per Timo's decision.
+        # but from a non-API source — must stay protected per the maintainer's decision.
         {"date": "2024-05-01", "quality": "standard", "source": "legacy", "write": True}]}), encoding="utf-8")
     _r = _col5.run_import(_exp_dir)
     _after = json.loads((cfg.RAW_DIR / "garmin_raw_2024-05-01.json").read_text(encoding="utf-8"))

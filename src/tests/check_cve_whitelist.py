@@ -65,7 +65,7 @@ def run_pip_audit() -> list[dict] | None:
     # .parent       -> src/tests/
     # .parent.parent -> src/
     # .parent.parent.parent -> project root (requirements.txt lives here,
-    # one level above src/ — confirmed by real test run + Timo, 2026-06-21;
+    # one level above src/ — confirmed by real test run + the maintainer, 2026-06-21;
     # build_all.py's own "_root" comment says "compiler/ -> Root/" but
     # actually resolves to src/, not the true project root one level up —
     # a pre-existing naming mismatch in that comment, not something this

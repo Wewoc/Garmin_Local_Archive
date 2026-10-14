@@ -130,6 +130,14 @@ def _match_field(field: str, original_field: str, candidates) -> dict:
     return {"resolved_field": field, "field_resolved_from": None, "field_used": None}
 
 
+def _format_counterparts(counterparts) -> str:
+    """Renders processed counterpart names for user-facing text, e.g.
+    ['a', 'b'] -> "'a', 'b'". Single source for the wording used by
+    resolve_health_field()'s raw-field error and query_raw()'s _meta hint
+    (v1.7.5.5), so the two cannot drift apart."""
+    return ", ".join(repr(c) for c in counterparts)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Routing weiche (v1.7.1.1 Ziel 5) — placeholder, no real heuristic yet
 # ══════════════════════════════════════════════════════════════════════════════

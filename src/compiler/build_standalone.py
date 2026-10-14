@@ -320,7 +320,7 @@ def main():
     # sys.stderr invalid/None under Windows, and logging.basicConfig()
     # in clients/mcp_server.py writes to sys.stderr before any log
     # handler exists — an untested risk in this environment (no Windows
-    # build available here). Flip to windowed=True only after Timo
+    # build available here). Flip to windowed=True only after the maintainer
     # confirms on a real Windows T3.3 build that logging still starts
     # cleanly with no console. ---
     print("\n  --- T3.3: mcp_server.exe (--onefile) ---")

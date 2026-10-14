@@ -16,8 +16,8 @@ alternatives, and test-run numbers for the mechanisms below live in
 This file covers seven modules:
 - `maps/mcp_map.py` — thin protocol translation onto `gateway_map`.
 - `clients/mcp_server.py` — MCP tool registration, transport, routing entry point.
-- `clients/mcp_query_common.py` — shared query-serving helpers (`_route_query`, `_get_field_unit`, `_enrich_with_units`, `_match_field`).
-- `clients/mcp_field_registry.py` — the field-unit and alias/ambiguity registries.
+- `clients/mcp_query_common.py` — shared query-serving helpers (`_route_query`, `_get_field_unit`, `_enrich_with_units`, `_match_field`, `_format_counterparts`).
+- `clients/mcp_field_registry.py` — the field-unit and alias/ambiguity registries and the raw-field counterpart table.
 - `clients/mcp_health.py` — `query_health()`.
 - `clients/mcp_context.py` — `query_context()`, `_resolve_context_bundle()`, `_fetch_context_field()`.
 - `clients/mcp_stats.py` — `baselines()`, `anomalies()`, `gaps()`, `correlate()` (v1.7.5).
@@ -54,7 +54,8 @@ query_fit_activities(field, date_from, date_to, resolution="daily") -> dict
 # handling, no FIT-specific code path here.
 
 query_raw(field, date_from, date_to, domain=None) -> dict
-# gateway_map.get_raw() result + "_meta" key added
+# gateway_map.get_raw() result + "_meta" key added; for the three raw fields
+# with a processed counterpart, "_meta.hint" names it (v1.7.5.5)
 
 get_archive_metadata(kind, date_from=None, date_to=None) -> dict
 # gateway_map.get_metadata(kind, date_from, date_to) result, unchanged —
@@ -206,6 +207,17 @@ forwarded to `mcp_sql.get_raw_range(date_from, date_to, field=...)`,
 which returns only that field. Both error cases are ordinary payloads
 (`isError` stays `False`), not exceptions.
 
+**`query_raw()` counterpart hint (v1.7.5.5):** after the result is built (both
+branches), a resolved field that has an entry in
+`RAW_FIELD_COUNTERPARTS` (`floors`, `daily_weigh_ins`,
+`intensity_minutes_data`) gets `_meta["hint"]`: `a processed daily value
+exists for this field: '<name>'[, '<name>'] (query_health)`. It is added
+whether or not the field holds values — the raw entry can be empty while
+`query_health` has the daily value — and next to, not instead of, the other
+`_meta` keys. Error answers (unknown field, wrong domain) carry no hint. A
+day that is not in the archive has no entry in `values`; an archived day with
+nothing stored for the field has an entry with `"raw": null`.
+
 **`refresh_cache()`:** manually triggers the same SQLite sync the server
 already runs once at startup (`clients/mcp_update.py::sync_all()`).
 Blocks until the sync finishes. **(v1.7.2.3)** This is also the only way
@@ -266,12 +278,16 @@ both `mcp_server.py`'s four directly-defined query tools and by
   — no alias or ambiguity tables and no cross-domain hint, callers handle
   those beforehand. First used by `query_raw()`; `query_health()` and
   `query_context()` still carry their own copy of this step.
+- **`_format_counterparts(counterparts)`** *(v1.7.5.5)* — renders processed
+  counterpart names for user-facing text (`['a', 'b']` → `'a', 'b'`). The
+  single source for the wording used by `resolve_health_field()`'s raw-field
+  error and `query_raw()`'s `_meta.hint`, so the two cannot drift apart.
 
 ---
 
 ## `clients/mcp_field_registry.py` — field registry
 
-Pure data, no logic — five registries. Exact current contents (counts,
+Pure data, no logic — seven registries. Exact current contents (counts,
 which fields) are not repeated below by design — treat the source file
 itself as authoritative; a hardcoded count here is exactly the kind of
 detail that goes stale the next time a field is added.
@@ -319,6 +335,17 @@ detail that goes stale the next time a field is added.
   is the tie-break priority for a same-named field registered by more
   than one source in the same bundle (see "Bundle resolution" under
   `clients/mcp_context.py` below).
+- **`RAW_FIELD_COUNTERPARTS`** *(v1.7.5.5)* — `{raw_field: [processed
+  fields]}` for the raw-passthrough fields that have the same everyday
+  quantity in `query_health`: `floors` → `floors_climbed`,
+  `daily_weigh_ins` → `body_weight`, `intensity_minutes_data` →
+  `intensity_min_moderate` + `intensity_min_vigorous`. A raw field without
+  an entry (e.g. `lactate_threshold`) has no processed counterpart. The raw
+  field names themselves are **not** kept here — they come live from
+  `mcp_map.list_raw_fields("health")`; tests check that every key is a
+  registered raw field and every counterpart a real health field. Read by
+  `resolve_health_field()` (error text and `did_you_mean`) and
+  `query_raw()` (`_meta.hint`).
 
 ---
 
@@ -455,6 +482,18 @@ Checked in this order, first match wins:
    tool, with no `did_you_mean` (checked *before* the near-match step,
    so an exact cross-domain field is never claimed by a fuzzy match
    first).
+5a. **Raw-passthrough field** *(v1.7.5.5, `resolve_health_field()` only —
+   the diagram above does not show this step)* — an exact (case-insensitive)
+   raw-field name that is not a health field returns `error: field '<name>' is
+   a raw field -- use query_raw`. Where `RAW_FIELD_COUNTERPARTS` has an entry
+   the error also names the processed field(s) and returns them as
+   `did_you_mean`. Checked before the near-match step, so a raw name is never
+   resolved to a similar processed field (`intensity_minutes_data` used to
+   become `intensity_min_moderate`) and never ends in a bare `unknown field`.
+   The raw names are read from `mcp_map.list_raw_fields("health")` for names
+   that are not health fields. Reaches `baselines()`, `anomalies()` and
+   `correlate()` through the same function. A misspelled raw name is not
+   an exact raw name and still falls through to step 7.
 6. **Exact match in this domain** — already a registered field name,
    queried directly, no correction needed.
 7. **Exactly one `difflib` near-match** (`cutoff=0.65`, top 3 candidates)

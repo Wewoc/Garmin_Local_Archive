@@ -572,8 +572,8 @@ def timer_run_bulk_field_backfill(s: dict) -> list | None:
     days[:n_days] (same as source_backfill/steps_backfill).
 
     Targets a different gap than timer_run_bulk_recheck(): that function
-    addresses Garmin's own 180-day intraday-degradation window (time-
-    series resolution, INTRADAY_RETRY_WINDOW_DAYS). This function
+    addresses the 180-day retry window for intraday upgrades
+    (INTRADAY_RETRY_WINDOW_DAYS). This function
     addresses a structural gap in garmin_import.load_bulk() itself — it
     never extracts hrv, spo2, body_battery, respiration, training_status,
     race_predictions, or max_metrics from a bulk export, regardless of the

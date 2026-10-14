@@ -82,7 +82,7 @@ def _resolve_context_bundle(bundle_name: str, date_from: str, date_to: str,
 
     # source -> [field_names] fuer alle context-Quellen. Ueber mcp_map
     # bezogen, nicht direkt aus maps.context_map -- clients/ spricht die
-    # Broker-Schicht ausschliesslich ueber mcp_map an (Timo-Entscheidung,
+    # Broker-Schicht ausschliesslich ueber mcp_map an (Maintainer-Entscheidung,
     # NOTES_v1.7.1.5.md), context_map bleibt intern fuer maps/.
     _context_fields_by_source = mcp_map.list_available_fields(
         domain="context")["fields"]["context"]
@@ -198,7 +198,7 @@ def _fetch_context_field(field: str, date_from: str, date_to: str,
     # this handles the same tie-break for every other way of reaching the
     # field (direct request, alias, near-match -- see this function's own
     # docstring above). Fixed here with a plain value precedence, no
-    # generic collision table (Timo-Entscheidung, deliberately not
+    # generic collision table (Maintainer-Entscheidung, deliberately not
     # building _KNOWN_FIELD_COLLISIONS for a single confirmed case):
     # brightsky wins per day whenever it has a non-None value; days with
     # no brightsky value (confirmed to mean "location was outside Germany

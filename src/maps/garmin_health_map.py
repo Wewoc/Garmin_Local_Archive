@@ -475,7 +475,7 @@ _FIELD_MAP = {
 #  Raw-passthrough fields (v1.6.8) — deliberately NOT part of _FIELD_MAP.
 #
 #  These 13 Capability-Scan candidates have no known daily-value extraction
-#  (list-of-entries structure, empty/unknown schema at Timo's account, or
+#  (list-of-entries structure, empty/unknown schema at the maintainer's account, or
 #  event-log structure) — see NOTES_v168_D_01.md "Blocker-Typen" for the
 #  per-field reasoning. Rather than leave them archived-but-unreachable,
 #  they are exposed as archived in raw/ (no value extraction) via get_raw()/list_raw_fields() — separate

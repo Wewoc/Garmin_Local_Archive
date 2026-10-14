@@ -83,8 +83,6 @@ Garmin Connect is still required — the app pulls data from there via API.
 
 I wanted to ask an AI questions about my health data without sending that data to another cloud service. So I built a local alternative instead.
 
-There's a second reason that matters more over time: Garmin silently degrades intraday data resolution. Empirical analysis of archive data (April–June 2026) shows the threshold at approximately 120–135 days, and appears to trend lower over time. Once full resolution is lost, it's gone permanently. This tool exists to capture it while it's still available.
-
 What "intraday resolution" actually means in practice:
 
 | Metric | API resolution | Data points / day |
@@ -94,8 +92,6 @@ What "intraday resolution" actually means in practice:
 | Body Battery | ~15 minutes | up to 96 |
 | SpO2 | ~1 hour | up to 24 |
 | Respiration | variable | variable |
-
-After ~120 days, Garmin stops serving this data entirely. The daily summary (resting HR, average stress, etc.) remains — but the curves, the detail, the full timeline: gone. GLA captures it while it's still there.
 
 *→ For the full story, see [MINDSET.md](src/docs/MINDSET.md).*
 
@@ -135,7 +131,7 @@ Everything is stored locally in structured formats (JSON, Excel, HTML dashboards
 
 ### Bulk Import
 
-The GDPR export from Garmin contains your complete daily history — but in our testing, no intraday data was found (no heart rate curves, no stress timelines, no body battery graphs). That resolution appears to be available only through the API, and only for recent days.
+The GDPR export from Garmin contains your complete daily history.
 
 The **Bulk Import** feature fills in the rest: request your full data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete daily history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
 
@@ -264,7 +260,7 @@ hosts" above for Docker clients.
 | `query_health` | Daily health metrics (e.g. sleep, stress, heart rate, body battery) for a date or date range |
 | `query_context` | Weather, pollen and air-quality data for a date or date range |
 | `query_fit_activities` | FIT activity data — *planned, not yet available* (see `docs/ROADMAP.md`, "FIT Pipeline") |
-| `query_raw` | Archived data as stored in `raw/`, without value extraction — for list and event fields (e.g. weigh-ins, nutrition logs) that the other tools cannot reduce to a daily value; health domain only |
+| `query_raw` | Archived data as stored in `raw/`, without value extraction — for list and event fields (e.g. nutrition logs, lifestyle logging) that the other tools cannot reduce to a daily value; health domain only. Floors, weigh-ins and intensity minutes exist both ways: `query_health` holds the daily value, and the two tools point to each other |
 | `get_archive_metadata` | Archive coverage and quality info (date ranges, missing days, data quality) |
 | `list_available_fields` | Which fields the archive actually contains, per domain |
 | `refresh_cache` | Rebuilds the server's local query cache on demand, e.g. right after a sync |
@@ -317,7 +313,7 @@ The project is structured into six focused layers — Garmin pipeline, Context p
 
 The diagram above shows how the layers connect. Each module is self-contained and designed to be extended — for a script-by-script reference (what each module does, owns, and how to add new ones), see [`docs/MAINTENANCE_GLOBAL.md`](src/docs/MAINTENANCE_GLOBAL.md).
 
-The desktop app includes a **Background Timer** — once started, it automatically repairs failed/incomplete days, upgrades bulk-imported days within Garmin's intraday resolution window (~120 days), fills missing days, keeps a raw API-response backup current, retroactively adds newly supported data fields (like step count) to already-archived days, and re-fetches bulk-imported days for the handful of data fields the official Garmin export never contains at all (HRV, SpO2, Body Battery, respiration, training status, race predictions, max metrics) — regardless of how old the day is, since that gap has nothing to do with intraday resolution — with no further manual steps in between. The timer must be started manually and only runs while the app is open — it does not resume automatically after a restart.
+The desktop app includes a **Background Timer** — once started, it automatically repairs failed/incomplete days, upgrades bulk-imported days within its 180-day retry window, fills missing days, keeps a raw API-response backup current, retroactively adds newly supported data fields (like step count) to already-archived days, and re-fetches bulk-imported days for the handful of data fields the official Garmin export never contains at all (HRV, SpO2, Body Battery, respiration, training status, race predictions, max metrics) — regardless of how old the day is, since that gap has nothing to do with intraday resolution — with no further manual steps in between. The timer must be started manually and only runs while the app is open — it does not resume automatically after a restart.
 
 Data is stored in two root folders:
 

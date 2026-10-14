@@ -43,7 +43,7 @@ maps/gateway_map.py).
 # no exceptions, including fields with no physical unit (e.g. "index",
 # "text", "—") — a mixed state (some fields with unit, some without)
 # would itself be a new, unpredictable source of LLM misinterpretation
-# (Timo, Session 1 decision). Raw-passthrough fields (query_raw(), 13
+# (maintainer, Session 1 decision). Raw-passthrough fields (query_raw(), 13
 # fields, no unit concept — see REFERENCE_GARMIN.md "Raw-passthrough
 # fields") are deliberately NOT included here — out of this session's
 # scope.
@@ -355,6 +355,23 @@ CONTEXT_FIELD_AMBIGUOUS: dict[str, list[str]] = {
     "no2": ["airquality_nitrogen_dioxide", "airquality_nitrogen_dioxide_series"],
     "air_quality_index": ["airquality_european_aqi", "airquality_european_aqi_series"],
     "ozone": ["airquality_ozone", "airquality_ozone_series"],
+}
+
+
+# ── Raw-field counterparts (v1.7.5.5) ─────────────────────────────────────
+# Maps a raw-passthrough field name (query_raw) to the processed health
+# field(s) (query_health) that hold the same everyday quantity. Only the
+# pairs that exist are listed; a raw field with no entry here has no
+# processed counterpart (e.g. lactate_threshold) and is still recognised
+# as a raw field by resolve_health_field(), just without a suggestion.
+# The raw field names themselves are NOT kept here -- they come live from
+# mcp_map.list_raw_fields("health"), so this table cannot drift from the
+# registered set; tests/test_mcp.py checks that every counterpart named
+# here is a real health field.
+RAW_FIELD_COUNTERPARTS: dict[str, list[str]] = {
+    "floors": ["floors_climbed"],
+    "daily_weigh_ins": ["body_weight"],
+    "intensity_minutes_data": ["intensity_min_moderate", "intensity_min_vigorous"],
 }
 
 

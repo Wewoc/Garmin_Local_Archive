@@ -13,8 +13,7 @@ from the immutable source record without re-authenticating against Garmin.
 
 Downgrade protection: existing quality log entries with a higher label
 (e.g. high) are never downgraded — even if the source file produces a lower
-label. This protects days where source/ data is degraded (>180 days) but
-raw/ was originally captured at full intraday resolution.
+label. This protects days where raw/ holds intraday data that source/ does not.
 
 Documented Exception:
   Reads quality_log.json directly via _load_quality_log / _save_quality_log.
@@ -179,9 +178,9 @@ def main() -> None:
         # ── Downgrade protection ──────────────────────────────────────────────
         # If the existing quality log entry is higher than what source replay
         # produces, the day is skipped entirely — no file write, no log update.
-        # Rationale: raw/ was captured at full intraday resolution (high);
-        # source/ for days >180 days old may be degraded. The original high-
-        # quality raw is the ground truth — replay cannot improve on it.
+        # Rationale: raw/ holds intraday data (high) that source/ may not.
+        # The original high-quality raw is the ground truth — replay cannot
+        # improve on it.
         existing = _existing_label(quality_data, date_str)
         if quality.is_downgrade(new_label, existing):
             print(f"  ~ {date_str}: skipped (existing {existing} > replay {new_label})")

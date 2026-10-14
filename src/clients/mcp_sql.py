@@ -293,14 +293,14 @@ def get_context_day_state(day: str) -> dict | None:
     sources (weather/pollen/brightsky/airquality) had actually
     delivered data for that day — a source outage on sync day
     permanently froze the gap. This function exposes which sources are
-    "complete" (delivered real data — Timo's stricter definition:
+    "complete" (delivered real data — the maintainer's stricter definition:
     "vollständig = alle vier Quellen haben Daten geliefert") versus
     merely "attempted" (queried at least once, whether or not it
     returned data) — the distinction _sync_context_days() needs to
     decide, per missing source, whether this is the first retry
     (worth trying again) or the second (accept as permanently empty,
     see clients/mcp_update.py::_sync_context_days()'s own docstring
-    for the one-retry-then-accept reasoning Timo confirmed).
+    for the one-retry-then-accept reasoning the maintainer confirmed).
     """
     conn = get_connection()
     row = conn.execute(
@@ -547,7 +547,7 @@ def invalidate_context_day(day: str, sources: set[str]) -> None:
     yet — nothing to invalidate, _sync_context_days() queries a
     never-seen day fresh regardless.
 
-    v1.7.2.3 correction (2026-09-20, Timo): payload_json deletion added
+    v1.7.2.3 correction (2026-09-20, maintainer): payload_json deletion added
     — the original version only cleared the two bookkeeping sets and
     left payload_json's stale values in place. That was silently wrong:
     get_context_range() (what query_context(), the actual LLM-facing MCP
@@ -558,7 +558,7 @@ def invalidate_context_day(day: str, sources: set[str]) -> None:
     successfully re-fetching the source moments later would have
     silently returned the OLD, now-known-wrong value as if it were
     current — exactly the "part A already New York, part B still
-    Herford" contradiction Timo flagged. Deleting the payload here means
+    Herford" contradiction the maintainer flagged. Deleting the payload here means
     that window returns "no data for this source" instead — an honest
     gap, not a wrong answer presented as a real one. If the re-fetch
     that follows in the same sync_all() pass fails, the source stays
@@ -1114,7 +1114,7 @@ def get_recent_log_range(kind: str, date_from: str, date_to: str) -> list[dict]:
 # of truth for which of the two metadata read functions a given kind
 # goes through, mirroring gateway_map.py's own _DATE_FILTERABLE_KINDS
 # split (same nine kinds, same grouping) rather than re-deriving it
-# independently — Timo, on the drift risk of two independent copies of
+# independently — the maintainer, on the drift risk of two independent copies of
 # the same classification: "man müsste vorher nur sauber unterscheiden
 # welche der beiden man für die anfrage nutzen will", resolved by
 # keeping exactly one such table here instead of letting
@@ -1247,7 +1247,7 @@ def upsert_raw_field(day: str, field: str, payload: dict | None,
     this day (not an error — see garmin_health_map.get_raw()'s own
     "raw is None" convention). recheck/attempts/last_attempt follow
     the same naming convention as garmin_quality.py's quality_log
-    entries (Timo's explicit reference point, NOTES_v1.7.1.1_session2.md)
+    entries (the maintainer's explicit reference point, NOTES_v1.7.1.1_session2.md)
     — deliberately reimplemented here rather than imported, since
     clients/ must not gain a dependency on garmin/quality/ (bindable
     architecture decision, same session)."""
@@ -1310,7 +1310,7 @@ def get_raw_range(date_from: str, date_to: str, field: str | None = None) -> dic
     matching query_raw()'s own contract. Uses the shared
     _build_range_meta() helper (defined above get_health_range(),
     v1.7.1.1 Ziel 1/2) rather than its own local copy — unified here
-    (v1.7.1.1 Ziel 1/2 follow-up, Timo: "wenn man das sicher
+    (v1.7.1.1 Ziel 1/2 follow-up, Maintainer: "wenn man das sicher
     vereinheitlichen kann sollte man das machen sonst driftet das
     später auseinander") after get_health_range()/get_context_range()
     introduced a byte-identical construction; both call sites need the

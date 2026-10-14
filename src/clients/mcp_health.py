@@ -40,9 +40,10 @@ import mcp_sql
 from mcp_field_registry import (
     HEALTH_FIELD_ALIASES,
     HEALTH_FIELD_AMBIGUOUS,
+    RAW_FIELD_COUNTERPARTS,
     _CONTEXT_CATEGORY_BUNDLES,
 )
-from mcp_query_common import _route_query, _enrich_with_units
+from mcp_query_common import _route_query, _enrich_with_units, _format_counterparts
 
 
 def resolve_health_field(field: str) -> dict:
@@ -59,6 +60,12 @@ def resolve_health_field(field: str) -> dict:
     the canonical "hrv_last_night"/"body_battery_max", which those two
     tools previously could not resolve at all (PROTOKOLL.md, 2026-10-07,
     "Reihenfolge-Korrektur: Feldauflösungs-Extraktion vorgezogen").
+
+    v1.7.5.5: a raw-passthrough field name (query_raw's fields, e.g.
+    "floors", "lactate_threshold") is recognised after the cross-domain
+    checks and before the near-match step and returns an error pointing to
+    query_raw — with the processed counterpart as did_you_mean where one
+    exists (RAW_FIELD_COUNTERPARTS in mcp_field_registry.py).
 
     Deliberately excludes two things query_health() itself still
     handles before/around this function, not inside it:
@@ -119,6 +126,24 @@ def resolve_health_field(field: str) -> dict:
 
     if field not in known_health_fields and field in known_context_fields:
         return {"error": f"field {field!r} belongs to query_context, not query_health"}
+
+    # v1.7.5.5 -- a raw-passthrough field name is neither a health field nor
+    # a near-match candidate: checked BEFORE difflib so it is never silently
+    # resolved to a similar processed field (intensity_minutes_data ->
+    # intensity_min_moderate) and never ends in a bare "unknown field"
+    # dead end (lactate_threshold). Where a processed counterpart exists it
+    # is named and returned as did_you_mean.
+    if field not in known_health_fields and field in set(mcp_map.list_raw_fields("health")["health"]):
+        counterparts = RAW_FIELD_COUNTERPARTS.get(field)
+        if counterparts:
+            return {
+                "error": (
+                    f"field {field!r} is a raw field -- use query_raw; the "
+                    f"processed value is available as {_format_counterparts(counterparts)}"
+                ),
+                "did_you_mean": list(counterparts),
+            }
+        return {"error": f"field {field!r} is a raw field -- use query_raw"}
 
     if field not in known_health_fields:
         close_matches = difflib.get_close_matches(

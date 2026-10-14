@@ -51,9 +51,8 @@ CONTEXT (location for weather and pollen data)
 Click "Save Settings" — the app is now ready for the first sync.
 
 GDPR EXPORT (request now)
-  Garmin only provides ~120 days at full intraday resolution
-  via the API. For the complete history, request a GDPR export
-  from Garmin — this can take several days, so request it now:
+  For the complete history, request a GDPR export from Garmin —
+  this can take several days, so request it now:
   -> https://www.garmin.com/en-US/account/datamanagement/
   Import: Settings -> Data Collection -> "Bulk Import"
   (details in Section 3)
@@ -71,7 +70,7 @@ starting from today and going backwards.
 
 What gets downloaded:
   - Intraday data: heart rate, stress, SpO2, Body Battery
-    (minute-level resolution — only available for ~120 days)
+    (minute-level resolution)
   - Daily summaries: sleep, steps, HRV, ...
   - Weather and pollen data for your configured location
 
@@ -95,18 +94,11 @@ everything at once can trigger Garmin rate limiting.
 3. BULK IMPORT (GDPR EXPORT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Garmin's API only provides the last ~120 days at full intraday
-resolution. Older data is available only as daily aggregates
-or not at all.
-
 For the complete history: request a GDPR export from Garmin.
   -> https://www.garmin.com/en-US/account/datamanagement/
 
-The export arrives as a ZIP file (may take several days). Note that
-the GDPR export itself does not contain intraday data (no heart rate
-curves, stress timelines, or body battery graphs) — it provides your
-complete daily-summary history, which the live API can no longer
-serve once a day has aged past the ~120-day window.
+The export arrives as a ZIP file (may take several days). The bulk
+import reads your complete daily-summary history from it.
 
 Import:
   Settings tab -> Data Collection -> "Bulk Import"
@@ -251,9 +243,9 @@ depends on what Garmin delivered at the time of sync:
   SpO2            ~1 hour          up to 24
   Respiration     variable         variable
 
-Days synced within ~120 days of the recording date show full curves.
-Days beyond that threshold — or days from a GDPR bulk import — contain
-daily summary values only (`standard` quality). The quality badge in
+Days with intraday data show full curves. Days without it — including
+days from a GDPR bulk import — contain daily summary values only
+(`standard` quality). The quality badge in
 the archive panel shows the breakdown.
 
 Custom Dashboard (free field selection):
@@ -313,31 +305,18 @@ medical-grade.
 Automatically repairs and fills your archive in the background while
 the app is open — no manual intervention needed.
 
-Two time windows matter here, and they are not the same thing:
+One time window matters here:
 
-  ~120 days   Garmin's own limit. This is where Garmin itself stops
-              serving full intraday resolution (heart rate curves,
-              stress timelines, Body Battery detail, etc.) through the
-              API. Once a day ages past this point, that detail is
-              gone for good — no retry can bring it back.
-
-  180 days    The timer's own safety buffer, set wider than the
-              120-day limit on purpose. The timer keeps retrying
+  180 days    The timer's retry window. The timer keeps retrying
               `standard`-quality or bulk-imported days within this
               180-day window, so that a day still has a real chance of
-              being upgraded to full intraday quality before Garmin's
-              120-day cutoff actually removes the data.
-
-In short: 180 days is how long the timer keeps trying; ~120 days is
-the hard deadline it is racing against.
+              being upgraded to full intraday quality.
 
 Steps Backfill and Bulk Field Backfill (items 6 and 7 below) are
-deliberate exceptions to both windows — they are not racing Garmin's
-intraday cutoff at all, so neither has an age limit. Steps Backfill
-turned out not to be affected by the ~120-day cutoff the way heart
-rate/stress/etc. are; Bulk Field Backfill closes a gap in what the
-official export format contains in the first place, which has nothing
-to do with how old the day is.
+deliberate exceptions to this window — neither has an age limit. Bulk
+Field Backfill closes a gap in what the official export format
+contains in the first place, which has nothing to do with how old the
+day is.
 
 Start:
   Click "Timer: Off" -> set interval -> click "Start Timer"
@@ -346,7 +325,7 @@ The timer works through a priority queue each run:
 
 1. Bulk Recheck (priority) — if you have imported a Garmin GDPR
    export, the timer first upgrades those days via the live API,
-   oldest first, within the 180-day safety window described above.
+   oldest first, within the 180-day retry window described above.
    Runs exclusively until all candidates are resolved.
 2. Repair — re-fetches days where the API call itself failed (no file
    created)
@@ -358,26 +337,22 @@ The timer works through a priority queue each run:
 5. Source Backfill (v1.6.0.3) — if you were running GLA before
    v1.6.0.2, some historical days may be missing from the source
    archive. The timer fills this gap automatically, oldest first,
-   within the 180-day safety window, for as long as Garmin can still
-   deliver full intraday resolution for those days. Becomes a no-op
-   once complete — runs invisibly in the background.
+   within the 180-day retry window. Becomes a no-op once complete —
+   runs invisibly in the background.
 6. Steps Backfill (v1.6.3, no age limit since v1.7.3) — if you were
    running GLA before step count intraday support was added,
    high-quality days already in your archive may be missing this
    field. The timer adds it retroactively, oldest first — only a
    single lightweight API call per day, no re-fetch of everything
-   else. No age limit: step counts turned out not to be affected by
-   Garmin's ~120-day intraday cutoff the same way heart rate/stress/
-   etc. are, so even years-old days can still recover this field. A
-   day gives up after 2 failed attempts (so a day that genuinely never
+   else. No age limit: even years-old days can still recover this
+   field. A day gives up after 2 failed attempts (so a day that genuinely never
    gets a steps value back is not retried forever). Becomes a no-op
    once complete.
 7. Bulk Field Backfill (v1.7.3) — if you imported a Garmin GDPR
    export, the official export never contains a handful of fields at
    all — HRV, SpO2, Body Battery, respiration, training status, race
    predictions, max metrics — regardless of how old the day is (this
-   is a gap in what the export format contains, not the ~120-day
-   intraday cutoff above). Lowest priority, runs after everything
+   is a gap in what the export format contains). Lowest priority, runs after everything
    else: the timer re-fetches each bulk-imported day once via the
    live API and fills in whichever of those fields it can, without
    ever overwriting data the export already had. A field gives up
@@ -389,7 +364,7 @@ The timer works through a priority queue each run:
 What the timer does while running, in short:
   - Checks for missing days and downloads them
   - Upgrades days that have no intraday data yet (as long as they are
-    still within the 180-day safety window)
+    still within the 180-day retry window)
   - Retroactively adds newly supported data fields (like step count)
     to days already archived at full quality
   - Fills in the handful of fields the official Garmin export never
@@ -572,9 +547,9 @@ Stress / Body Battery missing from Excel or dashboard
 Background timer shows days as `standard` instead of `high`
   -> This is expected behaviour. `standard` means the API returned
      full daily data but no intraday detail (heart rate curve, stress
-     curve, etc.). This happens for older dates where Garmin has
-     permanently degraded intraday resolution, or for device eras that
-     never produced intraday data. The timer retries `standard` days
+     curve, etc.). This happens for older dates where the API returned
+     no intraday detail, or for device eras that never produced
+     intraday data. The timer retries `standard` days
      only if the previous day had intraday data and the 180-day retry
      window is still open — after that the label is accepted as final
      and those days are never touched again.

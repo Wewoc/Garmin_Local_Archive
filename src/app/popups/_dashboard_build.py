@@ -10,7 +10,7 @@ Extracted from app/panel_outputs.py (Codereview v1.7.0.1, Baustein 1.5)
 — NOT a popup itself (no open_popup()), but the shared background-thread
 build backend that app/popups/dashboard_create.py, custom_dashboard.py
 and encrypted_dashboards.py call into, so none of those three popup
-files needs to import another one directly (Timo's decision: split
+files needs to import another one directly (the maintainer's decision: split
 Encrypted into "direct GUI call" + "the function separately, callable
 by Encrypted itself and Custom Dashboard etc" — see PROTOKOLL_experiment.md
 2026-09-18).

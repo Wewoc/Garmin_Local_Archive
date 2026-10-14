@@ -320,7 +320,7 @@ def run_import(path, progress_callback=None, stop_event=None) -> dict:
                 # function the normal sync uses (_check_downgrade(), see its
                 # call at the API downgrade guard above). An existing day that
                 # is not worse than the export day is protected — this is
-                # deliberately wider than is_downgrade() alone: Timo's
+                # deliberately wider than is_downgrade() alone: the maintainer's
                 # decision extends the protection to the equal-quality case
                 # too, including a non-"api" source (e.g. "legacy"), because
                 # an equal label does not guarantee the export isn't actually
@@ -1105,7 +1105,7 @@ def _run_bulk_field_backfill(client, quality_data: dict) -> None:
     persist/backup once per field instead of once per day).
     This function never touches bulk_recheck's own day-level
     attempts/recheck bookkeeping (a separate, independent give-up
-    mechanism for the 180-day intraday-degradation window) — the two
+    mechanism for the 180-day retry window) — the two
     concerns are orthogonal.
 
     Non-fatal: any per-day failure is logged as a warning; the loop
@@ -1452,10 +1452,8 @@ def main(stop_event=None):
         log.info(f"  Quality log: {len(quality_data['days'])} days tracked, {recheck_count} pending recheck")
 
         # ── bulk upgrade candidates ───────────────────────────────────────────
-        # All bulk-sourced days within the high-resolution window (~180 days)
+        # All bulk-sourced days within the retry window (~180 days)
         # are flagged for API re-fetch — quality is irrelevant, source is the trigger.
-        # After 180 days Garmin degrades intraday data permanently; the local raw
-        # copy is then the only high-resolution source.
         cutoff = date.today() - timedelta(days=cfg.INTRADAY_RETRY_WINDOW_DAYS)
         bulk_upgraded = 0
         for e in quality_data.get("days", []):

@@ -27,7 +27,7 @@ defining them directly in mcp_server.py with `@mcp.tool()` would not
 have had a problem with, but keeping this module import-clean relative
 to mcp_server.py matches the established split.
 
-anomalies()'s streak detection (Timo, 2026-10-07: single-day outliers
+anomalies()'s streak detection (maintainer, 2026-10-07: single-day outliers
 alone miss a slow, several-day drift that never individually crosses the
 +/-3-stdev threshold) needs the actual per-day values, not just the
 stored anomaly_flag -- it reads both mcp_sql.get_health_baselines_range()
