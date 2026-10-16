@@ -27,6 +27,11 @@
 A separate store for bulk data next to the API store.
 
 **What changes:**
+- Bulk import fix, built first: the resting heart rate is taken from the
+  export's day value (`currentDayRestingHeartRate`) instead of its 7-day
+  average; a test pins it; days imported earlier are corrected by a repair
+  step in the app (found by their content, shown as a dry run first, backup
+  first, runs once per archive) and the MCP cache re-reads those days.
 - New store `garmin_data/bulk/`, one JSON file per day with named sections,
   written by one module only; `raw/`, `source/` and `summary/` are not touched.
 - First section: heart-rate intraday series from the export's monitoring files.
@@ -35,6 +40,12 @@ A separate store for bulk data next to the API store.
 - `garmin_health_map.py` reads from a per-field source table; for intraday:
   API first, then the bulk store; each day reports which one it used.
 - `quality_log.json` gets an optional per-day date field for the bulk section.
+
+- Doc corrections: schema version in `REFERENCE_INVARIANTS.md`, timer-mode
+  wording in `REFERENCE_GARMIN.md`.
+
+**Not in this step:** backup, mirror and silo check for the bulk store (see
+v1.7.6.2).
 
 **Not in this step:** backup, mirror and silo check for the bulk store (see
 v1.7.6.2).
@@ -60,8 +71,9 @@ v1.7.6.2).
 - `quality_log.json` records which store has data per day; the two bulk timer
   modes are removed.
 
-**Release:** Each step gets its own documented release round; the build of
-the download packages comes once, after the migration (v1.7.6.3).
+**Release:** v1.7.6 to v1.7.6.3 are documented, built and committed step by
+step; the download packages are built once after the migration, and the final
+release is v1.7.6.3.
 
 **Not part of it:** FIT activities (v1.8); stress as a replacement for the API
 value.
