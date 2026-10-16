@@ -6,7 +6,19 @@
 
 ---
 
-**Currently stable — v1.7.5.5**
+**Currently stable — v1.7.5.6**
+
+---
+
+### v1.7.5.7 — Resting heart rate from the GDPR import
+
+- The bulk import takes the resting heart rate from the export's day value
+  (`currentDayRestingHeartRate`) instead of its 7-day average; a test pins it.
+- Days imported earlier are corrected by a repair step in the app (found by
+  their content, shown as a dry run first, backup first, runs once per archive),
+  and the MCP cache re-reads those days.
+- Doc corrections: schema version in `REFERENCE_INVARIANTS.md`, timer-mode
+  wording in `REFERENCE_GARMIN.md`.
 
 ---
 
@@ -23,9 +35,9 @@ A separate store for bulk data next to the API store.
 - `garmin_health_map.py` reads from a per-field source table; for intraday:
   API first, then the bulk store; each day reports which one it used.
 - `quality_log.json` gets an optional per-day date field for the bulk section.
-- Backup, mirror and silo check learn the new store.
-- Doc corrections: schema version in `REFERENCE_INVARIANTS.md`, timer-mode
-  wording in `REFERENCE_GARMIN.md`.
+
+**Not in this step:** backup, mirror and silo check for the bulk store (see
+v1.7.6.2).
 
 ### v1.7.6.1 — Bulk JSON import into the bulk store
 
@@ -34,12 +46,22 @@ A separate store for bulk data next to the API store.
 - The source table covers the remaining fields; `summary/` becomes a resolved,
   rebuildable view per day.
 
-### v1.7.6.2 — Migration of the mixed archive
+### v1.7.6.2 — Archive protection for the bulk store
 
-- Existing days are split into API store and bulk store, with a full backup,
-  a dry run and a per-year run first.
+- Backup, mirror section and silo check cover the bulk store (intraday,
+  aggregates and the kept originals); older mirror containers stay readable.
+- Mandatory before the migration runs.
+
+### v1.7.6.3 — Migration of the mixed archive (final step)
+
+- Existing days are split into API store and bulk store by a step in the app
+  (found by their content, resumable per year), with a full backup and a dry
+  run first.
 - `quality_log.json` records which store has data per day; the two bulk timer
   modes are removed.
+
+**Release:** Each step gets its own documented release round; the build of
+the download packages comes once, after the migration (v1.7.6.3).
 
 **Not part of it:** FIT activities (v1.8); stress as a replacement for the API
 value.

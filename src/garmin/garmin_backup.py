@@ -17,6 +17,8 @@ Responsibilities:
   - Restore quality_log.json from latest valid backup ZIP
   - Startup check: compare quality_log write=True entries vs. existing raw files,
     report missing days for GUI Restore Data button
+  - Refresh (v1.7.5.6): bring backup copies up to date that differ from the
+    raw file they were made from (check_raw_stale_backups / refresh_raw_backups)
 
 No other module writes to backup/.
 Does NOT import garmin_writer or garmin_quality — avoids circular imports.
@@ -26,6 +28,7 @@ Reads from raw/ and log/ (read-only), writes only to backup/.
 import json
 import logging
 import zipfile
+import zlib
 from datetime import date
 from pathlib import Path
 
@@ -69,20 +72,20 @@ def backup_raw(date_str: str, force: bool = False) -> bool:
         log.debug(f"  backup_raw: {date_str} → backup/raw/{month}/")
 
         # Consolidate completed months (B4)
-        # v1.7.4.2: force=True must make the forced date's own month directory
-        # reachable by the Force-Replace block in _consolidate_raw_months().
-        # current_month=month (the forced date's own month) always satisfies
-        # "month_name >= current_month" there, so that exact month is skipped
-        # on every call — the replace block can never fire through backup_raw().
-        # Using today's real calendar month as current_month instead (only
-        # when force=True) lets an already-completed month (month < today's
-        # month) be treated as completed and consolidated with the forced
-        # filename; a date still in the open current month keeps the old
-        # skip — nothing to replace yet (see ROADMAP v1.7.4.2, Open point).
-        # Non-force calls keep the prior current_month=month behaviour,
-        # byte-for-byte unchanged.
+        # v1.7.4.2: current_month=month (the written date's own month) always
+        # satisfies "month_name >= current_month" in _consolidate_raw_months(),
+        # so that exact month was skipped on every call and the replace block
+        # could never fire through backup_raw(). Today's real calendar month
+        # as current_month lets an already-completed month (month < today's
+        # month) be consolidated right away; a date still in the open current
+        # month keeps the skip — nothing to replace yet (ROADMAP v1.7.4.2).
+        # v1.7.5.6: this now applies to EVERY call, not only force=True. The
+        # file just copied into the month directory is the newest copy of the
+        # day, so a rewritten day (backfill, mirror import, silo repair, ...)
+        # replaces its ZIP entry when its content differs; force only still
+        # matters for a replace of identical content.
         force_filenames   = {raw_file.name} if force else None
-        consolidate_month = date.today().strftime("%Y-%m") if force else month
+        consolidate_month = date.today().strftime("%Y-%m")
         _consolidate_raw_months(current_month=consolidate_month, force_filenames=force_filenames)
         return True
 
@@ -106,17 +109,21 @@ def _consolidate_raw_months(current_month: str, force_filenames: set[str] | None
         directory into existing ZIP ('a' mode), then delete directory.
         This covers the case where a historical day is fetched after the month
         was already consolidated (e.g. via Background Timer).
+        v1.7.5.6: a file that is already in the ZIP but whose bytes differ from
+        the directory copy is REPLACED — the directory copy is always the
+        newest backup of that day (backup_raw() overwrites it on every call).
+        Identical files are left alone; the ZIP is not rewritten for them.
 
     force_filenames (v1.7.1.7): set of filenames (e.g. "garmin_raw_2026-08-27.json")
-    that are allowed to REPLACE an already-consolidated entry of the same name
-    inside the ZIP — used exclusively by the deliberate per-day Force-Refetch
-    path. Scope is intentionally per-filename, never per-month: a month can be
-    mostly already-consolidated, good data with only one or two force-refetched
-    days mixed in, and only those exact filenames may touch the ZIP's existing
-    entries. zipfile has no in-place replace, so a replace rebuilds the ZIP
-    without the old entry, adds the new version, verifies integrity, then
-    atomically swaps it in. None (default) — no replace capability, fully
-    unchanged from prior behavior (skip filenames already in the ZIP).
+    that are replaced even when the directory copy is byte-identical — used by
+    the deliberate per-day Force-Refetch path. Scope is intentionally
+    per-filename, never per-month: a month can be mostly already-consolidated,
+    good data with only one or two rewritten days mixed in, and only those
+    exact filenames (the files present in the month directory) may touch the
+    ZIP's existing entries. zipfile has no in-place replace, so a replace
+    rebuilds the ZIP without the old entry, adds the new version, verifies
+    integrity, then atomically swaps it in. None (default) — only files whose
+    bytes differ are replaced (v1.7.5.6; before that: nothing was replaced).
 
     Deletes the directory after successful ZIP creation/update.
     """
@@ -145,7 +152,10 @@ def _consolidate_raw_months(current_month: str, force_filenames: set[str] | None
                         if f.name not in existing:
                             zf.write(f, f.name)
                             appended += 1
-                        elif force_filenames and f.name in force_filenames:
+                        elif (force_filenames and f.name in force_filenames) \
+                                or zf.read(f.name) != f.read_bytes():
+                            # v1.7.5.6: the directory copy is the newest one —
+                            # replace the ZIP entry when the bytes differ.
                             to_replace.append(f)
                 if appended:
                     log.info(
@@ -185,7 +195,7 @@ def _consolidate_raw_months(current_month: str, force_filenames: set[str] | None
                         os.replace(tmp_zip, zip_path)
                         log.info(
                             f"  backup: raw/{month_name}/ → {len(to_replace)} "
-                            f"file(s) force-replaced in {zip_path.name}"
+                            f"file(s) replaced in {zip_path.name}"
                         )
                     except Exception as e:
                         log.error(
@@ -595,8 +605,143 @@ def backfill_raw() -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Refresh — outdated backup copies (v1.7.5.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def check_raw_stale_backups() -> int:
+    """
+    Returns the number of raw files whose backup copy differs from them.
+
+    Fast check — compares bytes with the copy in the month folder, or CRC32
+    and size with the entry in the monthly ZIP (nothing is unpacked); copies
+    nothing. A raw file with no backup at all is not counted (that is
+    backfill_raw()'s job), nor is a raw file that is not a valid day file
+    (refresh_raw_backups() reports those).
+    """
+    outdated, _unreadable = _find_outdated_raw_backups()
+    return len(outdated)
+
+
+def refresh_raw_backups() -> dict:
+    """
+    Brings outdated backup copies up to date: every raw file whose backup copy
+    differs is copied into its month folder, then the completed months are
+    consolidated once — a changed file replaces its ZIP entry (see
+    _consolidate_raw_months()).
+
+    Before v1.7.5.6 a day rewritten after its first backup (backfill, mirror
+    import, silo repair, ...) kept its old version in the monthly ZIP; this
+    catches up archives that already have such copies. Content-based and
+    idempotent: a second run finds nothing. raw/ is never modified.
+
+    A raw file that is not a valid day file (not a JSON object, or its "date"
+    does not match the file name) is never copied over its backup — it is
+    reported and the backup copy stays as it is.
+
+    Returns dict: {"refreshed": int, "unreadable": int, "errors": int}
+    """
+    outdated, unreadable = _find_outdated_raw_backups()
+    refreshed = 0
+    errors    = 0
+
+    for raw_file in unreadable:
+        log.warning(
+            f"  backup refresh: {raw_file.name} is not a valid raw file — "
+            f"its backup copy is left as it is"
+        )
+
+    for raw_file in outdated:
+        try:
+            month     = raw_file.stem.replace("garmin_raw_", "")[:7]
+            month_dir = cfg.RAW_BACKUP_DIR / month
+            month_dir.mkdir(parents=True, exist_ok=True)
+            (month_dir / raw_file.name).write_bytes(raw_file.read_bytes())
+            refreshed += 1
+        except Exception as e:
+            log.error(f"  backup refresh: failed for {raw_file.name}: {e}")
+            errors += 1
+
+    if refreshed:
+        _consolidate_raw_months(current_month=date.today().strftime("%Y-%m"))
+
+    log.info(
+        f"  backup refresh (raw): {refreshed} refreshed, "
+        f"{len(unreadable)} unreadable, {errors} errors"
+    )
+    return {"refreshed": refreshed, "unreadable": len(unreadable), "errors": errors}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _is_valid_raw(data: bytes, date_str: str) -> bool:
+    """True if data is a JSON object whose "date" equals date_str."""
+    try:
+        obj = json.loads(data.decode("utf-8"))
+    except Exception:
+        return False
+    return isinstance(obj, dict) and obj.get("date") == date_str
+
+
+def _zip_index(zip_path: Path) -> dict:
+    """
+    {filename: (crc32, size)} of a monthly ZIP, read from its directory only —
+    nothing is decompressed. Empty (with a warning) if the ZIP cannot be read.
+    """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            return {i.filename: (i.CRC, i.file_size) for i in zf.infolist()}
+    except Exception as e:
+        log.warning(f"  backup refresh: cannot read {zip_path.name}: {e}")
+        return {}
+
+
+def _find_outdated_raw_backups() -> tuple[list, list]:
+    """
+    Returns (outdated, unreadable): lists of raw file paths.
+
+    outdated   — a backup copy exists and differs from the raw file. The copy
+                 in the month folder counts first (it is the newest backup of
+                 a day), otherwise the entry in the monthly ZIP.
+    unreadable — the copy differs, but the raw file is not a valid day file.
+
+    A raw file without any backup copy is in neither list.
+    """
+    outdated   = []
+    unreadable = []
+    if not cfg.RAW_DIR.exists():
+        return outdated, unreadable
+
+    indexes: dict = {}
+    for raw_file in sorted(cfg.RAW_DIR.glob("garmin_raw_*.json")):
+        try:
+            date_str = raw_file.stem.replace("garmin_raw_", "")
+            month    = date_str[:7]
+            data     = raw_file.read_bytes()
+
+            dir_copy = cfg.RAW_BACKUP_DIR / month / raw_file.name
+            if dir_copy.exists():
+                differs = dir_copy.read_bytes() != data
+            else:
+                if month not in indexes:
+                    zip_path = cfg.RAW_BACKUP_DIR / f"raw_backup_{month}.zip"
+                    indexes[month] = _zip_index(zip_path) if zip_path.exists() else {}
+                entry = indexes[month].get(raw_file.name)
+                if entry is None:
+                    continue                 # no backup copy at all — backfill's job
+                differs = entry != (zlib.crc32(data) & 0xFFFFFFFF, len(data))
+
+            if not differs:
+                continue
+            if _is_valid_raw(data, date_str):
+                outdated.append(raw_file)
+            else:
+                unreadable.append(raw_file)
+        except Exception as e:
+            log.warning(f"  backup refresh: could not check {raw_file.name}: {e}")
+    return outdated, unreadable
+
 
 def _zip_contains(zip_path: Path, filename: str) -> bool:
     """Returns True if filename exists inside zip_path. Silent on error."""

@@ -99,6 +99,7 @@ After any change to: `context_collector`, `context_api`, `context_writer`, `weat
 **Section B — `garmin_backup` (v1.5.1+, extended v1.5.4.3):**
 - backup_raw, consolidate, backup_quality_log, restore, check_raw_integrity, restore_raw_days, _zip_contains
 - **v1.5.4.3 additions:** `backfill_raw` Bug 1: ZIP exists but file missing → still copied; `check_raw_backfill_needed` Bug 2: same guard → count correctly > 0; `_consolidate_raw_months` Bug 3: ZIP + directory coexist → files appended, directory removed
+- **v1.7.5.6 additions** (`test_local_context.py` Section B): `backup_raw` of a day in a completed month is consolidated into the monthly ZIP right away (before: the file stayed in the month folder); the "current month not zipped" check uses its own open month (2024-04). The new backup-refresh checks live in `test_backup.py` (4f3/4f4)
 
 ### What is NOT tested
 

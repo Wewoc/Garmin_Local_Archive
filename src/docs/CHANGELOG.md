@@ -1,5 +1,84 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.5.6 — Backup Keeps the Current Version of Rewritten Days
+
+The monthly backup ZIPs in `backup/raw/` and `backup/source/` kept the
+version of a day from its first backup. A day that was rewritten later
+(a backfill, a mirror import, a silo repair, the steps patch of `source/`)
+was updated in `raw/` or `source/`, but its ZIP entry stayed old, and the
+newer copy in the month folder was dropped at the next consolidation. A
+restore would have brought back the version without the backfilled
+fields. Force-Refetch had been fixed for this in v1.7.4.0.4, every other
+write path had not. The ZIP now follows the file, and archives that
+already hold outdated entries are brought up to date automatically.
+
+**What changed:**
+- **`backup_raw()` / `backup_source()`**: the consolidation always runs
+  against today's real month (before: only with `force=True`), so a
+  completed month is packed right away. A file in the month folder is the
+  newest copy of its day; it replaces the same-named ZIP entry when its
+  bytes differ. An unchanged file writes nothing. The scope stays per
+  filename, never a whole month. `force=True` only adds a replace of
+  identical content. Both modules are changed identically.
+- **`patch_source_field()`** now backs up the patched `source/` file
+  (lazy import, a failing backup is a warning and does not fail the
+  patch). Before, it never touched the backup at all.
+- **Catch-up for existing archives**: `check_raw_stale_backups()` /
+  `refresh_raw_backups()` and `check_source_stale_backups()` /
+  `refresh_source_backups()` find backup copies that differ from their
+  primary file (bytes of the month-folder copy, otherwise CRC32 and size
+  of the ZIP entry; nothing is unpacked) and replace them, one ZIP
+  rebuild per month. Content-based and idempotent, `raw/` and `source/`
+  are never modified, and a file that is not a valid day file is
+  reported and never copied over its backup. `main()` runs them as step
+  3d, before the login, in every normal run; any error is a warning.
+  There is no popup, quality-log marker or environment variable.
+
+**New:** `check_raw_stale_backups()`, `refresh_raw_backups()`,
+`check_source_stale_backups()`, `refresh_source_backups()`,
+`_run_backup_refresh()`.
+
+**Changed modules:**
+- `garmin/garmin_backup.py`, `garmin/garmin_backup_source.py` — rules and
+  functions above
+- `garmin/garmin_source_writer.py` — `patch_source_field()` backs up
+- `garmin/garmin_collector.py` — `_run_backup_refresh()`, step 3d in
+  `main()`
+- `compiler/build_manifest.py` — signatures of the new functions
+- `tests/test_backup.py` (sections 4f3, 4f4; checks that pinned the old
+  behaviour turned around), `tests/test_collector.py` (step 3d; backup
+  check in the steps and bulk-field backfill), `tests/test_import_mirror.py`,
+  `tests/test_silo_repair.py` (one check per write path),
+  `tests/test_local_context.py`, `tests/test_garmin_import.py` (checks
+  adapted to the month being packed right away)
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_INVARIANTS.md`,
+  `docs/MAINTENANCE_GARMIN.md`, `docs/MAINTENANCE_CONTEXT.md`;
+  `docs/GLA_GUIDELINES.md` (one line about the GDPR JSON import
+  corrected); `docs/VERSION_HISTORY.md` (entries for v1.7.3.3 to
+  v1.7.5.6 added, link in the header corrected)
+- `version.py` — 1.7.5.6
+
+**Test result:** all suites green, 4399 checks total (`test_backup.py`
+270/270, `test_collector.py` 402/402, `test_import_mirror.py` 123/123,
+`test_silo_repair.py` 60/60). Five single changes made on purpose to a
+copy of the code (comparison by size only, invalid files copied too, no
+consolidation after the refresh, month-folder copy not compared, the
+step removed from `main()`) are each caught by the tests. Checked on a
+copy of a real archive: the check found 1924 outdated `raw` and 57 outdated
+`source` backup entries, the refresh replaced all of them, afterwards
+every ZIP entry was byte-identical to its file, a second run changed
+nothing, and `raw/`, `source/`, `summary/` and `quality_log.json` were
+byte-identical to a control run without the step.
+
+**Not covered:** the replaced backup version is not kept (the ZIP follows
+the file); if `raw/` is deliberately replaced by an older version, the
+catch-up copies that older version over its backup. `regenerate_raw.py`
+(a manual tool, also through `write_day()`) has no test of its own. The
+step was run through `main()` on a copy, not through the GUI, the timer
+or `daily_update.py`.
+
+---
+
 ## v1.7.5.5 — Raw Fields and Their Processed Counterparts Point to Each Other
 
 Everyday questions about floors climbed, body weight or intensity minutes

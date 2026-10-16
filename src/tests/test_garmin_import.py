@@ -284,9 +284,19 @@ with _isolated_log_env("gdpr_protect") as _b:
           _r["skipped"] >= 1
           and "heartRateValues" in _after.get("heart_rates", {})
           and _qdays()["2024-05-01"]["quality"] == "high" and _qdays()["2024-05-01"]["source"] == "legacy")
-    check("run_import: the backup copy in the month folder is untouched too",
-          "heartRateValues" in json.loads((cfg.RAW_BACKUP_DIR / "2024-05" / "garmin_raw_2024-05-01.json")
-                                          .read_text(encoding="utf-8")).get("heart_rates", {}))
+    # v1.7.5.6: importing the other days consolidates the completed month, so the protected
+    # day's backup copy may now sit in the monthly ZIP instead of the month folder — its
+    # content must be untouched either way.
+    import zipfile as _zipfile_gi
+    _gi_bk_name = "garmin_raw_2024-05-01.json"
+    _gi_bk_file = cfg.RAW_BACKUP_DIR / "2024-05" / _gi_bk_name
+    if _gi_bk_file.exists():
+        _gi_bk_text = _gi_bk_file.read_text(encoding="utf-8")
+    else:
+        with _zipfile_gi.ZipFile(cfg.RAW_BACKUP_DIR / "raw_backup_2024-05.zip") as _gi_zf:
+            _gi_bk_text = _gi_zf.read(_gi_bk_name).decode("utf-8")
+    check("run_import: the backup copy of the protected day is untouched too (month folder or monthly ZIP)",
+          "heartRateValues" in json.loads(_gi_bk_text).get("heart_rates", {}))
 
 # The maintainer's precision of the architecture decision: EQUAL quality from a non-API
 # source must also stay protected, not just a strictly-better existing day.

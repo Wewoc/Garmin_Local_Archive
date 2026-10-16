@@ -24,6 +24,8 @@ Public API:
   backup_source(date_str)          → bool  — copy one source file to backup/
   backfill_source()                → dict  — copy all missing source files
   check_source_backfill_needed()   → int   — count missing backup files
+  check_source_stale_backups()     → int   — count backup copies that differ from source/ (v1.7.5.6)
+  refresh_source_backups()         → dict  — bring those copies up to date (v1.7.5.6)
 
 Leaf-Node: imports only garmin_config and stdlib. No pipeline module imports.
 
@@ -31,9 +33,11 @@ Called by:
   garmin/garmin_source_writer.py — write_source() (lazy import, non-fatal)
 """
 
+import json
 import logging
 import shutil
 import zipfile
+import zlib
 from datetime import date
 from pathlib import Path
 
@@ -90,20 +94,20 @@ def backup_source(date_str: str, force: bool = False) -> bool:
         log.debug(f"  backup_source: {date_str} → backup/source/{month}/")
 
         # Consolidate completed months
-        # v1.7.4.2: force=True must make the forced date's own month directory
-        # reachable by the Force-Replace block in _consolidate_source_months().
-        # current_month=month (the forced date's own month) always satisfies
-        # "month_name >= current_month" there, so that exact month is skipped
-        # on every call — the replace block can never fire through
-        # backup_source(). Using today's real calendar month as current_month
-        # instead (only when force=True) lets an already-completed month
-        # (month < today's month) be treated as completed and consolidated
-        # with the forced filename; a date still in the open current month
-        # keeps the old skip — nothing to replace yet (see ROADMAP v1.7.4.2,
-        # Open point). Non-force calls keep the prior current_month=month
-        # behaviour, byte-for-byte unchanged.
+        # v1.7.4.2: current_month=month (the written date's own month) always
+        # satisfies "month_name >= current_month" in
+        # _consolidate_source_months(), so that exact month was skipped on
+        # every call and the replace block could never fire through
+        # backup_source(). Today's real calendar month as current_month lets
+        # an already-completed month (month < today's month) be consolidated
+        # right away; a date still in the open current month keeps the skip —
+        # nothing to replace yet (ROADMAP v1.7.4.2).
+        # v1.7.5.6: this now applies to EVERY call, not only force=True. The
+        # file just copied into the month directory is the newest copy of the
+        # day, so a rewritten day replaces its ZIP entry when its content
+        # differs; force only still matters for a replace of identical content.
         force_filenames   = {src.name} if force else None
-        consolidate_month = date.today().strftime("%Y-%m") if force else month
+        consolidate_month = date.today().strftime("%Y-%m")
         _consolidate_source_months(current_month=consolidate_month, force_filenames=force_filenames)
         return True
 
@@ -203,8 +207,140 @@ def check_source_backfill_needed() -> int:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Refresh — outdated backup copies (v1.7.5.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def check_source_stale_backups() -> int:
+    """
+    Returns the number of source files whose backup copy differs from them.
+
+    Fast check — compares bytes with the copy in the month folder, or CRC32
+    and size with the entry in the monthly ZIP (nothing is unpacked); copies
+    nothing. A source file with no backup at all is not counted (that is
+    backfill_source()'s job), nor is a source file that is not valid JSON
+    (refresh_source_backups() reports those).
+    """
+    outdated, _unreadable = _find_outdated_source_backups()
+    return len(outdated)
+
+
+def refresh_source_backups() -> dict:
+    """
+    Brings outdated backup copies up to date: every source file whose backup
+    copy differs is copied into its month folder, then the completed months
+    are consolidated once — a changed file replaces its ZIP entry (see
+    _consolidate_source_months()).
+
+    Before v1.7.5.6 a source file changed after its first backup (the steps
+    patch, a refreshed response) kept its old version in the monthly ZIP; this
+    catches up archives that already have such copies. Content-based and
+    idempotent: a second run finds nothing. source/ is never modified.
+
+    A source file that is not a JSON object is never copied over its backup —
+    it is reported and the backup copy stays as it is.
+
+    Returns dict: {"refreshed": int, "unreadable": int, "errors": int}
+    """
+    outdated, unreadable = _find_outdated_source_backups()
+    refreshed = 0
+    errors    = 0
+
+    for src in unreadable:
+        log.warning(
+            f"  backup refresh: {src.name} is not a valid source file — "
+            f"its backup copy is left as it is"
+        )
+
+    for src in outdated:
+        try:
+            month     = src.stem.replace(_SOURCE_PREFIX, "")[:7]
+            month_dir = cfg.SOURCE_BACKUP_DIR / month
+            month_dir.mkdir(parents=True, exist_ok=True)
+            (month_dir / src.name).write_bytes(src.read_bytes())
+            refreshed += 1
+        except Exception as e:
+            log.error(f"  backup refresh: failed for {src.name}: {e}")
+            errors += 1
+
+    if refreshed:
+        _consolidate_source_months(current_month=date.today().strftime("%Y-%m"))
+
+    log.info(
+        f"  backup refresh (source): {refreshed} refreshed, "
+        f"{len(unreadable)} unreadable, {errors} errors"
+    )
+    return {"refreshed": refreshed, "unreadable": len(unreadable), "errors": errors}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _is_valid_source(data: bytes) -> bool:
+    """True if data is a JSON object."""
+    try:
+        return isinstance(json.loads(data.decode("utf-8")), dict)
+    except Exception:
+        return False
+
+
+def _zip_index(zip_path: Path) -> dict:
+    """
+    {filename: (crc32, size)} of a monthly ZIP, read from its directory only —
+    nothing is decompressed. Empty (with a warning) if the ZIP cannot be read.
+    """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            return {i.filename: (i.CRC, i.file_size) for i in zf.infolist()}
+    except Exception as e:
+        log.warning(f"  backup refresh: cannot read {zip_path.name}: {e}")
+        return {}
+
+
+def _find_outdated_source_backups() -> tuple[list, list]:
+    """
+    Returns (outdated, unreadable): lists of source file paths.
+
+    outdated   — a backup copy exists and differs from the source file. The
+                 copy in the month folder counts first (it is the newest
+                 backup of a day), otherwise the entry in the monthly ZIP.
+    unreadable — the copy differs, but the source file is not a JSON object.
+
+    A source file without any backup copy is in neither list.
+    """
+    outdated   = []
+    unreadable = []
+    if not cfg.SOURCE_DIR.exists():
+        return outdated, unreadable
+
+    indexes: dict = {}
+    for src in sorted(cfg.SOURCE_DIR.glob(f"{_SOURCE_PREFIX}*.json")):
+        try:
+            month = src.stem.replace(_SOURCE_PREFIX, "")[:7]
+            data  = src.read_bytes()
+
+            dir_copy = cfg.SOURCE_BACKUP_DIR / month / src.name
+            if dir_copy.exists():
+                differs = dir_copy.read_bytes() != data
+            else:
+                if month not in indexes:
+                    zip_path = cfg.SOURCE_BACKUP_DIR / f"source_backup_{month}.zip"
+                    indexes[month] = _zip_index(zip_path) if zip_path.exists() else {}
+                entry = indexes[month].get(src.name)
+                if entry is None:
+                    continue                 # no backup copy at all — backfill's job
+                differs = entry != (zlib.crc32(data) & 0xFFFFFFFF, len(data))
+
+            if not differs:
+                continue
+            if _is_valid_source(data):
+                outdated.append(src)
+            else:
+                unreadable.append(src)
+        except Exception as e:
+            log.warning(f"  backup refresh: could not check {src.name}: {e}")
+    return outdated, unreadable
+
 
 # Codereview v1.7.0.1: ~90% identical to garmin_backup.py's
 # _consolidate_raw_months() (source vs. raw, otherwise same flow incl.
@@ -219,18 +355,22 @@ def _consolidate_source_months(current_month: str, force_filenames: set[str] | N
       - ZIP does not exist yet → create new ZIP from directory, delete directory.
       - ZIP already exists, directory also exists → append missing files,
         then delete directory.
+        v1.7.5.6: a file that is already in the ZIP but whose bytes differ
+        from the directory copy is REPLACED — the directory copy is always
+        the newest backup of that day (backup_source() overwrites it on every
+        call). Identical files are left alone; the ZIP is not rewritten for
+        them.
 
     force_filenames (v1.7.1.7): set of filenames (e.g.
-    "garmin_source_2026-08-27.json") that are allowed to REPLACE an
-    already-consolidated entry of the same name inside the ZIP — used
-    exclusively by the deliberate per-day Force-Refetch path. Scope is
-    intentionally per-filename, never per-month: only these exact filenames
-    may touch the ZIP's existing entries, every other entry (including in
-    the same month) is left as-is. zipfile has no in-place replace, so a
-    replace rebuilds the ZIP without the old entry, adds the new version,
-    verifies integrity, then atomically swaps it in. None (default) — no
-    replace capability, fully unchanged from prior behavior (skip filenames
-    already in the ZIP).
+    "garmin_source_2026-08-27.json") that are replaced even when the
+    directory copy is byte-identical — used by the deliberate per-day
+    Force-Refetch path. Scope is intentionally per-filename, never per-month:
+    only the files present in the month directory may touch the ZIP's
+    existing entries, every other entry (including in the same month) is
+    left as-is. zipfile has no in-place replace, so a replace rebuilds the
+    ZIP without the old entry, adds the new version, verifies integrity,
+    then atomically swaps it in. None (default) — only files whose bytes
+    differ are replaced (v1.7.5.6; before that: nothing was replaced).
 
     Deletes the directory after successful ZIP creation/update.
     """
@@ -261,7 +401,10 @@ def _consolidate_source_months(current_month: str, force_filenames: set[str] | N
                         if f.name not in existing:
                             zf.write(f, f.name)
                             appended += 1
-                        elif force_filenames and f.name in force_filenames:
+                        elif (force_filenames and f.name in force_filenames) \
+                                or zf.read(f.name) != f.read_bytes():
+                            # v1.7.5.6: the directory copy is the newest one —
+                            # replace the ZIP entry when the bytes differ.
                             to_replace.append(f)
                 if appended:
                     log.info(
@@ -301,7 +444,7 @@ def _consolidate_source_months(current_month: str, force_filenames: set[str] | N
                         os.replace(tmp_zip, zip_path)
                         log.info(
                             f"  backup_source: source/{month_name}/ → {len(to_replace)} "
-                            f"file(s) force-replaced in {zip_path.name}"
+                            f"file(s) replaced in {zip_path.name}"
                         )
                     except Exception as e:
                         log.error(

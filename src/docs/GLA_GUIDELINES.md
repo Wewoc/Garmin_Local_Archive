@@ -270,7 +270,7 @@ garmin_validator.py    — validate() (identical to the API path)
       ▼
 garmin_normalizer.py   — normalize(raw, source="bulk")
       │                  special case: remaps HR aggregates from user_summary → heart_rates
-      │                  no intraday data in the GDPR export → quality is always standard/failed, never high
+      │                  the JSON import carries no intraday series → quality is always standard/failed, never high
       ▼
 garmin_quality.py      — assess_quality(), assess_quality_fields()
       │

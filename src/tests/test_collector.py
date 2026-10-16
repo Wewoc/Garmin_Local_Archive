@@ -1160,6 +1160,24 @@ section("E2. _run_steps_backfill")
 
 _stb_patched_steps = [{"startGMT": "2024-01-01T08:00:00", "steps": 42}]
 
+
+def _backup_raw_bytes(date_str):
+    """
+    The backup copy of a day (v1.7.5.6) as it is once the next backup has consolidated the completed months —
+    which is what happens in normal operation after any later write. Reading the monthly ZIP entry after that
+    step is what shows a stale backup: before v1.7.5.6 the consolidation dropped the newer month-folder copy in
+    favour of the older ZIP entry. Falls back to the month-folder copy only for a day in the still open month.
+    """
+    import zipfile as _zf_bk
+    import garmin_backup as _bk
+    _bk._consolidate_raw_months(current_month=date.today().strftime("%Y-%m"))
+    name = f"garmin_raw_{date_str}.json"
+    zip_path = cfg.RAW_BACKUP_DIR / f"raw_backup_{date_str[:7]}.zip"
+    if zip_path.exists():
+        with _zf_bk.ZipFile(zip_path) as zf:
+            return zf.read(name)
+    return (cfg.RAW_BACKUP_DIR / date_str[:7] / name).read_bytes()
+
 # ── 1. No-Op: GARMIN_SYNC_DATES leer → keine Candidates ─────────────────────
 _qd_stb_empty = {"first_day": "2024-01-01", "devices": [], "days": []}
 with patch.dict(os.environ, {}, clear=False):
@@ -1175,6 +1193,10 @@ check("steps_backfill: empty SYNC_DATES → no fetch",
 _stb_fetch_date = (date.today() - _timedelta(days=30)).isoformat()
 _stb_raw = {"date": _stb_fetch_date, "heart_rates": {"heartRateValues": [[0, 60]]}}
 writer.write_day(_stb_raw, normalizer.summarize(_stb_raw), _stb_fetch_date)
+# v1.7.5.6: move the day's first backup into the monthly ZIP, so the backfill below rewrites a day that is
+# already archived there (before the fix the ZIP kept the old version, without the steps)
+import garmin_backup as _bkp_e2
+_bkp_e2._consolidate_raw_months(current_month=date.today().strftime("%Y-%m"))
 
 _qd_stb_fetch = {"first_day": "2024-01-01", "devices": [], "days": [
     _make_api_entry(_stb_fetch_date),
@@ -1208,6 +1230,9 @@ check("steps_backfill: backfilled_fields recorded",
 check("steps_backfill: fields dict includes steps",
       _stb_entry_after is not None and
       _stb_entry_after.get("fields", {}).get("steps") == "high")
+check("steps_backfill: the backup copy of the day holds the enriched file, not the version without steps (v1.7.5.6)",
+      _backup_raw_bytes(_stb_fetch_date) == (cfg.RAW_DIR / f"garmin_raw_{_stb_fetch_date}.json").read_bytes()
+      and json.loads(_backup_raw_bytes(_stb_fetch_date)).get("steps") == _stb_patched_steps)
 
 # ── 3. Stop-Event wird respektiert ──────────────────────────────────────────
 _stb_stop_date1 = (date.today() - _timedelta(days=50)).isoformat()
@@ -1699,6 +1724,8 @@ _bfb_existing_raw = {
     "user_summary": {"totalSteps": 2354, "restingHeartRate": 60},
 }
 writer.write_day(_bfb_existing_raw, normalizer.summarize(_bfb_existing_raw), _bfb_date1)
+# v1.7.5.6: the day's first backup sits in the monthly ZIP before the backfill rewrites it
+_bkp_e2._consolidate_raw_months(current_month=date.today().strftime("%Y-%m"))
 
 _bfb_fresh_normalized = {
     "date": _bfb_date1,
@@ -1730,6 +1757,9 @@ check("bulk_field_backfill: field bulk never had (spo2) gets merged in from the 
       _bfb1_raw_after.get("spo2") == _bfb_fresh_normalized["spo2"])
 check("bulk_field_backfill: field not touched by the fresh fetch (heart_rates) stays as-is",
       _bfb1_raw_after.get("heart_rates") == {"restingHeartRate": 60})
+check("bulk_field_backfill: the backup copy of the day holds the merged file, not the bulk version (v1.7.5.6)",
+      _backup_raw_bytes(_bfb_date1) == (cfg.RAW_DIR / f"garmin_raw_{_bfb_date1}.json").read_bytes()
+      and json.loads(_backup_raw_bytes(_bfb_date1)).get("spo2") == _bfb_fresh_normalized["spo2"])
 
 _bfb1_entry = next(e for e in _qd_bfb1["days"] if e["date"] == _bfb_date1)
 check("bulk_field_backfill: source updated to api",
@@ -3162,6 +3192,63 @@ with _isolated_log_env("main15mig") as _b:
             _res[_val] = (_mig.call_count, isinstance(_mig.call_args.args[0], dict) if _mig.called else None)
     check("4u main: GARMIN_SCHEMA_MIGRATE=1 (and only that value) runs the schema migration with the quality log",
           _res == {"1": (1, True), "0": (0, None), "2": (0, None), None: (0, None)})
+
+# -- backup refresh (v1.7.5.6) -----------------------------------------------------------------------------------------
+def _bkr15(raw_n=0, src_n=0, raw_err=None, src_err=None, **kw):
+    """main() once with the four backup-refresh functions mocked. Returns (main result, log recorder, mocks)."""
+    with patch("garmin_backup.check_raw_stale_backups", return_value=raw_n) as _cr, \
+         patch("garmin_backup.refresh_raw_backups", side_effect=raw_err) as _rr, \
+         patch("garmin_backup_source.check_source_stale_backups", return_value=src_n) as _cs, \
+         patch("garmin_backup_source.refresh_source_backups", side_effect=src_err) as _rs:
+        out, rec = _m15(**kw)
+    return out, rec, (_cr, _rr, _cs, _rs)
+
+
+with _isolated_log_env("main15bkr") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _, _rec, (_cr, _rr, _cs, _rs) = _bkr15(raw_n=3, src_n=0)
+        check("4u main backup refresh: outdated raw copies are refreshed once and counted in the log; "
+              "source with nothing outdated is neither refreshed nor mentioned",
+              _rr.call_count == 1 and _rs.call_count == 0 and _cs.call_count == 1
+              and "  Backup refresh (raw): 3 outdated backup copy/copies — refreshing" in _rec.msgs("info")
+              and not any("Backup refresh (source)" in m for m in _rec.msgs("info")))
+        _, _rec, (_cr, _rr, _cs, _rs) = _bkr15(raw_n=2, src_n=5)
+        check("4u main backup refresh: both stores are refreshed when both have outdated copies",
+              _rr.call_count == 1 and _rs.call_count == 1
+              and "  Backup refresh (source): 5 outdated backup copy/copies — refreshing" in _rec.msgs("info"))
+        _, _rec, (_cr, _rr, _cs, _rs) = _bkr15(raw_n=0, src_n=0)
+        check("4u main backup refresh: nothing outdated -> nothing refreshed, no log line (also on a run with nothing to fetch)",
+              _cr.call_count == 1 and not _rr.called and not _rs.called
+              and not any("Backup refresh" in m for m in _rec.msgs("info")))
+        (_code, _exc, _f, _), _rec, (_cr, _rr, _cs, _rs) = _bkr15(raw_n=1, login=None)
+        check("4u main backup refresh: runs before the login — a cancelled login does not stop it",
+              _code is None and _exc is None and _rr.call_count == 1)
+        (_code, _exc, _f, _), _rec, (_cr, _rr, _cs, _rs) = _bkr15(
+            raw_n=1, login_error=_col5.api.GarminLoginError("nope"))
+        check("4u main backup refresh: runs before the login — a login error does not stop it, the run still exits with 1",
+              _code == 1 and _rr.call_count == 1)
+        (_code, _exc, _f, _), _rec, (_cr, _rr, _cs, _rs) = _bkr15(raw_n=1, src_n=1, raw_err=OSError("boom"))
+        check("4u main backup refresh: a failing refresh is a warning, the other store is still refreshed and the run goes on",
+              _code is None and _exc is None and _rs.call_count == 1
+              and "  Backup refresh (raw) failed: boom" in _rec.msgs("warning"))
+        (_code, _exc, _f, _), _rec, (_cr, _rr, _cs, _rs) = _bkr15(raw_n=1, src_n=1, src_err=OSError("bang"))
+        check("4u main backup refresh: a failing source refresh is a warning too",
+              _code is None and _exc is None and _rr.call_count == 1
+              and "  Backup refresh (source) failed: bang" in _rec.msgs("warning"))
+        with patch("garmin_backup.check_raw_stale_backups", side_effect=RuntimeError("no check")), \
+             patch("garmin_backup_source.check_source_stale_backups", return_value=0):
+            (_code, _exc, _f, _), _rec = _m15()
+        check("4u main backup refresh: a failing check is a warning, the run goes on",
+              _code is None and _exc is None
+              and "  Backup refresh (raw) failed: no check" in _rec.msgs("warning"))
+        with patch.object(_col5, "run_import", return_value={"failed": 0}):
+            (_code, _exc, _f, _), _rec, (_cr, _rr, _cs, _rs) = _bkr15(
+                raw_n=1, src_n=1, env={"GARMIN_IMPORT_PATH": "ignored"})
+        check("4u main backup refresh: the import mode returns before it — no check, no refresh",
+              _code == 0 and not _cr.called and not _cs.called and not _rr.called and not _rs.called)
 
 # -- device_id backfill ---------------------------------------------------------------------------------------------
 _DV = [f"2024-03-{n:02d}" for n in range(1, 13)]

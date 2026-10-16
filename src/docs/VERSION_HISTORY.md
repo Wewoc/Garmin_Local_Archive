@@ -1,6 +1,28 @@
 # Garmin Local Archive — Version History
 
-Feature-driven log — for technical details, see [CHANGELOG.md](src/docs/CHANGELOG.md).
+Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
+
+## v1.7.5.6 — Backups Follow Rewritten Days
+
+- When a day is rewritten after its first backup (by a backfill, a mirror import or a repair), its entry in the monthly backup ZIP is now updated too, so "Restore Data" no longer brings back an older version of that day.
+- Existing archives are checked at every sync start; outdated backup entries are replaced automatically, once, with nothing to do.
+
+## v1.7.5.x — Statistics and Clearer Tools for AI Queries
+
+- New statistics for AI queries: rolling baselines and normal ranges per health value, anomaly and streak detection, gap detection (now for health data too), and correlations between any two values with an optional day offset, for example "does pollen affect my HRV?".
+- AI clients are guided better: short, clear tool descriptions; asking for a raw value that has a processed counterpart (floors, weight, intensity minutes) now points to the right tool; raw queries can be limited to one field; "stress_index" resolves to average stress.
+
+## v1.7.4.x — Export Layer and Reliability
+
+- New "Export Data" panel: export archive data as JSON, CSV or InfluxDB line protocol (for example for Grafana), optionally as part of the daily sync.
+- Fixed: "Update Live" ignored the request-delay settings; five Heatmap tabs were too narrow; Export Data never ran in the headless daily sync; the dashboard range setting was ignored in the daily sync.
+- An unreadable quality log is now restored from the backup instead of silently starting empty; Force-Refetch now updates the backup ZIP; mirror import rejects paths that point outside the archive.
+
+## v1.7.3.3 – v1.7.3.4 — Security Hardening and Fixes
+
+- Security: the dashboard viewer and the Excel preview now really run with their intended restrictions (file and remote access, pop-ups, plugins, clipboard); the hardening was documented but had never been switched on.
+- Fixed: the Sleep dashboard showed "not available" on the mobile home page.
+- Automated tests and checks now run on every push; release builds are started by hand.
 
 ## v1.7.3.2 — Demo Archive for Trying the MCP Server
 

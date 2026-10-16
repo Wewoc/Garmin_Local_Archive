@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import tempfile
+import zipfile
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -206,6 +207,22 @@ _i2_3a_entry = next((e for e in _i2_3a_qdata["days"] if e["date"] == _i2_3a_date
 check("silo_repair: #3 gutfall → quality_log Eintrag vorhanden, Label high",
       _i2_3a_entry is not None and _i2_3a_entry.get("quality") == "high")
 
+# ── #3c (v1.7.5.6): the repaired raw file replaces an older version in the monthly backup ZIP ────
+_i2_3c_date = "2025-06-01"
+_i2_3c_name = f"garmin_raw_{_i2_3c_date}.json"
+fx.write_source_file(cfg.SOURCE_DIR, _i2_3c_date, fx.source_raw_good(_i2_3c_date))
+cfg.RAW_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+with zipfile.ZipFile(cfg.RAW_BACKUP_DIR / "raw_backup_2025-06.zip", "w", zipfile.ZIP_DEFLATED) as _zf3c:
+    _zf3c.writestr(_i2_3c_name, json.dumps({"date": _i2_3c_date, "marker": "old backup version"}))
+_i2_3c_result = silo_repair.repair_silos(
+    {**_i2_empty_fresh, "source_without_raw": [date.fromisoformat(_i2_3c_date)]})
+with zipfile.ZipFile(cfg.RAW_BACKUP_DIR / "raw_backup_2025-06.zip") as _zf3c:
+    _i2_3c_zip = _zf3c.read(_i2_3c_name)
+check("silo_repair: #3 → repaired (ok=1) although an older backup version exists",
+      _i2_3c_result["ok"] == 1 and _i2_3c_result["items"][0]["status"] == "repaired")
+check("silo_repair: #3 → the monthly backup ZIP holds the repaired raw file, not the old backup version (v1.7.5.6)",
+      _i2_3c_zip == (cfg.RAW_DIR / _i2_3c_name).read_bytes() and b"old backup version" not in _i2_3c_zip)
+
 # ── #3b: Schlechtfall — heartRateValues strukturell falsch geformt (F8) ────
 # Dokumentiert den AKTUELLEN Ist-Zustand — repaired, Label high, avg_bpm
 # null. Bekannter Fund F8, siehe NOTES_v1658.md — kein korrigierter
@@ -245,6 +262,21 @@ check("silo_repair: #7 gutfall → item status=repaired",
       _i2_7a_result["items"][0]["status"] == "repaired")
 check("silo_repair: #7 gutfall → summary-Datei geschrieben",
       (cfg.SUMMARY_DIR / f"garmin_{_i2_7a_date}.json").exists())
+
+# ── #7c (v1.7.5.6): a rewritten raw file replaces an older version in the monthly backup ZIP ────
+_i2_7c_date = "2025-07-01"
+_i2_7c_name = f"garmin_raw_{_i2_7c_date}.json"
+fx.write_raw_file(cfg.RAW_DIR, _i2_7c_date)
+with zipfile.ZipFile(cfg.RAW_BACKUP_DIR / "raw_backup_2025-07.zip", "w", zipfile.ZIP_DEFLATED) as _zf7c:
+    _zf7c.writestr(_i2_7c_name, json.dumps({"date": _i2_7c_date, "marker": "old backup version"}))
+_i2_7c_result = silo_repair.repair_silos(
+    {**_i2_empty_fresh, "raw_without_summary": [date.fromisoformat(_i2_7c_date)]})
+with zipfile.ZipFile(cfg.RAW_BACKUP_DIR / "raw_backup_2025-07.zip") as _zf7c:
+    _i2_7c_zip = _zf7c.read(_i2_7c_name)
+check("silo_repair: #7 → repaired (ok=1) although an older backup version exists",
+      _i2_7c_result["ok"] == 1 and _i2_7c_result["items"][0]["status"] == "repaired")
+check("silo_repair: #7 → the monthly backup ZIP holds the raw file that was written again, not the old backup version (v1.7.5.6)",
+      _i2_7c_zip == (cfg.RAW_DIR / _i2_7c_name).read_bytes() and b"old backup version" not in _i2_7c_zip)
 
 # ── #7b: Schlechtfall — raw ohne 'date'-Feld ────────────────────────────────
 _i2_7b_date = "2025-05-02"
