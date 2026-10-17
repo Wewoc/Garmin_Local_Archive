@@ -102,6 +102,7 @@ SHARED_SCRIPTS = [
     "garmin/garmin_force_refetch.py",
     "garmin/garmin_silo_check.py",
     "garmin/garmin_silo_repair.py",
+    "garmin/garmin_repair_resting_hr.py",  # RESTING-HR-REPAIR v1.7.5.7 — removable
     "garmin/garmin_live_fetch.py",
     "garmin/garmin_extended_anaysis.py",
     # clients (external tool/service integrations — e.g. Ollama, the MCP
@@ -257,7 +258,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
     "garmin/garmin_merge.py":      ["def merge_field"],
     "garmin/quality/_fieldhash.py": ["def compare_source_fields"],
-    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration", "def _run_source_backfill", "def _run_steps_backfill", "def run_capability_scan"],
+    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration", "def _run_backup_refresh","def _run_source_backfill", "def _run_steps_backfill", "def run_capability_scan", "def _run_resting_hr_repair"],  # "def _run_resting_hr_repair": RESTING-HR-REPAIR v1.7.5.7 — removable
     "garmin/garmin_api_capability.py": ["def load_config", "def save_config", "def build_args"],
     "garmin/garmin_import.py":     ["def load_bulk", "def parse_day"],
     "garmin/garmin_quality.py":    ["from quality._maint import", "QUALITY_LOCK"],
@@ -269,16 +270,19 @@ SCRIPT_SIGNATURES_BASE = {
     "context/airquality_plugin.py": ["AGGREGATION_MAP", "CHUNK_DAYS"],
     "maps/airquality_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
-    "garmin/garmin_backup.py":     ["def backup_raw", "def backup_quality_log", "def restore_quality_log", "def check_raw_integrity"],
+    "garmin/garmin_backup.py":     ["def backup_raw", "def backup_quality_log", "def restore_quality_log", "def check_raw_integrity",
+                                    "def check_raw_stale_backups", "def refresh_raw_backups"],
     "garmin/garmin_mirror.py":     ["def run_mirror", "def is_reachable"],
     "garmin/garmin_container.py":  ["def lock", "def unlock_meta", "def fulfill_order", "def is_container", "def list_files"],
     "garmin/garmin_import_mirror.py": ["def run_import_mirror", "def detect_source"],
     "garmin/garmin_source_quality.py": ["def assess_source", "def compare_source"],
     "garmin/garmin_source_writer.py": ["def write_source", "def update_log"],
-    "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed"],
+    "garmin/garmin_backup_source.py": ["def backup_source", "def backfill_source", "def check_source_backfill_needed",
+                                       "def check_source_stale_backups", "def refresh_source_backups"],
     "garmin/garmin_force_refetch.py": ["def snapshot_source", "def restore_snapshot"],
     "garmin/garmin_silo_check.py":    ["def check_silos"],
     "garmin/garmin_silo_repair.py":   ["def repair_silos"],
+    "garmin/garmin_repair_resting_hr.py": ["def find_candidates", "def repair_resting_hr"],  # RESTING-HR-REPAIR v1.7.5.7 — removable
     "context/context_silo_check.py":  ["def check_context_archive"],
     "context/context_silo_repair.py": ["def fix_coordinates"],
     "garmin/garmin_live_fetch.py":    ["def fetch_live"],

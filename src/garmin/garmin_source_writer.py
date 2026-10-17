@@ -305,6 +305,18 @@ def patch_source_field(date_str: str, field: str, value) -> bool:
 
         log.debug(f"  source_writer: patched '{field}' into source/ for {date_str}")
 
+        # ── Source backup (v1.7.5.6, non-fatal, lazy import) ──────────────────
+        # Same as write_source(): a patched source/ file must reach the backup,
+        # otherwise the monthly ZIP keeps the version without the patched field.
+        try:
+            import garmin_backup_source as _bsrc
+            _bsrc.backup_source(date_str)
+        except Exception as _be:
+            log.warning(
+                f"  source_writer.patch_source_field: backup_source failed "
+                f"for {date_str}: {_be}"
+            )
+
         # ── Annotate source_api_log.json — additive, does not rebuild the entry ──
         try:
             log_path = cfg.SOURCE_API_LOG

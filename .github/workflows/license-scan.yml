@@ -17,7 +17,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install ScanCode Toolkit
-        run: pip install scancode-toolkit
+        run: pip install scancode-toolkit "pluggy<1.7"
 
       - name: Install pip-licenses
         run: pip install pip-licenses

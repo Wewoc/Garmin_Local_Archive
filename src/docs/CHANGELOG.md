@@ -1,5 +1,185 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.5.7 — Resting Heart Rate of Imported Days Corrected
+
+The bulk import of the Garmin GDPR export stored the export's 7-day
+average of the resting heart rate (`restingHeartRate`) as the resting
+heart rate of the day. The value of the day is `currentDayRestingHeartRate`.
+Every day imported this way carried the average, so resting-heart-rate
+charts and AI queries over the imported years were smoothed and shifted.
+New imports now take the value of the day, and a repair step in the app
+corrects the days that are already archived.
+
+**What changed:**
+- **`garmin_import.parse_day()`**: `user_summary.restingHeartRate` is the
+  value of the day; an absent day value stays empty and never falls back to
+  the average. The average is kept as
+  `user_summary.lastSevenDaysAvgRestingHeartRate` (not in `heart_rates`).
+- **Repair of imported days** (`garmin_repair_resting_hr.py`, removable):
+  `find_candidates()` finds the days by their content (the three-key import
+  form of `heart_rates`, no `lastSevenDaysAvgRestingHeartRate` yet), so
+  there is no marker in the quality log and a second run finds nothing.
+  `repair_resting_hr()` reads the value of the day and the average from the
+  day's `source/` file, changes only three places in `raw/`, rebuilds the
+  summary and writes both through `garmin_writer.write_day()` (the raw
+  backup follows). A day without a `source/` file is reported and left
+  unchanged; one failing day never stops the loop. Dry run available. It
+  marks the corrected days with `garmin_quality.touch_last_checked()` so the
+  MCP cache re-reads them, and saves the quality log once.
+- **Trigger**: before Sync Garmin starts, a popup "Data Correction — Backup
+  Required" names the number of days (and the days without an original) and
+  asks for a backup of the data folder. After "Yes" the sync runs the repair
+  as step 3e of `main()` (`GARMIN_RESTING_HR_REPAIR=1`, removed as soon as it
+  is read, so it cannot leak into a later run in T3). The popup comes back at
+  every Sync Garmin start until no day is left. `daily_update.py` only warns
+  with the number of days and goes on — unlike the schema migration it never
+  stops the scheduled sync.
+- **The repair works on the run's own quality log.** `main()` keeps its
+  quality log in memory and saves it again after the sync. The first run on
+  a real archive showed that a log loaded by the repair was overwritten by
+  that save: `last_checked` of the corrected days was lost and the MCP cache
+  kept the old values. `main()` now hands its `quality_data` over, like the
+  backfills do.
+- **Doc corrections**: schema version in `REFERENCE_INVARIANTS.md`
+  (3 → 4); timer modes in `REFERENCE_GARMIN.md` — Bulk Recheck is checked
+  first in every cycle, the other six modes rotate (before: "six modes,
+  priority from top to bottom").
+
+**New:** `garmin_repair_resting_hr.py` (`find_candidates()`,
+`repair_resting_hr()`), `garmin_quality.touch_last_checked()`,
+`garmin_collector._run_resting_hr_repair()`,
+`PanelArchive._check_resting_hr_repair()`,
+`daily_update._check_resting_hr_repair()`,
+`GARMIN_RESTING_HR_REPAIR`. Everything that belongs to the repair carries the
+marker `RESTING-HR-REPAIR v1.7.5.7`; the removal list is in the module and in
+`MAINTENANCE_GARMIN.md`.
+
+**Changed modules:**
+- `garmin/garmin_import.py` — mapping above
+- `garmin/garmin_repair_resting_hr.py` — new
+- `garmin/quality/_maint.py`, `garmin/garmin_quality.py` —
+  `touch_last_checked()`
+- `garmin/garmin_collector.py` — `_run_resting_hr_repair()`, step 3e
+- `app/panel_archive.py` — popup; `app/outputs/sync.py` — passes the trigger
+  after "Yes"; `scheduler/daily_update.py` — step 4b, warning only
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py` — new
+  module and test file registered
+- `tests/test_garmin_import.py`, `tests/test_quality.py`,
+  `tests/test_collector.py`, `tests/test_qt_app.py`,
+  `tests/test_repair_resting_hr.py` (new)
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_INVARIANTS.md`,
+  `docs/REFERENCE_GLOBAL.md`, `docs/MAINTENANCE_GARMIN.md`,
+  `docs/MAINTENANCE_GLOBAL.md`, `docs/GLA_GUIDELINES.md`, `README.md`,
+  `docs/USER_GUIDE.txt`, `docs/ROADMAP.md`, `docs/VERSION_HISTORY.md`,
+  `docs/README_APP.md` (title)
+- `version.py` — 1.7.5.7
+
+**Test result:** all suites green, 4467 checks in 36 files
+(`test_garmin_import.py` 72/72, `test_quality.py` 449/449,
+`test_collector.py` 413/413, `test_repair_resting_hr.py` 39/39 (new),
+`test_qt_app.py` 197/197). Checked with single changes made on purpose to a
+copy of the code: 27 of them across the repair, the collector step, the
+popup, the trigger and the scheduler hint (for example the marker not
+written, failed days recorded too, the variable read without removing it, a
+"No" counted as "Yes", the quality log not handed over) — each is caught by
+the tests. The
+end-to-end test of the quality log fails on the code before the fix and
+passes after it. Checked on a copy of a real archive: 1821 imported days
+found, 1482 of them with a wrong value, all corrected in 106 s (94 s of it
+the backups), `raw/`, `summary/`, `source/` and `quality_log.json` as
+expected and every other file byte-identical, a second run changed nothing.
+Then run by the maintainer through the app on the real archive: 1821 days
+corrected without an error in 96 s; after the quality-log fix the MCP cache,
+rebuilt once, holds the corrected value for every one of them.
+
+**Not covered:** the export as a source for days without a `source/` file
+(those days are reported and stay unchanged); the per-field label
+`fields["heart_rates"]` in the quality log is not recalculated; the
+popup shows at every sync start while days are left (also after "No"); the
+scan runs on the main thread of the GUI (about 2 s, longer with a cold file
+cache); `main()` of `daily_update.py` is not run by a test, only its helper.
+
+---
+
+## v1.7.5.6 — Backup Keeps the Current Version of Rewritten Days
+
+The monthly backup ZIPs in `backup/raw/` and `backup/source/` kept the
+version of a day from its first backup. A day that was rewritten later
+(a backfill, a mirror import, a silo repair, the steps patch of `source/`)
+was updated in `raw/` or `source/`, but its ZIP entry stayed old, and the
+newer copy in the month folder was dropped at the next consolidation. A
+restore would have brought back the version without the backfilled
+fields. Force-Refetch had been fixed for this in v1.7.4.0.4, every other
+write path had not. The ZIP now follows the file, and archives that
+already hold outdated entries are brought up to date automatically.
+
+**What changed:**
+- **`backup_raw()` / `backup_source()`**: the consolidation always runs
+  against today's real month (before: only with `force=True`), so a
+  completed month is packed right away. A file in the month folder is the
+  newest copy of its day; it replaces the same-named ZIP entry when its
+  bytes differ. An unchanged file writes nothing. The scope stays per
+  filename, never a whole month. `force=True` only adds a replace of
+  identical content. Both modules are changed identically.
+- **`patch_source_field()`** now backs up the patched `source/` file
+  (lazy import, a failing backup is a warning and does not fail the
+  patch). Before, it never touched the backup at all.
+- **Catch-up for existing archives**: `check_raw_stale_backups()` /
+  `refresh_raw_backups()` and `check_source_stale_backups()` /
+  `refresh_source_backups()` find backup copies that differ from their
+  primary file (bytes of the month-folder copy, otherwise CRC32 and size
+  of the ZIP entry; nothing is unpacked) and replace them, one ZIP
+  rebuild per month. Content-based and idempotent, `raw/` and `source/`
+  are never modified, and a file that is not a valid day file is
+  reported and never copied over its backup. `main()` runs them as step
+  3d, before the login, in every normal run; any error is a warning.
+  There is no popup, quality-log marker or environment variable.
+
+**New:** `check_raw_stale_backups()`, `refresh_raw_backups()`,
+`check_source_stale_backups()`, `refresh_source_backups()`,
+`_run_backup_refresh()`.
+
+**Changed modules:**
+- `garmin/garmin_backup.py`, `garmin/garmin_backup_source.py` — rules and
+  functions above
+- `garmin/garmin_source_writer.py` — `patch_source_field()` backs up
+- `garmin/garmin_collector.py` — `_run_backup_refresh()`, step 3d in
+  `main()`
+- `compiler/build_manifest.py` — signatures of the new functions
+- `tests/test_backup.py` (sections 4f3, 4f4; checks that pinned the old
+  behaviour turned around), `tests/test_collector.py` (step 3d; backup
+  check in the steps and bulk-field backfill), `tests/test_import_mirror.py`,
+  `tests/test_silo_repair.py` (one check per write path),
+  `tests/test_local_context.py`, `tests/test_garmin_import.py` (checks
+  adapted to the month being packed right away)
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_INVARIANTS.md`,
+  `docs/MAINTENANCE_GARMIN.md`, `docs/MAINTENANCE_CONTEXT.md`;
+  `docs/GLA_GUIDELINES.md` (one line about the GDPR JSON import
+  corrected); `docs/VERSION_HISTORY.md` (entries for v1.7.3.3 to
+  v1.7.5.6 added, link in the header corrected)
+- `version.py` — 1.7.5.6
+
+**Test result:** all suites green, 4399 checks total (`test_backup.py`
+270/270, `test_collector.py` 402/402, `test_import_mirror.py` 123/123,
+`test_silo_repair.py` 60/60). Five single changes made on purpose to a
+copy of the code (comparison by size only, invalid files copied too, no
+consolidation after the refresh, month-folder copy not compared, the
+step removed from `main()`) are each caught by the tests. Checked on a
+copy of a real archive: the check found 1924 outdated `raw` and 57 outdated
+`source` backup entries, the refresh replaced all of them, afterwards
+every ZIP entry was byte-identical to its file, a second run changed
+nothing, and `raw/`, `source/`, `summary/` and `quality_log.json` were
+byte-identical to a control run without the step.
+
+**Not covered:** the replaced backup version is not kept (the ZIP follows
+the file); if `raw/` is deliberately replaced by an older version, the
+catch-up copies that older version over its backup. `regenerate_raw.py`
+(a manual tool, also through `write_day()`) has no test of its own. The
+step was run through `main()` on a copy, not through the GUI, the timer
+or `daily_update.py`.
+
+---
+
 ## v1.7.5.5 — Raw Fields and Their Processed Counterparts Point to Each Other
 
 Everyday questions about floors climbed, body weight or intensity minutes

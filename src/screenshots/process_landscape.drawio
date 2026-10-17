@@ -1,0 +1,785 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Process landscape" id="pgProcessLandscape01">
+    <mxGraphModel dx="2000" dy="1100" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="2100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="plBandTrig" value="Triggers  -  what starts something" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eeeeee;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=top;align=left;spacingLeft=14;spacingTop=6;spacingBottom=6;opacity=40;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="30" y="30" width="1890" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="plBandCore" value="Core processes  -  acquire, validate, store, serve" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=bottom;align=left;spacingLeft=14;spacingTop=6;spacingBottom=6;opacity=40;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="30" y="230" width="1890" height="560" as="geometry" />
+        </mxCell>
+        <mxCell id="plBandTrans" value="Transport  -  carry the archive to another device" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#b0e3e6;strokeColor=#0e8088;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=bottom;align=left;spacingLeft=14;spacingTop=6;spacingBottom=6;opacity=40;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="410" y="840" width="1120" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="plBandMaint" value="Maintenance  -  keeps the archive complete and consistent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eeeeee;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=top;align=left;spacingLeft=14;spacingTop=6;spacingBottom=6;opacity=40;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1080" width="1890" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="plCapA" value="ACQUIRE" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="262" width="300" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="plCapB" value="VALIDATE" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="262" width="300" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="plCapC" value="STORE" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="820" y="262" width="300" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="plCapD" value="BROKER" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="262" width="300" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="plCapE" value="SERVE" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="262" width="300" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="plTrGui" value="GUI button&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Sync, Import, Mirror, Context collect, Repair, Force-Refetch, dashboards, export&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="80" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="plTrDaily" value="daily_update&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Windows scheduled task: unattended Garmin sync, no GUI&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="440" y="80" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="plTrTimer" value="Background timer&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;every 5-30 min, 3-10 days per run; works through the timer modes below&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="820" y="80" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="plTrUpd" value="Updater&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;self-update of the standalone build: GitHub release, SHA256-verified&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="80" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="plTrChat" value="Chat client&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;external MCP client or the GUI Chat tab&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="80" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="plEnrich" value="Context collect&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;weather, pollen, air quality, Brightsky.&lt;br&gt;GUI button 'API Sync'; date range from quality_log&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="820" y="290" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plCtxArch" value="context_data/&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;weather, pollen, brightsky, airquality&lt;br&gt;summary/ daily, raw/ hourly (not weather)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="290" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plSync" value="Garmin sync (per day)&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;fetch 15 endpoints + enabled extras&lt;br&gt;source/ guard, then validator&lt;br&gt;Decision flow, page 2&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plBulk" value="Bulk import&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Garmin GDPR export (ZIP or folder)&lt;br&gt;timer paused; never writes source/&lt;br&gt;Decision flow, page 1&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="580" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plValid" value="Validate, normalize, assess&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;validator first, then normalize + summarize&lt;br&gt;label high / standard / failed&lt;br&gt;a worse label never replaces a stored day&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="440" y="510" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plStore" value="garmin_data/&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;source/ (live API only), raw/, summary/&lt;br&gt;quality_log.json, backup/ ZIPs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="820" y="510" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plBroker" value="Broker layer&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;gateway_map: health_map + context_map&lt;br&gt;one field-name API between archive and outputs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="510" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plMcp" value="MCP server and chat&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;external chat clients and the GUI Chat tab&lt;br&gt;(Ollama or cloud LLM); reads via SQLite cache&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffff88;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="370" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plExport" value="Export Layer&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;JSON, CSV, InfluxDB&lt;br&gt;reads via SQLite cache&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4d7;strokeColor=#60a917;fontColor=#4a7a0a;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="510" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plDash" value="Dashboards&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;specialists to HTML, Excel, JSON&lt;br&gt;optional password-encrypted HTML&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="650" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plMirCreate" value="Mirror create&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;archive to a password-protected mirror.gla&lt;br&gt;written atomically&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d4eeef;strokeColor=#0e8088;fontColor=#0a5a60;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="440" y="895" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="plMedium" value="USB stick or any medium&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;mirror.gla can be stored anywhere&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0e8088;fontColor=#0a5a60;fontSize=14;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="820" y="895" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="plMirImport" value="Mirror import&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;this or a second device; password typed in&lt;br&gt;paths checked, written via the normal writers&lt;br&gt;timer paused; normalize() not run&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d4eeef;strokeColor=#0e8088;fontColor=#0a5a60;fontSize=14;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="895" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="plG1" value="At every sync start" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;fontColor=#444441;fontSize=12;fontStyle=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="50" y="1130" width="600" height="204" as="geometry" />
+        </mxCell>
+        <mxCell id="plG2" value="Timer modes  (Decision flow, pages 3 and 4)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;fontColor=#444441;fontSize=12;fontStyle=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="670" y="1130" width="600" height="364" as="geometry" />
+        </mxCell>
+        <mxCell id="plG3" value="On demand (GUI)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#888888;dashed=1;fontColor=#444441;fontSize=12;fontStyle=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="1130" width="600" height="204" as="geometry" />
+        </mxCell>
+        <mxCell id="plM1" value="Self-healing&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;stale-schema days revalidated from raw/&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="65" y="1170" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plM2" value="Schema migration&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;summaries rebuilt from raw/, if enabled&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="365" y="1170" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plM3" value="Backup refresh&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;backup copies brought in line (step 3d)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="65" y="1250" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plM4" value="Login, token security&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;encrypted token, MFA block&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="365" y="1250" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT1" value="Bulk recheck&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;bulk days up to 180 d: full-day fetch&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="685" y="1170" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT2" value="Repair&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;failed days: full-day fetch&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="985" y="1170" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT3" value="Quality recheck&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;standard days (not bulk) up to 180 d&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="685" y="1250" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT4" value="Fill&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;days with no raw/ file and no log entry&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="985" y="1250" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT5" value="Source backfill&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;API days without source/&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="685" y="1330" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT6" value="Steps backfill&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;steps not high; gives up after 2 tries&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="985" y="1330" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT7" value="Bulk field backfill&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;7 gap fields, additive merge&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="685" y="1410" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plT8" value="Timer stops&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;all modes empty: archive complete&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="985" y="1410" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plO1" value="Silo check, repair (Garmin)&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;check is read-only; repair fixes flagged days&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1305" y="1170" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plO2" value="Silo check, repair (Context)&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;missing days, coordinates; re-fetch&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1605" y="1170" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plO3" value="Force-Refetch&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;per day: preview, then confirm or revert&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1305" y="1250" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plO4" value="API-Capability scan&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal;&quot;&gt;probes optional endpoints&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4f4f4;strokeColor=#888888;fontColor=#444441;fontSize=12;fontStyle=1;arcSize=8;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1605" y="1250" width="270" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegBg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a1a2e;strokeColor=#555555;opacity=80;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1560" width="640" height="500" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegT1" value="Garmin Local Archive" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=18;fontColor=#e8e8e8;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="76" y="1574" width="600" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegT2" value="Process landscape  -  Ist-Stand v1.7.5.6" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#888888;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="76" y="1602" width="600" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegLn1" value="" style="line;html=1;strokeColor=#444444;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="76" y="1626" width="608" height="10" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegT3" value="What starts what, and where the data lands. Garmin data runs left to right (acquire, validate, store, broker, outputs); context data runs in parallel on the top row. Module calls are in the Data Flow Diagram, per-step decisions in the Decision Flow diagram." style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="76" y="1636" width="608" height="74" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegT4" value="COLOR LEGEND" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="76" y="1716" width="300" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD0" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e8e8e8;strokeColor=#888888;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1743" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL0" value="Trigger" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1740" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD1" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#d5f5e3;strokeColor=#1D9E75;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1767" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL1" value="Garmin pipeline: acquire, validate, store" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1764" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD2" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fde8e0;strokeColor=#D85A30;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1791" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL2" value="Context pipeline" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1788" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD3" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fdebd0;strokeColor=#BA7517;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1815" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL3" value="Broker layer" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1812" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD4" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#d6eaf8;strokeColor=#1a6fbf;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1839" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL4" value="Dashboards" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1836" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD5" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e6f4d7;strokeColor=#60a917;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1863" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL5" value="Export Layer" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1860" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD6" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffff88;strokeColor=#36393d;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1887" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL6" value="MCP server and chat" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1884" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD7" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#d4eeef;strokeColor=#0e8088;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1911" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL7" value="Transport (mirror)" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1908" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegD8" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#f4f4f4;strokeColor=#888888;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="78" y="1935" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegL8" value="Maintenance (dashed)" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1932" width="580" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegLn2" value="" style="line;html=1;strokeColor=#444444;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="76" y="1960" width="608" height="10" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegT5" value="Solid arrow: data or control flow (main paths only). Dashed arrow: read only. Boxes that have no arrow are started by the trigger named in their text." style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#888888;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="76" y="1970" width="608" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="plLegT6" value="Reflects REFERENCE_GARMIN, REFERENCE_CONTEXT, REFERENCE_GLOBAL and import_decision_flow. Condensed wording." style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#888888;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2010" width="608" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="plE1" value="button" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#444441;fontColor=#444441;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="plTrGui" target="plSync">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE2" value="unattended" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#444441;fontColor=#444441;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="plTrDaily" target="plSync">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="590" y="395" />
+              <mxPoint x="300" y="395" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="plE3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#444441;fontColor=#444441;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="plTrChat" target="plMcp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1D9E75;fontColor=#1D9E75;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="plSync" target="plValid">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="495" />
+              <mxPoint x="400" y="543" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="plE5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1D9E75;fontColor=#1D9E75;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.7;entryDx=0;entryDy=0;" edge="1" parent="1" source="plBulk" target="plValid">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="635" />
+              <mxPoint x="400" y="587" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="plE6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1D9E75;fontColor=#1D9E75;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plValid" target="plStore">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#BA7517;fontColor=#BA7517;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plStore" target="plBroker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#BA7517;fontColor=#BA7517;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plBroker" target="plMcp">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1545" y="565" />
+              <mxPoint x="1545" y="425" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="plE9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#BA7517;fontColor=#BA7517;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plBroker" target="plExport">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#BA7517;fontColor=#BA7517;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plBroker" target="plDash">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1545" y="565" />
+              <mxPoint x="1545" y="705" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="plE11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D85A30;fontColor=#D85A30;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plEnrich" target="plCtxArch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D85A30;fontColor=#D85A30;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="plCtxArch" target="plBroker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#888888;fontColor=#888888;fontSize=11;strokeWidth=2;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="plStore" target="plEnrich">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0e8088;fontColor=#0e8088;fontSize=11;strokeWidth=2;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="plStore" target="plMirCreate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="895" y="820" />
+              <mxPoint x="590" y="820" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="plE15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0e8088;fontColor=#0e8088;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plMirCreate" target="plMedium">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE16" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0e8088;fontColor=#0e8088;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plMedium" target="plMirImport">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="plE17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0e8088;fontColor=#0e8088;fontSize=11;strokeWidth=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="plMirImport" target="plStore">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1350" y="820" />
+              <mxPoint x="1045" y="820" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Main process: one sync run" id="pgMainProcess02">
+    <mxGraphModel dx="2000" dy="1100" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="2854" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="pmBandA" value="Entry and mode switch  (step 0)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eeeeee;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=bottom;align=left;spacingLeft=20;spacingBottom=8;opacity=40;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="30" y="30" width="1890" height="318" as="geometry" />
+        </mxCell>
+        <mxCell id="pmA1" value="Run starts&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;GUI Sync button, daily_update or background timer: all call garmin_collector.main(). Stop event registered first.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="70" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmA2" value="Configuration&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;garmin_config reads all GARMIN_* variables: sync mode recent / range / auto, REFRESH_FAILED, SYNC_DATES.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="70" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmA3" value="Import mode?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;GARMIN_IMPORT_PATH is set&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="70" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmA4" value="Capability scan?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;GARMIN_CAPABILITY_SCAN = 1&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="70" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmA5" value="Session limit valid?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;MAX_DAYS_PER_SESSION below 0 is refused (0 = unlimited)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="70" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmA6" value="Normal sync&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;All three checks passed: the regular run continues with the preparation.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="70" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmAx3" value="run_import()&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Bulk import: own path, no login. Exit code 0 if no day failed. Decision flow, page 1.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="218" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmAx4" value="run_capability_scan()&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Own login, probes optional endpoints (default: last 7 days), stores only found / not observed / error.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="218" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmAx5" value="Abort, exit 1&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Named error in the log. Nothing has run yet.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#8f3a3a;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="218" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA1" target="pmA2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA2" target="pmA3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge3" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA3" target="pmA4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge4" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA4" target="pmA5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge5" value="ok" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA5" target="pmA6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge6" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA3" target="pmAx3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge7" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA4" target="pmAx4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge8" value="below 0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontColor=#b85450;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA5" target="pmAx5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmBandB" value="Prepare, no API call  (steps 1 to 3d)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf7f0;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=bottom;align=left;spacingLeft=20;spacingBottom=8;opacity=40;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="30" y="394" width="1890" height="198" as="geometry" />
+        </mxCell>
+        <mxCell id="pmB1" value="1-2  Folders, session log&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;raw/, summary/, log/ created. Session log opened; copied to log/fail/ if the run has errors.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="434" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmB2" value="3  Load quality_log&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Under QUALITY_LOCK. Integrity check (checksum, unreadable file, bad dates). First run: log built from existing raw/ files.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="434" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmB3" value="3  Unknown raw/ files&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;raw/ files that are not in the log are assessed; failed ones get a log entry (recheck on).&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="434" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmB4" value="3  Flag bulk days&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;source = bulk and not older than 180 days: recheck = true. Quality does not matter, the source is the trigger.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="434" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmB5" value="3b  Self-healing&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Days with validator issues and an old schema version are revalidated from raw/. No API call.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="434" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmB6" value="3c  Schema migration?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;GARMIN_SCHEMA_MIGRATE = 1: summaries rebuilt from raw/. raw/ and its backup stay untouched.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="434" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmB7" value="3d  Backup refresh&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Backup copies of raw/ and source/ compared by content; outdated ones refreshed. Non-fatal.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1632" y="434" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmB1" target="pmB2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmB2" target="pmB3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmB3" target="pmB4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmB4" target="pmB5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmB5" target="pmB6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge14" value="next" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmB6" target="pmB7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmBandC" value="Online preparation  (steps 4 to 8)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1fa;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=bottom;align=left;spacingLeft=20;spacingBottom=8;opacity=40;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="30" y="638" width="1890" height="610" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC1" value="4  Login ok?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Saved token first (probe call). Rejected or none: SSO, with MFA if asked. 429 / 403 on the probe or an open MFA block: no SSO.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="678" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC2" value="5  Device history&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;get_devices() stored in quality_log. A failure is only a warning.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="678" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC3" value="5b  device_id backfill&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Entries without device_id get it from raw/ training_status. Saves the log and device_table.json.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="678" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC4" value="5c  Source backfill?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;GARMIN_SOURCE_BACKFILL = 1: re-fetch API days in SYNC_DATES that have no source/ file.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="678" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC5" value="5d  Steps backfill?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;GARMIN_STEPS_BACKFILL = 1: add steps to archived high days; source/ gets the same patch.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="678" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC6" value="5e  Bulk field backfill?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;GARMIN_BULK_FIELD_BACKFILL = 1: 7 gap fields of bulk days, merged additively into raw/.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="678" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC7" value="6  first_day&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;If not set: devices, account profile, SYNC_AUTO_FALLBACK, oldest local file. Never overwritten.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1632" y="678" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmCx1" value="Login failed, exit 1&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Session log copied to log/fail/. Nothing is fetched.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#8f3a3a;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="826" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge15" value="ok" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC1" target="pmC2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge16" value="error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontColor=#b85450;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC1" target="pmCx1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC2" target="pmC3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC3" target="pmC4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge19" value="next" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC4" target="pmC5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge20" value="next" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC5" target="pmC6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge21" value="next" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC6" target="pmC7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC8" value="7  SYNC_DATES set?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Timer and backfill runs pass a day list. GUI sync and daily_update do not.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="970" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC9" value="7  Date range&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;recent: last N days to yesterday. range: from to. auto: first_day to yesterday (fallback 90 days).&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="970" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC10" value="7  Missing days&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Range minus local days (raw/, summary/, legacy files). REFRESH_FAILED: recheck days count as missing. Bulk recheck days always.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="970" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC11" value="Anything missing?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="970" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmC12" value="8  Batch&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;MAX_DAYS_PER_SESSION caps it (0 = all). Capability-enabled endpoints are read once as a snapshot.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="970" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmCx8" value="Requested days&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;List taken as given: missing = requested days not yet local (all of them if REFRESH_FAILED).&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1118" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmCx11" value="Nothing to do&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;'All days already present'. Session log closed, run ends.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="1118" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge22" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC8" target="pmC9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC9" target="pmC10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge24" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC10" target="pmC11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge25" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC11" target="pmC12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge26" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC8" target="pmCx8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge27" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmCx8" target="pmC10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge28" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC11" target="pmCx11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge29" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC7" target="pmC8">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1743.0" y="940" />
+              <mxPoint x="171.0" y="940" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pmBandD" value="Fetch loop, per day  (step 8)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcebf7;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=bottom;align=left;spacingLeft=20;spacingBottom=8;opacity=40;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1294" width="1890" height="610" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD1" value="Stop requested?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Checked before each day (and before every API call).&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1334" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD2" value="Fetch 15 endpoints&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;fetch_raw(): sleep, stress, body battery, heart rate, SpO2, HRV, steps, activities ... plus enabled extras. Random delay per call.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="1334" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD3" value="source/ guard&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;write_source() runs before validation: kept if the stored file already has intraday, else written (atomic) and backed up.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f0e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="1334" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD4" value="Validator critical?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;validate() against garmin_dataformat.json.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="1334" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD5" value="source_api_log&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Per day: validator status, issues, endpoints fetched / failed, size.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="1334" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD6" value="Normalize, summarize&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;normalize(api), then summarize(): schema version 3.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="1334" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD7" value="Assess quality&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;high: intraday heart-rate or stress values. standard: daily aggregates. failed: nothing usable. Plus per-field labels.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1632" y="1334" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmDx1" value="Loop ends&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Days already saved stay. Step 9 still runs; the rest waits for the next run.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1482" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmDx2" value="On HTTP 429&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Critical log, stop event set, loop ends after this day. Other endpoint errors are only listed as failed.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="1482" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmDx4" value="Label failed&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Validator status logged, nothing normalized. Continues at the downgrade check.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#8f3a3a;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="1482" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge30" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD1" target="pmD2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD2" target="pmD3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge32" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD3" target="pmD4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge33" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD4" target="pmD5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge34" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD5" target="pmD6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge35" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD6" target="pmD7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge36" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD1" target="pmDx1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge37" value="429" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D85A30;fontColor=#D85A30;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD2" target="pmDx2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge38" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontColor=#b85450;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD4" target="pmDx4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD8" value="out_of_range above 3?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Validator warnings. yes: label high is capped at standard.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1626" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD9" value="Worse than stored?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Rank high 2 &gt; standard 1 &gt; failed 0. No stored entry: never worse.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="1626" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD10" value="Label high or standard?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Only these two are written.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="1626" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD11" value="write_day()&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;raw/ and summary/ via temp file + os.replace, then the incremental raw backup (monthly ZIP).&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f0e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="1626" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD12" value="record_attempt()&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Upsert: source api, fields, validator, device. Recheck: failed on; standard only if previous day high and under 180 days; high off.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="1626" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD13" value="Per-day save&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;quality_log.json written again (atomic, no backup): resume point after a crash. A failed save marks the run as errored.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f0e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="1626" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmD14" value="Next day&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Back to the stop check. After the last day: step 9.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1632" y="1626" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmDx9" value="Existing day kept&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;No write. Stored source bulk: attempts +1, recheck off after 2 tries. Log saved.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde8e0;strokeColor=#D85A30;fontColor=#993C1D;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="1774" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmDx10" value="Failed label&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;No file written. Entry marked failed (attempts +1, recheck on), retried by Repair.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#8f3a3a;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="1774" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmDx12" value="Exception on a day&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Logged, entry marked failed (attempts +1), counted as error, loop continues.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#8f3a3a;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="1774" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge39" value="next" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD8" target="pmD9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge40" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD9" target="pmD10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge41" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD10" target="pmD11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge42" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD11" target="pmD12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge43" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD12" target="pmD13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge44" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD13" target="pmD14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge45" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D85A30;fontColor=#D85A30;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD9" target="pmDx9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge46" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontColor=#b85450;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD10" target="pmDx10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge47" value="error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontColor=#b85450;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD12" target="pmDx12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge48" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD7" target="pmD8">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1743.0" y="1596" />
+              <mxPoint x="171.0" y="1596" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pmEdge49" value="next day" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#444441;fontColor=#444441;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.85;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD14" target="pmD1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1880" y="1682.0" />
+              <mxPoint x="1880" y="1312" />
+              <mxPoint x="248.7" y="1312" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pmBandE" value="Finish  (steps 9 to 9b)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf7f0;strokeColor=#36393d;fontColor=#333333;fontSize=14;fontStyle=1;verticalAlign=bottom;align=left;spacingLeft=20;spacingBottom=8;opacity=40;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1950" width="1890" height="318" as="geometry" />
+        </mxCell>
+        <mxCell id="pmE1" value="9  Save&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;quality_log.json saved (with monthly snapshot backup), device_table.json written.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f0e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1990" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmE2" value="Run summary&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Logs days saved, errors, tracked days, pending rechecks.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6eaf8;strokeColor=#1a6fbf;fontColor=#185FA5;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="322" y="1990" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmE3" value="9b  Source backup needed?&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;At least one day processed and not a source backfill run.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdebd0;strokeColor=#BA7517;fontColor=#854F0B;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="1990" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmE4" value="Close session log&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Copied to log/fail/ if there were errors.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="846" y="1990" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmE5" value="Run ends&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;Back to the caller: GUI log, or the timer's next cycle (Decision flow, page 3).&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#888888;fontColor=#444441;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="1990" width="222" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEx3" value="Source backup backfill&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal;&quot;&gt;source/ files without a backup copy are copied into the backup. Non-fatal.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f0e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=13;fontStyle=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="584" y="2138" width="222" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge50" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmE1" target="pmE2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge51" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmE2" target="pmE3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge52" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmE3" target="pmE4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge53" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmE4" target="pmE5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge54" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1D9E75;fontColor=#1D9E75;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmE3" target="pmEx3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge55" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmEx3" target="pmE4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pmEdge56" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmA6" target="pmB1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1481.0" y="371" />
+              <mxPoint x="171.0" y="371" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pmEdge57" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmB7" target="pmC1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1743.0" y="615" />
+              <mxPoint x="171.0" y="615" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pmEdge58" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmC12" target="pmD1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1219.0" y="1271" />
+              <mxPoint x="171.0" y="1271" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pmEdge59" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#555555;fontColor=#555555;fontSize=11;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pmD14" target="pmE1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1743.0" y="1927" />
+              <mxPoint x="171.0" y="1927" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pmLegBg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a1a2e;strokeColor=#555555;opacity=80;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="60" y="2324" width="700" height="470" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegT1" value="Garmin Local Archive" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=18;fontColor=#e8e8e8;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2338" width="660" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegT2" value="Main process: one Garmin sync run  -  Ist-Stand v1.7.5.6" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#888888;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2366" width="660" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegLn1" value="" style="line;html=1;strokeColor=#444444;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2390" width="668" height="10" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegT3" value="What happens inside garmin_collector.main(), step by step, in the order of the code. Rows read left to right; a connector below a row continues at the start of the next row. Details of single decisions: Decision flow diagram. Which module calls which: Data Flow Diagram." style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2400" width="668" height="74" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegT4" value="COLOR LEGEND" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2480" width="300" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegD0" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fdebd0;strokeColor=#BA7517;" vertex="1" parent="1">
+          <mxGeometry x="78" y="2507" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegL0" value="Decision, or a switch set by an environment variable" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="2504" width="640" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegD1" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#d6eaf8;strokeColor=#1a6fbf;" vertex="1" parent="1">
+          <mxGeometry x="78" y="2533" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegL1" value="Step, processing without a branch" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="2530" width="640" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegD2" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#d5f0e3;strokeColor=#1D9E75;" vertex="1" parent="1">
+          <mxGeometry x="78" y="2559" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegL2" value="Written, data lands in the archive" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="2556" width="640" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegD3" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fde8e0;strokeColor=#D85A30;" vertex="1" parent="1">
+          <mxGeometry x="78" y="2585" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegL3" value="Kept or capped, existing data wins" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="2582" width="640" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegD4" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="78" y="2611" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegL4" value="Rejected, failed, aborted" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="2608" width="640" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegD5" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e8e8e8;strokeColor=#888888;" vertex="1" parent="1">
+          <mxGeometry x="78" y="2637" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegL5" value="Start, hand-over or neutral end" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=11;fontColor=#aaaaaa;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="100" y="2634" width="640" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegLn2" value="" style="line;html=1;strokeColor=#444444;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2669" width="668" height="10" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegT5" value="Band tint: green = works offline or writes the archive, blue = needs the Garmin login. Arrows: yes / no / next name the branch. A box below a decision is that branch's result. Timer and backfill runs are the same main(); they only pass SYNC_DATES and one backfill flag." style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#888888;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2678" width="668" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="pmLegT6" value="Reflects garmin_collector.main(), _fetch_and_assess(), garmin_api.fetch_raw()/login(), garmin_writer, quality/_maint._upsert_quality(), garmin_source_writer.write_source(). Condensed wording." style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=10;fontColor=#888888;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="76" y="2744" width="668" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

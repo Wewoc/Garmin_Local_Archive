@@ -115,6 +115,9 @@ def run_collector(panel, *, on_done=None):
     run_migration = app._panel_archive._check_schema_migration(
         base_dir=s["base_dir"])
     env_extra = {"GARMIN_SCHEMA_MIGRATE": "1"} if run_migration else {}
+    # RESTING-HR-REPAIR v1.7.5.7 — removable
+    if app._panel_archive._check_resting_hr_repair(base_dir=s["base_dir"]):
+        env_extra["GARMIN_RESTING_HR_REPAIR"] = "1"
 
     def _internal_done():
         app._panel_timer._timer_resume_after_sync(timer_was_active)

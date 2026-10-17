@@ -17,10 +17,11 @@ import json
 import shutil
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from gla_testenv import cfg, _TMPDIR, _isolated_log_env, _craft_container  # sets up the environment; must precede garmin_* imports
+from gla_testenv import cfg, _TMPDIR, _isolated_log_env, _craft_container, _put_log  # sets up the environment; must precede garmin_* imports
 from support import check, section, summary
 
 import json as _json
@@ -197,6 +198,32 @@ with _isolated_log_env("imp_full") as _b:
     _r = _im.run_import_mirror(_arch, _b, "pw")
     check("import: a second import skips the days that are already there",
           _r["raw_copied"] == 0 and _r["raw_skipped"] == 2 and _r["ok"] == True)
+
+# v1.7.5.6: a day the container brings in replaces the older version of itself in the monthly backup ZIP
+with _isolated_log_env("imp_backup_zip") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    cfg.RAW_DIR.mkdir(parents=True)
+    cfg.RAW_BACKUP_DIR.mkdir(parents=True)
+    _old_d1 = json.dumps(_day_raw(_D1, "standard"))
+    (cfg.RAW_DIR / f"garmin_raw_{_D1}.json").write_text(_old_d1, encoding="utf-8")
+    with zipfile.ZipFile(cfg.RAW_BACKUP_DIR / "raw_backup_2024-02.zip", "w", zipfile.ZIP_DEFLATED) as _zf_old:
+        _zf_old.writestr(f"garmin_raw_{_D1}.json", _old_d1)
+    _put_log({"first_day": _D1, "devices": [], "days": [
+        {"date": _D1, "quality": "standard", "source": "api", "write": True}]})
+    _r = _im.run_import_mirror(_arch, _b, "pw")
+    check("import: the container's better day replaces the archive's older one",
+          _r["ok"] == True and _r["raw_copied"] == 2
+          and "heartRateValues" in json.loads((cfg.RAW_DIR / f"garmin_raw_{_D1}.json")
+                                              .read_text(encoding="utf-8")).get("heart_rates", {}))
+    with zipfile.ZipFile(cfg.RAW_BACKUP_DIR / "raw_backup_2024-02.zip") as _zf_new:
+        _zip_names = sorted(_zf_new.namelist())
+        _zip_d1 = _zf_new.read(f"garmin_raw_{_D1}.json")
+    check("import: the monthly backup ZIP holds the imported version of that day, not the old one (v1.7.5.6)",
+          _zip_d1 == (cfg.RAW_DIR / f"garmin_raw_{_D1}.json").read_bytes()
+          and b"heartRateValues" in _zip_d1)
+    check("import: the other imported day is in the same ZIP, no loose month folder is left",
+          _zip_names == [f"garmin_raw_{_D1}.json", f"garmin_raw_{_D2}.json"]
+          and not (cfg.RAW_BACKUP_DIR / "2024-02").exists())
 
 with _isolated_log_env("imp_schema") as _b:
     cfg.SUMMARY_DIR = _b / "summary"

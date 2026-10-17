@@ -686,6 +686,33 @@ check("record_field_backfill_failure: unknown day -> 0",
 check("record_field_backfill_failures: unknown day -> {}",
       quality.record_field_backfill_failures(_bf, date(2030, 1, 1), ["steps", "hrv"]) == {})
 
+# touch_last_checked (v1.7.5.7) — sets last_checked on the given days and nothing else
+_tl_orig = {"first_day": "2019-01-01", "devices": [], "days": [
+    {"date": "2019-01-01", "quality": "standard", "source": "api", "write": True, "recheck": False,
+     "attempts": 0, "last_checked": "2024-01-01", "last_attempt": None, "fields": {"steps": "medium"}},
+    {"date": "2019-01-02", "quality": "high", "source": "bulk", "write": True, "recheck": True,
+     "attempts": 2, "last_checked": "2024-01-02", "last_attempt": "2024-01-02T10:00:00", "fields": {}},
+    {"date": "2019-01-03", "quality": "failed", "source": "legacy", "write": False, "recheck": True,
+     "attempts": 1, "last_checked": "2024-01-03", "last_attempt": None, "fields": {}}]}
+_tl = json.loads(json.dumps(_tl_orig))
+_tl_sum_before = quality._compute_checksum(_tl)
+_tl_today = date.today().isoformat()
+with patch.object(sys.modules["quality._io"], "_save_quality_log") as _tl_sv:
+    _tl_n = quality.touch_last_checked(_tl, [date(2019, 1, 1), "2019-01-03"])
+    check("touch_last_checked: returns the number of touched entries, only the named days get today",
+          _tl_n == 2 and _tl["days"][0]["last_checked"] == _tl_today
+          and _tl["days"][2]["last_checked"] == _tl_today
+          and _tl["days"][1]["last_checked"] == "2024-01-02")
+    check("touch_last_checked: nothing but last_checked changes, the log checksum stays the same",
+          all({k: v for k, v in a.items() if k != "last_checked"} == {k: v for k, v in b.items() if k != "last_checked"}
+              for a, b in zip(_tl["days"], _tl_orig["days"]))
+          and quality._compute_checksum(_tl) == _tl_sum_before)
+    _tl_n0 = quality.touch_last_checked(_tl, [date(2030, 1, 1)])
+    _tl_n1 = quality.touch_last_checked(_tl, [])
+    check("touch_last_checked: a day without an entry is skipped and not created, an empty list touches nothing",
+          _tl_n0 == 0 and _tl_n1 == 0 and len(_tl["days"]) == 3)
+    check("touch_last_checked: never saves the log (the caller saves once)", _tl_sv.call_count == 0)
+
 
 # ── 4e. assess_quality_fields, get_archive_stats, scan, field hash ────────────
 section("4e. garmin_quality — assess, archive stats, scan, field hash")

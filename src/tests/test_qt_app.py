@@ -3366,3 +3366,112 @@ class TestGarminAppBase:
         assert len(popen_calls) == 1, (
             "Klick auf 'Update' hat nicht zu einem Popen-Aufruf geführt — "
             "die Verdrahtung zwischen Button und _start_update() ist unterbrochen")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  RESTING-HR-REPAIR v1.7.5.7 — removable
+#  Popup of the resting-HR repair (panel_archive) and its trigger in sync.py
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestRestingHrRepairHooks:
+
+    @staticmethod
+    def _archive(base, with_source=True, extra_no_source=0):
+        """A synthetic archive: one day in the unrepaired import form (+ optional extras)."""
+        import json
+        raw_dir = base / "garmin_data" / "raw"
+        src_dir = base / "garmin_data" / "source"
+        raw_dir.mkdir(parents=True)
+        src_dir.mkdir(parents=True)
+
+        def raw(d):
+            return {"date": d, "user_summary": {"restingHeartRate": 60},
+                    "heart_rates": {"restingHeartRate": 60, "minHeartRate": 45, "maxHeartRate": 150}}
+
+        days = ["2025-07-10"] + [f"2025-07-2{n}" for n in range(extra_no_source)]
+        for d in days:
+            (raw_dir / f"garmin_raw_{d}.json").write_text(json.dumps(raw(d)), encoding="utf-8")
+        if with_source:
+            (src_dir / "garmin_source_2025-07-10.json").write_text("{}", encoding="utf-8")
+
+    @staticmethod
+    def _check(base):
+        from unittest.mock import MagicMock
+        from app.panel_archive import PanelArchive
+        return PanelArchive._check_resting_hr_repair(MagicMock(), str(base))
+
+    def test_no_raw_folder_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_no_correctable_day_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, with_source=False)          # the only import-form day has no original
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_confirmed_returns_true_and_names_the_count_and_the_backup(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path)
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes) as q:
+            assert self._check(tmp_path) is True
+        text = q.call_args.args[2]
+        assert "1 day(s)" in text and "backup" in text.lower()
+        assert "no archived original" not in text
+
+    def test_declined_returns_false(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path)
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No):
+            assert self._check(tmp_path) is False
+
+    def test_days_without_original_are_named(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, extra_no_source=2)
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No) as q:
+            self._check(tmp_path)
+        assert "2 more day(s) have no archived original" in q.call_args.args[2]
+
+    def test_error_in_the_scan_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path)
+        with patch("garmin_repair_resting_hr.find_candidates", side_effect=RuntimeError("boom")), \
+                patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    @pytest.mark.parametrize("migrate, repair, expected", [
+        (True,  True,  {"GARMIN_SCHEMA_MIGRATE": "1", "GARMIN_RESTING_HR_REPAIR": "1"}),
+        (False, True,  {"GARMIN_RESTING_HR_REPAIR": "1"}),
+        (True,  False, {"GARMIN_SCHEMA_MIGRATE": "1"}),
+        (False, False, {}),
+    ])
+    def test_sync_passes_the_trigger_only_after_a_yes(self, tmp_path, migrate, repair, expected):
+        from unittest.mock import MagicMock
+        from app.outputs import sync as _sync
+        panel = MagicMock()
+        app = panel._app
+        app._timer_active = False
+        app._connection_verified = True
+        app.settings = {"backup_raw_backfill_asked": True}
+        app._panel_settings._collect_settings.return_value = {
+            "email": "a@b.c", "password": "x", "base_dir": str(tmp_path),
+            "sync_mode": "recent", "sync_days": "90", "sync_from": "", "sync_to": ""}
+        app._panel_archive._check_failed_days_popup.return_value = False
+        app._panel_archive._check_schema_migration.return_value = migrate
+        app._panel_archive._check_resting_hr_repair.return_value = repair
+        _sync.run_collector(panel)
+        app._panel_archive._check_resting_hr_repair.assert_called_once_with(base_dir=str(tmp_path))
+        assert app._run.call_args.kwargs["env_overrides"] == expected

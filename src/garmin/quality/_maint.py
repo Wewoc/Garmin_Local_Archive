@@ -197,6 +197,39 @@ def set_unknown_device_name(data: dict, name: str) -> int:
     return count
 
 
+def touch_last_checked(data: dict, days) -> int:
+    """
+    Sets `last_checked` to today on the entries of the given days — nothing
+    else. `quality`, `source`, `recheck`, `write`, `attempts` and `fields`
+    stay as they are, so the log checksum (date/quality/source/write) does
+    not change either.
+
+    Purpose: a day whose raw/summary content was corrected in place (repair
+    or migration paths) has to be re-read by the MCP cache, which re-reads a
+    day when its `last_checked` differs from the value it cached
+    (mcp_update._sync_health_days). Rotation and recheck do not use
+    `last_checked`.
+
+    Generic by design — usable by any repair that rewrites archived days,
+    not specific to one repair.
+
+    `days`: iterable of date objects or ISO strings (YYYY-MM-DD). A day
+    without an entry in the log is skipped, never created.
+    Returns the number of entries touched. Does NOT save — the caller holds
+    QUALITY_LOCK from load to save and saves once after the loop (same
+    contract as set_unknown_device_name; avoids one log write plus backup
+    snapshot per day).
+    """
+    today_str = date.today().isoformat()
+    wanted = {d.isoformat() if hasattr(d, "isoformat") else str(d) for d in days}
+    count = 0
+    for entry in data.get("days", []):
+        if entry.get("date") in wanted:
+            entry["last_checked"] = today_str
+            count += 1
+    return count
+
+
 def record_field_backfill_failure(data: dict, day: date, field: str) -> int:
     """
     Increments the failed-attempt counter for one field's backfill pass

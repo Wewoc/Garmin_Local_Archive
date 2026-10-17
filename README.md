@@ -345,7 +345,7 @@ same as everything else here):
 
 ```bash
 python tests/test_local.py                    # Garmin pipeline — cross-module checks (determinism, invariants, robustness, end-to-end)
-python tests/test_<module>.py                 # Garmin pipeline — one file per module of src/garmin/ (18 files, e.g. test_writer.py, test_quality.py, test_collector.py; shared setup in tests/gla_testenv.py)
+python tests/test_<module>.py                 # Garmin pipeline — one file per module of src/garmin/ (19 files, e.g. test_writer.py, test_quality.py, test_collector.py; shared setup in tests/gla_testenv.py)
 python tests/test_local_context.py            # Context pipeline (external APIs mocked)
 python tests/test_dashboard.py                # Dashboard pipeline
 python tests/test_broker.py                   # Broker layer (health_map / gateway_map routing, metadata_map)

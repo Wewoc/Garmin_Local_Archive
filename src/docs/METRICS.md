@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-10-13 13:31 UTC · Version: 1.7.5.4
+Generated: 2026-10-17 06:07 UTC · Version: 1.7.5.7
 
 ## Test Counts
 
@@ -17,26 +17,27 @@ Generated: 2026-10-13 13:31 UTC · Version: 1.7.5.4
 | test_normalizer.py | 151 | 151 | 0 |
 | test_validator.py | 82 | 82 | 0 |
 | test_writer.py | 40 | 40 | 0 |
-| test_quality.py | 445 | 445 | 0 |
-| test_backup.py | 210 | 210 | 0 |
+| test_quality.py | 449 | 449 | 0 |
+| test_backup.py | 270 | 270 | 0 |
 | test_source_writer.py | 88 | 88 | 0 |
 | test_container_mirror.py | 117 | 117 | 0 |
-| test_import_mirror.py | 120 | 120 | 0 |
-| test_collector.py | 391 | 391 | 0 |
-| test_garmin_import.py | 68 | 68 | 0 |
+| test_import_mirror.py | 123 | 123 | 0 |
+| test_collector.py | 413 | 413 | 0 |
+| test_garmin_import.py | 72 | 72 | 0 |
 | test_api.py | 75 | 75 | 0 |
 | test_live_fetch.py | 44 | 44 | 0 |
 | test_silo_check.py | 55 | 55 | 0 |
-| test_silo_repair.py | 56 | 56 | 0 |
+| test_silo_repair.py | 60 | 60 | 0 |
+| test_repair_resting_hr.py | 39 | 39 | 0 |
 | test_force_refetch.py | 72 | 72 | 0 |
 | test_local_context.py | 349 | 349 | 0 |
 | test_dashboard.py | 476 | 476 | 0 |
 | test_broker.py | 143 | 143 | 0 |
-| test_mcp.py | 337 | 337 | 0 |
+| test_mcp.py | 417 | 417 | 0 |
 | test_export.py | 45 | 45 | 0 |
 | test_app_logic.py | 188 | 188 | 0 |
 | test_updater.py | 93 | 93 | 0 |
-| test_qt_app.py | 187 | 187 | 0 |
+| test_qt_app.py | 197 | 197 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -44,13 +45,13 @@ Generated: 2026-10-13 13:31 UTC · Version: 1.7.5.4
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 17 | 17 | 0 |
-| **Total** | **4241** | **4241** | **0** |
+| **Total** | **4467** | **4467** | **0** |
 
 ## Modules
 
-Total: 159 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 160 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-10-13 08:44 UTC · Findings: 0 · Whitelisted: 68
+Scanned: 2026-10-17 06:06 UTC · Findings: 0 · Whitelisted: 68
 

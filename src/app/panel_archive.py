@@ -350,6 +350,43 @@ class PanelArchive(QWidget):
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    # ── Resting-HR repair check — RESTING-HR-REPAIR v1.7.5.7 — removable ───────
+
+    def _check_resting_hr_repair(self, base_dir: str) -> bool:
+        """Returns True if the repair was confirmed. Main Thread only."""
+        # INTENTIONAL DIRECT READ — read-only pre-flight check in GUI context,
+        # same category as _check_schema_migration() above. Scans raw/ and only
+        # tests whether source/ files exist; nothing is written, no quality_log
+        # access. The folders come from the settings (base_dir), so the check
+        # does not depend on what garmin_config was imported with.
+        garmin_dir = Path(base_dir) / "garmin_data"
+        raw_dir    = garmin_dir / "raw"
+        if not raw_dir.exists():
+            return False
+        try:
+            import garmin_repair_resting_hr as _rr
+            found = _rr.find_candidates(raw_dir=raw_dir, source_dir=garmin_dir / "source")
+        except Exception:
+            return False
+        count = len(found["repairable"])
+        if count == 0:
+            return False
+        no_source = len(found["no_source"])
+        extra = (f"\n{no_source} more day(s) have no archived original and stay unchanged.\n"
+                 if no_source else "")
+        answer = QMessageBox.question(
+            self._app, "Data Correction — Backup Required",
+            f"{count} day(s) imported from the Garmin export have a wrong resting "
+            f"heart rate (the 7-day average was stored instead of the value of the day).\n\n"
+            f"The correct values are read from the archived Garmin originals (source/). "
+            f"The raw and summary files of these days are rewritten; "
+            f"the backups follow.\n{extra}\n"
+            f"Please make a backup of your data directory before continuing.\n\n"
+            f"I have a backup — correct these days?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     # ── Failed days popup ──────────────────────────────────────────────────────
 
     def _check_failed_days_popup(self, base_dir: str, sync_mode: str,

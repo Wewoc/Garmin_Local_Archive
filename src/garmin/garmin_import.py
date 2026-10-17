@@ -114,7 +114,11 @@ def parse_day(entries: dict, date_str: str) -> dict:
             "moderateIntensityMinutes": uds.get("moderateIntensityMinutes"),
             "vigorousIntensityMinutes": uds.get("vigorousIntensityMinutes"),
             "floorsAscended":           _meters_to_floors(uds.get("floorsAscendedInMeters")),
-            "restingHeartRate":         uds.get("restingHeartRate"),
+            # The export's "restingHeartRate" is the 7-day average; the value of
+            # the day is "currentDayRestingHeartRate". A missing day value stays
+            # empty — it never falls back to the average (v1.7.5.7).
+            "restingHeartRate":         uds.get("currentDayRestingHeartRate"),
+            "lastSevenDaysAvgRestingHeartRate": uds.get("restingHeartRate"),
             "minHeartRate":             uds.get("minHeartRate"),
             "maxHeartRate":             uds.get("maxHeartRate"),
         }

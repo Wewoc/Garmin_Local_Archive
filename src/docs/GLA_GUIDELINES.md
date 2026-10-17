@@ -270,7 +270,7 @@ garmin_validator.py    — validate() (identical to the API path)
       ▼
 garmin_normalizer.py   — normalize(raw, source="bulk")
       │                  special case: remaps HR aggregates from user_summary → heart_rates
-      │                  no intraday data in the GDPR export → quality is always standard/failed, never high
+      │                  the JSON import carries no intraday series → quality is always standard/failed, never high
       ▼
 garmin_quality.py      — assess_quality(), assess_quality_fields()
       │
@@ -802,6 +802,7 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_source_quality.py` | Sole owner of the **assessment logic** (not the files) — no write access, called by `garmin_source_writer` | **Yes** |
 | `garmin_silo_check.py` | Read-only drift detection | **Yes** |
 | `garmin_silo_repair.py` | Headless-callable repair core for the four silo-drift categories — delegates to owner modules, never writes directly | No |
+| `garmin_repair_resting_hr.py` | Removable one-time repair of the resting heart rate of imported days (v1.7.5.7) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_backup.py` | Sole owner of `backup/raw/` + `backup/log/` | No |
 | `garmin_backup_source.py` | Sole owner of `backup/source/` | No |
 | `garmin_force_refetch.py` | Sole owner of `backup/force_refetch/` — per-day snapshot/restore for the deliberate Force-Refetch freeze-guard bypass | No |

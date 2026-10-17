@@ -232,6 +232,27 @@ def _check_schema_migration(base_dir: Path) -> bool:
     return False
 
 
+def _check_resting_hr_repair(base_dir: Path) -> int:
+    """RESTING-HR-REPAIR v1.7.5.7 — removable.
+
+    Counts imported days that still carry the wrong resting heart rate and
+    warns once. Unlike the schema migration this never stops the run — the
+    sync is not blocked by it; the correction is started from the app
+    (Sync Garmin asks). Returns the number of days; 0 on any error."""
+    try:
+        import garmin_repair_resting_hr as _rr
+        garmin_dir = base_dir / "garmin_data"
+        found = _rr.find_candidates(raw_dir=garmin_dir / "raw",
+                                    source_dir=garmin_dir / "source")
+    except Exception:
+        return 0
+    count = len(found["repairable"])
+    if count:
+        log.warning(f"  {count} imported day(s) have a wrong resting heart rate.")
+        log.warning("  Open the app and run Sync Garmin once to correct them.")
+    return count
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Version check
 # ══════════════════════════════════════════════════════════════════════════════
@@ -721,7 +742,11 @@ def main() -> int:
         log.error("  Please open the app to run the migration first.")
         return 1
 
-    # ── 5. Version check (non-blocking) ───────────────────────────────────────
+    # ── 4b. Resting-HR repair hint — RESTING-HR-REPAIR v1.7.5.7 — removable ───
+    # Warning only, the run goes on.
+    _check_resting_hr_repair(base_dir)
+
+    # ── 5. Version check (non-blocking)───────────────────────────────────────
     update_available, release_json = _check_version()
     if update_available:
         log.warning(f"  A new version is available: {update_available}")

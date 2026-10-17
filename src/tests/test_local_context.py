@@ -1442,8 +1442,10 @@ _bkp_raw.write_text(json.dumps({"date": _bkp_date, "test": True}), encoding="utf
 _bkp_result = backup.backup_raw(_bkp_date)
 check("backup_raw: success → True",
       _bkp_result == True)
-check("backup_raw: file in month dir",
-      (cfg.RAW_BACKUP_DIR / "2024-03" / f"garmin_raw_{_bkp_date}.json").exists())
+check("backup_raw: a day in a completed month is consolidated into the monthly ZIP right away "
+      "(v1.7.5.6; before: it stayed in the month folder)",
+      backup._zip_contains(cfg.RAW_BACKUP_DIR / "raw_backup_2024-03.zip", f"garmin_raw_{_bkp_date}.json")
+      and not (cfg.RAW_BACKUP_DIR / "2024-03").exists())
 
 # _consolidate_raw_months — abgeschlossener Monat wird gezippt
 _old_date = "2024-01-10"
@@ -1455,8 +1457,12 @@ check("consolidate: old month zipped",
       (cfg.RAW_BACKUP_DIR / "raw_backup_2024-01.zip").exists())
 check("consolidate: old month dir removed",
       not _old_dir.exists())
+_open_dir = cfg.RAW_BACKUP_DIR / "2024-04"
+_open_dir.mkdir(parents=True, exist_ok=True)
+(_open_dir / "garmin_raw_2024-04-01.json").write_text("{}", encoding="utf-8")
+backup._consolidate_raw_months(current_month="2024-04")
 check("consolidate: current month not zipped",
-      not (cfg.RAW_BACKUP_DIR / "raw_backup_2024-03.zip").exists())
+      not (cfg.RAW_BACKUP_DIR / "raw_backup_2024-04.zip").exists() and _open_dir.exists())
 
 # backup_quality_log — erstellt monthly snapshot
 quality_a._save_quality_log(_data_save, skip_backup=True)
