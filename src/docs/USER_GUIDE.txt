@@ -86,6 +86,26 @@ sync range, a popup will appear before the sync starts: "Incomplete
 records found: X days in the selected range — Refresh now?" Click
 "Yes" to re-fetch those days, or "No" to skip them and sync normally.
 
+Correction of the resting heart rate (v1.7.5.7): earlier versions of the
+Bulk Import stored the 7-day average of the resting heart rate instead of
+the value of the day. If your archive holds such imported days, a popup
+"Data Correction - Backup Required" appears before the sync starts. It
+names the number of days. What it does:
+  - The correct value of each day is read from the saved Garmin original
+    of that day (garmin_data/source/). Days without a saved original are
+    named in the popup and stay unchanged.
+  - The raw and summary files of those days are rewritten; the backup
+    copies follow. The days are marked, so AI queries (MCP) show the
+    corrected values after the next sync.
+  - It takes a couple of minutes for a few thousand days and runs once:
+    when no day is left to correct, the popup does not appear again.
+Before you click "Yes", make a backup of your data folder (a copy of
+garmin_data/ is enough). Click "No" to skip: nothing changes, and the
+popup comes back at the next Sync Garmin. The scheduled Daily Sync never
+stops for this; it only writes a note to its log ("N imported day(s) have
+a wrong resting heart rate - open the app and run Sync Garmin once").
+Imports made with v1.7.5.7 or later take the right value from the start.
+
 Large archives: if you have years of Garmin history, start with
 `range` mode for the last 1–2 years before using `auto`. Downloading
 everything at once can trigger Garmin rate limiting.

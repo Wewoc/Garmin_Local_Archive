@@ -80,6 +80,7 @@ of scope.
 | `garmin_import_mirror.py` | mirror import operation — orchestrates only |
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
+| `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
 
 ### Invariants
 
@@ -97,6 +98,7 @@ of scope.
   Every day is an atomic resume point — a hard abort cannot leave a raw file without a
   quality_log entry.
 - No module reads `os.environ` directly — all config via `garmin_config`
+- **A step that changes the quality log inside `garmin_collector.main()` works on the run's own `quality_data`** (like the backfills), never on a copy it loads itself: `main()` saves its in-memory log again after the sync, and a second copy's changes would be overwritten (v1.7.5.7, found on a real archive with the resting-HR repair — `last_checked` was lost and the MCP cache kept the old values)
 - **API-Capability-Scan (v1.6.8):** the 15 baseline `fetch_raw()` endpoints
   always run — the capability config can only add optional candidates, never
   disable a baseline endpoint. Candidates are double-gated before joining a
@@ -491,6 +493,62 @@ the full diagnosis/fix history.
   `record_field_backfill_failures()` (confirms one call covering all open
   fields, not one call per field); error path records attempts for all
   still-open fields.
+
+N. **Resting-HR repair (v1.7.5.7, removable).** The GDPR import had stored the
+export's 7-day average as the resting heart rate of the day; new imports take
+the day value, and `garmin_repair_resting_hr.py` corrects days already
+archived (values from `source/`).
+- `test_garmin_import.py` — `parse_day()` takes the day value, keeps the
+  average as `lastSevenDaysAvgRestingHeartRate`, an absent day value stays empty;
+  `normalize()`/`summarize()` carry it through (4 checks that turned the old
+  behaviour around).
+- `test_quality.py` — `touch_last_checked()` (4 checks: only `last_checked`
+  changes, the log checksum stays, unknown day not created, never saves).
+- `test_repair_resting_hr.py` — detection, repair of all value cases
+  (different, equal, no day value, not a number), summary, quality log (only
+  `last_checked`, checksum, one save), backup ZIP, lock, second run, dry run,
+  failing days, stop, interruption, changed meanwhile, explicit folders,
+  scheduler hint, and the shared quality log of the caller.
+- `test_collector.py` section 4u — step 3e: only `"1"` starts it, the variable
+  is removed when read, before the login, after migration and backup refresh,
+  errors are warnings, import mode returns before it, and an end-to-end run in
+  which the repair is followed by a save of the run's own log (the repaired
+  day keeps its `last_checked`).
+- `test_qt_app.py::TestRestingHrRepairHooks` — the popup (no folder, nothing
+  to correct, Yes, No, days without an original, scan error) and the trigger in
+  `run_collector()` for the four combinations with the schema migration.
+Checked on a copy of a real archive and then on the real archive itself, see
+`CHANGELOG.md`.
+
+**Removal list** — everything that belongs to the repair carries the marker
+`RESTING-HR-REPAIR v1.7.5.7` (grep for it; the same list is in the docstring of
+the module):
+1. `garmin/garmin_repair_resting_hr.py` and `tests/test_repair_resting_hr.py`.
+2. `compiler/build_manifest.py` — the `SHARED_SCRIPTS` entry, the
+   `SCRIPT_SIGNATURES_BASE` entry of the module and `"def _run_resting_hr_repair"`
+   in the collector's signatures.
+3. `run_tests.ps1` and `tests/conftest.py` — the test file entry.
+4. `garmin/garmin_collector.py` — the section "Resting-HR repair"
+   (`_run_resting_hr_repair()`) and step 3e in `main()`; in
+   `tests/test_collector.py` the blocks "main resting HR repair" (section 4u and
+   the end-to-end block).
+5. `app/panel_archive.py::_check_resting_hr_repair()` and the three lines in
+   `app/outputs/sync.py::run_collector()`; `tests/test_qt_app.py::TestRestingHrRepairHooks`.
+6. `scheduler/daily_update.py` — `_check_resting_hr_repair()` and step 4b.
+7. Docs — the module section, the exception row, the `_run_resting_hr_repair`
+   row and the invariant bullets in `REFERENCE_GARMIN.md`, the three bullets
+   in `REFERENCE_INVARIANTS.md`, the variable row and the tree line in
+   `REFERENCE_GLOBAL.md`, the module and test rows in `MAINTENANCE_GLOBAL.md`,
+   the owner row in `GLA_GUIDELINES.md`, this section and the section in
+   `USER_GUIDE.txt`. `CHANGELOG.md` stays as history.
+
+What stays when it is removed: `garmin_quality.touch_last_checked()` (generic,
+usable by any repair that rewrites archived days) and the corrected mapping in
+`garmin_import.parse_day()` with its tests. The point in time is a decision of
+the maintainer: it cannot be known when no archive can still carry days imported
+before v1.7.5.7 — a restored old backup or a mirror from an older version can
+bring such days back. After removal those days simply stay uncorrected; nothing
+else depends on the repair.
 
 ### What is NOT tested
 

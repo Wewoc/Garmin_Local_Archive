@@ -3250,6 +3250,125 @@ with _isolated_log_env("main15bkr") as _b:
         check("4u main backup refresh: the import mode returns before it — no check, no refresh",
               _code == 0 and not _cr.called and not _cs.called and not _rr.called and not _rs.called)
 
+# -- resting-HR repair (v1.7.5.7) — RESTING-HR-REPAIR v1.7.5.7 — removable ---------------------------------------------
+_RR_OK15 = {"ok": 2, "failed": 0, "no_source": [], "items": []}
+_RR_ON15 = {"GARMIN_RESTING_HR_REPAIR": "1"}
+
+
+def _rhr15(result=None, rr_err=None, **kw):
+    """main() once with garmin_repair_resting_hr.repair_resting_hr mocked. Returns (main result, log recorder, mock)."""
+    with patch("garmin_repair_resting_hr.repair_resting_hr",
+               return_value=_RR_OK15 if result is None else result, side_effect=rr_err) as _m:
+        out, rec = _m15(**kw)
+    return out, rec, _m
+
+
+with _isolated_log_env("main15rhr") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _res = {}
+        for _val in ("1", "0", "2", "", None):
+            _, _rec, _m = _rhr15(env={"GARMIN_RESTING_HR_REPAIR": _val} if _val is not None else {})
+            _res[_val] = _m.call_count
+        check("4u main resting HR repair: GARMIN_RESTING_HR_REPAIR=1 (and only that value) starts the repair",
+              _res == {"1": 1, "0": 0, "2": 0, "": 0, None: 0})
+        _, _rec, _m = _rhr15(env=_RR_ON15)
+        check("4u main resting HR repair: the stop check and the quality log of the run are handed over (v1.7.5.7, Baustein 2f)",
+              set(_m.call_args.kwargs) == {"should_stop", "quality_data"}
+              and _m.call_args.kwargs["should_stop"] is _col5._is_stopped
+              and isinstance(_m.call_args.kwargs["quality_data"], dict) and "days" in _m.call_args.kwargs["quality_data"])
+
+        (_code, _exc, _f, _), _rec, _m = _rhr15(env=_RR_ON15, login=None)
+        (_code2, _exc2, _f2, _), _rec2, _m2 = _rhr15(env=_RR_ON15, login_error=_col5.api.GarminLoginError("nope"))
+        check("4u main resting HR repair: runs before the login — a cancelled login does not stop it, a login error "
+              "does not stop it and the run still exits with 1",
+              _code is None and _exc is None and _m.call_count == 1 and _code2 == 1 and _m2.call_count == 1)
+
+        _order = []
+        with patch.object(_col5, "_run_schema_migration", side_effect=lambda q: _order.append("migration")), \
+             patch.object(_col5, "_run_backup_refresh", side_effect=lambda: _order.append("backup")), \
+             patch("garmin_repair_resting_hr.repair_resting_hr",
+                   side_effect=lambda **kw: (_order.append("repair"), _RR_OK15)[1]):
+            _m15(env={"GARMIN_SCHEMA_MIGRATE": "1", **_RR_ON15})
+        check("4u main resting HR repair: runs after the schema migration and after the backup refresh",
+              _order == ["migration", "backup", "repair"])
+
+        with patch.dict(sys.modules, {"garmin_repair_resting_hr": None}):
+            (_code, _exc, _f, _), _rec = _m15(env=_RR_ON15)
+        check("4u main resting HR repair: a missing module (the repair was removed) is a warning, the run goes on",
+              _code is None and _exc is None
+              and any(m.startswith("  Resting HR repair skipped:") for m in _rec.msgs("warning")))
+
+        _, _rec, _m = _rhr15(result={"ok": 1, "failed": 2, "no_source": [], "items": []}, env=_RR_ON15)
+        _, _rec0, _m0 = _rhr15(env=_RR_ON15)
+        check("4u main resting HR repair: failed days are warned about with their number, a clean run adds no warning",
+              any(m.startswith("  Resting HR repair: 2 day(s) failed") for m in _rec.msgs("warning"))
+              and not any("Resting HR repair" in m for m in _rec0.msgs("warning")))
+
+        with patch.object(_col5, "run_import", return_value={"failed": 0}):
+            (_code, _exc, _f, _), _rec, _m = _rhr15(env={"GARMIN_IMPORT_PATH": "ignored", **_RR_ON15})
+        check("4u main resting HR repair: the import mode returns before it — no repair",
+              _code == 0 and not _m.called)
+
+with _isolated_log_env("main15rhr2") as _b:      # no log, no raw file: the day is new and is fetched
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _seen_in, _seen_after = [], {}
+
+        def _repair_env(**kw):
+            _seen_in.append(os.environ.get("GARMIN_RESTING_HR_REPAIR"))
+            return _RR_OK15
+
+        _env_after = []
+
+        def _fetch_env(client, date_str, extra_endpoints=None):
+            _env_after.append(os.environ.get("GARMIN_RESTING_HR_REPAIR"))
+            return _day_raw(date_str, "high"), []
+
+        for _val in ("1", "0"):
+            with _isolated_log_env(f"main15rhr2_{_val}") as _b2:       # fresh archive: the day is fetched again
+                cfg.SUMMARY_DIR = _b2 / "summary"
+                _env_after.clear()
+                with patch("garmin_repair_resting_hr.repair_resting_hr", side_effect=_repair_env):
+                    _m15(env={"GARMIN_RESTING_HR_REPAIR": _val}, fetch=_fetch_env)
+                _seen_after[_val] = list(_env_after)
+        check("4u main resting HR repair: the variable is removed as soon as it is read — before the repair runs "
+              "and for every value, so a later run in the same process (T3) is not triggered again",
+              _seen_in == [None] and _seen_after == {"1": [None], "0": [None]})
+
+        (_code, _exc, _f, _), _rec, _m = _rhr15(rr_err=OSError("boom"), env=_RR_ON15)
+        check("4u main resting HR repair: an error in the repair is a warning, the run goes on",
+              _code is None and _exc is None and _f.called
+              and "  Resting HR repair skipped: boom" in _rec.msgs("warning"))
+
+# -- resting-HR repair end to end (Baustein 2f) — RESTING-HR-REPAIR v1.7.5.7 — removable --------------------------------
+# The real repair, then a later save of the run's own quality log (the day that is fetched afterwards). Before 2f the
+# repair loaded and saved its own copy of the log; the save after the fetch wrote main()'s older copy back and the
+# repair's last_checked was lost (found on the real archive, 2026-10-17) — the MCP cache then never re-read the days.
+with _isolated_log_env("main15rhr3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _imp15 = "2024-04-01"
+    _put15 = lambda p, o: (p.parent.mkdir(parents=True, exist_ok=True), p.write_text(json.dumps(o), encoding="utf-8"))
+    _put15(cfg.RAW_DIR / f"garmin_raw_{_imp15}.json",
+           {"date": _imp15, "user_summary": {"totalSteps": 8000, "restingHeartRate": 60},
+            "heart_rates": {"restingHeartRate": 60, "minHeartRate": 45, "maxHeartRate": 150}})
+    _put15(cfg.SOURCE_DIR / f"garmin_source_{_imp15}.json",
+           {"date": _imp15, "heart_rates": {"restingHeartRate": 57, "lastSevenDaysAvgRestingHeartRate": 60}})
+    _log15([{"date": _imp15, **_API15, "last_checked": "2024-01-01"}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        (_code, _exc, _f, _), _rec = _m15(env=_RR_ON15)
+    _q = _qdays()
+    check("4u main resting HR repair end to end: the sync that follows the repair really saved the quality log "
+          "(the fetched day is in it) and the repair itself ran",
+          _code is None and _exc is None and _f.called and "2024-05-01" in _q
+          and json.loads((cfg.RAW_DIR / f"garmin_raw_{_imp15}.json").read_text(encoding="utf-8"))
+          ["heart_rates"]["restingHeartRate"] == 57)
+    check("4u main resting HR repair end to end: the repaired day keeps its new last_checked after the later save "
+          "— not overwritten by the older log in memory (Baustein 2f)",
+          _q[_imp15]["last_checked"] == date.today().isoformat())
+
 # -- device_id backfill ---------------------------------------------------------------------------------------------
 _DV = [f"2024-03-{n:02d}" for n in range(1, 13)]
 

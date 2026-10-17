@@ -18,7 +18,8 @@ a given rule, see `CHANGELOG.md`.
 
 ## Normalization / Schema
 
-- `CURRENT_SCHEMA_VERSION = 3` in `garmin_normalizer.py`
+- `CURRENT_SCHEMA_VERSION = 4` in `garmin_normalizer.py`
+- `garmin_import.py::parse_day()` — `user_summary.restingHeartRate` is the export's value of the day (`currentDayRestingHeartRate`), an absent day value stays empty and never falls back to the 7-day average; the average is kept as `user_summary.lastSevenDaysAvgRestingHeartRate`, never inside `heart_rates` (v1.7.5.7)
 
 ## Dashboards / Layouts
 
@@ -71,6 +72,9 @@ a given rule, see `CHANGELOG.md`.
 - `garmin_backup.py::_consolidate_raw_months()` / `garmin_backup_source.py::_consolidate_source_months()` — a file in the month folder is the newest backup copy of its day (`backup_raw()`/`backup_source()` overwrite it on every call) and replaces the same-named ZIP entry whenever its bytes differ; `force_filenames` only adds a replace of identical content. The scope stays per filename, never per month. The two modules are changed identically and are deliberately not merged (v1.7.5.6)
 - `garmin_source_writer.py::patch_source_field()` backs up the patched `source/` file via `backup_source()` after a successful patch — lazy import, non-fatal, like `write_source()` (v1.7.5.6)
 - `check_raw_stale_backups()`/`refresh_raw_backups()` and `check_source_stale_backups()`/`refresh_source_backups()` bring backup copies up to date that differ from their primary file: content-based (bytes of the month-folder copy, otherwise CRC32 and size of the ZIP entry), idempotent, never write to `raw/` or `source/`, never copy an invalid file over its backup, no quality-log marker (`garmin_backup_source.py` must not import pipeline modules). `garmin_collector.main()` runs them as step 3d before the login; any error is a warning (v1.7.5.6)
+- `garmin_quality.py::touch_last_checked(data, days)` sets `last_checked` on the given days and nothing else — `quality`, `source`, `recheck`, `write`, `attempts`, `fields` and the log checksum stay as they are. It never saves: the caller holds `QUALITY_LOCK` from load to save and saves once after its loop. Its purpose is the MCP cache, which re-reads a day when `last_checked` differs from the cached value (v1.7.5.7)
+- `garmin_repair_resting_hr.py` (v1.7.5.7, removable — every part carries the marker `RESTING-HR-REPAIR v1.7.5.7`) never writes a file itself: `raw/` + `summary/` through `garmin_writer.write_day()`, the quality log through `touch_last_checked()` + `_save_quality_log()` under one continuous `QUALITY_LOCK` hold, saved once after the loop. A caller that keeps its quality log in memory for the rest of its run passes it as `quality_data` — `garmin_collector.main()` does — because a log loaded by the repair is overwritten by the caller's next save and the marks are lost. Detection is by the content of `raw/` (no quality-log marker): the three-key import form of `heart_rates` without `user_summary.lastSevenDaysAvgRestingHeartRate`
+- `GARMIN_RESTING_HR_REPAIR` is removed with `os.environ.pop()` when `garmin_collector.main()` reads it (step 3e); only the value `"1"` starts the repair. `scheduler/daily_update.py` only warns about unrepaired days and never stops the run, unlike the schema migration (v1.7.5.7)
 
 ## MCP Server / Proxy
 

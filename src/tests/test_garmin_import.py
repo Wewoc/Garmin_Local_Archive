@@ -46,7 +46,8 @@ def _gdpr_sample():
             {"calendarDate": "2024-05-01", "totalSteps": 8000, "dailyStepGoal": 10000,
              "totalKilocalories": 2400, "activeKilocalories": 500, "totalDistanceMeters": 6000,
              "moderateIntensityMinutes": 10, "vigorousIntensityMinutes": 5,
-             "floorsAscendedInMeters": 30, "restingHeartRate": 52, "minHeartRate": 45,
+             "floorsAscendedInMeters": 30, "restingHeartRate": 52,
+             "currentDayRestingHeartRate": 54, "minHeartRate": 45,
              "maxHeartRate": 150,
              "allDayStress": {"aggregatorList": [{
                  "averageStressLevel": 30, "maxStressLevel": 90, "stressDuration": 1,
@@ -120,8 +121,24 @@ check("load_bulk: invalid calendar dates and files that are not lists / not JSON
       "2024-1-5" not in _by and len(_days) == 4)
 _u = _by["2024-05-01"]["user_summary"]
 check("parse_day: user summary values are carried over, meters become floors",
-      _u["totalSteps"] == 8000 and _u["restingHeartRate"] == 52 and _u["floorsAscended"] == 10
+      _u["totalSteps"] == 8000 and _u["floorsAscended"] == 10
       and _u["dailyStepGoal"] == 10000 and _u["maxHeartRate"] == 150)
+check("parse_day: resting heart rate is the value of the day, the 7-day average has its own field (v1.7.5.7)",
+      _u["restingHeartRate"] == 54 and _u["lastSevenDaysAvgRestingHeartRate"] == 52)
+_u_noday = _gi.parse_day({"uds": {"restingHeartRate": 52}}, "2024-05-05")["user_summary"]
+check("parse_day: no day value -> resting heart rate stays empty, no fallback to the average (v1.7.5.7)",
+      _u_noday["restingHeartRate"] is None and _u_noday["lastSevenDaysAvgRestingHeartRate"] == 52)
+# normalize() works in place — use copies so the days compared with the ZIP below stay untouched
+_day_copy = json.loads(json.dumps(_by["2024-05-01"]))
+_hr_day   = _normalizer5.normalize(_day_copy, source="bulk").get("heart_rates") or {}
+_hr_noday = _normalizer5.normalize(_gi.parse_day({"uds": {"restingHeartRate": 52}}, "2024-05-05"),
+                                   source="bulk").get("heart_rates") or {}
+check("normalize(bulk): heart_rates carries the day value; a day without it has no resting value (v1.7.5.7)",
+      _hr_day.get("restingHeartRate") == 54 and "restingHeartRate" not in _hr_noday
+      and "lastSevenDaysAvgRestingHeartRate" not in _hr_day)
+_hr_sum = _normalizer5.summarize(_day_copy)["heartrate"]
+check("summarize: heartrate.resting_bpm of an imported day is the day value (v1.7.5.7)",
+      _hr_sum["resting_bpm"] == 54)
 check("parse_day: stress aggregate comes from the UDS file",
       _by["2024-05-01"]["stress"]["averageStressLevel"] == 30
       and _by["2024-05-01"]["stress"]["highDuration"] == 5)

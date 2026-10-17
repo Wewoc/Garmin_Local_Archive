@@ -57,6 +57,7 @@ garmin_app.py (GUI)
 - Password for `lock()` may be cached in WCM (user opt-in). Password for `unlock_meta()` / `fulfill_order()` is entered via `QFileDialog` file picker — no path configuration required on import device
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `garmin_silo_check.py` is a leaf node — imports only `garmin_config` + stdlib. Read-only. No writes, no imports of write modules (v1.6.0.4.7)
+- `garmin_repair_resting_hr.py` (v1.7.5.7, removable) never writes a file itself: `raw/` + `summary/` only through `garmin_writer.write_day()`, `quality_log.json` only through `garmin_quality` (`touch_last_checked()` + `_save_quality_log()`), under one continuous `QUALITY_LOCK` hold. A caller that keeps its quality log in memory must hand it over (`quality_data=`) — a copy loaded by the repair would be overwritten by the caller's next save
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
 - `_fetch_and_assess()` returns `(label, normalized, summary, fields, val_result)` — never raises
@@ -88,7 +89,7 @@ its own — reads and decides, never writes. See also `GLA_HANDBUCH.md` §14.
 | `get_archive_stats(base_dir)` | Wraps `garmin_quality.get_archive_stats()`. Empty dict on any failure |
 | `get_source_stats(s)` | `{"total", "present"}` — all `source/` files vs. those within the last 180 days. INTENTIONAL DIRECT READ |
 
-**Timer-Modi und ihre Kandidaten-Funktionen** — sechs Modi, Priorität von oben nach unten:
+**Timer-Modi und ihre Kandidaten-Funktionen** — sieben Modi: Bulk Recheck wird in jedem Durchlauf zuerst geprüft; die übrigen sechs wechseln reihum (Repair → Quality → Fill → Source Backfill → Steps Backfill → Bulk Field Backfill), ein Modus ohne Kandidaten wird übersprungen (`panel_timer.py::_timer_loop`, `_mode_cycle`):
 
 | Modus | Funktion | Kandidaten |
 |---|---|---|
@@ -101,8 +102,9 @@ its own — reads and decides, never writes. See also `GLA_HANDBUCH.md` §14.
 | Bulk Field Backfill | `timer_run_bulk_field_backfill(s)` | `source="bulk"` + mindestens eines von `BULK_GAP_FIELDS` (`hrv`/`spo2`/`body_battery`/`respiration`/`training_status`/`race_predictions`/`max_metrics` — von `load_bulk()` strukturell nie extrahiert) ist `!= "high"` **und** dessen `field_backfill_attempts.<feld> < FIELD_BACKFILL_ATTEMPT_LIMIT`. Kein Alters-Cutoff, kein `recheck`-Flag — getrennt von `bulk_recheck`, das nur das 180-Tage-Fenster abdeckt. Voller Tages-Fetch (`_fetch_and_assess()`, alle 15 Endpunkte auf einmal — ein Bulk-Tag fehlt meist mehrere der 7 Felder gleichzeitig, ein einziger Fetch deckt alle ab), aber additiver Schlüssel-für-Schlüssel-Merge beim Schreiben (`garmin_merge.merge_field()`, dieselbe "nie einen nicht-leeren Wert überschreiben"-Primitive wie bei `steps_backfill`) statt vollem Ersetzen — Bulk und API nutzen für Felder, die Bulk selbst befüllt (z. B. `stress`), inkompatible Roh-Strukturen; ein voller Ersatz könnte ein Feld schlechter machen, obwohl das Tages-Gesamtlabel nicht sinkt (`_check_downgrade()` vergleicht nur das Label, nie einzelne Felder). Kein separater Downgrade-Check nötig — additiver Merge kann per Konstruktion nicht schlechter machen. Self-terminierend pro Feld: ein Tag bleibt Kandidat solange mindestens eines der 7 Felder noch nicht aufgegeben hat, auch wenn andere Felder ihr Limit schon erreicht haben (v1.7.3) |
 
 All seven candidate functions return a sorted `list[date]` (oldest first) or
-`None` if there is nothing to do. `panel_timer.py`'s `_timer_loop()` cycles
-through them by priority and dispatches the picked batch to
+`None` if there is nothing to do. `panel_timer.py`'s `_timer_loop()` checks Bulk
+Recheck first, cycles through the other six in rotation
+and dispatches the picked batch to
 `garmin_collector.py` via `GARMIN_SYNC_DATES` + a mode-specific ENV flag.
 
 ---
@@ -118,6 +120,7 @@ Intentional deviations from the invariants above. Each exception is stable by de
 | `garmin_validator.py` imports `garmin_config` | `garmin/garmin_validator.py` | `garmin_config` is a pure constants module with no project-module imports. `garmin_validator` needs `DATAFORMAT_FILE` path. Leaf-node status refers to pipeline modules — `garmin_config` is infrastructure. |
 | `process_status.py` imports `garmin_config` (lazily, inside `is_mcp_running()`) | `process_status.py` | Same reasoning as `garmin_validator.py` above — needs `MCP_HTTP_PORT`, `garmin_config` is infrastructure, not a pipeline import. Kept lazy (not module-level) specifically so this Leaf-Node stays safe to import from `scheduler/daily_update.py` at any point in its startup sequence — a module-level import here would risk the same premature-`GARMIN_OUTPUT_DIR`-caching bug `daily_update.py` already guards against elsewhere (v1.7.2.4). |
 | Controller timer functions read `quality_log.json` directly | `app/garmin_app_controller.py` — `timer_run_repair`, `timer_run_bulk_recheck`, `timer_run_quality`, `timer_run_source_backfill`, `timer_run_steps_backfill`, `timer_run_bulk_field_backfill` | Read-only analytical fast-path. No mutation, no ownership transfer, no `QUALITY_LOCK` required. `garmin_quality` provides no filtered-list API for these queries; adding one would inflate the module into a query gateway. |
+| `PanelArchive._check_resting_hr_repair()` scans `raw/` and tests whether `source/` files exist | `app/panel_archive.py` | Read-only pre-flight check in GUI context (v1.7.5.7, removable), same category as `_check_schema_migration()`: scans the archive of the current settings through `garmin_repair_resting_hr.find_candidates(raw_dir, source_dir)`, writes nothing, no `quality_log.json` access. The folders come from `base_dir`, so it does not depend on what `garmin_config` was imported with. |
 
 ---
 
@@ -242,6 +245,65 @@ that distinction matters). Diagnosed empirically first via the external
 
 ---
 
+## `garmin_repair_resting_hr.py`
+
+**Removable (v1.7.5.7).** One-time repair of the resting heart rate of days
+that were imported from the Garmin GDPR export before v1.7.5.7: until then
+`garmin_import` stored the export's 7-day average as the value of the day.
+Everything that belongs to this repair carries the marker
+`RESTING-HR-REPAIR v1.7.5.7` (grep for it); the removal list is in the module
+docstring and in `MAINTENANCE_GARMIN.md`. Not a Leaf-Node — imports
+`garmin_config`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`. Never
+writes files directly itself (Sole-Write-Authority unchanged, same principle as
+`garmin_silo_repair.py`).
+
+| Function | Purpose |
+|---|---|
+| `find_candidates(raw_dir=None, source_dir=None)` | Read-only. Returns `{"repairable": [...], "no_source": [...]}` (sorted ISO dates) — `raw/` days in the unrepaired import form, split by whether a `source/` file exists (its content is not read here). `raw_dir`/`source_dir` default to the configured folders; the GUI popup and the scheduler pass the archive of the current settings. Unreadable raw files are skipped |
+| `repair_resting_hr(dry_run=False, should_stop=None, quality_data=None)` | Always scans anew, never acts on an earlier finding. Returns `{"ok", "failed", "no_source", "items"}`; `items` has one dict per day (`date`, `status` = `repaired` \| `would_repair` \| `error` \| `skipped`, and `old`/`new`/`avg` or `reason`). `dry_run=True` writes nothing and lists old and new value. `should_stop` ends the loop after the current day. `quality_data`: the caller's quality log — marked and saved in place (see invariants below); without it the log is loaded here |
+
+**Detection (content only, no marker in the quality log):** `raw/` `heart_rates`
+holds exactly the three keys the import wrote (`restingHeartRate`,
+`minHeartRate`, `maxHeartRate`) and `user_summary` has no
+`lastSevenDaysAvgRestingHeartRate`. A repaired day always carries that key (a
+value or `None`), so a second run finds nothing. The quality log's `source`
+cannot be used for this — on an archive checked in v1.7.5.7 all imported days
+carried `source: "api"`.
+
+**Per repaired day:** the day value and the 7-day average are read from the
+day's `source/` file (`heart_rates.restingHeartRate`,
+`heart_rates.lastSevenDaysAvgRestingHeartRate`; only real numbers count —
+booleans and text are treated as missing). Three places in `raw/` change:
+`heart_rates.restingHeartRate` (key removed if `source/` has no value),
+`user_summary.restingHeartRate`, `user_summary.lastSevenDaysAvgRestingHeartRate`.
+The summary is rebuilt from the corrected raw with `summarize()`, written with
+`garmin_writer.write_day()` (the raw backup follows, v1.7.5.6). min/max, intraday
+data, quality label and source label are not touched. A day without a `source/`
+file is reported and left unchanged. One failing day never stops the loop.
+
+**Trigger chain:** `PanelArchive._check_resting_hr_repair(base_dir)` (popup
+"Data Correction — Backup Required": count, backup hint, days without an
+original; shown at every Sync Garmin start while correctable days exist) →
+`sync.run_collector()` adds `GARMIN_RESTING_HR_REPAIR=1` to the run's
+environment after a Yes → `garmin_collector.main()` step 3e →
+`_run_resting_hr_repair(quality_data)`. `scheduler/daily_update.py` step 4b
+(`_check_resting_hr_repair(base_dir)`) only warns with the number of days and
+goes on — unlike the schema migration it never stops the run.
+
+**Invariants:**
+- `QUALITY_LOCK` is held from loading to the last save; the caller must not hold it (not re-entrant). The log is saved **once** after the loop, also when an unexpected exception ends it — days written so far are recorded.
+- `quality_log.json` is touched only through `garmin_quality.touch_last_checked()` (sets `last_checked` and nothing else, so the checksum is unchanged) — the MCP cache then re-reads the corrected days. Failed days are not recorded.
+- When the caller keeps its quality log in memory for the rest of the run (`garmin_collector.main()`), it must pass it as `quality_data`. A log loaded here would be overwritten by the caller's next save, the marks would be lost and the MCP cache would keep the old values (found on a real archive, fixed in the same version).
+
+**Limits:** the export as a source (days without `source/`) is not built. The
+per-field label `fields["heart_rates"]` in the quality log is not recalculated
+(a day whose `source/` has no resting value would keep its old label).
+`write_day()` replaces the raw file first and the summary second; if only the
+second replace failed, `raw/` would already carry the marker (existing writer
+behaviour, all callers).
+
+---
+
 ## `garmin_security.py`
 
 **Design note:** `garmin_config` is imported lazily inside each function (not at module level).
@@ -362,6 +424,7 @@ matching on unknown text.
 | `compare_source_fields(old_source, new_source)` | SHA-256 field-by-field comparison of two `source/`-shaped dicts (v1.7.1.7, `garmin/quality/_fieldhash.py`). Each field's value serialized via `json.dumps(..., sort_keys=True)` before hashing — key order never causes a false difference. Returns `list[str]` — names (from `KNOWN_FIELDS`) of fields that differ, in `KNOWN_FIELDS` order. Used exclusively by `garmin_collector.run_force_refetch_preview()` to show the user what actually changed after a deliberate Force-Refetch |
 | `record_attempt(data, day, label, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Public API — atomically calls `_upsert_quality` + `_save_quality_log`. Caller must hold `QUALITY_LOCK`. |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Adds or updates day entry. Downgrade protection: `high` stays `high`. Stores `device_id` + `device_name` per entry. |
+| `touch_last_checked(data, days)` | Sets `last_checked` to today on the entries of the given days (date objects or ISO strings) — nothing else: `quality`, `source`, `recheck`, `write`, `attempts`, `fields` and the log checksum stay as they are. Returns the number of entries touched; a day without an entry is skipped, never created. Does **not** save — the caller holds `QUALITY_LOCK` from load to save and saves once after its loop. Purpose: a day whose `raw/`/`summary/` content was corrected in place must be re-read by the MCP cache, which re-reads a day when its `last_checked` differs from the cached value (`mcp_update._sync_health_days`); rotation and recheck do not use `last_checked`. Generic — not specific to one repair (v1.7.5.7) |
 | `save_device_table(quality_data)` | Builds and writes `device_table.json`. Called after each sync and after device_id backfill. Groups entries by `device_id`; entries with `device_id=None` appear as `__unknown__` row. Sole write authority: `garmin_quality`. |
 | `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `standard`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk`, `integrity_warnings` |
 | `_compute_checksum(data)` | SHA-256 over stable core fields (`date`, `write`, `quality`, `source`) of all day entries. Extended in v1.5.5. Migration bridge: `_compute_checksum_legacy()` (TODO: remove after v1.6) |
@@ -424,7 +487,7 @@ daily path).
 
 | Function | Purpose |
 |---|---|
-| `main()` | Full sync orchestration: negative `GARMIN_MAX_DAYS_PER_SESSION` rejected with a named error before anything else runs (v1.7.4.0.4 — previously silently reached `missing[:-1]` instead of meaning "unlimited") → import mode (0) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → backup refresh (3d, v1.7.5.6) → login → devices → device_id backfill → source backfill (5c) → steps backfill (5d) → bulk field backfill (5e, `GARMIN_BULK_FIELD_BACKFILL=1`, v1.7.3) → first_day → date resolution → fetch loop → save. `known_dates`/`recheck_dates`/`bulk_upgrade_dates` built via `_valid_dated_entries()` (v1.7.4.0.4) — a quality-log entry with an unparseable date is skipped with a warning instead of raising before login; a `_day_counted` flag in the fetch loop prevents one day being counted in both the saved and the error tally |
+| `main()` | Full sync orchestration: negative `GARMIN_MAX_DAYS_PER_SESSION` rejected with a named error before anything else runs (v1.7.4.0.4 — previously silently reached `missing[:-1]` instead of meaning "unlimited") → import mode (0) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → backup refresh (3d, v1.7.5.6) → resting-HR repair (3e, v1.7.5.7, `GARMIN_RESTING_HR_REPAIR=1`) → login → devices → device_id backfill → source backfill (5c) → steps backfill (5d) → bulk field backfill (5e, `GARMIN_BULK_FIELD_BACKFILL=1`, v1.7.3) → first_day → date resolution → fetch loop → save. `known_dates`/`recheck_dates`/`bulk_upgrade_dates` built via `_valid_dated_entries()` (v1.7.4.0.4) — a quality-log entry with an unparseable date is skipped with a warning instead of raising before login; a `_day_counted` flag in the fetch loop prevents one day being counted in both the saved and the error tally |
 | `_fetch_and_assess(client, date_str, enabled_candidates=None, force=False)` | Fetch → validate → normalize → assess. No file writes of its own beyond `write_source()` (see below). Returns `(label, normalized, summary, fields, val_result)`. `enabled_candidates` (v1.6.8) — optional list of API-Capability-Scan candidate method names, pre-filtered by the caller (double-gate); turned into `extra_endpoints` for `api.fetch_raw()`. `None` (default) — used by `_run_source_backfill()`, which does not take part in the Capability Scan (scope boundary, v1.6.8). `force` (v1.7.1.7) passed straight through to the internal `write_source()` call — cannot be applied afterwards separately, since `write_source()` is called internally |
 | `run_capability_scan(client, window_days=7)` | Probes the 19 optional health-endpoint candidates (`garmin_api_capability.CANDIDATE_ENDPOINTS`) over the last `window_days` days. Runs entirely under `quality.QUALITY_LOCK` (reused, not a new lock — see Invariants). Per-candidate try/except — one failing candidate never aborts the rest. Payload discarded, only the tri-state result (`found`/`not_observed`/`error`) persisted via `garmin_api_capability.update_endpoint()`/`save_config()`. Returns `{"scanned", "found", "not_observed", "error"}` (v1.6.8) |
 | `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)`. Delegates the actual rank comparison to `quality.is_downgrade()` (v1.6.5.7 — canonical location, also used by `export/regenerate_raw.py` and `garmin_silo_repair.py`; previously duplicated in each) |
@@ -435,6 +498,7 @@ daily path).
 | `_run_self_healing(quality_data)` | Revalidates days with stale schema version against local `raw/` files — no API call |
 | `_run_schema_migration(quality_data)` | Rewrites outdated summary files from raw when `GARMIN_SCHEMA_MIGRATE=1`. No API call. Uses `writer.write_summary_only()` (v1.7.4.0.4) — `raw/` and its backup genuinely untouched, not just by convention. Log output per day `[i/total]` |
 | `_run_backup_refresh()` | Step 3d in `main()` (v1.7.5.6), after the schema migration and before the login. For raw and source: `check_*_stale_backups()`; if anything differs from its backup copy, logs `Backup refresh (raw\|source): N outdated backup copy/copies — refreshing` and calls `refresh_*_backups()`. Content-based and idempotent, so there is no popup, quality-log marker or environment variable. Runs on every normal start — also without new days and when the login fails; the import mode and the capability scan return before it. No API call, never modifies `raw/` or `source/`. Non-fatal: any error is a warning. Catches up archives that were written before a rewritten day replaced its ZIP entry (v1.7.5.6) |
+| `_run_resting_hr_repair(quality_data)` | Step 3e in `main()` (v1.7.5.7, removable), after the schema migration and the backup refresh, before the login. Runs only when `GARMIN_RESTING_HR_REPAIR == "1"` (set by `sync.run_collector()` after the popup was confirmed); the variable is removed with `os.environ.pop()` as soon as it is read — in T3 the process, and with it `os.environ`, lives on between runs. Starts `garmin_repair_resting_hr.repair_resting_hr(should_stop=_is_stopped, quality_data=quality_data)`: the run's own quality log is handed over like the backfills get it, because a log loaded by the repair would be overwritten by the next save of this run. No API call. Non-fatal: any error (also a missing module) is a warning `Resting HR repair skipped: …`; failed days are warned about with their number and stay offered at the next start |
 | `_run_source_backfill(client, quality_data)` | Re-fetches API days from `cfg.SYNC_DATES` that have no `source/` file. Step 5c in `main()` — after login, triggered by `GARMIN_SOURCE_BACKFILL=1`. Non-fatal per-day errors. No-op if `SYNC_DATES` empty (v1.6.0.3) |
 | `run_force_refetch_preview(client, date_strs)` | Force-Refetch, Phase 1 (v1.7.1.7). Per date: snapshot `source/` via `garmin_force_refetch.snapshot_source()` → `_fetch_and_assess(force=True)` (writes `source/`, guard bypassed) → `garmin_quality.compare_source_fields()` against the pre-fetch version. Does NOT write `raw/`/`summary/`, does NOT call `record_attempt()`, does NOT touch backups — those happen only in `commit_force_refetch()` for user-confirmed dates. Two-phase split exists because a one-shot write-then-restore model would have to unwind four silos (`source/`, `raw/`+`summary/`, `quality_log.json`, backup ZIP) on rejection; splitting fetch+compare from commit means nothing outside `source/` is touched until confirmed. Returns `list[dict]`, one entry per date: `date`, `error`, `had_prior_data`, `quality_before`, `quality_after`, `fields_changed`, plus `_normalized`/`_summary`/`_fields`/`_val_result` carried through for Phase 2. Per-date exceptions caught and recorded, do not stop remaining dates |
 | `commit_force_refetch(preview_results, confirmed_dates, quality_data)` | Force-Refetch, Phase 2 (v1.7.1.7). For each `preview_results` entry: if `date` is in `confirmed_dates` — `_should_write()` → `_write_assessed()` → `record_attempt()` → `garmin_backup.backup_raw(force=True)` (only if written) + `garmin_backup_source.backup_source(force=True)` (always — `source/` was written in Phase 1 regardless of label); if NOT confirmed — `garmin_force_refetch.restore_snapshot()` reverts `source/` only, since Phase 1 touched nothing else. `_check_downgrade()` deliberately bypassed for confirmed dates — the user has already seen the before/after comparison, which is the human decision `_check_downgrade()` would otherwise stand in for. Returns `list[dict]`: `date`, `action` (`"committed"` \| `"reverted"` \| `"skipped_error"`), `error` |
@@ -496,7 +560,7 @@ Leaf-Node — imports only `garmin_config` + stdlib. No pipeline imports
 | Function | Purpose |
 |---|---|
 | `load_bulk(path)` | Opens Garmin GDPR export ZIP or folder. Yields one raw dict per day |
-| `parse_day(entries, date_str)` | Assembles canonical raw dict from export entries |
+| `parse_day(entries, date_str)` | Assembles canonical raw dict from export entries. Resting heart rate (v1.7.5.7): `user_summary.restingHeartRate` is the export's value of the day (`currentDayRestingHeartRate`) — an absent day value stays empty, never replaced by the average; the export's own `restingHeartRate` is its 7-day average and is kept as `user_summary.lastSevenDaysAvgRestingHeartRate` (not in `heart_rates`, so the three-key import form of older days stays recognisable). Days imported before v1.7.5.7 are corrected by `garmin_repair_resting_hr.py` |
 
 All four per-entry loops (UDS/Sleep/Readiness, Activities) skip a malformed
 entry that isn't an object (a bare string/number in the export's own list)

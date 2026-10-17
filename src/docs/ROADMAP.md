@@ -6,19 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.5.6**
-
----
-
-### v1.7.5.7 — Resting heart rate from the GDPR import
-
-- The bulk import takes the resting heart rate from the export's day value
-  (`currentDayRestingHeartRate`) instead of its 7-day average; a test pins it.
-- Days imported earlier are corrected by a repair step in the app (found by
-  their content, shown as a dry run first, backup first, runs once per archive),
-  and the MCP cache re-reads those days.
-- Doc corrections: schema version in `REFERENCE_INVARIANTS.md`, timer-mode
-  wording in `REFERENCE_GARMIN.md`.
+**Currently stable — v1.7.5.7**
 
 ---
 

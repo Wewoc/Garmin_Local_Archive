@@ -47,6 +47,7 @@ collect_ignore = [
     "test_live_fetch.py",
     "test_silo_check.py",
     "test_silo_repair.py",
+    "test_repair_resting_hr.py",  # RESTING-HR-REPAIR v1.7.5.7 — removable
     "test_force_refetch.py",
     "test_local_context.py",
     "test_dashboard.py",

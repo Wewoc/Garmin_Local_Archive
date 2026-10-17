@@ -54,6 +54,7 @@ Note: `garmin_extended_anaysis.py` (an Easter Egg module, separately licensed un
 | `garmin_live_fetch.py` | Sole owner of `garmin_data/live/` — lightweight fetch of today's intraday data + last night's sleep for the Live Tracking view. Single-file snapshot, no history, overwritten on every fetch. (v1.6.5) |
 | `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to `garmin_silo_repair.py`. |
 | `garmin_silo_repair.py` | Headless-callable core for the four repair paths that `garmin_silo_check.py` detects. Extracted from `panel_archive.py`'s `_on_silo_repair()` closure so repair is callable without a live GUI instance. Not a Leaf-Node — delegates to the existing Sole-Write-Authority modules; performs no direct file writes itself. |
+| `garmin_repair_resting_hr.py` | Removable one-time repair (v1.7.5.7) of the resting heart rate of days imported from the GDPR export before v1.7.5.7 — the import had stored the 7-day average. Content-detected (`find_candidates()`), values from `source/`, writes only through `garmin_writer.write_day()` and `garmin_quality` (`touch_last_checked()`), one continuous `QUALITY_LOCK` hold. Not a Leaf-Node. Everything that belongs to it carries the marker `RESTING-HR-REPAIR v1.7.5.7`; removal list in the module docstring and in `MAINTENANCE_GARMIN.md` |
 | `garmin_merge.py` | Additive field merge for backfill operations — never overwrites an already-populated field. Used to retroactively add newly supported data fields (like step count) to already-archived days. |
 | `garmin_force_refetch.py` | Sole owner of `garmin_data/backup/force_refetch/` — snapshots the archived `source/` file for a day before a deliberate Force-Refetch overwrite, and can restore it if the new fetch turns out worse. Scope: `source/` only, not `raw/`. Flat directory, one file per day. (v1.7.1.7) |
 | `garmin_container.py` | Sole owner of `.gla` encrypted mirror container files — creates and opens them for encrypted mirror transport. AES-256-GCM per section (quality_log, raw, summary, context), PBKDF2-HMAC-SHA256 (600 000 iterations) → HKDF per-section key derivation. |
@@ -473,6 +474,7 @@ Shared setup and helpers live in `tests/gla_testenv.py`; `test_local.py` stays a
 | `test_collector.py` | `garmin_collector` (`main()`, helpers, backfills, self-healing) |
 | `test_garmin_import.py` | `garmin_import`, `garmin_collector.run_import` |
 | `test_silo_check.py`, `test_silo_repair.py` | `garmin_silo_check`, `garmin_silo_repair` |
+| `test_repair_resting_hr.py` | `garmin_repair_resting_hr` (removable, v1.7.5.7) — detection, repair, dry run, errors, shared quality log, scheduler hint |
 | `test_force_refetch.py` | `garmin_force_refetch` |
 | `test_local.py` | cross-module: determinism, invariants, robustness, one end-to-end run |
 

@@ -37,6 +37,7 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_IMPORT_PATH` | str | `""` | Path to Garmin export ZIP or folder — triggers bulk import mode |
 | `GARMIN_SOURCE_BACKFILL` | str | `"0"` | `"1"` = run source backfill in `main()` step 5c — set by timer `source_backfill` mode only |
 | `GARMIN_SCHEMA_MIGRATE` | str | `"0"` | `"1"` = rewrite outdated summary files in `main()` step 3c |
+| `GARMIN_RESTING_HR_REPAIR` | str | `"0"` | `"1"` = run the resting-HR repair in `main()` step 3e (v1.7.5.7, removable) — set by `sync.run_collector()` after the popup was confirmed; removed with `os.environ.pop()` as soon as `main()` reads it, so it never survives into a later run in the same process (T3) |
 | `GARMIN_CAPABILITY_SCAN` | str | `"0"` | `"1"` = delegated entry point (`main()` step 0b) — probes the 19 optional health-endpoint candidates instead of running the regular sync. Own login, `sys.exit()` on completion (v1.6.8) |
 | `GARMIN_CAPABILITY_WINDOW_DAYS` | str | `"7"` | Scan window for `GARMIN_CAPABILITY_SCAN=1` — days to probe per candidate (v1.6.8) |
 | `GARMIN_MCP_LLM_BACKEND` | str | *(unset)* | `"ollama"`/`"cloud"` overrides `MCP_SERVER_CONFIG_FILE`'s `mcp_llm_backend` if set — ENV always wins, falls back to the config file, then to `"ollama"` (v1.7 Teilbauauftrag c, file fallback added Teilbauauftrag f). Not validated in `garmin_config.py`. |
@@ -358,6 +359,7 @@ it fits directly into one WCM credential entry.
     │   ├── garmin_writer.py
     │   ├── garmin_backup_source.py ← Sole Owner backup/source/ (v1.6.0.4)
     │   ├── garmin_silo_check.py    ← Leaf-Node. Read-only silo drift detection. check_silos() → dict (v1.6.0.4.7)
+    │   ├── garmin_repair_resting_hr.py ← Removable (v1.7.5.7). One-time repair of the resting heart rate of imported days. find_candidates(), repair_resting_hr()
     │   ├── garmin_merge.py         ← Leaf-Node. Additive field merge for backfill operations. merge_field() (v1.6.3)
     │   └── garmin_extended_anaysis.py
     │

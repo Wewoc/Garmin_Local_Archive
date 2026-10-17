@@ -1407,6 +1407,39 @@ def _run_backup_refresh() -> None:
             log.warning(f"  Backup refresh ({label}) failed: {e}")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Resting-HR repair — RESTING-HR-REPAIR v1.7.5.7 — removable
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_resting_hr_repair(quality_data: dict) -> None:
+    """
+    Corrects the resting heart rate of days that were imported from the Garmin
+    export before v1.7.5.7 (the import stored the 7-day average). The work is
+    done by garmin_repair_resting_hr; this wrapper only starts it.
+
+    quality_data is the run's own quality log, handed through like the
+    backfills do: the repair marks the days (last_checked) on this object. A
+    log of its own would be overwritten by the next save of this run.
+
+    Runs after the user confirmed the popup in the GUI
+    (GARMIN_RESTING_HR_REPAIR=1). No API call, no login.
+
+    Non-fatal: any error is a warning and the sync goes on. Days that failed
+    stay in the import form and are offered again at the next start.
+    """
+    try:
+        import garmin_repair_resting_hr as _rr
+        result = _rr.repair_resting_hr(should_stop=_is_stopped, quality_data=quality_data)
+    except Exception as e:
+        log.warning(f"  Resting HR repair skipped: {e}")
+        return
+    if result.get("failed"):
+        log.warning(
+            f"  Resting HR repair: {result['failed']} day(s) failed — "
+            f"they stay in the import form and are offered again at the next start"
+        )
+
+
 # Codereview v1.7.0.1: 378 lines, reviewed (nesting depth 7) — long but
 # not tangled, numbered sequential steps each delegated to a helper.
 # Splitting possible, low priority, see TODO_codereview_v1.7.0.1.md.
@@ -1522,6 +1555,15 @@ def main(stop_event=None):
     # Content-based, no API call. Runs before the login, so it neither depends
     # on a successful login nor on new days being fetched (v1.7.5.6).
     _run_backup_refresh()
+
+    # ── 3e. Resting-HR repair — RESTING-HR-REPAIR v1.7.5.7 — removable ────────
+    # Runs after 3c (the repair rebuilds the summary with the current schema) and
+    # 3d (write_day backs up the corrected days itself). The variable is removed
+    # as soon as it is read: in T3 the process, and with it os.environ, lives on
+    # between runs. The run's quality_data is passed on (like the backfills get
+    # it): a repair with a log of its own would be overwritten by the next save.
+    if os.environ.pop("GARMIN_RESTING_HR_REPAIR", None) == "1":
+        _run_resting_hr_repair(quality_data)
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:

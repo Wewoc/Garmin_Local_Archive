@@ -2,6 +2,12 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.5.7 — Resting Heart Rate of Imported Days Corrected
+
+- The Garmin export import used to store the 7-day average of the resting heart rate as the value of the day. New imports take the real value of the day.
+- Days imported earlier are corrected from your saved Garmin originals: before Sync Garmin starts, a popup names the number of days and asks you to make a backup first. It comes back at every sync until the days are corrected; the scheduled Daily Sync only writes a note to its log.
+- AI queries (MCP) show the corrected values after the next sync.
+
 ## v1.7.5.6 — Backups Follow Rewritten Days
 
 - When a day is rewritten after its first backup (by a backfill, a mirror import or a repair), its entry in the monthly backup ZIP is now updated too, so "Restore Data" no longer brings back an older version of that day.
