@@ -53,6 +53,8 @@ For the complete history: request a GDPR export from Garmin
 -> https://www.garmin.com/en-US/account/datamanagement/
 This can take several days — request it now.
 Import: Settings -> Data Collection -> "Bulk Import"
+Choose what to import (daily values and/or the heart-rate series);
+"Preview" shows what the series import would do, without writing anything.
 
 OPEN DASHBOARDS
 ───────────────

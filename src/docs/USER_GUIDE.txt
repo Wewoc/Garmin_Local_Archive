@@ -118,11 +118,17 @@ For the complete history: request a GDPR export from Garmin.
   -> https://www.garmin.com/en-US/account/datamanagement/
 
 The export arrives as a ZIP file (may take several days). The bulk
-import reads your complete daily-summary history from it.
+import reads your complete daily-summary history from it and, since
+v1.7.6, the heart-rate series over the day.
 
 Import:
   Settings tab -> Data Collection -> "Bulk Import"
-  Select the ZIP file -> import starts
+  Choose "ZIP file" or "unpacked folder", then select it
+  A dialog asks what to import:
+    [x] Daily values (JSON)
+    [x] Heart-rate series (FIT files)
+  with the buttons Preview / Import / Cancel. Both parts are selected
+  at first; you can import one or both.
   Duration: depends on archive size (minutes to hours)
 
 Bulk Import and Daily Sync complement each other:
@@ -132,6 +138,30 @@ Imported days land in `raw/` and `summary/` alongside API data. Days
 already present with `high` or `standard` quality from the API are
 skipped — the better source wins. Imported data is marked
 `source: bulk` in the quality log and never re-fetched automatically.
+
+Daily values (JSON): as described above.
+
+Heart-rate series (FIT files) (v1.7.6):
+  The export also holds the heart-rate curve over the day. It is stored
+  in its own folder, garmin_data/bulk/ (one file per day, plus the
+  unchanged FIT files of the export). Your existing daily files in
+  raw/ and summary/ are not changed by this part.
+  - AI queries (MCP) and the dashboards that show the heart-rate curve
+    use these series for days that have no heart-rate series from the
+    Daily Sync. A day the Daily Sync has is shown from the Daily Sync.
+  - Preview: reads the export and reports what an import would do -
+    files found, days new / changed / unchanged, number of samples.
+    Nothing is written, and the background timer keeps running. There is
+    no preview for the daily values.
+  - Before the import of the series starts, the app tells you that the
+    folder garmin_data/bulk is not part of the backup or the mirror yet.
+    Keep the export file as your fallback.
+  - Running the same import again changes nothing. Importing only part of
+    an export (for example one inner ZIP) never replaces a fuller day.
+  - Days that cannot be placed on a day (for example without a known day
+    boundary) are listed in the log, not guessed.
+  - The import writes a log like a sync does: log/recent/garmin_bulk_...
+    (a copy goes to log/fail/ if it failed).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 API CAPABILITY SCAN (optional)
@@ -589,6 +619,7 @@ Log shows errors but no data
     raw/        Full API dumps (~500 KB/day)
     source/     Unmodified API responses (intraday backup)
     summary/    Compact daily JSONs (~2 KB/day)
+    bulk/       Heart-rate series from the Garmin export (one JSON per day) + the unchanged FIT files (v1.7.6)
     log/        Session logs, quality register, token
 
   context_data/
@@ -605,7 +636,7 @@ SECURITY.md ("Network Connections"): Garmin Connect, the weather and air
 quality services, GitHub (update check) and, only if you choose the Cloud
 backend in the Chat tab, Anthropic or OpenAI.
 
-Every sync automatically writes a detailed log to your data folder:
+Every sync (and every Garmin export import) automatically writes a detailed log to your data folder:
 
   garmin_data/
     log/

@@ -699,13 +699,107 @@ def _read_daily(field: str, date_from: str, date_to: str) -> dict:
     return {"values": values, "source_resolution": "daily"}
 
 
+# ── Bulk track for intraday series — v1.7.6 ────────────────────────────────────
+#
+#  Series fields that have a second track next to the API (raw/): the heart-rate
+#  series from the Garmin export, stored in garmin_data/bulk/ (garmin_bulk_writer).
+#  For such a field the tracks are tried in this order and the first non-empty
+#  series of a day wins, whole — a day is never mixed from two tracks. A field
+#  that is not listed reads the API track only. Changing the order is a change
+#  in this table and touches no data.
+_SERIES_TRACKS = {"heart_rate_series": ("api", "bulk")}
+
+# Where a field's samples are in a bulk day: sections.intraday.<key>.values
+_BULK_SERIES_KEY = {"heart_rate_series": "heart_rate"}
+
+# Highest schema_version of a bulk day this reader understands. Must equal
+# garmin_bulk_writer.BULK_SCHEMA_VERSION (tests/test_broker.py pins that); a day
+# with a higher version is ignored — raise this together with the reader.
+_BULK_MAX_SCHEMA = 1
+
+_warned_bulk_days: set[str] = set()
+
+
+def _bulk_unusable(ds: str, why: str) -> None:
+    """One warning per day and process — a damaged bulk day is read once per field and call."""
+    if ds not in _warned_bulk_days:
+        _warned_bulk_days.add(ds)
+        log.warning(f"garmin_health_map: bulk day {ds} not used: {why}")
+
+
+def _read_bulk_series(field: str, ds: str, extract: dict):
+    """
+    The series of one day from the bulk store, in the form of an API series
+    ([{"ts": str, "value": float}, ...]), shifted by the offset in the head of the
+    bulk day (start-of-day offset, as A6 does for the API).
+
+    Returns (series, dst_transition), or None when there is nothing to use: the field
+    has no bulk track, no bulk day, a day without samples, or a day that cannot be
+    used (damaged, newer schema_version, no numeric offset, no samples section — a
+    warning, never an exception, never a guessed offset).
+    """
+    key = _BULK_SERIES_KEY.get(field)
+    if key is None:
+        return None
+    f = cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{ds}.json"
+    if not f.exists():
+        return None
+    try:
+        doc = json.loads(f.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        _bulk_unusable(ds, f"cannot be read ({type(e).__name__})")
+        return None
+    if not isinstance(doc, dict):
+        _bulk_unusable(ds, "not a JSON object")
+        return None
+    version = doc.get("schema_version")
+    if isinstance(version, bool) or not isinstance(version, int) or not 1 <= version <= _BULK_MAX_SCHEMA:
+        _bulk_unusable(ds, f"schema_version {version!r} is not supported")
+        return None
+    offset = doc.get("utc_offset_hours")
+    if isinstance(offset, bool) or not isinstance(offset, (int, float)):
+        _bulk_unusable(ds, "no numeric utc_offset_hours")
+        return None
+    samples = _get_nested(doc, f"sections.intraday.{key}.values")
+    if not isinstance(samples, list):
+        _bulk_unusable(ds, "no samples section")
+        return None
+    series = _extract_series(samples, {}, extract, float(offset))
+    if not series:
+        return None
+    return series, bool(doc.get("dst_transition"))
+
+
+def _read_api_series(ds: str, section: str, array_key: str, extract: dict):
+    """The series of one day from raw/ (API): (series|None, dst_transition). See _read_intraday()."""
+    f = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
+    series = None
+    dst_transition = False
+    if f.exists():
+        try:
+            data         = json.loads(f.read_text(encoding="utf-8"))
+            offset_hours, dst_transition = _device_offset(data)
+            section_data = data.get(section)
+            if isinstance(section_data, dict):
+                arr = section_data.get(array_key)
+                if isinstance(arr, list):
+                    series = _extract_series(arr, section_data, extract, offset_hours)
+            elif isinstance(section_data, list):
+                series = _extract_series(section_data, {}, extract, offset_hours)
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"garmin_health_map: could not read {f}: {e}")
+    return series, dst_transition
+
+
 def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
     """
-    Read intraday series from raw/.
+    Read intraday series from raw/ (API) and, for the fields in _SERIES_TRACKS,
+    from the bulk store.
     Normalizes each day's array to [{"ts": str, "value": float}, ...],
     timestamps shifted to the device's local time for that day
     (see _device_offset(), NOTES v1.6.5.6).
-    Returns {"values": [{"date": str, "series": list|None, "dst_transition": bool}, ...],
+    Returns {"values": [{"date": str, "series": list|None, "dst_transition": bool,
+                         "series_source": "api"|"bulk"|None}, ...],
              "source_resolution": "intraday"}.
     series is None if the file is missing or the field is absent.
     series is [] if the file exists but the array is empty after normalization.
@@ -713,28 +807,30 @@ def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
     start and end of the covered period — the series is still built using
     the start-of-day offset (A6), the flag only signals the caller that
     this day is affected. Always False when series is None.
+    series_source names the track that delivered a non-empty series; None when
+    there is none (series None or []). The API track is read first; the bulk
+    track only for a day the API has no series for (v1.7.6).
     """
     section, array_key, extract = _FIELD_MAP[field]["intraday"]
+    tracks = _SERIES_TRACKS.get(field, ("api",))
 
     values = []
     for ds in date_range(date_from, date_to):
-        f = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
-        series = None
-        dst_transition = False
-        if f.exists():
-            try:
-                data         = json.loads(f.read_text(encoding="utf-8"))
-                offset_hours, dst_transition = _device_offset(data)
-                section_data = data.get(section)
-                if isinstance(section_data, dict):
-                    arr = section_data.get(array_key)
-                    if isinstance(arr, list):
-                        series = _extract_series(arr, section_data, extract, offset_hours)
-                elif isinstance(section_data, list):
-                    series = _extract_series(section_data, {}, extract, offset_hours)
-            except (json.JSONDecodeError, OSError) as e:
-                log.warning(f"garmin_health_map: could not read {f}: {e}")
-        values.append({"date": ds, "series": series, "dst_transition": dst_transition})
+        series, dst_transition, source = None, False, None
+        first = True
+        for track in tracks:
+            if track == "api":
+                found = _read_api_series(ds, section, array_key, extract)
+            else:
+                found = _read_bulk_series(field, ds, extract) or (None, False)
+            if found[0]:
+                series, dst_transition = found
+                source = track
+                break
+            if first:
+                series, dst_transition = found      # what the first track found stays if no track delivers
+            first = False
+        values.append({"date": ds, "series": series, "dst_transition": dst_transition, "series_source": source})
 
     return {"values": values, "source_resolution": "intraday"}
 

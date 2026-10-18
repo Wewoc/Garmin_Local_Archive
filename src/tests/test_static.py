@@ -230,7 +230,8 @@ _PROJECT_MODULE_NAMES = {
     if Path(p).stem != "__init__"
 }
 _LEAF_NODES = ["garmin/garmin_utils.py", "garmin/garmin_validator.py", "log_utils.py",
-               "date_utils.py"]
+               "date_utils.py", "garmin/garmin_bulk_fit_reader.py", "garmin/garmin_bulk_export_scanner.py",
+               "garmin/garmin_bulk_normalizer.py"]
 
 # garmin_validator.py's own docstring documents this exception explicitly:
 # "No imports from other project modules except garmin_config (leaf-node

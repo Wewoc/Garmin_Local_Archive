@@ -88,6 +88,11 @@ SHARED_SCRIPTS = [
     "garmin/garmin_redact.py",
     "garmin/garmin_sync.py",
     "garmin/garmin_import.py",
+    "garmin/garmin_bulk_fit_reader.py",
+    "garmin/garmin_bulk_export_scanner.py",
+    "garmin/garmin_bulk_normalizer.py",
+    "garmin/garmin_bulk_writer.py",
+    "garmin/garmin_bulk_import.py",
     "garmin/garmin_writer.py",
     "garmin/garmin_collector.py",
     "garmin/garmin_api_capability.py",
@@ -258,10 +263,16 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
     "garmin/garmin_merge.py":      ["def merge_field"],
     "garmin/quality/_fieldhash.py": ["def compare_source_fields"],
-    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration", "def _run_backup_refresh","def _run_source_backfill", "def _run_steps_backfill", "def run_capability_scan", "def _run_resting_hr_repair"],  # "def _run_resting_hr_repair": RESTING-HR-REPAIR v1.7.5.7 — removable
+    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration", "def _run_backup_refresh","def _run_source_backfill", "def _run_steps_backfill", "def run_capability_scan", "def _run_resting_hr_repair", "def _run_bulk_import", "def _mark_bulk_days"],  # "def _run_resting_hr_repair": RESTING-HR-REPAIR v1.7.5.7 — removable
     "garmin/garmin_api_capability.py": ["def load_config", "def save_config", "def build_args"],
     "garmin/garmin_import.py":     ["def load_bulk", "def parse_day"],
-    "garmin/garmin_quality.py":    ["from quality._maint import", "QUALITY_LOCK"],
+    "garmin/garmin_bulk_fit_reader.py": ["def parse_fit", "class FitFile", "class FitFormatError"],
+    "garmin/garmin_bulk_export_scanner.py": ["def iter_fit_files", "class ScanStats"],
+    "garmin/garmin_bulk_normalizer.py": ["def plan_days", "class BoundaryPlan", "class DayPlan", "def complete_timestamp",
+                                         "def file_samples", "class SampleCollector"],
+    "garmin/garmin_bulk_writer.py": ["def write_day", "def day_status", "def read_day", "def store_original", "def original_present"],
+    "garmin/garmin_bulk_import.py": ["def run_intraday_import", "def format_summary"],
+    "garmin/garmin_quality.py":    ["from quality._maint import", "QUALITY_LOCK", "record_bulk_intraday"],
     "garmin/garmin_config.py":     ["GARMIN_EMAIL"],
     "garmin/garmin_security.py":   ["def load_token", "def save_token"],
     "garmin/garmin_normalizer.py": ["def normalize", "def summarize"],
@@ -415,6 +426,13 @@ HIDDEN_IMPORTS_COMMON = [
     "typing_inspection",
     "anthropic",
     "openai",
+    # sqlite3 (v1.7.6 fix, found in a real T2 sync): the automatic export loads
+    # exports/export_runner.py inside the GUI process (app/outputs/export_auto.py); the runner imports
+    # mcp_update -> mcp_sql -> sqlite3. The scripts are loose files PyInstaller does not analyse, so a T2
+    # EXE without these two answered "No module named 'sqlite3'" and wrote no export. T3 gets them from
+    # here too (T3 = COMMON + T3_EXTRA); they used to be listed in T3_EXTRA only.
+    "sqlite3",
+    "_sqlite3",
 ]
 
 HIDDEN_IMPORTS_T3_EXTRA = [
@@ -428,8 +446,15 @@ HIDDEN_IMPORTS_T3_EXTRA = [
     "requests",
     "lxml",
     "lxml.etree",
-    "sqlite3",
-    "_sqlite3",
+    # v1.7.6 bulk import: standard-library modules the garmin_bulk_* scripts need. The scripts under
+    # garmin/ are loose files PyInstaller does not analyse; array, bisect and dataclasses are imported
+    # by no other part of the app, tempfile only inside a function of garmin_app_base.py. Listed here
+    # (like sqlite3 in HIDDEN_IMPORTS_COMMON) so they are in the frozen T3 process. T2 runs the collector with the Python
+    # of the target machine. Pinned in tests/test_build_output.py.
+    "array",
+    "bisect",
+    "dataclasses",
+    "tempfile",
     # MCP server-only SDK chain (v1.7 Teil e) — T3.3 (mcp_server.exe) only.
     # The client-side chain (mcp, anyio, httpx, httpx_sse, jsonschema,
     # pydantic, typing_extensions, typing_inspection, anthropic, openai)

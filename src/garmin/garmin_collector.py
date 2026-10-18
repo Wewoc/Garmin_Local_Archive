@@ -1440,6 +1440,89 @@ def _run_resting_hr_repair(quality_data: dict) -> None:
         )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Bulk import phases — BULK-IMPORT-PHASES v1.7.6 — removable
+# ══════════════════════════════════════════════════════════════════════════════
+
+_BULK_PHASES = {"json", "intraday"}
+
+
+def _bulk_phases():
+    """
+    Reads and removes GARMIN_BULK_PHASES. Not set or blank -> {"json"} (the import
+    as before v1.7.6). Otherwise a comma list of "json" and "intraday" as a set; the
+    order of the phases is fixed in _run_bulk_import. Any other content -> None.
+
+    Removed from the environment because the standalone build runs main() in the GUI's
+    own process: a variable that stays would start the next import with the same phases.
+    """
+    raw = os.environ.pop("GARMIN_BULK_PHASES", None)
+    if raw is None or not raw.strip():
+        return {"json"}
+    tokens = {t.strip().lower() for t in raw.split(",") if t.strip()}
+    if not tokens or not tokens <= _BULK_PHASES:
+        return None
+    return tokens
+
+
+def _mark_bulk_days(days) -> None:
+    """
+    Marks the days the intraday phase wrote in the quality log (record_bulk_intraday:
+    entry["bulk"]["intraday"] and last_checked, so the MCP cache reads them again).
+
+    Import mode ends right after the phases, so this process holds no quality log of
+    its own: it loads one under QUALITY_LOCK and saves it once. Non-fatal — the series
+    are stored either way; a failed mark is a warning.
+    """
+    try:
+        with quality.QUALITY_LOCK:
+            qdata = quality._load_quality_log()
+            marked = quality.record_bulk_intraday(qdata, days)
+            if marked:
+                quality._save_quality_log(qdata)
+        log.info(f"  Bulk import: {marked} of {len(days)} written day(s) marked in the quality log")
+    except Exception as e:
+        log.warning(f"  Bulk import: could not mark the days in the quality log: {e}")
+
+
+def _run_bulk_import(path, stop_event=None) -> dict:
+    """
+    Runs the phases of the Garmin export import chosen in the GUI and returns
+    {"failed": n} for the exit code (0 = all phases ok).
+
+      json      the daily values into raw/ (run_import, as before v1.7.6)
+      intraday  the heart-rate series into garmin_data/bulk/ (garmin_bulk_import)
+
+    GARMIN_BULK_DRYRUN=1 makes a preview. Only the intraday phase has one: the json
+    phase is skipped then. The json phase runs first (the day windows of the intraday
+    phase come from raw/, which it may fill). A stop request ends the json phase on its
+    own; the intraday phase is not started after it.
+    """
+    phases = _bulk_phases()
+    dry = os.environ.pop("GARMIN_BULK_DRYRUN", None) == "1"
+    if phases is None:
+        log.error("Bulk import: unknown phase selection — nothing was started")
+        return {"failed": 1}
+
+    failed = 0
+    if "json" in phases:
+        if dry:
+            log.info("Bulk import: no preview for the daily values — phase skipped")
+        else:
+            failed += run_import(path, stop_event=stop_event)["failed"]
+    if "intraday" in phases:
+        if _is_stopped():
+            log.info("Bulk import: stopped — the heart-rate series phase was not started")
+        else:
+            import garmin_bulk_import as _bulk
+            summary = _bulk.run_intraday_import(path, dry_run=dry, should_stop=_is_stopped)
+            if not summary.get("ok"):
+                failed += 1
+            if not dry and summary.get("written_days"):
+                _mark_bulk_days(summary["written_days"])
+    return {"failed": failed}
+
+
 # Codereview v1.7.0.1: 378 lines, reviewed (nesting depth 7) — long but
 # not tangled, numbered sequential steps each delegated to a helper.
 # Splitting possible, low priority, see TODO_codereview_v1.7.0.1.md.
@@ -1452,7 +1535,15 @@ def main(stop_event=None):
     # ── 0. Import mode — delegated entry points ───────────────────────────────
     import_path = os.environ.get("GARMIN_IMPORT_PATH")
     if import_path:
-        result = run_import(import_path, stop_event=stop_event)
+        # v1.7.6: the import leaves a session log like a sync does (log/recent, copied to
+        # log/fail when it failed). Before, this branch ended before the log was started and
+        # everything the import reports was only on the screen of the GUI.
+        _imp_fh, _imp_path = _start_session_log()
+        result = None
+        try:
+            result = _run_bulk_import(import_path, stop_event=stop_event)
+        finally:
+            _close_session_log(_imp_fh, _imp_path, result is None or result["failed"] != 0, False)
         sys.exit(0 if result["failed"] == 0 else 1)
 
     # (v2.0) strava_path = os.environ.get("STRAVA_IMPORT_PATH")

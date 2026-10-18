@@ -6,29 +6,17 @@
 
 ---
 
-**Currently stable — v1.7.5.7**
+**Currently stable — v1.7.6**
 
 ---
 
-### v1.7.6 — Bulk store (intraday from the GDPR export)
-
-A separate store for bulk data next to the API store.
-
-**What changes:**
-- New store `garmin_data/bulk/`, one JSON file per day with named sections,
-  written by one module only; `raw/`, `source/` and `summary/` are not touched.
-- First section: heart-rate intraday series from the export's monitoring files.
-  The original export files are kept (named by content hash).
-- Import path next to the JSON bulk import: dry-run preview, idempotent re-run.
-- `garmin_health_map.py` reads from a per-field source table; for intraday:
-  API first, then the bulk store; each day reports which one it used.
-- `quality_log.json` gets an optional per-day date field for the bulk section.
-
-**Not in this step:** backup, mirror and silo check for the bulk store (see
-v1.7.6.2).
-
 ### v1.7.6.1 — Bulk JSON import into the bulk store
 
+- A failed mark of imported days in the quality log is no longer silent: the
+  import reports it as a failure, and the next run marks every day that holds a
+  bulk series but no mark (found by content, so a rerun catches up).
+- A bulk day file that cannot be read is reported and left as it is, instead of
+  being treated as new and possibly replaced by a smaller state.
 - The JSON bulk import writes to a second section of the bulk store instead of
   `raw/`; the original JSON files are kept.
 - The source table covers the remaining fields; `summary/` becomes a resolved,

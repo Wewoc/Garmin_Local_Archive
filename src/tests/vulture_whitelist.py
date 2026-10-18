@@ -83,4 +83,32 @@ VULTURE_WHITELIST: dict[tuple[str, str], str] = {
     # there is no runtime scenario that needs this. Only exercised by
     # tests/test_local.py (F6 fail-closed test).
     ("garmin\\garmin_validator.py", "reload_schema"): "test-only by design, no runtime reload path (see docstring)",
+
+    # ── v1.7.6 bulk import: ScanStats fields ─────────────────────────────
+    # ScanStats is a dataclass of counters. Vulture sees every `stats.x += 1` as a
+    # definition and the field as never read. The fields are read as dict keys:
+    # garmin_bulk_import puts dataclasses.asdict(scan_stats) into the result of the import and
+    # format_summary() reads scan.get("fit_seen") etc.; the tests read the fields directly.
+    ("garmin\\garmin_bulk_export_scanner.py", "fit_seen"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "fit_yielded"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "duplicates"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "oversize"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "unreadable_entries"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "zips_opened"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "zips_unreadable"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "too_deep"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+    ("garmin\\garmin_bulk_export_scanner.py", "ignored"): "ScanStats counter, read via dataclasses.asdict -> summary['scan'] (not by attribute)",
+
+    # ── v1.7.6 bulk import: SampleCollector / RunStats ───────────────────
+    # finish(): documented in its docstring as "for tests and small inputs"; the import
+    # itself uses iter_days() so that only one day is in memory at a time. About 30 test calls.
+    ("garmin\\garmin_bulk_normalizer.py", "finish"): "test-only by design (docstring: for tests and small inputs); the import uses iter_days()",
+    # RunStats counters of dropped samples. They are computed from the per-file counters
+    # (file_samples(), tested there) and handed out in RunStats; the import does not print them
+    # yet. Measured on the real export on 2026-10-17: before_first_full 0, no_timestamp 1,
+    # zero_heart_rate 9566, no_heart_rate 1207630 (records of other values, no loss).
+    ("garmin\\garmin_bulk_normalizer.py", "before_first_full"): "RunStats counter of dropped samples, not reported yet (0 on the real export); tested through file_samples()",
+    ("garmin\\garmin_bulk_normalizer.py", "no_timestamp"): "RunStats counter of dropped samples, not reported yet (1 on the real export); tested through file_samples()",
+    ("garmin\\garmin_bulk_normalizer.py", "no_heart_rate"): "RunStats counter (records without heart rate), read by the tests, not reported yet",
+    ("garmin\\garmin_bulk_normalizer.py", "zero_heart_rate"): "RunStats counter of dropped samples (9566 on the real export), read by the tests, not reported yet",
 }

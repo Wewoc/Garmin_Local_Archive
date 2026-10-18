@@ -81,6 +81,8 @@ of scope.
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
 | `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
+| `garmin_bulk_writer.py` | `garmin_data/bulk/raw/` and `garmin_data/bulk/source/` (v1.7.6) |
+| `garmin_bulk_import.py` | none — orchestrates the four other bulk modules; writes only through `garmin_bulk_writer` (v1.7.6) |
 
 ### Invariants
 
@@ -99,6 +101,9 @@ of scope.
   quality_log entry.
 - No module reads `os.environ` directly — all config via `garmin_config`
 - **A step that changes the quality log inside `garmin_collector.main()` works on the run's own `quality_data`** (like the backfills), never on a copy it loads itself: `main()` saves its in-memory log again after the sync, and a second copy's changes would be overwritten (v1.7.5.7, found on a real archive with the resting-HR repair — `last_checked` was lost and the MCP cache kept the old values)
+- **Import mode is the exception to the rule above (v1.7.6):** it exits right after its phases and holds no quality log of its own, so `_mark_bulk_days()` loads the log under `QUALITY_LOCK`, marks the days and saves once. A step added to import mode that continues into the sync must hand its log over instead
+- **`entry["bulk"]` is not `entry["source"] == "bulk"` (v1.7.6):** every bulk-recheck rule (flagging, `bulk_upgrade_dates`, the timer's Bulk Recheck, `last_bulk` in the archive stats) reads `source`. `entry["bulk"]["intraday"]` is only written by `record_bulk_intraday()`; it takes effect through `last_checked` (MCP cache) and nothing in the code reads it yet
+- **Raising the bulk schema (v1.7.6):** `BULK_SCHEMA_VERSION` (`garmin_bulk_writer.py`) and `_BULK_MAX_SCHEMA` (`garmin_health_map.py`) are raised together — `tests/test_broker.py` pins that they are equal. A day with an older schema is written again the next time the same export is imported (same files, older schema → `update`); a day with a newer schema is kept and not read by an older reader
 - **API-Capability-Scan (v1.6.8):** the 15 baseline `fetch_raw()` endpoints
   always run — the capability config can only add optional candidates, never
   disable a baseline endpoint. Candidates are double-gated before joining a
@@ -550,6 +555,36 @@ before v1.7.5.7 — a restored old backup or a mirror from an older version can
 bring such days back. After removal those days simply stay uncorrected; nothing
 else depends on the repair.
 
+O. **Bulk store (v1.7.6).** The heart-rate series of the GDPR export go into
+`garmin_data/bulk/`, not into `raw/`. All tests run on synthetic data
+(`tests/fit_builder.py` builds the FIT files), none needs a real export.
+- `test_bulk_fit_reader.py`, `test_bulk_export_scanner.py`,
+  `test_bulk_normalizer.py`, `test_bulk_writer.py`, `test_bulk_import.py` — one
+  file per module; `test_bulk_import.py` is the end-to-end test of the whole
+  pipeline (preview writes nothing, rerun changes nothing, part of an export
+  never shrinks a day, stop, summary without names).
+- `test_bulk_writer.py`, block "Ist-Stand, register finding F-1": pins today's
+  behaviour for a day file that cannot be read for I/O reasons (it counts as
+  new and a smaller state can replace the stored day). Whoever fixes F-1 turns
+  these checks around.
+- `test_quality.py` — `record_bulk_intraday()`; `test_collector.py` — the
+  phases, `_mark_bulk_days()` and the session log of the import branch;
+  `test_broker.py` section 6 and `test_mcp.py` section 15 — the bulk track and
+  the cache; `test_qt_app.py::TestBulkImportFlow` — dialog, environment
+  variables, confirmation; `test_build_output.py` — hidden imports of the bulk
+  modules.
+Checked on a copy of a real archive and on the real archive itself, see
+`CHANGELOG.md` and `PROTOKOLL.md`.
+
+**Marker `BULK-IMPORT-PHASES v1.7.6` (removable)** — the choice of phases and
+its GUI hooks carry it (grep): `garmin/garmin_collector.py` (section "Bulk
+import phases": `_BULK_PHASES`, `_bulk_phases()`, `_mark_bulk_days()`,
+`_run_bulk_import()`), `app/outputs/bulk_import.py` (`ImportOptionsDialog`,
+`build_env()`, `TRIGGER_VARS`), the matching blocks in `tests/test_collector.py`
+and `tests/test_qt_app.py::TestBulkImportFlow`, and the rows for
+`GARMIN_BULK_PHASES` / `GARMIN_BULK_DRYRUN` in `REFERENCE_GLOBAL.md`. The bulk
+modules and the bulk store do not carry the marker.
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
@@ -578,7 +613,7 @@ else depends on the repair.
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`.
 
 ---
 

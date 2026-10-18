@@ -2,6 +2,12 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6 — Heart-Rate Series from the Garmin Export
+
+- The import of the Garmin export can now also read the heart-rate series over the day, not only the daily values. A new dialog lets you choose "Daily values" and/or "Heart-rate series" and shows a preview first.
+- The series are stored in their own folder (`bulk`) next to the archive; your existing daily data is not changed. AI queries (MCP) and the dashboards that show the heart-rate curve use the series automatically for days that have none from the sync.
+- Please note: this folder is not yet part of the backup and the mirror; the import asks you before it starts.
+
 ## v1.7.5.7 — Resting Heart Rate of Imported Days Corrected
 
 - The Garmin export import used to store the 7-day average of the resting heart rate as the value of the day. New imports take the real value of the day.

@@ -147,6 +147,7 @@ directory.
 | `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` |
 | `garmin_backup_source.py` | `garmin_data/backup/source/` |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` |
+| `garmin_bulk_writer.py` | `garmin_data/bulk/raw/` and `garmin_data/bulk/source/` |
 | `garmin_mirror.py` → `garmin_container.py` | `mirror.gla` |
 | `context_writer.py` | `context_data/` |
 
@@ -157,6 +158,7 @@ Violations of this invariant are regressions, not technical debt.
 Modules with no project dependencies (standard library only) are called
 Leaf Nodes:
 - `garmin_utils.py`, `garmin_validator.py`, `garmin_source_quality.py`
+- `garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py`, `garmin_bulk_normalizer.py` (v1.7.6)
 - A Leaf Node never imports another project module
 - Guarantees no circular dependencies and fully isolated testing
 
@@ -281,6 +283,30 @@ garmin_writer.py       — write_day() — identical format to API data
 garmin_quality.py      — source="bulk" recorded in the quality log entry
 ```
 
+### Bulk import path — heart-rate series (FIT files of the GDPR export, v1.7.6)
+
+```
+Garmin GDPR export (ZIP / folder / inner ZIP / single .fit)
+      │
+      ▼
+garmin_bulk_export_scanner.py — iter_fit_files(): (sha256, bytes) once per content
+      │
+      ▼
+garmin_bulk_fit_reader.py     — parse_fit(): whole-file checks, messages
+      │
+      ▼
+garmin_bulk_normalizer.py     — plan_days() (day windows from raw/stats), SampleCollector: samples per local day
+      │
+      ▼
+garmin_bulk_writer.py         — write_day(), store_original() → garmin_data/bulk/
+      │
+      ▼
+garmin_collector._mark_bulk_days() → garmin_quality.record_bulk_intraday()
+                              — entry["bulk"]["intraday"] and last_checked (the MCP cache re-reads the day)
+```
+
+`garmin_bulk_import.run_intraday_import()` orchestrates the four modules; `garmin_collector._run_bulk_import()` starts it after the JSON phase (the day windows come from `raw/stats`). The store is read by the broker as a second track for `heart_rate_series` (`REFERENCE_BROKER.md`). Nothing from this path is written to `raw/`, `source/` or `summary/`.
+
 ### Self-healing loop
 
 On a schema-version mismatch (`CURRENT_SCHEMA_VERSION` in
@@ -368,6 +394,8 @@ Reconstruction only ever flows forward through this chain: a lost
 `summary/` file is rebuilt from `raw/`; a lost `raw/` file can be rebuilt
 from `source/` by replaying it through `normalize()` again — never the
 other way around.
+
+**Bulk store (v1.7.6):** `garmin_data/bulk/` is a separate store beside these three silos, not a fourth step of the chain. Its source is the Garmin export (one JSON file per local day, the export's FIT files kept by SHA-256), not the API; nothing in `source/`, `raw/` or `summary/` is derived from it, and it is not rebuilt from them. Its only writer is `garmin_bulk_writer.py`. It is not yet part of backup, mirror or silo check (v1.7.6.2).
 
 Conservative guard for `source/` — "freeze-when-present":
 
@@ -798,6 +826,11 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_sync.py` | Determines missing days | No |
 | `garmin_writer.py` | Sole owner of `raw/` + `summary/` | No |
 | `garmin_import.py` | GDPR export importer | No |
+| `garmin_bulk_fit_reader.py` | FIT bytes → messages (v1.7.6) | **Yes** |
+| `garmin_bulk_export_scanner.py` | Finds the FIT files in a Garmin export (v1.7.6) | **Yes** |
+| `garmin_bulk_normalizer.py` | Day boundaries and samples per day (v1.7.6) | **Yes** |
+| `garmin_bulk_writer.py` | Sole owner of `garmin_data/bulk/` (v1.7.6) | No |
+| `garmin_bulk_import.py` | Intraday phase of the export import — orchestrates the four modules above, writes only through `garmin_bulk_writer` (v1.7.6) | No |
 | `garmin_source_writer.py` | Sole owner of `source/` + `source_api_log.json` — writes files, calls `garmin_source_quality` for the guard decision | No |
 | `garmin_source_quality.py` | Sole owner of the **assessment logic** (not the files) — no write access, called by `garmin_source_writer` | **Yes** |
 | `garmin_silo_check.py` | Read-only drift detection | **Yes** |

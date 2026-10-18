@@ -80,6 +80,16 @@ SOURCE_API_LOG    = LOG_DIR / "source_api_log.json"
 # Source backup (sole owner: garmin_backup_source.py)
 SOURCE_BACKUP_DIR = BACKUP_DIR / "source"
 
+# Bulk store (sole owner: garmin_bulk_writer.py, v1.7.6)
+# Data from the GDPR export, kept apart from the API store above: one JSON
+# file per day with named sections in bulk/raw/, the unchanged export files
+# in bulk/source/<first two hash characters>/<hash>. Never written by the
+# API sync; raw/, source/ and summary/ stay untouched by the bulk store.
+BULK_DIR         = GARMIN_DIR / "bulk"
+BULK_RAW_DIR     = BULK_DIR / "raw"
+BULK_SOURCE_DIR  = BULK_DIR / "source"
+BULK_FILE_PREFIX = "garmin_bulk_"
+
 # Live snapshot (sole owner: garmin_live_fetch.py, planned v1.6.5)
 # Single-file snapshot of the current day — no per-day history, overwritten
 # on every fetch. Not part of the raw/summary archive.
