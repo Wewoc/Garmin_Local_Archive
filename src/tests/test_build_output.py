@@ -102,6 +102,60 @@ for _dep in ("curl_cffi", "curl_cffi.requests", "ua_generator", "openpyxl.cell._
     check(f"HIDDEN_IMPORTS_COMMON contains known lazy dep: {_dep}",
           _dep in manifest.HIDDEN_IMPORTS_COMMON)
 
+# ── v1.7.6: sqlite3 in the T2 GUI process ──────────────────────────────────────
+# The automatic export loads exports/export_runner.py inside the GUI process
+# (app/outputs/export_auto.py); the runner imports mcp_update -> mcp_sql -> sqlite3. A T2
+# EXE without sqlite3 answered "No module named 'sqlite3'" and wrote no export (found in a
+# real sync, 2026-10-17). T2 builds from HIDDEN_IMPORTS_COMMON only, T3 from COMMON + T3_EXTRA.
+for _dep in ("sqlite3", "_sqlite3"):
+    check(f"HIDDEN_IMPORTS_COMMON contains {_dep} (T2 GUI process: the automatic export needs it)",
+          _dep in manifest.HIDDEN_IMPORTS_COMMON)
+    check(f"{_dep} is in the T3 list too (COMMON + T3_EXTRA), and listed once",
+          (manifest.HIDDEN_IMPORTS_COMMON + manifest.HIDDEN_IMPORTS_T3_EXTRA).count(_dep) == 1)
+
+# ── v1.7.6: standard-library modules only the bulk import uses ────────────────
+# The scripts under garmin/ are loose files, PyInstaller does not analyse them: a
+# standard-library module that no other part of the app imports is in the frozen T3
+# process only by luck. HIDDEN_IMPORTS_T3_EXTRA already does this for sqlite3.
+import ast
+_stdlib = set(sys.stdlib_module_names) - {"__future__"}
+
+
+def _imports(path):
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            found.add(node.module.split(".")[0])
+    return found & _stdlib
+
+
+_scripts = [n for n in manifest.SHARED_SCRIPTS + ["garmin_app.py", "garmin_app_standalone.py"] if n.endswith(".py")]
+_bulk_scripts = [n for n in _scripts if Path(n).name.startswith("garmin_bulk_")]
+_other_std = set().union(*(_imports(_ROOT / n) for n in _scripts if n not in _bulk_scripts))
+_bulk_only = set().union(*(_imports(_ROOT / n) for n in _bulk_scripts)) - _other_std
+_BULK_STDLIB = {"array", "bisect", "dataclasses", "tempfile"}      # tempfile is also used by garmin_app_base.py; listed anyway
+check("bulk import: the five bulk scripts are found", len(_bulk_scripts) == 5)
+check("bulk import: the modules only the bulk scripts import are array, bisect, dataclasses — "
+      "a new standard-library import in a bulk script must be looked at and listed in HIDDEN_IMPORTS_T3_EXTRA",
+      _bulk_only == {"array", "bisect", "dataclasses"} and _bulk_only <= _BULK_STDLIB)
+for _dep in sorted(_BULK_STDLIB):
+    check(f"HIDDEN_IMPORTS_T3_EXTRA contains a module the bulk import needs: {_dep}",
+          _dep in manifest.HIDDEN_IMPORTS_T3_EXTRA)
+    check(f"bulk import: {_dep} is not in HIDDEN_IMPORTS_COMMON (T2 runs the collector with the Python of the target)",
+          _dep not in manifest.HIDDEN_IMPORTS_COMMON)
+
+# ── v1.7.6: signatures of the new entry points ────────────────────────────────
+check("signature: garmin_collector lists the bulk import phases and the quality-log marking",
+      {"def _run_bulk_import", "def _mark_bulk_days"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
+check("signature: the old garmin_collector entries are all still there",
+      {"def main", "def run_import", "def _run_resting_hr_repair", "def run_capability_scan"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
+check("signature: garmin_quality lists record_bulk_intraday",
+      "record_bulk_intraday" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_quality.py"])
+check("signature: garmin_quality keeps its old entries",
+      {"from quality._maint import", "QUALITY_LOCK"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_quality.py"]))
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  2. Source-Integrität — alle Manifest-Scripts vorhanden
 # ══════════════════════════════════════════════════════════════════════════════

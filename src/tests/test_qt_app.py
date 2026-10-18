@@ -3475,3 +3475,188 @@ class TestRestingHrRepairHooks:
         _sync.run_collector(panel)
         app._panel_archive._check_resting_hr_repair.assert_called_once_with(base_dir=str(tmp_path))
         assert app._run.call_args.kwargs["env_overrides"] == expected
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Import Bulk Export — options dialog, preview, confirmation, trigger variables (v1.7.6, 6b)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBulkImportFlow:
+    OPTIONS = {"json": True, "intraday": True, "preview": False}
+
+    @staticmethod
+    def _panel(timer_active=False):
+        from unittest.mock import MagicMock
+        panel = MagicMock()
+        panel._app._timer_active = timer_active
+        return panel
+
+    @staticmethod
+    def _go(panel, options, confirm=True, zip_file=True, path="C:/export.zip"):
+        """Runs the button with the dialogs replaced. Returns (question mock, information mock)."""
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from app.outputs import bulk_import
+        yes, no = QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No
+        answers = [yes if zip_file else no, yes if confirm else no]
+        with patch.object(QMessageBox, "question", side_effect=answers) as q, \
+                patch.object(QMessageBox, "information") as info, \
+                patch.object(QFileDialog, "getOpenFileName", return_value=(path, "")), \
+                patch.object(QFileDialog, "getExistingDirectory", return_value=path), \
+                patch.object(bulk_import, "_ask_options", return_value=options):
+            bulk_import.run_import(panel)
+        return q, info
+
+    # ── the variables ─────────────────────────────────────────────────────────
+    @pytest.mark.parametrize("json_on, intraday_on, dry, expected", [
+        (True, False, False, {"GARMIN_BULK_PHASES": "json"}),
+        (False, True, False, {"GARMIN_BULK_PHASES": "intraday"}),
+        (True, True, False, {"GARMIN_BULK_PHASES": "json,intraday"}),
+        (False, True, True, {"GARMIN_BULK_PHASES": "intraday", "GARMIN_BULK_DRYRUN": "1"}),
+        (True, True, True, {"GARMIN_BULK_PHASES": "json,intraday", "GARMIN_BULK_DRYRUN": "1"}),
+    ])
+    def test_build_env(self, json_on, intraday_on, dry, expected):
+        from pathlib import Path
+        from app.outputs import bulk_import
+        env = bulk_import.build_env(Path("C:/export.zip"), json_on, intraday_on, dry)
+        assert env == {"GARMIN_IMPORT_PATH": str(Path("C:/export.zip")), **expected}
+
+    def test_the_variables_to_remove_are_the_three_triggers(self):
+        from app.outputs import bulk_import
+        assert set(bulk_import.TRIGGER_VARS) == {"GARMIN_IMPORT_PATH", "GARMIN_BULK_PHASES", "GARMIN_BULK_DRYRUN"}
+
+    # ── the button ────────────────────────────────────────────────────────────
+    def test_both_phases_after_a_yes(self):
+        panel = self._panel()
+        q, _ = self._go(panel, self.OPTIONS)
+        app = panel._app
+        assert app._run.call_count == 1
+        assert app._run.call_args.args == ("garmin_collector.py",)
+        assert app._run.call_args.kwargs["enable_stop"] is True
+        assert app._run.call_args.kwargs["env_overrides"] == {
+            "GARMIN_IMPORT_PATH": "C:/export.zip", "GARMIN_BULK_PHASES": "json,intraday"}
+        assert q.call_count == 2                       # the selection and the confirmation
+
+    def test_the_confirmation_names_the_new_folder_and_the_missing_protection(self):
+        q, _ = self._go(self._panel(), self.OPTIONS)
+        text = q.call_args_list[1].args[2]
+        assert "garmin_data/bulk" in text and "backup" in text.lower() and "mirror" in text.lower() and "fallback" in text.lower()
+
+    def test_a_no_to_the_confirmation_starts_nothing_and_pauses_nothing(self):
+        panel = self._panel(timer_active=True)
+        self._go(panel, self.OPTIONS, confirm=False)
+        app = panel._app
+        app._run.assert_not_called()
+        app._timer_stop.set.assert_not_called()
+        assert app._timer_active is True
+
+    def test_json_only_needs_no_extra_confirmation(self):
+        panel = self._panel()
+        q, _ = self._go(panel, {"json": True, "intraday": False, "preview": False})
+        assert q.call_count == 1
+        assert panel._app._run.call_args.kwargs["env_overrides"]["GARMIN_BULK_PHASES"] == "json"
+
+    def test_intraday_only_is_confirmed_too(self):
+        panel = self._panel()
+        q, _ = self._go(panel, {"json": False, "intraday": True, "preview": False})
+        assert q.call_count == 2
+        assert panel._app._run.call_args.kwargs["env_overrides"]["GARMIN_BULK_PHASES"] == "intraday"
+
+    def test_preview_runs_with_the_dry_run_variable_and_pauses_nothing(self):
+        panel = self._panel(timer_active=True)
+        q, _ = self._go(panel, {"json": True, "intraday": True, "preview": True})
+        app = panel._app
+        assert q.call_count == 1                       # only the selection
+        env = app._run.call_args.kwargs["env_overrides"]
+        assert env["GARMIN_BULK_DRYRUN"] == "1" and env["GARMIN_BULK_PHASES"] == "json,intraday"
+        app._timer_stop.set.assert_not_called()
+        assert app._timer_active is True
+        assert any("nothing is written" in str(c.args[0]) for c in app._log.call_args_list)
+
+    def test_preview_of_the_daily_values_alone_explains_and_starts_nothing(self):
+        panel = self._panel()
+        _, info = self._go(panel, {"json": True, "intraday": False, "preview": True})
+        panel._app._run.assert_not_called()
+        assert info.call_count == 1 and "no preview" in info.call_args.args[2].lower()
+
+    def test_nothing_selected_explains_and_starts_nothing(self):
+        panel = self._panel()
+        _, info = self._go(panel, {"json": False, "intraday": False, "preview": False})
+        panel._app._run.assert_not_called()
+        assert info.call_count == 1
+
+    def test_cancel_in_the_options_starts_nothing(self):
+        panel = self._panel(timer_active=True)
+        q, _ = self._go(panel, None)
+        panel._app._run.assert_not_called()
+        panel._app._timer_stop.set.assert_not_called()
+        assert q.call_count == 1
+
+    def test_no_path_chosen_starts_nothing(self):
+        panel = self._panel()
+        self._go(panel, self.OPTIONS, path="")
+        panel._app._run.assert_not_called()
+
+    def test_the_timer_is_paused_for_the_real_import(self):
+        panel = self._panel(timer_active=True)
+        self._go(panel, self.OPTIONS)
+        app = panel._app
+        app._timer_stop.set.assert_called_once()
+        assert app._timer_active is False
+
+    def test_the_folder_choice_is_still_offered(self):
+        panel = self._panel()
+        self._go(panel, self.OPTIONS, zip_file=False, path="C:/export_folder")
+        assert panel._app._run.call_args.kwargs["env_overrides"]["GARMIN_IMPORT_PATH"] == "C:/export_folder"
+
+    # ── after the run ─────────────────────────────────────────────────────────
+    def test_on_done_removes_all_three_variables_and_resumes_the_timer(self):
+        import os
+        from unittest.mock import patch
+        panel = self._panel(timer_active=True)
+        self._go(panel, self.OPTIONS)
+        app = panel._app
+        on_done = app._run.call_args.kwargs["on_done"]
+        with patch.dict(os.environ, {"GARMIN_IMPORT_PATH": "x", "GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"}):
+            on_done()
+            assert not any(k in os.environ for k in ("GARMIN_IMPORT_PATH", "GARMIN_BULK_PHASES", "GARMIN_BULK_DRYRUN"))
+        app._panel_timer._timer_resume_after_sync.assert_called_once_with(True)
+        app._panel_archive._refresh_archive_info.assert_called_once()
+
+    def test_on_done_of_a_preview_resumes_nothing(self):
+        panel = self._panel(timer_active=True)
+        self._go(panel, {"json": False, "intraday": True, "preview": True})
+        app = panel._app
+        app._run.call_args.kwargs["on_done"]()
+        app._panel_timer._timer_resume_after_sync.assert_called_once_with(False)
+
+    # ── the dialog ────────────────────────────────────────────────────────────
+    def test_dialog_offers_both_phases_checked_and_three_buttons(self, qtbot):
+        from app.outputs.bulk_import import ImportOptionsDialog
+        dlg = ImportOptionsDialog()
+        qtbot.addWidget(dlg)
+        assert dlg.json_box.isChecked() and dlg.intraday_box.isChecked()
+        assert dlg.preview_btn.text() == "Preview" and dlg.import_btn.text() == "Import" and dlg.cancel_btn.text() == "Cancel"
+        assert dlg.options() is None                   # nothing chosen yet
+
+    def test_dialog_import_returns_the_checkboxes(self, qtbot):
+        from app.outputs.bulk_import import ImportOptionsDialog
+        dlg = ImportOptionsDialog()
+        qtbot.addWidget(dlg)
+        dlg.json_box.setChecked(False)
+        dlg.import_btn.click()
+        assert dlg.options() == {"json": False, "intraday": True, "preview": False}
+
+    def test_dialog_preview_returns_the_preview_flag(self, qtbot):
+        from app.outputs.bulk_import import ImportOptionsDialog
+        dlg = ImportOptionsDialog()
+        qtbot.addWidget(dlg)
+        dlg.preview_btn.click()
+        assert dlg.options() == {"json": True, "intraday": True, "preview": True}
+
+    def test_dialog_cancel_returns_none(self, qtbot):
+        from app.outputs.bulk_import import ImportOptionsDialog
+        dlg = ImportOptionsDialog()
+        qtbot.addWidget(dlg)
+        dlg.cancel_btn.click()
+        assert dlg.options() is None

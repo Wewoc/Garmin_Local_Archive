@@ -48,6 +48,7 @@ a given rule, see `CHANGELOG.md`.
 ## Build
 
 - `build_manifest.py::HIDDEN_IMPORTS_COMMON`/`HIDDEN_IMPORTS_T3_EXTRA` — single source of truth for PyInstaller hidden imports; T2 = COMMON, T3 = COMMON + T3_EXTRA. `embed_dest(subfolder)` in `build_standalone.py` — the sole source for `--add-data` destination-path logic
+- `sqlite3` / `_sqlite3` are in `HIDDEN_IMPORTS_COMMON` (T2 and T3 — `mcp_sql` needs them in the frozen package); `array`, `bisect`, `dataclasses`, `tempfile` are in `HIDDEN_IMPORTS_T3_EXTRA` because the bulk modules import them. Pinned by `tests/test_build_output.py` (v1.7.6)
 
 ## Mirror / Container
 
@@ -75,6 +76,18 @@ a given rule, see `CHANGELOG.md`.
 - `garmin_quality.py::touch_last_checked(data, days)` sets `last_checked` on the given days and nothing else — `quality`, `source`, `recheck`, `write`, `attempts`, `fields` and the log checksum stay as they are. It never saves: the caller holds `QUALITY_LOCK` from load to save and saves once after its loop. Its purpose is the MCP cache, which re-reads a day when `last_checked` differs from the cached value (v1.7.5.7)
 - `garmin_repair_resting_hr.py` (v1.7.5.7, removable — every part carries the marker `RESTING-HR-REPAIR v1.7.5.7`) never writes a file itself: `raw/` + `summary/` through `garmin_writer.write_day()`, the quality log through `touch_last_checked()` + `_save_quality_log()` under one continuous `QUALITY_LOCK` hold, saved once after the loop. A caller that keeps its quality log in memory for the rest of its run passes it as `quality_data` — `garmin_collector.main()` does — because a log loaded by the repair is overwritten by the caller's next save and the marks are lost. Detection is by the content of `raw/` (no quality-log marker): the three-key import form of `heart_rates` without `user_summary.lastSevenDaysAvgRestingHeartRate`
 - `GARMIN_RESTING_HR_REPAIR` is removed with `os.environ.pop()` when `garmin_collector.main()` reads it (step 3e); only the value `"1"` starts the repair. `scheduler/daily_update.py` only warns about unrepaired days and never stops the run, unlike the schema migration (v1.7.5.7)
+
+## Bulk store (v1.7.6)
+
+- `garmin_bulk_writer.py` — sole owner of `garmin_data/bulk/raw/` and `garmin_data/bulk/source/`; the API sync never writes there, and it never writes `raw/`/`source/`/`summary/`. Day files and originals are written to `<name>.tmp` and moved with `os.replace` (retried up to five times on a lock); day files are flushed with `fsync`, originals are not. Originals are named by the SHA-256 of their bytes, never by a name from the export
+- `BULK_SCHEMA_VERSION` is raised when the day format or the normalising rules change; the days are then written again from the originals. `garmin_health_map._BULK_MAX_SCHEMA` must equal it (pinned by `tests/test_broker.py`)
+- A day is replaced only by a fuller one: same files and schema → nothing written; more files, or the same files with an older schema → written; fewer files or a set that is not a superset → kept; a day from a newer schema → kept. A damaged day file counts as new (known gap: also an unreadable one, `AUDIT_FINDINGS_v1_7_6.md` F-1)
+- `garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py`, `garmin_bulk_normalizer.py` — leaf nodes (stdlib only, no `garmin_config`). The reader rejects a file as a whole (`not_fit` / `truncated` / `crc` / `structure`), never half-read. No entry name of the export is returned, counted or logged. The normalizer plans a day only if both of its boundaries are known; a day with an unknown boundary gets no samples, nothing is guessed
+- `garmin_bulk_import.py` — orchestrates only; no quality log, backup or API store. Originals are kept for the FIT types 32, 49, 44, 68, 58, 79 and 41 only. `dry_run=True` creates and writes nothing, not even folders. Never raises: an error ends in `summary["error"]` and `ok=False`
+- `garmin_collector._bulk_phases()` and `_run_bulk_import()` remove `GARMIN_BULK_PHASES` / `GARMIN_BULK_DRYRUN` with `os.environ.pop()` when they read them (T3 runs `main()` in the GUI process); the GUI removes all three trigger variables (`TRIGGER_VARS`) after the run. An unknown phase selection starts nothing and counts as one failure. The `json` phase runs before `intraday`
+- The import branch of `main()` writes a session log like a sync (`log/recent`, copied to `log/fail` on failure)
+- Days written by the intraday phase are marked only through `garmin_quality.record_bulk_intraday()` (`entry["bulk"]["intraday"]` and `last_checked`), under `QUALITY_LOCK`, saved once. `entry["bulk"]` (a dict) is not `entry["source"] == "bulk"` (older JSON import)
+- `garmin_health_map._SERIES_TRACKS` — the first non-empty series of a day wins as a whole, a day is never mixed from two tracks; every intraday entry carries `series_source`; an unusable bulk day is skipped with one warning per day and process, never an exception
 
 ## MCP Server / Proxy
 

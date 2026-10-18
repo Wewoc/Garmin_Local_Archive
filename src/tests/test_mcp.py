@@ -2777,4 +2777,46 @@ check("edge: correlate with a raw name that has a counterpart -> did_you_mean ca
 check("edge: query_raw description still within the 2000-character cap after the additions",
       len(_tool_desc["query_raw"]) <= 2000)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  15. clients/mcp_update.py — a bulk-only day reaches the cache with its series (v1.7.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("mcp_update 15. _sync_health_days() — heart-rate series from the bulk store")
+
+_BD = "2026-06-10"
+_BT = int(datetime.datetime(2026, 6, 9, 22, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000)
+cfg.BULK_RAW_DIR.mkdir(parents=True, exist_ok=True)
+(cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_BD}.json").write_text(json.dumps({
+    "date": _BD, "schema_version": 1, "utc_offset_hours": 2.0, "utc_offset_end_hours": 2.0, "dst_transition": False,
+    "sections": {"intraday": {"heart_rate": {"count": 2, "values": [[_BT, 61], [_BT + 60000, 63]]}}}}), encoding="utf-8")
+
+_sync_log = {"data": {"days": [{"date": _BD, "quality": "standard", "last_checked": "2026-10-17"}]}}
+
+
+def _sync_meta(kind, date_from=None, date_to=None):
+    return {"stats": {"data": {"date_min": _BD, "date_max": _BD}}, "quality_log": _sync_log}[kind]
+
+
+with patch("mcp_update.mcp_map.get_archive_metadata", side_effect=_sync_meta), \
+     patch("mcp_update.mcp_map.list_available_fields", return_value={"fields": {"health": {"garmin": ["heart_rate_series"]}}}), \
+     patch("mcp_update._update_day_status"):
+    _bulk_sync = mcp_update._sync_health_days()
+_cached = mcp_sql.get_health_range(_BD, _BD, field="heart_rate_series")["health"]["heart_rate_series"]["values"]
+check("sync: a day that only the bulk store has is cached with its series and series_source 'bulk'",
+      _bulk_sync == (1, 0) and len(_cached) == 1 and _cached[0]["series_source"] == "bulk"
+      and [p["value"] for p in _cached[0]["series"]] == [61.0, 63.0]
+      and _cached[0]["series"][0]["ts"] == "2026-06-10T00:00:00")
+with patch("mcp_update.mcp_map.get_archive_metadata", side_effect=_sync_meta), \
+     patch("mcp_update.mcp_map.list_available_fields", return_value={"fields": {"health": {"garmin": ["heart_rate_series"]}}}), \
+     patch("mcp_update._update_day_status"):
+    _again_sync = mcp_update._sync_health_days()
+check("sync: the same last_checked again -> nothing is read again", _again_sync == (0, 0))
+_sync_log["data"]["days"][0]["last_checked"] = "2026-10-18"
+with patch("mcp_update.mcp_map.get_archive_metadata", side_effect=_sync_meta), \
+     patch("mcp_update.mcp_map.list_available_fields", return_value={"fields": {"health": {"garmin": ["heart_rate_series"]}}}), \
+     patch("mcp_update._update_day_status"):
+    _marked_sync = mcp_update._sync_health_days()
+check("sync: a new last_checked (what the bulk import sets) makes the cache read the day again", _marked_sync == (1, 0))
+
 summary()

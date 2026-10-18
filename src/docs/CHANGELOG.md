@@ -1,5 +1,86 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6 — Bulk Silo: Heart-Rate Series from the Garmin Export
+
+The import of the Garmin GDPR export now reads the heart-rate series
+(intraday, from the FIT files) as well as the daily values. The series are
+stored in a separate store, `garmin_data/bulk/`, next to the archive.
+`raw/`, `summary/` and `source/` are not touched by this import.
+
+**What changed:**
+- **Bulk store** (`garmin_data/bulk/{raw,source}`): one file per day
+  (`garmin_bulk_<date>.json`, `schema_version` 1, UTC offset and DST
+  transition of the day, `sections.intraday.heart_rate.values`). The original
+  FIT files are kept by SHA-256 under `bulk/source/<xx>/`. The only writer is
+  `garmin_bulk_writer`: a day is never replaced by a smaller one; an
+  unreadable or damaged day file is written again.
+- **Import pipeline** (five new modules): `garmin_bulk_fit_reader` (FIT
+  parser, rejects a damaged structure with a reason), `garmin_bulk_export_scanner`
+  (folders, ZIPs and nested ZIPs; counts what it cannot read, prints no file
+  names), `garmin_bulk_normalizer` (days, time zone, DST),
+  `garmin_bulk_writer`, `garmin_bulk_import` (orchestrator, summary, dry run).
+- **Collector**: `_run_bulk_import()` with `GARMIN_BULK_PHASES`
+  (`json`, `intraday`) and `GARMIN_BULK_DRYRUN`; both variables are removed as
+  soon as they are read. The import branch of `main()` now writes a session
+  log (`garmin_bulk_<timestamp>.log` in `log/recent`, a copy in `log/fail`
+  when the run fails).
+- **Quality log**: `_mark_bulk_days()` / `garmin_quality.record_bulk_intraday()`
+  mark each written day (`bulk.intraday`) and set `last_checked`, so the MCP
+  cache re-reads it.
+- **Broker**: `heart_rate_series` has two tracks, `api` and `bulk`;
+  `series_source` ("api" / "bulk" / none) is returned with every intraday
+  entry. Dashboards and the layers above the broker are unchanged.
+- **Import dialog** (`app/outputs/bulk_import.py`): "Daily values (JSON)" and
+  "Heart-rate series (FIT files)", with Preview, Import and Cancel; a confirmation
+  names that the bulk store is not yet part of backup and mirror.
+- **Build**: `sqlite3` / `_sqlite3` added to the common hidden imports (found
+  in the T2 package); `array`, `bisect`, `dataclasses`, `tempfile` added for
+  T3.
+
+**New:** `garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py`,
+`garmin_bulk_normalizer.py`, `garmin_bulk_writer.py`, `garmin_bulk_import.py`,
+`garmin_collector._run_bulk_import()`, `garmin_collector._mark_bulk_days()`,
+`garmin_quality.record_bulk_intraday()`, `GARMIN_BULK_PHASES`,
+`GARMIN_BULK_DRYRUN`.
+
+**Changed modules:**
+- `garmin/garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py`,
+  `garmin_bulk_normalizer.py`, `garmin_bulk_writer.py`,
+  `garmin_bulk_import.py` — new
+- `garmin/garmin_config.py` — `BULK_DIR`, `BULK_RAW_DIR`, `BULK_SOURCE_DIR`,
+  `BULK_FILE_PREFIX`
+- `garmin/garmin_collector.py` — `_run_bulk_import()`, `_mark_bulk_days()`,
+  session log of the import branch
+- `garmin/quality/_maint.py`, `garmin/garmin_quality.py` —
+  `record_bulk_intraday()`
+- `maps/garmin_health_map.py` — bulk track, `series_source`
+- `app/outputs/bulk_import.py` — import dialog; `app/panel_outputs.py` —
+  tooltip
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py` — new
+  modules and test files registered, hidden imports
+- `tests/` — five new test files (`test_bulk_fit_reader.py`,
+  `test_bulk_export_scanner.py`, `test_bulk_normalizer.py`,
+  `test_bulk_writer.py`, `test_bulk_import.py`), `fit_builder.py` (new),
+  `test_collector.py`, `test_quality.py`, `test_broker.py`, `test_mcp.py`,
+  `test_qt_app.py`, `test_build_output.py`, `test_basics.py`,
+  `test_static.py`, `vulture_whitelist.py`
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_BROKER.md`,
+  `docs/REFERENCE_INVARIANTS.md`, `docs/REFERENCE_GLOBAL.md`,
+  `docs/REFERENCE_MCP.md`, `docs/MAINTENANCE_GARMIN.md`,
+  `docs/MAINTENANCE_GLOBAL.md`, `docs/GLA_GUIDELINES.md`, `README.md`,
+  `docs/USER_GUIDE.txt`, `docs/QUICKSTART.txt`, `docs/ROADMAP.md`,
+  `docs/VERSION_HISTORY.md`, `docs/README_APP.md` (title)
+- `version.py` — 1.7.6
+
+**Test result:** all suites green, 4951 checks in 41 files.
+
+**Not covered:** the bulk store is not yet part of backup and mirror; a day
+file that cannot be read for I/O reasons counts as new and could be replaced
+by a smaller state (register finding F-1, pinned by tests); four counters of
+dropped samples are computed but not printed (F-2); the output of the dialog
+and of the other GUI actions is shown in the app but not written to a file;
+`test_qt_app.py` has not been run under Python 3.11.
+
 ## v1.7.5.7 — Resting Heart Rate of Imported Days Corrected
 
 The bulk import of the Garmin GDPR export stored the export's 7-day

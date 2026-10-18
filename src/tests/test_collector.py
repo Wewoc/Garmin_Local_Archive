@@ -139,6 +139,242 @@ with _isolated_log_env("main_import") as _b:
         _code, _exc, _fetch, _ = _run_main(env={"GARMIN_IMPORT_PATH": "C:/export.zip"})
     check("main import mode: failed days -> exit code 1", _code == 1)
 
+# -- bulk import phases (v1.7.6, 6b) -----------------------------------------------------------------
+import garmin_bulk_import as _bimp
+
+
+def _bulk(env, import_result=None, intraday_result=None, stop_event=None, spy=None):
+    """main() in import mode with both phases replaced. Returns (exit code, run_import mock, intraday mock, order, fetch mock)."""
+    order = []
+
+    def _json_phase(*a, **k):
+        order.append("json")
+        return import_result if import_result is not None else {"failed": 0}
+
+    def _intraday_phase(*a, **k):
+        order.append("intraday")
+        if spy:
+            spy()
+        return intraday_result if intraday_result is not None else {"ok": True}
+
+    with patch.object(_col5, "run_import", side_effect=_json_phase) as _ri, \
+         patch.object(_bimp, "run_intraday_import", side_effect=_intraday_phase) as _ii:
+        _code, _exc, _fetch, _ = _run_main(env={"GARMIN_IMPORT_PATH": "C:/export.zip", **env}, stop_event=stop_event)
+    return _code, _ri, _ii, order, _fetch
+
+
+with _isolated_log_env("main_bulk") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _c, _ri, _ii, _o, _f = _bulk({})
+    check("main bulk import: without a phase variable only the JSON phase runs, as before v1.7.6",
+          _c == 0 and _o == ["json"] and not _f.called)
+    check("main bulk import: the JSON phase gets the path and a stop event as before",
+          _ri.call_args.args == ("C:/export.zip",) and "stop_event" in _ri.call_args.kwargs)
+    check("main bulk import: phases 'json' = the JSON phase only", _bulk({"GARMIN_BULK_PHASES": "json"})[3] == ["json"])
+    check("main bulk import: an empty phase variable counts as not set", _bulk({"GARMIN_BULK_PHASES": ""})[3] == ["json"])
+    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"})
+    check("main bulk import: both phases run, the JSON phase first (the day windows come from raw/)", _c == 0 and _o == ["json", "intraday"])
+    check("main bulk import: the intraday phase gets the path, no dry run, and the collector's stop check",
+          _ii.call_args.args == ("C:/export.zip",) and _ii.call_args.kwargs["dry_run"] is False
+          and _ii.call_args.kwargs["should_stop"] is _col5._is_stopped)
+    check("main bulk import: the order in the variable does not matter, spaces and capitals are tolerated",
+          _bulk({"GARMIN_BULK_PHASES": " Intraday , JSON "})[3] == ["json", "intraday"])
+    check("main bulk import: phases 'intraday' = the intraday phase only", _bulk({"GARMIN_BULK_PHASES": "intraday"})[3] == ["intraday"])
+
+    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday", "GARMIN_BULK_DRYRUN": "1"})
+    check("main bulk import: a preview skips the JSON phase (it has none) and previews the intraday phase",
+          _c == 0 and _o == ["intraday"] and _ii.call_args.kwargs["dry_run"] is True)
+    check("main bulk import: a preview of the JSON phase alone runs nothing and ends cleanly",
+          _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"})[0] == 0
+          and _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"})[3] == [])
+    check("main bulk import: a preview without a phase variable (default 'json') runs nothing",
+          _bulk({"GARMIN_BULK_DRYRUN": "1"})[3] == [])
+    check("main bulk import: only the value '1' makes a preview",
+          _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "0"})[3] == ["json"]
+          and _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "true"})[3] == ["json"])
+
+    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, import_result={"failed": 2})
+    check("main bulk import: failed days in the JSON phase -> exit code 1, the intraday phase still runs",
+          _c == 1 and _o == ["json", "intraday"])
+    check("main bulk import: an intraday phase that is not ok -> exit code 1",
+          _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": False})[0] == 1)
+    for _bad in ("json,foo", "foo", "json;intraday", ",,"):
+        _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": _bad})
+        check(f"main bulk import: the phase variable '{_bad}' is refused: nothing runs, exit code 1", _c == 1 and _o == [] and not _f.called)
+
+    _ev_set = threading.Event()
+    _ev_set.set()
+    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, stop_event=_ev_set)
+    check("main bulk import: stopped during the JSON phase -> the intraday phase is not started", _o == ["json"] and _c == 0)
+    check("main bulk import: stopped before the intraday phase alone -> nothing is started",
+          _bulk({"GARMIN_BULK_PHASES": "intraday"}, stop_event=_ev_set)[3] == [])
+
+    _seen = {}
+    _bulk({"GARMIN_BULK_PHASES": "json,intraday", "GARMIN_BULK_DRYRUN": "0"},
+          spy=lambda: _seen.update(phases=os.environ.get("GARMIN_BULK_PHASES"), dry=os.environ.get("GARMIN_BULK_DRYRUN")))
+    check("main bulk import (T3): the phase variables are removed from the environment before the phases run, so they cannot leak into a later run",
+          _seen == {"phases": None, "dry": None})
+
+# -- bulk import: the days written are marked in the quality log (v1.7.6) ---------------------------
+_QL_BASE = {"quality": "high", "source": "api", "write": True, "recheck": False, "attempts": 0,
+            "last_checked": "2024-01-01", "last_attempt": None, "fields": {}, "device_id": None, "device_name": ""}
+_TODAY_B = date.today().isoformat()
+
+
+def _qlog(*days):
+    _put_log({"first_day": days[0], "devices": [], "days": [{"date": d, **_QL_BASE} for d in days]})
+
+
+with _isolated_log_env("main_bulk_mark") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _qlog("2024-03-01", "2024-03-02", "2024-03-03")
+    _sum_before = quality._compute_checksum(quality._load_quality_log())
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02", "2024-03-03"]})
+    _q = _qdays()
+    check("bulk marking: the days the import wrote carry bulk.intraday and a new last_checked",
+          _c == 0 and all(_q[d]["bulk"] == {"intraday": _TODAY_B} and _q[d]["last_checked"] == _TODAY_B for d in ("2024-03-02", "2024-03-03")))
+    check("bulk marking: a day that was not written is left alone",
+          "bulk" not in _q["2024-03-01"] and _q["2024-03-01"]["last_checked"] == "2024-01-01")
+    check("bulk marking: quality, source, recheck and the log checksum are unchanged",
+          all(_q[d]["quality"] == "high" and _q[d]["source"] == "api" and _q[d]["recheck"] is False for d in _q)
+          and quality._load_quality_log()["_checksum"] == _sum_before)
+    check("bulk marking: the quality lock is free again afterwards",
+          quality.QUALITY_LOCK.acquire(blocking=False) and (quality.QUALITY_LOCK.release() or True))
+
+    _qlog("2024-03-02")
+    _bulk({"GARMIN_BULK_PHASES": "intraday", "GARMIN_BULK_DRYRUN": "1"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
+    check("bulk marking: a preview marks nothing, even if the result named days", "bulk" not in _qdays()["2024-03-02"])
+
+    _qlog("2024-03-02")
+    with patch.object(quality, "_load_quality_log") as _ld:
+        _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": []})
+        _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True})
+    check("bulk marking: nothing written -> the quality log is not even loaded", _ld.call_count == 0)
+
+    _qlog("2024-03-02")
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": False, "stopped": True, "written_days": ["2024-03-02"]})
+    check("bulk marking: a stopped or partly failed run still marks the days it wrote (exit code 1 for the failure)",
+          _c == 1 and _qdays()["2024-03-02"]["bulk"] == {"intraday": _TODAY_B})
+
+    _qlog("2024-03-02")
+    _order = []
+    _real_mark = quality.record_bulk_intraday
+    with patch.object(quality, "record_bulk_intraday", side_effect=lambda *a, **k: (_order.append("mark"), _real_mark(*a, **k))[1]):
+        _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]}, spy=lambda: _order.append("intraday"))
+    check("bulk marking: after the intraday phase, once", _order == ["intraday", "mark"])
+
+    _qlog("2024-03-02")
+    with patch.object(quality, "record_bulk_intraday", side_effect=RuntimeError("boom")):
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
+    check("bulk marking: an error while marking is a warning, the import still ends with exit code 0",
+          _c == 0 and "bulk" not in _qdays()["2024-03-02"])
+    check("bulk marking: ... and the quality lock is free after the error",
+          quality.QUALITY_LOCK.acquire(blocking=False) and (quality.QUALITY_LOCK.release() or True))
+
+    _qlog("2024-03-02")
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02", "2030-01-01"]})
+    check("bulk marking: a written day without a log entry is skipped, not created",
+          _c == 0 and [e["date"] for e in quality._load_quality_log()["days"]] == ["2024-03-02"])
+
+    _qlog("2024-03-02")
+    with patch.object(quality, "_save_quality_log") as _sv:
+        _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2030-01-01"]})
+    check("bulk marking: no entry matched -> the log is not saved (no needless write and backup snapshot)", _sv.call_count == 0)
+
+    _qlog("2024-03-02")
+    _held = []
+    _real_load, _real_save = quality._load_quality_log, quality._save_quality_log
+    with patch.object(quality, "_load_quality_log", side_effect=lambda: (_held.append(quality.QUALITY_LOCK.locked()), _real_load())[1]), \
+         patch.object(quality, "_save_quality_log", side_effect=lambda d: (_held.append(quality.QUALITY_LOCK.locked()), _real_save(d))[1]):
+        _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
+    check("bulk marking: the quality lock is held from the load to the save", _held == [True, True])
+
+# -- bulk import: the run leaves a session log (v1.7.6) --------------------------------------------
+with _isolated_log_env("main_bulk_sesslog") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _recent, _fail = _b / "recent", _b / "fail"
+    _phase_log = logging.getLogger("test_phase")
+
+    def _logging_phases(json_result=None, intraday_result=None, json_exc=None):
+        """Both phases replaced by functions that write one log line each, like the real ones do."""
+        def _json(*a, **k):
+            _phase_log.info("LINE-FROM-JSON-PHASE")
+            if json_exc is not None:
+                raise json_exc
+            return json_result if json_result is not None else {"failed": 0}
+
+        def _intra(*a, **k):
+            _phase_log.info("LINE-FROM-INTRADAY-PHASE")
+            return intraday_result if intraday_result is not None else {"ok": True}
+        return patch.object(_col5, "run_import", side_effect=_json), patch.object(_bimp, "run_intraday_import", side_effect=_intra)
+
+    def _import_run(env, keep_old=False, **phase_kw):
+        """main() in import mode. Returns (exit code, exception, the session log files created, text of the first one, what the close function saw).
+        The log name carries the second of the start, so earlier files of the test are removed first (two runs in one second would share a file)."""
+        if not keep_old:
+            for folder in (_recent, _fail):
+                for old in (folder.glob("*.log") if folder.exists() else ()):
+                    old.unlink()
+        before = set(_recent.glob("*.log")) if _recent.exists() else set()
+        seen = {}
+        real_close = _col5._close_session_log
+
+        def _close_spy(fh, path, had_errors, had_incomplete):
+            seen["args"] = (path, had_errors, had_incomplete)
+            real_close(fh, path, had_errors, had_incomplete)
+            seen["handler_left"] = fh in logging.getLogger().handlers
+
+        pj, pi = _logging_phases(**phase_kw)
+        with pj, pi, patch.object(_col5, "_close_session_log", side_effect=_close_spy):
+            code, exc, _f, _ = _run_main(env={"GARMIN_IMPORT_PATH": "C:/export.zip", **env})
+        new = sorted(set(_recent.glob("*.log")) - before)
+        text = new[0].read_text(encoding="utf-8") if new else ""
+        return code, exc, new, text, seen
+
+    with _cfg_values(LOG_RECENT_DIR=_recent, LOG_FAIL_DIR=_fail, LOG_RECENT_MAX=30, SESSION_LOG_PREFIX="garmin_bulk"):
+        _code, _exc, _new, _text, _seen_c = _import_run({"GARMIN_BULK_PHASES": "json,intraday"})
+        check("bulk session log: an import leaves exactly one log file in log/recent, named with the run's prefix",
+              _code == 0 and len(_new) == 1 and _new[0].name.startswith("garmin_bulk_") and _new[0].suffix == ".log")
+        check("bulk session log: it holds what both phases logged, in order",
+              "LINE-FROM-JSON-PHASE" in _text and "LINE-FROM-INTRADAY-PHASE" in _text
+              and _text.index("LINE-FROM-JSON-PHASE") < _text.index("LINE-FROM-INTRADAY-PHASE"))
+        check("bulk session log: the lines have the timestamp and level of the other session logs",
+              any(len(row.split(" ", 3)) == 4 and row.split(" ")[2] == "INFO" for row in _text.splitlines() if "LINE-FROM-JSON-PHASE" in row))
+        check("bulk session log: the file handler is closed and removed after the run, with 'no errors, no incomplete days'",
+              _seen_c["args"][1:] == (False, False) and _seen_c["handler_left"] is False)
+        check("bulk session log: a clean import leaves nothing in log/fail", not _fail.exists() or list(_fail.glob("*.log")) == [])
+
+        _code, _exc, _new, _text, _ = _import_run({"GARMIN_BULK_PHASES": "intraday", "GARMIN_BULK_DRYRUN": "1"})
+        check("bulk session log: a preview is logged too", _code == 0 and len(_new) == 1 and "LINE-FROM-INTRADAY-PHASE" in _text)
+
+        _code, _exc, _new, _text, _seen_f = _import_run({"GARMIN_BULK_PHASES": "json"}, json_result={"failed": 2})
+        check("bulk session log: failed days -> exit code 1, the log is copied to log/fail",
+              _code == 1 and _seen_f["args"][1] is True and any(p.name == _new[0].name for p in _fail.glob("*.log")))
+        _code, _exc, _new, _text, _ = _import_run({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": False})
+        check("bulk session log: an intraday phase that is not ok is a failed session too (copied to log/fail)",
+              _code == 1 and any(p.name == _new[0].name for p in _fail.glob("*.log")))
+        _code, _exc, _new, _text, _ = _import_run({"GARMIN_BULK_PHASES": "nonsense"})
+        check("bulk session log: an unusable phase selection is in the log, exit code 1, copied to log/fail",
+              _code == 1 and "unknown phase selection" in _text and any(p.name == _new[0].name for p in _fail.glob("*.log")))
+
+        _code, _exc, _new, _text, _seen_x = _import_run({"GARMIN_BULK_PHASES": "json"}, json_exc=RuntimeError("boom in the phase"))
+        check("bulk session log: an exception in a phase still reaches the caller",
+              isinstance(_exc, RuntimeError) and _code is None)
+        check("bulk session log: ... the log is closed, removed from the root logger and kept in log/fail",
+              len(_new) == 1 and "LINE-FROM-JSON-PHASE" in _text and _seen_x["args"][1] is True and _seen_x["handler_left"] is False
+              and any(p.name == _new[0].name for p in _fail.glob("*.log")))
+
+    _rot = _b / "rotating"
+    _rot.mkdir()
+    for _i, _n in enumerate(("garmin_1.log", "garmin_2.log", "garmin_3.log")):
+        (_rot / _n).write_text(_n, encoding="utf-8")
+        os.utime(_rot / _n, (1000 + _i, 1000 + _i))
+    with _cfg_values(LOG_RECENT_DIR=_rot, LOG_FAIL_DIR=_fail, LOG_RECENT_MAX=2, SESSION_LOG_PREFIX="garmin_bulk"):
+        _recent = _rot
+        _import_run({"GARMIN_BULK_PHASES": "json"}, keep_old=True)
+        check("bulk session log: the import log counts into the LOG_RECENT_MAX rotation of log/recent (oldest goes first)",
+              len(list(_rot.glob("garmin_*.log"))) == 2 and not (_rot / "garmin_1.log").exists())
+
 # -- stop event -------------------------------------------------------------------------------------
 with _isolated_log_env("main_stop") as _b:
     cfg.SUMMARY_DIR = _b / "summary"

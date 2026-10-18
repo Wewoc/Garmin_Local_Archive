@@ -44,6 +44,18 @@ check("LOG_BACKUP_DIR derived",         cfg.LOG_BACKUP_DIR == _TMPDIR / "garmin_
 check("RAW_BACKUP_DIR derived",         cfg.RAW_BACKUP_DIR == _TMPDIR / "garmin_data" / "backup" / "raw")
 check("AUTORESTORE_DIR derived",        cfg.AUTORESTORE_DIR == _TMPDIR / "garmin_data" / "backup" / "autorestore")
 
+# v1.7.6 — bulk store paths (sole owner: garmin_bulk_writer.py)
+check("BULK_DIR derived",               cfg.BULK_DIR == _TMPDIR / "garmin_data" / "bulk")
+check("BULK_RAW_DIR derived",           cfg.BULK_RAW_DIR == _TMPDIR / "garmin_data" / "bulk" / "raw")
+check("BULK_SOURCE_DIR derived",        cfg.BULK_SOURCE_DIR == _TMPDIR / "garmin_data" / "bulk" / "source")
+check("BULK_FILE_PREFIX",               cfg.BULK_FILE_PREFIX == "garmin_bulk_")
+check("bulk store is separate from the API store (not inside raw/source/summary)",
+      all(cfg.RAW_DIR not in p.parents and cfg.SOURCE_DIR not in p.parents and cfg.SUMMARY_DIR not in p.parents
+          for p in (cfg.BULK_DIR, cfg.BULK_RAW_DIR, cfg.BULK_SOURCE_DIR)))
+check("bulk day file name cannot clash with a raw day file name",
+      cfg.BULK_FILE_PREFIX != cfg.RAW_FILE_PREFIX and not cfg.RAW_FILE_PREFIX.startswith(cfg.BULK_FILE_PREFIX)
+      and not cfg.BULK_FILE_PREFIX.startswith(cfg.RAW_FILE_PREFIX))
+
 # SYNC_DATES parsing
 os.environ["GARMIN_SYNC_DATES"] = "2024-01-01,2024-01-02,bad-date"
 importlib.reload(cfg)
@@ -58,6 +70,8 @@ os.environ["GARMIN_OUTPUT_DIR"] = str(_TMPDIR2)
 importlib.reload(cfg)
 check("config reload: BASE_DIR follows ENV",        cfg.BASE_DIR == _TMPDIR2)
 check("config reload: GARMIN_TOKEN_FILE under BASE", str(cfg.GARMIN_TOKEN_FILE).startswith(str(_TMPDIR2)))
+check("config reload: bulk dirs follow ENV",         cfg.BULK_RAW_DIR == _TMPDIR2 / "garmin_data" / "bulk" / "raw"
+                                                     and cfg.BULK_SOURCE_DIR == _TMPDIR2 / "garmin_data" / "bulk" / "source")
 os.environ["GARMIN_OUTPUT_DIR"] = str(_TMPDIR)
 importlib.reload(cfg)
 shutil.rmtree(_TMPDIR2, ignore_errors=True)

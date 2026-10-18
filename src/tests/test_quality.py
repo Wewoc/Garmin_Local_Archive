@@ -713,6 +713,51 @@ with patch.object(sys.modules["quality._io"], "_save_quality_log") as _tl_sv:
           _tl_n0 == 0 and _tl_n1 == 0 and len(_tl["days"]) == 3)
     check("touch_last_checked: never saves the log (the caller saves once)", _tl_sv.call_count == 0)
 
+# record_bulk_intraday (v1.7.6) — marks days whose heart-rate series are in the bulk store
+_bi = json.loads(json.dumps(_tl_orig))
+_bi["days"][1]["bulk"] = {"aggregates": "2026-01-01", "intraday": "2026-01-02"}      # a later import adds "aggregates"
+_bi["days"][2]["bulk"] = "garbage"                                                    # not a dict: replaced, never crashes
+_bi_orig = json.loads(json.dumps(_bi))
+_bi_sum_before = quality._compute_checksum(_bi)
+with patch.object(sys.modules["quality._io"], "_save_quality_log") as _bi_sv:
+    _bi_n = quality.record_bulk_intraday(_bi, [date(2019, 1, 1), "2019-01-02", "2019-01-03"])
+    check("record_bulk_intraday: returns the number of marked entries",  _bi_n == 3)
+    check("record_bulk_intraday: bulk.intraday and last_checked are today on every named day",
+          all(e["bulk"]["intraday"] == _tl_today and e["last_checked"] == _tl_today for e in _bi["days"]))
+    check("record_bulk_intraday: a bulk entry that already holds other keys keeps them, only intraday is renewed",
+          _bi["days"][1]["bulk"] == {"aggregates": "2026-01-01", "intraday": _tl_today})
+    check("record_bulk_intraday: a bulk value that is not a dict is replaced", _bi["days"][2]["bulk"] == {"intraday": _tl_today})
+    check("record_bulk_intraday: nothing but bulk and last_checked changes (quality, source, recheck, write, attempts, fields)",
+          all({k: v for k, v in a.items() if k not in ("bulk", "last_checked")} == {k: v for k, v in b.items() if k not in ("bulk", "last_checked")}
+              for a, b in zip(_bi["days"], _bi_orig["days"])))
+    check("record_bulk_intraday: the log checksum stays the same", quality._compute_checksum(_bi) == _bi_sum_before)
+    _bi_n0 = quality.record_bulk_intraday(_bi, [date(2030, 1, 1)])
+    _bi_n1 = quality.record_bulk_intraday(_bi, [])
+    check("record_bulk_intraday: a day without an entry is skipped and not created, an empty list marks nothing",
+          _bi_n0 == 0 and _bi_n1 == 0 and len(_bi["days"]) == 3 and all("bulk" in e for e in _bi["days"]))
+    check("record_bulk_intraday: never saves the log (the caller saves once)", _bi_sv.call_count == 0)
+_bi_other = json.loads(json.dumps(_tl_orig))
+quality.record_bulk_intraday(_bi_other, ["2019-01-01"])
+check("record_bulk_intraday: a day that is not named gets no bulk key",
+      "bulk" not in _bi_other["days"][1] and "bulk" not in _bi_other["days"][2] and _bi_other["days"][1]["last_checked"] == "2024-01-02")
+
+# E17: a per-day field the log does not know survives load, save and the regular upsert
+with _isolated_log_env("bulk_field_e17"):
+    _e17 = {"first_day": "2019-01-01", "devices": [], "days": [
+        {"date": "2019-01-01", "quality": "high", "source": "api", "write": True, "recheck": False, "attempts": 0,
+         "last_checked": "2024-01-01", "last_attempt": None, "fields": {}, "device_id": None, "device_name": ""}]}
+    quality.record_bulk_intraday(_e17, ["2019-01-01"])
+    _e17_sum = quality._compute_checksum(_e17)
+    quality._save_quality_log(_e17)
+    _e17_loaded = quality._load_quality_log()
+    check("E17: the bulk field survives save and load, the log is not flagged as damaged",
+          _e17_loaded["days"][0]["bulk"] == {"intraday": _tl_today} and _e17_loaded["integrity_warnings"] == [])
+    check("E17: the stored checksum is the one computed without the field", _e17_loaded["_checksum"] == _e17_sum)
+    quality.record_attempt(_e17_loaded, date(2019, 1, 1), "high", "again", written=True, source="api")
+    quality._save_quality_log(_e17_loaded)
+    check("E17: a later regular upsert of the same day keeps the bulk field",
+          quality._load_quality_log()["days"][0]["bulk"] == {"intraday": _tl_today})
+
 
 # ── 4e. assess_quality_fields, get_archive_stats, scan, field hash ────────────
 section("4e. garmin_quality — assess, archive stats, scan, field hash")

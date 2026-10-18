@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Seite-1" id="xxizT5hO4jLxtiOqMOSN">
-    <mxGraphModel dx="1872" dy="771" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="4679" dy="1927" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -16,7 +16,7 @@
         <mxCell id="R0hBJxIENf9GrV4WnLih-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#b0e3e6;strokeColor=#0e8088;fontSize=9;fontStyle=1;verticalAlign=top;opacity=40;arcSize=4;" value="Output" vertex="1">
           <mxGeometry height="230" width="217" x="450" y="370" as="geometry" />
         </mxCell>
-        <mxCell id="R0hBJxIENf9GrV4WnLih-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;fontSize=10;fontStyle=1;verticalAlign=top;opacity=40;strokeColor=#b85450;gradientColor=#ea6b66;" value="Externe Server" vertex="1">
+        <mxCell id="R0hBJxIENf9GrV4WnLih-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;fontSize=10;fontStyle=1;verticalAlign=top;opacity=40;strokeColor=#b85450;gradientColor=#ea6b66;" value="Data Source" vertex="1">
           <mxGeometry height="113" width="878.75" x="1211.25" y="2130" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eeeeee;strokeColor=#36393d;fontSize=9;fontStyle=1;verticalAlign=top;opacity=40;" value="Export Layer" vertex="1">
@@ -204,8 +204,8 @@
         <mxCell id="R0hBJxIENf9GrV4WnLih-56" parent="1" style="line;html=1;strokeColor=#444444;fillColor=none;" value="" vertex="1">
           <mxGeometry height="10" width="282" x="554" y="1299.67" as="geometry" />
         </mxCell>
-        <mxCell id="R0hBJxIENf9GrV4WnLih-57" parent="1" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=2;" value="&lt;div&gt;No cloud dependency after syncing.&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(136, 136, 136), rgb(120, 120, 120));&quot;&gt;All data is stored locally — garmin_data/ on disk.&lt;/span&gt;&lt;/div&gt;" vertex="1">
-          <mxGeometry height="40" width="282" x="554" y="1313.67" as="geometry" />
+        <mxCell id="R0hBJxIENf9GrV4WnLih-57" parent="1" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;strokeColor=none;fillColor=none;fontSize=9;fontColor=#888888;fontStyle=2;" value="&lt;div&gt;No cloud dependency after syncing.&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(136, 136, 136), rgb(120, 120, 120));&quot;&gt;All data is stored locally — garmin_data/ on disk.&lt;/span&gt;&lt;/div&gt;&lt;div&gt;Bulk-Import marks its days in the quality log (bulk.intraday).&lt;/div&gt;" vertex="1">
+          <mxGeometry height="52" width="282" x="554" y="1313.67" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-58" edge="1" parent="1" source="R0hBJxIENf9GrV4WnLih-59" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.463;entryY=0.986;entryDx=0;entryDy=0;entryPerimeter=0;" target="R0hBJxIENf9GrV4WnLih-19">
           <mxGeometry relative="1" as="geometry" />
@@ -543,8 +543,8 @@
         <mxCell id="R0hBJxIENf9GrV4WnLih-154" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_source_log" vertex="1">
           <mxGeometry height="36" width="160" x="1477.5" y="1340" as="geometry" />
         </mxCell>
-        <mxCell id="R0hBJxIENf9GrV4WnLih-155" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="Garmin Health Archiv&lt;br&gt;&lt;font style=&quot;font-size: 8px;&quot;&gt;/source&amp;nbsp;&amp;nbsp;/raw&amp;nbsp;&amp;nbsp;/summary&lt;/font&gt;" vertex="1">
-          <mxGeometry height="60" width="340" x="1317.5" y="1220" as="geometry" />
+        <mxCell id="R0hBJxIENf9GrV4WnLih-155" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="Garmin Health Archiv&lt;br&gt;&lt;font style=&quot;font-size: 8px;&quot;&gt;/source&amp;nbsp;&amp;nbsp;/raw&amp;nbsp;&amp;nbsp;/summary&lt;br&gt;/bulk/raw&amp;nbsp;&amp;nbsp;/bulk/source&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="333.12" x="1317.5" y="1220" as="geometry" />
         </mxCell>
         <mxCell id="R0hBJxIENf9GrV4WnLih-156" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;" value="device_table" vertex="1">
           <mxGeometry height="34" width="100" x="1317.5" y="1295" as="geometry" />
@@ -690,6 +690,44 @@
         </mxCell>
         <mxCell id="SPLgSrlGjLTM58x4y9B6-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=9;fontStyle=1;arcSize=30;fontSize=8;" value="_fieldhash" vertex="1">
           <mxGeometry height="28" width="100" x="1055" y="1636" as="geometry" />
+        </mxCell>
+        <mxCell id="ayoiCH5cqvAOkNK1ksxB-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1D9E75;fontSize=10;fontStyle=1;verticalAlign=top;dashed=1;fontColor=#1D9E75;arcSize=16;fontSize=9;" value="Bulk-Import" vertex="1">
+          <mxGeometry height="222.7" width="195" x="1495" y="1877.3" as="geometry" />
+        </mxCell>
+        <mxCell id="ayoiCH5cqvAOkNK1ksxB-7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_bulk_export_scanner" vertex="1">
+          <mxGeometry height="36" width="160" x="1512.5" y="2055" as="geometry" />
+        </mxCell>
+        <mxCell id="ayoiCH5cqvAOkNK1ksxB-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_bulk_fit_reader" vertex="1">
+          <mxGeometry height="36" width="160" x="1512.5" y="2005" as="geometry" />
+        </mxCell>
+        <mxCell id="ayoiCH5cqvAOkNK1ksxB-10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_bulk_normalizer" vertex="1">
+          <mxGeometry height="36" width="160" x="1512.5" y="1955" as="geometry" />
+        </mxCell>
+        <mxCell id="ayoiCH5cqvAOkNK1ksxB-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=30;" value="garmin_bulk_writer" vertex="1">
+          <mxGeometry height="36" width="160" x="1512.5" y="1905" as="geometry" />
+        </mxCell>
+        <mxCell id="bulkflow-export" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5f5e3;strokeColor=#1D9E75;fontColor=#0F6E56;fontSize=10;fontStyle=1;arcSize=24;dashed=1;" value="Garmin-Datenexport&lt;br&gt;&lt;font style=&quot;font-size: 8px;&quot;&gt;ZIP, lokale Datei&lt;/font&gt;" vertex="1">
+          <mxGeometry height="66" width="170" x="1507.5" y="2150" as="geometry" />
+        </mxCell>
+        <mxCell id="bulkflow-e1" edge="1" parent="1" source="bulkflow-export" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="ayoiCH5cqvAOkNK1ksxB-7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bulkflow-e2" edge="1" parent="1" source="ayoiCH5cqvAOkNK1ksxB-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="ayoiCH5cqvAOkNK1ksxB-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bulkflow-e3" edge="1" parent="1" source="ayoiCH5cqvAOkNK1ksxB-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="ayoiCH5cqvAOkNK1ksxB-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bulkflow-e4" edge="1" parent="1" source="ayoiCH5cqvAOkNK1ksxB-10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="ayoiCH5cqvAOkNK1ksxB-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bulkflow-e5" edge="1" parent="1" source="ayoiCH5cqvAOkNK1ksxB-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fontSize=8;" target="R0hBJxIENf9GrV4WnLih-127" value="">
+          <mxGeometry relative="1" x="0.0368" as="geometry">
+            <Array as="points">
+              <mxPoint x="1738" y="1923" />
+              <mxPoint x="1738" y="1250" />
+            </Array>
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>

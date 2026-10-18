@@ -58,6 +58,11 @@ garmin_app.py (GUI)
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `garmin_silo_check.py` is a leaf node — imports only `garmin_config` + stdlib. Read-only. No writes, no imports of write modules (v1.6.0.4.7)
 - `garmin_repair_resting_hr.py` (v1.7.5.7, removable) never writes a file itself: `raw/` + `summary/` only through `garmin_writer.write_day()`, `quality_log.json` only through `garmin_quality` (`touch_last_checked()` + `_save_quality_log()`), under one continuous `QUALITY_LOCK` hold. A caller that keeps its quality log in memory must hand it over (`quality_data=`) — a copy loaded by the repair would be overwritten by the caller's next save
+- `garmin_bulk_writer.py` (v1.7.6) is sole write authority for `garmin_data/bulk/raw/` and `garmin_data/bulk/source/`. The API sync never writes there, and the bulk writer never writes `raw/`, `source/` or `summary/`. It decides only whether a day may be replaced; which days and file types are written is the import's business
+- A bulk day is never replaced by a smaller state: fewer source files, or a set that is not a superset, keeps the stored day; a day written by a newer schema version is kept. Known gap: a day file that cannot be read for I/O reasons (not a damaged one) counts as "new" (`AUDIT_FINDINGS_v1_7_6.md`, F-1)
+- `garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py` and `garmin_bulk_normalizer.py` (v1.7.6) are leaf nodes — stdlib only, no project imports, no `garmin_config`. No entry name of the export is returned, counted or logged (the names carry the account's e-mail address): counters and hashes only
+- `garmin_bulk_import.py` (v1.7.6) orchestrates only; it never touches `quality_log.json`, the backup or the API store. The caller marks the written days (`garmin_collector._mark_bulk_days()` → `garmin_quality.record_bulk_intraday()`, under `QUALITY_LOCK`). The bulk store is not covered by backup, mirror or silo check yet (v1.7.6.2)
+- `entry["bulk"]` in the quality log (a dict, key `intraday` = import date) is not `entry["source"] == "bulk"`: the first marks days with series in the bulk store, the second marks days of the older JSON import
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
 - `_fetch_and_assess()` returns `(label, normalized, summary, fields, val_result)` — never raises
@@ -425,6 +430,7 @@ matching on unknown text.
 | `record_attempt(data, day, label, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Public API — atomically calls `_upsert_quality` + `_save_quality_log`. Caller must hold `QUALITY_LOCK`. |
 | `_upsert_quality(data, day, quality, reason, written, source, fields, validator_result, device_id, device_name, prev_high)` | Adds or updates day entry. Downgrade protection: `high` stays `high`. Stores `device_id` + `device_name` per entry. |
 | `touch_last_checked(data, days)` | Sets `last_checked` to today on the entries of the given days (date objects or ISO strings) — nothing else: `quality`, `source`, `recheck`, `write`, `attempts`, `fields` and the log checksum stay as they are. Returns the number of entries touched; a day without an entry is skipped, never created. Does **not** save — the caller holds `QUALITY_LOCK` from load to save and saves once after its loop. Purpose: a day whose `raw/`/`summary/` content was corrected in place must be re-read by the MCP cache, which re-reads a day when its `last_checked` differs from the cached value (`mcp_update._sync_health_days`); rotation and recheck do not use `last_checked`. Generic — not specific to one repair (v1.7.5.7) |
+| `record_bulk_intraday(data, days)` | Marks days whose heart-rate series are in the bulk store (v1.7.6): `entry["bulk"]["intraday"]` = today's date (import date) and `last_checked` = today — nothing else on the entry changes, so `quality`, `source`, `recheck`, `write`, `attempts`, `fields` and the log checksum stay as they are. `entry["bulk"]` is a dict of its own so later imports can add keys without touching `intraday`; a non-dict value is replaced. A day without an entry is skipped, never created. Returns the number of entries marked. Does **not** save — the caller holds `QUALITY_LOCK` from load to save and saves once. `last_checked` is what makes the MCP cache re-read the day (`mcp_update._sync_health_days`) |
 | `save_device_table(quality_data)` | Builds and writes `device_table.json`. Called after each sync and after device_id backfill. Groups entries by `device_id`; entries with `device_id=None` appear as `__unknown__` row. Sole write authority: `garmin_quality`. |
 | `get_archive_stats(quality_log_path)` | Returns GUI stats dict: `total`, `high`, `standard`, `failed`, `recheck`, `missing`, `date_min`, `date_max`, `coverage_pct`, `last_api`, `last_bulk`, `integrity_warnings` |
 | `_compute_checksum(data)` | SHA-256 over stable core fields (`date`, `write`, `quality`, `source`) of all day entries. Extended in v1.5.5. Migration bridge: `_compute_checksum_legacy()` (TODO: remove after v1.6) |
@@ -487,7 +493,7 @@ daily path).
 
 | Function | Purpose |
 |---|---|
-| `main()` | Full sync orchestration: negative `GARMIN_MAX_DAYS_PER_SESSION` rejected with a named error before anything else runs (v1.7.4.0.4 — previously silently reached `missing[:-1]` instead of meaning "unlimited") → import mode (0) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → backup refresh (3d, v1.7.5.6) → resting-HR repair (3e, v1.7.5.7, `GARMIN_RESTING_HR_REPAIR=1`) → login → devices → device_id backfill → source backfill (5c) → steps backfill (5d) → bulk field backfill (5e, `GARMIN_BULK_FIELD_BACKFILL=1`, v1.7.3) → first_day → date resolution → fetch loop → save. `known_dates`/`recheck_dates`/`bulk_upgrade_dates` built via `_valid_dated_entries()` (v1.7.4.0.4) — a quality-log entry with an unparseable date is skipped with a warning instead of raising before login; a `_day_counted` flag in the fetch loop prevents one day being counted in both the saved and the error tally |
+| `main()` | Full sync orchestration: negative `GARMIN_MAX_DAYS_PER_SESSION` rejected with a named error before anything else runs (v1.7.4.0.4 — previously silently reached `missing[:-1]` instead of meaning "unlimited") → import mode (0; `_run_bulk_import()`, own session log `garmin_bulk_<timestamp>.log` in `log/recent`, copied to `log/fail` when the run failed, v1.7.6) → Capability Scan mode (0b, delegated entry, own login, v1.6.8) → dirs → session log → quality load → bulk upgrade flagging → self-healing → schema migration → backup refresh (3d, v1.7.5.6) → resting-HR repair (3e, v1.7.5.7, `GARMIN_RESTING_HR_REPAIR=1`) → login → devices → device_id backfill → source backfill (5c) → steps backfill (5d) → bulk field backfill (5e, `GARMIN_BULK_FIELD_BACKFILL=1`, v1.7.3) → first_day → date resolution → fetch loop → save. `known_dates`/`recheck_dates`/`bulk_upgrade_dates` built via `_valid_dated_entries()` (v1.7.4.0.4) — a quality-log entry with an unparseable date is skipped with a warning instead of raising before login; a `_day_counted` flag in the fetch loop prevents one day being counted in both the saved and the error tally |
 | `_fetch_and_assess(client, date_str, enabled_candidates=None, force=False)` | Fetch → validate → normalize → assess. No file writes of its own beyond `write_source()` (see below). Returns `(label, normalized, summary, fields, val_result)`. `enabled_candidates` (v1.6.8) — optional list of API-Capability-Scan candidate method names, pre-filtered by the caller (double-gate); turned into `extra_endpoints` for `api.fetch_raw()`. `None` (default) — used by `_run_source_backfill()`, which does not take part in the Capability Scan (scope boundary, v1.6.8). `force` (v1.7.1.7) passed straight through to the internal `write_source()` call — cannot be applied afterwards separately, since `write_source()` is called internally |
 | `run_capability_scan(client, window_days=7)` | Probes the 19 optional health-endpoint candidates (`garmin_api_capability.CANDIDATE_ENDPOINTS`) over the last `window_days` days. Runs entirely under `quality.QUALITY_LOCK` (reused, not a new lock — see Invariants). Per-candidate try/except — one failing candidate never aborts the rest. Payload discarded, only the tri-state result (`found`/`not_observed`/`error`) persisted via `garmin_api_capability.update_endpoint()`/`save_config()`. Returns `{"scanned", "found", "not_observed", "error"}` (v1.6.8) |
 | `_check_downgrade(new_label, existing_entry)` | Compares new quality label against stored entry. Returns `(is_downgrade, existing_label, existing_source)`. Delegates the actual rank comparison to `quality.is_downgrade()` (v1.6.5.7 — canonical location, also used by `export/regenerate_raw.py` and `garmin_silo_repair.py`; previously duplicated in each) |
@@ -499,6 +505,9 @@ daily path).
 | `_run_schema_migration(quality_data)` | Rewrites outdated summary files from raw when `GARMIN_SCHEMA_MIGRATE=1`. No API call. Uses `writer.write_summary_only()` (v1.7.4.0.4) — `raw/` and its backup genuinely untouched, not just by convention. Log output per day `[i/total]` |
 | `_run_backup_refresh()` | Step 3d in `main()` (v1.7.5.6), after the schema migration and before the login. For raw and source: `check_*_stale_backups()`; if anything differs from its backup copy, logs `Backup refresh (raw\|source): N outdated backup copy/copies — refreshing` and calls `refresh_*_backups()`. Content-based and idempotent, so there is no popup, quality-log marker or environment variable. Runs on every normal start — also without new days and when the login fails; the import mode and the capability scan return before it. No API call, never modifies `raw/` or `source/`. Non-fatal: any error is a warning. Catches up archives that were written before a rewritten day replaced its ZIP entry (v1.7.5.6) |
 | `_run_resting_hr_repair(quality_data)` | Step 3e in `main()` (v1.7.5.7, removable), after the schema migration and the backup refresh, before the login. Runs only when `GARMIN_RESTING_HR_REPAIR == "1"` (set by `sync.run_collector()` after the popup was confirmed); the variable is removed with `os.environ.pop()` as soon as it is read — in T3 the process, and with it `os.environ`, lives on between runs. Starts `garmin_repair_resting_hr.repair_resting_hr(should_stop=_is_stopped, quality_data=quality_data)`: the run's own quality log is handed over like the backfills get it, because a log loaded by the repair would be overwritten by the next save of this run. No API call. Non-fatal: any error (also a missing module) is a warning `Resting HR repair skipped: …`; failed days are warned about with their number and stay offered at the next start |
+| `_bulk_phases()` | Reads and removes `GARMIN_BULK_PHASES` (v1.7.6). Unset or blank → `{"json"}` (the import as before v1.7.6); otherwise a comma list of `json` / `intraday` as a set; anything else → `None`. Removed with `os.environ.pop()` because in T3 the process lives on between runs |
+| `_run_bulk_import(path, stop_event)` | Runs the chosen import phases and returns `{"failed": n}` for the exit code (v1.7.6). `json` = `run_import()` (daily values into `raw/`), `intraday` = `garmin_bulk_import.run_intraday_import()` (heart-rate series into `garmin_data/bulk/`). `json` runs first (the intraday day windows come from `raw/stats`). `GARMIN_BULK_DRYRUN=1` (also removed when read) makes a preview: only the intraday phase has one, the json phase is skipped. A stop request ends the json phase on its own and the intraday phase is not started; an `ok=False` summary counts as one failure. After a real run the written days are marked via `_mark_bulk_days()` |
+| `_mark_bulk_days(days)` | Loads the quality log under `QUALITY_LOCK`, calls `quality.record_bulk_intraday()`, saves once (import mode holds no quality log of its own). Non-fatal: the series are stored either way, a failed mark is a warning. Known limit: if marking failed, a rerun does not catch up — `written_days` lists only days written in that run, and the days are `unchanged` the second time |
 | `_run_source_backfill(client, quality_data)` | Re-fetches API days from `cfg.SYNC_DATES` that have no `source/` file. Step 5c in `main()` — after login, triggered by `GARMIN_SOURCE_BACKFILL=1`. Non-fatal per-day errors. No-op if `SYNC_DATES` empty (v1.6.0.3) |
 | `run_force_refetch_preview(client, date_strs)` | Force-Refetch, Phase 1 (v1.7.1.7). Per date: snapshot `source/` via `garmin_force_refetch.snapshot_source()` → `_fetch_and_assess(force=True)` (writes `source/`, guard bypassed) → `garmin_quality.compare_source_fields()` against the pre-fetch version. Does NOT write `raw/`/`summary/`, does NOT call `record_attempt()`, does NOT touch backups — those happen only in `commit_force_refetch()` for user-confirmed dates. Two-phase split exists because a one-shot write-then-restore model would have to unwind four silos (`source/`, `raw/`+`summary/`, `quality_log.json`, backup ZIP) on rejection; splitting fetch+compare from commit means nothing outside `source/` is touched until confirmed. Returns `list[dict]`, one entry per date: `date`, `error`, `had_prior_data`, `quality_before`, `quality_after`, `fields_changed`, plus `_normalized`/`_summary`/`_fields`/`_val_result` carried through for Phase 2. Per-date exceptions caught and recorded, do not stop remaining dates |
 | `commit_force_refetch(preview_results, confirmed_dates, quality_data)` | Force-Refetch, Phase 2 (v1.7.1.7). For each `preview_results` entry: if `date` is in `confirmed_dates` — `_should_write()` → `_write_assessed()` → `record_attempt()` → `garmin_backup.backup_raw(force=True)` (only if written) + `garmin_backup_source.backup_source(force=True)` (always — `source/` was written in Phase 1 regardless of label); if NOT confirmed — `garmin_force_refetch.restore_snapshot()` reverts `source/` only, since Phase 1 touched nothing else. `_check_downgrade()` deliberately bypassed for confirmed dates — the user has already seen the before/after comparison, which is the human decision `_check_downgrade()` would otherwise stand in for. Returns `list[dict]`: `date`, `action` (`"committed"` \| `"reverted"` \| `"skipped_error"`), `error` |
@@ -576,7 +585,51 @@ generator and silently yielding zero days (v1.7.4.0.4).
 | `TrainingReadinessDTO_*.json` | `DI-Connect-Metrics/` | Training readiness |
 | `*_summarizedActivities.json` | `DI-Connect-Fitness/` | Activity summaries |
 
-**Not extracted by `load_bulk()` (JSON files only):** intraday HR, stress curve, body battery curve, SpO2 series, respiration series, HRV details, training status. Bulk data always results in `standard` quality — never `high`.
+**Not extracted by `load_bulk()` (JSON files only):** intraday HR, stress curve, body battery curve, SpO2 series, respiration series, HRV details, training status. Bulk data always results in `standard` quality — never `high`. The heart-rate series of the same export (FIT files) are read by a separate phase, `garmin_bulk_import.py` (below), into the bulk store — not into `raw/`.
+
+---
+
+## `garmin_bulk_import.py`
+
+Intraday phase of the Garmin export import (v1.7.6). Orchestrates the four modules below; touches no quality log, backup or API store.
+
+| Function | Purpose |
+|---|---|
+| `run_intraday_import(path, dry_run=False, should_stop=None, keep_types=KEEP_TYPES)` | Reads the FIT files of the export (ZIP, folder, inner ZIP or single `.fit`), stores the originals of the kept FIT types (32, 49, 44, 68, 58, 79, 41) and writes one bulk day per local day with heart-rate samples. `should_stop` is asked once per file and once per day. Never raises: errors go into `summary["error"]` and `ok=False`. Returns a dict of numbers (`scan`, `rejected`, `by_type`, `originals`, `days`, `samples`, `unknown_days`, `planned_days_without_samples`, `written_days`) — no entry name appears in it. `dry_run=True` creates and writes nothing, not even folders |
+| `format_summary(summary, dry_run)` | The summary as text lines (counts only) |
+
+A rerun with the same export changes nothing; part of an export never shrinks a day. Stopped while the files are read: no day is written, the originals read so far stay; stopped between two days: the days written stay.
+
+---
+
+## `garmin_bulk_export_scanner.py`
+
+Leaf node. `iter_fit_files(path, stats=None)` yields `(sha256 hex, bytes)` once per different content, sorted by path; `ScanStats` counts `fit_seen`, `fit_yielded`, `duplicates`, `oversize`, `unreadable_entries`, `zips_opened`, `zips_unreadable`, `too_deep`, `ignored`. Limits `MAX_ZIP_DEPTH = 3`, `MAX_FIT_BYTES = 64 MB`. Inner ZIPs go through an anonymous `tempfile.TemporaryFile`. `FileNotFoundError` if the path does not exist.
+
+---
+
+## `garmin_bulk_fit_reader.py`
+
+Leaf node. `parse_fit(data, wanted=())` → `FitFile(file_type, time_created, messages)`. The whole file is checked first (signature, header size, length, header CRC if set, file CRC); `FitFormatError.reason` is one of `not_fit` / `truncated` / `crc` / `structure`. Invalid base-type values become `None`. No plausibility checks, no time conversion.
+
+---
+
+## `garmin_bulk_normalizer.py`
+
+Leaf node, pure calculation. `plan_days(windows)` → `BoundaryPlan`: the boundary at the start of a day is the local midnight taken to UTC with the end offset of the previous full-day window; a boundary that rule cannot give comes from the neighbours; a day with an unknown boundary is listed in `unknown` and gets no samples. `file_samples(records)` / `complete_timestamp()`: 16-bit timestamps are completed by the nearest distance modulo 65536; records without heart rate or with 0 are dropped and counted. `SampleCollector` assigns samples to days (duplicate seconds: the file with the smaller `(time_created, hash)` wins; same and conflicting duplicates are counted separately); `iter_days()` yields one `DaySamples` at a time.
+
+---
+
+## `garmin_bulk_writer.py`
+
+Sole owner of `garmin_data/bulk/`. Day file `bulk/raw/garmin_bulk_YYYY-MM-DD.json` (compact JSON, `schema_version` 1: `date`, `generated_by`, `origin`, `imported_at`, `utc_offset_hours`, `utc_offset_end_hours`, `dst_transition`, `offset_source`, `source_files`, `duplicates`, `sections.intraday.heart_rate {count, values [[ms UTC, bpm]]}`); originals in `bulk/source/<xx>/<sha256>.fit`.
+
+| Function | Purpose |
+|---|---|
+| `write_day(plan_day, day_samples, imported_at=None)` | → `written` / `unchanged` / `kept` / `failed`. Atomic (`.tmp` → `fsync` → `os.replace`, up to 5 tries on a lock); never raises |
+| `day_status(date_str, source_files)` | `new` / `unchanged` / `update` / `smaller` / `newer` |
+| `read_day(date_str)` | The stored day as a dict, `None` if there is none or it cannot be read |
+| `store_original(file_hash, data)` / `original_present(file_hash, size)` | `written` / `present` / `failed`; the name must be a 64-character SHA-256 |
 
 ---
 
@@ -760,11 +813,16 @@ unchanged.
       },
       "field_backfill_attempts": {
         "max_metrics": 1
+      },
+      "bulk": {
+        "intraday": "2026-10-17"
       }
     }
   ]
 }
 ```
+
+`bulk.intraday` (v1.7.6) is set only on days whose heart-rate series were written to the bulk store by an import; the value is the import date. It is independent of `source`.
 
 ### Summary JSON (`summary/garmin_YYYY-MM-DD.json`)
 
@@ -821,7 +879,7 @@ Each field in `_FIELD_MAP` uses one of six descriptor types:
 | Type | Key | Resolution | Source |
 |---|---|---|---|
 | `daily` | `("section", "key")` | daily | `summary/garmin_YYYY-MM-DD.json` |
-| `intraday` | `("section", "array_key", extract_dict)` | intraday | `raw/garmin_raw_YYYY-MM-DD.json` |
+| `intraday` | `("section", "array_key", extract_dict)` | intraday | `raw/garmin_raw_YYYY-MM-DD.json` (for fields in `_SERIES_TRACKS` also `bulk/raw/garmin_bulk_YYYY-MM-DD.json`, v1.7.6) |
 | `raw_pct` | `("section", "dto_key", "seconds_key", "total_key")` | daily | `raw/garmin_raw_YYYY-MM-DD.json` |
 | `live` | `("section", "array_key", extract_dict)` | live | `garmin_data/live/live.json` |
 | `live_pct` | `("section", "dto_key", "seconds_key", "total_key")` | live | `garmin_data/live/live.json` |
@@ -848,7 +906,7 @@ The three `live*` types (v1.6.5) exist only for `resolution="live"` — a single
 | `sleep_light_pct` | raw_pct | `sleep.dailySleepDTO`: `lightSleepSeconds / sleepTimeSeconds * 100` | % |
 | `sleep_rem_pct` | raw_pct | `sleep.dailySleepDTO`: `remSleepSeconds / sleepTimeSeconds * 100` | % |
 | `sleep_awake_pct` | raw_pct | `sleep.dailySleepDTO`: `awakeSleepSeconds / sleepTimeSeconds * 100` | % |
-| `heart_rate_series` | intraday | `heart_rates.heartRateValues` | `[{"ts", "value"}]` |
+| `heart_rate_series` | intraday | `heart_rates.heartRateValues` | `[{"ts", "value"}]`; second track from the bulk store (`sections.intraday.heart_rate.values`) when the API has none, see `REFERENCE_BROKER.md` (v1.7.6) |
 | `stress_series` | intraday | `stress.stressValuesArray` | offset applied |
 | `spo2_series` | intraday | `spo2.spO2HourlyAverages` | List of `[epoch_ms, value]` pairs — corrected in v1.6.3.1 (previously misread as dict-shaped, series was silently empty for every consumer) |
 | `body_battery_series` | intraday | `stress.bodyBatteryValuesArray` | — |

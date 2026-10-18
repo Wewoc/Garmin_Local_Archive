@@ -43,6 +43,8 @@ instead of a silent runtime string mismatch.
 ```python
 query_health(field, date_from, date_to, resolution="daily") -> dict
 # {"health": <gateway_map.get(..., domain="health")["health"]>, "_meta": {...}}
+# (v1.7.6) intraday entries of heart_rate_series carry "series_source"
+# ("api" | "bulk" | None, see REFERENCE_BROKER.md); the SQLite cache keeps it unchanged.
 
 query_context(field, date_from, date_to, resolution="daily") -> dict
 # {"context": <gateway_map.get(..., domain="context")["context"]>, "_meta": {...}}

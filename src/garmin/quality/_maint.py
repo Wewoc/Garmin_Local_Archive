@@ -230,6 +230,41 @@ def touch_last_checked(data: dict, days) -> int:
     return count
 
 
+def record_bulk_intraday(data: dict, days) -> int:
+    """
+    Marks days whose heart-rate series are in the bulk store (garmin_data/bulk,
+    v1.7.6): `entry["bulk"]["intraday"]` = today's date (the import date) and
+    `last_checked` = today. Nothing else on the entry changes — `quality`,
+    `source`, `recheck`, `write`, `attempts` and `fields` stay, so the log
+    checksum (date/quality/source/write) does not change either.
+
+    `last_checked` is what makes the MCP cache read the day again
+    (mcp_update._sync_health_days); without it a day imported into an
+    archive the cache already knows would never show its series.
+
+    `entry["bulk"]` is a dict of its own so later imports can add keys
+    ("aggregates") without touching "intraday". A `bulk` value that is not a
+    dict is replaced. Not to be confused with `source == "bulk"`, which marks
+    days of the older JSON import.
+
+    `days`: iterable of date objects or ISO strings (YYYY-MM-DD). A day
+    without an entry in the log is skipped, never created.
+    Returns the number of entries marked. Does NOT save — the caller holds
+    QUALITY_LOCK from load to save and saves once (same contract as
+    touch_last_checked).
+    """
+    today_str = date.today().isoformat()
+    wanted = {d.isoformat() if hasattr(d, "isoformat") else str(d) for d in days}
+    count = 0
+    for entry in data.get("days", []):
+        if entry.get("date") in wanted:
+            bulk = entry.get("bulk")
+            entry["bulk"] = {**bulk, "intraday": today_str} if isinstance(bulk, dict) else {"intraday": today_str}
+            entry["last_checked"] = today_str
+            count += 1
+    return count
+
+
 def record_field_backfill_failure(data: dict, day: date, field: str) -> int:
     """
     Increments the failed-attempt counter for one field's backfill pass

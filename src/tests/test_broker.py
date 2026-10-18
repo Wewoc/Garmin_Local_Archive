@@ -852,6 +852,153 @@ except ValueError:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  6. Bulk track in the intraday read (v1.7.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("6. garmin_health_map — bulk track for heart_rate_series (v1.7.6)")
+
+import garmin_bulk_writer as _bw6
+from datetime import datetime as _dt6, timezone as _tz6
+from unittest.mock import patch as _patch6
+
+_T6 = int(_dt6(2026, 5, 1, 22, 0, tzinfo=_tz6.utc).timestamp() * 1000)     # 22:00Z = 00:00 local on 2026-05-02 at +2 h
+_BULK_VALUES6 = [[_T6, 61], [_T6 + 60000, 62], [_T6 + 120000, 64]]
+
+
+def _put_raw6(day, doc):
+    cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    (cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{day}.json").write_text(json.dumps({"date": day, **doc}), encoding="utf-8")
+
+
+def _put_bulk6(day, offset=2.0, dst=False, values=None, schema=1, drop=(), raw_text=None):
+    cfg.BULK_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    values = _BULK_VALUES6 if values is None else values
+    doc = {"date": day, "schema_version": schema, "utc_offset_hours": offset, "utc_offset_end_hours": (offset + (1.0 if dst else 0.0)) if isinstance(offset, float) else offset,
+           "dst_transition": dst, "offset_source": "prev_day_end", "source_files": ["a" * 64],
+           "sections": {"intraday": {"heart_rate": {"count": len(values), "values": values}}}}
+    for key in drop:
+        doc.pop(key, None)
+    (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{day}.json").write_text(raw_text if raw_text is not None else json.dumps(doc), encoding="utf-8")
+
+
+def _hr6(day, field="heart_rate_series"):
+    return garmin_health_map.get(field, day, day, resolution="intraday")["values"][0]
+
+
+_API_SERIES6 = [[_T6, 80], [_T6 + 60000, 81]]
+_put_raw6("2026-05-01", {"heart_rates": {"startTimestampGMT": "2026-04-30T22:00:00.0", "startTimestampLocal": "2026-05-01T00:00:00.0",
+                                         "endTimestampGMT": "2026-05-01T22:00:00.0", "endTimestampLocal": "2026-05-02T00:00:00.0",
+                                         "heartRateValues": _API_SERIES6}})
+_put_bulk6("2026-05-01", values=[[_T6, 99], [_T6 + 60000, 98], [_T6 + 120000, 97], [_T6 + 180000, 96]])      # fuller than the API day
+_put_bulk6("2026-05-02")                                                                                      # bulk only, no raw file
+_put_raw6("2026-05-03", {"heart_rates": {"heartRateValues": []}})
+_put_bulk6("2026-05-03")
+_put_raw6("2026-05-04", {"stats": {"totalSteps": 1}})
+_put_bulk6("2026-05-04")
+_put_raw6("2026-05-05", {"stats": {"totalSteps": 1}})                                                         # raw, nothing else
+_put_bulk6("2026-05-06", offset=1.0, dst=True)
+_put_bulk6("2026-05-07", raw_text="{ not json")
+_put_bulk6("2026-05-08", schema=2)
+_put_bulk6("2026-05-09", drop=("utc_offset_hours",))
+_put_bulk6("2026-05-10", raw_text="{ not json")
+_put_raw6("2026-05-10", {"heart_rates": {"heartRateValues": []}})
+_put_bulk6("2026-05-11", drop=("sections",))
+_put_bulk6("2026-05-12", offset="two")
+_put_bulk6("2026-05-13", values=[])
+_put_bulk6("2026-05-15", values="oops")
+_put_bulk6("2026-05-16", values=[[_T6, None]])
+_put_bulk6("2026-05-17", schema=0)
+_put_bulk6("2026-05-18", schema=True)
+_put_raw6("2026-05-23", {"stats": {"totalSteps": 1}})
+_put_bulk6("2026-05-14")
+_put_raw6("2026-05-14", {"stress": {"stressValuesArray": [[_T6, 25]], "stressChartValueOffset": 0}})
+
+# the day the API has: the API wins, the bulk day is not even read
+with _patch6.object(garmin_health_map, "_read_bulk_series", wraps=garmin_health_map._read_bulk_series) as _rb:
+    _e_api = _hr6("2026-05-01")
+check("bulk track: a day the API has a series for -> source 'api', the bulk file is not read", _e_api["series_source"] == "api" and _rb.call_count == 0)
+check("bulk track: ... with the API's own values, even though the bulk day is fuller",
+      [p["value"] for p in _e_api["series"]] == [80.0, 81.0])
+check("bulk track: ... shifted by the API day's own offset pair (+2 h: 22:00Z = 00:00 local)", _e_api["series"][0]["ts"] == "2026-05-02T00:00:00")
+
+_e_b = _hr6("2026-05-02")
+check("bulk track: no raw file, a bulk day -> source 'bulk'", _e_b["series_source"] == "bulk" and len(_e_b["series"]) == 3)
+check("bulk track: the series has the form of an API series: {'ts', 'value'} with a float value",
+      all(set(p) == {"ts", "value"} and isinstance(p["value"], float) for p in _e_b["series"]))
+check("bulk track: the offset of the silo head is applied (22:00Z + 2 h = 00:00 local)",
+      [p["ts"] for p in _e_b["series"]] == ["2026-05-02T00:00:00", "2026-05-02T00:01:00", "2026-05-02T00:02:00"]
+      and [p["value"] for p in _e_b["series"]] == [61.0, 62.0, 64.0])
+check("bulk track: the entry keeps its keys date, series, dst_transition and adds series_source",
+      set(_e_b) == {"date", "series", "dst_transition", "series_source"} and _e_b["date"] == "2026-05-02" and _e_b["dst_transition"] is False)
+check("bulk track: an API day empty after normalising ([]) -> bulk", _hr6("2026-05-03")["series_source"] == "bulk")
+check("bulk track: a raw file without the heart-rate section -> bulk", _hr6("2026-05-04")["series_source"] == "bulk")
+
+_e_none = _hr6("2026-05-05")
+check("bulk track: a raw file and no bulk day -> series None, source None, as before",
+      _e_none["series"] is None and _e_none["series_source"] is None and _e_none["dst_transition"] is False)
+_e_nothing = _hr6("2026-05-20")
+check("bulk track: no file at all -> series None, source None", _e_nothing["series"] is None and _e_nothing["series_source"] is None)
+
+_e_dst = _hr6("2026-05-06")
+check("bulk track: a day with a time change in the silo head -> dst_transition True, the start-of-day offset (+1 h) is used",
+      _e_dst["dst_transition"] is True and _e_dst["series_source"] == "bulk"
+      and _e_dst["series"][0]["ts"] == "2026-05-01T23:00:00")
+
+with _patch6.object(garmin_health_map.log, "warning") as _warn6:
+    for _day6, _why6 in (("2026-05-07", "damaged JSON"), ("2026-05-08", "a newer schema_version"), ("2026-05-09", "no utc_offset_hours"),
+                         ("2026-05-11", "no sections"), ("2026-05-12", "an offset that is not a number"),
+                         ("2026-05-15", "samples that are not a list"), ("2026-05-17", "schema_version 0"),
+                         ("2026-05-18", "schema_version true")):
+        _e6 = _hr6(_day6)
+        check(f"bulk track: {_why6} -> as if there were no bulk day, no exception", _e6["series"] is None and _e6["series_source"] is None)
+    _bulk_warns6 = lambda: [c for c in _warn6.call_args_list if "bulk day" in str(c)]      # noqa: E731  (the API read warns about its own offsets too)
+    check("bulk track: a bulk day that cannot be used is a warning in the log", len(_bulk_warns6()) == 8)
+    _warn6.reset_mock()
+    _hr6("2026-05-07")
+    _hr6("2026-05-07", "heart_rate_series")
+    check("bulk track: ... once per day and process, not again at the next read", len(_bulk_warns6()) == 0)
+    _warn6.reset_mock()
+    _hr6("2026-05-21")                  # days nobody has read before: no file at all, a raw file only, a usable bulk day
+    _hr6("2026-05-23")
+    _hr6("2026-05-02")
+    check("bulk track: a day without a bulk day, and a usable one, give no warning about a bulk day", len(_bulk_warns6()) == 0)
+_e_eb = _hr6("2026-05-10")
+check("bulk track: an empty API series and an unusable bulk day -> the API's [] stays, source None",
+      _e_eb["series"] == [] and _e_eb["series_source"] is None)
+_ex6 = garmin_health_map._FIELD_MAP["heart_rate_series"]["intraday"][2]
+check("bulk track: samples that all drop out (no value) are not a series: the helper gives None, not []",
+      garmin_health_map._read_bulk_series("heart_rate_series", "2026-05-16", _ex6) is None)
+check("bulk track: the helper does not read the heart-rate samples for a field that has no bulk track",
+      garmin_health_map._read_bulk_series("stress_series", "2026-05-02", _ex6) is None)
+_e_empty6 = _hr6("2026-05-13")
+check("bulk track: a bulk day without samples is not a series (None, source None)", _e_empty6["series"] is None and _e_empty6["series_source"] is None)
+
+check("bulk track: stress_series never asks the bulk store, even where a bulk day exists",
+      _hr6("2026-05-02", "stress_series")["series"] is None and _hr6("2026-05-02", "stress_series")["series_source"] is None)
+check("bulk track: ... but carries series_source 'api' where the API has a stress series", _hr6("2026-05-14", "stress_series")["series_source"] == "api")
+check("bulk track: the other intraday fields carry series_source too (None without data)",
+      all("series_source" in garmin_health_map.get(f, "2026-05-20", "2026-05-20", resolution="intraday")["values"][0]
+          for f in ("stress_series", "spo2_series", "respiration_series", "body_battery_series", "steps_series")))
+check("bulk track: only heart_rate_series has a bulk track", garmin_health_map._SERIES_TRACKS == {"heart_rate_series": ("api", "bulk")})
+check("bulk track: the schema version the reader accepts is the one the writer writes", garmin_health_map._BULK_MAX_SCHEMA == _bw6.BULK_SCHEMA_VERSION)
+
+_range6 = garmin_health_map.get("heart_rate_series", "2026-05-01", "2026-05-03", resolution="intraday")
+check("bulk track: a range gives every day in order with its own source",
+      [(e["date"], e["series_source"]) for e in _range6["values"]] == [("2026-05-01", "api"), ("2026-05-02", "bulk"), ("2026-05-03", "bulk")]
+      and _range6["source_resolution"] == "intraday" and _range6["fallback"] is False)
+_via6 = health_map.get("heart_rate_series", "2026-05-02", "2026-05-02", resolution="intraday")
+check("bulk track: through health_map and gateway_map the key arrives unchanged",
+      _via6["garmin"]["values"][0]["series_source"] == "bulk"
+      and gateway_map.get("heart_rate_series", "2026-05-02", "2026-05-02", resolution="intraday")["health"]["garmin"]["values"][0]["series_source"] == "bulk")
+check("bulk track: the daily read is untouched (heart_rate_series has no daily form: falls back to intraday as before)",
+      garmin_health_map.get("heart_rate_series", "2026-05-02", "2026-05-02", resolution="daily")["fallback"] is True)
+
+shutil.rmtree(cfg.BULK_RAW_DIR, ignore_errors=True)
+check("bulk track: without a bulk store at all the read is as before",
+      _hr6("2026-05-02")["series"] is None and _hr6("2026-05-02")["series_source"] is None and _hr6("2026-05-01")["series_source"] == "api")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

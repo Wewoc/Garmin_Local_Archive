@@ -84,7 +84,8 @@ class PanelOutputs(QWidget):
                               QSizePolicy.Policy.Fixed)
         imp_row.addWidget(imp_btn)
         imp_row.addWidget(
-            self._tip("Import Garmin GDPR export ZIP or folder (recommended for history)"))
+            self._tip("Import Garmin GDPR export ZIP or folder: daily values and "
+                      "heart-rate series, with a preview (recommended for history)"))
         lay.addLayout(imp_row)
 
         # Import links row
