@@ -99,6 +99,7 @@ Run-And-Tee "python" @("tests/test_bulk_export_scanner.py")          "test_bulk_
 Run-And-Tee "python" @("tests/test_bulk_normalizer.py")          "test_bulk_normalizer.py"
 Run-And-Tee "python" @("tests/test_bulk_writer.py")          "test_bulk_writer.py"
 Run-And-Tee "python" @("tests/test_bulk_import.py")          "test_bulk_import.py"
+Run-And-Tee "python" @("tests/test_bulk_json_import.py")          "test_bulk_json_import.py"
 Run-And-Tee "python" @("tests/test_api.py")          "test_api.py"
 Run-And-Tee "python" @("tests/test_live_fetch.py")          "test_live_fetch.py"
 Run-And-Tee "python" @("tests/test_silo_check.py")          "test_silo_check.py"

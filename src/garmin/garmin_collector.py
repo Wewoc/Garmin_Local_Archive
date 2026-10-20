@@ -1316,6 +1316,10 @@ def _run_schema_migration(quality_data: dict) -> None:
     Raw files are read-only. Only summary/ files are overwritten.
     No API call, no login required.
 
+    A day with export data in the bulk store (bulk/aggregates, v1.7.6.1) gets the resolved
+    summary: for a day with a raw file write_summary_only() resolves it, for a day without
+    one the summary is made again from the export data (writer.rebuild_summary).
+
     Logs every day individually so the user can follow progress in the GUI.
     """
     current = normalizer.CURRENT_SCHEMA_VERSION
@@ -1348,6 +1352,16 @@ def _run_schema_migration(quality_data: dict) -> None:
 
     with quality.QUALITY_LOCK:
         for i, date_str in enumerate(candidates, 1):
+            # v1.7.6.1: a day without a raw file but with export data (bulk/aggregates) has its
+            # summary made again from there (summary/ only); with neither it stays skipped.
+            if not (cfg.RAW_DIR / f"garmin_raw_{date_str}.json").exists():
+                if writer.rebuild_summary(date_str):
+                    log.info(f"  [{i}/{total}] {date_str} — ok (from export data)")
+                    ok += 1
+                else:
+                    log.warning(f"  [{i}/{total}] {date_str} — no raw file, skipped")
+                    failed += 1
+                continue
             raw = writer.read_raw(date_str)
             if not raw:
                 log.warning(f"  [{i}/{total}] {date_str} — no raw file, skipped")
@@ -1356,7 +1370,9 @@ def _run_schema_migration(quality_data: dict) -> None:
             try:
                 normalized = normalizer.normalize(raw, source="api")
                 summary    = normalizer.summarize(normalized)
-                writer.write_summary_only(summary, date_str)
+                if not writer.write_summary_only(summary, date_str):
+                    # v1.7.6.1 (F-4): False = nothing written (unreadable aggregates or raw file)
+                    raise RuntimeError("summary could not be written (see the log)")
                 log.info(f"  [{i}/{total}] {date_str} — ok")
                 ok += 1
             except Exception as e:
@@ -1465,38 +1481,196 @@ def _bulk_phases():
     return tokens
 
 
-def _mark_bulk_days(days) -> None:
+def _apply_bulk_marks(qdata, written_days, silo_days):
     """
-    Marks the days the intraday phase wrote in the quality log (record_bulk_intraday:
-    entry["bulk"]["intraday"] and last_checked, so the MCP cache reads them again).
+    Marks bulk intraday series in the quality log `qdata` and saves it once, only if
+    something was marked (F-3, v1.7.6.1). The caller holds QUALITY_LOCK from the moment
+    qdata was loaded until this returns.
+
+      written_days  the days the intraday phase wrote just now (record_bulk_intraday)
+      silo_days     every day with a file in the bulk store (bulk writer, list_days): each
+                    one that has an entry in the log but no mark is marked as well
+                    (catch_up_bulk_intraday) — a mark that failed on an earlier run, or a
+                    day whose log entry did not exist when it was written
+
+    Returns (ok, marked, caught_up). ok is False when quality_log.json could not be written.
+    """
+    marked = quality.record_bulk_intraday(qdata, written_days)
+    caught_up = quality.catch_up_bulk_intraday(qdata, silo_days)
+    if not (marked or caught_up):
+        return True, 0, 0
+    return quality._save_quality_log(qdata) is not False, marked, caught_up
+
+
+def _mark_bulk_days(days) -> bool:
+    """
+    Marks the days the intraday phase wrote in the quality log (entry["bulk"]["intraday"]
+    and last_checked, so the MCP cache reads them again) and catches up the days of the
+    bulk store that lack the mark (_apply_bulk_marks).
 
     Import mode ends right after the phases, so this process holds no quality log of
-    its own: it loads one under QUALITY_LOCK and saves it once. Non-fatal — the series
-    are stored either way; a failed mark is a warning.
+    its own: it loads one under QUALITY_LOCK and saves it once. Nothing to mark and no
+    day in the store -> the log is not even loaded.
+
+    Returns True when the log is as it should be, False when marking failed (an error,
+    or the log could not be written). The series are stored either way, and a failure
+    is made good by the next import run or sync start (the catch-up works at the content),
+    but the run counts it as failed (F-3, v1.7.6.1; before, it was only a warning).
     """
     try:
+        import garmin_bulk_writer as _bw
+        silo_days = _bw.list_days()
+        if not days and not silo_days:
+            return True
         with quality.QUALITY_LOCK:
             qdata = quality._load_quality_log()
-            marked = quality.record_bulk_intraday(qdata, days)
-            if marked:
-                quality._save_quality_log(qdata)
-        log.info(f"  Bulk import: {marked} of {len(days)} written day(s) marked in the quality log")
+            ok, marked, caught_up = _apply_bulk_marks(qdata, days, silo_days)
     except Exception as e:
         log.warning(f"  Bulk import: could not mark the days in the quality log: {e}")
+        return False
+    if not ok:
+        log.warning("  Bulk import: the quality log could not be written — the days are not marked "
+                    "(the next import run or sync start makes it good)")
+        return False
+    line = f"  Bulk import: {marked} of {len(days)} written day(s) marked in the quality log"
+    if len(days) > marked:
+        line += f" ({len(days) - marked} without an entry yet)"
+    if caught_up:
+        line += f", {caught_up} earlier day(s) caught up"
+    log.info(line)
+    return True
 
 
-def _run_bulk_import(path, stop_event=None) -> dict:
+def _summary_days() -> set:
+    """The ISO dates that have a file in summary/ (from the file names only)."""
+    days = set()
+    if cfg.SUMMARY_DIR.exists():
+        for f in cfg.SUMMARY_DIR.glob("garmin_*.json"):
+            name = f.stem[len("garmin_"):]
+            try:
+                date.fromisoformat(name)
+            except ValueError:
+                continue
+            days.add(name)
+    return days
+
+
+def _apply_aggregates(qdata, written_days, insufficient_days, agg_days):
+    """
+    What the daily-values phase leaves to be done, on the quality log `qdata` (the caller holds
+    QUALITY_LOCK from loading it until this returns and saves it if `changed`):
+
+      * summary/ of every day just written, and of every day of the bulk store that has no
+        entry in the log or no summary (a rerun makes good what an interrupted run left)
+        — writer.rebuild_summary(): the API data of the day win, the export fills the rest;
+      * a quality-log entry for every such day that has none: source "bulk", written=False
+        (there is no raw file: the start-up integrity check must not call it missing), label
+        and fields from the day's values, validator result; an existing entry is never
+        relabelled (the API or the older import wins);
+      * an entry "failed" (written=False, source "bulk") for the days with too little data, so
+        that the Fill and Repair timers try the API for them, as the old import did;
+      * the mark entry["bulk"]["aggregates"] with last_checked, so the MCP cache reads the day.
+
+    Returns (changed, failed, counts); failed is the number of days that could not be completed.
+    """
+    import copy
+    import garmin_bulk_writer as _bw
+
+    entry_dates = {e.get("date") for e in qdata.get("days", [])}
+    have_summary = _summary_days()
+    pending = sorted(set(written_days) | {d for d in agg_days if d not in entry_dates or d not in have_summary})
+    counts = {"summaries": 0, "entries": 0, "failed_days": 0, "marked": 0, "caught_up": 0, "rejected_entries": 0}
+    changed, ready = False, []
+
+    for day in pending:
+        doc = _bw.read_aggregates(day)
+        if not isinstance(doc, dict) or not isinstance(doc.get("aggregates"), dict):
+            log.warning(f"  Bulk import: {day} — the stored daily values cannot be used, skipped")
+            counts["failed_days"] += 1
+            continue
+        if not writer.rebuild_summary(day):
+            log.warning(f"  Bulk import: {day} — the summary could not be made, skipped")
+            counts["failed_days"] += 1
+            continue
+        counts["summaries"] += 1
+        if day not in entry_dates:
+            values = {k: v for k, v in doc["aggregates"].items() if k != "day_window"}
+            normalized = normalizer.normalize(copy.deepcopy(values), source="bulk")
+            label = quality.assess_quality(normalized)
+            quality._upsert_quality(
+                qdata, date.fromisoformat(day), label, f"Quality: {label} — bulk import (daily values)",
+                written=False, source="bulk", fields=quality.assess_quality_fields(normalized),
+                validator_result=validator.validate(values))
+            entry_dates.add(day)
+            counts["entries"] += 1
+            changed = True
+        ready.append(day)
+
+    for day in insufficient_days:
+        if day not in entry_dates:
+            quality._upsert_quality(
+                qdata, date.fromisoformat(day), "failed", "Quality: failed — insufficient data in bulk export",
+                written=False, source="bulk")
+            entry_dates.add(day)
+            counts["rejected_entries"] += 1
+            changed = True
+
+    counts["marked"] = quality.record_bulk_aggregates(qdata, ready)
+    counts["caught_up"] = quality.catch_up_bulk_aggregates(qdata, agg_days)
+    return changed or bool(counts["marked"] or counts["caught_up"]), counts["failed_days"], counts
+
+
+def _finish_aggregates(summary) -> bool:
+    """
+    After the daily-values phase (not after a preview): makes the summary of the days, the
+    quality-log entries and the marks (_apply_aggregates), under QUALITY_LOCK, with one save.
+    Nothing written, nothing rejected and nothing in the store -> the log is not even loaded.
+
+    Returns True when everything is as it should be, False when a day could not be completed or
+    the log could not be written (the next import run makes it good: it looks at the content).
+    """
+    written = summary.get("written_days") or []
+    insufficient = summary.get("insufficient_days") or []
+    try:
+        import garmin_bulk_writer as _bw
+        agg_days = _bw.list_aggregate_days()
+        if not written and not insufficient and not agg_days:
+            return True
+        with quality.QUALITY_LOCK:
+            qdata = quality._load_quality_log()
+            changed, failed_days, counts = _apply_aggregates(qdata, written, insufficient, agg_days)
+            saved = (quality._save_quality_log(qdata) is not False) if changed else True
+    except Exception as e:
+        log.warning(f"  Bulk import: could not finish the daily values in the quality log: {e}")
+        return False
+    if not saved:
+        log.warning("  Bulk import: the quality log could not be written — the days are not marked "
+                    "(the next import run makes it good)")
+        return False
+    log.info(f"  Bulk import: daily values — {counts['summaries']} summary file(s) made, {counts['entries']} new quality-log entr"
+             f"{'y' if counts['entries'] == 1 else 'ies'}, {counts['rejected_entries']} entr"
+             f"{'y' if counts['rejected_entries'] == 1 else 'ies'} for days with too little data, "
+             f"{counts['marked'] + counts['caught_up']} day(s) marked")
+    return failed_days == 0
+
+
+def _run_bulk_import(path) -> dict:
     """
     Runs the phases of the Garmin export import chosen in the GUI and returns
     {"failed": n} for the exit code (0 = all phases ok).
 
-      json      the daily values into raw/ (run_import, as before v1.7.6)
+      json      the daily values into garmin_data/bulk/aggregates (garmin_bulk_json_import,
+                v1.7.6.1; before, they went into raw/ — run_import, kept but no longer used here)
       intraday  the heart-rate series into garmin_data/bulk/ (garmin_bulk_import)
 
-    GARMIN_BULK_DRYRUN=1 makes a preview. Only the intraday phase has one: the json
-    phase is skipped then. The json phase runs first (the day windows of the intraday
-    phase come from raw/, which it may fill). A stop request ends the json phase on its
-    own; the intraday phase is not started after it.
+    GARMIN_BULK_DRYRUN=1 makes a preview of both phases. The json phase runs first (it also
+    carries the day windows of the export, a second source for the heart-rate phase). A stop
+    request ends the json phase on its own; the intraday phase is not started after it.
+
+    Exit code: a phase that is not ok, or a finish (summary, log entries, marks) that could not
+    be completed, counts as failed. A day of the export that is rejected (invalid, or with too
+    little data) does not: it is reported in the log and, for too little data, left to the API
+    through a "failed" entry — a rerun would reject it again (v1.7.6.1).
     """
     phases = _bulk_phases()
     dry = os.environ.pop("GARMIN_BULK_DRYRUN", None) == "1"
@@ -1506,10 +1680,12 @@ def _run_bulk_import(path, stop_event=None) -> dict:
 
     failed = 0
     if "json" in phases:
-        if dry:
-            log.info("Bulk import: no preview for the daily values — phase skipped")
-        else:
-            failed += run_import(path, stop_event=stop_event)["failed"]
+        import garmin_bulk_json_import as _json_import
+        summary = _json_import.run_aggregates_import(path, dry_run=dry, should_stop=_is_stopped)
+        if not summary.get("ok"):
+            failed += 1
+        if not dry and not _finish_aggregates(summary):
+            failed += 1
     if "intraday" in phases:
         if _is_stopped():
             log.info("Bulk import: stopped — the heart-rate series phase was not started")
@@ -1518,9 +1694,40 @@ def _run_bulk_import(path, stop_event=None) -> dict:
             summary = _bulk.run_intraday_import(path, dry_run=dry, should_stop=_is_stopped)
             if not summary.get("ok"):
                 failed += 1
-            if not dry and summary.get("written_days"):
-                _mark_bulk_days(summary["written_days"])
+            if not dry and not _mark_bulk_days(summary.get("written_days") or []):
+                failed += 1
     return {"failed": failed}
+
+
+def _run_bulk_mark_catch_up(quality_data: dict) -> None:
+    """
+    Step 3f of the sync (F-3, v1.7.6.1): marks every day that has a file in the bulk
+    store but no `bulk.intraday` mark in the quality log, so the MCP cache reads its
+    series — a mark that failed on an import run, or a day whose log entry did not
+    exist when it was written. Works at the content; no API call, no login, no export.
+
+    quality_data is the run's own quality log, handed through like the repair gets it:
+    a log of its own would be overwritten by the next save of this run. The marks are
+    saved at once (the sync can end at the login) under QUALITY_LOCK. Cheap when the
+    store is empty or fully marked: one folder listing, one pass over the entries and
+    no write.
+
+    Non-fatal: any error is a warning and the sync goes on; the next start tries again.
+    """
+    try:
+        import garmin_bulk_writer as _bw
+        silo_days = _bw.list_days()
+        if not silo_days:
+            return
+        with quality.QUALITY_LOCK:
+            ok, _marked, caught_up = _apply_bulk_marks(quality_data, (), silo_days)
+    except Exception as e:
+        log.warning(f"  Bulk marks catch-up skipped: {e}")
+        return
+    if not ok:
+        log.warning("  Bulk marks catch-up: the quality log could not be written — tried again at the next start")
+    elif caught_up:
+        log.info(f"  Bulk marks: {caught_up} day(s) of the bulk store had no mark in the quality log — marked")
 
 
 # Codereview v1.7.0.1: 378 lines, reviewed (nesting depth 7) — long but
@@ -1541,7 +1748,7 @@ def main(stop_event=None):
         _imp_fh, _imp_path = _start_session_log()
         result = None
         try:
-            result = _run_bulk_import(import_path, stop_event=stop_event)
+            result = _run_bulk_import(import_path)
         finally:
             _close_session_log(_imp_fh, _imp_path, result is None or result["failed"] != 0, False)
         sys.exit(0 if result["failed"] == 0 else 1)
@@ -1655,6 +1862,12 @@ def main(stop_event=None):
     # it): a repair with a log of its own would be overwritten by the next save.
     if os.environ.pop("GARMIN_RESTING_HR_REPAIR", None) == "1":
         _run_resting_hr_repair(quality_data)
+
+    # ── 3f. Bulk marks catch-up — F-3 v1.7.6.1 ──────────────────────────────────
+    # Content-based, no API call, no variable. Days of the bulk store without the
+    # quality-log mark are marked on the run's quality_data and saved at once, before
+    # the login, so the MCP cache reads their series even if the sync ends there.
+    _run_bulk_mark_catch_up(quality_data)
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:
@@ -1851,6 +2064,10 @@ def main(stop_event=None):
                     continue
 
                 written = _write_assessed(normalized, summary, date_str, label)
+                if not written and _should_write(label):
+                    # v1.7.6.1 (F-5): False for a writable label = nothing written (unreadable
+                    # aggregates or disk error); an existing entry stays, a new one is "failed"
+                    raise RuntimeError("raw/ and summary/ could not be written (see the log)")
                 reason  = f"Quality: {label}"
 
                 # prev_high lookup — check if previous calendar day has quality == "high"

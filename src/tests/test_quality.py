@@ -741,6 +741,71 @@ quality.record_bulk_intraday(_bi_other, ["2019-01-01"])
 check("record_bulk_intraday: a day that is not named gets no bulk key",
       "bulk" not in _bi_other["days"][1] and "bulk" not in _bi_other["days"][2] and _bi_other["days"][1]["last_checked"] == "2024-01-02")
 
+# unmarked_bulk_days / catch_up_bulk_intraday (v1.7.6.1, F-3) — a mark that is missing is made good at the content
+_cu = json.loads(json.dumps(_tl_orig))
+_cu["days"][0]["bulk"] = {"intraday": "2026-10-01"}                                       # marked: left alone
+_cu["days"][1]["bulk"] = {"aggregates": "2026-01-01"}                                     # a bulk dict without intraday: unmarked
+_cu["days"][2]["bulk"] = "garbage"                                                        # not a dict: unmarked
+_cu_orig = json.loads(json.dumps(_cu))
+_cu_sum_before = quality._compute_checksum(_cu)
+_cu_asked = [date(2019, 1, 1), "2019-01-02", "2019-01-03", "2030-01-01"]
+check("unmarked_bulk_days: lists the days with an entry and no intraday mark, sorted; marked days and days without an entry are not listed",
+      quality.unmarked_bulk_days(_cu, _cu_asked) == ["2019-01-02", "2019-01-03"])
+check("unmarked_bulk_days: only looks (the log is unchanged), an empty list and nothing asked give []",
+      _cu == _cu_orig and quality.unmarked_bulk_days(_cu, []) == [] and quality.unmarked_bulk_days({"days": []}, _cu_asked) == [])
+check("unmarked_bulk_days: a day that is not asked for is not listed", quality.unmarked_bulk_days(_cu, ["2019-01-02"]) == ["2019-01-02"])
+check("unmarked_bulk_days: sorted by date even when the entries of the log are not",
+      quality.unmarked_bulk_days({"days": [{"date": "2019-03-01"}, {"date": "2019-01-01"}, {"date": "2019-02-01"}]},
+                                 ["2019-01-01", "2019-02-01", "2019-03-01"]) == ["2019-01-01", "2019-02-01", "2019-03-01"])
+check("unmarked_bulk_days: a mark with an empty value counts as unmarked",
+      quality.unmarked_bulk_days({"days": [{"date": "2019-05-05", "bulk": {"intraday": ""}}]}, ["2019-05-05"]) == ["2019-05-05"])
+with patch.object(sys.modules["quality._io"], "_save_quality_log") as _cu_sv:
+    _cu_n = quality.catch_up_bulk_intraday(_cu, _cu_asked)
+    check("catch_up_bulk_intraday: marks the unmarked days and returns their number", _cu_n == 2
+          and all(_cu["days"][i]["bulk"]["intraday"] == _tl_today and _cu["days"][i]["last_checked"] == _tl_today for i in (1, 2)))
+    check("catch_up_bulk_intraday: a day that was marked already keeps its mark and its last_checked (the cache is not made to read it again)",
+          _cu["days"][0] == _cu_orig["days"][0])
+    check("catch_up_bulk_intraday: a bulk dict keeps its other keys", _cu["days"][1]["bulk"] == {"aggregates": "2026-01-01", "intraday": _tl_today})
+    check("catch_up_bulk_intraday: nothing but bulk and last_checked changes, the log checksum stays the same, no entry is created",
+          all({k: v for k, v in a.items() if k not in ("bulk", "last_checked")} == {k: v for k, v in b.items() if k not in ("bulk", "last_checked")}
+              for a, b in zip(_cu["days"], _cu_orig["days"]))
+          and quality._compute_checksum(_cu) == _cu_sum_before and len(_cu["days"]) == 3)
+    check("catch_up_bulk_intraday: a second call marks nothing (idempotent)", quality.catch_up_bulk_intraday(_cu, _cu_asked) == 0)
+    check("catch_up_bulk_intraday: never saves the log (the caller saves once)", _cu_sv.call_count == 0)
+
+# record_bulk_aggregates / catch_up_bulk_aggregates (v1.7.6.1) — the mark of the daily values, in a key of its own
+_ag = json.loads(json.dumps(_tl_orig))
+_ag["days"][0]["bulk"] = {"intraday": "2026-10-01"}                                         # an intraday mark must survive
+_ag["days"][1]["bulk"] = {"aggregates": "2026-10-02", "intraday": "2026-10-01"}             # marked already, with a date from before
+_ag["days"][2]["bulk"] = "garbage"                                                          # not a dict: replaced, never crashes
+_ag_orig = json.loads(json.dumps(_ag))
+_ag_sum_before = quality._compute_checksum(_ag)
+_ag_asked = [date(2019, 1, 1), "2019-01-02", "2019-01-03", "2030-01-01"]
+with patch.object(sys.modules["quality._io"], "_save_quality_log") as _ag_sv:
+    check("unmarked_bulk_days(key='aggregates'): lists the days without an aggregates mark, whatever else the bulk dict holds",
+          quality.unmarked_bulk_days(_ag, _ag_asked, "aggregates") == ["2019-01-01", "2019-01-03"]
+          and quality.unmarked_bulk_days(_ag, _ag_asked) == ["2019-01-03"])
+    _ag_n = quality.catch_up_bulk_aggregates(_ag, _ag_asked)
+    check("catch_up_bulk_aggregates: marks the days without the mark (2 days), keeps the intraday mark next to it",
+          _ag_n == 2 and _ag["days"][0]["bulk"] == {"intraday": "2026-10-01", "aggregates": _tl_today}
+          and _ag["days"][2]["bulk"] == {"aggregates": _tl_today} and _ag["days"][0]["last_checked"] == _tl_today)
+    check("catch_up_bulk_aggregates: a day that carries the mark keeps it and its last_checked",
+          _ag["days"][1] == _ag_orig["days"][1])
+    check("catch_up_bulk_aggregates: nothing but bulk and last_checked changes, the log checksum stays the same, no entry is created",
+          all({k: v for k, v in a.items() if k not in ("bulk", "last_checked")} == {k: v for k, v in b.items() if k not in ("bulk", "last_checked")}
+              for a, b in zip(_ag["days"], _ag_orig["days"]))
+          and quality._compute_checksum(_ag) == _ag_sum_before and len(_ag["days"]) == 3)
+    check("catch_up_bulk_aggregates: a second call marks nothing (idempotent)", quality.catch_up_bulk_aggregates(_ag, _ag_asked) == 0)
+    _ag2 = {"days": [{"date": "2019-02-01", "bulk": {"aggregates": "2026-10-02"}, "last_checked": "2026-10-02"}]}
+    check("catch_up_bulk_intraday does not touch the aggregates mark, and sets only its own key",
+          quality.catch_up_bulk_intraday(_ag2, ["2019-02-01"]) == 1
+          and _ag2["days"][0]["bulk"] == {"aggregates": "2026-10-02", "intraday": _tl_today})
+    _ag3 = {"days": [{"date": "2019-02-01"}]}
+    check("record_bulk_aggregates: returns the number of entries marked, creates nothing, skips days without an entry, never saves",
+          quality.record_bulk_aggregates(_ag3, ["2019-02-01", "2030-01-01"]) == 1 and len(_ag3["days"]) == 1
+          and _ag3["days"][0]["bulk"] == {"aggregates": _tl_today} and quality.record_bulk_aggregates(_ag3, []) == 0
+          and _ag_sv.call_count == 0)
+
 # E17: a per-day field the log does not know survives load, save and the regular upsert
 with _isolated_log_env("bulk_field_e17"):
     _e17 = {"first_day": "2019-01-01", "devices": [], "days": [
@@ -1363,6 +1428,20 @@ with _isolated_log_env("q4n_save") as _b:
     with patch.object(cfg, "LOG_DIR", _deep), patch.object(cfg, "QUALITY_LOG_FILE", _deep / "quality_log.json"):
         quality._save_quality_log({"days": []}, skip_backup=True)
     check("4n save: a log folder with missing parents is created", (_deep / "quality_log.json").is_file())
+
+    # v1.7.6.1 (F-3): the result says whether the file was written
+    with patch.object(_gb4n, "backup_quality_log"):
+        check("4n save: returns True when the log was written, with and without the backup trigger",
+              quality._save_quality_log({"days": [{"date": "2024-07-03"}]}) is True
+              and quality._save_quality_log({"days": [{"date": "2024-07-03"}]}, skip_backup=True) is True)
+    _before_bytes = cfg.QUALITY_LOG_FILE.read_bytes()
+    with patch.object(Path, "replace", side_effect=PermissionError("locked by another process")):
+        _res_fail = quality._save_quality_log({"days": [{"date": "2024-07-04"}]}, skip_backup=True)
+    check("4n save: returns False when the write fails (locked file), nothing is raised, the stored log is as it was",
+          _res_fail is False and cfg.QUALITY_LOG_FILE.read_bytes() == _before_bytes)
+    with patch.object(_gb4n, "backup_quality_log", side_effect=RuntimeError("backup broke")):
+        check("4n save: a failing backup trigger after a good write does not change the result: True",
+              quality._save_quality_log({"days": [{"date": "2024-07-05"}]}) is True)
 
 # -- 8. _save_defective_log -----------------------------------------------------------------------------------------------------------------------------------
 with _isolated_log_env("q4n_defective") as _b:

@@ -525,7 +525,8 @@ class PanelArchive(QWidget):
                 lines = [
                     f"🔍  Silo-Check complete — {result['checked_at']}",
                     f"    raw={t['raw']}  summary={t['summary']}  "
-                    f"source={t['source']}  quality_days={t['quality_days']}",
+                    f"source={t['source']}  export={t.get('aggregates', 0)}  "
+                    f"quality_days={t['quality_days']}",
                 ]
                 if total_findings == 0:
                     lines.append("    ✓ No inconsistencies found.")
@@ -546,14 +547,14 @@ class PanelArchive(QWidget):
                             + ("…" if c["source_without_raw"] > 5 else ""))
                     if c["summary_without_raw"]:
                         lines.append(
-                            f"    ⚠ #5 summary without raw: "
+                            f"    ⚠ #5 summary without raw or export data: "
                             f"{c['summary_without_raw']} day(s) — "
                             + ", ".join(d.isoformat()
                                         for d in result["summary_without_raw"][:5])
                             + ("…" if c["summary_without_raw"] > 5 else ""))
                     if c["raw_without_summary"]:
                         lines.append(
-                            f"    ⚠ #7 raw without summary: "
+                            f"    ⚠ #7 raw or export data without summary: "
                             f"{c['raw_without_summary']} day(s) — "
                             + ", ".join(d.isoformat()
                                         for d in result["raw_without_summary"][:5])

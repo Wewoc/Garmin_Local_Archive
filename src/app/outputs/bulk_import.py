@@ -17,6 +17,9 @@ v1.7.6 (6b): after the path, a small dialog asks which parts to import (daily
 values / heart-rate series) and offers a preview. The choice goes to
 garmin_collector.main() in two more variables (GARMIN_BULK_PHASES,
 GARMIN_BULK_DRYRUN) — BULK-IMPORT-PHASES, removable.
+
+v1.7.6.1: both parts go to garmin_data/bulk (the daily values to bulk/aggregates, no
+longer to raw/); both have a preview.
 """
 
 import os
@@ -51,7 +54,7 @@ class ImportOptionsDialog(QDialog):
         self.json_box.setChecked(True)
         self.intraday_box = QCheckBox("Heart-rate series (FIT files)")
         self.intraday_box.setChecked(True)
-        hint = QLabel("The heart-rate series are stored in garmin_data/bulk, separate from the daily values.")
+        hint = QLabel("The data of the export are stored in garmin_data/bulk, separate from the data of the Garmin API.")
         hint.setWordWrap(True)
 
         self.preview_btn = QPushButton("Preview")
@@ -118,15 +121,10 @@ def run_import(panel):
     if not json_phase and not intraday_phase:
         QMessageBox.information(app, "Import Bulk Export", "Nothing selected — nothing to import.")
         return
-    if preview and not intraday_phase:
-        QMessageBox.information(
-            app, "Import Bulk Export",
-            "There is no preview for the daily values. Select the heart-rate series for a preview.")
-        return
-    if intraday_phase and not preview:
+    if not preview:
         confirm = QMessageBox.question(
             app, "Import Bulk Export",
-            "The heart-rate series are stored in garmin_data/bulk.\n\n"
+            "The data of the export are stored in garmin_data/bulk.\n\n"
             "That folder is not part of the backup or the mirror yet. "
             "The export file stays the fallback — keep it.\n\nStart the import?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -146,7 +144,7 @@ def run_import(panel):
 
     app._log(f"   Source: {path}")
     if preview:
-        app._log("   Preview of the heart-rate series — nothing is written.")
+        app._log("   Preview — nothing is written.")
 
     def _on_import_done():
         # T3: the trigger variables live in os.environ of the GUI process.

@@ -15,13 +15,16 @@ puts the heart-rate series into the bulk store. Orchestrates; the work is done b
 
 Entry point: run_intraday_import(path, dry_run=False, should_stop=None, keep_types=KEEP_TYPES).
 It is started by garmin_collector.main() after the JSON phase (the day windows come from
-raw/stats of the archive, which the JSON phase writes for old days); the caller pauses the
+raw/stats of the archive and, for a day without a usable one, from the window the JSON phase
+stored with the day's values in bulk/aggregates); the caller pauses the
 timer. This module does not touch the quality log, the backup or the API store. It reports
 the days it wrote (summary["written_days"], dates only); the caller marks them in the quality
 log (garmin_collector, record_bulk_intraday).
 
 What a run does
-  1. Day windows from raw/stats of the archive -> the local days (garmin_bulk_normalizer).
+  1. Day windows from raw/stats of the archive, or, for a day without a usable one, from the
+     export's own window (bulk/aggregates, stored by the daily-values phase) -> the local days
+     (garmin_bulk_normalizer).
   2. Every .fit file of the export, once per content: read; an unreadable file is counted by
      reason and goes no further. A readable file of a kept type is stored as an original; a
      monitoring file (type 32) also puts its heart-rate samples on the days.
@@ -78,15 +81,26 @@ def _empty_summary(dry_run):
 
 
 def _load_windows():
-    """{date: raw/stats} of every day in the archive (the day windows)."""
+    """
+    {date: window} of every day the archive knows (the day windows): the raw/stats of the days
+    that have a raw file; a day whose raw file has no usable window — or that has no raw file at
+    all — gets the window the daily-values phase took from the export (bulk/aggregates,
+    "day_window", v1.7.6.1). The API's window always wins where it is usable.
+    """
     import garmin_config as cfg
     windows = {}
-    if not cfg.RAW_DIR.exists():
-        return windows
-    prefix = cfg.RAW_FILE_PREFIX
-    for path in cfg.RAW_DIR.glob(f"{prefix}*.json"):
-        date_str = path.stem[len(prefix):]
-        windows[date_str] = writer.read_raw(date_str).get("stats")
+    if cfg.RAW_DIR.exists():
+        prefix = cfg.RAW_FILE_PREFIX
+        for path in cfg.RAW_DIR.glob(f"{prefix}*.json"):
+            date_str = path.stem[len(prefix):]
+            windows[date_str] = writer.read_raw(date_str).get("stats")
+    for date_str in bw.list_aggregate_days():
+        if normalizer.has_window(windows.get(date_str)):
+            continue
+        doc = bw.read_aggregates(date_str)
+        window = ((doc or {}).get("aggregates") or {}).get("day_window")
+        if isinstance(window, dict):
+            windows[date_str] = window
     return windows
 
 
@@ -163,7 +177,7 @@ def _work(path, dry_run, should_stop, keep_types, summary):
                 break
             status = bw.day_status(day.date, day.source_files)
             if dry_run:
-                key = {"new": "new", "update": "changed", "unchanged": "unchanged"}.get(status, "kept")
+                key = {"new": "new", "update": "changed", "unchanged": "unchanged", "unreadable": "failed"}.get(status, "kept")
             else:
                 result = bw.write_day(plan.days[day.date], day, imported_at=imported_at)
                 if result == bw.WRITTEN:

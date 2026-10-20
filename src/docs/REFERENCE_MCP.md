@@ -304,7 +304,13 @@ detail that goes stale the next time a field is added.
   reasoning) — isolated behind `_get_field_unit()` so a future
   broker-level replacement only needs to change that one function.
   Raw-passthrough fields (`query_raw()`) are out of scope — no unit
-  concept applies to them.
+  concept applies to them. Since v1.7.6.1 it holds the four stress-duration
+  fields of the Garmin export (`stress_rest_duration`, `stress_low_duration`,
+  `stress_medium_duration`, `stress_high_duration`, unit `"seconds"`); the
+  SQLite cache picks a newly registered field up by itself
+  (`_reconcile_field_registry`), and the days that got export data are read
+  again because the quality-log marks (`bulk.intraday`, `bulk.aggregates`)
+  set `last_checked`.
 - **`HEALTH_FIELD_ALIASES`** — explicit short-form → canonical-name map
   for `query_health()` (currently `hrv`, `hill`, `stress_index`), for
   prefixes too short relative to their target name for `difflib` to

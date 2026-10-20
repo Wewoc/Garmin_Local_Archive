@@ -65,14 +65,14 @@ with _isolated_log_env("bulk_writer") as base:
           doc["sections"] == {"intraday": {"heart_rate": {"count": 3, "values": samples.values}}})
     check("the JSON is compact (no line breaks, no spaces after separators)", "\n" not in text and ", " not in text and ": " not in text)
     check("schema version is 1", bw.BULK_SCHEMA_VERSION == 1)
-    check("read_day returns exactly what is in the file", bw.read_day("2024-02-03") == doc)
-    check("read_day of a missing day is None", bw.read_day("2024-02-04") is None)
+    check("_load_day returns exactly what is in the file", bw._load_day("2024-02-03")[1] == doc)
+    check("_load_day of a missing day gives no document", bw._load_day("2024-02-04")[1] is None)
     check("no temporary file is left behind", not list(cfg.BULK_RAW_DIR.glob("*.tmp")))
 
     # ── imported_at default ────────────────────────────────────────────────────
     plan_b, samples_b = _day(date="2024-02-04")
     bw.write_day(plan_b, samples_b)
-    stamp = bw.read_day("2024-02-04")["imported_at"]
+    stamp = bw._load_day("2024-02-04")[1]["imported_at"]
     check("imported_at defaults to the local time without time zone, to the second",
           len(stamp) == 19 and stamp[10] == "T" and "+" not in stamp and "Z" not in stamp)
 
@@ -88,7 +88,7 @@ with _isolated_log_env("bulk_writer") as base:
     check("day_status: more files than stored is an update", bw.day_status("2024-02-03", [H1, H2]) == "update")
     check("more files: the day is replaced", bw.write_day(plan2, samples2, imported_at="2026-10-18T09:00:00") == bw.WRITTEN)
     check("... and now holds both files and four values",
-          bw.read_day("2024-02-03")["source_files"] == sorted([H1, H2]) and bw.read_day("2024-02-03")["sections"]["intraday"]["heart_rate"]["count"] == 4)
+          bw._load_day("2024-02-03")[1]["source_files"] == sorted([H1, H2]) and bw._load_day("2024-02-03")[1]["sections"]["intraday"]["heart_rate"]["count"] == 4)
     kept_state = _tree(cfg.BULK_RAW_DIR)
     check("day_status: fewer files than stored is smaller", bw.day_status("2024-02-03", [H1]) == "smaller")
     check("fewer files (a partial import) never replaces a fuller day", bw.write_day(plan, samples) == bw.KEPT)
@@ -99,13 +99,13 @@ with _isolated_log_env("bulk_writer") as base:
           and _tree(cfg.BULK_RAW_DIR) == kept_state)
 
     # ── Schema version ─────────────────────────────────────────────────────────
-    old = dict(bw.read_day("2024-02-03"))
+    old = dict(bw._load_day("2024-02-03")[1])
     old["schema_version"] = 0
     day_file.write_text(json.dumps(old), encoding="utf-8")
     check("day_status: same files but an older schema is an update", bw.day_status("2024-02-03", [H1, H2]) == "update")
     check("same files, older schema: rewritten with the current schema", bw.write_day(plan2, samples2) == bw.WRITTEN
-          and bw.read_day("2024-02-03")["schema_version"] == bw.BULK_SCHEMA_VERSION)
-    newer = dict(bw.read_day("2024-02-03"))
+          and bw._load_day("2024-02-03")[1]["schema_version"] == bw.BULK_SCHEMA_VERSION)
+    newer = dict(bw._load_day("2024-02-03")[1])
     newer["schema_version"] = 99
     day_file.write_text(json.dumps(newer), encoding="utf-8")
     state_newer = _tree(cfg.BULK_RAW_DIR)
@@ -119,7 +119,7 @@ with _isolated_log_env("bulk_writer") as base:
         day_file.write_text(content, encoding="utf-8")
         check(f"a damaged day file ({label}) counts as new and is overwritten",
               bw.day_status("2024-02-03", [H1]) == "new" and bw.write_day(plan, samples) == bw.WRITTEN
-              and bw.read_day("2024-02-03")["source_files"] == [H1])
+              and bw._load_day("2024-02-03")[1]["source_files"] == [H1])
 
     # ── Atomic, durable ────────────────────────────────────────────────────────
     plan_c, samples_c = _day(date="2024-02-05")
@@ -133,7 +133,7 @@ with _isolated_log_env("bulk_writer") as base:
     with patch.object(bw.os, "fsync", _spy):
         check("a day file is flushed to disk (fsync on the write handle)", bw.write_day(plan_c, samples_c) == bw.WRITTEN and len(synced) == 1)
 
-    good = bw.read_day("2024-02-03")
+    good = bw._load_day("2024-02-03")[1]
     good_bytes = day_file.read_bytes()
     plan_d, samples_d = _day(hashes=(H1, H2, H3))
     with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
@@ -146,17 +146,17 @@ with _isolated_log_env("bulk_writer") as base:
           and not list(cfg.BULK_RAW_DIR.glob("*.tmp")))
     check("a date that is not a date is refused and writes nothing",
           bw.write_day(*_day(date="../../x")) == bw.FAILED and bw.write_day(*_day(date="2024-2-3")) == bw.FAILED
-          and bw.read_day("../x") is None and bw.day_status("nonsense", [H1]) == "new")
+          and bw._load_day("../x")[1] is None and bw.day_status("nonsense", [H1]) == "new")
     check("dates that look like dates but are none (month 13, February 30) are refused",
           bw.write_day(*_day(date="2024-13-01")) == bw.FAILED and bw.write_day(*_day(date="2024-02-30")) == bw.FAILED
-          and bw.read_day("2024-02-30") is None)
+          and bw._load_day("2024-02-30")[1] is None)
     pu, su = _day(date="2024-02-13")
     check("source files are stored sorted whatever order they come in",
           bw.write_day(pu, nz.DaySamples("2024-02-13", su.values, [H3, H1, H2], 0, 0)) == bw.WRITTEN
-          and bw.read_day("2024-02-13")["source_files"] == sorted([H1, H2, H3]))
+          and bw._load_day("2024-02-13")[1]["source_files"] == sorted([H1, H2, H3]))
     pt, st = _day(date="2024-03-31", offsets=(1.0, 2.0), dst=True, source="neighbours")
     bw.write_day(pt, st)
-    tday = bw.read_day("2024-03-31")
+    tday = bw._load_day("2024-03-31")[1]
     check("a transition day keeps both offsets, the flag and the source of the offset",
           (tday["utc_offset_hours"], tday["utc_offset_end_hours"], tday["dst_transition"], tday["offset_source"]) == (1.0, 2.0, True, "neighbours"))
     p7, s7 = _day(date="2024-02-07")
@@ -190,7 +190,7 @@ with _isolated_log_env("bulk_writer") as base:
     with patch.object(bw.os, "replace", _busy_twice), patch.object(bw.time, "sleep") as slept:
         check("a day: two sharing violations in a row are retried and the day is written",
               bw.write_day(plan_f, samples_f) == bw.WRITTEN and len(calls) == 3 and slept.call_count == 2
-              and bw.read_day("2024-02-10") is not None)
+              and bw._load_day("2024-02-10")[1] is not None)
     calls.clear()
     blob = b"original that is busy for a moment"
     with patch.object(bw.os, "replace", _busy_twice), patch.object(bw.time, "sleep"):
@@ -300,7 +300,7 @@ with _isolated_log_env("bulk_writer") as base:
     results = [bw.write_day(pl.days[d.date], d, imported_at="2026-10-17T14:00:00") for d in col.iter_days()]
     check("the whole chain: two days written from the normaliser output", results == [bw.WRITTEN, bw.WRITTEN] and sorted(p.name for p in cfg.BULK_RAW_DIR.glob("garmin_bulk_2024-03-0*.json"))
           == ["garmin_bulk_2024-03-02.json", "garmin_bulk_2024-03-03.json"])
-    d2 = bw.read_day("2024-03-02")
+    d2 = bw._load_day("2024-03-02")[1]
     check("the whole chain: values and offsets arrive as the normaliser gave them",
           d2["sections"]["intraday"]["heart_rate"]["values"] == [[t0 * 1000, 70], [(t0 + 60) * 1000, 72], [(t0 + 120) * 1000, 74]]
           and (d2["utc_offset_hours"], d2["utc_offset_end_hours"], d2["source_files"]) == (1.0, 1.0, [H1]))
@@ -314,40 +314,278 @@ with _isolated_log_env("bulk_writer") as base:
     check("every name in the store is a day file name or <two hash characters>/<hash>.fit (nothing from the export's own names)",
           names_ok and originals_ok)
 
-# ── Ist-Stand, register finding F-1 (v1.7.6): a day file that cannot be READ counts as new ──────────
-# read_day() answers None both for a damaged file (ValueError) and for a file that cannot be read for
-# an I/O reason (OSError, e.g. a lock); day_status() turns None into "new". For a damaged file the new
-# write is the repair and is wanted. For an unreadable but fine file the same path could replace a
-# fuller stored day by a smaller one, against the rule "a day is never replaced by a smaller stand".
-# Practically small (a lock that stops the read usually stops os.replace too, which is retried and
-# then reported as failed), never observed. Pinned as it is today and NOT fixed: the day the
-# behaviour is changed, the checks marked F-1 must be changed with it.
+# ── Register finding F-1 (found in v1.7.6, fixed in v1.7.6.1): a day file that cannot be READ is not "new" ──
+# _load_day() still answers no document for a damaged file (ValueError) and for a file that cannot be read for an
+# I/O reason (OSError, e.g. a lock, or no access to stat it), but day_status() now tells them apart: a
+# damaged file is "new" (the new write is the repair and is wanted), an unreadable one is "unreadable"
+# and write_day() leaves it as it is and answers "failed". Before the fix a smaller stand was written
+# over a fuller day that only could not be read for a moment.
 with _isolated_log_env("bulk_writer_f1") as base:
     _day_file = cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-03.json"
     _plan2, _samples2 = _day(hashes=(H1, H2), values=[[1706950800000, 61], [1706950860000, 62], [1706950920000, 200], [1706950980000, 70]])
     bw.write_day(_plan2, _samples2, imported_at="2026-10-18T09:00:00")
     _fuller = _day_file.read_bytes()
     _real_read_text = Path.read_text
+    _real_exists = Path.exists
 
     def _locked(self, *a, **k):
         if self == _day_file:
             raise PermissionError("locked by another process")
         return _real_read_text(self, *a, **k)
 
+    def _no_stat(self, *a, **k):
+        if self == _day_file:
+            raise PermissionError("no access to stat")
+        return _real_exists(self, *a, **k)
+
     _small_plan, _small_samples = _day(hashes=(H1,))
+    _big_plan, _big_samples = _day(hashes=(H1, H2, H3))
     check("F-1 baseline: a readable fuller day is kept against a smaller stand", bw.write_day(_small_plan, _small_samples) == bw.KEPT)
-    with patch.object(Path, "read_text", _locked):
-        check("F-1 (Ist-Stand): a day file that cannot be read for an I/O reason is answered like a missing one: read_day gives None",
-              bw.read_day("2024-02-03") is None)
-        check("F-1 (Ist-Stand): ... and day_status turns that into 'new' (not 'smaller')", bw.day_status("2024-02-03", [H1]) == "new")
-        check("F-1 (Ist-Stand): ... so a smaller stand is written over the fuller day", bw.write_day(_small_plan, _small_samples) == bw.WRITTEN
-              and _day_file.read_bytes() != _fuller)
+    with patch.object(Path, "read_text", _locked), patch.object(bw.log, "warning") as _warn:
+        check("F-1: a day file that cannot be read for an I/O reason: _load_day still gives no document", bw._load_day("2024-02-03")[1] is None)
+        check("F-1: ... but day_status says 'unreadable', not 'new'", bw.day_status("2024-02-03", [H1]) == "unreadable")
+        check("F-1: ... and 'unreadable' for a fuller stand as well (an update is not risked either)", bw.day_status("2024-02-03", [H1, H2, H3]) == "unreadable")
+        check("F-1: ... so a smaller stand is NOT written over the fuller day: failed, the file is byte for byte as it was",
+              bw.write_day(_small_plan, _small_samples) == bw.FAILED and _day_file.read_bytes() == _fuller)
+        check("F-1: ... a fuller stand is not written either: failed, the file is as it was",
+              bw.write_day(_big_plan, _big_samples) == bw.FAILED and _day_file.read_bytes() == _fuller)
+        check("F-1: ... and no temporary file is left behind", not list(cfg.BULK_RAW_DIR.glob("*.tmp")))
+        _texts = " | ".join(str(c.args[0]) for c in _warn.call_args_list)
+        check("F-1: ... the warning names the day and says what to do (run again, else delete the file by hand)",
+              "2024-02-03" in _texts and "delete the file" in _texts and "I/O error" in _texts)
+    check("F-1: with the lock gone the fuller day is kept against the smaller stand again, and 'unreadable' is gone",
+          bw.day_status("2024-02-03", [H1]) == "smaller" and bw.write_day(_small_plan, _small_samples) == bw.KEPT and _day_file.read_bytes() == _fuller)
+    check("F-1: ... and the fuller stand is written as an update once the file can be read (the lock only delayed it)",
+          bw.write_day(_big_plan, _big_samples) == bw.WRITTEN and bw._load_day("2024-02-03")[1]["source_files"] == sorted([H1, H2, H3]))
     _day_file.write_bytes(_fuller)
-    check("F-1 baseline: with the fuller day back in place the smaller stand is kept again", bw.write_day(_small_plan, _small_samples) == bw.KEPT)
+    with patch.object(Path, "exists", _no_stat):
+        check("F-1: no access even to find out whether the file exists (PermissionError in exists()) is 'unreadable' too",
+              bw._load_day("2024-02-03")[1] is None and bw.day_status("2024-02-03", [H1]) == "unreadable"
+              and bw.write_day(_small_plan, _small_samples) == bw.FAILED and _day_file.read_bytes() == _fuller)
     _day_file.write_text("{ not json", encoding="utf-8")
     check("F-1: a damaged day file (ValueError) is answered with None, day_status 'new': the repair by a new write is wanted",
-          bw.read_day("2024-02-03") is None and bw.day_status("2024-02-03", [H1]) == "new"
-          and bw.write_day(_small_plan, _small_samples) == bw.WRITTEN and bw.read_day("2024-02-03")["source_files"] == [H1])
+          bw._load_day("2024-02-03")[1] is None and bw.day_status("2024-02-03", [H1]) == "new"
+          and bw.write_day(_small_plan, _small_samples) == bw.WRITTEN and bw._load_day("2024-02-03")[1]["source_files"] == [H1])
+    _day_file.write_bytes(b"\xff\xfe\x00 not utf-8")
+    check("F-1: a file that is not text at all (UnicodeDecodeError, a ValueError) is damaged, not unreadable: 'new'",
+          bw.day_status("2024-02-03", [H1]) == "new" and bw.write_day(_small_plan, _small_samples) == bw.WRITTEN)
+    _day_file.write_text("[1, 2, 3]", encoding="utf-8")
+    check("F-1: valid JSON that is not an object is damaged too: 'new'",
+          bw._load_day("2024-02-03")[1] is None and bw.day_status("2024-02-03", [H1]) == "new")
+    _day_file.unlink()
+    check("F-1: a day without a file is 'new' (missing is not unreadable)", bw.day_status("2024-02-03", [H1]) == "new" and bw._load_day("2024-02-03")[1] is None)
+
+# ── list_days (v1.7.6.1, F-3): the dates of the day files, from the file names only ─────────────────
+with _isolated_log_env("bulk_writer_list") as base:
+    check("list_days: no bulk folder -> [] and no folder is created", bw.list_days() == [] and not cfg.BULK_DIR.exists())
+    for _d in ("2024-02-05", "2024-02-03", "2024-02-04"):
+        _p, _s = _day(date=_d)
+        bw.write_day(_p, _s)
+    check("list_days: the dates of the day files, sorted", bw.list_days() == ["2024-02-03", "2024-02-04", "2024-02-05"])
+    (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-06.json.tmp").write_bytes(b"x")
+    (cfg.BULK_RAW_DIR / "garmin_bulk_2024-13-45.json").write_bytes(b"{}")
+    (cfg.BULK_RAW_DIR / "garmin_bulk_notadate.json").write_bytes(b"{}")
+    (cfg.BULK_RAW_DIR / "garmin_raw_2024-02-07.json").write_bytes(b"{}")
+    (cfg.BULK_RAW_DIR / ("x" * len(cfg.BULK_FILE_PREFIX) + "2024-02-08.json")).write_bytes(b"{}")      # same length, other prefix
+    (cfg.BULK_RAW_DIR / "notes.txt").write_bytes(b"x")
+    check("list_days: a temporary file, a name with no date, another prefix and other files are not days",
+          bw.list_days() == ["2024-02-03", "2024-02-04", "2024-02-05"])
+    (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-04.json").write_text("{ not json", encoding="utf-8")
+    _real_rt = Path.read_text
+
+    def _no_read(self, *a, **k):
+        raise PermissionError("locked by another process")
+
+    with patch.object(Path, "read_text", _no_read), patch.object(Path, "read_bytes", _no_read):
+        check("list_days: reads no file (a damaged or locked day file is listed all the same)",
+              bw.list_days() == ["2024-02-03", "2024-02-04", "2024-02-05"])
+    check("list_days: does not touch the store", sorted(p.name for p in cfg.BULK_RAW_DIR.iterdir()).count("garmin_bulk_2024-02-04.json") == 1)
+    with patch.object(Path, "glob", side_effect=PermissionError("no access")), patch.object(bw.log, "warning") as _w:
+        check("list_days: a folder that cannot be listed -> [] and a warning, nothing raised",
+              bw.list_days() == [] and _w.call_count == 1)
+
+# ── Aggregates (v1.7.6.1): one file per day in bulk/aggregates, apart from the intraday day files ──
+_AGG = {"date": "2024-02-03", "user_summary": {"totalSteps": 9000, "restingHeartRate": 55},
+        "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 25000}}, "stats": {"wellnessStartTimeGmt": "2024-02-02T23:00:00.0"}}
+J1, J2, J3 = _h("json one"), _h("json two"), _h("json three")
+
+with _isolated_log_env("bulk_writer_agg") as base:
+    agg_file = cfg.BULK_AGG_DIR / "garmin_bulk_agg_2024-02-03.json"
+    check("aggregates: no folder and no file at the start: list_aggregate_days is [] and creates nothing",
+          bw.list_aggregate_days() == [] and not cfg.BULK_AGG_DIR.exists())
+    check("aggregates: a day that does not exist is 'new', read_aggregates is None",
+          bw.aggregates_status("2024-02-03", [J1]) == "new" and bw.read_aggregates("2024-02-03") is None)
+    check("aggregates: a new day is written", bw.write_aggregates("2024-02-03", _AGG, [J1], imported_at="2026-10-18T15:00:00") == bw.WRITTEN
+          and agg_file.is_file())
+    doc = json.loads(agg_file.read_text(encoding="utf-8"))
+    check("aggregates: the file name is the configured prefix + date in bulk/aggregates/, the intraday folder is untouched",
+          agg_file.name == f"{cfg.BULK_AGG_FILE_PREFIX}2024-02-03.json" and not cfg.BULK_RAW_DIR.exists())
+    check("aggregates: head and content (date, version, generator, origin, import time, sorted source files, the values as given)",
+          (doc["date"], doc["schema_version"], doc["generated_by"], doc["origin"], doc["imported_at"], doc["source_files"])
+          == ("2024-02-03", bw.AGG_SCHEMA_VERSION, "garmin_bulk_writer", "gdpr_export", "2026-10-18T15:00:00", [J1])
+          and doc["aggregates"] == _AGG and set(doc) == {"date", "schema_version", "generated_by", "origin", "imported_at", "source_files", "aggregates"})
+    check("aggregates: compact JSON, no temporary file left", "\n" not in agg_file.read_text(encoding="utf-8")
+          and not list(cfg.BULK_AGG_DIR.glob("*.tmp")))
+    check("aggregates: read_aggregates returns exactly what is in the file", bw.read_aggregates("2024-02-03") == doc)
+    check("aggregates: the same files again: 'unchanged', nothing written (not a byte, not the import time)",
+          bw.aggregates_status("2024-02-03", [J1]) == "unchanged"
+          and bw.write_aggregates("2024-02-03", _AGG, [J1], imported_at="2099-01-01T00:00:00") == bw.UNCHANGED
+          and json.loads(agg_file.read_text(encoding="utf-8"))["imported_at"] == "2026-10-18T15:00:00")
+
+    _agg2 = {**_AGG, "user_summary": {"totalSteps": 9100}}
+    check("aggregates: more files than stored is an update, the day is replaced",
+          bw.aggregates_status("2024-02-03", [J1, J2]) == "update"
+          and bw.write_aggregates("2024-02-03", _agg2, sorted([J1, J2], reverse=True)) == bw.WRITTEN
+          and bw.read_aggregates("2024-02-03")["source_files"] == sorted([J1, J2])
+          and bw.read_aggregates("2024-02-03")["aggregates"]["user_summary"]["totalSteps"] == 9100)
+    _before = agg_file.read_bytes()
+    check("aggregates: fewer files never replace a fuller day (an import of part of an export)",
+          bw.aggregates_status("2024-02-03", [J1]) == "smaller" and bw.write_aggregates("2024-02-03", _AGG, [J1]) == bw.KEPT
+          and agg_file.read_bytes() == _before)
+    check("aggregates: a set that is no superset is smaller as well",
+          bw.aggregates_status("2024-02-03", [J1, J3]) == "smaller" and bw.write_aggregates("2024-02-03", _AGG, [J1, J3]) == bw.KEPT
+          and agg_file.read_bytes() == _before)
+
+    _old = json.loads(_before.decode("utf-8"))
+    _old["schema_version"] = 0
+    agg_file.write_text(json.dumps(_old), encoding="utf-8")
+    check("aggregates: the same files under an older schema are an update",
+          bw.aggregates_status("2024-02-03", [J1, J2]) == "update" and bw.write_aggregates("2024-02-03", _agg2, [J1, J2]) == bw.WRITTEN
+          and bw.read_aggregates("2024-02-03")["schema_version"] == bw.AGG_SCHEMA_VERSION)
+    _new = json.loads(agg_file.read_text(encoding="utf-8"))
+    _new["schema_version"] = bw.AGG_SCHEMA_VERSION + 1
+    agg_file.write_text(json.dumps(_new), encoding="utf-8")
+    _state_newer = agg_file.read_bytes()
+    check("aggregates: a file written by a newer schema is kept",
+          bw.aggregates_status("2024-02-03", [J1, J2]) == "newer" and bw.write_aggregates("2024-02-03", _agg2, [J1, J2, J3]) == bw.KEPT
+          and agg_file.read_bytes() == _state_newer)
+
+    # F-1 semantics, from the start: a damaged file is repaired, an unreadable one is left alone
+    agg_file.write_text("{ not json", encoding="utf-8")
+    check("aggregates: a damaged file (not JSON) is answered with None and 'new': the new write is the repair",
+          bw.read_aggregates("2024-02-03") is None and bw.aggregates_status("2024-02-03", [J1]) == "new"
+          and bw.write_aggregates("2024-02-03", _AGG, [J1]) == bw.WRITTEN and bw.read_aggregates("2024-02-03")["source_files"] == [J1])
+    for _what, _bytes in (("not text at all", b"\xff\xfe\x00 x"), ("valid JSON that is no object", b"[1, 2]"), ("a file without source_files", b"{}")):
+        agg_file.write_bytes(_bytes)
+        check(f"aggregates: {_what} is damaged, not unreadable: 'new'", bw.aggregates_status("2024-02-03", [J1]) == "new")
+    bw.write_aggregates("2024-02-03", _agg2, [J1, J2])
+    _fuller = agg_file.read_bytes()
+    _real_rt, _real_ex = Path.read_text, Path.exists
+
+    def _locked(self, *a, **k):
+        if self == agg_file:
+            raise PermissionError("locked by another process")
+        return _real_rt(self, *a, **k)
+
+    def _no_stat(self, *a, **k):
+        if self == agg_file:
+            raise PermissionError("no access to stat")
+        return _real_ex(self, *a, **k)
+
+    for _label, _target, _fn in (("a lock on reading", "read_text", _locked), ("no access to stat", "exists", _no_stat)):
+        with patch.object(Path, _target, _fn), patch.object(bw.log, "warning") as _w:
+            check(f"aggregates: {_label}: read_aggregates None, status 'unreadable' (also for a fuller stand)",
+                  bw.read_aggregates("2024-02-03") is None and bw.aggregates_status("2024-02-03", [J1]) == "unreadable"
+                  and bw.aggregates_status("2024-02-03", [J1, J2, J3]) == "unreadable")
+            check(f"aggregates: {_label}: a smaller and a fuller stand are both 'failed', the file is as it was, no temporary file",
+                  bw.write_aggregates("2024-02-03", _AGG, [J1]) == bw.FAILED and bw.write_aggregates("2024-02-03", _agg2, [J1, J2, J3]) == bw.FAILED
+                  and agg_file.read_bytes() == _fuller and not list(cfg.BULK_AGG_DIR.glob("*.tmp")))
+            _texts = " | ".join(str(c.args[0]) for c in _w.call_args_list)
+            check(f"aggregates: {_label}: the warning names the day and what to do",
+                  "2024-02-03" in _texts and "delete the file" in _texts and "bulk/aggregates" in _texts)
+    check("aggregates: with the lock gone the fuller stand is written as an update (the lock only delayed it)",
+          bw.write_aggregates("2024-02-03", _agg2, [J1, J2, J3]) == bw.WRITTEN)
+
+    # the two kinds count their schema versions on their own
+    _pd, _sd = _day(date="2024-02-20", hashes=(H1,))
+    bw.write_day(_pd, _sd)
+    bw.write_aggregates("2024-02-20", {"date": "2024-02-20", "a": 1}, [J1])
+    with patch.object(bw, "AGG_SCHEMA_VERSION", bw.AGG_SCHEMA_VERSION + 1):
+        check("aggregates: a higher aggregates version makes the aggregates file an update and leaves the intraday day unchanged",
+              bw.aggregates_status("2024-02-20", [J1]) == "update" and bw.day_status("2024-02-20", [H1]) == "unchanged")
+    with patch.object(bw, "BULK_SCHEMA_VERSION", bw.BULK_SCHEMA_VERSION + 1):
+        check("aggregates: ... and a higher intraday version the other way round",
+              bw.day_status("2024-02-20", [H1]) == "update" and bw.aggregates_status("2024-02-20", [J1]) == "unchanged")
+    for _f in (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-20.json",):
+        _f.unlink()
+
+    # list_aggregate_days: names only
+    (cfg.BULK_AGG_DIR / "garmin_bulk_agg_2024-02-06.json.tmp").write_bytes(b"x")
+    (cfg.BULK_AGG_DIR / "garmin_bulk_agg_notadate.json").write_bytes(b"{}")
+    (cfg.BULK_AGG_DIR / "garmin_bulk_2024-02-07.json").write_bytes(b"{}")
+    (cfg.BULK_AGG_DIR / ("x" * len(cfg.BULK_AGG_FILE_PREFIX) + "2024-02-08.json")).write_bytes(b"{}")
+    bw.write_aggregates("2024-01-31", {**_AGG, "date": "2024-01-31"}, [J1])
+    with patch.object(Path, "read_text", side_effect=PermissionError("no")), patch.object(Path, "read_bytes", side_effect=PermissionError("no")):
+        check("aggregates: list_aggregate_days lists the days by name, sorted; other names are no days; no file is read",
+              bw.list_aggregate_days() == ["2024-01-31", "2024-02-03", "2024-02-20"])
+    check("aggregates: the intraday list is not affected by the aggregates folder", bw.list_days() == [])
+    with patch.object(Path, "glob", side_effect=PermissionError("no access")), patch.object(bw.log, "warning") as _w2:
+        check("aggregates: a folder that cannot be listed -> [] and a warning", bw.list_aggregate_days() == [] and _w2.call_count == 1)
+
+    # refused input
+    _tree_before = sorted(p.name for p in cfg.BULK_AGG_DIR.iterdir())
+    _bad = ("../../x", "2024-2-3", "2024-13-01", "2024-02-30", "", None, 20240203)
+    check("aggregates: a date that is no date is refused, nothing is created",
+          all(bw.write_aggregates(d, _AGG, [J1]) == bw.FAILED for d in _bad) and bw.aggregates_status("../x", [J1]) == "new"
+          and bw.read_aggregates("../../x") is None)
+    check("aggregates: aggregates that are empty or no dict are refused",
+          all(bw.write_aggregates("2024-02-10", a, [J1]) == bw.FAILED for a in ({}, None, [], "x", [1])))
+    check("aggregates: source files that are empty or no SHA-256 are refused",
+          all(bw.write_aggregates("2024-02-10", _AGG | {"date": "2024-02-10"}, f) == bw.FAILED
+              for f in ([], None, "abc", [J1.upper()], [J1[:63]], ["../../x"], [123])))
+    check("aggregates: a date inside the aggregates that is another day is refused",
+          bw.write_aggregates("2024-02-10", {**_AGG, "date": "2024-02-11"}, [J1]) == bw.FAILED)
+    check("aggregates: values that cannot be written as JSON are 'failed', nothing raised, nothing left",
+          bw.write_aggregates("2024-02-10", {"date": "2024-02-10", "x": object()}, [J1]) == bw.FAILED
+          and sorted(p.name for p in cfg.BULK_AGG_DIR.iterdir()) == _tree_before)
+    check("aggregates: a day without a 'date' key inside is accepted (the head carries the date)",
+          bw.write_aggregates("2024-02-10", {"user_summary": {"totalSteps": 1}}, [J1]) == bw.WRITTEN)
+
+    # fsync, retry: the same machinery as the intraday files
+    synced = []
+    with patch("os.fsync", side_effect=lambda fd: synced.append(fd)):
+        check("aggregates: a file is flushed to disk (fsync on the write handle)",
+              bw.write_aggregates("2024-02-12", {"date": "2024-02-12", "a": 1}, [J1]) == bw.WRITTEN and len(synced) == 1)
+    _real_replace, _calls = os.replace, []
+
+    def _flaky(src, dst):
+        _calls.append(1)
+        if len(_calls) < 3:
+            raise PermissionError("sharing violation")
+        return _real_replace(src, dst)
+
+    with patch("os.replace", side_effect=_flaky), patch("time.sleep") as _sl:
+        check("aggregates: a short lock on the target is waited out (os.replace tried again)",
+              bw.write_aggregates("2024-02-13", {"date": "2024-02-13", "a": 1}, [J1]) == bw.WRITTEN and len(_calls) == 3 and _sl.call_count == 2)
+    with patch("os.replace", side_effect=PermissionError("sharing violation")), patch("time.sleep"):
+        check("aggregates: a lock that does not go away is 'failed', the temporary file is removed",
+              bw.write_aggregates("2024-02-14", {"date": "2024-02-14", "a": 1}, [J1]) == bw.FAILED
+              and not (cfg.BULK_AGG_DIR / "garmin_bulk_agg_2024-02-14.json.tmp").exists()
+              and not (cfg.BULK_AGG_DIR / "garmin_bulk_agg_2024-02-14.json").exists())
+
+# ── Originals as JSON (v1.7.6.1) ────────────────────────────────────────────────
+with _isolated_log_env("bulk_writer_json_orig") as base:
+    _jdata = b'{"uds": [1, 2, 3]}'
+    _jh = hashlib.sha256(_jdata).hexdigest()
+    _jpath = cfg.BULK_SOURCE_DIR / _jh[:2] / f"{_jh}.json"
+    check("json original: not present before, a dry-run question creates nothing",
+          not bw.original_json_present(_jh, len(_jdata)) and not cfg.BULK_DIR.exists())
+    check("json original: stored as <xx>/<hash>.json with the exact bytes",
+          bw.store_original_json(_jh, _jdata) == bw.WRITTEN and _jpath.read_bytes() == _jdata)
+    check("json original: present with the same size, a second store is 'present' and writes nothing",
+          bw.original_json_present(_jh, len(_jdata)) and not bw.original_json_present(_jh, len(_jdata) + 1)
+          and bw.store_original_json(_jh, _jdata) == bw.PRESENT)
+    check("json original: the .json file is not taken for a .fit file with the same hash (and the other way round)",
+          not bw.original_present(_jh, len(_jdata)) and bw.store_original(_jh, _jdata) == bw.WRITTEN
+          and (cfg.BULK_SOURCE_DIR / _jh[:2] / f"{_jh}.fit").read_bytes() == _jdata and _jpath.exists())
+    check("json original: bytes that do not match the name, a name that is no SHA-256 and non-bytes are refused",
+          bw.store_original_json(_h("other"), _jdata) == bw.FAILED and bw.store_original_json("../x", _jdata) == bw.FAILED
+          and bw.store_original_json(_jh, "text") == bw.FAILED)
+    check("json original: another suffix is refused and nothing is created",
+          bw.store_original(_jh, _jdata, ".txt") == bw.FAILED and bw.store_original(_jh, _jdata, "") == bw.FAILED
+          and bw.store_original(_jh, _jdata, "/../x") == bw.FAILED and not bw.original_present(_jh, len(_jdata), ".txt")
+          and sorted(p.name for p in (cfg.BULK_SOURCE_DIR / _jh[:2]).iterdir()) == sorted([f"{_jh}.fit", f"{_jh}.json"]))
+    check("json original: no temporary file is left", not list(cfg.BULK_SOURCE_DIR.rglob("*.tmp")))
 
 # ── Imports: standard library only, garmin_config lazily, no other owner involved ─
 _tree_ast = ast.parse(Path(bw.__file__).read_text(encoding="utf-8"))

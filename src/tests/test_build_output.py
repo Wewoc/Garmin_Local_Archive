@@ -136,7 +136,7 @@ _bulk_scripts = [n for n in _scripts if Path(n).name.startswith("garmin_bulk_")]
 _other_std = set().union(*(_imports(_ROOT / n) for n in _scripts if n not in _bulk_scripts))
 _bulk_only = set().union(*(_imports(_ROOT / n) for n in _bulk_scripts)) - _other_std
 _BULK_STDLIB = {"array", "bisect", "dataclasses", "tempfile"}      # tempfile is also used by garmin_app_base.py; listed anyway
-check("bulk import: the five bulk scripts are found", len(_bulk_scripts) == 5)
+check("bulk import: the six bulk scripts are found (fit reader, export scanner, normalizer, writer, import, daily-values import)", len(_bulk_scripts) == 6)
 check("bulk import: the modules only the bulk scripts import are array, bisect, dataclasses — "
       "a new standard-library import in a bulk script must be looked at and listed in HIDDEN_IMPORTS_T3_EXTRA",
       _bulk_only == {"array", "bisect", "dataclasses"} and _bulk_only <= _BULK_STDLIB)
@@ -148,11 +148,26 @@ for _dep in sorted(_BULK_STDLIB):
 
 # ── v1.7.6: signatures of the new entry points ────────────────────────────────
 check("signature: garmin_collector lists the bulk import phases and the quality-log marking",
-      {"def _run_bulk_import", "def _mark_bulk_days"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
+      {"def _run_bulk_import", "def _mark_bulk_days", "def _apply_bulk_marks", "def _run_bulk_mark_catch_up",
+       "def _finish_aggregates", "def _apply_aggregates"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
 check("signature: the old garmin_collector entries are all still there",
       {"def main", "def run_import", "def _run_resting_hr_repair", "def run_capability_scan"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
 check("signature: garmin_quality lists record_bulk_intraday",
       "record_bulk_intraday" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_quality.py"])
+check("signature: garmin_quality lists the catch-up of missing bulk marks (v1.7.6.1)",
+      {"unmarked_bulk_days", "catch_up_bulk_intraday", "record_bulk_aggregates", "catch_up_bulk_aggregates"}
+      <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_quality.py"]))
+check("signature: garmin_bulk_writer lists list_days and keeps its old entries (v1.7.6.1)",
+      {"def list_days", "def write_day", "def day_status", "def store_original", "def original_present"}
+      <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_writer.py"]))
+check("signature: garmin_bulk_writer lists the aggregates and JSON-original functions (v1.7.6.1)",
+      {"def write_aggregates", "def aggregates_status", "def read_aggregates", "def list_aggregate_days",
+       "def store_original_json", "def original_json_present"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_writer.py"]))
+check("signature: garmin_writer lists rebuild_summary, garmin_bulk_writer load_aggregates, old entries stay (v1.7.6.1)",
+      {"def write_day", "def read_raw", "def read_summary", "def rebuild_summary"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_writer.py"])
+      and "def load_aggregates" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_writer.py"])
+check("signature: garmin_import lists load_bulk_with_entries and keeps load_bulk and parse_day (v1.7.6.1)",
+      {"def load_bulk", "def parse_day", "def load_bulk_with_entries"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_import.py"]))
 check("signature: garmin_quality keeps its old entries",
       {"from quality._maint import", "QUALITY_LOCK"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_quality.py"]))
 

@@ -41,6 +41,11 @@ METRIC_META = {
     "body_battery_max":    {"label": "Body Battery",  "unit": "level","color": "#BA7517"},
     "stress_avg":          {"label": "Stress Avg",    "unit": "level","color": "#1D9E75"},
     "vo2max":              {"label": "VO2max",        "unit": "",     "color": "#2E8B57"},
+    # stress durations from the Garmin export (v1.7.6.1), seconds per day
+    "stress_rest_duration":   {"label": "Stress Rest Time",   "unit": "s", "color": "#185FA5"},
+    "stress_low_duration":    {"label": "Stress Low Time",    "unit": "s", "color": "#1D9E75"},
+    "stress_medium_duration": {"label": "Stress Medium Time", "unit": "s", "color": "#BA7517"},
+    "stress_high_duration":   {"label": "Stress High Time",   "unit": "s", "color": "#E85D24"},
     # context fields
     "temperature_max":     {"label": "Temp Max",      "unit": "°C",   "color": "#E85D24"},
     "temperature_min":     {"label": "Temp Min",      "unit": "°C",   "color": "#185FA5"},

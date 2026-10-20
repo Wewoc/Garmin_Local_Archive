@@ -69,7 +69,7 @@ of scope.
 
 | Module | Sole write authority |
 |---|---|
-| `garmin_writer.py` | `raw/` and `summary/` |
+| `garmin_writer.py` | `raw/` and `summary/` (since v1.7.6.1 `summary/` is resolved from the API data and the day's aggregates) |
 | `garmin_quality.py` (facade → `quality/`) | `quality_log.json` and `device_table.json` |
 | `garmin_security.py` | `garmin_token.enc` |
 | `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` (v1.6.0.4: split with garmin_backup_source) |
@@ -81,15 +81,16 @@ of scope.
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
 | `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
-| `garmin_bulk_writer.py` | `garmin_data/bulk/raw/` and `garmin_data/bulk/source/` (v1.7.6) |
+| `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` (v1.7.6.1) and `garmin_data/bulk/source/` (v1.7.6) |
 | `garmin_bulk_import.py` | none — orchestrates the four other bulk modules; writes only through `garmin_bulk_writer` (v1.7.6) |
+| `garmin_bulk_json_import.py` | none — daily-values phase of the import; writes only through `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.1) |
 
 ### Invariants
 
 - `garmin_validator.py` always runs before `garmin_normalizer.py`
 - `garmin_utils.py` and `garmin_validator.py` are leaf nodes — no project-module imports
 - `QUALITY_LOCK` must be held around all load-modify-save sequences on `quality_log.json`
-- **`first_day` is not protected against manual edits or ENV overrides.** It is derived from Garmin's device history API, which does not guarantee completeness — older devices may not appear. `first_day` reflects the earliest known device registration, not necessarily the actual start of data collection. The GDPR Bulk Import is the only reliable source for data predating the oldest listed device. Incorrect `first_day` values can create archive gaps silently.
+- **`first_day` is not protected against manual edits or ENV overrides.** It is derived from Garmin's device history API, which does not guarantee completeness — older devices may not appear. `first_day` reflects the earliest known device registration, not necessarily the actual start of data collection. The GDPR Bulk Import is the only reliable source for data predating the oldest listed device. Incorrect `first_day` values can create archive gaps silently. Since v1.7.6.1 only the old import into `raw/` (`run_import()`) moves `first_day` back to the earliest imported day; the import of the daily values into the bulk store does not (`_finish_aggregates()` and the json phase never touch it). An export day older than `first_day` or older than the 180-day window therefore stays an export day: it has a `summary/` and counts as present, so the API sync does not fetch it.
 - **`quality_log.json` is protected by a SHA-256 checksum** over stable core fields (`date` + `write`) stored in `_checksum`. Computed on every save, verified on every load. Mismatch triggers auto-restore from `backup/log/` and a yellow warning label in the GUI. Checksum covers only fields that never change through migration — adding new fields to entries does not invalidate it. Handle backups carefully — the schema migration creates a timestamped backup before any destructive operation, but ongoing integrity is the user's responsibility.
 - `fetch_raw()` always returns `(raw, failed_endpoints)` — never raises
 - `_fetch_and_assess()` always returns `(label, normalized, summary, fields, val_result)` — never raises
@@ -101,9 +102,11 @@ of scope.
   quality_log entry.
 - No module reads `os.environ` directly — all config via `garmin_config`
 - **A step that changes the quality log inside `garmin_collector.main()` works on the run's own `quality_data`** (like the backfills), never on a copy it loads itself: `main()` saves its in-memory log again after the sync, and a second copy's changes would be overwritten (v1.7.5.7, found on a real archive with the resting-HR repair — `last_checked` was lost and the MCP cache kept the old values)
-- **Import mode is the exception to the rule above (v1.7.6):** it exits right after its phases and holds no quality log of its own, so `_mark_bulk_days()` loads the log under `QUALITY_LOCK`, marks the days and saves once. A step added to import mode that continues into the sync must hand its log over instead
-- **`entry["bulk"]` is not `entry["source"] == "bulk"` (v1.7.6):** every bulk-recheck rule (flagging, `bulk_upgrade_dates`, the timer's Bulk Recheck, `last_bulk` in the archive stats) reads `source`. `entry["bulk"]["intraday"]` is only written by `record_bulk_intraday()`; it takes effect through `last_checked` (MCP cache) and nothing in the code reads it yet
-- **Raising the bulk schema (v1.7.6):** `BULK_SCHEMA_VERSION` (`garmin_bulk_writer.py`) and `_BULK_MAX_SCHEMA` (`garmin_health_map.py`) are raised together — `tests/test_broker.py` pins that they are equal. A day with an older schema is written again the next time the same export is imported (same files, older schema → `update`); a day with a newer schema is kept and not read by an older reader
+- **Import mode is the exception to the rule above (v1.7.6):** it exits right after its phases and holds no quality log of its own, so `_mark_bulk_days()` and `_finish_aggregates()` (v1.7.6.1) load the log under `QUALITY_LOCK`, mark the days and save once. A step added to import mode that continues into the sync must hand its log over instead (the sync-start catch-up `_run_bulk_mark_catch_up()` does: it works on the run's own `quality_data`)
+- **`entry["bulk"]` is not `entry["source"] == "bulk"` (v1.7.6):** every bulk-recheck rule (flagging, `bulk_upgrade_dates`, the timer's Bulk Recheck, `last_bulk` in the archive stats) reads `source`. `entry["bulk"]["intraday"]` and `entry["bulk"]["aggregates"]` are only written by `record_bulk_intraday()` / `record_bulk_aggregates()`; they take effect through `last_checked` (MCP cache) and are read by the catch-up of missing marks (`unmarked_bulk_days()`, v1.7.6.1, F-3). An export-only day (no `raw/`) has an entry with `source` `bulk` and `write` false: the bulk recheck then asks the API for it inside the 180 days, and the integrity check does not call it missing
+- **Raising the bulk schema (v1.7.6):** `BULK_SCHEMA_VERSION` (`garmin_bulk_writer.py`) and `_BULK_MAX_SCHEMA` (`garmin_health_map.py`) are raised together — `tests/test_broker.py` pins that they are equal; the same for `AGG_SCHEMA_VERSION` and `_BULK_AGG_MAX_SCHEMA` (v1.7.6.1). A day with an older schema is written again the next time the same export is imported (same files, older schema → `update`); a day with a newer schema is kept and not read by an older reader
+- **The result of a write is never ignored (v1.7.6.1, F-4/F-5/F-6):** `garmin_writer.write_day()` / `write_summary_only()` / `rebuild_summary()` answer `False` when nothing was written — also for a day whose aggregates file cannot be read (a summary without the export's values must not replace a complete one). A new caller counts that as an error of the day (`RuntimeError` inside the existing `except`, or `errors += 1`), never as done. Known open case: `commit_force_refetch()` and `_run_source_backfill()` call `_write_assessed()` and record the entry without looking at the answer (not examined for v1.7.6.1)
+- **Resolved summary (v1.7.6.1):** a day with an aggregates file gets `summary/` from the API data plus the export's values (per top-level key the API data win), `raw/` keeps API data only. Where the two sources define a value differently (floors climbed, sleep duration, minimum/maximum heart rate, the stress block of the day) the API value is used; the differences are listed in `REFERENCE_GARMIN.md`
 - **API-Capability-Scan (v1.6.8):** the 15 baseline `fetch_raw()` endpoints
   always run — the capability config can only add optional candidates, never
   disable a baseline endpoint. Candidates are double-gated before joining a
@@ -365,7 +368,11 @@ file already gone → `status: "gone"`. Category #1's remaining edge case
 error on a failed `_save_quality_log()`) and #3/#7's replay path (against a
 `normalize()`-capable raw-data fixture derived from a real archive file)
 closed in v1.6.5.8 (Netz 2) — see `tests/fixtures_netz2.py` for the fixture
-generators and `NOTES_v1658.md` for the full diagnosis history.
+generators and `NOTES_v1658.md` for the full diagnosis history. v1.7.6.1: a day
+with export data (`bulk/aggregates`) — #5 never lists it, #7 rebuilds its
+summary with `rebuild_summary()`, #3/#7 write the resolved summary, and a
+`write_day()` that wrote nothing is an `error` of the day (F-4); `regenerate_raw.py`
+has its first test.
 
 **Netz 3 (v1.6.5.7) — error-visibility regression tests, folded into
 existing sections rather than new ones** (see `CHANGELOG.md` v1.6.5.7 for
@@ -563,10 +570,10 @@ O. **Bulk store (v1.7.6).** The heart-rate series of the GDPR export go into
   file per module; `test_bulk_import.py` is the end-to-end test of the whole
   pipeline (preview writes nothing, rerun changes nothing, part of an export
   never shrinks a day, stop, summary without names).
-- `test_bulk_writer.py`, block "Ist-Stand, register finding F-1": pins today's
-  behaviour for a day file that cannot be read for I/O reasons (it counts as
-  new and a smaller state can replace the stored day). Whoever fixes F-1 turns
-  these checks around.
+- `test_bulk_writer.py`, block "F-1": a day file that cannot be read for I/O
+  reasons is `unreadable` (v1.7.6.1; before, it counted as new and a smaller
+  state could replace the stored day): `day_status()`, `write_day()` and the
+  untouched file are pinned.
 - `test_quality.py` — `record_bulk_intraday()`; `test_collector.py` — the
   phases, `_mark_bulk_days()` and the session log of the import branch;
   `test_broker.py` section 6 and `test_mcp.py` section 15 — the bulk track and
@@ -576,10 +583,41 @@ O. **Bulk store (v1.7.6).** The heart-rate series of the GDPR export go into
 Checked on a copy of a real archive and on the real archive itself, see
 `CHANGELOG.md` and `PROTOKOLL.md`.
 
+P. **Daily values in the bulk store (v1.7.6.1).** The daily values of the GDPR
+export go into `bulk/aggregates`, `raw/` stays API-only, `summary/` is
+resolved. Synthetic data only; the old JSON import tests stay for `run_import()`.
+- `test_bulk_json_import.py` (new) — the phase end to end: originals kept by
+  hash, rejected days (invalid, too little data) are reported and not a
+  failure, preview writes nothing, rerun changes nothing, a fuller day is not
+  shrunk, stop, `day_window`, no name from the export in any output.
+- `test_bulk_writer.py` — aggregates files (`write_aggregates`,
+  `aggregates_status`, `load_aggregates`, `list_days`, `list_aggregate_days`),
+  JSON originals, the F-1 states; `test_bulk_normalizer.py` — `has_window()`;
+  `test_garmin_import.py` — `load_bulk_with_entries()` and the read hook.
+- `test_writer.py` — the resolved summary (`write_day`, `write_summary_only`,
+  `rebuild_summary`): API data first, the export fills, an unreadable
+  aggregates file writes nothing; `test_quality.py` — `record_bulk_aggregates()`,
+  `unmarked_bulk_days()`, the catch-up, `_save_quality_log()` returning a bool.
+- `test_collector.py` — the json phase and the finish (`_finish_aggregates()`,
+  `_apply_aggregates()`), marks and catch-up (`_mark_bulk_days()`,
+  `_run_bulk_mark_catch_up()`, step 3f), and "ways" — every way that writes a
+  summary with an export day: the sync fetch (including the downgrade guard
+  and an unreadable aggregates file, F-5), steps and field backfill, the
+  schema migration (F-4). `test_import_mirror.py` (F-6, resolved summary),
+  `test_silo_check.py`, `test_silo_repair.py` (#3, #5, #7 with export days,
+  `regenerate_raw.py`, F-4), `test_repair_resting_hr.py` section 10.
+- `test_broker.py` sections 7 and 8, `test_mcp.py`, `test_dashboard.py` — the
+  `bulk_daily` fields (four stress durations), `sleep_*_pct` from the export,
+  units and labels, the cache picking up the new fields.
+Checked on a copy of a real archive, see `PROTOKOLL.md`; the run on the real
+archive is the maintainer's step.
+
 **Marker `BULK-IMPORT-PHASES v1.7.6` (removable)** — the choice of phases and
 its GUI hooks carry it (grep): `garmin/garmin_collector.py` (section "Bulk
 import phases": `_BULK_PHASES`, `_bulk_phases()`, `_mark_bulk_days()`,
-`_run_bulk_import()`), `app/outputs/bulk_import.py` (`ImportOptionsDialog`,
+`_apply_bulk_marks()`, `_apply_aggregates()`, `_finish_aggregates()`,
+`_run_bulk_import()`; the sync-start catch-up `_run_bulk_mark_catch_up()` and its
+call in `main()` (step 3f) belong to the same family but carry the label F-3, not the marker), `app/outputs/bulk_import.py` (`ImportOptionsDialog`,
 `build_env()`, `TRIGGER_VARS`), the matching blocks in `tests/test_collector.py`
 and `tests/test_qt_app.py::TestBulkImportFlow`, and the rows for
 `GARMIN_BULK_PHASES` / `GARMIN_BULK_DRYRUN` in `REFERENCE_GLOBAL.md`. The bulk
@@ -613,7 +651,7 @@ modules and the bulk store do not carry the marker.
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`, `garmin_bulk_json_import`, `garmin_silo_repair`, `garmin_import_mirror`.
 
 ---
 

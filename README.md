@@ -133,9 +133,9 @@ Everything is stored locally in structured formats (JSON, Excel, HTML dashboards
 
 The GDPR export from Garmin contains your complete daily history.
 
-The **Bulk Import** feature fills in the rest: request your full data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete daily history lands in the local archive — in the same format as live API data. Days already present with good quality are skipped automatically.
+The **Bulk Import** feature fills in the rest: request your full data export from Garmin (typically ready in 20–30 minutes), point the app at the ZIP, and your complete daily history is stored locally. The daily files in `summary/` are made from the export for every day Garmin's API did not deliver, and completed from it where the API data has gaps — what the API delivered always wins.
 
-Since v1.7.6 the import dialog offers two parts: **Daily values (JSON)** as before, and **Heart-rate series (FIT files)** — the heart-rate curve over the day from the FIT files of the export. The series are stored in their own folder, `garmin_data/bulk/`, next to the archive, not in `raw/`. A **Preview** shows what would be imported without writing anything. AI queries (MCP) and the dashboards use the stored series for days that have no heart-rate series from the live sync. Your existing daily files are not touched by this part (only the quality log gets a marker per imported day); the new folder is not yet part of backup and mirror.
+The import dialog offers two parts: **Daily values (JSON)** and, since v1.7.6, **Heart-rate series (FIT files)** — the heart-rate curve over the day from the FIT files of the export. Both are stored in their own folder, `garmin_data/bulk/`, next to the archive, not in `raw/`: `raw/` holds only what came from the Garmin API. A **Preview** shows what would be imported without writing anything, for both parts. AI queries (MCP) and the dashboards use the stored series for days that have no heart-rate series from the live sync, and since v1.7.6.1 the time per day in the four stress zones (rest, low, medium, high) from the export is available as well. Existing API data is never overwritten (the quality log gets a marker per imported day); the new folder is not yet part of backup and mirror.
 
 ---
 
@@ -294,7 +294,7 @@ The token is encrypted at rest. Details on the encryption design and threat mode
 
 ### Pipeline
 
-Live sync and the daily-values Bulk Import both flow through the same validation and quality pipeline before anything lands in the local archive (the heart-rate series from the FIT files take their own path into `garmin_data/bulk/`) — the diagram below shows the full picture.
+Live sync flows through the validation and quality pipeline before anything lands in the local archive; the daily values of the Bulk Import are validated and quality-checked the same way but are stored in `garmin_data/bulk/aggregates` and only joined with the API data in `summary/` (the heart-rate series from the FIT files take their own path into `garmin_data/bulk/`) — the diagram below shows the full picture of the live pipeline.
 
 > [!TIP]
 > **Pipeline Architecture:** For a detailed view of the v1.3.4 data flow including the validation layer and self-healing loop, open [screenshots/flowchart_v134.html](src/screenshots/flowchart_v134.html) in your browser.
@@ -323,8 +323,8 @@ Data is stored in two root folders:
 garmin_data/
 ├── raw/        – complete API dumps (~500 KB/day) — permanent archive / basis for dashboards and analysis
 ├── source/     – unmodified API responses (~250 KB/day) — replay-safe intraday backup
-├── summary/    – compact daily JSONs (~2 KB/day)  — basis for dashboards and analysis
-├── bulk/       – heart-rate series from the Garmin export (one JSON per day) + the unchanged FIT originals — separate from the API archive (v1.7.6)
+├── summary/    – compact daily JSONs (~2 KB/day)  — basis for dashboards and analysis; for export days API data first, the export fills the gaps (v1.7.6.1)
+├── bulk/       – data from the Garmin export: heart-rate series (one JSON per day), daily values (bulk/aggregates, v1.7.6.1) + the unchanged export files — separate from the API archive (v1.7.6)
 └── log/        – session logs, quality register, encrypted token
 
 context_data/
@@ -348,7 +348,7 @@ same as everything else here):
 
 ```bash
 python tests/test_local.py                    # Garmin pipeline — cross-module checks (determinism, invariants, robustness, end-to-end)
-python tests/test_<module>.py                 # Garmin pipeline — one file per module of src/garmin/ (25 files, e.g. test_writer.py, test_quality.py, test_collector.py; shared setup in tests/gla_testenv.py)
+python tests/test_<module>.py                 # Garmin pipeline — one file per module of src/garmin/ (26 files, e.g. test_writer.py, test_quality.py, test_collector.py; shared setup in tests/gla_testenv.py)
 python tests/test_local_context.py            # Context pipeline (external APIs mocked)
 python tests/test_dashboard.py                # Dashboard pipeline
 python tests/test_broker.py                   # Broker layer (health_map / gateway_map routing, metadata_map)

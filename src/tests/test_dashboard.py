@@ -316,6 +316,10 @@ check("metric_meta heart_rate_series",          layout.get_metric_meta("heart_ra
 check("metric_meta has label",                  "label" in layout.get_metric_meta("heart_rate_series"))
 check("metric_meta has color",                  "color" in layout.get_metric_meta("heart_rate_series"))
 check("metric_meta unknown returns {}",         layout.get_metric_meta("nonexistent") == {})
+_dur_meta = [layout.get_metric_meta(f) for f in ("stress_rest_duration", "stress_low_duration", "stress_medium_duration", "stress_high_duration")]
+check("metric_meta: the four stress durations (v1.7.6.1) have a label, the unit s and a hex color, each a different color",
+      all(m.get("label") and m.get("unit") == "s" and str(m.get("color", "")).startswith("#") and len(m["color"]) == 7 for m in _dur_meta)
+      and len({m["color"] for m in _dur_meta}) == 4)
 check("excel row color heart_rate",             layout.get_excel_row_color("heart_rate_series") != "")
 check("excel row color unknown = white",        layout.get_excel_row_color("nonexistent") == "FFFFFF")
 check("disclaimer is string",                   isinstance(layout.get_disclaimer(), str))

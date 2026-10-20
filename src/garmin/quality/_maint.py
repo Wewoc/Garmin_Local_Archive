@@ -253,16 +253,75 @@ def record_bulk_intraday(data: dict, days) -> int:
     QUALITY_LOCK from load to save and saves once (same contract as
     touch_last_checked).
     """
+    return _record_bulk_mark(data, days, "intraday")
+
+
+def record_bulk_aggregates(data: dict, days) -> int:
+    """
+    Marks days whose daily values (the JSON part of the export) are in the bulk store
+    (garmin_data/bulk/aggregates, v1.7.6.1): `entry["bulk"]["aggregates"]` = today's date and
+    `last_checked` = today — the same contract as record_bulk_intraday(), in the key of its own
+    inside `entry["bulk"]`. Nothing else on the entry changes, the log checksum stays. A day
+    without an entry is skipped, never created. Returns the number of entries marked.
+    Does NOT save — the caller holds QUALITY_LOCK from load to save and saves once.
+    """
+    return _record_bulk_mark(data, days, "aggregates")
+
+
+def _record_bulk_mark(data: dict, days, key: str) -> int:
+    """The common part of record_bulk_intraday() and record_bulk_aggregates()."""
     today_str = date.today().isoformat()
     wanted = {d.isoformat() if hasattr(d, "isoformat") else str(d) for d in days}
     count = 0
     for entry in data.get("days", []):
         if entry.get("date") in wanted:
             bulk = entry.get("bulk")
-            entry["bulk"] = {**bulk, "intraday": today_str} if isinstance(bulk, dict) else {"intraday": today_str}
+            entry["bulk"] = {**bulk, key: today_str} if isinstance(bulk, dict) else {key: today_str}
             entry["last_checked"] = today_str
             count += 1
     return count
+
+
+def unmarked_bulk_days(data: dict, days, key: str = "intraday") -> list:
+    """
+    The days of `days` that have an entry in the log but no
+    `entry["bulk"][key]` mark (v1.7.6.1, F-3; `key` is "intraday" (default) or "aggregates"): the
+    days whose data are in the bulk store but which the MCP cache would never read again. Only
+    looks, changes nothing. A day without an entry is not listed (entries are
+    never created here); a `bulk` value that is not a dict, or one without
+    the key, counts as unmarked.
+
+    `days`: iterable of date objects or ISO strings (YYYY-MM-DD).
+    Returns the dates as sorted ISO strings.
+    """
+    wanted = {d.isoformat() if hasattr(d, "isoformat") else str(d) for d in days}
+    unmarked = []
+    for entry in data.get("days", []):
+        if entry.get("date") in wanted:
+            bulk = entry.get("bulk")
+            if not (isinstance(bulk, dict) and bulk.get(key)):
+                unmarked.append(entry["date"])
+    return sorted(unmarked)
+
+
+def catch_up_bulk_intraday(data: dict, days) -> int:
+    """
+    Marks the days of `days` that are still unmarked (`unmarked_bulk_days`) with
+    `record_bulk_intraday` (v1.7.6.1, F-3): makes good a mark that failed or
+    could not be made when the series were written. Days that already carry
+    the mark are left alone, so their `last_checked` stays. Returns the number
+    of entries marked. Does NOT save — same contract as record_bulk_intraday.
+    """
+    return record_bulk_intraday(data, unmarked_bulk_days(data, days))
+
+
+def catch_up_bulk_aggregates(data: dict, days) -> int:
+    """
+    catch_up_bulk_intraday() for the daily values: marks the days of `days` that carry no
+    `entry["bulk"]["aggregates"]` yet with record_bulk_aggregates(). Days that already carry the
+    mark keep it and their `last_checked`. Returns the number of entries marked. Does NOT save.
+    """
+    return record_bulk_aggregates(data, unmarked_bulk_days(data, days, "aggregates"))
 
 
 def record_field_backfill_failure(data: dict, day: date, field: str) -> int:

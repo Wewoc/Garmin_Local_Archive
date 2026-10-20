@@ -134,12 +134,34 @@ Import:
 Bulk Import and Daily Sync complement each other:
   Bulk Import provides the history, Daily Sync keeps it current.
 
-Imported days land in `raw/` and `summary/` alongside API data. Days
-already present with `high` or `standard` quality from the API are
-skipped — the better source wins. Imported data is marked
-`source: bulk` in the quality log and never re-fetched automatically.
+Since v1.7.6.1 both parts are stored in garmin_data/bulk/, not in
+`raw/`: `raw/` keeps only what came from the Garmin API. The daily
+files in `summary/` are made from both — where a day has API data,
+the API values win and the export only fills what is missing; a day
+that exists only in the export gets its summary from the export.
+Days that exist only in the export are marked `source: bulk` in the
+quality log; the Background Timer asks the API for them within its
+180-day window (Section 5).
 
-Daily values (JSON): as described above.
+Daily values (JSON) (v1.7.6.1):
+  The daily values are stored in garmin_data/bulk/aggregates (one file
+  per day), the JSON files of the export unchanged in bulk/source.
+  - A day that is invalid or has too little data is skipped and listed
+    in the log. This is not an error of the import (the same export
+    would give the same result); the Background Timer may still get
+    such a day from the API.
+  - New for AI queries (MCP) and the dashboards: the time per day in
+    the four stress zones (rest, low, medium, high), in seconds, from
+    the export. The sleep percentages also work for days that exist
+    only in the export.
+  - A few values are defined slightly differently in the export and in
+    the API (floors climbed, sleep duration by a few seconds, minimum
+    and maximum heart rate and the stress block of the day). Where both
+    exist, the API value is used.
+  - The import is finished once the summaries, the quality log entries
+    and the markers are made; if that fails, the import reports an
+    error and running it again makes it good.
+  - Running the same import again changes nothing.
 
 Heart-rate series (FIT files) (v1.7.6):
   The export also holds the heart-rate curve over the day. It is stored
@@ -151,10 +173,10 @@ Heart-rate series (FIT files) (v1.7.6):
     Daily Sync. A day the Daily Sync has is shown from the Daily Sync.
   - Preview: reads the export and reports what an import would do -
     files found, days new / changed / unchanged, number of samples.
-    Nothing is written, and the background timer keeps running. There is
-    no preview for the daily values.
-  - Before the import of the series starts, the app tells you that the
-    folder garmin_data/bulk is not part of the backup or the mirror yet.
+    Nothing is written, and the background timer keeps running. The
+    daily values have a preview too (v1.7.6.1).
+  - Before an import starts, the app tells you that the folder
+    garmin_data/bulk is not part of the backup or the mirror yet.
     Keep the export file as your fallback.
   - Running the same import again changes nothing. Importing only part of
     an export (for example one inner ZIP) never replaces a fuller day.
@@ -838,6 +860,9 @@ Silo-Check
     automatically
     "N days missing, N no backup" — some days have no backup; a
     dialog lists them so you can re-fetch manually via Sync Data
+  A day that exists only in the Garmin export (Bulk Import) is not
+  reported as an orphan; if its summary is missing, the repair rebuilds
+  it from the export data (v1.7.6.1).
 
 Context-Check
   Same idea as Silo-Check, but for the context archive (weather,

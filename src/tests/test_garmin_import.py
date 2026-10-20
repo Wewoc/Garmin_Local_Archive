@@ -514,4 +514,56 @@ check("4k2 load_bulk: a file that is no ZIP is reported as a bad ZIP, not as an 
       _res == [] and any(lv == "error" and "bad ZIP file" in m for lv, m in _c)
       and not any("unexpected error" in m for _, m in _c))
 
+# -- load_bulk_with_entries (v1.7.6.1): the entries of every day and a hook for every file that is read -----------------
+section("4k3. garmin_import — load_bulk_with_entries, read hook")
+import hashlib as _hl4k3
+
+_pairs_dir = list(_gi.load_bulk_with_entries(_exp_dir))
+_pairs_zip = list(_gi.load_bulk_with_entries(_exp_zip))
+check("4k3 load_bulk_with_entries: the first element of every pair is the day load_bulk gives, folder and ZIP alike",
+      [d for d, _ in _pairs_dir] == _days and [d for d, _ in _pairs_zip] == _days)
+_ent = {d["date"]: e for d, e in _pairs_dir}
+check("4k3 load_bulk_with_entries: the entries of a day are the parts of the export that have it (uds, sleep, activities)",
+      set(_ent["2024-05-01"]) == {"uds", "sleep", "activities"} and set(_ent["2024-05-02"]) == {"uds"}
+      and set(_ent["2024-05-03"]) == {"sleep"} and set(_ent["2024-05-04"]) == {"readiness"})
+check("4k3 load_bulk_with_entries: the entries are the objects of the export, as they are (not the day built from them)",
+      _ent["2024-05-01"]["uds"] == _gdpr_sample()[_G_UDS][0] and _ent["2024-05-01"]["sleep"] == _gdpr_sample()[_G_SLEEP][0]
+      and [a["name"] for a in _ent["2024-05-01"]["activities"]] == ["Run", "Walk"]
+      and _ent["2024-05-04"]["readiness"]["level"] == "HIGH")
+check("4k3 load_bulk_with_entries: parse_day of the entries is the day that came with them",
+      all(_gi.parse_day(e, d["date"]) == d for d, e in _pairs_dir))
+check("4k3 load_bulk_with_entries: without a hook it reads exactly like load_bulk (no hook argument needed)",
+      list(_gi.load_bulk_with_entries(_exp_dir, None)) == _pairs_dir)
+
+for _label, _exp in (("folder", _exp_dir), ("ZIP", _exp_zip)):
+    _seen = {}
+    _order = []
+
+    def _hook(name, data, _seen=_seen, _order=_order):
+        _seen[name] = data
+        _order.append(name)
+
+    _got = list(_gi.load_bulk_with_entries(_exp, _hook))
+    _expect_names = {n for n in _gdpr_sample() if any(k in n for k in ("UDSFile_", "sleepData", "TrainingReadinessDTO", "summarizedActivities"))}
+    check(f"4k3 read hook ({_label}): called once for every JSON file the loader reads (also for ones that are not lists or not JSON)",
+          set(_seen) == _expect_names and len(_order) == len(_expect_names))
+    _orig = _gdpr_sample()
+    check(f"4k3 read hook ({_label}): the bytes are those of the file in the export, so their SHA-256 is that of the original",
+          all(_hl4k3.sha256(d).hexdigest() == _hl4k3.sha256((_orig[n] if isinstance(_orig[n], str) else json.dumps(_orig[n])).encode("utf-8")).hexdigest()
+              for n, d in _seen.items()))
+    check(f"4k3 read hook ({_label}): hooked reading gives the same pairs as unhooked reading", _got == _pairs_dir)
+
+_none_called = []
+check("4k3 read hook: a path that does not exist, a file that is no ZIP and a corrupt ZIP call the hook never and give no pairs",
+      all(list(_gi.load_bulk_with_entries(_pth, lambda n, d: _none_called.append(n))) == []
+          for _pth in (_M4K / "nothing_here", _M4K / "plain.txt", _M4K / "broken.zip")) and _none_called == [])
+
+_boom_res, _boom_log = _g_logged(lambda: list(_gi.load_bulk_with_entries(_exp_dir, lambda n, d: (_ for _ in ()).throw(RuntimeError("hook broke")))))
+check("4k3 read hook: an exception of the hook ends the iteration and is reported as an unexpected error, it does not escape",
+      _boom_res == [] and any(lv == "error" and "unexpected error" in m and "hook broke" in m for lv, m in _boom_log))
+
+_pre_calls = []
+_ = list(_gi.load_bulk_with_entries(_exp_zip, lambda n, d: _pre_calls.append(len(d))))
+check("4k3 read hook: the hook gets bytes, not text", all(isinstance(n, int) and n > 0 for n in _pre_calls) and _pre_calls)
+
 summary()

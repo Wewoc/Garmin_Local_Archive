@@ -441,7 +441,7 @@ def save_device_table(quality_data: dict) -> None:
         log.warning(f"  Could not write device_table.json: {e}")
 
 
-def _save_quality_log(data: dict, skip_backup: bool = False) -> None:
+def _save_quality_log(data: dict, skip_backup: bool = False) -> bool:
     """
     Writes quality_log.json atomically via temp file.
 
@@ -453,6 +453,11 @@ def _save_quality_log(data: dict, skip_backup: bool = False) -> None:
     Before writing:
       - sorts data['days'] by 'date' ascending (A3)
       - computes and stores SHA-256 checksum of entries (A3)
+
+    Returns True when quality_log.json was written, False when the write
+    failed (v1.7.6.1; the failure is only logged, never raised). A failed
+    backup trigger afterwards does not change the result: the log itself is
+    saved. Callers that ignore the value behave as before.
     """
     try:
         data["days"] = sorted(data.get("days", []), key=lambda e: e.get("date", ""))
@@ -469,10 +474,10 @@ def _save_quality_log(data: dict, skip_backup: bool = False) -> None:
         tmp.replace(cfg.QUALITY_LOG_FILE)
     except Exception as e:
         log.warning(f"  Could not write quality_log.json: {e}")
-        return
+        return False
 
     if skip_backup:
-        return
+        return True
 
     try:
         import garmin_backup as _backup
@@ -481,6 +486,7 @@ def _save_quality_log(data: dict, skip_backup: bool = False) -> None:
         pass  # garmin_backup not yet available (component B not built)
     except Exception as e:
         log.warning(f"  quality_log backup trigger failed: {e}")
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════════════

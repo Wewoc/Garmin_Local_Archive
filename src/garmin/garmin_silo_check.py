@@ -17,8 +17,13 @@ raw is the canonical truth.
 Covered checks (reconstructability principle — KONZEPT §3):
   #1  raw without quality_log entry      (orphan — processed but not logged)
   #3  source without raw                 (raw rebuildable from existing source)
-  #5  summary without raw                (orphan summary — source raw gone)
-  #7  raw without summary                (derived file missing — rebuildable)
+  #5  summary without raw or export data (orphan summary — source raw gone)
+  #7  raw or export data without summary (derived file missing — rebuildable)
+
+"Export data" (v1.7.6.1): a day with a file in the bulk store's aggregates folder
+(bulk/aggregates). Such a day may have no raw file at all — its summary is derived from
+the export's values (garmin_writer.rebuild_summary) — so it is neither an orphan (#5) nor
+fine without a summary (#7). No new category: the four below keep their names and keys.
 
 Not covered:
   #2  quality_log entry without raw      — owned by garmin_backup.check_raw_integrity()
@@ -88,6 +93,21 @@ def _collect_summary_dates() -> set[date]:
     return result
 
 
+def _collect_aggregate_dates() -> set[date]:
+    """Returns the set of dates with a file in the bulk store's aggregates folder (v1.7.6.1).
+    Inline like the other collectors (Leaf Node: no import of garmin_bulk_writer); looks at
+    the file names only, nothing is read."""
+    result: set[date] = set()
+    prefix = cfg.BULK_AGG_FILE_PREFIX
+    if not cfg.BULK_AGG_DIR.exists():
+        return result
+    for f in cfg.BULK_AGG_DIR.glob(f"{prefix}*.json"):
+        d = _extract_date(f.stem, prefix)
+        if d is not None:
+            result.add(d)
+    return result
+
+
 def _collect_source_dates() -> set[date]:
     """Returns the set of dates with a garmin_source_*.json file in SOURCE_DIR."""
     result: set[date] = set()
@@ -143,13 +163,14 @@ def check_silos() -> dict:
     {
       "raw_without_quality":  [date, ...],   # #1 — orphan raw, no quality_log entry
       "source_without_raw":   [date, ...],   # #3 — source file without matching raw
-      "summary_without_raw":  [date, ...],   # #5 — orphan summary, source raw gone
-      "raw_without_summary":  [date, ...],   # #7 — raw exists, summary missing
+      "summary_without_raw":  [date, ...],   # #5 — orphan summary: no raw and no export data
+      "raw_without_summary":  [date, ...],   # #7 — raw or export data exists, summary missing
       "checked_at":           "ISO-8601",
       "totals": {
         "raw":          int,   # count of garmin_raw_*.json files
         "summary":      int,   # count of garmin_*.json files in SUMMARY_DIR
         "source":       int,   # count of garmin_source_*.json files
+        "aggregates":   int,   # count of garmin_bulk_agg_*.json files (v1.7.6.1)
         "quality_days": int,   # len(quality_log["days"])
       },
       "counts": {
@@ -168,6 +189,7 @@ def check_silos() -> dict:
     raw_dates     = _collect_raw_dates()
     summary_dates = _collect_summary_dates()
     source_dates  = _collect_source_dates()
+    aggregate_dates = _collect_aggregate_dates()
     quality_dates, quality_count = _collect_quality_dates()
 
     # ── #1: raw without quality_log entry ─────────────────────────────────────
@@ -176,11 +198,11 @@ def check_silos() -> dict:
     # ── #3: source without raw ─────────────────────────────────────────────────
     source_without_raw = sorted(source_dates - raw_dates)
 
-    # ── #5: summary without raw ────────────────────────────────────────────────
-    summary_without_raw = sorted(summary_dates - raw_dates)
+    # ── #5: summary without raw (and without export data) ──────────────────────
+    summary_without_raw = sorted(summary_dates - raw_dates - aggregate_dates)
 
-    # ── #7: raw without summary ────────────────────────────────────────────────
-    raw_without_summary = sorted(raw_dates - summary_dates)
+    # ── #7: raw (or export data) without summary ───────────────────────────────
+    raw_without_summary = sorted((raw_dates | aggregate_dates) - summary_dates)
 
     checked_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -194,6 +216,7 @@ def check_silos() -> dict:
             "raw":          len(raw_dates),
             "summary":      len(summary_dates),
             "source":       len(source_dates),
+            "aggregates":   len(aggregate_dates),
             "quality_days": quality_count,
         },
         "counts": {

@@ -3550,10 +3550,11 @@ class TestBulkImportFlow:
         app._timer_stop.set.assert_not_called()
         assert app._timer_active is True
 
-    def test_json_only_needs_no_extra_confirmation(self):
+    def test_json_only_is_confirmed_too(self):
+        # v1.7.6.1: the daily values go to garmin_data/bulk as well, so the same confirmation applies
         panel = self._panel()
         q, _ = self._go(panel, {"json": True, "intraday": False, "preview": False})
-        assert q.call_count == 1
+        assert q.call_count == 2
         assert panel._app._run.call_args.kwargs["env_overrides"]["GARMIN_BULK_PHASES"] == "json"
 
     def test_intraday_only_is_confirmed_too(self):
@@ -3573,11 +3574,16 @@ class TestBulkImportFlow:
         assert app._timer_active is True
         assert any("nothing is written" in str(c.args[0]) for c in app._log.call_args_list)
 
-    def test_preview_of_the_daily_values_alone_explains_and_starts_nothing(self):
-        panel = self._panel()
-        _, info = self._go(panel, {"json": True, "intraday": False, "preview": True})
-        panel._app._run.assert_not_called()
-        assert info.call_count == 1 and "no preview" in info.call_args.args[2].lower()
+    def test_preview_of_the_daily_values_alone_starts_a_preview(self):
+        # v1.7.6.1: the daily values have a preview now, no explanation that there is none
+        panel = self._panel(timer_active=True)
+        q, info = self._go(panel, {"json": True, "intraday": False, "preview": True})
+        app = panel._app
+        assert q.call_count == 1 and info.call_count == 0
+        env = app._run.call_args.kwargs["env_overrides"]
+        assert env["GARMIN_BULK_PHASES"] == "json" and env["GARMIN_BULK_DRYRUN"] == "1"
+        app._timer_stop.set.assert_not_called()
+        assert app._timer_active is True
 
     def test_nothing_selected_explains_and_starts_nothing(self):
         panel = self._panel()

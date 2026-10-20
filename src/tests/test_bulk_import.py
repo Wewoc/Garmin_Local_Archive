@@ -158,15 +158,15 @@ with _isolated_log_env("bulk_import") as base:
     check("run: activity, other type and the broken file are not stored",
           not any((cfg.BULK_SOURCE_DIR / _sha(b)[:2] / f"{_sha(b)}.fit").exists() for b in (activity, other72, garbage)))
     check("run: the days written are reported, sorted, as dates only", run["written_days"] == ["2024-03-02", "2024-03-03", "2024-03-04"])
-    d2 = bw.read_day("2024-03-02")
+    d2 = bw._load_day("2024-03-02")[1]
     check("run: day 2024-03-02 holds the samples of both overlapping files, the older file wins the conflicting second",
           [v[1] for v in d2["sections"]["intraday"]["heart_rate"]["values"]] == [60, 62, 64, 80]
           and d2["duplicates"] == {"same": 0, "conflict": 1} and d2["source_files"] == sorted([_sha(mon1), _sha(mon4)]))
-    d4 = bw.read_day("2024-03-04")
+    d4 = bw._load_day("2024-03-04")[1]
     check("run: a sample at 23:30Z belongs to the next local day (offset +1 h)",
-          d4 is not None and d4["sections"]["intraday"]["heart_rate"]["count"] == 1 and bw.read_day("2024-03-03")["sections"]["intraday"]["heart_rate"]["count"] == 2)
+          d4 is not None and d4["sections"]["intraday"]["heart_rate"]["count"] == 1 and bw._load_day("2024-03-03")[1]["sections"]["intraday"]["heart_rate"]["count"] == 2)
     check("run: no day for the days without samples and none for the day without a boundary",
-          [bw.read_day(d) for d in ("2024-03-01", "2024-03-05", "2024-03-06")] == [None, None, None])
+          [bw._load_day(d)[1] for d in ("2024-03-01", "2024-03-05", "2024-03-06")] == [None, None, None])
     text = "\n".join(log.lines)
     check("run: the log is not marked as a preview and names no entry", "PREVIEW" not in text and SECRET not in text and "@" not in text)
     check("run: raw/, source/ and summary/ stay untouched", all(_tree(d) == api_before[d] for d in api_before))
@@ -310,6 +310,42 @@ with _isolated_log_env("bulk_import_empty"):
     check("keep_types limits what is stored: only the monitoring files, the others count as other types",
           k["originals"]["new"] == 3 and k["other_types"] == 4)
 
+# ── Register finding F-1 (fixed in v1.7.6.1): a stored day that cannot be read is neither replaced nor "kept" ──
+with _isolated_log_env("bulk_import_f1"):
+    _archive()
+    exp = cfg.BULK_DIR.parent / "export.zip"
+    exp.write_bytes(export)
+    p1 = cfg.BULK_DIR.parent / "Part1.zip"
+    p1.write_bytes(part1)
+    imp.run_intraday_import(exp)
+    _locked_day = cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}2024-03-02.json"
+    _stored = _tree(cfg.BULK_DIR)
+    _real_read_text = Path.read_text
+
+    def _locked(self, *a, **k):
+        if self == _locked_day:
+            raise PermissionError("locked by another process")
+        return _real_read_text(self, *a, **k)
+
+    # Part 1 alone holds fewer files for 2024-03-02 than the stored day: without the fix that day was written smaller.
+    with patch.object(Path, "read_text", _locked):
+        fp = imp.run_intraday_import(p1, dry_run=True)
+        check("F-1 preview: the day that cannot be read counts as failed (not as kept), the preview is not ok",
+              fp["days"] == {"new": 0, "changed": 0, "unchanged": 2, "kept": 0, "failed": 1} and not fp["ok"])
+        check("F-1 preview: nothing is written", _tree(cfg.BULK_DIR) == _stored)
+        fr = imp.run_intraday_import(p1)
+        check("F-1 run: the day that cannot be read is failed, the others stay unchanged, the run is not ok",
+              fr["days"] == {"new": 0, "changed": 0, "unchanged": 2, "kept": 0, "failed": 1} and not fr["ok"] and fr["error"] is None)
+        check("F-1 run: the day is not reported as written and its file is byte for byte as before",
+              fr["written_days"] == [] and _tree(cfg.BULK_DIR) == _stored)
+        fx = imp.run_intraday_import(exp)
+        check("F-1 run: the whole export does not touch it either (failed, nothing written, no 'unexpected error')",
+              fx["days"]["failed"] == 1 and fx["days"]["unchanged"] == 2 and fx["written_days"] == [] and fx["error"] is None
+              and _tree(cfg.BULK_DIR) == _stored)
+    fa = imp.run_intraday_import(p1)
+    check("F-1: with the lock gone the same import is clean again: the smaller stand is kept, ok",
+          fa["days"] == {"new": 0, "changed": 0, "unchanged": 2, "kept": 1, "failed": 0} and fa["ok"] and _tree(cfg.BULK_DIR) == _stored)
+
 # ── A archive without the days the export covers ──────────────────────────────
 with _isolated_log_env("bulk_import_noarchive"):
     exp = cfg.BULK_DIR.parent / "export.zip"
@@ -368,5 +404,51 @@ check("no print", not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Nam
 check("no access to the quality log, the backup or the collector (the caller marks the days, from written_days)",
       not ({"garmin_quality", "garmin_backup", "garmin_backup_source", "garmin_collector", "garmin_source_writer"} & _imported))
 check("the kept FIT types are the seven decided ones", imp.KEEP_TYPES == frozenset({32, 49, 44, 68, 58, 79, 41}))
+
+# ── The day windows: raw/stats first, the export's own window for a day without a usable one (v1.7.6.1) ───────────
+_AG_H = "ab" * 32
+
+
+def _agg_day(day, window=True, off=1, **extra):
+    doc = {"date": day, "user_summary": {"totalSteps": 5}, **extra}
+    if window:
+        doc["day_window"] = _stats(day, off)
+    assert bw.write_aggregates(day, doc, [_AG_H]) == bw.WRITTEN
+
+
+with _isolated_log_env("bulk_import_windows"):
+    cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    (cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}2024-03-02.json").write_text(json.dumps({"date": "2024-03-02", "stats": _stats("2024-03-02", 1)}), encoding="utf-8")
+    (cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}2024-03-03.json").write_text(json.dumps({"date": "2024-03-03"}), encoding="utf-8")                 # no stats
+    (cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}2024-03-04.json").write_text(json.dumps({"date": "2024-03-04", "stats": {"wellnessStartTimeGmt": "x"}}), encoding="utf-8")   # unusable
+    for d in ("2024-03-02", "2024-03-03", "2024-03-04", "2024-03-05"):
+        _agg_day(d, off=2)                                           # the export's window says +2 h
+    _agg_day("2024-03-06", window=False)                            # no window in the export
+    (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}2024-03-07.json").write_text("{ not json", encoding="utf-8")    # damaged
+    w = imp._load_windows()
+    check("windows: a usable raw/stats wins over the window of the export (+1 h from raw, not +2 h from the export)",
+          w["2024-03-02"] == _stats("2024-03-02", 1))
+    check("windows: a raw file without stats and one with an unusable stats take the window of the export",
+          w["2024-03-03"] == _stats("2024-03-03", 2) and w["2024-03-04"] == _stats("2024-03-04", 2))
+    check("windows: a day that has no raw file at all takes the window of the export", w["2024-03-05"] == _stats("2024-03-05", 2))
+    check("windows: an aggregates file without a window, a damaged one and a day nobody knows add nothing",
+          "2024-03-06" not in w and "2024-03-07" not in w and "2024-03-08" not in w)
+    check("windows: the raw day without any usable window is listed with its (unusable) stats only when the export has none either",
+          set(w) == {"2024-03-02", "2024-03-03", "2024-03-04", "2024-03-05"})
+
+# a fresh archive: no raw files at all, only the daily values with their windows -> the heart-rate phase plans the days
+with _isolated_log_env("bulk_import_fresh"):
+    exp = cfg.BULK_DIR.parent / "export.zip"
+    exp.write_bytes(export)
+    for d in ("2024-03-01", "2024-03-02", "2024-03-03", "2024-03-04", "2024-03-05", "2024-03-06"):
+        _agg_day(d)
+    check("fresh archive: no raw/ folder at all", not cfg.RAW_DIR.exists())
+    fresh = imp.run_intraday_import(exp)
+    check("fresh archive: the heart-rate phase plans the days from the windows of the export and writes the three days with samples",
+          fresh["ok"] and fresh["planned_days"] == 5 and fresh["days"]["new"] == 3 and fresh["unknown_days"] == ["2024-03-01"]
+          and fresh["written_days"] == ["2024-03-02", "2024-03-03", "2024-03-04"])
+    check("fresh archive: the series are the same as with the windows from raw/stats (day 2024-03-02 holds the samples of both overlapping files)",
+          [v[1] for v in bw._load_day("2024-03-02")[1]["sections"]["intraday"]["heart_rate"]["values"]] == [60, 62, 64, 80]
+          and bw._load_day("2024-03-04")[1]["sections"]["intraday"]["heart_rate"]["count"] == 1)
 
 summary()

@@ -17,7 +17,8 @@ Rules:
 
 Generic field names (dashboard-side):
   no suffix   → daily    → reads from summary/
-  _series     → intraday → reads from raw/
+  _series     → intraday → reads from raw/ (and, for heart_rate_series, bulk/)
+  daily values only the Garmin export has (stress durations) → bulk/aggregates
 
 Internal Garmin key format (garmin-side, never visible to specialists):
   "section.key"  or  "section.nested.key"
@@ -54,6 +55,16 @@ log = logging.getLogger(__name__)
 #
 #  section = top-level key in the raw/summary JSON
 #  key     = dot-separated path within that section
+#
+#  A field that only the Garmin export has (v1.7.6.1) carries "bulk_daily":
+#  (section, key) instead of "daily": the value of one day is read from
+#  garmin_data/bulk/aggregates (see _read_bulk_daily), "daily" and "intraday" are None.
+#  Fields the API also has are not listed per track: summary/ already holds the one
+#  resolved value of the day (garmin_writer), so "daily" is enough for them.
+#
+#  "raw_pct": (section, object, seconds_key, total_key) — a percentage of two numbers of
+#  one object. It reads raw/ and, for a day whose raw/ has no usable object (no total above
+#  0), the same object from bulk/aggregates (v1.7.6.1); one source per day, never mixed.
 # ══════════════════════════════════════════════════════════════════════════════
 
 _FIELD_MAP = {
@@ -379,6 +390,31 @@ _FIELD_MAP = {
         "daily":    ("stress", "body_battery_end"),
     },
 
+    # -- Stress durations, only in the Garmin export (v1.7.6.1), seconds per day --
+    # Read from bulk/aggregates ("stress" section of the daily values), the API has
+    # no such values. stressDuration of the export is low + medium + high and is not
+    # registered on its own.
+    "stress_rest_duration": {
+        "intraday":   None,
+        "daily":      None,
+        "bulk_daily": ("stress", "restDuration"),
+    },
+    "stress_low_duration": {
+        "intraday":   None,
+        "daily":      None,
+        "bulk_daily": ("stress", "lowDuration"),
+    },
+    "stress_medium_duration": {
+        "intraday":   None,
+        "daily":      None,
+        "bulk_daily": ("stress", "mediumDuration"),
+    },
+    "stress_high_duration": {
+        "intraday":   None,
+        "daily":      None,
+        "bulk_daily": ("stress", "highDuration"),
+    },
+
     # -- Geschwister von resting_heart_rate (Baseline, "heart_rates"-Endpoint) --
     "heart_rate_max": {
         "intraday": None,
@@ -651,25 +687,20 @@ def _extract_series(arr: list, section_data: dict, extract: dict,
 def _read_raw_pct(field: str, date_from: str, date_to: str) -> dict:
     """
     Read a percentage value from raw/ by dividing seconds_key by total_key.
+    For a day whose raw/ file has no usable object (no file, no sleep data, no total) the
+    object comes from bulk/aggregates instead (v1.7.6.1) — see _pct_dto(); one source per day.
     Returns {"values": [{"date": str, "value": float|None}, ...], "source_resolution": "daily"}.
     """
     section, dto_key, seconds_key, total_key = _FIELD_MAP[field]["raw_pct"]
 
     values = []
     for ds in date_range(date_from, date_to):
-        f     = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
         value = None
-        if f.exists():
-            try:
-                data  = json.loads(f.read_text(encoding="utf-8"))
-                dto   = data.get(section, {}).get(dto_key, {})
-                if isinstance(dto, dict):
-                    part  = dto.get(seconds_key)
-                    total = dto.get(total_key)
-                    if part is not None and total and total > 0:
-                        value = round(part / total * 100, 1)
-            except (json.JSONDecodeError, OSError) as e:
-                log.warning(f"garmin_health_map: could not read {f}: {e}")
+        dto   = _pct_dto(ds, section, dto_key, total_key)
+        if dto is not None:
+            part = dto.get(seconds_key)
+            if _is_number(part):
+                value = round(part / dto[total_key] * 100, 1)
         values.append({"date": ds, "value": value})
 
     return {"values": values, "source_resolution": "daily"}
@@ -833,6 +864,115 @@ def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
         values.append({"date": ds, "series": series, "dst_transition": dst_transition, "series_source": source})
 
     return {"values": values, "source_resolution": "intraday"}
+
+
+# ── Bulk daily values — v1.7.6.1 ───────────────────────────────────────────────
+#
+#  Daily values only the Garmin export has (the stress durations) are read from the
+#  daily values of the bulk store, garmin_data/bulk/aggregates (garmin_bulk_writer).
+#  One file per day; the values are in its "aggregates" object, by section.
+
+# Highest schema_version of an aggregates day this reader understands. Must equal
+# garmin_bulk_writer.AGG_SCHEMA_VERSION (tests/test_broker.py pins that); a day with a
+# higher version is ignored — raise this together with the reader.
+_BULK_AGG_MAX_SCHEMA = 1
+
+
+def _load_bulk_aggregates(ds: str):
+    """
+    The "aggregates" object of one day from bulk/aggregates (the export's values, by section).
+
+    None when there is nothing to use: no file, or a day that cannot be used (damaged, not an
+    object, newer schema_version, no "aggregates" object — a warning, once per day and
+    process, never an exception).
+    """
+    f = cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{ds}.json"
+    if not f.exists():
+        return None
+    label = f"{ds} (daily values)"
+    try:
+        doc = json.loads(f.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        _bulk_unusable(label, f"cannot be read ({type(e).__name__})")
+        return None
+    if not isinstance(doc, dict):
+        _bulk_unusable(label, "not a JSON object")
+        return None
+    version = doc.get("schema_version")
+    if isinstance(version, bool) or not isinstance(version, int) or not 1 <= version <= _BULK_AGG_MAX_SCHEMA:
+        _bulk_unusable(label, f"schema_version {version!r} is not supported")
+        return None
+    aggregates = doc.get("aggregates")
+    if not isinstance(aggregates, dict):
+        _bulk_unusable(label, "no aggregates object")
+        return None
+    return aggregates
+
+
+def _bulk_daily_value(ds: str, section: str, key: str):
+    """
+    One value of one day from bulk/aggregates: the number at aggregates.<section>.<key>.
+
+    None when there is nothing to use: the day cannot be used (see _load_bulk_aggregates),
+    no such section or key, or a value that is not a number (a text, a boolean, null).
+    """
+    aggregates = _load_bulk_aggregates(ds)
+    if aggregates is None:
+        return None
+    section_data = aggregates.get(section)
+    if not isinstance(section_data, dict):
+        return None
+    value = _get_nested(section_data, key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
+
+
+def _is_number(value) -> bool:
+    """A real number (int or float), not a boolean, a text or None."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _pct_dto(ds: str, section: str, dto_key: str, total_key: str):
+    """
+    The object (e.g. dailySleepDTO) one day's percentage fields are calculated from, taken
+    whole from ONE source — the days of the two tracks are never mixed field by field.
+
+    The API track first: raw/ holds the object and its total (total_key) is a number above 0.
+    Otherwise, and only then, the same object of the day from bulk/aggregates under the same
+    condition (a day the API has no sleep data for, e.g. a fresh install that imported the
+    export first). A raw file that cannot be read is a warning, the export is tried then.
+    None when neither track has a usable object — as before, the value of the day is None.
+    """
+    f = cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{ds}.json"
+    if f.exists():
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            section_data = data.get(section) if isinstance(data, dict) else None
+            dto = section_data.get(dto_key) if isinstance(section_data, dict) else None
+            if isinstance(dto, dict) and _is_number(dto.get(total_key)) and dto[total_key] > 0:
+                return dto
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"garmin_health_map: could not read {f}: {e}")
+    aggregates = _load_bulk_aggregates(ds)
+    if aggregates is not None:
+        section_data = aggregates.get(section)
+        dto = section_data.get(dto_key) if isinstance(section_data, dict) else None
+        if isinstance(dto, dict) and _is_number(dto.get(total_key)) and dto[total_key] > 0:
+            return dto
+    return None
+
+
+def _read_bulk_daily(field: str, date_from: str, date_to: str) -> dict:
+    """
+    Read daily values from bulk/aggregates, for the fields with a "bulk_daily" descriptor.
+    Returns {"values": [{"date": str, "value": number|None}, ...], "source_resolution": "daily"},
+    the same form as _read_daily(); value is None for a day without a usable value.
+    """
+    section, key = _FIELD_MAP[field]["bulk_daily"]
+    values = [{"date": ds, "value": _bulk_daily_value(ds, section, key)}
+              for ds in date_range(date_from, date_to)]
+    return {"values": values, "source_resolution": "daily"}
 
 
 def _read_live(field: str) -> dict:
@@ -1018,6 +1158,14 @@ def get(field: str, date_from: str, date_to: str,
     if definition.get("raw_pct") is not None:
         result = _read_raw_pct(field, date_from, date_to)
         result["fallback"] = False
+        return result
+
+    # bulk_daily fields (only in the Garmin export) are daily values from bulk/aggregates;
+    # they have no intraday form: an intraday request gets the daily values with
+    # fallback=True, like any daily field
+    if definition.get("bulk_daily") is not None:
+        result = _read_bulk_daily(field, date_from, date_to)
+        result["fallback"] = resolution != "daily"
         return result
 
     requested_available = definition[resolution] is not None

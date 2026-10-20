@@ -33,7 +33,8 @@ Delegation, unchanged in substance from the pre-extraction logic:
        record_attempt() — replaces the former subprocess call to
        export/regenerate_raw.py (v1.6.5.7, sys.executable fix)
   #5 → Path.unlink() (orphan summary)
-  #7 → inline summarize() + write_day()
+  #7 → inline summarize() + write_day(); a day without a raw file but with export
+       data (bulk/aggregates, v1.7.6.1) → writer.rebuild_summary(), summary/ only
 
 Public API:
   repair_silos(fresh: dict) -> dict
@@ -42,6 +43,7 @@ Public API:
 import json
 import logging
 
+import garmin_bulk_writer as bulk_writer
 import garmin_config as cfg
 import garmin_normalizer as normalizer
 import garmin_quality as quality
@@ -76,6 +78,8 @@ def repair_silos(fresh: dict) -> dict:
         category : "1" | "3" | "5" | "7"
         date     : str (ISO) | None  — None only for #1 (log-wide, not per-day)
         status   : "repaired" | "skipped" | "gone" | "no_source" | "backfilled" | "error"
+                   ("error" also means a write that did not happen: garmin_writer.write_day()
+                   returned False — the reason names it, the details are in the log)
         ... category/status-specific extra keys (existing, new, label,
             count, reason)
     """
@@ -116,7 +120,11 @@ def repair_silos(fresh: dict) -> dict:
                                       "existing": existing_label, "new": new_label})
                         continue
 
-                    writer.write_day(normalized, summary, date_str)
+                    if not writer.write_day(normalized, summary, date_str):
+                        # v1.7.6.1 (F-4): write_day reports a failed write (an I/O error, or an
+                        # aggregates file of the day that cannot be read) by returning False —
+                        # the day is an error then, not "repaired", and gets no log entry.
+                        raise RuntimeError("raw/ and summary/ could not be written (see the log)")
                     # Single continuous QUALITY_LOCK hold for the whole
                     # load-modify-save cycle (v1.6.5.7 precondition finding).
                     # Matches the pattern already used everywhere else in the
@@ -161,11 +169,20 @@ def repair_silos(fresh: dict) -> dict:
         try:
             raw_file = cfg.RAW_DIR / f"garmin_raw_{date_str}.json"
             if not raw_file.exists():
-                items.append({"category": "7", "date": date_str, "status": "gone"})
+                # v1.7.6.1: a day without a raw file but with export data (bulk/aggregates) has
+                # its summary derived from there; with neither it is simply gone.
+                if bulk_writer.load_aggregates(date_str)[0] == "missing":
+                    items.append({"category": "7", "date": date_str, "status": "gone"})
+                    continue
+                if not writer.rebuild_summary(date_str):
+                    raise RuntimeError("the summary could not be derived from the export data of the day")
+                items.append({"category": "7", "date": date_str, "status": "repaired"})
+                ok += 1
                 continue
             raw = json.loads(raw_file.read_text(encoding="utf-8"))
             summary = normalizer.summarize(raw)
-            writer.write_day(raw, summary, date_str)
+            if not writer.write_day(raw, summary, date_str):
+                raise RuntimeError("raw/ and summary/ could not be written (see the log)")      # F-4, v1.7.6.1
             items.append({"category": "7", "date": date_str, "status": "repaired"})
             ok += 1
         except Exception as e:
