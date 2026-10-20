@@ -2,6 +2,15 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.1 — Daily Values from the Garmin Export in the Bulk Folder
+
+- The daily values of the Garmin export are now stored in the bulk folder as well (`bulk/aggregates`), no longer mixed into the archive of data that came from the Garmin API. The daily files in `summary` are put together from both: what Garmin delivered through the API wins, the export fills the gaps.
+- New for AI queries and dashboards: the time per day in the four stress zones (rest, low, medium, high) from the export. The sleep percentages also work for days that exist only in the export.
+- The import dialog offers a preview for both parts, the daily values and the heart-rate series.
+- Days that exist only in the export are no longer reported as orphaned by the archive check, and the repair can rebuild their summary.
+- A day that could not be written is now reported as an error by the sync and by the mirror import instead of being counted as done.
+- Please note: the bulk folder is still not part of the backup and the mirror; that follows in the next version.
+
 ## v1.7.6 — Heart-Rate Series from the Garmin Export
 
 - The import of the Garmin export can now also read the heart-rate series over the day, not only the daily values. A new dialog lets you choose "Daily values" and/or "Heart-rate series" and shows a preview first.

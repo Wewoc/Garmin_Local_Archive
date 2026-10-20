@@ -594,6 +594,9 @@ def _import_raw_from_bytes(
             label   = quality.assess_quality(raw_data)
             fields  = quality.assess_quality_fields(raw_data)
             written = writer.write_day(raw_data, summary, date_str)
+            if not written:
+                # v1.7.6.1 (F-6): False = nothing written (unreadable aggregates or disk error)
+                raise RuntimeError("raw/ and summary/ could not be written (see the log)")
 
             reason = f"Quality: {label} — mirror import"
             device_id, device_name = _extract_device(raw_data)
@@ -819,6 +822,9 @@ def _import_raw_folder(
             label    = quality.assess_quality(raw_data)
             fields   = quality.assess_quality_fields(raw_data)
             written  = writer.write_day(raw_data, summary, date_str)
+            if not written:
+                # v1.7.6.1 (F-6): False = nothing written (unreadable aggregates or disk error)
+                raise RuntimeError("raw/ and summary/ could not be written (see the log)")
             reason   = f"Quality: {label} — mirror import (folder)"
             device_id, device_name = _extract_device(raw_data)
             quality._upsert_quality(

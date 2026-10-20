@@ -81,6 +81,8 @@ over.
 
 **Second track for intraday series (v1.7.6).** For `resolution="intraday"` a field can have more than one source ("track"), listed in `garmin_health_map._SERIES_TRACKS`. Today only `heart_rate_series` has two: `("api", "bulk")` — the API series from `raw/` first, then, for a day the API has no non-empty series for, the series of the Garmin export from the bulk store (`garmin_data/bulk/raw/`). The first non-empty series of a day wins as a whole; a day is never mixed from two tracks. Every intraday entry carries `series_source`: `"api"`, `"bulk"`, or `None` when there is no non-empty series (`series` is `None` or `[]`). A bulk day is shifted with the start-of-day offset stored in it (`utc_offset_hours`, same rule as for API days); a bulk day that cannot be used (damaged, newer `schema_version`, no numeric offset, no samples section) is not used and logged once per day and process — never an exception, never a guessed offset. Callers of `get()` need no change: field name, `series` shape and `dst_transition` are the same on both tracks. `resolution="live"` and `"daily"` are not affected.
 
+**Daily values only the Garmin export has (v1.7.6.1).** A field with a `bulk_daily` descriptor — today the four `stress_*_duration` fields — has no API source: its value for a day is read from the day's aggregates file in the bulk store (`garmin_data/bulk/aggregates/`), `aggregates.<section>.<key>`. A request for `resolution="intraday"` is answered with the daily values and `fallback=True`, like any daily field. A day that cannot be used (no file, damaged, not an object, newer `schema_version`, no `aggregates` object) or a value that is not a number is `"value": None` (one warning per day and process, never an exception). The percentage fields `sleep_*_pct` (`raw_pct`) read `raw/` and, only for a day whose `raw/` has no usable sleep object (a day that exists only in the export, or a raw file that cannot be read), the same object from the aggregates file — one source per day, never mixed field by field. All other daily fields read `summary/`, which holds one resolved value per day (API data first, the export fills what is missing; see `REFERENCE_GARMIN.md`). `get_raw()` reads `raw/` only and gives no value for an export-only day.
+
 Raises `KeyError` if field is not registered in `garmin_health_map._FIELD_MAP`.
 Raises `ValueError` if resolution is not `"daily"`, `"intraday"`, or `"live"`.
 
@@ -276,11 +278,12 @@ rule, kept for quick readability. When a field's unit changes or a field is
 added/removed, update both places. `list_fields()` in the corresponding
 `*_map.py` module remains the actual source of truth for which fields exist.
 
-**`health_map` → `garmin`** (55 fields — 32 pre-`v1.7.1.16` + 23 new;
+**`health_map` → `garmin`** (59 fields — 32 pre-`v1.7.1.16` + 23 new;
 corrected `v1.7.1.17` — the previous "54 (31 pre)" header had
 undercounted the pre-`v1.7.1.16` total by one, out of sync with both
 `_FIELD_MAP` and this file's own field table below, see
-`NOTES_v1_7_1_17.md`)
+`NOTES_v1_7_1_17.md`; plus 4 stress-duration fields from the Garmin export,
+`v1.7.6.1`)
 
 | Field | Value | Description |
 |---|---|---|
@@ -294,10 +297,14 @@ undercounted the pre-`v1.7.1.16` total by one, out of sync with both
 | `sleep_score` | 0–100 | Overall sleep score (v1.7.1.6 — previously retrievable via `health_map.get()`/`get_raw()`'s `live_nested` and `daily` routes but missing its own table row here, a pre-existing gap noted in `REFERENCE_GARMIN.md`, closed this session; value range confirmed against `tests/test_dashboard.py`'s live-route fixture) |
 | `sleep_score_feedback` | text | Categorical sleep feedback, e.g. `POSITIVE_DEEP` |
 | `sleep_score_qualifier` | text | Categorical sleep quality label, e.g. `FAIR`, `EXCELLENT` |
-| `sleep_deep_pct` | % | Share of deep sleep, calculated from raw seconds |
-| `sleep_light_pct` | % | Share of light sleep, calculated from raw seconds |
-| `sleep_rem_pct` | % | Share of REM sleep, calculated from raw seconds |
-| `sleep_awake_pct` | % | Share of time awake during the sleep window |
+| `sleep_deep_pct` | % | Share of deep sleep, calculated from raw seconds; for a day without usable API sleep data, from the Garmin export in the bulk store (one source per day, v1.7.6.1) |
+| `sleep_light_pct` | % | Share of light sleep, calculated from raw seconds; same second source (v1.7.6.1) |
+| `sleep_rem_pct` | % | Share of REM sleep, calculated from raw seconds; same second source (v1.7.6.1) |
+| `sleep_awake_pct` | % | Share of time awake during the sleep window; same second source (v1.7.6.1) |
+| `stress_rest_duration` | seconds | Time in the rest zone of the stress measurement per day — only in the Garmin export, from the bulk store (v1.7.6.1) |
+| `stress_low_duration` | seconds | Time in the low stress zone per day, same source (v1.7.6.1) |
+| `stress_medium_duration` | seconds | Time in the medium stress zone per day, same source (v1.7.6.1) |
+| `stress_high_duration` | seconds | Time in the high stress zone per day, same source (v1.7.6.1) |
 | `heart_rate_series` | bpm per timestamp | Intraday heart rate readings; for days without an API series, the series of the Garmin export from the bulk store (`series_source`, v1.7.6) |
 | `stress_series` | 0–100 per timestamp | Intraday stress level readings |
 | `spo2_series` | % per timestamp | Intraday blood oxygen readings, hourly averages |

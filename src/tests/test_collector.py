@@ -126,30 +126,34 @@ with _isolated_log_env("main_login") as _b:
               _fail_logs_with("Login cancelled by user") == [])
 
 # -- import mode ----------------------------------------------------------------------------------
+import garmin_bulk_json_import as _jimp
+
 with _isolated_log_env("main_import") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
-    with patch.object(_col5, "run_import", return_value={"failed": 0}) as _ri:
+    with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}) as _ji, \
+         patch.object(_col5, "run_import") as _ri:
         _code, _exc, _fetch, _ = _run_main(env={"GARMIN_IMPORT_PATH": "C:/export.zip"},
                                            stop_event=threading.Event())
     check("main import mode: success -> exit code 0, no regular sync",
           _code == 0 and not _fetch.called)
-    check("main import mode: the path and the stop event are handed to run_import",
-          _ri.call_args.args == ("C:/export.zip",) and "stop_event" in _ri.call_args.kwargs)
-    with patch.object(_col5, "run_import", return_value={"failed": 2}):
+    check("main import mode (v1.7.6.1): the path and the stop check go to the daily-values phase; the old run_import (raw/) is not called",
+          _ji.call_args.args == ("C:/export.zip",)
+          and _ji.call_args.kwargs == {"dry_run": False, "should_stop": _col5._is_stopped} and not _ri.called)
+    with patch.object(_jimp, "run_aggregates_import", return_value={"ok": False}):
         _code, _exc, _fetch, _ = _run_main(env={"GARMIN_IMPORT_PATH": "C:/export.zip"})
-    check("main import mode: failed days -> exit code 1", _code == 1)
+    check("main import mode: a daily-values phase that is not ok -> exit code 1", _code == 1)
 
-# -- bulk import phases (v1.7.6, 6b) -----------------------------------------------------------------
+# -- bulk import phases (v1.7.6, 6b; the json phase writes to bulk/aggregates since v1.7.6.1) ---------------
 import garmin_bulk_import as _bimp
 
 
 def _bulk(env, import_result=None, intraday_result=None, stop_event=None, spy=None):
-    """main() in import mode with both phases replaced. Returns (exit code, run_import mock, intraday mock, order, fetch mock)."""
+    """main() in import mode with both phases replaced. Returns (exit code, daily-values mock, intraday mock, order, fetch mock)."""
     order = []
 
     def _json_phase(*a, **k):
         order.append("json")
-        return import_result if import_result is not None else {"failed": 0}
+        return import_result if import_result is not None else {"ok": True}
 
     def _intraday_phase(*a, **k):
         order.append("intraday")
@@ -157,23 +161,26 @@ def _bulk(env, import_result=None, intraday_result=None, stop_event=None, spy=No
             spy()
         return intraday_result if intraday_result is not None else {"ok": True}
 
-    with patch.object(_col5, "run_import", side_effect=_json_phase) as _ri, \
+    with patch.object(_jimp, "run_aggregates_import", side_effect=_json_phase) as _ji, \
+         patch.object(_col5, "run_import") as _old, \
          patch.object(_bimp, "run_intraday_import", side_effect=_intraday_phase) as _ii:
         _code, _exc, _fetch, _ = _run_main(env={"GARMIN_IMPORT_PATH": "C:/export.zip", **env}, stop_event=stop_event)
-    return _code, _ri, _ii, order, _fetch
+    assert not _old.called, "the old run_import must not be called by a phase"
+    return _code, _ji, _ii, order, _fetch
 
 
 with _isolated_log_env("main_bulk") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
-    _c, _ri, _ii, _o, _f = _bulk({})
-    check("main bulk import: without a phase variable only the JSON phase runs, as before v1.7.6",
+    _c, _ji, _ii, _o, _f = _bulk({})
+    check("main bulk import: without a phase variable only the JSON phase runs",
           _c == 0 and _o == ["json"] and not _f.called)
-    check("main bulk import: the JSON phase gets the path and a stop event as before",
-          _ri.call_args.args == ("C:/export.zip",) and "stop_event" in _ri.call_args.kwargs)
+    check("main bulk import: the JSON phase gets the path, no dry run and the collector's stop check",
+          _ji.call_args.args == ("C:/export.zip",) and _ji.call_args.kwargs["dry_run"] is False
+          and _ji.call_args.kwargs["should_stop"] is _col5._is_stopped)
     check("main bulk import: phases 'json' = the JSON phase only", _bulk({"GARMIN_BULK_PHASES": "json"})[3] == ["json"])
     check("main bulk import: an empty phase variable counts as not set", _bulk({"GARMIN_BULK_PHASES": ""})[3] == ["json"])
-    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"})
-    check("main bulk import: both phases run, the JSON phase first (the day windows come from raw/)", _c == 0 and _o == ["json", "intraday"])
+    _c, _ji, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"})
+    check("main bulk import: both phases run, the JSON phase first (it also carries the day windows of the export)", _c == 0 and _o == ["json", "intraday"])
     check("main bulk import: the intraday phase gets the path, no dry run, and the collector's stop check",
           _ii.call_args.args == ("C:/export.zip",) and _ii.call_args.kwargs["dry_run"] is False
           and _ii.call_args.kwargs["should_stop"] is _col5._is_stopped)
@@ -181,30 +188,31 @@ with _isolated_log_env("main_bulk") as _b:
           _bulk({"GARMIN_BULK_PHASES": " Intraday , JSON "})[3] == ["json", "intraday"])
     check("main bulk import: phases 'intraday' = the intraday phase only", _bulk({"GARMIN_BULK_PHASES": "intraday"})[3] == ["intraday"])
 
-    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday", "GARMIN_BULK_DRYRUN": "1"})
-    check("main bulk import: a preview skips the JSON phase (it has none) and previews the intraday phase",
-          _c == 0 and _o == ["intraday"] and _ii.call_args.kwargs["dry_run"] is True)
-    check("main bulk import: a preview of the JSON phase alone runs nothing and ends cleanly",
+    _c, _ji, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday", "GARMIN_BULK_DRYRUN": "1"})
+    check("main bulk import: a preview previews both phases (v1.7.6.1: the daily values have one now)",
+          _c == 0 and _o == ["json", "intraday"] and _ji.call_args.kwargs["dry_run"] is True and _ii.call_args.kwargs["dry_run"] is True)
+    check("main bulk import: a preview of the JSON phase alone runs the JSON phase as a preview and ends cleanly",
           _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"})[0] == 0
-          and _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"})[3] == [])
-    check("main bulk import: a preview without a phase variable (default 'json') runs nothing",
-          _bulk({"GARMIN_BULK_DRYRUN": "1"})[3] == [])
+          and _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"})[3] == ["json"]
+          and _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"})[1].call_args.kwargs["dry_run"] is True)
+    check("main bulk import: a preview without a phase variable (default 'json') previews the JSON phase",
+          _bulk({"GARMIN_BULK_DRYRUN": "1"})[3] == ["json"])
     check("main bulk import: only the value '1' makes a preview",
-          _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "0"})[3] == ["json"]
-          and _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "true"})[3] == ["json"])
+          _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "0"})[1].call_args.kwargs["dry_run"] is False
+          and _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "true"})[1].call_args.kwargs["dry_run"] is False)
 
-    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, import_result={"failed": 2})
-    check("main bulk import: failed days in the JSON phase -> exit code 1, the intraday phase still runs",
+    _c, _ji, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, import_result={"ok": False})
+    check("main bulk import: a JSON phase that is not ok -> exit code 1, the intraday phase still runs",
           _c == 1 and _o == ["json", "intraday"])
     check("main bulk import: an intraday phase that is not ok -> exit code 1",
           _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": False})[0] == 1)
     for _bad in ("json,foo", "foo", "json;intraday", ",,"):
-        _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": _bad})
+        _c, _ji, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": _bad})
         check(f"main bulk import: the phase variable '{_bad}' is refused: nothing runs, exit code 1", _c == 1 and _o == [] and not _f.called)
 
     _ev_set = threading.Event()
     _ev_set.set()
-    _c, _ri, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, stop_event=_ev_set)
+    _c, _ji, _ii, _o, _f = _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, stop_event=_ev_set)
     check("main bulk import: stopped during the JSON phase -> the intraday phase is not started", _o == ["json"] and _c == 0)
     check("main bulk import: stopped before the intraday phase alone -> nothing is started",
           _bulk({"GARMIN_BULK_PHASES": "intraday"}, stop_event=_ev_set)[3] == [])
@@ -266,8 +274,8 @@ with _isolated_log_env("main_bulk_mark") as _b:
     _qlog("2024-03-02")
     with patch.object(quality, "record_bulk_intraday", side_effect=RuntimeError("boom")):
         _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
-    check("bulk marking: an error while marking is a warning, the import still ends with exit code 0",
-          _c == 0 and "bulk" not in _qdays()["2024-03-02"])
+    check("bulk marking: an error while marking counts as a failure of the run (exit code 1), the day stays unmarked (F-3, v1.7.6.1)",
+          _c == 1 and "bulk" not in _qdays()["2024-03-02"])
     check("bulk marking: ... and the quality lock is free after the error",
           quality.QUALITY_LOCK.acquire(blocking=False) and (quality.QUALITY_LOCK.release() or True))
 
@@ -289,6 +297,582 @@ with _isolated_log_env("main_bulk_mark") as _b:
         _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
     check("bulk marking: the quality lock is held from the load to the save", _held == [True, True])
 
+# -- bulk import: a mark that is missing is made good at the content (F-3, v1.7.6.1) ---------------------
+def _silo(*days):
+    """The bulk store holds a day file (the content does not matter: the catch-up goes by the names) for each day."""
+    cfg.BULK_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    for f in cfg.BULK_RAW_DIR.glob("*"):
+        f.unlink()
+    for d in days:
+        (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{d}.json").write_text("{}", encoding="utf-8")
+
+
+with _isolated_log_env("main_bulk_catchup") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _OK = {"ok": True}
+
+    # a run that wrote nothing still marks the days of the store that lack the mark
+    _qlog("2024-03-01", "2024-03-02", "2024-03-03")
+    _put_log({"first_day": "2024-03-01", "devices": [], "days": [
+        {"date": "2024-03-01", **_QL_BASE},
+        {"date": "2024-03-02", **_QL_BASE},
+        {"date": "2024-03-03", **_QL_BASE, "bulk": {"intraday": "2026-10-01"}, "last_checked": "2026-10-01"}]})
+    _silo("2024-03-02", "2024-03-03")
+    _sum_cu = quality._compute_checksum(quality._load_quality_log())
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result=_OK)
+    _q = _qdays()
+    check("catch-up: a day in the store without a mark is marked although the run wrote nothing, exit code 0",
+          _c == 0 and _q["2024-03-02"].get("bulk") == {"intraday": _TODAY_B} and _q["2024-03-02"]["last_checked"] == _TODAY_B)
+    check("catch-up: a day that carries the mark keeps its mark and its last_checked (the cache is not made to read it again)",
+          _q["2024-03-03"].get("bulk") == {"intraday": "2026-10-01"} and _q["2024-03-03"]["last_checked"] == "2026-10-01")
+    check("catch-up: a day that is not in the store is left alone", "bulk" not in _q["2024-03-01"] and _q["2024-03-01"]["last_checked"] == "2024-01-01")
+    check("catch-up: quality, source, recheck and the log checksum are unchanged",
+          all(_q[d]["quality"] == "high" and _q[d]["source"] == "api" and _q[d]["recheck"] is False for d in _q)
+          and quality._load_quality_log()["_checksum"] == _sum_cu)
+
+    # idempotent: a second run marks nothing and does not even write the log
+    with patch.object(quality, "_save_quality_log", wraps=quality._save_quality_log) as _sv:
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result=_OK)
+    check("catch-up: a second run has nothing to do: exit code 0, the log is not written again", _c == 0 and _sv.call_count == 0)
+
+    # the same run that wrote a day also catches up, with one save
+    _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": d, **_QL_BASE} for d in ("2024-03-01", "2024-03-02", "2024-03-03")]})
+    _silo("2024-03-01", "2024-03-02", "2024-03-03")
+    with patch.object(quality, "_save_quality_log", wraps=quality._save_quality_log) as _sv:
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-03"]})
+    check("catch-up: the days written now and the days caught up are marked with one save",
+          _c == 0 and _sv.call_count == 1 and all(_qdays()[d].get("bulk") == {"intraday": _TODAY_B} for d in ("2024-03-01", "2024-03-02", "2024-03-03")))
+
+    # also after a phase that is not ok or was stopped: the catch-up needs no export
+    for _res in ({"ok": False, "error": "export path does not exist"}, {"ok": False, "stopped": True}):
+        _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": "2024-03-02", **_QL_BASE}]})
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result=_res)
+        check(f"catch-up: also when the phase reports {sorted(_res)}: the day is marked, the exit code is 1 for the phase",
+              _c == 1 and _qdays()["2024-03-02"].get("bulk") == {"intraday": _TODAY_B})
+
+    # a day in the store without an entry in the log: not created, not a failure; marked once the entry exists
+    _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": "2024-03-01", **_QL_BASE}]})
+    _silo("2024-03-01", "2024-03-02")
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
+    check("catch-up: a day without an entry is skipped, not created, and is no failure",
+          _c == 0 and [e["date"] for e in quality._load_quality_log()["days"]] == ["2024-03-01"])
+    _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": d, **_QL_BASE, **({"bulk": {"intraday": "2026-10-01"}} if d == "2024-03-01" else {})}
+                                                                for d in ("2024-03-01", "2024-03-02")]})
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result=_OK)
+    check("catch-up: once the entry exists the next run marks the day", _c == 0 and _qdays()["2024-03-02"].get("bulk") == {"intraday": _TODAY_B})
+
+    # the log cannot be written: a failure of the run, nothing marked, and the next run makes it good
+    _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": "2024-03-02", **_QL_BASE}]})
+    _silo("2024-03-02")
+    with patch.object(quality, "_save_quality_log", return_value=False):
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
+    check("catch-up: a write error of the quality log (the save reports False, nothing is raised) is a failure of the run: exit code 1",
+          _c == 1 and "bulk" not in _qdays()["2024-03-02"])
+    check("catch-up: ... and the quality lock is free after it",
+          quality.QUALITY_LOCK.acquire(blocking=False) and (quality.QUALITY_LOCK.release() or True))
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result=_OK)
+    check("catch-up: ... the next run, with nothing written, marks the day and ends with exit code 0",
+          _c == 0 and _qdays()["2024-03-02"].get("bulk") == {"intraday": _TODAY_B})
+
+    # a real write error (the file is locked): the save reports it, the run fails
+    _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": "2024-03-02", **_QL_BASE}]})
+    with patch.object(Path, "replace", side_effect=PermissionError("locked by another process")):
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
+    check("catch-up: a quality log that is locked for writing (os-level) is a failure of the run: exit code 1, the stored log has no mark",
+          _c == 1 and "bulk" not in _qdays()["2024-03-02"])
+
+    # the store cannot be listed
+    with patch("garmin_bulk_writer.list_days", side_effect=RuntimeError("boom")):
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
+    check("catch-up: an error while looking at the store is a failure of the run: exit code 1", _c == 1)
+
+    # the log is only loaded when there is something to look at
+    _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": "2024-03-02", **_QL_BASE}]})
+    _silo()
+    with patch.object(quality, "_load_quality_log") as _ld:
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result=_OK)
+    check("catch-up: no day written and no day in the store -> the quality log is not loaded", _c == 0 and _ld.call_count == 0)
+
+    # a preview marks nothing and does not load the log, even with days in the store
+    _silo("2024-03-02")
+    with patch.object(quality, "_load_quality_log") as _ld:
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday", "GARMIN_BULK_DRYRUN": "1"}, intraday_result=_OK)
+    check("catch-up: a preview does not touch the quality log", _c == 0 and _ld.call_count == 0 and "bulk" not in _qdays()["2024-03-02"])
+
+    # the lock is held from the load to the save also on the catch-up path
+    _held = []
+    _real_load, _real_save = quality._load_quality_log, quality._save_quality_log
+    with patch.object(quality, "_load_quality_log", side_effect=lambda: (_held.append(quality.QUALITY_LOCK.locked()), _real_load())[1]), \
+         patch.object(quality, "_save_quality_log", side_effect=lambda d: (_held.append(quality.QUALITY_LOCK.locked()), _real_save(d))[1]):
+        _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result=_OK)
+    check("catch-up: the quality lock is held from the load to the save", _held == [True, True])
+
+# -- sync start: step 3f marks the days of the store that lack the mark (F-3, v1.7.6.1) ----------------
+with _isolated_log_env("main_bulk_3f") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _SYNC1 = {**_RANGE, "SYNC_TO": "2024-05-31", "MAX_DAYS_PER_SESSION": 1}      # one new day per start, enough days for every start below
+
+    def _sync_log():
+        _put_log({"first_day": "2024-04-01", "devices": [], "days": [
+            {"date": "2024-04-01", **_QL_BASE},
+            {"date": "2024-04-02", **_QL_BASE},
+            {"date": "2024-04-03", **_QL_BASE, "bulk": {"intraday": "2026-10-01"}, "last_checked": "2026-10-01"}]})
+
+    _sync_log()
+    _silo("2024-04-01", "2024-04-03")
+    with _cfg_values(**_SYNC1), patch.object(_col5.log, "info", wraps=_col5.log.info) as _inf:
+        _code, _exc, _fetch, _ = _run_main()
+    _q = _qdays()
+    check("sync start: the log says how many days were marked",
+          any("1 day(s) of the bulk store had no mark" in str(c.args[0]) for c in _inf.call_args_list))
+    check("sync start: a day of the store without a mark is marked, with last_checked, and the mark is in the stored log after the run",
+          _code is None and _exc is None and _q["2024-04-01"].get("bulk") == {"intraday": _TODAY_B} and _q["2024-04-01"]["last_checked"] == _TODAY_B)
+    check("sync start: a day with a mark keeps it and its last_checked; a day outside the store is left alone",
+          _q["2024-04-03"].get("bulk") == {"intraday": "2026-10-01"} and _q["2024-04-03"]["last_checked"] == "2026-10-01"
+          and "bulk" not in _q["2024-04-02"] and _q["2024-04-02"]["last_checked"] == "2024-01-01")
+    check("sync start: the sync itself is unaffected: the day is fetched and written as always",
+          _fetched_dates(_fetch) == ["2024-05-01"] and _q["2024-05-01"]["source"] == "api")
+    check("sync start: the log of the run is the one that is saved: marks and the new day are both in the stored log, none is overwritten",
+          "2024-05-01" in _q and _q["2024-04-01"].get("bulk") == {"intraday": _TODAY_B})
+
+    # the marks are saved at once: also when the sync ends at the login
+    _sync_log()
+    with _cfg_values(**_SYNC1):
+        _code, _exc, _fetch, _ = _run_main(login_error=_col5.api.GarminLoginError("bad password-xyz"))
+    check("sync start: the mark is saved before the login, a login error does not lose it",
+          _code == 1 and not _fetch.called and _qdays()["2024-04-01"].get("bulk") == {"intraday": _TODAY_B})
+
+    # idempotent: a second start finds nothing and writes nothing extra for it
+    _res = []
+    _real_apply = _col5._apply_bulk_marks
+    with patch.object(_col5, "_apply_bulk_marks", side_effect=lambda *a: (_res.append(_real_apply(*a)), _res[-1])[1]), _cfg_values(**_SYNC1):
+        _run_main()
+    check("sync start: a second start has nothing to catch up: looked at once, nothing marked, nothing written for it",
+          _res == [(True, 0, 0)])
+
+    # step 3f is placed after the repair step and before the login
+    _order = []
+    _sync_log()
+    with patch.object(_col5, "_run_bulk_mark_catch_up", side_effect=lambda qd: _order.append(("3f", _col5.api.login.called, qd is not None))), \
+         patch.object(_col5, "_run_backup_refresh", side_effect=lambda: _order.append(("3d",))), \
+         _cfg_values(**_SYNC1):
+        _run_main()
+    check("sync start: step 3f runs once, after the backup refresh (3d) and before the login, with the quality log of the run",
+          _order == [("3d",), ("3f", False, True)])
+
+    # nothing in the store: nothing is looked at beyond the listing
+    _sync_log()
+    _silo()
+    with patch.object(_col5, "_apply_bulk_marks") as _ab, _cfg_values(**_SYNC1):
+        _code, _exc, _fetch, _ = _run_main()
+    check("sync start: an empty store -> nothing to catch up, _apply_bulk_marks is not called", _ab.call_count == 0 and _code is None)
+
+    # failures are warnings, the sync goes on
+    _sync_log()
+    _silo("2024-04-01")
+    with patch.object(_col5, "_apply_bulk_marks", return_value=(False, 0, 1)), _cfg_values(**_SYNC1), \
+         patch.object(_col5.log, "warning", wraps=_col5.log.warning) as _wrn:
+        _code, _exc, _fetch, _ = _run_main()
+    check("sync start: ... the warning says the log could not be written and that the next start tries again",
+          any("could not be written" in str(c.args[0]) and "next start" in str(c.args[0]) for c in _wrn.call_args_list))
+    check("sync start: a quality log that could not be written is a warning, the sync goes on and ends cleanly",
+          _code is None and _exc is None and _fetch.called)
+    with patch.object(_col5, "_apply_bulk_marks", side_effect=RuntimeError("boom")), _cfg_values(**_SYNC1):
+        _code, _exc, _fetch, _ = _run_main()
+    check("sync start: an error in the catch-up is a warning, the sync goes on and ends cleanly",
+          _code is None and _exc is None and _fetch.called)
+    check("sync start: ... and the quality lock is free after it",
+          quality.QUALITY_LOCK.acquire(blocking=False) and (quality.QUALITY_LOCK.release() or True))
+    with patch("garmin_bulk_writer.list_days", side_effect=RuntimeError("boom")), _cfg_values(**_SYNC1):
+        _code, _exc, _fetch, _ = _run_main()
+    check("sync start: a store that cannot be listed is a warning too", _code is None and _exc is None)
+
+    # a save error on disk: nothing is lost for the next start
+    _sync_log()
+    _silo("2024-04-01")
+    with patch.object(quality, "_save_quality_log", return_value=False), _cfg_values(**_SYNC1):
+        _code, _exc, _fetch, _ = _run_main()
+    check("sync start: a log that cannot be saved is a warning for the sync (no exit code 1)", _code is None and _exc is None)
+    with _cfg_values(**_SYNC1):
+        _run_main()
+    check("sync start: ... and the next start marks the day", _qdays()["2024-04-01"].get("bulk") == {"intraday": _TODAY_B})
+
+    # the lock is held from the marking to the save, on the log of the run
+    _sync_log()
+    _held = []
+    _real_save = quality._save_quality_log
+    with patch.object(quality, "_save_quality_log", side_effect=lambda d, **k: (_held.append(("3f" if d["days"][0].get("bulk") else "other", quality.QUALITY_LOCK.locked())), _real_save(d, **k))[1]), \
+         _cfg_values(**_SYNC1):
+        _run_main(login=None)
+    check("sync start: the save of the catch-up happens under QUALITY_LOCK", ("3f", True) in _held)
+
+# -- bulk import, daily values end to end (v1.7.6.1): the real phase, the real finish, a real quality log -------------
+import zipfile as _zip_agg
+import garmin_backup as _gbk_agg
+import garmin_bulk_writer as _bw_agg
+import garmin_silo_check as _sc_agg
+
+_UDS_N = "DI_CONNECT/DI-Connect-Aggregator/UDSFile_2024-05-01_2024-05-31.json"
+_RDY_N = "DI_CONNECT/DI-Connect-Metrics/TrainingReadinessDTO_20240501_20240531_1.json"
+
+
+def _win_agg(day, nxt):
+    return {"wellnessStartTimeGmt": f"{day}T00:00:00.0", "wellnessStartTimeLocal": f"{day}T02:00:00.0",
+            "wellnessEndTimeGmt": f"{nxt}T00:00:00.0", "wellnessEndTimeLocal": f"{nxt}T02:00:00.0"}
+
+
+def _export_agg(path):
+    uds = [{"calendarDate": "2024-05-01", "totalSteps": 8000, "restingHeartRate": 52, "currentDayRestingHeartRate": 54,
+            "allDayStress": {"aggregatorList": [{"averageStressLevel": 30, "maxStressLevel": 90}]}, **_win_agg("2024-05-01", "2024-05-02")},
+           {"calendarDate": "2024-05-02", "totalSteps": 100, "currentDayRestingHeartRate": 50, **_win_agg("2024-05-02", "2024-05-03")}]
+    rdy = [{"calendarDate": "2024-05-04", "level": "LOW"}]                       # readiness only: too little data
+    with _zip_agg.ZipFile(path, "w") as z:
+        z.writestr(_UDS_N, json.dumps(uds))
+        z.writestr(_RDY_N, json.dumps(rdy))
+    return str(path)
+
+
+with _isolated_log_env("main_bulk_agg") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _exp = _export_agg(_b / "export.zip")
+    # 2024-05-02 is an API day that exists already: raw, summary and a log entry with write=True
+    _api_raw = {"date": "2024-05-02", "user_summary": {"totalSteps": 999}}
+    writer.write_day(_api_raw, normalizer.summarize(_api_raw), "2024-05-02")
+    _put_log({"first_day": "2024-05-02", "devices": [], "days": [
+        {"date": "2024-05-02", **_QL_BASE, "write": True, "quality": "standard"}]})
+    _env_agg = {"GARMIN_IMPORT_PATH": _exp, "GARMIN_BULK_PHASES": "json"}
+
+    # preview first: nothing may change
+    _bulk_before = sorted(str(f.relative_to(_b)) for f in _b.rglob("*") if f.is_file())
+    _log_bytes = cfg.QUALITY_LOG_FILE.read_bytes()
+    _code, _exc, _fetch, _ = _run_main(env={**_env_agg, "GARMIN_BULK_DRYRUN": "1"})
+    check("daily values, preview: exit code 0, nothing is created or changed, the quality log is as it was",
+          _code == 0 and cfg.QUALITY_LOG_FILE.read_bytes() == _log_bytes
+          and not cfg.BULK_DIR.exists()
+          and [n for n in sorted(str(f.relative_to(_b)) for f in _b.rglob("*") if f.is_file()) if not n.startswith("recent")]
+          == [n for n in _bulk_before if not n.startswith("recent")])
+
+    # the real run
+    _code, _exc, _fetch, _ = _run_main(env=_env_agg)
+    _q = _qdays()
+    check("daily values: exit code 0, no regular sync", _code == 0 and not _fetch.called)
+    check("daily values: the aggregates files are there for the two days with enough data, none for the day with too little",
+          _bw_agg.list_aggregate_days() == ["2024-05-01", "2024-05-02"])
+    _s1 = json.loads((cfg.SUMMARY_DIR / "garmin_2024-05-01.json").read_text(encoding="utf-8"))
+    _s2 = json.loads((cfg.SUMMARY_DIR / "garmin_2024-05-02.json").read_text(encoding="utf-8"))
+    check("daily values: a day without a raw file gets its summary from the export, and no raw file appears",
+          _s1["day"]["steps"] == 8000 and _s1["heartrate"]["resting_bpm"] == 54 and _s1["stress"]["stress_avg"] == 30
+          and not (cfg.RAW_DIR / "garmin_raw_2024-05-01.json").exists())
+    check("daily values: a day that has API data keeps them in the summary (999 steps win), the export only fills what is missing",
+          _s2["day"]["steps"] == 999 and _s2["heartrate"]["resting_bpm"] == 50)
+    check("daily values: a new entry for the day without raw: source bulk, write False, label from its values, marked today",
+          _q["2024-05-01"]["source"] == "bulk" and _q["2024-05-01"]["write"] is False and _q["2024-05-01"]["quality"] == "standard"
+          and _q["2024-05-01"]["bulk"] == {"aggregates": _TODAY_B} and _q["2024-05-01"]["last_checked"] == _TODAY_B
+          and _q["2024-05-01"].get("validator_result") == "ok")
+    check("daily values: the entry of the API day is not relabelled: quality, source, write stay; it gets the mark and last_checked",
+          (_q["2024-05-02"]["quality"], _q["2024-05-02"]["source"], _q["2024-05-02"]["write"]) == ("standard", "api", True)
+          and _q["2024-05-02"]["bulk"] == {"aggregates": _TODAY_B} and _q["2024-05-02"]["last_checked"] == _TODAY_B)
+    check("daily values: a day with too little data gets a 'failed' entry (write False, source bulk, to be tried again), no summary, no aggregates file",
+          _q["2024-05-04"]["quality"] == "failed" and _q["2024-05-04"]["write"] is False and _q["2024-05-04"]["source"] == "bulk"
+          and _q["2024-05-04"]["recheck"] is True and not (cfg.SUMMARY_DIR / "garmin_2024-05-04.json").exists()
+          and "2024-05-04" not in _bw_agg.list_aggregate_days())
+    check("daily values: the quality log is valid (checksum, no integrity warning)",
+          quality._load_quality_log()["integrity_warnings"] == [])
+    _integ = _gbk_agg.check_raw_integrity()
+    check("daily values: the start-up integrity check does not call the day without a raw file missing (write False)",
+          _integ["missing_days"] == [] and _integ["error"] is None)
+    _sc = _sc_agg.check_silos()
+    check("daily values: the silo check finds nothing: the summary of the day without raw is no orphan",
+          all(v == 0 for v in _sc["counts"].values()) and _sc["totals"]["aggregates"] == 2)
+
+    # again: nothing to do, nothing written
+    _store_tree = {str(f): (f.stat().st_mtime_ns, f.read_bytes()) for f in (cfg.BULK_DIR.rglob("*")) if f.is_file()}
+    with patch.object(quality, "_save_quality_log", wraps=quality._save_quality_log) as _sv, \
+         patch.object(writer, "rebuild_summary", wraps=writer.rebuild_summary) as _rb:
+        _code, *_ = _run_main(env=_env_agg)
+    check("daily values, rerun: exit code 0, no file of the store is touched, the log is not written, no summary is made again",
+          _code == 0 and _sv.call_count == 0 and _rb.call_count == 0
+          and {str(f): (f.stat().st_mtime_ns, f.read_bytes()) for f in (cfg.BULK_DIR.rglob("*")) if f.is_file()} == _store_tree)
+
+    # an interrupted run: the entry and the summary of a stored day are gone, the next run makes them good
+    (cfg.SUMMARY_DIR / "garmin_2024-05-01.json").unlink()
+    _log = quality._load_quality_log()
+    _log["days"] = [e for e in _log["days"] if e["date"] != "2024-05-01"]
+    quality._save_quality_log(_log, skip_backup=True)
+    _code, *_ = _run_main(env=_env_agg)
+    _q = _qdays()
+    check("daily values, after an interrupted run: although the export is unchanged, the missing entry and the missing summary are made good (by content)",
+          _code == 0 and "2024-05-01" in _q and _q["2024-05-01"]["bulk"] == {"aggregates": _TODAY_B}
+          and (cfg.SUMMARY_DIR / "garmin_2024-05-01.json").exists())
+
+    # a quality log that cannot be written: the run fails, and the next run makes it good
+    _log = quality._load_quality_log()
+    for _e in _log["days"]:
+        _e.pop("bulk", None)
+    quality._save_quality_log(_log, skip_backup=True)
+    with patch.object(quality, "_save_quality_log", return_value=False):
+        _code, *_ = _run_main(env=_env_agg)
+    check("daily values, quality log not writable: exit code 1, no mark is stored", _code == 1 and all("bulk" not in e for e in _qdays().values()))
+    _code, *_ = _run_main(env=_env_agg)
+    check("daily values, next run: exit code 0 and the marks are there (the catch-up looks at the content, the export is unchanged)",
+          _code == 0 and all(_qdays()[d]["bulk"] == {"aggregates": _TODAY_B} for d in ("2024-05-01", "2024-05-02")))
+
+    # a stored day whose summary cannot be made (the raw file is unreadable): exit code 1, the other day is complete
+    (cfg.RAW_DIR / "garmin_raw_2024-05-02.json").write_text("{ not json", encoding="utf-8")
+    (cfg.SUMMARY_DIR / "garmin_2024-05-02.json").unlink()
+    _code, *_ = _run_main(env=_env_agg)
+    check("daily values, a summary that cannot be made (unreadable raw file): exit code 1 and the day is not left looking complete",
+          _code == 1 and not (cfg.SUMMARY_DIR / "garmin_2024-05-02.json").exists())
+
+# -- rejected days are no failure of the run (v1.7.6.1): too little data and invalid, end to end ------------------------
+with _isolated_log_env("main_bulk_agg_rejected") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _exp = _export_agg(_b / "export.zip")
+    _put_log({"first_day": "2024-05-01", "devices": [], "days": []})
+    _env_rej = {"GARMIN_IMPORT_PATH": _exp, "GARMIN_BULK_PHASES": "json"}
+    _real_validate = _jimp.validator.validate
+    with patch.object(_jimp.validator, "validate",
+                      side_effect=lambda day: {"status": "critical", "issues": []} if day.get("date") == "2024-05-02" else _real_validate(day)):
+        _code, _exc, _fetch, _ = _run_main(env=_env_rej)
+    _q = _qdays()
+    check("daily values, one invalid day and one with too little data: exit code 0 (rejected days are reported, not a failure)",
+          _code == 0 and _exc is None and not _fetch.called)
+    check("daily values, rejected days: the good day is stored and complete, the invalid day leaves nothing, the day with too little data a 'failed' entry",
+          _bw_agg.list_aggregate_days() == ["2024-05-01"] and "2024-05-02" not in _q
+          and not (cfg.SUMMARY_DIR / "garmin_2024-05-02.json").exists()
+          and _q["2024-05-04"]["quality"] == "failed" and _q["2024-05-01"]["bulk"] == {"aggregates": _TODAY_B})
+
+# -- the ways to summary/ with export data (v1.7.6.1, Baustein 6b-1): sync fetch, steps backfill, bulk field backfill -------
+# The resolution sits in garmin_writer (write_day), so every way that writes a day must give the export's values to a
+# day that has an aggregates file: the API data win per top-level key, the export fills the rest, raw/ keeps only API data.
+_AGG_W = {"user_summary": {"totalSteps": 7000}, "stress": {"averageStressLevel": 25, "maxStressLevel": 70}}
+_HW = "ef" * 32
+
+
+def _put_agg_w(day, agg=None):
+    assert _bw_agg.write_aggregates(day, {"date": day, **(agg or _AGG_W)}, [_HW]) == _bw_agg.WRITTEN
+
+
+def _sum_w(day):
+    return json.loads((cfg.SUMMARY_DIR / f"garmin_{day}.json").read_text(encoding="utf-8"))
+
+
+def _raw_w(day):
+    return json.loads((cfg.RAW_DIR / f"garmin_raw_{day}.json").read_text(encoding="utf-8"))
+
+
+_UNREADABLE_W = ("unreadable", None)
+
+# 1. the regular sync: a day that only the export has is fetched from the API
+with _isolated_log_env("ways_fetch") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w1, _w2 = ((date.today() - timedelta(days=n)).isoformat() for n in (10, 9))        # inside the 180 days the API is asked for
+    for _d in (_w1, _w2):
+        _put_agg_w(_d)
+        assert writer.rebuild_summary(_d)                                              # the import made the summary
+    _put_log({"first_day": (date.today() - timedelta(days=30)).isoformat(), "devices": [], "days": [
+        {"date": _d, **_QL_BASE, "source": "bulk", "write": False, "quality": "standard", "bulk": {"aggregates": _TODAY_B}}
+        for _d in (_w1, _w2)]})
+
+    def _fetch_w(client, date_str, extra_endpoints=None):
+        raw = _day_raw(date_str, "high")
+        if date_str == _w2:
+            raw["user_summary"] = {"totalSteps": 999}
+        return raw, []
+
+    with _cfg_values(**{**_RANGE, "SYNC_FROM": _w1, "SYNC_TO": _w2}):
+        _code, _exc, _fetch, _ = _run_main(fetch=_fetch_w)
+    _q = _qdays()
+    check("ways, sync fetch: the two export days (they have a summary, no raw file) are fetched from the API and the run ends cleanly",
+          _fetched_dates(_fetch) == [_w1, _w2] and _code is None and _exc is None)
+    check("ways, sync fetch: raw/ holds only the API data (heart rate), none of the export's sections",
+          "heart_rates" in _raw_w(_w1) and "user_summary" not in _raw_w(_w1) and "stress" not in _raw_w(_w1)
+          and _raw_w(_w2)["user_summary"] == {"totalSteps": 999} and "stress" not in _raw_w(_w2))
+    check("ways, sync fetch: the summary of a day the API has no steps for gets the export's steps and stress, the API's resting heart rate",
+          _sum_w(_w1)["day"]["steps"] == 7000 and _sum_w(_w1)["stress"]["stress_avg"] == 25 and _sum_w(_w1)["heartrate"]["resting_bpm"] == 55)
+    check("ways, sync fetch: where the API has steps the API wins (999), the export still fills the stress (25)",
+          _sum_w(_w2)["day"]["steps"] == 999 and _sum_w(_w2)["stress"]["stress_avg"] == 25)
+    check("ways, sync fetch: the entries now say api, written, high; the day is no longer a bulk day",
+          all((_q[d]["source"], _q[d]["write"], _q[d]["quality"]) == ("api", True, "high") for d in (_w1, _w2)))
+
+# 1b. the downgrade protection keeps an export day that is better than the API's answer
+with _isolated_log_env("ways_downgrade") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w3 = (date.today() - timedelta(days=7)).isoformat()
+    _put_agg_w(_w3)
+    assert writer.rebuild_summary(_w3)
+    _sum_before = (cfg.SUMMARY_DIR / f"garmin_{_w3}.json").read_bytes()
+    _put_log({"first_day": (date.today() - timedelta(days=30)).isoformat(), "devices": [], "days": [
+        {"date": _w3, **_QL_BASE, "source": "bulk", "write": False, "quality": "high", "bulk": {"aggregates": _TODAY_B}}]})
+    with _cfg_values(**{**_RANGE, "SYNC_FROM": _w3, "SYNC_TO": _w3}):
+        _code, _exc, _fetch, _ = _run_main(fetch=lambda client, date_str, extra_endpoints=None: (_day_raw(date_str, "standard"), []))
+    _e = _qdays()[_w3]
+    check("ways, downgrade guard: an API answer that is worse than the export day is rejected: no raw file, the summary from the export is untouched",
+          _fetched_dates(_fetch) == [_w3] and not (cfg.RAW_DIR / f"garmin_raw_{_w3}.json").exists()
+          and (cfg.SUMMARY_DIR / f"garmin_{_w3}.json").read_bytes() == _sum_before)
+    check("ways, downgrade guard: the entry stays an export day (high, bulk, not written) and counts the attempt",
+          (_e["quality"], _e["source"], _e["write"], _e["attempts"]) == ("high", "bulk", False, 1)
+          and "downgrade rejected" in _e["reason"])
+
+# 1c. an aggregates file of the day that cannot be read: write_day refuses, the sync does not pretend the day was written
+with _isolated_log_env("ways_fetch_unreadable") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w4 = (date.today() - timedelta(days=8)).isoformat()
+    _put_agg_w(_w4)
+    assert writer.rebuild_summary(_w4)
+    _sum4_before = (cfg.SUMMARY_DIR / f"garmin_{_w4}.json").read_bytes()
+    _put_log({"first_day": (date.today() - timedelta(days=30)).isoformat(), "devices": [], "days": [
+        {"date": _w4, **_QL_BASE, "source": "bulk", "write": False, "quality": "standard", "recheck": True,
+         "bulk": {"aggregates": _TODAY_B}}]})
+    with _cfg_values(**{**_RANGE, "SYNC_FROM": _w4, "SYNC_TO": _w4}), \
+         patch("garmin_bulk_writer.load_aggregates", return_value=_UNREADABLE_W):
+        _code, _exc, _fetch, _ = _run_main(fetch=lambda client, date_str, extra_endpoints=None: (_day_raw(date_str, "high"), []))
+    _e = _qdays()[_w4]
+    check("ways, sync fetch, aggregates file not readable: write_day refuses, no raw file is written and the summary from the export stays as it was",
+          _fetched_dates(_fetch) == [_w4] and not (cfg.RAW_DIR / f"garmin_raw_{_w4}.json").exists()
+          and (cfg.SUMMARY_DIR / f"garmin_{_w4}.json").read_bytes() == _sum4_before)
+    # F-5 (fixed in v1.7.6.1): a day that write_day did not write is an error of the run, the entry of the export day stays as it was
+    check("ways, sync fetch, aggregates file not readable: the entry stays an export day (bulk, standard, not written) and is still due for a recheck",
+          (_e["source"], _e["quality"], _e["write"], _e["recheck"]) == ("bulk", "standard", False, True))
+    check("ways, sync fetch, aggregates file not readable: the run logs the error for the day and its session log is kept as a failed run",
+          len(_fail_logs_with(f"Error on {_w4}: raw/ and summary/ could not be written")) == 1)
+
+# 1c-2. a disk error on a day without an entry: the day is marked failed and is tried again, not recorded as a high-quality API day
+with _isolated_log_env("ways_fetch_diskerr") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w6 = (date.today() - timedelta(days=11)).isoformat()
+    _put_log({"first_day": (date.today() - timedelta(days=30)).isoformat(), "devices": [], "days": []})
+    with _cfg_values(**{**_RANGE, "SYNC_FROM": _w6, "SYNC_TO": _w6}), patch.object(writer, "write_day", return_value=False):
+        _code, _exc, _fetch, _ = _run_main(fetch=lambda client, date_str, extra_endpoints=None: (_day_raw(date_str, "high"), []))
+    _e = _qdays()[_w6]
+    check("ways, sync fetch, write_day fails for a day without an entry: the entry is failed, not written, due for a recheck, one attempt",
+          (_e["quality"], _e["write"], _e["recheck"], _e["attempts"]) == ("failed", False, True, 1)
+          and "could not be written" in _e["reason"])
+
+# 1c-3. a label that is not written on purpose (failed) is not an error of this kind: the entry says "Quality: failed"
+with _isolated_log_env("ways_fetch_failedlabel") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w7 = (date.today() - timedelta(days=12)).isoformat()
+    _put_log({"first_day": (date.today() - timedelta(days=30)).isoformat(), "devices": [], "days": []})
+    with _cfg_values(**{**_RANGE, "SYNC_FROM": _w7, "SYNC_TO": _w7}):
+        _code, _exc, _fetch, _ = _run_main(fetch=lambda client, date_str, extra_endpoints=None: ({"date": date_str}, []))
+    _e = _qdays()[_w7]
+    check("ways, sync fetch, an answer that assesses as failed: nothing is written on purpose and the entry keeps its own reason (no write error)",
+          _e["quality"] == "failed" and _e["write"] is False and "could not be written" not in _e["reason"]
+          and not (cfg.RAW_DIR / f"garmin_raw_{_w7}.json").exists())
+
+# 1d. an export day older than the 180 days of the API's retry window has a summary and counts as present: it is not fetched
+with _isolated_log_env("ways_old") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w0 = "2024-05-11"
+    _put_agg_w(_w0)
+    assert writer.rebuild_summary(_w0)
+    _put_log({"first_day": "2024-05-01", "devices": [], "days": [
+        {"date": _w0, **_QL_BASE, "source": "bulk", "write": False, "quality": "standard", "bulk": {"aggregates": _TODAY_B}}]})
+    with _cfg_values(**{**_RANGE, "SYNC_FROM": _w0, "SYNC_TO": _w0}):
+        _code, _exc, _fetch, _ = _run_main()
+    check("ways, sync fetch: an export day older than the retry window has a summary and counts as present, the API is not asked (it stays an export day)",
+          _fetched_dates(_fetch) == [] and not (cfg.RAW_DIR / f"garmin_raw_{_w0}.json").exists()
+          and (_qdays()[_w0]["source"], _qdays()[_w0]["write"]) == ("bulk", False))
+
+# 2. the steps backfill: an API day with raw/ that also has export data
+with _isolated_log_env("ways_steps") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w5 = "2024-05-06"
+    _r5 = _day_raw(_w5, "high")
+    assert writer.write_day(_r5, normalizer.summarize(_r5), _w5)                      # an API day, before the export is imported
+    check("ways, steps backfill: (setup) the day starts without the export's steps", _sum_w(_w5)["day"]["steps"] != 7000)
+    _put_agg_w(_w5)
+    _qd5 = {"first_day": "2024-05-01", "devices": [], "days": [{"date": _w5, **_QL_BASE}]}
+    with _cfg_values(SYNC_DATES=[date.fromisoformat(_w5)]), \
+         patch("garmin_collector.api.api_call", return_value=([{"startGMT": "2024-05-06T08:00:00", "steps": 42}], True)):
+        _col5._run_steps_backfill(MagicMock(), _qd5)
+    check("ways, steps backfill: the steps of the API are in raw/, none of the export's sections are",
+          _raw_w(_w5).get("steps") == [{"startGMT": "2024-05-06T08:00:00", "steps": 42}]
+          and "user_summary" not in _raw_w(_w5) and "stress" not in _raw_w(_w5))
+    check("ways, steps backfill: the rewritten summary has the export's steps and stress and keeps the API's resting heart rate",
+          _sum_w(_w5)["day"]["steps"] == 7000 and _sum_w(_w5)["stress"]["stress_avg"] == 25 and _sum_w(_w5)["heartrate"]["resting_bpm"] == 55)
+    check("ways, steps backfill: the field is recorded as backfilled", "steps" in (_qd5["days"][0].get("backfilled_fields") or {}))
+
+with _isolated_log_env("ways_steps_unreadable") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w6 = "2024-05-07"
+    _r6 = _day_raw(_w6, "high")
+    assert writer.write_day(_r6, normalizer.summarize(_r6), _w6)
+    _put_agg_w(_w6)
+    _raw6_bytes, _sum6_bytes = (cfg.RAW_DIR / f"garmin_raw_{_w6}.json").read_bytes(), (cfg.SUMMARY_DIR / f"garmin_{_w6}.json").read_bytes()
+    _qd6 = {"first_day": "2024-05-01", "devices": [], "days": [{"date": _w6, **_QL_BASE}]}
+    with _cfg_values(SYNC_DATES=[date.fromisoformat(_w6)]), \
+         patch("garmin_collector.api.api_call", return_value=([{"steps": 42}], True)), \
+         patch("garmin_bulk_writer.load_aggregates", return_value=_UNREADABLE_W):
+        _col5._run_steps_backfill(MagicMock(), _qd6)
+    check("ways, steps backfill: an aggregates file that cannot be read: raw/ and summary/ stay as they were, the attempt is counted",
+          (cfg.RAW_DIR / f"garmin_raw_{_w6}.json").read_bytes() == _raw6_bytes
+          and (cfg.SUMMARY_DIR / f"garmin_{_w6}.json").read_bytes() == _sum6_bytes
+          and _qd6["days"][0].get("field_backfill_attempts") == {"steps": 1})
+
+# 3. the bulk field backfill: an export day without raw/ and an API day with raw/
+with _isolated_log_env("ways_field") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w7, _w8 = "2024-05-08", "2024-05-09"
+    for _d in (_w7, _w8):
+        _put_agg_w(_d)
+    _r8 = {**_day_raw(_w8, "standard"), "user_summary": {"totalSteps": 999}}
+    assert writer.write_day(_r8, normalizer.summarize(_r8), _w8)
+    _qd7 = {"first_day": "2024-05-01", "devices": [], "days": [
+        {"date": d, **_QL_BASE, "source": "bulk", "write": (d == _w8), "quality": "standard", "fields": {}} for d in (_w7, _w8)]}
+    with _cfg_values(SYNC_DATES=[date.fromisoformat(_w7), date.fromisoformat(_w8)]), \
+         patch("garmin_collector.api.fetch_raw", side_effect=lambda client, d, extra_endpoints=None: (_day_raw(d, "high"), [])):
+        _col5._run_bulk_field_backfill(MagicMock(), _qd7)
+    check("ways, field backfill: a day without a raw file gets the API's fields in raw/ only, and the export's values in the summary",
+          "heart_rates" in _raw_w(_w7) and "user_summary" not in _raw_w(_w7) and "stress" not in _raw_w(_w7)
+          and _sum_w(_w7)["day"]["steps"] == 7000 and _sum_w(_w7)["stress"]["stress_avg"] == 25 and _sum_w(_w7)["heartrate"]["resting_bpm"] == 55)
+    check("ways, field backfill: a day with raw/ is merged additively (steps 999 stay, heart rate added), the API wins the steps, the export fills the stress",
+          _raw_w(_w8)["user_summary"] == {"totalSteps": 999} and "heart_rates" in _raw_w(_w8) and "stress" not in _raw_w(_w8)
+          and _sum_w(_w8)["day"]["steps"] == 999 and _sum_w(_w8)["stress"]["stress_avg"] == 25)
+    check("ways, field backfill: both entries are API days now (written)", all((e["source"], e["write"]) == ("api", True) for e in _qd7["days"]))
+
+with _isolated_log_env("ways_field_unreadable") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _w9 = "2024-05-10"
+    _put_agg_w(_w9)
+    _qd9 = {"first_day": "2024-05-01", "devices": [], "days": [
+        {"date": _w9, **_QL_BASE, "source": "bulk", "write": False, "quality": "standard", "fields": {}}]}
+    with _cfg_values(SYNC_DATES=[date.fromisoformat(_w9)]), \
+         patch("garmin_collector.api.fetch_raw", return_value=(_day_raw(_w9, "high"), [])), \
+         patch("garmin_bulk_writer.load_aggregates", return_value=_UNREADABLE_W):
+        _col5._run_bulk_field_backfill(MagicMock(), _qd9)
+    check("ways, field backfill: an aggregates file that cannot be read: nothing is written (no raw, no summary), the attempts are counted",
+          not (cfg.RAW_DIR / f"garmin_raw_{_w9}.json").exists() and not (cfg.SUMMARY_DIR / f"garmin_{_w9}.json").exists()
+          and bool(_qd9["days"][0].get("field_backfill_attempts")))
+
+# -- _finish_aggregates itself (v1.7.6.1): when the log is loaded, the lock, unusable days -------------------------------
+with _isolated_log_env("main_bulk_agg2") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put_log({"first_day": "2024-05-01", "devices": [], "days": []})
+    with patch.object(quality, "_load_quality_log") as _ld:
+        _r0 = _col5._finish_aggregates({})
+        _r1 = _col5._finish_aggregates({"written_days": [], "insufficient_days": []})
+    check("_finish_aggregates: nothing written, nothing rejected and nothing in the store -> True, the quality log is not even loaded",
+          _r0 is True and _r1 is True and _ld.call_count == 0)
+
+    for _d in ("2024-05-01", "2024-05-02", "2024-05-03"):
+        assert _bw_agg.write_aggregates(_d, {"date": _d, "user_summary": {"totalSteps": 10}}, ["ab" * 32]) == _bw_agg.WRITTEN
+    (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}2024-05-02.json").write_text("{ not json", encoding="utf-8")     # unusable
+    _held = []
+    _real_load, _real_save = quality._load_quality_log, quality._save_quality_log
+    with patch.object(quality, "_load_quality_log", side_effect=lambda: (_held.append(quality.QUALITY_LOCK.locked()), _real_load())[1]), \
+         patch.object(quality, "_save_quality_log", side_effect=lambda d, **k: (_held.append(quality.QUALITY_LOCK.locked()), _real_save(d, **k))[1]):
+        _ok = _col5._finish_aggregates({"written_days": ["2024-05-01"], "insufficient_days": []})
+    check("_finish_aggregates: the quality lock is held from the load to the save",
+          _held == [True, True])
+    check("_finish_aggregates: a stored day that cannot be used is a failure (False) and is skipped, the other days are completed",
+          _ok is False and (cfg.SUMMARY_DIR / "garmin_2024-05-01.json").exists() and (cfg.SUMMARY_DIR / "garmin_2024-05-03.json").exists()
+          and not (cfg.SUMMARY_DIR / "garmin_2024-05-02.json").exists())
+    _q2 = _qdays()
+    check("_finish_aggregates: the completed days have their entry and mark, the unusable one none",
+          set(_q2) == {"2024-05-01", "2024-05-03"} and all(_q2[d]["bulk"] == {"aggregates": _TODAY_B} for d in _q2))
+
 # -- bulk import: the run leaves a session log (v1.7.6) --------------------------------------------
 with _isolated_log_env("main_bulk_sesslog") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
@@ -301,12 +885,12 @@ with _isolated_log_env("main_bulk_sesslog") as _b:
             _phase_log.info("LINE-FROM-JSON-PHASE")
             if json_exc is not None:
                 raise json_exc
-            return json_result if json_result is not None else {"failed": 0}
+            return json_result if json_result is not None else {"ok": True}
 
         def _intra(*a, **k):
             _phase_log.info("LINE-FROM-INTRADAY-PHASE")
             return intraday_result if intraday_result is not None else {"ok": True}
-        return patch.object(_col5, "run_import", side_effect=_json), patch.object(_bimp, "run_intraday_import", side_effect=_intra)
+        return patch.object(_jimp, "run_aggregates_import", side_effect=_json), patch.object(_bimp, "run_intraday_import", side_effect=_intra)
 
     def _import_run(env, keep_old=False, **phase_kw):
         """main() in import mode. Returns (exit code, exception, the session log files created, text of the first one, what the close function saw).
@@ -347,7 +931,7 @@ with _isolated_log_env("main_bulk_sesslog") as _b:
         _code, _exc, _new, _text, _ = _import_run({"GARMIN_BULK_PHASES": "intraday", "GARMIN_BULK_DRYRUN": "1"})
         check("bulk session log: a preview is logged too", _code == 0 and len(_new) == 1 and "LINE-FROM-INTRADAY-PHASE" in _text)
 
-        _code, _exc, _new, _text, _seen_f = _import_run({"GARMIN_BULK_PHASES": "json"}, json_result={"failed": 2})
+        _code, _exc, _new, _text, _seen_f = _import_run({"GARMIN_BULK_PHASES": "json"}, json_result={"ok": False})
         check("bulk session log: failed days -> exit code 1, the log is copied to log/fail",
               _code == 1 and _seen_f["args"][1] is True and any(p.name == _new[0].name for p in _fail.glob("*.log")))
         _code, _exc, _new, _text, _ = _import_run({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": False})
@@ -2752,6 +3336,21 @@ with _isolated_log_env("mig12") as _b:
     check("4r schema migration: the final line counts exactly 3 rewritten and 2 skipped/failed",
           "  Schema migration complete: 3 rewritten, 2 skipped/failed." in _rec.msgs("info"))
 
+    # F-4 (v1.7.6.1): write_summary_only returns False when nothing was written — an error, not "ok"
+    _F4 = ["2024-09-01", "2024-09-02"]
+    for _d in _F4:
+        (cfg.SUMMARY_DIR / f"garmin_{_d}.json").write_text(json.dumps({"date": _d, "schema_version": _cur - 1}), encoding="utf-8")
+        (cfg.RAW_DIR / f"garmin_raw_{_d}.json").write_text(json.dumps(_day_raw(_d, "high")), encoding="utf-8")
+    _rec = _Rec11()
+    with patch.object(_writer5, "write_summary_only",
+                      side_effect=lambda s, d: False if d == _F4[0] else _real_wso(s, d)), patch.object(_col5, "log", _rec):
+        _col5._run_schema_migration({"days": [{"date": d} for d in _F4]})
+    check("4r schema migration (F-4): a write that returns False is logged as an error and counted as failed, the next day is still done",
+          f"  [1/2] {_F4[0]} — error: summary could not be written (see the log)" in _rec.msgs("error")
+          and f"  [2/2] {_F4[1]} — ok" in _rec.msgs("info")
+          and "  Schema migration complete: 1 rewritten, 1 skipped/failed." in _rec.msgs("info")
+          and json.loads((cfg.SUMMARY_DIR / f"garmin_{_F4[0]}.json").read_text(encoding="utf-8"))["schema_version"] == _cur - 1)
+
     # a summary without schema_version counts as version 0
     (cfg.SUMMARY_DIR / f"garmin_{_MD[7]}.json").write_text(json.dumps({"date": _MD[7]}), encoding="utf-8")
     (cfg.RAW_DIR / f"garmin_raw_{_MD[7]}.json").write_text(json.dumps(_day_raw(_MD[7], "high")), encoding="utf-8")
@@ -2765,6 +3364,45 @@ with _isolated_log_env("mig12") as _b:
               f"{'rewritten' if _expect else 'up to date'})",
               (_wso2.called and not _rec.msgs("warning")) is _expect
               and ("  Schema migration: all summaries up to date — nothing to do." in _rec.msgs("info")) is (not _expect))
+
+# -- _run_schema_migration with export data (v1.7.6.1) ------------------------------------------------------------------
+import garmin_bulk_writer as _bw12
+_AD = [f"2024-10-{n:02d}" for n in range(1, 7)]
+_HX = "ef" * 32
+with _isolated_log_env("mig12_agg") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    cfg.RAW_DIR.mkdir(parents=True)
+    cfg.SUMMARY_DIR.mkdir(parents=True)
+    _cur = _normalizer5.CURRENT_SCHEMA_VERSION
+    _aggs = lambda d: {"date": d, "user_summary": {"totalSteps": 8000, "restingHeartRate": 53}, "stress": {"averageStressLevel": 28}}   # noqa: E731
+    for _d in _AD[:5]:
+        (cfg.SUMMARY_DIR / f"garmin_{_d}.json").write_text(json.dumps({"date": _d, "schema_version": _cur - 1}), encoding="utf-8")
+    for _d in (_AD[0], _AD[1], _AD[4]):                       # export data: _AD[0] no raw, _AD[1] raw, _AD[4] no raw (damaged below)
+        assert _bw12.write_aggregates(_d, _aggs(_d), [_HX]) == _bw12.WRITTEN
+    (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{_AD[4]}.json").write_text("{ not json", encoding="utf-8")
+    (cfg.RAW_DIR / f"garmin_raw_{_AD[1]}.json").write_text(json.dumps({"date": _AD[1], "user_summary": {"totalSteps": 123}}), encoding="utf-8")
+    (cfg.RAW_DIR / f"garmin_raw_{_AD[2]}.json").write_text(json.dumps(_day_raw(_AD[2], "high")), encoding="utf-8")
+    # _AD[3]: a summary with neither raw nor export data
+    _rawb = {d: (cfg.RAW_DIR / f"garmin_raw_{d}.json").read_bytes() for d in (_AD[1], _AD[2])}
+    _qd = {"days": [{"date": d} for d in _AD[:5]]}
+    _rec = _Rec11()
+    with patch.object(_col5, "log", _rec):
+        _col5._run_schema_migration(_qd)
+    _sum = lambda d: json.loads((cfg.SUMMARY_DIR / f"garmin_{d}.json").read_text(encoding="utf-8"))   # noqa: E731
+    check("4r schema migration, export data: a day without a raw file but with export data gets the summary from the export data, no raw file appears",
+          _sum(_AD[0]) == _normalizer5.summarize(_normalizer5.normalize(_aggs(_AD[0]), source="bulk")) and not (cfg.RAW_DIR / f"garmin_raw_{_AD[0]}.json").exists()
+          and _sum(_AD[0])["schema_version"] == _cur)
+    check("4r schema migration, export data: a day with a raw file and export data is resolved (API 123 steps win, export stress 28 fills)",
+          _sum(_AD[1])["day"]["steps"] == 123 and _sum(_AD[1])["stress"]["stress_avg"] == 28 and _sum(_AD[1])["schema_version"] == _cur)
+    check("4r schema migration, export data: a day with raw only is migrated as before, raw files are byte-identical",
+          _sum(_AD[2])["schema_version"] == _cur and all((cfg.RAW_DIR / f"garmin_raw_{d}.json").read_bytes() == _rawb[d] for d in _rawb))
+    check("4r schema migration, export data: a day with neither stays skipped (same message), counted as failed, its summary is untouched",
+          f"  [4/5] {_AD[3]} — no raw file, skipped" in _rec.msgs("warning") and _sum(_AD[3])["schema_version"] == _cur - 1)
+    check("4r schema migration, export data: unusable export data and no raw file: skipped and counted, the loop goes on",
+          f"  [5/5] {_AD[4]} — no raw file, skipped" in _rec.msgs("warning") and _sum(_AD[4])["schema_version"] == _cur - 1)
+    check("4r schema migration, export data: the day from the export data is logged, the final line counts 3 rewritten and 2 skipped/failed",
+          f"  [1/5] {_AD[0]} — ok (from export data)" in _rec.msgs("info")
+          and "  Schema migration complete: 3 rewritten, 2 skipped/failed." in _rec.msgs("info"))
 
 # -- commit_force_refetch ----------------------------------------------------------------------------------------------
 _CD = [f"2024-09-{n:02d}" for n in range(1, 8)]
@@ -3263,7 +3901,7 @@ with _isolated_log_env("main14") as _b:
     _handlers14 = list(logging.getLogger().handlers)
     try:
         with patch.dict(os.environ, {"GARMIN_IMPORT_PATH": "unused"}), \
-                patch("garmin_import.load_bulk", return_value=iter([])):
+                patch("garmin_bulk_json_import.run_aggregates_import", return_value={"ok": True}):
             try:
                 _runpy14.run_path(_col5.__file__, run_name="".join(list("__main__")))
                 _code14 = "main() did not run"
@@ -3480,7 +4118,7 @@ with _isolated_log_env("main15bkr") as _b:
         check("4u main backup refresh: a failing check is a warning, the run goes on",
               _code is None and _exc is None
               and "  Backup refresh (raw) failed: no check" in _rec.msgs("warning"))
-        with patch.object(_col5, "run_import", return_value={"failed": 0}):
+        with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}):
             (_code, _exc, _f, _), _rec, (_cr, _rr, _cs, _rs) = _bkr15(
                 raw_n=1, src_n=1, env={"GARMIN_IMPORT_PATH": "ignored"})
         check("4u main backup refresh: the import mode returns before it — no check, no refresh",
@@ -3543,7 +4181,7 @@ with _isolated_log_env("main15rhr") as _b:
               any(m.startswith("  Resting HR repair: 2 day(s) failed") for m in _rec.msgs("warning"))
               and not any("Resting HR repair" in m for m in _rec0.msgs("warning")))
 
-        with patch.object(_col5, "run_import", return_value={"failed": 0}):
+        with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}):
             (_code, _exc, _f, _), _rec, _m = _rhr15(env={"GARMIN_IMPORT_PATH": "ignored", **_RR_ON15})
         check("4u main resting HR repair: the import mode returns before it — no repair",
               _code == 0 and not _m.called)

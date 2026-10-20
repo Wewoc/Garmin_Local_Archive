@@ -6,21 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6**
+**Currently stable — v1.7.6.1**
 
 ---
-
-### v1.7.6.1 — Bulk JSON import into the bulk store
-
-- A failed mark of imported days in the quality log is no longer silent: the
-  import reports it as a failure, and the next run marks every day that holds a
-  bulk series but no mark (found by content, so a rerun catches up).
-- A bulk day file that cannot be read is reported and left as it is, instead of
-  being treated as new and possibly replaced by a smaller state.
-- The JSON bulk import writes to a second section of the bulk store instead of
-  `raw/`; the original JSON files are kept.
-- The source table covers the remaining fields; `summary/` becomes a resolved,
-  rebuildable view per day.
 
 ### v1.7.6.2 — Archive protection for the bulk store
 

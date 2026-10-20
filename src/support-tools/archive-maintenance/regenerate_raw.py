@@ -195,7 +195,10 @@ def main() -> None:
 
         # ── Write files ───────────────────────────────────────────────────────
         try:
-            writer.write_day(normalized, summary, date_str)
+            if not writer.write_day(normalized, summary, date_str):
+                # v1.7.6.1 (F-4): False = nothing was written (I/O error, or an aggregates file
+                # of the day that cannot be read) — an error, not a regenerated day.
+                raise RuntimeError("write_day returned False (see the log)")
         except Exception as e:
             print(f"  ✗ {date_str}: write_day failed: {e}")
             failed += 1

@@ -999,6 +999,222 @@ check("bulk track: without a bulk store at all the read is as before",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  7. Stress durations from bulk/aggregates (v1.7.6.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("7. garmin_health_map — stress durations from bulk/aggregates (v1.7.6.1)")
+
+_DUR_FIELDS = {"stress_rest_duration": "restDuration", "stress_low_duration": "lowDuration",
+               "stress_medium_duration": "mediumDuration", "stress_high_duration": "highDuration"}
+
+
+def _put_agg7(day, aggregates=None, schema=1, raw_text=None, doc=None):
+    cfg.BULK_AGG_DIR.mkdir(parents=True, exist_ok=True)
+    body = doc if doc is not None else {"date": day, "schema_version": schema, "generated_by": "t", "origin": "garmin_export",
+                                       "imported_at": "2026-10-18", "source_files": ["a" * 64], "aggregates": aggregates}
+    (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{day}.json").write_text(raw_text if raw_text is not None else json.dumps(body), encoding="utf-8")
+
+
+def _dur7(day, field="stress_rest_duration", resolution="daily"):
+    return garmin_health_map.get(field, day, day, resolution=resolution)
+
+
+_STRESS7 = {"averageStressLevel": 30, "maxStressLevel": 90, "stressDuration": 12000,
+            "restDuration": 30000, "lowDuration": 7000, "mediumDuration": 4000, "highDuration": 1000}
+_put_agg7("2026-06-01", {"date": "2026-06-01", "stress": _STRESS7})
+_put_agg7("2026-06-02", {"stress": {"restDuration": 0, "lowDuration": 3600.5, "mediumDuration": None}})
+_put_agg7("2026-06-03", {"user_summary": {"totalSteps": 5}})
+_put_agg7("2026-06-04", {"stress": {"restDuration": "30000", "lowDuration": True, "mediumDuration": [1], "highDuration": {"a": 1}}})
+_put_agg7("2026-06-05", raw_text="{ not json")
+_put_agg7("2026-06-06", {"stress": _STRESS7}, schema=2)
+_put_agg7("2026-06-07", raw_text=json.dumps([1, 2]))
+_put_agg7("2026-06-08", {"stress": _STRESS7}, doc={"date": "2026-06-08", "schema_version": 1, "aggregates": "oops"})
+_put_agg7("2026-06-09", {"stress": _STRESS7}, schema=0)
+_put_agg7("2026-06-11", {"stress": _STRESS7}, schema=True)
+_put_agg7("2026-06-12", {"stress": "oops"})
+_put_agg7("2026-06-13", {"stress": {"restDuration": -5}})
+
+check("stress durations: the four fields are registered, with no daily and no intraday form and a bulk_daily descriptor",
+      all(f in garmin_health_map.list_fields() and garmin_health_map._FIELD_MAP[f]
+          == {"intraday": None, "daily": None, "bulk_daily": ("stress", k)} for f, k in _DUR_FIELDS.items()))
+check("stress durations: stressDuration (low + medium + high) is not a field of its own",
+      not any(f for f in garmin_health_map.list_fields() if f in ("stress_duration", "stress_total_duration")))
+_d1 = {f: _dur7("2026-06-01", f) for f in _DUR_FIELDS}
+check("stress durations: a day with a stress object gives each field its number (seconds)",
+      [_d1[f]["values"][0]["value"] for f in _DUR_FIELDS] == [30000, 7000, 4000, 1000])
+check("stress durations: the answer has the form of a daily field: values [{date, value}], source_resolution daily, fallback False",
+      all(set(r) == {"values", "source_resolution", "fallback"} and r["source_resolution"] == "daily" and r["fallback"] is False
+          and set(r["values"][0]) == {"date", "value"} and r["values"][0]["date"] == "2026-06-01" for r in _d1.values()))
+check("stress durations: 0 and a float are numbers and are returned as they are; null gives None",
+      _dur7("2026-06-02", "stress_rest_duration")["values"][0]["value"] == 0
+      and _dur7("2026-06-02", "stress_low_duration")["values"][0]["value"] == 3600.5
+      and _dur7("2026-06-02", "stress_medium_duration")["values"][0]["value"] is None
+      and _dur7("2026-06-02", "stress_high_duration")["values"][0]["value"] is None)
+check("stress durations: a negative number is returned as it is (the broker does not judge values)",
+      _dur7("2026-06-13")["values"][0]["value"] == -5)
+check("stress durations: no file, no stress object (only other sections) and a stress object that is not an object give None",
+      all(_dur7(d)["values"][0]["value"] is None for d in ("2026-06-10", "2026-06-03", "2026-06-12")))
+check("stress durations: a text, a boolean, a list and an object are not numbers: None",
+      all(_dur7("2026-06-04", f)["values"][0]["value"] is None for f in _DUR_FIELDS))
+
+with _patch6.object(garmin_health_map.log, "warning") as _warn7:
+    _unusable7 = ("2026-06-05", "2026-06-06", "2026-06-07", "2026-06-08", "2026-06-09", "2026-06-11")
+    check("stress durations: a damaged file, a newer schema_version, a non-object, no aggregates object, schema_version 0 and true give None, no exception",
+          all(_dur7(d)["values"][0]["value"] is None for d in _unusable7))
+    _agg_warns7 = lambda: [c for c in _warn7.call_args_list if "daily values" in str(c)]      # noqa: E731
+    check("stress durations: each day that cannot be used is one warning, naming the day", len(_agg_warns7()) == 6
+          and all(any(d in str(c) for c in _agg_warns7()) for d in _unusable7))
+    _warn7.reset_mock()
+    for _d in _unusable7:
+        _dur7(_d, "stress_high_duration")
+    check("stress durations: ... once per day and process, not again at the next read (also not for another field)", len(_agg_warns7()) == 0)
+    _warn7.reset_mock()
+    for _d in ("2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-10", "2026-06-12", "2026-06-13"):
+        _dur7(_d)
+    check("stress durations: usable days, days without a value and a missing file give no warning", len(_warn7.call_args_list) == 0)
+    _put_bulk6("2026-06-05", raw_text="{ not json")
+    _warn7.reset_mock()
+    _hr6("2026-06-05")
+    check("stress durations: a day damaged in bulk/raw has its own warning, apart from the one of its daily values (own key)",
+          len([c for c in _warn7.call_args_list if "bulk day 2026-06-05 not used" in str(c) and "daily values" not in str(c)]) == 1)
+
+check("stress durations: the schema version the reader accepts is the one the writer writes",
+      garmin_health_map._BULK_AGG_MAX_SCHEMA == _bw6.AGG_SCHEMA_VERSION)
+_r7 = garmin_health_map.get("stress_low_duration", "2026-06-01", "2026-06-04", resolution="daily")
+check("stress durations: a range gives every day in order, with None where there is nothing",
+      [(e["date"], e["value"]) for e in _r7["values"]] == [("2026-06-01", 7000), ("2026-06-02", 3600.5), ("2026-06-03", None), ("2026-06-04", None)])
+_i7 = garmin_health_map.get("stress_low_duration", "2026-06-01", "2026-06-01", resolution="intraday")
+check("stress durations: an intraday request gets the daily values with fallback True, as every daily field does",
+      _i7["fallback"] is True and _i7["source_resolution"] == "daily" and _i7["values"][0]["value"] == 7000)
+check("stress durations: a live request gives no values and fallback True, as every field without a live form does",
+      garmin_health_map.get("stress_low_duration", "2026-06-01", "2026-06-01", resolution="live")
+      == {"values": [], "fallback": True, "source_resolution": "live"})
+check("stress durations: through health_map and gateway_map the values arrive unchanged",
+      health_map.get("stress_medium_duration", "2026-06-01", "2026-06-01")["garmin"]["values"][0]["value"] == 4000
+      and gateway_map.get("stress_high_duration", "2026-06-01", "2026-06-01")["health"]["garmin"]["values"][0]["value"] == 1000)
+check("stress durations: the existing daily read of stress_avg is untouched (summary/, not the aggregates)",
+      garmin_health_map.get("stress_avg", "2026-06-01", "2026-06-01")["values"][0]["value"] is None
+      and garmin_health_map.get("stress_avg", "2026-06-01", "2026-06-01")["fallback"] is False)
+try:
+    garmin_health_map.get("stress_low_duration", "2026-06-01", "2026-06-01", resolution="weekly")
+    check("stress durations: an unknown resolution still raises ValueError", False)
+except ValueError:
+    check("stress durations: an unknown resolution still raises ValueError", True)
+
+shutil.rmtree(cfg.BULK_AGG_DIR, ignore_errors=True)
+check("stress durations: without a bulk store at all the values are None, no exception",
+      all(_dur7("2026-06-01", f)["values"][0]["value"] is None for f in _DUR_FIELDS))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  8. Sleep percentages: raw/ first, bulk/aggregates for a day without usable raw data (v1.7.6.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("8. garmin_health_map — sleep percentages with the export as second source (v1.7.6.1)")
+
+_PCT_FIELDS = ("sleep_deep_pct", "sleep_light_pct", "sleep_rem_pct", "sleep_awake_pct")
+
+
+def _dto8(total, deep=None, light=None, rem=None, awake=None):
+    return {"sleepTimeSeconds": total, "deepSleepSeconds": deep, "lightSleepSeconds": light,
+            "remSleepSeconds": rem, "awakeSleepSeconds": awake}
+
+
+def _raw8(day, sleep="ABSENT", raw_text=None):
+    cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    doc = {"date": day, "stats": {"totalSteps": 1}}
+    if sleep != "ABSENT":
+        doc["sleep"] = sleep
+    (cfg.RAW_DIR / f"{cfg.RAW_FILE_PREFIX}{day}.json").write_text(raw_text if raw_text is not None else json.dumps(doc), encoding="utf-8")
+
+
+def _pct8(day, field="sleep_deep_pct"):
+    return garmin_health_map.get(field, day, day, resolution="daily")["values"][0]["value"]
+
+
+def _all8(day):
+    return [_pct8(day, f) for f in _PCT_FIELDS]
+
+
+_USABLE8 = _dto8(27000, 5400, 13500, 6750, 1350)                 # 20.0 / 50.0 / 25.0 / 5.0 %
+_EXPORT8 = _dto8(3000, 1000, 1200, 500, 300)                      # 33.3 / 40.0 / 16.7 / 10.0 %
+_EX_PCT8 = [33.3, 40.0, 16.7, 10.0]
+
+_raw8("2026-07-01", {"dailySleepDTO": _USABLE8}); _put_agg7("2026-07-01", {"sleep": {"dailySleepDTO": _dto8(18000, 9000, 4500, 3600, 900)}})
+_put_agg7("2026-07-02", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-03");                                      _put_agg7("2026-07-03", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-04", {"dailySleepDTO": _dto8(None)});      _put_agg7("2026-07-04", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-05", {"dailySleepDTO": _dto8(0, 0, 0, 0, 0)}); _put_agg7("2026-07-05", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-06", {"dailySleepDTO": _dto8(27000, 5400, 13500, None, 1350)}); _put_agg7("2026-07-06", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-07", raw_text="{ not json");                _put_agg7("2026-07-07", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_put_agg7("2026-07-08", raw_text="{ not json")
+_put_agg7("2026-07-09", {"sleep": {"dailySleepDTO": _EXPORT8}}, schema=2)
+_put_agg7("2026-07-10", {"user_summary": {"totalSteps": 5}})
+_put_agg7("2026-07-11", {"sleep": {"dailySleepDTO": _dto8(None, 1000, 1200, 500, 300)}})
+_put_agg7("2026-07-12", {"sleep": {"dailySleepDTO": _dto8(0, 1000, 1200, 500, 300)}})
+_put_agg7("2026-07-13", {"sleep": {"dailySleepDTO": _dto8(True, 1000, 1200, 500, 300)}})
+_put_agg7("2026-07-14", {"sleep": {"dailySleepDTO": _dto8("3000", 1000, 1200, 500, 300)}})
+_put_agg7("2026-07-15", {"sleep": {"dailySleepDTO": _dto8(3000, "x", 1200, True, None)}})
+_raw8("2026-07-16", None);                                _put_agg7("2026-07-16", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-17", {"dailySleepDTO": "oops"});           _put_agg7("2026-07-17", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-18", {"dailySleepDTO": _dto8(-5, 1, 1, 1, 1)}); _put_agg7("2026-07-18", {"sleep": {"dailySleepDTO": _EXPORT8}})
+_raw8("2026-07-19", {"dailySleepDTO": _dto8(4000, 1000, 1000, 1000, 1000)}); _put_agg7("2026-07-19", {"sleep": {"dailySleepDTO": _dto8(None)}})
+_put_agg7("2026-07-20", {"stress": {"restDuration": 7}})
+
+check("sleep pct: a raw/ day with a usable total wins over the export, all four fields (20.0 / 50.0 / 25.0 / 5.0)",
+      _all8("2026-07-01") == [20.0, 50.0, 25.0, 5.0])
+check("sleep pct: a day without a raw file takes the export's object, rounded to one decimal",
+      _all8("2026-07-02") == _EX_PCT8)
+check("sleep pct: a raw file without a sleep section, with a total of null, with a total of 0 takes the export's object",
+      _all8("2026-07-03") == _EX_PCT8 and _all8("2026-07-04") == _EX_PCT8 and _all8("2026-07-05") == _EX_PCT8)
+check("sleep pct: a raw file whose sleep is null, or whose object is not an object, takes the export's object (no exception)",
+      _all8("2026-07-16") == _EX_PCT8 and _all8("2026-07-17") == _EX_PCT8)
+check("sleep pct: a negative total in raw/ is not usable: the export's object",
+      _all8("2026-07-18") == _EX_PCT8)
+check("sleep pct: one source per day — raw/ has a total but no REM seconds: REM stays None, the export's REM is not mixed in",
+      _all8("2026-07-06") == [20.0, 50.0, None, 5.0])
+check("sleep pct: raw/ usable and an export object without a total: raw/ stays",
+      _all8("2026-07-19") == [25.0, 25.0, 25.0, 25.0])
+
+with _patch6.object(garmin_health_map.log, "warning") as _warn8:
+    _e7 = _all8("2026-07-07")
+    check("sleep pct: a raw file that cannot be read is a warning (as before), the export's object is used",
+          _e7 == _EX_PCT8 and any("could not read" in str(c) and "2026-07-07" in str(c) for c in _warn8.call_args_list))
+    _warn8.reset_mock()
+    _unusable8 = ("2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12", "2026-07-13", "2026-07-14")
+    check("sleep pct: no raw file and an export day that cannot be used (damaged, newer schema, no sleep section) or has no usable total "
+          "(null, 0, true, text) -> None for all four fields, no exception",
+          all(_all8(d) == [None] * 4 for d in _unusable8))
+    _agg_warn8 = [c for c in _warn8.call_args_list if "daily values" in str(c)]
+    check("sleep pct: the two export days that cannot be used (damaged, newer schema) give one warning each, naming the day",
+          len(_agg_warn8) == 2 and any("2026-07-08" in str(c) for c in _agg_warn8) and any("2026-07-09" in str(c) for c in _agg_warn8))
+    _warn8.reset_mock()
+    _all8("2026-07-08"); _all8("2026-07-09")
+    check("sleep pct: ... once per day and process", len([c for c in _warn8.call_args_list if "daily values" in str(c)]) == 0)
+
+check("sleep pct: seconds that are not numbers (text, true) give None for that field, the others are calculated",
+      _all8("2026-07-15") == [None, 40.0, None, None])
+check("sleep pct: neither a raw file nor an export day -> None", _all8("2026-07-31") == [None] * 4)
+check("sleep pct: the answer has the form it had: values [{date, value}], source_resolution daily, fallback False",
+      all(set(garmin_health_map.get(f, "2026-07-02", "2026-07-02", resolution="daily")) == {"values", "source_resolution", "fallback"}
+          and garmin_health_map.get(f, "2026-07-02", "2026-07-02")["fallback"] is False
+          and set(garmin_health_map.get(f, "2026-07-02", "2026-07-02")["values"][0]) == {"date", "value"} for f in _PCT_FIELDS))
+_r8 = garmin_health_map.get("sleep_light_pct", "2026-07-01", "2026-07-03", resolution="daily")
+check("sleep pct: a range gives every day in order, each from its own source (raw/, export, export)",
+      [(e["date"], e["value"]) for e in _r8["values"]] == [("2026-07-01", 50.0), ("2026-07-02", 40.0), ("2026-07-03", 40.0)])
+check("sleep pct: through health_map and gateway_map the value arrives unchanged",
+      health_map.get("sleep_deep_pct", "2026-07-02", "2026-07-02")["garmin"]["values"][0]["value"] == 33.3
+      and gateway_map.get("sleep_deep_pct", "2026-07-02", "2026-07-02")["health"]["garmin"]["values"][0]["value"] == 33.3)
+check("sleep pct: the live request does not read the archive (unchanged)",
+      garmin_health_map.get("sleep_deep_pct", "2026-07-02", "2026-07-02", resolution="live")["source_resolution"] == "live")
+check("sleep pct: the stress durations still read bulk/aggregates after the loader was split out",
+      _dur7("2026-07-02", "stress_rest_duration")["values"][0]["value"] is None
+      and _dur7("2026-07-20", "stress_rest_duration")["values"][0]["value"] == 7)
+
+shutil.rmtree(cfg.BULK_AGG_DIR, ignore_errors=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

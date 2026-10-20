@@ -178,6 +178,13 @@ def _window(stats):
     return _Window(start_offset, end_offset, s_loc, e_loc)
 
 
+def has_window(stats) -> bool:
+    """True if `stats` holds a usable window (all four fields, plausible offsets, the end after the
+    start) — the test plan_days() applies to every entry. For a caller that has two possible
+    sources of a day's window and wants the first usable one (v1.7.6.1)."""
+    return _window(stats) is not None
+
+
 def _at(moment, midnight):
     """True if `moment` is the given local midnight (within the tolerance)."""
     return abs((moment - midnight).total_seconds()) <= _FULL_DAY_TOLERANCE_S

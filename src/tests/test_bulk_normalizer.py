@@ -440,4 +440,22 @@ check("no logging and no print",
       "logging" not in _imports and not any(
           isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print" for n in ast.walk(_tree)))
 
+# ── has_window (v1.7.6.1): the test plan_days() applies, for a caller with two possible sources ──────────────
+_good = {"wellnessStartTimeGmt": "2024-03-02T23:00:00.0", "wellnessStartTimeLocal": "2024-03-03T00:00:00.0",
+         "wellnessEndTimeGmt": "2024-03-03T23:00:00.0", "wellnessEndTimeLocal": "2024-03-04T00:00:00.0"}
+check("has_window: a window with all four fields and plausible offsets is usable", nz.has_window(_good) is True)
+check("has_window: a missing field, a non-dict, None and an empty dict are not usable",
+      nz.has_window({k: v for k, v in _good.items() if k != "wellnessEndTimeGmt"}) is False
+      and nz.has_window("x") is False and nz.has_window(None) is False and nz.has_window({}) is False)
+check("has_window: an unparsable value, an offset that is no multiple of 15 minutes, one above 14 hours and an end before the start are not usable",
+      nz.has_window({**_good, "wellnessStartTimeGmt": "not a time"}) is False
+      and nz.has_window({**_good, "wellnessStartTimeGmt": "2024-03-02T23:10:00.0"}) is False
+      and nz.has_window({**_good, "wellnessStartTimeGmt": "2024-03-02T09:00:00.0"}) is False
+      and nz.has_window({**_good, "wellnessEndTimeLocal": "2024-03-02T23:00:00.0"}) is False)
+check("has_window: agrees with plan_days (a usable window plans the day it ends the day before, an unusable one plans nothing)",
+      nz.plan_days({"2024-03-02": {"wellnessStartTimeGmt": "2024-03-01T23:00:00.0", "wellnessStartTimeLocal": "2024-03-02T00:00:00.0",
+                                   "wellnessEndTimeGmt": "2024-03-02T23:00:00.0", "wellnessEndTimeLocal": "2024-03-03T00:00:00.0"},
+                    "2024-03-03": _good}).days != {}
+      and nz.plan_days({"2024-03-02": {"wellnessStartTimeGmt": "x"}}).days == {})
+
 summary()

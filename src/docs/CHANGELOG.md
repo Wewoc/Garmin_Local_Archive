@@ -1,5 +1,121 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.1 — Bulk JSON Import into the Bulk Store
+
+The daily values of the Garmin GDPR export now go into the bulk store as well:
+`garmin_data/bulk/aggregates` holds one file per day, and `raw/` keeps only
+data that came from the Garmin API. `summary/` becomes a resolved, rebuildable
+view per day: for each top-level key the API data of the day win, the export
+fills what the API did not deliver.
+
+**What changed:**
+- **Aggregates store** (`bulk/aggregates`, `bulk/source`): one file per local
+  day (`garmin_bulk_agg_<date>.json`, `schema_version` 1); the original JSON
+  files of the export are kept by SHA-256 next to the FIT originals. The only
+  writer is `garmin_bulk_writer` (`write_aggregates`, `aggregates_status`,
+  `read_aggregates`, `load_aggregates`, `list_aggregate_days`,
+  `store_original_json`) with the rules of the day files: a day is never
+  replaced by a smaller one, and a file that cannot be read is left as it is.
+- **Import** (`garmin_bulk_json_import`, new): the phase "json" writes the daily
+  values and the originals into the bulk store instead of `raw/`; the day
+  windows of the export are a second source for the heart-rate phase; both
+  phases have a preview. A day that is invalid or has too little data is
+  rejected and reported; it does not count as a failure of the run (a "failed"
+  entry leaves it to the API). A run fails when a phase fails or when the
+  finish (summaries, quality-log entries, marks) cannot be completed.
+- **Resolved summary** (`garmin_writer`): `write_day` and `write_summary_only`
+  give a day that has an aggregates file a `summary/` built from the API data
+  and the day's aggregates; `raw/` holds what the API delivered, nothing of the
+  export. `rebuild_summary(date)` makes the summary of a day again from them
+  alone (a day without a `raw/` file works too). All ways that write a summary
+  go through the writer: the sync fetch, the backfills, the mirror import, silo
+  repair #3/#7, the resting heart rate repair, `regenerate_raw.py`,
+  `regenerate_summaries.py` and the schema migration. A day whose aggregates
+  file cannot be read is not written at all.
+- **Quality log**: the mark `bulk.aggregates`; an entry for every export-only
+  day (source `bulk`, `write` false, so the start-up integrity check does not
+  call it missing); `_save_quality_log` returns whether it wrote. Marks that
+  failed earlier are caught up at the end of an import and at the sync start
+  (step 3f).
+- **Broker**: four fields from the export, `stress_rest_duration`,
+  `stress_low_duration`, `stress_medium_duration`, `stress_high_duration`
+  (seconds per day, descriptor `bulk_daily`); `sleep_*_pct` take the export as a
+  second source for days without usable API data (one source per day, never
+  mixed). The new fields have dashboard labels and MCP units; the MCP cache
+  picks them up by itself.
+- **Silo check and repair**: a day with an aggregates file counts as export
+  data: its summary is neither an orphan (#5) nor missing without `raw/` (#7);
+  repair #7 rebuilds it from the aggregates; the check reports the number of
+  export days.
+- **Import dialog and panel**: both parts go to `garmin_data/bulk`, the preview
+  exists for both; the silo check output shows the export days.
+- **Fixed:** a day file that could not be read counted as new and could be
+  replaced by a smaller state (`day_status` now answers `unreadable`, F-1);
+  marks in the quality log that failed on an import run stayed missing and
+  counted only as a warning (F-3); silo repair #3/#7, `regenerate_raw.py` and
+  the schema migration ignored that `write_day` / `write_summary_only` wrote
+  nothing (F-4); the same in the sync fetch (F-5; the entry of an export day
+  stays, a day without an entry becomes "failed" and is retried) and in the
+  mirror import (F-6; the day counts as an error, not as copied).
+- **Removed:** `garmin_bulk_writer.read_day()` — only tests used it; the
+  loader is `_load_day()`.
+
+**New:** `garmin_bulk_json_import.py` (`run_aggregates_import`,
+`format_summary`, `entry_hashes`, `day_window`), `tests/test_bulk_json_import.py`.
+
+**Changed modules:**
+- `garmin/garmin_bulk_writer.py` — aggregates, JSON originals, `day_status`
+  `unreadable`, `list_days`, `_load_day`; `read_day` removed
+- `garmin/garmin_writer.py` — `rebuild_summary`, `_write_summary_file`, resolved
+  summary in `write_day` / `write_summary_only`
+- `garmin/garmin_import.py` — `load_bulk_with_entries` (bytes of the files for
+  the originals); `garmin/garmin_bulk_import.py`, `garmin_bulk_normalizer.py`
+  (`has_window`) — windows of the export
+- `garmin/garmin_collector.py` — `_apply_aggregates`, `_finish_aggregates`,
+  `_apply_bulk_marks`, `_run_bulk_mark_catch_up`, `_summary_days`; result of
+  the write checked in the fetch loop and the schema migration
+- `garmin/garmin_quality.py`, `garmin/quality/_maint.py`, `quality/_io.py` —
+  `record_bulk_aggregates`, catch-up of marks, `_save_quality_log` result
+- `garmin/garmin_import_mirror.py`, `garmin_silo_check.py`,
+  `garmin_silo_repair.py`, `garmin_config.py` (`BULK_AGG_DIR`,
+  `BULK_AGG_FILE_PREFIX`)
+- `maps/garmin_health_map.py` — `bulk_daily`, the stress durations, second
+  source for `sleep_*_pct`; `clients/mcp_field_registry.py`,
+  `layouts/dash_layout.py` — units and labels
+- `app/outputs/bulk_import.py`, `app/panel_archive.py` — dialog and silo check
+  texts
+- `support-tools/archive-maintenance/regenerate_raw.py`,
+  `regenerate_summaries.py`
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py` — new
+  module and test file registered
+- `tests/` — `test_bulk_json_import.py` (new), `test_bulk_writer.py`,
+  `test_bulk_import.py`, `test_bulk_normalizer.py`, `test_garmin_import.py`,
+  `test_writer.py`, `test_collector.py`, `test_quality.py`,
+  `test_import_mirror.py`, `test_silo_check.py`, `test_silo_repair.py`,
+  `test_repair_resting_hr.py`, `test_broker.py`, `test_mcp.py`,
+  `test_dashboard.py`, `test_qt_app.py`, `test_basics.py`,
+  `test_build_output.py`, `gla_testenv.py`
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_INVARIANTS.md`,
+  `docs/REFERENCE_BROKER.md`, `docs/REFERENCE_MCP.md`,
+  `docs/REFERENCE_GLOBAL.md`, `docs/MAINTENANCE_GARMIN.md`,
+  `docs/MAINTENANCE_GLOBAL.md`, `docs/GLA_GUIDELINES.md` (also the anchor
+  delivery format), `README.md`, `docs/USER_GUIDE.txt`,
+  `docs/QUICKSTART.txt`, `docs/README_APP.md` (title), `docs/ROADMAP.md`,
+  `docs/VERSION_HISTORY.md`
+- `version.py` — 1.7.6.1
+
+**Test result:** all suites green, 5355 checks in 42 files.
+
+**Not covered:** the bulk store (heart-rate series, aggregates, originals) is
+not yet part of backup and mirror (v1.7.6.2), and the existing mixed archive is
+not yet split (v1.7.6.3); four counters of dropped samples are computed but not
+printed (F-2); `first_day` is not moved back by the JSON import (it was by the
+earlier import into `raw/`), so an older export day that has no `raw/` file
+stays an export day; a few daily values are defined differently in the export
+and in the API (floors climbed, sleep duration, minimum/maximum heart rate and
+the stress block of the day) — the API values win where both exist;
+`test_qt_app.py` has not been run under Python 3.11.
+
 ## v1.7.6 — Bulk Silo: Heart-Rate Series from the Garmin Export
 
 The import of the Garmin GDPR export now reads the heart-rate series

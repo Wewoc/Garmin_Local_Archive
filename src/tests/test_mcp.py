@@ -434,6 +434,12 @@ check("mcp_server.list_available_fields: units covers a known health field",
       _laf_units["units"].get("hrv_last_night") == "ms")
 check("mcp_server.list_available_fields: units covers a known context field",
       _laf_units["units"].get("temperature_max") == "°C")
+from mcp_field_registry import FIELD_UNITS as _FIELD_UNITS_ALL
+_DUR_NAMES = ("stress_rest_duration", "stress_low_duration", "stress_medium_duration", "stress_high_duration")
+check("mcp_server.list_available_fields: the four stress durations from the export are listed as health fields, in seconds (v1.7.6.1)",
+      all(n in _laf_units["fields"]["health"]["garmin"] and _laf_units["units"].get(n) == "seconds" for n in _DUR_NAMES))
+check("mcp_server.list_available_fields: every registered garmin health field has an entry in FIELD_UNITS (no field falls back to the placeholder by accident)",
+      [n for n in _laf_units["fields"]["health"]["garmin"] if n not in _FIELD_UNITS_ALL] == [])
 
 # ── 8b. Routing weiche (v1.7.1.1 Ziel 5) — placeholder always returns "sqlite" ─
 #
@@ -1833,6 +1839,35 @@ check("_reconcile_field_registry: unaffected health domain is not reported as re
       "health" not in _resets_context)
 check("_reconcile_field_registry: unaffected health domain never calls reset_health_sync_state",
       not _m_reset_health_unaffected.called)
+
+# ── 9d. The real field list (v1.7.6.1): a cache made before the four stress durations existed is reset ──
+_live_health_real = set(mcp_map.list_available_fields(domain="health")["fields"]["health"]["garmin"])
+_live_context_real = mcp_map.list_available_fields(domain="context")["fields"]["context"]
+
+
+def _grf_before_durations(domain):
+    if domain == "health":
+        return _live_health_real - set(_DUR_NAMES)
+    return set(_live_context_real.get(domain.split(":", 1)[1], []))
+
+
+with patch("mcp_sql.get_registered_fields", side_effect=_grf_before_durations), \
+     patch("mcp_sql.set_registered_fields") as _m_set_real, \
+     patch("mcp_sql.reset_health_sync_state") as _m_reset_real, \
+     patch("mcp_sql.reset_context_source") as _m_reset_ctx_real:
+    _resets_real = mcp_update._reconcile_field_registry()
+check("_reconcile_field_registry: the real field list has the four stress durations, a cache without them is reset once (health only)",
+      set(_DUR_NAMES) <= _live_health_real and _resets_real == {"health": True} and _m_reset_real.call_count == 1
+      and not _m_reset_ctx_real.called)
+check("_reconcile_field_registry: ... and the registry is re-written with the four new names",
+      _m_set_real.call_args_list[0].args[0] == "health" and set(_DUR_NAMES) <= _m_set_real.call_args_list[0].args[1])
+with patch("mcp_sql.get_registered_fields",
+           side_effect=lambda domain: _live_health_real if domain == "health" else set(_live_context_real.get(domain.split(":", 1)[1], []))), \
+     patch("mcp_sql.set_registered_fields"), \
+     patch("mcp_sql.reset_health_sync_state") as _m_reset_same, \
+     patch("mcp_sql.reset_context_source"):
+    _resets_same = mcp_update._reconcile_field_registry()
+check("_reconcile_field_registry: with the real field list already stored nothing is reset", _resets_same == {} and not _m_reset_same.called)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

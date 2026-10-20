@@ -234,6 +234,66 @@ with _isolated_log_env("imp_schema") as _b:
           and json.loads((cfg.SUMMARY_DIR / f"garmin_{_D1}.json").read_text(encoding="utf-8"))
           .get("generated_by") == "garmin_normalizer.py")
 
+# -- the summary of a day that has export data (v1.7.6.1, Baustein 6b-2) ----------------------------------------------------
+# write_day resolves the summary of a day with an aggregates file (API data win per key, the export fills the rest), so the
+# summary a container brings along (fast path) is not taken as it is for such a day. raw/ always holds the container's data.
+import garmin_bulk_writer as _bw_im
+_HM = "ab" * 32
+_AGG_M = {"user_summary": {"totalSteps": 7000}, "stress": {"averageStressLevel": 25, "maxStressLevel": 70}}
+
+
+def _agg_m(day):
+    assert _bw_im.write_aggregates(day, {"date": day, **_AGG_M}, [_HM]) == _bw_im.WRITTEN
+
+
+def _sum_m(day):
+    return json.loads((cfg.SUMMARY_DIR / f"garmin_{day}.json").read_text(encoding="utf-8"))
+
+
+def _raw_m(day):
+    return json.loads((cfg.RAW_DIR / f"garmin_raw_{day}.json").read_text(encoding="utf-8"))
+
+
+with _isolated_log_env("imp_agg") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_m(_D1)                                  # _D1 has a summary in the container (marker) and export data on this side
+    _r = _im.run_import_mirror(_arch, _b, "pw")
+    check("mirror import, day with export data: the import succeeds as before", _r["ok"] is True and _r["raw_copied"] == 2 and _r["errors"] == 0)
+    check("mirror import, day with export data: the container's summary (fast path) is replaced by the resolved one (no marker; export steps 7000 and "
+          "stress 25, the API's resting heart rate 55)",
+          "marker" not in _sum_m(_D1) and _sum_m(_D1)["day"]["steps"] == 7000 and _sum_m(_D1)["stress"]["stress_avg"] == 25
+          and _sum_m(_D1)["heartrate"]["resting_bpm"] == 55 and _sum_m(_D1).get("generated_by") == "garmin_normalizer.py")
+    check("mirror import, day with export data: raw/ holds exactly the container's data, none of the export's sections",
+          _raw_m(_D1) == _day_raw(_D1, "high", ("123", "Fenix 7")))
+    check("mirror import, day without export data next to it: its summary is computed fresh as before (no export steps)",
+          _sum_m(_D2)["day"]["steps"] != 7000 and _sum_m(_D2).get("generated_by") == "garmin_normalizer.py")
+
+with _isolated_log_env("imp_agg2") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_m(_D2)                                  # export data for the day that has no summary in the container only
+    _r = _im.run_import_mirror(_arch, _b, "pw")
+    check("mirror import, no export data for a day: the container's summary stays as it is (fast path unchanged)",
+          _r["ok"] is True and _sum_m(_D1) == {"marker": "from-container", "date": _D1})
+    check("mirror import, export data for a day without a container summary: the summary is resolved (the export fills the stress, 25), raw/ is the container's data",
+          _sum_m(_D2)["stress"]["stress_avg"] == 25 and _raw_m(_D2) == _day_raw(_D2, "standard"))
+
+with _isolated_log_env("imp_agg_unreadable") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_m(_D1)
+    _real_la = _bw_im.load_aggregates
+    with patch("garmin_bulk_writer.load_aggregates",
+               side_effect=lambda d: ("unreadable", None) if d == _D1 else _real_la(d)):
+        _r = _im.run_import_mirror(_arch, _b, "pw")
+    _ql = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("mirror import, aggregates file of a day not readable: write_day refuses, no raw file and no summary for that day, the other day is imported",
+          not (cfg.RAW_DIR / f"garmin_raw_{_D1}.json").exists() and not (cfg.SUMMARY_DIR / f"garmin_{_D1}.json").exists())
+    # F-6 (fixed in v1.7.6.1): a day that write_day did not write is an error, not a copied day, and leaves no quality-log entry
+    check("mirror import, aggregates file not readable: the day counts as an error, the run is not ok, the other day is copied",
+          _r["ok"] is False and _r["raw_copied"] == 1 and _r["errors"] == 1
+          and (cfg.RAW_DIR / f"garmin_raw_{_D2}.json").exists())
+    check("mirror import, aggregates file not readable: the day gets no quality-log entry (the other day does)",
+          _D1 not in _ql and _D2 in _ql and _ql[_D2]["write"] is True)
+
 # -- error paths inside one import -------------------------------------------------------
 _D3, _D4, _D5 = "2024-02-03", "2024-02-04", "2024-02-05"
 _BAD_DATE = "2024-13-45"
@@ -409,6 +469,21 @@ def _mirror_folder(root, days, raw_for=(), context=(), meta=True, qlog=True):
         p.write_text(json.dumps(data), encoding="utf-8")
 
 
+with _isolated_log_env("imp_agg_unreadable_folder") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _mirror_folder(_M4H / "f_unreadable", days=[(_D1, "high", "api"), (_D2, "high", "api")], raw_for=[_D1, _D2])
+    _agg_m(_D1)
+    _real_la = _bw_im.load_aggregates
+    with patch("garmin_bulk_writer.load_aggregates",
+               side_effect=lambda d: ("unreadable", None) if d == _D1 else _real_la(d)):
+        _r = _im.run_import_mirror(_M4H / "f_unreadable", _b, "")
+    _ql = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("folder import, aggregates file of a day not readable: the day counts as an error, the run is not ok, the other day is copied",
+          _r["ok"] is False and _r["raw_copied"] == 1 and _r["errors"] == 1
+          and not (cfg.RAW_DIR / f"garmin_raw_{_D1}.json").exists() and (cfg.RAW_DIR / f"garmin_raw_{_D2}.json").exists())
+    check("folder import, aggregates file not readable: the day gets no quality-log entry (the other day does)",
+          _D1 not in _ql and _D2 in _ql and _ql[_D2]["write"] is True)
+
 with _isolated_log_env("imp_folder") as _b:
     cfg.SUMMARY_DIR = _b / "summary"
     _no_meta = _M4H / "f_nometa"
@@ -470,6 +545,16 @@ with _isolated_log_env("imp_folder") as _b:
     sys.modules["version"].APP_VERSION = "test"
     check("folder import: other GLA version -> warning names both versions",
           "test" in _r["version_warning"] and "9.9.9" in _r["version_warning"])
+
+with _isolated_log_env("imp_agg_folder") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_m(_D1)
+    _fold_agg = _M4H / "f_agg"
+    _mirror_folder(_fold_agg, days=[(_D1, "high", "api")], raw_for=[_D1])
+    _r = _im.run_import_mirror(_fold_agg, _b, "")
+    check("folder import, day with export data: resolved summary (export steps 7000, stress 25, API resting heart rate 55), raw/ only the folder's data",
+          _r["ok"] is True and _r["raw_copied"] == 1 and _sum_m(_D1)["day"]["steps"] == 7000 and _sum_m(_D1)["stress"]["stress_avg"] == 25
+          and _sum_m(_D1)["heartrate"]["resting_bpm"] == 55 and _raw_m(_D1) == _day_raw(_D1, "high"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  4h2. garmin_import_mirror — exact failure results, version and schema decisions,

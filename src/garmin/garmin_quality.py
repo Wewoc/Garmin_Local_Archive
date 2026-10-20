@@ -21,7 +21,8 @@ Responsibilities:
     them (touch_last_checked — sets last_checked only, caller saves)
   - Mark days whose heart-rate series are in the bulk store
     (record_bulk_intraday — sets entry["bulk"]["intraday"] and last_checked,
-    caller saves)
+    caller saves); make good a missing mark (unmarked_bulk_days looks,
+    catch_up_bulk_intraday marks, caller saves)
 
 All other modules receive quality data as a plain dict parameter — they
 never read or write quality_log.json directly.
@@ -31,7 +32,9 @@ Implementation is split across garmin/quality/ sub-modules:
   _assess.py — assess_quality (high/standard/failed), assess_quality_fields
   _scan.py   — get_low_quality_dates, _backfill_quality_log
   _maint.py  — QUALITY_RANK, _upsert_quality, _set_first_day,
-               set_unknown_device_name, touch_last_checked, record_bulk_intraday
+               set_unknown_device_name, touch_last_checked, record_bulk_intraday,
+               unmarked_bulk_days, catch_up_bulk_intraday, record_bulk_aggregates,
+               catch_up_bulk_aggregates
   _stats.py  — get_archive_stats
 
 This facade re-exports all public symbols — callers remain unchanged.
@@ -76,10 +79,14 @@ from quality._maint import (
     _set_first_day,
     record_attempt,
     record_bulk_intraday,
+    record_bulk_aggregates,
+    catch_up_bulk_intraday,
+    catch_up_bulk_aggregates,
     record_field_backfill_failure,
     record_field_backfill_failures,
     set_unknown_device_name,
     touch_last_checked,
+    unmarked_bulk_days,
 )
 
 from quality._stats import (

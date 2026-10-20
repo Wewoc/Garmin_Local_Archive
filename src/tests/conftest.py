@@ -48,6 +48,7 @@ collect_ignore = [
     "test_bulk_normalizer.py",
     "test_bulk_writer.py",
     "test_bulk_import.py",
+    "test_bulk_json_import.py",
     "test_api.py",
     "test_live_fetch.py",
     "test_silo_check.py",

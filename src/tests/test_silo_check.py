@@ -319,7 +319,7 @@ with _iso_env("sc2_sets") as _b:
     check("G2 check_silos: raw without summary = raw minus summary",
           _r["raw_without_summary"] == _d8(1, 3))
     check("G2 check_silos: totals count files and quality entries (undated entry included)",
-          _r["totals"] == {"raw": 3, "summary": 2, "source": 3, "quality_days": 4})
+          _r["totals"] == {"raw": 3, "summary": 2, "source": 3, "aggregates": 0, "quality_days": 4})
     check("G2 check_silos: counts are the lengths of the four lists",
           _r["counts"] == {"raw_without_quality": 1, "source_without_raw": 1,
                            "summary_without_raw": 1, "raw_without_summary": 2})
@@ -344,5 +344,46 @@ with _iso_env("sc2_quality") as _b:
         _res, _c = _sc_logged(silo_check._collect_quality_dates)
     check("G2 _collect_quality_dates: unreadable file (OSError) -> (empty set, 0) and a warning",
           _res == (set(), 0) and any(lv == "warning" and "denied" in m for lv, m in _c))
+
+# -- export data (aggregates, v1.7.6.1): a day with export data is neither an orphan nor fine without a summary ----
+with _iso_env("sc3_aggregates") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    for _dir in (cfg.RAW_DIR, cfg.SUMMARY_DIR, cfg.BULK_AGG_DIR):
+        _dir.mkdir(parents=True, exist_ok=True)
+    check("G3 _collect_aggregate_dates: an empty folder -> empty set", silo_check._collect_aggregate_dates() == set())
+    for _n in (1, 2, 3):
+        (cfg.RAW_DIR / f"garmin_raw_2025-08-0{_n}.json").write_text("{}", encoding="utf-8")
+    for _n in (2, 4, 5, 6):
+        (cfg.SUMMARY_DIR / f"garmin_2025-08-0{_n}.json").write_text("{}", encoding="utf-8")
+    for _n in (3, 4, 6, 7):
+        (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}2025-08-0{_n}.json").write_text("{}", encoding="utf-8")
+    for _junk in (f"{cfg.BULK_AGG_FILE_PREFIX}junk.json", f"{cfg.BULK_AGG_FILE_PREFIX}2025-08-09.json.tmp",
+                  f"{cfg.BULK_FILE_PREFIX}2025-08-08.json", "2025-08-08.json", "notes.txt"):
+        (cfg.BULK_AGG_DIR / _junk).write_text("{}", encoding="utf-8")
+    _files_before = sorted(str(f) for f in _b.rglob("*") if f.is_file())
+    check("G3 _collect_aggregate_dates: the dates of the aggregates files by name; junk, a temporary file, an intraday file name and other files are no days",
+          silo_check._collect_aggregate_dates() == {_date(2025, 8, n) for n in (3, 4, 6, 7)})
+    _r = silo_check.check_silos()
+    _d8 = lambda *ns: [_date(2025, 8, n) for n in ns]          # noqa: E731
+    check("G3 check_silos: a summary of a day with export data is no orphan (#5 = summary minus raw minus export data)",
+          _r["summary_without_raw"] == _d8(5))
+    check("G3 check_silos: a day with export data and no summary is a finding #7, together with raw without summary",
+          _r["raw_without_summary"] == _d8(1, 3, 7))
+    check("G3 check_silos: a day with raw and export data and a summary is no finding at all (day 6 and 4 appear nowhere)",
+          all(_date(2025, 8, n) not in _r["summary_without_raw"] + _r["raw_without_summary"] for n in (2, 4, 6)))
+    check("G3 check_silos: totals count the aggregates files, the counts are the lengths of the four lists",
+          _r["totals"] == {"raw": 3, "summary": 4, "source": 0, "aggregates": 4, "quality_days": 0}
+          and _r["counts"] == {"raw_without_quality": 3, "source_without_raw": 0, "summary_without_raw": 1, "raw_without_summary": 3})
+    check("G3 check_silos: the check only looks, no file is created, changed or removed",
+          sorted(str(f) for f in _b.rglob("*") if f.is_file()) == _files_before)
+
+with _iso_env("sc3_no_folder") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+    (cfg.SUMMARY_DIR / "garmin_2025-08-05.json").write_text("{}", encoding="utf-8")
+    _r = silo_check.check_silos()
+    check("G3 check_silos: without an aggregates folder nothing changes: the summary is an orphan, nothing is created",
+          _r["summary_without_raw"] == [_date(2025, 8, 5)] and _r["totals"]["aggregates"] == 0 and not cfg.BULK_AGG_DIR.exists())
+
 
 summary()

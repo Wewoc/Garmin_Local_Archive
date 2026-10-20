@@ -147,7 +147,7 @@ directory.
 | `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` |
 | `garmin_backup_source.py` | `garmin_data/backup/source/` |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` |
-| `garmin_bulk_writer.py` | `garmin_data/bulk/raw/` and `garmin_data/bulk/source/` |
+| `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` and `garmin_data/bulk/source/` |
 | `garmin_mirror.py` → `garmin_container.py` | `mirror.gla` |
 | `context_writer.py` | `context_data/` |
 
@@ -258,30 +258,30 @@ garmin_quality.py       — _upsert_quality() + _save_quality_log()
                           atomic resume point: every day is its own checkpoint
 ```
 
-### Bulk import path (GDPR export)
+### Bulk import path — daily values (JSON files of the GDPR export, v1.7.6.1)
 
 ```
 Garmin GDPR export ZIP / folder
       │
       ▼
-garmin_import.py       — load_bulk(): iterator over days, parse_day()
+garmin_import.py       — load_bulk_with_entries(): one day at a time, parse_day();
+      │                  the bytes of every JSON file go to a hook (hash, original)
+      ▼
+garmin_validator.py    — validate(): critical → the day is rejected
       │
       ▼
-garmin_validator.py    — validate() (identical to the API path)
+garmin_quality.py      — assess_quality(): "failed" (too little data) → rejected, left to the API
       │
       ▼
-garmin_normalizer.py   — normalize(raw, source="bulk")
-      │                  special case: remaps HR aggregates from user_summary → heart_rates
-      │                  the JSON import carries no intraday series → quality is always standard/failed, never high
+garmin_bulk_writer.py  — write_aggregates(), store_original_json()
+      │                  → garmin_data/bulk/aggregates, bulk/source
       ▼
-garmin_quality.py      — assess_quality(), assess_quality_fields()
-      │
-      ▼
-garmin_writer.py       — write_day() — identical format to API data
-      │
-      ▼
-garmin_quality.py      — source="bulk" recorded in the quality log entry
+garmin_collector._finish_aggregates() — under QUALITY_LOCK, one save:
+                         garmin_writer.rebuild_summary() → summary/ (API data first, the export fills)
+                         quality-log entry for an export-only day (source "bulk", write false), marks
 ```
+
+`garmin_bulk_json_import.run_aggregates_import()` orchestrates the first four steps; `garmin_collector._run_bulk_import()` starts it as the "json" phase, before the intraday phase. Nothing from this path is written to `raw/` or `source/`: `raw/` holds only what the API delivered. A day that is rejected is reported and is no failure of the run. Before v1.7.6.1 this phase wrote the days into `raw/` through `run_import()`; that function stays in the collector but the import dialog no longer starts it.
 
 ### Bulk import path — heart-rate series (FIT files of the GDPR export, v1.7.6)
 
@@ -305,7 +305,7 @@ garmin_collector._mark_bulk_days() → garmin_quality.record_bulk_intraday()
                               — entry["bulk"]["intraday"] and last_checked (the MCP cache re-reads the day)
 ```
 
-`garmin_bulk_import.run_intraday_import()` orchestrates the four modules; `garmin_collector._run_bulk_import()` starts it after the JSON phase (the day windows come from `raw/stats`). The store is read by the broker as a second track for `heart_rate_series` (`REFERENCE_BROKER.md`). Nothing from this path is written to `raw/`, `source/` or `summary/`.
+`garmin_bulk_import.run_intraday_import()` orchestrates the four modules; `garmin_collector._run_bulk_import()` starts it after the JSON phase (the day windows come from `raw/stats`, or for a day without a usable one from the window the JSON phase stored in `bulk/aggregates`). The store is read by the broker as a second track for `heart_rate_series` (`REFERENCE_BROKER.md`). Nothing from this path is written to `raw/`, `source/` or `summary/`.
 
 ### Self-healing loop
 
@@ -388,14 +388,14 @@ before it by a real transformation — not a copy:
 |---|---|---|
 | `source/` | Unmodified raw API response, written before any pipeline processing | Nothing — this is the ground truth |
 | `raw/` | Canonical, normalized form (`garmin_normalizer.normalize()`) — guarantees a consistent shape (e.g. a `date` field) regardless of which path (API or bulk import) produced it | `source/`, via `normalize()` |
-| `summary/` | Compact, derived daily values (`summarize()`) | `raw/`, via `summarize()` |
+| `summary/` | Compact, derived daily values (`summarize()`) | `raw/`, via `summarize()`; since v1.7.6.1 for a day with export data resolved from `raw/` and the day's aggregates in the bulk store (API data first, the export fills what is missing) |
 
 Reconstruction only ever flows forward through this chain: a lost
-`summary/` file is rebuilt from `raw/`; a lost `raw/` file can be rebuilt
+`summary/` file is rebuilt from `raw/` (and, for a day with export data, the bulk store's aggregates); a lost `raw/` file can be rebuilt
 from `source/` by replaying it through `normalize()` again — never the
 other way around.
 
-**Bulk store (v1.7.6):** `garmin_data/bulk/` is a separate store beside these three silos, not a fourth step of the chain. Its source is the Garmin export (one JSON file per local day, the export's FIT files kept by SHA-256), not the API; nothing in `source/`, `raw/` or `summary/` is derived from it, and it is not rebuilt from them. Its only writer is `garmin_bulk_writer.py`. It is not yet part of backup, mirror or silo check (v1.7.6.2).
+**Bulk store (v1.7.6, extended v1.7.6.1):** `garmin_data/bulk/` is a separate store beside these three silos, not a fourth step of the chain. Its source is the Garmin export, not the API: the heart-rate series (one JSON file per local day in `bulk/raw`), the daily values (one JSON file per local day in `bulk/aggregates`) and the export's own files kept by SHA-256 in `bulk/source`. `source/` and `raw/` are never derived from it and it is not rebuilt from them; `raw/` holds only API data. The one place where the two meet is `summary/`, which is resolved from both (the API data win). Its only writer is `garmin_bulk_writer.py`. It is not yet part of backup and mirror (v1.7.6.2); the silo check looks at the file names in `bulk/aggregates`.
 
 Conservative guard for `source/` — "freeze-when-present":
 
@@ -413,8 +413,10 @@ Read-only drift detection. Recognizes four inconsistency categories:
 
 - `raw_without_quality` — a raw file with no quality-log entry
 - `source_without_raw` — a source file with no matching raw file
-- `summary_without_raw` — a summary with no raw file
-- `raw_without_summary` — a raw file with no summary
+- `summary_without_raw` — a summary with no raw file and no export data
+- `raw_without_summary` — a raw file, or export data (a file in `bulk/aggregates`), with no summary
+
+A day with an aggregates file is *export data* (v1.7.6.1): it may have no raw file at all, so its summary is no orphan and, if missing, is rebuilt from the aggregates.
 
 **No repair inside the silo check itself** — pure detection. Repair runs
 through `garmin_silo_repair.py` (`repair_silos()`, headless-callable, not
@@ -647,7 +649,7 @@ network or GUI required except where noted:
 | Suite | Scope |
 |---|---|
 | `test_local.py` | Garmin pipeline, cross-module checks (determinism, invariants, robustness, end-to-end) |
-| `test_<module>.py` (18 files) | Garmin pipeline, one file per module of `garmin/` (`test_normalizer`, `test_validator`, `test_writer`, `test_quality`, `test_backup`, `test_container_mirror`, `test_collector`, `test_api`, ...); shared setup in `tests/gla_testenv.py` |
+| `test_<module>.py` | Garmin pipeline, one file per module of `garmin/` (`test_normalizer`, `test_validator`, `test_writer`, `test_quality`, `test_backup`, `test_container_mirror`, `test_collector`, `test_api`, ...); shared setup in `tests/gla_testenv.py` |
 | `test_local_context.py` | Context pipeline (external APIs mocked) |
 | `test_dashboard.py` | Dashboard pipeline (maps, specialists, plotters) |
 | `test_broker.py` | Broker layer (`health_map`/`gateway_map` routing, `metadata_map`) |
@@ -695,16 +697,19 @@ dependency picture of the modules the change will touch.
 
 ```
 1. Load project context relevant to the session's stated goal.
-2. Dependency scan: a pattern- and AI-assisted scanner runs against the
-   codebase for the constants/modules the session is expected to touch,
-   producing a report of matches that plausibly need attention.
-   Obvious misclassifications are filtered before anything is treated
-   as confirmed.
-3. Scope snapshot: from the confirmed matches, a symbol map (function/
-   method signatures, constants, class attributes) is generated for
-   every file the change might touch — not a substitute for reading the
-   target file before writing an anchor, but a reduction in the risk of
-   wrong cross-file assumptions about files that aren't directly edited.
+2. Dependency check: with direct file access, a repo-wide search for
+   every reference to each symbol the change touches (function, constant,
+   class attribute, label set); the result (files and places) is named
+   before the build order is issued. Where the AI has no file access and
+   sees only what is pasted, a pattern- and AI-assisted scanner runs
+   against the codebase instead and produces a report of matches that
+   plausibly need attention; obvious misclassifications are filtered
+   before anything is treated as confirmed.
+3. Scope: the target file is read before any edit or anchor — never from
+   memory, even if it looks familiar. Where the AI has no file access, a
+   symbol map (function/method signatures, constants, class attributes)
+   is generated for every file the change might touch, to reduce the risk
+   of wrong cross-file assumptions about files that aren't directly edited.
 4. Cross-reference check: the affected sections of the reference and
    maintenance documentation are checked against the confirmed scope.
 5. Only after steps 1–4: the build order is issued.
@@ -722,9 +727,11 @@ because a model raised it.
 ### After a build order
 
 ```
-Anchor delivered → applied → tests run → documentation updated
-(changelog, roadmap, affected reference/maintenance sections, README)
-→ lint clean → next session's starting context prepared
+Change made (anchor written from the actual file state, or delivered and
+applied) → tests run → protocol section written (reason, findings, checks,
+limits) → documentation updated (changelog, roadmap, affected
+reference/maintenance sections, README) → lint clean → next session's
+starting context prepared
 ```
 
 ### Tooling
@@ -747,47 +754,72 @@ projects. Diagnostic tooling for deeper runtime-behavior verification
 
 ## 16. Anchor delivery format
 
-Changes to existing files are delivered as a precise, parseable diff
-format that both a human and a tool can apply mechanically — the AI never
-touches the filesystem directly.
+Changes to existing files are recorded as a precise, parseable block that
+both a human and a tool (`apply_anchors.py`) can apply mechanically. The
+anchor holds the change and nothing else; reasons, findings and checks live
+in a separate protocol file (see "Anchor and protocol" below).
 
 ### Format
 
-```markdown
+```text
 ## FILE: path/to/file.py
 
-### OLD
-```python
-# exact code as it currently stands in the file
-```
-
-### NEW
-```python
-# replacement code
-```
+### ALT
+<<<ALT>>>
+exact text as it currently stands in the file (whole lines, found exactly once)
+<<<ALT_END>>>
+### NEU
+<<<NEU>>>
+replacement text
+<<<NEU_END>>>
 ```
 
 **Rules:**
 
-- `OLD`/`NEW` labels sit outside the code fences, as plain text
-- Code fences are mandatory — a missing fence is a parser error
-- Multiple anchors per file are allowed, each as its own `OLD`/`NEW` pair
-- Deletion: the `NEW` block contains only `#DELETE`
-- **The target file is always read before an anchor is written** — never reconstructed from memory
+- The four marker lines each stand on a line of their own (sentinels, no
+  code fences); outside the blocks there is no text
+- Paths are relative to the project root and the file must exist; an anchor
+  cannot create a file — a new file is listed in the protocol with path and purpose
+- `ALT` occurs in the target exactly once (compared without line ends and
+  trailing spaces), as whole lines, with no blank line at its edge; a
+  too-short anchor gets neighbouring lines until it is unique
+- Several `ALT`/`NEU` pairs per file are allowed in one `## FILE:` section;
+  their `ALT` areas must not overlap
+- `NEU` replaces `ALT` completely; insertion: `ALT` = anchor lines, `NEU` =
+  `ALT` plus the new text; deletion: `NEU` contains only `#DELETE` (an empty
+  `NEU` is an error)
+- Idempotent: if `NEU` already stands in the file, the anchor counts as applied
+- Text that itself contains the markers, or `## FILE:`, `### ALT`, `### NEU`
+  at the start of a line, cannot be delivered as an anchor (the parser would
+  cut it off); such a change is described in the protocol instead
+- **The target file is always read before an anchor is written** — never
+  reconstructed from memory. When the AI edits the file directly, the anchor
+  is written afterwards from the actual state (`ALT` = before, `NEU` = after)
+  and checked read-only against the parser (every anchor parses, every `NEU`
+  is found in the target)
 - `garmin_app_standalone.py` is always written out explicitly, never treated as identical to `garmin_app.py`
-- Full-file delivery only above a significant change threshold or on explicit request
 
 ### Applying anchors
 
 A two-pass parser applies these mechanically:
 
-1. **Pass 1 — Locate:** find every `OLD` block in every referenced file
-2. **Pass 2 — Write:** apply every `NEW` block
+1. **Pass 1 — Locate:** find every `ALT` block in every referenced file and
+   collect all errors (`NOT FOUND`, `AMBIGUOUS`, overlap)
+2. **Pass 2 — Write:** only if pass 1 is clean, apply every `NEU` block
 
-Overlap detection catches `OLD` blocks that overlap each other — a
+Overlap detection catches `ALT` blocks that overlap each other — a
 reliable signal that the anchor itself has a bug. The parser tool itself
 is always delivered as a complete file, never as an anchor delivery
 against itself.
+
+### Anchor and protocol
+
+Two records with separate jobs and no duplication. The **anchor** answers
+*which file changed how* and exists only when a file changed. The
+**protocol** (`PROTOKOLL.md`, append-only, one dated section per step)
+answers everything else: the reason, the assessment and options, findings
+with their root cause, the checks that were run (tests, counter-tests),
+known limits, and new files. Git commit messages stay a third, one-sentence level.
 
 ---
 
@@ -824,13 +856,14 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_normalizer.py` | Canonical schema + `summarize()`. Schema version documented in `REFERENCE_GARMIN.md` | No |
 | `garmin_quality.py` | Facade: quality assessment, sole owner of `quality_log.json` | No |
 | `garmin_sync.py` | Determines missing days | No |
-| `garmin_writer.py` | Sole owner of `raw/` + `summary/` | No |
+| `garmin_writer.py` | Sole owner of `raw/` + `summary/`; resolves the summary of a day with export data (v1.7.6.1) | No |
 | `garmin_import.py` | GDPR export importer | No |
 | `garmin_bulk_fit_reader.py` | FIT bytes → messages (v1.7.6) | **Yes** |
 | `garmin_bulk_export_scanner.py` | Finds the FIT files in a Garmin export (v1.7.6) | **Yes** |
 | `garmin_bulk_normalizer.py` | Day boundaries and samples per day (v1.7.6) | **Yes** |
-| `garmin_bulk_writer.py` | Sole owner of `garmin_data/bulk/` (v1.7.6) | No |
+| `garmin_bulk_writer.py` | Sole owner of `garmin_data/bulk/` — series, daily values and originals (v1.7.6, aggregates v1.7.6.1) | No |
 | `garmin_bulk_import.py` | Intraday phase of the export import — orchestrates the four modules above, writes only through `garmin_bulk_writer` (v1.7.6) | No |
+| `garmin_bulk_json_import.py` | Daily-values phase of the export import — orchestrates `garmin_import`, `garmin_validator`, `garmin_quality` and `garmin_bulk_writer`, writes only through `garmin_bulk_writer` (v1.7.6.1) | No |
 | `garmin_source_writer.py` | Sole owner of `source/` + `source_api_log.json` — writes files, calls `garmin_source_quality` for the guard decision | No |
 | `garmin_source_quality.py` | Sole owner of the **assessment logic** (not the files) — no write access, called by `garmin_source_writer` | **Yes** |
 | `garmin_silo_check.py` | Read-only drift detection | **Yes** |

@@ -434,4 +434,65 @@ with _isolated_log_env("rr_shared") as _b:
     check("shared quality log: an entry that was not repaired stays as it was",
           [e for e in _shared["days"] if e["date"] == "2025-08-09"][0] == _other_before)
 
+# ══════════════════════════════════════════════════════════════════
+#  10. Days with export data (v1.7.6.1, Baustein 6b-4) — write_day resolves the summary
+# ══════════════════════════════════════════════════════════════════
+# A day that has an aggregates file gets its summary resolved by write_day: the data of raw/ win per top-level key, the export
+# fills what raw/ does not have. raw/ keeps exactly the corrected data of the day — none of the export's sections.
+import garmin_bulk_writer as _bw10
+
+_HASH10 = "ab" * 32
+_AGG10 = {"user_summary": {"totalSteps": 7000}, "stress": {"averageStressLevel": 25, "maxStressLevel": 70}}
+
+
+def _agg10(d):
+    assert _bw10.write_aggregates(d, {"date": d, **_AGG10}, [_HASH10]) == _bw10.WRITTEN
+
+
+with _isolated_log_env("rr_agg") as _b:
+    _G = ["2025-09-01", "2025-09-02"]                                    # _G[0] has export data, _G[1] has none
+    _setup(_b, {d: _imp_raw(d, 60) for d in _G}, {d: _src(d, 57, 60) for d in _G})
+    _agg10(_G[0])
+    _r = rr.repair_resting_hr()
+    check("export data: both days are corrected, none failed", (_r["ok"], _r["failed"]) == (2, 0))
+    check("export data: raw/ holds the corrected resting heart rate in both places and the marker, and none of the export's sections",
+          _load_raw(_G[0])["heart_rates"]["restingHeartRate"] == 57 and _load_raw(_G[0])["user_summary"]["restingHeartRate"] == 57
+          and _load_raw(_G[0])["user_summary"][_SEVEN] == 60 and "stress" not in _load_raw(_G[0])
+          and _load_raw(_G[0])["user_summary"]["totalSteps"] == 8000)
+    check("export data: the summary has the corrected resting heart rate (57), the day's own steps win (8000, not the export's 7000) and the export "
+          "fills the stress (25)",
+          _load_sum(_G[0])["heartrate"]["resting_bpm"] == 57 and _load_sum(_G[0])["day"]["steps"] == 8000
+          and _load_sum(_G[0])["stress"]["stress_avg"] == 25)
+    check("export data: the day without export data is as before (corrected resting heart rate, no stress)",
+          _load_sum(_G[1])["heartrate"]["resting_bpm"] == 57 and _load_sum(_G[1])["stress"]["stress_avg"] is None)
+    _after10 = {d: _raw_path(d).read_bytes() for d in _G}
+    _r_again = rr.repair_resting_hr()
+    check("export data: a second run finds nothing, no raw file changes",
+          (_r_again["ok"], _r_again["failed"], _r_again["items"]) == (0, 0, []) and all(_raw_path(d).read_bytes() == _after10[d] for d in _G))
+
+with _isolated_log_env("rr_agg_unreadable") as _b:
+    _U = ["2025-09-03", "2025-09-04"]
+    _setup(_b, {d: _imp_raw(d, 60) for d in _U}, {d: _src(d, 57, 60) for d in _U})
+    _agg10(_U[0])                                                         # only _U[0] has export data (an unreadable file)
+    _bytes10 = _raw_path(_U[0]).read_bytes()
+    _real_load10 = _bw10.load_aggregates
+    _rec = _Rec()
+    with patch("garmin_bulk_writer.load_aggregates",
+               side_effect=lambda d: ("unreadable", None) if d == _U[0] else _real_load10(d)), patch.object(rr, "log", _rec):
+        _r = rr.repair_resting_hr()
+    check("export data not readable: the day is one failed day with a reason, the other day is corrected",
+          (_r["ok"], _r["failed"]) == (1, 1)
+          and [(i["date"], i["status"]) for i in _r["items"]] == [(_U[0], "error"), (_U[1], "repaired")] and _r["items"][0]["reason"])
+    check("export data not readable: nothing is written for that day — raw/ is byte-identical, no summary, and it stays in the import form",
+          _raw_path(_U[0]).read_bytes() == _bytes10 and not (cfg.SUMMARY_DIR / f"garmin_{_U[0]}.json").exists()
+          and rr.find_candidates()["repairable"] == [_U[0]])
+    check("export data not readable: only the corrected day is marked in the quality log, the failed one is not",
+          _qdays()[_U[1]]["last_checked"] == _TODAY and _qdays()[_U[0]]["last_checked"] == "2024-01-01")
+    check("export data not readable: the failure is logged as an error line for the day",
+          any(_U[0] in m and "error" in m for m in _rec.m["error"]))
+    _r_next = rr.repair_resting_hr()
+    check("export data not readable: once the file can be read again the next run corrects the day",
+          (_r_next["ok"], _r_next["failed"]) == (1, 0) and _load_raw(_U[0])["user_summary"][_SEVEN] == 60
+          and _load_sum(_U[0])["stress"]["stress_avg"] == 25)
+
 summary()

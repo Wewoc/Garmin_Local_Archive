@@ -405,6 +405,235 @@ with _iso_env3("sr3_summary") as _b:
           (_r["ok"], _r["failed"]) == (1, 1) and _r["items"][0]["status"] == "error"
           and _r["items"][0]["reason"] and _r["items"][1]["status"] == "repaired")
 
+# -- #7 with export data (v1.7.6.1): a day without a raw file but with aggregates gets its summary from there ----------
+import garmin_bulk_writer as _bw7
+import garmin_normalizer as _nz7
+_H7 = "cd" * 32
+_A7 = lambda d: {"date": d, "user_summary": {"totalSteps": 7000, "restingHeartRate": 54}, "stress": {"averageStressLevel": 25, "maxStressLevel": 70}}   # noqa: E731
+with _iso_env3("sr3_agg7") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    for _d in ("2025-10-01", "2025-10-02", "2025-10-04"):
+        assert _bw7.write_aggregates(_d, _A7(_d), [_H7]) == _bw7.WRITTEN
+    _put3(cfg.RAW_DIR / "garmin_raw_2025-10-02.json", {"date": "2025-10-02", "user_summary": {"totalSteps": 100}})
+    _r = silo_repair.repair_silos({**_E3, "raw_without_summary": [_dt3("2025-10-01"), _dt3("2025-10-02"), _dt3("2025-10-03")]})
+    check("I3 #7 export data: a day without raw but with export data is repaired (summary only), a day with raw and export data too, a day with neither is gone",
+          _r["items"] == [{"category": "7", "date": "2025-10-01", "status": "repaired"},
+                          {"category": "7", "date": "2025-10-02", "status": "repaired"},
+                          {"category": "7", "date": "2025-10-03", "status": "gone"}]
+          and (_r["ok"], _r["failed"]) == (2, 0))
+    _s1 = json.loads((cfg.SUMMARY_DIR / "garmin_2025-10-01.json").read_text(encoding="utf-8"))
+    check("I3 #7 export data: the summary of the day without raw comes from the export data and no raw file is created",
+          _s1 == _nz7.summarize(_nz7.normalize(_A7("2025-10-01"), source="bulk")) and not (cfg.RAW_DIR / "garmin_raw_2025-10-01.json").exists())
+    _s2 = json.loads((cfg.SUMMARY_DIR / "garmin_2025-10-02.json").read_text(encoding="utf-8"))
+    check("I3 #7 export data: raw and export data are resolved: the API value wins (100 steps), the export fills the rest (stress 25)",
+          _s2["day"]["steps"] == 100 and _s2["stress"]["stress_avg"] == 25)
+    check("I3 #7 export data: nothing for the day with neither was created", not (cfg.SUMMARY_DIR / "garmin_2025-10-03.json").exists())
+    # export data that cannot be used: one error with a reason, the next day is still repaired
+    (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}2025-10-05.json").write_text("{ not json", encoding="utf-8")
+    _r = silo_repair.repair_silos({**_E3, "raw_without_summary": [_dt3("2025-10-05"), _dt3("2025-10-04")]})
+    check("I3 #7 export data: a damaged aggregates file and no raw is one error with a reason, the next day is still repaired",
+          (_r["ok"], _r["failed"]) == (1, 1) and _r["items"][0]["status"] == "error" and _r["items"][0]["date"] == "2025-10-05"
+          and _r["items"][0]["reason"] and _r["items"][1]["status"] == "repaired")
+    # the whole round: check -> repair -> check finds nothing more (no flip-flopping between #5 and #7)
+    import garmin_silo_check as _sc7
+    _put3(cfg.SUMMARY_DIR / "garmin_2025-10-08.json", {"date": "2025-10-08"})          # a real orphan
+    _first = _sc7.check_silos()
+    _rep = silo_repair.repair_silos(_first)
+    _second = _sc7.check_silos()
+    check("I3 #7 export data: check, repair, check: the second check finds nothing more except what cannot be repaired, and the day with export data keeps its summary",
+          (cfg.SUMMARY_DIR / "garmin_2025-10-04.json").exists() and (cfg.SUMMARY_DIR / "garmin_2025-10-01.json").exists()
+          and not (cfg.SUMMARY_DIR / "garmin_2025-10-08.json").exists()
+          and _second["summary_without_raw"] == [] and _second["raw_without_summary"] == [_dt3("2025-10-05")])
+
+# -- F-4 (v1.7.6.1): a write that did not happen is an error, not "repaired" ------------------------------------------------
+section("I4. garmin_silo_repair — a failed write is an error (F-4)")
+_real_wd = silo_repair.writer.write_day
+
+
+def _wd_false_on(day):
+    return lambda n, s, d: False if d == day else _real_wd(n, s, d)
+
+
+with _iso_env3("sr4_3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-11-01.json", _hr3("2025-11-01"))
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-11-02.json", _hr3("2025-11-02"))
+    with patch.object(silo_repair.writer, "write_day", side_effect=_wd_false_on("2025-11-01")):
+        _r = silo_repair.repair_silos({**_E3, "source_without_raw": [_dt3("2025-11-01"), _dt3("2025-11-02")]})
+    check("I4 #3: a write_day that returns False is one error with a reason, the next day is still repaired",
+          (_r["ok"], _r["failed"]) == (1, 1) and _r["items"][0]["status"] == "error" and _r["items"][0]["date"] == "2025-11-01"
+          and "could not be written" in _r["items"][0]["reason"] and _r["items"][1]["status"] == "repaired")
+    _e4 = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("I4 #3: the day that was not written has no quality-log entry and no raw file; the repaired day is recorded as written",
+          "2025-11-01" not in _e4 and not (cfg.RAW_DIR / "garmin_raw_2025-11-01.json").exists()
+          and _e4["2025-11-02"].get("write") is True)
+
+with _iso_env3("sr4_3agg") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-11-03.json", _hr3("2025-11-03"))
+    with patch("garmin_bulk_writer.load_aggregates", return_value=("unreadable", None)):
+        _r = silo_repair.repair_silos({**_E3, "source_without_raw": [_dt3("2025-11-03")]})
+    check("I4 #3: an aggregates file of the day that cannot be read (write_day refuses) is an error, nothing is written, no entry",
+          (_r["ok"], _r["failed"]) == (0, 1) and _r["items"][0]["status"] == "error"
+          and not (cfg.RAW_DIR / "garmin_raw_2025-11-03.json").exists()
+          and not (cfg.SUMMARY_DIR / "garmin_2025-11-03.json").exists()
+          and all(e["date"] != "2025-11-03" for e in quality._load_quality_log()["days"]))
+
+with _iso_env3("sr4_7") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.RAW_DIR / "garmin_raw_2025-11-04.json", _hr3("2025-11-04"))
+    _put3(cfg.RAW_DIR / "garmin_raw_2025-11-05.json", _hr3("2025-11-05"))
+    with patch.object(silo_repair.writer, "write_day", side_effect=_wd_false_on("2025-11-04")):
+        _r = silo_repair.repair_silos({**_E3, "raw_without_summary": [_dt3("2025-11-04"), _dt3("2025-11-05")]})
+    check("I4 #7: a write_day that returns False is one error with a reason, the next day is still repaired",
+          (_r["ok"], _r["failed"]) == (1, 1) and _r["items"][0]["status"] == "error" and _r["items"][0]["date"] == "2025-11-04"
+          and "could not be written" in _r["items"][0]["reason"] and _r["items"][1]["status"] == "repaired"
+          and not (cfg.SUMMARY_DIR / "garmin_2025-11-04.json").exists() and (cfg.SUMMARY_DIR / "garmin_2025-11-05.json").exists())
+
+with _iso_env3("sr4_7agg") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.RAW_DIR / "garmin_raw_2025-11-06.json", _hr3("2025-11-06"))
+    _raw_bytes = (cfg.RAW_DIR / "garmin_raw_2025-11-06.json").read_bytes()
+    with patch("garmin_bulk_writer.load_aggregates", return_value=("unreadable", None)):
+        _r = silo_repair.repair_silos({**_E3, "raw_without_summary": [_dt3("2025-11-06")]})
+    check("I4 #7: an aggregates file that cannot be read is an error: no summary, the raw file is as it was",
+          (_r["ok"], _r["failed"]) == (0, 1) and _r["items"][0]["status"] == "error"
+          and not (cfg.SUMMARY_DIR / "garmin_2025-11-06.json").exists()
+          and (cfg.RAW_DIR / "garmin_raw_2025-11-06.json").read_bytes() == _raw_bytes)
+
+# -- regenerate_raw.py (support tool, no test before; F-4 v1.7.6.1) ----------------------------------------------------------
+section("I5. regenerate_raw.py — replay from source/, the result of write_day counts")
+import contextlib
+import importlib.util
+import io
+import sys as _sys
+
+_RR_PATH = Path(__file__).resolve().parent.parent / "support-tools" / "archive-maintenance" / "regenerate_raw.py"
+_rr_spec = importlib.util.spec_from_file_location("regenerate_raw_under_test", _RR_PATH)
+regen = importlib.util.module_from_spec(_rr_spec)
+_rr_spec.loader.exec_module(regen)
+
+
+def _regen(*args):
+    """main() of the tool with the given arguments: (exit code or None, printed text)."""
+    out, code = io.StringIO(), None
+    with patch.object(_sys, "argv", ["regenerate_raw.py", *args]), contextlib.redirect_stdout(out):
+        try:
+            regen.main()
+        except SystemExit as e:
+            code = e.code
+    return code, out.getvalue()
+
+
+with _iso_env3("sr5_ok") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-12-01.json", _hr3("2025-12-01"))
+    _bw7.write_aggregates("2025-12-01", _A7("2025-12-01"), [_H7])
+    _code, _txt = _regen("--dry-run")
+    check("I5 dry run: says what it would do and writes nothing (no raw, no summary, no log entry)",
+          _code is None and "would write (high) [new]" in _txt and "Dry run complete. 1 would be processed" in _txt
+          and not (cfg.RAW_DIR / "garmin_raw_2025-12-01.json").exists() and not (cfg.SUMMARY_DIR / "garmin_2025-12-01.json").exists())
+    _code, _txt = _regen("--date", "2025-12-01")
+    _s5 = json.loads((cfg.SUMMARY_DIR / "garmin_2025-12-01.json").read_text(encoding="utf-8"))
+    _raw5 = json.loads((cfg.RAW_DIR / "garmin_raw_2025-12-01.json").read_text(encoding="utf-8"))
+    check("I5 a day: regenerated (printed, counted), the summary is the resolved one (export steps 7000 and stress 25), raw/ holds only the API data",
+          _code is None and "✓ 2025-12-01 (high)" in _txt and "Done. 1 regenerated, 0 downgrade-protected, 0 errors." in _txt
+          and _s5["day"]["steps"] == 7000 and _s5["stress"]["stress_avg"] == 25 and "user_summary" not in _raw5 and "stress" not in _raw5)
+    _e5 = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("I5 a day: the quality log has an entry from the replay, written", _e5["2025-12-01"]["reason"].endswith("source replay")
+          and _e5["2025-12-01"].get("write") is True)
+
+with _iso_env3("sr5_fail") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-12-02.json", _hr3("2025-12-02"))
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-12-03.json", _hr3("2025-12-03"))
+    with patch.object(regen.writer, "write_day", side_effect=lambda n, s, d: False if d == "2025-12-02" else _real_wd(n, s, d)):
+        _code, _txt = _regen()
+    _e5 = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("I5 write_day returns False: the day is an error (printed, counted), the next day is still regenerated, the failed day has no log entry",
+          "✗ 2025-12-02: write_day failed" in _txt and "✓ 2025-12-03 (high)" in _txt
+          and "Done. 1 regenerated, 0 downgrade-protected, 1 errors." in _txt
+          and "2025-12-02" not in _e5 and _e5["2025-12-03"].get("write") is True
+          and not (cfg.RAW_DIR / "garmin_raw_2025-12-02.json").exists())
+
+with _iso_env3("sr5_agg") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put3(cfg.SOURCE_DIR / "garmin_source_2025-12-04.json", _hr3("2025-12-04"))
+    with patch("garmin_bulk_writer.load_aggregates", return_value=("unreadable", None)):
+        _code, _txt = _regen()
+    check("I5 an aggregates file that cannot be read: an error, nothing written, no log entry",
+          "✗ 2025-12-04" in _txt and "1 errors" in _txt and not (cfg.RAW_DIR / "garmin_raw_2025-12-04.json").exists()
+          and all(e["date"] != "2025-12-04" for e in quality._load_quality_log()["days"]))
+
+# -- days with export data (v1.7.6.1, Baustein 6b-3): silo repair #3 and #7, regenerate_raw ----------------------------------
+# write_day resolves the summary of a day that has an aggregates file: the API data win per top-level key, the export fills the
+# rest; raw/ keeps exactly the API data. A day without an aggregates file is written as before.
+section("I6. silo repair #3/#7 and regenerate_raw — days with export data")
+_API999 = {"user_summary": {"totalSteps": 999}}
+
+
+def _sum6(day):
+    return json.loads((cfg.SUMMARY_DIR / f"garmin_{day}.json").read_text(encoding="utf-8"))
+
+
+def _raw6(day):
+    return json.loads((cfg.RAW_DIR / f"garmin_raw_{day}.json").read_text(encoding="utf-8"))
+
+
+with _iso_env3("sr6_3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _x1, _x2, _x3 = "2025-12-10", "2025-12-11", "2025-12-12"
+    for _d, _extra in ((_x1, _API999), (_x2, {}), (_x3, _API999)):
+        _put3(cfg.SOURCE_DIR / f"garmin_source_{_d}.json", {**_hr3(_d), **_extra})
+    for _d in (_x1, _x2):                                                       # _x3 has no export data
+        assert _bw7.write_aggregates(_d, _A7(_d), [_H7]) == _bw7.WRITTEN
+    _r = silo_repair.repair_silos({**_E3, "source_without_raw": [_dt3(_x1), _dt3(_x2), _dt3(_x3)]})
+    check("I6 #3: three days with and without export data are all repaired", (_r["ok"], _r["failed"]) == (3, 0)
+          and [i["status"] for i in _r["items"]] == ["repaired"] * 3)
+    check("I6 #3: a day with export data: the API's steps win (999), the export fills the stress (25); raw/ holds the API data only",
+          _sum6(_x1)["day"]["steps"] == 999 and _sum6(_x1)["stress"]["stress_avg"] == 25
+          and _raw6(_x1).get("user_summary") == {"totalSteps": 999} and "stress" not in _raw6(_x1) and "heart_rates" in _raw6(_x1))
+    check("I6 #3: a day whose source has no steps: the export's steps (7000) and stress (25) are in the summary, none of them in raw/",
+          _sum6(_x2)["day"]["steps"] == 7000 and _sum6(_x2)["stress"]["stress_avg"] == 25
+          and "user_summary" not in _raw6(_x2) and "stress" not in _raw6(_x2))
+    check("I6 #3: a day without export data is as before (the source's steps 999, no stress)",
+          _sum6(_x3)["day"]["steps"] == 999 and _sum6(_x3)["stress"]["stress_avg"] is None)
+    _e6 = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("I6 #3: all three days are recorded as written API days", all((_e6[d]["source"], _e6[d]["write"]) == ("api", True) for d in (_x1, _x2, _x3)))
+
+with _iso_env3("sr6_7") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _y1, _y2 = "2025-12-13", "2025-12-14"
+    _put3(cfg.RAW_DIR / f"garmin_raw_{_y1}.json", {**_hr3(_y1), **_API999})
+    _put3(cfg.RAW_DIR / f"garmin_raw_{_y2}.json", _hr3(_y2))
+    _raw_before = {d: _raw6(d) for d in (_y1, _y2)}
+    for _d in (_y1, _y2):
+        assert _bw7.write_aggregates(_d, _A7(_d), [_H7]) == _bw7.WRITTEN
+    _r = silo_repair.repair_silos({**_E3, "raw_without_summary": [_dt3(_y1), _dt3(_y2)]})
+    check("I6 #7: two raw days with export data are repaired", (_r["ok"], _r["failed"]) == (2, 0))
+    check("I6 #7: the API's steps win (999), the export fills the stress (25) and the steps of a day that has none (7000)",
+          _sum6(_y1)["day"]["steps"] == 999 and _sum6(_y1)["stress"]["stress_avg"] == 25
+          and _sum6(_y2)["day"]["steps"] == 7000 and _sum6(_y2)["stress"]["stress_avg"] == 25)
+    check("I6 #7: raw/ holds the same data as before, none of the export's sections", all(_raw6(d) == _raw_before[d] for d in (_y1, _y2)))
+
+with _iso_env3("sr6_regen") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _z1, _z2, _z3 = "2025-12-15", "2025-12-16", "2025-12-17"
+    for _d, _extra in ((_z1, _API999), (_z2, {}), (_z3, _API999)):
+        _put3(cfg.SOURCE_DIR / f"garmin_source_{_d}.json", {**_hr3(_d), **_extra})
+    for _d in (_z1, _z2):                                                       # _z3 has no export data
+        assert _bw7.write_aggregates(_d, _A7(_d), [_H7]) == _bw7.WRITTEN
+    _code, _txt = _regen()
+    check("I6 regenerate_raw: three days regenerated, no error", _code is None and "Done. 3 regenerated, 0 downgrade-protected, 0 errors." in _txt)
+    check("I6 regenerate_raw: a day with export data: the API's steps win (999), the export fills the stress (25); raw/ holds the API data only",
+          _sum6(_z1)["day"]["steps"] == 999 and _sum6(_z1)["stress"]["stress_avg"] == 25
+          and _raw6(_z1).get("user_summary") == {"totalSteps": 999} and "stress" not in _raw6(_z1))
+    check("I6 regenerate_raw: a day whose source has no steps gets the export's steps (7000) and stress (25) in the summary only",
+          _sum6(_z2)["day"]["steps"] == 7000 and _sum6(_z2)["stress"]["stress_avg"] == 25
+          and "user_summary" not in _raw6(_z2) and "stress" not in _raw6(_z2))
+    check("I6 regenerate_raw: a day without export data is as before (the source's steps 999, no stress)",
+          _sum6(_z3)["day"]["steps"] == 999 and _sum6(_z3)["stress"]["stress_avg"] is None)
+
 # ── Aufräumen I2 — isolierte Umgebung zurücksetzen ──────────────────────────
 os.environ["GARMIN_OUTPUT_DIR"] = _i2_orig_env
 importlib.reload(cfg)

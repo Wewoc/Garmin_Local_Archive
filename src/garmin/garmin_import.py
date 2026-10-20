@@ -26,6 +26,10 @@ Unterstützte Dateien im Export:
 
 Public interface:
     load_bulk(path)             → Iterator[dict]  — liefert pro Tag ein raw dict
+    load_bulk_with_entries(path, read_hook=None)
+                                → Iterator[(dict, dict)] — pro Tag das raw dict UND die Einträge,
+                                  aus denen es gebaut wurde; read_hook(name, bytes) wird für jede
+                                  gelesene JSON-Datei gerufen (v1.7.6.1, Bulk-Speicher)
     parse_day(entries, date_str) → dict           — baut einen Tag aus gesammelten Einträgen
 """
 
@@ -65,6 +69,25 @@ def load_bulk(path) -> Iterator[dict]:
     ------
     dict — raw dict mit "date" als YYYY-MM-DD und allen verfügbaren Feldern
     """
+    yield from _load(path, with_entries=False, read_hook=None)
+
+
+def load_bulk_with_entries(path, read_hook=None) -> Iterator[tuple]:
+    """
+    Wie load_bulk(), liefert aber pro Tag ein Paar (raw dict, Einträge): die Einträge sind das
+    Dict {"uds": ..., "sleep": ..., "readiness": ..., "activities": [...]}, aus dem parse_day()
+    den Tag gebaut hat (nur die Teile, die der Export für diesen Tag hat). Damit kann der
+    Aufrufer den Herkunftsnachweis je Eintrag bilden (v1.7.6.1, Bulk-Speicher).
+
+    read_hook : callable(name, data: bytes) | None — wird für jede JSON-Datei gerufen, bevor sie
+        geparst wird (zum Hashen und Aufheben der Originale). Der Hook darf nicht werfen: eine
+        Ausnahme beendet die Iteration wie jeder unerwartete Fehler (geloggt).
+    """
+    yield from _load(path, with_entries=True, read_hook=read_hook)
+
+
+def _load(path, with_entries: bool, read_hook) -> Iterator:
+    """Öffnet den Export (ZIP oder Ordner) und liefert die Tage — die Arbeit hinter load_bulk()."""
     path = Path(path)
     if not path.exists():
         log.error(f"  load_bulk: path not found: {path}")
@@ -72,9 +95,9 @@ def load_bulk(path) -> Iterator[dict]:
 
     try:
         if path.suffix.lower() == ".zip":
-            yield from _load_from_zip(path)
+            yield from _load_from_zip(path, with_entries, read_hook)
         elif path.is_dir():
-            yield from _load_from_dir(path)
+            yield from _load_from_dir(path, with_entries, read_hook)
         else:
             log.error(f"  load_bulk: unsupported path type: {path}")
     except Exception as e:
@@ -183,33 +206,36 @@ def parse_day(entries: dict, date_str: str) -> dict:
 #  Internal — ZIP loader
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _load_from_zip(zip_path: Path) -> Iterator[dict]:
-    """Reads a Garmin export ZIP and yields one raw dict per day."""
+def _load_from_zip(zip_path: Path, with_entries: bool = False, read_hook=None) -> Iterator:
+    """Reads a Garmin export ZIP and yields one raw dict per day (with_entries: (dict, entries))."""
     log.info(f"  load_bulk: reading ZIP {zip_path.name}")
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
             names = zf.namelist()
-            yield from _process_entries(names, reader=lambda n: _read_zip_json(zf, n))
+            yield from _process_entries(names, reader=lambda n: _read_zip_json(zf, n, read_hook),
+                                        with_entries=with_entries)
     except zipfile.BadZipFile as e:
         log.error(f"  load_bulk: bad ZIP file: {e}")
 
 
-def _load_from_dir(dir_path: Path) -> Iterator[dict]:
-    """Reads an unpacked Garmin export folder and yields one raw dict per day."""
+def _load_from_dir(dir_path: Path, with_entries: bool = False, read_hook=None) -> Iterator:
+    """Reads an unpacked Garmin export folder and yields one raw dict per day (with_entries: (dict, entries))."""
     log.info(f"  load_bulk: reading folder {dir_path.name}")
     # Normalize to forward slashes for consistent prefix matching
     names = [str(p.relative_to(dir_path)).replace("\\", "/") for p in dir_path.rglob("*.json")]
-    yield from _process_entries(names, reader=lambda n: _read_dir_json(dir_path, n))
+    yield from _process_entries(names, reader=lambda n: _read_dir_json(dir_path, n, read_hook),
+                                with_entries=with_entries)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal — entry processing
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _process_entries(names: list, reader) -> Iterator[dict]:
+def _process_entries(names: list, reader, with_entries: bool = False) -> Iterator:
     """
     Scans file list, reads relevant files, indexes by date, yields per day.
     reader: callable(name) → parsed JSON object or None
+    with_entries: yield (raw dict, entries of the day) instead of the raw dict alone
     """
     # Index: date_str → {"uds": ..., "sleep": ..., "readiness": ..., "activities": [...]}
     by_date: dict[str, dict] = {}
@@ -290,15 +316,29 @@ def _process_entries(names: list, reader) -> Iterator[dict]:
 
     # Yield one day at a time — sorted chronologically
     for date_str in sorted(by_date.keys()):
-        yield parse_day(by_date[date_str], date_str)
+        day = parse_day(by_date[date_str], date_str)
+        yield (day, by_date[date_str]) if with_entries else day
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Internal — file readers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _read_zip_json(zf: zipfile.ZipFile, name: str):
-    """Reads and parses a JSON file from an open ZipFile."""
+def _read_zip_json(zf: zipfile.ZipFile, name: str, hook=None):
+    """Reads and parses a JSON file from an open ZipFile. hook(name, bytes) gets the bytes first (v1.7.6.1)."""
+    if hook is not None:
+        try:
+            with zf.open(name) as f:
+                data = f.read()
+        except Exception as e:
+            log.warning(f"  load_bulk: could not read {name}: {e}")
+            return None
+        hook(name, data)
+        try:
+            return json.loads(data)
+        except Exception as e:
+            log.warning(f"  load_bulk: could not read {name}: {e}")
+            return None
     try:
         with zf.open(name) as f:
             return json.load(f)
@@ -307,8 +347,20 @@ def _read_zip_json(zf: zipfile.ZipFile, name: str):
         return None
 
 
-def _read_dir_json(base: Path, name: str):
-    """Reads and parses a JSON file from a directory."""
+def _read_dir_json(base: Path, name: str, hook=None):
+    """Reads and parses a JSON file from a directory. hook(name, bytes) gets the bytes first (v1.7.6.1)."""
+    if hook is not None:
+        try:
+            data = (base / name).read_bytes()
+        except Exception as e:
+            log.warning(f"  load_bulk: could not read {name}: {e}")
+            return None
+        hook(name, data)
+        try:
+            return json.loads(data.decode("utf-8"))
+        except Exception as e:
+            log.warning(f"  load_bulk: could not read {name}: {e}")
+            return None
     try:
         with open(base / name, encoding="utf-8") as f:
             return json.load(f)

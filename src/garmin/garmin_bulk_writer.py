@@ -5,10 +5,15 @@
 """
 garmin_bulk_writer.py
 
-Bulk store — Sole Owner of garmin_data/bulk/raw/ and garmin_data/bulk/source/ (v1.7.6).
+Bulk store — Sole Owner of garmin_data/bulk/raw/, bulk/aggregates/ and bulk/source/ (v1.7.6).
 
   bulk/raw/garmin_bulk_YYYY-MM-DD.json   one JSON file per local day with named sections
-  bulk/source/<xx>/<hash>.fit            the unchanged export files; <hash> is the SHA-256
+                                         (the intraday series, v1.7.6)
+  bulk/aggregates/garmin_bulk_agg_YYYY-MM-DD.json
+                                         one JSON file per local day with the day values of the
+                                         export (v1.7.6.1): a file of its own, so that a write
+                                         of one kind never touches the other
+  bulk/source/<xx>/<hash>.fit|.json      the unchanged export files; <hash> is the SHA-256
                                          of the bytes in 64 lower-case hex characters,
                                          <xx> its first two characters
 
@@ -31,6 +36,12 @@ Day format (schema_version 1, compact JSON):
   Raise BULK_SCHEMA_VERSION when the format or the normalising rules change: the
   days are then written again from the originals.
 
+Aggregates file (schema_version 1, compact JSON, AGG_SCHEMA_VERSION): date, schema_version,
+  generated_by, origin, imported_at, source_files (SHA-256 of every JSON file of the export that
+  contributed, sorted), aggregates (the day's values as garmin_import.parse_day delivers them).
+  The rules below apply to it in the same way (aggregates_status / write_aggregates); _compare()
+  is the one place that decides unchanged / update / smaller / newer for both kinds.
+
 Rules for a day (day_status / write_day)
   new        no readable file                                    -> written
   unchanged  same schema version, same set of files              -> nothing is written
@@ -38,7 +49,12 @@ Rules for a day (day_status / write_day)
   smaller    fewer files, or a set that is not a superset        -> kept: an import of
              part of an export (one inner ZIP, say) never replaces a fuller day
   newer      written by a newer schema version                   -> kept
-  A damaged file (not JSON, no source_files) counts as new.
+  unreadable the file cannot be read for an I/O reason (a lock, no  -> failed: the day is
+             access); it may be fine and fuller than the new stand     not touched
+  A damaged file (not JSON, no source_files) counts as new: the new write is the repair.
+  An unreadable one does not (register finding F-1, fixed in v1.7.6.1): it is never replaced
+  by itself; a lock that goes away again is made good by running the import again, a file that
+  stays unreadable has to be deleted by hand before the day can be imported again.
 
 Writing: every file is written to <name>.tmp and moved with os.replace (tried up to
 five times when the file is locked for a moment, see REPLACE_ATTEMPTS); the .tmp is
@@ -54,10 +70,17 @@ v1.7.6.2.
 
 Public API:
   write_day(plan_day, day_samples, imported_at=None) -> "written" | "unchanged" | "kept" | "failed"
-  day_status(date_str, source_files) -> "new" | "unchanged" | "update" | "smaller" | "newer"
-  read_day(date_str) -> dict | None
-  store_original(file_hash, data) -> "written" | "present" | "failed"
-  original_present(file_hash, size) -> bool   (looks only, for a dry run)
+  day_status(date_str, source_files) -> "new" | "unchanged" | "update" | "smaller" | "newer" | "unreadable"
+  list_days() -> list[str]   (dates of the day files, from the file names only; looks, reads nothing)
+  write_aggregates(date_str, aggregates, source_files, imported_at=None) -> "written" | "unchanged" | "kept" | "failed"
+  aggregates_status(date_str, source_files) -> "new" | "unchanged" | "update" | "smaller" | "newer" | "unreadable"
+  read_aggregates(date_str) -> dict | None
+  load_aggregates(date_str) -> (state, dict | None)   state: "missing" | "damaged" | "unreadable" | "ok"
+  list_aggregate_days() -> list[str]   (dates of the aggregates files, from the file names only)
+  store_original(file_hash, data, suffix=".fit") -> "written" | "present" | "failed"
+  store_original_json(file_hash, data) -> the same for a JSON file of the export
+  original_present(file_hash, size, suffix=".fit") -> bool   (looks only, for a dry run)
+  original_json_present(file_hash, size) -> bool
   plan_day / day_samples are the DayPlan and DaySamples of garmin_bulk_normalizer (read by attribute).
 """
 
@@ -72,6 +95,7 @@ from datetime import datetime
 log = logging.getLogger(__name__)
 
 BULK_SCHEMA_VERSION = 1
+AGG_SCHEMA_VERSION = 1          # the aggregates day file (bulk/aggregates), counted on its own
 
 # On Windows a virus scanner or an indexer can hold a file that was just written for a moment;
 # os.replace then fails with a sharing violation (PermissionError). It happened once in 34,384
@@ -87,6 +111,7 @@ KEPT = "kept"
 FAILED = "failed"
 PRESENT = "present"
 
+_ORIGINAL_SUFFIXES = (".fit", ".json")      # what an original may be called: FIT files and JSON files of the export
 _HASH_RE = re.compile(r"[0-9a-f]{64}")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -135,6 +160,23 @@ def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _compare(stored_files, stored_version, new_files, current_version):
+    """
+    How a stored file (its source files and schema version) compares with a new one built from
+    `new_files`, under the current schema version: "unchanged", "update", "smaller" or "newer".
+    The one rule for both kinds of day file (intraday and aggregates); the caller has checked
+    that `stored_files` is a list and `stored_version` an integer.
+    """
+    if stored_version > current_version:
+        return "newer"
+    new, old = set(new_files), set(stored_files)
+    if new == old:
+        return "unchanged" if stored_version == current_version else "update"
+    if new > old:
+        return "update"
+    return "smaller"
+
+
 def _problem(plan_day, day_samples):
     """What is wrong with the day, None if nothing is."""
     date_str = getattr(day_samples, "date", None)
@@ -166,35 +208,57 @@ def _problem(plan_day, day_samples):
 #  Days
 # ══════════════════════════════════════════════════════════════════════════════
 
-def read_day(date_str):
-    """The stored day as a dict, None if there is none or it cannot be read (a damaged file is logged)."""
+def _load_day(date_str):
+    """
+    (state, doc) of the stored day. state is "missing" (no file, or a date that is no date),
+    "damaged" (not JSON, not an object), "unreadable" (an OSError on the way to the content: the
+    file may be fine) or "ok"; doc is the dict for "ok" and None otherwise. The only place that
+    tells a damaged day from an unreadable one (F-1).
+    """
     path = _day_path(date_str)
-    if path is None or not path.exists():
-        return None
+    if path is None:
+        return "missing", None
     try:
+        if not path.exists():
+            return "missing", None
         doc = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        log.warning(f"  bulk_writer: could not read the day file of {date_str}: {e}")
-        return None
-    return doc if isinstance(doc, dict) else None
+    except OSError as e:
+        log.warning(f"  bulk_writer: could not read the day file of {date_str} (I/O error): {e}")
+        return "unreadable", None
+    except ValueError as e:
+        log.warning(f"  bulk_writer: could not read the day file of {date_str} (damaged): {e}")
+        return "damaged", None
+    return ("ok", doc) if isinstance(doc, dict) else ("damaged", None)
+
+
+def list_days():
+    """
+    The dates (sorted ISO strings) of the day files in bulk/raw, taken from the file names only:
+    nothing is read, so a damaged or unreadable file is listed as well, and no folder is created.
+    [] if there is no folder or it cannot be listed (a warning in that case). Looks only; the
+    caller uses it to see which days the store holds (v1.7.6.1, F-3).
+    """
+    try:
+        import garmin_config as cfg
+        prefix, suffix = cfg.BULK_FILE_PREFIX, ".json"
+        names = [p.name for p in cfg.BULK_RAW_DIR.glob(f"{prefix}*{suffix}")]
+    except OSError as e:
+        log.warning(f"  bulk_writer: could not list the day files: {e}")
+        return []
+    return sorted(d for d in (n[len(prefix):-len(suffix)] for n in names) if _valid_date(d))
 
 
 def day_status(date_str, source_files):
     """How the stored day compares with a day built from `source_files` (see the module docstring)."""
-    existing = read_day(date_str)
+    state, existing = _load_day(date_str)
+    if state == "unreadable":
+        return "unreadable"
     if existing is None:
         return "new"
     stored, version = existing.get("source_files"), existing.get("schema_version")
     if not isinstance(stored, list) or not _is_int(version):
         return "new"
-    if version > BULK_SCHEMA_VERSION:
-        return "newer"
-    new, old = set(source_files), set(stored)
-    if new == old:
-        return "unchanged" if version == BULK_SCHEMA_VERSION else "update"
-    if new > old:
-        return "update"
-    return "smaller"
+    return _compare(stored, version, source_files, BULK_SCHEMA_VERSION)
 
 
 def write_day(plan_day, day_samples, imported_at=None):
@@ -209,7 +273,8 @@ def write_day(plan_day, day_samples, imported_at=None):
 
     Returns
     -------
-    "written", "unchanged" (nothing touched), "kept" (smaller or newer day stays) or "failed" (non-fatal, logged)
+    "written", "unchanged" (nothing touched), "kept" (smaller or newer day stays) or "failed" (non-fatal,
+    logged; also for a stored day that cannot be read, which is left as it is)
     """
     tmp = None
     try:
@@ -219,6 +284,11 @@ def write_day(plan_day, day_samples, imported_at=None):
             return FAILED
         date_str = day_samples.date
         status = day_status(date_str, day_samples.source_files)
+        if status == "unreadable":
+            log.warning(f"  bulk_writer: {date_str} not written — the stored day file cannot be read (see the line above); "
+                        f"it is left as it is. Run the import again; if it stays unreadable, delete the file "
+                        f"{_day_path(date_str).name} in bulk/raw/ by hand and import again")
+            return FAILED
         if status == "unchanged":
             return UNCHANGED
         if status in ("smaller", "newer"):
@@ -263,24 +333,201 @@ def write_day(plan_day, day_samples, imported_at=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Aggregates (v1.7.6.1) — one JSON file per local day in bulk/aggregates, apart from the
+#  intraday day files in bulk/raw. Same rules, own schema version. Nothing above is used
+#  by it except the small helpers and _compare().
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _agg_path(date_str):
+    import garmin_config as cfg
+    if not _valid_date(date_str):
+        return None
+    return cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{date_str}.json"
+
+
+def _load_agg(date_str):
+    """
+    (state, doc) of the stored aggregates file, the states of _load_day: "missing", "damaged"
+    (not JSON, not an object), "unreadable" (an OSError on the way to the content: the file may
+    be fine) or "ok" (doc is the dict). Same semantics as _load_day (F-1) — a test pins both.
+    """
+    path = _agg_path(date_str)
+    if path is None:
+        return "missing", None
+    try:
+        if not path.exists():
+            return "missing", None
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        log.warning(f"  bulk_writer: could not read the aggregates file of {date_str} (I/O error): {e}")
+        return "unreadable", None
+    except ValueError as e:
+        log.warning(f"  bulk_writer: could not read the aggregates file of {date_str} (damaged): {e}")
+        return "damaged", None
+    return ("ok", doc) if isinstance(doc, dict) else ("damaged", None)
+
+
+def read_aggregates(date_str):
+    """The stored aggregates file of a day as a dict, None if there is none or it cannot be read."""
+    return _load_agg(date_str)[1]
+
+
+def load_aggregates(date_str):
+    """
+    (state, doc) of the stored aggregates file: state "missing", "damaged", "unreadable" or "ok" (doc
+    is the dict then, None otherwise). For a caller that must tell an unreadable file (a lock: leave
+    everything as it is) from a damaged or missing one — the summary resolution in garmin_writer.
+    """
+    return _load_agg(date_str)
+
+
+def list_aggregate_days():
+    """
+    The dates (sorted ISO strings) of the files in bulk/aggregates, from the file names only:
+    nothing is read, no folder is created. [] if there is no folder or it cannot be listed
+    (a warning in that case).
+    """
+    try:
+        import garmin_config as cfg
+        prefix, suffix = cfg.BULK_AGG_FILE_PREFIX, ".json"
+        names = [p.name for p in cfg.BULK_AGG_DIR.glob(f"{prefix}*{suffix}")]
+    except OSError as e:
+        log.warning(f"  bulk_writer: could not list the aggregates files: {e}")
+        return []
+    return sorted(d for d in (n[len(prefix):-len(suffix)] for n in names) if _valid_date(d))
+
+
+def aggregates_status(date_str, source_files):
+    """
+    How the stored aggregates file compares with one built from `source_files`: "new", "unchanged",
+    "update", "smaller", "newer" or "unreadable" — the rules of day_status (module docstring).
+    """
+    state, existing = _load_agg(date_str)
+    if state == "unreadable":
+        return "unreadable"
+    if existing is None:
+        return "new"
+    stored, version = existing.get("source_files"), existing.get("schema_version")
+    if not isinstance(stored, list) or not _is_int(version):
+        return "new"
+    return _compare(stored, version, source_files, AGG_SCHEMA_VERSION)
+
+
+def _agg_problem(date_str, aggregates, source_files):
+    """What is wrong with the aggregates of a day, None if nothing is."""
+    if not _valid_date(date_str):
+        return "date is not a date"
+    if not isinstance(aggregates, dict) or not aggregates:
+        return "aggregates is not a dict with entries"
+    if "date" in aggregates and aggregates["date"] != date_str:
+        return "date of the aggregates differs"
+    if not isinstance(source_files, (list, tuple)) or not source_files:
+        return "source_files is not a list with entries"
+    if not all(isinstance(h, str) and _HASH_RE.fullmatch(h) for h in source_files):
+        return "source_files holds something that is not a SHA-256"
+    return None
+
+
+def write_aggregates(date_str, aggregates, source_files, imported_at=None):
+    """
+    Writes the aggregates of one local day (what garmin_import.parse_day delivers: user summary,
+    stats, sleep, readiness, ...) to bulk/aggregates unless the stored file must stay as it is.
+
+    Parameters
+    ----------
+    date_str     : str — the day, YYYY-MM-DD
+    aggregates   : dict — the day's values, stored as they are
+    source_files : list[str] — SHA-256 of every JSON file of the export that contributed to the day
+    imported_at  : str | None — local time "YYYY-MM-DDTHH:MM:SS"; now if None
+
+    Returns
+    -------
+    "written", "unchanged" (nothing touched), "kept" (smaller or newer file stays) or "failed"
+    (non-fatal, logged; also for a stored file that cannot be read, which is left as it is).
+    A damaged file counts as new, like a damaged day file.
+    """
+    tmp = None
+    try:
+        problem = _agg_problem(date_str, aggregates, source_files)
+        if problem:
+            log.warning(f"  bulk_writer.write_aggregates: refused ({problem})")
+            return FAILED
+        status = aggregates_status(date_str, source_files)
+        if status == "unreadable":
+            log.warning(f"  bulk_writer: {date_str} aggregates not written — the stored file cannot be read "
+                        f"(see the line above); it is left as it is. Run the import again; if it stays "
+                        f"unreadable, delete the file {_agg_path(date_str).name} in bulk/aggregates/ by hand "
+                        f"and import again")
+            return FAILED
+        if status == "unchanged":
+            return UNCHANGED
+        if status in ("smaller", "newer"):
+            log.info(f"  bulk_writer: {date_str} aggregates kept ({status} than the stored file)")
+            return KEPT
+
+        doc = {
+            "date": date_str,
+            "schema_version": AGG_SCHEMA_VERSION,
+            "generated_by": GENERATED_BY,
+            "origin": ORIGIN,
+            "imported_at": imported_at or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "source_files": sorted(source_files),
+            "aggregates": aggregates,
+        }
+        payload = json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+        dst = _agg_path(date_str)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.name + ".tmp")
+        with open(tmp, "wb") as f:
+            f.write(payload)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass  # not supported on every file system
+        _replace(tmp, dst)
+        tmp = None
+        log.debug(f"  bulk_writer: {date_str} aggregates written")
+        return WRITTEN
+    except Exception as e:
+        log.warning(f"  bulk_writer.write_aggregates failed: {e}")
+        if tmp is not None:
+            _cleanup(tmp)
+        return FAILED
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Originals
 # ══════════════════════════════════════════════════════════════════════════════
 
-def original_present(file_hash, size):
-    """True if bulk/source holds the original with this hash and this size. Only looks (a dry run
-    uses it): no folder and no file is created; a name that is not a SHA-256 is simply not present."""
+def original_present(file_hash, size, suffix=".fit"):
+    """True if bulk/source holds the original with this hash, this size and this suffix (".fit" or
+    ".json"). Only looks (a dry run uses it): no folder and no file is created; a name that is not a
+    SHA-256, or another suffix, is simply not present."""
     try:
         import garmin_config as cfg
-        if not isinstance(file_hash, str) or not _HASH_RE.fullmatch(file_hash):
+        if not isinstance(file_hash, str) or not _HASH_RE.fullmatch(file_hash) or suffix not in _ORIGINAL_SUFFIXES:
             return False
-        return (cfg.BULK_SOURCE_DIR / file_hash[:2] / f"{file_hash}.fit").stat().st_size == size
+        return (cfg.BULK_SOURCE_DIR / file_hash[:2] / f"{file_hash}{suffix}").stat().st_size == size
     except OSError:
         return False
 
 
-def store_original(file_hash, data):
+def original_json_present(file_hash, size):
+    """original_present() for a JSON file of the export (bulk/source/<xx>/<hash>.json)."""
+    return original_present(file_hash, size, ".json")
+
+
+def store_original_json(file_hash, data):
+    """store_original() for a JSON file of the export (bulk/source/<xx>/<hash>.json)."""
+    return store_original(file_hash, data, ".json")
+
+
+def store_original(file_hash, data, suffix=".fit"):
     """
-    Stores one export file as bulk/source/<first two characters>/<hash>.fit.
+    Stores one export file as bulk/source/<first two characters>/<hash><suffix>, the suffix being
+    ".fit" (default) or ".json".
 
     The name must be the SHA-256 of the bytes in 64 lower-case hex characters (so
     it can neither be a path nor a wrong name). A file that is already there with
@@ -296,6 +543,9 @@ def store_original(file_hash, data):
         if not isinstance(file_hash, str) or not _HASH_RE.fullmatch(file_hash):
             log.warning("  bulk_writer.store_original: refused (name is not a SHA-256)")
             return FAILED
+        if suffix not in _ORIGINAL_SUFFIXES:
+            log.warning("  bulk_writer.store_original: refused (suffix is neither .fit nor .json)")
+            return FAILED
         if not isinstance(data, (bytes, bytearray)):
             log.warning("  bulk_writer.store_original: refused (data is not bytes)")
             return FAILED
@@ -303,9 +553,9 @@ def store_original(file_hash, data):
         if hashlib.sha256(data).hexdigest() != file_hash:
             log.warning(f"  bulk_writer.store_original: refused (bytes do not match {file_hash[:12]})")
             return FAILED
-        if original_present(file_hash, len(data)):
+        if original_present(file_hash, len(data), suffix):
             return PRESENT
-        dst = cfg.BULK_SOURCE_DIR / file_hash[:2] / f"{file_hash}.fit"
+        dst = cfg.BULK_SOURCE_DIR / file_hash[:2] / f"{file_hash}{suffix}"
         dst.parent.mkdir(parents=True, exist_ok=True)
         tmp = dst.with_name(dst.name + ".tmp")
         tmp.write_bytes(data)

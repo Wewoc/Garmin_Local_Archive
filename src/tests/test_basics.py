@@ -49,6 +49,11 @@ check("BULK_DIR derived",               cfg.BULK_DIR == _TMPDIR / "garmin_data" 
 check("BULK_RAW_DIR derived",           cfg.BULK_RAW_DIR == _TMPDIR / "garmin_data" / "bulk" / "raw")
 check("BULK_SOURCE_DIR derived",        cfg.BULK_SOURCE_DIR == _TMPDIR / "garmin_data" / "bulk" / "source")
 check("BULK_FILE_PREFIX",               cfg.BULK_FILE_PREFIX == "garmin_bulk_")
+check("BULK_AGG_DIR derived (v1.7.6.1)", cfg.BULK_AGG_DIR == _TMPDIR / "garmin_data" / "bulk" / "aggregates")
+check("BULK_AGG_FILE_PREFIX",           cfg.BULK_AGG_FILE_PREFIX == "garmin_bulk_agg_")
+check("aggregates folder is inside the bulk store and apart from the intraday folder, the file names cannot clash",
+      cfg.BULK_DIR in cfg.BULK_AGG_DIR.parents and cfg.BULK_AGG_DIR not in (cfg.BULK_RAW_DIR, cfg.BULK_SOURCE_DIR)
+      and cfg.RAW_DIR not in cfg.BULK_AGG_DIR.parents and cfg.BULK_AGG_FILE_PREFIX != cfg.BULK_FILE_PREFIX)
 check("bulk store is separate from the API store (not inside raw/source/summary)",
       all(cfg.RAW_DIR not in p.parents and cfg.SOURCE_DIR not in p.parents and cfg.SUMMARY_DIR not in p.parents
           for p in (cfg.BULK_DIR, cfg.BULK_RAW_DIR, cfg.BULK_SOURCE_DIR)))

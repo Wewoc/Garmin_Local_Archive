@@ -89,6 +89,10 @@ BULK_DIR         = GARMIN_DIR / "bulk"
 BULK_RAW_DIR     = BULK_DIR / "raw"
 BULK_SOURCE_DIR  = BULK_DIR / "source"
 BULK_FILE_PREFIX = "garmin_bulk_"
+# v1.7.6.1: the day values of the export (user summary, stats, sleep, ...) in a file of their
+# own per day, apart from the intraday day files in bulk/raw/ (same sole owner).
+BULK_AGG_DIR         = BULK_DIR / "aggregates"
+BULK_AGG_FILE_PREFIX = "garmin_bulk_agg_"
 
 # Live snapshot (sole owner: garmin_live_fetch.py, planned v1.6.5)
 # Single-file snapshot of the current day — no per-day history, overwritten

@@ -223,4 +223,238 @@ with _isolated_log_env("w5d_happy") as _b:
     check("write_summary_only: failed write leaves no .tmp file behind",
           _tmp_leftovers() == [])
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  5e. garmin_writer — resolved summary (v1.7.6.1)
+# ══════════════════════════════════════════════════════════════════════════════
+section("5e. garmin_writer — resolved summary: API data plus the export's values")
+
+import copy as _copy5e
+import garmin_bulk_writer as _bw5e
+from gla_testenv import _isolated_log_env as _iso5e
+
+_H5E = "ab" * 32
+_D = "2024-05-10"
+_API = {"date": _D,
+        "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 28800, "deepSleepSeconds": 7200}},
+        "heart_rates": {"restingHeartRate": 52, "heartRateValues": [[1715300000000, 60], [1715300060000, 70]]},
+        "user_summary": {"totalSteps": 1000}}
+_AGGS = {"date": _D,
+         "user_summary": {"totalSteps": 9000, "restingHeartRate": 55, "totalKilocalories": 2500},
+         "stress": {"averageStressLevel": 30, "maxStressLevel": 80},
+         "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 20000}},
+         "training_readiness": {"level": "HIGH"}}
+
+
+def _paths(d):
+    return cfg.RAW_DIR / f"garmin_raw_{d}.json", cfg.SUMMARY_DIR / f"garmin_{d}.json"
+
+
+def _agg_put(d, aggs, files=(_H5E,)):
+    assert _bw5e.write_aggregates(d, aggs, list(files)) == _bw5e.WRITTEN
+
+
+def _expected(api, aggs):
+    """What the day must come out as, built by hand: the API keys that are not empty stay, the export fills the rest."""
+    bulk = normalizer.normalize(_copy5e.deepcopy(aggs), source="bulk")
+    out = dict(api)
+    for k, v in bulk.items():
+        if not out.get(k):
+            out[k] = v
+    return normalizer.summarize(out)
+
+
+with _iso5e("w5e_resolve") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+
+    # -- without an aggregates file nothing changes ---------------------------------
+    _own = {"date": _D, "marker": "the summary that was passed in"}
+    with patch.object(_gb5d, "backup_raw") as _br:
+        check("5e no aggregates: write_day writes the passed summary and the passed raw, backup is triggered once",
+              writer.write_day(_API, _own, _D) is True and _br.call_count == 1 and _br.call_args.args == (_D,))
+    _rp, _sp = _paths(_D)
+    check("5e no aggregates: summary is exactly the one passed in, raw is exactly the passed dict",
+          json.loads(_sp.read_text(encoding="utf-8")) == _own and json.loads(_rp.read_text(encoding="utf-8")) == _API)
+
+    # -- with an aggregates file: the summary is resolved, raw/ stays pure API -----
+    _agg_put(_D, _AGGS)
+    _api_before, _agg_bytes = _copy5e.deepcopy(_API), (cfg.BULK_AGG_DIR / f"garmin_bulk_agg_{_D}.json").read_bytes()
+    with patch.object(_gb5d, "backup_raw") as _br:
+        check("5e aggregates: write_day returns True and triggers the backup once",
+              writer.write_day(_API, _own, _D) is True and _br.call_count == 1)
+    _summary = json.loads(_sp.read_text(encoding="utf-8"))
+    check("5e aggregates: the summary is the resolved one, not the one passed in", _summary == _expected(_API, _AGGS) and "marker" not in _summary)
+    check("5e aggregates: the API keys that are not empty win (steps 1000, sleep 28800 s, API heart rate series and resting 52)",
+          _summary["day"]["steps"] == 1000 and _summary["sleep"]["duration_h"] == 8.0 and _summary["heartrate"]["resting_bpm"] == 52
+          and _summary["heartrate"]["avg_bpm"] == 65.0)
+    check("5e aggregates: what the API lacks comes from the export (stress average 30 and maximum 80)",
+          _summary["stress"]["stress_avg"] == 30 and _summary["stress"]["stress_max"] == 80)
+    check("5e aggregates: raw/ keeps only what was passed in, none of the export's keys",
+          json.loads(_rp.read_text(encoding="utf-8")) == _API and "stress" not in json.loads(_rp.read_text(encoding="utf-8")))
+    check("5e aggregates: neither the passed dict nor the stored aggregates file is changed",
+          _API == _api_before and (cfg.BULK_AGG_DIR / f"garmin_bulk_agg_{_D}.json").read_bytes() == _agg_bytes)
+    check("5e aggregates: the summary has the current schema version", _summary["schema_version"] == normalizer.CURRENT_SCHEMA_VERSION)
+    _first = _sp.read_bytes()
+    writer.write_day(_API, _own, _D)
+    check("5e aggregates: writing the same day again gives the same bytes (idempotent)", _sp.read_bytes() == _first)
+
+    # -- an empty API key is filled, the heart-rate remap of an import day applies ---
+    _D2 = "2024-05-11"
+    _api2 = {"date": _D2, "stress": {}, "user_summary": {"totalSteps": 500}}
+    _agg_put(_D2, {**_AGGS, "date": _D2})
+    writer.write_day(_api2, {"date": _D2}, _D2)
+    _s2 = json.loads(_paths(_D2)[1].read_text(encoding="utf-8"))
+    check("5e aggregates: an empty API key (stress {}) is filled from the export",
+          _s2["stress"]["stress_avg"] == 30 and _s2["day"]["steps"] == 500)
+    check("5e aggregates: an API day without heart_rates gets the resting heart rate through the import remap (55)",
+          _s2["heartrate"]["resting_bpm"] == 55 and _s2 == _expected(_api2, {**_AGGS, "date": _D2}))
+
+    # -- write_summary_only resolves as well (the API data come from raw/) ----------
+    with patch.object(_gb5d, "backup_raw") as _br:
+        check("5e write_summary_only: returns True, no backup, the resolved summary replaces the passed one",
+              writer.write_summary_only(_own, _D) is True and not _br.called
+              and json.loads(_sp.read_text(encoding="utf-8")) == _expected(_API, _AGGS))
+    _D3 = "2024-05-12"
+    check("5e write_summary_only: a day without aggregates writes exactly the passed summary",
+          writer.write_summary_only({"date": _D3, "marker": 1}, _D3) is True
+          and json.loads(_paths(_D3)[1].read_text(encoding="utf-8")) == {"date": _D3, "marker": 1})
+
+    # -- _resolve itself: pure, the API wins per top-level key, the export fills the rest ---
+    _a0, _g0 = _copy5e.deepcopy(_API), _copy5e.deepcopy(_AGGS)
+    _res = writer._resolve(_API, _AGGS)
+    check("5e _resolve: neither the API dict nor the aggregates dict is changed (the import remap works on a copy)",
+          _API == _a0 and _AGGS == _g0 and "heart_rates" not in _AGGS)
+    check("5e _resolve: API keys stay as they are, missing keys come from the export, the heart_rates remap does not displace the API series",
+          _res["user_summary"] == _API["user_summary"] and _res["heart_rates"] == _API["heart_rates"] and _res["sleep"] == _API["sleep"]
+          and _res["stress"] == _AGGS["stress"] and _res["training_readiness"] == _AGGS["training_readiness"])
+    check("5e _resolve: no API data at all -> the normalised export values (heart_rates remap included)",
+          writer._resolve({}, _AGGS)["heart_rates"] == {"restingHeartRate": 55}
+          and writer._resolve(None, _AGGS)["user_summary"] == _AGGS["user_summary"])
+
+    # -- rebuild_summary ---------------------------------------------------------------
+    _D4 = "2024-05-13"
+    _agg_put(_D4, {**_AGGS, "date": _D4})
+    with patch.object(_gb5d, "backup_raw") as _br:
+        check("5e rebuild_summary: a day without a raw file is derived from the aggregates alone",
+              writer.rebuild_summary(_D4) is True and not _br.called and not _paths(_D4)[0].exists()
+              and json.loads(_paths(_D4)[1].read_text(encoding="utf-8"))
+              == normalizer.summarize(normalizer.normalize(_copy5e.deepcopy({**_AGGS, "date": _D4}), source="bulk")))
+    check("5e rebuild_summary: a day with raw and aggregates is derived from both, raw stays byte-identical",
+          (lambda before: writer.rebuild_summary(_D) is True and _rp.read_bytes() == before
+           and json.loads(_sp.read_text(encoding="utf-8")) == _expected(_API, _AGGS))(_rp.read_bytes()))
+    _D5 = "2024-05-14"
+    writer.write_day(_API | {"date": _D5}, {"date": _D5}, _D5)
+    os_summary = _paths(_D5)[1]
+    os_summary.unlink()
+    check("5e rebuild_summary: a day with a raw file and no aggregates is derived from raw alone",
+          writer.rebuild_summary(_D5) is True and json.loads(os_summary.read_text(encoding="utf-8")) == normalizer.summarize(_API | {"date": _D5}))
+    check("5e rebuild_summary: nothing to derive from (no raw, no aggregates) -> False, no file",
+          writer.rebuild_summary("2024-05-15") is False and not _paths("2024-05-15")[1].exists())
+    check("5e rebuild_summary: a date that is no date -> False, nothing created",
+          all(writer.rebuild_summary(d) is False for d in ("../../x", "2024-13-40", "", None, "20240515")))
+
+    # -- unreadable aggregates: nothing is written, the stored files stay ------------
+    _agg_file = cfg.BULK_AGG_DIR / f"garmin_bulk_agg_{_D}.json"
+    _real_rt = Path.read_text
+
+    def _locked(self, *a, **k):
+        if self == _agg_file:
+            raise PermissionError("locked by another process")
+        return _real_rt(self, *a, **k)
+
+    _raw_b, _sum_b = _rp.read_bytes(), _sp.read_bytes()
+    with patch.object(Path, "read_text", _locked):
+        check("5e unreadable aggregates: write_day writes nothing and returns False",
+              writer.write_day({**_API, "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 1}}}, _own, _D) is False
+              and _rp.read_bytes() == _raw_b and _sp.read_bytes() == _sum_b and _tmp_leftovers() == [])
+        check("5e unreadable aggregates: write_summary_only and rebuild_summary write nothing and return False",
+              writer.write_summary_only(_own, _D) is False and writer.rebuild_summary(_D) is False and _sp.read_bytes() == _sum_b)
+    check("5e unreadable aggregates: with the lock gone the day is written again", writer.write_day(_API, _own, _D) is True)
+
+    # -- damaged aggregates, a newer schema, unusable content: as if there were none, with a warning
+    for _label, _content in (("damaged (not JSON)", "{ not json"),
+                             ("a newer schema", json.dumps({"date": _D, "schema_version": _bw5e.AGG_SCHEMA_VERSION + 1, "source_files": [_H5E], "aggregates": _AGGS})),
+                             ("an empty aggregates dict", json.dumps({"date": _D, "schema_version": 1, "source_files": [_H5E], "aggregates": {}})),
+                             ("aggregates that are no dict", json.dumps({"date": _D, "schema_version": 1, "source_files": [_H5E], "aggregates": [1]})),
+                             ("no schema_version", json.dumps({"date": _D, "source_files": [_H5E], "aggregates": _AGGS}))):
+        _agg_file.write_text(_content, encoding="utf-8")
+        with patch.object(writer.log, "warning") as _w, patch.object(_bw5e.log, "warning") as _wb:
+            _ok = writer.write_day(_API, {"date": _D, "marker": "passed"}, _D)
+        check(f"5e {_label}: treated as missing, the passed summary is written, a warning is logged (by the writer or the loader)",
+              _ok is True and json.loads(_sp.read_text(encoding="utf-8")) == {"date": _D, "marker": "passed"} and (_w.called or _wb.called))
+        check(f"5e {_label}: rebuild_summary derives from raw alone",
+              writer.rebuild_summary(_D) is True and json.loads(_sp.read_text(encoding="utf-8")) == normalizer.summarize(_API))
+    _agg_file.unlink()
+
+    # -- a raw file that exists but cannot be read: no summary is derived -------------
+    _agg_put(_D, _AGGS)
+    _rp.write_text("{ not json", encoding="utf-8")
+    _sum_c = _sp.read_bytes()
+    check("5e unreadable raw with aggregates: write_summary_only and rebuild_summary write nothing and return False",
+          writer.write_summary_only(_own, _D) is False and writer.rebuild_summary(_D) is False and _sp.read_bytes() == _sum_c)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  5f. support-tools/archive-maintenance/regenerate_summaries.py (v1.7.6.1)
+# ══════════════════════════════════════════════════════════════════════════════
+section("5f. regenerate_summaries.py — summaries from raw/ and the export data, through the writer")
+
+import importlib.util as _ilu5f
+import io as _io5f
+from contextlib import redirect_stdout as _redir5f
+
+_rs_path = Path(__file__).parent.parent / "support-tools" / "archive-maintenance" / "regenerate_summaries.py"
+_rs_spec = _ilu5f.spec_from_file_location("regenerate_summaries_under_test", _rs_path)
+_rs = _ilu5f.module_from_spec(_rs_spec)
+_rs_spec.loader.exec_module(_rs)
+
+
+def _run_rs():
+    buf = _io5f.StringIO()
+    code = None
+    with _redir5f(buf):
+        try:
+            _rs.main()
+        except SystemExit as e:
+            code = e.code
+    return code, buf.getvalue()
+
+
+with _iso5e("w5f_regen") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _R1, _R2, _R3, _R4 = "2024-06-01", "2024-06-02", "2024-06-03", "2024-06-04"
+    cfg.RAW_DIR.mkdir(parents=True)
+    _raw1 = {"date": _R1, "heart_rates": {"restingHeartRate": 50}}
+    _raw2 = {"date": _R2, "user_summary": {"totalSteps": 222}}
+    for _d, _r in ((_R1, _raw1), (_R2, _raw2)):
+        (cfg.RAW_DIR / f"garmin_raw_{_d}.json").write_text(json.dumps(_r), encoding="utf-8")
+    (cfg.RAW_DIR / f"garmin_raw_{_R4}.json").write_text("{ not json", encoding="utf-8")           # a broken raw file
+    (cfg.RAW_DIR / "garmin_raw_junk.json").write_text("{}", encoding="utf-8")                      # no day
+    for _d in (_R2, _R3):
+        _agg_put(_d, {**_AGGS, "date": _d})
+    _orphan = cfg.SUMMARY_DIR / "garmin_2024-06-30.json"
+    cfg.SUMMARY_DIR.mkdir(parents=True)
+    _orphan.write_text('{"date": "2024-06-30", "old": true}', encoding="utf-8")
+    _raw_bytes = {f.name: f.read_bytes() for f in cfg.RAW_DIR.iterdir()}
+    _code, _out = _run_rs()
+    _ss = lambda d: json.loads((cfg.SUMMARY_DIR / f"garmin_{d}.json").read_text(encoding="utf-8"))   # noqa: E731
+    check("5f regenerate_summaries: a day with a raw file gets summarize(raw)", _ss(_R1) == normalizer.summarize(_raw1))
+    check("5f regenerate_summaries: a day with raw and export data gets the resolved summary (API 222 steps win, export stress 30 fills)",
+          _ss(_R2) == _expected(_raw2, {**_AGGS, "date": _R2}) and _ss(_R2)["day"]["steps"] == 222 and _ss(_R2)["stress"]["stress_avg"] == 30)
+    check("5f regenerate_summaries: a day with export data only gets its summary, no raw file is created",
+          _ss(_R3) == normalizer.summarize(normalizer.normalize(_copy5e.deepcopy({**_AGGS, "date": _R3}), source="bulk"))
+          and not (cfg.RAW_DIR / f"garmin_raw_{_R3}.json").exists())
+    check("5f regenerate_summaries: a broken raw file is one failure, the other days are still done; a name that is no day is ignored",
+          not (cfg.SUMMARY_DIR / f"garmin_{_R4}.json").exists() and "Done. 3 regenerated, 1 errors." in _out
+          and f"✗ {_R4}" in _out and "junk" not in _out)
+    check("5f regenerate_summaries: the run says how many days come from raw files and from export data",
+          "Regenerating summaries for 4 days (3 with raw files, 2 with export data)" in _out)
+    check("5f regenerate_summaries: raw files are byte-identical, a summary of a day with neither is left alone, exit without error",
+          {f.name: f.read_bytes() for f in cfg.RAW_DIR.iterdir()} == _raw_bytes
+          and _orphan.read_text(encoding="utf-8") == '{"date": "2024-06-30", "old": true}' and _code is None)
+
+with _iso5e("w5f_none") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _code, _out = _run_rs()
+    check("5f regenerate_summaries: neither a raw folder nor export data -> an error message and exit code 1, nothing created",
+          _code == 1 and "Raw folder not found" in _out and not cfg.SUMMARY_DIR.exists())
+
 summary()

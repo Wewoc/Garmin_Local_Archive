@@ -35,8 +35,8 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_CONTEXT_LON` | float | `0.0` | Default longitude for context API collect — set via GUI |
 | `PYTHONUTF8` | str | `"1"` | Forces UTF-8 mode — prevents encoding issues on Windows |
 | `GARMIN_IMPORT_PATH` | str | `""` | Path to Garmin export ZIP or folder — triggers import mode (`garmin_collector._run_bulk_import()`) |
-| `GARMIN_BULK_PHASES` | str | *(unset)* | Phases of the import: comma list of `json` / `intraday`; unset or blank = `json` only (v1.7.6) — removed with `os.environ.pop()` when read |
-| `GARMIN_BULK_DRYRUN` | str | *(unset)* | `"1"` = preview of the intraday phase, nothing is written; the json phase is skipped (v1.7.6) — removed with `os.environ.pop()` when read |
+| `GARMIN_BULK_PHASES` | str | *(unset)* | Phases of the import: comma list of `json` (daily values into `bulk/aggregates`, v1.7.6.1) / `intraday` (heart-rate series into `bulk/raw`); unset or blank = `json` only (v1.7.6) — removed with `os.environ.pop()` when read |
+| `GARMIN_BULK_DRYRUN` | str | *(unset)* | `"1"` = preview of the chosen phases, nothing is written, not even folders (v1.7.6; both phases since v1.7.6.1, before only the intraday phase had one) — removed with `os.environ.pop()` when read |
 | `GARMIN_SOURCE_BACKFILL` | str | `"0"` | `"1"` = run source backfill in `main()` step 5c — set by timer `source_backfill` mode only |
 | `GARMIN_SCHEMA_MIGRATE` | str | `"0"` | `"1"` = rewrite outdated summary files in `main()` step 3c |
 | `GARMIN_RESTING_HR_REPAIR` | str | `"0"` | `"1"` = run the resting-HR repair in `main()` step 3e (v1.7.5.7, removable) — set by `sync.run_collector()` after the popup was confirmed; removed with `os.environ.pop()` as soon as `main()` reads it, so it never survives into a later run in the same process (T3) |
@@ -75,7 +75,8 @@ All modules import via `import garmin_config as cfg`.
 | `LIVE_FILE` | `LIVE_DIR/live.json` | Single-file snapshot of the current day — no history, overwritten on every fetch (v1.6.5) |
 | `BULK_DIR` | `GARMIN_DIR/bulk` | Bulk store — data from the Garmin GDPR export, apart from the API store; sole owner: `garmin_bulk_writer.py` (v1.7.6) |
 | `BULK_RAW_DIR` | `BULK_DIR/raw` | One JSON file per local day with named sections (`garmin_bulk_YYYY-MM-DD.json`) |
-| `BULK_SOURCE_DIR` | `BULK_DIR/source` | The unchanged export files, `<xx>/<sha256>.fit` |
+| `BULK_SOURCE_DIR` | `BULK_DIR/source` | The unchanged export files, `<xx>/<sha256>.fit` and, since v1.7.6.1, the JSON files `<xx>/<sha256>.json` |
+| `BULK_AGG_DIR` | `BULK_DIR/aggregates` | One JSON file per local day with the daily values of the export (`garmin_bulk_agg_YYYY-MM-DD.json`; v1.7.6.1), same sole owner |
 | `GARMIN_TOKEN_DIR` | `LOG_DIR/garmin_token` | Temp dir for garminconnect library |
 | `GARMIN_TOKEN_FILE` | `LOG_DIR/garmin_token.enc` | AES-256-GCM encrypted OAuth token |
 | `CAPABILITY_CONFIG_FILE` | `LOG_DIR/garmin_api_capability_config.json` | API-Capability-Scan config — sole owner: `garmin_api_capability.py` (v1.6.8) |
@@ -107,6 +108,7 @@ All modules import via `import garmin_config as cfg`.
 | `SUMMARY_FILE_PREFIX` | `"garmin_"` | `garmin_map.py` |
 | `RAW_FILE_PREFIX` | `"garmin_raw_"` | `garmin_map.py` |
 | `BULK_FILE_PREFIX` | `"garmin_bulk_"` | `garmin_bulk_writer.py`, `garmin_health_map.py` (v1.7.6) |
+| `BULK_AGG_FILE_PREFIX` | `"garmin_bulk_agg_"` | `garmin_bulk_writer.py`, `garmin_health_map.py`, `garmin_silo_check.py` (v1.7.6.1) |
 
 ### Location (context collect)
 
@@ -348,8 +350,9 @@ it fits directly into one WCM credential entry.
     │   ├── garmin_bulk_fit_reader.py      ← Leaf-Node. FIT bytes → messages. parse_fit() (v1.7.6)
     │   ├── garmin_bulk_export_scanner.py  ← Leaf-Node. Finds the FIT files in an export (ZIP, folder). iter_fit_files() (v1.7.6)
     │   ├── garmin_bulk_normalizer.py      ← Leaf-Node. Day boundaries, 16-bit timestamps, samples per day. plan_days(), SampleCollector (v1.7.6)
-    │   ├── garmin_bulk_writer.py          ← Sole Owner bulk/ (v1.7.6). write_day(), day_status(), store_original()
+    │   ├── garmin_bulk_writer.py          ← Sole Owner bulk/ (v1.7.6). write_day(), day_status(), write_aggregates(), load_aggregates(), store_original(), store_original_json()
     │   ├── garmin_bulk_import.py          ← Intraday phase of the import, orchestrates the four above. run_intraday_import() (v1.7.6)
+    │   ├── garmin_bulk_json_import.py     ← Daily-values phase of the import → bulk/aggregates, orchestrates garmin_import/validator/quality/bulk_writer. run_aggregates_import() (v1.7.6.1)
     │   ├── garmin_normalizer.py
     │   ├── garmin_quality.py       ← Facade — delegates to quality/
     │   ├── quality/                ← Quality sub-modules (v1.5.5.1+)
@@ -647,7 +650,7 @@ findable by heading/table search (see `DOC_DRIFT_REPORT.md`, Punkt B).
 | `date_utils.py` | `date_range(date_from, date_to) -> list[str]` (v1.7.3.2) — ISO date strings, inclusive. Leaf-Node, domain-less, same category as `log_utils.py`. Replaces three identical local `_date_range()` copies in `maps/_context_io.py`, `maps/garmin_health_map.py`, `context/context_api.py` — placed at the `src/`-root rather than `garmin/garmin_utils.py` specifically so `maps/`/`context/` don't gain a new `garmin/` dependency for a function with no Garmin-specific content. |
 | `app/popups/capability_scan.py`, `app/popups/dashboard_create.py`, `app/popups/custom_dashboard.py`, `app/popups/encrypted_dashboards.py`, `app/popups/_dashboard_build.py` | Dashboard/config popups (v1.7.2.1 — Codereview & Cleanup), extracted from `panel_outputs.py`: the first four each expose one `open_popup(panel)`, called from a one-line delegate method still on `PanelOutputs` (button-wiring unchanged). `_dashboard_build.py` is the shared build/encrypt engine both `custom_dashboard.py` and `encrypted_dashboards.py` depend on (`run_dashboards()`/`run_encrypted()`) — neither popup imports the other. |
 | `app/outputs/output_helpers.py`, `bulk_import.py`, `force_refetch.py`, `context_check.py`, `dashboards.py`, `context_sync.py`, `sync.py` | The remaining seven feature blocks of `panel_outputs.py` (v1.7.3.1 — Codereview & Cleanup), extending the `app/popups/` precedent to the rest of the file. Each exposes one or more module-level functions taking the owning `PanelOutputs` instance as an explicit `panel` parameter (e.g. `sync.run_collector(panel, *, on_done=None)`); `panel_outputs.py` keeps a one-line delegate per public entry point with the *same* signature — required for `run_collector`/`run_live_fetch`/`run_context_sync`/`run_all_dashboards`, since `panel_home.py`'s Daily Sync chain and `panel_home.py`'s Update-Live button call these directly with keyword arguments from outside `panel_outputs.py`, not just via `_build_ui()`'s button wiring. `stop_context_sync`/`on_context_sync_done` also keep delegates — called directly as `panel._method()` in `tests/test_qt_app.py::TestPanelOutputs`. Helpers with no caller outside their own module (`_check_raw_backfill_popup`, `context_check.py`'s three reset/dialog helpers) stay module-private, no delegate. `_stop_btn` (and the other Data-Collection/Data-Management widgets) stay on `PanelOutputs` itself (E-7) — `garmin_app.py`/`garmin_app_standalone.py` access `panel._panel_outputs._stop_btn` directly. |
-| `app/outputs/bulk_import.py` *(v1.7.6)* | Import of a Garmin export. `ImportOptionsDialog` asks which parts to import ("Daily values (JSON)" / "Heart-rate series (FIT files)") with Preview, Import and Cancel; `build_env(path, json_phase, intraday_phase, dry_run)` builds the collector's `env_overrides` (`GARMIN_IMPORT_PATH`, `GARMIN_BULK_PHASES`, `GARMIN_BULK_DRYRUN`); `TRIGGER_VARS` lists everything the import sets in `os.environ` — removed after the run (T3 runs `main()` in the GUI process). The confirmation names that the bulk store is not yet part of backup and mirror. |
+| `app/outputs/bulk_import.py` *(v1.7.6)* | Import of a Garmin export. `ImportOptionsDialog` asks which parts to import ("Daily values (JSON)" / "Heart-rate series (FIT files)") with Preview, Import and Cancel (the preview exists for both parts since v1.7.6.1; both go to `garmin_data/bulk`); `build_env(path, json_phase, intraday_phase, dry_run)` builds the collector's `env_overrides` (`GARMIN_IMPORT_PATH`, `GARMIN_BULK_PHASES`, `GARMIN_BULK_DRYRUN`); `TRIGGER_VARS` lists everything the import sets in `os.environ` — removed after the run (T3 runs `main()` in the GUI process). The confirmation names that the bulk store is not yet part of backup and mirror. |
 | `app/popups/export_data.py`, `app/popups/_export_build.py` | Export Data popup (v1.7.4) — per-adapter grid (Health/Context/Metadata toggles), analogous to `dashboard_create.py`/`_dashboard_build.py`. `_export_build.py` is the worker-thread build backend (`run_export()`). "Save & Add to Daily Sync" persists the selection into `settings["export_auto_run"]`. |
 | `app/outputs/export_auto.py` | Runs the saved `export_auto_run` selection from the GUI's Daily Sync chain (v1.7.4) — threaded counterpart to `scheduler/daily_update.py::_run_export()`, called via `panel_outputs._run_export_auto()`. |
 | `app/panel_connection.py` | `PanelConnection(QWidget)` — connection dialogs only; indicators delegated to `panel_home.py` (v1.5.4+). **(v1.7.2.3)** Data Management (Restore Data / Silo-Check / Repair / Force Refetch) moved out to `app/panel_outputs.py` — `panel_archive.py`'s call sites (`set_restore_button_state()` etc.) repointed there. Export-to-Mirror and Import-from-Mirror removed (redundant with the existing Daily Actions Mirror popup); Reset Token removed as unused. `_build_ui()` now builds an otherwise-empty layout container. |
@@ -705,8 +708,10 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 │   ├── bulk/                       ← Bulk store (v1.7.6) — Garmin export data, sole owner garmin_bulk_writer.py
 │   │   ├── raw/
 │   │   │   └── garmin_bulk_YYYY-MM-DD.json
+│   │   ├── aggregates/             ← daily values of the export (v1.7.6.1)
+│   │   │   └── garmin_bulk_agg_YYYY-MM-DD.json
 │   │   └── source/
-│   │       └── <xx>/<sha256>.fit       ← unchanged export files
+│   │       └── <xx>/<sha256>.fit|.json  ← unchanged export files
 │   └── log/
 │       ├── quality_log.json
 │       ├── device_table.json

@@ -101,7 +101,7 @@ def _isolated_log_env(name):
     names = ("LOG_DIR", "QUALITY_LOG_FILE", "DEVICE_TABLE_FILE", "RAW_DIR",
              "LOG_BACKUP_DIR", "AUTORESTORE_DIR", "RAW_BACKUP_DIR",
              "SOURCE_DIR", "SOURCE_BACKUP_DIR", "SUMMARY_DIR",
-             "BULK_DIR", "BULK_RAW_DIR", "BULK_SOURCE_DIR")
+             "BULK_DIR", "BULK_RAW_DIR", "BULK_SOURCE_DIR", "BULK_AGG_DIR")
     saved = {n: getattr(cfg, n) for n in names}
     cfg.LOG_DIR           = base / "log"
     cfg.QUALITY_LOG_FILE  = base / "log" / "quality_log.json"
@@ -115,6 +115,7 @@ def _isolated_log_env(name):
     cfg.BULK_DIR          = base / "bulk"
     cfg.BULK_RAW_DIR      = base / "bulk" / "raw"
     cfg.BULK_SOURCE_DIR   = base / "bulk" / "source"
+    cfg.BULK_AGG_DIR      = base / "bulk" / "aggregates"
     cfg.LOG_DIR.mkdir(parents=True)
     try:
         yield base
