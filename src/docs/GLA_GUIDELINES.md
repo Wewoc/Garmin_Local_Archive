@@ -146,6 +146,7 @@ directory.
 | `garmin_source_writer.py` | `garmin_data/source/` and `source_api_log.json` |
 | `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` |
 | `garmin_backup_source.py` | `garmin_data/backup/source/` |
+| `garmin_backup_bulk.py` | `garmin_data/backup/bulk/` (v1.7.6.2) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` |
 | `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` and `garmin_data/bulk/source/` |
 | `garmin_mirror.py` → `garmin_container.py` | `mirror.gla` |
@@ -159,6 +160,7 @@ Modules with no project dependencies (standard library only) are called
 Leaf Nodes:
 - `garmin_utils.py`, `garmin_validator.py`, `garmin_source_quality.py`
 - `garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py`, `garmin_bulk_normalizer.py` (v1.7.6)
+- `garmin_backup_common.py` (v1.7.6.2) — the shared backup flow, standard library only
 - A Leaf Node never imports another project module
 - Guarantees no circular dependencies and fully isolated testing
 
@@ -307,6 +309,29 @@ garmin_collector._mark_bulk_days() → garmin_quality.record_bulk_intraday()
 
 `garmin_bulk_import.run_intraday_import()` orchestrates the four modules; `garmin_collector._run_bulk_import()` starts it after the JSON phase (the day windows come from `raw/stats`, or for a day without a usable one from the window the JSON phase stored in `bulk/aggregates`). The store is read by the broker as a second track for `heart_rate_series` (`REFERENCE_BROKER.md`). Nothing from this path is written to `raw/`, `source/` or `summary/`.
 
+### Bulk store protection path (v1.7.6.2)
+
+```
+garmin_collector — sync start (step 3g) and the end of a bulk import:
+      │
+      ▼
+garmin_backup_bulk.backup_all()        — day files → monthly ZIPs, originals → one ZIP per hash prefix
+      │                                  (garmin_backup_common: the shared flow); a failure is a warning
+      ▼
+garmin_data/backup/bulk/
+
+garmin_silo_check.check_silos()        — #8 bulk file lost (marks in quality_log.json), #9 original missing
+      │
+      ▼
+garmin_silo_repair.repair_silos()      — read_day_copy() / read_original_copy() → garmin_bulk_writer.import_day_file()
+                                         / store_original(); an aggregates day gets its summary made again
+
+garmin_mirror → garmin_container       — sections bulk, bulk_source
+garmin_import_mirror                   — the bulk part before the raw days: import_day_file() / store_original()
+```
+
+The writer decides every time: a fuller stored day is kept, a file that fails the check is refused. An export-only day (quality log `write` false, no raw file in the container) is no error of the mirror import.
+
 ### Self-healing loop
 
 On a schema-version mismatch (`CURRENT_SCHEMA_VERSION` in
@@ -395,7 +420,7 @@ Reconstruction only ever flows forward through this chain: a lost
 from `source/` by replaying it through `normalize()` again — never the
 other way around.
 
-**Bulk store (v1.7.6, extended v1.7.6.1):** `garmin_data/bulk/` is a separate store beside these three silos, not a fourth step of the chain. Its source is the Garmin export, not the API: the heart-rate series (one JSON file per local day in `bulk/raw`), the daily values (one JSON file per local day in `bulk/aggregates`) and the export's own files kept by SHA-256 in `bulk/source`. `source/` and `raw/` are never derived from it and it is not rebuilt from them; `raw/` holds only API data. The one place where the two meet is `summary/`, which is resolved from both (the API data win). Its only writer is `garmin_bulk_writer.py`. It is not yet part of backup and mirror (v1.7.6.2); the silo check looks at the file names in `bulk/aggregates`.
+**Bulk store (v1.7.6, extended v1.7.6.1):** `garmin_data/bulk/` is a separate store beside these three silos, not a fourth step of the chain. Its source is the Garmin export, not the API: the heart-rate series (one JSON file per local day in `bulk/raw`), the daily values (one JSON file per local day in `bulk/aggregates`) and the export's own files kept by SHA-256 in `bulk/source`. `source/` and `raw/` are never derived from it and it is not rebuilt from them; `raw/` holds only API data. The one place where the two meet is `summary/`, which is resolved from both (the API data win). Its only writer is `garmin_bulk_writer.py`. Since v1.7.6.2 it is protected like the silos: `garmin_backup_bulk.py` backs it up (`backup/bulk/`), the mirror container carries it in the sections `bulk` and `bulk_source`, and the silo check finds lost files (#8, #9) that the repair restores from the backup — always through the bulk writer. The silo check itself reads only file names, the marks of the quality log and, for #9, the `source_files` of the intraday day files.
 
 Conservative guard for `source/` — "freeze-when-present":
 

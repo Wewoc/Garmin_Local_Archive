@@ -1,5 +1,101 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.2 — Archive Protection for the Bulk Store
+
+The bulk store (`garmin_data/bulk/`: heart-rate series, daily values and the
+kept originals of the Garmin export) is now part of the backup, the mirror and
+the silo check. A lost bulk file can be restored from the backup or from a
+mirror container, and a mirror import brings the whole store along.
+
+**What changed:**
+- **Backup** (`garmin_backup_common`, `garmin_backup_bulk`, both new): the
+  monthly folder / ZIP flow of the raw backup lives once in the shared module
+  (`BackupKind`); `garmin_backup_bulk` is the only owner of `backup/bulk/`.
+  Day files (`bulk/raw`, `bulk/aggregates`) go to monthly ZIPs
+  (`backup/bulk/raw`, `backup/bulk/aggregates`), a changed day replaces its
+  copy. The originals have no date and never change, so they get one ZIP per
+  hash prefix (`backup/bulk/source/<xx>.zip`): a ZIP is never appended to, a
+  new one is written next to the old one, verified and swapped in; a ZIP that
+  cannot be read is left untouched and reported. The backup runs at the sync
+  start (step 3g) and at the end of a bulk import; the first backup happens by
+  itself; a failure is a warning, never a failed run. `garmin_backup.py` and
+  `garmin_backup_source.py` are unchanged.
+- **Mirror** (`garmin_container`, `garmin_mirror`): two new sections, `bulk`
+  (day files) and `bulk_source` (originals); the container format version is
+  unchanged and older containers stay readable (`list_files` answers an empty
+  list for a section they lack). Mirroring writes progress lines to the log:
+  every 10 % of the files read, each section packed, the write.
+  `fulfill_order(..., progress=)` reports the sections it decrypts;
+  `report_progress` is public.
+- **Mirror import** (`garmin_import_mirror`): day files go to the bulk writer
+  (`import_day_file`, the fuller of two states wins, invalid files are
+  refused), originals are copied when their name is missing here
+  (`store_original` checks the hash). The bulk part is imported before the raw
+  days, so their summary is the resolved one. A day that exists only as export
+  data (quality log `write` false, no raw file in the container) is no error
+  any more (F-8): its summary is made from the daily values, it gets its
+  quality-log entry and marks. The result has `bulk_copied`, `bulk_skipped`,
+  `originals_copied`, `export_days`; the preview counts missing day files and
+  originals; progress lines every 10 %. The backup of imported bulk files
+  follows at the next sync start.
+- **Bulk writer** (`garmin_bulk_writer`): `import_day_file`,
+  `describe_container_path`, `list_originals`; one shared atomic write
+  (`_write_atomic`) for `write_day`, `write_aggregates` and the import.
+  The file header now says what `source_files` of an aggregates file are
+  (hashes of source entries, not of files; F-11).
+- **Silo check and repair**: finding #8 "bulk file lost" (the quality log marks
+  `bulk.intraday` / `bulk.aggregates`, the file is missing from the store) and
+  #9 "original missing" (an intraday day file names a FIT file in
+  `source_files` that `bulk/source` lacks). The repair restores them from
+  `backup/bulk` through the bulk writer (#8 first; an aggregates day gets its
+  summary made again; no backup copy is reported as an error). The summary of
+  a day whose aggregates file is lost is no longer an orphan (#5) and is no
+  longer deleted (F-10).
+- **Panel**: lines for #8 and #9 in the silo check and its repair; the mirror
+  and the mirror import show the progress lines in the log; the import
+  preview and result name the bulk files.
+- **Fixed:** F-8 (mirror import counted an export-only day as an error), F-10
+  (silo repair deleted the summary of a day with a lost aggregates file).
+
+**New modules:** `garmin_backup_common.py`, `garmin_backup_bulk.py`;
+`tests/test_backup_common.py`, `tests/test_backup_bulk.py`.
+
+**Changed modules:**
+- `garmin/garmin_collector.py` — `_run_bulk_backup`, step 3g, call after the
+  bulk import
+- `garmin/garmin_container.py`, `garmin_mirror.py`, `garmin_import_mirror.py`
+- `garmin/garmin_bulk_writer.py`, `garmin_silo_check.py`,
+  `garmin_silo_repair.py`, `garmin_config.py` (`BULK_BACKUP_DIR`,
+  `BULK_RAW_BACKUP_DIR`, `BULK_AGG_BACKUP_DIR`, `BULK_SOURCE_BACKUP_DIR`)
+- `app/panel_archive.py` — silo lines, progress, import texts
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py`,
+  `tests/vulture_whitelist.py` — new modules and tests registered; three
+  functions of the shared backup code kept for v1.7.6.2.1
+- `tests/` — `test_backup_common.py`, `test_backup_bulk.py` (new),
+  `test_bulk_writer.py`, `test_container_mirror.py`, `test_import_mirror.py`
+  (round trip back up / mirror / lose / restore), `test_collector.py`,
+  `test_silo_check.py`, `test_silo_repair.py`, `test_qt_app.py`,
+  `test_build_output.py`, `gla_testenv.py`
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_INVARIANTS.md`,
+  `docs/REFERENCE_GLOBAL.md`, `docs/MAINTENANCE_GARMIN.md`,
+  `docs/MAINTENANCE_GLOBAL.md`, `docs/GLA_GUIDELINES.md`, `README.md`,
+  `docs/USER_GUIDE.txt`, `docs/QUICKSTART.txt`, `docs/README_APP.md` (title),
+  `docs/ROADMAP.md`, `docs/VERSION_HISTORY.md`
+- `version.py` — 1.7.6.2
+
+**Test result:** all suites green, 5872 checks in 44 files.
+
+**Not covered:** the silo check notices a lost original only for the FIT files
+named by the intraday day files (the `source_files` of an aggregates file are
+hashes of single source entries, so a lost JSON original cannot be told from
+them); when a day file and its original are lost together, the repair needs a
+second run for the original; a damaged (not merely missing) day file is not
+detected by the silo check; the raw and source backups still run on their own
+code and the damaged-ZIP weakness of their append mode is not yet fixed
+(v1.7.6.2.1); no run against the real archive yet (time of the first backup,
+cost of the backup check at each sync start, a mirror import with a real
+container).
+
 ## v1.7.6.1 — Bulk JSON Import into the Bulk Store
 
 The daily values of the Garmin GDPR export now go into the bulk store as well:

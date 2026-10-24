@@ -34,6 +34,35 @@ import garmin_quality as _quality
 from .dialogs import PasswordConfirmDialog
 
 
+def _import_preview_text(dry: dict) -> str:
+    """The question text before a mirror import: what the dry run found (v1.7.6.2: bulk files named)."""
+    msg = (f"{dry.get('raw_to_copy', 0)} raw day(s) and "
+           f"{dry.get('context_to_copy', 0)} context file(s) will be imported.")
+    bulk_n, orig_n = dry.get("bulk_to_copy", 0), dry.get("originals_to_copy", 0)
+    if bulk_n or orig_n:
+        msg += (f"\nAlso {bulk_n} export day file(s) of the bulk store and "
+                f"{orig_n} original export file(s) that are missing here.")
+    return msg
+
+
+def _import_result_text(result: dict) -> str:
+    """The log line after a mirror import ran; the bulk counts are named only when there are some."""
+    msg = (
+        f"{'✓' if result['ok'] else '⚠'} Mirror import complete: "
+        f"{result['raw_copied']} raw day(s) imported, "
+        f"{result['raw_skipped']} skipped, "
+        f"{result['context_copied']} context file(s) imported"
+    )
+    for key, text in (("bulk_copied", "{} export day file(s)"),
+                      ("originals_copied", "{} original export file(s)"),
+                      ("export_days", "{} export-only day(s)")):
+        if result.get(key):
+            msg += ", " + text.format(result[key])
+    if result["errors"]:
+        msg += f", {result['errors']} error(s)"
+    return msg
+
+
 class PanelArchive(QWidget):
 
     def __init__(self, app):
@@ -559,6 +588,21 @@ class PanelArchive(QWidget):
                             + ", ".join(d.isoformat()
                                         for d in result["raw_without_summary"][:5])
                             + ("…" if c["raw_without_summary"] > 5 else ""))
+                    lost = ([(d, "intraday") for d in result.get("bulk_lost_intraday", [])]
+                            + [(d, "daily values") for d in result.get("bulk_lost_aggregates", [])])
+                    if lost:
+                        lines.append(
+                            f"    ⚠ #8 bulk files lost (marked in the quality log, missing in the store): "
+                            f"{len(lost)} file(s) — "
+                            + ", ".join(f"{d.isoformat()} ({what})" for d, what in lost[:5])
+                            + ("…" if len(lost) > 5 else ""))
+                    missing = result.get("bulk_originals_missing", [])
+                    if missing:
+                        lines.append(
+                            f"    ⚠ #9 original export files missing (named by an intraday day file, "
+                            f"not in the store): {len(missing)} file(s) — "
+                            + ", ".join(h[:12] for h in missing[:5])
+                            + ("…" if len(missing) > 5 else ""))
                     lines.append(
                         "    → Use '🔧 Repair' to fix all findings.")
 
@@ -660,6 +704,28 @@ class PanelArchive(QWidget):
                         self._app._log_bg(f"  ~ #7 raw gone by now: {date_str}")
                     else:
                         self._app._log_bg(f"  ✗ #7 repair error {date_str}: {item['reason']}")
+                elif cat == "8":
+                    what = "intraday" if item.get("kind") == "intraday" else "daily values"
+                    if status == "repaired":
+                        self._app._log_bg(f"  ✓ #8 restored from backup: {date_str} ({what})")
+                    elif status == "present":
+                        self._app._log_bg(f"  ~ #8 already back: {date_str} ({what})")
+                    elif status == "no_backup":
+                        self._app._log_bg(
+                            f"  ✗ #8 no backup copy for {date_str} ({what}) — import the export again")
+                    else:
+                        self._app._log_bg(f"  ✗ #8 repair error {date_str} ({what}): {item['reason']}")
+                elif cat == "9":
+                    short = item["hash"][:12]
+                    if status == "repaired":
+                        self._app._log_bg(f"  ✓ #9 original restored from backup: {short}")
+                    elif status == "present":
+                        self._app._log_bg(f"  ~ #9 original already back: {short}")
+                    elif status == "no_backup":
+                        self._app._log_bg(
+                            f"  ✗ #9 no backup copy for original {short} — import the export again")
+                    else:
+                        self._app._log_bg(f"  ✗ #9 repair error {short}: {item['reason']}")
 
             self._app._log_bg(
                 f"🔧  Silo-Repair complete — {result['ok']} fixed, {result['failed']} errors")
@@ -740,11 +806,9 @@ class PanelArchive(QWidget):
                 f"Could not read mirror data:\n{cause}")
             return
 
-        raw_n    = dry.get("raw_to_copy", 0)
-        ctx_n    = dry.get("context_to_copy", 0)
         ver_warn = dry.get("version_warning", "")
 
-        msg = f"{raw_n} raw day(s) and {ctx_n} context file(s) will be imported."
+        msg = _import_preview_text(dry)
         if ver_warn:
             msg += f"\n\n⚠ {ver_warn}"
         msg += "\n\nProceed?"
@@ -775,23 +839,15 @@ class PanelArchive(QWidget):
                     base_dir=base_dir,
                     password=password,
                     dry_run=False,
+                    progress=lambda text: self._app._log_bg("    " + text.strip()),
                 )
                 if result.get("error"):
                     # Hard-stop failure — nothing was processed at all.
                     self._app._log_bg(f"✗ Mirror import failed: {result['error']}")
                 else:
-                    # Ran (fully or partially) — reflect that in the prefix
-                    # instead of always showing ✓ even when errors occurred.
-                    prefix = "✓" if result["ok"] else "⚠"
-                    msg = (
-                        f"{prefix} Mirror import complete: "
-                        f"{result['raw_copied']} raw day(s) imported, "
-                        f"{result['raw_skipped']} skipped, "
-                        f"{result['context_copied']} context file(s) imported"
-                    )
-                    if result["errors"]:
-                        msg += f", {result['errors']} error(s)"
-                    self._app._log_bg(msg)
+                    # Ran (fully or partially) — the prefix of the text shows ✓ or ⚠
+                    # instead of always ✓ even when errors occurred.
+                    self._app._log_bg(_import_result_text(result))
             except Exception as e:
                 self._app._log_bg(f"✗ Mirror import failed: {e}")
             finally:
@@ -848,7 +904,10 @@ class PanelArchive(QWidget):
         def _do_mirror():
             try:
                 import garmin_mirror as _mirror
-                result = _mirror.run_mirror(base_dir, Path(mirror_path), password)
+                # v1.7.6.2: a mirror takes minutes with the bulk store; lines of progress go to the log
+                result = _mirror.run_mirror(
+                    base_dir, Path(mirror_path), password,
+                    progress=lambda text: self._app._log_bg("    " + text.strip()))
                 msg = (
                     f"✓ Mirror complete: {result.get('files_packed', 0)} files packed"
                 )

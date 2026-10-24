@@ -506,6 +506,128 @@ with _isolated_log_env("main_bulk_3f") as _b:
         _run_main(login=None)
     check("sync start: the save of the catch-up happens under QUALITY_LOCK", ("3f", True) in _held)
 
+# -- bulk store backup (v1.7.6.2): when an import is done and at the sync start (step 3g) -----------------------------
+import garmin_backup_bulk as _bbk
+import zipfile as _zip_bb
+
+with _isolated_log_env("bulk_backup_unit"):
+    with patch.object(_bbk, "backup_all", return_value={"ok": True}) as _ba, patch.object(_col5.log, "warning") as _wr:
+        _col5._run_bulk_backup("sync start")
+    check("bulk backup: backup_all gets the collector's stop check; a clean result says nothing",
+          _ba.call_args.kwargs == {"should_stop": _col5._is_stopped} and _ba.call_count == 1 and _wr.call_count == 0)
+    with patch.object(_bbk, "backup_all", return_value={"ok": False}), patch.object(_col5.log, "warning") as _wr:
+        _col5._run_bulk_backup("after the import")
+    check("bulk backup: a result that is not ok is one warning that names the place and says the next start tries again",
+          _wr.call_count == 1 and "Bulk backup (after the import)" in str(_wr.call_args.args[0])
+          and "next start" in str(_wr.call_args.args[0]))
+    with patch.object(_bbk, "backup_all", return_value={}), patch.object(_col5.log, "warning") as _wr:
+        _col5._run_bulk_backup("sync start")
+    check("bulk backup: an answer without 'ok' counts as not ok", _wr.call_count == 1)
+    with patch.object(_bbk, "backup_all", side_effect=RuntimeError("boom")), patch.object(_col5.log, "warning") as _wr:
+        _col5._run_bulk_backup("sync start")
+    check("bulk backup: an error is one warning with the error type, nothing is raised",
+          _wr.call_count == 1 and "Bulk backup (sync start) failed: RuntimeError: boom" in str(_wr.call_args.args[0]))
+    with patch.dict(sys.modules, {"garmin_backup_bulk": None}), patch.object(_col5.log, "warning") as _wr:
+        _col5._run_bulk_backup("sync start")
+    check("bulk backup: a module that cannot be imported is a warning too, nothing is raised",
+          _wr.call_count == 1 and "Bulk backup (sync start) failed:" in str(_wr.call_args.args[0])
+          and "garmin_backup_bulk" in str(_wr.call_args.args[0]))
+
+with _isolated_log_env("main_bulk_3g") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _order = []
+    _sync_log()
+    with patch.object(_col5, "_run_bulk_mark_catch_up", side_effect=lambda qd: _order.append(("3f",))), \
+         patch.object(_col5, "_run_backup_refresh", side_effect=lambda: _order.append(("3d",))), \
+         patch.object(_col5, "_run_bulk_backup", side_effect=lambda w: _order.append(("3g", w, _col5.api.login.called))), \
+         _cfg_values(**_SYNC1):
+        _run_main()
+    check("sync start: step 3g runs once, after 3d and 3f and before the login, as 'sync start'",
+          _order == [("3d",), ("3f",), ("3g", "sync start", False)])
+
+    for _kw, _want, _what in (({"login": None}, None, "a cancelled login"),
+                              ({"login_error": _col5.api.GarminLoginError("nope")}, 1, "a login error")):
+        _calls = []
+        _sync_log()
+        with patch.object(_col5, "_run_bulk_backup", side_effect=lambda w: _calls.append(w)), _cfg_values(**_SYNC1):
+            _code, _exc, _fetch, _ = _run_main(**_kw)
+        check(f"sync start: step 3g runs before the login, {_what} does not stop it",
+              _calls == ["sync start"] and _code == _want and not _fetch.called)
+
+    _sync_log()
+    with patch.object(_bbk, "backup_all", side_effect=RuntimeError("boom")), \
+         patch.object(_col5.log, "warning", wraps=_col5.log.warning) as _wrn, _cfg_values(**_SYNC1):
+        _code, _exc, _fetch, _ = _run_main()
+    check("sync start: a failing bulk backup is a warning, the sync goes on and ends cleanly",
+          _code is None and _exc is None and _fetch.called
+          and any("Bulk backup (sync start) failed: RuntimeError: boom" in str(c.args[0]) for c in _wrn.call_args_list))
+    check("sync start: ... and the quality lock is free after it",
+          quality.QUALITY_LOCK.acquire(blocking=False) and (quality.QUALITY_LOCK.release() or True))
+
+    # the real backup: the days of the store end up in the backup, a second start changes nothing
+    _sync_log()
+    _silo("2024-04-01", "2024-04-03")
+    with _cfg_values(**_SYNC1):
+        _run_main()
+    _zp = cfg.BULK_RAW_BACKUP_DIR / "bulk_raw_backup_2024-04.zip"
+    check("sync start: the days of the bulk store are in the backup afterwards (real backup, isolated folders)",
+          _zp.is_file() and sorted(_zip_bb.ZipFile(_zp).namelist())
+          == [f"{cfg.BULK_FILE_PREFIX}2024-04-01.json", f"{cfg.BULK_FILE_PREFIX}2024-04-03.json"])
+    _bytes_before = _zp.read_bytes()
+    with _cfg_values(**_SYNC1):
+        _run_main()
+    check("sync start: a second start leaves the backup byte-identical", _zp.read_bytes() == _bytes_before)
+
+with _isolated_log_env("main_bulk_3g_empty") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _sync_log()
+    with _cfg_values(**_SYNC1):
+        _code, _exc, _fetch, _ = _run_main()
+    check("sync start: without a bulk store the start is as before and no backup folder is made",
+          _code is None and _exc is None and _fetch.called and not cfg.BULK_BACKUP_DIR.exists())
+
+with _isolated_log_env("main_bulk_backup_import") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _calls = []
+    with patch.object(_col5, "_run_bulk_backup", side_effect=lambda w: _calls.append(w)):
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "json,intraday"})
+    check("bulk import: the bulk store is backed up once when both phases are done, as 'after the import'",
+          _c == 0 and _calls == ["after the import"])
+    _o2 = []
+    with patch.object(_col5, "_run_bulk_backup", side_effect=lambda w: _o2.append("backup")):
+        _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, spy=lambda: _o2.append("intraday"))
+    check("bulk import: ... after the phases, not before", _o2 == ["intraday", "backup"])
+    for _vars, _what, _n in (({"GARMIN_BULK_PHASES": "json"}, "the json phase alone", 1),
+                             ({"GARMIN_BULK_PHASES": "json,intraday", "GARMIN_BULK_DRYRUN": "1"}, "a preview", 0),
+                             ({"GARMIN_BULK_PHASES": "foo"}, "an unknown phase selection", 0)):
+        _calls = []
+        with patch.object(_col5, "_run_bulk_backup", side_effect=lambda w: _calls.append(w)):
+            _bulk(_vars)
+        check(f"bulk import: backup calls for {_what}: {_n}", len(_calls) == _n)
+    _calls = []
+    with patch.object(_col5, "_run_bulk_backup", side_effect=lambda w: _calls.append(w)):
+        _c, *_ = _bulk({"GARMIN_BULK_PHASES": "json,intraday"}, import_result={"ok": False})
+    check("bulk import: a phase that is not ok still ends with the backup, exit code 1 comes from the phase",
+          _c == 1 and _calls == ["after the import"])
+    for _boom in ({"side_effect": RuntimeError("boom")}, {"return_value": {"ok": False}}):
+        with patch.object(_bbk, "backup_all", **_boom):
+            _c, *_ = _bulk({"GARMIN_BULK_PHASES": "json,intraday"})
+        check(f"bulk import: a backup that fails ({'error' if 'side_effect' in _boom else 'not ok'}) never changes the exit code",
+              _c == 0)
+
+    _silo("2024-04-01")
+    _c, *_ = _bulk({"GARMIN_BULK_PHASES": "json"})
+    check("bulk import: the real backup after the import puts the days of the store into the backup",
+          _c == 0 and (cfg.BULK_RAW_BACKUP_DIR / "bulk_raw_backup_2024-04.zip").is_file())
+
+with _isolated_log_env("main_bulk_backup_import_none") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _silo("2024-04-01")
+    _bulk({"GARMIN_BULK_PHASES": "json", "GARMIN_BULK_DRYRUN": "1"})
+    check("bulk import: a preview backs up nothing (no backup folder is made)", not cfg.BULK_BACKUP_DIR.exists())
+    _bulk({"GARMIN_BULK_PHASES": "json"}, stop_event=_ev_set)
+    check("bulk import: after a stop request nothing is backed up", not cfg.BULK_BACKUP_DIR.exists())
+
 # -- bulk import, daily values end to end (v1.7.6.1): the real phase, the real finish, a real quality log -------------
 import zipfile as _zip_agg
 import garmin_backup as _gbk_agg

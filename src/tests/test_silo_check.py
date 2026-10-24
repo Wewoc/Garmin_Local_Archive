@@ -320,9 +320,10 @@ with _iso_env("sc2_sets") as _b:
           _r["raw_without_summary"] == _d8(1, 3))
     check("G2 check_silos: totals count files and quality entries (undated entry included)",
           _r["totals"] == {"raw": 3, "summary": 2, "source": 3, "aggregates": 0, "quality_days": 4})
-    check("G2 check_silos: counts are the lengths of the four lists",
+    check("G2 check_silos: counts are the lengths of the lists (the bulk lists are empty without marks and without bulk day files)",
           _r["counts"] == {"raw_without_quality": 1, "source_without_raw": 1,
-                           "summary_without_raw": 1, "raw_without_summary": 2})
+                           "summary_without_raw": 1, "raw_without_summary": 2,
+                           "bulk_lost_intraday": 0, "bulk_lost_aggregates": 0, "bulk_originals_missing": 0})
 
 # -- _collect_quality_dates ----------------------------------------------------------------------------------------
 with _iso_env("sc2_quality") as _b:
@@ -371,9 +372,10 @@ with _iso_env("sc3_aggregates") as _b:
           _r["raw_without_summary"] == _d8(1, 3, 7))
     check("G3 check_silos: a day with raw and export data and a summary is no finding at all (day 6 and 4 appear nowhere)",
           all(_date(2025, 8, n) not in _r["summary_without_raw"] + _r["raw_without_summary"] for n in (2, 4, 6)))
-    check("G3 check_silos: totals count the aggregates files, the counts are the lengths of the four lists",
+    check("G3 check_silos: totals count the aggregates files, the counts are the lengths of the lists",
           _r["totals"] == {"raw": 3, "summary": 4, "source": 0, "aggregates": 4, "quality_days": 0}
-          and _r["counts"] == {"raw_without_quality": 3, "source_without_raw": 0, "summary_without_raw": 1, "raw_without_summary": 3})
+          and _r["counts"] == {"raw_without_quality": 3, "source_without_raw": 0, "summary_without_raw": 1, "raw_without_summary": 3,
+                               "bulk_lost_intraday": 0, "bulk_lost_aggregates": 0, "bulk_originals_missing": 0})
     check("G3 check_silos: the check only looks, no file is created, changed or removed",
           sorted(str(f) for f in _b.rglob("*") if f.is_file()) == _files_before)
 
@@ -384,6 +386,164 @@ with _iso_env("sc3_no_folder") as _b:
     _r = silo_check.check_silos()
     check("G3 check_silos: without an aggregates folder nothing changes: the summary is an orphan, nothing is created",
           _r["summary_without_raw"] == [_date(2025, 8, 5)] and _r["totals"]["aggregates"] == 0 and not cfg.BULK_AGG_DIR.exists())
+
+# -- bulk files lost (#8, v1.7.6.2): the quality log marks the day, the file is not in the store ----------------------------
+section("G4. garmin_silo_check — bulk file lost (#8) and the summary of such a day (F-10)")
+_AGGP, _DAYP = cfg.BULK_AGG_FILE_PREFIX, cfg.BULK_FILE_PREFIX
+
+
+def _g4_log(entries):
+    cfg.QUALITY_LOG_FILE.write_text(json.dumps({"days": entries}), encoding="utf-8")
+
+
+with _iso_env("sc4_names") as _b:
+    check("G4 _collect_bulk_day_dates: no folder -> empty set, nothing is created",
+          silo_check._collect_bulk_day_dates() == set() and not cfg.BULK_RAW_DIR.exists())
+    cfg.BULK_RAW_DIR.mkdir(parents=True)
+    for _n in ("2025-08-01", "2025-08-02"):
+        (cfg.BULK_RAW_DIR / f"{_DAYP}{_n}.json").write_text("{}", encoding="utf-8")
+    for _junk in (f"{_DAYP}2025-08-03.json.tmp", f"{_AGGP}2025-08-04.json", f"{_DAYP}junk.json", "2025-08-05.json"):
+        (cfg.BULK_RAW_DIR / _junk).write_text("{}", encoding="utf-8")
+    check("G4 _collect_bulk_day_dates: the dates of the day files by name; a temporary file, an aggregates name, junk and other files are no days",
+          silo_check._collect_bulk_day_dates() == {_date(2025, 8, 1), _date(2025, 8, 2)})
+
+with _iso_env("sc4_marks") as _b:
+    check("G4 _collect_bulk_marks: no quality log -> (empty, empty)", silo_check._collect_bulk_marks() == (set(), set()))
+    _g4_log([
+        {"date": "2025-09-01", "bulk": {"intraday": "2025-10-01"}},
+        {"date": "2025-09-02", "bulk": {"aggregates": "2025-10-01"}},
+        {"date": "2025-09-03", "bulk": {"intraday": "2025-10-01", "aggregates": "2025-10-01"}},
+        {"date": "2025-09-04", "bulk": {"intraday": "", "aggregates": None}},      # empty values are no marks
+        {"date": "2025-09-05", "bulk": "yes"},                                      # not a dict
+        {"date": "2025-09-06"},                                                      # no bulk key
+        {"date": "not-a-date", "bulk": {"intraday": "2025-10-01"}},                # invalid date
+        {"bulk": {"intraday": "2025-10-01"}},                                       # no date
+        "not an entry",
+    ])
+    check("G4 _collect_bulk_marks: non-empty values of bulk.intraday / bulk.aggregates are marks; empty values, other types, "
+          "undated and invalid entries are skipped, the rest is still read",
+          silo_check._collect_bulk_marks() == ({_date(2025, 9, 1), _date(2025, 9, 3)}, {_date(2025, 9, 2), _date(2025, 9, 3)}))
+    cfg.QUALITY_LOG_FILE.write_text("{broken", encoding="utf-8")
+    check("G4 _collect_bulk_marks: broken JSON -> (empty, empty), no exception", silo_check._collect_bulk_marks() == (set(), set()))
+    cfg.QUALITY_LOG_FILE.write_text("[]", encoding="utf-8")
+    check("G4 _collect_bulk_marks: a log that is no object -> (empty, empty)", silo_check._collect_bulk_marks() == (set(), set()))
+    cfg.QUALITY_LOG_FILE.write_text("{}", encoding="utf-8")
+    from pathlib import Path as _P4
+    with _patch.object(_P4, "read_text", side_effect=OSError("denied")):
+        check("G4 _collect_bulk_marks: unreadable file (OSError) -> (empty, empty)", silo_check._collect_bulk_marks() == (set(), set()))
+
+with _iso_env("sc4_check") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    for _dir in (cfg.RAW_DIR, cfg.SUMMARY_DIR, cfg.BULK_RAW_DIR, cfg.BULK_AGG_DIR):
+        _dir.mkdir(parents=True, exist_ok=True)
+    _g4_log([
+        {"date": "2025-08-01", "bulk": {"intraday": "x", "aggregates": "x"}},   # both files present -> fine
+        {"date": "2025-08-02", "bulk": {"intraday": "x"}},                       # intraday file lost
+        {"date": "2025-08-03", "bulk": {"aggregates": "x"}},                     # aggregates lost, summary there, no raw
+        {"date": "2025-08-04", "bulk": {"aggregates": "x"}},                     # aggregates lost, summary lost too
+        {"date": "2025-08-05", "bulk": {"intraday": "x", "aggregates": "x"}},   # both lost, raw present
+        {"date": "2025-08-06"},                                                  # files present but no mark -> no finding
+        {"date": "2025-08-07", "bulk": {"intraday": "x"}},                       # intraday file present, aggregates never existed -> fine
+    ])
+    for _n in ("2025-08-01", "2025-08-06", "2025-08-07"):
+        (cfg.BULK_RAW_DIR / f"{_DAYP}{_n}.json").write_text("{}", encoding="utf-8")
+    for _n in ("2025-08-01", "2025-08-06"):
+        (cfg.BULK_AGG_DIR / f"{_AGGP}{_n}.json").write_text("{}", encoding="utf-8")
+    (cfg.RAW_DIR / "garmin_raw_2025-08-05.json").write_text("{}", encoding="utf-8")
+    for _n in (1, 3, 5, 6, 8):
+        (cfg.SUMMARY_DIR / f"garmin_2025-08-0{_n}.json").write_text("{}", encoding="utf-8")
+    _files_before = sorted(str(f) for f in _b.rglob("*") if f.is_file())
+    _r = silo_check.check_silos()
+    _d8 = lambda *ns: [_date(2025, 8, n) for n in ns]          # noqa: E731
+    check("G4 check_silos: the marked intraday days whose file is missing are listed (#8)", _r["bulk_lost_intraday"] == _d8(2, 5))
+    check("G4 check_silos: the marked aggregates days whose file is missing are listed (#8)", _r["bulk_lost_aggregates"] == _d8(3, 4, 5))
+    check("G4 check_silos (F-10): the summary of a day with a lost aggregates file is no orphan — only the real orphan (day 8) is a #5",
+          _r["summary_without_raw"] == _d8(8))
+    check("G4 check_silos: a lost aggregates file with no summary is not a #7 (nothing to derive from; the repair restores the file)",
+          _date(2025, 8, 4) not in _r["raw_without_summary"])
+    check("G4 check_silos: the counts carry the two lists",
+          _r["counts"]["bulk_lost_intraday"] == 2 and _r["counts"]["bulk_lost_aggregates"] == 3
+          and sum(_r["counts"].values()) == 2 + 3 + len(_r["raw_without_quality"]) + len(_r["source_without_raw"])
+          + len(_r["summary_without_raw"]) + len(_r["raw_without_summary"]))
+    check("G4 check_silos: the check only looks, no file is created, changed or removed",
+          sorted(str(f) for f in _b.rglob("*") if f.is_file()) == _files_before)
+    # a day that is restored (file back) is no finding any more
+    (cfg.BULK_AGG_DIR / f"{_AGGP}2025-08-03.json").write_text("{}", encoding="utf-8")
+    _r2 = silo_check.check_silos()
+    check("G4 check_silos: with the file back the day leaves #8 and its summary is a plain summary of a day with export data",
+          _r2["bulk_lost_aggregates"] == _d8(4, 5) and _date(2025, 8, 3) not in _r2["summary_without_raw"])
+
+with _iso_env("sc4_nolog") as _b:
+    cfg.BULK_AGG_DIR.mkdir(parents=True)
+    (cfg.BULK_AGG_DIR / f"{_AGGP}2025-08-01.json").write_text("{}", encoding="utf-8")
+    _r = silo_check.check_silos()
+    check("G4 check_silos: without a quality log there are no marks and no #8", _r["bulk_lost_intraday"] == [] and _r["bulk_lost_aggregates"] == [])
+
+# -- original missing (#9, v1.7.6.2): an intraday day file names a FIT file the store does not hold ---------------------------
+section("G5. garmin_silo_check — original missing (#9)")
+_HA, _HB, _HC, _HD = "a1" * 32, "b2" * 32, "c3" * 32, "d4" * 32
+
+
+def _g5_day(name, doc, folder=None):
+    folder = folder or cfg.BULK_RAW_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_text(doc if isinstance(doc, str) else json.dumps(doc), encoding="utf-8")
+
+
+def _g5_fit(h, suffix=".fit", folder=None):
+    d = cfg.BULK_SOURCE_DIR / (folder or h[:2])
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{h}{suffix}").write_bytes(b"x")
+
+
+with _iso_env("sc5_refs") as _b:
+    check("G5 _collect_original_refs: no folder -> empty set, nothing is created",
+          silo_check._collect_original_refs() == set() and not cfg.BULK_RAW_DIR.exists())
+    _g5_day(f"{_DAYP}2025-08-01.json", {"source_files": [_HA, _HB]})
+    _g5_day(f"{_DAYP}2025-08-02.json", {"source_files": [_HB, _HC]})                  # _HB again: one hash
+    _g5_day(f"{_DAYP}2025-08-03.json", {"source_files": [_HD, "not-a-hash", 7, None, _HD.upper()]})   # only the valid lower-case hash
+    _g5_day(f"{_DAYP}2025-08-04.json", "{broken")                                      # damaged: contributes nothing
+    _g5_day(f"{_DAYP}2025-08-05.json", [1, 2])                                         # not an object
+    _g5_day(f"{_DAYP}2025-08-06.json", {"no_source_files": True})                      # no key
+    _g5_day(f"{_DAYP}2025-08-07.json", {"source_files": "a string"})                   # not a list
+    _g5_day(f"{_AGGP}2025-08-08.json", {"source_files": ["e5" * 32]}, folder=cfg.BULK_AGG_DIR)   # aggregates: hashes of entries, not files
+    check("G5 _collect_original_refs: the valid hashes of all readable intraday day files, each once; damaged, foreign, malformed and aggregates "
+          "files contribute nothing",
+          silo_check._collect_original_refs() == {_HA, _HB, _HC, _HD})
+
+with _iso_env("sc5_names") as _b:
+    check("G5 _collect_original_fit_hashes: no folder -> empty set, nothing is created",
+          silo_check._collect_original_fit_hashes() == set() and not cfg.BULK_SOURCE_DIR.exists())
+    _g5_fit(_HA)
+    _g5_fit(_HB, ".json")                                   # a JSON original is not a FIT original
+    _g5_fit(_HC, ".fit.tmp")                                # a temporary file
+    _g5_fit(_HD, folder="00")                               # a name in the wrong folder
+    (cfg.BULK_SOURCE_DIR / "stray.fit").write_bytes(b"x")   # a file straight in the folder
+    (cfg.BULK_SOURCE_DIR / "ee").mkdir()
+    (cfg.BULK_SOURCE_DIR / "ee" / "short.fit").write_bytes(b"x")
+    check("G5 _collect_original_fit_hashes: only <sha256>.fit in the folder of its first two characters counts; JSON, temporary, misplaced and "
+          "oddly named files do not",
+          silo_check._collect_original_fit_hashes() == {_HA})
+
+with _iso_env("sc5_check") as _b:
+    _g5_day(f"{_DAYP}2025-08-01.json", {"source_files": [_HA, _HB]})
+    _g5_day(f"{_DAYP}2025-08-02.json", {"source_files": [_HB, _HC]})
+    _g5_fit(_HA)
+    _g5_fit(_HB, ".json")                                   # only a JSON original: the FIT one is still missing
+    _files_before = sorted(str(f) for f in _b.rglob("*") if f.is_file())
+    _r = silo_check.check_silos()
+    check("G5 check_silos: the hashes the intraday days name and the store lacks as FIT files are listed, sorted (#9)",
+          _r["bulk_originals_missing"] == sorted([_HB, _HC]) and _r["counts"]["bulk_originals_missing"] == 2)
+    check("G5 check_silos: the check only looks, no file is created, changed or removed",
+          sorted(str(f) for f in _b.rglob("*") if f.is_file()) == _files_before)
+    _g5_fit(_HB)
+    _g5_fit(_HC)
+    check("G5 check_silos: with all originals there nothing is left",
+          silo_check.check_silos()["bulk_originals_missing"] == [])
+
+with _iso_env("sc5_none") as _b:
+    check("G5 check_silos: no bulk store at all -> no #9 and no folder is created",
+          silo_check.check_silos()["bulk_originals_missing"] == [] and not cfg.BULK_DIR.exists())
 
 
 summary()

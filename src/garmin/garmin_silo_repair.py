@@ -5,7 +5,7 @@
 """
 garmin_silo_repair.py
 
-Silo-Repair — headless-callable core for the four repair paths that
+Silo-Repair — headless-callable core for the five repair paths that
 garmin_silo_check.check_silos() detects.
 
 Extracted from app/panel_archive.py::_on_silo_repair() (v1.6.5.7). The
@@ -35,6 +35,14 @@ Delegation, unchanged in substance from the pre-extraction logic:
   #5 → Path.unlink() (orphan summary)
   #7 → inline summarize() + write_day(); a day without a raw file but with export
        data (bulk/aggregates, v1.7.6.1) → writer.rebuild_summary(), summary/ only
+  #8 → (v1.7.6.2) a bulk day file the quality log marks and the store lacks: the copy
+       from backup/bulk (garmin_backup_bulk.read_day_copy) is handed to the bulk writer
+       (import_day_file — it validates and writes atomically); then, for an aggregates
+       file, writer.rebuild_summary(). Runs first, so #3 and #7 see the restored file.
+       No backup copy: "no_backup", nothing else is touched (the summary stays).
+  #9 → (v1.7.6.2) a FIT original an intraday day file names and bulk/source lacks: the copy
+       from backup/bulk/source (garmin_backup_bulk.read_original_copy) goes to the bulk
+       writer (store_original — it checks the bytes against the hash). Runs after #8.
 
 Public API:
   repair_silos(fresh: dict) -> dict
@@ -43,6 +51,7 @@ Public API:
 import json
 import logging
 
+import garmin_backup_bulk as backup_bulk
 import garmin_bulk_writer as bulk_writer
 import garmin_config as cfg
 import garmin_normalizer as normalizer
@@ -58,7 +67,7 @@ log = logging.getLogger(__name__)
 
 def repair_silos(fresh: dict) -> dict:
     """
-    Repairs the four silo-drift categories reported by
+    Repairs the five silo-drift categories reported by
     garmin_silo_check.check_silos(). Caller must re-scan immediately
     before calling this — never act on stale findings (§9a).
 
@@ -67,7 +76,9 @@ def repair_silos(fresh: dict) -> dict:
     fresh : dict — the return value of check_silos(), consumed as-is.
         Required keys: raw_without_quality, source_without_raw,
         summary_without_raw, raw_without_summary (each a list of
-        date objects).
+        date objects). Optional (v1.7.6.2, read with a default of []):
+        bulk_lost_intraday, bulk_lost_aggregates (dates), bulk_originals_missing
+        (SHA-256 strings).
 
     Returns
     -------
@@ -75,17 +86,73 @@ def repair_silos(fresh: dict) -> dict:
       ok      int   — repairs completed (for #1, counts backfilled entries)
       failed  int   — repairs that raised or could not proceed
       items   list  — one dict per processed date/action:
-        category : "1" | "3" | "5" | "7"
-        date     : str (ISO) | None  — None only for #1 (log-wide, not per-day)
+        category : "1" | "3" | "5" | "7" | "8" | "9"
+        date     : str (ISO) | None  — None for #1 (log-wide, not per-day) and #9 (named by "hash")
         status   : "repaired" | "skipped" | "gone" | "no_source" | "backfilled" | "error"
                    ("error" also means a write that did not happen: garmin_writer.write_day()
-                   returned False — the reason names it, the details are in the log)
+                   returned False — the reason names it, the details are in the log);
+                   #8 and #9 add "no_backup" (no copy in backup/bulk — counts as failed) and
+                   "present" (the file is back by now — not counted)
         ... category/status-specific extra keys (existing, new, label,
-            count, reason)
+            count, reason; #8: kind "intraday" | "aggregates"; #9: hash)
     """
     ok = 0
     failed = 0
     items = []
+
+    # ── #8: bulk day file lost → restore from backup/bulk (v1.7.6.2) ───────────
+    # First: a restored aggregates file is what #3 (write_day) and #7 resolve with.
+    # QUALITY_LOCK is not needed: nothing here touches quality_log.json (the marks
+    # are what found the loss, and they stay).
+    for kind, which, dates in (("intraday", "raw", fresh.get("bulk_lost_intraday") or []),
+                               ("aggregates", "aggregates", fresh.get("bulk_lost_aggregates") or [])):
+        for d in dates:
+            date_str = d.isoformat()
+            try:
+                data = backup_bulk.read_day_copy(which, date_str)
+                if data is None:
+                    items.append({"category": "8", "date": date_str, "kind": kind, "status": "no_backup"})
+                    failed += 1
+                    continue
+                result = bulk_writer.import_day_file(kind, date_str, data)
+                if result == bulk_writer.UNCHANGED:
+                    items.append({"category": "8", "date": date_str, "kind": kind, "status": "present"})
+                    continue
+                if result == bulk_writer.KEPT:
+                    raise RuntimeError("the backup copy has a newer schema version than this program knows")
+                if result != bulk_writer.WRITTEN:
+                    raise RuntimeError("the bulk writer refused the backup copy (see the log)")
+                if kind == "aggregates" and not writer.rebuild_summary(date_str):
+                    raise RuntimeError("the file is restored, but the summary could not be made from it (see the log)")
+                items.append({"category": "8", "date": date_str, "kind": kind, "status": "repaired"})
+                ok += 1
+            except Exception as e:
+                items.append({"category": "8", "date": date_str, "kind": kind, "status": "error",
+                              "reason": str(e)})
+                failed += 1
+
+    # ── #9: original missing → restore from backup/bulk/source (v1.7.6.2) ──────
+    # The originals an intraday day was made from (FIT files, named by their SHA-256).
+    # store_original() checks the bytes against the hash, so a wrong copy is refused.
+    for file_hash in fresh.get("bulk_originals_missing") or []:
+        try:
+            data = backup_bulk.read_original_copy(file_hash, ".fit")
+            if data is None:
+                items.append({"category": "9", "date": None, "hash": file_hash, "status": "no_backup"})
+                failed += 1
+                continue
+            result = bulk_writer.store_original(file_hash, data, ".fit")
+            if result == bulk_writer.PRESENT:
+                items.append({"category": "9", "date": None, "hash": file_hash, "status": "present"})
+                continue
+            if result != bulk_writer.WRITTEN:
+                raise RuntimeError("the bulk writer refused the backup copy (see the log)")
+            items.append({"category": "9", "date": None, "hash": file_hash, "status": "repaired"})
+            ok += 1
+        except Exception as e:
+            items.append({"category": "9", "date": None, "hash": file_hash, "status": "error",
+                          "reason": str(e)})
+            failed += 1
 
     # ── #3: source without raw → regenerate in-process from source/ ───────────
     # In-process (no subprocess/sys.executable) — identical behavior in

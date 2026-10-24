@@ -2,6 +2,14 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.2 — Protection for the Bulk Folder
+
+- The bulk folder (heart-rate series, daily values and the kept files of the Garmin export) is now part of the backup and of the mirror. The first backup happens by itself at the next start of a sync; it can take a while with a large export.
+- A mirror container carries the bulk folder along, and the import of a mirror brings it back. Older mirror containers stay readable. The log shows progress while a mirror is made or imported.
+- A day that exists only in the export no longer counts as an error when a mirror is imported.
+- The archive check finds bulk files that went missing and original export files that are gone; its repair restores them from the backup. A daily file that belongs to a lost bulk file is no longer removed as an orphan.
+- Please note: the raw and source backups are unchanged; the next version moves them onto the same code.
+
 ## v1.7.6.1 — Daily Values from the Garmin Export in the Bulk Folder
 
 - The daily values of the Garmin export are now stored in the bulk folder as well (`bulk/aggregates`), no longer mixed into the archive of data that came from the Garmin API. The daily files in `summary` are put together from both: what Garmin delivered through the API wins, the export fills the gaps.

@@ -634,6 +634,213 @@ with _iso_env3("sr6_regen") as _b:
     check("I6 regenerate_raw: a day without export data is as before (the source's steps 999, no stress)",
           _sum6(_z3)["day"]["steps"] == 999 and _sum6(_z3)["stress"]["stress_avg"] is None)
 
+# ── F-10 (v1.7.6.2) and #8: a bulk day file the log marks and the store lacks is restored from the backup ─────────────────────────
+# Before Baustein 5a these checks pinned the wrong behaviour (the lost aggregates file made the day's summary an "orphan" and
+# the repair deleted it). Now the day is a finding #8, the repair restores the file from backup/bulk and the summary stays.
+section("I7. garmin_silo_repair — #8 bulk file lost: restore from the backup, F-10 fixed")
+import garmin_silo_check as _sc10
+import garmin_writer as _wr10
+import garmin_backup_bulk as _bb10
+import garmin_bulk_normalizer as _nz10
+from gla_testenv import _isolated_log_env as _iso10, _put_log as _put_log10
+_F10 = "2025-12-20"
+_PLAN10 = _nz10.DayPlan(_F10, 1766188800, 1766275200, 0.0, 0.0, False, "prev_day_end")
+_VALS10 = [[1766200000000 + 60000 * i, 60 + i] for i in range(5)]
+
+
+def _lost10(extra_entries=(), with_backup=True, intraday=False):
+    """Makes a day with export data (+ optionally an intraday file), a summary, the marks and (optionally) a backup; then loses the files."""
+    assert _bw7.write_aggregates(_F10, _A7(_F10), [_H7]) == _bw7.WRITTEN
+    assert _wr10.rebuild_summary(_F10) is True                                  # the resolved summary, made from the export values
+    if intraday:
+        assert _bw7.write_day(_PLAN10, _nz10.DaySamples(_F10, _VALS10, [_H7], 0, 0)) == _bw7.WRITTEN
+    marks = {"aggregates": "2025-12-20", **({"intraday": "2025-12-20"} if intraday else {})}
+    _put_log10({"days": [{"date": _F10, "quality": "standard", "source": "bulk", "write": False, "bulk": marks}, *extra_entries]})
+    if with_backup:
+        assert _bb10.backup_all()["ok"] is True
+    agg = cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{_F10}.json"
+    day = cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_F10}.json"
+    before = {"agg": agg.read_bytes(), "day": day.read_bytes() if intraday else None}
+    agg.unlink()
+    if intraday:
+        day.unlink()
+    return agg, day, before
+
+
+with _iso10("sr7_f10") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _sum_f10 = cfg.SUMMARY_DIR / f"garmin_{_F10}.json"
+    _agg_f10, _day_f10, _before = _lost10()
+    _lost_f10 = _sc10.check_silos()
+    check("I7 F-10: with the aggregates file gone the day is a finding #8 and its summary is no orphan (#5)",
+          _lost_f10["bulk_lost_aggregates"] == [_dt3(_F10)] and _lost_f10["summary_without_raw"] == [])
+    _rep_f10 = silo_repair.repair_silos(_lost_f10)
+    check("I7 #8: the repair restores the aggregates file from the backup, byte for byte, and reports it",
+          _agg_f10.read_bytes() == _before["agg"]
+          and _rep_f10["items"] == [{"category": "8", "date": _F10, "kind": "aggregates", "status": "repaired"}]
+          and (_rep_f10["ok"], _rep_f10["failed"]) == (1, 0))
+    _s10 = json.loads(_sum_f10.read_text(encoding="utf-8"))
+    check("I7 #8: the summary is there and made from the restored file (export steps 7000, stress 25); it was never deleted",
+          _s10["day"]["steps"] == 7000 and _s10["stress"]["stress_avg"] == 25)
+    _again = _sc10.check_silos()
+    check("I7 #8: check, repair, check: the second check finds nothing at all",
+          all(not _again[k] for k in ("raw_without_quality", "source_without_raw", "summary_without_raw",
+                                     "raw_without_summary", "bulk_lost_intraday", "bulk_lost_aggregates")))
+    # the file is back by now: a stale finding is reported as present and counts as neither fixed nor failed
+    _rep_p = silo_repair.repair_silos({**_E3, "bulk_lost_aggregates": [_dt3(_F10)]})
+    check("I7 #8: a day whose file is back when the repair runs is 'present' — not fixed, not failed, nothing rewritten",
+          _rep_p["items"] == [{"category": "8", "date": _F10, "kind": "aggregates", "status": "present"}]
+          and (_rep_p["ok"], _rep_p["failed"]) == (0, 0))
+
+with _iso10("sr7_nobackup") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_f10, _day_f10, _before = _lost10(with_backup=False)
+    _sum_f10 = cfg.SUMMARY_DIR / f"garmin_{_F10}.json"
+    _sum_bytes = _sum_f10.read_bytes()
+    _rep = silo_repair.repair_silos(_sc10.check_silos())
+    check("I7 #8: without a backup copy the day is 'no_backup' (counted as failed), nothing is created, and the summary stays untouched",
+          _rep["items"] == [{"category": "8", "date": _F10, "kind": "aggregates", "status": "no_backup"}]
+          and (_rep["ok"], _rep["failed"]) == (0, 1) and not _agg_f10.exists() and _sum_f10.read_bytes() == _sum_bytes)
+
+with _iso10("sr7_intraday") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_f10, _day_f10, _before = _lost10(intraday=True)
+    _found = _sc10.check_silos()
+    check("I7 #8: both files lost -> both lists name the day", _found["bulk_lost_intraday"] == [_dt3(_F10)] and _found["bulk_lost_aggregates"] == [_dt3(_F10)])
+    _rep = silo_repair.repair_silos(_found)
+    check("I7 #8: both files are restored byte for byte, the intraday one first, one item each",
+          _day_f10.read_bytes() == _before["day"] and _agg_f10.read_bytes() == _before["agg"]
+          and _rep["items"] == [{"category": "8", "date": _F10, "kind": "intraday", "status": "repaired"},
+                                {"category": "8", "date": _F10, "kind": "aggregates", "status": "repaired"}]
+          and (_rep["ok"], _rep["failed"]) == (2, 0))
+    _after = _sc10.check_silos()
+    check("I7 #8: after the restore of both files nothing is left to find",
+          all(not _after[k] for k in ("bulk_lost_intraday", "bulk_lost_aggregates", "summary_without_raw")))
+
+with _iso10("sr7_errors") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_f10, _day_f10, _before = _lost10()
+    _d2 = _dt3("2025-12-21")
+    # a loop that goes on: the first day has no backup copy, the second is restored
+    _rep = silo_repair.repair_silos({**_E3, "bulk_lost_aggregates": [_d2, _dt3(_F10)]})
+    check("I7 #8: a day without a backup copy does not stop the next one; failed counts exactly the one",
+          [(i["date"], i["status"]) for i in _rep["items"]] == [("2025-12-21", "no_backup"), (_F10, "repaired")]
+          and (_rep["ok"], _rep["failed"]) == (1, 1))
+    _agg_f10.unlink()
+    with patch.object(silo_repair.backup_bulk, "read_day_copy", side_effect=[OSError("disk exploded"), None]):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_lost_aggregates": [_dt3(_F10), _d2]})
+    check("I7 #8: an exception while reading the backup is one error with a reason, the next day goes on",
+          _rep["items"][0]["status"] == "error" and "disk exploded" in _rep["items"][0]["reason"]
+          and _rep["items"][1]["status"] == "no_backup" and (_rep["ok"], _rep["failed"]) == (0, 2))
+    with patch.object(silo_repair.bulk_writer, "import_day_file", return_value=silo_repair.bulk_writer.KEPT):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_lost_aggregates": [_dt3(_F10)]})
+    check("I7 #8: a backup copy with a schema version newer than the program knows is an error with that reason",
+          _rep["items"][0]["status"] == "error" and "newer schema" in _rep["items"][0]["reason"] and (_rep["ok"], _rep["failed"]) == (0, 1))
+    with patch.object(silo_repair.bulk_writer, "import_day_file", return_value=silo_repair.bulk_writer.FAILED):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_lost_aggregates": [_dt3(_F10)]})
+    check("I7 #8: a copy the bulk writer refuses is an error with a reason",
+          _rep["items"][0]["status"] == "error" and "refused" in _rep["items"][0]["reason"] and (_rep["ok"], _rep["failed"]) == (0, 1)
+          and not _agg_f10.exists())
+    with patch.object(silo_repair.writer, "rebuild_summary", return_value=False):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_lost_aggregates": [_dt3(_F10)]})
+    check("I7 #8: the file is restored but the summary cannot be made: one error naming that, the restored file stays",
+          _rep["items"][0]["status"] == "error" and "summary could not be made" in _rep["items"][0]["reason"]
+          and (_rep["ok"], _rep["failed"]) == (0, 1) and _agg_f10.exists())
+
+with _iso10("sr7_order") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_f10, _day_f10, _before = _lost10()
+    _put3(cfg.SOURCE_DIR / f"garmin_source_{_F10}.json", _hr3(_F10))
+    _sum_f10 = cfg.SUMMARY_DIR / f"garmin_{_F10}.json"
+    _sum_f10.unlink()
+    _rep = silo_repair.repair_silos({**_E3, "source_without_raw": [_dt3(_F10)], "bulk_lost_aggregates": [_dt3(_F10)]})
+    check("I7 #8 runs before #3: the aggregates file is back when the raw day is made, so its summary carries the export values (steps 7000)",
+          [i["category"] for i in _rep["items"]] == ["8", "3"] and (_rep["ok"], _rep["failed"]) == (2, 0)
+          and json.loads(_sum_f10.read_text(encoding="utf-8"))["day"]["steps"] == 7000)
+
+# ── #9 (v1.7.6.2): a FIT original an intraday day file names and the store lacks is restored from the backup ───────────────────
+section("I8. garmin_silo_repair — #9 original missing: restore from the backup")
+import hashlib as _hl11
+_OR11 = b"fit-original-bytes of day 2025-12-22"
+_OH11 = _hl11.sha256(_OR11).hexdigest()
+_F11 = "2025-12-22"
+_PLAN11 = _nz10.DayPlan(_F11, 1766361600, 1766448000, 0.0, 0.0, False, "prev_day_end")
+_VALS11 = [[1766370000000 + 60000 * i, 60 + i] for i in range(5)]
+
+
+def _lost11(with_backup=True):
+    """An intraday day that names one original; the original is stored, backed up (optionally), then lost."""
+    assert _bw7.store_original(_OH11, _OR11) == _bw7.WRITTEN
+    assert _bw7.write_day(_PLAN11, _nz10.DaySamples(_F11, _VALS11, [_OH11], 0, 0)) == _bw7.WRITTEN
+    if with_backup:
+        assert _bb10.backup_all()["ok"] is True
+    path = cfg.BULK_SOURCE_DIR / _OH11[:2] / f"{_OH11}.fit"
+    path.unlink()
+    return path
+
+
+with _iso10("sr8_restore") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _orig11 = _lost11()
+    _found = _sc10.check_silos()
+    check("I8 #9: the original the day names is lost -> a finding with its hash", _found["bulk_originals_missing"] == [_OH11])
+    _rep = silo_repair.repair_silos(_found)
+    check("I8 #9: the repair restores the original from the backup, byte for byte, and reports it by hash",
+          _orig11.read_bytes() == _OR11
+          and _rep["items"] == [{"category": "9", "date": None, "hash": _OH11, "status": "repaired"}]
+          and (_rep["ok"], _rep["failed"]) == (1, 0))
+    check("I8 #9: check, repair, check: the second check finds nothing",
+          _sc10.check_silos()["bulk_originals_missing"] == [])
+    _rep = silo_repair.repair_silos({**_E3, "bulk_originals_missing": [_OH11]})
+    check("I8 #9: an original that is back when the repair runs is 'present' — not fixed, not failed",
+          _rep["items"] == [{"category": "9", "date": None, "hash": _OH11, "status": "present"}] and (_rep["ok"], _rep["failed"]) == (0, 0))
+
+with _iso10("sr8_nobackup") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _orig11 = _lost11(with_backup=False)
+    _rep = silo_repair.repair_silos(_sc10.check_silos())
+    check("I8 #9: without a backup copy the original is 'no_backup' (counted as failed) and nothing is created",
+          _rep["items"] == [{"category": "9", "date": None, "hash": _OH11, "status": "no_backup"}]
+          and (_rep["ok"], _rep["failed"]) == (0, 1) and not _orig11.exists())
+
+with _iso10("sr8_errors") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _orig11 = _lost11()
+    _other = "9f" * 32
+    _rep = silo_repair.repair_silos({**_E3, "bulk_originals_missing": [_other, _OH11]})
+    check("I8 #9: an original without a backup copy does not stop the next one; failed counts exactly the one",
+          [(i["hash"][:2], i["status"]) for i in _rep["items"]] == [("9f", "no_backup"), (_OH11[:2], "repaired")]
+          and (_rep["ok"], _rep["failed"]) == (1, 1))
+    _orig11.unlink()
+    with patch.object(silo_repair.backup_bulk, "read_original_copy", side_effect=[OSError("disk exploded"), None]):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_originals_missing": [_OH11, _other]})
+    check("I8 #9: an exception while reading the backup is one error with a reason, the next original goes on",
+          _rep["items"][0]["status"] == "error" and "disk exploded" in _rep["items"][0]["reason"]
+          and _rep["items"][1]["status"] == "no_backup" and (_rep["ok"], _rep["failed"]) == (0, 2))
+    with patch.object(silo_repair.bulk_writer, "store_original", return_value=silo_repair.bulk_writer.FAILED):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_originals_missing": [_OH11]})
+    check("I8 #9: a copy the bulk writer refuses is an error with a reason, nothing is created",
+          _rep["items"][0]["status"] == "error" and "refused" in _rep["items"][0]["reason"]
+          and (_rep["ok"], _rep["failed"]) == (0, 1) and not _orig11.exists())
+    # the backup holds bytes that do not match the name: store_original refuses them (the hash is checked)
+    _zip11 = cfg.BULK_SOURCE_BACKUP_DIR / f"{_OH11[:2]}.zip"
+    with zipfile.ZipFile(_zip11, "w") as _zf:
+        _zf.writestr(f"{_OH11}.fit", b"other bytes")
+    _rep = silo_repair.repair_silos({**_E3, "bulk_originals_missing": [_OH11]})
+    check("I8 #9: a backup copy whose bytes do not match the hash is refused (an error), nothing is stored",
+          _rep["items"][0]["status"] == "error" and not _orig11.exists())
+
+with _iso10("sr8_order") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_f10, _day_f10, _before = _lost10()
+    _orig11 = _lost11()
+    _put3(cfg.SUMMARY_DIR / "garmin_2025-12-30.json", {"date": "2025-12-30"})                   # a real orphan (#5)
+    _rep = silo_repair.repair_silos({**_E3, "bulk_lost_aggregates": [_dt3(_F10)], "bulk_originals_missing": [_OH11],
+                                     "summary_without_raw": [_dt3("2025-12-30")]})
+    check("I8 #9 runs after #8 and before the older categories (#5 follows); all three are repaired",
+          [i["category"] for i in _rep["items"]] == ["8", "9", "5"] and (_rep["ok"], _rep["failed"]) == (3, 0)
+          and _orig11.read_bytes() == _OR11)
+
 # ── Aufräumen I2 — isolierte Umgebung zurücksetzen ──────────────────────────
 os.environ["GARMIN_OUTPUT_DIR"] = _i2_orig_env
 importlib.reload(cfg)

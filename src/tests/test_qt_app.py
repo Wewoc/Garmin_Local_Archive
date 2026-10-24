@@ -338,6 +338,256 @@ class TestPanelArchive:
         panel._on_mirror()
         app_mock._panel_connection.set_mirror_button_state.assert_not_called()
 
+    def test_on_mirror_forwards_progress_lines_to_the_log(self, qtbot, app_mock, tmp_path, monkeypatch):
+        """v1.7.6.2: the mirror runs minutes with the bulk store; the progress lines of run_mirror()
+        reach the log (indented), before the closing line."""
+        import sys
+        import types
+        from app import panel_archive as pa
+        from app.panel_archive import PanelArchive
+
+        app_mock._panel_settings._collect_settings.return_value = {
+            "base_dir": str(tmp_path), "mirror_dir": str(tmp_path / "m.gla")}
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+
+        class _Dialog:                                   # stands in for the password dialog
+            def __init__(self, *a, **k):
+                pass
+
+            def exec(self):
+                return pa.QDialog.DialogCode.Accepted
+
+            def get_result(self):
+                return "pw"
+
+        seen = {}
+
+        def _fake_run_mirror(base_dir, path, password, progress=None):
+            seen["progress"] = progress
+            progress("  Mirror: packing raw (3 files, 1 MB) …")
+            progress("  Mirror: raw packed in 1 s — 100 % of the data")
+            return {"files_packed": 3, "errors": 0, "ok": True}
+
+        fake = types.ModuleType("garmin_mirror")
+        fake.run_mirror = _fake_run_mirror
+        monkeypatch.setitem(sys.modules, "garmin_mirror", fake)
+        monkeypatch.setattr(pa, "PasswordConfirmDialog", _Dialog)
+
+        panel._on_mirror()
+        qtbot.waitUntil(lambda: panel._mirror_running is False, timeout=5000)
+
+        lines = [c.args[0] for c in app_mock._log_bg.call_args_list]
+        assert callable(seen["progress"])
+        assert lines[:2] == ["    Mirror: packing raw (3 files, 1 MB) …",
+                             "    Mirror: raw packed in 1 s — 100 % of the data"]
+        assert lines[-1].startswith("✓ Mirror complete: 3 files packed")
+
+    def test_import_texts_name_the_bulk_files_only_when_there_are_some(self):
+        """v1.7.6.2: the question before and the line after a mirror import mention the export data."""
+        from app.panel_archive import _import_preview_text, _import_result_text
+        assert _import_preview_text({"raw_to_copy": 2, "context_to_copy": 1}) == \
+            "2 raw day(s) and 1 context file(s) will be imported."
+        text = _import_preview_text({"raw_to_copy": 2, "context_to_copy": 1, "bulk_to_copy": 5, "originals_to_copy": 3})
+        assert text.startswith("2 raw day(s) and 1 context file(s) will be imported.")
+        assert "5 export day file(s)" in text and "3 original export file(s)" in text
+        base = {"raw_copied": 2, "raw_skipped": 1, "context_copied": 0, "errors": 0, "ok": True}
+        assert _import_result_text(base) == \
+            "✓ Mirror import complete: 2 raw day(s) imported, 1 skipped, 0 context file(s) imported"
+        full = _import_result_text({**base, "bulk_copied": 4, "originals_copied": 2, "export_days": 1,
+                                    "errors": 3, "ok": False})
+        assert full == ("⚠ Mirror import complete: 2 raw day(s) imported, 1 skipped, 0 context file(s) imported, "
+                        "4 export day file(s), 2 original export file(s), 1 export-only day(s), 3 error(s)")
+
+    def test_on_import_mirror_forwards_progress_lines_to_the_log(self, qtbot, app_mock, tmp_path, monkeypatch):
+        """v1.7.6.2: the progress lines of the import reach the log (indented) before the closing line;
+        the dry run before the question gets no callback."""
+        import sys
+        import types
+        from PyQt6.QtWidgets import QFileDialog
+        from app import panel_archive as pa
+        from app.panel_archive import PanelArchive
+
+        app_mock._panel_settings._collect_settings.return_value = {"base_dir": str(tmp_path)}
+        app_mock._is_running.return_value = False
+        app_mock._ctx_running = False
+        app_mock._timer_active = False
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+
+        class _Dialog:
+            def __init__(self, *a, **k):
+                pass
+
+            def exec(self):
+                return pa.QDialog.DialogCode.Accepted
+
+            def get_result(self):
+                return "pw"
+
+        calls = []
+
+        def _fake_run(mirror_path, base_dir, password="", dry_run=False, progress=None):
+            calls.append((dry_run, progress))
+            if dry_run:
+                return {"ok": True, "raw_to_copy": 1, "context_to_copy": 0, "bulk_to_copy": 2,
+                        "originals_to_copy": 1, "version_warning": ""}
+            progress("  Import: raw days … 50 % (1 of 2)")
+            return {"raw_copied": 1, "raw_skipped": 0, "context_copied": 0, "bulk_copied": 2,
+                    "originals_copied": 1, "export_days": 0, "errors": 0, "ok": True}
+
+        asked = []
+        fake = types.ModuleType("garmin_import_mirror")
+        fake.run_import_mirror = _fake_run
+        monkeypatch.setitem(sys.modules, "garmin_import_mirror", fake)
+        monkeypatch.setattr(pa, "PasswordConfirmDialog", _Dialog)
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(tmp_path / "m.gla"), "")))
+        monkeypatch.setattr(pa.QMessageBox, "question",
+                            staticmethod(lambda parent, title, text, buttons: asked.append(text) or pa.QMessageBox.StandardButton.Yes))
+
+        panel._on_import_mirror()
+        qtbot.waitUntil(lambda: panel._mirror_running is False, timeout=5000)
+
+        lines = [c.args[0] for c in app_mock._log_bg.call_args_list]
+        assert calls[0][0] is True and calls[0][1] is None
+        assert calls[1][0] is False and callable(calls[1][1])
+        assert "2 export day file(s)" in asked[0]
+        assert lines[0] == "    Import: raw days … 50 % (1 of 2)"
+        assert lines[-1].startswith("✓ Mirror import complete: 1 raw day(s) imported")
+        assert "2 export day file(s), 1 original export file(s)" in lines[-1]
+
+    def _silo_panel(self, qtbot, app_mock):
+        from app.panel_archive import PanelArchive
+        app_mock._is_running.return_value = False
+        app_mock._ctx_running = False
+        app_mock._timer_active = False
+        panel = PanelArchive(app_mock)
+        qtbot.addWidget(panel)
+        return panel
+
+    def test_silo_check_names_the_lost_bulk_files(self, qtbot, app_mock, monkeypatch):
+        """v1.7.6.2: finding #8 gets its line (five days named, the kind in brackets, then an ellipsis) and
+        enables the repair; without it the check does not mention bulk files."""
+        import sys
+        import types
+        from datetime import date
+        panel = self._silo_panel(qtbot, app_mock)
+
+        def _result(intraday, aggregates):
+            counts = {"raw_without_quality": 0, "source_without_raw": 0, "summary_without_raw": 0,
+                      "raw_without_summary": 0, "bulk_lost_intraday": len(intraday),
+                      "bulk_lost_aggregates": len(aggregates)}
+            return {"checked_at": "T", "totals": {"raw": 1, "summary": 1, "source": 0, "aggregates": 2, "quality_days": 3},
+                    "counts": counts, "raw_without_quality": [], "source_without_raw": [],
+                    "summary_without_raw": [], "raw_without_summary": [],
+                    "bulk_lost_intraday": intraday, "bulk_lost_aggregates": aggregates}
+
+        def _run(result):
+            fake = types.ModuleType("garmin_silo_check")
+            fake.check_silos = lambda: result
+            monkeypatch.setitem(sys.modules, "garmin_silo_check", fake)
+            app_mock._log_bg.reset_mock()
+            panel._on_silo_check()
+            qtbot.waitUntil(lambda: panel._silo_running is False, timeout=5000)
+            return [c.args[0] for c in app_mock._log_bg.call_args_list]
+
+        lines = _run(_result([date(2025, 8, 2)], [date(2025, 8, 3), date(2025, 8, 4)]))
+        lost = [x for x in lines if "#8" in x]
+        assert lost == ["    ⚠ #8 bulk files lost (marked in the quality log, missing in the store): "
+                        "3 file(s) — 2025-08-02 (intraday), 2025-08-03 (daily values), 2025-08-04 (daily values)"]
+        assert lines[-1].startswith("    → Use")
+        lines = _run(_result([], [date(2025, 8, n) for n in range(1, 8)]))
+        assert [x for x in lines if "#8" in x][0].endswith("2025-08-05 (daily values)…") and "7 file(s)" in lines[2]
+        lines = _run(_result([], [date(2025, 8, n) for n in range(1, 6)]))
+        assert [x for x in lines if "#8" in x][0].endswith("2025-08-05 (daily values)")          # exactly five: no ellipsis
+        lines = _run(_result([], []))
+        assert not any("#8" in x for x in lines) and "No inconsistencies" in lines[-1]
+
+    def test_silo_repair_logs_the_restore_of_bulk_files(self, qtbot, app_mock, monkeypatch):
+        """v1.7.6.2: every status of category 8 has its own log line."""
+        import sys
+        import types
+        panel = self._silo_panel(qtbot, app_mock)
+        fake_check = types.ModuleType("garmin_silo_check")
+        fake_check.check_silos = lambda: {"fresh": True}
+        fake_repair = types.ModuleType("garmin_silo_repair")
+        seen = {}
+
+        def _repair(fresh):
+            seen["fresh"] = fresh
+            return {"ok": 1, "failed": 3, "items": [
+                {"category": "8", "date": "2025-08-01", "kind": "intraday", "status": "repaired"},
+                {"category": "8", "date": "2025-08-02", "kind": "aggregates", "status": "present"},
+                {"category": "8", "date": "2025-08-03", "kind": "aggregates", "status": "no_backup"},
+                {"category": "8", "date": "2025-08-04", "kind": "intraday", "status": "error", "reason": "boom"}]}
+
+        fake_repair.repair_silos = _repair
+        monkeypatch.setitem(sys.modules, "garmin_silo_check", fake_check)
+        monkeypatch.setitem(sys.modules, "garmin_silo_repair", fake_repair)
+        panel._last_silo_result = {"anything": 1}
+        panel._on_silo_repair()
+        qtbot.waitUntil(lambda: panel._silo_running is False, timeout=5000)
+        lines = [c.args[0] for c in app_mock._log_bg.call_args_list]
+        assert seen["fresh"] == {"fresh": True}
+        assert lines[:4] == ["  ✓ #8 restored from backup: 2025-08-01 (intraday)",
+                             "  ~ #8 already back: 2025-08-02 (daily values)",
+                             "  ✗ #8 no backup copy for 2025-08-03 (daily values) — import the export again",
+                             "  ✗ #8 repair error 2025-08-04 (intraday): boom"]
+        assert lines[-1] == "🔧  Silo-Repair complete — 1 fixed, 3 errors"
+
+    def test_silo_check_names_the_missing_originals(self, qtbot, app_mock, monkeypatch):
+        """v1.7.6.2: finding #9 gets its line (the first twelve characters of up to five hashes, then an ellipsis)."""
+        import sys
+        import types
+        panel = self._silo_panel(qtbot, app_mock)
+
+        def _run(hashes):
+            result = {"checked_at": "T", "totals": {"raw": 0, "summary": 0, "source": 0, "aggregates": 0, "quality_days": 0},
+                      "counts": {"raw_without_quality": 0, "source_without_raw": 0, "summary_without_raw": 0,
+                                 "raw_without_summary": 0, "bulk_originals_missing": len(hashes)},
+                      "raw_without_quality": [], "source_without_raw": [], "summary_without_raw": [],
+                      "raw_without_summary": [], "bulk_originals_missing": hashes}
+            fake = types.ModuleType("garmin_silo_check")
+            fake.check_silos = lambda: result
+            monkeypatch.setitem(sys.modules, "garmin_silo_check", fake)
+            app_mock._log_bg.reset_mock()
+            panel._on_silo_check()
+            qtbot.waitUntil(lambda: panel._silo_running is False, timeout=5000)
+            return [c.args[0] for c in app_mock._log_bg.call_args_list]
+
+        hashes = [f"{n}{n}" * 32 for n in "abcdef"]
+        lines = _run(hashes[:5])
+        line = [x for x in lines if "#9" in x]
+        assert line == ["    ⚠ #9 original export files missing (named by an intraday day file, not in the store): "
+                        "5 file(s) — aaaaaaaaaaaa, bbbbbbbbbbbb, cccccccccccc, dddddddddddd, eeeeeeeeeeee"]
+        lines = _run(hashes)
+        assert [x for x in lines if "#9" in x][0].endswith("eeeeeeeeeeee…") and "6 file(s)" in [x for x in lines if "#9" in x][0]
+        assert not any("#9" in x for x in _run([]))
+
+    def test_silo_repair_logs_the_restore_of_originals(self, qtbot, app_mock, monkeypatch):
+        """v1.7.6.2: every status of category 9 has its own log line, the hash shortened to twelve characters."""
+        import sys
+        import types
+        panel = self._silo_panel(qtbot, app_mock)
+        fake_check = types.ModuleType("garmin_silo_check")
+        fake_check.check_silos = lambda: {"fresh": True}
+        fake_repair = types.ModuleType("garmin_silo_repair")
+        fake_repair.repair_silos = lambda fresh: {"ok": 1, "failed": 2, "items": [
+            {"category": "9", "date": None, "hash": "a1" * 32, "status": "repaired"},
+            {"category": "9", "date": None, "hash": "b2" * 32, "status": "present"},
+            {"category": "9", "date": None, "hash": "c3" * 32, "status": "no_backup"},
+            {"category": "9", "date": None, "hash": "d4" * 32, "status": "error", "reason": "boom"}]}
+        monkeypatch.setitem(sys.modules, "garmin_silo_check", fake_check)
+        monkeypatch.setitem(sys.modules, "garmin_silo_repair", fake_repair)
+        panel._last_silo_result = {"anything": 1}
+        panel._on_silo_repair()
+        qtbot.waitUntil(lambda: panel._silo_running is False, timeout=5000)
+        lines = [c.args[0] for c in app_mock._log_bg.call_args_list]
+        assert lines[:4] == ["  ✓ #9 original restored from backup: a1a1a1a1a1a1",
+                             "  ~ #9 original already back: b2b2b2b2b2b2",
+                             "  ✗ #9 no backup copy for original c3c3c3c3c3c3 — import the export again",
+                             "  ✗ #9 repair error d4d4d4d4d4d4: boom"]
+
     def test_check_failed_days_popup_returns_false_when_log_missing(
             self, qtbot, app_mock):
         from app.panel_archive import PanelArchive

@@ -23,8 +23,12 @@ Key derivation:
   PBKDF2-HMAC-SHA256 (600 000 iterations) → master key
   HKDF-Expand(master, info="gla-{section}") → section key
 
-Sections: quality_log, raw, summary, context
+Sections: quality_log, raw, summary, context, source, bulk, bulk_source
   Each section: nonce (12 bytes) + ciphertext (AES-256-GCM)
+  bulk and bulk_source (v1.7.6.2) hold the bulk store: bulk the day files and daily values
+  (garmin_data/bulk/raw and /aggregates), bulk_source the kept export files
+  (garmin_data/bulk/source). A container made before has neither; list_files() then answers [].
+  The format version stays 0x01: a program that does not know the two sections never asks for them.
 
 Sole-owner invariant:
   This module is the only module that reads or writes .gla files.
@@ -40,6 +44,7 @@ import json
 import os
 import secrets
 import struct
+import time
 import zlib
 import logging
 from datetime import datetime
@@ -57,7 +62,8 @@ _HEADER_LEN_SZ = 4   # bytes for header_json length field
 _NONCE_LEN     = 12  # AES-GCM nonce
 
 # Section names — order defines section index
-_SECTIONS = ["quality_log", "raw", "summary", "context", "source"]
+# The two bulk sections (v1.7.6.2) come last: the order of the older sections in a container is unchanged.
+_SECTIONS = ["quality_log", "raw", "summary", "context", "source", "bulk", "bulk_source"]
 
 # Directories/files excluded from raw and summary sections
 _EXCLUDE_DIRS = {"__pycache__", "garmin_token"}
@@ -67,7 +73,7 @@ _EXCLUDE_DIRS = {"__pycache__", "garmin_token"}
 #  Public API
 # ══════════════════════════════════════════════════════════════════════════════
 
-def lock(source_dir: Path, container_path: Path, password: str) -> dict:
+def lock(source_dir: Path, container_path: Path, password: str, progress=None) -> dict:
     """
     Creates or overwrites container_path from source_dir.
 
@@ -79,6 +85,11 @@ def lock(source_dir: Path, container_path: Path, password: str) -> dict:
     source_dir     : Path — local BASE_DIR (master)
     container_path : Path — target .gla file path
     password       : str  — container password
+    progress       : callable(text) | None — (v1.7.6.2) gets a line at every 10 % of the files read,
+                     before and after each section that is packed (with the share of the data done
+                     so far) and before the container is written. A mirror of a large archive takes
+                     minutes; the caller shows the lines. No callback, no lines; a callback that
+                     raises never fails the mirror.
 
     Returns
     -------
@@ -101,10 +112,17 @@ def lock(source_dir: Path, container_path: Path, password: str) -> dict:
         salt       = secrets.token_bytes(_SALT_LEN)
         master_key = _derive_master(password, salt)
 
-        # Collect files per section
-        sections_data = _collect_sections(source_dir)
+        # Collect files per section (the collector is called with the callback only when there is one)
+        if progress is None:
+            sections_data = _collect_sections(source_dir)
+        else:
+            report_progress(progress, "  Mirror: reading the files …")
+            sections_data = _collect_sections(source_dir, progress=progress)
         errors        = sections_data.pop("_errors", 0)
         files_packed  = sum(len(v) for v in sections_data.values())
+        total_bytes = done_bytes = 0
+        if progress is not None:
+            total_bytes = sum(len(b) for files in sections_data.values() for b in files.values())
 
         # Build encrypted section blobs
         section_blobs  = {}
@@ -115,8 +133,16 @@ def lock(source_dir: Path, container_path: Path, password: str) -> dict:
             files = sections_data.get(sec_name, {})
             if not files:
                 continue
+            if progress is not None:
+                sec_bytes = sum(len(b) for b in files.values())
+                report_progress(progress, f"  Mirror: packing {sec_name} ({len(files)} files, {sec_bytes / 1048576:.0f} MB) …")
+                t_section = time.perf_counter()
             sec_key  = _derive_section_key(master_key, sec_name)
             blob     = _encrypt_section(files, sec_key)
+            if progress is not None:
+                done_bytes += sec_bytes
+                share = f" — {100 * done_bytes // total_bytes} % of the data" if total_bytes else ""
+                report_progress(progress, f"  Mirror: {sec_name} packed in {time.perf_counter() - t_section:.0f} s{share}")
             section_blobs[sec_name] = blob
             section_index[sec_name] = {
                 "offset": current_offset,
@@ -143,6 +169,7 @@ def lock(source_dir: Path, container_path: Path, password: str) -> dict:
         header_hmac = _authenticate_header(master_key, header_json)
 
         # Write container atomically
+        report_progress(progress, f"  Mirror: writing the container ({sum(len(b) for b in section_blobs.values()) / 1048576:.0f} MB) …")
         with open(tmp_path, "wb") as f:
             f.write(_MAGIC)
             f.write(bytes([_FORMAT_VER]))
@@ -283,6 +310,7 @@ def fulfill_order(
     container_path: Path,
     password: str,
     order: dict,
+    progress=None,
 ) -> dict:
     """
     Decrypts only the sections listed in order and returns requested files.
@@ -294,6 +322,9 @@ def fulfill_order(
     order          : dict — {section_name: [rel_path, ...], ...}
                      e.g. {"raw": ["2024-01-15/garmin_raw_2024-01-15.json"],
                             "context": ["weather/raw/2024-01-15.json"]}
+    progress       : callable(text) | None — (v1.7.6.2) gets a line before and after each section
+                     that is decrypted (a section takes up to a quarter of a minute); None = no
+                     lines
 
     Returns
     -------
@@ -320,12 +351,15 @@ def fulfill_order(
             log.warning(f"  container: section '{sec_name}' not in index — skipping")
             continue
         try:
+            report_progress(progress, f"  Mirror: decrypting {sec_name} ({len(requested_files)} files wanted) …")
+            t_section = time.perf_counter()
             all_files = _decrypt_section(
                 container_path, password,
                 section_index[sec_name],
                 section_data_offset,
                 master_key, sec_name,
             )
+            report_progress(progress, f"  Mirror: {sec_name} decrypted in {time.perf_counter() - t_section:.0f} s")
             for rel_path in requested_files:
                 if rel_path in all_files:
                     result[rel_path] = all_files[rel_path]
@@ -499,15 +533,32 @@ def _open_and_verify(
 #  Internal — file collection
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _collect_sections(source_dir: Path) -> dict:
+def report_progress(progress, text: str) -> None:
+    """
+    Passes one progress line to the caller (v1.7.6.2). Does nothing without a callback; a callback
+    that raises (a closed window, say) is logged at debug level and never fails the mirror.
+    """
+    if progress is None:
+        return
+    try:
+        progress(text)
+    except Exception as e:
+        log.debug(f"  container: progress callback failed: {e}")
+
+
+def _collect_sections(source_dir: Path, progress=None) -> dict:
     """
     Walks source_dir and collects files into section buckets.
-    Returns dict with keys: quality_log, raw, summary, context, _errors.
+    Returns dict with keys: quality_log, raw, summary, context, source, bulk, bulk_source, _errors.
     File values are bytes.
+
+    The names are listed first and the files read afterwards, so the number of files is known:
+    with a progress callback (v1.7.6.2) every 10 % of the files read gives one line.
     """
     sections = {s: {} for s in _SECTIONS}
     errors   = 0
 
+    todo = []
     for entry in source_dir.rglob("*"):
         if not entry.is_file():
             continue
@@ -522,7 +573,13 @@ def _collect_sections(source_dir: Path) -> dict:
         sec = _classify_file(parts)
         if sec is None:
             continue
+        todo.append((entry, rel, sec))
 
+    total     = len(todo)
+    last_step = 0
+    if progress is not None:
+        report_progress(progress, f"  Mirror: {total} files to read")
+    for i, (entry, rel, sec) in enumerate(todo, 1):
         try:
             # as_posix() — forward slashes on all platforms so container keys
             # match the forward-slash paths built by garmin_import_mirror
@@ -530,6 +587,9 @@ def _collect_sections(source_dir: Path) -> dict:
         except OSError as e:
             log.warning(f"  container: cannot read {rel}: {e}")
             errors += 1
+        if progress is not None and 10 * i // total > last_step:
+            last_step = 10 * i // total
+            report_progress(progress, f"  Mirror: reading files … {100 * i // total} % ({i} of {total})")
 
     sections["_errors"] = errors
     return sections
@@ -570,6 +630,16 @@ def _classify_file(parts: tuple) -> str | None:
     # source: garmin_data/source/**
     if parts[0] == "garmin_data" and len(parts) > 1 and parts[1] == "source":
         return "source"
+
+    # bulk (v1.7.6.2): the day files and daily values of the bulk store —
+    # garmin_data/bulk/raw/** and garmin_data/bulk/aggregates/**
+    if (parts[0] == "garmin_data" and len(parts) > 2 and parts[1] == "bulk"
+            and parts[2] in ("raw", "aggregates")):
+        return "bulk"
+
+    # bulk_source (v1.7.6.2): the kept export files — garmin_data/bulk/source/**
+    if parts[0] == "garmin_data" and len(parts) > 2 and parts[1] == "bulk" and parts[2] == "source":
+        return "bulk_source"
 
     return None
 

@@ -587,6 +587,270 @@ with _isolated_log_env("bulk_writer_json_orig") as base:
           and sorted(p.name for p in (cfg.BULK_SOURCE_DIR / _jh[:2]).iterdir()) == sorted([f"{_jh}.fit", f"{_jh}.json"]))
     check("json original: no temporary file is left", not list(cfg.BULK_SOURCE_DIR.rglob("*.tmp")))
 
+# ── A day or aggregates file of another archive (v1.7.6.2): import_day_file and its helpers ───────────────────
+K1, K2, K3 = _h("aggregates one"), _h("aggregates two"), _h("aggregates three")
+_DEL = object()
+
+with _isolated_log_env("bulk_writer_imp_src") as base:
+    # the files of a first archive, made by the writer itself
+    _ip1, _is1 = _day(hashes=(H1,))
+    _ip2, _is2 = _day(hashes=(H1, H2), values=[[1706950800000, 61], [1706950860000, 62], [1706950920000, 200], [1706950980000, 70]])
+    bw.write_day(_ip1, _is1, imported_at="2026-10-17T13:30:00")
+    DAY_SMALL = (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-03.json").read_bytes()
+    bw.write_day(_ip2, _is2, imported_at="2026-10-18T09:00:00")
+    DAY_FULL = (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-03.json").read_bytes()
+    bw.write_aggregates("2024-02-03", {"date": "2024-02-03", "uds": {"steps": 1}}, [K1], imported_at="2026-10-18T10:00:00")
+    AGG_SMALL = (cfg.BULK_AGG_DIR / "garmin_bulk_agg_2024-02-03.json").read_bytes()
+    bw.write_aggregates("2024-02-03", {"date": "2024-02-03", "uds": {"steps": 2}}, [K1, K2], imported_at="2026-10-18T11:00:00")
+    AGG_FULL = (cfg.BULK_AGG_DIR / "garmin_bulk_agg_2024-02-03.json").read_bytes()
+
+
+def _mut(raw, **changes):
+    """The bytes of a day or aggregates file with some keys changed (value _DEL removes the key)."""
+    doc = json.loads(raw.decode("utf-8"))
+    for k, v in changes.items():
+        if v is _DEL:
+            doc.pop(k, None)
+        else:
+            doc[k] = v
+    return json.dumps(doc, separators=(",", ":")).encode("utf-8")
+
+
+with _isolated_log_env("bulk_writer_imp") as base:
+    _dp = cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-03.json"
+    _ap = cfg.BULK_AGG_DIR / "garmin_bulk_agg_2024-02-03.json"
+
+    # -- into an empty archive: byte for byte -----------------------------------------------------------
+    check("import: a day of another archive is written, with exactly the bytes it came with",
+          bw.import_day_file("intraday", "2024-02-03", DAY_SMALL) == bw.WRITTEN and _dp.read_bytes() == DAY_SMALL)
+    check("import: the aggregates file of another archive is written byte for byte, in bulk/aggregates",
+          bw.import_day_file("aggregates", "2024-02-03", AGG_SMALL) == bw.WRITTEN and _ap.read_bytes() == AGG_SMALL)
+    check("import: the written files obey the rules of the module (day_status and aggregates_status call them unchanged)",
+          bw.day_status("2024-02-03", [H1]) == "unchanged" and bw.aggregates_status("2024-02-03", [K1]) == "unchanged")
+    _before = _tree(base)
+    check("import: the same files again are unchanged and not a byte is rewritten",
+          bw.import_day_file("intraday", "2024-02-03", DAY_SMALL) == bw.UNCHANGED
+          and bw.import_day_file("aggregates", "2024-02-03", AGG_SMALL) == bw.UNCHANGED and _tree(base) == _before)
+    check("import: no temporary file is left", not list(base.rglob("*.tmp")))
+
+    # -- a fuller stand replaces, a smaller or a different one never does -------------------------------
+    check("import: a fuller day (more files) replaces the stored day",
+          bw.import_day_file("intraday", "2024-02-03", DAY_FULL) == bw.WRITTEN and _dp.read_bytes() == DAY_FULL)
+    check("import: fuller aggregates replace the stored aggregates",
+          bw.import_day_file("aggregates", "2024-02-03", AGG_FULL) == bw.WRITTEN and _ap.read_bytes() == AGG_FULL)
+    _full_state = _tree(base)
+    check("import: a smaller stand never replaces a fuller one (day and aggregates)",
+          bw.import_day_file("intraday", "2024-02-03", DAY_SMALL) == bw.KEPT
+          and bw.import_day_file("aggregates", "2024-02-03", AGG_SMALL) == bw.KEPT and _tree(base) == _full_state)
+    _other_set = _mut(DAY_FULL, source_files=sorted([H1, H3]))
+    check("import: a different set of files that is not a superset is kept out (the stored day stays)",
+          bw.import_day_file("intraday", "2024-02-03", _other_set) == bw.KEPT and _tree(base) == _full_state)
+
+    # -- schema versions -------------------------------------------------------------------------------
+    _dp.write_bytes(_mut(DAY_FULL, schema_version=2))
+    _state2 = _tree(base)
+    check("import: a stored day of a newer schema is not replaced by an older one (same files)",
+          bw.import_day_file("intraday", "2024-02-03", DAY_FULL) == bw.KEPT and _tree(base) == _state2)
+    _dp.write_bytes(DAY_FULL)
+    _dp.write_bytes(_mut(DAY_FULL, schema_version=0))
+    # a stored day of an older version cannot be made here (the known version is the lowest), so the
+    # rule is pinned with the known version raised for the duration of the check
+    with patch.object(bw, "BULK_SCHEMA_VERSION", 2):
+        _inc = _mut(DAY_FULL, schema_version=2)
+        check("import: same files but a newer schema than the stored one is an update (a program that knows version 2)",
+              bw.import_day_file("intraday", "2024-02-03", _inc) == bw.WRITTEN and _dp.read_bytes() == _inc)
+    _dp.write_bytes(DAY_FULL)
+    _newer = _mut(DAY_FULL, schema_version=bw.BULK_SCHEMA_VERSION + 1, source_files=sorted([H1, H2, H3]))
+    check("import: a schema newer than this program knows is not stored (kept in the container), over a stored day",
+          bw.import_day_file("intraday", "2024-02-03", _newer) == bw.KEPT and _dp.read_bytes() == DAY_FULL)
+    _agg_newer = _mut(AGG_FULL, schema_version=bw.AGG_SCHEMA_VERSION + 1)
+    check("import: the same for aggregates",
+          bw.import_day_file("aggregates", "2024-02-03", _agg_newer) == bw.KEPT and _ap.read_bytes() == AGG_FULL)
+    _dp.unlink()
+    check("import: ... and over a missing day nothing is stored either",
+          bw.import_day_file("intraday", "2024-02-03", _newer) == bw.KEPT and not _dp.exists())
+
+    # -- damaged and unreadable stored files --------------------------------------------------------------
+    for _label, _content in (("garbage", b"this is not json {"), ("empty", b""), ("a list", b"[1, 2]"),
+                             ("without source_files", b'{"schema_version": 1}')):
+        _dp.write_bytes(_content)
+        check(f"import: a damaged stored day ({_label}) is replaced by the file that comes in",
+              bw.import_day_file("intraday", "2024-02-03", DAY_SMALL) == bw.WRITTEN and _dp.read_bytes() == DAY_SMALL)
+    _dp.write_bytes(DAY_FULL)
+    _real_read_text = Path.read_text
+
+    def _locked(self, *a, **k):
+        if self == _dp or self == _ap:
+            raise PermissionError("locked by another process")
+        return _real_read_text(self, *a, **k)
+
+    with patch.object(Path, "read_text", _locked), patch.object(bw.log, "warning") as _warn:
+        _r1 = bw.import_day_file("intraday", "2024-02-03", _mut(DAY_FULL, source_files=sorted([H1, H2, H3])))
+        _r2 = bw.import_day_file("aggregates", "2024-02-03", _mut(AGG_FULL, source_files=sorted([K1, K2, K3])))
+    check("import: a stored file that cannot be read (a lock) is not touched, not even by a fuller stand: failed",
+          _r1 == bw.FAILED and _r2 == bw.FAILED and _dp.read_bytes() == DAY_FULL and _ap.read_bytes() == AGG_FULL
+          and not list(base.rglob("*.tmp")))
+    check("import: ... and the warning says to run the import again",
+          any("Run the import again" in str(c.args[0]) for c in _warn.call_args_list))
+
+    # -- bytes as they come, whatever their formatting ---------------------------------------------------
+    _pretty = json.dumps(json.loads(DAY_FULL.decode("utf-8")), indent=2, ensure_ascii=False).encode("utf-8")
+    _dp.unlink()
+    check("import: the bytes are written as they came (an indented file stays indented), not re-serialised",
+          bw.import_day_file("intraday", "2024-02-03", _pretty) == bw.WRITTEN and _dp.read_bytes() == _pretty
+          and bw.import_day_file("intraday", "2024-02-03", bytearray(_pretty)) == bw.UNCHANGED)
+
+# -- files that must be refused: nothing written, one warning each ---------------------------------------------
+_V = {"intraday": DAY_SMALL, "aggregates": AGG_SMALL}
+_BAD = [
+    ("intraday", "date of the file differs", {"date": "2024-02-04"}), ("intraday", "no date", {"date": _DEL}),
+    ("intraday", "origin of another kind", {"origin": "api"}), ("intraday", "no origin", {"origin": _DEL}),
+    ("intraday", "schema_version a bool", {"schema_version": True}), ("intraday", "schema_version 0", {"schema_version": 0}),
+    ("intraday", "schema_version a string", {"schema_version": "1"}), ("intraday", "no source_files", {"source_files": _DEL}),
+    ("intraday", "empty source_files", {"source_files": []}), ("intraday", "source_files that are no hashes", {"source_files": ["x"]}),
+    ("intraday", "source_files not a list", {"source_files": H1}),
+    ("intraday", "no utc_offset_hours", {"utc_offset_hours": _DEL}), ("intraday", "utc_offset_hours a string", {"utc_offset_hours": "1"}),
+    ("intraday", "utc_offset_hours a bool", {"utc_offset_hours": True}),
+    ("intraday", "no sections", {"sections": _DEL}), ("intraday", "sections not an object", {"sections": []}),
+    ("intraday", "no heart_rate", {"sections": {"intraday": {}}}),
+    ("intraday", "values not a list", {"sections": {"intraday": {"heart_rate": {"values": "x"}}}}),
+    ("intraday", "no values", {"sections": {"intraday": {"heart_rate": {"values": []}}}}),
+    ("intraday", "values not ascending", {"sections": {"intraday": {"heart_rate": {"values": [[2000, 61], [1000, 62]]}}}}),
+    ("intraday", "a value out of range", {"sections": {"intraday": {"heart_rate": {"values": [[1000, 300]]}}}}),
+    ("intraday", "a value that is no pair", {"sections": {"intraday": {"heart_rate": {"values": [[1000]]}}}}),
+    ("aggregates", "date of the file differs", {"date": "2024-02-04"}), ("aggregates", "origin of another kind", {"origin": "x"}),
+    ("aggregates", "schema_version 0", {"schema_version": 0}), ("aggregates", "no source_files", {"source_files": _DEL}),
+    ("aggregates", "no aggregates", {"aggregates": _DEL}), ("aggregates", "aggregates empty", {"aggregates": {}}),
+    ("aggregates", "aggregates a list", {"aggregates": [1]}),
+    ("aggregates", "the date inside the aggregates differs", {"aggregates": {"date": "2024-02-04", "a": 1}}),
+]
+with _isolated_log_env("bulk_writer_imp_bad") as base, patch.object(bw.log, "warning") as _warn:
+    _not_failed, _no_warning = [], []
+    for _kind, _label, _chg in _BAD:
+        _warn.reset_mock()
+        _res = bw.import_day_file(_kind, "2024-02-03", _mut(_V[_kind], **_chg))
+        if _res != bw.FAILED:
+            _not_failed.append(f"{_kind}: {_label}")
+        if _warn.call_count != 1 or "refused (" not in str(_warn.call_args.args[0]):
+            _no_warning.append(f"{_kind}: {_label}")
+    check(f"import: {len(_BAD)} kinds of invalid file are refused as 'failed' ({_not_failed or 'none missed'})", _not_failed == [])
+    check("import: ... each with exactly one warning that says 'refused (' and why", _no_warning == [])
+    check("import: ... and none of them wrote anything, not even a folder or a temporary file", not cfg.BULK_DIR.exists())
+    for _name, _data in (("not JSON", b"{ nope"), ("not UTF-8", b"\xff\xfe\x00"), ("a JSON list", b"[1, 2]"), ("empty", b""), ("text, not bytes", "text")):
+        check(f"import: bytes that are {_name} are refused", bw.import_day_file("intraday", "2024-02-03", _data) == bw.FAILED)
+    _warn.reset_mock()
+    bw.import_day_file("intraday", "2024-02-03", "text")
+    check("import: bytes that are text are refused with the reason 'data is not bytes' (not by a crash further on)",
+          _warn.call_count == 1 and "data is not bytes" in str(_warn.call_args.args[0]))
+    check("import: a kind that is neither intraday nor aggregates is refused",
+          bw.import_day_file("original", "2024-02-03", DAY_SMALL) == bw.FAILED and bw.import_day_file(None, "2024-02-03", DAY_SMALL) == bw.FAILED)
+    check("import: a date that is no date is refused and writes nothing (no path out of the folder)",
+          all(bw.import_day_file("intraday", _d, _mut(DAY_SMALL, date=_d)) == bw.FAILED for _d in ("../../x", "2024-13-01", "2024-2-3", "", None))
+          and not cfg.BULK_DIR.exists())
+
+# -- failures while writing, retries, durability, one writing flow ----------------------------------------------
+with _isolated_log_env("bulk_writer_imp_write") as base:
+    _dp = cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-03.json"
+    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+        check("import: a failing replace is 'failed', nothing raised, no day and no temporary file",
+              bw.import_day_file("intraday", "2024-02-03", DAY_SMALL) == bw.FAILED and not _dp.exists() and not list(base.rglob("*.tmp")))
+    bw.import_day_file("intraday", "2024-02-03", DAY_SMALL)
+    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+        check("import: ... a stored day stays as it was when the replace of a fuller one fails",
+              bw.import_day_file("intraday", "2024-02-03", DAY_FULL) == bw.FAILED and _dp.read_bytes() == DAY_SMALL
+              and not list(base.rglob("*.tmp")))
+    _calls = []
+    _real_replace = os.replace
+
+    def _busy_twice(src, dst):
+        _calls.append(1)
+        if len(_calls) <= 2:
+            raise PermissionError(13, "sharing violation")
+        return _real_replace(src, dst)
+
+    with patch.object(bw.os, "replace", _busy_twice), patch.object(bw.time, "sleep"):
+        check("import: two sharing violations in a row are retried and the file is written (as for every other file)",
+              bw.import_day_file("intraday", "2024-02-03", DAY_FULL) == bw.WRITTEN and len(_calls) == 3 and _dp.read_bytes() == DAY_FULL)
+    _synced = []
+    _real_fsync = os.fsync
+    with patch.object(bw.os, "fsync", lambda fd: (_synced.append(fd), _real_fsync(fd))[1]):
+        check("import: the file is flushed to disk (fsync on the write handle)",
+              bw.import_day_file("aggregates", "2024-02-03", AGG_SMALL) == bw.WRITTEN and len(_synced) == 1)
+    _spy_calls = []
+    _real_wa = bw._write_atomic
+    with patch.object(bw, "_write_atomic", lambda dst, payload: (_spy_calls.append(dst.name), _real_wa(dst, payload))[1]):
+        bw.write_day(*_day(date="2024-02-08"))
+        bw.write_aggregates("2024-02-08", {"date": "2024-02-08", "a": 1}, [K1])
+        bw.import_day_file("intraday", "2024-02-09", _mut(DAY_SMALL, date="2024-02-09"))
+        bw.import_day_file("aggregates", "2024-02-09", _mut(AGG_SMALL, date="2024-02-09", aggregates={"date": "2024-02-09", "uds": {"steps": 1}}))
+        _written_names = list(_spy_calls)
+        bw.import_day_file("intraday", "2024-02-09", _mut(DAY_SMALL, date="2024-02-09"))             # unchanged
+        bw.import_day_file("intraday", "2024-02-03", DAY_SMALL)                                          # kept
+    check("import: write_day, write_aggregates and import_day_file all write through the one _write_atomic, and only when they write",
+          _written_names == ["garmin_bulk_2024-02-08.json", "garmin_bulk_agg_2024-02-08.json",
+                             "garmin_bulk_2024-02-09.json", "garmin_bulk_agg_2024-02-09.json"] and _spy_calls == _written_names)
+    _p, _s = _day(date="2024-02-20")
+    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+        check("_write_atomic: a failure keeps neither a temporary file nor the new day (write_day), an exception never leaves the module",
+              bw.write_day(_p, _s) == bw.FAILED and bw.write_aggregates("2024-02-20", {"date": "2024-02-20", "a": 1}, [K1]) == bw.FAILED
+              and not list(base.rglob("*.tmp")) and not (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-20.json").exists())
+
+# -- describe_container_path -----------------------------------------------------------------------------------
+_HX = "ab" + "0" * 62
+with _isolated_log_env("bulk_writer_imp_path"):
+    _CASES = [
+        ("garmin_data/bulk/raw/garmin_bulk_2024-02-03.json", ("intraday", "2024-02-03")),
+        ("garmin_data/bulk/aggregates/garmin_bulk_agg_2024-02-03.json", ("aggregates", "2024-02-03")),
+        (f"garmin_data/bulk/source/ab/{_HX}.fit", ("original", _HX, ".fit")),
+        (f"garmin_data/bulk/source/ab/{_HX}.json", ("original", _HX, ".json")),
+        ("garmin_data/bulk/raw/garmin_bulk_agg_2024-02-03.json", None),                  # an aggregates name in the day folder
+        ("garmin_data/bulk/aggregates/garmin_bulk_2024-02-03.json", None),
+        ("garmin_data/bulk/raw/garmin_xxxx_2024-02-03.json", None),                        # a prefix of the same length, but not the prefix
+        ("garmin_data/bulk/aggregates/garmin_bulk_zzz_2024-02-03.json", None),
+        ("garmin_data/bulk/raw/2024-02-03.json", None),
+        ("garmin_data/bulk/raw/garmin_bulk_2024-13-01.json", None),                        # not a date
+        ("garmin_data/bulk/raw/garmin_bulk_2024-02-03.json.tmp", None),
+        ("garmin_data/bulk/raw/garmin_bulk_2024-02-03.txt", None),
+        ("garmin_data/bulk/raw/sub/garmin_bulk_2024-02-03.json", None),                    # one part too many
+        ("garmin_data/bulk/garmin_bulk_2024-02-03.json", None),                            # one part too few
+        (f"garmin_data/bulk/source/cd/{_HX}.fit", None),                                   # not in the folder of its first two characters
+        (f"garmin_data/bulk/source/{_HX}.fit", None),
+        (f"garmin_data/bulk/source/ab/{_HX}.txt", None),
+        (f"garmin_data/bulk/source/ab/{_HX.upper()}.fit", None),
+        (f"garmin_data/bulk/source/ab/{_HX[:-1]}.fit", None),
+        (f"garmin_data/bulk/source/ab/{_HX}.fit.tmp", None),
+        ("garmin_data/bulk/other/garmin_bulk_2024-02-03.json", None),
+        ("garmin_data/raw/garmin_raw_2024-02-03.json", None), ("garmin_data/backup/bulk/raw/garmin_bulk_2024-02-03.json", None),
+        ("context_data/bulk/raw/garmin_bulk_2024-02-03.json", None),
+        ("garmin_data/bulk/raw/../raw/garmin_bulk_2024-02-03.json", None), ("garmin_data/bulk", None), ("", None), (None, None), (5, None),
+    ]
+    _wrong = [(p, e, bw.describe_container_path(p)) for p, e in _CASES if bw.describe_container_path(p) != e]
+    check(f"describe_container_path: {len(_CASES)} paths are described as expected ({_wrong or 'all'})", _wrong == [])
+    check("describe_container_path: looks at the name only, nothing is created", not cfg.BULK_DIR.exists())
+
+# -- list_originals -----------------------------------------------------------------------------------------------
+with _isolated_log_env("bulk_writer_imp_list") as base:
+    check("list_originals: no bulk/source folder -> an empty set and no folder created",
+          bw.list_originals() == set() and not cfg.BULK_DIR.exists())
+    _oa, _ob = b"original a", b"original b"
+    _ha, _hb = hashlib.sha256(_oa).hexdigest(), hashlib.sha256(_ob).hexdigest()
+    bw.store_original(_ha, _oa)
+    bw.store_original_json(_hb, _ob)
+    (cfg.BULK_SOURCE_DIR / _ha[:2] / f"{_ha}.fit.tmp").write_bytes(b"half")
+    (cfg.BULK_SOURCE_DIR / _ha[:2] / "notes.txt").write_bytes(b"x")
+    (cfg.BULK_SOURCE_DIR / _ha[:2] / ("0" * 64 + ".fit")).write_bytes(b"in the wrong folder unless the prefix is 00")
+    (cfg.BULK_SOURCE_DIR / "stray.fit").write_bytes(b"in the root")
+    (cfg.BULK_SOURCE_DIR / "zz").mkdir()
+    (cfg.BULK_SOURCE_DIR / "zz" / (_ha + ".fit")).write_bytes(b"folder zz is not the prefix of this hash")
+    check("list_originals: the names of the originals, with their suffix; a .tmp, other names, a name in the wrong folder and files in the root are left out",
+          bw.list_originals() == {f"{_ha}.fit", f"{_hb}.json"})
+    _before = _tree(base)
+    bw.list_originals()
+    check("list_originals: only looks (nothing changed)", _tree(base) == _before)
+    with patch.object(Path, "iterdir", side_effect=PermissionError("no access")), patch.object(bw.log, "warning") as _warn:
+        check("list_originals: a folder that cannot be listed gives an empty set and a warning, not an exception",
+              bw.list_originals() == set() and _warn.call_count == 1)
+
 # ── Imports: standard library only, garmin_config lazily, no other owner involved ─
 _tree_ast = ast.parse(Path(bw.__file__).read_text(encoding="utf-8"))
 _top, _all = set(), set()

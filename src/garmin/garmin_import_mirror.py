@@ -34,9 +34,17 @@ Conflict resolution:
   context/ — source wins: missing files are imported, existing files are
               overwritten. Context data is an API snapshot without quality
               hierarchy — source is always authoritative.
+  bulk/    — (v1.7.6.2) the bulk store of the other archive: day files (intraday
+              series, daily values) are handed to garmin_bulk_writer.import_day_file(),
+              which keeps the fuller of the two stands; originals are copied when
+              the name is missing locally. A day that exists only as export data
+              (quality log: write False, no raw file in the container) gets its
+              summary made again (writer.rebuild_summary) and its quality-log entry
+              — it is not an error that it has no raw file.
 
 Sole-owner invariant:
   garmin_writer   — sole write authority for raw/ and summary/
+  garmin_bulk_writer — sole write authority for the bulk store
   garmin_quality  — sole write authority for quality_log.json
   context_writer  — sole write authority for context_data/
   This module orchestrates — it never writes files directly.
@@ -49,6 +57,10 @@ Returns (run_import_mirror):
       "raw_copied":     int,   # days imported
       "raw_skipped":    int,   # days skipped (downgrade protection or equal)
       "context_copied": int,   # context files imported
+      "bulk_copied":    int,   # bulk day files written (container only, v1.7.6.2)
+      "bulk_skipped":   int,   # bulk day files already there or fuller locally
+      "originals_copied": int, # originals taken over from the container
+      "export_days":    int,   # days that exist only as export data, entry made
       "errors":         int,   # errors encountered
       "ok":             bool,  # True if errors == 0
       "error":          str,   # present only on early hard-stop failures
@@ -65,6 +77,8 @@ Dry-run mode returns:
   {
       "raw_to_copy":      int,
       "context_to_copy":  int,
+      "bulk_to_copy":     int,   # bulk day files missing locally (container only)
+      "originals_to_copy": int,  # originals missing locally (container only)
       "version_warning":  str,   # empty string if versions match
       "ok":               bool,
       "error":            str,   # present only on early hard-stop failures — see above
@@ -111,6 +125,7 @@ def run_import_mirror(
     base_dir: Path,
     password: str = "",
     dry_run: bool = False,
+    progress=None,
 ) -> dict:
     """
     Import data from a GLA container or folder into the local archive at base_dir.
@@ -121,6 +136,10 @@ def run_import_mirror(
     base_dir    : Path — local archive root (BASE_DIR)
     password    : str  — container password (required for container source)
     dry_run     : bool — if True, analyse only, no writes
+    progress    : callable(text) | None — (v1.7.6.2) gets a line for every section that is
+                  decrypted and for every tenth of the days, day files and originals imported;
+                  None = no lines. A callback that raises never fails the import. The folder
+                  fallback gives no lines.
 
     Returns
     -------
@@ -147,7 +166,7 @@ def run_import_mirror(
         return _run_import_folder(mirror_path, base_dir, dry_run)
 
     # ── Container path ─────────────────────────────────────────────────────────
-    return _run_import_container(mirror_path, base_dir, password, dry_run)
+    return _run_import_container(mirror_path, base_dir, password, dry_run, progress)
 
 
 def _run_import_container(
@@ -155,6 +174,7 @@ def _run_import_container(
     base_dir: Path,
     password: str,
     dry_run: bool,
+    progress=None,
 ) -> dict:
     import garmin_container as _container
     import garmin_quality as quality
@@ -177,11 +197,17 @@ def _run_import_container(
     # ── 2. File lists from header — no decrypt required ───────────────────────
     ctx_files_in_container = _container.list_files(container_path, "context")
     src_files_in_container = _container.list_files(container_path, "source")
+    raw_files_in_container = _container.list_files(container_path, "raw")
+    bulk_files_in_container = _container.list_files(container_path, "bulk")
+    bulk_src_files_in_container = _container.list_files(container_path, "bulk_source")
 
     # ── 3. Delta analysis ─────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:
         quality_dst = quality._load_quality_log()
         raw_order, raw_skip = _analyse_raw_delta(quality_src, quality_dst)
+        # v1.7.6.2 (F-8): a day that exists only as export data has no raw file in the container
+        raw_order, export_only = _split_export_only(raw_order, raw_files_in_container)
+        day_order, orig_order = _analyse_bulk_delta(bulk_files_in_container, bulk_src_files_in_container)
         try:
             ctx_order = _analyse_context_delta_container(
                 ctx_files_in_container, base_dir
@@ -203,11 +229,13 @@ def _run_import_container(
 
         if dry_run:
             return {
-                "raw_to_copy":     len(raw_order),
-                "context_to_copy": len(ctx_order),
-                "source_to_copy":  len(src_order),
-                "version_warning": version_warning,
-                "ok":              True,
+                "raw_to_copy":       len(raw_order),
+                "context_to_copy":   len(ctx_order),
+                "source_to_copy":    len(src_order),
+                "bulk_to_copy":      _count_missing_day_files(day_order),
+                "originals_to_copy": len(orig_order),
+                "version_warning":   version_warning,
+                "ok":                True,
             }
 
         # ── 4. Build order and fulfill ────────────────────────────────────────
@@ -238,16 +266,42 @@ def _run_import_container(
             order["context"] = ctx_order
         if src_order:
             order["source"] = src_order
+        if day_order:
+            order["bulk"] = [rel for rel, _kind, _day in day_order]
+        if orig_order:
+            order["bulk_source"] = [rel for rel, _hash, _suffix in orig_order]
         order["quality_log"] = ["garmin_data/log/device_table.json"]
 
-        fulfilled = _container.fulfill_order(container_path, password, order)
+        if progress is None:
+            fulfilled = _container.fulfill_order(container_path, password, order)
+        else:
+            fulfilled = _container.fulfill_order(container_path, password, order, progress=progress)
+
+        # ── 4b. Import the bulk store (before raw: write_day() resolves with the daily values)
+        bulk_copied, bulk_skipped, originals_copied, errors, agg_written = _import_bulk_from_bytes(
+            fulfilled, day_order, orig_order, progress,
+        )
 
         # ── 5. Import raw (+ optional summary fast-path) ──────────────────────
-        raw_copied, raw_skipped, errors = _import_raw_from_bytes(
+        raw_done = set()
+        raw_copied, raw_skipped, raw_errors = _import_raw_from_bytes(
             fulfilled, raw_order, raw_skip,
             quality_dst, quality,
             schema_match=schema_match,
+            done_days=raw_done, progress=progress,
         )
+        errors += raw_errors
+
+        # ── 5b. Days that exist only as export data (F-8) ─────────────────────
+        export_days, export_errors = _import_export_days(
+            export_only, [d for d in agg_written if d not in raw_done], quality_dst, quality,
+        )
+        errors += export_errors
+        if bulk_copied or export_days:
+            # a mark that is missing for a day of the store (the importer is the writer of the files now)
+            import garmin_bulk_writer as _bw
+            quality.catch_up_bulk_intraday(quality_dst, _bw.list_days())
+            quality.catch_up_bulk_aggregates(quality_dst, _bw.list_aggregate_days())
 
         # ── 6. Import context ─────────────────────────────────────────────────
         ctx_copied, ctx_errors = _import_context_from_bytes(
@@ -270,15 +324,20 @@ def _run_import_container(
     log.info(
         f"  import_mirror done: {raw_copied} raw copied, "
         f"{raw_skipped} raw skipped, {ctx_copied} context copied, "
-        f"{src_copied} source copied, {errors} errors"
+        f"{src_copied} source copied, {bulk_copied} bulk day files, "
+        f"{originals_copied} originals, {export_days} export-only days, {errors} errors"
     )
     return {
-        "raw_copied":     raw_copied,
-        "raw_skipped":    raw_skipped,
-        "context_copied": ctx_copied,
-        "source_copied":  src_copied,
-        "errors":         errors,
-        "ok":             errors == 0,
+        "raw_copied":       raw_copied,
+        "raw_skipped":      raw_skipped,
+        "context_copied":   ctx_copied,
+        "source_copied":    src_copied,
+        "bulk_copied":      bulk_copied,
+        "bulk_skipped":     bulk_skipped,
+        "originals_copied": originals_copied,
+        "export_days":      export_days,
+        "errors":           errors,
+        "ok":               errors == 0,
     }
 
 
@@ -368,6 +427,69 @@ def _analyse_raw_delta(quality_src: dict, quality_dst: dict) -> tuple[list, int]
         f"{len(to_copy)} to import, {skipped} already equal/better"
     )
     return to_copy, skipped
+
+
+def _split_export_only(raw_order: list, raw_files_in_container: list) -> tuple[list, list]:
+    """
+    Splits the days of the raw delta (v1.7.6.2, F-8) into (to_import_as_raw, export_only).
+    export_only: the quality-log entry says write False (nothing written to raw/ — a day that
+    comes from the export) and the container holds no raw file for it. Such a day is no error:
+    its data are in the bulk section. An entry with write True, or without the key, whose raw
+    file is missing from the container stays in the first list (and is counted as an error when
+    the import finds no bytes); an entry with write False and a raw file in the container is
+    imported as a raw day as before.
+    """
+    present = set(raw_files_in_container)
+    raw_days, export_only = [], []
+    for entry in raw_order:
+        date_str = entry.get("date")
+        raw_rel = f"garmin_data/raw/garmin_raw_{date_str}.json"
+        if entry.get("write") is False and raw_rel not in present:
+            export_only.append(entry)
+        else:
+            raw_days.append(entry)
+    if export_only:
+        log.info(f"  import_mirror: {len(export_only)} day(s) exist only as export data (no raw file)")
+    return raw_days, export_only
+
+
+def _analyse_bulk_delta(bulk_files: list, bulk_source_files: list) -> tuple[list, list]:
+    """
+    Sorts the files of the container's bulk sections (v1.7.6.2) by what the bulk writer says
+    they are (garmin_bulk_writer.describe_container_path — from the name alone).
+
+    Returns (day_files, originals):
+      day_files  [(rel_path, kind, date)]        every day file ("intraday"/"aggregates") — the
+                                                 writer decides, a fuller stored file stays
+      originals  [(rel_path, hash, suffix)]      only those whose name is missing locally
+    A name that is none of these is logged and left out (never an error: a newer container may
+    hold things this version does not know).
+    """
+    import garmin_bulk_writer as _bw
+
+    day_files, originals = [], []
+    local_originals = _bw.list_originals()
+    for rel_path in list(bulk_files) + list(bulk_source_files):
+        info = _bw.describe_container_path(rel_path)
+        if info is None:
+            log.warning(f"  import_mirror: unknown file in the bulk section skipped: {rel_path}")
+        elif info[0] == "original":
+            if f"{info[1]}{info[2]}" not in local_originals:
+                originals.append((rel_path, info[1], info[2]))
+        else:
+            day_files.append((rel_path, info[0], info[1]))
+    log.info(
+        f"  import_mirror: bulk delta — {len(day_files)} day file(s) to hand over, "
+        f"{len(originals)} original(s) missing locally"
+    )
+    return day_files, originals
+
+
+def _count_missing_day_files(day_files: list) -> int:
+    """Dry run: how many of the day files have no file of that kind and day locally (by name)."""
+    import garmin_bulk_writer as _bw
+    local = {"intraday": set(_bw.list_days()), "aggregates": set(_bw.list_aggregate_days())}
+    return sum(1 for _rel, kind, day in day_files if day not in local[kind])
 
 
 def _analyse_context_delta_container(
@@ -534,11 +656,16 @@ def _import_raw_from_bytes(
     quality_dst: dict,
     quality,
     schema_match: bool,
+    *,
+    done_days=None,
+    progress=None,
 ) -> tuple[int, int, int]:
     """
     Imports raw days from fulfilled bytes dict into local archive.
     If schema_match: uses summary bytes from container (fast-path).
     Otherwise: calls summarize() fresh on target.
+    done_days (v1.7.6.2): a set that gets the date of every day written; progress: a callback
+    that gets a line for every tenth of the days.
     Returns (copied, skipped, errors).
     """
     import garmin_normalizer as normalizer
@@ -548,7 +675,8 @@ def _import_raw_from_bytes(
     copied = 0
     errors = 0
 
-    for entry in raw_order:
+    for i, entry in enumerate(raw_order, 1):
+        _report_tenth(progress, "raw days", i, len(raw_order))
         date_str = entry.get("date")
         if not date_str:
             errors += 1
@@ -616,6 +744,8 @@ def _import_raw_from_bytes(
             quality._save_quality_log(quality_dst, skip_backup=True)
 
             copied += 1
+            if done_days is not None:
+                done_days.add(date_str)
             log.debug(f"  import_mirror: raw {date_str} — {label}")
 
         except Exception as e:
@@ -627,6 +757,136 @@ def _import_raw_from_bytes(
         f"{copied} written, {raw_skip_count} skipped, {errors} errors"
     )
     return copied, raw_skip_count, errors
+
+
+def _report_tenth(progress, what: str, done: int, total: int) -> None:
+    """
+    Passes a progress line when item `done` of `total` is the first to reach a new tenth
+    (10 %, 20 %, … — not the last item, the summary line follows anyway). The line says what
+    has been done so far, so an hour-long import shows that it lives.
+    """
+    if progress is None or total <= 0 or done >= total:
+        return
+    if 100 * (done - 1) // total // 10 < 100 * done // total // 10:
+        import garmin_container as _container
+        _container.report_progress(
+            progress, f"  Import: {what} … {100 * done // total} % ({done} of {total})")
+
+
+def _import_bulk_from_bytes(
+    fulfilled: dict,
+    day_order: list,
+    orig_order: list,
+    progress=None,
+) -> tuple[int, int, int, int, list]:
+    """
+    Hands the bulk files of the container to the bulk writer (v1.7.6.2): originals first
+    (store_original checks the hash against the name), then the day files
+    (import_day_file: the writer decides — fuller wins, invalid is refused). Every file is
+    taken out of `fulfilled` once handled, so the memory of the originals is freed early.
+
+    Returns (day files written, day files skipped (unchanged or fuller locally), originals
+    written, errors, dates of the aggregates files written).
+    """
+    import garmin_bulk_writer as _bw
+
+    written = skipped = originals = errors = 0
+    agg_written = []
+
+    for i, (rel_path, file_hash, suffix) in enumerate(orig_order, 1):
+        _report_tenth(progress, "originals", i, len(orig_order))
+        data = fulfilled.pop(rel_path, None)
+        if data is None:
+            log.warning(f"  import_mirror: bulk original bytes not found: {rel_path}")
+            errors += 1
+            continue
+        result = _bw.store_original(file_hash, data, suffix)
+        if result == "written":
+            originals += 1
+        elif result != "present":
+            errors += 1
+
+    for i, (rel_path, kind, day) in enumerate(day_order, 1):
+        _report_tenth(progress, "bulk day files", i, len(day_order))
+        data = fulfilled.pop(rel_path, None)
+        if data is None:
+            log.warning(f"  import_mirror: bulk bytes not found: {rel_path}")
+            errors += 1
+            continue
+        result = _bw.import_day_file(kind, day, data)
+        if result == "written":
+            written += 1
+            if kind == "aggregates":
+                agg_written.append(day)
+        elif result in ("unchanged", "kept"):
+            skipped += 1
+        else:
+            errors += 1
+
+    if day_order or orig_order:
+        log.info(
+            f"  import_mirror: bulk import done — {written} day files written, {skipped} skipped, "
+            f"{originals} originals written, {errors} errors"
+        )
+    return written, skipped, originals, errors, agg_written
+
+
+def _import_export_days(
+    export_only: list,
+    summary_days: list,
+    quality_dst: dict,
+    quality,
+) -> tuple[int, int]:
+    """
+    The part of the import that follows the bulk files (v1.7.6.2, F-8), under the quality lock:
+
+      * summary_days — days whose aggregates file was written in this import and that were not
+        imported as raw days: summary/ is made again from the stored data (writer.rebuild_summary,
+        which resolves a raw file of the day with the export's values). False -> an error.
+      * export_only — the days that exist only as export data: a quality-log entry (the label,
+        the fields and the source of the other archive's entry, written=False — there is no raw
+        file, so the start-up check must not call it missing), provided the day's aggregates
+        file is in the store now. An entry that stays without aggregates is left out (the local
+        sync finds the day again); a label this version does not know is an error.
+
+    Returns (entries made, errors). Does not save the quality log.
+    """
+    import garmin_bulk_writer as _bw
+    import garmin_writer     as writer
+    from datetime import date as _date
+
+    errors = 0
+    for day in summary_days:
+        if not writer.rebuild_summary(day):
+            log.warning(f"  import_mirror: {day} — the summary could not be made from the export data")
+            errors += 1
+
+    local_aggregates = set(_bw.list_aggregate_days()) if export_only else set()
+    made = 0
+    for entry in export_only:
+        date_str = entry.get("date")
+        label = entry.get("quality")
+        if label not in quality.QUALITY_RANK:
+            log.warning(f"  import_mirror: {date_str} — unknown quality label {label!r}, entry not made")
+            errors += 1
+            continue
+        if date_str not in local_aggregates:
+            log.info(f"  import_mirror: {date_str} — export day without daily values here, entry not made")
+            continue
+        try:
+            fields = entry.get("fields")
+            quality._upsert_quality(
+                quality_dst, _date.fromisoformat(date_str), label,
+                f"Quality: {label} — mirror import (export data)",
+                written=False, source=entry.get("source", "bulk"),
+                fields=dict(fields) if isinstance(fields, dict) else None,
+                device_id=entry.get("device_id"), device_name=entry.get("device_name"),
+            )
+            made += 1
+        except Exception as e:
+            log.error(f"  import_mirror: {date_str} — quality entry for an export day failed: {e}")
+            errors += 1
+    return made, errors
 
 
 def _restore_device_table(fulfilled: dict, base_dir: Path) -> None:

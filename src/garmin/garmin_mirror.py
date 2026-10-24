@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 #  Public entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run_mirror(source_dir: Path, container_path: Path, password: str) -> dict:
+def run_mirror(source_dir: Path, container_path: Path, password: str, progress=None) -> dict:
     """
     Creates an encrypted mirror container from source_dir.
 
@@ -39,6 +39,9 @@ def run_mirror(source_dir: Path, container_path: Path, password: str) -> dict:
     source_dir     : Path — local BASE_DIR (master)
     container_path : Path — target .gla file path
     password       : str  — container password
+    progress       : callable(text) | None — (v1.7.6.2) gets the progress lines of
+                     garmin_container.lock() (every 10 % of the files read, each section packed,
+                     the write); None = no lines
 
     Returns
     -------
@@ -59,7 +62,10 @@ def run_mirror(source_dir: Path, container_path: Path, password: str) -> dict:
     log.info(f"  mirror: {source_dir} → {container_path}")
 
     import garmin_container as _container
-    result = _container.lock(source_dir, container_path, password)
+    if progress is None:
+        result = _container.lock(source_dir, container_path, password)
+    else:
+        result = _container.lock(source_dir, container_path, password, progress=progress)
 
     log.info(
         f"  mirror done: {result.get('files_packed', 0)} files packed, "

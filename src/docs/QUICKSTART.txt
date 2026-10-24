@@ -64,6 +64,7 @@ Files tab: Excel overview (v)
 BACKUP
 ──────
 Settings -> set Mirror target -> "Export to Mirror"
+(the folder with your Garmin export data is backed up by itself at the start of a sync)
 
 DISCOVER MORE DATA (optional)
 ──────────────────────────────

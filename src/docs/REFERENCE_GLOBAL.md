@@ -71,9 +71,10 @@ All modules import via `import garmin_config as cfg`.
 | `SOURCE_DIR` | `GARMIN_DIR/source` | Source archive — unmodified API responses (sole owner: `garmin_source_writer.py`) |
 | `SOURCE_API_LOG` | `LOG_DIR/source_api_log.json` | Per-day fetch metadata: validator status, endpoints, byte size |
 | `SOURCE_BACKUP_DIR` | `BACKUP_DIR/source` | Source backup — sole owner: `garmin_backup_source.py` (v1.6.0.4) |
+| `BULK_BACKUP_DIR` | `BACKUP_DIR/bulk` | Backup of the bulk store — sole owner: `garmin_backup_bulk.py` (v1.7.6.2). `BULK_RAW_BACKUP_DIR` (`bulk/raw`: month folders, `bulk_raw_backup_YYYY-MM.zip`), `BULK_AGG_BACKUP_DIR` (`bulk/aggregates`: the same, `bulk_aggregates_backup_YYYY-MM.zip`), `BULK_SOURCE_BACKUP_DIR` (`bulk/source`: one `<xx>.zip` per hash prefix) |
 | `LIVE_DIR` | `GARMIN_DIR/live` | Live Tracking snapshot dir — sole owner: `garmin_live_fetch.py` (v1.6.5) |
 | `LIVE_FILE` | `LIVE_DIR/live.json` | Single-file snapshot of the current day — no history, overwritten on every fetch (v1.6.5) |
-| `BULK_DIR` | `GARMIN_DIR/bulk` | Bulk store — data from the Garmin GDPR export, apart from the API store; sole owner: `garmin_bulk_writer.py` (v1.7.6) |
+| `BULK_DIR` | `GARMIN_DIR/bulk` | Bulk store — data from the Garmin GDPR export, apart from the API store; sole owner: `garmin_bulk_writer.py` (v1.7.6). Layout of the export itself: `REFERENCE_GARMIN_EXPORT.md` |
 | `BULK_RAW_DIR` | `BULK_DIR/raw` | One JSON file per local day with named sections (`garmin_bulk_YYYY-MM-DD.json`) |
 | `BULK_SOURCE_DIR` | `BULK_DIR/source` | The unchanged export files, `<xx>/<sha256>.fit` and, since v1.7.6.1, the JSON files `<xx>/<sha256>.json` |
 | `BULK_AGG_DIR` | `BULK_DIR/aggregates` | One JSON file per local day with the daily values of the export (`garmin_bulk_agg_YYYY-MM-DD.json`; v1.7.6.1), same sole owner |
@@ -350,7 +351,7 @@ it fits directly into one WCM credential entry.
     │   ├── garmin_bulk_fit_reader.py      ← Leaf-Node. FIT bytes → messages. parse_fit() (v1.7.6)
     │   ├── garmin_bulk_export_scanner.py  ← Leaf-Node. Finds the FIT files in an export (ZIP, folder). iter_fit_files() (v1.7.6)
     │   ├── garmin_bulk_normalizer.py      ← Leaf-Node. Day boundaries, 16-bit timestamps, samples per day. plan_days(), SampleCollector (v1.7.6)
-    │   ├── garmin_bulk_writer.py          ← Sole Owner bulk/ (v1.7.6). write_day(), day_status(), write_aggregates(), load_aggregates(), store_original(), store_original_json()
+    │   ├── garmin_bulk_writer.py          ← Sole Owner bulk/ (v1.7.6). write_day(), day_status(), write_aggregates(), load_aggregates(), store_original(), store_original_json(), import_day_file(), describe_container_path(), list_originals() (v1.7.6.2)
     │   ├── garmin_bulk_import.py          ← Intraday phase of the import, orchestrates the four above. run_intraday_import() (v1.7.6)
     │   ├── garmin_bulk_json_import.py     ← Daily-values phase of the import → bulk/aggregates, orchestrates garmin_import/validator/quality/bulk_writer. run_aggregates_import() (v1.7.6.1)
     │   ├── garmin_normalizer.py
@@ -372,6 +373,8 @@ it fits directly into one WCM credential entry.
     │   ├── garmin_validator.py
     │   ├── garmin_writer.py
     │   ├── garmin_backup_source.py ← Sole Owner backup/source/ (v1.6.0.4)
+    │   ├── garmin_backup_common.py ← Leaf-Node. Monthly folder / ZIP flow shared by the backups, parameterised by BackupKind (v1.7.6.2)
+    │   ├── garmin_backup_bulk.py   ← Sole Owner backup/bulk/ (v1.7.6.2). backup_all(), backup_originals(), read_day_copy(), read_original_copy()
     │   ├── garmin_silo_check.py    ← Leaf-Node. Read-only silo drift detection. check_silos() → dict (v1.6.0.4.7)
     │   ├── garmin_repair_resting_hr.py ← Removable (v1.7.5.7). One-time repair of the resting heart rate of imported days. find_candidates(), repair_resting_hr()
     │   ├── garmin_merge.py         ← Leaf-Node. Additive field merge for backfill operations. merge_field() (v1.6.3)
@@ -585,6 +588,7 @@ it fits directly into one WCM credential entry.
     ├── docs/                       ← Documentation
     │   ├── REFERENCE_GLOBAL.md     ← this file
     │   ├── REFERENCE_GARMIN.md
+    │   ├── REFERENCE_GARMIN_EXPORT.md  ← Layout of the Garmin account data export
     │   ├── REFERENCE_CONTEXT.md
     │   ├── REFERENCE_DASHBOARD.md
     │   ├── REFERENCE_BROKER.md
@@ -712,6 +716,12 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 │   │   │   └── garmin_bulk_agg_YYYY-MM-DD.json
 │   │   └── source/
 │   │       └── <xx>/<sha256>.fit|.json  ← unchanged export files
+│   ├── backup/                     ← Backups: garmin_backup.py raw/ + log/, garmin_backup_source.py source/, garmin_backup_bulk.py bulk/ (v1.7.6.2)
+│   │   ├── raw/  log/  source/
+│   │   └── bulk/
+│   │       ├── raw/                ← YYYY-MM/ (open month), bulk_raw_backup_YYYY-MM.zip
+│   │       ├── aggregates/         ← YYYY-MM/, bulk_aggregates_backup_YYYY-MM.zip
+│   │       └── source/             ← <xx>.zip, one per first two hash characters, never appended to
 │   └── log/
 │       ├── quality_log.json
 │       ├── device_table.json

@@ -176,8 +176,9 @@ Heart-rate series (FIT files) (v1.7.6):
     Nothing is written, and the background timer keeps running. The
     daily values have a preview too (v1.7.6.1).
   - Before an import starts, the app tells you that the folder
-    garmin_data/bulk is not part of the backup or the mirror yet.
-    Keep the export file as your fallback.
+    garmin_data/bulk is part of the backup and the mirror (v1.7.6.2):
+    the new files are backed up right after the import. Keep the
+    export file as your fallback anyway.
   - Running the same import again changes nothing. Importing only part of
     an export (for example one inner ZIP) never replaces a fuller day.
   - Days that cannot be placed on a day (for example without a known day
@@ -492,6 +493,18 @@ Restore:
   is already higher than what the container provides
   (protection against regression).
 
+Bulk folder (v1.7.6.2):
+  The mirror container carries garmin_data/bulk (heart-rate series,
+  daily values, the kept export files) and the import brings it back.
+  Older containers stay readable; they simply have no bulk part. A day
+  that exists only in the Garmin export is not an error on import.
+  Mirror and import show progress in the log (every 10 % of the files,
+  every section); with a large archive this takes minutes.
+  The backup of the bulk folder (garmin_data/backup/bulk) is made by
+  itself at the start of a sync and right after a bulk import. The
+  first backup of a large export can take a while; a failure is only a
+  warning and is tried again at the next start.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 7. AUTOMATED DAILY SYNC VIA WINDOWS TASK SCHEDULER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -642,6 +655,7 @@ Log shows errors but no data
     source/     Unmodified API responses (intraday backup)
     summary/    Compact daily JSONs (~2 KB/day)
     bulk/       Heart-rate series from the Garmin export (one JSON per day) + the unchanged FIT files (v1.7.6)
+    backup/bulk/  Backup of the bulk folder (v1.7.6.2)
     log/        Session logs, quality register, token
 
   context_data/
@@ -863,6 +877,12 @@ Silo-Check
   A day that exists only in the Garmin export (Bulk Import) is not
   reported as an orphan; if its summary is missing, the repair rebuilds
   it from the export data (v1.7.6.1).
+  Bulk folder (v1.7.6.2): the check also reports bulk files that went
+  missing ("#8 bulk files lost") and original export files that are
+  gone ("#9 original export files missing"). The repair restores them
+  from garmin_data/backup/bulk; without a backup copy it says so, and
+  the export file is the fallback. The daily file of a day whose bulk
+  file is lost is no longer removed as an orphan.
 
 Context-Check
   Same idea as Silo-Check, but for the context archive (weather,
