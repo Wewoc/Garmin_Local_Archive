@@ -38,6 +38,8 @@ collect_ignore = [
     "test_writer.py",
     "test_quality.py",
     "test_backup.py",
+    "test_backup_common.py",
+    "test_backup_bulk.py",
     "test_source_writer.py",
     "test_container_mirror.py",
     "test_import_mirror.py",

@@ -324,7 +324,7 @@ garmin_data/
 ├── raw/        – complete API dumps (~500 KB/day) — permanent archive / basis for dashboards and analysis
 ├── source/     – unmodified API responses (~250 KB/day) — replay-safe intraday backup
 ├── summary/    – compact daily JSONs (~2 KB/day)  — basis for dashboards and analysis; for export days API data first, the export fills the gaps (v1.7.6.1)
-├── bulk/       – data from the Garmin export: heart-rate series (one JSON per day), daily values (bulk/aggregates, v1.7.6.1) + the unchanged export files — separate from the API archive (v1.7.6)
+├── bulk/       – data from the Garmin export: heart-rate series (one JSON per day), daily values (bulk/aggregates, v1.7.6.1) + the unchanged export files — separate from the API archive (v1.7.6); backed up in backup/bulk/ and carried by the mirror (v1.7.6.2)
 └── log/        – session logs, quality register, encrypted token
 
 context_data/
@@ -348,7 +348,7 @@ same as everything else here):
 
 ```bash
 python tests/test_local.py                    # Garmin pipeline — cross-module checks (determinism, invariants, robustness, end-to-end)
-python tests/test_<module>.py                 # Garmin pipeline — one file per module of src/garmin/ (26 files, e.g. test_writer.py, test_quality.py, test_collector.py; shared setup in tests/gla_testenv.py)
+python tests/test_<module>.py                 # Garmin pipeline — one file per module of src/garmin/ (28 files, e.g. test_writer.py, test_quality.py, test_collector.py; shared setup in tests/gla_testenv.py)
 python tests/test_local_context.py            # Context pipeline (external APIs mocked)
 python tests/test_dashboard.py                # Dashboard pipeline
 python tests/test_broker.py                   # Broker layer (health_map / gateway_map routing, metadata_map)

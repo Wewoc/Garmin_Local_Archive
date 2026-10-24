@@ -19,11 +19,29 @@ Covered checks (reconstructability principle — KONZEPT §3):
   #3  source without raw                 (raw rebuildable from existing source)
   #5  summary without raw or export data (orphan summary — source raw gone)
   #7  raw or export data without summary (derived file missing — rebuildable)
+  #8  bulk file lost                     (v1.7.6.2: the quality log marks the day as one with
+                                          bulk data — entry["bulk"]["intraday"] / ["aggregates"] —
+                                          and the file is missing from the bulk store; restorable
+                                          from the backup, not from raw)
+  #9  original missing                   (v1.7.6.2: an intraday day file names a FIT file in its
+                                          source_files that bulk/source does not hold; restorable
+                                          from the backup)
 
 "Export data" (v1.7.6.1): a day with a file in the bulk store's aggregates folder
 (bulk/aggregates). Such a day may have no raw file at all — its summary is derived from
 the export's values (garmin_writer.rebuild_summary) — so it is neither an orphan (#5) nor
-fine without a summary (#7). No new category: the four below keep their names and keys.
+fine without a summary (#7). The four categories keep their names and keys.
+
+A day whose aggregates file is lost (#8) is not an orphan either (F-10, v1.7.6.2): its
+summary is the last copy of the resolved export values and must not be removed (#5) — the
+repair restores the file instead. The check looks at file names and at the marks of the
+quality log only; a damaged file is not detected, and a day without a quality-log entry has
+no mark.
+
+#9 reads every intraday day file for its source_files (nothing else is read) and compares the
+hashes with the names in bulk/source. It covers the FIT originals of the intraday days only:
+the source_files of an aggregates file are hashes of single entries of the export's JSON files,
+so a lost JSON original cannot be told from them.
 
 Not covered:
   #2  quality_log entry without raw      — owned by garmin_backup.check_raw_integrity()
@@ -39,6 +57,7 @@ Public API:
 
 import json
 import logging
+import re
 from datetime import date, datetime, timezone
 
 import garmin_config as cfg
@@ -49,6 +68,9 @@ log = logging.getLogger(__name__)
 _RAW_PREFIX     = "garmin_raw_"
 _SUMMARY_PREFIX = "garmin_"
 _SOURCE_PREFIX  = "garmin_source_"
+
+_HASH_RE     = re.compile(r"[0-9a-f]{64}")
+_FIT_NAME_RE = re.compile(r"[0-9a-f]{64}\.fit")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -93,19 +115,105 @@ def _collect_summary_dates() -> set[date]:
     return result
 
 
-def _collect_aggregate_dates() -> set[date]:
-    """Returns the set of dates with a file in the bulk store's aggregates folder (v1.7.6.1).
-    Inline like the other collectors (Leaf Node: no import of garmin_bulk_writer); looks at
-    the file names only, nothing is read."""
+def _collect_dates_in(folder, prefix: str) -> set[date]:
+    """Returns the set of dates of the <prefix><date>.json files in folder — file names only,
+    nothing is read; an absent folder gives the empty set."""
     result: set[date] = set()
-    prefix = cfg.BULK_AGG_FILE_PREFIX
-    if not cfg.BULK_AGG_DIR.exists():
+    if not folder.exists():
         return result
-    for f in cfg.BULK_AGG_DIR.glob(f"{prefix}*.json"):
+    for f in folder.glob(f"{prefix}*.json"):
         d = _extract_date(f.stem, prefix)
         if d is not None:
             result.add(d)
     return result
+
+
+def _collect_aggregate_dates() -> set[date]:
+    """Returns the set of dates with a file in the bulk store's aggregates folder (v1.7.6.1).
+    Inline like the other collectors (Leaf Node: no import of garmin_bulk_writer); looks at
+    the file names only, nothing is read."""
+    return _collect_dates_in(cfg.BULK_AGG_DIR, cfg.BULK_AGG_FILE_PREFIX)
+
+
+def _collect_bulk_day_dates() -> set[date]:
+    """Returns the set of dates with a file in the bulk store's intraday folder (v1.7.6.2),
+    from the file names only."""
+    return _collect_dates_in(cfg.BULK_RAW_DIR, cfg.BULK_FILE_PREFIX)
+
+
+def _collect_bulk_marks() -> tuple[set[date], set[date]]:
+    """
+    Returns (days marked with entry["bulk"]["intraday"], days marked with
+    entry["bulk"]["aggregates"]) from quality_log.json (v1.7.6.2): the days the log says have
+    bulk data in the store. A mark is any non-empty value, as in quality's unmarked_bulk_days.
+    (empty, empty) if the log is missing or cannot be read — _collect_quality_dates() has
+    warned about that already. Reads without QUALITY_LOCK, like it.
+    """
+    intraday: set[date] = set()
+    aggregates: set[date] = set()
+    if not cfg.QUALITY_LOG_FILE.exists():
+        return intraday, aggregates
+    try:
+        days = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8")).get("days", [])
+        for entry in days:
+            bulk = entry.get("bulk") if isinstance(entry, dict) else None
+            if not isinstance(bulk, dict):
+                continue
+            try:
+                day = date.fromisoformat(entry.get("date"))
+            except (TypeError, ValueError):
+                continue
+            if bulk.get("intraday"):
+                intraday.add(day)
+            if bulk.get("aggregates"):
+                aggregates.add(day)
+    except (OSError, ValueError, AttributeError) as e:
+        log.debug("garmin_silo_check: could not read the bulk marks: %s", e)
+        return set(), set()
+    return intraday, aggregates
+
+
+def _collect_original_refs() -> set[str]:
+    """
+    Returns the SHA-256 hashes named in `source_files` of the intraday day files (bulk/raw,
+    v1.7.6.2): the FIT files each day was made from, which the store keeps as
+    bulk/source/<xx>/<hash>.fit. Reads every day file, one at a time, and keeps only the hashes;
+    a file that is damaged, unreadable or not an object contributes nothing, and an entry that
+    is no SHA-256 is skipped.
+    Not for the aggregates files: their source_files are hashes of single entries of the
+    export's JSON files, not of the files kept in bulk/source.
+    """
+    refs: set[str] = set()
+    folder = cfg.BULK_RAW_DIR
+    if not folder.exists():
+        return refs
+    for f in folder.glob(f"{cfg.BULK_FILE_PREFIX}*.json"):
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            log.debug("garmin_silo_check: could not read %s for its source files: %s", f.name, e)
+            continue
+        files = doc.get("source_files") if isinstance(doc, dict) else None
+        if isinstance(files, list):
+            refs.update(h for h in files if isinstance(h, str) and _HASH_RE.fullmatch(h))
+    return refs
+
+
+def _collect_original_fit_hashes() -> set[str]:
+    """Returns the hashes of the originals kept as bulk/source/<xx>/<hash>.fit (v1.7.6.2), from
+    the file names only: a name has to be a SHA-256 plus ".fit" and start with its folder's two
+    characters (as the bulk writer's list_originals, which a Leaf Node cannot import)."""
+    names: set[str] = set()
+    folder = cfg.BULK_SOURCE_DIR
+    if not folder.exists():
+        return names
+    for sub in folder.iterdir():
+        if not sub.is_dir():
+            continue
+        for f in sub.iterdir():
+            if _FIT_NAME_RE.fullmatch(f.name) and f.name[:2] == sub.name:
+                names.add(f.name[:-len(".fit")])
+    return names
 
 
 def _collect_source_dates() -> set[date]:
@@ -158,13 +266,17 @@ def check_silos() -> dict:
     """
     Read-only drift detection across the data silos.
 
-    Returns a dict with four finding lists, totals, counts, and a timestamp:
+    Returns a dict with six finding lists, totals, counts, and a timestamp:
 
     {
       "raw_without_quality":  [date, ...],   # #1 — orphan raw, no quality_log entry
       "source_without_raw":   [date, ...],   # #3 — source file without matching raw
-      "summary_without_raw":  [date, ...],   # #5 — orphan summary: no raw and no export data
+      "summary_without_raw":  [date, ...],   # #5 — orphan summary: no raw, no export data, and the
+                                             #      log does not mark the day as having export data
       "raw_without_summary":  [date, ...],   # #7 — raw or export data exists, summary missing
+      "bulk_lost_intraday":   [date, ...],   # #8 — marked bulk.intraday in the log, file missing
+      "bulk_lost_aggregates": [date, ...],   # #8 — marked bulk.aggregates in the log, file missing
+      "bulk_originals_missing": [str, ...],  # #9 — SHA-256 (sorted) named by an intraday day file, no .fit in bulk/source
       "checked_at":           "ISO-8601",
       "totals": {
         "raw":          int,   # count of garmin_raw_*.json files
@@ -178,6 +290,9 @@ def check_silos() -> dict:
         "source_without_raw":  int,
         "summary_without_raw": int,
         "raw_without_summary": int,
+        "bulk_lost_intraday":  int,
+        "bulk_lost_aggregates": int,
+        "bulk_originals_missing": int,
       },
     }
 
@@ -198,8 +313,18 @@ def check_silos() -> dict:
     # ── #3: source without raw ─────────────────────────────────────────────────
     source_without_raw = sorted(source_dates - raw_dates)
 
+    # ── #8: bulk file lost — the log marks the day, the file is not in the store ──
+    marked_intraday, marked_aggregates = _collect_bulk_marks()
+    bulk_lost_intraday   = sorted(marked_intraday - _collect_bulk_day_dates())
+    bulk_lost_aggregates = sorted(marked_aggregates - aggregate_dates)
+
+    # ── #9: original missing — named by an intraday day file, not in bulk/source ──
+    bulk_originals_missing = sorted(_collect_original_refs() - _collect_original_fit_hashes())
+
     # ── #5: summary without raw (and without export data) ──────────────────────
-    summary_without_raw = sorted(summary_dates - raw_dates - aggregate_dates)
+    # A day whose aggregates file is lost is not an orphan (F-10): its summary holds the
+    # export values, and the repair restores the file (#8) instead of removing the summary.
+    summary_without_raw = sorted(summary_dates - raw_dates - aggregate_dates - set(bulk_lost_aggregates))
 
     # ── #7: raw (or export data) without summary ───────────────────────────────
     raw_without_summary = sorted((raw_dates | aggregate_dates) - summary_dates)
@@ -211,6 +336,9 @@ def check_silos() -> dict:
         "source_without_raw":  source_without_raw,
         "summary_without_raw": summary_without_raw,
         "raw_without_summary": raw_without_summary,
+        "bulk_lost_intraday":   bulk_lost_intraday,
+        "bulk_lost_aggregates": bulk_lost_aggregates,
+        "bulk_originals_missing": bulk_originals_missing,
         "checked_at": checked_at,
         "totals": {
             "raw":          len(raw_dates),
@@ -224,6 +352,9 @@ def check_silos() -> dict:
             "source_without_raw":  len(source_without_raw),
             "summary_without_raw": len(summary_without_raw),
             "raw_without_summary": len(raw_without_summary),
+            "bulk_lost_intraday":   len(bulk_lost_intraday),
+            "bulk_lost_aggregates": len(bulk_lost_aggregates),
+            "bulk_originals_missing": len(bulk_originals_missing),
         },
     }
 

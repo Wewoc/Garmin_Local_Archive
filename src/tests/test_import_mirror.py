@@ -172,7 +172,8 @@ with _isolated_log_env("imp_full") as _b:
     _r = _im.run_import_mirror(_arch, _b, "pw")
     check("import: container into an empty archive succeeds",
           _r == {"raw_copied": 2, "raw_skipped": 0, "context_copied": 1,
-                 "source_copied": 1, "errors": 0, "ok": True})
+                 "source_copied": 1, "bulk_copied": 0, "bulk_skipped": 0,
+                 "originals_copied": 0, "export_days": 0, "errors": 0, "ok": True})
     _f1 = json.loads((cfg.RAW_DIR / f"garmin_raw_{_D1}.json").read_text(encoding="utf-8"))
     check("import: raw day is written unchanged", _f1 == _day_raw(_D1, "high", ("123", "Fenix 7")))
     check("import: matching schema -> the summary from the container is used (fast path)",
@@ -847,6 +848,343 @@ with _isolated_log_env("imp2_dt") as _b:
 check("4h2 _extract_device: with two recorded devices the first one wins",
       _im._extract_device({"training_status": {"mostRecentTrainingStatus": {"recordedDevices": [
           {"deviceId": 1, "deviceName": "A"}, {"deviceId": 2, "deviceName": "B"}]}}}) == ("1", "A"))
+
+# -- 12. the bulk store in the container (v1.7.6.2, Baustein 4c) ------------------------------------------------------------
+# Bytes of day files and an original come from the real writer in a store of their own; the containers are hand-built with
+# the sections bulk and bulk_source. XD exists only as export data (quality log: write False, no raw file in the container).
+import hashlib as _hl_im
+import garmin_bulk_normalizer as _nz_im
+
+_XD = "2024-02-03"                       # the day of the plan below (its values lie inside the plan's window)
+_HM2 = "cd" * 32
+_OPAQUE = b"fit-original-bytes"
+_OH = _hl_im.sha256(_OPAQUE).hexdigest()
+_P_RAW = lambda name: f"garmin_data/bulk/raw/{name}"
+_REL_XD_I = _P_RAW(f"{cfg.BULK_FILE_PREFIX}{_XD}.json")
+_REL_XD_A = f"garmin_data/bulk/aggregates/{cfg.BULK_AGG_FILE_PREFIX}{_XD}.json"
+_REL_D1_A = f"garmin_data/bulk/aggregates/{cfg.BULK_AGG_FILE_PREFIX}{_D1}.json"
+_REL_OR = f"garmin_data/bulk/source/{_OH[:2]}/{_OH}.fit"
+
+
+def _make_bulk_bytes():
+    """{'small','full','agg_xd','agg_d1'} -> bytes of the files the writer makes for XD and D1."""
+    out = {}
+    with _isolated_log_env("imp_bulk_src"):
+        plan = _nz_im.DayPlan(_XD, 1706914800, 1707001200, 1.0, 1.0, False, "prev_day_end")
+        vals = [[1706950800000, 61], [1706950860000, 62], [1706950920000, 63]]
+        assert _bw_im.write_day(plan, _nz_im.DaySamples(_XD, vals, [_HM], 0, 0)) == _bw_im.WRITTEN
+        out["small"] = (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_XD}.json").read_bytes()
+        assert _bw_im.write_day(plan, _nz_im.DaySamples(_XD, vals, [_HM, _HM2], 0, 0)) == _bw_im.WRITTEN
+        out["full"] = (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_XD}.json").read_bytes()
+        _agg_m(_XD)
+        _agg_m(_D1)
+        out["agg_xd"] = (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{_XD}.json").read_bytes()
+        out["agg_d1"] = (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{_D1}.json").read_bytes()
+    return out
+
+
+_BB = _make_bulk_bytes()
+_E_XD = {"date": _XD, "quality": "standard", "source": "bulk", "write": False, "fields": {"day": True}}
+_E_D1 = {"date": _D1, "quality": "high", "source": "api", "write": True}
+
+
+def _bulk_container(path, entries, raws=None, summaries=None, bulk=None, originals=None):
+    sec = _mirror_sections(days=[], raws=raws, summaries=summaries)
+    sec["quality_log"]["garmin_data/log/quality_log.json"] = _jb({"days": entries})
+    sec["bulk"] = dict(bulk or {})
+    sec["bulk_source"] = dict(originals or {})
+    _craft_container(path, sec)
+
+
+_BULK_ALL = {_REL_XD_I: _BB["small"], _REL_XD_A: _BB["agg_xd"], _REL_D1_A: _BB["agg_d1"]}
+_bulk_gla = _M4H / "bulk.gla"
+_bulk_container(_bulk_gla, [_E_XD, _E_D1], raws={_D1: _day_raw(_D1, "high")},
+                summaries={_D1: {"marker": "from-container", "date": _D1}},
+                bulk=_BULK_ALL, originals={_REL_OR: _OPAQUE})
+
+with _isolated_log_env("imp_bulk") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _r = _im.run_import_mirror(_bulk_gla, _b, "pw", dry_run=True)
+    check("4c dry run: counts the day files and the original that are missing here, writes nothing",
+          _r["ok"] is True and _r["raw_to_copy"] == 1 and _r["bulk_to_copy"] == 3 and _r["originals_to_copy"] == 1
+          and not cfg.BULK_DIR.exists() and not cfg.RAW_DIR.exists())
+
+    _r = _im.run_import_mirror(_bulk_gla, _b, "pw")
+    check("4c import: a bulk store arrives -> 1 raw day, 3 day files, 1 original, 1 export-only day, no error",
+          _r == {"raw_copied": 1, "raw_skipped": 0, "context_copied": 0, "source_copied": 0, "bulk_copied": 3,
+                 "bulk_skipped": 0, "originals_copied": 1, "export_days": 1, "errors": 0, "ok": True})
+    check("4c import: day files and original are in the bulk store byte for byte as in the container",
+          (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_XD}.json").read_bytes() == _BB["small"]
+          and (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{_XD}.json").read_bytes() == _BB["agg_xd"]
+          and (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{_D1}.json").read_bytes() == _BB["agg_d1"]
+          and (cfg.BULK_SOURCE_DIR / _OH[:2] / f"{_OH}.fit").read_bytes() == _OPAQUE)
+    check("4c import (F-8): the export-only day has no raw file and is no error; its summary is made from the daily values",
+          not (cfg.RAW_DIR / f"garmin_raw_{_XD}.json").exists()
+          and _sum_m(_XD)["day"]["steps"] == 7000 and _sum_m(_XD)["stress"]["stress_avg"] == 25)
+    _ql = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("4c import (F-8): the export-only day gets its entry (label and source of the other archive, write False, the fields)",
+          _ql[_XD]["quality"] == "standard" and _ql[_XD]["source"] == "bulk" and _ql[_XD]["write"] is False
+          and _ql[_XD]["fields"] == {"day": True})
+    check("4c import: the days of the store carry the bulk marks (intraday and aggregates for XD, aggregates for D1)",
+          set(_ql[_XD]["bulk"]) == {"intraday", "aggregates"} and set(_ql[_D1]["bulk"]) == {"aggregates"})
+    check("4c import: the API day D1 is imported as before, with the container's raw data",
+          _raw_m(_D1) == _day_raw(_D1, "high") and _ql[_D1]["write"] is True and _ql[_D1]["source"] == "api")
+    check("4c import: bulk goes in before raw — the summary of D1 is the resolved one (export steps 7000, no container marker)",
+          "marker" not in _sum_m(_D1) and _sum_m(_D1)["day"]["steps"] == 7000 and _sum_m(_D1)["heartrate"]["resting_bpm"] == 55)
+
+    _r = _im.run_import_mirror(_bulk_gla, _b, "pw")
+    check("4c import: a second import changes nothing (3 day files already there, original not requested, no entry again)",
+          _r["ok"] is True and _r["bulk_copied"] == 0 and _r["bulk_skipped"] == 3 and _r["originals_copied"] == 0
+          and _r["export_days"] == 0 and _r["raw_copied"] == 0)
+    _r = _im.run_import_mirror(_bulk_gla, _b, "pw", dry_run=True)
+    check("4c dry run after the import: bulk_to_copy 0 (all names there), originals_to_copy 0",
+          _r["bulk_to_copy"] == 0 and _r["originals_to_copy"] == 0)
+
+# a fuller stand wins, in both directions (the writer's rule) ----------------------------------------------------
+_bulk_full = _M4H / "bulk_full.gla"
+_bulk_container(_bulk_full, [_E_XD], bulk={_REL_XD_I: _BB["full"], _REL_XD_A: _BB["agg_xd"]})
+with _isolated_log_env("imp_bulk_keep") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_m(_XD)
+    _bw_im.import_day_file("intraday", _XD, _BB["full"])
+    _r = _im.run_import_mirror(_bulk_gla, _b, "pw")
+    check("4c import: the stored fuller day is kept against the container's smaller one (counted as skipped)",
+          (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_XD}.json").read_bytes() == _BB["full"] and _r["bulk_skipped"] >= 1)
+with _isolated_log_env("imp_bulk_replace") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _bw_im.import_day_file("intraday", _XD, _BB["small"])
+    _r = _im.run_import_mirror(_bulk_full, _b, "pw")
+    check("4c import: the container's fuller day replaces the stored smaller one",
+          (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_XD}.json").read_bytes() == _BB["full"] and _r["bulk_copied"] == 2)
+
+# errors and cases that are none ----------------------------------------------------------------------------------
+_bulk_bad = _M4H / "bulk_bad.gla"
+_bulk_container(_bulk_bad, [_E_XD, _E_D1], raws={_D1: _day_raw(_D1, "high")},
+                bulk={_REL_XD_I: b"{not json", _REL_XD_A: _BB["agg_xd"], _REL_D1_A: _BB["agg_d1"]})
+with _isolated_log_env("imp_bulk_bad") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _r = _im.run_import_mirror(_bulk_bad, _b, "pw")
+    check("4c import: an invalid day file is one error, the other files and the raw day still go through",
+          _r["errors"] == 1 and _r["ok"] is False and _r["bulk_copied"] == 2 and _r["raw_copied"] == 1
+          and not (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{_XD}.json").exists())
+
+_orig_lie = _M4H / "orig_lie.gla"
+_bulk_container(_orig_lie, [], originals={_REL_OR: b"not the bytes of that hash"})
+with _isolated_log_env("imp_bulk_lie") as _b:
+    _r = _im.run_import_mirror(_orig_lie, _b, "pw")
+    check("4c import: an original whose bytes do not match its name is refused and counted as an error",
+          _r["errors"] == 1 and _r["originals_copied"] == 0 and not (cfg.BULK_SOURCE_DIR / _OH[:2]).exists())
+
+_unknown_c = _M4H / "bulk_unknown.gla"
+_bulk_container(_unknown_c, [], bulk={_P_RAW("evil.json"): b"{}", "garmin_data/bulk/source/../../escaped.txt": b"x",
+                                      _REL_XD_A: _BB["agg_xd"]})
+with _isolated_log_env("imp_bulk_unknown") as _b:
+    _r = _im.run_import_mirror(_unknown_c, _b, "pw")
+    check("4c import: names the bulk writer does not know are skipped without an error, nothing lands outside the store",
+          _r["ok"] is True and _r["errors"] == 0 and _r["bulk_copied"] == 1
+          and not (_b / "escaped.txt").exists() and not (_b.parent / "escaped.txt").exists()
+          and (not cfg.BULK_RAW_DIR.exists() or list(cfg.BULK_RAW_DIR.glob("*")) == []))
+
+_wt = _M4H / "bulk_wt.gla"
+_bulk_container(_wt, [{**_E_D1, "date": _D2}], bulk={})                    # write True, no raw bytes: still an error
+with _isolated_log_env("imp_bulk_wt") as _b:
+    _r = _im.run_import_mirror(_wt, _b, "pw")
+    check("4c import: an entry with write True and no raw file in the container stays an error (only write False is export-only)",
+          _r["errors"] == 1 and _r["export_days"] == 0)
+_wf = _M4H / "bulk_wf.gla"
+_bulk_container(_wf, [{**_E_D1, "write": False}], raws={_D1: _day_raw(_D1, "high")})
+with _isolated_log_env("imp_bulk_wf") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _r = _im.run_import_mirror(_wf, _b, "pw")
+    check("4c import: write False with a raw file in the container is imported as a raw day as before",
+          _r["raw_copied"] == 1 and _r["errors"] == 0 and _r["export_days"] == 0
+          and (cfg.RAW_DIR / f"garmin_raw_{_D1}.json").exists())
+
+_noagg = _M4H / "bulk_noagg.gla"
+_bulk_container(_noagg, [_E_XD], bulk={})
+with _isolated_log_env("imp_bulk_noagg") as _b:
+    _r = _im.run_import_mirror(_noagg, _b, "pw")
+    check("4c import (F-8): an export-only day without daily values here is no error and gets no entry",
+          _r["ok"] is True and _r["errors"] == 0 and _r["export_days"] == 0 and quality._load_quality_log()["days"] == [])
+_badlabel = _M4H / "bulk_badlabel.gla"
+_bulk_container(_badlabel, [{**_E_XD, "quality": "weird"}], bulk={_REL_XD_A: _BB["agg_xd"]})
+with _isolated_log_env("imp_bulk_badlabel") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _r = _im.run_import_mirror(_badlabel, _b, "pw")
+    check("4c import: an export-only entry with an unknown quality label is one error (unknown labels never get an entry)",
+          _r["errors"] == 1 and _r["export_days"] == 0 and _XD not in {e["date"] for e in quality._load_quality_log()["days"]})
+
+with _isolated_log_env("imp_bulk_summary_fail") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with patch.object(sys.modules["garmin_writer"], "rebuild_summary", return_value=False):
+        _r = _im.run_import_mirror(_bulk_gla, _b, "pw")
+    check("4c import: a summary that cannot be made for an export day is one error, the entry is still made",
+          _r["errors"] == 1 and _r["export_days"] == 1 and _r["ok"] is False)
+
+# an older container without the bulk sections ------------------------------------------------------------------
+with _isolated_log_env("imp_bulk_old") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _r = _im.run_import_mirror(_arch, _b, "pw")
+    check("4c import: a container without bulk files imports as before (bulk counts 0)",
+          _r["ok"] is True and (_r["bulk_copied"], _r["bulk_skipped"], _r["originals_copied"], _r["export_days"]) == (0, 0, 0, 0)
+          and not cfg.BULK_DIR.exists())
+
+# progress ---------------------------------------------------------------------------------------------------------
+_many = [f"2024-04-{n:02d}" for n in range(1, 13)]
+_many_c = _M4H / "many.gla"
+_craft_container(_many_c, _mirror_sections(days=[(d, "high", "api") for d in _many], raws={d: _day_raw(d) for d in _many}))
+with _isolated_log_env("imp_progress") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _lines = []
+    _r = _im.run_import_mirror(_many_c, _b, "pw", progress=_lines.append)
+    check("4c progress: a section that is decrypted gets a line before and after",
+          any("decrypting raw" in t for t in _lines) and any("raw decrypted in" in t for t in _lines))
+    check("4c progress: the raw days report every tenth, the last one does not (the result line follows)",
+          "  Import: raw days … 50 % (6 of 12)" in _lines and not any("100 %" in t for t in _lines)
+          and sum("Import: raw days" in t for t in _lines) == 9 and _r["raw_copied"] == 12)
+with _isolated_log_env("imp_progress_boom") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    def _boom(_t):
+        raise RuntimeError("window closed")
+    _r = _im.run_import_mirror(_many_c, _b, "pw", progress=_boom)
+    check("4c progress: a callback that raises never fails the import", _r["ok"] is True and _r["raw_copied"] == 12)
+with _isolated_log_env("imp_progress_bulk") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _lines = []
+    _im.run_import_mirror(_bulk_gla, _b, "pw", progress=_lines.append)
+    check("4c progress: bulk sections are decrypted with a line each",
+          any("decrypting bulk (" in t for t in _lines) and any("decrypting bulk_source" in t for t in _lines))
+
+# bytes that the container lists but does not deliver count as errors, and the loops report their tenths
+_lost_days = [(f"garmin_data/bulk/aggregates/{cfg.BULK_AGG_FILE_PREFIX}2024-05-{n:02d}.json", "aggregates", f"2024-05-{n:02d}")
+              for n in range(1, 13)]
+_lost_orig = [(f"garmin_data/bulk/source/ab/{'ab' * 32}.fit", "ab" * 32, ".fit")] * 12
+_lines = []
+with _isolated_log_env("imp_bulk_lost") as _b:
+    _res = _im._import_bulk_from_bytes({}, _lost_days, _lost_orig, _lines.append)
+check("4c bulk import: bytes of day files and originals that are not delivered are one error each, nothing is written",
+      _res == (0, 0, 0, 24, []) and not cfg.BULK_DIR.exists())
+check("4c progress: the originals and the day files report their tenths as well (9 lines each for 12 items)",
+      sum("Import: originals" in t for t in _lines) == 9 and sum("Import: bulk day files" in t for t in _lines) == 9)
+
+_ln = []
+_im._report_tenth(_ln.append, "x", 1, 1)
+_im._report_tenth(_ln.append, "x", 3, 3)
+_im._report_tenth(_ln.append, "x", 1, 0)
+_im._report_tenth(None, "x", 1, 20)
+check("4c _report_tenth: the last item, an empty list and no callback give no line", _ln == [])
+_im._report_tenth(_ln.append, "x", 2, 20)
+_im._report_tenth(_ln.append, "x", 1, 20)
+check("4c _report_tenth: 10 % of 20 is the second item, the first gives nothing", _ln == ["  Import: x … 10 % (2 of 20)"])
+
+# -- 13. round trip of a bulk day (v1.7.6.2, Baustein 5c): back up, mirror, lose, restore — by the backup and by the mirror ------------
+# One bulk day (intraday series, daily values, the FIT original the series was made from) is made with the real writer in a
+# tree with the real folder layout, backed up with the real backup, mirrored with the real container, and then lost. Route A
+# brings it back through the silo check and repair from the backup; route B through the import of the container into an empty
+# archive. Every file must come back byte for byte.
+import contextlib
+import garmin_backup_bulk as _bb_rt
+import garmin_silo_check as _sc_rt
+import garmin_silo_repair as _sr_rt
+import garmin_writer as _wr_rt
+from datetime import date as _date_rt
+_dt_rt = _date_rt.fromisoformat(_XD)
+
+_RT_OR = b"round trip FIT original"
+_RT_H = _hl_im.sha256(_RT_OR).hexdigest()
+_RT_STORE = ("bulk/raw/" + f"{cfg.BULK_FILE_PREFIX}{_XD}.json", "bulk/aggregates/" + f"{cfg.BULK_AGG_FILE_PREFIX}{_XD}.json",
+             f"bulk/source/{_RT_H[:2]}/{_RT_H}.fit")
+
+
+@contextlib.contextmanager
+def _layout_env(name):
+    """_isolated_log_env with the folders in the layout of the real archive (garmin_data/...), so that a mirror of the tree is a mirror of an archive."""
+    with _isolated_log_env(name) as base:
+        g = base / "garmin_data"
+        for key, rel in (("RAW_DIR", "raw"), ("SUMMARY_DIR", "summary"), ("LOG_DIR", "log"), ("SOURCE_DIR", "source"),
+                         ("BULK_DIR", "bulk"), ("BULK_RAW_DIR", "bulk/raw"), ("BULK_SOURCE_DIR", "bulk/source"),
+                         ("BULK_AGG_DIR", "bulk/aggregates"), ("LOG_BACKUP_DIR", "backup/log"), ("RAW_BACKUP_DIR", "backup/raw"),
+                         ("AUTORESTORE_DIR", "backup/autorestore"), ("SOURCE_BACKUP_DIR", "backup/source"),
+                         ("BULK_BACKUP_DIR", "backup/bulk"), ("BULK_RAW_BACKUP_DIR", "backup/bulk/raw"),
+                         ("BULK_AGG_BACKUP_DIR", "backup/bulk/aggregates"), ("BULK_SOURCE_BACKUP_DIR", "backup/bulk/source")):
+            setattr(cfg, key, g / rel)
+        cfg.QUALITY_LOG_FILE = g / "log" / "quality_log.json"
+        cfg.DEVICE_TABLE_FILE = g / "log" / "device_table.json"
+        cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        yield base
+
+
+def _rt_store_bytes():
+    return {rel: (cfg.BULK_DIR.parent / rel).read_bytes() for rel in _RT_STORE}
+
+
+def _rt_clean(found):
+    keys = ("raw_without_quality", "source_without_raw", "summary_without_raw", "raw_without_summary",
+            "bulk_lost_intraday", "bulk_lost_aggregates", "bulk_originals_missing")
+    return all(not found[k] for k in keys)
+
+
+_rt_gla = _M4H / "roundtrip.gla"
+with _layout_env("rt_source") as _a:
+    _plan_rt = _nz_im.DayPlan(_XD, 1706914800, 1707001200, 1.0, 1.0, False, "prev_day_end")
+    _vals_rt = [[1706950800000, 61], [1706950860000, 62], [1706950920000, 63]]
+    assert _bw_im.store_original(_RT_H, _RT_OR) == _bw_im.WRITTEN
+    assert _bw_im.write_day(_plan_rt, _nz_im.DaySamples(_XD, _vals_rt, [_RT_H], 0, 0)) == _bw_im.WRITTEN
+    _agg_m(_XD)
+    assert _wr_rt.rebuild_summary(_XD) is True
+    _put_log({"days": [{"date": _XD, "quality": "standard", "source": "bulk", "write": False, "fields": {"day": True},
+                        "bulk": {"intraday": "2026-10-24", "aggregates": "2026-10-24"}}]})
+    _before_rt = _rt_store_bytes()
+    _sum_rt = _sum_m(_XD)
+    check("round trip: the day starts clean (no finding of the silo check)", _rt_clean(_sc_rt.check_silos()))
+
+    # -- back up -------------------------------------------------------------------------------------------------------------
+    _bk = _bb_rt.backup_all()
+    check("round trip, back up: all three files are backed up", _bk["ok"] is True and _bk["source"]["copied"] == 1
+          and _bb_rt.check_needed() == {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0})
+
+    # -- mirror --------------------------------------------------------------------------------------------------------------
+    _mr = mirror.run_mirror(_a, _rt_gla, "pw")
+    check("round trip, mirror: the container is made without error",
+          _mr["ok"] is True and _mr["errors"] == 0 and _gcx.is_container(_rt_gla))
+    check("round trip, mirror: it holds the two day files and the original, and nothing from the backup folders",
+          sorted(_gcx.list_files(_rt_gla, "bulk")) == sorted(f"garmin_data/{r}" for r in _RT_STORE[:2])
+          and _gcx.list_files(_rt_gla, "bulk_source") == [f"garmin_data/{_RT_STORE[2]}"]
+          and not any("backup" in n for s in ("bulk", "bulk_source", "raw", "summary") for n in _gcx.list_files(_rt_gla, s)))
+
+    # -- lose, route A: the silo check and repair bring it back from the backup ---------------------------------------------
+    shutil.rmtree(cfg.BULK_DIR)
+    _f1 = _sc_rt.check_silos()
+    check("round trip A: the loss is found — both day files are lost; the summary of the day is no orphan (F-10); the original cannot "
+          "be seen yet because the day file that names it is gone too",
+          _f1["bulk_lost_intraday"] == [_dt_rt] and _f1["bulk_lost_aggregates"] == [_dt_rt] and _f1["summary_without_raw"] == []
+          and _f1["bulk_originals_missing"] == [])
+    _r1 = _sr_rt.repair_silos(_f1)
+    check("round trip A: the repair restores both day files from the backup, byte for byte, and the summary is untouched",
+          (_r1["ok"], _r1["failed"]) == (2, 0) and (cfg.BULK_DIR.parent / _RT_STORE[0]).read_bytes() == _before_rt[_RT_STORE[0]]
+          and (cfg.BULK_DIR.parent / _RT_STORE[1]).read_bytes() == _before_rt[_RT_STORE[1]] and _sum_m(_XD) == _sum_rt)
+    _f2 = _sc_rt.check_silos()
+    check("round trip A: with the day files back the check sees the missing original (a second round)",
+          _f2["bulk_originals_missing"] == [_RT_H] and not _f2["bulk_lost_intraday"] and not _f2["bulk_lost_aggregates"])
+    _r2 = _sr_rt.repair_silos(_f2)
+    check("round trip A: the second repair restores the original from the backup, byte for byte; the third check finds nothing",
+          (_r2["ok"], _r2["failed"]) == (1, 0) and _rt_store_bytes() == _before_rt and _rt_clean(_sc_rt.check_silos()))
+
+# -- lose everything, route B: an empty archive imports the container --------------------------------------------------------
+with _layout_env("rt_target") as _t:
+    _ir = _im.run_import_mirror(_rt_gla, _t, "pw")
+    check("round trip B: the import into an empty archive succeeds — two day files, one original, one export-only day, no error",
+          _ir["ok"] is True and (_ir["bulk_copied"], _ir["originals_copied"], _ir["export_days"], _ir["errors"]) == (2, 1, 1, 0))
+    check("round trip B: all three files are back byte for byte", _rt_store_bytes() == _before_rt)
+    _qe = {e["date"]: e for e in quality._load_quality_log()["days"]}
+    check("round trip B: the day has its quality-log entry (write False, source bulk) with both marks, and its summary from the daily values",
+          _qe[_XD]["write"] is False and _qe[_XD]["source"] == "bulk" and set(_qe[_XD]["bulk"]) == {"intraday", "aggregates"}
+          and _sum_m(_XD)["day"]["steps"] == 7000 and _sum_m(_XD)["stress"]["stress_avg"] == 25)
+    check("round trip B: the silo check of the new archive finds nothing", _rt_clean(_sc_rt.check_silos()))
+    _need = _bb_rt.check_needed()
+    check("round trip B: the imported files are not backed up yet; the next backup run (sync start) protects all three",
+          _need["aggregates"] == 1 and _need["raw"] == 1 and _need["source"] == 1
+          and _bb_rt.backup_all()["ok"] is True and _bb_rt.check_needed() == {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0})
 
 if _ver4h_added:
     del sys.modules["version"]

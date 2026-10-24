@@ -74,10 +74,12 @@ of scope.
 | `garmin_security.py` | `garmin_token.enc` |
 | `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` (v1.6.0.4: split with garmin_backup_source) |
 | `garmin_backup_source.py` | `garmin_data/backup/source/` (v1.6.0.4) |
+| `garmin_backup_bulk.py` | `garmin_data/backup/bulk/` (v1.7.6.2) — reads the bulk store, never writes it; nothing raises |
+| `garmin_backup_common.py` | none — leaf node (v1.7.6.2), the monthly folder / ZIP flow shared by the backups, parameterised by a `BackupKind` |
 | `garmin_source_writer.py` | `garmin_data/source/` and `source_api_log.json` (v1.6.0.2) |
 | `garmin_mirror.py` | mirror operation — delegates to `garmin_container.py` |
 | `garmin_container.py` | `mirror.gla` — sole owner, no other module touches the container file |
-| `garmin_import_mirror.py` | mirror import operation — orchestrates only |
+| `garmin_import_mirror.py` | mirror import operation — orchestrates only; bulk files go through `garmin_bulk_writer` (`import_day_file`, `store_original`, v1.7.6.2) |
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
 | `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
@@ -612,6 +614,31 @@ resolved. Synthetic data only; the old JSON import tests stay for `run_import()`
 Checked on a copy of a real archive, see `PROTOKOLL.md`; the run on the real
 archive is the maintainer's step.
 
+Q. **Archive protection for the bulk store (v1.7.6.2).** Backup, mirror and silo check cover
+`garmin_data/bulk/`. Synthetic data only; the real folder layout (`garmin_data/...`) is built in the
+round trip test by a small helper (`_layout_env`) that re-points the `garmin_config` paths.
+- `test_backup_common.py` (new) — the shared monthly folder / ZIP flow with **differential tests**:
+  27 scenarios per kind run the old module (`garmin_backup`, `garmin_backup_source`) and the shared
+  code on identical folders and compare the folders, ZIPs and results; this is the net for the
+  conversion in v1.7.6.2.1. `test_backup_bulk.py` (new) — the bulk kinds, the originals (one ZIP per
+  prefix, never appended to, a damaged ZIP left untouched and reported, a stop request asked only when
+  there is work), progress lines, `read_day_copy` / `read_original_copy`.
+- `test_bulk_writer.py` — `import_day_file` (every refusal, the fuller-wins rule, unreadable, newer
+  schema, atomic write), `describe_container_path`, `list_originals`.
+- `test_container_mirror.py` — the sections `bulk` / `bulk_source` (older containers stay readable),
+  progress lines of `lock()` and `fulfill_order()`, a callback that raises. `test_import_mirror.py` —
+  section 12: the bulk part of the import (bytes equal, export-only day without a raw error — F-8 —,
+  fuller day kept or replaced, invalid file, wrong hash, unknown names, order bulk before raw,
+  dry run, progress) and section 13: the **round trip** — one bulk day (series, daily values, a FIT
+  original) is backed up, mirrored and lost; route A restores it through silo check and repair from
+  the backup (two rounds when day file and original are lost together), route B imports the
+  container into an empty archive; every file comes back byte for byte.
+- `test_collector.py` — `_run_bulk_backup`, step 3g, the call after the import; `test_silo_check.py`
+  (G4, G5) and `test_silo_repair.py` (I7, I8) — finding #8 / #9, F-10, the restore, its statuses and
+  order; `test_qt_app.py` — silo lines, import texts, progress lines in the log.
+Checked against a copy of a real archive (check only, read-only); the first backup of the ~37,000
+files and a real mirror import are the maintainer's step.
+
 **Marker `BULK-IMPORT-PHASES v1.7.6` (removable)** — the choice of phases and
 its GUI hooks carry it (grep): `garmin/garmin_collector.py` (section "Bulk
 import phases": `_BULK_PHASES`, `_bulk_phases()`, `_mark_bulk_days()`,
@@ -651,7 +678,7 @@ modules and the bulk store do not carry the marker.
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`, `garmin_bulk_json_import`, `garmin_silo_repair`, `garmin_import_mirror`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`, `garmin_bulk_json_import`, `garmin_silo_repair`, `garmin_import_mirror`, `garmin_backup_common`, `garmin_backup_bulk`, `garmin_container`, `garmin_mirror`.
 
 ---
 

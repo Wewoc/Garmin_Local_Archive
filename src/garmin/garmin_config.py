@@ -94,6 +94,14 @@ BULK_FILE_PREFIX = "garmin_bulk_"
 BULK_AGG_DIR         = BULK_DIR / "aggregates"
 BULK_AGG_FILE_PREFIX = "garmin_bulk_agg_"
 
+# Bulk store backup (sole owner: garmin_backup_bulk.py, v1.7.6.2)
+# Day files and aggregates files in the month-folder / monthly-ZIP scheme of raw/ (one folder each);
+# the originals, named by hash and without a date, in one ZIP per first two hash characters.
+BULK_BACKUP_DIR        = BACKUP_DIR / "bulk"
+BULK_RAW_BACKUP_DIR    = BULK_BACKUP_DIR / "raw"
+BULK_AGG_BACKUP_DIR    = BULK_BACKUP_DIR / "aggregates"
+BULK_SOURCE_BACKUP_DIR = BULK_BACKUP_DIR / "source"
+
 # Live snapshot (sole owner: garmin_live_fetch.py, planned v1.6.5)
 # Single-file snapshot of the current day — no per-day history, overwritten
 # on every fetch. Not part of the raw/summary archive.

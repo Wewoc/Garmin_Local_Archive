@@ -268,6 +268,179 @@ check("container: a real .json file next to the stray .tmp is still packed (filt
       "garmin_data/raw/garmin_raw_2024-01-02.json" in _sec2["raw"]
       and "garmin_data/summary/garmin_2024-01-02.json" in _sec2["summary"])
 
+# -- bulk sections (v1.7.6.2): the bulk store goes into two sections of its own --------------------------
+_BDAY = "garmin_data/bulk/raw/garmin_bulk_2024-08-01.json"
+_BAGG = "garmin_data/bulk/aggregates/garmin_bulk_agg_2024-08-01.json"
+_BHASH = "ab" + "0" * 62
+_BORIG = f"garmin_data/bulk/source/ab/{_BHASH}.fit"
+_BORIG_BYTES = bytes(range(256)) * 3
+check("_SECTIONS: the five older sections keep their order, the two bulk sections come last",
+      _gc4._SECTIONS[:5] == ["quality_log", "raw", "summary", "context", "source"]
+      and _gc4._SECTIONS[5:] == ["bulk", "bulk_source"])
+check("_classify_file: bulk/raw and bulk/aggregates go to bulk, bulk/source goes to bulk_source",
+      _gc4._classify_file(tuple(_BDAY.split("/"))) == "bulk"
+      and _gc4._classify_file(tuple(_BAGG.split("/"))) == "bulk"
+      and _gc4._classify_file(tuple(_BORIG.split("/"))) == "bulk_source")
+check("_classify_file: raw/ and source/ stay in their own sections, the bulk store is not taken for them",
+      _gc4._classify_file(("garmin_data", "raw", "a.json")) == "raw"
+      and _gc4._classify_file(("garmin_data", "source", "a.json")) == "source"
+      and _gc4._classify_file(("garmin_data", "bulk", "raw", "a.json")) != "raw"
+      and _gc4._classify_file(("garmin_data", "bulk", "source", "ab", "a.fit")) != "source")
+check("_classify_file: a file directly in bulk/, an unknown bulk folder, bulk itself and any .tmp are not packed",
+      _gc4._classify_file(("garmin_data", "bulk")) is None
+      and _gc4._classify_file(("garmin_data", "bulk", "notes.txt")) is None
+      and _gc4._classify_file(("garmin_data", "bulk", "other", "a.json")) is None
+      and _gc4._classify_file(("garmin_data", "bulk", "raw", "garmin_bulk_2024-08-01.json.tmp")) is None
+      and _gc4._classify_file(("garmin_data", "bulk", "source", "ab", f"{_BHASH}.fit.tmp")) is None)
+check("_classify_file: a folder called bulk elsewhere is not the bulk store",
+      _gc4._classify_file(("context_data", "bulk", "raw", "a.json")) != "bulk"
+      and _gc4._classify_file(("bulk", "raw", "a.json")) is None)
+check("_classify_file: the backups (garmin_data/backup/...), also the backup of the bulk store, are never packed",
+      _gc4._classify_file(("garmin_data", "backup", "raw", "raw_backup_2024-08.zip")) is None
+      and _gc4._classify_file(("garmin_data", "backup", "source", "source_backup_2024-08.zip")) is None
+      and _gc4._classify_file(("garmin_data", "backup", "bulk", "raw", "bulk_raw_backup_2024-08.zip")) is None
+      and _gc4._classify_file(("garmin_data", "backup", "bulk", "source", "ab.zip")) is None
+      and _gc4._classify_file(("garmin_data", "live", "raw", "live.json")) is None)
+
+_tree3 = _M4 / "tree_bulk"
+for _rel, _data in {
+    "garmin_data/log/quality_log.json": b"{}",
+    "garmin_data/raw/garmin_raw_2024-08-01.json": b'{"date": "2024-08-01"}',
+    _BDAY: b'{"date": "2024-08-01", "sections": {}}',
+    _BAGG: b'{"date": "2024-08-01", "aggregates": {"x": 1}}',
+    _BORIG: _BORIG_BYTES,
+    f"garmin_data/bulk/source/ab/{_BHASH}.fit.tmp": b"half written",
+    "garmin_data/bulk/notes.txt": b"not packed",
+}.items():
+    _p = _tree3 / _rel
+    _p.parent.mkdir(parents=True, exist_ok=True)
+    _p.write_bytes(_data)
+_sec3 = _gc4._collect_sections(_tree3)
+check("_collect_sections: the bulk files land in bulk and bulk_source with forward-slash keys, .tmp and stray files are left out",
+      set(_sec3["bulk"]) == {_BDAY, _BAGG} and set(_sec3["bulk_source"]) == {_BORIG}
+      and set(_sec3["raw"]) == {"garmin_data/raw/garmin_raw_2024-08-01.json"} and _sec3["_errors"] == 0)
+
+_cb = _M4 / "bulk.gla"
+_r = _gc4.lock(_tree3, _cb, "pw")
+check("lock: a store with bulk files -> ok, quality log, raw, two bulk files and one original are packed",
+      _r["ok"] is True and _r["errors"] == 0 and _r["files_packed"] == 5)
+check("list_files: the header names the files of the two new sections (no password needed)",
+      sorted(_gc4.list_files(_cb, "bulk")) == sorted([_BDAY, _BAGG])
+      and _gc4.list_files(_cb, "bulk_source") == [_BORIG])
+_got = _gc4.fulfill_order(_cb, "pw", {"bulk": [_BDAY, _BAGG], "bulk_source": [_BORIG]})
+check("fulfill_order: the bulk files come back byte for byte, the binary original too",
+      _got.get(_BDAY) == b'{"date": "2024-08-01", "sections": {}}' and _got.get(_BAGG) == b'{"date": "2024-08-01", "aggregates": {"x": 1}}'
+      and _got.get(_BORIG) == _BORIG_BYTES and len(_got) == 3)
+_got = _gc4.fulfill_order(_cb, "pw", {"bulk": [_BDAY]})
+check("fulfill_order: a request for one section delivers only that section's files",
+      list(_got) == [_BDAY])
+check("unlock_meta: a container with bulk sections still opens as before",
+      _gc4.unlock_meta(_cb, "pw")["ok"] is True)
+check("lock: a store without a bulk folder produces a container without the two sections",
+      _gc4.lock(_tree, _M4 / "nobulk.gla", "pw")["ok"] is True
+      and _gc4.list_files(_M4 / "nobulk.gla", "bulk") == [] and _gc4.list_files(_M4 / "nobulk.gla", "bulk_source") == [])
+
+# a container made before v1.7.6.2 (hand-built here without the two sections) stays readable
+check("old container: list_files answers [] for the two new sections",
+      _gc4.list_files(_good4, "bulk") == [] and _gc4.list_files(_good4, "bulk_source") == [])
+_got = _gc4.fulfill_order(_good4, "pw", {"bulk": [_BDAY], "bulk_source": [_BORIG], "raw": [_RAW_A]})
+check("old container: an order that names the new sections skips them and still delivers the older ones",
+      _got == {_RAW_A: b'{"a": 1}'})
+check("old container: unlock_meta and the older sections work as before",
+      _gc4.unlock_meta(_good4, "pw")["ok"] is True)
+
+# -- progress lines (v1.7.6.2): a line at every 10 % of the files read, each section packed, the write ----------
+_tree4 = _M4 / "tree_progress"
+shutil.rmtree(_tree4, ignore_errors=True)
+for _rel in ([f"garmin_data/raw/garmin_raw_2024-01-{n:02d}.json" for n in range(1, 21)]
+             + [f"garmin_data/summary/garmin_2024-01-{n:02d}.json" for n in range(1, 6)]
+             + [f"garmin_data/bulk/raw/garmin_bulk_2024-01-{n:02d}.json" for n in range(1, 4)]
+             + [f"garmin_data/bulk/source/ab/{'ab' + str(n) * 62}.fit" for n in range(2)]):
+    _p = _tree4 / _rel
+    _p.parent.mkdir(parents=True, exist_ok=True)
+    _p.write_bytes(b"x" * 100)
+(_tree4 / "dashboards").mkdir()
+(_tree4 / "dashboards" / "not_packed.html").write_text("a file that is not packed, so it does not count", encoding="utf-8")
+
+_lines = []
+_r_prog = _gc4.lock(_tree4, _M4 / "prog.gla", "pw", progress=_lines.append)
+_r_none = _gc4.lock(_tree4, _M4 / "noprog.gla", "pw")
+_read = [m for m in _lines if "reading files …" in m]
+check("progress: the first line announces the reading, the second names how many files there are "
+      "(the walk through the folders is silent until then), then a line at every 10 % of the 30 files that are packed",
+      _lines[0] == "  Mirror: reading the files …" and _lines[1] == "  Mirror: 30 files to read"
+      and [m.split("…")[1].split("%")[0].strip() for m in _read] == [str(p) for p in range(10, 101, 10)]
+      and _read[0].endswith("(3 of 30)") and _read[-1].endswith("(30 of 30)"))
+_packing = [m for m in _lines if m.startswith("  Mirror: packing ")]
+_packed = [m for m in _lines if " packed in " in m]
+check("progress: each section that has files is announced and reported done, in the order of the container",
+      [m.split()[2] for m in _packing] == ["raw", "summary", "bulk", "bulk_source"]
+      and [m.split()[1] for m in _packed] == ["raw", "summary", "bulk", "bulk_source"])
+check("progress: the announcement names the number of files",
+      "(20 files," in _packing[0] and "(5 files," in _packing[1] and "(3 files," in _packing[2] and "(2 files," in _packing[3])
+_shares = [int(m.split("—")[1].split("%")[0]) for m in _packed]
+check("progress: the share of the data done only grows and ends at 100 %; 20 of 30 equal files are 66 % after the first section",
+      _shares == sorted(_shares) and _shares[-1] == 100 and _shares[0] == 66)
+check("progress: the last line says the container is written",
+      _lines[-1].startswith("  Mirror: writing the container (") and _lines.index(_lines[-1]) > _lines.index(_packed[-1]))
+check("progress: a mirror with a callback gives the same result and the same files as one without",
+      _r_prog == _r_none == {"files_packed": 30, "errors": 0, "ok": True}
+      and all(sorted(_gc4.list_files(_M4 / "prog.gla", s)) == sorted(_gc4.list_files(_M4 / "noprog.gla", s)) for s in _gc4._SECTIONS))
+
+_lines3 = []
+_t3 = _M4 / "tree_progress3"
+shutil.rmtree(_t3, ignore_errors=True)
+for _n in range(3):
+    (_t3 / "garmin_data" / "raw").mkdir(parents=True, exist_ok=True)
+    (_t3 / "garmin_data" / "raw" / f"a{_n}.json").write_text("{}", encoding="utf-8")
+_gc4._collect_sections(_t3, progress=_lines3.append)
+check("progress: with 3 files the lines tell the real percentages (33, 66, 100), not rounded steps of ten",
+      [m.split("…")[1].split("%")[0].strip() for m in _lines3 if "reading files" in m] == ["33", "66", "100"]
+      and _lines3[0] == "  Mirror: 3 files to read")
+_lines0 = []
+_gc4._collect_sections(_M4_EMPTY_SRC, progress=_lines0.append)
+check("progress: nothing to read -> only the line that says 0 files, no percentage, no division by zero",
+      _lines0 == ["  Mirror: 0 files to read"])
+
+def _boom(_text):
+    raise RuntimeError("window closed")
+
+_r_boom = _gc4.lock(_tree4, _M4 / "boomcb.gla", "pw", progress=_boom)
+check("progress: a callback that raises never fails the mirror (container written, same result)",
+      _r_boom == {"files_packed": 30, "errors": 0, "ok": True} and _gc4.is_container(_M4 / "boomcb.gla"))
+_r_empty = _gc4.lock(_M4_EMPTY_SRC, _M4 / "emptycb.gla", "pw", progress=[].append)
+check("progress: a source with nothing to pack works with a callback too", _r_empty["ok"] is True)
+
+# fulfill_order gives a line before and after each section it decrypts (the import shows them)
+_fl = []
+_got_prog = _gc4.fulfill_order(_cb, "pw", {"bulk": [_BDAY, _BAGG], "bulk_source": [_BORIG], "context": [], "weather": ["x"]},
+                               progress=_fl.append)
+check("fulfill_order progress: each decrypted section gets an announcement (with the number of files wanted) and a done line, in order",
+      len(_fl) == 4 and _fl[0] == "  Mirror: decrypting bulk (2 files wanted) …" and _fl[1].startswith("  Mirror: bulk decrypted in ")
+      and _fl[2] == "  Mirror: decrypting bulk_source (1 files wanted) …" and _fl[3].startswith("  Mirror: bulk_source decrypted in "))
+_fl1 = []
+_gc4.fulfill_order(_cb, "pw", {"bulk": [_BDAY]}, progress=_fl1.append)
+check("fulfill_order progress: the announcement counts the files wanted, not the files of the section (1 of 2)",
+      _fl1[0] == "  Mirror: decrypting bulk (1 files wanted) …")
+check("fulfill_order progress: an empty request and a section that is not in the container give no line; the files are the same as without a callback",
+      _got_prog == _gc4.fulfill_order(_cb, "pw", {"bulk": [_BDAY, _BAGG], "bulk_source": [_BORIG]}))
+_fl0 = []
+_gc4.fulfill_order(_cb, "wrong", {"bulk": [_BDAY]}, progress=_fl0.append)
+check("fulfill_order progress: a wrong password gives no line (nothing is decrypted)", _fl0 == [])
+check("fulfill_order progress: a callback that raises never fails the order",
+      _gc4.fulfill_order(_cb, "pw", {"bulk": [_BDAY]}, progress=_boom) == {_BDAY: b'{"date": "2024-08-01", "sections": {}}'})
+
+# run_mirror hands the callback on, and calls lock() exactly as before when there is none
+with patch.object(_gc4, "lock", return_value={"files_packed": 0, "errors": 0, "ok": True}) as _lk:
+    _mir4.run_mirror(_M4_EMPTY_SRC, _M4 / "x.gla", "pw")
+    _no_cb_call = _lk.call_args
+    _cb = lambda _t: None                                                   # noqa: E731
+    _mir4.run_mirror(_M4_EMPTY_SRC, _M4 / "x.gla", "pw", progress=_cb)
+    _cb_call = _lk.call_args
+check("run_mirror: without a callback lock() gets the three arguments it always got",
+      _no_cb_call.args == (_M4_EMPTY_SRC, _M4 / "x.gla", "pw") and _no_cb_call.kwargs == {})
+check("run_mirror: with a callback it is handed on to lock()", _cb_call.kwargs == {"progress": _cb})
+
 # -- garmin_mirror ----------------------------------------------------------------------
 check("is_reachable: a value that is not a path -> False, no crash",
       _mir4.is_reachable(12345) == False)

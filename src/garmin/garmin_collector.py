@@ -1671,6 +1671,9 @@ def _run_bulk_import(path) -> dict:
     be completed, counts as failed. A day of the export that is rejected (invalid, or with too
     little data) does not: it is reported in the log and, for too little data, left to the API
     through a "failed" entry — a rerun would reject it again (v1.7.6.1).
+
+    After the phases (not after a preview) the bulk store is backed up (_run_bulk_backup, v1.7.6.2).
+    That never counts as a failure: it is a warning, and the next sync start tries again.
     """
     phases = _bulk_phases()
     dry = os.environ.pop("GARMIN_BULK_DRYRUN", None) == "1"
@@ -1696,6 +1699,11 @@ def _run_bulk_import(path) -> dict:
                 failed += 1
             if not dry and not _mark_bulk_days(summary.get("written_days") or []):
                 failed += 1
+    if not dry:
+        # v1.7.6.2: the bulk store is backed up when the phases are done (what a stop or an error
+        # leaves out is made good by step 3g at the next sync start); a failure is a warning, never
+        # part of the exit code
+        _run_bulk_backup("after the import")
     return {"failed": failed}
 
 
@@ -1728,6 +1736,29 @@ def _run_bulk_mark_catch_up(quality_data: dict) -> None:
         log.warning("  Bulk marks catch-up: the quality log could not be written — tried again at the next start")
     elif caught_up:
         log.info(f"  Bulk marks: {caught_up} day(s) of the bulk store had no mark in the quality log — marked")
+
+
+def _run_bulk_backup(where: str) -> None:
+    """
+    Backs up the bulk store (v1.7.6.2): what the store has and the backup lacks, and the day files
+    that changed since their copy was made (garmin_backup_bulk.backup_all, which looks first and
+    works only when there is something to do). Runs when an import is done and at the sync start
+    (step 3g), so a backup that failed or was stopped is made good by the next start. No API call,
+    no login, no variable, no quality log.
+
+    Non-fatal: every error, also a module that cannot be imported, is a warning and the caller goes
+    on; nothing here changes an exit code. A stop request ends it quietly (backup_all asks
+    _is_stopped).
+    """
+    try:
+        import garmin_backup_bulk as _bbk
+        result = _bbk.backup_all(should_stop=_is_stopped)
+    except Exception as e:
+        log.warning(f"  Bulk backup ({where}) failed: {type(e).__name__}: {e}")
+        return
+    if not result.get("ok", False):
+        log.warning(f"  Bulk backup ({where}): not everything could be backed up (see the lines above) — "
+                    f"tried again at the next start")
 
 
 # Codereview v1.7.0.1: 378 lines, reviewed (nesting depth 7) — long but
@@ -1868,6 +1899,12 @@ def main(stop_event=None):
     # quality-log mark are marked on the run's quality_data and saved at once, before
     # the login, so the MCP cache reads their series even if the sync ends there.
     _run_bulk_mark_catch_up(quality_data)
+
+    # ── 3g. Bulk store backup — v1.7.6.2 ───────────────────────────────────────────
+    # Content-based, no API call, no variable. Backs up what the bulk store has and the backup
+    # lacks (the first start after an import, an import whose backup was stopped or failed) and
+    # refreshes the day files that changed; before the login, like 3d and 3f. Non-fatal.
+    _run_bulk_backup("sync start")
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:

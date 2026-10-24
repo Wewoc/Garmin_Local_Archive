@@ -51,15 +51,17 @@ Note: `garmin_extended_anaysis.py` (an Easter Egg module, separately licensed un
 | `garmin_bulk_writer.py` | Sole owner of `garmin_data/bulk/` (v1.7.6) — one JSON file per local day for the series (`bulk/raw`) and one for the daily values (`bulk/aggregates`, v1.7.6.1), the export's originals named by SHA-256. A day is never replaced by a smaller one; a file that cannot be read is left as it is |
 | `garmin_bulk_json_import.py` | Daily-values phase of the GDPR export import (v1.7.6.1) — orchestrates `garmin_import`, `garmin_validator`, `garmin_quality.assess_quality` and `garmin_bulk_writer`; a rejected day (invalid, too little data) is reported, not a failure; preview writes nothing. Not a Leaf-Node; touches no quality log, `raw/`, `summary/` or backup |
 | `garmin_bulk_import.py` | Intraday phase of the GDPR export import (v1.7.6) — orchestrates the four modules above, dry-run preview, summary without names. Not a Leaf-Node; touches no quality log, backup or API store |
-| `garmin_backup.py` | Sole owner of `garmin_data/backup/` — incremental raw backup, quality log snapshots, restore |
+| `garmin_backup.py` | Sole owner of `garmin_data/backup/raw/` and `backup/log/` — incremental raw backup, quality log snapshots, restore |
 | `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive). Writes `mirror_meta.json` on success |
-| `garmin_import_mirror.py` | Mirror import — selective import from a mirror folder into the local archive. Quality-rank delta, dry-run dialog, timer-safe |
+| `garmin_import_mirror.py` | Mirror import — selective import from a mirror container into the local archive. Quality-rank delta, dry-run dialog, timer-safe. Since v1.7.6.2 it also takes over the bulk store (day files and originals through `garmin_bulk_writer`) and no longer counts an export-only day as an error |
 | `garmin_source_quality.py` | Source quality assessment — determines whether a raw API response contains intraday data. Guards `source/` files from being overwritten by degraded responses. |
 | `garmin_source_writer.py` | Sole owner of `garmin_data/source/` — stores unmodified API responses before any pipeline processing. Sole owner of `source_api_log.json`. |
 | `garmin_backup_source.py` | Sole owner of `garmin_data/backup/source/` — backs up source files after each write. Provides one-time backfill for existing source files. |
+| `garmin_backup_common.py` | Leaf-Node (v1.7.6.2). The monthly folder / ZIP flow of the raw backup, once, parameterised by a `BackupKind`: copy, consolidate, backfill, find and refresh changed copies, read a copy. Used by `garmin_backup_bulk.py`; the raw and source backups follow in v1.7.6.2.1 |
+| `garmin_backup_bulk.py` | Sole owner of `garmin_data/backup/bulk/` (v1.7.6.2) — backs up the day files (monthly ZIPs) and the originals (one ZIP per hash prefix, never appended to). `backup_all()` runs at the sync start (step 3g) and after a bulk import; failures are warnings. `read_day_copy()` / `read_original_copy()` serve the silo repair |
 | `garmin_live_fetch.py` | Sole owner of `garmin_data/live/` — lightweight fetch of today's intraday data + last night's sleep for the Live Tracking view. Single-file snapshot, no history, overwritten on every fetch. (v1.6.5) |
-| `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to `garmin_silo_repair.py`. |
-| `garmin_silo_repair.py` | Headless-callable core for the four repair paths that `garmin_silo_check.py` detects. Extracted from `panel_archive.py`'s `_on_silo_repair()` closure so repair is callable without a live GUI instance. Not a Leaf-Node — delegates to the existing Sole-Write-Authority modules; performs no direct file writes itself. |
+| `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to `garmin_silo_repair.py`. Since v1.7.6.2: finding #8 (a bulk file the quality log marks is lost) and #9 (an original an intraday day file names is missing); a day with a lost aggregates file is not an orphan. |
+| `garmin_silo_repair.py` | Headless-callable core for the four repair paths that `garmin_silo_check.py` detects. Extracted from `panel_archive.py`'s `_on_silo_repair()` closure so repair is callable without a live GUI instance. Not a Leaf-Node — delegates to the existing Sole-Write-Authority modules; performs no direct file writes itself. Since v1.7.6.2: five paths — #8 and #9 restore bulk files from `backup/bulk`. |
 | `garmin_repair_resting_hr.py` | Removable one-time repair (v1.7.5.7) of the resting heart rate of days imported from the GDPR export before v1.7.5.7 — the import had stored the 7-day average. Content-detected (`find_candidates()`), values from `source/`, writes only through `garmin_writer.write_day()` and `garmin_quality` (`touch_last_checked()`), one continuous `QUALITY_LOCK` hold. Not a Leaf-Node. Everything that belongs to it carries the marker `RESTING-HR-REPAIR v1.7.5.7`; removal list in the module docstring and in `MAINTENANCE_GARMIN.md` |
 | `garmin_merge.py` | Additive field merge for backfill operations — never overwrites an already-populated field. Used to retroactively add newly supported data fields (like step count) to already-archived days. |
 | `garmin_force_refetch.py` | Sole owner of `garmin_data/backup/force_refetch/` — snapshots the archived `source/` file for a day before a deliberate Force-Refetch overwrite, and can restore it if the new fetch turns out worse. Scope: `source/` only, not `raw/`. Flat directory, one file per day. (v1.7.1.7) |
@@ -313,14 +315,17 @@ Both build scripts run `validate_scripts()` before PyInstaller starts:
 | `garmin_app.py` | `class GarminApp` |
 | `garmin_app_standalone.py` | `class GarminApp` |
 | `garmin_api.py` | `def login`, `def fetch_raw` |
-| `garmin_collector.py` | `def main`, `def _fetch_and_assess`, `def run_import`, `def _run_bulk_import`, `def _mark_bulk_days`, `def _apply_bulk_marks`, `def _run_bulk_mark_catch_up`, `def _finish_aggregates`, `def _apply_aggregates` (plus the older entries listed in `build_manifest.SCRIPT_SIGNATURES_BASE`) |
+| `garmin_collector.py` | `def main`, `def _fetch_and_assess`, `def run_import`, `def _run_bulk_import`, `def _mark_bulk_days`, `def _apply_bulk_marks`, `def _run_bulk_mark_catch_up`, `def _run_bulk_backup`, `def _finish_aggregates`, `def _apply_aggregates` (plus the older entries listed in `build_manifest.SCRIPT_SIGNATURES_BASE`) |
 | `garmin_import.py` | `def load_bulk`, `def parse_day`, `def load_bulk_with_entries` |
 | `garmin_bulk_fit_reader.py` | `def parse_fit`, `class FitFile`, `class FitFormatError` |
 | `garmin_bulk_export_scanner.py` | `def iter_fit_files`, `class ScanStats` |
 | `garmin_bulk_normalizer.py` | `def plan_days`, `class BoundaryPlan`, `class DayPlan`, `def complete_timestamp`, `def file_samples`, `class SampleCollector`, `def has_window` |
-| `garmin_bulk_writer.py` | `def write_day`, `def day_status`, `def list_days`, `def store_original`, `def original_present`, `def write_aggregates`, `def aggregates_status`, `def read_aggregates`, `def load_aggregates`, `def list_aggregate_days`, `def store_original_json`, `def original_json_present` |
+| `garmin_bulk_writer.py` | `def write_day`, `def day_status`, `def list_days`, `def store_original`, `def original_present`, `def write_aggregates`, `def aggregates_status`, `def read_aggregates`, `def load_aggregates`, `def list_aggregate_days`, `def store_original_json`, `def original_json_present`, `def import_day_file`, `def describe_container_path`, `def list_originals` |
 | `garmin_bulk_import.py` | `def run_intraday_import`, `def format_summary` |
 | `garmin_bulk_json_import.py` | `def run_aggregates_import`, `def format_summary`, `def entry_hashes`, `def day_window` |
+| `garmin_backup_common.py` | `class BackupKind`, `def backup_file`, `def consolidate_months`, `def backfill`, `def find_outdated`, `def refresh`, `def read_copy` |
+| `garmin_backup_bulk.py` | `def backup_all`, `def check_needed`, `def backup_originals`, `def read_day_copy`, `def read_original_copy` |
+| `garmin_container.py` | `def lock`, `def unlock_meta`, `def fulfill_order`, `def is_container`, `def list_files`, `def report_progress` |
 | `garmin_writer.py` | `def write_day`, `def read_raw`, `def read_summary`, `def rebuild_summary` |
 | `garmin_quality.py` | `def _upsert_quality`, `record_bulk_intraday`, `unmarked_bulk_days`, `catch_up_bulk_intraday`, `record_bulk_aggregates`, `catch_up_bulk_aggregates` |
 | `garmin_config.py` | `GARMIN_EMAIL` |
@@ -481,9 +486,10 @@ Shared setup and helpers live in `tests/gla_testenv.py`; `test_local.py` stays a
 | `test_normalizer.py`, `test_validator.py`, `test_writer.py` | `garmin_normalizer`, `garmin_validator`, `garmin_writer` |
 | `test_quality.py` | `garmin_quality`, `quality/*` |
 | `test_backup.py` | `garmin_backup`, `garmin_backup_source` |
+| `test_backup_common.py`, `test_backup_bulk.py` | `garmin_backup_common` (with differential tests against the two older backup modules), `garmin_backup_bulk` (v1.7.6.2) |
 | `test_source_writer.py` | `garmin_source_writer`, `garmin_source_quality`, `garmin_merge` |
 | `test_container_mirror.py` | `garmin_container`, `garmin_mirror` |
-| `test_import_mirror.py` | `garmin_import_mirror` |
+| `test_import_mirror.py` | `garmin_import_mirror` (since v1.7.6.2 also the bulk part and the round trip back up / mirror / lose / restore) |
 | `test_collector.py` | `garmin_collector` (`main()`, helpers, backfills, self-healing) |
 | `test_garmin_import.py` | `garmin_import`, `garmin_collector.run_import` |
 | `test_silo_check.py`, `test_silo_repair.py` | `garmin_silo_check`, `garmin_silo_repair` |

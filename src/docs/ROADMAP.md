@@ -6,17 +6,23 @@
 
 ---
 
-**Currently stable — v1.7.6.1**
+**Currently stable — v1.7.6.2**
 
 ---
 
-### v1.7.6.2 — Archive protection for the bulk store
+### v1.7.6.2.1 — Shared backup code and sturdier backups
 
-- Backup, mirror section and silo check cover the bulk store (intraday,
-  aggregates and the kept originals); older mirror containers stay readable.
-- Mandatory before the migration runs.
+- The raw and source backups run on the same shared code as the bulk store
+  backup.
+- A damaged monthly backup ZIP is detected and left untouched instead of being
+  appended to; files the refresh cannot read are counted as errors; backup
+  messages name the kind of error.
+- The silo check also finds a lost original of the JSON files of the export;
+  after restoring day files its repair looks for lost originals again in the
+  same run.
+- Done before the migration runs.
 
-### v1.7.6.3 — Migration of the mixed archive (final step)
+### v1.7.6.3 — Migration of the mixed archive
 
 - Existing days are split into API store and bulk store by a step in the app
   (found by their content, resumable per year), with a full backup and a dry
@@ -24,11 +30,77 @@
 - `quality_log.json` records which store has data per day; the two bulk timer
   modes are removed.
 
-**Release:** Each step gets its own documented release round; the build of
-the download packages comes once, after the migration (v1.7.6.3).
+### v1.7.6.4 — Migration in the daily update
+
+- The daily update can run the summary migration itself, after it has made a
+  backup of the folders the change touches. Opt-in setting, off by default;
+  with the setting off, the update stops with a hint as before.
+- The documentation (quick start, user guide, README) opens in a viewer inside
+  the app instead of an external program.
+
+### v1.7.6.5 — Rebuild of the daily values from the kept originals
+
+- The daily values of the bulk store can be rebuilt from the kept originals,
+  without the export, by a step in the app (dry run first).
+- The training readiness score is read from the export; older daily-values
+  files stay readable.
+
+### v1.7.6.6 — Alerts and training in the daily summary
+
+- New `alerts` section in `summary/`: pulse alert count, breathing disruption,
+  load ratio, body battery level and the stress rating of the day.
+- The `training` section is filled (readiness, training status as text and
+  as code).
+- Summary schema 5; existing days are migrated by the migration step
+  (backup first).
+
+### v1.7.6.7 — More export file types and import inventory
+
+- Health status and pulse alert events of the export are read into the bulk
+  store.
+- Further export families (gear, personal records, courses, zones) are kept
+  as originals.
+- The import result lists the known and the unknown file types of the export.
+
+### v1.7.6.8 — Source comparison in the import summary
+
+- For the fields both sources deliver, the import reports per field how many
+  days are equal, added or contradicting. Nothing is overwritten or stored.
+
+### v1.7.6.9 — Device repair
+
+- Days without a device are completed from the device recorded in the kept
+  files (preview and backup first). Devices can be named in the app.
+
+### v1.7.6.10 — Race predictions on their own day
+
+- Race predictions are filed under their own date instead of the day they were
+  retrieved; existing days are cleaned up by a step in the app (preview and
+  backup first). The history comes from the export.
+
+### v1.7.6.11 — Mutation test of the new modules
+
+- The modules added during v1.7.6.x (bulk store, export import, backups) go
+  through the mutation test; changes the tests miss get new tests or are
+  documented as equivalent. Tests only, no change in behaviour.
+
+**Release:** Each step gets its own documented release round; the first build
+of the download packages follows v1.7.6.4, a second one follows v1.7.6.10.
 
 **Not part of it:** FIT activities (v1.8); stress as a replacement for the API
 value.
+
+---
+
+## Planned — v1.7.7
+
+### v1.7.7 — Export scanner (Idea)
+
+> **Status: Idea, unverified — no build order, no architecture decision.**
+
+Checks the user's own export: which file types it contains, which fields are
+filled or only empty per year. The report holds names and numbers, no values.
+Possibly its own tab in the app.
 
 ---
 
@@ -44,7 +116,7 @@ parallel pipeline alongside it.
 - `garmin/fit/` — `fit_master.py` (plugin interface, `get_paths()` only),
   `fit_collector.py` (orchestrator, same shape as `garmin_collector.py`:
   `main()` for sync, `run_import()` for import), `fit_api.py`,
-  `fit_import.py`, `fit_parser.py` (stable shell, one adapter: `fitdecode`),
+  `fit_import.py`, `fit_parser.py` (stable shell, one adapter: the project's own reader),
   `fit_normalizer.py`, `fit_quality.py`, `fit_writer.py`
 - `garmin_data/fit/` — `source/` (.fit originals, unchanged, plus Garmin's
   activity metadata as `…connect.json`; GPX/TCX from the export stored
@@ -80,8 +152,8 @@ logged.
 
 **Documentation and tests:** `docs/MAINTENANCE_FIT.md`,
 `docs/REFERENCE_FIT.md` and `tests/test_fit.py` created with the first
-module and maintained in every session that touches FIT modules. New
-dependency `fitdecode` (pinned); new modules go into
+module and maintained in every session that touches FIT modules. No new
+dependency; new modules go into
 `compiler/build_manifest.py`'s `SHARED_SCRIPTS` as they are created.
 
 *Pre-condition: none.*

@@ -125,8 +125,8 @@ def run_import(panel):
         confirm = QMessageBox.question(
             app, "Import Bulk Export",
             "The data of the export are stored in garmin_data/bulk.\n\n"
-            "That folder is not part of the backup or the mirror yet. "
-            "The export file stays the fallback — keep it.\n\nStart the import?",
+            "That folder is part of the backup and of the mirror: the new files are backed up "
+            "right after the import. The export file stays your fallback — keep it.\n\nStart the import?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
