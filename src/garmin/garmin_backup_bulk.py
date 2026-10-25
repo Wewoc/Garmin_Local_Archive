@@ -36,7 +36,6 @@ start; it does nothing, apart from looking, when the backup is complete.
 
 Public API:
   backup_all(should_stop=None)            -> dict   copies what is missing, refreshes what changed
-  check_needed()                          -> dict   counts what a backup_all() would do (copies nothing)
   backup_originals(should_stop=None)      -> dict   the originals only
   read_day_copy(which, date_str)          -> bytes | None   "raw" | "aggregates", from the backup
   read_original_copy(file_hash, suffix)   -> bytes | None   from the backup
@@ -340,37 +339,4 @@ def backup_all(should_stop=None) -> dict:
         if src["copied"] or src["failed"]:
             log.info(f"  {LOG_PREFIX}: originals — {src['copied']} copied, {src['present']} present, "
                      f"{src['failed']} failed, {src['damaged_zips']} damaged ZIP(s)")
-    return out
-
-
-def check_needed() -> dict:
-    """
-    Counts what backup_all() would do, copying nothing: {"raw", "aggregates", "source", "damaged_zips"}.
-    raw / aggregates: files without a backup copy plus files whose copy differs; source: originals
-    that are not in their ZIP (all files of a prefix whose ZIP cannot be read); damaged_zips: the
-    prefix ZIPs that cannot be read. The day files are read (they are small) and compared with their
-    copies; the ZIPs are only looked at in their directories (no entry is unpacked); the originals are
-    not read at all. An error counts as nothing found for that part (a warning).
-    """
-    out = {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0}
-    try:
-        for which, kind in day_kinds().items():
-            try:
-                out[which] = common.check_backfill_needed(kind) + common.check_stale(kind)
-            except Exception as e:
-                log.warning(f"  {LOG_PREFIX}: check of {which} failed: {type(e).__name__}: {e}")
-        out_dir = _cfg().BULK_SOURCE_BACKUP_DIR
-        for prefix, files in _original_groups().items():
-            zip_path = out_dir / f"{prefix}.zip"
-            if not zip_path.exists():
-                out["source"] += len(files)
-                continue
-            names, _reason = _zip_names(zip_path)
-            if names is None:
-                out["damaged_zips"] += 1
-                out["source"] += len(files)
-                continue
-            out["source"] += sum(1 for f in files if f.name not in names)
-    except Exception as e:
-        log.warning(f"  {LOG_PREFIX}: check failed: {type(e).__name__}: {e}")
     return out

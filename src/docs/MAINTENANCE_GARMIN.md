@@ -72,10 +72,10 @@ of scope.
 | `garmin_writer.py` | `raw/` and `summary/` (since v1.7.6.1 `summary/` is resolved from the API data and the day's aggregates) |
 | `garmin_quality.py` (facade → `quality/`) | `quality_log.json` and `device_table.json` |
 | `garmin_security.py` | `garmin_token.enc` |
-| `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` (v1.6.0.4: split with garmin_backup_source) |
-| `garmin_backup_source.py` | `garmin_data/backup/source/` (v1.6.0.4) |
+| `garmin_backup.py` | `garmin_data/backup/raw/` + `backup/log/` (v1.6.0.4: split with garmin_backup_source); the raw-file part is a thin shell over `garmin_backup_common` since v1.7.6.2.1 |
+| `garmin_backup_source.py` | `garmin_data/backup/source/` (v1.6.0.4) — a thin shell over `garmin_backup_common` since v1.7.6.2.1 |
 | `garmin_backup_bulk.py` | `garmin_data/backup/bulk/` (v1.7.6.2) — reads the bulk store, never writes it; nothing raises |
-| `garmin_backup_common.py` | none — leaf node (v1.7.6.2), the monthly folder / ZIP flow shared by the backups, parameterised by a `BackupKind` |
+| `garmin_backup_common.py` | none — leaf node (v1.7.6.2), the monthly folder / ZIP flow shared by the raw, source and bulk day-file backups, parameterised by a `BackupKind`; since v1.7.6.2.1 a ZIP that does not open or fails its check is never appended to or replaced |
 | `garmin_source_writer.py` | `garmin_data/source/` and `source_api_log.json` (v1.6.0.2) |
 | `garmin_mirror.py` | mirror operation — delegates to `garmin_container.py` |
 | `garmin_container.py` | `mirror.gla` — sole owner, no other module touches the container file |
@@ -321,7 +321,7 @@ python tests/test_local.py
 15. `_check_downgrade` — all edge cases
 16. `_run_self_healing` — schema version bump, status improvement
 A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
-B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check, own downgrade guard in `restore_raw_days()` (Fix 2, v1.6.5.8 — `skipped_already_current` when an existing file is already at `"high"` quality). v1.7.5.6 (`test_backup.py` 4f3/4f4, both modules via `_BK_KINDS`): a rewritten day replaces its ZIP entry right away through `backup_raw()`/`write_day()` (and `patch_source_field()` for source), unchanged content leaves the ZIP byte-identical; `check_*_stale_backups()`/`refresh_*_backups()` — changed ZIP entry, same-size/other-content (CRC32), changed copy in the open month folder, no backup at all (not counted), identical (nothing), two months in one run, invalid file (broken JSON, list, for raw a wrong `date`) reported and not copied, copy failure counted, missing folders, unreadable ZIP; the collector step 3d in `test_collector.py` (runs once per store, also with a cancelled login or a login error, a failing check/refresh is a warning, the import mode returns before it). One check per write path pins that the monthly ZIP holds the rewritten day (each first moves the day into the ZIP, then runs the path): steps backfill (E2) and bulk field backfill (E5) in `test_collector.py`, mirror import in `test_import_mirror.py`, silo repair #3 and #7 in `test_silo_repair.py`; the collector helper reads the ZIP entry after the next consolidation, which is what exposes a stale backup. The old checks "file stays in the month folder" and "existing ZIP entry is kept" were turned around on purpose, in `test_backup.py`, `test_local_context.py` and `test_garmin_import.py`
+B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check, own downgrade guard in `restore_raw_days()` (Fix 2, v1.6.5.8 — `skipped_already_current` when an existing file is already at `"high"` quality). v1.7.5.6 (`test_backup.py` 4f3/4f4, both modules via `_BK_KINDS`): a rewritten day replaces its ZIP entry right away through `backup_raw()`/`write_day()` (and `patch_source_field()` for source), unchanged content leaves the ZIP byte-identical; `check_*_stale_backups()`/`refresh_*_backups()` — changed ZIP entry, same-size/other-content (CRC32), changed copy in the open month folder, no backup at all (not counted), identical (nothing), two months in one run, invalid file (broken JSON, list, for raw a wrong `date`) reported and not copied, copy failure counted, missing folders, unreadable ZIP; the collector step 3d in `test_collector.py` (runs once per store, also with a cancelled login or a login error, a failing check/refresh is a warning, the import mode returns before it). One check per write path pins that the monthly ZIP holds the rewritten day (each first moves the day into the ZIP, then runs the path): steps backfill (E2) and bulk field backfill (E5) in `test_collector.py`, mirror import in `test_import_mirror.py`, silo repair #3 and #7 in `test_silo_repair.py`; the collector helper reads the ZIP entry after the next consolidation, which is what exposes a stale backup. The old checks "file stays in the month folder" and "existing ZIP entry is kept" were turned around on purpose, in `test_backup.py`, `test_local_context.py` and `test_garmin_import.py`. v1.7.6.2.1: the module functions are thin shells over `garmin_backup_common`, so these checks also pin the wiring (names, return keys, the module's logger — `_blogged` swaps the module's `log`); the `testzip` patches count calls (check before the append, after it, of a rebuilt ZIP) and follow the order of the shared flow; the one `_zip_contains` probe patches `garmin_backup_common.zip_contains`
 C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
 C2. `garmin_container` — `unlock_meta`: happy path + wrong password + missing file + non-container + tampered HMAC (10 checks). `fulfill_order`: roundtrip + wrong password + empty order (5 checks). (v1.6.0.4.9.3)
 
@@ -617,12 +617,20 @@ archive is the maintainer's step.
 Q. **Archive protection for the bulk store (v1.7.6.2).** Backup, mirror and silo check cover
 `garmin_data/bulk/`. Synthetic data only; the real folder layout (`garmin_data/...`) is built in the
 round trip test by a small helper (`_layout_env`) that re-points the `garmin_config` paths.
-- `test_backup_common.py` (new) — the shared monthly folder / ZIP flow with **differential tests**:
-  27 scenarios per kind run the old module (`garmin_backup`, `garmin_backup_source`) and the shared
-  code on identical folders and compare the folders, ZIPs and results; this is the net for the
-  conversion in v1.7.6.2.1. `test_backup_bulk.py` (new) — the bulk kinds, the originals (one ZIP per
-  prefix, never appended to, a damaged ZIP left untouched and reported, a stop request asked only when
-  there is work), progress lines, `read_day_copy` / `read_original_copy`.
+- `test_backup_common.py` (new) — the shared monthly folder / ZIP flow. Part A pins the module on folders it
+  is handed (incl. `BackupKind.log`); Part B runs 27 scenarios per kind through the module of the kind
+  (`garmin_backup`, `garmin_backup_source`) and through the shared code on identical folders and compares
+  folders, ZIPs, results — the differential tests that carried the conversion of v1.7.6.2.1, since then a net
+  for the wiring of the two shells; **Part C (v1.7.6.2.1) is the hardening**: a garbage file, a truncated ZIP
+  and a ZIP with a failing entry are left untouched (month folder kept, one error line with the ZIP name and the
+  exception type), a damaged month does not stop the next, a new ZIP that could not be finished is removed and
+  built again by the next run, a source file the refresh cannot read counts as an error, error lines carry
+  the exception type, the traceback goes to debug level (`exc_info`); C4 pins what stays as it was on purpose
+  (`zip_contains` silent). `test_backup_bulk.py` (new) — the bulk kinds, the originals (one ZIP per prefix,
+  never appended to, a damaged ZIP left untouched and reported, a stop request asked only when there is
+  work), progress lines, `read_day_copy` / `read_original_copy`; the state before and after a backup is read
+  with two helpers (`_day_work`, `_originals_work`) that do not use the code under test (v1.7.6.2.1: they
+  replaced `check_needed()`).
 - `test_bulk_writer.py` — `import_day_file` (every refusal, the fuller-wins rule, unreadable, newer
   schema, atomic write), `describe_container_path`, `list_originals`.
 - `test_container_mirror.py` — the sections `bulk` / `bulk_source` (older containers stay readable),
@@ -631,13 +639,19 @@ round trip test by a small helper (`_layout_env`) that re-points the `garmin_con
   fuller day kept or replaced, invalid file, wrong hash, unknown names, order bulk before raw,
   dry run, progress) and section 13: the **round trip** — one bulk day (series, daily values, a FIT
   original) is backed up, mirrored and lost; route A restores it through silo check and repair from
-  the backup (two rounds when day file and original are lost together), route B imports the
-  container into an empty archive; every file comes back byte for byte.
+  the backup (one round, also when day file and original are lost together — v1.7.6.2.1; before it took
+  two), route B imports the container into an empty archive; every file comes back byte for byte.
 - `test_collector.py` — `_run_bulk_backup`, step 3g, the call after the import; `test_silo_check.py`
-  (G4, G5) and `test_silo_repair.py` (I7, I8) — finding #8 / #9, F-10, the restore, its statuses and
-  order; `test_qt_app.py` — silo lines, import texts, progress lines in the log.
+  (G4, G5, G6) and `test_silo_repair.py` (I7, I8, I9) — finding #8 / #9, F-10, the restore, its statuses and
+  order; v1.7.6.2.1 (G6, I9): JSON originals found through the names in the backup ZIPs and restored (items
+  with `kind` json), FIT originals found through the backup too (so a lost day file and its original are one
+  check), a damaged backup ZIP does not stop the check, the layout is pinned against the real
+  `backup_originals()`, the known limit (an original never backed up is invisible) is a test;
+  `test_qt_app.py` — silo lines (incl. the JSON line and the "(JSON)" repair lines), import texts,
+  progress lines in the log.
 Checked against a copy of a real archive (check only, read-only); the first backup of the ~37,000
-files and a real mirror import are the maintainer's step.
+files and a real mirror import are the maintainer's step. v1.7.6.2.1: the silo check was also run read-only against the real archive (no finding, about 2 s);
+the repair and the consolidation of a damaged ZIP are covered by synthetic archives only.
 
 **Marker `BULK-IMPORT-PHASES v1.7.6` (removable)** — the choice of phases and
 its GUI hooks carry it (grep): `garmin/garmin_collector.py` (section "Bulk
@@ -678,7 +692,7 @@ modules and the bulk store do not carry the marker.
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`, `garmin_bulk_json_import`, `garmin_silo_repair`, `garmin_import_mirror`, `garmin_backup_common`, `garmin_backup_bulk`, `garmin_container`, `garmin_mirror`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`, `garmin_bulk_json_import`, `garmin_silo_repair`, `garmin_import_mirror`, `garmin_backup_common`, `garmin_backup_bulk`, `garmin_container`, `garmin_mirror`.
 
 ---
 
@@ -709,6 +723,20 @@ Add the endpoint key to `assess_quality_fields()` in `garmin_quality.py`.
 5. Schema migration loop will rewrite outdated summaries from raw on next sync — user sees backup popup before migration starts. No API call required. Raw files are never modified.
 
 ---
+
+### A damaged monthly backup ZIP (v1.7.6.2.1)
+
+- **Symptom:** at each consolidation of that month an error line `... <zip> is damaged (BadZipFile: ...) — not touched, <area>/<month>/ kept as fallback`
+  (line prefix `backup`, `backup_source` or `backup_bulk`), and a warning `backup refresh: cannot read <zip>` when the refresh reads its directory.
+- **What the code does:** nothing is appended to or replaced in the ZIP; the month folder with the newest days stays where it is. A new ZIP that a call
+  began and could not finish is removed again, so it never blocks the next run.
+- **Cause:** damage from outside the app (disk, copy, sync client) or an interrupted append (the append mode is not atomic).
+- **Rebuild:** (1) check that the daily files (`raw/`, `source/`, `bulk/raw` and `bulk/aggregates`) still exist; (2) move the damaged ZIP aside;
+  (3) the bulk backup makes the copies again at the next sync start (`backup_all`), the source backup at the end of the next sync (`backfill_source`),
+  the raw backup only through `garmin_backup.backfill_raw()` (offered once by a dialog after an update, no button); (4) read the closing line
+  (`backfill_raw: N copied ...`). If the daily files are gone as well, the mirror container is the second copy.
+- Not covered: `zip_contains` stays silent, so a damaged ZIP counts as "file missing" in the backfill check; the sync does not read the result of the
+  backup refresh (its error count is only in the closing line `backup refresh (...)`).
 
 ## Quality tracking
 

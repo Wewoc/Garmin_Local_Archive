@@ -323,7 +323,8 @@ with _iso_env("sc2_sets") as _b:
     check("G2 check_silos: counts are the lengths of the lists (the bulk lists are empty without marks and without bulk day files)",
           _r["counts"] == {"raw_without_quality": 1, "source_without_raw": 1,
                            "summary_without_raw": 1, "raw_without_summary": 2,
-                           "bulk_lost_intraday": 0, "bulk_lost_aggregates": 0, "bulk_originals_missing": 0})
+                           "bulk_lost_intraday": 0, "bulk_lost_aggregates": 0, "bulk_originals_missing": 0,
+                           "bulk_json_originals_missing": 0})
 
 # -- _collect_quality_dates ----------------------------------------------------------------------------------------
 with _iso_env("sc2_quality") as _b:
@@ -375,7 +376,8 @@ with _iso_env("sc3_aggregates") as _b:
     check("G3 check_silos: totals count the aggregates files, the counts are the lengths of the lists",
           _r["totals"] == {"raw": 3, "summary": 4, "source": 0, "aggregates": 4, "quality_days": 0}
           and _r["counts"] == {"raw_without_quality": 3, "source_without_raw": 0, "summary_without_raw": 1, "raw_without_summary": 3,
-                               "bulk_lost_intraday": 0, "bulk_lost_aggregates": 0, "bulk_originals_missing": 0})
+                               "bulk_lost_intraday": 0, "bulk_lost_aggregates": 0, "bulk_originals_missing": 0,
+                               "bulk_json_originals_missing": 0})
     check("G3 check_silos: the check only looks, no file is created, changed or removed",
           sorted(str(f) for f in _b.rglob("*") if f.is_file()) == _files_before)
 
@@ -544,6 +546,111 @@ with _iso_env("sc5_check") as _b:
 with _iso_env("sc5_none") as _b:
     check("G5 check_silos: no bulk store at all -> no #9 and no folder is created",
           silo_check.check_silos()["bulk_originals_missing"] == [] and not cfg.BULK_DIR.exists())
+
+# -- originals found by the backup (#9, v1.7.6.2.1): JSON originals, and FIT originals whose day file is lost too -----------
+section("G6. garmin_silo_check — originals found by the backup (#9, v1.7.6.2.1)")
+import zipfile as _g6_zip
+_HJ1, _HJ2 = "e5" * 32, "f6" * 32
+
+
+def _g6_zip_write(prefix, names, folder=None, name=None):
+    folder = folder or cfg.BULK_SOURCE_BACKUP_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    with _g6_zip.ZipFile(folder / (name or f"{prefix}.zip"), "w") as z:
+        for n in names:
+            z.writestr(n, b"x")
+
+
+with _iso_env("sc6_json_names") as _b:
+    check("G6 _collect_original_json_hashes: no folder -> empty set, nothing is created",
+          silo_check._collect_original_json_hashes() == set() and not cfg.BULK_SOURCE_DIR.exists())
+    _g5_fit(_HA, ".fit")                                    # a FIT original is not a JSON original
+    _g5_fit(_HB, ".json")
+    _g5_fit(_HC, ".json.tmp")                               # a temporary file
+    _g5_fit(_HD, ".json", folder="00")                      # a name in the wrong folder
+    check("G6 _collect_original_json_hashes: only <sha256>.json in the folder of its first two characters counts; FIT, temporary and "
+          "misplaced files do not; the FIT collector is unchanged",
+          silo_check._collect_original_json_hashes() == {_HB} and silo_check._collect_original_fit_hashes() == {_HA})
+
+with _iso_env("sc6_backup_names") as _b:
+    check("G6 _collect_backup_original_hashes: no backup folder -> (empty, empty), nothing is created",
+          silo_check._collect_backup_original_hashes() == (set(), set()) and not cfg.BULK_BACKUP_DIR.exists())
+    _g6_zip_write(_HA[:2], [f"{_HA}.fit", f"{_HA}.json", "notes.txt", f"{_HA}.fit.tmp", f"{_HA[:2]}/{_HD}.fit"])
+    _g6_zip_write(_HB[:2], [f"{_HB}.json", f"{_HC}.fit"])    # _HC does not start with "b2": a misplaced entry
+    _g6_zip_write("stray", [f"{_HD}.fit"], name="stray.zip")   # not a <xx>.zip
+    _g6_zip_write("zz", [f"{_HD}.fit"], name="zz.zip")         # <xx> is not hex
+    (cfg.BULK_SOURCE_BACKUP_DIR / _HC[:2]).mkdir()              # a folder in the place of a ZIP
+    (cfg.BULK_SOURCE_BACKUP_DIR / f"{_HD[:2]}.zip").write_bytes(b"this is not a zip")   # damaged: skipped, the others still read
+    _res, _c = _sc_logged(silo_check._collect_backup_original_hashes)
+    check("G6 _collect_backup_original_hashes: the SHA-256 names of <xx>.zip entries with their folder's two characters, FIT and JSON "
+          "apart; misplaced, temporary, nested and foreign entries and ZIPs count for nothing",
+          _res == ({_HA}, {_HA, _HB}))
+    check("G6 _collect_backup_original_hashes: a damaged ZIP is skipped without raising (debug line only, no warning)",
+          [lv for lv, _ in _c] == ["debug"] and f"{_HD[:2]}.zip" in _c[0][1] and "BadZipFile" in _c[0][1])
+
+with _iso_env("sc6_check") as _b:
+    _g5_day(f"{_DAYP}2025-08-01.json", {"source_files": [_HA, _HB]})
+    _g5_fit(_HA)                                             # in the store; _HB is named by the day and missing
+    _g5_fit(_HJ2, ".json")                                   # in the store
+    _g6_zip_write(_HJ1[:2], [f"{_HJ1}.json"])                # lost: the backup holds it, the store does not
+    _g6_zip_write(_HJ2[:2], [f"{_HJ2}.json"])                # not lost
+    _g6_zip_write(_HD[:2], [f"{_HD}.fit"])                   # a FIT original no day file names, lost
+    _g6_zip_write(_HA[:2], [f"{_HA}.fit"])                   # not lost
+    _files_before = sorted(str(f) for f in _b.rglob("*") if f.is_file())
+    _r = silo_check.check_silos()
+    check("G6 check_silos: a JSON original the backup holds and the store lacks is listed in bulk_json_originals_missing (sorted), "
+          "one the store has is not",
+          _r["bulk_json_originals_missing"] == [_HJ1] and _r["counts"]["bulk_json_originals_missing"] == 1)
+    check("G6 check_silos: bulk_originals_missing now holds the FIT hashes the day files name and the store lacks together with the "
+          "FIT originals the backup holds and the store lacks",
+          _r["bulk_originals_missing"] == sorted([_HB, _HD]) and _r["counts"]["bulk_originals_missing"] == 2)
+    check("G6 check_silos: the check only looks, no file is created, changed or removed",
+          sorted(str(f) for f in _b.rglob("*") if f.is_file()) == _files_before)
+    _g5_fit(_HJ1, ".json")
+    _g5_fit(_HB)
+    _g5_fit(_HD)
+    _r = silo_check.check_silos()
+    check("G6 check_silos: with everything back both lists are empty; files the store has and the backup lacks are no finding",
+          _r["bulk_originals_missing"] == [] and _r["bulk_json_originals_missing"] == [])
+
+with _iso_env("sc6_same_scan") as _b:
+    # the day file and the original it names are both lost; the log marks the day, the backup holds the original
+    _g4_log([{"date": "2025-08-01", "bulk": {"intraday": "2026-10-24"}}])
+    _g6_zip_write(_HA[:2], [f"{_HA}.fit"])
+    _r = silo_check.check_silos()
+    check("G6 check_silos: a lost day file and its lost original are both found in one check (#8 and #9), where the day file's "
+          "names alone would show the original only after the day file is back",
+          _r["bulk_lost_intraday"] == [_date(2025, 8, 1)] and _r["bulk_originals_missing"] == [_HA])
+
+with _iso_env("sc6_damaged") as _b:
+    _g6_zip_write(_HA[:2], [f"{_HA}.fit"], name=f"{_HA[:2]}.zip")
+    (cfg.BULK_SOURCE_BACKUP_DIR / f"{_HB[:2]}.zip").write_bytes(b"this is not a zip")
+    _g6_zip_write(_HJ1[:2], [f"{_HJ1}.json"])
+    _r = silo_check.check_silos()
+    check("G6 check_silos: a damaged backup ZIP does not stop the check, the other ZIPs still count",
+          _r["bulk_originals_missing"] == [_HA] and _r["bulk_json_originals_missing"] == [_HJ1])
+
+with _iso_env("sc6_nobackup") as _b:
+    _g5_fit(_HA)
+    _g5_fit(_HJ1, ".json")
+    _r = silo_check.check_silos()
+    check("G6 check_silos: without a backup folder there is no finding from it and no folder is created",
+          _r["bulk_originals_missing"] == [] and _r["bulk_json_originals_missing"] == [] and not cfg.BULK_BACKUP_DIR.exists())
+
+with _iso_env("sc6_layout") as _b:
+    # the names the check reads are the ones the backup writes (the layout belongs to garmin_backup_bulk)
+    import garmin_backup_bulk as _g6_bb
+    for _h, _s in ((_HA, ".fit"), (_HB, ".fit"), (_HJ1, ".json"), (_HJ2, ".json")):
+        _g5_fit(_h, _s)
+    _g6_res = _g6_bb.backup_originals()
+    check("G6 layout: the real backup of the originals copies all four", _g6_res["copied"] == 4 and _g6_res["failed"] == 0)
+    check("G6 layout: the check reads exactly the names the real backup wrote (FIT and JSON apart)",
+          silo_check._collect_backup_original_hashes() == ({_HA, _HB}, {_HJ1, _HJ2}))
+    for _h, _s in ((_HB, ".fit"), (_HJ1, ".json")):
+        (cfg.BULK_SOURCE_DIR / _h[:2] / f"{_h}{_s}").unlink()
+    _r = silo_check.check_silos()
+    check("G6 layout: a FIT and a JSON original removed from the store after the real backup are both found",
+          _r["bulk_originals_missing"] == [_HB] and _r["bulk_json_originals_missing"] == [_HJ1])
 
 
 summary()

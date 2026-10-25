@@ -505,6 +505,19 @@ Bulk folder (v1.7.6.2):
   first backup of a large export can take a while; a failure is only a
   warning and is tried again at the next start.
 
+Damaged backup file (v1.7.6.2.1):
+  The backups of your daily files (backup/raw, backup/source and
+  backup/bulk) are kept as one ZIP per month. If such a ZIP cannot be
+  opened or fails its check, nothing is written into it any more:
+  it stays as it is, the new files wait in their month folder, and
+  the log names the ZIP and the kind of error. The app does not
+  repair a damaged ZIP by itself. Delete the damaged ZIP only while
+  the daily files it was made from still exist: the backup of the
+  bulk folder and the source backup make the missing copies again at
+  the next sync; for the raw backup there is no automatic rebuild
+  (see MAINTENANCE_GARMIN.md, "backfill_raw"). The mirror
+  ("Export to Mirror") is a second copy of the whole archive.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 7. AUTOMATED DAILY SYNC VIA WINDOWS TASK SCHEDULER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -879,8 +892,11 @@ Silo-Check
   it from the export data (v1.7.6.1).
   Bulk folder (v1.7.6.2): the check also reports bulk files that went
   missing ("#8 bulk files lost") and original export files that are
-  gone ("#9 original export files missing"). The repair restores them
-  from garmin_data/backup/bulk; without a backup copy it says so, and
+  gone ("#9 original export files missing"; since v1.7.6.2.1 also the
+  JSON files of the export, found through the backup copies, and an
+  original that is lost together with its day file). The repair
+  restores them from garmin_data/backup/bulk; without a backup copy
+  it says so, and
   the export file is the fallback. The daily file of a day whose bulk
   file is lost is no longer removed as an orphan.
 

@@ -1120,7 +1120,7 @@ def _rt_store_bytes():
 
 def _rt_clean(found):
     keys = ("raw_without_quality", "source_without_raw", "summary_without_raw", "raw_without_summary",
-            "bulk_lost_intraday", "bulk_lost_aggregates", "bulk_originals_missing")
+            "bulk_lost_intraday", "bulk_lost_aggregates", "bulk_originals_missing", "bulk_json_originals_missing")
     return all(not found[k] for k in keys)
 
 
@@ -1140,8 +1140,11 @@ with _layout_env("rt_source") as _a:
 
     # -- back up -------------------------------------------------------------------------------------------------------------
     _bk = _bb_rt.backup_all()
-    check("round trip, back up: all three files are backed up", _bk["ok"] is True and _bk["source"]["copied"] == 1
-          and _bb_rt.check_needed() == {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0})
+    _bk2 = _bb_rt.backup_all()
+    check("round trip, back up: all three files are backed up (a second run finds nothing to do)",
+          _bk["ok"] is True and (_bk["raw"]["copied"], _bk["aggregates"]["copied"], _bk["source"]["copied"]) == (1, 1, 1)
+          and _bk2["ok"] is True and (_bk2["raw"]["copied"], _bk2["aggregates"]["copied"], _bk2["source"]["copied"]) == (0, 0, 0)
+          and (_bk2["raw"]["refreshed"], _bk2["aggregates"]["refreshed"], _bk2["source"]["present"]) == (0, 0, 1))
 
     # -- mirror --------------------------------------------------------------------------------------------------------------
     _mr = mirror.run_mirror(_a, _rt_gla, "pw")
@@ -1155,20 +1158,15 @@ with _layout_env("rt_source") as _a:
     # -- lose, route A: the silo check and repair bring it back from the backup ---------------------------------------------
     shutil.rmtree(cfg.BULK_DIR)
     _f1 = _sc_rt.check_silos()
-    check("round trip A: the loss is found — both day files are lost; the summary of the day is no orphan (F-10); the original cannot "
-          "be seen yet because the day file that names it is gone too",
+    check("round trip A: the loss is found — both day files are lost; the summary of the day is no orphan (F-10); the original is "
+          "seen in the same check although the day file that names it is gone too, because the backup holds it (v1.7.6.2.1)",
           _f1["bulk_lost_intraday"] == [_dt_rt] and _f1["bulk_lost_aggregates"] == [_dt_rt] and _f1["summary_without_raw"] == []
-          and _f1["bulk_originals_missing"] == [])
+          and _f1["bulk_originals_missing"] == [_RT_H] and _f1["bulk_json_originals_missing"] == [])
     _r1 = _sr_rt.repair_silos(_f1)
-    check("round trip A: the repair restores both day files from the backup, byte for byte, and the summary is untouched",
-          (_r1["ok"], _r1["failed"]) == (2, 0) and (cfg.BULK_DIR.parent / _RT_STORE[0]).read_bytes() == _before_rt[_RT_STORE[0]]
-          and (cfg.BULK_DIR.parent / _RT_STORE[1]).read_bytes() == _before_rt[_RT_STORE[1]] and _sum_m(_XD) == _sum_rt)
-    _f2 = _sc_rt.check_silos()
-    check("round trip A: with the day files back the check sees the missing original (a second round)",
-          _f2["bulk_originals_missing"] == [_RT_H] and not _f2["bulk_lost_intraday"] and not _f2["bulk_lost_aggregates"])
-    _r2 = _sr_rt.repair_silos(_f2)
-    check("round trip A: the second repair restores the original from the backup, byte for byte; the third check finds nothing",
-          (_r2["ok"], _r2["failed"]) == (1, 0) and _rt_store_bytes() == _before_rt and _rt_clean(_sc_rt.check_silos()))
+    check("round trip A: one repair restores both day files and the original from the backup, byte for byte, the summary is "
+          "untouched, and the next check finds nothing (before v1.7.6.2.1 the original needed a second round)",
+          (_r1["ok"], _r1["failed"]) == (3, 0) and _rt_store_bytes() == _before_rt and _sum_m(_XD) == _sum_rt
+          and _rt_clean(_sc_rt.check_silos()))
 
 # -- lose everything, route B: an empty archive imports the container --------------------------------------------------------
 with _layout_env("rt_target") as _t:
@@ -1181,10 +1179,13 @@ with _layout_env("rt_target") as _t:
           _qe[_XD]["write"] is False and _qe[_XD]["source"] == "bulk" and set(_qe[_XD]["bulk"]) == {"intraday", "aggregates"}
           and _sum_m(_XD)["day"]["steps"] == 7000 and _sum_m(_XD)["stress"]["stress_avg"] == 25)
     check("round trip B: the silo check of the new archive finds nothing", _rt_clean(_sc_rt.check_silos()))
-    _need = _bb_rt.check_needed()
-    check("round trip B: the imported files are not backed up yet; the next backup run (sync start) protects all three",
-          _need["aggregates"] == 1 and _need["raw"] == 1 and _need["source"] == 1
-          and _bb_rt.backup_all()["ok"] is True and _bb_rt.check_needed() == {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0})
+    _ba1 = _bb_rt.backup_all()
+    _ba2 = _bb_rt.backup_all()
+    check("round trip B: the imported files are not backed up yet; the next backup run (sync start) protects all three, "
+          "and a run after that finds nothing to do",
+          _ba1["ok"] is True and (_ba1["raw"]["copied"], _ba1["aggregates"]["copied"], _ba1["source"]["copied"]) == (1, 1, 1)
+          and _ba2["ok"] is True and (_ba2["raw"]["copied"], _ba2["aggregates"]["copied"], _ba2["source"]["copied"]) == (0, 0, 0)
+          and _ba2["source"]["present"] == 1)
 
 if _ver4h_added:
     del sys.modules["version"]

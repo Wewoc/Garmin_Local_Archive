@@ -6,21 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.2**
+**Currently stable — v1.7.6.2.1**
 
 ---
-
-### v1.7.6.2.1 — Shared backup code and sturdier backups
-
-- The raw and source backups run on the same shared code as the bulk store
-  backup.
-- A damaged monthly backup ZIP is detected and left untouched instead of being
-  appended to; files the refresh cannot read are counted as errors; backup
-  messages name the kind of error.
-- The silo check also finds a lost original of the JSON files of the export;
-  after restoring day files its repair looks for lost originals again in the
-  same run.
-- Done before the migration runs.
 
 ### v1.7.6.3 — Migration of the mixed archive
 
@@ -78,7 +66,21 @@
   retrieved; existing days are cleaned up by a step in the app (preview and
   backup first). The history comes from the export.
 
-### v1.7.6.11 — Mutation test of the new modules
+### v1.7.6.11 — Property tests and fuzzing of the new modules
+
+- The decision rules of the modules added during v1.7.6.x (bulk store, export
+  import, backups) are tested with generated inputs instead of hand-picked
+  examples: rules from `REFERENCE_INVARIANTS.md` become properties (a day is
+  replaced only by a fuller one, API data first in the resolved summary, a
+  worse quality label never over a better one).
+- The parsers that read foreign bytes (FIT reader, export scanner) are fuzzed
+  with mutated valid files; they must end in their declared errors only.
+- Each finding gets a fixed regression test; whether the code is changed, the
+  behaviour is pinned or the finding is dropped is decided per finding.
+  Otherwise tests only, no change in behaviour. New development dependency:
+  `hypothesis`.
+
+### v1.7.6.12 — Mutation test of the new modules
 
 - The modules added during v1.7.6.x (bulk store, export import, backups) go
   through the mutation test; changes the tests miss get new tests or are
@@ -596,6 +598,19 @@ content has no `date` key, the written summary file's *content* carries
 (`garmin_silo_repair.py`) passes `raw` through unmodified. The repair
 itself still succeeds; only matters if a downstream consumer reads the
 `date` field from inside the summary file instead of from its filename.
+
+**Monthly backup ZIPs written through a temporary file**
+
+Appending to a monthly backup ZIP would write a new ZIP next to the old one
+and swap it in, as the replace of an entry already does, so that an interrupted
+run never leaves a half-written ZIP.
+
+**Backup problems visible in the app**
+
+A damaged monthly backup ZIP and the error count of the backup refresh would
+show as a warning of the sync and in the archive check instead of only in the
+log; a damaged monthly ZIP could be rebuilt from the daily files by a step in
+the app.
 
 **MCP transport_security — `allowed_origins` extension**
 v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left `allowed_origins` at the SDK's own three defaults — a server-to-server HTTP client typically sends no `Origin` header at all, and the SDK's own validator passes automatically when it's absent. Revisit only if a real `Invalid Origin header` rejection shows up in the log for some other MCP client.

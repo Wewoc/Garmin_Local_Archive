@@ -141,14 +141,17 @@ for _k in _BK_KINDS:
 
     with _isolated_log_env(f"bk_force_badzip_{_n}"):
         _md = _bk_old_zip_new_dir(_k)
-        with patch.object(zipfile.ZipFile, "testzip", side_effect=[None, "broken.json"]):
+        # v1.7.6.2.1: testzip runs three times here - before the append (the ZIP is intact), after the
+        # append, and on the rebuilt ZIP; the third one fails
+        with patch.object(zipfile.ZipFile, "testzip", side_effect=[None, None, "broken.json"]):
             _cons(current_month="2024-09", force_filenames={_x27})
         check(f"{_n} consolidate force: rebuilt ZIP failing its check is not swapped in",
               _zip_read(_bk_zip(_k, "2024-08"))[_x27] == "old-27" and _md.exists())
 
     with _isolated_log_env(f"bk_append_badzip_{_n}"):
         _md = _bk_old_zip_new_dir(_k)
-        with patch.object(zipfile.ZipFile, "testzip", return_value="broken.json"):
+        # v1.7.6.2.1: the first testzip is the check before the append (intact), the second the one after it
+        with patch.object(zipfile.ZipFile, "testzip", side_effect=[None, "broken.json"]):
             _cons(current_month="2024-09")
         check(f"{_n} consolidate: ZIP failing its check after appending keeps the directory",
               _md.exists())
@@ -515,7 +518,8 @@ for _k in _BK_KINDS:
         for _m in ("2024-05", "2024-06"):
             _zip_write(_bk_zip(_k, _m), {_bk_fn(_k, f"{_m}-01"): "old"})
             _mk_month(_k, _m, ["02"])
-        with patch.object(zipfile.ZipFile, "testzip", return_value="bad"):
+        # v1.7.6.2.1: per month one check before the append (intact) and one after it (fails)
+        with patch.object(zipfile.ZipFile, "testzip", side_effect=[None, "bad", None, "bad"]):
             _, _c = _blogged(_mod, _cons, current_month="2024-09")
         _errs = [m for lv, m in _c if lv == "error"]
         check(f"4f2 {_n} consolidate: integrity failure is reported for every month, folders kept",
@@ -783,7 +787,8 @@ with _isolated_log_env("bk2_needed"):
     _zip_write(cfg.RAW_BACKUP_DIR / "raw_backup_2024-08.zip", {"garmin_raw_2024-08-01.json": "{}"})
     check("4f2 check_raw_backfill_needed: ZIP exists but lacks the file -> counted",
           _q_backup_mod.check_raw_backfill_needed() == 1)
-    with patch.object(_q_backup_mod, "_zip_contains", side_effect=RuntimeError("probe")):
+    # v1.7.6.2.1: the check lives in garmin_backup_common, so the probe is patched there
+    with patch("garmin_backup_common.zip_contains", side_effect=RuntimeError("probe")):
         _n_need, _c = _blogged(_q_backup_mod, _q_backup_mod.check_raw_backfill_needed)
     check("4f2 check_raw_backfill_needed: a failing check is logged per file and does not crash",
           _n_need == 0 and any(lv == "warning" and

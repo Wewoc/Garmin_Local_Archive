@@ -43,6 +43,8 @@ Delegation, unchanged in substance from the pre-extraction logic:
   #9 → (v1.7.6.2) a FIT original an intraday day file names and bulk/source lacks: the copy
        from backup/bulk/source (garmin_backup_bulk.read_original_copy) goes to the bulk
        writer (store_original — it checks the bytes against the hash). Runs after #8.
+       (v1.7.6.2.1) the same for a JSON original the backup holds and bulk/source lacks
+       (bulk_json_originals_missing, items marked kind "json"), after the FIT ones.
 
 Public API:
   repair_silos(fresh: dict) -> dict
@@ -78,7 +80,7 @@ def repair_silos(fresh: dict) -> dict:
         summary_without_raw, raw_without_summary (each a list of
         date objects). Optional (v1.7.6.2, read with a default of []):
         bulk_lost_intraday, bulk_lost_aggregates (dates), bulk_originals_missing
-        (SHA-256 strings).
+        (SHA-256 strings), bulk_json_originals_missing (SHA-256 strings, v1.7.6.2.1).
 
     Returns
     -------
@@ -94,7 +96,8 @@ def repair_silos(fresh: dict) -> dict:
                    #8 and #9 add "no_backup" (no copy in backup/bulk — counts as failed) and
                    "present" (the file is back by now — not counted)
         ... category/status-specific extra keys (existing, new, label,
-            count, reason; #8: kind "intraday" | "aggregates"; #9: hash)
+            count, reason; #8: kind "intraday" | "aggregates"; #9: hash, and kind "json" for
+            a JSON original (a FIT original has no kind))
     """
     ok = 0
     failed = 0
@@ -132,27 +135,32 @@ def repair_silos(fresh: dict) -> dict:
                 failed += 1
 
     # ── #9: original missing → restore from backup/bulk/source (v1.7.6.2) ──────
-    # The originals an intraday day was made from (FIT files, named by their SHA-256).
-    # store_original() checks the bytes against the hash, so a wrong copy is refused.
-    for file_hash in fresh.get("bulk_originals_missing") or []:
-        try:
-            data = backup_bulk.read_original_copy(file_hash, ".fit")
-            if data is None:
-                items.append({"category": "9", "date": None, "hash": file_hash, "status": "no_backup"})
+    # The originals an intraday day was made from (FIT files) and, since v1.7.6.2.1, the JSON files of
+    # the export, named by their SHA-256. store_original() checks the bytes against the hash, so a
+    # wrong copy is refused. FIT first; a JSON original's items carry kind "json".
+    for suffix, kind, key in ((".fit", None, "bulk_originals_missing"),
+                              (".json", "json", "bulk_json_originals_missing")):
+        for file_hash in fresh.get(key) or []:
+            item = {"category": "9", "date": None, "hash": file_hash}
+            if kind:
+                item["kind"] = kind
+            try:
+                data = backup_bulk.read_original_copy(file_hash, suffix)
+                if data is None:
+                    items.append({**item, "status": "no_backup"})
+                    failed += 1
+                    continue
+                result = bulk_writer.store_original(file_hash, data, suffix)
+                if result == bulk_writer.PRESENT:
+                    items.append({**item, "status": "present"})
+                    continue
+                if result != bulk_writer.WRITTEN:
+                    raise RuntimeError("the bulk writer refused the backup copy (see the log)")
+                items.append({**item, "status": "repaired"})
+                ok += 1
+            except Exception as e:
+                items.append({**item, "status": "error", "reason": str(e)})
                 failed += 1
-                continue
-            result = bulk_writer.store_original(file_hash, data, ".fit")
-            if result == bulk_writer.PRESENT:
-                items.append({"category": "9", "date": None, "hash": file_hash, "status": "present"})
-                continue
-            if result != bulk_writer.WRITTEN:
-                raise RuntimeError("the bulk writer refused the backup copy (see the log)")
-            items.append({"category": "9", "date": None, "hash": file_hash, "status": "repaired"})
-            ok += 1
-        except Exception as e:
-            items.append({"category": "9", "date": None, "hash": file_hash, "status": "error",
-                          "reason": str(e)})
-            failed += 1
 
     # ── #3: source without raw → regenerate in-process from source/ ───────────
     # In-process (no subprocess/sys.executable) — identical behavior in

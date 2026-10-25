@@ -111,16 +111,4 @@ VULTURE_WHITELIST: dict[tuple[str, str], str] = {
     ("garmin\\garmin_bulk_normalizer.py", "no_timestamp"): "RunStats counter of dropped samples, not reported yet (1 on the real export); tested through file_samples()",
     ("garmin\\garmin_bulk_normalizer.py", "no_heart_rate"): "RunStats counter (records without heart rate), read by the tests, not reported yet",
     ("garmin\\garmin_bulk_normalizer.py", "zero_heart_rate"): "RunStats counter of dropped samples (9566 on the real export), read by the tests, not reported yet",
-
-    # ── v1.7.6.2 shared backup code: API built ahead of its callers ──────
-    # Not false positives in the Qt/registration sense: the functions are complete, tested, and not
-    # called by production code yet. Maintainer decision 2026-10-24: keep, revisit in v1.7.6.2.1.
-    # backup_file / is_json_object: v1.7.6.2.1 converts garmin_backup.py and garmin_backup_source.py to
-    # this module (ROADMAP "Shared backup code and sturdier backups"); their differential tests
-    # (test_backup_common.py) compare the shared code with the old modules until then.
-    ("garmin\\garmin_backup_common.py", "backup_file"): "shared backup code, called by the raw/source backups from v1.7.6.2.1; differential tests until then",
-    ("garmin\\garmin_backup_common.py", "is_json_object"): "validity check for the source backup kind, used from v1.7.6.2.1; tested",
-    # check_needed: counts what backup_all() would do without copying (model: check_raw_backfill_needed);
-    # no caller yet — v1.7.6.2.1 uses it or removes it.
-    ("garmin\\garmin_backup_bulk.py", "check_needed"): "query of the bulk backup (model: check_raw_backfill_needed), tested; no production caller yet, decide in v1.7.6.2.1",
 }

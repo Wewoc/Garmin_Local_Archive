@@ -536,17 +536,22 @@ class TestPanelArchive:
         assert lines[-1] == "🔧  Silo-Repair complete — 1 fixed, 3 errors"
 
     def test_silo_check_names_the_missing_originals(self, qtbot, app_mock, monkeypatch):
-        """v1.7.6.2: finding #9 gets its line (the first twelve characters of up to five hashes, then an ellipsis)."""
+        """v1.7.6.2: finding #9 gets its line (the first twelve characters of up to five hashes, then an ellipsis).
+        v1.7.6.2.1: the FIT line says the backup is a second source, and JSON originals get a line of their own."""
         import sys
         import types
         panel = self._silo_panel(qtbot, app_mock)
 
-        def _run(hashes):
+        def _run(hashes, json_hashes=None):
+            counts = {"raw_without_quality": 0, "source_without_raw": 0, "summary_without_raw": 0,
+                      "raw_without_summary": 0, "bulk_originals_missing": len(hashes)}
             result = {"checked_at": "T", "totals": {"raw": 0, "summary": 0, "source": 0, "aggregates": 0, "quality_days": 0},
-                      "counts": {"raw_without_quality": 0, "source_without_raw": 0, "summary_without_raw": 0,
-                                 "raw_without_summary": 0, "bulk_originals_missing": len(hashes)},
+                      "counts": counts,
                       "raw_without_quality": [], "source_without_raw": [], "summary_without_raw": [],
                       "raw_without_summary": [], "bulk_originals_missing": hashes}
+            if json_hashes is not None:
+                counts["bulk_json_originals_missing"] = len(json_hashes)
+                result["bulk_json_originals_missing"] = json_hashes
             fake = types.ModuleType("garmin_silo_check")
             fake.check_silos = lambda: result
             monkeypatch.setitem(sys.modules, "garmin_silo_check", fake)
@@ -558,8 +563,44 @@ class TestPanelArchive:
         hashes = [f"{n}{n}" * 32 for n in "abcdef"]
         lines = _run(hashes[:5])
         line = [x for x in lines if "#9" in x]
-        assert line == ["    ⚠ #9 original export files missing (named by an intraday day file, not in the store): "
-                        "5 file(s) — aaaaaaaaaaaa, bbbbbbbbbbbb, cccccccccccc, dddddddddddd, eeeeeeeeeeee"]
+        assert line == ["    ⚠ #9 original export files missing (not in the store; named by an intraday day file or held "
+                        "by the backup): 5 file(s) — aaaaaaaaaaaa, bbbbbbbbbbbb, cccccccccccc, dddddddddddd, eeeeeeeeeeee"]
+        lines = _run(hashes)
+        assert [x for x in lines if "#9" in x][0].endswith("eeeeeeeeeeee…") and "6 file(s)" in [x for x in lines if "#9" in x][0]
+        assert not any("#9" in x for x in _run([]))
+        # an older result without the JSON key (and one with an empty list) shows no JSON line
+        assert not any("JSON" in x for x in _run(hashes[:2]))
+        assert not any("JSON" in x for x in _run(hashes[:2], []))
+
+    def test_silo_check_names_the_missing_json_originals(self, qtbot, app_mock, monkeypatch):
+        """v1.7.6.2.1: a JSON original the backup holds and the store lacks gets its own #9 line, the same shape as the FIT one;
+        it counts as a finding even when nothing else is wrong (the Repair button comes on)."""
+        import sys
+        import types
+        panel = self._silo_panel(qtbot, app_mock)
+
+        def _run(json_hashes):
+            result = {"checked_at": "T", "totals": {"raw": 0, "summary": 0, "source": 0, "aggregates": 0, "quality_days": 0},
+                      "counts": {"raw_without_quality": 0, "source_without_raw": 0, "summary_without_raw": 0,
+                                 "raw_without_summary": 0, "bulk_originals_missing": 0,
+                                 "bulk_json_originals_missing": len(json_hashes)},
+                      "raw_without_quality": [], "source_without_raw": [], "summary_without_raw": [],
+                      "raw_without_summary": [], "bulk_originals_missing": [],
+                      "bulk_json_originals_missing": json_hashes}
+            fake = types.ModuleType("garmin_silo_check")
+            fake.check_silos = lambda: result
+            monkeypatch.setitem(sys.modules, "garmin_silo_check", fake)
+            app_mock._log_bg.reset_mock()
+            panel._on_silo_check()
+            qtbot.waitUntil(lambda: panel._silo_running is False, timeout=5000)
+            return [c.args[0] for c in app_mock._log_bg.call_args_list]
+
+        hashes = [f"{n}{n}" * 32 for n in "abcdef"]
+        lines = _run(hashes[:5])
+        assert [x for x in lines if "#9" in x] == [
+            "    ⚠ #9 original export JSON files missing (held by the backup, not in the store): "
+            "5 file(s) — aaaaaaaaaaaa, bbbbbbbbbbbb, cccccccccccc, dddddddddddd, eeeeeeeeeeee"]
+        assert not any("No inconsistencies" in x for x in lines) and any("Repair" in x for x in lines)
         lines = _run(hashes)
         assert [x for x in lines if "#9" in x][0].endswith("eeeeeeeeeeee…") and "6 file(s)" in [x for x in lines if "#9" in x][0]
         assert not any("#9" in x for x in _run([]))
@@ -587,6 +628,33 @@ class TestPanelArchive:
                              "  ~ #9 original already back: b2b2b2b2b2b2",
                              "  ✗ #9 no backup copy for original c3c3c3c3c3c3 — import the export again",
                              "  ✗ #9 repair error d4d4d4d4d4d4: boom"]
+
+    def test_silo_repair_logs_the_restore_of_json_originals(self, qtbot, app_mock, monkeypatch):
+        """v1.7.6.2.1: the items of a JSON original carry kind "json"; every status has its line, marked (JSON), next to the
+        unmarked lines of a FIT original."""
+        import sys
+        import types
+        panel = self._silo_panel(qtbot, app_mock)
+        fake_check = types.ModuleType("garmin_silo_check")
+        fake_check.check_silos = lambda: {"fresh": True}
+        fake_repair = types.ModuleType("garmin_silo_repair")
+        fake_repair.repair_silos = lambda fresh: {"ok": 2, "failed": 2, "items": [
+            {"category": "9", "date": None, "hash": "a1" * 32, "status": "repaired"},
+            {"category": "9", "date": None, "hash": "e5" * 32, "kind": "json", "status": "repaired"},
+            {"category": "9", "date": None, "hash": "f6" * 32, "kind": "json", "status": "present"},
+            {"category": "9", "date": None, "hash": "c3" * 32, "kind": "json", "status": "no_backup"},
+            {"category": "9", "date": None, "hash": "d4" * 32, "kind": "json", "status": "error", "reason": "boom"}]}
+        monkeypatch.setitem(sys.modules, "garmin_silo_check", fake_check)
+        monkeypatch.setitem(sys.modules, "garmin_silo_repair", fake_repair)
+        panel._last_silo_result = {"anything": 1}
+        panel._on_silo_repair()
+        qtbot.waitUntil(lambda: panel._silo_running is False, timeout=5000)
+        lines = [c.args[0] for c in app_mock._log_bg.call_args_list]
+        assert lines[:5] == ["  ✓ #9 original restored from backup: a1a1a1a1a1a1",
+                             "  ✓ #9 original restored from backup: e5e5e5e5e5e5 (JSON)",
+                             "  ~ #9 original already back: f6f6f6f6f6f6 (JSON)",
+                             "  ✗ #9 no backup copy for original c3c3c3c3c3c3 (JSON) — import the export again",
+                             "  ✗ #9 repair error d4d4d4d4d4d4 (JSON): boom"]
 
     def test_check_failed_days_popup_returns_false_when_log_missing(
             self, qtbot, app_mock):

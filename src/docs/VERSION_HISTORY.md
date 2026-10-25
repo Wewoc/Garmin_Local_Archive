@@ -2,6 +2,13 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.2.1 — Sturdier Backups
+
+- The backups of the daily files and of the raw Garmin answers now run on the same code as the backup of the bulk folder.
+- If a monthly backup file is damaged, nothing is written into it any more: it is left as it is, the new files wait in their month folder, and the log names the damaged file. Before, such a file could silently lose its old content.
+- Backup messages now say what kind of error happened, and a file the backup cannot read is counted as an error.
+- The archive check also notices a lost original JSON file of the export, and its repair restores it from the backup. If a bulk day file and its original file are lost together, one repair now brings back both.
+
 ## v1.7.6.2 — Protection for the Bulk Folder
 
 - The bulk folder (heart-rate series, daily values and the kept files of the Garmin export) is now part of the backup and of the mirror. The first backup happens by itself at the next start of a sync; it can take a while with a large export.
