@@ -72,6 +72,12 @@ AUTORESTORE_DIR  = BACKUP_DIR / "autorestore"  # defekte Stände vor Auto-Restor
 # net before an intentional freeze-guard bypass).
 FORCE_REFETCH_BACKUP_DIR = BACKUP_DIR / "force_refetch"
 
+# Migration snapshot directory (sole owner: garmin_migration_snapshot.py, v1.7.6.3)
+# One ZIP per run of the archive migration: raw/, summary/ and quality_log.json as they were
+# before the run (the mixed state of the old import exists nowhere else, the raw backup keeps
+# only the newest version of a day).
+MIGRATION_BACKUP_DIR = BACKUP_DIR / "migration"
+
 # Source archive (sole owner: garmin_source_writer.py)
 # Contains unmodified API responses before any pipeline processing.
 # Bulk import never writes here — only live API fetches.

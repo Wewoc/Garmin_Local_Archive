@@ -254,11 +254,15 @@ def _agg_put(d, aggs, files=(_H5E,)):
 
 
 def _expected(api, aggs):
-    """What the day must come out as, built by hand: the API keys that are not empty stay, the export fills the rest."""
+    """What the day must come out as, built by hand: the API keys that are not empty stay, the export fills the
+    rest; a section both sides hold as a dict is filled field by field (v1.7.6.3), activities as a whole only."""
     bulk = normalizer.normalize(_copy5e.deepcopy(aggs), source="bulk")
     out = dict(api)
     for k, v in bulk.items():
-        if not out.get(k):
+        if k != "activities" and isinstance(out.get(k), dict) and out[k] and isinstance(v, dict):
+            out[k] = {**{f: x for f, x in v.items() if f not in out[k] or out[k][f] in (None, "", [], {})}, **{
+                f: x for f, x in out[k].items() if x not in (None, "", [], {})}}
+        elif not out.get(k):
             out[k] = v
     return normalizer.summarize(out)
 
@@ -318,14 +322,16 @@ with _iso5e("w5e_resolve") as _b:
           writer.write_summary_only({"date": _D3, "marker": 1}, _D3) is True
           and json.loads(_paths(_D3)[1].read_text(encoding="utf-8")) == {"date": _D3, "marker": 1})
 
-    # -- _resolve itself: pure, the API wins per top-level key, the export fills the rest ---
+    # -- _resolve itself: pure, the API wins per field (v1.7.6.3; before: per top-level key), the export fills the rest ---
     _a0, _g0 = _copy5e.deepcopy(_API), _copy5e.deepcopy(_AGGS)
     _res = writer._resolve(_API, _AGGS)
     check("5e _resolve: neither the API dict nor the aggregates dict is changed (the import remap works on a copy)",
           _API == _a0 and _AGGS == _g0 and "heart_rates" not in _AGGS)
-    check("5e _resolve: API keys stay as they are, missing keys come from the export, the heart_rates remap does not displace the API series",
-          _res["user_summary"] == _API["user_summary"] and _res["heart_rates"] == _API["heart_rates"] and _res["sleep"] == _API["sleep"]
-          and _res["stress"] == _AGGS["stress"] and _res["training_readiness"] == _AGGS["training_readiness"])
+    check("5e _resolve: API fields stay as they are (steps 1000), fields the API lacks come from the export (v1.7.6.3), the heart_rates remap does not displace the API series",
+          _res["user_summary"] == {"totalSteps": 1000, "restingHeartRate": 55, "totalKilocalories": 2500}
+          and _res["heart_rates"] == _API["heart_rates"] and _res["sleep"] == _API["sleep"])
+    check("5e _resolve: keys the API does not have come from the export as a whole",
+          _res["stress"] == _AGGS["stress"] and _res["training_readiness"] == _AGGS["training_readiness"])
     check("5e _resolve: no API data at all -> the normalised export values (heart_rates remap included)",
           writer._resolve({}, _AGGS)["heart_rates"] == {"restingHeartRate": 55}
           and writer._resolve(None, _AGGS)["user_summary"] == _AGGS["user_summary"])
@@ -456,5 +462,156 @@ with _iso5e("w5f_none") as _b:
     _code, _out = _run_rs()
     check("5f regenerate_summaries: neither a raw folder nor export data -> an error message and exit code 1, nothing created",
           _code == 1 and "Raw folder not found" in _out and not cfg.SUMMARY_DIR.exists())
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  5g. garmin_writer — resolved summary, empty fields inside an API section (v1.7.6.3)
+# ══════════════════════════════════════════════════════════════════════════════
+section("5g. garmin_writer — resolved summary: an API section with empty fields (register finding F-11, fixed in v1.7.6.3)")
+
+# For an old day Garmin answers with sections that exist but whose fields are null (heart_rates: min and
+# max null; stress: no intraday array; user_summary: some fields null). Until v1.7.6.3 the resolution worked
+# per top-level key (garmin_merge.merge_field), so such a section counted as "not empty" and the export's
+# values for the same day never reached summary/ (step 0a pinned that as "Ist-Stand F-11"). Since step 0b the
+# section is filled field by field, one level deep; the checks marked "F-11" were turned around, the others
+# held before and after. The shapes follow a real day of the archive (2018-12-19); the numbers are made up.
+_D7 = "2024-07-10"
+_API7 = {"date": _D7,
+         "heart_rates": {"userProfilePK": 1, "calendarDate": _D7, "maxHeartRate": None, "minHeartRate": None,
+                         "restingHeartRate": 64, "heartRateValues": None},
+         "stress": {"calendarDate": _D7, "avgStressLevel": 28, "maxStressLevel": 99, "stressValuesArray": None},
+         "user_summary": {"totalSteps": 3126, "floorsAscended": 0.69554, "activeKilocalories": None},
+         "activities": {"ActivitiesForDay": {"statusCode": 200, "payload": []}}}
+_AGGS7 = {"date": _D7,
+          "user_summary": {"totalSteps": 3000, "floorsAscended": 1, "activeKilocalories": 223,
+                           "restingHeartRate": 60, "minHeartRate": 59, "maxHeartRate": 154},
+          "stress": {"averageStressLevel": 27, "maxStressLevel": 90},
+          "activities": [{"activityName": "Walk", "duration": 809835.0, "distance": 107463.0}]}
+
+with _iso5e("w5g_fields") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_put(_D7, _AGGS7)
+    _api7_before, _aggs7_before = _copy5e.deepcopy(_API7), _copy5e.deepcopy(_AGGS7)
+    _agg7_bytes = (cfg.BULK_AGG_DIR / f"garmin_bulk_agg_{_D7}.json").read_bytes()
+    with patch.object(_gb5d, "backup_raw"):
+        _ok7 = writer.write_day(_API7, {"date": _D7, "marker": "passed"}, _D7)
+    _rp7, _sp7 = _paths(_D7)
+    _s7 = json.loads(_sp7.read_text(encoding="utf-8"))
+
+    check("5g write_day with an aggregates file: True, the summary is the resolved one", _ok7 is True and "marker" not in _s7)
+    # -- F-11: the export's values fill the empty fields of an API section --------------------------------
+    check("5g F-11: heart rate min and max come from the export (59 and 154) although the API heart_rates section is not empty; resting stays the API's 64",
+          _s7["heartrate"]["min_bpm"] == 59 and _s7["heartrate"]["max_bpm"] == 154 and _s7["heartrate"]["resting_bpm"] == 64)
+    check("5g F-11: the stress average comes from the export (27) where the API stress section has no intraday array; the API maximum 99 stays",
+          _s7["stress"]["stress_avg"] == 27 and _s7["stress"]["stress_max"] == 99)
+    check("5g F-11: active calories come from the export (223) where the user_summary field is null in the API; the API steps stay",
+          _s7["day"]["calories_active"] == 223 and _s7["day"]["steps"] == 3126)
+    _res7 = writer._resolve(_API7, _AGGS7)
+    check("5g F-11: _resolve fills the missing fields inside the API sections and keeps every API value that is there",
+          _res7["heart_rates"] == {**_API7["heart_rates"], "minHeartRate": 59, "maxHeartRate": 154}
+          and _res7["stress"] == {**_API7["stress"], "averageStressLevel": 27}
+          and _res7["user_summary"] == {**_API7["user_summary"], "activeKilocalories": 223, "restingHeartRate": 60,
+                                         "minHeartRate": 59, "maxHeartRate": 154})
+    # -- holds before and after the fix ----------------------------------------------------------------
+    check("5g the API values that are there win: resting 64, steps 3126, floors 0.69554, stress maximum 99",
+          _s7["heartrate"]["resting_bpm"] == 64 and _s7["day"]["steps"] == 3126
+          and _s7["day"]["floors_climbed"] == 0.69554 and _s7["stress"]["stress_max"] == 99)
+    check("5g activities: the API holds an endpoint dict, the summary has no activities; the export's list is not used (left out on purpose)",
+          _s7["activities"] == [])
+    check("5g raw/ keeps exactly what was passed in, the passed dicts and the stored aggregates file are not changed",
+          json.loads(_rp7.read_text(encoding="utf-8")) == _api7_before and _API7 == _api7_before
+          and _AGGS7 == _aggs7_before and (cfg.BULK_AGG_DIR / f"garmin_bulk_agg_{_D7}.json").read_bytes() == _agg7_bytes)
+    _first7 = _sp7.read_bytes()
+    with patch.object(_gb5d, "backup_raw"):
+        writer.write_day(_API7, {"date": _D7}, _D7)
+    check("5g writing the same day again gives the same bytes (idempotent)", _sp7.read_bytes() == _first7)
+
+    # -- the other write paths resolve the same way ---------------------------------------------------
+    with patch.object(_gb5d, "backup_raw") as _br:
+        check("5g write_summary_only and rebuild_summary give the same resolved summary as write_day (no backup)",
+              writer.write_summary_only({"date": _D7}, _D7) is True and _sp7.read_bytes() == _first7
+              and writer.rebuild_summary(_D7) is True and _sp7.read_bytes() == _first7 and not _br.called)
+
+    # -- an API section that is complete: nothing from the export enters it ---------------------------
+    _D8 = "2024-07-11"
+    _api8 = {"date": _D8,
+             "heart_rates": {"maxHeartRate": 130, "minHeartRate": 50, "restingHeartRate": 55},
+             "stress": {"avgStressLevel": 30, "maxStressLevel": 80, "stressValuesArray": [[1, 20], [2, 40]]},
+             "user_summary": {"totalSteps": 500, "floorsAscended": 2, "activeKilocalories": 100}}
+    _agg_put(_D8, {**_AGGS7, "date": _D8})
+    with patch.object(_gb5d, "backup_raw"):
+        writer.write_day(_api8, {"date": _D8}, _D8)
+    _s8 = json.loads(_paths(_D8)[1].read_text(encoding="utf-8"))
+    check("5g a complete API day: min 50, max 130, stress average 30 (from the series), calories 100 - the export's 59, 154, 27 and 223 stay out",
+          _s8["heartrate"]["min_bpm"] == 50 and _s8["heartrate"]["max_bpm"] == 130
+          and _s8["stress"]["stress_avg"] == 30.0 and _s8["day"]["calories_active"] == 100)
+
+    # -- the rule itself, one level deep -----------------------------------------------------------------
+    _api9 = {"date": "2024-07-12",
+             "user_summary": {"floorsAscended": 0, "flag": False, "items": [], "nested": {}, "keep": {"a": 1}, "gone": ""},
+             "heart_rates": {}, "training_readiness": [{"score": 5}], "activities": {"env": None}, "max_metrics": {"v": 1}}
+    _agg9 = {"date": "2024-07-12",
+             "user_summary": {"floorsAscended": 5, "flag": True, "items": [1], "nested": {"b": 2}, "keep": {"a": 9, "c": 3},
+                              "gone": "x", "restingHeartRate": 55},
+             "training_readiness": {"level": "HIGH"}, "activities": {"env": 1}, "max_metrics": [{"v": 2}]}
+    _api9_before, _agg9_before = _copy5e.deepcopy(_api9), _copy5e.deepcopy(_agg9)
+    _res9 = writer._resolve(_api9, _agg9)
+    check("5g rule: 0 and False are values and stay; None, empty string, empty list and empty dict are filled from the export",
+          _res9["user_summary"]["floorsAscended"] == 0 and _res9["user_summary"]["flag"] is False
+          and _res9["user_summary"]["items"] == [1] and _res9["user_summary"]["nested"] == {"b": 2} and _res9["user_summary"]["gone"] == "x")
+    check("5g rule: one level deep - a field the API holds as a non-empty dict stays as it is, the export adds nothing inside it",
+          _res9["user_summary"]["keep"] == {"a": 1})
+    check("5g rule: fields only the export has are added (resting heart rate)", _res9["user_summary"]["restingHeartRate"] == 55)
+    check("5g rule: an empty API section is taken from the export as a whole (heart_rates through the import remap)",
+          _res9["heart_rates"] == {"restingHeartRate": 55})
+    check("5g rule: sections of different types are not mixed - the non-empty API list stays, a non-empty API dict against an export list stays too (no error)",
+          _res9["training_readiness"] == [{"score": 5}] and _res9["max_metrics"] == {"v": 1})
+    check("5g rule: activities keep the whole-key rule - even two dicts are not filled field by field",
+          _res9["activities"] == {"env": None})
+    check("5g rule: neither argument is changed", _api9 == _api9_before and _agg9 == _agg9_before)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  5h. garmin_writer — resolve_preview (v1.7.6.3, read-only preview of the resolution)
+# ══════════════════════════════════════════════════════════════════════════════
+section("5h. garmin_writer — resolve_preview: what the resolution would give, nothing written")
+
+with _iso5e("w5h_preview") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _DP = "2024-08-01"
+    _apiP = {**_copy5e.deepcopy(_API7), "date": _DP}
+    _aggP = {**_copy5e.deepcopy(_AGGS7), "date": _DP}
+    _apiP_before = _copy5e.deepcopy(_apiP)
+
+    _pn = writer.resolve_preview(_apiP, _DP)
+    check("5h no aggregates file: state 'none', no export values, the summary is summarize() of the API data alone",
+          _pn["state"] == "none" and _pn["export"] is None and _pn["summary"] == normalizer.summarize(_apiP))
+    _agg_put(_DP, _aggP)
+    _pk = writer.resolve_preview(_apiP, _DP)
+    check("5h usable aggregates: state 'ok', export values normalised like an import day, resolved summary (min/max from the export)",
+          _pk["state"] == "ok" and _pk["export"] == normalizer.normalize(_copy5e.deepcopy(_aggP), source="bulk")
+          and _pk["summary"]["heartrate"]["min_bpm"] == 59 and _pk["summary"]["heartrate"]["max_bpm"] == 154)
+    check("5h nothing is written by the preview and the passed dict is not changed",
+          not _paths(_DP)[0].exists() and not _paths(_DP)[1].exists() and _apiP == _apiP_before)
+    with patch.object(_gb5d, "backup_raw"):
+        writer.write_day(_apiP, {"date": _DP}, _DP)
+    check("5h the previewed summary is exactly what write_day() writes",
+          json.loads(_paths(_DP)[1].read_text(encoding="utf-8")) == _pk["summary"])
+    check("5h no API data at all (None or {}): the export alone, no error",
+          writer.resolve_preview(None, _DP)["state"] == "ok" and writer.resolve_preview({}, _DP)["summary"] is not None
+          and writer.resolve_preview(None, "2024-08-02")["summary"] == normalizer.summarize({}))
+
+    _agg_file_p = cfg.BULK_AGG_DIR / f"garmin_bulk_agg_{_DP}.json"
+    _real_rt_p = Path.read_text
+
+    def _locked_p(self, *a, **k):
+        if self == _agg_file_p:
+            raise PermissionError("locked by another process")
+        return _real_rt_p(self, *a, **k)
+
+    with patch.object(Path, "read_text", _locked_p):
+        _pu = writer.resolve_preview(_apiP, _DP)
+    check("5h unreadable aggregates: state 'unreadable', no export, no summary (write_day() would write nothing)",
+          _pu == {"state": "unreadable", "export": None, "summary": None})
+    _agg_file_p.write_text("{ not json", encoding="utf-8")
+    check("5h damaged aggregates: state 'none' (as write_day() treats them)", writer.resolve_preview(_apiP, _DP)["state"] == "none")
 
 summary()

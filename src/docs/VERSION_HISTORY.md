@@ -2,6 +2,15 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.3 — Migration of the Mixed Archive
+
+- Days that the older import left in a mixed form (export data stored in the folder of the Garmin API data) are now made again from the archived Garmin originals, and the export data stays in the bulk folder. A step in the app asks once before the sync, offers a preview, and makes a safety copy of the daily files, the Garmin answers and the quality log first.
+- The daily files in `summary` are now put together field by field: where Garmin's answer for an old day holds a field but leaves it empty, the export fills it (heart rate minimum and maximum, stress average). Before, such an old day showed no value at all.
+- A few shown values change for migrated days: the climbed floors follow Garmin's own value, six sleep durations differ by 0.01 hours, and the activity list of days that came from the earlier import is empty instead of wrong (it showed minutes and kilometres a thousand and a hundred times too large).
+- The safety copy is a ZIP in `backup/migration`, checked right after it is written. A command line tool puts it back (`restore_migration_snapshot.py`, Python needed). Old copies are not deleted by the app.
+- The daily update only points to days that wait for the migration; it never changes your archive.
+- Please note: days of the earlier import without an archived Garmin original, and days where the export differs from the stored data, are reported and left unchanged.
+
 ## v1.7.6.2.1 — Sturdier Backups
 
 - The backups of the daily files and of the raw Garmin answers now run on the same code as the backup of the bulk folder.

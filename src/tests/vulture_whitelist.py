@@ -111,4 +111,9 @@ VULTURE_WHITELIST: dict[tuple[str, str], str] = {
     ("garmin\\garmin_bulk_normalizer.py", "no_timestamp"): "RunStats counter of dropped samples, not reported yet (1 on the real export); tested through file_samples()",
     ("garmin\\garmin_bulk_normalizer.py", "no_heart_rate"): "RunStats counter (records without heart rate), read by the tests, not reported yet",
     ("garmin\\garmin_bulk_normalizer.py", "zero_heart_rate"): "RunStats counter of dropped samples (9566 on the real export), read by the tests, not reported yet",
+
+    # ── v1.7.6.3 migration: safety copy listing ──────────────────────────
+    # The only caller is the command line tool support-tools/archive-maintenance/restore_migration_snapshot.py
+    # (--list and the choice of the oldest copy); support-tools/ is not part of the vulture scan.
+    ("garmin\\garmin_migration_snapshot.py", "list_snapshots"): "called by support-tools/archive-maintenance/restore_migration_snapshot.py (not scanned); tested in test_migration_snapshot",
 }

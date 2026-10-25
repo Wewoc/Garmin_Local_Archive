@@ -63,6 +63,8 @@ Note: `garmin_extended_anaysis.py` (an Easter Egg module, separately licensed un
 | `garmin_silo_check.py` | Read-only silo drift detection — scans raw/, summary/, source/, and quality_log.json for inconsistencies. Surfaces gaps that the live pipeline does not catch: orphan files, missing summaries, unlogged raw days, source files without raw. Repair delegated to `garmin_silo_repair.py`. Since v1.7.6.2: finding #8 (a bulk file the quality log marks is lost) and #9 (an original an intraday day file names is missing); a day with a lost aggregates file is not an orphan. |
 | `garmin_silo_repair.py` | Headless-callable core for the four repair paths that `garmin_silo_check.py` detects. Extracted from `panel_archive.py`'s `_on_silo_repair()` closure so repair is callable without a live GUI instance. Not a Leaf-Node — delegates to the existing Sole-Write-Authority modules; performs no direct file writes itself. Since v1.7.6.2: five paths — #8 and #9 restore bulk files from `backup/bulk`; #9 restores the FIT and, since v1.7.6.2.1, the JSON originals. |
 | `garmin_repair_resting_hr.py` | Removable one-time repair (v1.7.5.7) of the resting heart rate of days imported from the GDPR export before v1.7.5.7 — the import had stored the 7-day average. Content-detected (`find_candidates()`), values from `source/`, writes only through `garmin_writer.write_day()` and `garmin_quality` (`touch_last_checked()`), one continuous `QUALITY_LOCK` hold. Not a Leaf-Node. Everything that belongs to it carries the marker `RESTING-HR-REPAIR v1.7.5.7`; removal list in the module docstring and in `MAINTENANCE_GARMIN.md` |
+| `garmin_track_migration.py` | Removable (v1.7.6.3) migration of the mixed archive: content-detected (`scan_archive()`, `plan_migration()` with the coverage check), days made again from `source/` and summaries refreshed (`run_migration()`), safety copy first. Writes only through `garmin_writer` and `garmin_quality` |
+| `garmin_migration_snapshot.py` | Removable (v1.7.6.3). Sole owner of `garmin_data/backup/migration/` — the checked ZIP of `raw/`, `summary/` and the quality log made before the migration writes, and the way back (`restore_snapshot()`) |
 | `garmin_merge.py` | Additive field merge for backfill operations — never overwrites an already-populated field. Used to retroactively add newly supported data fields (like step count) to already-archived days. |
 | `garmin_force_refetch.py` | Sole owner of `garmin_data/backup/force_refetch/` — snapshots the archived `source/` file for a day before a deliberate Force-Refetch overwrite, and can restore it if the new fetch turns out worse. Scope: `source/` only, not `raw/`. Flat directory, one file per day. (v1.7.1.7) |
 | `garmin_container.py` | Sole owner of `.gla` encrypted mirror container files — creates and opens them for encrypted mirror transport. AES-256-GCM per section (quality_log, raw, summary, context), PBKDF2-HMAC-SHA256 (600 000 iterations) → HKDF per-section key derivation. |
@@ -315,7 +317,7 @@ Both build scripts run `validate_scripts()` before PyInstaller starts:
 | `garmin_app.py` | `class GarminApp` |
 | `garmin_app_standalone.py` | `class GarminApp` |
 | `garmin_api.py` | `def login`, `def fetch_raw` |
-| `garmin_collector.py` | `def main`, `def _fetch_and_assess`, `def run_import`, `def _run_bulk_import`, `def _mark_bulk_days`, `def _apply_bulk_marks`, `def _run_bulk_mark_catch_up`, `def _run_bulk_backup`, `def _finish_aggregates`, `def _apply_aggregates` (plus the older entries listed in `build_manifest.SCRIPT_SIGNATURES_BASE`) |
+| `garmin_collector.py` | `def main`, `def _fetch_and_assess`, `def run_import`, `def _run_bulk_import`, `def _mark_bulk_days`, `def _apply_bulk_marks`, `def _run_bulk_mark_catch_up`, `def _run_bulk_backup`, `def _finish_aggregates`, `def _apply_aggregates`, `def _run_track_migration` (plus the older entries listed in `build_manifest.SCRIPT_SIGNATURES_BASE`) |
 | `garmin_import.py` | `def load_bulk`, `def parse_day`, `def load_bulk_with_entries` |
 | `garmin_bulk_fit_reader.py` | `def parse_fit`, `class FitFile`, `class FitFormatError` |
 | `garmin_bulk_export_scanner.py` | `def iter_fit_files`, `class ScanStats` |
@@ -325,8 +327,10 @@ Both build scripts run `validate_scripts()` before PyInstaller starts:
 | `garmin_bulk_json_import.py` | `def run_aggregates_import`, `def format_summary`, `def entry_hashes`, `def day_window` |
 | `garmin_backup_common.py` | `class BackupKind`, `def backup_file`, `def consolidate_months`, `def backfill`, `def find_outdated`, `def refresh`, `def read_copy` |
 | `garmin_backup_bulk.py` | `def backup_all`, `def backup_originals`, `def read_day_copy`, `def read_original_copy` |
+| `garmin_track_migration.py` | `def import_sections`, `def classify_day`, `def scan_archive`, `def pending`, `def plan_migration`, `def format_plan`, `def run_migration`, `def format_result` |
+| `garmin_migration_snapshot.py` | `def create_snapshot`, `def verify_snapshot`, `def list_snapshots`, `def restore_snapshot` |
 | `garmin_container.py` | `def lock`, `def unlock_meta`, `def fulfill_order`, `def is_container`, `def list_files`, `def report_progress` |
-| `garmin_writer.py` | `def write_day`, `def read_raw`, `def read_summary`, `def rebuild_summary` |
+| `garmin_writer.py` | `def write_day`, `def read_raw`, `def read_summary`, `def rebuild_summary`, `def resolve_preview`, `def restore_day_files` |
 | `garmin_quality.py` | `def _upsert_quality`, `record_bulk_intraday`, `unmarked_bulk_days`, `catch_up_bulk_intraday`, `record_bulk_aggregates`, `catch_up_bulk_aggregates` |
 | `garmin_config.py` | `GARMIN_EMAIL` |
 | `garmin_security.py` | `def load_token`, `def save_token` |
@@ -494,6 +498,7 @@ Shared setup and helpers live in `tests/gla_testenv.py`; `test_local.py` stays a
 | `test_garmin_import.py` | `garmin_import`, `garmin_collector.run_import` |
 | `test_silo_check.py`, `test_silo_repair.py` | `garmin_silo_check`, `garmin_silo_repair` |
 | `test_repair_resting_hr.py` | `garmin_repair_resting_hr` (removable, v1.7.5.7) — detection, repair, dry run, errors, shared quality log, scheduler hint |
+| `test_track_migration.py`, `test_migration_snapshot.py` | `garmin_track_migration` and `garmin_migration_snapshot` (removable, v1.7.6.3) — Ist-Stand pins, detection, coverage, preview, migration, safety copy, restore, popup/trigger/scheduler hooks, lists in any order |
 | `test_bulk_fit_reader.py`, `test_bulk_export_scanner.py`, `test_bulk_normalizer.py`, `test_bulk_writer.py`, `test_bulk_import.py`, `test_bulk_json_import.py` | the six bulk modules (v1.7.6; `garmin_bulk_json_import` v1.7.6.1); `fit_builder.py` builds the synthetic FIT files and ZIPs; `test_bulk_writer.py` also covers the aggregates files and the unreadable-day state (F-1) |
 | `test_force_refetch.py` | `garmin_force_refetch` |
 | `test_local.py` | cross-module: determinism, invariants, robustness, one end-to-end run |

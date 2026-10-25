@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.6.2.1
+# Garmin Local Archive — Desktop App v1.7.6.3
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes

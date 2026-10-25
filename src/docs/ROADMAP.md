@@ -6,17 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.2.1**
+**Currently stable — v1.7.6.3**
 
 ---
-
-### v1.7.6.3 — Migration of the mixed archive
-
-- Existing days are split into API store and bulk store by a step in the app
-  (found by their content, resumable per year), with a full backup and a dry
-  run first.
-- `quality_log.json` records which store has data per day; the two bulk timer
-  modes are removed.
 
 ### v1.7.6.4 — Migration in the daily update
 
@@ -611,6 +603,25 @@ A damaged monthly backup ZIP and the error count of the backup refresh would
 show as a warning of the sync and in the archive check instead of only in the
 log; a damaged monthly ZIP could be rebuilt from the daily files by a step in
 the app.
+
+**Activities from the export in the daily summary**
+
+The activities of the Garmin export would reach `summary/` with duration and
+distance in the right units. Until then the daily summary of a day that comes
+from the export holds no activities.
+
+**Days of the earlier import without a Garmin original in the migration**
+
+Days that only hold the earlier import form, without the archived Garmin
+original, would be turned into days of the export by a step in the app
+(preview and backup first). Until then they are reported by the migration and
+stay as they are.
+
+**Remove the bulk upgrade mechanism**
+
+The two background timer modes for days of the export (bulk recheck and bulk
+field backfill) and the matching steps of the sync would be removed once no
+archive depends on them any more.
 
 **MCP transport_security — `allowed_origins` extension**
 v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left `allowed_origins` at the SDK's own three defaults — a server-to-server HTTP client typically sends no `Origin` header at all, and the SDK's own validator passes automatically when it's absent. Revisit only if a real `Invalid Origin header` rejection shows up in the log for some other MCP client.
