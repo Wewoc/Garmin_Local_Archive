@@ -1,5 +1,91 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.2.1 — Shared Backup Code and Sturdier Backups
+
+The raw backup and the source backup now run on the same shared code as the
+backup of the bulk store (one flow instead of three copies), and the monthly
+backup ZIPs are protected against a damaged file: a ZIP that does not open or
+fails its check is no longer appended to (before, such a file was silently
+turned into an incomplete archive and its old entries were gone). The silo
+check also finds lost JSON originals of the export, and a day file that is lost
+together with its original is found and repaired in one run.
+
+**What changed:**
+- **Shared backup code** (`garmin_backup`, `garmin_backup_source`,
+  `garmin_backup_common`): the two modules are thin shells over
+  `garmin_backup_common`. Public names, return values (`backfill_raw` still
+  answers `errors`, `backfill_source` `failed`) and logger names are
+  unchanged; `BackupKind` has an optional `log`, so a shell's log lines and
+  tests stay with its module. A few log lines read differently now ("source
+  file not found", "skipped", "failed").
+- **Damaged monthly ZIP (F-9):** before a month folder is appended to a monthly
+  ZIP, the ZIP is opened and every entry is checked. A ZIP that fails is not
+  touched (no append, no replace), the month folder stays as the fallback and
+  one error line names the ZIP and the reason; the following months go on. A
+  ZIP that a call began and could not finish is removed again, so the next run
+  builds it from the folder.
+- **Refresh:** a source file the refresh cannot read counts as an error (it was
+  only a warning and the closing line said "0 errors"). `find_outdated` keeps
+  its form; the shared module has an internal scan for the refresh.
+- **Error lines:** every error line of the backup code carries the exception
+  type (`PermissionError: ...`), an unexpected error adds the traceback at debug
+  level, and every line about a ZIP names it.
+- **Silo check** (`garmin_silo_check`): a lost JSON original
+  (`bulk/source/<xx>/<hash>.json`) is found by comparing the names in the
+  backup ZIPs with the store (`bulk_json_originals_missing`). The FIT list
+  (`bulk_originals_missing`) also holds FIT originals the backup has and the
+  store lacks, so a lost day file and its lost original are both found in one
+  check and one repair restores them. Only the ZIP directories are read.
+- **Silo repair and panel:** the repair restores JSON originals from the backup
+  (items marked `kind: "json"`); the panel names them in a line of their own and
+  marks them "(JSON)" in the repair log.
+- **Cleaned up:** `check_needed()` of the bulk backup (no caller) and the
+  `_zip_index` helpers of the two shells (only a test used them) are removed.
+
+**New modules:** none.
+
+**Changed modules:**
+- `garmin/garmin_backup_common.py` — hardening, `BackupKind.log`, internal scan
+- `garmin/garmin_backup.py`, `garmin/garmin_backup_source.py` — thin shells
+- `garmin/garmin_backup_bulk.py` — `check_needed()` removed
+- `garmin/garmin_silo_check.py`, `garmin/garmin_silo_repair.py`,
+  `app/panel_archive.py` — JSON originals, FIT originals found by the backup
+- `compiler/build_manifest.py`, `tests/vulture_whitelist.py` — `check_needed`
+  removed from the required definitions and the whitelist (the entries for
+  `backup_file` and `is_json_object` go, the shells call them now)
+- `tests/` — `test_backup_common.py` (hardening checks, `BackupKind.log`),
+  `test_backup.py` (three `testzip` patches follow the new call order, one
+  patch location), `test_backup_bulk.py`, `test_silo_check.py`,
+  `test_silo_repair.py`, `test_import_mirror.py` (the round trip needs one
+  repair run, not two), `test_qt_app.py`
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_INVARIANTS.md`,
+  `docs/MAINTENANCE_GARMIN.md`, `docs/MAINTENANCE_GLOBAL.md`,
+  `docs/GLA_GUIDELINES.md`, `README.md`, `docs/USER_GUIDE.txt`,
+  `docs/QUICKSTART.txt`, `docs/README_APP.md` (title), `docs/ROADMAP.md`,
+  `docs/VERSION_HISTORY.md`
+- `version.py` — 1.7.6.2.1
+
+**Test result:** all suites green, 5958 checks in 44 files.
+
+**Verified against the archive:** the silo check was run read-only against a
+real archive (about 34,000 kept originals): no finding, about 2 seconds
+(1.6 before). The write paths (restore of an original, consolidation of a
+damaged monthly ZIP) were tested with synthetic archives only.
+
+**Not covered:** a JSON original that was lost before it was ever backed up
+cannot be found by the check (a FIT original is still found through its day
+file); appending to a monthly ZIP is still not atomic, so an interrupted append
+(full disk, crash) can leave a ZIP without a valid directory: the next run
+reports it and appends nothing more, but the old entries of that ZIP are gone;
+a damaged monthly ZIP is reported, not repaired by the app (delete it and let a
+backfill make the copies again while the daily files still exist; the source
+backup does this at the end of a sync, the raw backup only through a dialog
+offered once); `zip_contains` stays silent, so a damaged ZIP counts as "file
+missing" in the backfill check; the sync does not read the result of the
+backup refresh, its error count is only in the closing line of the backup log;
+no repair run and no import of a real mirror container against the real
+archive yet.
+
 ## v1.7.6.2 — Archive Protection for the Bulk Store
 
 The bulk store (`garmin_data/bulk/`: heart-rate series, daily values and the
@@ -85,6 +171,16 @@ mirror container, and a mirror import brings the whole store along.
 
 **Test result:** all suites green, 5872 checks in 44 files.
 
+**Verified against the archive:** the first backup and the mirror were run on
+a real archive (about 34,000 kept originals, about 5,700 bulk day files). The
+first backup took under five minutes before the login and every copy was
+checked against its source afterwards (nothing missing, size and CRC equal, no
+damaged ZIP, no temporary files left); an idle sync start spends about 6
+seconds on the backup checks; the silo check takes about 1.5 seconds and
+reports nothing; the mirror of the whole archive (about 68,000 files, 233 MB)
+was made with progress lines throughout, and its header lists exactly the
+files of the store and the backup.
+
 **Not covered:** the silo check notices a lost original only for the FIT files
 named by the intraday day files (the `source_files` of an aggregates file are
 hashes of single source entries, so a lost JSON original cannot be told from
@@ -92,9 +188,8 @@ them); when a day file and its original are lost together, the repair needs a
 second run for the original; a damaged (not merely missing) day file is not
 detected by the silo check; the raw and source backups still run on their own
 code and the damaged-ZIP weakness of their append mode is not yet fixed
-(v1.7.6.2.1); no run against the real archive yet (time of the first backup,
-cost of the backup check at each sync start, a mirror import with a real
-container).
+(v1.7.6.2.1); the import of a real mirror container and a restore from the
+real backup have not been run against the archive yet.
 
 ## v1.7.6.1 — Bulk JSON Import into the Bulk Store
 

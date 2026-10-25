@@ -67,8 +67,8 @@ garmin_app.py (GUI)
 - `garmin_bulk_json_import.py` (v1.7.6.1) orchestrates only, like `garmin_bulk_import.py`: it never touches `quality_log.json`, `raw/`, `summary/` or the backup. The caller makes the summaries of the written days and the quality-log entries and marks (`garmin_collector._finish_aggregates()` → `_apply_aggregates()`, under `QUALITY_LOCK`, one save). A day of the export that is invalid or has too little data is rejected and reported; it is not a failure of the run (a rerun would reject it again)
 - `entry["bulk"]` in the quality log (a dict, keys `intraday` and `aggregates` = import date) is not `entry["source"] == "bulk"`: the first marks days with data in the bulk store (series, daily values), the second marks days of the older JSON import and the entries made for export-only days. A day with an aggregates file but no `raw/` file has an entry with `source` `bulk` and `write` false, so the start-up integrity check does not call it missing
 - `QUALITY_LOCK` must be held around all load-modify-save sequences
-- `garmin_backup_common.py` (v1.7.6.2) is a leaf node — standard library only; it knows no path of `garmin_config` (a `BackupKind` carries them). `garmin_backup_bulk.py` imports it and `garmin_config` (lazily), nothing else; both never raise: an error ends in the returned numbers and the log, a failed bulk backup is a warning at the caller (`garmin_collector._run_bulk_backup()`), never a failed run
-- A ZIP of the bulk originals is never appended to (v1.7.6.2): a prefix with new files gets a new ZIP written next to the old one (`<xx>.zip.tmp`: old entries copied, new ones added), verified, swapped in with `os.replace`; a ZIP that cannot be read or fails its check is left untouched and reported (`damaged_zips`). The weakness of the append mode of the raw and source backups (finding F-9) is not fixed there yet (v1.7.6.2.1)
+- `garmin_backup_common.py` (v1.7.6.2) is a leaf node — standard library only; it knows no path of `garmin_config` (a `BackupKind` carries them). `garmin_backup_bulk.py` imports it and `garmin_config` (lazily), nothing else; both never raise: an error ends in the returned numbers and the log, a failed bulk backup is a warning at the caller (`garmin_collector._run_bulk_backup()`), never a failed run. Since v1.7.6.2.1 `garmin_backup.py` and `garmin_backup_source.py` are thin shells over `garmin_backup_common` as well (they import it and `garmin_config`, no pipeline module)
+- A ZIP of the bulk originals is never appended to (v1.7.6.2): a prefix with new files gets a new ZIP written next to the old one (`<xx>.zip.tmp`: old entries copied, new ones added), verified, swapped in with `os.replace`; a ZIP that cannot be read or fails its check is left untouched and reported (`damaged_zips`). The monthly ZIPs of the day-file backups (raw, source, bulk day files) are checked before anything is appended or replaced (v1.7.6.2.1, finding F-9): a ZIP that does not open or fails its check is left untouched, the month folder stays as the fallback and one error line names the ZIP; a ZIP a call began and could not finish is removed again, so the next run builds it from the folder. The append mode itself is not atomic: an interrupted append can still damage a ZIP, the next run reports it and appends nothing more
 - Files of the bulk store come back only through `garmin_bulk_writer` (v1.7.6.2): the mirror import and the silo repair (#8/#9) hand bytes to `import_day_file()` / `store_original()`, which validate them, check the hash and write atomically; the importer and the repair never write a bulk file themselves
 - `fetch_raw()` returns `(raw, failed_endpoints)` — never raises
 - `_fetch_and_assess()` returns `(label, normalized, summary, fields, val_result)` — never raises
@@ -170,7 +170,7 @@ No writes. No imports of write modules. Repair delegation lives in `panel_archiv
 
 | Function | Purpose |
 |---|---|
-| `check_silos()` | Scans raw/, summary/, source/, quality_log.json, the file names in `bulk/aggregates` and `bulk/raw`, the marks of the quality log and the `source_files` of the intraday day files for silo inconsistencies. Returns finding lists, totals, counts, checked_at. Read-only. Lockless (atomic writes guarantee complete-file reads, §9a). A day with an aggregates file counts as *export data* (v1.7.6.1): it may have no `raw/` file, so its summary is neither an orphan (#5 `summary_without_raw` = summary without `raw/` **and** without aggregates) nor fine without a summary (#7 `raw_without_summary` = `raw/` **or** aggregates, but no summary). Since v1.7.6.2: **#8 bulk file lost** (`bulk_lost_intraday`, `bulk_lost_aggregates`: the quality log marks the day with `entry["bulk"]["intraday"]` / `["aggregates"]` and the file is missing from the store; a damaged file is not detected, a day without a quality-log entry has no mark) and **#9 original missing** (`bulk_originals_missing`: a hash named in `source_files` of an intraday day file for which `bulk/source/<xx>/<hash>.fit` is missing — FIT originals only, because the `source_files` of an aggregates file are hashes of single source entries, not of the JSON files kept in `bulk/source`; reads every intraday day file). A day with a lost aggregates file is not an orphan (#5): its summary is the last copy of the resolved export values (F-10). The keys of #1/#3/#5/#7 keep their names; `totals` gains `aggregates` (count of `garmin_bulk_agg_*.json` files) |
+| `check_silos()` | Scans raw/, summary/, source/, quality_log.json, the file names in `bulk/aggregates` and `bulk/raw`, the marks of the quality log, the `source_files` of the intraday day files and the entry names of `backup/bulk/source/<xx>.zip` for silo inconsistencies. Returns finding lists, totals, counts, checked_at. Read-only. Lockless (atomic writes guarantee complete-file reads, §9a). A day with an aggregates file counts as *export data* (v1.7.6.1): it may have no `raw/` file, so its summary is neither an orphan (#5 `summary_without_raw` = summary without `raw/` **and** without aggregates) nor fine without a summary (#7 `raw_without_summary` = `raw/` **or** aggregates, but no summary). Since v1.7.6.2: **#8 bulk file lost** (`bulk_lost_intraday`, `bulk_lost_aggregates`: the quality log marks the day with `entry["bulk"]["intraday"]` / `["aggregates"]` and the file is missing from the store; a damaged file is not detected, a day without a quality-log entry has no mark) and **#9 original missing**: `bulk_originals_missing` lists the FIT originals for which `bulk/source/<xx>/<hash>.fit` is missing — named in `source_files` of an intraday day file (reads every intraday day file) or held by the backup of the originals (v1.7.6.2.1); `bulk_json_originals_missing` (v1.7.6.2.1) lists the JSON originals the backup holds and the store lacks. The backup is read through the entry names of the ZIPs in `backup/bulk/source` (ZIP directories only, nothing is unpacked, a damaged ZIP is skipped), because the `source_files` of an aggregates file are hashes of single source entries, not of the JSON files kept in `bulk/source`. A day file and its original lost together are found by one check. An original lost before it was ever backed up is not found unless a day file names it. A day with a lost aggregates file is not an orphan (#5): its summary is the last copy of the resolved export values (F-10). The keys of #1/#3/#5/#7 keep their names; `totals` gains `aggregates` (count of `garmin_bulk_agg_*.json` files) |
 
 **Result structure:**
 
@@ -182,7 +182,8 @@ No writes. No imports of write modules. Repair delegation lives in `panel_archiv
     "raw_without_summary":    [date, ...],   # #7 — raw or export data exists, summary missing
     "bulk_lost_intraday":     [date, ...],   # #8 (v1.7.6.2) — marked bulk.intraday, file missing
     "bulk_lost_aggregates":   [date, ...],   # #8 (v1.7.6.2) — marked bulk.aggregates, file missing
-    "bulk_originals_missing": [str, ...],    # #9 (v1.7.6.2) — SHA-256 (sorted) named by an intraday day file, no .fit in bulk/source
+    "bulk_originals_missing": [str, ...],    # #9 (v1.7.6.2) — SHA-256 (sorted) of a FIT original the store lacks: named by an intraday day file or held by the backup
+    "bulk_json_originals_missing": [str, ...],  # #9 (v1.7.6.2.1) — SHA-256 (sorted) of a JSON original the backup holds and the store lacks
     "checked_at": "ISO-8601",
     "totals": {"raw": int, "summary": int, "source": int, "aggregates": int, "quality_days": int},
     "counts": {one count per finding list above},
@@ -195,7 +196,7 @@ No writes. No imports of write modules. Repair delegation lives in `panel_archiv
 
 ## `garmin_backup_source.py`
 
-Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` + stdlib.
+Sole Owner of `garmin_data/backup/source/`. Since v1.7.6.2.1 a thin shell over `garmin_backup_common`: it imports that, `garmin_config` and the standard library, no pipeline module.
 
 **Invariant refinement (v1.6.0.4):**
 - `garmin_backup.py` — Sole Owner of `backup/raw/` + `backup/log/` (previously: all of `backup/`)
@@ -205,10 +206,10 @@ Sole Owner of `garmin_data/backup/source/`. Leaf-Node — only `garmin_config` +
 |---|---|
 | `backup_source(date_str, force=False)` | Copies `garmin_source_YYYY-MM-DD.json` to `backup/source/`. Called by `garmin_source_writer` after write. Returns `bool`. Non-fatal. Since v1.7.5.6 every call consolidates against today's real month, and a file whose content differs from its ZIP entry replaces that entry — see `_consolidate_source_months()`. `force=True` (v1.7.1.7) additionally replaces an entry with identical content |
 | `backfill_source()` | Copies all source files without a backup copy. One-time operation. Returns `{"copied", "skipped", "failed"}` |
-| *(v1.7.1.7 note)* `backfill_raw()`/`backfill_source()` likely share the same name-check pattern as the consolidation functions above, but were not touched — neither is part of the Force-Refetch call path (only the backfill buttons use them). See `KNOWN_ISSUES.md` |
+| *(v1.7.6.2.1)* Shell | Every function here calls `garmin_backup_common` with a `BackupKind` built at each call (`area` `source`, prefix `garmin_source_`, ZIP prefix `source_backup_`, validity = JSON object, `log` = this module's logger, so log lines and test captures stay with the module). `_consolidate_source_months()` and `_zip_contains()` remain as module names (patch points of the tests). `backup_source`, `backfill_source` and `refresh_source_backups` hand the module's own `_consolidate_source_months` to the shared flow |
 | `check_source_backfill_needed()` | Returns count of source files without backup. Fast check, no copy |
 | `check_source_stale_backups()` | Returns count of source files whose backup copy differs from them (v1.7.5.6). Compares bytes with the copy in the month folder, otherwise CRC32 and size with the monthly ZIP entry — nothing is unpacked. A file without any backup is not counted (that is `backfill_source()`'s job), nor is a file that is not a JSON object. Fast check, no copy |
-| `refresh_source_backups()` | Brings those copies up to date (v1.7.5.6): copies the changed files into their month folders, then consolidates once, which replaces the ZIP entries. Content-based and idempotent, never modifies `source/`; a file that is not a JSON object is reported and not copied over its backup. Returns `{"refreshed", "unreadable", "errors"}` |
+| `refresh_source_backups()` | Brings those copies up to date (v1.7.5.6): copies the changed files into their month folders, then consolidates once, which replaces the ZIP entries. Content-based and idempotent, never modifies `source/`; a file that is not a JSON object is reported and not copied over its backup; a file that cannot be read counts in `errors` (v1.7.6.2.1). Returns `{"refreshed", "unreadable", "errors"}` |
 
 **Constants:**
 - `SOURCE_LOG_SCHEMA_VERSION = 1` — increment when log entry structure changes
@@ -268,7 +269,7 @@ sole-write-authority modules it delegates to (`garmin_writer`, `garmin_quality`,
 
 | Function | Purpose |
 |---|---|
-| `repair_silos(fresh)` | Repairs all five silo-drift categories from `fresh` (the return value of `check_silos()` — caller must re-scan immediately before calling, never act on stale findings). Returns `{"ok", "failed", "items"}` — `items` is one dict per processed date/action (`category`, `date`, `status`, plus category/status-specific extra keys; #8 adds `kind` `intraday`/`aggregates`, #9 adds `hash` and has `date` `None`). The keys `bulk_lost_intraday`, `bulk_lost_aggregates`, `bulk_originals_missing` are optional in `fresh` (read with a default of `[]`) |
+| `repair_silos(fresh)` | Repairs all five silo-drift categories from `fresh` (the return value of `check_silos()` — caller must re-scan immediately before calling, never act on stale findings). Returns `{"ok", "failed", "items"}` — `items` is one dict per processed date/action (`category`, `date`, `status`, plus category/status-specific extra keys; #8 adds `kind` `intraday`/`aggregates`, #9 adds `hash` and has `date` `None`; the items of a JSON original add `kind` `json`, v1.7.6.2.1). The keys `bulk_lost_intraday`, `bulk_lost_aggregates`, `bulk_originals_missing`, `bulk_json_originals_missing` are optional in `fresh` (read with a default of `[]`) |
 
 **Delegation per category:**
 
@@ -279,7 +280,7 @@ sole-write-authority modules it delegates to (`garmin_writer`, `garmin_quality`,
 | 5 | `summary_without_raw` | `Path.unlink()` — removes the orphan summary (a day with export data, or marked as having export data, is never listed here, see `check_silos()`) |
 | 7 | `raw_without_summary` | Inline `summarize()` + `write_day()` for a day with `raw/`; a day with export data and no `raw/` file: `writer.rebuild_summary()`, `summary/` only (v1.7.6.1). `False` from the writer is an `error` of the day |
 | 8 | `bulk_lost_intraday`, `bulk_lost_aggregates` (v1.7.6.2) | Runs first, so that #3 and #7 see a restored aggregates file. The copy from `backup/bulk` (`garmin_backup_bulk.read_day_copy`) is handed to `garmin_bulk_writer.import_day_file()` (validates, writes atomically); for an aggregates day `writer.rebuild_summary()` follows. Status `repaired`, `present` (the file is back by now, not counted), `no_backup` (no copy: counts as failed, the summary stays untouched), `error` (exception, the writer refuses the copy, a copy with a newer schema than the program knows, the summary cannot be made). No `QUALITY_LOCK`: the quality log is not touched, the marks stay |
-| 9 | `bulk_originals_missing` (v1.7.6.2) | After #8. `garmin_backup_bulk.read_original_copy(hash, ".fit")` → `garmin_bulk_writer.store_original()` (checks the bytes against the hash). Same statuses as #8. Day file and original lost together: the original is seen by the next check, because the hashes come from the day files |
+| 9 | `bulk_originals_missing` (v1.7.6.2), `bulk_json_originals_missing` (v1.7.6.2.1) | After #8, FIT before JSON. `garmin_backup_bulk.read_original_copy(hash, ".fit" or ".json")` → `garmin_bulk_writer.store_original(hash, data, suffix)` (checks the bytes against the hash). Same statuses as #8; the items of a JSON original carry `kind` `json`. Day file and original lost together: one check finds both (the backup names the original too, v1.7.6.2.1) and one repair restores both |
 
 `panel_archive.py::_do_repair()` only formats this structured result for the
 GUI log — no pipeline logic remains in the panel.
@@ -766,7 +767,7 @@ The dry run returns `raw_to_copy`, `context_to_copy`, `source_to_copy`, `bulk_to
 
 ## `garmin_backup.py`
 
-Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_quality`.
+Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_quality`. Since v1.7.6.2.1 the raw-file part (backup, consolidation, backfill, refresh) is a thin shell over `garmin_backup_common` (one `BackupKind` built at each call: `area` `raw`, prefix `garmin_raw_`, ZIP prefix `raw_backup_`, validity = JSON object with the matching `date`, `log` = this module's logger); the quality-log snapshots, `check_raw_integrity()` and `restore_raw_days()` stay here with their own code. Public names, return values (`backfill_raw` answers `errors`) and the module names `_consolidate_raw_months()` and `_zip_contains()` are unchanged.
 
 | Function | Purpose |
 |---|---|
@@ -781,7 +782,7 @@ Sole Owner of `garmin_data/backup/`. Does not import `garmin_writer` or `garmin_
 | `check_raw_backfill_needed()` | Returns count of raw files without backup. Fast, no copy. Returns 0 if complete |
 | `backfill_raw()` | Copies all unbackedup raw files into `backup/raw/`. Consolidates completed months. Idempotent. Returns `{"copied", "skipped", "errors"}` |
 | `check_raw_stale_backups()` | Returns count of raw files whose backup copy differs from them (v1.7.5.6). Compares bytes with the copy in the month folder, otherwise CRC32 and size with the monthly ZIP entry — nothing is unpacked. A file without any backup is not counted (that is `backfill_raw()`'s job), nor is a file that is not a valid day file. Fast check, no copy |
-| `refresh_raw_backups()` | Brings those copies up to date (v1.7.5.6): copies the changed files into their month folders, then consolidates once, which replaces the ZIP entries. Content-based and idempotent, never modifies `raw/`. A raw file that is not a JSON object, or whose `date` does not match its file name, is reported and not copied over its backup. Returns `{"refreshed", "unreadable", "errors"}` |
+| `refresh_raw_backups()` | Brings those copies up to date (v1.7.5.6): copies the changed files into their month folders, then consolidates once, which replaces the ZIP entries. Content-based and idempotent, never modifies `raw/`. A raw file that is not a JSON object, or whose `date` does not match its file name, is reported and not copied over its backup; a file that cannot be read counts in `errors` (v1.7.6.2.1). Returns `{"refreshed", "unreadable", "errors"}` |
 
 **Backup directory structure:**
 ```
@@ -797,18 +798,20 @@ garmin_data/backup/
 
 ## `garmin_backup_common.py`
 
-Leaf node (v1.7.6.2): the monthly folder / ZIP flow of the raw backup, once, parameterised by a `BackupKind` (area, source and backup folder, file prefix, ZIP prefix, validity check, log prefix). Standard library only; no path of `garmin_config` inside. Built for the bulk day files; `garmin_backup.py` and `garmin_backup_source.py` still run on their own copies of the flow until v1.7.6.2.1, and differential tests (`test_backup_common.py`) pin that the shared code behaves like both.
+Leaf node (v1.7.6.2): the monthly folder / ZIP flow of the raw backup, once, parameterised by a `BackupKind` (area, source and backup folder, file prefix, ZIP prefix, validity check, log prefix). Standard library only; no path of `garmin_config` inside. Built for the bulk day files; since v1.7.6.2.1 `garmin_backup.py` (raw) and `garmin_backup_source.py` (source) are thin shells over it as well. `test_backup_common.py` pins the module on folders it is handed (Part A), that the two shells behave like it (Part B) and the hardening of v1.7.6.2.1 (Part C).
 
 | Function | Purpose |
 |---|---|
-| `BackupKind` | Frozen dataclass; `suffix`, `date_of(path)` derive from the prefix |
+| `BackupKind` | Frozen dataclass; `suffix`, `date_of(path)` derive from the prefix. `log` (v1.7.6.2.1, optional): the logger the kind's messages go to — a module that wraps this one hands in its own; `None` = this module's logger, looked up at call time |
 | `backup_file(kind, date_str, force=False, consolidate=None)` | Copies one day file into its month folder and consolidates completed months. `bool` |
-| `consolidate_months(kind, current_month, force_filenames=None)` | ZIPs completed month folders, verifies, removes the folder; a file in the month folder replaces its ZIP entry when the bytes differ (rebuild without the old entry, verify, atomic swap) |
+| `consolidate_months(kind, current_month, force_filenames=None)` | ZIPs completed month folders, verifies, removes the folder; a file in the month folder replaces its ZIP entry when the bytes differ (rebuild without the old entry, verify, atomic swap). Since v1.7.6.2.1 an existing ZIP is opened and checked entry by entry (`testzip`) before anything is appended or replaced: one that fails is not touched, the month folder stays and one error line names the ZIP and the reason; a new ZIP that could not be finished is removed again |
 | `check_backfill_needed(kind)` / `backfill(kind)` | Count / copy the files without any backup copy; `backfill` consolidates once |
-| `find_outdated(kind)` / `check_stale(kind)` / `refresh(kind)` | Files whose copy differs (bytes against the month folder, otherwise CRC32 and size against the ZIP entry, nothing unpacked); `refresh` copies them and consolidates once |
-| `zip_index(zip_path)`, `zip_contains(zip_path, name)` | `{name: (crc, size)}` of a ZIP / presence of one entry; both swallow errors (see finding F-9, v1.7.6.2.1) |
+| `find_outdated(kind)` / `check_stale(kind)` / `refresh(kind)` | Files whose copy differs (bytes against the month folder, otherwise CRC32 and size against the ZIP entry, nothing unpacked); `refresh` copies them and consolidates once. A file that cannot be read is in neither list; `refresh` counts it as an error (internal `_scan`, v1.7.6.2.1), `find_outdated` keeps its two-list form |
+| `zip_index(zip_path, logger=None)`, `zip_contains(zip_path, name)` | `{name: (crc, size)}` of a ZIP (`{}` and a warning with the name and the exception type if it cannot be read) / presence of one entry; `zip_contains` swallows errors on purpose (a damaged ZIP counts as "file missing" in the backfill check; the consolidation reports the ZIP) |
 | `read_copy(kind, name)` | The backup copy of one file: the month folder first, otherwise the ZIP entry; `None` if there is none or it cannot be read |
 | `is_dated_object(data, date_str)`, `is_json_object(data, date_str)` | Ready-made validity checks for `BackupKind.is_valid` |
+
+**Messages (v1.7.6.2.1):** every error or warning line of the module carries the exception type (`PermissionError: ...`), an unexpected error adds the traceback as a debug line (`exc_info`), and every line about a ZIP names it ("... failed for 2024-08 (raw_backup_2024-08.zip): OSError: ..."). A damaged ZIP is not repaired by the module: delete it and let a backfill make the copies again while the daily files exist — the source backup does that at the end of a sync, the raw backup through `backfill_raw()` (offered once by a dialog, no button).
 
 ---
 
@@ -825,7 +828,6 @@ Sole Owner of `garmin_data/backup/bulk/` (v1.7.6.2). Reads the bulk store, never
 | Function | Purpose |
 |---|---|
 | `backup_all(should_stop=None)` | Brings the bulk backup up to date: copies what has no backup, refreshes what changed, adds missing originals. Looks first and asks `should_stop` only when there is work. Returns `{"raw", "aggregates", "source", "ok", "stopped"}`; a first backup of many originals logs a line every 10 % of the folders |
-| `check_needed()` | Counts what `backup_all()` would do (`raw`, `aggregates`, `source`, `damaged_zips`), copies nothing. No production caller yet (kept for v1.7.6.2.1, see `vulture_whitelist.py`) |
 | `backup_originals(should_stop=None)` | The originals only; `{"copied", "present", "failed", "damaged_zips", "stopped"}` |
 | `read_day_copy(which, date_str)` | `"raw"` or `"aggregates"`; the backup copy as bytes, `None` if there is none |
 | `read_original_copy(file_hash, suffix=".fit")` | The backup copy of one original; `None` if there is none |

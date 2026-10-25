@@ -841,6 +841,98 @@ with _iso10("sr8_order") as _b:
           [i["category"] for i in _rep["items"]] == ["8", "9", "5"] and (_rep["ok"], _rep["failed"]) == (3, 0)
           and _orig11.read_bytes() == _OR11)
 
+# ── #9 JSON (v1.7.6.2.1): a JSON original of the export the backup holds and the store lacks is restored ───────────────────────
+section("I9. garmin_silo_repair — #9 JSON original missing: restore from the backup")
+_ORJ12 = b'{"export": "json original of day 2025-12-23"}'
+_OHJ12 = _hl11.sha256(_ORJ12).hexdigest()
+_ITEM12 = {"category": "9", "date": None, "hash": _OHJ12, "kind": "json"}
+
+
+def _lost12(with_backup=True):
+    """A JSON original of the export in the store, backed up (optionally), then lost."""
+    assert _bw7.store_original_json(_OHJ12, _ORJ12) == _bw7.WRITTEN
+    if with_backup:
+        assert _bb10.backup_all()["ok"] is True
+    path = cfg.BULK_SOURCE_DIR / _OHJ12[:2] / f"{_OHJ12}.json"
+    path.unlink()
+    return path
+
+
+with _iso10("sr9_restore") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _orig12 = _lost12()
+    _found = _sc10.check_silos()
+    check("I9 #9: the lost JSON original is a finding of its own list, the FIT list stays empty",
+          _found["bulk_json_originals_missing"] == [_OHJ12] and _found["bulk_originals_missing"] == [])
+    _rep = silo_repair.repair_silos(_found)
+    check("I9 #9: the repair restores the JSON original from the backup, byte for byte, and reports it by hash with kind json",
+          _orig12.exists() and _orig12.read_bytes() == _ORJ12 and _rep["items"] == [{**_ITEM12, "status": "repaired"}]
+          and (_rep["ok"], _rep["failed"]) == (1, 0))
+    _after = _sc10.check_silos()
+    check("I9 #9: check, repair, check: the second check finds nothing in either list",
+          _after["bulk_json_originals_missing"] == [] and _after["bulk_originals_missing"] == [])
+    _rep = silo_repair.repair_silos({**_E3, "bulk_json_originals_missing": [_OHJ12]})
+    check("I9 #9: a JSON original that is back when the repair runs is 'present' — not fixed, not failed",
+          _rep["items"] == [{**_ITEM12, "status": "present"}] and (_rep["ok"], _rep["failed"]) == (0, 0))
+    with patch.object(silo_repair.backup_bulk, "read_original_copy", return_value=None) as _read:
+        silo_repair.repair_silos({**_E3, "bulk_json_originals_missing": [_OHJ12], "bulk_originals_missing": [_OH11]})
+    check("I9 #9: the backup is read with the suffix of the list: .json for the JSON list, .fit for the FIT list (FIT first)",
+          [c.args for c in _read.call_args_list] == [(_OH11, ".fit"), (_OHJ12, ".json")])
+
+with _iso10("sr9_nobackup") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _orig12 = _lost12(with_backup=False)
+    check("I9 #9: a JSON original lost before it was ever backed up cannot be seen by the check (the known limit of the "
+          "backup comparison); the repair then has nothing to do",
+          _sc10.check_silos()["bulk_json_originals_missing"] == []
+          and silo_repair.repair_silos(_sc10.check_silos())["items"] == [])
+    _rep = silo_repair.repair_silos({**_E3, "bulk_json_originals_missing": [_OHJ12]})
+    check("I9 #9: asked for a JSON original that has no backup copy, the repair says 'no_backup' (counted as failed) and creates nothing",
+          _rep["items"] == [{**_ITEM12, "status": "no_backup"}] and (_rep["ok"], _rep["failed"]) == (0, 1)
+          and not _orig12.exists())
+
+with _iso10("sr9_errors") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _orig12 = _lost12()
+    _other = "9f" * 32
+    _rep = silo_repair.repair_silos({**_E3, "bulk_json_originals_missing": [_other, _OHJ12]})
+    check("I9 #9: a JSON original without a backup copy does not stop the next one; failed counts exactly the one",
+          [(i["hash"][:2], i["status"]) for i in _rep["items"]] == [("9f", "no_backup"), (_OHJ12[:2], "repaired")]
+          and (_rep["ok"], _rep["failed"]) == (1, 1))
+    _orig12.unlink()
+    with patch.object(silo_repair.backup_bulk, "read_original_copy", side_effect=[OSError("disk exploded"), None]):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_json_originals_missing": [_OHJ12, _other]})
+    check("I9 #9: an exception while reading the backup is one error with a reason, the next original goes on",
+          _rep["items"][0]["status"] == "error" and "disk exploded" in _rep["items"][0]["reason"]
+          and _rep["items"][0]["kind"] == "json" and _rep["items"][1]["status"] == "no_backup"
+          and (_rep["ok"], _rep["failed"]) == (0, 2))
+    with patch.object(silo_repair.bulk_writer, "store_original", return_value=silo_repair.bulk_writer.FAILED):
+        _rep = silo_repair.repair_silos({**_E3, "bulk_json_originals_missing": [_OHJ12]})
+    check("I9 #9: a copy the bulk writer refuses is an error with a reason, nothing is created",
+          _rep["items"][0]["status"] == "error" and "refused" in _rep["items"][0]["reason"]
+          and (_rep["ok"], _rep["failed"]) == (0, 1) and not _orig12.exists())
+    _zip12 = cfg.BULK_SOURCE_BACKUP_DIR / f"{_OHJ12[:2]}.zip"
+    with zipfile.ZipFile(_zip12, "w") as _zf:
+        _zf.writestr(f"{_OHJ12}.json", b"other bytes")
+    _rep = silo_repair.repair_silos({**_E3, "bulk_json_originals_missing": [_OHJ12]})
+    check("I9 #9: a backup copy whose bytes do not match the hash is refused (an error), nothing is stored",
+          _rep["items"][0]["status"] == "error" and not _orig12.exists())
+
+with _iso10("sr9_both") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _agg_f10, _day_f10, _before = _lost10()
+    _orig11 = _lost11()
+    _orig12 = _lost12()
+    _put3(cfg.SUMMARY_DIR / "garmin_2025-12-30.json", {"date": "2025-12-30"})                   # a real orphan (#5)
+    _found = _sc10.check_silos()
+    check("I9 #9: a lost FIT and a lost JSON original are found together, each in its own list",
+          _found["bulk_originals_missing"] == [_OH11] and _found["bulk_json_originals_missing"] == [_OHJ12])
+    _rep = silo_repair.repair_silos({**_found, "bulk_lost_aggregates": [_dt3(_F10)], "summary_without_raw": [_dt3("2025-12-30")]})
+    check("I9 #9: one repair run restores both, FIT before JSON, after #8 and before #5; all four are repaired",
+          [(i["category"], i.get("kind")) for i in _rep["items"]] == [("8", "aggregates"), ("9", None), ("9", "json"), ("5", None)]
+          and (_rep["ok"], _rep["failed"]) == (4, 0) and _orig11.exists() and _orig11.read_bytes() == _OR11
+          and _orig12.exists() and _orig12.read_bytes() == _ORJ12)
+
 # ── Aufräumen I2 — isolierte Umgebung zurücksetzen ──────────────────────────
 os.environ["GARMIN_OUTPUT_DIR"] = _i2_orig_env
 importlib.reload(cfg)

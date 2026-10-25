@@ -24,8 +24,9 @@ Covered checks (reconstructability principle — KONZEPT §3):
                                           and the file is missing from the bulk store; restorable
                                           from the backup, not from raw)
   #9  original missing                   (v1.7.6.2: an intraday day file names a FIT file in its
-                                          source_files that bulk/source does not hold; restorable
-                                          from the backup)
+                                          source_files that bulk/source does not hold; v1.7.6.2.1:
+                                          also a file the backup of the originals holds and
+                                          bulk/source lacks, FIT or JSON; restorable from the backup)
 
 "Export data" (v1.7.6.1): a day with a file in the bulk store's aggregates folder
 (bulk/aggregates). Such a day may have no raw file at all — its summary is derived from
@@ -38,10 +39,17 @@ repair restores the file instead. The check looks at file names and at the marks
 quality log only; a damaged file is not detected, and a day without a quality-log entry has
 no mark.
 
-#9 reads every intraday day file for its source_files (nothing else is read) and compares the
-hashes with the names in bulk/source. It covers the FIT originals of the intraday days only:
-the source_files of an aggregates file are hashes of single entries of the export's JSON files,
-so a lost JSON original cannot be told from them.
+#9 has two sources of evidence for a lost original (bulk/source/<xx>/<hash>.fit or .json):
+  - the intraday day files: every one is read for its source_files (nothing else is read) and the
+    hashes are compared with the FIT names in bulk/source. The source_files of an aggregates file
+    are hashes of single entries of the export's JSON files, so they say nothing about the JSON
+    originals;
+  - the backup of the originals (v1.7.6.2.1): the entries of backup/bulk/source/<xx>.zip (names
+    only, read from the ZIP directories) that bulk/source lacks, FIT and JSON. This finds a lost
+    JSON original, and a lost FIT original in the same check even when its day file is lost too.
+    A file that was lost before it was ever backed up cannot be found this way (a FIT one still
+    shows through its day file). Findings: bulk_originals_missing (FIT) and
+    bulk_json_originals_missing (JSON).
 
 Not covered:
   #2  quality_log entry without raw      — owned by garmin_backup.check_raw_integrity()
@@ -58,6 +66,7 @@ Public API:
 import json
 import logging
 import re
+import zipfile
 from datetime import date, datetime, timezone
 
 import garmin_config as cfg
@@ -70,7 +79,8 @@ _SUMMARY_PREFIX = "garmin_"
 _SOURCE_PREFIX  = "garmin_source_"
 
 _HASH_RE     = re.compile(r"[0-9a-f]{64}")
-_FIT_NAME_RE = re.compile(r"[0-9a-f]{64}\.fit")
+_ORIGINAL_NAME_RE = re.compile(r"([0-9a-f]{64})(\.fit|\.json)")   # <sha256><suffix>, the name of an original
+_PREFIX_ZIP_RE    = re.compile(r"[0-9a-f]{2}\.zip")               # backup/bulk/source/<xx>.zip
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -199,10 +209,11 @@ def _collect_original_refs() -> set[str]:
     return refs
 
 
-def _collect_original_fit_hashes() -> set[str]:
-    """Returns the hashes of the originals kept as bulk/source/<xx>/<hash>.fit (v1.7.6.2), from
-    the file names only: a name has to be a SHA-256 plus ".fit" and start with its folder's two
-    characters (as the bulk writer's list_originals, which a Leaf Node cannot import)."""
+def _collect_original_hashes(suffix: str) -> set[str]:
+    """Returns the hashes of the originals kept as bulk/source/<xx>/<hash><suffix> (suffix ".fit" or
+    ".json"), from the file names only: a name has to be a SHA-256 plus the suffix and start with
+    its folder's two characters (as the bulk writer's list_originals, which a Leaf Node cannot
+    import)."""
     names: set[str] = set()
     folder = cfg.BULK_SOURCE_DIR
     if not folder.exists():
@@ -211,9 +222,50 @@ def _collect_original_fit_hashes() -> set[str]:
         if not sub.is_dir():
             continue
         for f in sub.iterdir():
-            if _FIT_NAME_RE.fullmatch(f.name) and f.name[:2] == sub.name:
-                names.add(f.name[:-len(".fit")])
+            m = _ORIGINAL_NAME_RE.fullmatch(f.name)
+            if m and m.group(2) == suffix and f.name[:2] == sub.name:
+                names.add(m.group(1))
     return names
+
+
+def _collect_original_fit_hashes() -> set[str]:
+    """The hashes of the FIT originals in bulk/source (v1.7.6.2), see _collect_original_hashes."""
+    return _collect_original_hashes(".fit")
+
+
+def _collect_original_json_hashes() -> set[str]:
+    """The hashes of the JSON originals in bulk/source (v1.7.6.2.1), see _collect_original_hashes."""
+    return _collect_original_hashes(".json")
+
+
+def _collect_backup_original_hashes() -> tuple[set[str], set[str]]:
+    """
+    Returns (FIT hashes, JSON hashes) of the originals the backup holds (v1.7.6.2.1): the entries
+    of backup/bulk/source/<xx>.zip, read from the ZIP directories only (nothing is unpacked). Only
+    entries named <sha256>.fit or <sha256>.json whose name starts with the ZIP's two characters
+    count. A ZIP that cannot be read contributes nothing (debug line; the backup reports it) and
+    does not stop the others. Inline like the other collectors (Leaf Node: no import of
+    garmin_backup_bulk, the owner of this layout; a test keeps the two in step).
+    """
+    fit: set[str] = set()
+    js: set[str] = set()
+    folder = cfg.BULK_SOURCE_BACKUP_DIR
+    if not folder.exists():
+        return fit, js
+    for z in folder.iterdir():
+        if not z.is_file() or not _PREFIX_ZIP_RE.fullmatch(z.name):
+            continue
+        try:
+            with zipfile.ZipFile(z, "r") as zf:
+                names = zf.namelist()
+        except (zipfile.BadZipFile, OSError) as e:
+            log.debug("garmin_silo_check: could not read the ZIP directory of %s: %s: %s", z.name, type(e).__name__, e)
+            continue
+        for name in names:
+            m = _ORIGINAL_NAME_RE.fullmatch(name)
+            if m and name[:2] == z.stem:
+                (fit if m.group(2) == ".fit" else js).add(m.group(1))
+    return fit, js
 
 
 def _collect_source_dates() -> set[date]:
@@ -266,7 +318,7 @@ def check_silos() -> dict:
     """
     Read-only drift detection across the data silos.
 
-    Returns a dict with six finding lists, totals, counts, and a timestamp:
+    Returns a dict with seven finding lists, totals, counts, and a timestamp:
 
     {
       "raw_without_quality":  [date, ...],   # #1 — orphan raw, no quality_log entry
@@ -276,7 +328,9 @@ def check_silos() -> dict:
       "raw_without_summary":  [date, ...],   # #7 — raw or export data exists, summary missing
       "bulk_lost_intraday":   [date, ...],   # #8 — marked bulk.intraday in the log, file missing
       "bulk_lost_aggregates": [date, ...],   # #8 — marked bulk.aggregates in the log, file missing
-      "bulk_originals_missing": [str, ...],  # #9 — SHA-256 (sorted) named by an intraday day file, no .fit in bulk/source
+      "bulk_originals_missing": [str, ...],  # #9 — SHA-256 (sorted) of a FIT original the store lacks: named by an
+                                             #      intraday day file, or held by the backup of the originals
+      "bulk_json_originals_missing": [str, ...],  # #9 — SHA-256 (sorted) of a JSON original the backup holds and the store lacks
       "checked_at":           "ISO-8601",
       "totals": {
         "raw":          int,   # count of garmin_raw_*.json files
@@ -293,6 +347,7 @@ def check_silos() -> dict:
         "bulk_lost_intraday":  int,
         "bulk_lost_aggregates": int,
         "bulk_originals_missing": int,
+        "bulk_json_originals_missing": int,
       },
     }
 
@@ -318,8 +373,12 @@ def check_silos() -> dict:
     bulk_lost_intraday   = sorted(marked_intraday - _collect_bulk_day_dates())
     bulk_lost_aggregates = sorted(marked_aggregates - aggregate_dates)
 
-    # ── #9: original missing — named by an intraday day file, not in bulk/source ──
-    bulk_originals_missing = sorted(_collect_original_refs() - _collect_original_fit_hashes())
+    # ── #9: original missing — named by an intraday day file or held by the backup, not in bulk/source ──
+    # The backup names also catch the originals of a day file that is lost too (#8), so one check is
+    # enough where the day-file names alone would need two (v1.7.6.2.1).
+    backup_fit, backup_json = _collect_backup_original_hashes()
+    bulk_originals_missing = sorted((_collect_original_refs() | backup_fit) - _collect_original_fit_hashes())
+    bulk_json_originals_missing = sorted(backup_json - _collect_original_json_hashes())
 
     # ── #5: summary without raw (and without export data) ──────────────────────
     # A day whose aggregates file is lost is not an orphan (F-10): its summary holds the
@@ -339,6 +398,7 @@ def check_silos() -> dict:
         "bulk_lost_intraday":   bulk_lost_intraday,
         "bulk_lost_aggregates": bulk_lost_aggregates,
         "bulk_originals_missing": bulk_originals_missing,
+        "bulk_json_originals_missing": bulk_json_originals_missing,
         "checked_at": checked_at,
         "totals": {
             "raw":          len(raw_dates),
@@ -355,6 +415,7 @@ def check_silos() -> dict:
             "bulk_lost_intraday":   len(bulk_lost_intraday),
             "bulk_lost_aggregates": len(bulk_lost_aggregates),
             "bulk_originals_missing": len(bulk_originals_missing),
+            "bulk_json_originals_missing": len(bulk_json_originals_missing),
         },
     }
 

@@ -321,6 +321,7 @@ garmin_backup_bulk.backup_all()        — day files → monthly ZIPs, originals
 garmin_data/backup/bulk/
 
 garmin_silo_check.check_silos()        — #8 bulk file lost (marks in quality_log.json), #9 original missing
+                                         (FIT and JSON; day files and the names in backup/bulk/source)
       │
       ▼
 garmin_silo_repair.repair_silos()      — read_day_copy() / read_original_copy() → garmin_bulk_writer.import_day_file()
@@ -329,6 +330,10 @@ garmin_silo_repair.repair_silos()      — read_day_copy() / read_original_copy(
 garmin_mirror → garmin_container       — sections bulk, bulk_source
 garmin_import_mirror                   — the bulk part before the raw days: import_day_file() / store_original()
 ```
+
+Since v1.7.6.2.1 the raw backup (`garmin_backup.py`) and the source backup (`garmin_backup_source.py`) are thin shells over the same
+`garmin_backup_common` flow. A monthly backup ZIP that does not open or fails its check is left untouched (the month folder stays
+as the fallback, one error line names the ZIP); the app does not repair it.
 
 The writer decides every time: a fuller stored day is kept, a file that fails the check is refused. An export-only day (quality log `write` false, no raw file in the container) is no error of the mirror import.
 

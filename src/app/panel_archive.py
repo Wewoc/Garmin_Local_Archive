@@ -599,10 +599,17 @@ class PanelArchive(QWidget):
                     missing = result.get("bulk_originals_missing", [])
                     if missing:
                         lines.append(
-                            f"    ⚠ #9 original export files missing (named by an intraday day file, "
-                            f"not in the store): {len(missing)} file(s) — "
+                            f"    ⚠ #9 original export files missing (not in the store; named by an "
+                            f"intraday day file or held by the backup): {len(missing)} file(s) — "
                             + ", ".join(h[:12] for h in missing[:5])
                             + ("…" if len(missing) > 5 else ""))
+                    missing_json = result.get("bulk_json_originals_missing", [])
+                    if missing_json:
+                        lines.append(
+                            f"    ⚠ #9 original export JSON files missing (held by the backup, "
+                            f"not in the store): {len(missing_json)} file(s) — "
+                            + ", ".join(h[:12] for h in missing_json[:5])
+                            + ("…" if len(missing_json) > 5 else ""))
                     lines.append(
                         "    → Use '🔧 Repair' to fix all findings.")
 
@@ -717,15 +724,16 @@ class PanelArchive(QWidget):
                         self._app._log_bg(f"  ✗ #8 repair error {date_str} ({what}): {item['reason']}")
                 elif cat == "9":
                     short = item["hash"][:12]
+                    tag = " (JSON)" if item.get("kind") == "json" else ""
                     if status == "repaired":
-                        self._app._log_bg(f"  ✓ #9 original restored from backup: {short}")
+                        self._app._log_bg(f"  ✓ #9 original restored from backup: {short}{tag}")
                     elif status == "present":
-                        self._app._log_bg(f"  ~ #9 original already back: {short}")
+                        self._app._log_bg(f"  ~ #9 original already back: {short}{tag}")
                     elif status == "no_backup":
                         self._app._log_bg(
-                            f"  ✗ #9 no backup copy for original {short} — import the export again")
+                            f"  ✗ #9 no backup copy for original {short}{tag} — import the export again")
                     else:
-                        self._app._log_bg(f"  ✗ #9 repair error {short}: {item['reason']}")
+                        self._app._log_bg(f"  ✗ #9 repair error {short}{tag}: {item['reason']}")
 
             self._app._log_bg(
                 f"🔧  Silo-Repair complete — {result['ok']} fixed, {result['failed']} errors")

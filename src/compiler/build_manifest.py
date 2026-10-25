@@ -302,7 +302,7 @@ SCRIPT_SIGNATURES_BASE = {
                                        "def check_backfill_needed", "def find_outdated", "def check_stale", "def refresh",
                                        "def zip_index", "def zip_contains", "def is_dated_object", "def is_json_object",
                                        "def read_copy"],
-    "garmin/garmin_backup_bulk.py":   ["def backup_all", "def check_needed", "def backup_originals", "def day_kinds",
+    "garmin/garmin_backup_bulk.py":   ["def backup_all", "def backup_originals", "def day_kinds",
                                        "def read_day_copy", "def read_original_copy"],
     "garmin/garmin_force_refetch.py": ["def snapshot_source", "def restore_snapshot"],
     "garmin/garmin_silo_check.py":    ["def check_silos"],

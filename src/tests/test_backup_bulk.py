@@ -140,6 +140,31 @@ def _tmp_files(root):
     return [p for p in root.rglob("*.tmp")] if root.exists() else []
 
 
+def _day_work():
+    """The day files with work to do, per part: files without a backup copy plus files whose copy differs
+    (what backup_all() looks at first; from garmin_backup_common, which is also what it asks)."""
+    return {which: common.check_backfill_needed(kind) + common.check_stale(kind) for which, kind in bb.day_kinds().items()}
+
+
+def _originals_work():
+    """(originals that are not in their prefix ZIP, prefix ZIPs that cannot be read), read from the ZIP directories:
+    a view of what backup_originals() would do that does not use its code."""
+    missing = damaged = 0
+    for prefix, files in bb._original_groups().items():
+        zip_path = cfg.BULK_SOURCE_BACKUP_DIR / f"{prefix}.zip"
+        names = None
+        if zip_path.exists():
+            try:
+                with zipfile.ZipFile(zip_path) as z:
+                    names = set(z.namelist())
+            except (zipfile.BadZipFile, OSError):
+                damaged += 1
+                missing += len(files)
+                continue
+        missing += sum(1 for f in files if names is None or f.name not in names)
+    return missing, damaged
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 section("A. garmin_backup_bulk — module, kinds, listing")
 # ══════════════════════════════════════════════════════════════════════════════
@@ -201,9 +226,8 @@ with _env("mixed"), _logged() as _calls:
     _o2, _ = _original_with_prefix("ab", "m2", ".json")
     _o3, _ = _original_with_prefix("cd", "m3")
 
-    _need = bb.check_needed()
-    check("B1 check_needed before the first backup: everything is missing",
-          _need == {"raw": 3, "aggregates": 2, "source": 3, "damaged_zips": 0})
+    check("B1 before the first backup everything is missing: 3 intraday files, 2 aggregates files, 3 originals, no backup folder",
+          _day_work() == {"raw": 3, "aggregates": 2} and _originals_work() == (3, 0) and not cfg.BULK_BACKUP_DIR.exists())
     _r = bb.backup_all()
     check("B2 backup_all: ok, not stopped", _r["ok"] is True and _r["stopped"] is False)
     check("B2 backup_all: day files copied (raw 3, aggregates 2), nothing refreshed or failed",
@@ -224,7 +248,7 @@ with _env("mixed"), _logged() as _calls:
           and _zip_names(_bk / "source" / "ab.zip") == sorted([f"{_o1}.fit", f"{_o2}.json"])
           and _zip_entries(_bk / "source" / "cd.zip")[f"{_o3}.fit"]
           == (cfg.BULK_SOURCE_DIR / _o3[:2] / f"{_o3}.fit").read_bytes())
-    check("B4 check_needed after the backup: nothing", bb.check_needed() == {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0})
+    check("B4 after the backup nothing is left to do", _day_work() == {"raw": 0, "aggregates": 0} and _originals_work() == (0, 0))
     check("B4 no .tmp file is left", _tmp_files(_bk) == [])
     check("B5 the log reports what was done (one line per part with work)",
           sum(1 for lv, m in _calls if lv == "info" and m.startswith("  backup_bulk: ")) >= 3)
@@ -242,20 +266,20 @@ with _env("mixed"), _logged() as _calls:
 
     # -- a day file that changed -----------------------------------------------------------------
     _put_day("2024-08-02", "r-changed")
-    check("B7 a changed day file is counted by check_needed", bb.check_needed()["raw"] == 1)
+    check("B7 a changed day file is counted as work", _day_work()["raw"] == 1)
     _r3 = bb.backup_all()
     check("B7 backup_all refreshes exactly that file",
           _r3["raw"]["refreshed"] == 1 and _r3["raw"]["copied"] == 0 and _r3["ok"] is True)
     check("B7 the ZIP entry holds the new version, the other entry is untouched",
           json.loads(_zip_entries(_bk / "raw" / "bulk_raw_backup_2024-08.zip")["garmin_bulk_2024-08-02.json"])["v"] == "r-changed"
           and json.loads(_zip_entries(_bk / "raw" / "bulk_raw_backup_2024-08.zip")["garmin_bulk_2024-08-01.json"])["v"] == "r")
-    check("B7 afterwards nothing is needed", bb.check_needed()["raw"] == 0)
+    check("B7 afterwards nothing is needed", _day_work()["raw"] == 0)
 
     # -- new originals in an existing prefix ZIP and in a new one -----------------------------------
     _ab_before = _zip_entries(_bk / "source" / "ab.zip")
     _o4, _ = _original_with_prefix("ab", "m4")
     _o5, _ = _original_with_prefix("ef", "m5")
-    check("B8 check_needed counts the two new originals", bb.check_needed()["source"] == 2)
+    check("B8 the two new originals are counted as work", _originals_work() == (2, 0))
     _r4 = bb.backup_originals()
     check("B8 backup_originals: 2 copied, 3 present",
           (_r4["copied"], _r4["present"], _r4["failed"]) == (2, 3, 0))
@@ -278,8 +302,8 @@ with _env("damaged_garbage"), _logged() as _calls:
     (cfg.BULK_SOURCE_BACKUP_DIR).mkdir(parents=True)
     _garbage = b"this is not a zip " * 20
     (cfg.BULK_SOURCE_BACKUP_DIR / "ab.zip").write_bytes(_garbage)
-    check("C1 check_needed: a damaged prefix ZIP is counted, all files of the prefix are needed",
-          bb.check_needed()["damaged_zips"] == 1 and bb.check_needed()["source"] == 3)
+    check("C1 a damaged prefix ZIP is counted, all files of the prefix are needed (2 of ab, 1 of cd)",
+          _originals_work() == (3, 1))
     _r = bb.backup_originals()
     check("C1 backup_originals: damaged_zips 1, the 2 files of the prefix failed, the other prefix is copied",
           (_r["damaged_zips"], _r["failed"], _r["copied"]) == (1, 2, 1))
@@ -369,7 +393,7 @@ with _env("dayfail"), _logged():
         _r = bb.backup_all()
     check("C5c a changed day file whose copy cannot be refreshed counts as an error, ok False",
           _r["raw"]["errors"] == 1 and _r["raw"]["refreshed"] == 0 and _r["ok"] is False)
-    check("C5c ... and is still reported as needed", bb.check_needed()["raw"] == 1)
+    check("C5c ... and is still counted as work", _day_work()["raw"] == 1)
 
 # -- progress of the originals (v1.7.6.2): a line at every 10 % of the folders, only when something was copied --------
 def _progress_lines(calls):
@@ -446,15 +470,14 @@ with _env("cfgfail"), _logged():
     with patch.object(bb, "_cfg", side_effect=RuntimeError("no config")):
         _r = bb.backup_all()
         _o = bb.backup_originals()
-        _n = bb.check_needed()
-    check("C8 paths that cannot be read: backup_all, backup_originals and check_needed return, nothing raised",
-          _r["ok"] is False and _o["failed"] >= 1 and _n == {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0})
+    check("C8 paths that cannot be read: backup_all and backup_originals return, nothing raised",
+          _r["ok"] is False and _o["failed"] >= 1)
 with _env("empty"):
     _r = bb.backup_all()
     check("C9 no bulk store at all: ok, all zeros, no backup folder is created",
           _r["ok"] is True and _r["raw"]["copied"] == 0 and _r["aggregates"]["copied"] == 0
           and _r["source"]["copied"] == 0 and not cfg.BULK_BACKUP_DIR.exists()
-          and bb.check_needed() == {"raw": 0, "aggregates": 0, "source": 0, "damaged_zips": 0})
+          and _day_work() == {"raw": 0, "aggregates": 0} and _originals_work() == (0, 0))
 
 # -- the stop check is asked only when there is work (a start with nothing to do looks like no backup at all) ----
 with _env("stopasks"):

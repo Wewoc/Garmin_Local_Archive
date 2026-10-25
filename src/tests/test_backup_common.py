@@ -13,6 +13,10 @@ shared mechanics behave like the two modules they were taken from: the same scen
 runs once through garmin_backup / garmin_backup_source and once through
 garmin_backup_common, in two identical fresh folders; the return values, the resulting
 folder trees (ZIP files compared entry by entry) and the log lines must be equal.
+Part C (v1.7.6.2.1) is the hardening: a damaged monthly ZIP is not appended to, a source file the
+refresh cannot read is an error, error lines carry the exception type and name the ZIP. It was
+written as Ist-Stand pins before the hardening and turned around with it; C4 (the silent ZIP check
+of the backfill) is the part that stays as it was on purpose. Everything runs through both modules.
 """
 
 import ast
@@ -319,10 +323,34 @@ check("A10 read_copy: a month folder copy that cannot be read falls back to the 
       _v == b"zip-02" and [lv for lv, _ in _c] == ["warning"] and "month folder copy" in _c[0][1])
 (_b / "raw_backup_2024-07.zip").write_bytes(b"this is not a zip")
 _v, _c = _logged(common.read_copy, _kd, "garmin_raw_2024-07-01.json")
-check("A10 read_copy: a ZIP that cannot be read -> None and one warning naming the file",
-      _v is None and [lv for lv, _ in _c] == ["warning"] and "garmin_raw_2024-07-01.json" in _c[0][1])
+check("A10 read_copy: a ZIP that cannot be read -> None and one warning naming the file, the ZIP and the "
+      "exception type (v1.7.6.2.1; the traceback goes to debug level)",
+      _v is None and [lv for lv, _ in _c if lv != "debug"] == ["warning"]
+      and "garmin_raw_2024-07-01.json" in _c[0][1] and "raw_backup_2024-07.zip" in _c[0][1]
+      and "BadZipFile" in _c[0][1] and [lv for lv, _ in _c] == ["warning", "debug"])
 check("A10 read_copy: reads only (the backup folder is unchanged apart from the garbage ZIP made above)",
       {k: v for k, v in _tree(_b).items() if k != "raw_backup_2024-07.zip"} == _before)
+
+# -- A11. BackupKind.log (v1.7.6.2.1) ----------------------------------------------------------
+_s, _b = _fresh("kindlog")
+(_b / "raw_backup_2024-08.zip").write_bytes(b"this is not a zip")
+_put(_s, "garmin_raw_", "2024-08-05", _dj("2024-08-05", 1))
+_own = _BLog()
+_kd_own = _mkind(_s, _b, log=_own)
+_v1, _c1 = _logged(common.find_outdated, _kd_own)
+_v2, _c2 = _logged(common.backup_file, _kd_own, "2024-09-01")
+check("A11 BackupKind.log: the messages of a kind with its own logger go there (including the ZIP warning of "
+      "zip_index) and not to the module logger",
+      _c1 == [] and _c2 == []
+      and [lv for lv, _ in _own.calls] == ["warning", "warning"]
+      and "cannot read raw_backup_2024-08.zip" in _own.calls[0][1]
+      and "backup_raw: source file not found for 2024-09-01" in _own.calls[1][1])
+_v3, _c3 = _logged(common.find_outdated, _mkind(_s, _b))
+check("A11 BackupKind.log: without one the module logger takes the messages (as before)",
+      [lv for lv, _ in _c3] == ["warning"] and "cannot read raw_backup_2024-08.zip" in _c3[0][1])
+check("A11 BackupKind.log: zip_index called on its own with a logger writes there, without one to the module logger",
+      common.zip_index(_b / "raw_backup_2024-08.zip", _own) == {} and len(_own.calls) == 3
+      and _logged(common.zip_index, _b / "raw_backup_2024-08.zip")[1][0][0] == "warning")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -525,11 +553,12 @@ for _k in _KINDS:
     _same("consolidate, rebuilt ZIP fails its check", _k, "badrebuild", _setup_old_zip_new_dir,
           lambda k: getattr(k["mod"], k["cons"])(current_month="2024-09", force_filenames=_f27(k)),
           lambda k: common.consolidate_months(_kind(k), current_month="2024-09", force_filenames=_f27(k)),
-          patches=(lambda: patch.object(zipfile.ZipFile, "testzip", side_effect=[None, "broken.json"]),))
+          # v1.7.6.2.1: check before the append, check after it, check of the rebuilt ZIP (the third fails)
+          patches=(lambda: patch.object(zipfile.ZipFile, "testzip", side_effect=[None, None, "broken.json"]),))
     _same("consolidate, ZIP fails its check after appending", _k, "badappend", _setup_old_zip_new_dir,
           lambda k: getattr(k["mod"], k["cons"])(current_month="2024-09"),
           lambda k: common.consolidate_months(_kind(k), current_month="2024-09"),
-          patches=(lambda: patch.object(zipfile.ZipFile, "testzip", return_value="broken.json"),))
+          patches=(lambda: patch.object(zipfile.ZipFile, "testzip", side_effect=[None, "broken.json"]),))
     _same("consolidate, new month becomes a ZIP", _k, "newzip", _setup_new_month,
           lambda k: getattr(k["mod"], k["cons"])(current_month="2024-09"),
           lambda k: common.consolidate_months(_kind(k), current_month="2024-09"))
@@ -546,7 +575,7 @@ for _k in _KINDS:
     _same("consolidate, integrity failure in two months", _k, "twomonths", _setup_two_months,
           lambda k: getattr(k["mod"], k["cons"])(current_month="2024-09"),
           lambda k: common.consolidate_months(_kind(k), current_month="2024-09"),
-          patches=(lambda: patch.object(zipfile.ZipFile, "testzip", return_value="bad"),))
+          patches=(lambda: patch.object(zipfile.ZipFile, "testzip", side_effect=[None, "bad", None, "bad"]),))
     _same("consolidate, failing force-replace does not stop the next month", _k, "forcetwo", _setup_force_two_months,
           lambda k: getattr(k["mod"], k["cons"])(current_month="2024-09", force_filenames={_fn(k, "2024-05-27")}),
           lambda k: common.consolidate_months(_kind(k), current_month="2024-09", force_filenames={_fn(k, "2024-05-27")}),
@@ -636,6 +665,236 @@ for _k in _KINDS:
     _o = _run(_k, "valid", "old", _setup_refresh, lambda k: getattr(k["mod"], k["refresh"])())
     check(f"B {_k['name']} refresh: the number of unreadable files comes from the kind's own validity check",
           _o[0]["unreadable"] == (1 if _k["name"] == "raw" else 0))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Part C. Hardening of v1.7.6.2.1 (register finding F-9 and its follow-ups)
+#  Written as Ist-Stand pins in step 1 of v1.7.6.2.1 and turned around by the hardening; C4 is the part
+#  that was left as it was on purpose.
+# ══════════════════════════════════════════════════════════════════════════════
+section("C. Hardening of v1.7.6.2.1 — damaged ZIPs, refresh errors, error lines")
+
+
+def _pin(k, tag, setup, old_op, new_op, old_patches=(), new_patches=()):
+    """The same scenario through the old module and through the common module: (old, new) results of _run."""
+    return (_run(k, tag, "old", setup, old_op, old_patches),
+            _run(k, tag, "new", setup, new_op, new_patches))
+
+
+def _levels(r):
+    return [lv for lv, _ in r[3]]
+
+
+def _messages(r):
+    return [m for _, m in r[3]]
+
+
+def _cons_old(k):
+    return getattr(k["mod"], k["cons"])(current_month="2024-09")
+
+
+def _cons_new(k):
+    return common.consolidate_months(_kind(k), current_month="2024-09")
+
+
+_GARBAGE = b"this is not a zip file"
+_truncated_is_zip = []          # is_zipfile() of the truncated ZIPs built below; must all be False
+_truncated_bytes = []           # the bytes of each truncated ZIP built below, in build order
+
+
+def _setup_garbage_zip(k):
+    _bkd(k).mkdir(parents=True)
+    (_bkd(k) / f"{k['zip_prefix']}2024-08.zip").write_bytes(_GARBAGE)
+    _month(_bkd(k), k["prefix"], "2024-08", ["27"], content="new-27")
+
+
+def _setup_truncated_zip(k):
+    zp = _bkd(k) / f"{k['zip_prefix']}2024-08.zip"
+    _zip_write(zp, {_fn(k, "2024-08-25"): "old-25", _fn(k, "2024-08-26"): "old-26", _fn(k, "2024-08-27"): "old-27"})
+    zp.write_bytes(zp.read_bytes()[:-30])           # the end of the ZIP directory is gone
+    _truncated_is_zip.append(zipfile.is_zipfile(zp))
+    _truncated_bytes.append(zp.read_bytes())
+    _month(_bkd(k), k["prefix"], "2024-08", ["28"], content="new-28")
+
+
+def _setup_garbage_zip_with_source(k):
+    _bkd(k).mkdir(parents=True)
+    (_bkd(k) / f"{k['zip_prefix']}2024-08.zip").write_bytes(_GARBAGE)
+    _put(_src(k), k["prefix"], "2024-08-05")
+
+
+def _setup_unreadable_source(k):
+    _month(_bkd(k), k["prefix"], "2024-08", ["27"], content=_dj("2024-08-27", "old"))
+    _put(_src(k), k["prefix"], "2024-08-27", _dj("2024-08-27", "new"))
+
+
+def _setup_one_day(k):
+    _put(_src(k), k["prefix"], "2024-08-27", _dj("2024-08-27", "x"))
+
+
+def _zp(k):
+    return _bkd(k) / f"{k['zip_prefix']}2024-08.zip"
+
+
+def _deny_source_reads():
+    """Reading a file of the source folder fails (PermissionError); the backup folder is readable."""
+    real = Path.read_bytes
+
+    def fake(self):
+        if self.parent in (cfg.RAW_DIR, cfg.SOURCE_DIR):
+            raise PermissionError(13, "denied")
+        return real(self)
+    return patch.object(Path, "read_bytes", fake)
+
+
+for _k in _KINDS:
+    _n = _k["name"]
+    _zn = f"{_k['zip_prefix']}2024-08.zip"
+    _x27 = _fn(_k, "2024-08-27")
+
+    # -- C1/C2. F-9: a damaged monthly ZIP is left alone (hardening a) -------------------------------
+    for _w, _r in zip(("old", "new"), _pin(_k, "c1", _setup_garbage_zip, _cons_old, _cons_new)):
+        check(f"C1 {_n} {_w}: a garbage file as the month's ZIP is not touched, the month folder with the new file is "
+              f"kept, one error line names the ZIP and the exception type (F-9)",
+              _r[1].get(_zn) == _GARBAGE and _r[1].get(f"2024-08/{_x27}") == b"new-27"
+              and _levels(_r) == ["error"] and _zn in _messages(_r)[0] and "BadZipFile" in _messages(_r)[0]
+              and "not touched" in _messages(_r)[0] and "appended" not in _messages(_r)[0])
+    for _w, (_r, _b_bytes) in zip(("old", "new"), zip(_pin(_k, "c2", _setup_truncated_zip, _cons_old, _cons_new),
+                                                        _truncated_bytes[-2:])):
+        check(f"C2 {_n} {_w}: a truncated ZIP of three entries is not touched (same bytes), the month folder with the "
+              f"new file is kept, one error line names the ZIP (F-9)",
+              _r[1].get(_zn) == _b_bytes and _r[1].get(f"2024-08/{_fn(_k, '2024-08-28')}") == b"new-28"
+              and _levels(_r) == ["error"] and _zn in _messages(_r)[0] and "not touched" in _messages(_r)[0])
+
+    # -- C3. a source file that cannot be read at the refresh is an error (hardening b) --------------
+    for _w, _r in zip(("old", "new"), _pin(_k, "c3", _setup_unreadable_source,
+                                           lambda k: getattr(k["mod"], k["refresh"])(),
+                                           lambda k: common.refresh(_kind(k)),
+                                           (_deny_source_reads,), (_deny_source_reads,))):
+        _warn = [m for lv, m in _r[3] if lv == "warning"]
+        check(f"C3 {_n} {_w}: refresh counts a source file it cannot read as an error ({{refreshed 0, unreadable 0, "
+              f"errors 1}}); the warning names the file and the exception type, the closing line says '1 errors'",
+              _r[0] == {"refreshed": 0, "unreadable": 0, "errors": 1}
+              and len(_warn) == 1 and "could not check" in _warn[0] and _x27 in _warn[0] and "PermissionError" in _warn[0]
+              and "1 errors" in _messages(_r)[-1])
+        check(f"C3 {_n} {_w}: the backup copy stays as it was",
+              _r[1][f"2024-08/{_x27}"] == _dj("2024-08-27", "old").encode("utf-8"))
+
+    # -- C4. a damaged ZIP shows up as 'file missing' - left as it was on purpose --------------------
+    # (not part of the hardening: with C1/C2 nothing is appended to such a ZIP any more, and the consolidation
+    # names it; a warning per checked file would be one line per file of the month)
+    for _w, _r in zip(("old", "new"), _pin(_k, "c4a", _setup_garbage_zip_with_source,
+                                           lambda k: getattr(k["mod"], k["needed"])(),
+                                           lambda k: common.check_backfill_needed(_kind(k)))):
+        check(f"C4 {_n} {_w}: check_backfill_needed counts a file whose month ZIP is damaged as 'without backup', "
+              f"silently", _r[0] == 1 and _r[3] == [])
+    for _w, _r in zip(("old", "new"), _pin(_k, "c4b", _setup_garbage_zip_with_source,
+                                           lambda k: getattr(k["mod"], "_zip_contains")(_zp(k), _fn(k, "2024-08-05")),
+                                           lambda k: common.zip_contains(_zp(k), _fn(k, "2024-08-05")))):
+        check(f"C4 {_n} {_w}: zip_contains answers False for a damaged ZIP and logs nothing", _r[0] is False and _r[3] == [])
+    # the module's stale check reads the ZIP directory of the month through zip_index; zip_index on its own is the
+    # shared function behind it
+    for _w, _r in zip(("old", "new"), _pin(_k, "c4c", _setup_garbage_zip_with_source,
+                                           lambda k: getattr(k["mod"], k["stale"])(),
+                                           lambda k: common.zip_index(_zp(k)))):
+        check(f"C4 {_n} {_w}: reading the ZIP directory of a damaged ZIP complains once (one warning with its name and the "
+              f"exception type)",
+              _r[0] == ({} if _w == "new" else 0) and _levels(_r) == ["warning"]
+              and _zn in _messages(_r)[0] and "BadZipFile" in _messages(_r)[0])
+
+    # -- C5. error lines carry the exception type and name the ZIP (hardening c and d) --------------
+    for _w, _r in zip(("old", "new"), _pin(_k, "c5a", _setup_one_day,
+                                           lambda k: getattr(k["mod"], k["backup"])("2024-08-27"),
+                                           lambda k: common.backup_file(_kind(k), "2024-08-27"),
+                                           # both modules are thin shells over the common flow: the fault goes where the logic is
+                                           (lambda: patch.object(common, "date", None),),
+                                           (lambda: patch.object(common, "date", None),))):
+        _m = _messages(_r)[0] if _r[3] else ""
+        check(f"C5 {_n} {_w}: an unexpected error in backup_file gives False and one error line with the exception type",
+              _r[0] is False and _levels(_r) == ["error"]
+              and _m.startswith(f"  backup_{_n}: failed for 2024-08-27: AttributeError: ") and "NoneType" in _m
+              and "Traceback" not in _m)
+    for _w, _r in zip(("old", "new"), _pin(_k, "c5b", _setup_old_zip_new_dir,
+                                           lambda k: getattr(k["mod"], k["cons"])(
+                                               current_month="2024-09", force_filenames={_fn(k, "2024-08-27")}),
+                                           lambda k: common.consolidate_months(
+                                               _kind(k), current_month="2024-09", force_filenames={_fn(k, "2024-08-27")}),
+                                           (lambda: patch("os.replace", side_effect=OSError("locked")),),
+                                           (lambda: patch("os.replace", side_effect=OSError("locked")),))):
+        _m = [m for lv, m in _r[3] if lv == "error"]
+        check(f"C5 {_n} {_w}: a failing swap gives one error line with the month, the ZIP name and the exception type",
+              len(_m) == 1 and f"force-replace failed for 2024-08 ({_zn}): OSError: locked" in _m[0])
+
+    # -- C6. a ZIP with a failing entry is not built on either (hardening a, full check) --------------
+    for _w, _r in zip(("old", "new"), _pin(_k, "c6", _setup_old_zip_new_dir, _cons_old, _cons_new,
+                                           (lambda: patch.object(zipfile.ZipFile, "testzip", return_value="broken.json"),),
+                                           (lambda: patch.object(zipfile.ZipFile, "testzip", return_value="broken.json"),))):
+        check(f"C6 {_n} {_w}: a ZIP whose entry fails its check keeps its two entries, the month folder stays, one error "
+              f"line names the ZIP and the entry",
+              _r[1].get(_zn) == {_fn(_k, "2024-08-26"): b"old-26", _x27: b"old-27"}
+              and _r[1].get(f"2024-08/{_x27}") == b"new-27" and _r[1].get(f"2024-08/{_fn(_k, '2024-08-28')}") == b"new-28"
+              and _levels(_r) == ["error"] and _zn in _messages(_r)[0] and "entry broken.json fails its check" in _messages(_r)[0])
+
+    # -- C7. a damaged ZIP of one month does not stop the next month ---------------------------------
+    def _setup_garbage_then_good(k):
+        _bkd(k).mkdir(parents=True)
+        (_bkd(k) / f"{k['zip_prefix']}2024-05.zip").write_bytes(_GARBAGE)
+        _month(_bkd(k), k["prefix"], "2024-05", ["02"])
+        _zip_write(_bkd(k) / f"{k['zip_prefix']}2024-06.zip", {_fn(k, "2024-06-01"): "old"})
+        _month(_bkd(k), k["prefix"], "2024-06", ["02"])
+
+    for _w, _r in zip(("old", "new"), _pin(_k, "c7", _setup_garbage_then_good, _cons_old, _cons_new)):
+        check(f"C7 {_n} {_w}: the damaged ZIP of 2024-05 is not touched and named, 2024-06 is still consolidated",
+              _r[1].get(f"{_k['zip_prefix']}2024-05.zip") == _GARBAGE and f"2024-05/{_fn(_k, '2024-05-02')}" in _r[1]
+              and set(_r[1].get(f"{_k['zip_prefix']}2024-06.zip", {})) == {_fn(_k, "2024-06-01"), _fn(_k, "2024-06-02")}
+              and "2024-06/" not in _r[1]
+              and len([m for lv, m in _r[3] if lv == "error"]) == 1 and f"{_k['zip_prefix']}2024-05.zip" in _messages(_r)[0])
+
+    # -- C8. a new ZIP that fails its check is removed again, the next run builds it ------------------
+    def _cons_fail_then_retry(cons):
+        def op(k):
+            with patch.object(zipfile.ZipFile, "testzip", return_value="broken.json"):
+                cons(k)
+            mid = ((_bkd(k) / f"{k['zip_prefix']}2024-07.zip").exists(), (_bkd(k) / "2024-07").exists())
+            cons(k)
+            return mid
+        return op
+
+    for _w, _r in zip(("old", "new"), _pin(_k, "c8", _setup_new_month,
+                                           _cons_fail_then_retry(_cons_old), _cons_fail_then_retry(_cons_new))):
+        _errs8 = [m for lv, m in _r[3] if lv == "error"]
+        check(f"C8 {_n} {_w}: the unfinished ZIP is removed and the month folder kept (no ZIP, folder), one error line "
+              f"names the ZIP and the exception type",
+              _r[0] == (False, True) and len(_errs8) == 1
+              and f"({_k['zip_prefix']}2024-07.zip): RuntimeError: ZIP integrity check failed" in _errs8[0])
+        check(f"C8 {_n} {_w}: the next run builds the ZIP from the folder, nothing is lost",
+              set(_r[1].get(f"{_k['zip_prefix']}2024-07.zip", {})) == {_fn(_k, "2024-07-01"), _fn(_k, "2024-07-02")}
+              and "2024-07/" not in _r[1] and any("consolidated" in m for _, m in _r[3]))
+
+# -- C9. the traceback of an unexpected error goes to debug level (hardening c) ----------------------
+_s, _b = _fresh("trace")
+_put(_s, "garmin_raw_", "2024-08-27", _dj("2024-08-27", "x"))
+with patch.object(common, "date", None):
+    _v, _c = _logged(common.backup_file, _mkind(_s, _b), "2024-08-27")
+check("C9 backup_file: the error line is followed by a debug line for the traceback (and nothing else at debug)",
+      _v is False and [lv for lv, _ in _c if lv != "debug"] == ["error"]
+      and [m for lv, m in _c if lv == "debug" and "traceback" in m] == ["  traceback:"])
+_k_exc = []
+
+
+class _ExcLog(_BLog):
+    def debug(self, msg, *a, **k):
+        _k_exc.append(k)
+        super().debug(msg, *a, **k)
+
+
+with patch.object(common, "date", None):
+    common.backup_file(_mkind(_s, _b, log=_ExcLog()), "2024-08-27")
+check("C9 the debug line is written with exc_info=True (the logging module then prints the traceback)",
+      {"exc_info": True} in _k_exc)
+
+check("C2 the truncated ZIPs of the scenario are not recognised as ZIP files (is_zipfile False), 4 builds",
+      len(_truncated_is_zip) == 4 and not any(_truncated_is_zip))
 
 
 summary()

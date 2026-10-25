@@ -43,6 +43,11 @@ Public API (kind = BackupKind):
   zip_index(zip_path), zip_contains(zip_path, filename)
   is_dated_object(data, date_str), is_json_object(data, date_str)   ready-made validity checks
 
+Hardening (v1.7.6.2.1): a monthly ZIP that does not open or fails its check is never appended to or
+replaced (the month folder stays as the fallback, one error line names the ZIP); a ZIP this module began
+and could not finish is removed again; a file the refresh cannot read counts as an error; every error
+line carries the exception type and the traceback goes to debug level; lines about a ZIP name it.
+
 consolidate (optional) is the function the caller wants called for the consolidation
 step instead of consolidate_months: it is called with the keyword arguments
 current_month= and, for backup_file, force_filenames=. A caller whose tests patch its
@@ -98,6 +103,8 @@ class BackupKind:
     is_valid    is_valid(data, date_str) -> bool: may a file with these bytes replace its backup copy
     log_prefix  start of the log lines of the consolidation ("backup", "backup_source")
     suffix      file name suffix (".json")
+    log         logger the kind's messages go to (v1.7.6.2.1): a caller that wraps this module hands in its own
+                module logger, so its log lines and its tests keep their logger; None = this module's logger
     """
     area: str
     src_dir: Path
@@ -107,6 +114,7 @@ class BackupKind:
     is_valid: Callable[[bytes, str], bool]
     log_prefix: str = "backup"
     suffix: str = ".json"
+    log: object = None
 
     @property
     def pattern(self) -> str:
@@ -117,6 +125,31 @@ class BackupKind:
 
     def date_of(self, path: Path) -> str:
         return path.stem.replace(self.prefix, "")
+
+
+def _lg(kind: BackupKind):
+    """The logger of a kind: its own if it has one, otherwise this module's (looked up at call time)."""
+    return kind.log if kind.log is not None else log
+
+
+def _why(e: BaseException) -> str:
+    """'Type: text' of an exception (v1.7.6.2.1): the type is what tells a PermissionError from a bug."""
+    return f"{type(e).__name__}: {e}"
+
+
+def _zip_problem(zip_path: Path) -> str | None:
+    """
+    Why a monthly ZIP cannot be built on (v1.7.6.2.1), or None if it is intact: it opens and every
+    entry passes its check. 'a' mode would write a new archive behind a file that is no ZIP and the
+    old entries would be gone unnoticed (register finding F-9), so nothing is appended to a ZIP
+    this function complains about.
+    """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            bad = zf.testzip()
+    except Exception as e:
+        return _why(e)
+    return None if bad is None else f"entry {bad} fails its check"
 
 
 def read_copy(kind: BackupKind, name: str) -> bytes | None:
@@ -133,15 +166,21 @@ def read_copy(kind: BackupKind, name: str) -> bytes | None:
             try:
                 return dir_copy.read_bytes()
             except Exception as e:
-                log.warning(f"  backup read: could not read the month folder copy of {name}: {e}")
+                _lg(kind).warning(f"  backup read: could not read the month folder copy of {name}: {_why(e)}")
         zip_path = kind.zip_path(month)
         if zip_path.exists():
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                if name in zf.namelist():
-                    return zf.read(name)
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    if name in zf.namelist():
+                        return zf.read(name)
+            except Exception as e:
+                _lg(kind).warning(f"  backup read: could not read {name} from {zip_path.name}: {_why(e)}")
+                _lg(kind).debug("  traceback:", exc_info=True)
+                return None
         return None
     except Exception as e:
-        log.warning(f"  backup read: could not read the backup copy of {name}: {e}")
+        _lg(kind).warning(f"  backup read: could not read the backup copy of {name}: {_why(e)}")
+        _lg(kind).debug("  traceback:", exc_info=True)
         return None
 
 
@@ -169,7 +208,7 @@ def backup_file(kind: BackupKind, date_str: str, force: bool = False, consolidat
     try:
         src = kind.src_dir / f"{kind.prefix}{date_str}{kind.suffix}"
         if not src.exists():
-            log.warning(f"  {fn}: source file not found for {date_str}")
+            _lg(kind).warning(f"  {fn}: source file not found for {date_str}")
             return False
 
         month     = date_str[:7]          # YYYY-MM
@@ -178,7 +217,7 @@ def backup_file(kind: BackupKind, date_str: str, force: bool = False, consolidat
 
         dst = month_dir / src.name
         dst.write_bytes(src.read_bytes())
-        log.debug(f"  {fn}: {date_str} → backup/{kind.area}/{month}/")
+        _lg(kind).debug(f"  {fn}: {date_str} → backup/{kind.area}/{month}/")
 
         force_filenames   = {src.name} if force else None
         consolidate_month = date.today().strftime("%Y-%m")
@@ -187,7 +226,8 @@ def backup_file(kind: BackupKind, date_str: str, force: bool = False, consolidat
         return True
 
     except Exception as e:
-        log.error(f"  {fn}: failed for {date_str}: {e}")
+        _lg(kind).error(f"  {fn}: failed for {date_str}: {_why(e)}")
+        _lg(kind).debug("  traceback:", exc_info=True)
         return False
 
 
@@ -228,6 +268,15 @@ def consolidate_months(kind: BackupKind, current_month: str, force_filenames: se
                 month_dir.rmdir()
                 continue
             if zip_path.exists():
+                # v1.7.6.2.1: only an intact ZIP is built on. A ZIP that does not open or fails its
+                # check is not touched (no append, no replace), the directory stays as the fallback.
+                problem = _zip_problem(zip_path)
+                if problem is not None:
+                    _lg(kind).error(
+                        f"  {lp}: {zip_path.name} is damaged ({problem}) — not touched, "
+                        f"{area}/{month_name}/ kept as fallback"
+                    )
+                    continue
                 # ZIP exists but the directory also has files — append the ones not yet
                 # in the ZIP, replace the ones whose bytes differ, then delete the directory.
                 appended   = 0
@@ -242,16 +291,16 @@ def consolidate_months(kind: BackupKind, current_month: str, force_filenames: se
                                 or zf.read(f.name) != f.read_bytes():
                             to_replace.append(f)
                 if appended:
-                    log.info(
+                    _lg(kind).info(
                         f"  {lp}: {area}/{month_name}/ → {appended} file(s) "
                         f"appended to {zip_path.name}"
                     )
                 # Verify ZIP integrity after append
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     if zf.testzip() is not None:
-                        log.error(
+                        _lg(kind).error(
                             f"  {lp}: ZIP integrity check failed after append "
-                            f"for {month_name} — directory kept as fallback"
+                            f"for {month_name} ({zip_path.name}) — directory kept as fallback"
                         )
                         continue
 
@@ -275,36 +324,51 @@ def consolidate_months(kind: BackupKind, current_month: str, force_filenames: se
                             if check_zf.testzip() is not None:
                                 raise RuntimeError("ZIP integrity check failed after force-replace")
                         os.replace(tmp_zip, zip_path)
-                        log.info(
+                        _lg(kind).info(
                             f"  {lp}: {area}/{month_name}/ → {len(to_replace)} "
                             f"file(s) replaced in {zip_path.name}"
                         )
                     except Exception as e:
-                        log.error(
-                            f"  {lp}: force-replace failed for {month_name}: {e} "
+                        _lg(kind).error(
+                            f"  {lp}: force-replace failed for {month_name} ({zip_path.name}): {_why(e)} "
                             f"— directory kept as fallback"
                         )
+                        _lg(kind).debug("  traceback:", exc_info=True)
                         try:
                             if tmp_zip.exists():
                                 tmp_zip.unlink()
                         except Exception as _cleanup_e:
-                            log.debug(f"  {lp}: tmp zip cleanup failed for {month_name}: {_cleanup_e}")
+                            _lg(kind).debug(
+                                f"  {lp}: tmp zip cleanup failed for {month_name}: {_why(_cleanup_e)}")
                         continue
             else:
                 # No ZIP yet — create from scratch
-                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                    for f in files:
-                        zf.write(f, f.name)
-                # Verify ZIP before deleting the directory
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    if zf.testzip() is not None:
-                        raise RuntimeError("ZIP integrity check failed")
-                log.info(f"  {lp}: {area}/{month_name}/ consolidated → {zip_path.name}")
+                try:
+                    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for f in files:
+                            zf.write(f, f.name)
+                    # Verify ZIP before deleting the directory
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        if zf.testzip() is not None:
+                            raise RuntimeError("ZIP integrity check failed")
+                except Exception:
+                    # v1.7.6.2.1: a ZIP this call just began and could not finish is not kept. The
+                    # damaged-ZIP check above would otherwise block the next run for good, while the
+                    # intact directory is all the next run needs to build it again.
+                    try:
+                        zip_path.unlink(missing_ok=True)
+                    except Exception as _cleanup_e:
+                        _lg(kind).debug(
+                            f"  {lp}: unfinished ZIP cleanup failed for {month_name}: {_why(_cleanup_e)}")
+                    raise
+                _lg(kind).info(f"  {lp}: {area}/{month_name}/ consolidated → {zip_path.name}")
 
             shutil.rmtree(month_dir)
 
         except Exception as e:
-            log.error(f"  {lp}: failed to consolidate {area}/{month_name}/: {e}")
+            _lg(kind).error(
+                f"  {lp}: failed to consolidate {area}/{month_name}/ ({zip_path.name}): {_why(e)}")
+            _lg(kind).debug("  traceback:", exc_info=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -331,7 +395,8 @@ def check_backfill_needed(kind: BackupKind) -> int:
             if not dir_path.exists() and not in_zip:
                 count += 1
         except Exception as e:
-            log.warning(f"  check_{kind.area}_backfill_needed: failed for {src.name}: {e}")
+            _lg(kind).warning(f"  check_{kind.area}_backfill_needed: failed for {src.name}: {_why(e)}")
+            _lg(kind).debug("  traceback:", exc_info=True)
     return count
 
 
@@ -344,7 +409,7 @@ def backfill(kind: BackupKind, consolidate=None) -> dict:
     """
     area = kind.area
     if not kind.src_dir.exists():
-        log.info(f"  backfill_{area}: {area}/ does not exist — nothing to do")
+        _lg(kind).info(f"  backfill_{area}: {area}/ does not exist — nothing to do")
         return {"copied": 0, "skipped": 0, "failed": 0}
 
     copied         = 0
@@ -370,7 +435,8 @@ def backfill(kind: BackupKind, consolidate=None) -> dict:
             months_touched.add(month)
 
         except Exception as e:
-            log.error(f"  backfill_{area}: failed for {src.name}: {e}")
+            _lg(kind).error(f"  backfill_{area}: failed for {src.name}: {_why(e)}")
+            _lg(kind).debug("  traceback:", exc_info=True)
             failed += 1
 
     current_month = date.today().strftime("%Y-%m")
@@ -379,7 +445,7 @@ def backfill(kind: BackupKind, consolidate=None) -> dict:
             (consolidate or _default_consolidate(kind))(current_month=current_month)
             break
 
-    log.info(f"  backfill_{area}: {copied} copied, {skipped} skipped, {failed} failed")
+    _lg(kind).info(f"  backfill_{area}: {copied} copied, {skipped} skipped, {failed} failed")
     return {"copied": copied, "skipped": skipped, "failed": failed}
 
 
@@ -387,16 +453,17 @@ def backfill(kind: BackupKind, consolidate=None) -> dict:
 #  Refresh — outdated backup copies
 # ══════════════════════════════════════════════════════════════════════════════
 
-def zip_index(zip_path: Path) -> dict:
+def zip_index(zip_path: Path, logger=None) -> dict:
     """
     {filename: (crc32, size)} of a monthly ZIP, read from its directory only —
     nothing is decompressed. Empty (with a warning) if the ZIP cannot be read.
+    The warning goes to logger (a kind's logger, see BackupKind.log), by default to this module's.
     """
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
             return {i.filename: (i.CRC, i.file_size) for i in zf.infolist()}
     except Exception as e:
-        log.warning(f"  backup refresh: cannot read {zip_path.name}: {e}")
+        (log if logger is None else logger).warning(f"  backup refresh: cannot read {zip_path.name}: {_why(e)}")
         return {}
 
 
@@ -418,12 +485,25 @@ def find_outdated(kind: BackupKind) -> tuple[list, list]:
                  monthly ZIP (CRC32 and size, nothing is unpacked).
     unreadable — the copy differs, but the file is not valid (kind.is_valid says no).
 
-    A file without any backup copy is in neither list.
+    A file without any backup copy is in neither list. A file that cannot be checked at all
+    (it cannot be read) is in neither list either; refresh() counts those as errors (_scan).
+    """
+    outdated, unreadable, _failed = _scan(kind)
+    return outdated, unreadable
+
+
+def _scan(kind: BackupKind) -> tuple[list, list, list]:
+    """
+    (outdated, unreadable, failed): find_outdated() plus the files that could not be checked
+    (v1.7.6.2.1). Each failed check is a warning with the exception type, and the file is in
+    `failed` so that refresh() can count it as an error instead of silently reporting
+    '0 errors'.
     """
     outdated   = []
     unreadable = []
+    failed     = []
     if not kind.src_dir.exists():
-        return outdated, unreadable
+        return outdated, unreadable, failed
 
     indexes: dict = {}
     for src in sorted(kind.src_dir.glob(kind.pattern)):
@@ -438,7 +518,7 @@ def find_outdated(kind: BackupKind) -> tuple[list, list]:
             else:
                 if month not in indexes:
                     zip_path = kind.zip_path(month)
-                    indexes[month] = zip_index(zip_path) if zip_path.exists() else {}
+                    indexes[month] = zip_index(zip_path, _lg(kind)) if zip_path.exists() else {}
                 entry = indexes[month].get(src.name)
                 if entry is None:
                     continue                 # no backup copy at all — backfill's job
@@ -451,8 +531,10 @@ def find_outdated(kind: BackupKind) -> tuple[list, list]:
             else:
                 unreadable.append(src)
         except Exception as e:
-            log.warning(f"  backup refresh: could not check {src.name}: {e}")
-    return outdated, unreadable
+            _lg(kind).warning(f"  backup refresh: could not check {src.name}: {_why(e)}")
+            _lg(kind).debug("  traceback:", exc_info=True)
+            failed.append(src)
+    return outdated, unreadable, failed
 
 
 def check_stale(kind: BackupKind) -> int:
@@ -471,14 +553,15 @@ def refresh(kind: BackupKind, consolidate=None) -> dict:
     A file that is not valid (kind.is_valid) is never copied over its backup — it is reported
     and the backup copy stays as it is.
 
-    Returns {"refreshed": int, "unreadable": int, "errors": int}.
+    Returns {"refreshed": int, "unreadable": int, "errors": int}. errors counts the files that
+    could not be checked (v1.7.6.2.1) and the copies that failed.
     """
-    outdated, unreadable = find_outdated(kind)
+    outdated, unreadable, failed = _scan(kind)
     refreshed = 0
-    errors    = 0
+    errors    = len(failed)
 
     for src in unreadable:
-        log.warning(
+        _lg(kind).warning(
             f"  backup refresh: {src.name} is not a valid {kind.area} file — "
             f"its backup copy is left as it is"
         )
@@ -491,13 +574,14 @@ def refresh(kind: BackupKind, consolidate=None) -> dict:
             (month_dir / src.name).write_bytes(src.read_bytes())
             refreshed += 1
         except Exception as e:
-            log.error(f"  backup refresh: failed for {src.name}: {e}")
+            _lg(kind).error(f"  backup refresh: failed for {src.name}: {_why(e)}")
+            _lg(kind).debug("  traceback:", exc_info=True)
             errors += 1
 
     if refreshed:
         (consolidate or _default_consolidate(kind))(current_month=date.today().strftime("%Y-%m"))
 
-    log.info(
+    _lg(kind).info(
         f"  backup refresh ({kind.area}): {refreshed} refreshed, "
         f"{len(unreadable)} unreadable, {errors} errors"
     )
