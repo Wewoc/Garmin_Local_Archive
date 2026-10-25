@@ -148,6 +148,7 @@ directory.
 | `garmin_backup_source.py` | `garmin_data/backup/source/` |
 | `garmin_backup_bulk.py` | `garmin_data/backup/bulk/` (v1.7.6.2) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` |
+| `garmin_migration_snapshot.py` (removable) | `garmin_data/backup/migration/` (v1.7.6.3) |
 | `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` and `garmin_data/bulk/source/` |
 | `garmin_mirror.py` → `garmin_container.py` | `mirror.gla` |
 | `context_writer.py` | `context_data/` |
@@ -899,6 +900,8 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_silo_check.py` | Read-only drift detection | **Yes** |
 | `garmin_silo_repair.py` | Headless-callable repair core for the four silo-drift categories — delegates to owner modules, never writes directly | No |
 | `garmin_repair_resting_hr.py` | Removable one-time repair of the resting heart rate of imported days (v1.7.5.7) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
+| `garmin_track_migration.py` | Removable migration of the mixed archive (v1.7.6.3) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
+| `garmin_migration_snapshot.py` | Removable (v1.7.6.3) — sole owner of `backup/migration/`, the safety copy made before the migration writes | No |
 | `garmin_backup.py` | Sole owner of `backup/raw/` + `backup/log/` | No |
 | `garmin_backup_source.py` | Sole owner of `backup/source/` | No |
 | `garmin_force_refetch.py` | Sole owner of `backup/force_refetch/` — per-day snapshot/restore for the deliberate Force-Refetch freeze-guard bypass | No |

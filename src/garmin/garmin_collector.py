@@ -1457,6 +1457,41 @@ def _run_resting_hr_repair(quality_data: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Track migration — TRACK-MIGRATION v1.7.6.3 — removable
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_track_migration(quality_data: dict, preview: bool) -> None:
+    """
+    Moves the days of the old mixed archive (export data imported into raw/) to the two-track
+    layout, or only reports what that would do (preview). The work is done by
+    garmin_track_migration; this wrapper only starts it and logs the result lines.
+
+    quality_data is the run's own quality log, handed through like the repairs get it: the
+    migration marks its days (last_checked) on this object and saves it. A log of its own would
+    be overwritten by the next save of this run. The caller must not hold QUALITY_LOCK.
+
+    Runs after the user chose "Migrate" or "Preview only" in the popup of the GUI
+    (GARMIN_TRACK_MIGRATION=1 / preview). No API call, no login.
+
+    Non-fatal: any error is a warning and the sync goes on (the preview run ends in main()). A result
+    that is not ok is logged as warnings; days that failed stay as they were and are offered again
+    at the next start.
+    """
+    try:
+        import garmin_track_migration as _tm
+        if preview:
+            lines, ok = _tm.format_plan(_tm.plan_migration(should_stop=_is_stopped)), True
+        else:
+            result = _tm.run_migration(should_stop=_is_stopped, quality_data=quality_data)
+            lines, ok = _tm.format_result(result), result["ok"]
+    except Exception as e:
+        log.warning(f"  Track migration skipped: {e}")
+        return
+    for line in lines:
+        (log.info if ok else log.warning)(f"  {line}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Bulk import phases — BULK-IMPORT-PHASES v1.7.6 — removable
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1875,6 +1910,20 @@ def main(stop_event=None):
 
     # ── 3b. Self-healing loop — schema version check ───────────────────────────
     _run_self_healing(quality_data)
+
+    # ── 3b2. Track migration — TRACK-MIGRATION v1.7.6.3 — removable ────────────
+    # Before 3c: the migration writes the summaries of its days with the current schema, so the
+    # schema migration finds nothing left of them; the resting-HR repair (3e) finds no import form.
+    # The variable is removed as soon as it is read: in T3 the process, and with it os.environ, lives
+    # on between runs. The run's quality_data is passed on (like the repairs get it). "preview" only
+    # reports and ends the run here: nothing is written and no sync follows.
+    _track_mode = os.environ.pop("GARMIN_TRACK_MIGRATION", None)
+    if _track_mode in ("1", "preview"):
+        _run_track_migration(quality_data, preview=_track_mode == "preview")
+        if _track_mode == "preview":
+            log.info("  Preview only - the sync was not run.")
+            _close_session_log(_session_fh, _session_path, False, False)
+            return
 
     # ── 3c. Schema migration — rewrite outdated summaries if triggered ─────────
     if os.environ.get("GARMIN_SCHEMA_MIGRATE") == "1":

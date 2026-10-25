@@ -118,11 +118,17 @@ def run_collector(panel, *, on_done=None):
     # RESTING-HR-REPAIR v1.7.5.7 — removable
     if app._panel_archive._check_resting_hr_repair(base_dir=s["base_dir"]):
         env_extra["GARMIN_RESTING_HR_REPAIR"] = "1"
+    # TRACK-MIGRATION v1.7.6.3 — removable
+    track_mode = app._panel_archive._check_track_migration(base_dir=s["base_dir"])
+    if track_mode:
+        env_extra["GARMIN_TRACK_MIGRATION"] = track_mode
 
     def _internal_done():
         app._panel_timer._timer_resume_after_sync(timer_was_active)
         app._panel_archive._refresh_archive_info()
-        run_live_fetch(panel)
+        # a preview run ends before the login (TRACK-MIGRATION v1.7.6.3): no live fetch after it
+        if track_mode != "preview":
+            run_live_fetch(panel)
         if on_done:
             on_done()
 

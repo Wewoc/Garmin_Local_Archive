@@ -40,6 +40,7 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_SOURCE_BACKFILL` | str | `"0"` | `"1"` = run source backfill in `main()` step 5c — set by timer `source_backfill` mode only |
 | `GARMIN_SCHEMA_MIGRATE` | str | `"0"` | `"1"` = rewrite outdated summary files in `main()` step 3c |
 | `GARMIN_RESTING_HR_REPAIR` | str | `"0"` | `"1"` = run the resting-HR repair in `main()` step 3e (v1.7.5.7, removable) — set by `sync.run_collector()` after the popup was confirmed; removed with `os.environ.pop()` as soon as `main()` reads it, so it never survives into a later run in the same process (T3) |
+| `GARMIN_TRACK_MIGRATION` | str | `"0"` | `"1"` = run the migration of the mixed archive in `main()` step 3b2 (v1.7.6.3, removable); `"preview"` = only the preview, ends the run before the login — set by `sync.run_collector()` after the popup; removed with `os.environ.pop()` as soon as `main()` reads it (T3) |
 | `GARMIN_CAPABILITY_SCAN` | str | `"0"` | `"1"` = delegated entry point (`main()` step 0b) — probes the 19 optional health-endpoint candidates instead of running the regular sync. Own login, `sys.exit()` on completion (v1.6.8) |
 | `GARMIN_CAPABILITY_WINDOW_DAYS` | str | `"7"` | Scan window for `GARMIN_CAPABILITY_SCAN=1` — days to probe per candidate (v1.6.8) |
 | `GARMIN_MCP_LLM_BACKEND` | str | *(unset)* | `"ollama"`/`"cloud"` overrides `MCP_SERVER_CONFIG_FILE`'s `mcp_llm_backend` if set — ENV always wins, falls back to the config file, then to `"ollama"` (v1.7 Teilbauauftrag c, file fallback added Teilbauauftrag f). Not validated in `garmin_config.py`. |
@@ -72,6 +73,7 @@ All modules import via `import garmin_config as cfg`.
 | `SOURCE_API_LOG` | `LOG_DIR/source_api_log.json` | Per-day fetch metadata: validator status, endpoints, byte size |
 | `SOURCE_BACKUP_DIR` | `BACKUP_DIR/source` | Source backup — sole owner: `garmin_backup_source.py` (v1.6.0.4) |
 | `BULK_BACKUP_DIR` | `BACKUP_DIR/bulk` | Backup of the bulk store — sole owner: `garmin_backup_bulk.py` (v1.7.6.2). `BULK_RAW_BACKUP_DIR` (`bulk/raw`: month folders, `bulk_raw_backup_YYYY-MM.zip`), `BULK_AGG_BACKUP_DIR` (`bulk/aggregates`: the same, `bulk_aggregates_backup_YYYY-MM.zip`), `BULK_SOURCE_BACKUP_DIR` (`bulk/source`: one `<xx>.zip` per hash prefix) |
+| `MIGRATION_BACKUP_DIR` | `BACKUP_DIR/migration` | Safety copies of the migration of the mixed archive, `migration_YYYY-MM-DD_HHMMSS.zip` — sole owner: `garmin_migration_snapshot.py` (v1.7.6.3, removable); not mirrored, not deleted by the app |
 | `LIVE_DIR` | `GARMIN_DIR/live` | Live Tracking snapshot dir — sole owner: `garmin_live_fetch.py` (v1.6.5) |
 | `LIVE_FILE` | `LIVE_DIR/live.json` | Single-file snapshot of the current day — no history, overwritten on every fetch (v1.6.5) |
 | `BULK_DIR` | `GARMIN_DIR/bulk` | Bulk store — data from the Garmin GDPR export, apart from the API store; sole owner: `garmin_bulk_writer.py` (v1.7.6). Layout of the export itself: `REFERENCE_GARMIN_EXPORT.md` |
@@ -377,6 +379,8 @@ it fits directly into one WCM credential entry.
     │   ├── garmin_backup_bulk.py   ← Sole Owner backup/bulk/ (v1.7.6.2). backup_all(), backup_originals(), read_day_copy(), read_original_copy()
     │   ├── garmin_silo_check.py    ← Leaf-Node. Read-only silo drift detection. check_silos() → dict (v1.6.0.4.7)
     │   ├── garmin_repair_resting_hr.py ← Removable (v1.7.5.7). One-time repair of the resting heart rate of imported days. find_candidates(), repair_resting_hr()
+    │   ├── garmin_track_migration.py ← Removable (v1.7.6.3). Migration of the mixed archive. scan_archive(), plan_migration(), run_migration()
+    │   ├── garmin_migration_snapshot.py ← Removable (v1.7.6.3). Sole Owner backup/migration/. create_snapshot(), restore_snapshot()
     │   ├── garmin_merge.py         ← Leaf-Node. Additive field merge for backfill operations. merge_field() (v1.6.3)
     │   └── garmin_extended_anaysis.py
     │
@@ -716,8 +720,8 @@ BASE_DIR/                       ← user-configured, default: ~/local_archive
 │   │   │   └── garmin_bulk_agg_YYYY-MM-DD.json
 │   │   └── source/
 │   │       └── <xx>/<sha256>.fit|.json  ← unchanged export files
-│   ├── backup/                     ← Backups: garmin_backup.py raw/ + log/, garmin_backup_source.py source/, garmin_backup_bulk.py bulk/ (v1.7.6.2)
-│   │   ├── raw/  log/  source/
+│   ├── backup/                     ← Backups: garmin_backup.py raw/ + log/, garmin_backup_source.py source/, garmin_backup_bulk.py bulk/ (v1.7.6.2), garmin_migration_snapshot.py migration/ (v1.7.6.3)
+│   │   ├── raw/  log/  source/  migration/
 │   │   └── bulk/
 │   │       ├── raw/                ← YYYY-MM/ (open month), bulk_raw_backup_YYYY-MM.zip
 │   │       ├── aggregates/         ← YYYY-MM/, bulk_aggregates_backup_YYYY-MM.zip

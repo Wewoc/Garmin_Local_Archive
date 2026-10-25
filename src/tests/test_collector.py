@@ -4365,6 +4365,190 @@ with _isolated_log_env("main15rhr3") as _b:
           "— not overwritten by the older log in memory (Baustein 2f)",
           _q[_imp15]["last_checked"] == date.today().isoformat())
 
+# -- track migration (v1.7.6.3, M4) — TRACK-MIGRATION v1.7.6.3 — removable -----------------------------------------------
+_TM_RES15 = {"ok": True, "migrated": 3, "refreshed": 1, "failed": [], "blocked": [], "unresolved": 0, "convert_pending": 0,
+             "label_differs": [], "years": {"2022": {"migrated": 3, "refreshed": 1, "failed": 0}}, "snapshot": "migration_x.zip",
+             "log_saved": True, "stopped": False}
+_TM_PLAN15 = {"stopped": False, "marker": "plan"}
+_TM_PREVIEW_LINES15 = ["Track migration preview (nothing is written):", "  days to rebuild from source/ (migrate): 3 ready, 0 blocked"]
+_TM_ON15 = {"GARMIN_TRACK_MIGRATION": "1"}
+_TM_PREV15 = {"GARMIN_TRACK_MIGRATION": "preview"}
+
+
+def _tm15(result=None, run_err=None, plan_err=None, **kw):
+    """main() once with garmin_track_migration mocked. Returns (main result, log recorder, run mock, plan mock)."""
+    with patch("garmin_track_migration.run_migration",
+               return_value=_TM_RES15 if result is None else result, side_effect=run_err) as _run, \
+         patch("garmin_track_migration.plan_migration", return_value=_TM_PLAN15, side_effect=plan_err) as _plan, \
+         patch("garmin_track_migration.format_plan", return_value=list(_TM_PREVIEW_LINES15)):
+        out, rec = _m15(**kw)
+    return out, rec, _run, _plan
+
+
+with _isolated_log_env("main15tm") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _res = {}
+        for _val in ("1", "preview", "0", "2", "", "true", None):
+            _, _rec, _run, _plan = _tm15(env={"GARMIN_TRACK_MIGRATION": _val} if _val is not None else {})
+            _res[_val] = (_run.call_count, _plan.call_count)
+        check("4u main track migration: GARMIN_TRACK_MIGRATION=1 starts the migration, =preview only the preview, any other value nothing",
+              _res == {"1": (1, 0), "preview": (0, 1), "0": (0, 0), "2": (0, 0), "": (0, 0), "true": (0, 0), None: (0, 0)})
+        _, _rec, _run, _plan = _tm15(env=_TM_ON15)
+        check("4u main track migration: the stop check and the quality log of the run are handed over (the marks are made on the log main() saves later)",
+              set(_run.call_args.kwargs) == {"should_stop", "quality_data"}
+              and _run.call_args.kwargs["should_stop"] is _col5._is_stopped
+              and isinstance(_run.call_args.kwargs["quality_data"], dict) and "days" in _run.call_args.kwargs["quality_data"])
+        _, _rec, _run, _plan = _tm15(env=_TM_PREV15)
+        check("4u main track migration: the preview gets the stop check", _plan.call_args.kwargs == {"should_stop": _col5._is_stopped})
+
+        (_code, _exc, _f, _), _rec, _run, _plan = _tm15(env=_TM_ON15, login=None)
+        (_code2, _exc2, _f2, _), _rec2, _run2, _plan2 = _tm15(env=_TM_ON15, login_error=_col5.api.GarminLoginError("nope"))
+        check("4u main track migration: runs before the login — a cancelled login does not stop it, a login error does not stop it "
+              "and the run still exits with 1",
+              _code is None and _exc is None and _run.call_count == 1 and _code2 == 1 and _run2.call_count == 1)
+
+        _order = []
+        with patch.object(_col5, "_run_schema_migration", side_effect=lambda q: _order.append("schema")), \
+             patch.object(_col5, "_run_backup_refresh", side_effect=lambda: _order.append("backup")), \
+             patch.object(_col5, "_run_resting_hr_repair", side_effect=lambda q: _order.append("repair")), \
+             patch("garmin_track_migration.run_migration",
+                   side_effect=lambda **kw: (_order.append("track"), _TM_RES15)[1]):
+            _m15(env={"GARMIN_SCHEMA_MIGRATE": "1", "GARMIN_RESTING_HR_REPAIR": "1", **_TM_ON15})
+        check("4u main track migration: runs before the schema migration, the backup refresh and the resting HR repair "
+              "(it writes the summaries with the current schema; the other two then find nothing left of its days)",
+              _order == ["track", "schema", "backup", "repair"])
+
+        with patch.dict(sys.modules, {"garmin_track_migration": None}):
+            (_code, _exc, _f, _dev), _rec = _m15(env=_TM_ON15)
+        check("4u main track migration: a missing module (the migration was removed) is a warning, the run goes on",
+              _code is None and _exc is None and _dev.called
+              and any(m.startswith("  Track migration skipped:") for m in _rec.msgs("warning")))
+
+        (_code, _exc, _f, _dev), _rec, _run, _plan = _tm15(run_err=OSError("boom"), env=_TM_ON15)
+        check("4u main track migration: an error in the migration is a warning, the run goes on",
+              _code is None and _exc is None and _dev.called and "  Track migration skipped: boom" in _rec.msgs("warning"))
+
+        _, _rec, _run, _plan = _tm15(env=_TM_ON15)
+        check("4u main track migration: a clean result is logged as information, with the safety copy named, and adds no warning",
+              "  Track migration: 3 day(s) rebuilt from source/, 1 summary(ies) refreshed, 0 failed." in _rec.msgs("info")
+              and any("Safety copy: migration_x.zip" in m for m in _rec.msgs("info"))
+              and not any("Track migration" in m for m in _rec.msgs("warning")))
+        _bad = {**_TM_RES15, "ok": False, "failed": [("2022-01-02", "OSError: disk")], "migrated": 2}
+        _, _rec, _run, _plan = _tm15(result=_bad, env=_TM_ON15)
+        check("4u main track migration: a result that is not ok is logged as warnings (the failed day named) - the days stay as they were "
+              "and are found again at the next start",
+              any("FAILED 2022-01-02: OSError: disk" in m for m in _rec.msgs("warning"))
+              and any(m.startswith("  Track migration: 2 day(s) rebuilt") for m in _rec.msgs("warning")))
+        _nosnap = {"ok": False, "reason": "snapshot_failed", "snapshot_reason": "no_space", "migrated": 0, "refreshed": 0, "failed": [],
+                   "blocked": [], "unresolved": 0, "convert_pending": 0, "label_differs": [], "years": {}, "snapshot": None,
+                   "log_saved": None, "stopped": False}
+        (_code, _exc, _f, _dev), _rec, _run, _plan = _tm15(result=_nosnap, env=_TM_ON15)
+        check("4u main track migration: no safety copy -> a warning that nothing was written, the sync goes on",
+              _code is None and _exc is None and _dev.called
+              and any("NOT started" in m and "no_space" in m for m in _rec.msgs("warning")))
+
+        # the preview ends the run: nothing after it (login, device history, fetch, backup refresh) happens
+        with patch.object(_col5, "_run_backup_refresh") as _bk, patch.object(_col5, "_close_session_log") as _cl:
+            (_code, _exc, _f, _dev), _rec, _run, _plan = _tm15(env=_TM_PREV15)
+        check("4u main track migration: the preview logs its lines and ends the run before everything else - no migration, "
+              "no backup refresh, no login, no fetch - and closes the session log without an error",
+              _code is None and _exc is None and not _run.called and not _bk.called and not _dev.called and not _f.called
+              and all(f"  {line}" in _rec.msgs("info") for line in _TM_PREVIEW_LINES15)
+              and _cl.call_count == 1 and _cl.call_args.args[2:] == (False, False))
+        (_code, _exc, _f, _dev), _rec, _run, _plan = _tm15(env=_TM_PREV15, plan_err=OSError("boom"))
+        check("4u main track migration: an error in the preview is a warning and the run ends all the same (it was asked for a preview only)",
+              _code is None and _exc is None and not _dev.called and not _f.called
+              and "  Track migration skipped: boom" in _rec.msgs("warning"))
+
+        with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}):
+            (_code, _exc, _f, _), _rec, _run, _plan = _tm15(env={"GARMIN_IMPORT_PATH": "ignored", **_TM_ON15})
+        check("4u main track migration: the import mode returns before it — no migration", _code == 0 and not _run.called)
+
+with _isolated_log_env("main15tm2") as _b:      # no log, no raw file: the day is new and is fetched
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _seen_in, _seen_after = [], {}
+
+        def _tm_env(**kw):
+            _seen_in.append(os.environ.get("GARMIN_TRACK_MIGRATION"))
+            return _TM_RES15
+
+        _env_after = []
+
+        def _fetch_tm_env(client, date_str, extra_endpoints=None):
+            _env_after.append(os.environ.get("GARMIN_TRACK_MIGRATION"))
+            return _day_raw(date_str, "high"), []
+
+        for _val in ("1", "0"):
+            with _isolated_log_env(f"main15tm2_{_val}") as _b2:       # fresh archive: the day is fetched again
+                cfg.SUMMARY_DIR = _b2 / "summary"
+                _env_after.clear()
+                with patch("garmin_track_migration.run_migration", side_effect=_tm_env):
+                    _m15(env={"GARMIN_TRACK_MIGRATION": _val}, fetch=_fetch_tm_env)
+                _seen_after[_val] = list(_env_after)
+        check("4u main track migration: the variable is removed as soon as it is read — before the migration runs "
+              "and for every value, so a later run in the same process (T3) is not triggered again",
+              _seen_in == [None] and _seen_after == {"1": [None], "0": [None]})
+
+        _env_prev = []
+        with patch("garmin_track_migration.plan_migration", side_effect=lambda **kw: _env_prev.append(os.environ.get("GARMIN_TRACK_MIGRATION")) or _TM_PLAN15), \
+             patch("garmin_track_migration.format_plan", return_value=[]):
+            _m15(env=_TM_PREV15)
+            _env_prev.append(os.environ.get("GARMIN_TRACK_MIGRATION"))
+        check("4u main track migration: the variable of a preview is removed too (T3)", _env_prev == [None, None])
+
+# -- track migration end to end — TRACK-MIGRATION v1.7.6.3 — removable --------------------------------------------------
+# The real migration, then a later save of the run's own quality log (the day that is fetched afterwards): the marks the
+# migration makes must survive that save (the lesson of the resting-HR repair, Baustein 2f).
+import garmin_bulk_writer as _bw15
+import garmin_import as _imp15m
+import garmin_normalizer as _nz15
+import garmin_migration_snapshot as _snap15
+
+with _isolated_log_env("main15tm3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _tmd = "2022-06-01"
+    _ent15 = {"uds": {"calendarDate": _tmd, "totalSteps": 7000, "dailyStepGoal": 8000, "totalKilocalories": 2300.0,
+                      "activeKilocalories": 400.0, "totalDistanceMeters": 5000.0, "moderateIntensityMinutes": 10,
+                      "vigorousIntensityMinutes": 5, "floorsAscendedInMeters": 30.0, "currentDayRestingHeartRate": 52,
+                      "restingHeartRate": 55, "minHeartRate": 44, "maxHeartRate": 150,
+                      "allDayStress": {"aggregatorList": [{"averageStressLevel": 28, "maxStressLevel": 90, "stressDuration": 1,
+                                                           "restDuration": 2, "lowDuration": 3, "mediumDuration": 4, "highDuration": 5}]}},
+              "sleep": {"calendarDate": _tmd, "deepSleepSeconds": 5000, "lightSleepSeconds": 15000,
+                        "remSleepSeconds": 4000, "awakeSleepSeconds": 600},
+              "readiness": {"calendarDate": _tmd, "level": "HIGH", "feedbackLong": "long", "feedbackShort": "short"},
+              "activities": []}
+    _parsed15 = _imp15m.parse_day(_ent15, _tmd)
+    _bw15.write_aggregates(_tmd, json.loads(json.dumps(_parsed15)), ["ef" * 32])
+    _old15 = _nz15.normalize(json.loads(json.dumps(_parsed15)), source="bulk")
+    _old15["body_battery"] = [{"value": 40}]
+    _put15 = lambda p, o: (p.parent.mkdir(parents=True, exist_ok=True), p.write_text(json.dumps(o), encoding="utf-8"))
+    _api15 = {"date": _tmd, "heart_rates": {"calendarDate": _tmd, "restingHeartRate": 64, "minHeartRate": None, "maxHeartRate": None},
+              "user_summary": {"totalSteps": 7000, "floorsAscended": 0.5},
+              "stress": {"calendarDate": _tmd, "avgStressLevel": 28, "maxStressLevel": 99},
+              "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 24000, "id": 7, "calendarDate": _tmd}},
+              "body_battery": [{"value": 40}]}
+    _put15(cfg.RAW_DIR / f"garmin_raw_{_tmd}.json", _old15)
+    _put15(cfg.SOURCE_DIR / f"garmin_source_{_tmd}.json", _api15)
+    _log15([{"date": _tmd, **_API15, "last_checked": "2024-01-01"}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0, MIGRATION_BACKUP_DIR=_b / "migration"):
+        (_code, _exc, _f, _), _rec = _m15(env=_TM_ON15)
+        _snaps15 = len(_snap15.list_snapshots())
+    _q = _qdays()
+    _raw15 = json.loads((cfg.RAW_DIR / f"garmin_raw_{_tmd}.json").read_text(encoding="utf-8"))
+    check("4u main track migration end to end: the day was made again from source/ (no section of the old import form left), "
+          "a safety copy exists, and the sync that follows really ran (the fetched day is in the log)",
+          _code is None and _exc is None and _f.called and "2024-05-01" in _q
+          and _raw15["heart_rates"]["restingHeartRate"] == 64 and "user_summary" in _raw15
+          and set(_raw15["heart_rates"]) >= {"restingHeartRate"} and "lastSevenDaysAvgRestingHeartRate" not in _raw15["user_summary"]
+          and _snaps15 == 1)
+    check("4u main track migration end to end: the migrated day keeps its new last_checked after the later save "
+          "— not overwritten by the older log in memory",
+          _q[_tmd]["last_checked"] == date.today().isoformat())
+
 # -- device_id backfill ---------------------------------------------------------------------------------------------
 _DV = [f"2024-03-{n:02d}" for n in range(1, 13)]
 

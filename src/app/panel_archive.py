@@ -63,6 +63,24 @@ def _import_result_text(result: dict) -> str:
     return msg
 
 
+def _ask_track_migration(parent, text: str) -> str:
+    """TRACK-MIGRATION v1.7.6.3 — removable. The question before the track migration: "Migrate",
+    "Preview only" or "Not now". Returns "run", "preview" or "" (not now, or the window was closed)."""
+    box = QMessageBox(parent)
+    box.setWindowTitle("Data Migration — Backup Required")
+    box.setText(text)
+    run_btn = box.addButton("Migrate", QMessageBox.ButtonRole.AcceptRole)
+    preview_btn = box.addButton("Preview only", QMessageBox.ButtonRole.ActionRole)
+    box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is run_btn:
+        return "run"
+    if clicked is preview_btn:
+        return "preview"
+    return ""
+
+
 class PanelArchive(QWidget):
 
     def __init__(self, app):
@@ -415,6 +433,46 @@ class PanelArchive(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         return answer == QMessageBox.StandardButton.Yes
+
+    # ── Track migration check — TRACK-MIGRATION v1.7.6.3 — removable ───────────
+
+    def _check_track_migration(self, base_dir: str):
+        """Returns the value of GARMIN_TRACK_MIGRATION: "1" (migrate), "preview", or None (nothing to
+        offer, or not now). Main Thread only."""
+        # INTENTIONAL DIRECT READ — read-only pre-flight check in GUI context, same category as
+        # _check_resting_hr_repair() above. Reads raw/ and looks at the file names in source/ and
+        # bulk/aggregates; nothing is written, no quality_log access. The folders come from the
+        # settings (base_dir), so the check does not depend on what garmin_config was imported with.
+        # The scan cannot know the coverage: a day the migration will not touch is offered again at
+        # every start until its export is imported (the full check runs in the collector).
+        garmin_dir = Path(base_dir) / "garmin_data"
+        raw_dir    = garmin_dir / "raw"
+        if not raw_dir.exists():
+            return None
+        try:
+            import garmin_track_migration as _tm
+            found = _tm.pending(_tm.scan_archive(raw_dir=raw_dir, source_dir=garmin_dir / "source",
+                                                 agg_dir=garmin_dir / "bulk" / "aggregates"))
+        except Exception:
+            return None
+        count = len(found["ready"])
+        if count == 0:
+            return None
+        waiting = len(found["waiting"])
+        extra = (f"\n{waiting} more day(s) wait for the export import and stay unchanged.\n"
+                 if waiting else "")
+        answer = _ask_track_migration(
+            self._app,
+            f"{count} day(s) of your archive are still in the mixed form of the old export import "
+            f"(export data stored in the folder of the Garmin API data).\n\n"
+            f"They are made again from the archived Garmin originals (source/); the export data stays "
+            f"in the bulk store. Summaries are made again where the export fills what the API left empty. "
+            f"Days that the bulk store does not fully cover stay unchanged and are reported.\n{extra}\n"
+            f"A safety copy of raw/, summary/ and the quality log is made first (backup/migration) "
+            f"and can be restored. Please make a backup of your data directory as well.\n\n"
+            f"\"Preview only\" reports what would change, writes nothing, and the sync does not run this time.",
+        )
+        return {"run": "1", "preview": "preview"}.get(answer)
 
     # ── Failed days popup ──────────────────────────────────────────────────────
 

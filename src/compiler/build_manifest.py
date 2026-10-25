@@ -111,6 +111,8 @@ SHARED_SCRIPTS = [
     "garmin/garmin_silo_check.py",
     "garmin/garmin_silo_repair.py",
     "garmin/garmin_repair_resting_hr.py",  # RESTING-HR-REPAIR v1.7.5.7 — removable
+    "garmin/garmin_track_migration.py",    # TRACK-MIGRATION v1.7.6.3
+    "garmin/garmin_migration_snapshot.py", # TRACK-MIGRATION v1.7.6.3
     "garmin/garmin_live_fetch.py",
     "garmin/garmin_extended_anaysis.py",
     # clients (external tool/service integrations — e.g. Ollama, the MCP
@@ -266,7 +268,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_api.py":        ["def login", "def fetch_raw"],
     "garmin/garmin_merge.py":      ["def merge_field"],
     "garmin/quality/_fieldhash.py": ["def compare_source_fields"],
-    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration", "def _run_backup_refresh","def _run_source_backfill", "def _run_steps_backfill", "def run_capability_scan", "def _run_resting_hr_repair", "def _run_bulk_import", "def _mark_bulk_days", "def _apply_bulk_marks", "def _run_bulk_mark_catch_up", "def _run_bulk_backup", "def _finish_aggregates", "def _apply_aggregates"],  # "def _run_resting_hr_repair": RESTING-HR-REPAIR v1.7.5.7 — removable
+    "garmin/garmin_collector.py":  ["def main", "def _fetch_and_assess", "def run_import", "def _run_schema_migration", "def _run_backup_refresh","def _run_source_backfill", "def _run_steps_backfill", "def run_capability_scan", "def _run_resting_hr_repair", "def _run_track_migration", "def _run_bulk_import", "def _mark_bulk_days", "def _apply_bulk_marks", "def _run_bulk_mark_catch_up", "def _run_bulk_backup", "def _finish_aggregates", "def _apply_aggregates"],  # "def _run_resting_hr_repair": RESTING-HR-REPAIR v1.7.5.7 — removable
     "garmin/garmin_api_capability.py": ["def load_config", "def save_config", "def build_args"],
     "garmin/garmin_import.py":     ["def load_bulk", "def parse_day", "def load_bulk_with_entries"],
     "garmin/garmin_bulk_fit_reader.py": ["def parse_fit", "class FitFile", "class FitFormatError"],
@@ -285,7 +287,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_security.py":   ["def load_token", "def save_token"],
     "garmin/garmin_normalizer.py": ["def normalize", "def summarize"],
     "garmin/garmin_validator.py":  ["def validate", "def reload_schema", "def current_version"],
-    "garmin/garmin_writer.py":     ["def write_day", "def read_raw", "def read_summary", "def rebuild_summary"],
+    "garmin/garmin_writer.py":     ["def write_day", "def read_raw", "def read_summary", "def rebuild_summary", "def resolve_preview", "def restore_day_files"],
     "context/airquality_plugin.py": ["AGGREGATION_MAP", "CHUNK_DAYS"],
     "maps/airquality_map.py":       ["def get", "def list_fields"],
     "garmin/garmin_sync.py":       ["def get_local_dates", "def resolve_date_range"],
@@ -308,6 +310,8 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_silo_check.py":    ["def check_silos"],
     "garmin/garmin_silo_repair.py":   ["def repair_silos"],
     "garmin/garmin_repair_resting_hr.py": ["def find_candidates", "def repair_resting_hr"],  # RESTING-HR-REPAIR v1.7.5.7 — removable
+    "garmin/garmin_track_migration.py": ["def import_sections", "def classify_day", "def scan_archive", "def pending", "def plan_migration", "def format_plan", "def run_migration", "def format_result"],  # TRACK-MIGRATION v1.7.6.3
+    "garmin/garmin_migration_snapshot.py": ["def create_snapshot", "def verify_snapshot", "def list_snapshots", "def restore_snapshot"],  # TRACK-MIGRATION v1.7.6.3
     "context/context_silo_check.py":  ["def check_context_archive"],
     "context/context_silo_repair.py": ["def fix_coordinates"],
     "garmin/garmin_live_fetch.py":    ["def fetch_live"],

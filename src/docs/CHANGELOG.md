@@ -1,5 +1,118 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.3 — Migration of the Mixed Archive
+
+Days that the earlier import left in a mixed form (export data stored in
+`raw/`, the folder of the Garmin API data, with API fields merged in later) are
+made again from the archived Garmin originals (`source/`); the export data stays
+in the bulk store. A step in the app (popup, preview, safety copy first) does
+this once. The daily summary is now put together field by field, so an old day
+whose Garmin answer holds a field but leaves it empty gets that value from the
+export.
+
+**What changed:**
+- **Summary resolved field by field (F-11):** `garmin_writer._resolve` filled
+  only whole top-level keys; an API section that existed with empty fields
+  (`heart_rates` with `null` minimum and maximum, `stress` without the series)
+  counted as filled and the export never reached `summary/`. A section that
+  both sources hold as a dict is now filled one level deep (API value stays when
+  it is not empty; `None`, `""`, `[]`, `{}` are empty, `0` and `False` are
+  values). `activities` is excluded (see below); `garmin_merge.merge_field` is
+  unchanged (the backfills share it). Nothing on disk changes until a path
+  rewrites the summary.
+- **Detection by content** (`garmin_track_migration`, new): a day is classified
+  from the key form of its raw sections (`heart_rates`, `stress`, `sleep`,
+  `user_summary`, `activities`, `training_readiness`), never from `source` in the
+  quality log (that field is `api` for days the bulk field backfill completed).
+  Classes: **migrate** (import form and `source/` present), **convert** (import
+  form, no `source/`, nothing else), **unresolved** (import form plus API
+  sections, no `source/`), API. Only migrate days are changed.
+- **Preview** (`plan_migration`, read-only): coverage check per day (every
+  non-empty field of an import-form section must be held by the bulk store with
+  the same value, lists as the same entries in any order; every other section
+  must equal the one from `source/`), the summary fields that would change, and
+  the summaries that differ from the resolved one (refresh).
+- **Migration** (`run_migration`): safety copy first; per year and per day, with
+  a stop check per day; each migrate day is checked again right before writing,
+  then `normalize(source)` goes through `write_day` and is read back and compared;
+  summaries that only differ are rebuilt without touching the raw file. The
+  quality log is changed only in `last_checked`, once, on the log of the run
+  (`touch_last_checked`, one continuous `QUALITY_LOCK`). A day that fails stays
+  untouched and the run goes on. Days the coverage check blocks are left alone
+  and reported.
+- **Safety copy** (`garmin_migration_snapshot`, new, owner of
+  `garmin_data/backup/migration/`): a ZIP of `raw/`, `summary/` and the quality
+  log with a manifest, written through a temporary file, checked after writing
+  (open, CRC and size of every entry, manifest) and only then put in place; a
+  failure writes nothing. The copy is not mirrored and not deleted by the app.
+  Restore through `garmin_writer.restore_day_files` (exact bytes, atomic) and the
+  entries of the restored days in the quality log; command line tool
+  `support-tools/archive-maintenance/restore_migration_snapshot.py`
+  (`--list`, `--dry-run`).
+- **Trigger in the app:** step 3b2 of `main()` (before the schema migration and
+  the resting heart rate repair), variable `GARMIN_TRACK_MIGRATION` (`1`
+  migrate, `preview` preview and end of the run without login). The popup in
+  `panel_archive` (Migrate / Preview only / Not now) reads only and is set by
+  `sync.run_collector`; the daily update only warns with the number of days that
+  can be migrated (`daily_update`, step 4c).
+- **Coverage of lists (F-13):** the coverage check compared lists by position, so
+  a day whose activities the store held in another order was blocked as "not
+  covered" and the popup came at every start. Lists are now compared as sorted
+  entries (duplicates count).
+- **Changed values of migrated days:** `day.floors_climbed` follows the API value
+  (Garmin 0.69554 against the imported 1), `sleep.duration_h` differs by 0.01 on
+  a few days, and `activities` of the summary is empty instead of the imported
+  list (its duration and distance were stored in milliseconds and centimetres
+  and read as seconds and metres).
+
+**New modules:**
+- `garmin/garmin_track_migration.py` — detection, preview, migration
+- `garmin/garmin_migration_snapshot.py` — safety copy and restore
+- `support-tools/archive-maintenance/restore_migration_snapshot.py` — restore on
+  the command line
+- `tests/test_track_migration.py`, `tests/test_migration_snapshot.py`
+
+**Changed modules:**
+- `garmin/garmin_writer.py` — field-wise `_resolve`, `resolve_preview()`
+  (read-only), `restore_day_files()`
+- `garmin/garmin_config.py` — `MIGRATION_BACKUP_DIR`
+- `garmin/garmin_collector.py` — `_run_track_migration()`, step 3b2 in `main()`
+- `app/panel_archive.py`, `app/outputs/sync.py` — popup and trigger
+- `scheduler/daily_update.py` — hint with the number of days
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py`,
+  `tests/vulture_whitelist.py` — new modules and test files, one whitelist entry
+  (`list_snapshots`, called by the restore tool)
+- `tests/` — `test_writer.py`, `test_collector.py`, `test_qt_app.py`,
+  `test_build_output.py`
+- `docs/REFERENCE_GARMIN.md`, `docs/REFERENCE_INVARIANTS.md`,
+  `docs/REFERENCE_GLOBAL.md`, `docs/MAINTENANCE_GARMIN.md`,
+  `docs/MAINTENANCE_GLOBAL.md`, `docs/GLA_GUIDELINES.md`, `README.md`,
+  `docs/USER_GUIDE.txt`, `docs/README_APP.md` (title), `docs/ROADMAP.md`,
+  `docs/VERSION_HISTORY.md`
+- `version.py` — 1.7.6.3
+
+**Test result:** all suites green, 6169 checks in 46 files (`test_build_output.py`: 816 passed, 12 skipped).
+
+**Verified against the archive:** the migration ran against a real archive
+(about 2,900 days): 1,822 days made again from `source/`, 670 summaries
+refreshed, none failed; the raw files of all other days are unchanged byte for
+byte, and the quality log differs only in `last_checked` of the written days. A
+second run found one day that the first had blocked (the coverage defect F-13);
+afterwards the scan finds nothing. A run on a copy first, including the restore
+of the safety copy in full (2,491 days, raw and summary byte for byte as before).
+The popup, the preview and the trigger were tested with the test environment
+only (no click in the real popup before the first real run).
+
+**Not covered:** days of the earlier import without an archived Garmin original
+(convert, unresolved) are reported and left as they are; the restore of a safety
+copy is a command line tool (Python needed), there is no button; the safety
+copies are not deleted by the app; the entries of the quality log keep the field
+labels (`fields`) of the old form for migrated days (`stress`, `activities`,
+`sleep`; nothing reads them); the bulk upgrade mechanism (two timer modes,
+sync steps) is not removed; the activities of the export do not reach the
+summary (units, see the ROADMAP); the stop of a run is checked per day, not
+within a day.
+
 ## v1.7.6.2.1 — Shared Backup Code and Sturdier Backups
 
 The raw backup and the source backup now run on the same shared code as the

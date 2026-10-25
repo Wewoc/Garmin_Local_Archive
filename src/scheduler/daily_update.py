@@ -253,6 +253,27 @@ def _check_resting_hr_repair(base_dir: Path) -> int:
     return count
 
 
+def _check_track_migration(base_dir: Path) -> int:
+    """TRACK-MIGRATION v1.7.6.3 — removable.
+
+    Counts days of the old mixed archive (export data imported into raw/) that the migration can
+    take and warns once. Like the resting-HR hint this never stops the run; the migration is started
+    from the app (Sync Garmin asks). Days that wait for the export import are not counted.
+    Returns the number of days; 0 on any error."""
+    try:
+        import garmin_track_migration as _tm
+        garmin_dir = base_dir / "garmin_data"
+        found = _tm.pending(_tm.scan_archive(raw_dir=garmin_dir / "raw", source_dir=garmin_dir / "source",
+                                             agg_dir=garmin_dir / "bulk" / "aggregates"))
+    except Exception:
+        return 0
+    count = len(found["ready"])
+    if count:
+        log.warning(f"  {count} day(s) of the archive are still in the mixed form of the old export import.")
+        log.warning("  Open the app and run Sync Garmin once to migrate them (a safety copy is made first).")
+    return count
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Version check
 # ══════════════════════════════════════════════════════════════════════════════
@@ -745,6 +766,10 @@ def main() -> int:
     # ── 4b. Resting-HR repair hint — RESTING-HR-REPAIR v1.7.5.7 — removable ───
     # Warning only, the run goes on.
     _check_resting_hr_repair(base_dir)
+
+    # ── 4c. Track migration hint — TRACK-MIGRATION v1.7.6.3 — removable ───────
+    # Warning only, the run goes on.
+    _check_track_migration(base_dir)
 
     # ── 5. Version check (non-blocking)───────────────────────────────────────
     update_available, release_json = _check_version()

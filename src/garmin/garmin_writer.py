@@ -22,6 +22,12 @@ summary is not taken as passed but derived from the API data plus the export's v
 key of the raw dict the API data win when they are not empty (garmin_merge.merge_field), the export
 fills what is missing or empty, then summarize(). raw/ keeps only what was passed (API data) — it never
 receives export values. A day without an aggregates file is written exactly as before.
+Field-wise (v1.7.6.3, F-11): a section that both sides hold as a dict is filled field by field, one
+level deep — the API value stays when it is not empty, the export fills a field the API lacks or
+holds as None, "", [] or {} (0 and False are values). An old day's API answer has sections with
+null fields; as a whole the section counts as "not empty", so before this the export's values for the
+same day never reached summary/. "activities" is left out (whole-key rule): the export's list uses
+other units than summarize() expects.
 State of the aggregates file:
   missing / damaged / written by a newer schema -> as if missing (damaged and newer with a warning)
   unreadable (lock, no access)                  -> nothing is written, False: a summary without the
@@ -31,6 +37,8 @@ Public functions:
   write_day(normalized, summary, date_str) -> bool
   write_summary_only(summary, date_str)    -> bool
   rebuild_summary(date_str)                -> bool   summary/ only, from raw/ (if any) and the aggregates
+  resolve_preview(api_raw, date_str)       -> dict   read-only: what the resolution would give (v1.7.6.3)
+  restore_day_files(date_str, raw_bytes, summary_bytes) -> bool   puts back exact bytes (v1.7.6.3)
   read_raw(date_str)                       -> dict
   read_summary(date_str)                   -> dict
 """
@@ -74,10 +82,34 @@ def _usable_aggregates(date_str: str):
     return "ok", aggregates
 
 
+# Sections that keep the whole-key rule (API wins as a whole when not empty, else the export's value):
+# the export's activities are a list in other units (milliseconds, centimetres) than summarize() reads.
+_WHOLE_KEY_ONLY = frozenset({"activities"})
+
+
+def _is_empty(value) -> bool:
+    """None, "", [] and {} are empty; 0 and False are values."""
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _fill_fields(api_section: dict, export_section: dict) -> dict:
+    """
+    A new dict: the API section with every field it lacks, or holds empty, taken from the export
+    section. One level deep: a field the API holds as a non-empty value (also a dict) stays as it is.
+    """
+    filled = dict(api_section)
+    for field, value in export_section.items():
+        if field not in filled or _is_empty(filled[field]):
+            filled[field] = value
+    return filled
+
+
 def _resolve(api_raw: dict, aggregates: dict) -> dict:
     """
     The day as one raw dict: the API data (api_raw, may be empty) plus the export's values
-    (aggregates) in every top-level key where the API data have nothing (absent or empty).
+    (aggregates). A key the API data lack or hold empty comes from the export as a whole
+    (garmin_merge.merge_field). A section that both sides hold as a dict is filled field by field
+    (_fill_fields, v1.7.6.3); "activities" keeps the whole-key rule (_WHOLE_KEY_ONLY).
     Neither argument is changed; the export values are normalised like an import day.
     """
     import garmin_merge as merge
@@ -85,7 +117,11 @@ def _resolve(api_raw: dict, aggregates: dict) -> dict:
     bulk = normalizer.normalize(copy.deepcopy(aggregates), source="bulk")
     resolved = api_raw if isinstance(api_raw, dict) else {}
     for key, value in bulk.items():
-        resolved = merge.merge_field(resolved, key, value)
+        api_value = resolved.get(key)
+        if key not in _WHOLE_KEY_ONLY and isinstance(api_value, dict) and api_value and isinstance(value, dict):
+            resolved = {**resolved, key: _fill_fields(api_value, value)}
+        else:
+            resolved = merge.merge_field(resolved, key, value)
     return resolved
 
 
@@ -260,6 +296,76 @@ def rebuild_summary(date_str: str) -> bool:
         log.error(f"  Writer: failed to rebuild the summary for {date_str}: {e}")
         return False
     return _write_summary_file(summary, date_str)
+
+
+def resolve_preview(api_raw: dict, date_str: str) -> dict:
+    """
+    Read-only: what the resolution gives for a day, without writing anything (v1.7.6.3, used by the
+    migration's dry run). api_raw is the day's API data as write_day() would get it (may be empty).
+
+    Returns {"state", "export", "summary"}:
+      state    "ok"          the day has a usable aggregates file; "export" holds its values normalised
+                             like an import day, "summary" the resolved summary write_day() would write
+               "none"        no usable aggregates file (missing, damaged, newer schema): "export" None,
+                             "summary" is summarize() of api_raw alone
+               "unreadable"  the aggregates file cannot be read (I/O): "export" and "summary" are None —
+                             write_day() would write nothing
+    """
+    import garmin_normalizer as normalizer
+    state, aggregates = _usable_aggregates(date_str)
+    if state == "unreadable":
+        return {"state": "unreadable", "export": None, "summary": None}
+    if state == "ok":
+        return {"state": "ok",
+                "export": normalizer.normalize(copy.deepcopy(aggregates), source="bulk"),
+                "summary": _summarize_resolved(api_raw, aggregates)}
+    return {"state": "none", "export": None,
+            "summary": normalizer.summarize(api_raw if isinstance(api_raw, dict) else {})}
+
+
+def restore_day_files(date_str: str, raw_bytes=None, summary_bytes=None) -> bool:
+    """
+    Puts back the exact bytes of a day's raw/ and/or summary/ file (v1.7.6.3, the way back of the
+    migration snapshot). Nothing is resolved or recomputed: the bytes are what a snapshot held.
+    None leaves that file alone. Each file is written through a temp file and replaced atomically.
+    A restored raw file triggers the raw backup like write_day() does (lazy import, failure non-fatal).
+
+    Returns True when everything asked for was written, False on any error (the temp files are
+    removed; a file replaced before the error stays replaced). A date that is no date: False.
+    """
+    try:
+        _date.fromisoformat(date_str)
+    except (TypeError, ValueError):
+        log.error(f"  Writer.restore_day_files: '{date_str}' is not a date")
+        return False
+    todo = []
+    if raw_bytes is not None:
+        todo.append((cfg.RAW_DIR, f"garmin_raw_{date_str}", raw_bytes))
+    if summary_bytes is not None:
+        todo.append((cfg.SUMMARY_DIR, f"garmin_{date_str}", summary_bytes))
+    tmp = None
+    try:
+        for folder, stem, data in todo:
+            folder.mkdir(parents=True, exist_ok=True)
+            tmp = folder / f"{stem}.tmp"
+            tmp.write_bytes(data)
+            os.replace(tmp, folder / f"{stem}.json")
+            tmp = None
+    except Exception as e:
+        log.error(f"  Writer: failed to restore {date_str}: {e}")
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError as unlink_err:
+                log.debug(f"  Writer: temp file {tmp.name} not removed: {unlink_err}")
+        return False
+    if raw_bytes is not None:
+        try:
+            import garmin_backup as _backup
+            _backup.backup_raw(date_str)
+        except Exception as e:
+            log.error(f"  Writer: raw backup trigger failed for {date_str}: {e}")
+    return True
 
 
 def _write_summary_file(summary: dict, date_str: str) -> bool:

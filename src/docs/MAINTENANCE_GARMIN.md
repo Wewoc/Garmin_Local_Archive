@@ -83,6 +83,8 @@ of scope.
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
 | `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
+| `garmin_track_migration.py` (removable) | none — owns no files; writes only through `garmin_writer` (`write_day()`, `rebuild_summary()`) and `garmin_quality` (`touch_last_checked()`) (v1.7.6.3) |
+| `garmin_migration_snapshot.py` (removable) | `garmin_data/backup/migration/` (v1.7.6.3); puts files back only through `garmin_writer.restore_day_files()` and `garmin_quality` |
 | `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` (v1.7.6.1) and `garmin_data/bulk/source/` (v1.7.6) |
 | `garmin_bulk_import.py` | none — orchestrates the four other bulk modules; writes only through `garmin_bulk_writer` (v1.7.6) |
 | `garmin_bulk_json_import.py` | none — daily-values phase of the import; writes only through `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.1) |
@@ -108,7 +110,7 @@ of scope.
 - **`entry["bulk"]` is not `entry["source"] == "bulk"` (v1.7.6):** every bulk-recheck rule (flagging, `bulk_upgrade_dates`, the timer's Bulk Recheck, `last_bulk` in the archive stats) reads `source`. `entry["bulk"]["intraday"]` and `entry["bulk"]["aggregates"]` are only written by `record_bulk_intraday()` / `record_bulk_aggregates()`; they take effect through `last_checked` (MCP cache) and are read by the catch-up of missing marks (`unmarked_bulk_days()`, v1.7.6.1, F-3). An export-only day (no `raw/`) has an entry with `source` `bulk` and `write` false: the bulk recheck then asks the API for it inside the 180 days, and the integrity check does not call it missing
 - **Raising the bulk schema (v1.7.6):** `BULK_SCHEMA_VERSION` (`garmin_bulk_writer.py`) and `_BULK_MAX_SCHEMA` (`garmin_health_map.py`) are raised together — `tests/test_broker.py` pins that they are equal; the same for `AGG_SCHEMA_VERSION` and `_BULK_AGG_MAX_SCHEMA` (v1.7.6.1). A day with an older schema is written again the next time the same export is imported (same files, older schema → `update`); a day with a newer schema is kept and not read by an older reader
 - **The result of a write is never ignored (v1.7.6.1, F-4/F-5/F-6):** `garmin_writer.write_day()` / `write_summary_only()` / `rebuild_summary()` answer `False` when nothing was written — also for a day whose aggregates file cannot be read (a summary without the export's values must not replace a complete one). A new caller counts that as an error of the day (`RuntimeError` inside the existing `except`, or `errors += 1`), never as done. Known open case: `commit_force_refetch()` and `_run_source_backfill()` call `_write_assessed()` and record the entry without looking at the answer (not examined for v1.7.6.1)
-- **Resolved summary (v1.7.6.1):** a day with an aggregates file gets `summary/` from the API data plus the export's values (per top-level key the API data win), `raw/` keeps API data only. Where the two sources define a value differently (floors climbed, sleep duration, minimum/maximum heart rate, the stress block of the day) the API value is used; the differences are listed in `REFERENCE_GARMIN.md`
+- **Resolved summary (v1.7.6.1):** a day with an aggregates file gets `summary/` from the API data plus the export's values (the API data win; a key or field the API lacks or holds empty comes from the export, field by field inside a section and one level deep since v1.7.6.3, F-11; `activities` is left out), `raw/` keeps API data only. Where the two sources define a value differently (floors climbed, sleep duration, minimum/maximum heart rate, the stress block of the day) the API value is used; the differences are listed in `REFERENCE_GARMIN.md`
 - **API-Capability-Scan (v1.6.8):** the 15 baseline `fetch_raw()` endpoints
   always run — the capability config can only add optional candidates, never
   disable a baseline endpoint. Candidates are double-gated before joining a
@@ -597,8 +599,8 @@ resolved. Synthetic data only; the old JSON import tests stay for `run_import()`
   JSON originals, the F-1 states; `test_bulk_normalizer.py` — `has_window()`;
   `test_garmin_import.py` — `load_bulk_with_entries()` and the read hook.
 - `test_writer.py` — the resolved summary (`write_day`, `write_summary_only`,
-  `rebuild_summary`): API data first, the export fills, an unreadable
-  aggregates file writes nothing; `test_quality.py` — `record_bulk_aggregates()`,
+  `rebuild_summary`): API data first, the export fills (field by field since
+  v1.7.6.3, section 5g), an unreadable aggregates file writes nothing; `test_quality.py` — `record_bulk_aggregates()`,
   `unmarked_bulk_days()`, the catch-up, `_save_quality_log()` returning a bool.
 - `test_collector.py` — the json phase and the finish (`_finish_aggregates()`,
   `_apply_aggregates()`), marks and catch-up (`_mark_bulk_days()`,
@@ -664,6 +666,77 @@ and `tests/test_qt_app.py::TestBulkImportFlow`, and the rows for
 `GARMIN_BULK_PHASES` / `GARMIN_BULK_DRYRUN` in `REFERENCE_GLOBAL.md`. The bulk
 modules and the bulk store do not carry the marker.
 
+R. **Migration of the mixed archive (v1.7.6.3, removable).** Days that the
+earlier import wrote into `raw/` are made again from `source/`; the daily
+summary is resolved field by field. All tests run on synthetic archives; the
+migration itself was run on a copy of a real archive and then on the real one
+(see `CHANGELOG.md`).
+- `test_writer.py` 5g (F-11): an API section that exists with empty fields
+  (`heart_rates` with `null` minimum and maximum, `stress` without the series,
+  `user_summary` with `null` fields) is filled field by field by the export;
+  `0` and `False` are values; one level deep; `activities` keeps the whole-key
+  rule; type conflicts (list against dict) keep the API value without an error;
+  inputs are not changed. 5e `_expected()` builds the same rule by hand. 5h:
+  `resolve_preview()` (states `ok`, `none`, `unreadable`, nothing written).
+- `test_track_migration.py` — M1a pins the key form `garmin_import.parse_day()`
+  writes per section, that the aggregates file holds the same values, that API
+  sections do not look like it, that no existing check finds a mixed day (turns
+  red when `garmin_import` changes); M1b detection, classes, coverage and the
+  preview on a synthetic archive of every class; M3a/M3b `run_migration` (safety
+  copy first and no write without it, stop per day, check again right before
+  the write, read-back, quality log only `last_checked`, one save, a failing day,
+  rerun finds nothing, dry run, blocked days untouched); M4 `pending()` and the
+  scheduler hint; M6a lists in any order (F-13).
+- `test_migration_snapshot.py` — M2a pins that the raw backup keeps only the
+  newest version of a day and that `write_day()` cannot put a stored summary
+  back; M2b the ZIP (all or nothing, checks, stop, free space, name clash,
+  tampering with a consistent CRC), `verify_snapshot`, `list_snapshots`,
+  `restore_day_files` / `restore_snapshot` (exact bytes, quality log merge,
+  repeat), and the command line tool.
+- `test_collector.py` section 4u "main track migration" — only `"1"` and
+  `"preview"` act, the variable is removed when read, before the login, before
+  the schema migration, the backup refresh and the resting heart rate repair,
+  a missing module or an error is a warning, the preview ends the run, and an
+  end-to-end run with the real module (the run's own save keeps the
+  `last_checked` of the migrated day).
+- `test_qt_app.py` — the popup (nothing to offer, Migrate, Preview only, Not
+  now, waiting days, scan error) and the trigger in `run_collector()`
+  (no live fetch after a preview); `test_build_output.py` — the two signatures.
+Mutation runs per block are recorded in `PROTOKOLL.md` / `NOTES_v1.7.6.3_PROTOKOLL.md`.
+
+**Removal list** — everything that belongs to the migration carries the marker
+`TRACK-MIGRATION v1.7.6.3` (grep for it):
+1. `garmin/garmin_track_migration.py`, `garmin/garmin_migration_snapshot.py`,
+   `support-tools/archive-maintenance/restore_migration_snapshot.py`,
+   `tests/test_track_migration.py`, `tests/test_migration_snapshot.py`.
+2. `compiler/build_manifest.py` — the two `SHARED_SCRIPTS` entries, the two
+   `SCRIPT_SIGNATURES_BASE` entries and `"def _run_track_migration"` in the
+   collector's signatures; `tests/test_build_output.py` — the two checks.
+3. `run_tests.ps1` and `tests/conftest.py` — the two test file entries.
+4. `garmin/garmin_collector.py` — the section "Track migration"
+   (`_run_track_migration()`) and step 3b2 in `main()`; in `tests/test_collector.py`
+   the blocks "main track migration".
+5. `app/panel_archive.py` — `_ask_track_migration()` and `_check_track_migration()`;
+   `app/outputs/sync.py::run_collector()` — the lines for the variable and the
+   "no live fetch after a preview" branch; `tests/test_qt_app.py` — the tests of
+   the popup and the trigger.
+6. `scheduler/daily_update.py` — `_check_track_migration()` and step 4c.
+7. `garmin/garmin_config.py` — `MIGRATION_BACKUP_DIR`; `garmin/garmin_writer.py` —
+   `restore_day_files()` and `resolve_preview()` (only the migration uses them)
+   with their tests in `test_writer.py` 5h and `test_migration_snapshot.py`.
+8. Docs — the two module sections, the exception row, the writer rows and the
+   invariant bullets in `REFERENCE_GARMIN.md`, the bullets in
+   `REFERENCE_INVARIANTS.md`, the variable row, the path row and the tree lines
+   in `REFERENCE_GLOBAL.md`, the module and test rows in `MAINTENANCE_GLOBAL.md`,
+   the owner rows in `GLA_GUIDELINES.md`, this section and the common task, the
+   section in `USER_GUIDE.txt`. `CHANGELOG.md` stays as history.
+
+What stays when it is removed: the field-wise resolution in `garmin_writer`
+(`_fill_fields`, F-11; it also fixes days that are never migrated), `touch_last_checked()`
+and the safety copies already made (`backup/migration/` stays on disk; the app never
+deletes them). The point in time is a decision of the maintainer: an archive restored from
+an old backup or a mirror from an older version can bring mixed days back.
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
@@ -692,7 +765,7 @@ modules and the bulk store do not carry the marker.
 
 ### When to run
 
-After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`, `garmin_bulk_json_import`, `garmin_silo_repair`, `garmin_import_mirror`, `garmin_backup_common`, `garmin_backup_bulk`, `garmin_container`, `garmin_mirror`.
+After any change to: `garmin_config`, `garmin_sync`, `garmin_normalizer`, `garmin_quality`, `garmin_writer`, `garmin_collector`, `garmin_security`, `garmin_api`, `garmin_utils`, `garmin_validator`, `garmin_silo_check`, `garmin_backup`, `garmin_backup_source`, `garmin_live_fetch`, `garmin_bulk_fit_reader`, `garmin_bulk_export_scanner`, `garmin_bulk_normalizer`, `garmin_bulk_writer`, `garmin_bulk_import`, `garmin_bulk_json_import`, `garmin_silo_repair`, `garmin_import_mirror`, `garmin_backup_common`, `garmin_backup_bulk`, `garmin_container`, `garmin_mirror`, `garmin_track_migration`, `garmin_migration_snapshot`.
 
 ---
 
@@ -737,6 +810,20 @@ Add the endpoint key to `assess_quality_fields()` in `garmin_quality.py`.
   (`backfill_raw: N copied ...`). If the daily files are gone as well, the mirror container is the second copy.
 - Not covered: `zip_contains` stays silent, so a damaged ZIP counts as "file missing" in the backfill check; the sync does not read the result of the
   backup refresh (its error count is only in the closing line `backup refresh (...)`).
+
+### The migration of the mixed archive and its safety copy (v1.7.6.3)
+
+- **Symptom of a day that is left:** the popup at the start of a sync still offers days, or the log of a run names blocked days.
+  `Preview only` (popup) or `plan_migration()` names every blocked day with the reason: `no_aggregates` (import the Garmin export first), `not_covered`
+  (the keys are named: the store holds other values than the raw file for them; import the export again if it is a newer one), `source_unreadable`,
+  `raw_unreadable`, `aggregates_unreadable`. A blocked day is never changed.
+- **Safety copies:** `garmin_data/backup/migration/migration_YYYY-MM-DD_HHMMSS.zip`, one per run that wrote something; the oldest holds the state before the first
+  migration. The app never deletes them (about 25 MB for an archive of 2,900 days); delete old ones by hand when they are not needed any more.
+- **Put a copy back:** stop every sync and timer, then `python support-tools/archive-maintenance/restore_migration_snapshot.py --list`, `... --dry-run <name>`,
+  `... <name>` (from the source folder, Python needed). Only files that differ are put back (byte for byte, the raw backup follows); days that are not in the ZIP
+  stay; the quality-log entries of the restored days come from the ZIP, the others stay. A migrated archive that is restored is offered the migration again.
+- **After a restore of the whole copy** the next migration run makes the same days again; it makes a new copy first.
+- Not covered: the tool is a command line (no button in the app); a damaged ZIP is refused before anything is written.
 
 ## Quality tracking
 

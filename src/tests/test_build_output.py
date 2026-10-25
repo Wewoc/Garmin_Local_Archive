@@ -157,6 +157,11 @@ check("signature: garmin_collector lists the bulk import phases and the quality-
       <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
 check("signature: the old garmin_collector entries are all still there",
       {"def main", "def run_import", "def _run_resting_hr_repair", "def run_capability_scan"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
+check("signature: garmin_collector lists the track migration step (v1.7.6.3)",
+      "def _run_track_migration" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"])
+check("signature: garmin_track_migration lists the entry points of scan, preview and run (v1.7.6.3)",
+      {"def scan_archive", "def pending", "def plan_migration", "def run_migration", "def format_result"}
+      <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_track_migration.py"]))
 check("signature: garmin_quality lists record_bulk_intraday",
       "record_bulk_intraday" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_quality.py"])
 check("signature: garmin_quality lists the catch-up of missing bulk marks (v1.7.6.1)",

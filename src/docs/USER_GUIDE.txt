@@ -106,6 +106,51 @@ stops for this; it only writes a note to its log ("N imported day(s) have
 a wrong resting heart rate - open the app and run Sync Garmin once").
 Imports made with v1.7.5.7 or later take the right value from the start.
 
+Migration of the mixed archive (v1.7.6.3): earlier versions imported the
+Garmin export into the same folder as the data from the Garmin API and
+filled gaps in those files later. Such "mixed" days are made again from the
+saved Garmin originals (garmin_data/source/); the export data stays in its
+own folder (garmin_data/bulk/). If your archive holds such days, a popup
+"Migrate / Preview only / Not now" appears before the sync starts. It names
+the number of days. What it does:
+  - A safety copy comes first: a ZIP of the folders raw/ and summary/ and of
+    the quality log, in garmin_data/backup/migration/. It is checked right
+    after it is written; if it fails, nothing is changed. The app never
+    deletes these copies (about 25 MB for 2,900 days); delete old ones by
+    hand when you do not need them any more.
+  - Each day is made again from its saved Garmin original and then read
+    back and compared. Days that the saved export does not fully cover
+    (the log says "raw/ holds data that the bulk store / source/ does not
+    reproduce") or that have no export data yet ("import the Garmin export
+    first") are not touched and are named in the log.
+  - The daily files are put together field by field: where Garmin's answer
+    for an old day leaves a value empty (for example the lowest and highest
+    heart rate), the export fills it. A few shown values change for migrated
+    days: climbed floors follow Garmin's own value, six sleep durations
+    differ by 0.01 hours, and the activity list of days from the earlier
+    import is empty instead of wrong (it showed durations and distances a
+    thousand and a hundred times too large).
+  - It takes a couple of minutes for a few thousand days. The days are
+    marked, so AI queries (MCP) show the corrected values after the next
+    sync. It runs once: when no day is left, the popup does not appear again.
+"Preview only" reports what would change, writes nothing, and the sync does
+not run this time. "Not now" changes nothing; the popup comes back at the
+next Sync Garmin. Before you click "Migrate", make a backup of your data
+folder as well (a copy of garmin_data/ is enough). The scheduled Daily Sync
+never changes your archive for this; it only writes a note to its log ("N
+day(s) of the archive are still in the mixed form of the old export
+import").
+To put a safety copy back (Python needed, not part of the standalone app):
+stop every sync, then in the source folder run
+  python support-tools/archive-maintenance/restore_migration_snapshot.py --list
+  python support-tools/archive-maintenance/restore_migration_snapshot.py --dry-run <name>
+  python support-tools/archive-maintenance/restore_migration_snapshot.py <name>
+Only files that differ are put back, byte for byte; days that are not in
+the copy stay as they are. The migration is then offered again.
+Days of the earlier import that have no saved Garmin original, and days
+where the export differs from the stored data, are reported and left as they
+are.
+
 Large archives: if you have years of Garmin history, start with
 `range` mode for the last 1–2 years before using `auto`. Downloading
 everything at once can trigger Garmin rate limiting.

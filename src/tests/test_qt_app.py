@@ -3790,9 +3790,173 @@ class TestRestingHrRepairHooks:
         app._panel_archive._check_failed_days_popup.return_value = False
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
+        app._panel_archive._check_track_migration.return_value = None      # v1.7.6.3: not asked / declined
         _sync.run_collector(panel)
         app._panel_archive._check_resting_hr_repair.assert_called_once_with(base_dir=str(tmp_path))
         assert app._run.call_args.kwargs["env_overrides"] == expected
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TRACK-MIGRATION v1.7.6.3 — removable
+#  Popup of the track migration (panel_archive) and its trigger in sync.py
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestTrackMigrationHooks:
+
+    @staticmethod
+    def _archive(base, ready=1, waiting=0, others=0):
+        """A synthetic archive: `ready` days in the old import form with a source/ file and an aggregates file,
+        `waiting` of them without the aggregates file, `others` plain API days."""
+        import json
+        gd = base / "garmin_data"
+        for sub in ("raw", "source", "bulk/aggregates"):
+            (gd / sub).mkdir(parents=True)
+
+        def raw(d):
+            return {"date": d, "user_summary": {"restingHeartRate": 60},
+                    "heart_rates": {"restingHeartRate": 60, "minHeartRate": 45, "maxHeartRate": 150}}
+
+        days = [f"2025-07-{n:02d}" for n in range(1, ready + waiting + 1)]
+        for i, d in enumerate(days):
+            (gd / "raw" / f"garmin_raw_{d}.json").write_text(json.dumps(raw(d)), encoding="utf-8")
+            (gd / "source" / f"garmin_source_{d}.json").write_text("{}", encoding="utf-8")
+            if i < ready:
+                (gd / "bulk" / "aggregates" / f"garmin_bulk_agg_{d}.json").write_text("{}", encoding="utf-8")
+        for n in range(others):
+            d = f"2025-08-{n + 1:02d}"
+            (gd / "raw" / f"garmin_raw_{d}.json").write_text(json.dumps({"date": d, "body_battery": [{"value": 1}]}), encoding="utf-8")
+
+    @staticmethod
+    def _check(base, answer="run"):
+        """Runs the check with the three-button question replaced. Returns (result, the mock)."""
+        from unittest.mock import MagicMock, patch
+        from app.panel_archive import PanelArchive
+        with patch("app.panel_archive._ask_track_migration", return_value=answer) as ask:
+            return PanelArchive._check_track_migration(MagicMock(), str(base)), ask
+
+    def test_no_raw_folder_asks_nothing(self, tmp_path):
+        result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    def test_nothing_to_migrate_asks_nothing(self, tmp_path):
+        self._archive(tmp_path, ready=0, others=3)
+        result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    def test_days_that_wait_for_the_export_import_ask_nothing(self, tmp_path):
+        self._archive(tmp_path, ready=0, waiting=2)
+        result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    @pytest.mark.parametrize("answer, expected", [("run", "1"), ("preview", "preview"), ("", None)])
+    def test_the_answer_becomes_the_value_of_the_trigger(self, tmp_path, answer, expected):
+        self._archive(tmp_path)
+        result, ask = self._check(tmp_path, answer)
+        assert result == expected
+        ask.assert_called_once()
+
+    def test_the_question_names_the_count_the_safety_copy_and_the_backup(self, tmp_path):
+        self._archive(tmp_path, ready=3)
+        _, ask = self._check(tmp_path)
+        text = ask.call_args.args[1]
+        assert "3 day(s)" in text and "safety copy" in text.lower() and "backup" in text.lower()
+        assert "wait for the export import" not in text
+
+    def test_days_that_wait_are_named(self, tmp_path):
+        self._archive(tmp_path, ready=1, waiting=2)
+        _, ask = self._check(tmp_path)
+        text = ask.call_args.args[1]
+        assert "1 day(s)" in text and "2 more day(s) wait for the export import" in text
+
+    def test_the_folders_come_from_the_given_base_dir(self, tmp_path):
+        # the scan must not read the folders garmin_config was imported with
+        from unittest.mock import patch
+        import garmin_track_migration as tm
+        self._archive(tmp_path)
+        with patch.object(tm, "scan_archive", wraps=tm.scan_archive) as scan:
+            self._check(tmp_path)
+        kw = scan.call_args.kwargs
+        gd = tmp_path / "garmin_data"
+        assert (kw["raw_dir"], kw["source_dir"], kw["agg_dir"]) == (gd / "raw", gd / "source", gd / "bulk" / "aggregates")
+
+    def test_an_error_in_the_scan_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        self._archive(tmp_path)
+        with patch("garmin_track_migration.scan_archive", side_effect=RuntimeError("boom")):
+            result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    # ── the three-button question ─────────────────────────────────────────────
+    @pytest.mark.parametrize("label, expected", [("Migrate", "run"), ("Preview only", "preview"), ("Not now", "")])
+    def test_the_question_returns_what_was_clicked(self, qtbot, label, expected):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        from app.panel_archive import _ask_track_migration
+        seen = {}
+
+        def click(box):
+            seen["labels"] = [b.text() for b in box.buttons()]
+            seen["text"] = box.text()
+            next(b for b in box.buttons() if b.text() == label).click()
+            return 0
+
+        with patch.object(QMessageBox, "exec", click):          # a plain function: it is bound, gets the box
+            assert _ask_track_migration(None, "some text") == expected
+        assert sorted(seen["labels"]) == ["Migrate", "Not now", "Preview only"] and seen["text"] == "some text"   # the order is the platform's
+
+    def test_closing_the_question_means_not_now(self, qtbot):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        from app.panel_archive import _ask_track_migration
+        with patch.object(QMessageBox, "exec", return_value=0):          # closed without a click
+            assert _ask_track_migration(None, "t") == ""
+
+    # ── the trigger in sync.py ────────────────────────────────────────────────
+    @staticmethod
+    def _sync(tmp_path, track, repair=False, migrate=False):
+        from unittest.mock import MagicMock
+        from app.outputs import sync as _sync
+        panel = MagicMock()
+        app = panel._app
+        app._timer_active = False
+        app._connection_verified = True
+        app.settings = {"backup_raw_backfill_asked": True}
+        app._panel_settings._collect_settings.return_value = {
+            "email": "a@b.c", "password": "x", "base_dir": str(tmp_path),
+            "sync_mode": "recent", "sync_days": "90", "sync_from": "", "sync_to": ""}
+        app._panel_archive._check_failed_days_popup.return_value = False
+        app._panel_archive._check_schema_migration.return_value = migrate
+        app._panel_archive._check_resting_hr_repair.return_value = repair
+        app._panel_archive._check_track_migration.return_value = track
+        _sync.run_collector(panel)
+        return panel, app
+
+    @pytest.mark.parametrize("track, migrate, repair, expected", [
+        ("1",       False, False, {"GARMIN_TRACK_MIGRATION": "1"}),
+        ("preview", False, False, {"GARMIN_TRACK_MIGRATION": "preview"}),
+        (None,      False, False, {}),
+        ("1",       True,  True,  {"GARMIN_SCHEMA_MIGRATE": "1", "GARMIN_RESTING_HR_REPAIR": "1", "GARMIN_TRACK_MIGRATION": "1"}),
+    ])
+    def test_sync_passes_the_trigger_only_after_an_answer(self, tmp_path, track, migrate, repair, expected):
+        _, app = self._sync(tmp_path, track, repair=repair, migrate=migrate)
+        app._panel_archive._check_track_migration.assert_called_once_with(base_dir=str(tmp_path))
+        assert app._run.call_args.kwargs["env_overrides"] == expected
+
+    @pytest.mark.parametrize("track, live_fetch", [(None, True), ("1", True), ("preview", False)])
+    def test_a_preview_does_not_start_the_live_fetch(self, tmp_path, track, live_fetch):
+        # a preview run ends before the login: the live fetch after the sync would log in on its own
+        from unittest.mock import patch
+        from app.outputs import sync as _sync
+        panel, app = self._sync(tmp_path, track)
+        with patch.object(_sync, "run_live_fetch") as live:
+            app._run.call_args.kwargs["on_done"]()
+        assert live.called is live_fetch
+        app._panel_timer._timer_resume_after_sync.assert_called_once()
+        app._panel_archive._refresh_archive_info.assert_called_once()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
