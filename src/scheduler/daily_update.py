@@ -209,27 +209,60 @@ def _check_folder_migration(base_dir: Path) -> bool:
     return old_raw.exists() and not new_dir.exists()
 
 
-def _check_schema_migration(base_dir: Path) -> bool:
-    """Returns True if any summary file has an outdated schema_version."""
+def _count_outdated_summaries(base_dir: Path, first_only: bool = False) -> int:
+    """Number of summary files with an outdated schema_version (v1.7.6.4: the count
+    is for the log after the unattended migration). first_only stops at the first."""
     # Lazy import — garmin_config reads ENVs at import time
     try:
         import garmin_normalizer as normalizer
         current = normalizer.CURRENT_SCHEMA_VERSION
     except Exception:
-        return False
+        return 0
 
     summary_dir = base_dir / "garmin_data" / "summary"
     if not summary_dir.exists():
-        return False
+        return 0
 
+    count = 0
     for f in summary_dir.glob("garmin_????-??-??.json"):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             if data.get("schema_version", 0) < current:
-                return True
+                count += 1
+                if first_only:
+                    break
         except Exception:
             continue
-    return False
+    return count
+
+
+def _check_schema_migration(base_dir: Path) -> bool:
+    """Returns True if any summary file has an outdated schema_version."""
+    return _count_outdated_summaries(base_dir, first_only=True) > 0
+
+
+def _make_migration_snapshot() -> bool:
+    """v1.7.6.4 — safety copy before the unattended schema migration.
+
+    Same copy as the migration of the mixed archive makes (raw/, summary/, quality log, checked
+    after writing). Returns True only if a checked copy exists; the log names it and the way
+    back. Anything else — not ok, no file, an exception — is False and the caller writes nothing."""
+    log.info("  Schema migration: making a safety copy first (this can take a minute) ...")
+    try:
+        import garmin_migration_snapshot as _snap
+        res = _snap.create_snapshot()
+    except Exception as e:
+        log.error(f"  Safety copy failed: {type(e).__name__}: {e}")
+        return False
+    if not res.get("ok") or res.get("path") is None:
+        log.error(f"  Safety copy failed: {res.get('reason') or 'no copy was made'}")
+        return False
+    name = Path(res["path"]).name
+    log.info(f"  Safety copy: {name} — {res['raw']} raw, {res['summary']} summary file(s), "
+             f"{res['bytes'] // 1048576} MB")
+    log.info(f"  Way back (close the app first): python support-tools/archive-maintenance/"
+             f"restore_migration_snapshot.py {name}")
+    return True
 
 
 def _check_resting_hr_repair(base_dir: Path) -> int:
@@ -758,7 +791,11 @@ def main() -> int:
     _attach_redact_filter()
 
     # ── 4. Schema migration check ─────────────────────────────────────────────
-    if _check_schema_migration(base_dir):
+    # v1.7.6.4: with the opt-in "daily_update_auto_migrate" the run goes on and migrates in
+    # step 7b (after the gap check, so an aborted run makes no safety copy).
+    schema_outdated = _check_schema_migration(base_dir)
+    auto_migrate    = bool(s.get("daily_update_auto_migrate", False))
+    if schema_outdated and not auto_migrate:
         log.error("  Schema migration required.")
         log.error("  Please open the app to run the migration first.")
         return 1
@@ -796,8 +833,31 @@ def main() -> int:
     for k, v in env.items():
         os.environ[k] = v
 
+    # ── 7b. Unattended schema migration — opt-in, v1.7.6.4 ────────────────────
+    # Safety copy first; no checked copy, no migration. The collector runs the migration
+    # (its step 3c, before the login) when it finds GARMIN_SCHEMA_MIGRATE=1.
+    migrating = False
+    if schema_outdated and auto_migrate:
+        if process_status.is_running("gui"):
+            log.warning("  The app is open. The migration goes on; close the app if you see errors.")
+        if not _make_migration_snapshot():
+            log.error("  Schema migration not started, nothing was changed.")
+            log.error("  Please open the app to run the migration first.")
+            _close_daily_log()
+            return 1
+        os.environ["GARMIN_SCHEMA_MIGRATE"] = "1"
+        migrating = True
+
     # ── 8. Garmin sync ────────────────────────────────────────────────────────
     garmin_ok = _run_garmin_sync()
+
+    # ── 8b. After the unattended migration — warning only, the exit code is unchanged ─
+    if migrating:
+        os.environ.pop("GARMIN_SCHEMA_MIGRATE", None)
+        left = _count_outdated_summaries(base_dir)
+        if left:
+            log.warning(f"  {left} summary file(s) are still on an outdated schema after the migration.")
+            log.warning("  See the schema migration lines above; open the app and run Sync Garmin once to migrate them.")
 
     # ── 9. Context sync ───────────────────────────────────────────────────────
     context_ok = _run_context_sync(s)

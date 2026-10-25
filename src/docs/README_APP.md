@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.6.3
+# Garmin Local Archive — Desktop App v1.7.6.4
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -129,6 +129,7 @@ to try the MCP Server tab without a real Garmin account.
 - **Theme** *(v1.7.1.8)* — colour scheme for the app window and HTML dashboards, chosen from the Settings → Design dropdown. Six built-in themes (Monochrome + Rust Accent — default, Violet/Legacy, Amber & Copper, Olive & Sand, Toxic, Ice Blue). Choosing a theme opens a restart-to-apply dialog — themes are not applied live to an already-open window.
 - **Delay min / max (s)** — randomized pause between individual Garmin API requests (default: 5 / 20). Garmin Connect has no official public API — this tool uses the same endpoints the mobile app itself calls. A randomized delay within this range keeps request timing within normal usage patterns and helps avoid rate limiting (HTTP 429). Lower values increase the risk of a temporary IP ban — 5/20 is the recommended minimum.
 - **Auto-apply updates in Daily Sync** *(v1.7.2.4)* — checkbox in its own "Daily Sync" section. Saves immediately, no separate Save step needed. See "Updating the app" below for what it does.
+- **Migrate data in Daily Sync** *(v1.7.6.4)* — checkbox in the same section, below the one above. Saves immediately. After an update that makes the app rewrite its summary files once, the scheduled daily sync makes a checked safety copy of your archive and does the rewrite itself, instead of stopping and asking you to open the app. Without a checked copy it changes nothing. Off by default. Details in the User Guide, Section 7.
 
 Click **Save Settings** — settings are remembered between sessions.
 

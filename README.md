@@ -355,6 +355,7 @@ python tests/test_broker.py                   # Broker layer (health_map / gatew
 python tests/test_mcp.py                      # MCP layer (mcp_map protocol translation)
 python tests/test_export.py                   # Export Layer
 python tests/test_app_logic.py                # App layer (entry points, path resolution)
+python tests/test_daily_update.py             # Daily update (schema check, unattended migration with its safety copy)
 pytest tests/test_qt_app.py                   # PyQt6 App layer
 python tests/test_static.py                   # ruff + bandit + regression guards
 python tests/test_build_output.py             # Build output validation (run after build)

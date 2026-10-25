@@ -109,6 +109,7 @@ Run-And-Tee "python" @("tests/test_silo_repair.py")          "test_silo_repair.p
 Run-And-Tee "python" @("tests/test_repair_resting_hr.py")    "test_repair_resting_hr.py"   # RESTING-HR-REPAIR v1.7.5.7 — removable
 Run-And-Tee "python" @("tests/test_track_migration.py")      "test_track_migration.py"     # TRACK-MIGRATION v1.7.6.3
 Run-And-Tee "python" @("tests/test_migration_snapshot.py")    "test_migration_snapshot.py"  # TRACK-MIGRATION v1.7.6.3
+Run-And-Tee "python" @("tests/test_daily_update.py")          "test_daily_update.py"        # v1.7.6.4
 Run-And-Tee "python" @("tests/test_force_refetch.py")          "test_force_refetch.py"
 Run-And-Tee "python" @("tests/test_local_context.py")  "test_local_context.py"
 Run-And-Tee "python" @("tests/test_dashboard.py")       "test_dashboard.py"
