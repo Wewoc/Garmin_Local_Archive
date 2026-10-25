@@ -332,6 +332,28 @@ class PanelOutputs(QWidget):
             "unattended, instead of just notifying"))
         lay.addLayout(auto_row)
 
+        # v1.7.6.4 — opt-in: the Daily Sync migrates outdated summary files
+        # itself (safety copy first) instead of stopping. Same pattern as above.
+        migrate_row = QHBoxLayout()
+        migrate_row.setContentsMargins(20, 2, 20, 2)
+        migrate_row.setSpacing(4)
+        self._daily_update_auto_migrate = QCheckBox(
+            "Migrate data in Daily Sync")
+        self._daily_update_auto_migrate.setFont(QFont("Segoe UI", 9))
+        self._daily_update_auto_migrate.setStyleSheet(f"color: {self._app.TEXT};")
+        self._daily_update_auto_migrate.setChecked(
+            bool(self._app.settings.get("daily_update_auto_migrate", False)))
+        self._daily_update_auto_migrate.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._daily_update_auto_migrate.toggled.connect(
+            self._on_daily_update_auto_migrate_toggled)
+        migrate_row.addWidget(self._daily_update_auto_migrate)
+        migrate_row.addWidget(self._tip(
+            "After a schema update the Daily Sync makes a safety copy and "
+            "rewrites the summary files itself, instead of stopping and "
+            "asking you to open the app. Off: it stops, as before"))
+        lay.addLayout(migrate_row)
+
         # ── Design ───────────────────────────────────────────────────────────
         lay.addWidget(self._section_widget("Design"))
         design_row = QHBoxLayout()
@@ -466,6 +488,11 @@ class PanelOutputs(QWidget):
         away, not depend on the app being closed cleanly afterward to
         actually save."""
         self._app.settings["daily_update_auto_update"] = checked
+        self._app._panel_settings._safe_save(self._app.settings)
+
+    def _on_daily_update_auto_migrate_toggled(self, checked: bool):
+        """Persist immediately (v1.7.6.4) — same as the auto-update toggle."""
+        self._app.settings["daily_update_auto_migrate"] = checked
         self._app._panel_settings._safe_save(self._app.settings)
 
     def _on_theme_apply(self):

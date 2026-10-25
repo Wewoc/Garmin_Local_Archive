@@ -612,7 +612,7 @@ Console behaviour:
   Update applied automatically   Console closes automatically (v1.7.2.4, see below)
   Update auto-apply failed       Stays open — red notice with the reason (v1.7.2.4)
   Error                          Stays open — red notice, check garmin_data/log/daily/
-  Migration required             Stays open — open the app first
+  Migration required             Stays open — open the app first (not if "Migrate data in Daily Sync" is on, see below)
   Settings missing               Stays open — open the app and save settings first
 
 Automatic updates (v1.7.2.4, both versions): tick "Auto-apply
@@ -623,6 +623,29 @@ open at that moment, it closes automatically (any unsaved changes in
 open fields are lost) and does not reopen afterward. Off by default —
 without it, `daily_update` behaves exactly as before (yellow notice,
 open GitHub manually).
+
+Data update in the daily sync (v1.7.6.4, both versions): after some
+updates the app has to rewrite the summary files once (a "schema
+update"). Normally `daily_update` stops with "Schema migration required"
+and you open the app. Tick "Migrate data in Daily Sync" in Settings ->
+its own "Daily Sync" section and it does the update by itself:
+  - It first makes a safety copy of raw/, summary/ and the quality log
+    (garmin_data/backup/migration/, a ZIP, checked after writing). This
+    can take about a minute for a large archive. The log names the copy
+    and the command that puts it back (restore_migration_snapshot.py,
+    Python needed, not part of the standalone app; close the app first).
+  - Without a checked copy nothing is changed: `daily_update` stops with
+    the same message as when the setting is off.
+  - The update itself runs inside the sync, before the login. Raw files
+    are not touched, only the summary files are rewritten.
+  - If the app is open it writes a warning to its log and goes on.
+  - If some files are still outdated afterwards (for example a summary
+    of a day that is not in the quality log), the log says how many and
+    to open the app; the daily sync still counts as done, the exit code
+    does not change. Every such run makes a new safety copy until the
+    files are migrated.
+  - The safety copies are not deleted by the app.
+Off by default. With it off `daily_update` behaves as before.
 
 Prerequisite: the app must be configured at least once (email,
 password, folder, location saved) before `daily_update` can run.
@@ -980,7 +1003,12 @@ Context-Check
 Documentation
   Opens a dialog with three entries: Quickstart (first-time setup),
   User Guide (this document), and README App (installation/security).
-  Files open in your default text editor or viewer.
+  Each opens in a window inside the app (v1.7.6.4): README App is shown
+  formatted (headings, tables, code), the other two as plain text.
+  Links to web pages open in your browser. The window shows no pictures
+  and has no search; you can keep it open next to the app and close it
+  with "Close". If a file cannot be shown there, it opens in your
+  default text editor or viewer as before.
 
 Export Data
   Opens the per-adapter export popup — see Section 4, "Export Data",
@@ -1004,6 +1032,13 @@ Auto-apply updates in Daily Sync (v1.7.2.4, both versions)
   the next time one is found, instead of just showing a notice — see
   Section 7, "Automated Daily Sync", for what that looks like on a
   scheduled run. Off by default.
+
+Migrate data in Daily Sync (v1.7.6.4, both versions)
+  Checkbox under Settings -> its own "Daily Sync" section, below the
+  auto-update checkbox. Saves immediately. When on, `daily_update` makes
+  a safety copy and rewrites outdated summary files by itself instead of
+  stopping with "Schema migration required" — see Section 7. Off by
+  default; the app's own popup before a sync is not affected.
 
 Sync Data / Stop
   Downloads missing days from Garmin Connect. Watch the log at the

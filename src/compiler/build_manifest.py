@@ -23,6 +23,7 @@ SHARED_SCRIPTS = [
     "app/dialog_force_refetch.py",
     "app/dialog_chat_history.py",
     "app/dialog_context_check.py",
+    "app/dialog_docs.py",              # v1.7.6.4 documentation viewer
     # app/popups/ — extracted panel_outputs.py popups (Codereview v1.7.0.1).
     # Listed after app/__init__.py above, so prepare_scripts_dir()'s
     # per-entry dst.parent.mkdir(exist_ok=True) (no parents=True) always
@@ -234,6 +235,7 @@ SCRIPT_SIGNATURES_BASE = {
     "app/_client_loader.py":    ["def _load_client_module"],
     "app/dialog_chat_history.py": ["class ChatHistoryDialog"],
     "app/dialog_context_check.py": ["class ContextCheckResultDialog", "class ContextCoordinateFixDialog"],
+    "app/dialog_docs.py":       ["class DocViewerDialog"],   # v1.7.6.4
     "app/panel_outputs.py":     ["class PanelOutputs"],
     "app/popups/capability_scan.py": ["def open_popup"],
     "app/popups/dashboard_create.py": ["def open_popup"],

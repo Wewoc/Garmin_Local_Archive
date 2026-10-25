@@ -24,6 +24,7 @@ Rules:
 """
 
 import json
+import logging
 import os
 from datetime import date
 from pathlib import Path
@@ -40,6 +41,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+
+from .dialog_docs import DocViewerDialog
+
+log = logging.getLogger(__name__)
 
 
 class PanelHome(QWidget):
@@ -488,14 +493,24 @@ class PanelHome(QWidget):
     # ── Mirror ─────────────────────────────────────────────────────────────────
 
     def _home_docs_dialog(self):
-        """Documentation button handler — opens Quickstart, User Guide or README."""
-        def _open(filename: str):
+        """Documentation button handler — Quickstart, User Guide or README App, shown in the
+        viewer of the app (v1.7.6.4). If the file cannot be read or the viewer fails, the file
+        goes to the default program as before."""
+        def _open(filename: str, title: str):
             path = frozen_paths.doc_path(filename)
             if path is None:
                 QMessageBox.warning(
                     self._app, "Documentation",
                     f"File not found: {filename}")
                 return
+            try:
+                text = Path(path).read_text(encoding="utf-8", errors="replace")
+                DocViewerDialog(self._app, title, text,
+                                markdown=filename.lower().endswith(".md")).show()
+                return
+            except Exception as e:
+                log.warning(f"Documentation viewer failed for {filename}: {type(e).__name__}: {e} "
+                            f"- opening it with the default program")
             try:
                 os.startfile(path)
             except Exception as e:
@@ -524,10 +539,10 @@ class PanelHome(QWidget):
         sep.setFixedHeight(1)
         lay.addWidget(sep)
 
-        for label, filename in [
-            ("📋  Quickstart",  "QUICKSTART.txt"),
-            ("📖  User Guide",  "USER_GUIDE.txt"),
-            ("📄  README App",  "README_APP.md"),
+        for label, filename, doc_title in [
+            ("📋  Quickstart",  "QUICKSTART.txt", "Quickstart"),
+            ("📖  User Guide",  "USER_GUIDE.txt", "User Guide"),
+            ("📄  README App",  "README_APP.md",  "README App"),
         ]:
             btn = QPushButton(label)
             btn.setFont(QFont("Segoe UI", 9))
@@ -536,8 +551,8 @@ class PanelHome(QWidget):
                 f"border: none; padding: 8px 14px; text-align: left; }}"
                 f"QPushButton:hover {{ background: {self._app.ACCENT2}; }}")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            _fn = filename
-            btn.clicked.connect(lambda checked, fn=_fn: [dlg.accept(), _open(fn)])
+            btn.clicked.connect(
+                lambda checked, fn=filename, tt=doc_title: [dlg.accept(), _open(fn, tt)])
             lay.addWidget(btn)
 
         sep2 = QFrame()

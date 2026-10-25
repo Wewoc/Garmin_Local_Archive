@@ -2,6 +2,14 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.4 — Migration in the Daily Update and Documentation Viewer
+
+- New setting "Migrate data in Daily Sync" (Settings tab, section "Daily Sync"), off by default. When a data update (schema update) is waiting, the daily update then makes a checked safety copy of your archive and migrates by itself, instead of stopping and asking you to open the app. With the setting off nothing changes: the daily update stops with a hint.
+- If the safety copy cannot be made, nothing is changed and the daily update stops with a hint. The log names the safety copy and how to put it back (`restore_migration_snapshot.py`, Python needed). Old copies are not deleted by the app.
+- If some files are still waiting afterwards, the log says how many; the daily update still counts as done.
+- The Documentation button now shows the quick start, the user guide and the app README in a window inside the app. Links to web pages open in your browser. If a file cannot be shown there, it opens in your default program as before.
+- Please note: the window shows no pictures and not the project README on GitHub.
+
 ## v1.7.6.3 — Migration of the Mixed Archive
 
 - Days that the older import left in a mixed form (export data stored in the folder of the Garmin API data) are now made again from the archived Garmin originals, and the export data stays in the bulk folder. A step in the app asks once before the sync, offers a preview, and makes a safety copy of the daily files, the Garmin answers and the quality log first.

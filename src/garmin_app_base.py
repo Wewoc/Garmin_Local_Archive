@@ -497,6 +497,10 @@ class GarminApp(QMainWindow):
         # _collect_settings() call doesn't silently drop it on every save.
         s["daily_update_auto_update"] = self.settings.get(
             "daily_update_auto_update", False)
+        # v1.7.6.4 — same reasoning: opt-in for the schema migration in the
+        # Daily Sync, set by the PanelOutputs checkbox, no Settings-panel widget.
+        s["daily_update_auto_migrate"] = self.settings.get(
+            "daily_update_auto_migrate", False)
         return s
 
     def _safe_save(self, s: dict = None):

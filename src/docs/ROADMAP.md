@@ -6,17 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.3**
+**Currently stable — v1.7.6.4**
 
 ---
-
-### v1.7.6.4 — Migration in the daily update
-
-- The daily update can run the summary migration itself, after it has made a
-  backup of the folders the change touches. Opt-in setting, off by default;
-  with the setting off, the update stops with a hint as before.
-- The documentation (quick start, user guide, README) opens in a viewer inside
-  the app instead of an external program.
 
 ### v1.7.6.5 — Rebuild of the daily values from the kept originals
 
@@ -622,6 +614,19 @@ stay as they are.
 The two background timer modes for days of the export (bulk recheck and bulk
 field backfill) and the matching steps of the sync would be removed once no
 archive depends on them any more.
+
+**Same days in the schema check and in the schema migration**
+
+The check that offers the schema migration (popup, daily update) and the
+migration itself would work on the same days. Today the check counts every
+summary file with an outdated schema, the migration only the days of the
+quality log.
+
+**Pictures in the documentation viewer**
+
+The repository README, with its screenshots, would open in the documentation
+viewer of the app. The pictures would be shipped with the app or loaded from
+GitHub when a network is there.
 
 **MCP transport_security — `allowed_origins` extension**
 v1.7.0.2's Docker-reachability fix (`MCP_EXTRA_ALLOWED_HOSTS`) deliberately left `allowed_origins` at the SDK's own three defaults — a server-to-server HTTP client typically sends no `Origin` header at all, and the SDK's own validator passes automatically when it's absent. Revisit only if a real `Invalid Origin header` rejection shows up in the log for some other MCP client.

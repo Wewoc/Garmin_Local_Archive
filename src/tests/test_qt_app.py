@@ -1161,6 +1161,37 @@ class TestPanelOutputs:
         assert app_mock.settings["daily_update_auto_update"] is True
         app_mock._panel_settings._safe_save.assert_called_with(app_mock.settings)
 
+    def test_daily_update_auto_migrate_checkbox_defaults_unchecked(
+            self, qtbot, app_mock):
+        """v1.7.6.4 — opt-in, an absent settings key must mean off."""
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        assert panel._daily_update_auto_migrate.isChecked() is False
+
+    def test_daily_update_auto_migrate_checkbox_reflects_saved_setting(
+            self, qtbot, app_mock):
+        app_mock.settings = {"daily_update_auto_migrate": True}
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        assert panel._daily_update_auto_migrate.isChecked() is True
+        assert panel._daily_update_auto_update.isChecked() is False
+
+    def test_daily_update_auto_migrate_toggle_persists_immediately(
+            self, qtbot, app_mock):
+        """A toggle writes only its own key and saves right away; the
+        auto-update key is not touched."""
+        from app.panel_outputs import PanelOutputs
+        panel = PanelOutputs(app_mock)
+        qtbot.addWidget(panel)
+        panel._daily_update_auto_migrate.setChecked(True)
+        assert app_mock.settings["daily_update_auto_migrate"] is True
+        assert "daily_update_auto_update" not in app_mock.settings
+        app_mock._panel_settings._safe_save.assert_called_with(app_mock.settings)
+        panel._daily_update_auto_migrate.setChecked(False)
+        assert app_mock.settings["daily_update_auto_migrate"] is False
+
     def test_set_restore_button_state_enable(self, qtbot, app_mock):
         from app.panel_outputs import PanelOutputs
         panel = PanelOutputs(app_mock)
@@ -3133,6 +3164,54 @@ class TestGarminAppBase:
         s = app._collect_settings()
         assert s.get("active_theme") == 3
 
+    def test_collect_settings_preserves_daily_update_auto_migrate(self, qtbot):
+        """v1.7.6.4 — like active_theme, the opt-in has no Settings-panel
+        widget; _collect_settings() must carry it over or closeEvent() drops
+        it on every save. True is used so the value is not the default."""
+        from unittest.mock import patch
+        with patch("garmin_app_base.load_settings", return_value={
+            "email": "", "password": "", "base_dir": "",
+            "sync_mode": "recent", "sync_days": "90",
+            "sync_from": "", "sync_to": "", "sync_auto_fallback": "",
+            "date_from": "", "date_to": "", "age": "35", "sex": "male",
+            "request_delay_min": "5.0", "request_delay_max": "20.0",
+            "context_latitude": "0.0", "context_longitude": "0.0",
+            "context_location": "", "mirror_dir": "",
+            "timer_min_interval": "5", "timer_max_interval": "30",
+            "timer_min_days": "3", "timer_max_days": "10",
+            "backup_raw_backfill_asked": False,
+            "daily_update_auto_migrate": True,
+        }), patch("garmin_app_settings.load_password", return_value=""), \
+            patch("garmin_app_controller.check_migration_needed",
+                  return_value=False):
+            from garmin_app_base import GarminApp
+
+            class _TestApp(GarminApp):
+                def _run(self, *a, **kw): pass
+                def _is_running(self): return False
+                def _stop_collector(self): pass
+                def closeEvent(self, event):
+                    event.accept()
+
+            app = _TestApp()
+            qtbot.addWidget(app)
+        s = app._collect_settings()
+        assert s.get("daily_update_auto_migrate") is True
+
+    def test_collect_settings_daily_update_auto_migrate_absent_is_off(self):
+        """v1.7.6.4 — a settings dict without the key must collect as off,
+        never on (the opt-in has to be switched on by the user)."""
+        from unittest.mock import MagicMock
+        from garmin_app_base import GarminApp
+        fake = MagicMock()
+        fake.settings = {}
+        fake._panel_settings._collect_settings.return_value = {}
+        fake._panel_timer.get_timer_settings.return_value = {}
+        fake._panel_mcp.get_mcp_settings.return_value = {}
+        s = GarminApp._collect_settings(fake)
+        assert s["daily_update_auto_migrate"] is False
+        assert s["daily_update_auto_update"] is False
+
     # ── v1.7.2.4 — T3 self-update wiring (Bauauftrag Schritt 9) ─────────────
 
     def _make_test_app(self, qtbot):
@@ -4148,3 +4227,329 @@ class TestBulkImportFlow:
         qtbot.addWidget(dlg)
         dlg.cancel_btn.click()
         assert dlg.options() is None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Documentation button — PanelHome._home_docs_dialog (v1.7.6.4, Bausteine B1 und B3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestHomeDocsDialog:
+    """The Documentation button (PanelHome._home_docs_dialog). A chooser dialog with three entries;
+    since v1.7.6.4 (B3) each opens in the viewer of the app (DocViewerDialog), and only if the file
+    cannot be read or the viewer fails does it go to the default program (os.startfile) as before.
+    B1 pinned the startfile behaviour first; the pins on the chooser, "file not found" and the
+    error message stayed, the "opens with startfile" pins were turned. The method is called unbound
+    with a QWidget as `_app` (it only needs the theme colours); QDialog.exec is replaced by a
+    stand-in that "clicks" the wanted button."""
+
+    FILES = [("Quickstart", "QUICKSTART.txt", "Quickstart", False),
+             ("User Guide", "USER_GUIDE.txt", "User Guide", False),
+             ("README App", "README_APP.md", "README App", True)]
+
+    def _run(self, qtbot, click=None, doc_path=Path("C:/docs/the_file"), startfile_error=None,
+             viewer="mock", viewer_error=None):
+        """viewer "mock": DocViewerDialog replaced by a MagicMock (viewer_error: raised by the call);
+        viewer "real": the real class, only the chooser is faked."""
+        from contextlib import ExitStack
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtWidgets import QDialog, QPushButton, QWidget
+        import app.panel_home as ph
+
+        parent = QWidget()
+        for name, value in dict(BG="#12101f", BG3="#231f38", ACCENT="#a259f7", ACCENT2="#6e3fcf",
+                                TEXT="#eaeaea", TEXT2="#a0a0b0").items():
+            setattr(parent, name, value)
+        qtbot.addWidget(parent)
+        seen = {}
+
+        class _Dlg(QDialog):
+            def exec(self):
+                seen["title"] = self.windowTitle()
+                seen["modal"] = self.isModal()
+                seen["fixed_width"] = (self.minimumWidth(), self.maximumWidth())
+                buttons = self.findChildren(QPushButton)
+                seen["buttons"] = [b.text() for b in buttons]
+                if click is not None:
+                    next(b for b in buttons if click in b.text()).click()
+                seen["result"] = self.result()
+                return self.result()
+
+        doc_path_mock = MagicMock(return_value=doc_path)
+        startfile_mock = MagicMock(side_effect=startfile_error)
+        viewer_mock = MagicMock(side_effect=viewer_error)
+        box = MagicMock()
+        log_rec = MagicMock()
+        patches = [patch.object(ph, "QDialog", _Dlg), patch.object(ph.frozen_paths, "doc_path", doc_path_mock),
+                   patch.object(ph.os, "startfile", startfile_mock, create=True),
+                   patch.object(ph, "QMessageBox", box), patch.object(ph, "log", log_rec)]
+        if viewer == "mock":
+            patches.append(patch.object(ph, "DocViewerDialog", viewer_mock))
+        with ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            ph.PanelHome._home_docs_dialog(SimpleNamespace(_app=parent))
+        return SimpleNamespace(seen=seen, doc_path=doc_path_mock, startfile=startfile_mock, box=box,
+                               app=parent, viewer=viewer_mock, log=log_rec)
+
+    @staticmethod
+    def _doc(tmp_path, name, text="Hello\n", raw=None):
+        path = tmp_path / name
+        path.write_bytes(raw if raw is not None else text.encode("utf-8"))
+        return path
+
+    # ── the chooser (unchanged by the viewer) ─────────────────────────────────
+
+    def test_dialog_lists_three_documents_and_cancel(self, qtbot):
+        r = self._run(qtbot)
+        assert r.seen["title"] == "Documentation"
+        assert r.seen["buttons"] == ["\U0001F4CB  Quickstart", "\U0001F4D6  User Guide",
+                                     "\U0001F4C4  README App", "Cancel"]
+
+    def test_dialog_is_modal_and_has_a_fixed_width(self, qtbot):
+        r = self._run(qtbot)
+        assert r.seen["modal"] is True
+        assert r.seen["fixed_width"] == (360, 360)
+
+    def test_nothing_is_opened_until_a_button_is_clicked(self, qtbot):
+        r = self._run(qtbot)
+        assert r.doc_path.call_count == 0
+        assert r.startfile.call_count == 0 and r.viewer.call_count == 0
+
+    @pytest.mark.parametrize("label,filename,title,markdown", FILES)
+    def test_click_closes_the_chooser_before_opening(self, qtbot, tmp_path, label, filename, title, markdown):
+        from PyQt6.QtWidgets import QDialog
+        r = self._run(qtbot, click=label, doc_path=self._doc(tmp_path, filename))
+        assert r.seen["result"] == QDialog.DialogCode.Accepted
+
+    def test_cancel_opens_nothing(self, qtbot):
+        from PyQt6.QtWidgets import QDialog
+        r = self._run(qtbot, click="Cancel")
+        assert r.seen["result"] == QDialog.DialogCode.Rejected
+        assert r.doc_path.call_count == 0 and r.startfile.call_count == 0 and r.viewer.call_count == 0
+
+    # ── the viewer (B3) ───────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("label,filename,title,markdown", FILES)
+    def test_click_shows_the_file_in_the_viewer_not_in_another_program(self, qtbot, tmp_path, label, filename,
+                                                                      title, markdown):
+        path = self._doc(tmp_path, filename, text="Gr\u00fc\u00dfe \u2014 \u2550\u2550\u2550 line\n")
+        r = self._run(qtbot, click=label, doc_path=path)
+        r.doc_path.assert_called_once_with(filename)
+        r.viewer.assert_called_once_with(r.app, title, "Gr\u00fc\u00dfe \u2014 \u2550\u2550\u2550 line\n",
+                                         markdown=markdown)
+        r.viewer.return_value.show.assert_called_once_with()
+        assert r.startfile.call_count == 0
+        assert r.box.warning.call_count == 0 and r.box.critical.call_count == 0
+        assert r.log.warning.call_count == 0
+
+    def test_only_the_md_file_is_rendered_as_markdown(self, qtbot, tmp_path):
+        flags = {}
+        for label, filename, _title, _md in self.FILES:
+            r = self._run(qtbot, click=label, doc_path=self._doc(tmp_path, filename))
+            flags[filename] = r.viewer.call_args.kwargs["markdown"]
+        assert flags == {"QUICKSTART.txt": False, "USER_GUIDE.txt": False, "README_APP.md": True}
+
+    def test_bytes_that_are_not_utf8_are_replaced_and_the_viewer_still_opens(self, qtbot, tmp_path):
+        r = self._run(qtbot, click="User Guide", doc_path=self._doc(tmp_path, "USER_GUIDE.txt", raw=b"ab\xffcd\n"))
+        assert r.viewer.call_args.args[2] == "ab\ufffdcd\n"
+        assert r.startfile.call_count == 0
+
+    # ── the fallback and the error messages ───────────────────────────────────
+
+    def test_missing_file_warns_with_its_name_and_opens_nothing(self, qtbot):
+        r = self._run(qtbot, click="User Guide", doc_path=None)
+        r.box.warning.assert_called_once_with(r.app, "Documentation", "File not found: USER_GUIDE.txt")
+        assert r.startfile.call_count == 0 and r.viewer.call_count == 0 and r.box.critical.call_count == 0
+
+    def test_an_unreadable_file_goes_to_the_default_program(self, qtbot, tmp_path):
+        path = tmp_path / "QUICKSTART.txt"                      # does not exist: reading fails
+        r = self._run(qtbot, click="Quickstart", doc_path=path)
+        assert r.viewer.call_count == 0
+        r.startfile.assert_called_once_with(path)
+        assert r.box.critical.call_count == 0 and r.box.warning.call_count == 0
+
+    def test_a_failing_viewer_goes_to_the_default_program_and_is_logged(self, qtbot, tmp_path):
+        path = self._doc(tmp_path, "README_APP.md")
+        r = self._run(qtbot, click="README App", doc_path=path, viewer_error=RuntimeError("no viewer"))
+        r.startfile.assert_called_once_with(path)
+        assert r.log.warning.call_count == 1
+        message = r.log.warning.call_args.args[0]
+        assert "README_APP.md" in message and "RuntimeError: no viewer" in message
+        assert r.box.critical.call_count == 0
+
+    def test_a_viewer_that_was_shown_is_not_opened_a_second_time_by_the_fallback(self, qtbot, tmp_path):
+        r = self._run(qtbot, click="User Guide", doc_path=self._doc(tmp_path, "USER_GUIDE.txt"))
+        assert r.viewer.call_count == 1 and r.startfile.call_count == 0
+
+    def test_startfile_error_after_a_failed_viewer_is_shown_not_raised(self, qtbot, tmp_path):
+        r = self._run(qtbot, click="README App", doc_path=self._doc(tmp_path, "README_APP.md"),
+                      viewer_error=RuntimeError("no viewer"), startfile_error=OSError("no program"))
+        r.box.critical.assert_called_once_with(r.app, "Documentation", "Could not open file:\nno program")
+        assert r.box.warning.call_count == 0
+
+    def test_startfile_error_after_an_unreadable_file_is_shown_not_raised(self, qtbot, tmp_path):
+        r = self._run(qtbot, click="Quickstart", doc_path=tmp_path / "QUICKSTART.txt",
+                      startfile_error=OSError("no program"))
+        r.box.critical.assert_called_once_with(r.app, "Documentation", "Could not open file:\nno program")
+
+    # ── end to end with the real viewer and the real files ───────────────────
+
+    @pytest.mark.parametrize("label,filename,title,markdown", FILES)
+    def test_real_viewer_opens_the_real_document(self, qtbot, label, filename, title, markdown):
+        import frozen_paths
+        from app.dialog_docs import DocViewerDialog
+        r = self._run(qtbot, click=label, doc_path=frozen_paths.doc_path(filename), viewer="real")
+        viewers = r.app.findChildren(DocViewerDialog)
+        try:
+            assert len(viewers) == 1
+            v = viewers[0]
+            assert v.windowTitle() == title and v.isVisible() and v.isModal() is False
+            assert v.parent() is r.app
+            expected = frozen_paths.doc_path(filename).read_text(encoding="utf-8")
+            if markdown:
+                assert v._view.toHtml().count("<table") >= 6
+            else:
+                assert v._view.toPlainText() == expected
+            assert r.startfile.call_count == 0
+        finally:
+            for v in viewers:
+                v.close()
+
+    def test_the_three_files_are_found_by_the_real_doc_path_in_the_dev_tree(self):
+        import frozen_paths
+        for _label, filename, _title, _md in self.FILES:
+            found = frozen_paths.doc_path(filename)
+            assert found is not None and found.name == filename and found.is_file()
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Documentation viewer — app/dialog_docs.py (v1.7.6.4, Baustein B2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDocViewerDialog:
+
+    MD = ("# Title\n\nSome **bold** text and a [site](https://example.org/x).\n\n"
+          "| a | b |\n|---|---|\n| 1 | 2 |\n\n```\npip install thing\n```\n")
+
+    def _parent(self, qtbot):
+        from PyQt6.QtWidgets import QWidget
+        parent = QWidget()
+        for name, value in dict(BG="#12101f", BG3="#231f38", ACCENT="#a259f7", ACCENT2="#6e3fcf",
+                                TEXT="#eaeaea", TEXT2="#a0a0b0").items():
+            setattr(parent, name, value)
+        qtbot.addWidget(parent)
+        self._keep = getattr(self, "_keep", []) + [parent]     # a parent that is collected takes its children with it
+        return parent
+
+    def _dlg(self, qtbot, text="plain", markdown=False, title="Doc"):
+        from app.dialog_docs import DocViewerDialog
+        parent = self._parent(qtbot)
+        dlg = DocViewerDialog(parent, title, text, markdown=markdown)
+        qtbot.addWidget(dlg)
+        return dlg
+
+    def test_window_is_titled_not_modal_and_deleted_on_close(self, qtbot):
+        from PyQt6.QtCore import Qt
+        dlg = self._dlg(qtbot, title="User Guide")
+        assert dlg.windowTitle() == "User Guide"
+        assert dlg.isModal() is False
+        assert dlg.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+    def test_view_is_read_only_and_follows_no_link_by_itself(self, qtbot):
+        dlg = self._dlg(qtbot)
+        assert dlg._view.isReadOnly()
+        assert dlg._view.openLinks() is False
+        assert dlg._view.openExternalLinks() is False
+
+    def test_plain_text_is_shown_as_it_is_in_a_monospace_font(self, qtbot):
+        from PyQt6.QtGui import QFont
+        text = "═══════\n  Title\n═══════\n\n  1. Setup\n# not a heading\n| not | a table |\n"
+        dlg = self._dlg(qtbot, text=text, markdown=False)
+        assert dlg._view.toPlainText() == text
+        assert dlg._view.font().family() == "Consolas"
+        assert dlg._view.font().styleHint() == QFont.StyleHint.Monospace
+
+    def test_markdown_is_rendered_heading_table_and_code_stay(self, qtbot):
+        dlg = self._dlg(qtbot, text=self.MD, markdown=True)
+        html = dlg._view.toHtml()
+        plain = dlg._view.toPlainText()
+        assert html.count("<table") == 1
+        assert "<h1" in html
+        assert "# Title" not in plain and "|---|" not in plain and "**bold**" not in plain
+        assert "pip install thing" in plain and "Some bold text" in plain
+
+    def test_markdown_off_keeps_the_markup_literal(self, qtbot):
+        dlg = self._dlg(qtbot, text=self.MD, markdown=False)
+        assert "# Title" in dlg._view.toPlainText() and "<table" not in dlg._view.toHtml()
+
+    def test_empty_text_is_fine(self, qtbot):
+        assert self._dlg(qtbot, text="", markdown=False)._view.toPlainText() == ""
+        assert self._dlg(qtbot, text="", markdown=True)._view.toPlainText() == ""
+
+    @pytest.mark.parametrize("url", ["http://example.org/a", "https://example.org/a#b", "HTTPS://example.org/"])
+    def test_http_and_https_links_open_in_the_default_browser(self, qtbot, url):
+        from unittest.mock import patch
+        from PyQt6.QtCore import QUrl
+        dlg = self._dlg(qtbot)
+        with patch("app.dialog_docs.QDesktopServices.openUrl") as opened:
+            dlg._on_link(QUrl(url))
+        assert opened.call_count == 1 and opened.call_args.args[0].toString() == QUrl(url).toString()
+
+    @pytest.mark.parametrize("url", ["file:///C:/Windows/notepad.exe", "javascript:alert(1)", "mailto:a@b.c",
+                                     "ftp://example.org/x", "ms-settings:network", "README_APP.md", "../x.txt", "javascript:#top", "README_APP.md#setup"])
+    def test_every_other_link_is_ignored(self, qtbot, url):
+        from unittest.mock import patch
+        from PyQt6.QtCore import QUrl
+        dlg = self._dlg(qtbot)
+        with patch("app.dialog_docs.QDesktopServices.openUrl") as opened, \
+                patch.object(dlg._view, "scrollToAnchor") as scrolled:
+            dlg._on_link(QUrl(url))
+        assert opened.call_count == 0 and scrolled.call_count == 0
+
+    def test_an_anchor_link_scrolls_inside_the_page(self, qtbot):
+        from unittest.mock import patch
+        from PyQt6.QtCore import QUrl
+        dlg = self._dlg(qtbot)
+        with patch("app.dialog_docs.QDesktopServices.openUrl") as opened, \
+                patch.object(dlg._view, "scrollToAnchor") as scrolled:
+            dlg._on_link(QUrl("#first-time-setup"))
+        scrolled.assert_called_once_with("first-time-setup")
+        assert opened.call_count == 0
+
+    def test_the_colours_of_the_app_are_used(self, qtbot):
+        from PyQt6.QtGui import QPalette
+        dlg = self._dlg(qtbot)
+        assert "#12101f" in dlg.styleSheet() and "#eaeaea" in dlg.styleSheet()
+        assert "#12101f" in dlg._view.styleSheet() and "#eaeaea" in dlg._view.styleSheet()
+        assert dlg._view.palette().color(QPalette.ColorRole.Link).name() == "#a259f7"
+
+    def test_close_button_closes_the_window(self, qtbot):
+        dlg = self._dlg(qtbot)
+        dlg.show()
+        assert dlg.isVisible()
+        dlg._close_btn.click()
+        assert not dlg.isVisible()
+
+    def test_the_module_imports_nothing_but_pyqt6(self, app_root):
+        import ast
+        tree = ast.parse((app_root / "app" / "dialog_docs.py").read_text(encoding="utf-8"))
+        roots = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots |= {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                roots.add((node.module or "").split(".")[0])
+        assert roots == {"PyQt6"}
+
+    def test_the_three_real_documents_render(self, qtbot):
+        import frozen_paths
+        quick = frozen_paths.doc_path("QUICKSTART.txt").read_text(encoding="utf-8")
+        guide = frozen_paths.doc_path("USER_GUIDE.txt").read_text(encoding="utf-8")
+        readme = frozen_paths.doc_path("README_APP.md").read_text(encoding="utf-8")
+        d_quick = self._dlg(qtbot, text=quick, markdown=False)
+        d_guide = self._dlg(qtbot, text=guide, markdown=False)
+        d_readme = self._dlg(qtbot, text=readme, markdown=True)
+        assert d_quick._view.toPlainText() == quick
+        assert d_guide._view.toPlainText() == guide and d_guide._view.document().blockCount() > 1000
+        assert d_readme._view.toHtml().count("<table") >= 6
+        assert "pip install garminconnect" in d_readme._view.toPlainText()

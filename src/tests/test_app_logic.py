@@ -85,6 +85,10 @@ check("sex default = male",                base.DEFAULT_SETTINGS["sex"] == "male
 check("context_latitude present",          "context_latitude" in base.DEFAULT_SETTINGS)
 check("context_longitude present",         "context_longitude" in base.DEFAULT_SETTINGS)
 check("active_theme default = 1",          base.DEFAULT_SETTINGS["active_theme"] == 1)
+check("daily_update_auto_update default = False (opt-in)",
+      base.DEFAULT_SETTINGS["daily_update_auto_update"] is False)
+check("daily_update_auto_migrate default = False (opt-in, v1.7.6.4)",
+      base.DEFAULT_SETTINGS["daily_update_auto_migrate"] is False)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  2. DEFAULT_SETTINGS — garmin_app and standalone re-export base

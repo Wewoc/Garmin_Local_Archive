@@ -116,4 +116,9 @@ VULTURE_WHITELIST: dict[tuple[str, str], str] = {
     # The only caller is the command line tool support-tools/archive-maintenance/restore_migration_snapshot.py
     # (--list and the choice of the oldest copy); support-tools/ is not part of the vulture scan.
     ("garmin\\garmin_migration_snapshot.py", "list_snapshots"): "called by support-tools/archive-maintenance/restore_migration_snapshot.py (not scanned); tested in test_migration_snapshot",
+
+    # ── v1.7.6.4 documentation viewer ────────────────────────────────────
+    # The Close button of DocViewerDialog is kept on the dialog so that the tests can click it
+    # (TestDocViewerDialog.test_close_button_closes_the_window); production only connects it.
+    ("app\\dialog_docs.py", "_close_btn"): "button kept as an attribute for the tests (clicked in test_close_button_closes_the_window); production only connects its signal",
 }

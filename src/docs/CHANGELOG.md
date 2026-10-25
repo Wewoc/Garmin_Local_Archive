@@ -1,5 +1,100 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.4 — Migration in the Daily Update and Documentation Viewer
+
+The daily update can now run the summary migration (schema update) itself, after
+it has made a checked safety copy of the archive. It is an opt-in setting, off
+by default; with the setting off the daily update stops with a hint as before.
+The Documentation button of the app now shows the quick start, the user guide
+and the app README in a viewer window inside the app instead of handing them to
+an external program.
+
+**What changed:**
+- **Setting `daily_update_auto_migrate`** (new): checkbox "Migrate data in Daily
+  Sync" in the "Daily Sync" section of the Settings tab (`PanelOutputs`), under
+  the auto-update checkbox. Off by default, saved at once, carried over by `_collect_settings()`
+  (it has no Settings-panel widget; without the carry-over it would be dropped
+  at the next save).
+- **Daily update, step 4** (`scheduler/daily_update.py`): outdated summaries stop
+  the run (exit 1, two error lines) only if the setting is off or the safety copy
+  fails. `_count_outdated_summaries()` is the loop of the check, now counting;
+  `_check_schema_migration()` is that count turned into a bool (behaviour
+  unchanged).
+- **Daily update, step 7b** (new, after the gap check and the environment,
+  before the sync): with the setting on and summaries outdated, a warning if the
+  app is open (its lock file is alive; the migration goes on), then
+  `_make_migration_snapshot()`: the same checked ZIP as the migration of the
+  mixed archive (`garmin_migration_snapshot.create_snapshot()`: `raw/`,
+  `summary/`, quality log). The log names the ZIP, its numbers and the way back
+  (`restore_migration_snapshot.py`). No checked copy (not ok, no file, an
+  exception): nothing is written, exit 1 with two error lines, the variable is
+  not set. With a copy, `GARMIN_SCHEMA_MIGRATE=1` is set for the collector,
+  which migrates in its step 3c before the login. An aborted run (gap above the
+  hard stop) makes no copy.
+- **Daily update, step 8b** (new, after the sync): the variable is removed and the
+  outdated summaries are counted again; if some remain, two warning lines with
+  the number. The exit code does not change.
+- **Documentation viewer** (`app/dialog_docs.py`, new): `DocViewerDialog` is a
+  non-modal window with a read-only text view; Markdown is rendered (headings,
+  lists, tables, code), plain text is shown as it is in a monospace font; the
+  colours are those of the app. Only `http` and `https` links open (in the
+  default browser), `#anchor` links scroll inside the page, everything else
+  (`file:`, `javascript:`, `mailto:`, relative paths) is ignored. No images, no
+  search, no network, no JavaScript. The module imports only PyQt6 and reads no
+  file; the caller hands in the text.
+- **Documentation button** (`app/panel_home.py`): the three entries open in the
+  viewer (the `.md` file as Markdown); the file is read as UTF-8, bytes that are
+  not UTF-8 are replaced. If the file cannot be read or the viewer fails, one
+  warning line is logged and the file goes to the default program as before;
+  "File not found" and the error message of the default program are unchanged.
+
+**New modules:**
+- `app/dialog_docs.py` — documentation viewer
+- `tests/test_daily_update.py` — step 4, 7b, 8b of the daily update (52 checks)
+
+**Changed modules:**
+- `scheduler/daily_update.py` — steps 4, 7b, 8b, `_count_outdated_summaries()`,
+  `_make_migration_snapshot()`
+- `app/panel_outputs.py`, `garmin_app_base.py`, `app/garmin_app_settings.py` —
+  the setting, its checkbox, default and carry-over
+- `app/panel_home.py` — documentation button, logger
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py`,
+  `tests/vulture_whitelist.py` — new module and test file; one whitelist entry
+  (`DocViewerDialog._close_btn`, clicked by a test)
+- `tests/` — `test_qt_app.py` (setting, viewer, documentation button),
+  `test_app_logic.py` (defaults)
+- `docs/` — `REFERENCE_GLOBAL.md`, `REFERENCE_GARMIN.md`,
+  `REFERENCE_INVARIANTS.md`, `MAINTENANCE_GLOBAL.md`, `README.md` (test list),
+  `docs/USER_GUIDE.txt`, `docs/README_APP.md`, `docs/ROADMAP.md`,
+  `docs/VERSION_HISTORY.md`
+- `version.py` — 1.7.6.4
+
+**Test result:** all suites green, 6273 checks in 47 files (`test_build_output.py`: 820 passed, 12 skipped); all 255 source files compile on Python 3.11.
+
+**Verified:** the daily update end to end with a real synthetic archive (real
+safety copy, real schema migration in the place of the collector's step 3c, real
+restore of the copy: old summaries back byte for byte); the viewer with the real
+quick start, user guide and app README (text identical, at least six tables in
+the README); deliberate faults in the new code (10, 9, 20, 14, 22 and 20 per
+step) were all caught by the tests, except one that changes nothing (`QUrl`
+lowercases the scheme itself). The documentation viewer was tried in the app by
+the maintainer (report "tested and runs", 2026-10-25); the daily migration was
+not tried by the maintainer, only by the tests.
+
+**Not covered:** a daily migration against a real archive with outdated
+summaries (the archive is on the current schema; the first real case comes with
+schema 5); the daily update and the collector are not run with the real
+collector in the tests (the sync is replaced by a stand-in that runs step 3c);
+the check counts every summary file while the migration takes only the days of
+the quality log, so a summary without a quality log entry would stay outdated
+and every daily run would make a new safety copy (register F-14); single failed
+days after the safety copy end in a warning line, not in the exit code; the
+restore of a safety copy is still a command line tool (Python needed); the
+viewer shows no images and not the repository README, it has no search and no
+table of contents, and several viewer windows can be open at once; the viewer
+is not tested in the built programs (the Markdown rendering belongs to Qt;
+the build follows this version).
+
 ## v1.7.6.3 — Migration of the Mixed Archive
 
 Days that the earlier import left in a mixed form (export data stored in
