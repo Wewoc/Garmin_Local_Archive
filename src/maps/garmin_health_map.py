@@ -875,7 +875,7 @@ def _read_intraday(field: str, date_from: str, date_to: str) -> dict:
 # Highest schema_version of an aggregates day this reader understands. Must equal
 # garmin_bulk_writer.AGG_SCHEMA_VERSION (tests/test_broker.py pins that); a day with a
 # higher version is ignored — raise this together with the reader.
-_BULK_AGG_MAX_SCHEMA = 1
+_BULK_AGG_MAX_SCHEMA = 2
 
 
 def _load_bulk_aggregates(ds: str):

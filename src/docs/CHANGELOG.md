@@ -1,5 +1,107 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.5 — Rebuild of the Daily Values from the Kept Originals
+
+The daily values of the bulk store (`bulk/aggregates`) can now be built again from
+the JSON files of the Garmin export that the import keeps in `bulk/source`,
+without the export. A step in the app does it once (popup at the start of Sync
+Garmin, preview first). The import also reads the training readiness `score`,
+which it used to drop; the schema of the daily-values files goes from 1 to 2.
+
+**What changed:**
+- **Readiness `score` is read** (`garmin_import.parse_day`): until now the field was
+  stored as `None`. `garmin_bulk_writer.AGG_SCHEMA_VERSION` and
+  `garmin_health_map._BULK_AGG_MAX_SCHEMA` are both 2 (`test_broker.py` pins that they
+  are equal). A file with version 1 stays readable; with the same source files it is an
+  `update` and is written again as 2 (the next import of the same export, or the
+  rebuild). An older program version does not read version 2. The `score` is stored in
+  `bulk/aggregates` only; the `training` section of the daily summary is still empty
+  (planned for v1.7.6.6).
+- **Several readiness entries of one date** (`garmin_import`): the entry with the
+  latest `timestamp` wins, whatever order the files were read in (`_later_entry_wins`:
+  a readable `timestamp` beats none, a later one an earlier one; equal time, or none on
+  both sides, the smaller canonical JSON text). The kept originals have only their hash
+  as a name, so there is no reading order to lean on. A date with one entry is
+  unchanged; UDS and sleep keep "the entry read last wins".
+- **Kind of a file from its content** (`garmin_import.detect_kind`, new): UDS, sleep,
+  readiness or activities from the keys of the entries, for files that carry no name
+  from the export. `days_from_originals()` builds the days from such files. The import
+  by name and the rebuild share `_index_file()` and `_days_from_entries()` (before,
+  both were one function, `_process_entries`).
+- **Shared per-day step** (`garmin_bulk_json_import.store_day`, `empty_summary`): taken
+  out of the import loop (validator, quality check, aggregates plus day window, proof of
+  origin, write or preview); the import behaves as before.
+- **Rebuild** (`garmin_bulk_rebuild.run_aggregates_rebuild`, new module, removable):
+  reads the JSON originals in the order of their hash, uses a file only if its bytes
+  hash to its name, builds the days with `days_from_originals()` and writes them with
+  `store_day()`. FIT originals are only counted. Damaged originals (cannot be read,
+  wrong hash, not JSON) make the result not `ok` and are named by the first 12
+  characters of their hash; a file of unknown kind is counted and skipped. Preview
+  (`dry_run`) writes and creates nothing. A rerun with nothing changed changes nothing;
+  a stored day that is fuller than the originals is kept.
+- **Sync step 3b3** (`garmin_collector._run_bulk_rebuild`, marker
+  `BULK-REBUILD v1.7.6.5`): runs when `GARMIN_BULK_REBUILD` is `1` or `preview`
+  (the variable is removed when read), after the track migration and before the
+  schema migration. After a real run `_finish_aggregates(summary, quality_data)` makes
+  the summaries, quality-log entries and marks of the written days, on the run's own
+  quality log (new optional parameter; the import run passes none). A preview ends the
+  run before the login. Errors are a warning and the sync goes on. The bulk backup of
+  step 3g follows at the same start.
+- **Popup** (`PanelArchive._check_bulk_rebuild`, `sync.run_collector`): "Rebuild /
+  Preview only / Not now" at the start of Sync Garmin while at least one day has an
+  older `schema_version` and at least one JSON original exists. No safety copy: the
+  originals are not changed and the days can be rebuilt at any time. Not asked after
+  "Preview only" of the track migration; no live fetch after a rebuild preview. The
+  headless `daily_update.py` shows no popup and does not rebuild.
+
+**New modules:**
+- `garmin/garmin_bulk_rebuild.py` — rebuild of the daily values from the kept originals
+- `tests/test_bulk_rebuild.py` — the rebuild (42 checks)
+
+**Changed modules:**
+- `garmin/garmin_import.py` — `score`, `detect_kind`, `days_from_originals`, the choice
+  between readiness entries, `_collect_entries`/`_index_file`/`_days_from_entries`
+- `garmin/garmin_bulk_writer.py` — `AGG_SCHEMA_VERSION` 2; `maps/garmin_health_map.py` —
+  `_BULK_AGG_MAX_SCHEMA` 2
+- `garmin/garmin_bulk_json_import.py` — `store_day`, `empty_summary`
+- `garmin/garmin_collector.py` — `_run_bulk_rebuild`, step 3b3, `_finish_aggregates`
+- `app/panel_archive.py`, `app/outputs/sync.py` — popup and trigger
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py` — new module and
+  test file, signatures
+- `tests/` — `test_garmin_import.py`, `test_bulk_writer.py`, `test_broker.py`,
+  `test_bulk_json_import.py`, `test_collector.py`, `test_qt_app.py`,
+  `test_build_output.py`
+- `docs/` — `REFERENCE_GARMIN.md`, `REFERENCE_GARMIN_EXPORT.md`, `REFERENCE_GLOBAL.md`,
+  `REFERENCE_INVARIANTS.md`, `MAINTENANCE_GARMIN.md`, `MAINTENANCE_GLOBAL.md`,
+  `GLA_GUIDELINES.md`, `README_APP.md`, `USER_GUIDE.txt`, `ROADMAP.md`,
+  `VERSION_HISTORY.md`; `README.md`
+- `version.py` — 1.7.6.5
+
+**Test result:** all suites green, 6400 checks in 48 files (`test_build_output.py`: 833 passed, 12 skipped); all 257 source files compile on Python 3.11.
+
+**Verified:** on the maintainer's real archive (2,842 days of the daily values, 67 JSON
+originals), first a preview that left every file as it was (fingerprint of all 48,782 files
+before and after), then the real run: no error, no damaged or unknown original, no conflict;
+all 2,842 days written with version 2, 589 of them with a `score`; compared with a copy
+made before the run, the only differences in `bulk/aggregates` are the version, the import
+time and the `score`, the proof of origin of every day is unchanged, all 2,868 summary files
+are byte for byte the same, the quality log changed only in `last_checked` and the
+`bulk.aggregates` mark of those days, and the reader of the MCP layer accepts all 2,842
+days. The rebuild took about 9 s and the summaries and log about 28 s. Deliberate faults in
+the new code were caught by the tests, among them a rebuild that finishes the summary on a
+quality log of its own (it would be overwritten by the next save of the run).
+
+**Not covered:** the popup was not seen by a person (the tests drive the panel code); the
+real run above called the rebuild and its finish directly, not through the sync (no popup,
+no login, no step 3g); the MCP server was not started against the rebuilt archive; the bulk
+backup of the rebuilt files (step 3g) follows at the next sync start. Where two originals hold different UDS or sleep entries of
+one date, the one read later wins (the rebuild reads in hash order and counts such a day;
+none was found), and the order of the activities of a day follows the order of the files
+given. A day the rebuild cannot bring to version 2 (the stored day is fuller) is offered
+again at every start. Several readiness entries per day are reduced to one (the latest);
+a series of them is not stored. The rebuilt `score` reaches the daily summary only with
+v1.7.6.6.
+
 ## v1.7.6.4 — Migration in the Daily Update and Documentation Viewer
 
 The daily update can now run the summary migration (schema update) itself, after

@@ -150,6 +150,18 @@ check("parse_day: sleep without any stage value -> total None",
 check("parse_day: training readiness has no score in a bulk export",
       _by["2024-05-04"]["training_readiness"]["level"] == "HIGH"
       and _by["2024-05-04"]["training_readiness"]["score"] is None)
+# v1.7.6.5, P2.3 (Fund 2): the score of the export entry is read (P2.1 pinned the old state: always None).
+_ready_score = _gi.parse_day({"readiness": {"calendarDate": "2024-05-04", "level": "HIGH", "score": 77}},
+                             "2024-05-04")["training_readiness"]
+check("parse_day: an entry WITH a score gives it (P2.3; until P2.1 it was always None)",
+      _ready_score["level"] == "HIGH" and _ready_score["score"] == 77)
+_ready_zero = _gi.parse_day({"readiness": {"calendarDate": "2024-05-04", "level": "LOW", "score": 0}},
+                            "2024-05-04")["training_readiness"]
+_ready_none = _gi.parse_day({"readiness": {"calendarDate": "2024-05-04", "level": "LOW"}},
+                            "2024-05-04")["training_readiness"]
+check("parse_day: a score of 0 stays 0, an entry without a score gives None (as before)",
+      _ready_zero["score"] == 0 and _ready_zero["score"] is not None and _ready_none["score"] is None
+      and _ready_none["level"] == "LOW")
 _acts = _by["2024-05-01"]["activities"]
 check("load_bulk: activities with start time in ms and in s land on the same day",
       [a["activityName"] for a in _acts] == ["Run", "Walk"])
@@ -474,6 +486,189 @@ for _t, _genuine, _key, _mk, _p, _k in _TYPES:
         _res = _g_days([_genuine], {_genuine: _entries})
         check(f"4k2 loop ({_t}): an entry with an invalid date does not stop the next entry",
               list(_res) == ["2024-06-02"])
+
+# -- the seam of _process_entries (v1.7.6.5, P2.2a-prep): collect by name, then build the days -----------------------
+_s_names = [_G_UDS, _G_SLEEP, _G_READY, _G_ACT]
+_s_data = {_G_UDS: _uds("2024-06-01"), _G_SLEEP: _sleep("2024-06-02"), _G_READY: _ready("2024-06-01"),
+           _G_ACT: _acts(_TS_2024)}
+_s_by_date = _gi._collect_entries(list(_s_names), reader=lambda n: _s_data.get(n))
+check("4k2 seam: _collect_entries indexes the entries by date, kind by file name, activities as a list",
+      sorted(_s_by_date) == ["2024-06-01", "2024-06-02"]
+      and set(_s_by_date["2024-06-01"]) == {"uds", "readiness", "activities"}
+      and list(_s_by_date["2024-06-02"]) == ["sleep"]
+      and len(_s_by_date["2024-06-01"]["activities"]) == 1)
+check("4k2 seam: _days_from_entries gives the days sorted, with the entries of the day on request",
+      [d["date"] for d in _gi._days_from_entries(_s_by_date)] == ["2024-06-01", "2024-06-02"]
+      and [e for _, e in _gi._days_from_entries(_s_by_date, True)] == [_s_by_date["2024-06-01"], _s_by_date["2024-06-02"]])
+check("4k2 seam: _process_entries is exactly the two parts one after the other",
+      list(_gi._process_entries(list(_s_names), reader=lambda n: _s_data.get(n), with_entries=True))
+      == list(_gi._days_from_entries(_s_by_date, True)))
+_s_res, _s_log = _g_logged(lambda: list(_gi._process_entries(list(_s_names), reader=lambda n: _s_data.get(n))))
+check("4k2 seam: the 'days found' line is still written, once, before the first day",
+      [m for lv, m in _s_log if "days found in export" in m] == ["  load_bulk: 2 days found in export"])
+
+# -- _index_file (v1.7.6.5, P2.4a): the entries of ONE file, the part that reading by name and by content share ---------
+_i_same = True
+for _k, _n in (("uds", _G_UDS), ("sleep", _G_SLEEP), ("readiness", _G_READY), ("activities", _G_ACT)):
+    _i_by = {}
+    _gi._index_file(_i_by, _k, "label", _s_data[_n])
+    _i_same = _i_same and _i_by == _gi._collect_entries([_n], reader=lambda n: _s_data.get(n)) and _i_by != {}
+check("4k2 _index_file: for each kind one file gives what _collect_entries gives for that file",
+      _i_same)
+_i_by = {}
+for _bad in (None, {"calendarDate": "2024-06-01"}, "text", 5):
+    _gi._index_file(_i_by, "uds", "label", _bad)
+check("4k2 _index_file: a file whose content is not a list adds nothing and raises nothing", _i_by == {})
+_i_res, _i_log = _g_logged(lambda: _gi._index_file({}, "sleep", "my-label", ["x"]))
+check("4k2 _index_file: the warning for an entry that is no object names the label it was given",
+      any(lv == "warning" and "my-label" in m and "malformed entry" in m for lv, m in _i_log))
+
+# -- days_from_originals (v1.7.6.5, P2.4b): the kind from the content, files that carry no path ------------------------
+def _r_uds(d, steps=1):
+    return {"calendarDate": d, "totalSteps": steps, "uuid": "u-" + d}
+
+
+def _r_sleep(d, deep=1):
+    return {"calendarDate": d, "sleepStartTimestampGMT": "x", "deepSleepSeconds": deep}
+
+
+def _r_ready(d, level, ts):
+    return {"calendarDate": d, "level": level, "acwrFactorPercent": 1, "timestamp": ts}
+
+
+def _r_act(ts, name):
+    return [{"summarizedActivitiesExport": [{"name": name, "startTimeLocal": ts}]}]
+
+
+_o_data = {_G_UDS: [_r_uds("2024-06-01"), _r_uds("2024-06-02", 5)], _G_SLEEP: [_r_sleep("2024-06-01")],
+           _G_READY: [_r_ready("2024-06-01", "LOW", "2024-06-01T16:00:00.0"), _r_ready("2024-06-01", "HIGH", "2024-06-01T05:00:00.0")],
+           _G_ACT: _r_act(_TS_2024, "A")}
+_o_by_name = list(_gi._days_from_entries(_gi._collect_entries(list(_o_data), reader=lambda n: _o_data.get(n)), True))
+check("4k2 days_from_originals: the same files, kind from the content, give the days and entries the reading by name gives",
+      list(_gi.days_from_originals(list(_o_data.items()))) == _o_by_name and len(_o_by_name) == 2)
+_o_un = []
+_o_days = list(_gi.days_from_originals([("junk", [{"x": 1}]), ("text", "x"), ("u", [_r_uds("2024-06-03")])], on_unrecognised=_o_un.append))
+check("4k2 days_from_originals: a file of no recognised kind is reported by its label and skipped, the others go on",
+      _o_un == ["junk", "text"] and [d["date"] for d, _ in _o_days] == ["2024-06-03"])
+check("4k2 days_from_originals: an unrecognised file without a callback is skipped as well; the input may be a generator",
+      [d["date"] for d, _ in _gi.days_from_originals(x for x in [("junk", [{"x": 1}]), ("u", [_r_uds("2024-06-03")])])] == ["2024-06-03"])
+_o_early, _o_late = [_r_ready("2024-06-01", "MODERATE", "2024-06-01T05:17:24.0")], [_r_ready("2024-06-01", "LOW", "2024-06-01T16:02:34.0")]
+check("4k2 days_from_originals: readiness of two files is chosen by the timestamp, in either order of the files",
+      {e["readiness"]["level"] for o in ([("a", _o_early), ("b", _o_late)], [("a", _o_late), ("b", _o_early)])
+       for _, e in _gi.days_from_originals(o)} == {"LOW"})
+_o_conf = []
+_o_two = list(_gi.days_from_originals([("a", [_r_uds("2024-06-01", 1)]), ("b", [_r_uds("2024-06-01", 2)])], on_conflict=lambda k, d: _o_conf.append((k, d))))
+check("4k2 days_from_originals: two different UDS entries of one date call on_conflict once, the one given later wins",
+      _o_conf == [("uds", "2024-06-01")] and _o_two[0][1]["uds"]["totalSteps"] == 2)
+_o_conf.clear()
+list(_gi.days_from_originals([("a", [_r_sleep("2024-06-01", 1)]), ("b", [_r_sleep("2024-06-01", 2)])], on_conflict=lambda k, d: _o_conf.append((k, d))))
+check("4k2 days_from_originals: the same for sleep", _o_conf == [("sleep", "2024-06-01")])
+_o_conf.clear()
+list(_gi.days_from_originals([("a", [_r_uds("2024-06-01", 1)]), ("b", [_r_uds("2024-06-01", 1)]),
+                              ("c", _o_early), ("d", _o_late)], on_conflict=lambda k, d: _o_conf.append((k, d))))
+check("4k2 days_from_originals: the same entry twice and different readiness entries are no conflict (the timestamp decides)",
+      _o_conf == [])
+_o_acts = lambda order: [n["name"] for _, e in _gi.days_from_originals(order) for n in e["activities"]]
+check("4k2 days_from_originals: the activities of a day stand in the order the files were given (the caller decides)",
+      _o_acts([("a", _r_act(_TS_2024, "A")), ("b", _r_act(_TS_2024, "B"))]) == ["A", "B"]
+      and _o_acts([("b", _r_act(_TS_2024, "B")), ("a", _r_act(_TS_2024, "A"))]) == ["B", "A"])
+_i_conf = []
+_gi._index_file({}, "uds", "x", [_r_uds("2024-06-01")], None)
+_by_c = {}
+_gi._index_file(_by_c, "uds", "x", [_r_uds("2024-06-01", 1)], lambda k, d: _i_conf.append(d))
+_gi._index_file(_by_c, "uds", "y", [_r_uds("2024-06-01", 2)])
+check("4k2 _index_file: without on_conflict the later entry replaces the earlier without any call (the import by name)",
+      _i_conf == [] and _by_c["2024-06-01"]["uds"]["totalSteps"] == 2)
+
+# -- detect_kind (v1.7.6.5, P2.2): the kind of a file from its content, for originals that carry no path -------------
+_dk_uds = {"calendarDate": "2024-06-01", "totalSteps": 1, "uuid": "u"}
+_dk_sleep_a = {"calendarDate": "2024-06-01", "sleepStartTimestampGMT": "x"}
+_dk_sleep_b = {"calendarDate": "2024-06-01", "deepSleepSeconds": 1}
+_dk_ready_a = {"calendarDate": "2024-06-01", "acwrFactorPercent": 1}
+_dk_ready_b = {"calendarDate": "2024-06-01", "recoveryTimeFactorPercent": 1}
+_dk_act = {"summarizedActivitiesExport": [{"name": "A"}]}
+check("4k2 detect_kind: each kind is found by its key rule (sleep and readiness by either key)",
+      _gi.detect_kind([_dk_uds]) == "uds" and _gi.detect_kind([_dk_act]) == "activities"
+      and _gi.detect_kind([_dk_sleep_a]) == "sleep" and _gi.detect_kind([_dk_sleep_b]) == "sleep"
+      and _gi.detect_kind([_dk_ready_a]) == "readiness" and _gi.detect_kind([_dk_ready_b]) == "readiness")
+check("4k2 detect_kind: the daily aggregate needs totalSteps AND uuid, one of them alone is not recognised",
+      _gi.detect_kind([{"totalSteps": 1}]) is None and _gi.detect_kind([{"uuid": "u"}]) is None)
+check("4k2 detect_kind: entries of two kinds in one list, or two rules on one entry -> not recognised",
+      _gi.detect_kind([_dk_uds, _dk_sleep_a]) is None
+      and _gi.detect_kind([{"deepSleepSeconds": 1, "acwrFactorPercent": 1}]) is None
+      and _gi.detect_kind([_dk_ready_a, _dk_act]) is None)
+check("4k2 detect_kind: empty list, no rule, a dict, None, text and a list of non-objects -> not recognised",
+      _gi.detect_kind([]) is None and _gi.detect_kind([{"calendarDate": "2024-06-01"}]) is None
+      and _gi.detect_kind({"totalSteps": 1, "uuid": "u"}) is None and _gi.detect_kind(None) is None
+      and _gi.detect_kind("totalSteps") is None and _gi.detect_kind(["x", 1, None]) is None)
+check("4k2 detect_kind: an entry that is no object does not hide the kind of the others",
+      _gi.detect_kind(["x", None, _dk_uds, 5]) == "uds")
+check("4k2 detect_kind: the kind comes from the keys, an entry without a date or with a bad date still counts",
+      _gi.detect_kind([{"totalSteps": 1, "uuid": "u"}]) == "uds"
+      and _gi.detect_kind([dict(_dk_ready_a, calendarDate="bad")]) == "readiness")
+_dk_in = [dict(_dk_uds), dict(_dk_sleep_a)]
+_dk_before = json.dumps(_dk_in, sort_keys=True)
+_dk_res, _dk_log = _g_logged(lambda: _gi.detect_kind(_dk_in))
+check("4k2 detect_kind: a pure function — the input is not changed and nothing is logged, also when not recognised",
+      _dk_res is None and json.dumps(_dk_in, sort_keys=True) == _dk_before and _dk_log == [])
+
+# -- readiness: choice between entries of one date, independent of the reading order (v1.7.6.5, P2.2a) -----------------
+import datetime as _dtm
+_G_READY_B = _G_READY.replace(".json", "_b.json")
+
+
+def _rdy(ts, level="HIGH"):
+    e = {"calendarDate": "2024-06-01", "level": level, "acwrFactorPercent": 1}
+    if ts is not None:
+        e["timestamp"] = ts
+    return e
+
+
+def _won(files):
+    """Level of the readiness of 2024-06-01 after reading [(file name, entries), ...] in this order."""
+    return _g_days([n for n, _ in files], dict(files))["2024-06-01"]["training_readiness"]["level"]
+
+
+_r_early = _rdy("2024-06-01T05:17:24.0", "MODERATE")
+_r_mid = _rdy("2024-06-01T06:36:07.0", "PRIME")
+_r_late = _rdy("2024-06-01T16:02:34.0", "LOW")
+check("4k2 readiness: the entry with the latest timestamp wins, wherever it stands in the list or in the files",
+      {_won([(_G_READY, [_r_early, _r_mid, _r_late])]), _won([(_G_READY, [_r_late, _r_mid, _r_early])]),
+       _won([(_G_READY, [_r_early]), (_G_READY_B, [_r_late])]), _won([(_G_READY, [_r_late]), (_G_READY_B, [_r_early])]),
+       _won([(_G_READY_B, [_r_early]), (_G_READY, [_r_late])])} == {"LOW"})
+check("4k2 readiness: a day with one entry is unchanged",
+      _won([(_G_READY, [_r_early])]) == "MODERATE")
+check("4k2 readiness: an entry with a timestamp beats one without, in both orders",
+      _won([(_G_READY, [_rdy(None, "NOTS")]), (_G_READY_B, [_r_early])]) == "MODERATE"
+      and _won([(_G_READY, [_r_early]), (_G_READY_B, [_rdy(None, "NOTS")])]) == "MODERATE")
+check("4k2 readiness: a timestamp that is not a readable text counts as none",
+      all(_won([(_G_READY, [_rdy(bad, "BAD")]), (_G_READY_B, [_r_early])]) == "MODERATE"
+          and _won([(_G_READY, [_r_early]), (_G_READY_B, [_rdy(bad, "BAD")])]) == "MODERATE"
+          for bad in ("bad", "", 5, "2024-13-45T99:99:99")))
+_r_a = _rdy("2024-06-01T05:17:24.0", "AAA")
+_r_b = _rdy("2024-06-01T05:17:24.0", "BBB")
+check("4k2 readiness: the same time and different content -> the smaller canonical text, in both orders",
+      {_won([(_G_READY, [_r_a, _r_b])]), _won([(_G_READY, [_r_b, _r_a])]),
+       _won([(_G_READY, [_r_a]), (_G_READY_B, [_r_b])]), _won([(_G_READY, [_r_b]), (_G_READY_B, [_r_a])])} == {"AAA"}
+      and {_won([(_G_READY, [_rdy(None, "AAA"), _rdy(None, "BBB")])]),
+           _won([(_G_READY, [_rdy(None, "BBB"), _rdy(None, "AAA")])])} == {"AAA"})
+_dup = _g_days([_G_READY, _G_READY_B], {_G_READY: [_r_late], _G_READY_B: [dict(_r_late)]})
+check("4k2 readiness: the same entry in two files gives one day with that entry",
+      list(_dup) == ["2024-06-01"] and _dup["2024-06-01"]["training_readiness"]["level"] == "LOW")
+check("4k2 _entry_time: the Garmin format with '.0', a space instead of T, a fraction and a zone are read",
+      _gi._entry_time({"timestamp": "2025-03-05T05:17:24.0"}) == _dtm.datetime(2025, 3, 5, 5, 17, 24)
+      and _gi._entry_time({"timestamp": "2025-03-05 05:17:24"}) == _dtm.datetime(2025, 3, 5, 5, 17, 24)
+      and _gi._entry_time({"timestamp": "2025-03-05T05:17:24.123Z"}) == _dtm.datetime(2025, 3, 5, 5, 17, 24))
+check("4k2 _entry_time: missing, not a text and not readable -> None",
+      _gi._entry_time({}) is None and _gi._entry_time({"timestamp": None}) is None
+      and _gi._entry_time({"timestamp": 1717243200}) is None and _gi._entry_time({"timestamp": "x"}) is None)
+_ist = _gi._collect_entries([_G_UDS, _G_UDS.replace(".json", "_b.json"), _G_SLEEP, _G_SLEEP.replace(".json", "_b.json")], reader=lambda n: {
+    _G_UDS: [{"calendarDate": "2024-06-01", "totalSteps": 1}],
+    _G_UDS.replace(".json", "_b.json"): [{"calendarDate": "2024-06-01", "totalSteps": 2}],
+    _G_SLEEP: [{"calendarDate": "2024-06-01", "deepSleepSeconds": 1}],
+    _G_SLEEP.replace(".json", "_b.json"): [{"calendarDate": "2024-06-01", "deepSleepSeconds": 2}]}.get(n))
+check("4k2 Ist-Stand (v1.7.6.5): UDS and sleep keep 'the last one read wins' (the new rule is for readiness)",
+      _ist["2024-06-01"]["uds"]["totalSteps"] == 2 and _ist["2024-06-01"]["sleep"]["deepSleepSeconds"] == 2)
 
 # -- _valid_date, _timestamp_to_date, _meters_to_floors ---------------------------------------------------------------
 check("4k2 _valid_date: only YYYY-MM-DD of exactly 10 characters (3.11 would accept 20240501)",

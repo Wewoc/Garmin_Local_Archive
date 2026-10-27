@@ -6,16 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.4**
+**Currently stable — v1.7.6.5**
 
 ---
-
-### v1.7.6.5 — Rebuild of the daily values from the kept originals
-
-- The daily values of the bulk store can be rebuilt from the kept originals,
-  without the export, by a step in the app (dry run first).
-- The training readiness score is read from the export; older daily-values
-  files stay readable.
 
 ### v1.7.6.6 — Alerts and training in the daily summary
 
@@ -71,7 +64,7 @@
   documented as equivalent. Tests only, no change in behaviour.
 
 **Release:** Each step gets its own documented release round; the first build
-of the download packages follows v1.7.6.4, a second one follows v1.7.6.10.
+of the download packages was made after v1.7.6.4, a second one follows v1.7.6.10.
 
 **Not part of it:** FIT activities (v1.8); stress as a replacement for the API
 value.

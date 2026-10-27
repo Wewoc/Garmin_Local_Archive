@@ -1655,11 +1655,15 @@ def _apply_aggregates(qdata, written_days, insufficient_days, agg_days):
     return changed or bool(counts["marked"] or counts["caught_up"]), counts["failed_days"], counts
 
 
-def _finish_aggregates(summary) -> bool:
+def _finish_aggregates(summary, quality_data=None) -> bool:
     """
     After the daily-values phase (not after a preview): makes the summary of the days, the
     quality-log entries and the marks (_apply_aggregates), under QUALITY_LOCK, with one save.
     Nothing written, nothing rejected and nothing in the store -> the log is not even loaded.
+
+    quality_data: the run's own quality log, when the phase runs inside a sync (the rebuild of the
+    daily values, v1.7.6.5): the entries are made on that object and saved from it, because a log
+    loaded here would be overwritten by the next save of the run. None (the import run) loads the log.
 
     Returns True when everything is as it should be, False when a day could not be completed or
     the log could not be written (the next import run makes it good: it looks at the content).
@@ -1672,7 +1676,7 @@ def _finish_aggregates(summary) -> bool:
         if not written and not insufficient and not agg_days:
             return True
         with quality.QUALITY_LOCK:
-            qdata = quality._load_quality_log()
+            qdata = quality_data if quality_data is not None else quality._load_quality_log()
             changed, failed_days, counts = _apply_aggregates(qdata, written, insufficient, agg_days)
             saved = (quality._save_quality_log(qdata) is not False) if changed else True
     except Exception as e:
@@ -1740,6 +1744,32 @@ def _run_bulk_import(path) -> dict:
         # part of the exit code
         _run_bulk_backup("after the import")
     return {"failed": failed}
+
+
+def _run_bulk_rebuild(quality_data: dict, preview: bool) -> None:
+    """
+    BULK-REBUILD v1.7.6.5 — removable. Builds the daily values in bulk/aggregates again from the
+    original export files kept in bulk/source, or only reports what that would do (preview). The
+    work is done by garmin_bulk_rebuild; this wrapper starts it and, after a real run, makes the
+    summaries, the quality-log entries and the marks of the days it wrote (_finish_aggregates, on the
+    run's own quality log). The bulk store is backed up by step 3g of the same start.
+
+    Runs after the user chose "Rebuild" or "Preview only" in the popup of the GUI
+    (GARMIN_BULK_REBUILD=1 / preview). No API call, no login, no export.
+
+    Non-fatal: any error is a warning and the sync goes on (the preview run ends in main()). What
+    did not work stays as it was and is offered again at the next start.
+    """
+    try:
+        import garmin_bulk_rebuild as _rb
+        summary = _rb.run_aggregates_rebuild(dry_run=preview, should_stop=_is_stopped)
+        if not summary.get("ok"):
+            log.warning("  Bulk rebuild: not everything could be rebuilt (see the lines above) — offered again at the next start")
+        if not preview and not _finish_aggregates(summary, quality_data):
+            log.warning("  Bulk rebuild: the summaries or the quality log could not be completed for every day — "
+                        "offered again at the next start")
+    except Exception as e:
+        log.warning(f"  Bulk rebuild skipped: {e}")
 
 
 def _run_bulk_mark_catch_up(quality_data: dict) -> None:
@@ -1921,6 +1951,19 @@ def main(stop_event=None):
     if _track_mode in ("1", "preview"):
         _run_track_migration(quality_data, preview=_track_mode == "preview")
         if _track_mode == "preview":
+            log.info("  Preview only - the sync was not run.")
+            _close_session_log(_session_fh, _session_path, False, False)
+            return
+
+    # ── 3b3. Bulk rebuild — BULK-REBUILD v1.7.6.5 — removable ───────────────────
+    # The daily values of the bulk store are built again from the kept originals (no export, no API,
+    # no login). The variable is removed as soon as it is read: in T3 the process, and with it
+    # os.environ, lives on between runs. The run's quality_data is passed on (like the repairs get it).
+    # "preview" only reports and ends the run here: nothing is written and no sync follows.
+    _rebuild_mode = os.environ.pop("GARMIN_BULK_REBUILD", None)
+    if _rebuild_mode in ("1", "preview"):
+        _run_bulk_rebuild(quality_data, preview=_rebuild_mode == "preview")
+        if _rebuild_mode == "preview":
             log.info("  Preview only - the sync was not run.")
             _close_session_log(_session_fh, _session_path, False, False)
             return

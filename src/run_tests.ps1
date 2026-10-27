@@ -4,6 +4,7 @@
 $ErrorActionPreference = "Continue"
 $LOGFILE = Join-Path $PSScriptRoot "test_all_log.txt"
 $env:PYTHONIOENCODING = "utf-8"
+if (-not $env:QT_QPA_PLATFORM) { $env:QT_QPA_PLATFORM = "offscreen" }
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
@@ -102,6 +103,7 @@ Run-And-Tee "python" @("tests/test_bulk_normalizer.py")          "test_bulk_norm
 Run-And-Tee "python" @("tests/test_bulk_writer.py")          "test_bulk_writer.py"
 Run-And-Tee "python" @("tests/test_bulk_import.py")          "test_bulk_import.py"
 Run-And-Tee "python" @("tests/test_bulk_json_import.py")          "test_bulk_json_import.py"
+Run-And-Tee "python" @("tests/test_bulk_rebuild.py")          "test_bulk_rebuild.py"
 Run-And-Tee "python" @("tests/test_api.py")          "test_api.py"
 Run-And-Tee "python" @("tests/test_live_fetch.py")          "test_live_fetch.py"
 Run-And-Tee "python" @("tests/test_silo_check.py")          "test_silo_check.py"

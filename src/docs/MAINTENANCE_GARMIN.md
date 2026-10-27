@@ -88,6 +88,7 @@ of scope.
 | `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` (v1.7.6.1) and `garmin_data/bulk/source/` (v1.7.6) |
 | `garmin_bulk_import.py` | none — orchestrates the four other bulk modules; writes only through `garmin_bulk_writer` (v1.7.6) |
 | `garmin_bulk_json_import.py` | none — daily-values phase of the import; writes only through `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.1) |
+| `garmin_bulk_rebuild.py` (removable) | none — owns no files; reads the originals in `bulk/source`, writes only through `garmin_bulk_json_import.store_day()` → `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.5) |
 
 ### Invariants
 
@@ -108,7 +109,7 @@ of scope.
 - **A step that changes the quality log inside `garmin_collector.main()` works on the run's own `quality_data`** (like the backfills), never on a copy it loads itself: `main()` saves its in-memory log again after the sync, and a second copy's changes would be overwritten (v1.7.5.7, found on a real archive with the resting-HR repair — `last_checked` was lost and the MCP cache kept the old values)
 - **Import mode is the exception to the rule above (v1.7.6):** it exits right after its phases and holds no quality log of its own, so `_mark_bulk_days()` and `_finish_aggregates()` (v1.7.6.1) load the log under `QUALITY_LOCK`, mark the days and save once. A step added to import mode that continues into the sync must hand its log over instead (the sync-start catch-up `_run_bulk_mark_catch_up()` does: it works on the run's own `quality_data`)
 - **`entry["bulk"]` is not `entry["source"] == "bulk"` (v1.7.6):** every bulk-recheck rule (flagging, `bulk_upgrade_dates`, the timer's Bulk Recheck, `last_bulk` in the archive stats) reads `source`. `entry["bulk"]["intraday"]` and `entry["bulk"]["aggregates"]` are only written by `record_bulk_intraday()` / `record_bulk_aggregates()`; they take effect through `last_checked` (MCP cache) and are read by the catch-up of missing marks (`unmarked_bulk_days()`, v1.7.6.1, F-3). An export-only day (no `raw/`) has an entry with `source` `bulk` and `write` false: the bulk recheck then asks the API for it inside the 180 days, and the integrity check does not call it missing
-- **Raising the bulk schema (v1.7.6):** `BULK_SCHEMA_VERSION` (`garmin_bulk_writer.py`) and `_BULK_MAX_SCHEMA` (`garmin_health_map.py`) are raised together — `tests/test_broker.py` pins that they are equal; the same for `AGG_SCHEMA_VERSION` and `_BULK_AGG_MAX_SCHEMA` (v1.7.6.1). A day with an older schema is written again the next time the same export is imported (same files, older schema → `update`); a day with a newer schema is kept and not read by an older reader
+- **Raising the bulk schema (v1.7.6):** `BULK_SCHEMA_VERSION` (`garmin_bulk_writer.py`) and `_BULK_MAX_SCHEMA` (`garmin_health_map.py`) are raised together — `tests/test_broker.py` pins that they are equal; the same for `AGG_SCHEMA_VERSION` and `_BULK_AGG_MAX_SCHEMA` (v1.7.6.1; both 2 since v1.7.6.5). A day with an older schema is written again the next time the same export is imported (same files, older schema → `update`) or when the rebuild from the kept originals runs; a day with a newer schema is kept and not read by an older reader. `tests/test_broker.py` and `tests/test_bulk_writer.py` take the "newer number" from `AGG_SCHEMA_VERSION + 1`, so the next raise does not break them
 - **The result of a write is never ignored (v1.7.6.1, F-4/F-5/F-6):** `garmin_writer.write_day()` / `write_summary_only()` / `rebuild_summary()` answer `False` when nothing was written — also for a day whose aggregates file cannot be read (a summary without the export's values must not replace a complete one). A new caller counts that as an error of the day (`RuntimeError` inside the existing `except`, or `errors += 1`), never as done. Known open case: `commit_force_refetch()` and `_run_source_backfill()` call `_write_assessed()` and record the entry without looking at the answer (not examined for v1.7.6.1)
 - **Resolved summary (v1.7.6.1):** a day with an aggregates file gets `summary/` from the API data plus the export's values (the API data win; a key or field the API lacks or holds empty comes from the export, field by field inside a section and one level deep since v1.7.6.3, F-11; `activities` is left out), `raw/` keeps API data only. Where the two sources define a value differently (floors climbed, sleep duration, minimum/maximum heart rate, the stress block of the day) the API value is used; the differences are listed in `REFERENCE_GARMIN.md`
 - **API-Capability-Scan (v1.6.8):** the 15 baseline `fetch_raw()` endpoints
@@ -736,6 +737,58 @@ What stays when it is removed: the field-wise resolution in `garmin_writer`
 and the safety copies already made (`backup/migration/` stays on disk; the app never
 deletes them). The point in time is a decision of the maintainer: an archive restored from
 an old backup or a mirror from an older version can bring mixed days back.
+
+S. **Rebuild of the daily values from the kept originals (v1.7.6.5, removable).** `bulk/aggregates`
+is built again from the JSON originals in `bulk/source`, without the export; the parser reads the
+readiness `score` and `AGG_SCHEMA_VERSION` is 2. All tests run on synthetic archives; the rebuild
+itself was run as a preview and then for real on the real archive (see `CHANGELOG.md`).
+- `test_garmin_import.py` — `detect_kind()` (each kind, partial rules, ambiguity, empty and broken
+  input, pure: the input is unchanged and nothing is logged), the choice between several readiness entries of a date (latest
+  `timestamp` in every read order, tie-break, entry without or with an unreadable `timestamp`),
+  `days_from_originals()` (kinds from content, unknown files, conflicts, the order the caller gives),
+  the seam `_collect_entries()` / `_days_from_entries()` and `parse_day()` reading the `score`.
+- `test_bulk_json_import.py` — `store_day()` / `empty_summary()` shared with the import (the import
+  behaves as before); `test_bulk_writer.py` — version 2, a day with 1 stays readable, is an `update`
+  for the same files and then `unchanged`; `test_broker.py` — the reader takes 1 and 2, not the next.
+- `test_bulk_rebuild.py` (new, section B7) — the rebuild brings back what the import wrote (same
+  aggregates and `source_files`, a day imported with version 1 becomes 2), preview writes and creates
+  nothing, rerun changes nothing, a fuller stored day is kept, damaged originals (unreadable, wrong
+  hash, not JSON) make `ok` false and are listed by hash prefix, unknown kinds are listed, conflicts
+  are counted, no originals, stop, a failing day, an unexpected error, `format_summary()`, and the
+  imports of the module (`garmin_config` only inside a function, no `print`).
+- `test_collector.py` section 4u "main bulk rebuild" — only `"1"` and `"preview"` act, the variable
+  is removed when read, the stop check is handed over, the summary is finished on the run's own
+  quality log (an end-to-end run inside the sync keeps the entries on that log), a preview
+  finishes nothing and ends the run, the order against the track migration, the schema migration
+  and the backup refresh, a missing module or an error is a warning.
+- `test_qt_app.py::TestBulkRebuildHooks` — the popup (nothing to offer without folders, current
+  numbers, original or JSON original; Rebuild, Preview only, Not now; damaged files and invalid
+  numbers do not count; folders from `base_dir`; error in the scan) and the trigger in
+  `run_collector()` (alone and with the other triggers; not asked after the track-migration preview;
+  no live fetch after a preview). `test_build_output.py` — the seven bulk scripts and the signatures.
+
+**Removal list** — everything that belongs to the rebuild carries the marker `BULK-REBUILD v1.7.6.5`
+(grep for it):
+1. `garmin/garmin_bulk_rebuild.py`, `tests/test_bulk_rebuild.py`.
+2. `compiler/build_manifest.py` — the `SHARED_SCRIPTS` entry, the `SCRIPT_SIGNATURES_BASE` entry and
+   `"def _run_bulk_rebuild"` in the collector's signatures; `tests/test_build_output.py` — the checks;
+   `run_tests.ps1` and `tests/conftest.py` — the test file entry.
+3. `garmin/garmin_collector.py` — `_run_bulk_rebuild()` and step 3b3 in `main()`; in
+   `tests/test_collector.py` the blocks "main bulk rebuild". The optional `quality_data` parameter of
+   `_finish_aggregates()` stays (it is harmless and the import run does not pass it).
+4. `app/panel_archive.py` — `_ask_bulk_rebuild()` and `_check_bulk_rebuild()`;
+   `app/outputs/sync.py::run_collector()` — the lines for the variable and the "no live fetch after a
+   preview" branch; `tests/test_qt_app.py::TestBulkRebuildHooks`.
+5. Docs — the module section, the panel row and the collector row in `REFERENCE_GARMIN.md`, the
+   bullets in `REFERENCE_INVARIANTS.md`, the variable row and the tree line in `REFERENCE_GLOBAL.md`,
+   the module and test rows in `MAINTENANCE_GLOBAL.md`, the owner row in `GLA_GUIDELINES.md`, this
+   section. `CHANGELOG.md` stays as history.
+
+What stays when it is removed: reading the `score`, `AGG_SCHEMA_VERSION` 2, `detect_kind()` and
+`days_from_originals()` (a content-based way to read originals, small and tested), the order-free
+choice of the readiness entry, and `store_day()` shared with the import. Days that already have
+version 2 stay as they are. Without the rebuild, days with version 1 get the `score` the next time the
+export is imported again.
 
 ### What is NOT tested
 

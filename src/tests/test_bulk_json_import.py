@@ -346,6 +346,54 @@ check("format_summary of a failed path says the error", any("does not exist" in 
 check("format_summary: no rejected line when nothing was rejected",
       not any("rejected" in x for x in jimp.format_summary({**pre, "rejected": {"invalid": 0, "insufficient": 0}}, dry_run=True)))
 
+# ── store_day (v1.7.6.5, P2.4c): the step per day, shared by the import and the rebuild ────────
+_SD_ENTRIES = {"uds": U0501, "sleep": S0501, "activities": [A1, A2]}
+_SD_DAY = gi.parse_day(_SD_ENTRIES, "2024-05-01")
+with _isolated_log_env("bulk_json_store_day") as base:
+    _sd = jimp.empty_summary(False)
+    jimp.store_day(_SD_DAY, _SD_ENTRIES, "2026-10-27T10:00:00", False, _sd)
+    _stored = bw.read_aggregates("2024-05-01")
+    check("store_day: a good day is written as the import writes it: new, reported, the day plus its window, the proof of origin",
+          _sd["days"]["new"] == 1 and _sd["written_days"] == ["2024-05-01"] and _sd["days_with_window"] == 1
+          and _stored["aggregates"] == {**_SD_DAY, "day_window": _window("2024-05-01")}
+          and _stored["source_files"] == sorted([H_UDS, H_SLEEP, H_ACT1, H_ACT2]) and _stored["imported_at"] == "2026-10-27T10:00:00")
+    _sd2 = jimp.empty_summary(False)
+    jimp.store_day(_SD_DAY, _SD_ENTRIES, "2026-10-28T10:00:00", False, _sd2)
+    check("store_day: the same day again is unchanged, nothing is written (not even the import time)",
+          _sd2["days"]["unchanged"] == 1 and _sd2["written_days"] == []
+          and bw.read_aggregates("2024-05-01")["imported_at"] == "2026-10-27T10:00:00")
+    _sd_before = _tree(cfg.BULK_DIR)
+    _sd_pre = jimp.empty_summary(True)
+    jimp.store_day(gi.parse_day({"uds": U0502}, "2024-05-02"), {"uds": U0502}, "x", True, _sd_pre)
+    check("store_day: a preview counts the day as new and writes nothing",
+          _sd_pre["days"]["new"] == 1 and _sd_pre["written_days"] == [] and _tree(cfg.BULK_DIR) == _sd_before
+          and "2024-05-02" not in bw.list_aggregate_days())
+    _sd3 = jimp.empty_summary(False)
+    jimp.store_day(gi.parse_day({"sleep": S0503}, "2024-05-03"), {"sleep": S0503}, "x", False, _sd3)
+    check("store_day: a day with too little data is rejected and reported, not written",
+          _sd3["rejected"] == {"invalid": 0, "insufficient": 1} and _sd3["insufficient_days"] == ["2024-05-03"]
+          and "2024-05-03" not in bw.list_aggregate_days())
+    _sd4 = jimp.empty_summary(False)
+    with patch.object(jimp.validator, "validate", return_value={"status": "critical"}):
+        jimp.store_day(gi.parse_day({"uds": U0502}, "2024-05-02"), {"uds": U0502}, "x", False, _sd4)
+    check("store_day: an invalid day is rejected and not written",
+          _sd4["rejected"] == {"invalid": 1, "insufficient": 0} and "2024-05-02" not in bw.list_aggregate_days())
+    _sd5 = jimp.empty_summary(False)
+    with patch.object(jimp.bw, "write_aggregates", return_value=bw.FAILED):
+        jimp.store_day(gi.parse_day({"uds": U0502}, "2024-05-02"), {"uds": U0502}, "x", False, _sd5)
+    check("store_day: a day that could not be written is counted as failed, not as written",
+          _sd5["days"]["failed"] == 1 and _sd5["written_days"] == [])
+
+with _isolated_log_env("bulk_json_store_day_import") as base_i:
+    _exp_i = _write_dir(base_i / "exp", {UDS_A: [U0501], SLEEP: [S0501], ACTS: [{"summarizedActivitiesExport": [A1, A2]}]})
+    jimp.run_aggregates_import(_exp_i)
+    _via_import = bw.read_aggregates("2024-05-01")
+with _isolated_log_env("bulk_json_store_day_direct") as base_d:
+    jimp.store_day(_SD_DAY, _SD_ENTRIES, "2026-10-27T10:00:00", False, jimp.empty_summary(False))
+    _via_store = bw.read_aggregates("2024-05-01")
+check("store_day: the day it writes is the day the import of an export with the same entries writes (apart from the import time)",
+      {k: v for k, v in _via_import.items() if k != "imported_at"} == {k: v for k, v in _via_store.items() if k != "imported_at"})
+
 # ── Imports: standard library and the named project modules only ─────────────────────────────
 _tree_ast = ast.parse(Path(jimp.__file__).read_text(encoding="utf-8"))
 _top = set()

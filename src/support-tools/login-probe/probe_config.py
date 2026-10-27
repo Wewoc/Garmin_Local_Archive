@@ -33,9 +33,9 @@ GARMIN_TEST_PASSWORD = ""
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Folder containing garmin_data/ (token, quality log, etc.)
-GARMIN_OUTPUT_DIR = r"C:\path\to\your\local_archive"
+GARMIN_OUTPUT_DIR = r"D:\Garmin_Data"
 
 # Folder containing garmin_api.py, garmin_config.py, garmin_security.py,
 # garmin_utils.py. Leave empty ("") if this script sits directly next
 # to those modules (then the script's own folder is used).
-GARMIN_REPO_DIR = r"C:\path\to\your\GLA\src\garmin"
+GARMIN_REPO_DIR = r"D:\Garmin\template\garmin_collector-1_work\src\garmin"

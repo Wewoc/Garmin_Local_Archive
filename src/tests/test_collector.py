@@ -4549,6 +4549,178 @@ with _isolated_log_env("main15tm3") as _b:
           "— not overwritten by the older log in memory",
           _q[_tmd]["last_checked"] == date.today().isoformat())
 
+# -- bulk rebuild (v1.7.6.5) — BULK-REBUILD v1.7.6.5 — removable ----------------------------------------------------------
+_BR_SUM15 = {"ok": True, "written_days": ["2022-06-01"], "insufficient_days": [], "marker": "summary"}
+_BR_ON15 = {"GARMIN_BULK_REBUILD": "1"}
+_BR_PREV15 = {"GARMIN_BULK_REBUILD": "preview"}
+_BR_LINES15 = ["Bulk daily values rebuild — PREVIEW, nothing is written"]
+
+
+def _br15(summary=None, run_err=None, finish=True, **kw):
+    """main() once with garmin_bulk_rebuild.run_aggregates_rebuild and _finish_aggregates mocked.
+    Returns (main result, log recorder, rebuild mock, finish mock)."""
+    with patch("garmin_bulk_rebuild.run_aggregates_rebuild", return_value=_BR_SUM15 if summary is None else summary,
+               side_effect=run_err) as _run, \
+         patch.object(_col5, "_finish_aggregates", return_value=finish) as _fin:
+        out, rec = _m15(**kw)
+    return out, rec, _run, _fin
+
+
+with _isolated_log_env("main15br") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _res = {}
+        for _val in ("1", "preview", "0", "2", "", "true", None):
+            _, _rec, _run, _fin = _br15(env={"GARMIN_BULK_REBUILD": _val} if _val is not None else {})
+            _res[_val] = (_run.call_count, _run.call_args.kwargs.get("dry_run") if _run.called else None)
+        check("4u main bulk rebuild: GARMIN_BULK_REBUILD=1 starts the rebuild, =preview a preview of it, any other value nothing",
+              _res == {"1": (1, False), "preview": (1, True), "0": (0, None), "2": (0, None), "": (0, None), "true": (0, None), None: (0, None)})
+        _, _rec, _run, _fin = _br15(env=_BR_ON15)
+        check("4u main bulk rebuild: the stop check is handed over; after the run the summary is finished on the run's own quality log "
+              "(the entries are made on the log main() saves later)",
+              _run.call_args.kwargs == {"dry_run": False, "should_stop": _col5._is_stopped}
+              and _fin.call_count == 1 and _fin.call_args.args[0] is _BR_SUM15
+              and isinstance(_fin.call_args.args[1], dict) and "days" in _fin.call_args.args[1])
+        _, _rec, _run, _fin = _br15(env=_BR_PREV15)
+        check("4u main bulk rebuild: a preview finishes nothing (no summary, no log entry)", _run.call_count == 1 and not _fin.called)
+
+        (_code, _exc, _f, _), _rec, _run, _fin = _br15(env=_BR_ON15, login=None)
+        (_code2, _exc2, _f2, _), _rec2, _run2, _fin2 = _br15(env=_BR_ON15, login_error=_col5.api.GarminLoginError("nope"))
+        check("4u main bulk rebuild: runs before the login — a cancelled login does not stop it, a login error does not stop it "
+              "and the run still exits with 1",
+              _code is None and _exc is None and _run.call_count == 1 and _code2 == 1 and _run2.call_count == 1)
+
+        _order = []
+        with patch.object(_col5, "_run_schema_migration", side_effect=lambda q: _order.append("schema")), \
+             patch.object(_col5, "_run_backup_refresh", side_effect=lambda: _order.append("backup")), \
+             patch.object(_col5, "_run_resting_hr_repair", side_effect=lambda q: _order.append("repair")), \
+             patch("garmin_track_migration.run_migration", side_effect=lambda **kw: (_order.append("track"), _TM_RES15)[1]), \
+             patch("garmin_bulk_rebuild.run_aggregates_rebuild", side_effect=lambda **kw: (_order.append("rebuild"), _BR_SUM15)[1]), \
+             patch.object(_col5, "_finish_aggregates", return_value=True):
+            _m15(env={"GARMIN_SCHEMA_MIGRATE": "1", "GARMIN_RESTING_HR_REPAIR": "1", **_TM_ON15, **_BR_ON15})
+        check("4u main bulk rebuild: runs after the track migration and before the schema migration, the backup refresh and the "
+              "resting HR repair",
+              _order == ["track", "rebuild", "schema", "backup", "repair"])
+
+        with patch.dict(sys.modules, {"garmin_bulk_rebuild": None}):
+            (_code, _exc, _f, _dev), _rec = _m15(env=_BR_ON15)
+        check("4u main bulk rebuild: a missing module (the rebuild was removed) is a warning, the run goes on",
+              _code is None and _exc is None and _dev.called
+              and any(m.startswith("  Bulk rebuild skipped:") for m in _rec.msgs("warning")))
+
+        (_code, _exc, _f, _dev), _rec, _run, _fin = _br15(run_err=OSError("boom"), env=_BR_ON15)
+        check("4u main bulk rebuild: an error in the rebuild is a warning, the run goes on",
+              _code is None and _exc is None and _dev.called and "  Bulk rebuild skipped: boom" in _rec.msgs("warning"))
+
+        (_code, _exc, _f, _dev), _rec, _run, _fin = _br15(summary={**_BR_SUM15, "ok": False}, env=_BR_ON15)
+        check("4u main bulk rebuild: a result that is not ok is a warning (offered again at the next start), the summary is still finished, "
+              "the run goes on",
+              _code is None and _exc is None and _dev.called and _fin.call_count == 1
+              and any("not everything could be rebuilt" in m for m in _rec.msgs("warning")))
+        (_code, _exc, _f, _dev), _rec, _run, _fin = _br15(finish=False, env=_BR_ON15)
+        check("4u main bulk rebuild: a finish that could not be completed is a warning, the run goes on",
+              _code is None and _exc is None and _dev.called
+              and any("summaries or the quality log could not be completed" in m for m in _rec.msgs("warning")))
+        (_code, _exc, _f, _dev), _rec, _run, _fin = _br15(env=_BR_ON15)
+        check("4u main bulk rebuild: a clean run adds no warning of its own", not any("Bulk rebuild" in m for m in _rec.msgs("warning")))
+
+        # the preview ends the run: nothing after it (login, device history, fetch, backup refresh) happens
+        with patch.object(_col5, "_run_backup_refresh") as _bk, patch.object(_col5, "_close_session_log") as _cl:
+            (_code, _exc, _f, _dev), _rec, _run, _fin = _br15(env=_BR_PREV15)
+        check("4u main bulk rebuild: the preview ends the run before everything else - no backup refresh, no login, no fetch - and "
+              "closes the session log without an error",
+              _code is None and _exc is None and _run.call_count == 1 and not _bk.called and not _dev.called and not _f.called
+              and "  Preview only - the sync was not run." in _rec.msgs("info")
+              and _cl.call_count == 1 and _cl.call_args.args[2:] == (False, False))
+        (_code, _exc, _f, _dev), _rec, _run, _fin = _br15(env=_BR_PREV15, run_err=OSError("boom"))
+        check("4u main bulk rebuild: an error in the preview is a warning and the run ends all the same",
+              _code is None and _exc is None and not _dev.called and not _f.called
+              and "  Bulk rebuild skipped: boom" in _rec.msgs("warning"))
+
+        with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}):
+            (_code, _exc, _f, _), _rec, _run, _fin = _br15(env={"GARMIN_IMPORT_PATH": "ignored", **_BR_ON15})
+        check("4u main bulk rebuild: the import mode returns before it — no rebuild", _code == 0 and not _run.called)
+
+with _isolated_log_env("main15br2") as _b:      # no log, no raw file: the day is new and is fetched
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _seen_in, _env_after, _seen_after = [], [], {}
+
+        def _br_run(**kw):
+            _seen_in.append(os.environ.get("GARMIN_BULK_REBUILD"))
+            return _BR_SUM15
+
+        def _fetch_br_env(client, date_str, extra_endpoints=None):
+            _env_after.append(os.environ.get("GARMIN_BULK_REBUILD"))
+            return _day_raw(date_str, "high"), []
+
+        for _val in ("1", "0"):
+            with _isolated_log_env(f"main15br2_{_val}") as _b2:
+                cfg.SUMMARY_DIR = _b2 / "summary"
+                _env_after.clear()
+                with patch("garmin_bulk_rebuild.run_aggregates_rebuild", side_effect=_br_run), \
+                     patch.object(_col5, "_finish_aggregates", return_value=True):
+                    _m15(env={"GARMIN_BULK_REBUILD": _val}, fetch=_fetch_br_env)
+                _seen_after[_val] = list(_env_after)
+        check("4u main bulk rebuild: the variable is removed as soon as it is read — before the rebuild runs and for every value, "
+              "so a later run in the same process (T3) is not triggered again",
+              _seen_in == [None] and _seen_after == {"1": [None], "0": [None]})
+        _env_prev = []
+        with patch("garmin_bulk_rebuild.run_aggregates_rebuild",
+                   side_effect=lambda **kw: _env_prev.append(os.environ.get("GARMIN_BULK_REBUILD")) or _BR_SUM15):
+            _m15(env=_BR_PREV15)
+            _env_prev.append(os.environ.get("GARMIN_BULK_REBUILD"))
+        check("4u main bulk rebuild: the variable of a preview is removed too (T3)", _env_prev == [None, None])
+
+# -- bulk rebuild end to end — BULK-REBUILD v1.7.6.5 — removable ---------------------------------------------------------
+# The real rebuild inside a sync, then a later save of the run's own quality log (the day that is fetched afterwards):
+# the entry the rebuild makes for its day must survive that save (the lesson of the repairs, Baustein 2f). That is why
+# _finish_aggregates takes the run's quality log.
+import zipfile as _zip15
+
+with _isolated_log_env("main15br3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _brd = "2022-06-01"
+    _br_uds = {"calendarDate": _brd, "uuid": "u-1", "totalSteps": 7000, "dailyStepGoal": 8000, "totalKilocalories": 2300.0,
+               "activeKilocalories": 400.0, "totalDistanceMeters": 5000.0, "moderateIntensityMinutes": 10,
+               "vigorousIntensityMinutes": 5, "floorsAscendedInMeters": 30.0, "currentDayRestingHeartRate": 52,
+               "restingHeartRate": 55, "minHeartRate": 44, "maxHeartRate": 150,
+               "wellnessStartTimeGmt": f"{_brd}T00:00:00.0", "wellnessStartTimeLocal": f"{_brd}T02:00:00.0",
+               "wellnessEndTimeGmt": f"{_brd}T22:00:00.0", "wellnessEndTimeLocal": f"{_brd}T24:00:00.0",
+               "allDayStress": {"aggregatorList": [{"averageStressLevel": 28, "maxStressLevel": 90, "stressDuration": 1,
+                                                    "restDuration": 2, "lowDuration": 3, "mediumDuration": 4, "highDuration": 5}]}}
+    _br_sleep = {"calendarDate": _brd, "sleepStartTimestampGMT": "x", "deepSleepSeconds": 5000, "lightSleepSeconds": 15000,
+                 "remSleepSeconds": 4000, "awakeSleepSeconds": 600}
+    _br_ready = {"calendarDate": _brd, "level": "HIGH", "score": 77, "acwrFactorPercent": 1, "timestamp": f"{_brd}T05:00:00.0",
+                 "feedbackLong": "long", "feedbackShort": "short"}
+    _br_zip = _b / "export.zip"
+    with _zip15.ZipFile(_br_zip, "w") as _z:
+        _z.writestr("DI_CONNECT/DI-Connect-Aggregator/UDSFile_x.json", json.dumps([_br_uds]))
+        _z.writestr("DI_CONNECT/DI-Connect-Wellness/x_sleepData.json", json.dumps([_br_sleep]))
+        _z.writestr("DI_CONNECT/DI-Connect-Metrics/TrainingReadinessDTO_x.json", json.dumps([_br_ready]))
+    _br_imp = _jimp.run_aggregates_import(_br_zip)
+    _br_f = cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{_brd}.json"
+    _br_doc = json.loads(_br_f.read_text(encoding="utf-8"))
+    _br_doc["schema_version"] = 1                                       # a day as the program before v1.7.6.5 wrote it
+    _br_doc["aggregates"]["training_readiness"]["score"] = None
+    _br_f.write_text(json.dumps(_br_doc), encoding="utf-8")
+    _br_zip.unlink()                                                    # no export: only the kept originals
+    _log15([])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        (_code, _exc, _f, _), _rec = _m15(env=_BR_ON15)
+    _q = _qdays()
+    _br_new = json.loads(_br_f.read_text(encoding="utf-8"))
+    check("4u main bulk rebuild end to end: the old day was built again from the kept original (current number, the score is back), "
+          "and the sync that follows really ran (the fetched day is in the log)",
+          _br_imp["ok"] and _code is None and _exc is None and _f.called and "2024-05-01" in _q
+          and _br_new["schema_version"] == _bw15.AGG_SCHEMA_VERSION
+          and _br_new["aggregates"]["training_readiness"]["score"] == 77)
+    check("4u main bulk rebuild end to end: the entry the rebuild made for its day (source bulk) and its summary survive the later "
+          "save of the run's quality log — not overwritten by the older log in memory",
+          _brd in _q and _q[_brd]["source"] == "bulk" and (cfg.SUMMARY_DIR / f"garmin_{_brd}.json").is_file())
+
 # -- device_id backfill ---------------------------------------------------------------------------------------------
 _DV = [f"2024-03-{n:02d}" for n in range(1, 13)]
 

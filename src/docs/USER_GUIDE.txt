@@ -151,6 +151,34 @@ Days of the earlier import that have no saved Garmin original, and days
 where the export differs from the stored data, are reported and left as they
 are.
 
+Rebuild of the daily values (v1.7.6.5): the Bulk Import keeps the JSON
+files of the Garmin export (garmin_data/bulk/source/). Since v1.7.6.5 it
+reads one more value from them, the training readiness score; days that
+an earlier version imported do not have it yet. If your archive holds
+such days, a popup "Rebuild / Preview only / Not now" appears before the
+sync starts. It names the number of days. What it does:
+  - The daily values of those days (garmin_data/bulk/aggregates/) are
+    made again from the kept original files. The export itself (the ZIP)
+    is not needed, nothing is downloaded and no login is used.
+  - The Garmin API data (raw/), the original files and the other days
+    stay as they are. The daily files in summary/ are written again (for
+    now with the same content: the score is stored in the bulk folder and
+    does not show in the daily files yet), and the days are marked so AI
+    queries (MCP) read them again after the next sync.
+  - No safety copy is made: the original files are not changed and the
+    days can be rebuilt again at any time. The bulk folder is backed up
+    at the end of the same sync start.
+  - It takes well under a minute for a few thousand days (measured on
+    one archive with 2,842 days: about 10 seconds for the daily values
+    and half a minute for the daily files). It runs once: when no day is
+    left, the popup does not appear again.
+"Preview only" reports what would change, writes nothing, and the sync
+does not run this time. "Not now" changes nothing; the popup comes back at
+the next Sync Garmin. The scheduled Daily Sync does not show this popup and
+does not rebuild. A day whose stored values are fuller than the kept
+originals is left as it is, and the popup may come back at each start.
+An older version of the app does not read the rebuilt files.
+
 Large archives: if you have years of Garmin history, start with
 `range` mode for the last 1–2 years before using `auto`. Downloading
 everything at once can trigger Garmin rate limiting.

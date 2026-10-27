@@ -41,6 +41,7 @@ All configuration is passed between the GUI and scripts via `os.environ`. The GU
 | `GARMIN_SCHEMA_MIGRATE` | str | `"0"` | `"1"` = rewrite outdated summary files in `main()` step 3c — set by `sync.run_collector()` after the popup was confirmed, or (v1.7.6.4) by `scheduler/daily_update.py` step 7b in its own process after a checked safety copy, only with the setting `daily_update_auto_migrate`; the daily update removes it after the sync, the collector reads it with `get` |
 | `GARMIN_RESTING_HR_REPAIR` | str | `"0"` | `"1"` = run the resting-HR repair in `main()` step 3e (v1.7.5.7, removable) — set by `sync.run_collector()` after the popup was confirmed; removed with `os.environ.pop()` as soon as `main()` reads it, so it never survives into a later run in the same process (T3) |
 | `GARMIN_TRACK_MIGRATION` | str | `"0"` | `"1"` = run the migration of the mixed archive in `main()` step 3b2 (v1.7.6.3, removable); `"preview"` = only the preview, ends the run before the login — set by `sync.run_collector()` after the popup; removed with `os.environ.pop()` as soon as `main()` reads it (T3) |
+| `GARMIN_BULK_REBUILD` | str | `"0"` | `"1"` = build the daily values in `bulk/aggregates` again from the kept originals in `bulk/source` in `main()` step 3b3 (v1.7.6.5, removable); `"preview"` = only the preview, ends the run before the login — set by `sync.run_collector()` after the popup "Rebuild" / "Preview only"; removed with `os.environ.pop()` as soon as `main()` reads it (T3). Not set by `scheduler/daily_update.py` |
 | `GARMIN_CAPABILITY_SCAN` | str | `"0"` | `"1"` = delegated entry point (`main()` step 0b) — probes the 19 optional health-endpoint candidates instead of running the regular sync. Own login, `sys.exit()` on completion (v1.6.8) |
 | `GARMIN_CAPABILITY_WINDOW_DAYS` | str | `"7"` | Scan window for `GARMIN_CAPABILITY_SCAN=1` — days to probe per candidate (v1.6.8) |
 | `GARMIN_MCP_LLM_BACKEND` | str | *(unset)* | `"ollama"`/`"cloud"` overrides `MCP_SERVER_CONFIG_FILE`'s `mcp_llm_backend` if set — ENV always wins, falls back to the config file, then to `"ollama"` (v1.7 Teilbauauftrag c, file fallback added Teilbauauftrag f). Not validated in `garmin_config.py`. |
@@ -296,6 +297,14 @@ it fits directly into one WCM credential entry.
     │                                  gets the file swap, just no automatic
     │                                  restart/handshake/rollback — the user
     │                                  restarts it manually.
+    │                                  -HideGuiWindow (switch, tests only):
+    │                                  starts the GUI EXE with -WindowStyle
+    │                                  Hidden so tests/test_updater.py's fake
+    │                                  .bat "GUI" opens no console window.
+    │                                  Never set by the app or by
+    │                                  daily_update.exe — a real windowed GUI
+    │                                  started hidden keeps its main window
+    │                                  hidden.
     │
     ├── app/                        ← Layer 1+3: settings persistence + application logic (v1.5.2+)
     │   │                              NOTE: this block is a stale duplicate of the fuller
@@ -355,7 +364,8 @@ it fits directly into one WCM credential entry.
     │   ├── garmin_bulk_normalizer.py      ← Leaf-Node. Day boundaries, 16-bit timestamps, samples per day. plan_days(), SampleCollector (v1.7.6)
     │   ├── garmin_bulk_writer.py          ← Sole Owner bulk/ (v1.7.6). write_day(), day_status(), write_aggregates(), load_aggregates(), store_original(), store_original_json(), import_day_file(), describe_container_path(), list_originals() (v1.7.6.2)
     │   ├── garmin_bulk_import.py          ← Intraday phase of the import, orchestrates the four above. run_intraday_import() (v1.7.6)
-    │   ├── garmin_bulk_json_import.py     ← Daily-values phase of the import → bulk/aggregates, orchestrates garmin_import/validator/quality/bulk_writer. run_aggregates_import() (v1.7.6.1)
+    │   ├── garmin_bulk_json_import.py     ← Daily-values phase of the import → bulk/aggregates, orchestrates garmin_import/validator/quality/bulk_writer. run_aggregates_import(), store_day() (v1.7.6.1)
+    │   ├── garmin_bulk_rebuild.py         ← Removable (v1.7.6.5). Builds the daily values again from the kept originals in bulk/source, without the export. run_aggregates_rebuild()
     │   ├── garmin_normalizer.py
     │   ├── garmin_quality.py       ← Facade — delegates to quality/
     │   ├── quality/                ← Quality sub-modules (v1.5.5.1+)

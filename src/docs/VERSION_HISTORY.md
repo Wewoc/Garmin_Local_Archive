@@ -2,6 +2,14 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.5 — Rebuild of the Daily Values from the Kept Originals
+
+- The app keeps the JSON files of your Garmin export in `garmin_data/bulk/source`. From these files it can now make the daily values in `bulk/aggregates` again, without the export (the ZIP) and without a login. A popup "Rebuild / Preview only / Not now" appears before Sync Garmin starts when days were made by an older version. "Preview only" reports what would change and writes nothing.
+- The import now also reads the training readiness score from the export (it was left out before). Days that were imported earlier get it with the rebuild. For now the score is stored in the bulk folder only; the daily files do not show it yet.
+- If a day has several readiness entries, the latest of the day is used, whatever order the files are read in.
+- No safety copy is made for the rebuild: the original files are not changed and the days can be rebuilt again at any time. The bulk backup follows at the end of the same sync start.
+- Please note: an older version of the app does not read the rebuilt daily-values files. The scheduled Daily Sync does not show the popup and does not rebuild.
+
 ## v1.7.6.4 — Migration in the Daily Update and Documentation Viewer
 
 - New setting "Migrate data in Daily Sync" (Settings tab, section "Daily Sync"), off by default. When a data update (schema update) is waiting, the daily update then makes a checked safety copy of your archive and migrates by itself, instead of stopping and asking you to open the app. With the setting off nothing changes: the daily update stops with a hint.

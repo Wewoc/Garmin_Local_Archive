@@ -3870,6 +3870,7 @@ class TestRestingHrRepairHooks:
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
         app._panel_archive._check_track_migration.return_value = None      # v1.7.6.3: not asked / declined
+        app._panel_archive._check_bulk_rebuild.return_value = None         # v1.7.6.5: not asked / declined
         _sync.run_collector(panel)
         app._panel_archive._check_resting_hr_repair.assert_called_once_with(base_dir=str(tmp_path))
         assert app._run.call_args.kwargs["env_overrides"] == expected
@@ -4011,6 +4012,7 @@ class TestTrackMigrationHooks:
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
         app._panel_archive._check_track_migration.return_value = track
+        app._panel_archive._check_bulk_rebuild.return_value = None         # v1.7.6.5: not asked / declined
         _sync.run_collector(panel)
         return panel, app
 
@@ -4031,6 +4033,190 @@ class TestTrackMigrationHooks:
         from unittest.mock import patch
         from app.outputs import sync as _sync
         panel, app = self._sync(tmp_path, track)
+        with patch.object(_sync, "run_live_fetch") as live:
+            app._run.call_args.kwargs["on_done"]()
+        assert live.called is live_fetch
+        app._panel_timer._timer_resume_after_sync.assert_called_once()
+        app._panel_archive._refresh_archive_info.assert_called_once()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  BULK-REBUILD v1.7.6.5 — removable
+#  Popup of the rebuild of the daily values (panel_archive) and its trigger in sync.py
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBulkRebuildHooks:
+    HASH = "ab" + "c" * 62                                          # a SHA-256 name; the folder is its first two characters
+
+    @classmethod
+    def _store(cls, base, old=2, current=0, original=True):
+        """A synthetic bulk store: `old` days with the schema number before the current one, `current` days
+        with the current number, and (if `original`) one JSON original in bulk/source."""
+        import json
+        import garmin_bulk_writer as bw
+        bulk = base / "garmin_data" / "bulk"
+        (bulk / "aggregates").mkdir(parents=True)
+        (bulk / "source").mkdir(parents=True)
+        for i in range(old + current):
+            version = bw.AGG_SCHEMA_VERSION - 1 if i < old else bw.AGG_SCHEMA_VERSION
+            (bulk / "aggregates" / f"garmin_bulk_agg_2025-07-{i + 1:02d}.json").write_text(
+                json.dumps({"date": f"2025-07-{i + 1:02d}", "schema_version": version}), encoding="utf-8")
+        if original:
+            (bulk / "source" / cls.HASH[:2]).mkdir()
+            (bulk / "source" / cls.HASH[:2] / f"{cls.HASH}.json").write_text("[]", encoding="utf-8")
+        return bulk
+
+    @staticmethod
+    def _check(base, answer="run"):
+        """Runs the check with the three-button question replaced. Returns (result, the mock)."""
+        from unittest.mock import MagicMock, patch
+        from app.panel_archive import PanelArchive
+        with patch("app.panel_archive._ask_bulk_rebuild", return_value=answer) as ask:
+            return PanelArchive._check_bulk_rebuild(MagicMock(), str(base)), ask
+
+    def test_no_bulk_folders_asks_nothing(self, tmp_path):
+        result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    def test_days_with_the_current_number_ask_nothing(self, tmp_path):
+        self._store(tmp_path, old=0, current=3)
+        result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    def test_without_an_original_to_rebuild_from_nothing_is_asked(self, tmp_path):
+        self._store(tmp_path, old=2, original=False)
+        result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    def test_a_file_in_the_originals_folder_that_is_no_original_does_not_count(self, tmp_path):
+        bulk = self._store(tmp_path, old=2, original=False)
+        (bulk / "source" / "ab").mkdir()
+        (bulk / "source" / "ab" / "notahash.json").write_text("[]", encoding="utf-8")
+        (bulk / "source" / "ab" / f"{'c' * 64}.json").write_text("[]", encoding="utf-8")          # in the wrong folder
+        (bulk / "source" / "ab" / f"{self.HASH}.json.tmp").write_text("[]", encoding="utf-8")
+        result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    @pytest.mark.parametrize("answer, expected", [("run", "1"), ("preview", "preview"), ("", None)])
+    def test_the_answer_becomes_the_value_of_the_trigger(self, tmp_path, answer, expected):
+        self._store(tmp_path)
+        result, ask = self._check(tmp_path, answer)
+        assert result == expected
+        ask.assert_called_once()
+
+    def test_the_question_names_the_count_and_what_is_and_is_not_done(self, tmp_path):
+        self._store(tmp_path, old=3, current=2)
+        _, ask = self._check(tmp_path)
+        text = ask.call_args.args[1]
+        assert text.startswith("3 day(s)")
+        assert "no export is needed" in text and "No safety copy is made" in text and "Preview only" in text
+
+    def test_damaged_files_and_invalid_numbers_are_not_counted(self, tmp_path):
+        import json
+        bulk = self._store(tmp_path, old=1)
+        agg = bulk / "aggregates"
+        (agg / "garmin_bulk_agg_2025-08-01.json").write_text("{ not json", encoding="utf-8")
+        (agg / "garmin_bulk_agg_2025-08-02.json").write_text(json.dumps({"schema_version": "1"}), encoding="utf-8")
+        (agg / "garmin_bulk_agg_2025-08-03.json").write_text(json.dumps({"schema_version": True}), encoding="utf-8")
+        (agg / "garmin_bulk_agg_2025-08-04.json").write_text(json.dumps([1, 2]), encoding="utf-8")
+        (agg / "garmin_bulk_agg_2025-08-05.json").write_text(json.dumps({"date": "x"}), encoding="utf-8")
+        _, ask = self._check(tmp_path)
+        assert ask.call_args.args[1].startswith("1 day(s)")
+
+    def test_the_folders_come_from_the_given_base_dir(self, tmp_path):
+        # the scan must not read the folders garmin_config was imported with
+        from unittest.mock import patch
+        import garmin_config as cfg
+        self._store(tmp_path)
+        with patch.object(cfg, "BULK_AGG_DIR", tmp_path / "elsewhere"), patch.object(cfg, "BULK_SOURCE_DIR", tmp_path / "elsewhere"):
+            result, ask = self._check(tmp_path)
+        assert result == "1"
+        ask.assert_called_once()
+
+    def test_an_error_in_the_scan_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from pathlib import Path
+        self._store(tmp_path)
+        with patch.object(Path, "iterdir", side_effect=OSError("boom")):
+            result, ask = self._check(tmp_path)
+        assert result is None
+        ask.assert_not_called()
+
+    # ── the three-button question ─────────────────────────────────────────────
+    @pytest.mark.parametrize("label, expected", [("Rebuild", "run"), ("Preview only", "preview"), ("Not now", "")])
+    def test_the_question_returns_what_was_clicked(self, qtbot, label, expected):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        from app.panel_archive import _ask_bulk_rebuild
+        seen = {}
+
+        def click(box):
+            seen["labels"] = [b.text() for b in box.buttons()]
+            seen["text"] = box.text()
+            next(b for b in box.buttons() if b.text() == label).click()
+            return 0
+
+        with patch.object(QMessageBox, "exec", click):          # a plain function: it is bound, gets the box
+            assert _ask_bulk_rebuild(None, "some text") == expected
+        assert sorted(seen["labels"]) == ["Not now", "Preview only", "Rebuild"] and seen["text"] == "some text"
+
+    def test_closing_the_question_means_not_now(self, qtbot):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        from app.panel_archive import _ask_bulk_rebuild
+        with patch.object(QMessageBox, "exec", return_value=0):          # closed without a click
+            assert _ask_bulk_rebuild(None, "t") == ""
+
+    # ── the trigger in sync.py ────────────────────────────────────────────────
+    @staticmethod
+    def _sync(tmp_path, rebuild, track=None, repair=False, migrate=False):
+        from unittest.mock import MagicMock
+        from app.outputs import sync as _sync
+        panel = MagicMock()
+        app = panel._app
+        app._timer_active = False
+        app._connection_verified = True
+        app.settings = {"backup_raw_backfill_asked": True}
+        app._panel_settings._collect_settings.return_value = {
+            "email": "a@b.c", "password": "x", "base_dir": str(tmp_path),
+            "sync_mode": "recent", "sync_days": "90", "sync_from": "", "sync_to": ""}
+        app._panel_archive._check_failed_days_popup.return_value = False
+        app._panel_archive._check_schema_migration.return_value = migrate
+        app._panel_archive._check_resting_hr_repair.return_value = repair
+        app._panel_archive._check_track_migration.return_value = track
+        app._panel_archive._check_bulk_rebuild.return_value = rebuild
+        _sync.run_collector(panel)
+        return panel, app
+
+    @pytest.mark.parametrize("rebuild, track, migrate, repair, expected", [
+        ("1",       None, False, False, {"GARMIN_BULK_REBUILD": "1"}),
+        ("preview", None, False, False, {"GARMIN_BULK_REBUILD": "preview"}),
+        (None,      None, False, False, {}),
+        ("1",       "1",  True,  True,  {"GARMIN_SCHEMA_MIGRATE": "1", "GARMIN_RESTING_HR_REPAIR": "1",
+                                         "GARMIN_TRACK_MIGRATION": "1", "GARMIN_BULK_REBUILD": "1"}),
+    ])
+    def test_sync_passes_the_trigger_only_after_an_answer(self, tmp_path, rebuild, track, migrate, repair, expected):
+        _, app = self._sync(tmp_path, rebuild, track=track, repair=repair, migrate=migrate)
+        app._panel_archive._check_bulk_rebuild.assert_called_once_with(base_dir=str(tmp_path))
+        assert app._run.call_args.kwargs["env_overrides"] == expected
+
+    def test_after_the_preview_of_the_track_migration_the_rebuild_is_not_asked(self, tmp_path):
+        # that run ends before the sync: a second question would lead nowhere
+        _, app = self._sync(tmp_path, "1", track="preview")
+        app._panel_archive._check_bulk_rebuild.assert_not_called()
+        assert app._run.call_args.kwargs["env_overrides"] == {"GARMIN_TRACK_MIGRATION": "preview"}
+
+    @pytest.mark.parametrize("rebuild, track, live_fetch", [
+        (None, None, True), ("1", None, True), ("preview", None, False), (None, "preview", False)])
+    def test_a_preview_does_not_start_the_live_fetch(self, tmp_path, rebuild, track, live_fetch):
+        # a preview run ends before the login: the live fetch after the sync would log in on its own
+        from unittest.mock import patch
+        from app.outputs import sync as _sync
+        panel, app = self._sync(tmp_path, rebuild, track=track)
         with patch.object(_sync, "run_live_fetch") as live:
             app._run.call_args.kwargs["on_done"]()
         assert live.called is live_fetch

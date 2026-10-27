@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-10-25 16:35 UTC · Version: 1.7.6.4
+Generated: 2026-10-27 21:09 UTC · Version: 1.7.6.5
 
 ## Test Counts
 
@@ -24,14 +24,15 @@ Generated: 2026-10-25 16:35 UTC · Version: 1.7.6.4
 | test_source_writer.py | 88 | 88 | 0 |
 | test_container_mirror.py | 150 | 150 | 0 |
 | test_import_mirror.py | 175 | 175 | 0 |
-| test_collector.py | 586 | 586 | 0 |
-| test_garmin_import.py | 86 | 86 | 0 |
+| test_collector.py | 603 | 603 | 0 |
+| test_garmin_import.py | 120 | 120 | 0 |
 | test_bulk_fit_reader.py | 56 | 56 | 0 |
 | test_bulk_export_scanner.py | 40 | 40 | 0 |
 | test_bulk_normalizer.py | 106 | 106 | 0 |
-| test_bulk_writer.py | 197 | 197 | 0 |
+| test_bulk_writer.py | 199 | 199 | 0 |
 | test_bulk_import.py | 76 | 76 | 0 |
-| test_bulk_json_import.py | 56 | 56 | 0 |
+| test_bulk_json_import.py | 63 | 63 | 0 |
+| test_bulk_rebuild.py | 42 | 42 | 0 |
 | test_api.py | 75 | 75 | 0 |
 | test_live_fetch.py | 44 | 44 | 0 |
 | test_silo_check.py | 101 | 101 | 0 |
@@ -43,12 +44,12 @@ Generated: 2026-10-25 16:35 UTC · Version: 1.7.6.4
 | test_force_refetch.py | 72 | 72 | 0 |
 | test_local_context.py | 349 | 349 | 0 |
 | test_dashboard.py | 477 | 477 | 0 |
-| test_broker.py | 218 | 218 | 0 |
+| test_broker.py | 219 | 219 | 0 |
 | test_mcp.py | 425 | 425 | 0 |
 | test_export.py | 45 | 45 | 0 |
 | test_app_logic.py | 190 | 190 | 0 |
 | test_updater.py | 93 | 93 | 0 |
-| test_qt_app.py | 301 | 301 | 0 |
+| test_qt_app.py | 325 | 325 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -56,15 +57,15 @@ Generated: 2026-10-25 16:35 UTC · Version: 1.7.6.4
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **6273** | **6273** | **0** |
+| **Total** | **6400** | **6400** | **0** |
 
 ## Modules
 
-Total: 171 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 172 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-10-25 16:32 UTC · Findings: 0 · Whitelisted: 100
+Scanned: 2026-10-27 20:58 UTC · Findings: 0 · Whitelisted: 100
 
-⚠ vulture.json target_version (v1.7.6.4) does not match the current APP_VERSION (1.7.6.4) — scope may have changed since the scan. Re-run tests/check_vulture.py.
+⚠ vulture.json target_version (v1.7.6.5) does not match the current APP_VERSION (1.7.6.5) — scope may have changed since the scan. Re-run tests/check_vulture.py.
 

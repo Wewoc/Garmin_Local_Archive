@@ -31,12 +31,16 @@ Public interface:
                                   aus denen es gebaut wurde; read_hook(name, bytes) wird für jede
                                   gelesene JSON-Datei gerufen (v1.7.6.1, Bulk-Speicher)
     parse_day(entries, date_str) → dict           — baut einen Tag aus gesammelten Einträgen
+    detect_kind(data)           → str | None      — Art einer Export-JSON-Datei am Inhalt (v1.7.6.5)
+    days_from_originals(originals, on_unrecognised=None, on_conflict=None)
+                                → Iterator[(dict, dict)] — wie load_bulk_with_entries, aber aus bereits
+                                  gelesenen Dateien ohne Pfad; Art am Inhalt (v1.7.6.5, Neuaufbau)
 """
 
 import json
 import logging
 import zipfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator
 
@@ -84,6 +88,31 @@ def load_bulk_with_entries(path, read_hook=None) -> Iterator[tuple]:
         Ausnahme beendet die Iteration wie jeder unerwartete Fehler (geloggt).
     """
     yield from _load(path, with_entries=True, read_hook=read_hook)
+
+
+def days_from_originals(originals, on_unrecognised=None, on_conflict=None) -> Iterator[tuple]:
+    """
+    Wie load_bulk_with_entries(), aber aus Dateien, die schon gelesen sind und keinen Pfad tragen
+    (die aufgehobenen Originale in bulk/source, v1.7.6.5): die Art jeder Datei kommt aus ihrem Inhalt
+    (detect_kind), nicht aus dem Namen. Liefert pro Tag das Paar (raw dict, Einträge), nach Datum sortiert.
+
+    originals       : iterable of (label, parsed JSON) — die Reihenfolge bestimmt der Aufrufer; sie
+                      entscheidet, welcher von zwei verschiedenen UDS- oder Schlaf-Einträgen eines Datums
+                      gewinnt (der später gegebene) und die Reihenfolge der Aktivitäten eines Tages.
+                      Bei Readiness entscheidet der timestamp, nicht die Reihenfolge.
+    on_unrecognised : callable(label) | None — für jede Datei, deren Art nicht erkannt wird (übersprungen)
+    on_conflict     : callable(kind, date_str) | None — wenn ein UDS- oder Schlaf-Eintrag einen anderen
+                      desselben Datums ersetzt
+    """
+    by_date: dict[str, dict] = {}
+    for label, data in originals:
+        kind = detect_kind(data)
+        if kind is None:
+            if on_unrecognised is not None:
+                on_unrecognised(label)
+            continue
+        _index_file(by_date, kind, label, data, on_conflict)
+    yield from _days_from_entries(by_date, with_entries=True)
 
 
 def _load(path, with_entries: bool, read_hook) -> Iterator:
@@ -179,7 +208,7 @@ def parse_day(entries: dict, date_str: str) -> dict:
             "level":         readiness.get("level"),
             "feedbackLong":  readiness.get("feedbackLong"),
             "feedbackShort": readiness.get("feedbackShort"),
-            "score":         None,  # nicht im Bulk-Export vorhanden
+            "score":         readiness.get("score"),
         }
 
     # ── activities (aus summarizedActivities) ──
@@ -200,6 +229,33 @@ def parse_day(entries: dict, date_str: str) -> dict:
         ]
 
     return raw
+
+
+def detect_kind(data) -> str | None:
+    """
+    Art einer geparsten Export-JSON-Datei am Inhalt (v1.7.6.5, P2.2) — für Originale ohne Pfad.
+
+    Returns "uds" | "sleep" | "readiness" | "activities" (die Schlüssel des entries-Dicts von
+    parse_day) oder None = nicht erkannt. Eine Art gilt, wenn ihre Schlüsselregel bei mindestens
+    einem Eintrag trifft; keine oder mehrere Arten ergeben None, es wird nie geraten.
+    Reine Funktion: liest nichts, schreibt nichts, loggt nichts — Melden und Überspringen von
+    None ist Sache des Aufrufers. Das Datum prüft sie nicht (das filtert die Tagesschleife).
+    """
+    if not isinstance(data, list):
+        return None
+    kinds = set()
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        if "summarizedActivitiesExport" in entry:
+            kinds.add("activities")
+        if "totalSteps" in entry and "uuid" in entry:
+            kinds.add("uds")
+        if "sleepStartTimestampGMT" in entry or "deepSleepSeconds" in entry:
+            kinds.add("sleep")
+        if "acwrFactorPercent" in entry or "recoveryTimeFactorPercent" in entry:
+            kinds.add("readiness")
+    return next(iter(kinds)) if len(kinds) == 1 else None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -231,93 +287,134 @@ def _load_from_dir(dir_path: Path, with_entries: bool = False, read_hook=None) -
 #  Internal — entry processing
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _entry_time(entry):
+    """
+    "timestamp" of an entry as datetime, or None (missing, not a string, not readable).
+    Only "YYYY-MM-DD" + "T" or " " + "HH:MM:SS" is read: fractions of a second and a zone suffix
+    are ignored (datetime.fromisoformat reads ".0" only from Python 3.11, the README says 3.10+).
+    """
+    ts = entry.get("timestamp")
+    if not isinstance(ts, str):
+        return None
+    try:
+        return datetime.strptime(ts[:19].replace(" ", "T"), "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _later_entry_wins(candidate: dict, current: dict) -> bool:
+    """
+    Choice between two entries of the same date, independent of the order they were read in
+    (v1.7.6.5, P2.2a): an entry with a readable "timestamp" beats one without, the later one
+    beats the earlier one; with the same time (or none on both sides) the smaller canonical
+    JSON text wins. True = candidate replaces current.
+    """
+    t_new, t_old = _entry_time(candidate), _entry_time(current)
+    if t_new != t_old:
+        if t_old is None:
+            return True
+        if t_new is None:
+            return False
+        return t_new > t_old
+    def _canon(e):
+        return json.dumps(e, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return _canon(candidate) < _canon(current)
+
+
+# The kinds of file in the export, in the order they are read: kind (the key in the entries of a day),
+# folder in the export, part of the file name.
+_KINDS = (
+    ("uds",        _UDS_PREFIX,       "UDSFile_"),
+    ("sleep",      _SLEEP_PREFIX,     "sleepData"),
+    ("readiness",  _READINESS_PREFIX, "TrainingReadinessDTO"),
+    ("activities", _ACTIVITIES_FILE,  "summarizedActivities"),
+)
+
+
+def _index_file(by_date: dict, kind: str, label: str, data, on_conflict=None) -> None:
+    """
+    Enters the entries of one parsed export file of this kind into by_date (date_str → entries of the
+    day). label names the file in warnings. Nothing is raised: what is not a list, not an object or has
+    no valid date is skipped.
+    on_conflict(kind, date_str) is called when a UDS or sleep entry replaces a different entry of the same
+    date (the entry read later wins, as always); the import by name passes none.
+    """
+    if not isinstance(data, list):
+        return
+    if kind == "activities":
+        # summarizedActivities is a list of {summarizedActivitiesExport: [...]}
+        for wrapper in data:
+            if not isinstance(wrapper, dict):
+                log.warning(f"  load_bulk: {label} — malformed activities wrapper (not an object), skipped: {wrapper!r}")
+                continue
+            acts = wrapper.get("summarizedActivitiesExport") or []
+            for act in acts:
+                if not isinstance(act, dict):
+                    log.warning(f"  load_bulk: {label} — malformed activity entry (not an object), skipped: {act!r}")
+                    continue
+                d = _timestamp_to_date(act.get("startTimeLocal"))
+                if not _valid_date(d):
+                    continue
+                by_date.setdefault(d, {}).setdefault("activities", []).append(act)
+        return
+    for entry in data:
+        # Fix 2 (v1.7.4.6) — an entry that is not an object (e.g. a stray
+        # string) is skipped with a warning naming the file, instead of
+        # raising AttributeError on .get() and losing every day in the
+        # whole export (load_bulk()'s outer try/except used to catch this
+        # one bad entry and discard the entire generator before any day
+        # was yielded).
+        if not isinstance(entry, dict):
+            log.warning(f"  load_bulk: {label} — malformed entry (not an object), skipped: {entry!r}")
+            continue
+        d = entry.get("calendarDate")
+        if not _valid_date(d):
+            continue
+        if kind == "readiness":
+            current = by_date.get(d, {}).get("readiness")
+            if current is None or _later_entry_wins(entry, current):
+                by_date.setdefault(d, {})["readiness"] = entry
+        else:
+            previous = by_date.get(d, {}).get(kind)
+            if on_conflict is not None and previous is not None and previous != entry:
+                on_conflict(kind, d)
+            by_date.setdefault(d, {})[kind] = entry
+
+
+def _collect_entries(names: list, reader) -> dict:
+    """
+    Scans file list, reads relevant files (kind by file name), indexes by date.
+    reader: callable(name) → parsed JSON object or None
+    Returns date_str → {"uds": ..., "sleep": ..., "readiness": ..., "activities": [...]}
+    """
+    # Index: date_str → {"uds": ..., "sleep": ..., "readiness": ..., "activities": [...]}
+    by_date: dict[str, dict] = {}
+    for kind, prefix, keyword in _KINDS:
+        files = [n for n in names if prefix in n and keyword in n and n.endswith(".json")]
+        for name in files:
+            _index_file(by_date, kind, name, reader(name))
+    return by_date
+
+
+def _days_from_entries(by_date: dict, with_entries: bool = False) -> Iterator:
+    """
+    Yields one day at a time — sorted chronologically — built from the entries of by_date.
+    with_entries: yield (raw dict, entries of the day) instead of the raw dict alone
+    """
+    for date_str in sorted(by_date.keys()):
+        day = parse_day(by_date[date_str], date_str)
+        yield (day, by_date[date_str]) if with_entries else day
+
+
 def _process_entries(names: list, reader, with_entries: bool = False) -> Iterator:
     """
     Scans file list, reads relevant files, indexes by date, yields per day.
     reader: callable(name) → parsed JSON object or None
     with_entries: yield (raw dict, entries of the day) instead of the raw dict alone
     """
-    # Index: date_str → {"uds": ..., "sleep": ..., "readiness": ..., "activities": [...]}
-    by_date: dict[str, dict] = {}
-
-    # ── UDS files ──
-    uds_files = [n for n in names if _UDS_PREFIX in n and "UDSFile_" in n and n.endswith(".json")]
-    for name in uds_files:
-        data = reader(name)
-        if not isinstance(data, list):
-            continue
-        for entry in data:
-            # Fix 2 (v1.7.4.6) — an entry that is not an object (e.g. a stray
-            # string) is skipped with a warning naming the file, instead of
-            # raising AttributeError on .get() and losing every day in the
-            # whole export (load_bulk()'s outer try/except used to catch this
-            # one bad entry and discard the entire generator before any day
-            # was yielded).
-            if not isinstance(entry, dict):
-                log.warning(f"  load_bulk: {name} — malformed entry (not an object), skipped: {entry!r}")
-                continue
-            d = entry.get("calendarDate")
-            if not _valid_date(d):
-                continue
-            by_date.setdefault(d, {})["uds"] = entry
-
-    # ── Sleep files ──
-    sleep_files = [n for n in names if _SLEEP_PREFIX in n and "sleepData" in n and n.endswith(".json")]
-    for name in sleep_files:
-        data = reader(name)
-        if not isinstance(data, list):
-            continue
-        for entry in data:
-            if not isinstance(entry, dict):
-                log.warning(f"  load_bulk: {name} — malformed entry (not an object), skipped: {entry!r}")
-                continue
-            d = entry.get("calendarDate")
-            if not _valid_date(d):
-                continue
-            by_date.setdefault(d, {})["sleep"] = entry
-
-    # ── Training Readiness files ──
-    readiness_files = [n for n in names if _READINESS_PREFIX in n and "TrainingReadinessDTO" in n and n.endswith(".json")]
-    for name in readiness_files:
-        data = reader(name)
-        if not isinstance(data, list):
-            continue
-        for entry in data:
-            if not isinstance(entry, dict):
-                log.warning(f"  load_bulk: {name} — malformed entry (not an object), skipped: {entry!r}")
-                continue
-            d = entry.get("calendarDate")
-            if not _valid_date(d):
-                continue
-            by_date.setdefault(d, {})["readiness"] = entry
-
-    # ── Activities file ──
-    act_files = [n for n in names if _ACTIVITIES_FILE in n and "summarizedActivities" in n and n.endswith(".json")]
-    for name in act_files:
-        data = reader(name)
-        if not isinstance(data, list):
-            continue
-        # summarizedActivities is a list of {summarizedActivitiesExport: [...]}
-        for wrapper in data:
-            if not isinstance(wrapper, dict):
-                log.warning(f"  load_bulk: {name} — malformed activities wrapper (not an object), skipped: {wrapper!r}")
-                continue
-            acts = wrapper.get("summarizedActivitiesExport") or []
-            for act in acts:
-                if not isinstance(act, dict):
-                    log.warning(f"  load_bulk: {name} — malformed activity entry (not an object), skipped: {act!r}")
-                    continue
-                d = _timestamp_to_date(act.get("startTimeLocal"))
-                if not _valid_date(d):
-                    continue
-                by_date.setdefault(d, {}).setdefault("activities", []).append(act)
-
+    by_date = _collect_entries(names, reader)
     log.info(f"  load_bulk: {len(by_date)} days found in export")
-
-    # Yield one day at a time — sorted chronologically
-    for date_str in sorted(by_date.keys()):
-        day = parse_day(by_date[date_str], date_str)
-        yield (day, by_date[date_str]) if with_entries else day
+    yield from _days_from_entries(by_date, with_entries)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
