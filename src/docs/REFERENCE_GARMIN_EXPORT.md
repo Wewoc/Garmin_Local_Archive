@@ -133,8 +133,8 @@ Each item: what is wrong with the obvious reading, and how it was seen. GLA-spec
 8. **Floors are metres.** `floorsAscendedInMeters` is a length (about 3 m per floor), not a count. *Seen.*
 9. **Several rows for one day** with different values occur in metric files; a day-level comparison must say which row it takes. For VO2max the API holds the highest value of the day (rounded). *Seen.*
 10. **Present key, no value.** Keys with `null`, empty lists or only a version marker are common (for example `bodyBattery` in the daily aggregate carries only `bodyBatteryVersion` on many days). Presence of a key proves nothing; count filled values. *Seen.*
-11. **Field availability varies.** The observed `TrainingReadinessDTO` has a `score` that is almost always filled, while a code comment in GLA's reader says the export has none. Read the file, not older notes. *Seen.*
-12. **Defensive reading.** A list may contain entries that are not objects, and ranges of neighbouring files may overlap so that one day appears twice. *Assumed* (GLA skips non-objects with a warning and lets the last entry win).
+11. **Field availability varies.** The observed `TrainingReadinessDTO` has a `score` that is almost always filled (943 of 947 entries in the observed export), while GLA's reader did not store it before v1.7.6.5 (a code comment there said the export has none). Read the file, not older notes. *Seen.*
+12. **Defensive reading.** A list may contain entries that are not objects, and ranges of neighbouring files may overlap so that one day appears twice. *Assumed* (GLA skips non-objects with a warning; for training readiness the entry with the latest `timestamp` wins, for the other kinds the last entry read). In the observed export the several readiness rows of a day lie inside one file, in ascending order of `timestamp` (250 of 593 days, up to 8 rows); the six dates found in two files hold identical rows. *Seen.*
 
 **FIT files**
 
@@ -156,6 +156,7 @@ This section describes the GLA software, not the export format. Valid for GLA 1.
 
 - The JSON phase of the bulk import reads `UDSFile`, `sleepData`, `TrainingReadinessDTO` and `summarizedActivities` and writes the day values to `bulk/aggregates`; the raw originals go to `bulk/source` (by hash).
 - The heart-rate phase reads the FIT files, keeps the originals in `bulk/source` and writes the heart-rate series per day to `bulk/raw`.
+- Since v1.7.6.5 the day values in `bulk/aggregates` can be built again from the JSON originals in `bulk/source` without the export (a step of the sync, preview first); the kind of each original is found from its content (see `detect_kind` in `REFERENCE_GARMIN.md`).
 - Files and fields not read today include `MetricsMaxMetData`, `TrainingHistory`, `AbnormalHrEvents`, `healthStatusData`, the Endurance, Hill, acclimation and prediction files, and warning fields inside the files that are read.
 
 ## 9. Open points

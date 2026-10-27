@@ -1026,7 +1026,7 @@ _put_agg7("2026-06-02", {"stress": {"restDuration": 0, "lowDuration": 3600.5, "m
 _put_agg7("2026-06-03", {"user_summary": {"totalSteps": 5}})
 _put_agg7("2026-06-04", {"stress": {"restDuration": "30000", "lowDuration": True, "mediumDuration": [1], "highDuration": {"a": 1}}})
 _put_agg7("2026-06-05", raw_text="{ not json")
-_put_agg7("2026-06-06", {"stress": _STRESS7}, schema=2)
+_put_agg7("2026-06-06", {"stress": _STRESS7}, schema=_bw6.AGG_SCHEMA_VERSION + 1)
 _put_agg7("2026-06-07", raw_text=json.dumps([1, 2]))
 _put_agg7("2026-06-08", {"stress": _STRESS7}, doc={"date": "2026-06-08", "schema_version": 1, "aggregates": "oops"})
 _put_agg7("2026-06-09", {"stress": _STRESS7}, schema=0)
@@ -1080,6 +1080,10 @@ with _patch6.object(garmin_health_map.log, "warning") as _warn7:
 
 check("stress durations: the schema version the reader accepts is the one the writer writes",
       garmin_health_map._BULK_AGG_MAX_SCHEMA == _bw6.AGG_SCHEMA_VERSION)
+_put_agg7("2026-06-14", {"stress": _STRESS7}, schema=2)
+check("stress durations: since v1.7.6.5 the reader takes version 1 and 2 (2 = the readiness score is read), the next one is not understood",
+      _bw6.AGG_SCHEMA_VERSION == 2 and _dur7("2026-06-01")["values"][0]["value"] == 30000
+      and _dur7("2026-06-14")["values"][0]["value"] == 30000 and _dur7("2026-06-06")["values"][0]["value"] is None)
 _r7 = garmin_health_map.get("stress_low_duration", "2026-06-01", "2026-06-04", resolution="daily")
 check("stress durations: a range gives every day in order, with None where there is nothing",
       [(e["date"], e["value"]) for e in _r7["values"]] == [("2026-06-01", 7000), ("2026-06-02", 3600.5), ("2026-06-03", None), ("2026-06-04", None)])
@@ -1148,7 +1152,7 @@ _raw8("2026-07-05", {"dailySleepDTO": _dto8(0, 0, 0, 0, 0)}); _put_agg7("2026-07
 _raw8("2026-07-06", {"dailySleepDTO": _dto8(27000, 5400, 13500, None, 1350)}); _put_agg7("2026-07-06", {"sleep": {"dailySleepDTO": _EXPORT8}})
 _raw8("2026-07-07", raw_text="{ not json");                _put_agg7("2026-07-07", {"sleep": {"dailySleepDTO": _EXPORT8}})
 _put_agg7("2026-07-08", raw_text="{ not json")
-_put_agg7("2026-07-09", {"sleep": {"dailySleepDTO": _EXPORT8}}, schema=2)
+_put_agg7("2026-07-09", {"sleep": {"dailySleepDTO": _EXPORT8}}, schema=_bw6.AGG_SCHEMA_VERSION + 1)
 _put_agg7("2026-07-10", {"user_summary": {"totalSteps": 5}})
 _put_agg7("2026-07-11", {"sleep": {"dailySleepDTO": _dto8(None, 1000, 1200, 500, 300)}})
 _put_agg7("2026-07-12", {"sleep": {"dailySleepDTO": _dto8(0, 1000, 1200, 500, 300)}})

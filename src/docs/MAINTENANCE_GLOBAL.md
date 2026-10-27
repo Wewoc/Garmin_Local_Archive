@@ -44,12 +44,13 @@ Note: `garmin_extended_anaysis.py` (an Easter Egg module, separately licensed un
 | `garmin_quality.py` | Quality assessment — sole owner of `quality_log.json`. Checksum-protected, auto-restore on mismatch |
 | `garmin_sync.py` | Determines which days are missing |
 | `garmin_writer.py` | Sole owner of `raw/` and `summary/` — all file writes go through here. Since v1.7.6.1 `summary/` of a day with export data is resolved from the API data and the day's aggregates (`rebuild_summary()`) |
-| `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, yields each day (`load_bulk()`; `load_bulk_with_entries()` also gives the source entries and the bytes of every JSON file, v1.7.6.1) |
+| `garmin_import.py` | Garmin GDPR export importer — reads ZIP or folder, yields each day (`load_bulk()`; `load_bulk_with_entries()` also gives the source entries and the bytes of every JSON file, v1.7.6.1). Since v1.7.6.5 it reads the readiness `score`, picks the latest readiness entry of a date by `timestamp`, and `detect_kind()` / `days_from_originals()` build days from files whose kind is known only by their content (the kept originals) |
 | `garmin_bulk_fit_reader.py` | Leaf-Node (v1.7.6). Reads one FIT file from bytes — checks the whole file first (signature, length, CRCs), rejects with a reason, never half-reads. Replaceable (the FIT pipeline of v1.8 can take its place) |
 | `garmin_bulk_export_scanner.py` | Leaf-Node (v1.7.6). Finds the FIT files in a Garmin export (ZIP in ZIP, folder, single file), yields `(sha256, bytes)` once per content, counts what it cannot read. Prints no entry name (they carry the account's e-mail address) |
 | `garmin_bulk_normalizer.py` | Leaf-Node (v1.7.6). Pure calculation: day boundaries from the archive's day windows (no guessing, unknown days get no samples), 16-bit timestamp completion, samples per day |
 | `garmin_bulk_writer.py` | Sole owner of `garmin_data/bulk/` (v1.7.6) — one JSON file per local day for the series (`bulk/raw`) and one for the daily values (`bulk/aggregates`, v1.7.6.1), the export's originals named by SHA-256. A day is never replaced by a smaller one; a file that cannot be read is left as it is |
-| `garmin_bulk_json_import.py` | Daily-values phase of the GDPR export import (v1.7.6.1) — orchestrates `garmin_import`, `garmin_validator`, `garmin_quality.assess_quality` and `garmin_bulk_writer`; a rejected day (invalid, too little data) is reported, not a failure; preview writes nothing. Not a Leaf-Node; touches no quality log, `raw/`, `summary/` or backup |
+| `garmin_bulk_json_import.py` | Daily-values phase of the GDPR export import (v1.7.6.1) — orchestrates `garmin_import`, `garmin_validator`, `garmin_quality.assess_quality` and `garmin_bulk_writer`; a rejected day (invalid, too little data) is reported, not a failure; preview writes nothing. Not a Leaf-Node; touches no quality log, `raw/`, `summary/` or backup. Its per-day step `store_day()` is shared with `garmin_bulk_rebuild` (v1.7.6.5) |
+| `garmin_bulk_rebuild.py` | Removable rebuild of the daily values (v1.7.6.5) — reads the JSON originals kept in `bulk/source`, builds the days again with `garmin_import.days_from_originals()` and writes them through `garmin_bulk_json_import.store_day()`; preview writes nothing; touches no quality log, `raw/`, `summary/` or backup. Not a Leaf-Node |
 | `garmin_bulk_import.py` | Intraday phase of the GDPR export import (v1.7.6) — orchestrates the four modules above, dry-run preview, summary without names. Not a Leaf-Node; touches no quality log, backup or API store |
 | `garmin_backup.py` | Sole owner of `garmin_data/backup/raw/` and `backup/log/` — incremental raw backup (a thin shell over `garmin_backup_common` since v1.7.6.2.1), quality log snapshots, restore |
 | `garmin_mirror.py` | Mirror operation — copies full archive to a second location (NAS, USB, OneDrive). Writes `mirror_meta.json` on success |
@@ -318,14 +319,15 @@ Both build scripts run `validate_scripts()` before PyInstaller starts:
 | `garmin_app.py` | `class GarminApp` |
 | `garmin_app_standalone.py` | `class GarminApp` |
 | `garmin_api.py` | `def login`, `def fetch_raw` |
-| `garmin_collector.py` | `def main`, `def _fetch_and_assess`, `def run_import`, `def _run_bulk_import`, `def _mark_bulk_days`, `def _apply_bulk_marks`, `def _run_bulk_mark_catch_up`, `def _run_bulk_backup`, `def _finish_aggregates`, `def _apply_aggregates`, `def _run_track_migration` (plus the older entries listed in `build_manifest.SCRIPT_SIGNATURES_BASE`) |
-| `garmin_import.py` | `def load_bulk`, `def parse_day`, `def load_bulk_with_entries` |
+| `garmin_collector.py` | `def main`, `def _fetch_and_assess`, `def run_import`, `def _run_bulk_import`, `def _mark_bulk_days`, `def _apply_bulk_marks`, `def _run_bulk_mark_catch_up`, `def _run_bulk_backup`, `def _finish_aggregates`, `def _apply_aggregates`, `def _run_track_migration`, `def _run_bulk_rebuild` (plus the older entries listed in `build_manifest.SCRIPT_SIGNATURES_BASE`) |
+| `garmin_import.py` | `def load_bulk`, `def parse_day`, `def load_bulk_with_entries`, `def detect_kind`, `def days_from_originals` |
 | `garmin_bulk_fit_reader.py` | `def parse_fit`, `class FitFile`, `class FitFormatError` |
 | `garmin_bulk_export_scanner.py` | `def iter_fit_files`, `class ScanStats` |
 | `garmin_bulk_normalizer.py` | `def plan_days`, `class BoundaryPlan`, `class DayPlan`, `def complete_timestamp`, `def file_samples`, `class SampleCollector`, `def has_window` |
 | `garmin_bulk_writer.py` | `def write_day`, `def day_status`, `def list_days`, `def store_original`, `def original_present`, `def write_aggregates`, `def aggregates_status`, `def read_aggregates`, `def load_aggregates`, `def list_aggregate_days`, `def store_original_json`, `def original_json_present`, `def import_day_file`, `def describe_container_path`, `def list_originals` |
 | `garmin_bulk_import.py` | `def run_intraday_import`, `def format_summary` |
-| `garmin_bulk_json_import.py` | `def run_aggregates_import`, `def format_summary`, `def entry_hashes`, `def day_window` |
+| `garmin_bulk_json_import.py` | `def run_aggregates_import`, `def format_summary`, `def entry_hashes`, `def day_window`, `def store_day`, `def empty_summary` |
+| `garmin_bulk_rebuild.py` | `def run_aggregates_rebuild`, `def format_summary` |
 | `garmin_backup_common.py` | `class BackupKind`, `def backup_file`, `def consolidate_months`, `def backfill`, `def find_outdated`, `def refresh`, `def read_copy` |
 | `garmin_backup_bulk.py` | `def backup_all`, `def backup_originals`, `def read_day_copy`, `def read_original_copy` |
 | `garmin_track_migration.py` | `def import_sections`, `def classify_day`, `def scan_archive`, `def pending`, `def plan_migration`, `def format_plan`, `def run_migration`, `def format_result` |
@@ -496,12 +498,13 @@ Shared setup and helpers live in `tests/gla_testenv.py`; `test_local.py` stays a
 | `test_container_mirror.py` | `garmin_container`, `garmin_mirror` |
 | `test_import_mirror.py` | `garmin_import_mirror` (since v1.7.6.2 also the bulk part and the round trip back up / mirror / lose / restore) |
 | `test_collector.py` | `garmin_collector` (`main()`, helpers, backfills, self-healing) |
-| `test_garmin_import.py` | `garmin_import`, `garmin_collector.run_import` |
+| `test_garmin_import.py` | `garmin_import`, `garmin_collector.run_import`; since v1.7.6.5 also `detect_kind`, `days_from_originals`, the choice of the readiness entry, the `score` |
 | `test_silo_check.py`, `test_silo_repair.py` | `garmin_silo_check`, `garmin_silo_repair` |
 | `test_repair_resting_hr.py` | `garmin_repair_resting_hr` (removable, v1.7.5.7) — detection, repair, dry run, errors, shared quality log, scheduler hint |
 | `test_daily_update.py` | `scheduler/daily_update.py` — the schema check and step 4, the unattended migration with its safety copy (steps 7b and 8b, v1.7.6.4), end to end with a real archive, copy, migration and restore |
 | `test_track_migration.py`, `test_migration_snapshot.py` | `garmin_track_migration` and `garmin_migration_snapshot` (removable, v1.7.6.3) — Ist-Stand pins, detection, coverage, preview, migration, safety copy, restore, popup/trigger/scheduler hooks, lists in any order |
 | `test_bulk_fit_reader.py`, `test_bulk_export_scanner.py`, `test_bulk_normalizer.py`, `test_bulk_writer.py`, `test_bulk_import.py`, `test_bulk_json_import.py` | the six bulk modules (v1.7.6; `garmin_bulk_json_import` v1.7.6.1); `fit_builder.py` builds the synthetic FIT files and ZIPs; `test_bulk_writer.py` also covers the aggregates files and the unreadable-day state (F-1) |
+| `test_bulk_rebuild.py` | `garmin_bulk_rebuild` (removable, v1.7.6.5) — rebuild against what the import wrote, preview, rerun, damaged and unknown originals, conflicts, stop, errors |
 | `test_force_refetch.py` | `garmin_force_refetch` |
 | `test_local.py` | cross-module: determinism, invariants, robustness, one end-to-end run |
 
@@ -1110,7 +1113,9 @@ path, rollback path (including a deliberately hung fake GUI process, to
 exercise the process-kill-before-rollback step), retry path (fails once,
 succeeds on the 2nd of up to `-MaxLaunchAttempts` launches), retry-
 exhausted path (all attempts fail, still rolls back), and lock-file
-collision. Check and section totals are tracked in `docs/METRICS.md`
+collision. The tests pass `-HideGuiWindow` to the helper so the fake GUI
+(a `.bat`) opens no console window per launch; the switch is test-only,
+the app never sets it. Check and section totals are tracked in `docs/METRICS.md`
 (`test_updater.py`) — not restated here to avoid drift.
 
 ### `tests/test_qt_app.py` — PyQt6 App layer (v1.5.4+)

@@ -284,7 +284,7 @@ garmin_collector._finish_aggregates() — under QUALITY_LOCK, one save:
                          quality-log entry for an export-only day (source "bulk", write false), marks
 ```
 
-`garmin_bulk_json_import.run_aggregates_import()` orchestrates the first four steps; `garmin_collector._run_bulk_import()` starts it as the "json" phase, before the intraday phase. Nothing from this path is written to `raw/` or `source/`: `raw/` holds only what the API delivered. A day that is rejected is reported and is no failure of the run. Before v1.7.6.1 this phase wrote the days into `raw/` through `run_import()`; that function stays in the collector but the import dialog no longer starts it.
+`garmin_bulk_json_import.run_aggregates_import()` orchestrates the first four steps; `garmin_collector._run_bulk_import()` starts it as the "json" phase, before the intraday phase. Nothing from this path is written to `raw/` or `source/`: `raw/` holds only what the API delivered. A day that is rejected is reported and is no failure of the run. Before v1.7.6.1 this phase wrote the days into `raw/` through `run_import()`; that function stays in the collector but the import dialog no longer starts it. Since v1.7.6.5 the same daily values can be built again from the JSON originals kept in `bulk/source`, without the export: `garmin_bulk_rebuild.run_aggregates_rebuild()` reads them, `garmin_import.days_from_originals()` builds the days (the kind of each file from its content), and the same per-day step (`garmin_bulk_json_import.store_day()`) validates and writes them; the popup at the start of Sync Garmin offers it while a day has an older `schema_version`.
 
 ### Bulk import path — heart-rate series (FIT files of the GDPR export, v1.7.6)
 
@@ -901,6 +901,7 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_silo_repair.py` | Headless-callable repair core for the four silo-drift categories — delegates to owner modules, never writes directly | No |
 | `garmin_repair_resting_hr.py` | Removable one-time repair of the resting heart rate of imported days (v1.7.5.7) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_track_migration.py` | Removable migration of the mixed archive (v1.7.6.3) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
+| `garmin_bulk_rebuild.py` | Removable rebuild of the daily values from the kept originals (v1.7.6.5) — writes only through `garmin_bulk_json_import.store_day()` → `garmin_bulk_writer`, never directly | No |
 | `garmin_migration_snapshot.py` | Removable (v1.7.6.3) — sole owner of `backup/migration/`, the safety copy made before the migration writes | No |
 | `garmin_backup.py` | Sole owner of `backup/raw/` + `backup/log/` | No |
 | `garmin_backup_source.py` | Sole owner of `backup/source/` | No |

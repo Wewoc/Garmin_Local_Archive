@@ -14,6 +14,9 @@ day into the bulk store, bulk/aggregates — not into raw/. Orchestrates; the wo
   garmin_quality       assess_quality only (a day with nothing usable is not stored)
   garmin_bulk_writer   the only module that writes bulk/aggregates and bulk/source
 
+store_day() is the step per day (checks, aggregates, proof of origin, write or preview); the import of an
+export and the rebuild from the kept originals (v1.7.6.5) both call it, so a day is built one way only.
+
 Entry point: run_aggregates_import(path, dry_run=False, should_stop=None). It is started by
 garmin_collector.main() as the "json" phase, before the intraday phase. This module touches
 neither the quality log, nor raw/, summary/ or the backup: it reports the days it wrote
@@ -46,7 +49,7 @@ Preview (dry_run=True): the same work, nothing is created or written — not eve
 Stop: should_stop is asked before every day. The originals read so far are stored, the days
 written stay, a rerun carries on.
 
-Result: a dict of numbers (and dates) — see _empty_summary() — also written to the log by
+Result: a dict of numbers (and dates) — see empty_summary() — also written to the log by
 format_summary(). No name from the export appears anywhere; only counts.
 A rejected day (invalid, or with too little data) is reported in "rejected" and is no failure:
 "ok" stays true and the run ends with exit code 0, because a rerun with the same export would
@@ -77,7 +80,7 @@ WINDOW_KEY = "day_window"
 _STATUS_TO_KEY = {"new": "new", "update": "changed", "unchanged": "unchanged", "unreadable": "failed"}
 
 
-def _empty_summary(dry_run):
+def empty_summary(dry_run):
     return {
         "ok": False, "error": None, "dry_run": dry_run, "stopped": False,
         "files": 0, "days_found": 0,
@@ -129,9 +132,9 @@ def run_aggregates_import(path, dry_run=False, should_stop=None) -> dict:
 
     Returns
     -------
-    dict — numbers, see _empty_summary(); "ok" is False on an error or when a write failed
+    dict — numbers, see empty_summary(); "ok" is False on an error or when a write failed
     """
-    summary = _empty_summary(dry_run)
+    summary = empty_summary(dry_run)
     try:
         _work(path, dry_run, should_stop, summary)
     except FileNotFoundError:
@@ -170,40 +173,50 @@ def _work(path, dry_run, should_stop, summary):
             originals[{bw.WRITTEN: "new", bw.PRESENT: "present"}.get(result, "failed")] += 1
 
     imported_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    days, rejected = summary["days"], summary["rejected"]
     for day, entries in importer.load_bulk_with_entries(path, _on_file):
         summary["days_found"] += 1
         if should_stop is not None and should_stop():
             summary["stopped"] = True
         if summary["stopped"]:
             break
-        date_str = day.get("date")
+        store_day(day, entries, imported_at, dry_run, summary)
 
-        if validator.validate(day)["status"] == "critical":
-            rejected["invalid"] += 1
-            continue
-        if quality.assess_quality(normalizer.normalize(copy.deepcopy(day), source="bulk")) == "failed":
-            rejected["insufficient"] += 1
-            summary["insufficient_days"].append(date_str)
-            continue
 
-        aggregates = dict(day)
-        window = day_window(entries)
-        if window is not None:
-            aggregates[WINDOW_KEY] = window
-            summary["days_with_window"] += 1
-        source_files = entry_hashes(entries)
+def store_day(day, entries, imported_at, dry_run, summary):
+    """
+    The step per day, shared by the import of an export and the rebuild from the kept originals:
+    checks the day (validator, quality), builds its aggregates (the day plus "day_window") and the
+    proof of origin (entry_hashes), then writes it with write_aggregates, or only compares in a
+    preview. Counts into `summary` (see empty_summary()); never raises on a rejected day.
+    """
+    days, rejected = summary["days"], summary["rejected"]
+    date_str = day.get("date")
 
-        status = bw.aggregates_status(date_str, source_files)
-        if dry_run:
-            days[_STATUS_TO_KEY.get(status, "kept")] += 1
-            continue
-        result = bw.write_aggregates(date_str, aggregates, source_files, imported_at=imported_at)
-        if result == bw.WRITTEN:
-            days["new" if status == "new" else "changed"] += 1
-            summary["written_days"].append(date_str)
-        else:
-            days[{bw.UNCHANGED: "unchanged", bw.KEPT: "kept"}.get(result, "failed")] += 1
+    if validator.validate(day)["status"] == "critical":
+        rejected["invalid"] += 1
+        return
+    if quality.assess_quality(normalizer.normalize(copy.deepcopy(day), source="bulk")) == "failed":
+        rejected["insufficient"] += 1
+        summary["insufficient_days"].append(date_str)
+        return
+
+    aggregates = dict(day)
+    window = day_window(entries)
+    if window is not None:
+        aggregates[WINDOW_KEY] = window
+        summary["days_with_window"] += 1
+    source_files = entry_hashes(entries)
+
+    status = bw.aggregates_status(date_str, source_files)
+    if dry_run:
+        days[_STATUS_TO_KEY.get(status, "kept")] += 1
+        return
+    result = bw.write_aggregates(date_str, aggregates, source_files, imported_at=imported_at)
+    if result == bw.WRITTEN:
+        days["new" if status == "new" else "changed"] += 1
+        summary["written_days"].append(date_str)
+    else:
+        days[{bw.UNCHANGED: "unchanged", bw.KEPT: "kept"}.get(result, "failed")] += 1
 
 
 def format_summary(summary, dry_run=False):

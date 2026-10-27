@@ -136,7 +136,7 @@ _bulk_scripts = [n for n in _scripts if Path(n).name.startswith("garmin_bulk_")]
 _other_std = set().union(*(_imports(_ROOT / n) for n in _scripts if n not in _bulk_scripts))
 _bulk_only = set().union(*(_imports(_ROOT / n) for n in _bulk_scripts)) - _other_std
 _BULK_STDLIB = {"array", "bisect", "dataclasses", "tempfile"}      # tempfile is also used by garmin_app_base.py; listed anyway
-check("bulk import: the six bulk scripts are found (fit reader, export scanner, normalizer, writer, import, daily-values import)", len(_bulk_scripts) == 6)
+check("bulk import: the seven bulk scripts are found (fit reader, export scanner, normalizer, writer, import, daily-values import, rebuild)", len(_bulk_scripts) == 7)
 check("bulk import: the modules only the bulk scripts import are array and bisect — "
       "a new standard-library import in a bulk script must be looked at and listed in HIDDEN_IMPORTS_T3_EXTRA "
       "(dataclasses is used by the bulk scripts too, but garmin_backup_common imports it since v1.7.6.2, so it is no longer 'only bulk'; "
@@ -159,6 +159,8 @@ check("signature: the old garmin_collector entries are all still there",
       {"def main", "def run_import", "def _run_resting_hr_repair", "def run_capability_scan"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"]))
 check("signature: garmin_collector lists the track migration step (v1.7.6.3)",
       "def _run_track_migration" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"])
+check("signature: garmin_collector lists the bulk rebuild step (v1.7.6.5)",
+      "def _run_bulk_rebuild" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"])
 check("signature: garmin_track_migration lists the entry points of scan, preview and run (v1.7.6.3)",
       {"def scan_archive", "def pending", "def plan_migration", "def run_migration", "def format_result"}
       <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_track_migration.py"]))
@@ -181,6 +183,12 @@ check("signature: garmin_writer lists rebuild_summary, garmin_bulk_writer load_a
       and "def load_aggregates" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_writer.py"])
 check("signature: garmin_import lists load_bulk_with_entries and keeps load_bulk and parse_day (v1.7.6.1)",
       {"def load_bulk", "def parse_day", "def load_bulk_with_entries"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_import.py"]))
+check("signature: garmin_import lists detect_kind and days_from_originals, garmin_bulk_json_import store_day (v1.7.6.5)",
+      {"def detect_kind", "def days_from_originals"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_import.py"])
+      and {"def store_day", "def empty_summary", "def run_aggregates_import"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_json_import.py"]))
+check("signature: garmin_bulk_rebuild is listed with its entry point and is a shared script (v1.7.6.5)",
+      {"def run_aggregates_rebuild", "def format_summary"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_rebuild.py"])
+      and "garmin/garmin_bulk_rebuild.py" in manifest.SHARED_SCRIPTS)
 check("signature: garmin_quality keeps its old entries",
       {"from quality._maint import", "QUALITY_LOCK"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_quality.py"]))
 

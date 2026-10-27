@@ -36,7 +36,8 @@ Day format (schema_version 1, compact JSON):
   Raise BULK_SCHEMA_VERSION when the format or the normalising rules change: the
   days are then written again from the originals.
 
-Aggregates file (schema_version 1, compact JSON, AGG_SCHEMA_VERSION): date, schema_version,
+Aggregates file (schema_version 2, compact JSON, AGG_SCHEMA_VERSION; 1 = before v1.7.6.5, the
+  training readiness "score" was not read): date, schema_version,
   generated_by, origin, imported_at, source_files (SHA-256 of every source entry of the export
   that went into the day — UDS, sleep, readiness, each activity; not of the JSON files kept in
   bulk/source, which hold many days; sorted), aggregates (the day's values as
@@ -109,7 +110,7 @@ from datetime import datetime
 log = logging.getLogger(__name__)
 
 BULK_SCHEMA_VERSION = 1
-AGG_SCHEMA_VERSION = 1          # the aggregates day file (bulk/aggregates), counted on its own
+AGG_SCHEMA_VERSION = 2          # the aggregates day file (bulk/aggregates), counted on its own
 
 # On Windows a virus scanner or an indexer can hold a file that was just written for a moment;
 # os.replace then fails with a sharing violation (PermissionError). It happened once in 34,384

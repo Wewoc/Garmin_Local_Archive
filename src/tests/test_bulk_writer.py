@@ -452,6 +452,18 @@ with _isolated_log_env("bulk_writer_agg") as base:
     check("aggregates: the same files under an older schema are an update",
           bw.aggregates_status("2024-02-03", [J1, J2]) == "update" and bw.write_aggregates("2024-02-03", _agg2, [J1, J2]) == bw.WRITTEN
           and bw.read_aggregates("2024-02-03")["schema_version"] == bw.AGG_SCHEMA_VERSION)
+    # v1.7.6.5 (P2.3): 1 -> 2 (the readiness score is read); a day of the old number is still read and is written again
+    _v1 = json.loads(agg_file.read_text(encoding="utf-8"))
+    check("aggregates: the schema version is 2 since v1.7.6.5 (1 = before the readiness score was read)",
+          bw.AGG_SCHEMA_VERSION == 2 and _v1["schema_version"] == 2)
+    _v1["schema_version"] = 1
+    agg_file.write_text(json.dumps(_v1), encoding="utf-8")
+    check("aggregates: a day of version 1 is still read; with the same files it is an update, the write makes it 2, then 'unchanged'",
+          bw.read_aggregates("2024-02-03")["schema_version"] == 1
+          and bw.aggregates_status("2024-02-03", [J1, J2]) == "update"
+          and bw.write_aggregates("2024-02-03", _agg2, [J1, J2]) == bw.WRITTEN
+          and bw.read_aggregates("2024-02-03")["schema_version"] == 2
+          and bw.aggregates_status("2024-02-03", [J1, J2]) == "unchanged")
     _new = json.loads(agg_file.read_text(encoding="utf-8"))
     _new["schema_version"] = bw.AGG_SCHEMA_VERSION + 1
     agg_file.write_text(json.dumps(_new), encoding="utf-8")

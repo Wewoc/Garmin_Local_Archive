@@ -81,6 +81,24 @@ def _ask_track_migration(parent, text: str) -> str:
     return ""
 
 
+def _ask_bulk_rebuild(parent, text: str) -> str:
+    """BULK-REBUILD v1.7.6.5 — removable. The question before the rebuild of the daily values: "Rebuild",
+    "Preview only" or "Not now". Returns "run", "preview" or "" (not now, or the window was closed)."""
+    box = QMessageBox(parent)
+    box.setWindowTitle("Daily Values — Rebuild from the Kept Originals")
+    box.setText(text)
+    run_btn = box.addButton("Rebuild", QMessageBox.ButtonRole.AcceptRole)
+    preview_btn = box.addButton("Preview only", QMessageBox.ButtonRole.ActionRole)
+    box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is run_btn:
+        return "run"
+    if clicked is preview_btn:
+        return "preview"
+    return ""
+
+
 class PanelArchive(QWidget):
 
     def __init__(self, app):
@@ -470,6 +488,56 @@ class PanelArchive(QWidget):
             f"Days that the bulk store does not fully cover stay unchanged and are reported.\n{extra}\n"
             f"A safety copy of raw/, summary/ and the quality log is made first (backup/migration) "
             f"and can be restored. Please make a backup of your data directory as well.\n\n"
+            f"\"Preview only\" reports what would change, writes nothing, and the sync does not run this time.",
+        )
+        return {"run": "1", "preview": "preview"}.get(answer)
+
+    # ── Bulk rebuild check — BULK-REBUILD v1.7.6.5 — removable ─────────────────
+
+    def _check_bulk_rebuild(self, base_dir: str):
+        """Returns the value of GARMIN_BULK_REBUILD: "1" (rebuild), "preview", or None (nothing to offer,
+        or not now). Main Thread only."""
+        # INTENTIONAL DIRECT READ — read-only pre-flight check in GUI context, same category as
+        # _check_track_migration() above. Reads the schema_version of the files in bulk/aggregates and looks
+        # at the file names in bulk/source; nothing is written, no quality_log access. The folders come from
+        # the settings (base_dir), so the check does not depend on what garmin_config was imported with.
+        # The scan cannot know the coverage: a day the rebuild does not bring to the current number (the
+        # stored day is fuller than the originals) is offered again at every start (the full check runs in
+        # the collector).
+        bulk_dir = Path(base_dir) / "garmin_data" / "bulk"
+        agg_dir, src_dir = bulk_dir / "aggregates", bulk_dir / "source"
+        if not agg_dir.is_dir() or not src_dir.is_dir():
+            return None
+        try:
+            import re
+            import garmin_bulk_writer as _bw
+            current = _bw.AGG_SCHEMA_VERSION
+            name_re = re.compile(r"[0-9a-f]{64}\.json")
+            has_original = any(name_re.fullmatch(f.name) and f.name[:2] == sub.name
+                               for sub in src_dir.iterdir() if sub.is_dir() for f in sub.iterdir())
+            if not has_original:
+                return None
+            outdated = 0
+            for f in agg_dir.glob("garmin_bulk_agg_*.json"):
+                try:
+                    version = json.loads(f.read_text(encoding="utf-8")).get("schema_version")
+                except Exception:
+                    continue
+                if isinstance(version, int) and not isinstance(version, bool) and version < current:
+                    outdated += 1
+        except Exception:
+            return None
+        if outdated == 0:
+            return None
+        answer = _ask_bulk_rebuild(
+            self._app,
+            f"{outdated} day(s) of the bulk store were made by an older program version (before v1.7.6.5 the "
+            f"training readiness score was not read).\n\n"
+            f"They are made again from the original export files kept in bulk/source — no export is needed. "
+            f"Only the daily values in bulk/aggregates, their summaries and log entries are renewed; raw/ and "
+            f"the originals are not changed, and the data of the Garmin API stay in front.\n\n"
+            f"No safety copy is made: the bulk store is backed up after the run, and the days can be rebuilt "
+            f"again at any time.\n\n"
             f"\"Preview only\" reports what would change, writes nothing, and the sync does not run this time.",
         )
         return {"run": "1", "preview": "preview"}.get(answer)

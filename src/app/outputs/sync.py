@@ -122,12 +122,17 @@ def run_collector(panel, *, on_done=None):
     track_mode = app._panel_archive._check_track_migration(base_dir=s["base_dir"])
     if track_mode:
         env_extra["GARMIN_TRACK_MIGRATION"] = track_mode
+    # BULK-REBUILD v1.7.6.5 — removable. Not asked after "Preview only" of the track migration: that run
+    # ends before the sync.
+    rebuild_mode = None if track_mode == "preview" else app._panel_archive._check_bulk_rebuild(base_dir=s["base_dir"])
+    if rebuild_mode:
+        env_extra["GARMIN_BULK_REBUILD"] = rebuild_mode
 
     def _internal_done():
         app._panel_timer._timer_resume_after_sync(timer_was_active)
         app._panel_archive._refresh_archive_info()
-        # a preview run ends before the login (TRACK-MIGRATION v1.7.6.3): no live fetch after it
-        if track_mode != "preview":
+        # a preview run ends before the login (TRACK-MIGRATION v1.7.6.3, BULK-REBUILD v1.7.6.5): no live fetch after it
+        if track_mode != "preview" and rebuild_mode != "preview":
             run_live_fetch(panel)
         if on_done:
             on_done()

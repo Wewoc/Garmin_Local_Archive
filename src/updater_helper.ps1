@@ -48,6 +48,13 @@ Parameters:
                   waiting out a real 60s.
   -MaxLaunchAttempts  How many times to (re-)launch the new GUI before
                   rolling back (default 3, see v1.7.2.4.1 below).
+  -HideGuiWindow  Switch - start the GUI EXE (see -GuiExeName) with
+                  -WindowStyle Hidden. For tests only: tests/test_updater.py
+                  uses a fake .bat as the "GUI", which would otherwise open
+                  a console window per launch. NEVER set by the app or by
+                  daily_update.exe - a real windowed GUI started hidden
+                  keeps its main window hidden (verified 2026-10-26: Qt
+                  reports the window visible, Windows does not).
 
 Own lock file (_update_helper.lock in ExeDir) guards against two helper
 runs overlapping - GUI-triggered and daily_update.exe-triggered updates
@@ -110,11 +117,17 @@ param(
     [string]$GuiExeName = "Garmin_Local_Archive_Standalone.exe",
     [string]$RestartMcpCmd = "",
     [int]$SuccessTimeoutSeconds = 60,
-    [int]$MaxLaunchAttempts = 3
+    [int]$MaxLaunchAttempts = 3,
+    [switch]$HideGuiWindow
 )
 
 $ErrorActionPreference = "Stop"
 $lockPath = Join-Path $ExeDir "_update_helper.lock"
+
+# Extra Start-Process arguments for the GUI launches below (section 4):
+# empty unless -HideGuiWindow was passed (tests only, see header).
+$guiStartArgs = @{}
+if ($HideGuiWindow) { $guiStartArgs["WindowStyle"] = "Hidden" }
 
 # -- 0. Is another helper already running? ---------------------------------
 if (Test-Path $lockPath) {
@@ -169,7 +182,7 @@ try {
         for ($attempt = 1; $attempt -le $MaxLaunchAttempts; $attempt++) {
             Remove-Item $successFlag -Force -ErrorAction SilentlyContinue
 
-            $newGuiProcess = Start-Process (Join-Path $ExeDir $GuiExeName) -PassThru
+            $newGuiProcess = Start-Process (Join-Path $ExeDir $GuiExeName) -PassThru @guiStartArgs
 
             $deadline = (Get-Date).AddSeconds($SuccessTimeoutSeconds)
             while ((-not (Test-Path $successFlag)) -and ((Get-Date) -lt $deadline) `
@@ -214,7 +227,7 @@ try {
             Get-ChildItem $backupDir -Force |
                 ForEach-Object { Move-Item $_.FullName (Join-Path $ExeDir $_.Name) -Force }
 
-            Start-Process (Join-Path $ExeDir $GuiExeName)
+            Start-Process (Join-Path $ExeDir $GuiExeName) @guiStartArgs
 
             throw "New version did not signal a successful startup after $MaxLaunchAttempts attempt(s) ($SuccessTimeoutSeconds seconds each) - rolled back to the previous version."
         }

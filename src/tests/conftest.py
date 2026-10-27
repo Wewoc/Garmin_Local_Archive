@@ -51,6 +51,7 @@ collect_ignore = [
     "test_bulk_writer.py",
     "test_bulk_import.py",
     "test_bulk_json_import.py",
+    "test_bulk_rebuild.py",
     "test_api.py",
     "test_live_fetch.py",
     "test_silo_check.py",
@@ -86,3 +87,19 @@ def qapp_cls():
 def app_root():
     """Project root as Path — for file existence checks."""
     return _ROOT
+
+
+@pytest.fixture(autouse=True)
+def _no_browser_no_update_check(request, monkeypatch):
+    """Keeps pytest tests from reaching outside the process: no real browser
+    (webbrowser.open) and, for GarminApp tests (qtbot), no startup thread that
+    calls GitHub's releases/latest. GarminApp.__init__ schedules
+    _startup_bg_checks after 500 ms; only one _TestApp variant overrode it, the
+    others hit the network whenever the event loop ran long enough. The fixture
+    runs before qtbot creates the QApplication (autouse fixtures come first),
+    so importing garmin_app_base here happens before any QApplication exists."""
+    monkeypatch.setattr("webbrowser.open", lambda *a, **kw: True)
+    if "qtbot" in request.fixturenames:
+        import garmin_app_base
+        monkeypatch.setattr(garmin_app_base.GarminApp, "_startup_bg_checks",
+                            lambda self: None)
