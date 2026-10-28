@@ -236,13 +236,54 @@ with _isolated_log_env("bulk_rebuild_originals") as base:
     check("originals: nothing of the damaged or unknown files is stored as a day",
           "2024-07-01" not in bw.list_aggregate_days() and "2024-07-02" not in bw.list_aggregate_days())
     text = "\n".join(_lines(lg))
-    check("originals: the log warns for each damaged and each unknown file by its short hash and says why",
+    check("originals: the log warns for each damaged file by its short hash and says why; the unknown files are only counted in the summary line",
           "does not match its name" in text and "is not JSON" in text and "cannot be read" in text and "no known kind" in text
-          and all(h[:rb.SHORT_HASH] in text for h in (wrong_name, bad_json_hash, unreadable_hash)))
+          and all(h[:rb.SHORT_HASH] in text for h in (wrong_name, bad_json_hash, unreadable_hash))
+          and not any("is of no known kind, skipped" in x for x in _lines(lg))
+          and any("2 of no known kind" in x for x in _lines(lg)))
     check("originals: the log carries no full hash, no address and no name from the export",
           wrong_name not in text and SECRET not in text and "@" not in text)
     check("originals: the damaged files are left as they are (nothing is repaired or removed)",
           (cfg.BULK_SOURCE_DIR / wrong_name[:2] / f"{wrong_name}.json").exists() and unreadable.exists())
+
+# ── v1.7.6.7 (P3): the new kinds come back from the originals, the kept families are only counted ───
+HEALTH = "DI_CONNECT/DI-Connect-Wellness/2024-05-01_2024-05-31_12345_healthStatusData.json"
+ALERT = "DI_CONNECT/DI-Connect-Wellness/2024-05-01_2024-05-31_12345_AbnormalHrEvents.json"
+GEAR = f"DI_CONNECT/DI-Connect-Fitness/{SECRET}_gear.json"
+COURSES = f"DI_CONNECT/DI-Connect-Routing/{SECRET}_courses_2024-01-01_2024-12-31.json"
+ZONES = "DI_CONNECT/DI-Connect-Wellness/12345_heartRateZones.json"
+HS = {"calendarDate": "2024-05-02", "createTimestampUTC": "2024-05-02T04:00:00.0", "updateTimestampUTC": "2024-05-02T05:00:00.0",
+      "outliersCount": 0, "metrics": [{"type": "HRV", "value": 55.0, "status": "IN_RANGE"}]}
+AL_LATE = {"calendarDate": "2024-05-01", "abnormalHrEventGMT": "2024-05-01T09:00:00.0", "abnormalHrThresholdValue": 120, "abnormalHrValue": 150, "deviceId": 1}
+AL_EARLY = {**AL_LATE, "abnormalHrEventGMT": "2024-05-01T03:00:00.0", "abnormalHrValue": 140}
+EXPORT_P3 = {**EXPORT, HEALTH: [HS, {**HS, "calendarDate": "2024-05-07"}], ALERT: [AL_LATE, AL_EARLY],
+             GEAR: [{"gearPk": 1}], COURSES: [{"courseId": 3}], ZONES: [{"zone1Floor": 100}]}
+with _isolated_log_env("bulk_rebuild_p3") as base:
+    zp3 = _write_zip(base / "export.zip", EXPORT_P3)
+    imp3 = jimp.run_aggregates_import(zp3)
+    imported3 = _stored_days()
+    zp3.unlink()
+    shutil.rmtree(cfg.BULK_AGG_DIR)
+    with patch.object(rb, "log") as lg:
+        res3 = rb.run_aggregates_rebuild()
+    rebuilt3 = _stored_days()
+    check("P3 setup: the import wrote the new sections (alert events of 05-01 in time order, health status of 05-02)",
+          imp3["ok"] and [e["abnormalHrEventGMT"] for e in imported3["2024-05-01"]["aggregates"]["alert_events"]]
+          == ["2024-05-01T03:00:00.0", "2024-05-01T09:00:00.0"] and imported3["2024-05-02"]["aggregates"]["health_status"] == HS)
+    check("P3 rebuild: the days come back as the import wrote them (new sections included), without the export",
+          res3["ok"] and sorted(rebuilt3) == sorted(imported3) and all(_content(rebuilt3[d]) == _content(imported3[d]) for d in imported3))
+    check("P3 rebuild: the three kept families are of no known kind: counted, not damaged, not a failure; the log has no line for each of them",
+          res3["originals"]["unrecognised"] == 3 and res3["originals"]["damaged"] == 0
+          and not any("is of no known kind, skipped" in x for x in _lines(lg))
+          and any("3 of no known kind" in x and "kept originals of gear" in x for x in _lines(lg)))
+    check("P3 rebuild: the day with nothing but health status (05-07) is rejected for too little data, as in the import",
+          res3["insufficient_days"] == imp3["insufficient_days"] and "2024-05-07" in res3["insufficient_days"]
+          and "2024-05-07" not in rebuilt3)
+    pre3 = None
+    shutil.rmtree(cfg.BULK_AGG_DIR)
+    with patch.object(rb, "log"):
+        pre3 = rb.run_aggregates_rebuild(dry_run=True)
+    check("P3 rebuild preview: counts the new days, writes nothing", pre3["days"]["new"] == len(imported3) and not cfg.BULK_AGG_DIR.exists())
 
 # ── Two different entries of one day ─────────────────────────────────────────────────────────────
 with _isolated_log_env("bulk_rebuild_conflict") as base:

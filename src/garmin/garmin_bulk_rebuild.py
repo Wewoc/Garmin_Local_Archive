@@ -30,7 +30,10 @@ What a run does
      way). A file is used only if its bytes are the SHA-256 in its name and it is JSON; any other is
      "damaged": counted, reported by the first 12 characters of its hash, skipped.
   2. FIT originals are not used (they belong to the intraday phase) and only counted.
-  3. A file whose kind is not recognised by its content is counted, reported and skipped, never guessed.
+  3. A file whose kind is not recognised by its content is counted, named by a short hash in the result
+     and skipped, never guessed. Since v1.7.6.7 it is not warned about one by one: the kept originals of
+     gear, personal records, courses and zones are among them (their layout is not known, so no rule
+     recognises them) and would be warned about at every run.
   4. Where two originals hold different UDS or sleep entries of one date, the one read later wins and
      the day is counted in "conflicts" (none was found in the maintainer's export); readiness is chosen
      by its timestamp, not by the order.
@@ -141,7 +144,7 @@ def _work(dry_run, should_stop, summary):
     def _unrecognised(short):
         originals["unrecognised"] += 1
         summary["unrecognised_files"].append(short)
-        log.warning(f"  bulk rebuild: original {short} is of no known kind, skipped")
+        log.debug(f"  bulk rebuild: original {short} is of no known kind, skipped")
 
     def _conflict(kind, date_str):
         summary["conflicts"] += 1
@@ -169,7 +172,8 @@ def format_summary(summary, dry_run=False):
     lines.append(f"  originals: {summary['files']} JSON file(s) read ({orig['bytes'] / 1e6:.1f} MB), "
                  f"{orig['fit']} FIT file(s) not used, {summary['days_found']} day(s) found")
     if orig["damaged"] or orig["unrecognised"]:
-        lines.append(f"  skipped:   {orig['damaged']} damaged, {orig['unrecognised']} of no known kind")
+        lines.append(f"  skipped:   {orig['damaged']} damaged, {orig['unrecognised']} of no known kind "
+                     f"(this includes the kept originals of gear, records, courses and zones, which are not read)")
     lines.append(f"  days:      {days['new']} new, {days['changed']} changed, {days['unchanged']} unchanged, "
                  f"{days['kept']} kept (the stored day is fuller), {days['failed']} failed")
     if rej["invalid"] or rej["insufficient"]:

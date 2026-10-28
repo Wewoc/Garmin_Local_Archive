@@ -1,5 +1,81 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.7 — More Export File Types and Import Inventory
+
+The import of a Garmin export reads two more kinds of JSON file, keeps four further
+families unchanged as originals, and ends with a list of what the export held and what
+it did not know. Nothing is rewritten that was imported before: the days that gain a new
+entry are updated by the next import, all others stay as they are. Nothing reads the new
+sections yet (the broker fields are a separate step).
+
+**What changed:**
+- **Two new kinds** (`garmin_import`): `healthStatusData` (one entry per day) and
+  `AbnormalHrEvents` (several per day). `parse_day()` adds the optional sections
+  `health_status` (the entry as delivered) and `alert_events` (a list, in the order of the
+  time of the event, an identical entry from an overlapping file only once). A day without
+  such an entry has neither section. The date is the entry's `calendarDate`. Both kinds
+  are part of the proof of origin of a day (`entry_hashes`): a day that gains an entry is
+  an `update`, the others stay `unchanged`; `AGG_SCHEMA_VERSION` stays 2. `detect_kind()`
+  knows both (a `metrics` list with `outliersCount`; `abnormalHrEventGMT`), so the rebuild
+  from the kept originals brings them back.
+- **Table with a mode** (`_KINDS`): each kind of file says how the entries of one date are
+  kept (`single`, `latest`, `wrapped`, `list`) instead of the code asking for the name of
+  the kind. A comparison of the old and the new code on 400 generated exports gave no
+  difference.
+- **Families kept as originals** (`_SAVED_FAMILIES`): `gear`, `personalRecord`, `courses`
+  and the zone files are read so that the bulk store keeps their original (byte for byte,
+  by hash, backed up and mirrored like the others); nothing is taken from them. Only a name
+  that matches is kept; a file of an unknown family is not.
+- **Size limit**: a JSON file over 64 MB (`MAX_JSON_BYTES`) is not read, not hashed and not
+  kept; it is counted and warned about without its name. The largest file of an export is
+  below 1 MB.
+- **Inventory** (`garmin_import.build_inventory`, `garmin_bulk_json_import.inventory_lines`):
+  the result of the import and of the preview lists one line per known kind (read or kept
+  only, number of files), one line for the JSON files of no known kind with the number of
+  folders and their names, and, if any, the files that could not be read or were over the
+  limit. Counts and folders only; no file name (the names carry the e-mail address of the
+  account) and a folder with an `@` is shown as `<hidden>`. Preview and import show the
+  same lines.
+- **Rebuild** (`garmin_bulk_rebuild`): a kept original of no known kind (the kept
+  families have no content rule) is counted in the result line and no longer warned about
+  one by one.
+- **Pinned, not changed**: a day that has nothing but a health status (no daily values, no
+  sleep) is rejected for too little data like a day with sleep only; its original stays in
+  `bulk/source`.
+
+**Changed modules:**
+- `garmin/garmin_import.py` — `_KINDS` with mode, `health_status`, `alert_events`,
+  `_SAVED_FAMILIES`, `build_inventory`, `MAX_JSON_BYTES`, `detect_kind`, `parse_day`
+- `garmin/garmin_bulk_json_import.py` — `entry_hashes`, `inventory` in the summary,
+  `inventory_lines`, `format_summary`
+- `garmin/garmin_bulk_rebuild.py` — unknown originals counted quietly
+- `compiler/build_manifest.py` — two signatures
+- `tests/` — `test_garmin_import.py`, `test_bulk_json_import.py`, `test_bulk_rebuild.py`,
+  `test_build_output.py`
+- `docs/` — `REFERENCE_GARMIN.md`, `REFERENCE_GARMIN_EXPORT.md`, `REFERENCE_INVARIANTS.md`,
+  `REFERENCE_GLOBAL.md`, `MAINTENANCE_GARMIN.md`, `MAINTENANCE_GLOBAL.md`,
+  `GLA_GUIDELINES.md`, `USER_GUIDE.txt`, `README_APP.md`, `ROADMAP.md`,
+  `VERSION_HISTORY.md`, `METRICS.md`
+- `version.py` — 1.7.6.7
+
+**Test result:** all suites green, 6644 checks in 48 files (`test_build_output.py`: 836
+passed, 12 skipped); all 257 source files compile on Python 3.11. 24 deliberate faults in
+the new code were caught by the tests (the mutations ran on a copy).
+
+**Verified:** on the maintainer's export (one ZIP, read only, nothing written): 391 health
+status entries on 391 days and 6 pulse alert events on 6 days; five metric types (HRV, HR,
+SPO2, SKIN_TEMP_C, RESPIRATION), `value` missing in 397 of 1,955 metrics. The ZIP holds no
+`gear`, `personalRecord` or `courses` file (it is one part of a multi-part export), so the
+name patterns of those three families are tested on synthetic names only.
+
+**Not covered:** no import of the new kinds on the real archive (preview first; expected
+update on the days that have daily values); the dialog and the log were not looked at in the
+app; the built programs (T2/T3) were not tried; the name patterns of `gear`, `personalRecord`
+and `courses` were not seen on real files (a name that does not match shows up as "not
+recognised", it is not lost silently); the broker does not read `health_status` and
+`alert_events`; the old `run_import` path would also receive the new sections (it has no
+caller outside the tests).
+
 ## v1.7.6.6 — Alerts and Training in the Daily Summary
 
 The daily summary (`summary/`) gets a new section `alerts`, and the section `training`,

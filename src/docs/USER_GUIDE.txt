@@ -234,6 +234,19 @@ Daily values (JSON) (v1.7.6.1):
   - The import is finished once the summaries, the quality log entries
     and the markers are made; if that fails, the import reports an
     error and running it again makes it good.
+  - New in v1.7.6.7: the import also reads the health status of the
+    day and the single pulse alerts and stores them with the daily
+    values (no screen and no AI query shows them yet). Gear, personal
+    records, saved courses and the zone files of the export are kept
+    unchanged in garmin_data/bulk/source. A JSON file over 64 MB is
+    skipped.
+  - At the end of the import (and of the preview) the log lists what
+    the export held: the number of files of each known kind, and the
+    JSON files the app did not know, with the folders they lie in.
+    File names are never written to the log.
+  - If you import an export that you imported before, the days that
+    gain a health status or a pulse alert are updated; all other days
+    stay as they are. Run the preview first.
   - Running the same import again changes nothing.
 
 Heart-rate series (FIT files) (v1.7.6):
