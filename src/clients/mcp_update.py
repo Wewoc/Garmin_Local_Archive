@@ -371,6 +371,58 @@ def _reconcile_field_registry() -> dict:
     return resets
 
 
+# Where this module notes the summary schema number the cached health days were read from
+# (mcp_snapshots, one row of its own; no new table).
+_SUMMARY_SCHEMA_SNAPSHOT = "summary_schema"
+
+
+def _reconcile_summary_schema() -> bool:
+    """
+    Tells the cache that the summaries changed their schema (v1.7.6.6, finding F-15).
+
+    _sync_health_days() re-reads a day only when the quality log's last_checked changed. A schema
+    migration rewrites summary/ (new sections, filled fields) without touching last_checked, so
+    days already in the cache would keep their old values. Here the cache learns it from the
+    summaries themselves, without knowing the program's schema number:
+
+      - all readable summaries carry one and the same number, and it is not the number noted at
+        the last sync (or none was noted): reset_health_sync_state() — every health day is read
+        again on this pass (rows are kept, nothing is deleted) — and the number is noted;
+      - the same number as noted: nothing;
+      - different numbers (a migration is due or still running) or no summary at all: nothing yet,
+        nothing noted — the cache waits until the migration is through, so it never re-reads
+        old values and then believes it is up to date;
+      - nothing noted yet counts as "unknown", not as "fresh": a cache made before this check
+        existed may hold old values. On a new database the reset touches no row.
+
+    A damaged summary does not block anything (the metadata leaves it out). Never raises: a
+    failure is a warning, the cache is left as it is and the number is not noted, so the next
+    pass tries again. Returns True when the reset fired.
+    """
+    try:
+        state_result = mcp_map.get_archive_metadata("summary_schema_state")
+        state = state_result.get("data")
+        if state_result.get("error") or not isinstance(state, dict):
+            logger.warning("Summary schema check skipped — no state: %s", state_result.get("error"))
+            return False
+        version = state.get("min")
+        if version is None or version != state.get("max"):
+            return False
+        stored = mcp_sql.get_snapshot(_SUMMARY_SCHEMA_SNAPSHOT)
+        stored_version = stored.get("version") if isinstance(stored, dict) else None
+        if stored_version == version:
+            return False
+        mcp_sql.reset_health_sync_state()
+        mcp_sql.upsert_snapshot(_SUMMARY_SCHEMA_SNAPSHOT, {"version": version},
+                                datetime.datetime.now().isoformat())
+        logger.info("Summary schema: summaries are on schema %s (cache had %s) — health days are read again",
+                    version, stored_version)
+        return True
+    except Exception as exc:
+        logger.warning("Summary schema check failed (%s) — cache left as it is", exc)
+        return False
+
+
 def _sync_health_days() -> tuple[int, int]:
     """
     Form A, health: get_stats() for the archive's real date_min/date_max
@@ -980,6 +1032,10 @@ def sync_all(is_boot: bool = False) -> dict:
                                                   # invalidated this run — see
                                                   # _apply_pending_context_resync(),
                                                   # empty in the normal case
+            "summary_schema_reset": bool,     # v1.7.6.6 — True when the health days were
+                                               # set to be read again because the summaries
+                                               # changed their schema number, see
+                                               # _reconcile_summary_schema()
             "duration_seconds": float,
             "marker": str,                    # shared sync marker, see module docstring
         }
@@ -1020,6 +1076,7 @@ def sync_all(is_boot: bool = False) -> dict:
             mcp_sql.init_db()
             context_resync_applied = _apply_pending_context_resync(cfg.BASE_DIR)
             field_registry_resets = _reconcile_field_registry()
+            summary_schema_reset = _reconcile_summary_schema()
 
             health_days_updated, health_days_failed = _sync_health_days()
             baselines_updated, baselines_failed = _sync_health_baselines()
@@ -1067,6 +1124,7 @@ def sync_all(is_boot: bool = False) -> dict:
                 "structured_log_entries_failed": structured_entries_failed,
                 "field_registry_resets": sorted(k for k, v in field_registry_resets.items() if v),
                 "context_resync_applied": context_resync_applied,
+                "summary_schema_reset": summary_schema_reset,
                 "duration_seconds": duration,
                 "marker": marker,
             }

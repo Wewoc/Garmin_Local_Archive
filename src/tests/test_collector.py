@@ -3526,6 +3526,119 @@ with _isolated_log_env("mig12_agg") as _b:
           f"  [1/5] {_AD[0]} — ok (from export data)" in _rec.msgs("info")
           and "  Schema migration complete: 3 rewritten, 2 skipped/failed." in _rec.msgs("info"))
 
+# -- _run_schema_migration brings an old summary to the content of the current schema (v1.7.6.6, P1.4b) ------------------
+# End to end: summary files of the previous schema, raw days in the shapes of the API (readiness and max_metrics as lists,
+# the training status under its device id, alert fields in stats/sleep) -> after the migration the summary has the
+# current number and the sections "training" and "alerts" are filled; a second run finds nothing to do.
+_P14_DEV = "2222222222"
+_P14 = [f"2024-11-{n:02d}" for n in range(1, 5)]       # A raw only | B1 raw + export | B2 raw (empty readiness) + export | C export only
+_HP = "cd" * 32
+
+
+def _p14_raw(day, **extra):
+    return {"date": day,
+            "training_readiness": [
+                {"calendarDate": day, "timestamp": f"{day}T05:00:00.0", "score": 61, "level": "MODERATE", "feedbackLong": "EARLY"},
+                {"calendarDate": day, "timestamp": f"{day}T09:00:00.0", "score": 74, "level": "HIGH", "feedbackLong": "GOOD_TO_GO"}],
+            "training_status": {"mostRecentTrainingStatus": {"latestTrainingStatusData": {_P14_DEV: {
+                "trainingStatus": 4, "timestamp": 1000, "acuteTrainingLoadDTO": {"acwrStatus": "OPTIMAL"}}}}},
+            "max_metrics": [{"generic": {"calendarDate": day, "vo2MaxPreciseValue": 51.3, "fitnessAge": 33}}],
+            "stats": {"abnormalHeartRateAlertsCount": 1, "stressQualifier": "BALANCED",
+                      "bodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": "HIGH"},
+                      "endOfDayBodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": "LOW"}},
+            "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 25000, "breathingDisruptionSeverity": "LOW"}},
+            **extra}
+
+
+_P14_TRAINING = {"readiness_score": 74, "readiness_level": "HIGH", "readiness_feedback": "GOOD_TO_GO",
+                 "training_status": "MAINTAINING", "training_status_code": 4, "training_load_7d": None,
+                 "vo2max": 51.3, "endurance_score": None, "hill_score": None, "fitness_age": 33}
+_P14_ALERTS = {"hr_alert_count": 1, "breathing_disruption": "LOW", "acwr_status": "OPTIMAL",
+               "body_battery_level": "HIGH", "body_battery_level_end_of_day": "LOW", "stress_qualifier": "BALANCED"}
+
+with _isolated_log_env("mig14") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    cfg.RAW_DIR.mkdir(parents=True)
+    cfg.SUMMARY_DIR.mkdir(parents=True)
+    _cur = _normalizer5.CURRENT_SCHEMA_VERSION
+    for _d in _P14:
+        (cfg.SUMMARY_DIR / f"garmin_{_d}.json").write_text(json.dumps({"date": _d, "schema_version": _cur - 1}), encoding="utf-8")
+    (cfg.RAW_DIR / f"garmin_raw_{_P14[0]}.json").write_text(json.dumps(_p14_raw(_P14[0])), encoding="utf-8")
+    (cfg.RAW_DIR / f"garmin_raw_{_P14[1]}.json").write_text(
+        json.dumps(_p14_raw(_P14[1], user_summary={"totalSteps": 123})), encoding="utf-8")
+    (cfg.RAW_DIR / f"garmin_raw_{_P14[2]}.json").write_text(
+        json.dumps(_p14_raw(_P14[2], training_readiness=[])), encoding="utf-8")
+    _agg14 = {_P14[1]: {"user_summary": {"totalSteps": 8000}, "stress": {"averageStressLevel": 28},
+                        "training_readiness": {"score": 10, "level": "LOW", "feedbackLong": "EXPORT"}},
+              _P14[2]: {"user_summary": {"totalSteps": 8000},
+                        "training_readiness": {"score": 66, "level": "MODERATE", "feedbackLong": "EXPORT"}},
+              _P14[3]: {"user_summary": {"totalSteps": 8000},
+                        "training_readiness": {"score": 55, "level": "LOW", "feedbackLong": "EXPORT"}}}
+    for _d, _a in _agg14.items():
+        assert _bw12.write_aggregates(_d, {"date": _d, **_a}, [_HP]) == _bw12.WRITTEN
+    _raw14 = {d: (cfg.RAW_DIR / f"garmin_raw_{d}.json").read_bytes() for d in _P14[:3]}
+    _qd14 = {"days": [{"date": d} for d in _P14]}
+    _rec = _Rec11()
+    with patch.object(_col5, "log", _rec):
+        _col5._run_schema_migration(_qd14)
+    _s14 = lambda d: json.loads((cfg.SUMMARY_DIR / f"garmin_{d}.json").read_text(encoding="utf-8"))   # noqa: E731
+    check("P1.4b migration: all four days are rewritten to the current schema number",
+          all(_s14(d)["schema_version"] == _cur for d in _P14)
+          and "  Schema migration complete: 4 rewritten, 0 skipped/failed." in _rec.msgs("info"))
+    check("P1.4b migration, raw only: 'training' is filled from the list and nested shapes of the API day",
+          _s14(_P14[0])["training"] == _P14_TRAINING)
+    check("P1.4b migration, raw only: 'alerts' is filled from stats, sleep and the device entry",
+          _s14(_P14[0])["alerts"] == _P14_ALERTS)
+    check("P1.4b migration, raw and export: the API day wins where it has a value (steps, readiness list), the export fills the gap (stress)",
+          _s14(_P14[1])["day"]["steps"] == 123 and _s14(_P14[1])["stress"]["stress_avg"] == 28
+          and _s14(_P14[1])["training"] == _P14_TRAINING and _s14(_P14[1])["alerts"] == _P14_ALERTS)
+    check("P1.4b migration, raw and export: an empty readiness list of the API day is filled from the export (dict form), the rest stays from the API",
+          _s14(_P14[2])["training"] == {**_P14_TRAINING, "readiness_score": 66, "readiness_level": "MODERATE",
+                                        "readiness_feedback": "EXPORT"}
+          and _s14(_P14[2])["alerts"] == _P14_ALERTS)
+    check("P1.4b migration, export only: readiness from the export, no alert values, no status (nothing the export carries)",
+          _s14(_P14[3])["training"]["readiness_score"] == 55 and _s14(_P14[3])["training"]["training_status"] is None
+          and all(v is None for v in _s14(_P14[3])["alerts"].values())
+          and not (cfg.RAW_DIR / f"garmin_raw_{_P14[3]}.json").exists())
+    check("P1.4b migration: raw files are byte-identical",
+          all((cfg.RAW_DIR / f"garmin_raw_{d}.json").read_bytes() == _raw14[d] for d in _raw14))
+    _before14 = {d: (cfg.SUMMARY_DIR / f"garmin_{d}.json").read_bytes() for d in _P14}
+    _rec = _Rec11()
+    with patch.object(_col5, "log", _rec):
+        _col5._run_schema_migration(_qd14)
+    check("P1.4b migration: a second run has nothing to do and changes no summary",
+          "  Schema migration: all summaries up to date — nothing to do." in _rec.msgs("info")
+          and all((cfg.SUMMARY_DIR / f"garmin_{d}.json").read_bytes() == _before14[d] for d in _P14))
+
+    # F-15 (v1.7.6.6): the migration rewrites summary/ only. It leaves the quality log's last_checked alone,
+    # and the MCP cache (clients/mcp_update._sync_health_days) re-reads a day only when last_checked changed.
+    # The fix is not here but in the cache: clients/mcp_update._reconcile_summary_schema() (P1.5c) sees the
+    # summaries change their schema number and sets the health days to be read again. This pin therefore
+    # stays true; if the migration ever marks its days itself, turn it around.
+    _lc14 = {"days": [{"date": d, "quality": "high", "last_checked": f"2026-10-0{n}T10:00:00"}
+                      for n, d in enumerate(_P14, 1)]}
+    _lc14_before = json.loads(json.dumps(_lc14))
+    for _d in _P14:
+        (cfg.SUMMARY_DIR / f"garmin_{_d}.json").write_text(json.dumps({"date": _d, "schema_version": _cur - 1}), encoding="utf-8")
+    with patch.object(_col5, "log", _Rec11()):
+        _col5._run_schema_migration(_lc14)
+    check("F-15 current state: the migration rewrites the summaries but leaves last_checked and the rest of the quality log untouched "
+          "(the MCP cache is not told that a day changed)",
+          all(_s14(d)["schema_version"] == _cur for d in _P14) and _lc14 == _lc14_before)
+
+    # F-16 (v1.7.6.6), current state: a DAMAGED summary file is not repaired by the migration. read_summary()
+    # returns {} for it, the loop reads that as "no summary file" and skips the day with that (wrong) reason;
+    # the file stays damaged although raw/ would allow writer.rebuild_summary(). Pinned here; turn this
+    # around together with the fix (see the findings register).
+    (cfg.SUMMARY_DIR / f"garmin_{_P14[0]}.json").write_text("{ not json", encoding="utf-8")
+    _rec = _Rec11()
+    with patch.object(_col5, "log", _rec):
+        _col5._run_schema_migration({"days": [{"date": _P14[0]}]})
+    check("F-16 current state: a damaged summary is skipped as 'no summary file' and stays damaged (raw/ is there and could rebuild it)",
+          f"  Schema migration: {_P14[0]} — no summary file, skipped" in _rec.msgs("warning")
+          and (cfg.SUMMARY_DIR / f"garmin_{_P14[0]}.json").read_text(encoding="utf-8") == "{ not json"
+          and (cfg.RAW_DIR / f"garmin_raw_{_P14[0]}.json").exists())
+
 # -- commit_force_refetch ----------------------------------------------------------------------------------------------
 _CD = [f"2024-09-{n:02d}" for n in range(1, 8)]
 

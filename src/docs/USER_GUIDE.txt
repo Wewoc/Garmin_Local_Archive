@@ -675,6 +675,20 @@ its own "Daily Sync" section and it does the update by itself:
   - The safety copies are not deleted by the app.
 Off by default. With it off `daily_update` behaves as before.
 
+Data update to schema 5 (v1.7.6.6): the daily summary files get a new
+section "alerts" (pulse alerts, breathing disruption, load ratio, two body
+battery levels, the stress rating of the day) and the section "training"
+is filled for the first time. Because of that every summary file counts
+as outdated once. The data update described above then runs once: in the
+app (it asks for a backup first) or, with "Migrate data in Daily Sync"
+ticked, in the next daily sync. Raw files are not touched and no Garmin
+login is needed. Days that exist only in the Garmin export get the
+training values that the export carries, but no alert values (the export
+has none). If you use the MCP server (AI queries): its first start after
+the update reads all days again, once. That takes longer than a normal
+start and needs nothing from you; it does not matter whether the data
+update or the server start comes first.
+
 Prerequisite: the app must be configured at least once (email,
 password, folder, location saved) before `daily_update` can run.
 Running it before setup results in a hard stop with a clear message.

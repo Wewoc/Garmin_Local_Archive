@@ -1542,6 +1542,16 @@ check("contract explorer: daily has field_options","field_options" in _ev16["dai
 check("contract explorer: field_options is list", isinstance(_ev16["daily"]["field_options"], list))
 check("contract explorer: has intraday",         "intraday" in _ev16)
 
+# v1.7.6.6, P1.5: the text fields of the "alerts" section are not offered in the daily dropdowns, the count is
+_ALERT_TEXTS16 = ("breathing_disruption", "acwr_status", "body_battery_level",
+                  "body_battery_level_end_of_day", "stress_qualifier")
+_fo16 = [o["field"] for o in _ev16["daily"]["field_options"]]
+check("contract explorer: the five text fields of the alerts section are not in the field options",
+      not any(f in _fo16 for f in _ALERT_TEXTS16))
+check("contract explorer: the alert count (a number) is in the field options", "hr_alert_count" in _fo16)
+check("contract explorer: the exclusion set of the Explorer holds the five text fields",
+      all(f in _ex_mod16._EXCLUDE_FROM_DAILY for f in _ALERT_TEXTS16))
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  17. dash_encryptor — encrypt_html()
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1668,6 +1678,12 @@ check("list_available_fields excludes sleep phases",  "sleep_deep_pct" not in _a
 check("list_available_fields excludes series fields",
       not any(f.endswith("_series") for f in _available["garmin"]))
 check("list_available_fields includes hrv_last_night", "hrv_last_night" in _available["garmin"])
+check("list_available_fields excludes the five text fields of the alerts section (v1.7.6.6)",
+      not any(f in _available["garmin"] for f in ("breathing_disruption", "acwr_status", "body_battery_level",
+                                                   "body_battery_level_end_of_day", "stress_qualifier")))
+check("list_available_fields includes the alert count, a number (v1.7.6.6)", "hr_alert_count" in _available["garmin"])
+check("list_available_fields: the Custom Dashboard and the Explorer exclude the same fields (the two sets are copies of each other)",
+      custom_dash_builder._EXCLUDE_FROM_DAILY == _ex_mod16._EXCLUDE_FROM_DAILY)
 check("list_available_fields includes temperature_max","temperature_max" in _available["context"])
 
 _custom_mod = custom_dash_builder.build_ad_hoc_specialist(

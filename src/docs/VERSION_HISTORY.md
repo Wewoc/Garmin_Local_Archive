@@ -2,6 +2,15 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.6 — Alerts and Training in the Daily Summary
+
+- The daily summary file of each day has a new section `alerts` with warnings and ratings that Garmin already delivered but the summary did not show: pulse alerts of the day, breathing disruption of the night, the load ratio, two body battery levels (evening and near bedtime) and the stress rating of the day.
+- The section `training` was empty before and is now filled: training readiness (score, level, feedback), the training status as text and as number, VO2max and fitness age. If Garmin's answer for a day holds several readiness entries or several devices, the latest one is used.
+- `training_load_7d` stays empty for now. The `alerts` values come only from Garmin's own answer for the day; the Garmin export has none of them, so days that exist only in the export stay empty there.
+- Existing days get the new values once through the data update (schema update): in the app when you start Sync Garmin (it asks for a backup first), or in the next daily sync if "Migrate data in Daily Sync" is on. Raw files are not changed and no login is needed.
+- The six `alerts` values can be asked for in AI queries (MCP). The first start of the MCP server after the update reads all days again, once, and takes longer; the cache notices by itself when the summary files change their schema, nothing to do.
+- The new text values are not offered in the dropdowns of the Explorer and the Custom Dashboard.
+
 ## v1.7.6.5 — Rebuild of the Daily Values from the Kept Originals
 
 - The app keeps the JSON files of your Garmin export in `garmin_data/bulk/source`. From these files it can now make the daily values in `bulk/aggregates` again, without the export (the ZIP) and without a login. A popup "Rebuild / Preview only / Not now" appears before Sync Garmin starts when days were made by an older version. "Preview only" reports what would change and writes nothing.

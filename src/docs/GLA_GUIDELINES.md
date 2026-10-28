@@ -346,6 +346,8 @@ On a schema-version mismatch (`CURRENT_SCHEMA_VERSION` in
 2. `garmin_writer.read_raw()` loads the existing raw file
 3. The normalizer re-summarizes from raw — no API call needed
 4. The user sees a backup dialog before the migration runs
+5. The MCP cache notices the new schema number by itself and reads the health
+   days again (`mcp_update._reconcile_summary_schema()`, v1.7.6.6)
 
 ### Downgrade protection
 

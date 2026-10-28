@@ -847,6 +847,7 @@ Add the endpoint key to `assess_quality_fields()` in `garmin_quality.py`.
 3. Update `CURRENT_SCHEMA_VERSION` in `garmin_normalizer.py` if summary schema changes
 4. Self-healing loop will revalidate affected days on next run automatically
 5. Schema migration loop will rewrite outdated summaries from raw on next sync — user sees backup popup before migration starts. No API call required. Raw files are never modified.
+6. Since v1.7.6.6 the SQLite cache of the MCP layer reads all health days again by itself once every summary carries the new number (`mcp_update._reconcile_summary_schema()`); nothing to do. A new summary field that should be queryable also needs entries in `garmin_health_map._FIELD_MAP` and `mcp_field_registry.FIELD_UNITS` (`test_mcp.py` demands a unit for every registered health field), and a text field belongs in `_EXCLUDE_FROM_DAILY` of the Explorer and the Custom Dashboard (`test_dashboard.py` keeps the two sets equal). A damaged summary file is not repaired by the migration (it is skipped as "no summary file", finding F-16, pinned in `test_collector.py`).
 
 ---
 

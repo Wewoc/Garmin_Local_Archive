@@ -6,18 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.5**
+**Currently stable — v1.7.6.6**
 
 ---
-
-### v1.7.6.6 — Alerts and training in the daily summary
-
-- New `alerts` section in `summary/`: pulse alert count, breathing disruption,
-  load ratio, body battery level and the stress rating of the day.
-- The `training` section is filled (readiness, training status as text and
-  as code).
-- Summary schema 5; existing days are migrated by the migration step
-  (backup first).
 
 ### v1.7.6.7 — More export file types and import inventory
 
@@ -614,6 +605,24 @@ The check that offers the schema migration (popup, daily update) and the
 migration itself would work on the same days. Today the check counts every
 summary file with an outdated schema, the migration only the days of the
 quality log.
+
+**Damaged summary files**
+
+A summary file that cannot be read would be found by the archive check and
+made again from the raw file or the export data by a step in the app. Today
+the schema migration skips it and it stays as it is.
+
+**Training load in the daily summary**
+
+The field `training_load_7d` of the daily summary would be filled from the
+training load values of Garmin's answer. Until then it stays empty.
+
+**Text fields in the dropdowns of the dashboards**
+
+The older text fields (`hrv_status`, `hrv_feedback`, `bp_category`,
+`readiness_level`, `readiness_feedback`, `training_status`) would be left out
+of the daily dropdowns of the Explorer and the Custom Dashboard, like the
+sleep score texts and the new alert texts.
 
 **Pictures in the documentation viewer**
 

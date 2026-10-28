@@ -76,9 +76,10 @@ list_available_fields(domain=None) -> dict
 # {"domains": [...], "metadata_kinds": [...],
 #  "fields": {"health": {...}, "context": {...}, "fit": []}}
 # "metadata_kinds" lists only the nine LLM-facing kinds
-# (gateway_map.list_metadata_kinds(include_internal=False)) — the five
+# (gateway_map.list_metadata_kinds(include_internal=False)) — the six
 # kinds registered for the SQLite proxy's internal sync (the three
-# *_filenames kinds, raw_file_hashes, context_resync_pending) are left out,
+# *_filenames kinds, raw_file_hashes, context_resync_pending and, since
+# v1.7.6.6, summary_schema_state) are left out,
 # since get_archive_metadata() rejects them on the SQLite path (v1.7.5.1).
 
 # Internal sync use only, NOT registered as MCP tools in
@@ -231,6 +232,24 @@ rows (`mcp_sql.invalidate_context_day()`) as part of the same run. See
 reference table for the mechanism, `REFERENCE_CONTEXT.md` for the
 archive-repair side.
 
+**Cache and summary schema (v1.7.6.6):** `sync_all()` re-reads a health day
+only when the quality log's `last_checked` changed, and the schema migration
+rewrites `summary/` without touching it. `mcp_update._reconcile_summary_schema()`
+(called right after `_reconcile_field_registry()`) therefore asks the internal
+metadata kind `summary_schema_state` which schema numbers the summary files
+carry. When all readable summaries carry one and the same number and it is not
+the number noted at the last sync (row `summary_schema` in `mcp_snapshots`; a
+cache with nothing noted counts as unknown), it calls
+`mcp_sql.reset_health_sync_state()` — every health day is read again on this
+pass, no row is deleted — and notes the number. Different numbers (a migration
+is due or still running) or no summary: nothing, the cache waits. Damaged
+summaries are left out. A failure is a warning; the number is then not noted and
+the next pass tries again. The result of `sync_all()` carries
+`summary_schema_reset` (`True` when the check fired). It does not matter whether
+the migration or the first sync after the update comes first. The first sync
+after the update to v1.7.6.6 reads all health days once (also because six health
+fields were added).
+
 **Practical consequence of the routing weiche always being `"sqlite"`
 (v1.7.2.3 finding):** because the live branch below is unreachable
 today, `query_context()` always reads `mcp_sql.get_context_range()`,
@@ -310,7 +329,11 @@ detail that goes stale the next time a field is added.
   SQLite cache picks a newly registered field up by itself
   (`_reconcile_field_registry`), and the days that got export data are read
   again because the quality-log marks (`bulk.intraday`, `bulk.aggregates`)
-  set `last_checked`.
+  set `last_checked`. Since v1.7.6.6 it also holds the six fields of the
+  `alerts` section of the daily summary (`hr_alert_count`, unit `"count"`;
+  `breathing_disruption`, `acwr_status`, `body_battery_level`,
+  `body_battery_level_end_of_day` and `stress_qualifier`, unit `"text"`);
+  `test_mcp.py` demands an entry for every registered health field.
 - **`HEALTH_FIELD_ALIASES`** — explicit short-form → canonical-name map
   for `query_health()` (currently `hrv`, `hill`, `stress_index`), for
   prefixes too short relative to their target name for `difflib` to

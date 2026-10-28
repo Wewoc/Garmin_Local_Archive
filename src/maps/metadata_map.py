@@ -429,6 +429,48 @@ def get_context_resync_pending() -> dict:
         return {"data": None, "error": str(exc)}
 
 
+def get_summary_schema_state() -> dict:
+    """
+    Which summary schema numbers the files in summary/ carry — internal sync bookkeeping
+    (v1.7.6.6), NOT registered as an MCP tool, same category as get_context_resync_pending().
+    Used exclusively by clients/mcp_update.py::sync_all(): the SQLite cache re-reads a day only
+    when the quality log's last_checked changed, and a schema migration rewrites summary/ without
+    touching it — so the cache has to learn from the summaries themselves that they were rewritten.
+
+    Returns {"data": {"files": int, "min": int | None, "max": int | None, "unreadable": int},
+    "error": None}. Every garmin_YYYY-MM-DD.json counts by its "schema_version" (missing or not
+    a whole number: 0, as everywhere in the archive — a summary without the field is the oldest).
+    A file that cannot be read or is no JSON object is only counted as "unreadable" and is left
+    out of min/max: one damaged file must not hold the answer for the whole archive. An empty or
+    missing summary folder gives files 0 and min/max None. Reads every summary once (about 0.4 s
+    for 2870 files); never raises, a failure is {"data": None, "error": str}.
+    """
+    try:
+        files = unreadable = 0
+        versions = []
+        folder = cfg.SUMMARY_DIR
+        paths = sorted(folder.glob(f"{cfg.SUMMARY_FILE_PREFIX}????-??-??.json")) if folder.exists() else []
+        for path in paths:
+            files += 1
+            try:
+                doc = _read_json_file(path)
+            except (OSError, ValueError):
+                unreadable += 1
+                continue
+            if not isinstance(doc, dict):
+                unreadable += 1
+                continue
+            version = doc.get("schema_version", 0)
+            versions.append(version if isinstance(version, int) and not isinstance(version, bool) else 0)
+        return {"data": {"files": files,
+                         "min": min(versions) if versions else None,
+                         "max": max(versions) if versions else None,
+                         "unreadable": unreadable},
+                "error": None}
+    except Exception as exc:
+        return {"data": None, "error": str(exc)}
+
+
 def get_capability_config() -> dict:
     """Raw content of garmin_api_capability_config.json."""
     try:

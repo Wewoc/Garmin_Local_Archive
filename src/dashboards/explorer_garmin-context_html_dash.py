@@ -69,6 +69,12 @@ _EXCLUDE_FROM_DAILY = {
     "sleep_light_pct",
     "sleep_rem_pct",
     "sleep_awake_pct",
+    # v1.7.6.6, P1.5: the text fields of the "alerts" section (categorical, like the sleep score texts)
+    "breathing_disruption",
+    "acwr_status",
+    "body_battery_level",
+    "body_battery_level_end_of_day",
+    "stress_qualifier",
 }
 
 _SERIES_SUFFIX = "_series"
