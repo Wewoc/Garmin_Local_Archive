@@ -174,6 +174,11 @@ _METADATA_KINDS = {
     # internal-sync-only rationale as the three filename-only kinds
     # above. No date_from/date_to — see metadata_map.py's own docstring.
     "context_resync_pending": metadata_map.get_context_resync_pending,
+    # v1.7.6.6 — which schema numbers the summary/ files carry, same
+    # internal-sync-only rationale (clients/mcp_update.py tells the SQLite
+    # cache to re-read the health days after a schema migration). No
+    # date_from/date_to — see metadata_map.py's own docstring.
+    "summary_schema_state":   metadata_map.get_summary_schema_state,
 }
 
 # Kinds whose metadata_map function accepts date_from/date_to (v1.7.0.4;
@@ -196,7 +201,7 @@ _DATE_FILTERABLE_KINDS = {
 # does not advertise kinds the tool then rejects.
 _INTERNAL_ONLY_KINDS = {
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
-    "raw_file_hashes", "context_resync_pending",
+    "raw_file_hashes", "context_resync_pending", "summary_schema_state",
 }
 
 

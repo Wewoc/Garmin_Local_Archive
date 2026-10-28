@@ -158,7 +158,7 @@ _g_raw = {
         "lightSleepSeconds": 12650, "awakeSleepSeconds": 1700,
         "sleepScores": {"overall": {"value": 81, "qualifierKey": "GOOD"}},
         "averageSpO2Value": 94.5, "averageRespirationValue": 14.2,
-        "sleepScoreFeedback": "POSITIVE_LONGER"}},
+        "sleepScoreFeedback": "POSITIVE_LONGER", "breathingDisruptionSeverity": "LOW"}},
     "hrv": {"hrvSummary": {"lastNightAvg": 47, "weeklyAvg": 52, "status": "BALANCED",
                            "feedbackPhrase": "HRV_BALANCED_2"}},
     "heart_rates": {"restingHeartRate": 52, "maxHeartRate": 171, "minHeartRate": 44,
@@ -170,7 +170,10 @@ _g_raw = {
     "user_summary": {"totalSteps": 8421, "dailyStepGoal": 9000, "activeKilocalories": 512,
                      "totalKilocalories": 2733, "moderateIntensityMinutes": 31,
                      "vigorousIntensityMinutes": 12, "floorsAscended": 14,
-                     "totalDistanceMeters": 6789},
+                     "totalDistanceMeters": 6789, "abnormalHeartRateAlertsCount": 1,
+                     "stressQualifier": "BALANCED",
+                     "bodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": "LOW"},
+                     "endOfDayBodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": "MODERATE"}},
     "get_calories_daily": [{"resting": 1850}],
     "get_body_composition": {"totalAverage": {"weight": 78250}},
     "get_hydration_data": {"valueInML": 1800},
@@ -219,8 +222,11 @@ _g_expected = {
                                         "timestamp": "2025-02-03T21:30:00.0"}},
     "training": {"readiness_score": 74, "readiness_level": "HIGH",
                  "readiness_feedback": "GOOD_TO_GO", "training_status": 7,
-                 "training_load_7d": 330, "vo2max": 51.3, "endurance_score": 6700,
+                 "training_status_code": None, "training_load_7d": 330, "vo2max": 51.3, "endurance_score": 6700,
                  "hill_score": 52, "fitness_age": 34},
+    "alerts": {"hr_alert_count": 1, "breathing_disruption": "LOW", "acwr_status": None,
+               "body_battery_level": "LOW", "body_battery_level_end_of_day": "MODERATE",
+               "stress_qualifier": "BALANCED"},
     "activities": [{"name": "Morning Run", "type": "running", "duration_min": 62.1,
                     "distance_km": 10.23, "avg_hr": 148, "max_hr": 171, "calories": 640,
                     "training_effect_aerobic": 3.4, "training_effect_anaerobic": 1.1}],
@@ -412,7 +418,7 @@ check("3b training: primary keys win over the fall-backs",
       [_tr["readiness_score"], _tr["readiness_level"], _tr["training_status"], _tr["vo2max"]]
       == [70, "HIGH", 7, 51.0])
 _tr = _sum()["training"]
-check("3b training: nothing present -> all None", all(v is None for v in _tr.values()) and len(_tr) == 9)
+check("3b training: nothing present -> all None", all(v is None for v in _tr.values()) and len(_tr) == 10)
 
 # ── Activities ───────────────────────────────────────────────────────────────
 _acts = _sum(activities=[
@@ -501,8 +507,8 @@ check("3b _parse_list_values: tuple items work, length must exceed the index",
 # ── Second round (after the first mutation measurement) ──────────────────────
 # The schema version is the identity of the summary format: a bump must be a conscious
 # decision, so it is pinned here (update this check together with the bump).
-check("3b schema: CURRENT_SCHEMA_VERSION is 4 and written into the summary",
-      normalizer.CURRENT_SCHEMA_VERSION == 4 and _sum()["schema_version"] == 4)
+check("3b schema: CURRENT_SCHEMA_VERSION is 5 and written into the summary",
+      normalizer.CURRENT_SCHEMA_VERSION == 5 and _sum()["schema_version"] == 5)
 
 # source dispatch: only the exact strings 'api' and 'bulk' count (strings built at run
 # time so that identity ('is') and prefix/ordering comparisons cannot pass by accident)
@@ -545,5 +551,229 @@ check("3b blood pressure: with 3 candidates the latest (last after sorting) wins
 check("3b _parse_list_values: empty and one-element items with index 1/2 are skipped",
       normalizer._parse_list_values([[], [0]], 1) == []
       and normalizer._parse_list_values([[0]], 2) == [])
+
+# ── P1.1/P1.2 (v1.7.6.6): the "training" section on the shapes of the API day, finding 3 ───────
+# The raw day of the API holds training_readiness and max_metrics as LISTS of objects and the
+# training status nested under mostRecentTrainingStatus.latestTrainingStatusData.<device id>.
+# Until P1.1 summarize() read dicts with other keys, so "training" stayed empty on every such day;
+# P1.1 pinned that state, P1.2 turned the pins around (the checks below keep their P1.1 names).
+# Synthetic values, the shapes follow the real archive.
+_P11_DEV = "1111111111"
+_p11_raw = {
+    "training_readiness": [
+        {"calendarDate": "2025-02-03", "timestamp": "2025-02-03T05:00:00.0",
+         "score": 61, "level": "MODERATE", "feedbackLong": "RECOVERED_AND_READY"},
+        {"calendarDate": "2025-02-03", "timestamp": "2025-02-03T09:00:00.0",
+         "score": 74, "level": "HIGH", "feedbackLong": "GOOD_TO_GO"},
+    ],
+    "training_status": {
+        "mostRecentTrainingStatus": {"latestTrainingStatusData": {_P11_DEV: {
+            "trainingStatus": 4, "timestamp": 1738573200000,
+            "acuteTrainingLoadDTO": {"acwrStatus": "OPTIMAL"}}}},
+        "mostRecentTrainingLoadBalance": {"metricsTrainingLoadBalanceDTOMap": {_P11_DEV: {"deviceId": 1}}},
+    },
+    "max_metrics": [{"generic": {"calendarDate": "2025-02-03", "vo2MaxPreciseValue": 51.3, "fitnessAge": 33}}],
+    "stats": {"abnormalHeartRateAlertsCount": 1, "stressQualifier": "BALANCED",
+              "bodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": "HIGH"}},
+    "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 25000, "breathingDisruptionSeverity": "LOW"}},
+}
+_p11_s = _sum(**_p11_raw)
+_p11_tr = _p11_s["training"]
+check("P1.2 real-archive shapes: readiness from the element with the latest timestamp",
+      [_p11_tr["readiness_score"], _p11_tr["readiness_level"], _p11_tr["readiness_feedback"]]
+      == [74, "HIGH", "GOOD_TO_GO"])
+check("P1.2 real-archive shapes: training status as text and as number",
+      [_p11_tr["training_status"], _p11_tr["training_status_code"]] == ["MAINTAINING", 4])
+check("P1.2 real-archive shapes: vo2max and fitness age from the max_metrics list",
+      [_p11_tr["vo2max"], _p11_tr["fitness_age"]] == [51.3, 33])
+check("P1.2 real-archive shapes: no source for the other fields -> None",
+      [_p11_tr["training_load_7d"], _p11_tr["endurance_score"], _p11_tr["hill_score"]] == [None, None, None])
+check("P1.2 the training section has 10 fields", len(_p11_tr) == 10)
+check("P1.3 real-archive shapes: alerts from stats, sleep and the device entry",
+      _p11_s["alerts"] == {"hr_alert_count": 1, "breathing_disruption": "LOW", "acwr_status": "OPTIMAL",
+                           "body_battery_level": "HIGH", "body_battery_level_end_of_day": None,
+                           "stress_qualifier": "BALANCED"})
+
+# readiness: the choice does not depend on the order of the list
+_p11_rev = _sum(training_readiness=list(reversed(_p11_raw["training_readiness"])))["training"]
+check("P1.2 readiness: the same element wins when the list is reversed",
+      [_p11_rev["readiness_score"], _p11_rev["readiness_level"]] == [74, "HIGH"])
+_p11_late = [{"score": 20, "level": "A", "timestamp": "2025-02-03T09:00:00.0"},
+             {"score": 10, "level": "A", "timestamp": "2025-02-03T05:00:00.0"}]
+check("P1.2 readiness: the later time wins even when the earlier entry has the smaller JSON text",
+      _sum(training_readiness=_p11_late)["training"]["readiness_score"] == 20
+      and _sum(training_readiness=list(reversed(_p11_late)))["training"]["readiness_score"] == 20)
+_p11_one = _sum(training_readiness=[_p11_raw["training_readiness"][0]])["training"]
+check("P1.2 readiness: a list with one element is used", _p11_one["readiness_score"] == 61)
+_p11_nots = _sum(training_readiness=[{"score": 10, "level": "LOW"},
+                                     {"score": 20, "level": "HIGH", "timestamp": "2025-02-03T05:00:00.0"}])["training"]
+check("P1.2 readiness: an element with a time beats one without", _p11_nots["readiness_score"] == 20)
+_p11_tie = _sum(training_readiness=[{"score": 30, "level": "B", "timestamp": "2025-02-03T05:00:00.0"},
+                                    {"score": 20, "level": "A", "timestamp": "2025-02-03T05:00:00.0"}])["training"]
+check("P1.2 readiness: same time -> the smaller canonical JSON text wins, in either order",
+      _p11_tie["readiness_score"] == 20
+      and _sum(training_readiness=[{"score": 20, "level": "A", "timestamp": "2025-02-03T05:00:00.0"},
+                                   {"score": 30, "level": "B", "timestamp": "2025-02-03T05:00:00.0"}]
+               )["training"]["readiness_score"] == 20)
+check("P1.2 readiness: a boolean is no time (that entry has none)",
+      _sum(training_readiness=[{"score": 2, "timestamp": True}, {"score": 1}])["training"]["readiness_score"] == 1)
+check("P1.2 readiness: a timestamp text that is no time counts as no time (the entry without one is not beaten by it)",
+      _sum(training_readiness=[{"score": 2, "timestamp": "no time"}, {"score": 1}])["training"]["readiness_score"] == 1)
+check("P1.2 readiness: ... and an entry with a readable time beats one with an unreadable timestamp text",
+      _sum(training_readiness=[{"score": 3, "timestamp": "no time"},
+                               {"score": 4, "timestamp": "2025-02-03T05:00:00.0"}])["training"]["readiness_score"] == 4)
+check("P1.2 readiness: without times the smaller canonical JSON text wins",
+      _sum(training_readiness=[{"score": 20}, {"score": 10}])["training"]["readiness_score"] == 10)
+for _label, _val in (("empty list", []), ("list of junk", [None, 5, "x"]), ("string", "x"), ("None", None)):
+    _t = _sum(training_readiness=_val)["training"]
+    check(f"P1.2 readiness: {_label} -> no values, no crash",
+          _t["readiness_score"] is None and _t["readiness_level"] is None and _t["readiness_feedback"] is None)
+check("P1.2 readiness: a dict (export values) is read as before",
+      _sum(training_readiness={"score": 74, "level": "HIGH", "feedbackLong": "X"})["training"]["readiness_score"] == 74)
+
+# training status: every number of the table, an unknown number, devices
+def _p11_status(entries):
+    return _sum(training_status={"mostRecentTrainingStatus": {"latestTrainingStatusData": entries}})["training"]
+
+for _n, _name in ((0, "NO_STATUS"), (1, "DETRAINING"), (3, "OVERREACHING"), (4, "MAINTAINING"),
+                  (5, "RECOVERY"), (7, "PRODUCTIVE")):
+    _t = _p11_status({_P11_DEV: {"trainingStatus": _n}})
+    check(f"P1.2 training status: {_n} -> {_name}, code {_n}",
+          [_t["training_status"], _t["training_status_code"]] == [_name, _n])
+for _n in (2, 6, 8, 99):
+    _t = _p11_status({_P11_DEV: {"trainingStatus": _n}})
+    check(f"P1.2 training status: unknown number {_n} -> no text, the number stays",
+          [_t["training_status"], _t["training_status_code"]] == [None, _n])
+for _label, _v in (("text", "4"), ("float", 4.0), ("bool", True), ("None", None)):
+    _t = _p11_status({_P11_DEV: {"trainingStatus": _v}})
+    check(f"P1.2 training status: value of type {_label} -> no text, no code",
+          [_t["training_status"], _t["training_status_code"]] == [None, None])
+_t = _p11_status({"1": {"trainingStatus": 1, "timestamp": 1000}, "2": {"trainingStatus": 7, "timestamp": 2000}})
+check("P1.2 training status: with two devices the entry with the later timestamp wins",
+      [_t["training_status"], _t["training_status_code"]] == ["PRODUCTIVE", 7])
+_t = _p11_status({"2": {"trainingStatus": 7, "timestamp": 2000}, "1": {"trainingStatus": 1, "timestamp": 1000}})
+check("P1.2 training status: ... independent of the order of the devices",
+      [_t["training_status"], _t["training_status_code"]] == ["PRODUCTIVE", 7])
+_t = _p11_status({"1": {"trainingStatus": 1}, "2": {"trainingStatus": 7, "timestamp": 2000}})
+check("P1.2 training status: an entry with a timestamp beats one without", _t["training_status_code"] == 7)
+for _label, _v in (("empty map", {}), ("map of junk", {"1": None, "2": 5}), ("list", [1]), ("None", None)):
+    _t = _p11_status(_v)
+    check(f"P1.2 training status: {_label} -> no values, no crash",
+          [_t["training_status"], _t["training_status_code"]] == [None, None])
+_t = _sum(training_status={"latestTrainingStatus": 9, "mostRecentTrainingStatus": {
+    "latestTrainingStatusData": {_P11_DEV: {"trainingStatus": 4}}}})["training"]
+check("P1.2 training status: the nested text wins over the old top-level key",
+      [_t["training_status"], _t["training_status_code"]] == ["MAINTAINING", 4])
+_t = _sum(training_status={"latestTrainingStatus": 9, "mostRecentTrainingStatus": {
+    "latestTrainingStatusData": {_P11_DEV: {"trainingStatus": 2}}}})["training"]
+check("P1.2 training status: unknown nested number -> the old top-level key is the fall-back, code stays",
+      [_t["training_status"], _t["training_status_code"]] == [9, 2])
+_t = _sum(training_status={"latestTrainingStatus": 7})["training"]
+check("P1.2 training status: the old top-level key alone is unchanged (value as given, no code)",
+      [_t["training_status"], _t["training_status_code"]] == [7, None])
+
+# max_metrics: list forms, the newest element, fitness age
+_mm = lambda *els: _sum(max_metrics=list(els))["training"]
+check("P1.2 max_metrics: an empty list -> None", _mm()["vo2max"] is None and _mm()["fitness_age"] is None)
+check("P1.2 max_metrics: the element with the newest generic.calendarDate wins, in either order",
+      _mm({"generic": {"calendarDate": "2025-01-01", "vo2MaxPreciseValue": 40.0}},
+          {"generic": {"calendarDate": "2025-02-01", "vo2MaxPreciseValue": 50.0}})["vo2max"] == 50.0
+      and _mm({"generic": {"calendarDate": "2025-02-01", "vo2MaxPreciseValue": 50.0}},
+              {"generic": {"calendarDate": "2025-01-01", "vo2MaxPreciseValue": 40.0}})["vo2max"] == 50.0)
+check("P1.2 max_metrics: without dates the first element wins",
+      _mm({"generic": {"vo2MaxPreciseValue": 41.0}}, {"generic": {"vo2MaxPreciseValue": 42.0}})["vo2max"] == 41.0)
+check("P1.2 max_metrics: junk elements are skipped",
+      _mm(None, 5, {"generic": {"vo2MaxPreciseValue": 43.0}})["vo2max"] == 43.0)
+check("P1.2 fitness age: get_fitnessage_data comes first, the max_metrics value is the fall-back",
+      _sum(get_fitnessage_data={"fitnessAge": 30}, max_metrics=[{"generic": {"fitnessAge": 33}}]
+           )["training"]["fitness_age"] == 30
+      and _sum(max_metrics=[{"generic": {"fitnessAge": 33}}])["training"]["fitness_age"] == 33)
+check("P1.2 fitness age: 0 from get_fitnessage_data is a value, not a gap",
+      _sum(get_fitnessage_data={"fitnessAge": 0}, max_metrics=[{"generic": {"fitnessAge": 33}}]
+           )["training"]["fitness_age"] == 0)
+
+# ── P1.3 (v1.7.6.6): the "alerts" section ────────────────────────────────────────────────────
+_ALERT_FIELDS = ["hr_alert_count", "breathing_disruption", "acwr_status", "body_battery_level",
+                 "body_battery_level_end_of_day", "stress_qualifier"]
+_al = _sum()["alerts"]
+check("P1.3 alerts: nothing present -> six fields, all None",
+      list(_al) == _ALERT_FIELDS and all(v is None for v in _al.values()))
+_al = _sum(sleep={"dailySleepDTO": {"breathingDisruptionSeverity": "NONE"}})["alerts"]
+check("P1.3 alerts: breathing disruption 'NONE' is a value, not a gap", _al["breathing_disruption"] == "NONE")
+_al = _sum(stats={"stressQualifier": "UNKNOWN"})["alerts"]
+check("P1.3 alerts: stress qualifier 'UNKNOWN' is passed on", _al["stress_qualifier"] == "UNKNOWN")
+check("P1.3 alerts: pulse alert count 0 is a value, not a gap",
+      _sum(user_summary={"abnormalHeartRateAlertsCount": 0})["alerts"]["hr_alert_count"] == 0)
+
+# source order: user_summary first, stats as the fall-back
+for _field, _key, _sub in (("hr_alert_count", "abnormalHeartRateAlertsCount", None),
+                           ("stress_qualifier", "stressQualifier", None),
+                           ("body_battery_level", "bodyBatteryDynamicFeedbackEvent", "bodyBatteryLevel"),
+                           ("body_battery_level_end_of_day", "endOfDayBodyBatteryDynamicFeedbackEvent", "bodyBatteryLevel")):
+    def _mk(v, _key=_key, _sub=_sub):
+        return v if _sub is None else {_sub: v}
+    _a, _b = (3, 4) if _sub is None and _field == "hr_alert_count" else ("AAA", "BBB")
+    check(f"P1.3 alerts.{_field}: only stats -> read from stats",
+          _sum(stats={_key: _mk(_a)})["alerts"][_field] == _a)
+    check(f"P1.3 alerts.{_field}: only user_summary -> read from user_summary",
+          _sum(user_summary={_key: _mk(_a)})["alerts"][_field] == _a)
+    check(f"P1.3 alerts.{_field}: both present -> user_summary wins",
+          _sum(user_summary={_key: _mk(_a)}, stats={_key: _mk(_b)})["alerts"][_field] == _a)
+    check(f"P1.3 alerts.{_field}: user_summary has no usable value -> stats",
+          _sum(user_summary={_key: _mk(None)}, stats={_key: _mk(_b)})["alerts"][_field] == _b)
+
+# types: a text field takes only a non-empty string, the count only a whole number (no boolean)
+for _label, _bad in (("number", 5), ("bool", True), ("list", ["x"]), ("dict", {"a": 1}), ("empty string", "")):
+    _al = _sum(stats={"stressQualifier": _bad, "bodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": _bad}},
+               sleep={"dailySleepDTO": {"breathingDisruptionSeverity": _bad}})["alerts"]
+    check(f"P1.3 alerts: a {_label} where a text belongs -> None",
+          _al["stress_qualifier"] is None and _al["body_battery_level"] is None and _al["breathing_disruption"] is None)
+for _label, _bad in (("text", "1"), ("float", 1.0), ("bool", True), ("None", None)):
+    check(f"P1.3 alerts: a {_label} where the count belongs -> None",
+          _sum(stats={"abnormalHeartRateAlertsCount": _bad})["alerts"]["hr_alert_count"] is None)
+for _label, _bad in (("None", None), ("string", "x"), ("list", [1])):
+    _al = _sum(stats=_bad, user_summary=_bad, sleep=_bad)["alerts"]
+    check(f"P1.3 alerts: stats/user_summary/sleep as {_label} -> all None, no crash",
+          all(v is None for v in _al.values()))
+check("P1.3 alerts: an event that is no dict -> None",
+      _sum(stats={"bodyBatteryDynamicFeedbackEvent": "HIGH"})["alerts"]["body_battery_level"] is None)
+
+# acwr status: from the same device entry as the training status
+def _p13_dev(entries):
+    return _sum(training_status={"mostRecentTrainingStatus": {"latestTrainingStatusData": entries}})["alerts"]["acwr_status"]
+
+check("P1.3 alerts.acwr_status: read from acuteTrainingLoadDTO of the device entry",
+      _p13_dev({_P11_DEV: {"acuteTrainingLoadDTO": {"acwrStatus": "HIGH"}}}) == "HIGH")
+check("P1.3 alerts.acwr_status: with two devices the one with the later timestamp, in either order",
+      _p13_dev({"1": {"timestamp": 1000, "acuteTrainingLoadDTO": {"acwrStatus": "LOW"}},
+                "2": {"timestamp": 2000, "acuteTrainingLoadDTO": {"acwrStatus": "HIGH"}}}) == "HIGH"
+      and _p13_dev({"2": {"timestamp": 2000, "acuteTrainingLoadDTO": {"acwrStatus": "HIGH"}},
+                    "1": {"timestamp": 1000, "acuteTrainingLoadDTO": {"acwrStatus": "LOW"}}}) == "HIGH")
+_t = _sum(training_status={"mostRecentTrainingStatus": {"latestTrainingStatusData": {
+    "1": {"timestamp": 1000, "trainingStatus": 1, "acuteTrainingLoadDTO": {"acwrStatus": "LOW"}},
+    "2": {"timestamp": 2000, "trainingStatus": 7, "acuteTrainingLoadDTO": {"acwrStatus": "HIGH"}}}}})
+check("P1.3 alerts.acwr_status: the training status and the acwr status come from the same device",
+      [_t["training"]["training_status_code"], _t["alerts"]["acwr_status"]] == [7, "HIGH"])
+check("P1.3 alerts.acwr_status: 'NONE' is a value", _p13_dev({_P11_DEV: {"acuteTrainingLoadDTO": {"acwrStatus": "NONE"}}}) == "NONE")
+for _label, _v in (("no acuteTrainingLoadDTO", {_P11_DEV: {"trainingStatus": 4}}),
+                   ("acuteTrainingLoadDTO empty", {_P11_DEV: {"acuteTrainingLoadDTO": {}}}),
+                   ("acuteTrainingLoadDTO no dict", {_P11_DEV: {"acuteTrainingLoadDTO": "x"}}),
+                   ("acwrStatus a number", {_P11_DEV: {"acuteTrainingLoadDTO": {"acwrStatus": 3}}}),
+                   ("no device entry", {}), ("None", None)):
+    check(f"P1.3 alerts.acwr_status: {_label} -> None", _p13_dev(_v) is None)
+
+# the other sections do not change because of the alert fields
+_with = _sum(stats={"stressQualifier": "CALM"}, user_summary={"totalSteps": 100, "abnormalHeartRateAlertsCount": 2})
+_without = _sum(user_summary={"totalSteps": 100})
+check("P1.3 alerts: the other sections are the same with and without alert fields",
+      all(_with[k] == _without[k] for k in _without if k != "alerts"))
+
+# counter-check: the same values in the old dict form are read, so the gap is the shape, not the keys
+_p11_old = _sum(training_readiness={"score": 74, "level": "HIGH", "feedbackLong": "GOOD_TO_GO"},
+                training_status={"latestTrainingStatus": 4},
+                max_metrics={"generic": {"vo2MaxPreciseValue": 51.3}})["training"]
+check("P1.1 counter-check: old dict forms still fill training",
+      [_p11_old["readiness_score"], _p11_old["readiness_level"], _p11_old["readiness_feedback"],
+       _p11_old["training_status"], _p11_old["vo2max"]] == [74, "HIGH", "GOOD_TO_GO", 4, 51.3])
 
 summary()

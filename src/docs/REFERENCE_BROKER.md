@@ -346,6 +346,14 @@ undercounted the pre-`v1.7.1.16` total by one, out of sync with both
 | `training_status` | text | Garmin's current training status label, e.g. `PRODUCTIVE` (v1.7.1.16) |
 | `training_load_7d` | — | 7-day training load balance — unit/scale not independently verified (v1.7.1.16) |
 | `respiration_avg` | breaths/min | Average overnight respiration rate — sibling of `spo2_avg`, previously only reachable via the ~70 KB/day `respiration_series` (v1.7.1.16) |
+| `hr_alert_count` | count | Pulse alerts of the day (`alerts.hr_alert_count`); on the measured archive the field exists only on days with an alert (v1.7.6.6) |
+| `breathing_disruption` | text | Breathing disruption of the night, e.g. `NONE`, `LOW` (`alerts.breathing_disruption`, v1.7.6.6) |
+| `acwr_status` | text | Acute-to-chronic load ratio status of the training status, e.g. `LOW`, `OPTIMAL`, `NONE` (`alerts.acwr_status`, v1.7.6.6) |
+| `body_battery_level` | text | Body battery level of the evening feedback event, `VERY_LOW` to `HIGH` — follows the body battery at the time of the event, observed, not a Garmin definition (`alerts.body_battery_level`, v1.7.6.6) |
+| `body_battery_level_end_of_day` | text | Same for the end-of-day event, later, near bedtime (`alerts.body_battery_level_end_of_day`, v1.7.6.6) |
+| `stress_qualifier` | text | Stress rating of the day, e.g. `BALANCED`, `STRESSFUL`, `UNKNOWN` (`alerts.stress_qualifier`, v1.7.6.6) |
+
+The six `alerts` fields (v1.7.6.6) read the `alerts` section of `summary/` (schema 5), are baseline fields without a capability gate and have no intraday track; a summary of the previous schema, or a day without an API day, gives `None`. The five text fields are left out of the daily dropdowns of the Explorer and the Custom Dashboard (`_EXCLUDE_FROM_DAILY`), `hr_alert_count` is not. `training.training_status_code` is deliberately not a broker field: a status number has no order, a baseline or anomaly flag over it would mean nothing.
 
 All six `bp_*` fields are gated in `_CAPABILITY_FIELDS` against
 `get_blood_pressure` — account-dependent (requires a compatible
@@ -583,6 +591,25 @@ result = get_metadata("quality_log", date_from="2026-08-01", date_to="2026-08-27
 # _apply_pending_context_resync() to invalidate stale SQLite-cache
 # entries for repaired context days — see REFERENCE_CONTEXT.md/
 # REFERENCE_MCP.md for the full mechanism.
+
+# v1.7.6.6 — a fifteenth kind, "summary_schema_state", internal sync use
+# only, also never exposed via get_archive_metadata() (it is in
+# _INTERNAL_ONLY_KINDS). No arguments beyond kind itself. Which schema
+# numbers the files in summary/ carry, read by
+# metadata_map.get_summary_schema_state(): every garmin_YYYY-MM-DD.json
+# counts by its schema_version (missing or not a whole number: 0); a file
+# that cannot be read, or is no JSON object, is only counted as
+# unreadable and left out of min/max. Never raises.
+#
+# result = get_metadata("summary_schema_state")
+# result == {"data": {"files": 2870, "min": 5, "max": 5, "unreadable": 0},
+#            "error": None}
+#
+# Used exclusively by clients/mcp_update.py's _reconcile_summary_schema():
+# the SQLite cache re-reads a day only when the quality log's last_checked
+# changed, and a schema migration rewrites summary/ without touching it —
+# so the cache sets the health days to be read again once all summaries
+# carry one new number (REFERENCE_MCP.md).
 ```
 
 `fit_map.py` (v1.8) is planned as a peer to `health_map.py` and

@@ -505,6 +505,38 @@ _FIELD_MAP = {
         "intraday": None,
         "daily":    ("sleep", "respiration_avg"),
     },
+
+    # -- v1.7.6.6, P1.5 — "alerts" section of summary/ (summarize(), schema 5): values the API day
+    #    already held and the summary did not show. Baseline fields (no capability gate, they come
+    #    from the baseline endpoints). Texts are passed on as Garmin delivers them ("NONE",
+    #    "UNKNOWN" are values); the two body battery levels are the category of the body battery at
+    #    the time of the event (evening / near bedtime) — observed on the archive, not a Garmin
+    #    definition. training.training_status_code is deliberately NOT registered: a status number
+    #    has no order, a baseline or anomaly flag over it would mean nothing. --
+    "hr_alert_count": {
+        "intraday": None,
+        "daily":    ("alerts", "hr_alert_count"),
+    },
+    "breathing_disruption": {
+        "intraday": None,
+        "daily":    ("alerts", "breathing_disruption"),
+    },
+    "acwr_status": {
+        "intraday": None,
+        "daily":    ("alerts", "acwr_status"),
+    },
+    "body_battery_level": {
+        "intraday": None,
+        "daily":    ("alerts", "body_battery_level"),
+    },
+    "body_battery_level_end_of_day": {
+        "intraday": None,
+        "daily":    ("alerts", "body_battery_level_end_of_day"),
+    },
+    "stress_qualifier": {
+        "intraday": None,
+        "daily":    ("alerts", "stress_qualifier"),
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════════════

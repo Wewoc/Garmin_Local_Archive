@@ -1,5 +1,107 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.6 — Alerts and Training in the Daily Summary
+
+The daily summary (`summary/`) gets a new section `alerts`, and the section `training`,
+which was empty on every day of a real archive, is filled. Both come with one rise of the
+summary schema (4 to 5). Nothing new is fetched: the values were already in `raw/`. The
+existing schema migration brings the days to schema 5 (backup first), in the app or, with
+"Migrate data in Daily Sync" on, in the daily sync.
+
+**What changed:**
+- **`training` is filled** (`garmin_normalizer.summarize`): the API day holds
+  `training_readiness` and `max_metrics` as lists of objects and the training status under
+  `mostRecentTrainingStatus.latestTrainingStatusData.<device id>`; `summarize()` read dicts
+  under other keys. Now the readiness comes from the entry with the latest `timestamp` (the
+  dict form of the export values is read as well), `training_status` is the text for the
+  status number through a small table of the observed numbers (0 `NO_STATUS`, 1
+  `DETRAINING`, 3 `OVERREACHING`, 4 `MAINTAINING`, 5 `RECOVERY`, 7 `PRODUCTIVE`; a number
+  outside the table gets no text), the new field `training_status_code` is the number as
+  delivered, and `vo2max` and `fitness_age` come from `max_metrics`. Where several entries
+  compete (readiness entries, device entries, `max_metrics` elements) the one with the
+  latest `timestamp` wins whatever the order of the list (helpers `_latest_entry`,
+  `_pick_entry`, `_pick_metrics`; the same rule as `garmin_import._later_entry_wins`, kept
+  apart because that module is a Netz-2 core module and reads ISO text only). The older
+  dict forms and keys still work. `training_load_7d` is unchanged (its source key is not what
+  the API delivers).
+- **New section `alerts`**: `hr_alert_count`, `breathing_disruption`, `acwr_status` (of the
+  same device entry as the training status), `body_battery_level` and
+  `body_battery_level_end_of_day` (the evening event and the end-of-day event), and
+  `stress_qualifier`. `user_summary` first, `stats` second; texts as delivered (`NONE` and
+  `UNKNOWN` are values), a value of another type is `None`. The Garmin export carries none of
+  these fields, so a day without an API day has them all `None`.
+- **Schema 5**: `CURRENT_SCHEMA_VERSION` 4 to 5. Nothing else in the migration changed; an
+  end-to-end test (`test_collector.py`) brings four days with summaries of the previous
+  schema (raw only, raw plus export, raw with an empty readiness list plus export, export
+  only) to the new content and shows that a second run changes nothing.
+- **Broker fields**: the six `alerts` fields are registered in
+  `garmin_health_map._FIELD_MAP` and `mcp_field_registry.FIELD_UNITS` (`count` / `text`),
+  baseline fields without a capability gate. `training_status_code` is deliberately not a
+  broker field (a status number has no order; a baseline or anomaly flag over it would mean
+  nothing). The five text fields are left out of the daily dropdowns of the Explorer and the
+  Custom Dashboard (`_EXCLUDE_FROM_DAILY`; a test keeps the two copies equal).
+- **MCP cache after a schema change (finding F-15, solved)**: the SQLite cache re-reads a
+  health day only when the quality log's `last_checked` changed, and the migration
+  rewrites `summary/` without touching it, so cached days kept their old values.
+  `mcp_update._reconcile_summary_schema()` (new, called in `sync_all()` after the field
+  registry check) asks the new internal metadata kind `summary_schema_state`
+  (`metadata_map.get_summary_schema_state`, registered in `gateway_map`, not offered to the
+  LLM) which schema numbers the summaries carry. When all readable summaries carry one and
+  the same number and it is not the one noted at the last sync (row `summary_schema` in
+  `mcp_snapshots`; nothing noted counts as unknown), it calls `reset_health_sync_state()` and
+  notes the number. Different numbers (migration due or running) or no summary: the cache
+  waits. Damaged summaries are left out. A failure is a warning, the number is then not
+  noted. Works for any later schema number without a change in the code. The result of
+  `sync_all()` carries `summary_schema_reset`. A read of all 2,870 summaries takes about
+  0.4 s.
+- **Finding F-16 pinned, not fixed**: a damaged summary file is not repaired by the
+  migration (`read_summary()` returns `{}`, the loop skips the day as "no summary file")
+  and not found by the silo check (it compares file names). `test_collector.py` pins the
+  current behaviour.
+
+**Changed modules:**
+- `garmin/garmin_normalizer.py` — `training`, `alerts`, helpers, `CURRENT_SCHEMA_VERSION` 5
+- `maps/garmin_health_map.py`, `clients/mcp_field_registry.py` — the six `alerts` fields and
+  units
+- `maps/metadata_map.py`, `maps/gateway_map.py` — `get_summary_schema_state()`, kind
+  `summary_schema_state`
+- `clients/mcp_update.py` — `_reconcile_summary_schema()`, `sync_all()`
+- `dashboards/custom_dash_builder.py`, `dashboards/explorer_garmin-context_html_dash.py` —
+  `_EXCLUDE_FROM_DAILY`
+- `tests/` — `test_normalizer.py`, `test_collector.py`, `test_broker.py`, `test_mcp.py`,
+  `test_dashboard.py`
+- `docs/` — `REFERENCE_GARMIN.md`, `REFERENCE_BROKER.md`, `REFERENCE_MCP.md`,
+  `REFERENCE_INVARIANTS.md`, `MAINTENANCE_GARMIN.md`, `MAINTENANCE_GLOBAL.md`,
+  `GLA_GUIDELINES.md`, `README_APP.md`, `USER_GUIDE.txt`, `ROADMAP.md`,
+  `VERSION_HISTORY.md`, `METRICS.md`
+- `version.py` — 1.7.6.6
+
+**Test result:** all suites green, 6577 checks in 48 files (`test_build_output.py`: 833
+passed, 12 skipped); all 257 source files compile on Python 3.11. Deliberate faults in the
+new code were caught by the tests (19 for the cache check, 26 for `training` and `alerts`,
+10 for the broker fields and the dropdowns, 8 for the migration test; the mutations ran on
+copies).
+
+**Verified:** on the maintainer's real archive, read only, nothing written: the new
+`summarize()` over all 2,870 raw days (resolved with the export values where there are any)
+fills `training_status` and `training_status_code` on 1,577 days, the readiness level on 606,
+the score on 602, `vo2max` and `fitness_age` on 481; `alerts` fills `stress_qualifier` on
+2,853 days, `body_battery_level` on 605, `body_battery_level_end_of_day` on 593,
+`acwr_status` on 597, `breathing_disruption` on 511 and `hr_alert_count` on 6, each as many
+as the raw days hold. Before, `training` was empty on all days. The two body battery levels
+were compared with the body battery series of the day: both follow its value at the time of
+the event (observed on one archive, not a Garmin definition), and they differ on 30 % of the
+days that have both.
+
+**Not covered:** the migration was not run on the real archive (all 2,870 summaries are
+still schema 4 there); the popup was not seen by a person; the MCP server was not started
+against a migrated archive and the time of its first full read was not measured; the
+meaning of the two body battery levels and of the load values (`weeklyTrainingLoad`,
+`dailyTrainingLoadAcute`) is not documented by Garmin; `training_load_7d` stays empty;
+finding F-16 is not fixed; the older text fields (`hrv_status`, `readiness_level`, …) are
+still offered in the dropdowns. An older program version has not been tried on a migrated
+archive.
+
 ## v1.7.6.5 — Rebuild of the Daily Values from the Kept Originals
 
 The daily values of the bulk store (`bulk/aggregates`) can now be built again from

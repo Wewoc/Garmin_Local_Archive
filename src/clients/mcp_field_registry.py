@@ -137,6 +137,14 @@ FIELD_UNITS: dict[str, str] = {
     "training_load_7d":       "—",  # Skala nicht sicher verifiziert
     "respiration_avg":        "breaths/min",
 
+    # ── health_map -> garmin, v1.7.6.6 "alerts" section (6) ───────────────────
+    "hr_alert_count":                "count",
+    "breathing_disruption":          "text",
+    "acwr_status":                   "text",
+    "body_battery_level":            "text",
+    "body_battery_level_end_of_day": "text",
+    "stress_qualifier":              "text",
+
     # ── health_map -> garmin, v1.7.6.1: stress durations from the Garmin export (4) ──
     #    seconds per day, read from bulk/aggregates (garmin_health_map, "bulk_daily")
     "stress_rest_duration":   "seconds",

@@ -733,7 +733,7 @@ _expected_kinds = {
     "stats", "device_table", "quality_log", "source_api_log", "token_log",
     "capability_config", "daily_logs", "fail_logs", "recent_logs",
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
-    "context_resync_pending",
+    "context_resync_pending", "summary_schema_state",
 }
 _all_registered_kinds = _expected_kinds | {"raw_file_hashes"}
 check("list_metadata_kinds: matches the registered kind set exactly",
@@ -743,7 +743,7 @@ check("list_metadata_kinds: matches the registered kind set exactly",
 # for the SQLite proxy's internal sync only; the default stays the full set.
 _internal_only = {
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
-    "raw_file_hashes", "context_resync_pending",
+    "raw_file_hashes", "context_resync_pending", "summary_schema_state",
 }
 check("list_metadata_kinds(include_internal=False): omits exactly the internal-sync-only kinds",
       set(gateway_map.list_metadata_kinds(include_internal=False))
@@ -830,6 +830,72 @@ check("get_context_resync_pending: corrupt JSON — degrades to data=None, error
       _crp_corrupt["data"] is None and _crp_corrupt["error"] is not None)
 
 _crp_path.unlink()  # restore no-marker state for any later section
+
+# ── v1.7.6.6: summary_schema_state — internal-sync-only kind: which schema numbers the summary/ files carry
+#    (clients/mcp_update.py tells the SQLite cache to re-read the health days after a schema migration).
+from unittest.mock import patch as _patch5
+
+check("get_metadata('summary_schema_state'): delegates to metadata_map.get_summary_schema_state()",
+      gateway_map.get_metadata("summary_schema_state") == metadata_map.get_summary_schema_state())
+check("summary_schema_state is an internal-sync-only kind: not among the kinds the LLM is offered",
+      "summary_schema_state" in gateway_map.list_metadata_kinds()
+      and "summary_schema_state" not in gateway_map.list_metadata_kinds(include_internal=False))
+
+
+def _put_ss(name, doc):
+    cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+    (cfg.SUMMARY_DIR / name).write_text(doc if isinstance(doc, str) else json.dumps(doc), encoding="utf-8")
+
+
+def _ss():
+    return metadata_map.get_summary_schema_state()
+
+
+shutil.rmtree(cfg.SUMMARY_DIR, ignore_errors=True)
+check("get_summary_schema_state: no summary folder — files 0, min/max None, no error",
+      _ss() == {"data": {"files": 0, "min": None, "max": None, "unreadable": 0}, "error": None})
+cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+check("get_summary_schema_state: an empty summary folder gives the same answer",
+      _ss() == {"data": {"files": 0, "min": None, "max": None, "unreadable": 0}, "error": None})
+
+for _d in ("2026-05-01", "2026-05-02", "2026-05-03"):
+    _put_ss(f"garmin_{_d}.json", {"date": _d, "schema_version": 4})
+_put_ss("garmin_dataformat.json", {"schema_version": 1})          # not a day file
+_put_ss("notes.json", {"schema_version": 1})
+check("get_summary_schema_state: all on one number — min = max, files that are no day file are not counted",
+      _ss()["data"] == {"files": 3, "min": 4, "max": 4, "unreadable": 0})
+
+_put_ss("garmin_2026-05-04.json", {"date": "2026-05-04", "schema_version": 5})
+check("get_summary_schema_state: two numbers — min and max differ",
+      _ss()["data"] == {"files": 4, "min": 4, "max": 5, "unreadable": 0})
+
+_put_ss("garmin_2026-05-05.json", {"date": "2026-05-05"})
+check("get_summary_schema_state: a summary without schema_version counts as 0 (the oldest)",
+      _ss()["data"] == {"files": 5, "min": 0, "max": 5, "unreadable": 0})
+for _label, _bad in (("true", True), ("text", "5"), ("float", 5.0), ("null", None), ("list", [5])):
+    shutil.rmtree(cfg.SUMMARY_DIR, ignore_errors=True)
+    _put_ss("garmin_2026-05-01.json", {"date": "2026-05-01", "schema_version": 4})
+    _put_ss("garmin_2026-05-02.json", {"date": "2026-05-02", "schema_version": _bad})
+    check(f"get_summary_schema_state: schema_version {_label} is no whole number — counts as 0",
+          _ss()["data"] == {"files": 2, "min": 0, "max": 4, "unreadable": 0})
+
+shutil.rmtree(cfg.SUMMARY_DIR, ignore_errors=True)
+_put_ss("garmin_2026-05-01.json", {"date": "2026-05-01", "schema_version": 5})
+_put_ss("garmin_2026-05-02.json", "{ not json")
+_put_ss("garmin_2026-05-03.json", [1, 2])
+_put_ss("garmin_2026-05-04.json", "")
+check("get_summary_schema_state: damaged files (no JSON, no object, empty) are only counted as unreadable and left out of min/max",
+      _ss()["data"] == {"files": 4, "min": 5, "max": 5, "unreadable": 3})
+shutil.rmtree(cfg.SUMMARY_DIR, ignore_errors=True)
+_put_ss("garmin_2026-05-02.json", "{ not json")
+check("get_summary_schema_state: only damaged files — files 1, min/max None",
+      _ss()["data"] == {"files": 1, "min": None, "max": None, "unreadable": 1})
+_put_ss("garmin_2026-05-01.json", {"date": "2026-05-01", "schema_version": 5})
+with _patch5.object(metadata_map, "_read_json_file", side_effect=RuntimeError("boom")):
+    _ss_err = _ss()
+check("get_summary_schema_state: an unexpected error degrades to data=None, error set — never raises",
+      _ss_err["data"] is None and "boom" in _ss_err["error"])
+shutil.rmtree(cfg.SUMMARY_DIR, ignore_errors=True)
 check("get_metadata('daily_log_filenames', date_from/date_to): forwards to metadata_map",
       gateway_map.get_metadata("daily_log_filenames", date_from="2026-06-15", date_to="2026-06-16") ==
       metadata_map.list_daily_log_filenames(date_from="2026-06-15", date_to="2026-06-16"))
@@ -1216,6 +1282,79 @@ check("sleep pct: the stress durations still read bulk/aggregates after the load
       and _dur7("2026-07-20", "stress_rest_duration")["values"][0]["value"] == 7)
 
 shutil.rmtree(cfg.BULK_AGG_DIR, ignore_errors=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  9. The fields of the "alerts" section of summary/ (v1.7.6.6, P1.5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+section("9. garmin_health_map — fields of the 'alerts' section (v1.7.6.6)")
+import garmin_normalizer as _norm9
+
+_D9 = "2026-08-01"
+_ALERTS9 = {"hr_alert_count": 1, "breathing_disruption": "LOW", "acwr_status": "OPTIMAL",
+            "body_battery_level": "HIGH", "body_battery_level_end_of_day": "LOW", "stress_qualifier": "BALANCED"}
+_RAW9 = {"date": _D9,
+         "stats": {"abnormalHeartRateAlertsCount": 1, "stressQualifier": "BALANCED",
+                   "bodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": "HIGH"},
+                   "endOfDayBodyBatteryDynamicFeedbackEvent": {"bodyBatteryLevel": "LOW"}},
+         "sleep": {"dailySleepDTO": {"sleepTimeSeconds": 25000, "breathingDisruptionSeverity": "LOW"}},
+         "training_status": {"mostRecentTrainingStatus": {"latestTrainingStatusData": {
+             "1111111111": {"trainingStatus": 4, "timestamp": 1000, "acuteTrainingLoadDTO": {"acwrStatus": "OPTIMAL"}}}}}}
+
+
+def _put_sum9(day, doc):
+    cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+    (cfg.SUMMARY_DIR / f"{cfg.SUMMARY_FILE_PREFIX}{day}.json").write_text(
+        doc if isinstance(doc, str) else json.dumps(doc), encoding="utf-8")
+
+
+def _val9(field, day=_D9):
+    return garmin_health_map.get(field, day, day, resolution="daily")["values"][0]["value"]
+
+
+_SUM9 = _norm9.summarize(_RAW9)
+check("alerts fields: the summary the tests read really carries the six values (the fixture is not hiding a change in summarize())",
+      _SUM9["alerts"] == _ALERTS9)
+check("alerts fields: all six are registered, as plain daily fields of the 'alerts' section (no intraday track)",
+      all(garmin_health_map._FIELD_MAP.get(f) == {"intraday": None, "daily": ("alerts", f)} for f in _ALERTS9))
+check("alerts fields: every registered key exists in the section summarize() writes (no typo, no drift)",
+      all(f in _norm9.summarize({"date": _D9})["alerts"] for f in _ALERTS9))
+check("alerts fields: training_status_code is deliberately not a broker field",
+      "training_status_code" not in garmin_health_map.list_fields())
+check("alerts fields: no capability gate — they are listed by list_fields() and by list_fields(active_only=True) alike",
+      all(f in garmin_health_map.list_fields() and f in garmin_health_map.list_fields(active_only=True) for f in _ALERTS9)
+      and not any(f in garmin_health_map._CAPABILITY_FIELDS for f in _ALERTS9))
+
+_put_sum9(_D9, _SUM9)
+check("alerts fields: a summary of schema 5 is read through the broker, value for value",
+      {f: _val9(f) for f in _ALERTS9} == _ALERTS9)
+check("alerts fields: the answer has the form of every daily field: values [{date, value}], source_resolution daily, fallback False",
+      all(set(garmin_health_map.get(f, _D9, _D9)) == {"values", "source_resolution", "fallback"}
+          and garmin_health_map.get(f, _D9, _D9)["fallback"] is False
+          and garmin_health_map.get(f, _D9, _D9)["source_resolution"] == "daily"
+          and set(garmin_health_map.get(f, _D9, _D9)["values"][0]) == {"date", "value"} for f in _ALERTS9))
+check("alerts fields: through health_map and gateway_map the value arrives unchanged",
+      health_map.get("stress_qualifier", _D9, _D9)["garmin"]["values"][0]["value"] == "BALANCED"
+      and gateway_map.get("acwr_status", _D9, _D9)["health"]["garmin"]["values"][0]["value"] == "OPTIMAL")
+
+_put_sum9("2026-08-02", {"date": "2026-08-02", "schema_version": 4, "day": {"steps": 1}})
+_put_sum9("2026-08-03", {"date": "2026-08-03", "schema_version": 5, "alerts": "oops"})
+_put_sum9("2026-08-04", {"date": "2026-08-04", "schema_version": 5,
+                         "alerts": {f: None for f in _ALERTS9}})
+_put_sum9("2026-08-05", "{ not json")
+check("alerts fields: a summary of the previous schema (no 'alerts' section) gives None for all six, no exception",
+      all(_val9(f, "2026-08-02") is None for f in _ALERTS9))
+check("alerts fields: an 'alerts' section that is no object gives None for all six",
+      all(_val9(f, "2026-08-03") is None for f in _ALERTS9))
+check("alerts fields: an 'alerts' section with null values gives None for all six",
+      all(_val9(f, "2026-08-04") is None for f in _ALERTS9))
+check("alerts fields: a summary that cannot be read gives None for all six, no exception",
+      all(_val9(f, "2026-08-05") is None for f in _ALERTS9))
+check("alerts fields: a day without a summary file gives None", all(_val9(f, "2026-08-31") is None for f in _ALERTS9))
+_r9 = garmin_health_map.get("body_battery_level", _D9, "2026-08-03", resolution="daily")
+check("alerts fields: a range gives every day in order, each from its own file",
+      [(e["date"], e["value"]) for e in _r9["values"]] == [(_D9, "HIGH"), ("2026-08-02", None), ("2026-08-03", None)])
 
 
 # ══════════════════════════════════════════════════════════════════════════════

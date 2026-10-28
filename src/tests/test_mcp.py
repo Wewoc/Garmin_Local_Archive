@@ -213,7 +213,7 @@ check("list_available_fields: metadata_kinds key present", "metadata_kinds" in _
 # default (test_broker.py pins that side).
 _INTERNAL_KINDS = {
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
-    "raw_file_hashes", "context_resync_pending",
+    "raw_file_hashes", "context_resync_pending", "summary_schema_state",
 }
 check("list_available_fields: metadata_kinds omits the internal-sync-only kinds",
       not (set(_laf_all["metadata_kinds"]) & _INTERNAL_KINDS))
@@ -440,6 +440,13 @@ check("mcp_server.list_available_fields: the four stress durations from the expo
       all(n in _laf_units["fields"]["health"]["garmin"] and _laf_units["units"].get(n) == "seconds" for n in _DUR_NAMES))
 check("mcp_server.list_available_fields: every registered garmin health field has an entry in FIELD_UNITS (no field falls back to the placeholder by accident)",
       [n for n in _laf_units["fields"]["health"]["garmin"] if n not in _FIELD_UNITS_ALL] == [])
+_ALERT_UNITS = {"hr_alert_count": "count", "breathing_disruption": "text", "acwr_status": "text",
+                "body_battery_level": "text", "body_battery_level_end_of_day": "text", "stress_qualifier": "text"}
+check("mcp_server.list_available_fields: the six 'alerts' fields are listed as health fields with their units (v1.7.6.6)",
+      all(n in _laf_units["fields"]["health"]["garmin"] and _laf_units["units"].get(n) == u for n, u in _ALERT_UNITS.items()))
+check("mcp_server.list_available_fields: training_status_code is not a health field (a status number has no order)",
+      "training_status_code" not in _laf_units["fields"]["health"]["garmin"]
+      and "training_status_code" not in _FIELD_UNITS_ALL)
 
 # ── 8b. Routing weiche (v1.7.1.1 Ziel 5) — placeholder always returns "sqlite" ─
 #
@@ -1936,6 +1943,169 @@ mcp_sql.invalidate_context_day("2026-03-07", {"weather"})
 _state_absent_source = mcp_sql.get_context_day_state("2026-03-07")
 check("invalidate_context_day: removing a source that was never present — no-op, no crash",
       _state_absent_source["complete_sources"] == {"pollen"})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  10b. clients/mcp_update.py — _reconcile_summary_schema() (v1.7.6.6, finding F-15)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# A schema migration rewrites summary/ without touching the quality log's last_checked, the only thing
+# _sync_health_days() compares — so the cache has to learn from the summaries themselves. Decision logic
+# with mcp_sql mocked (same style as section 9), then once against the real DB of section 10.
+
+section("mcp_update 10b. _reconcile_summary_schema() — the cache learns that the summaries changed their schema")
+
+import mcp_update
+
+
+def _st10b(lo, hi, unreadable=0):
+    return {"data": {"files": 9, "min": lo, "max": hi, "unreadable": unreadable}, "error": None}
+
+
+def _rss(state, stored, reset_error=None, upsert_error=None):
+    with patch("maps.mcp_map.get_archive_metadata", side_effect=state if isinstance(state, Exception) else None,
+               return_value=None if isinstance(state, Exception) else state) as _meta, \
+         patch("mcp_sql.get_snapshot", return_value=stored), \
+         patch("mcp_sql.reset_health_sync_state", side_effect=reset_error) as _reset, \
+         patch("mcp_sql.upsert_snapshot", side_effect=upsert_error) as _up:
+        res = mcp_update._reconcile_summary_schema()
+    return res, _meta, _reset, _up
+
+
+_r, _meta, _reset, _up = _rss(_st10b(5, 5), {"version": 5})
+check("reconcile_summary_schema: the same number as noted — nothing happens",
+      _r is False and not _reset.called and not _up.called)
+check("reconcile_summary_schema: it asks the broker for the internal kind 'summary_schema_state'",
+      _meta.call_args.args == ("summary_schema_state",))
+_r, _meta, _reset, _up = _rss(_st10b(5, 5), {"version": 4})
+check("reconcile_summary_schema: all summaries on 5, noted 4 — the health days are set to be read again, once",
+      _r is True and _reset.call_count == 1)
+check("reconcile_summary_schema: ... and the new number is noted (snapshot 'summary_schema', version 5, with a time)",
+      _up.call_count == 1 and _up.call_args.args[0] == "summary_schema" and _up.call_args.args[1] == {"version": 5}
+      and isinstance(_up.call_args.args[2], str) and "T" in _up.call_args.args[2])
+_r, _meta, _reset, _up = _rss(_st10b(4, 4), {"version": 5})
+check("reconcile_summary_schema: all summaries on 4, noted 5 (a restored older archive) — read again as well",
+      _r is True and _reset.call_count == 1 and _up.call_args.args[1] == {"version": 4})
+for _label, _stored in (("nothing noted yet", None), ("an empty row", {}), ("a version that is no number", {"version": "5"}),
+                        ("a row that is no object", "x")):
+    _r, _meta, _reset, _up = _rss(_st10b(5, 5), _stored)
+    check(f"reconcile_summary_schema: {_label} counts as unknown — read again, number noted",
+          _r is True and _reset.call_count == 1 and _up.call_args.args[1] == {"version": 5})
+_r, _meta, _reset, _up = _rss(_st10b(4, 5), {"version": 4})
+check("reconcile_summary_schema: summaries on different numbers (a migration is due or running) — the cache waits, nothing noted",
+      _r is False and not _reset.called and not _up.called)
+for _label, _stored in (("noted 5 (an older day came back)", {"version": 5}), ("noted 3", {"version": 3}), ("nothing noted", None)):
+    _r, _meta, _reset, _up = _rss(_st10b(4, 5), _stored)
+    check(f"reconcile_summary_schema: summaries on 4 and 5, {_label} — the cache waits, whatever was noted",
+          _r is False and not _reset.called and not _up.called)
+_r, _meta, _reset, _up = _rss(_st10b(None, None), {"version": 4})
+check("reconcile_summary_schema: no readable summary at all — nothing happens",
+      _r is False and not _reset.called and not _up.called)
+_r, _meta, _reset, _up = _rss(_st10b(5, 5, unreadable=3), {"version": 4})
+check("reconcile_summary_schema: damaged summaries do not block the reset (the metadata leaves them out)",
+      _r is True and _reset.call_count == 1)
+for _label, _state in (("an error", {"data": None, "error": "boom"}), ("no object", {"data": [1], "error": None}),
+                       ("an error and data", {"data": {"min": 5, "max": 5}, "error": "boom"})):
+    _r, _meta, _reset, _up = _rss(_state, {"version": 4})
+    check(f"reconcile_summary_schema: the broker answers with {_label} — nothing happens, no exception",
+          _r is False and not _reset.called and not _up.called)
+_r, _meta, _reset, _up = _rss(RuntimeError("broker down"), {"version": 4})
+check("reconcile_summary_schema: the broker raises — nothing happens, no exception",
+      _r is False and not _reset.called and not _up.called)
+_r, _meta, _reset, _up = _rss(_st10b(5, 5), {"version": 4}, reset_error=RuntimeError("db locked"))
+check("reconcile_summary_schema: the reset fails — False, no exception, the number is NOT noted (the next pass tries again)",
+      _r is False and _reset.call_count == 1 and not _up.called)
+_r, _meta, _reset, _up = _rss(_st10b(5, 5), {"version": 4}, upsert_error=RuntimeError("db locked"))
+check("reconcile_summary_schema: noting the number fails after the reset — False, no exception",
+      _r is False and _reset.call_count == 1)
+
+# ── against the real database of section 10 and real summary files ──
+_D10B = "2026-09-01"
+
+
+def _sums10b(*versions):
+    shutil.rmtree(cfg.SUMMARY_DIR, ignore_errors=True)
+    cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+    for _n, _v in enumerate(versions, 1):
+        (cfg.SUMMARY_DIR / f"garmin_2026-09-0{_n}.json").write_text(json.dumps({"date": f"2026-09-0{_n}", "schema_version": _v}), encoding="utf-8")
+
+
+def _cached10b():
+    mcp_sql.upsert_health_day(_D10B, {"x": 1}, "2026-09-01T10:00:00")      # what _sync_health_days leaves behind
+    return mcp_sql.get_health_compare_value(_D10B)
+
+
+_sums10b(4, 4)
+check("real DB: a day is cached with its compare value", _cached10b() == "2026-09-01T10:00:00")
+check("real DB: nothing noted yet — the cache is set to be read again (compare value NULL) and the number is noted",
+      mcp_update._reconcile_summary_schema() is True and mcp_sql.get_health_compare_value(_D10B) is None
+      and mcp_sql.get_snapshot("summary_schema") == {"version": 4})
+_cached10b()
+check("real DB: the summaries are still on 4 — the next pass leaves the cached day alone",
+      mcp_update._reconcile_summary_schema() is False and mcp_sql.get_health_compare_value(_D10B) == "2026-09-01T10:00:00")
+_sums10b(5, 4)
+check("real DB: the migration is half through (4 and 5) — the cache waits, the day stays cached",
+      mcp_update._reconcile_summary_schema() is False and mcp_sql.get_health_compare_value(_D10B) == "2026-09-01T10:00:00"
+      and mcp_sql.get_snapshot("summary_schema") == {"version": 4})
+_sums10b(5, 5)
+check("real DB: the migration is through (all on 5) — the day is set to be read again and 5 is noted",
+      mcp_update._reconcile_summary_schema() is True and mcp_sql.get_health_compare_value(_D10B) is None
+      and mcp_sql.get_snapshot("summary_schema") == {"version": 5})
+_cached10b()
+check("real DB: ... and only once — the next pass changes nothing",
+      mcp_update._reconcile_summary_schema() is False and mcp_sql.get_health_compare_value(_D10B) == "2026-09-01T10:00:00")
+_sums10b(5, 4)
+check("real DB: 5 is noted and an older summary turns up (4 and 5) — the cache waits, the day stays cached",
+      mcp_update._reconcile_summary_schema() is False and mcp_sql.get_health_compare_value(_D10B) == "2026-09-01T10:00:00"
+      and mcp_sql.get_snapshot("summary_schema") == {"version": 5})
+_sums10b(5, 5, 5)
+(cfg.SUMMARY_DIR / "garmin_2026-09-09.json").write_text("{ not json", encoding="utf-8")
+check("real DB: a damaged summary next to migrated ones does not hold anything back or trigger anything",
+      mcp_update._reconcile_summary_schema() is False and mcp_sql.get_health_compare_value(_D10B) == "2026-09-01T10:00:00")
+_sums10b(6, 6)
+check("real DB: a further schema number (6) is handled the same way — no change in the code needed",
+      mcp_update._reconcile_summary_schema() is True and mcp_sql.get_health_compare_value(_D10B) is None
+      and mcp_sql.get_snapshot("summary_schema") == {"version": 6})
+shutil.rmtree(cfg.SUMMARY_DIR, ignore_errors=True)
+_conn10b = mcp_sql.get_connection()
+_conn10b.execute("DELETE FROM mcp_health_days WHERE date = ?", (_D10B,))
+_conn10b.execute("DELETE FROM mcp_snapshots WHERE kind = 'summary_schema'")
+_conn10b.commit()
+
+# ── sync_all() runs the check after the field-registry check and before the health days are read ──
+_order10b = []
+
+
+def _step10b(name, ret):
+    def _f(*a, **k):
+        _order10b.append(name)
+        return ret
+    return _f
+
+
+def _sync_all10b(reset_result):
+    del _order10b[:]
+    with patch.multiple(mcp_update,
+                        _start_update_log=_step10b("log", None),
+                        _apply_pending_context_resync=_step10b("context_resync", []),
+                        _reconcile_field_registry=_step10b("field_registry", {}),
+                        _reconcile_summary_schema=_step10b("summary_schema", reset_result),
+                        _sync_health_days=_step10b("health_days", (0, 0)),
+                        _sync_health_baselines=_step10b("baselines", (0, 0)),
+                        _sync_context_days=_step10b("context_days", (0, 0)),
+                        _sync_raw_fields=_step10b("raw_fields", (0, 0)),
+                        _sync_structured_log=_step10b("structured_log", (0, 0)),
+                        _sync_recent_log_files=_step10b("recent_logs", (0, 0))), \
+         patch("mcp_sql.init_db"), patch("mcp_sql.upsert_snapshot"), \
+         patch("maps.mcp_map.get_archive_metadata", return_value={"data": None, "error": None}):
+        return mcp_update.sync_all()
+
+
+_res10b = _sync_all10b(True)
+check("sync_all: the summary schema check runs after the field registry check and before the health days are read",
+      _order10b.index("field_registry") < _order10b.index("summary_schema") < _order10b.index("health_days"))
+check("sync_all: the result carries summary_schema_reset (True when the check fired)", _res10b["summary_schema_reset"] is True)
+check("sync_all: ... and False when it did not", _sync_all10b(False)["summary_schema_reset"] is False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -547,7 +547,7 @@ Run after any change to: `garmin_health_map`, `health_map`, `context_map`, `gate
 python tests/test_broker.py
 ```
 
-No network, no GUI, no API calls. Routing-contract checks for `health_map` and `gateway_map` — moved out of `test_dashboard.py` (v1.6.9.2), where they sat mixed in with Dashboard-specific specialist/plotter tests. `context_map`'s own fan-out routing (multi-source `get()`, KeyError-skip, per-source exception degrade, `list_fields()`/`list_sources()`) gained dedicated coverage in Section 1b — closes the gap noted above. `gateway_map`'s `_expected_kinds`/metadata-kind envelope loop covers the new `"context_resync_pending"` kind (v1.7.2.3, `maps/metadata_map.get_context_resync_pending()`) alongside the pre-existing ones; `list_metadata_kinds(include_internal=False)` is pinned to omit exactly the five internal-sync-only kinds while the default stays the full registry (v1.7.5.1). Check and section totals are tracked in `docs/METRICS.md` (`tests/test_broker.py`) — not restated here to avoid drift.
+No network, no GUI, no API calls. Routing-contract checks for `health_map` and `gateway_map` — moved out of `test_dashboard.py` (v1.6.9.2), where they sat mixed in with Dashboard-specific specialist/plotter tests. `context_map`'s own fan-out routing (multi-source `get()`, KeyError-skip, per-source exception degrade, `list_fields()`/`list_sources()`) gained dedicated coverage in Section 1b — closes the gap noted above. `gateway_map`'s `_expected_kinds`/metadata-kind envelope loop covers the new `"context_resync_pending"` kind (v1.7.2.3, `maps/metadata_map.get_context_resync_pending()`) alongside the pre-existing ones; `list_metadata_kinds(include_internal=False)` is pinned to omit exactly the six internal-sync-only kinds while the default stays the full registry (v1.7.5.1; `summary_schema_state` since v1.7.6.6, with its content tested in Section 5 against real summary files). Section 9 (v1.7.6.6) covers the six `alerts` fields: registration, that every registered key exists in what `summarize()` writes, an end-to-end read of a summary written by `summarize()`, and summaries of the previous schema or damaged. Check and section totals are tracked in `docs/METRICS.md` (`tests/test_broker.py`) — not restated here to avoid drift.
 
 Run after any change to: `health_map`, `context_map`, `gateway_map`, `garmin_health_map` (routing target), `weather_map`/`pollen_map`/`brightsky_map`/`airquality_map` (context_map's own routing targets).
 
@@ -570,7 +570,10 @@ recently Section 9 (v1.7.1.17), covering
 `mcp_update._reconcile_field_registry()`'s seed-vs-reset decision logic
 (mocked, same scoping choice as the rest of this file — see that
 section's own comment for why a real-SQLite test of `mcp_sql.py`'s new
-field-registry functions is still an open gap). Check and section
+field-registry functions is still an open gap) and Section 10b (v1.7.6.6), covering
+`mcp_update._reconcile_summary_schema()` — decision logic mocked and once
+against the real SQLite file of Section 10 (migration half through and through,
+a damaged summary next to migrated ones, a further schema number). Check and section
 totals are tracked in `docs/METRICS.md` (`test_mcp.py`) — not restated
 here to avoid drift.
 

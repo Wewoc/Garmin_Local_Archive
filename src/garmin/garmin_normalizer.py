@@ -26,7 +26,9 @@ Module constants:
 No file IO, no quality log access, no API calls, no ENV reads.
 """
 
+import json
 import logging
+from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +40,11 @@ log = logging.getLogger(__name__)
 # days and regenerates their summary from raw/ automatically — raw/
 # already holds the full get_blood_pressure payload for those days
 # (that was the original Issue #7 gap: data archived, never surfaced).
-CURRENT_SCHEMA_VERSION = 4
+# v1.7.6.6: 4 → 5 — new "alerts" section, the "training" section is filled from the shapes of the
+# API day (readiness and max_metrics as lists, the training status under its device id) and has the
+# new field training_status_code. Already-archived days get the values through the schema migration
+# (raw/ holds the data, no API call).
+CURRENT_SCHEMA_VERSION = 5
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -288,22 +294,59 @@ def summarize(raw: dict) -> dict:
     }
 
     # ── Training ──
-    tr = raw.get("training_readiness", {}) or {}
+    # v1.7.6.6, P1.2: the API day holds training_readiness and max_metrics as LISTS of objects and the
+    # training status nested under mostRecentTrainingStatus.latestTrainingStatusData.<device id>;
+    # the export values (bulk/aggregates) hold readiness as a dict. Both forms are read, the dict
+    # forms and keys read before stay valid.
+    tr = _pick_entry(raw.get("training_readiness"))
     ts = raw.get("training_status", {}) or {}
-    mm = raw.get("max_metrics", {}) or {}
+    mm = _pick_metrics(raw.get("max_metrics"))
     es = raw.get("get_endurance_score") or {}
     hs = raw.get("get_hill_score") or {}
     fa = raw.get("get_fitnessage_data") or {}
+    _devices = safe_get(ts, "mostRecentTrainingStatus", "latestTrainingStatusData")
+    _dev     = _latest_entry(list(_devices.values()) if isinstance(_devices, dict) else [])
+    _code    = _dev.get("trainingStatus") if _dev else None
+    if isinstance(_code, bool) or not isinstance(_code, int):
+        _code = None
+    _status_text = _TRAINING_STATUS_TEXT.get(_code)
+    _fitness_age = safe_get(fa, "fitnessAge")
+    if _fitness_age is None:
+        _fitness_age = safe_get(mm, "generic", "fitnessAge")
     s["training"] = {
         "readiness_score":    safe_get(tr, "score") or safe_get(tr, "trainingReadinessScore"),
         "readiness_level":    safe_get(tr, "level") or safe_get(tr, "trainingReadinessLevel"),
         "readiness_feedback": safe_get(tr, "feedbackLong"),
-        "training_status":    safe_get(ts, "latestTrainingStatus") or safe_get(ts, "trainingStatus"),
+        "training_status":    _status_text if _status_text is not None
+                              else safe_get(ts, "latestTrainingStatus") or safe_get(ts, "trainingStatus"),
+        "training_status_code": _code,
         "training_load_7d":   safe_get(ts, "trainingLoadBalance", "sevenDayTrainingLoad"),
         "vo2max":             safe_get(mm, "vo2MaxPreciseValue") or safe_get(mm, "generic", "vo2MaxPreciseValue"),
         "endurance_score":    safe_get(es, "overallScore"),
         "hill_score":         safe_get(hs, "overallScore"),
-        "fitness_age":        safe_get(fa, "fitnessAge"),
+        "fitness_age":        _fitness_age,
+    }
+
+    # ── Alerts (v1.7.6.6, P1.3) ──
+    # Values the API day already holds and the summary did not show. user_summary first, stats second
+    # (the archive holds the same values in both). The export values (bulk/aggregates) carry none of
+    # these fields, so a day without an API day has them all as None. Texts are passed on as Garmin
+    # delivers them ("NONE" and "UNKNOWN" are values, not gaps); a value of another type is None.
+    # The body battery levels are the category of the body battery at the time of the event: the
+    # first event falls in the evening, the end-of-day event later, near bedtime (measured on the
+    # archive, not a Garmin definition). The HRV status stays in sleep.hrv_status.
+    s["alerts"] = {
+        "hr_alert_count":       _first_count(safe_get(us, "abnormalHeartRateAlertsCount"),
+                                             safe_get(st, "abnormalHeartRateAlertsCount")),
+        "breathing_disruption": _first_text(safe_get(ds, "breathingDisruptionSeverity")),
+        "acwr_status":          _first_text(safe_get(_dev, "acuteTrainingLoadDTO", "acwrStatus")),
+        "body_battery_level":   _first_text(
+            safe_get(us, "bodyBatteryDynamicFeedbackEvent", "bodyBatteryLevel"),
+            safe_get(st, "bodyBatteryDynamicFeedbackEvent", "bodyBatteryLevel")),
+        "body_battery_level_end_of_day": _first_text(
+            safe_get(us, "endOfDayBodyBatteryDynamicFeedbackEvent", "bodyBatteryLevel"),
+            safe_get(st, "endOfDayBodyBatteryDynamicFeedbackEvent", "bodyBatteryLevel")),
+        "stress_qualifier":     _first_text(safe_get(us, "stressQualifier"), safe_get(st, "stressQualifier")),
     }
 
     # ── Activities (compact) ──
@@ -337,6 +380,102 @@ def safe_get(d, *keys, default=None):
             return default
         d = d.get(k, default)
     return d
+
+
+# Names of the training status numbers (v1.7.6.6, P1.2). Origin: the API data of the archive itself —
+# in every entry that carries the number and the text trainingStatusFeedbackPhrase, number and
+# first word of the text agree (class A of the provenance rule; observed, not from a Garmin document).
+# A number that is not listed gets no text; it is not guessed.
+_TRAINING_STATUS_TEXT = {
+    0: "NO_STATUS",
+    1: "DETRAINING",
+    3: "OVERREACHING",
+    4: "MAINTAINING",
+    5: "RECOVERY",
+    7: "PRODUCTIVE",
+}
+
+
+def _entry_time(entry: dict):
+    """Time of an entry as seconds, or None: "timestamp" is ISO text (readiness) or milliseconds (training status)."""
+    ts = entry.get("timestamp")
+    if isinstance(ts, bool):
+        return None
+    if isinstance(ts, (int, float)):
+        return ts / 1000.0
+    if isinstance(ts, str):
+        try:
+            return datetime.strptime(ts[:19].replace(" ", "T"), "%Y-%m-%dT%H:%M:%S").replace(
+                tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _latest_entry(entries):
+    """
+    The latest of several entries (dicts), independent of their order (v1.7.6.6, P1.2): an entry with
+    a readable "timestamp" beats one without, the later beats the earlier; with the same time (or none
+    on both sides) the smaller canonical JSON text wins. Entries that are no dict are ignored.
+    Returns {} when there is none. Same rule as garmin_import._later_entry_wins (a core module, which
+    reads ISO text only), kept apart here because the training status carries milliseconds.
+    """
+    best, best_t = None, None
+    for e in entries or []:
+        if not isinstance(e, dict):
+            continue
+        t = _entry_time(e)
+        if best is None:
+            best, best_t = e, t
+        elif t != best_t:
+            if best_t is None or (t is not None and t > best_t):
+                best, best_t = e, t
+        elif _canon(e) < _canon(best):
+            best, best_t = e, t
+    return best if best is not None else {}
+
+
+def _canon(entry: dict) -> str:
+    return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _pick_entry(value) -> dict:
+    """A dict as it is; a list of entries -> the latest one (_latest_entry); anything else -> {}."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return _latest_entry(value)
+    return {}
+
+
+def _pick_metrics(value) -> dict:
+    """max_metrics: a dict as it is; a list -> the element with the newest generic.calendarDate (the first on a tie)."""
+    if isinstance(value, dict):
+        return value
+    best, best_day = None, ""
+    for e in value if isinstance(value, list) else []:
+        if not isinstance(e, dict):
+            continue
+        day = str(safe_get(e, "generic", "calendarDate") or "")
+        if best is None or day > best_day:
+            best, best_day = e, day
+    return best if best is not None else {}
+
+
+def _first_text(*values):
+    """The first value that is a non-empty string, else None (v1.7.6.6, P1.3)."""
+    for v in values:
+        if isinstance(v, str) and v:
+            return v
+    return None
+
+
+def _first_count(*values):
+    """The first value that is a whole number (not a boolean), else None (v1.7.6.6, P1.3)."""
+    for v in values:
+        if isinstance(v, int) and not isinstance(v, bool):
+            return v
+    return None
 
 
 def _parse_list_values(lst, dict_key: int | str) -> list:
