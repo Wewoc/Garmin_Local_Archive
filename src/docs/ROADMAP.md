@@ -6,17 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.6**
+**Currently stable — v1.7.6.7**
 
 ---
-
-### v1.7.6.7 — More export file types and import inventory
-
-- Health status and pulse alert events of the export are read into the bulk
-  store.
-- Further export families (gear, personal records, courses, zones) are kept
-  as originals.
-- The import result lists the known and the unknown file types of the export.
 
 ### v1.7.6.8 — Source comparison in the import summary
 
@@ -415,6 +407,11 @@ required before any architecture work. Not before v1.10.
 ## Under consideration — v2.0
 
 These are ideas, not commitments. Some may never get built.
+
+**Health status and pulse alert events for queries and dashboards**
+
+The import stores both (v1.7.6.7). Reading them through the broker (AI queries,
+dashboards, exports) is a separate step.
 
 **Open mHealth / IEEE 1752.1 export format**
 

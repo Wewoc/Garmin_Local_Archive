@@ -67,7 +67,7 @@ Fill rates are for the observed export and are only a hint of what is typically 
 | `EnduranceScore`, `HillScore` | one day | `calendarDate` (epoch ms) | `overallScore`, `classification`, contributors; hill: classification ids | Seen |
 | `MetricsHeatAltitudeAcclimation` | one day | `calendarDate` (string) | acclimation percentages and timestamps | Seen |
 | `RunRacePredictions` | one day | `calendarDate` (string) | `raceTime5K/10K/Half/Marathon` | Seen |
-| `healthStatusData` | one day | `calendarDate` | `metrics[]`: `type` (HRV, HR, SpO2, skin temperature), `value`, `baselineLowerLimit/UpperLimit`, `status` (for example `IN_RANGE`), `feedbackKey` | Seen |
+| `healthStatusData` | one day | `calendarDate` | `outliersCount`, `createTimestampUTC`, `updateTimestampUTC`, `metrics[]`: `type` (HRV, HR, SPO2, SKIN_TEMP_C, RESPIRATION), `value` (missing in about a fifth of the metrics), `baselineLowerLimit/UpperLimit`, `percentage`, `status` (for example `IN_RANGE`), `feedbackKey` | Seen |
 | `AbnormalHrEvents` | one event | `calendarDate`, `abnormalHrEventGMT` | `abnormalHrThresholdValue`, `abnormalHrValue`, `deviceId` | Seen |
 | `HydrationLogFile` | one entry | `calendarDate` | `valueInML`, `estimatedSweatLossInML`, `hydrationSource`, `activityId` | Seen |
 | `fitnessAgeData` | one measurement | `asOfDateGmt` | bio age fields, `biometricVo2Max`, BMI, `rhr` | Seen |
@@ -152,12 +152,13 @@ Each item: what is wrong with the obvious reading, and how it was seen. GLA-spec
 
 ## 8. How GLA uses the export (GLA-specific, version-bound)
 
-This section describes the GLA software, not the export format. Valid for GLA 1.7.6.1; check the current docs for later versions.
+This section describes the GLA software, not the export format. Valid for GLA 1.7.6.7; check the current docs for later versions.
 
-- The JSON phase of the bulk import reads `UDSFile`, `sleepData`, `TrainingReadinessDTO` and `summarizedActivities` and writes the day values to `bulk/aggregates`; the raw originals go to `bulk/source` (by hash).
+- The JSON phase of the bulk import reads `UDSFile`, `sleepData`, `TrainingReadinessDTO`, `summarizedActivities` and, since v1.7.6.7, `healthStatusData` and `AbnormalHrEvents` and writes the day values to `bulk/aggregates`; the raw originals go to `bulk/source` (by hash).
+- Since v1.7.6.7 the JSON files of the families `gear`, `personalRecord`, `courses` and the zone files (`heartRateZones`, `powerZones`) are kept unchanged in `bulk/source` and nothing is read from them. The file-name patterns of `gear`, `personalRecord` and `courses` come from the folder listing in section 2 and have not been checked against a sample; the zone files were. A file that matches none of the patterns is only counted (inventory in the import result: counts per kind and the folders of the unknown files, never a file name). A JSON file over 64 MB is skipped.
 - The heart-rate phase reads the FIT files, keeps the originals in `bulk/source` and writes the heart-rate series per day to `bulk/raw`.
 - Since v1.7.6.5 the day values in `bulk/aggregates` can be built again from the JSON originals in `bulk/source` without the export (a step of the sync, preview first); the kind of each original is found from its content (see `detect_kind` in `REFERENCE_GARMIN.md`).
-- Files and fields not read today include `MetricsMaxMetData`, `TrainingHistory`, `AbnormalHrEvents`, `healthStatusData`, the Endurance, Hill, acclimation and prediction files, and warning fields inside the files that are read.
+- Files and fields not read today include `MetricsMaxMetData`, `TrainingHistory`, the Endurance, Hill, acclimation and prediction files, and warning fields inside the files that are read. `healthStatusData` and `AbnormalHrEvents` are stored (v1.7.6.7) but no query, dashboard or export reads them yet.
 
 ## 9. Open points
 

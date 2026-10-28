@@ -761,4 +761,185 @@ _pre_calls = []
 _ = list(_gi.load_bulk_with_entries(_exp_zip, lambda n, d: _pre_calls.append(len(d))))
 check("4k3 read hook: the hook gets bytes, not text", all(isinstance(n, int) and n > 0 for n in _pre_calls) and _pre_calls)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4k5. v1.7.6.7 (P3) — health status, pulse alert events, kept families, inventory
+# ══════════════════════════════════════════════════════════════════════════════
+section("4k5. garmin_import — more kinds, kept families, inventory (v1.7.6.7)")
+
+_MAIL = "someone.secret@example.invalid"
+_G_HEALTH = "DI_CONNECT/DI-Connect-Wellness/2024-05-01_2024-05-31_12345_healthStatusData.json"
+_G_ALERT = "DI_CONNECT/DI-Connect-Wellness/2024-05-01_2024-05-31_12345_AbnormalHrEvents.json"
+_G_GEAR = f"DI_CONNECT/DI-Connect-Fitness/{_MAIL}_gear.json"
+_G_PREC = f"DI_CONNECT/DI-Connect-Fitness/{_MAIL}_personalRecord.json"
+_G_COURSES = f"DI_CONNECT/DI-Connect-Routing/{_MAIL}_courses_2024-01-01_2024-12-31.json"
+_G_ZONES = "DI_CONNECT/DI-Connect-Wellness/12345_heartRateZones.json"
+_G_WORKOUT = f"DI_CONNECT/DI-Connect-Fitness/{_MAIL}_workout.json"          # a family nobody reads or keeps
+_G_TRAINING = "DI_CONNECT/DI-Connect-Metrics/TrainingHistory_20240501_20240531_12345.json"
+
+
+def _h(d, hrv=50.0):
+    return {"calendarDate": d, "createTimestampUTC": d + "T04:00:00.0", "updateTimestampUTC": d + "T05:00:00.0",
+            "outliersCount": 0, "metrics": [{"type": "HRV", "value": hrv, "status": "IN_RANGE", "feedbackKey": "k",
+                                             "baselineLowerLimit": 40.0, "baselineUpperLimit": 60.0, "percentage": 50.0}]}
+
+
+def _a(d, when, value=150):
+    return {"calendarDate": d, "abnormalHrEventGMT": when, "abnormalHrThresholdValue": 120,
+            "abnormalHrValue": value, "deviceId": 1}
+
+
+# -- parse_day: two optional sections, as delivered --------------------------------------------------------------------
+_pd_none = _gi.parse_day({"uds": {"totalSteps": 1}}, "2024-05-02")
+_pd = _gi.parse_day({"uds": {"totalSteps": 1}, "health_status": _h("2024-05-02"),
+                     "alert_events": [_a("2024-05-02", "2024-05-02T09:00:00.0"), _a("2024-05-02", "2024-05-02T03:00:00.0")]},
+                    "2024-05-02")
+check("4k5 parse_day: a day without the new entries has neither section (nothing else changes)",
+      "health_status" not in _pd_none and "alert_events" not in _pd_none and set(_pd_none) == {"date", "user_summary"})
+check("4k5 parse_day: health status is carried over unchanged, one object",
+      _pd["health_status"] == _h("2024-05-02") and set(_pd) == {"date", "user_summary", "health_status", "alert_events"})
+check("4k5 parse_day: the alert events of a day are in the order of their time, whatever order they came in",
+      [e["abnormalHrEventGMT"] for e in _pd["alert_events"]] == ["2024-05-02T03:00:00.0", "2024-05-02T09:00:00.0"])
+_ak_late = {"aaa": 1, **_a("2024-05-02", "2024-05-02T09:00:00.0")}
+_ak_early = {"aaa": 2, **_a("2024-05-02", "2024-05-02T03:00:00.0")}
+check("4k5 parse_day: the alert events are ordered by their time, not by the text of the whole entry (a key that sorts first must not decide)",
+      [e["abnormalHrEventGMT"] for e in _gi.parse_day({"alert_events": [_ak_late, _ak_early]}, "2024-05-02")["alert_events"]]
+      == ["2024-05-02T03:00:00.0", "2024-05-02T09:00:00.0"])
+_pd_empty = _gi.parse_day({"uds": {"totalSteps": 1}, "health_status": {}, "alert_events": []}, "2024-05-02")
+check("4k5 parse_day: an empty health status or an empty list adds no section", set(_pd_empty) == {"date", "user_summary"})
+
+# -- _index_file: the modes of the table -------------------------------------------------------------------------------
+_x_by, _x_conf = {}, []
+_gi._index_file(_x_by, "health_status", "x", [_h("2024-05-02", 50.0)], lambda k, d: _x_conf.append((k, d)))
+_gi._index_file(_x_by, "health_status", "y", [_h("2024-05-02", 51.0)], lambda k, d: _x_conf.append((k, d)))
+_gi._index_file(_x_by, "health_status", "z", [_h("2024-05-02", 51.0)], lambda k, d: _x_conf.append((k, d)))
+check("4k5 _index_file (single): health status is one entry per date, the one read later wins, a different one is a conflict, the same one is not",
+      _x_by["2024-05-02"]["health_status"] == _h("2024-05-02", 51.0) and _x_conf == [("health_status", "2024-05-02")])
+_e1, _e2 = _a("2024-05-02", "2024-05-02T03:00:00.0"), _a("2024-05-02", "2024-05-02T09:00:00.0", 160)
+_l_by = {}
+_gi._index_file(_l_by, "alert_events", "x", [_e1, _e2, dict(_e1), "stray", None, {"calendarDate": "bad"}])
+_gi._index_file(_l_by, "alert_events", "y", [dict(_e2)])
+check("4k5 _index_file (list): every event of a date is kept, an identical one (neighbouring files overlap) only once, bad entries are skipped",
+      _l_by == {"2024-05-02": {"alert_events": [_e1, _e2]}})
+_l_log = _g_logged(lambda: _gi._index_file({}, "alert_events", "my-label", ["x"]))[1]
+check("4k5 _index_file (list): an entry that is no object is warned about with the label",
+      any(lv == "warning" and "my-label" in m for lv, m in _l_log))
+check("4k5 the mode of each kind is in the table: readiness latest, activities wrapped, alert events list, the rest single",
+      {k: m for k, _p, _w, m in _gi._KINDS} == {"uds": "single", "sleep": "single", "readiness": "latest",
+                                                  "activities": "wrapped", "health_status": "single", "alert_events": "list"})
+
+# -- reading by name: the two new kinds, and no other file is taken for them ----------------------------------------------
+_n_data = {_G_UDS: _uds("2024-05-02"), _G_SLEEP: _sleep("2024-05-02"),
+           _G_HEALTH: [_h("2024-05-02"), _h("2024-05-03")], _G_ALERT: [_a("2024-05-02", "2024-05-02T09:00:00.0")]}
+_n_by = _gi._collect_entries(list(_n_data), reader=lambda n: _n_data.get(n))
+check("4k5 reading by name: health status and alert events reach the entries of their date",
+      _n_by["2024-05-02"]["health_status"] == _h("2024-05-02") and len(_n_by["2024-05-02"]["alert_events"]) == 1
+      and set(_n_by["2024-05-03"]) == {"health_status"} and set(_n_by["2024-05-02"]) == {"uds", "sleep", "health_status", "alert_events"})
+check("4k5 reading by name: the sleep file is not read as health status and the other way round",
+      "health_status" not in _gi._collect_entries([_G_SLEEP], reader=lambda n: _n_data.get(_G_HEALTH)).get("2024-05-02", {})
+      and "sleep" not in _gi._collect_entries([_G_HEALTH], reader=lambda n: _n_data.get(_G_SLEEP)).get("2024-05-02", {}))
+_n_day = {d["date"]: d for d in _gi._process_entries(list(_n_data), reader=lambda n: _n_data.get(n))}
+check("4k5 reading by name: the day carries the new sections, the day with only health status has only that and its date",
+      "alert_events" in _n_day["2024-05-02"] and set(_n_day["2024-05-03"]) == {"date", "health_status"})
+
+# -- detect_kind (P3.5): content rules for the two new kinds -------------------------------------------------------------
+check("4k5 detect_kind: health status by its metrics list and outliers count, alert events by the event time",
+      _gi.detect_kind([_h("2024-05-02")]) == "health_status" and _gi.detect_kind([_a("2024-05-02", "2024-05-02T09:00:00.0")]) == "alert_events")
+check("4k5 detect_kind: the rules of the first four kinds are not met by the new entries and the other way round",
+      _gi.detect_kind([_r_uds("2024-06-01")]) == "uds" and _gi.detect_kind([_r_sleep("2024-06-01")]) == "sleep"
+      and _gi.detect_kind([_r_ready("2024-06-01", "LOW", "2024-06-01T05:00:00.0")]) == "readiness"
+      and _gi.detect_kind([{"calendarDate": "2024-05-02", "metrics": []}]) is None
+      and _gi.detect_kind([{"calendarDate": "2024-05-02", "outliersCount": 0}]) is None)
+check("4k5 detect_kind: a list with entries of two kinds is not recognised; the kept families have no rule and stay unrecognised",
+      _gi.detect_kind([_h("2024-05-02"), _a("2024-05-02", "2024-05-02T09:00:00.0")]) is None
+      and _gi.detect_kind([{"gearPk": 1, "gearActivityDTOs": []}]) is None and _gi.detect_kind([{"zone1Floor": 100}]) is None)
+_o5 = [("h", [_h("2024-05-02")]), ("a1", [_a("2024-05-02", "2024-05-02T09:00:00.0")]), ("a2", [_a("2024-05-02", "2024-05-02T03:00:00.0")])]
+_o5_fwd = list(_gi.days_from_originals(_o5))
+_o5_rev = list(_gi.days_from_originals(list(reversed(_o5))))
+check("4k5 days_from_originals: the day built from the originals is the same in any order of the files (events sorted)",
+      len(_o5_fwd) == 1 and _o5_fwd[0][0] == _o5_rev[0][0]
+      and [e["abnormalHrEventGMT"] for e in _o5_fwd[0][0]["alert_events"]] == ["2024-05-02T03:00:00.0", "2024-05-02T09:00:00.0"]
+      and _o5_fwd[0][0]["health_status"] == _h("2024-05-02"))
+
+# -- kept families: read for the hook, not evaluated, only known names ---------------------------------------------------
+_k_files = {_G_UDS: _uds("2024-05-02"), _G_GEAR: [{"gearPk": 1}], _G_PREC: [{"activityId": 1}], _G_COURSES: [{"courseId": 1}],
+            _G_ZONES: [{"zone1Floor": 100}], _G_WORKOUT: [{"workoutId": 1}], _G_TRAINING: [{"calendarDate": "2024-05-02"}],
+            "DI_CONNECT/DI-Connect-Fitness/other_gear_notes.json": [{"x": 1}],
+            "DI_CONNECT/DI-Connect-Fitness/regear.json": [{"x": 1}],            # ends like a gear file, is none
+            "DI_CONNECT/DI-Connect-Routing/readme.json": [{"x": 1}]}
+_k_hooked = []
+_k_zip = _write_export_zip(_M4K / "kept.zip", _k_files)
+_k_pairs = list(_gi.load_bulk_with_entries(_k_zip, lambda n, d: _k_hooked.append(n)))
+check("4k5 kept families: gear, personal records, courses and zones go through the read hook, the workout file, the training history and unknown names do not",
+      sorted(_k_hooked) == sorted([_G_UDS, _G_GEAR, _G_PREC, _G_COURSES, _G_ZONES]))
+check("4k5 kept families: nothing of them reaches a day (no day, no section, no entry from them)",
+      len(_k_pairs) == 1 and set(_k_pairs[0][0]) == {"date", "user_summary"} and set(_k_pairs[0][1]) == {"uds"})
+_k_hooked_dir = []
+list(_gi.load_bulk_with_entries(_write_export_dir(_M4K / "kept_dir", _k_files), lambda n, d: _k_hooked_dir.append(n)))
+check("4k5 kept families: the same from an unpacked folder", sorted(_k_hooked_dir) == sorted(_k_hooked))
+check("4k5 kept families: without a hook they are read like the other files and change nothing",
+      list(_gi.load_bulk(_k_zip)) == [_k_pairs[0][0]])
+
+# -- inventory (P3.6): numbers and folder groups, never a name ------------------------------------------------------------
+_inv = _gi.build_inventory(list(_k_files) + [_G_SLEEP, _G_HEALTH, _G_HEALTH.replace("05-01", "06-01"), _G_ALERT,
+                                              "DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_1_Part1.zip",
+                                              f"DI_CONNECT/DI-Connect-User/{_MAIL}/profile.json"])
+check("4k5 inventory: one count for every known kind (0 where the export has none), one for every kept family",
+      _inv["read"] == {"uds": 1, "sleep": 1, "readiness": 0, "activities": 0, "health_status": 2, "alert_events": 1}
+      and _inv["kept"] == {"gear": 1, "personalRecord": 1, "courses": 1, "zones": 1})
+check("4k5 inventory: what is neither known nor kept is counted with the folders it lies in; a ZIP or another type is not counted",
+      _inv["unknown"]["files"] == 6 and _inv["unknown"]["folders"] == [
+          "<hidden>", "DI_CONNECT/DI-Connect-Fitness", "DI_CONNECT/DI-Connect-Metrics", "DI_CONNECT/DI-Connect-Routing"])
+check("4k5 inventory: no file name and no e-mail address anywhere in the result",
+      "@" not in repr(_inv) and "gear" not in repr(_inv["unknown"]) and "workout" not in repr(_inv["unknown"])
+      and "Part1" not in repr(_inv) and "12345" not in repr(_inv))
+check("4k5 inventory: the counters of read problems start at 0; no names at all gives an empty but complete inventory",
+      _inv["unreadable"] == 0 and _inv["too_large"] == 0
+      and _gi.build_inventory([])["unknown"] == {"files": 0, "folders": []} and set(_gi.build_inventory([])["read"]) == set(_inv["read"]))
+check("4k5 inventory: a file at the top of the export is shown as such; entries that are no text are skipped",
+      _gi.build_inventory(["loose.json", None, 5])["unknown"] == {"files": 1, "folders": ["(top level)"]})
+_inv_load = {}
+_ = list(_gi.load_bulk_with_entries(_k_zip, inventory=_inv_load))
+check("4k5 inventory: load_bulk_with_entries fills the inventory of the export it reads (ZIP and folder alike)",
+      _inv_load["read"]["uds"] == 1 and _inv_load["kept"]["gear"] == 1 and _inv_load["unknown"]["files"] == 5
+      and {k: v for k, v in _inv_load.items()} == {**_gi.build_inventory(list(_k_files)), "unreadable": 0, "too_large": 0}
+      and (lambda d: (list(_gi.load_bulk_with_entries(_M4K / "kept_dir", inventory=d)), d)[1] == _inv_load)({}))
+_inv_pre = {}
+_gen = _gi.load_bulk_with_entries(_k_zip, inventory=_inv_pre)
+next(_gen)
+check("4k5 inventory: it is filled before the first day comes out", _inv_pre.get("read", {}).get("uds") == 1)
+
+# -- unreadable files and the size limit -------------------------------------------------------------------------------------
+_u_files = {_G_UDS: _uds("2024-05-02"), _G_SLEEP: "{this is not json", _G_GEAR: "[1,", _G_HEALTH: [_h("2024-05-02")]}
+for _hook in (None, lambda n, d: None):
+    _u_inv = {}
+    _u_pairs = list(_gi.load_bulk_with_entries(_write_export_zip(_M4K / "unreadable.zip", _u_files), _hook, inventory=_u_inv))
+    check(f"4k5 unreadable ({'with' if _hook else 'without'} a hook): files that are not JSON are counted, the readable ones still give the day",
+          _u_inv["unreadable"] == 2 and _u_inv["too_large"] == 0 and len(_u_pairs) == 1 and "health_status" in _u_pairs[0][0])
+for _hook in (None, lambda n, d: None):
+    _ud_inv = {}
+    _ud_pairs = list(_gi.load_bulk_with_entries(_write_export_dir(_M4K / "unreadable_dir", _u_files), _hook, inventory=_ud_inv))
+    check(f"4k5 unreadable folder ({'with' if _hook else 'without'} a hook): the same two files are counted, the day still comes",
+          _ud_inv["unreadable"] == 2 and len(_ud_pairs) == 1 and "health_status" in _ud_pairs[0][0])
+_big = [{"calendarDate": "2024-05-02", "totalSteps": 1, "pad": "x" * 600}]
+_s_files = {_G_UDS: _big, _G_SLEEP: _sleep("2024-05-03"), _G_GEAR: [{"pad": "y" * 600}]}
+for _form, _make in (("ZIP", lambda: _write_export_zip(_M4K / "big.zip", _s_files)),
+                     ("folder", lambda: _write_export_dir(_M4K / "big_dir", _s_files))):
+    _s_inv, _s_hooked = {}, []
+    with patch.object(_gi, "MAX_JSON_BYTES", 300):
+        _s_res, _s_lg = _g_logged(lambda: list(_gi.load_bulk_with_entries(_make(), lambda n, d: _s_hooked.append(n), inventory=_s_inv)))
+    check(f"4k5 size limit ({_form}): a file over the limit is not read, not hashed, not kept and counted; the smaller ones are",
+          _s_inv["too_large"] == 2 and _s_hooked == [_G_SLEEP] and [d["date"] for d, _ in _s_res] == ["2024-05-03"])
+    check(f"4k5 size limit ({_form}): the warning names no file and says the limit",
+          any(lv == "warning" and "over the limit" in m for lv, m in _s_lg)
+          and not any(_MAIL in m or "UDSFile" in m for lv, m in _s_lg if "over the limit" in m))
+check("4k5 size limit: the limit is 64 MB", _gi.MAX_JSON_BYTES == 64 * 1024 * 1024)
+_edge_zip = _write_export_zip(_M4K / "edge.zip", {_G_UDS: [{"calendarDate": "2024-05-02", "totalSteps": 1}]})
+_edge_size = len(json.dumps([{"calendarDate": "2024-05-02", "totalSteps": 1}]))
+for _limit, _expect in ((_edge_size, (0, 1)), (_edge_size - 1, (1, 0))):
+    _e_inv = {}
+    with patch.object(_gi, "MAX_JSON_BYTES", _limit):
+        _e_days = list(_gi.load_bulk_with_entries(_edge_zip, inventory=_e_inv))
+    check(f"4k5 size limit: a file of {_edge_size} bytes with the limit at {_limit} is {'read' if _expect[1] else 'skipped'} (only larger is skipped)",
+          (_e_inv["too_large"], len(_e_days)) == _expect)
+
 summary()

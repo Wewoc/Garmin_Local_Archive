@@ -2,6 +2,14 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.7 — More Export File Types and Import Inventory
+
+- The import of a Garmin export now also reads the health status of the day (a daily check of HRV, heart rate, SpO2, skin temperature and respiration against your baseline) and the single pulse alerts. They are stored with the daily values; for now no screen or AI query shows them.
+- Gear, personal records, saved courses and the heart-rate and power zones of the export are kept unchanged in `garmin_data/bulk/source`, so they are not lost with the ZIP. They are part of the backup and the mirror. Nothing is read from them yet.
+- At the end of the import (and of the preview) the log lists what the export held: how many files of each known kind, and how many JSON files the app did not know, with the folders they lie in. File names are never logged.
+- A JSON file over 64 MB is skipped and counted.
+- Nothing is changed in existing data by the update itself. When you run the import again with the same export, the days that gain a health status or a pulse alert are updated; all other days stay as they are. Run the preview first.
+
 ## v1.7.6.6 — Alerts and Training in the Daily Summary
 
 - The daily summary file of each day has a new section `alerts` with warnings and ratings that Garmin already delivered but the summary did not show: pulse alerts of the day, breathing disruption of the night, the load ratio, two body battery levels (evening and near bedtime) and the stress rating of the day.

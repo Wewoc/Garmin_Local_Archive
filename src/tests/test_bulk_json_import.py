@@ -394,6 +394,135 @@ with _isolated_log_env("bulk_json_store_day_direct") as base_d:
 check("store_day: the day it writes is the day the import of an export with the same entries writes (apart from the import time)",
       {k: v for k, v in _via_import.items() if k != "imported_at"} == {k: v for k, v in _via_store.items() if k != "imported_at"})
 
+# ── v1.7.6.7 (P3): health status, pulse alert events, kept families, inventory ───────────────────
+HEALTH = "DI_CONNECT/DI-Connect-Wellness/2024-05-01_2024-05-31_12345_healthStatusData.json"
+ALERT = "DI_CONNECT/DI-Connect-Wellness/2024-05-01_2024-05-31_12345_AbnormalHrEvents.json"
+GEAR = f"DI_CONNECT/DI-Connect-Fitness/{SECRET}_gear.json"
+PREC = f"DI_CONNECT/DI-Connect-Fitness/{SECRET}_personalRecord.json"
+COURSES = f"DI_CONNECT/DI-Connect-Routing/{SECRET}_courses_2024-01-01_2024-12-31.json"
+ZONES = "DI_CONNECT/DI-Connect-Wellness/12345_heartRateZones.json"
+WORKOUT = f"DI_CONNECT/DI-Connect-Fitness/{SECRET}_workout.json"          # a family that is neither read nor kept
+
+
+def _health(day, hrv=50.0):
+    return {"calendarDate": day, "createTimestampUTC": day + "T04:00:00.0", "updateTimestampUTC": day + "T05:00:00.0",
+            "outliersCount": 0, "metrics": [{"type": "HRV", "value": hrv, "status": "IN_RANGE", "feedbackKey": "k",
+                                             "baselineLowerLimit": 40.0, "baselineUpperLimit": 60.0, "percentage": 50.0}]}
+
+
+H0501, H0502, H0507 = _health("2024-05-01"), _health("2024-05-02", 55.0), _health("2024-05-07")      # 05-07: no other data
+AL1 = {"calendarDate": "2024-05-01", "abnormalHrEventGMT": "2024-05-01T03:10:00.0", "abnormalHrThresholdValue": 120,
+       "abnormalHrValue": 150, "deviceId": 1}
+H_HEALTH, H_ALERT = _canon_hash("health_status", H0502), _canon_hash("alert_event", AL1)
+check("entry_hashes (v1.7.6.7): a health status entry and each alert event get a hash, the alert event under its own kind name",
+      jimp.entry_hashes({"health_status": H0502}) == [H_HEALTH] and jimp.entry_hashes({"alert_events": [AL1, dict(AL1)]}) == [H_ALERT]
+      and jimp.entry_hashes({"uds": U0501, "health_status": H0502, "alert_events": [AL1]}) == sorted([H_UDS, H_HEALTH, H_ALERT]))
+check("entry_hashes (v1.7.6.7): empty or malformed new entries give no hash; the same content under another kind is another hash",
+      jimp.entry_hashes({"health_status": {}, "alert_events": [{}, "x", None]}) == []
+      and _canon_hash("health_status", H0502) != _canon_hash("uds", H0502))
+
+
+def _inv_lines(lines):
+    return [x for x in lines if x.startswith("  inventory:")]
+
+
+with _isolated_log_env("bulk_json_p3") as base:
+    old_exp = _write_zip(base / "old.zip", _export())
+    base_run = jimp.run_aggregates_import(old_exp)
+    before = {d: (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{d}.json").read_bytes() for d in bw.list_aggregate_days()}
+    files_new = {**_export(), HEALTH: [H0501, H0502, H0507], ALERT: [AL1], GEAR: [{"gearPk": 1}], PREC: [{"activityId": 7}],
+                 COURSES: [{"courseId": 3}], ZONES: [{"zone1Floor": 100}], WORKOUT: [{"workoutId": 9}]}
+    new_exp = _write_zip(base / "new.zip", files_new)
+    tree_before = _tree(cfg.BULK_DIR)
+    with _Log() as log_pre:
+        pre = jimp.run_aggregates_import(new_exp, dry_run=True)
+    check("P3 preview: the days with new entries would be changed (05-01, 05-02), the others unchanged; nothing is written",
+          pre["ok"] and pre["days"] == {"new": 0, "changed": 2, "unchanged": 2, "kept": 0, "failed": 0}
+          and pre["written_days"] == [] and _tree(cfg.BULK_DIR) == tree_before)
+    check("P3 preview: a day with nothing but health status (05-07) is rejected for too little data, like a day with sleep only (pinned)",
+          pre["rejected"] == {"invalid": 0, "insufficient": 3} and "2024-05-07" in pre["insufficient_days"])
+    check("P3 preview: six new originals (health status, alert events, gear, records, courses, zones), six already stored; the workout file is not counted in",
+          (pre["originals"]["new"], pre["originals"]["present"], pre["originals"]["failed"]) == (6, 6, 0) and pre["files"] == 12)
+    with _Log() as log_imp:
+        imp = jimp.run_aggregates_import(new_exp)
+    check("P3 import: the same two days are written as changed, the others stay as they were",
+          imp["ok"] and imp["days"] == {"new": 0, "changed": 2, "unchanged": 2, "kept": 0, "failed": 0}
+          and imp["written_days"] == ["2024-05-01", "2024-05-02"] and imp["rejected"] == pre["rejected"])
+    after = {d: (cfg.BULK_AGG_DIR / f"{cfg.BULK_AGG_FILE_PREFIX}{d}.json").read_bytes() for d in bw.list_aggregate_days()}
+    check("P3 import: the aggregates files of the days without a new entry are byte-identical to before; the day of the insufficient health status was not created",
+          after["2024-05-06"] == before["2024-05-06"] and after["2024-06-01"] == before["2024-06-01"]
+          and "2024-05-07" not in after and set(after) == set(before))
+    a0501, a0502 = bw.read_aggregates("2024-05-01"), bw.read_aggregates("2024-05-02")
+    check("P3 import: the day gets its two sections as delivered and the hashes of the new entries in its proof of origin",
+          a0501["aggregates"]["alert_events"] == [AL1] and a0501["aggregates"]["health_status"] == H0501
+          and a0502["aggregates"]["health_status"] == H0502 and "alert_events" not in a0502["aggregates"]
+          and _canon_hash("alert_event", AL1) in a0501["source_files"] and H_HEALTH in a0502["source_files"]
+          and a0501["schema_version"] == bw.AGG_SCHEMA_VERSION)
+    check("P3 import: the rest of the day is what it was (user summary of 05-01 unchanged)",
+          a0501["aggregates"]["user_summary"] == bw.load_aggregates("2024-05-01")[1]["aggregates"]["user_summary"]
+          and json.loads(before["2024-05-01"])["aggregates"]["user_summary"] == a0501["aggregates"]["user_summary"])
+    check("P3 import: six originals written, six already there; the originals of the new families are in bulk/source, the workout file is not",
+          (imp["originals"]["new"], imp["originals"]["present"]) == (6, 6)
+          and all(bw.original_json_present(_sha(_text(files_new[n]).encode("utf-8")), len(_text(files_new[n]).encode("utf-8")))
+                  for n in (HEALTH, ALERT, GEAR, PREC, COURSES, ZONES))
+          and not bw.original_json_present(_sha(_text(files_new[WORKOUT]).encode("utf-8")), len(_text(files_new[WORKOUT]).encode("utf-8")))
+          and len(bw.list_originals()) == 12)
+    again = jimp.run_aggregates_import(new_exp)
+    check("P3 rerun of the same export: every day unchanged, nothing written, every original already stored",
+          again["days"] == {"new": 0, "changed": 0, "unchanged": 4, "kept": 0, "failed": 0} and again["written_days"] == []
+          and (again["originals"]["new"], again["originals"]["present"]) == (0, 12))
+    old_again = jimp.run_aggregates_import(old_exp)
+    check("P3 the older export (without the new entries) now: every day 'kept' where the stored day is fuller, nothing replaced",
+          old_again["days"]["kept"] == 2 and old_again["days"]["unchanged"] == 2 and old_again["written_days"] == []
+          and bw.read_aggregates("2024-05-01") == a0501)
+
+    # -- inventory: the same lines in the preview and in the import, counts only ------------------------------
+    inv_pre, inv_imp = _inv_lines(jimp.format_summary(pre, True)), _inv_lines(jimp.format_summary(imp, False))
+    check("P3 inventory: preview and import show the same lines (six kinds, four kept families, one line for what is not known)",
+          inv_pre == inv_imp and len(inv_pre) == 11)
+    joined = "\n".join(inv_imp)
+    check("P3 inventory: every known kind has a line with its state and count, the kept families say 'kept only, not read'",
+          "health status — read, 1 file(s)" in joined and "pulse alert events — read, 1 file(s)" in joined
+          and "activities — read, 1 file(s)" in joined and "gear — kept only, not read, 1 file(s)" in joined
+          and "zones — kept only, not read, 1 file(s)" in joined and "training readiness — read, 1 file(s)" in joined)
+    check("P3 inventory: what is not known is one line with the number of files and folders, the folder is named, the file is not",
+          "not recognised — 1 JSON file(s) in 1 folder(s): DI_CONNECT/DI-Connect-Fitness" in joined)
+    log_text = "\n".join(log_pre.lines + log_imp.lines)
+    check("P3 inventory: no file name and no address in the whole log of the preview and the import",
+          SECRET not in log_text and "@" not in log_text and "workout" not in log_text and "gear" not in log_text.replace("gear — kept only", "")
+          and "_courses_" not in log_text and "heartRateZones" not in log_text)
+    check("P3 inventory: the summary keeps the inventory as numbers and folders", imp["inventory"]["kept"] == {"gear": 1, "personalRecord": 1, "courses": 1, "zones": 1}
+          and imp["inventory"]["unknown"] == {"files": 1, "folders": ["DI_CONNECT/DI-Connect-Fitness"]})
+
+    # -- the day is still usable downstream: validator, resolved summary, backup, mirror -------------------
+    import garmin_writer as gw
+    import garmin_backup_bulk as bb
+    import garmin_container as gc
+    resolved = gw._summarize_resolved({}, a0501["aggregates"])
+    check("P3 downstream: the resolved summary of a day with the new sections is built without error and does not carry them",
+          isinstance(resolved, dict) and "health_status" not in resolved and "alert_events" not in resolved)
+    gear_hash = _sha(_text(files_new[GEAR]).encode("utf-8"))
+    bb_res = bb.backup_all()
+    check("P3 downstream: the bulk backup holds the original of a kept family, byte for byte",
+          bb_res["ok"] and bb.read_original_copy(gear_hash, ".json") == _text(files_new[GEAR]).encode("utf-8"))
+    check("P3 downstream: the mirror container takes the kept originals into the section bulk_source",
+          gc._classify_file(("garmin_data", "bulk", "source", gear_hash[:2], gear_hash + ".json")) == "bulk_source"
+          and bw.describe_container_path(f"garmin_data/bulk/source/{gear_hash[:2]}/{gear_hash}.json") == ("original", gear_hash, ".json"))
+
+# -- the older log lines are still there, without an inventory the summary prints none ---------------------------
+check("P3 format_summary: without an inventory (or an empty one) no inventory line, nothing else changes",
+      _inv_lines(jimp.format_summary({**pre, "inventory": None}, True)) == [] and _inv_lines(jimp.format_summary({**pre, "inventory": {}}, True)) == []
+      and jimp.inventory_lines(None) == [])
+check("P3 format_summary: files that could not be used are named by count only, with the limit",
+      any("2 file(s) not readable, 1 over the size limit (64 MB)" in x
+          for x in jimp.inventory_lines({**pre["inventory"], "unreadable": 2, "too_large": 1})))
+_many = {"read": {}, "kept": {}, "unknown": {"files": 25, "folders": [f"DI_CONNECT/f{i:02d}" for i in range(25)]}}
+_many_line = [x for x in jimp.inventory_lines(_many) if "not recognised" in x][0]
+check("P3 format_summary: of many unknown folders the first 20 are named, then an ellipsis; the count is the full one",
+      "25 JSON file(s) in 25 folder(s)" in _many_line and "DI_CONNECT/f19" in _many_line and "DI_CONNECT/f20" not in _many_line
+      and _many_line.endswith(", …"))
+check("P3 empty_summary: a new key 'inventory', empty until the importer fills it", jimp.empty_summary(True)["inventory"] is None)
+
 # ── Imports: standard library and the named project modules only ─────────────────────────────
 _tree_ast = ast.parse(Path(jimp.__file__).read_text(encoding="utf-8"))
 _top = set()

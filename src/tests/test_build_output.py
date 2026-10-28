@@ -186,6 +186,9 @@ check("signature: garmin_import lists load_bulk_with_entries and keeps load_bulk
 check("signature: garmin_import lists detect_kind and days_from_originals, garmin_bulk_json_import store_day (v1.7.6.5)",
       {"def detect_kind", "def days_from_originals"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_import.py"])
       and {"def store_day", "def empty_summary", "def run_aggregates_import"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_json_import.py"]))
+check("signature: garmin_import lists build_inventory, garmin_bulk_json_import inventory_lines (v1.7.6.7)",
+      "def build_inventory" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_import.py"]
+      and "def inventory_lines" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_json_import.py"])
 check("signature: garmin_bulk_rebuild is listed with its entry point and is a shared script (v1.7.6.5)",
       {"def run_aggregates_rebuild", "def format_summary"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_rebuild.py"])
       and "garmin/garmin_bulk_rebuild.py" in manifest.SHARED_SCRIPTS)

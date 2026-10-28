@@ -6,8 +6,11 @@
 garmin_bulk_json_import.py
 
 Daily-values phase of the bulk import (v1.7.6.1): reads the JSON files of a Garmin GDPR export
-(UDS day aggregates, sleep data, training readiness, activities) and puts the values of every
-day into the bulk store, bulk/aggregates — not into raw/. Orchestrates; the work is done by
+(UDS day aggregates, sleep data, training readiness, activities; since v1.7.6.7 also health status
+and pulse alert events) and puts the values of every day into the bulk store, bulk/aggregates —
+not into raw/. Some families (gear, personal records, courses, zones) are only kept as originals.
+The result lists what the export held and what was not known (inventory, counts and folder groups
+only). Orchestrates; the work is done by
 
   garmin_import        reads the export and builds the day (load_bulk_with_entries, parse_day)
   garmin_validator     checks a day (a critical one is not stored)
@@ -83,7 +86,7 @@ _STATUS_TO_KEY = {"new": "new", "update": "changed", "unchanged": "unchanged", "
 def empty_summary(dry_run):
     return {
         "ok": False, "error": None, "dry_run": dry_run, "stopped": False,
-        "files": 0, "days_found": 0,
+        "files": 0, "days_found": 0, "inventory": None,
         "originals": {"new": 0, "present": 0, "failed": 0, "bytes": 0},
         "days": {"new": 0, "changed": 0, "unchanged": 0, "kept": 0, "failed": 0},
         "rejected": {"invalid": 0, "insufficient": 0},
@@ -101,13 +104,16 @@ def _entry_hash(kind, entry):
 def entry_hashes(entries):
     """The sorted SHA-256 of every source entry of a day (see the module docstring)."""
     hashes = set()
-    for kind in ("uds", "sleep", "readiness"):
+    for kind in ("uds", "sleep", "readiness", "health_status"):
         entry = entries.get(kind)
         if isinstance(entry, dict) and entry:
             hashes.add(_entry_hash(kind, entry))
     for activity in entries.get("activities") or []:
         if isinstance(activity, dict) and activity:
             hashes.add(_entry_hash("activity", activity))
+    for event in entries.get("alert_events") or []:
+        if isinstance(event, dict) and event:
+            hashes.add(_entry_hash("alert_event", event))
     return sorted(hashes)
 
 
@@ -173,7 +179,8 @@ def _work(path, dry_run, should_stop, summary):
             originals[{bw.WRITTEN: "new", bw.PRESENT: "present"}.get(result, "failed")] += 1
 
     imported_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    for day, entries in importer.load_bulk_with_entries(path, _on_file):
+    summary["inventory"] = {}                  # filled by the importer once it knows the file list
+    for day, entries in importer.load_bulk_with_entries(path, _on_file, inventory=summary["inventory"]):
         summary["days_found"] += 1
         if should_stop is not None and should_stop():
             summary["stopped"] = True
@@ -219,6 +226,39 @@ def store_day(day, entries, imported_at, dry_run, summary):
         days[{bw.UNCHANGED: "unchanged", bw.KEPT: "kept"}.get(result, "failed")] += 1
 
 
+_INVENTORY_LABELS = {
+    "uds": "daily values", "sleep": "sleep", "readiness": "training readiness",
+    "activities": "activities", "health_status": "health status", "alert_events": "pulse alert events",
+    "gear": "gear", "personalRecord": "personal records", "courses": "courses", "zones": "zones",
+}
+_MAX_FOLDERS_SHOWN = 20
+
+
+def inventory_lines(inventory):
+    """
+    The inventory of the export (garmin_import.build_inventory) as text lines: one line per known kind with
+    its state ("read" or "kept only"), one line for what is not known, one for files that could not be used.
+    Counts and folder groups only — never a file name. [] if there is no inventory (the file list was never read).
+    """
+    if not inventory or "read" not in inventory:
+        return []
+    lines = []
+    for key, count in inventory["read"].items():
+        lines.append(f"  inventory: {_INVENTORY_LABELS.get(key, key)} — read, {count} file(s)")
+    for key, count in inventory["kept"].items():
+        lines.append(f"  inventory: {_INVENTORY_LABELS.get(key, key)} — kept only, not read, {count} file(s)")
+    unknown = inventory["unknown"]
+    folders = unknown["folders"]
+    shown = ", ".join(folders[:_MAX_FOLDERS_SHOWN]) + (", …" if len(folders) > _MAX_FOLDERS_SHOWN else "")
+    lines.append(f"  inventory: not recognised — {unknown['files']} JSON file(s) in {len(folders)} folder(s)"
+                 + (f": {shown}" if folders else ""))
+    if inventory.get("unreadable") or inventory.get("too_large"):
+        lines.append(f"  inventory: {inventory.get('unreadable', 0)} file(s) not readable, "
+                     f"{inventory.get('too_large', 0)} over the size limit "
+                     f"({importer.MAX_JSON_BYTES // (1024 * 1024)} MB), not used")
+    return lines
+
+
 def format_summary(summary, dry_run=False):
     """The summary as text lines for the log (counts only, never a file name)."""
     if summary.get("error"):
@@ -228,6 +268,7 @@ def format_summary(summary, dry_run=False):
     if summary["stopped"]:
         lines.append("  stopped before the end — a rerun carries on, nothing is done twice")
     lines.append(f"  files:     {summary['files']} JSON file(s) read, {summary['days_found']} day(s) found")
+    lines.extend(inventory_lines(summary.get("inventory")))
     lines.append(f"  originals: {orig['new']} new, {orig['present']} already stored, {orig['failed']} failed "
                  f"({orig['bytes'] / 1e6:.1f} MB kept in all)")
     lines.append(f"  days:      {days['new']} new, {days['changed']} changed, {days['unchanged']} unchanged, "
