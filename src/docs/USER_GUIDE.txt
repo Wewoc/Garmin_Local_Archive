@@ -247,6 +247,14 @@ Daily values (JSON) (v1.7.6.1):
   - If you import an export that you imported before, the days that
     gain a health status or a pulse alert are updated; all other days
     stay as they are. Run the preview first.
+  - New in v1.7.6.8: the log also compares the export with the days the
+    app already holds from Garmin. For seven values (steps, resting,
+    minimum and maximum heart rate, stress average, sleep duration,
+    floors) it says how many days are equal, how many the export adds
+    and how many differ, with the first three dates that differ. Nothing
+    is changed or stored by this. Days without a Garmin day are only
+    counted. It reads your daily files once, so the preview and the
+    import take somewhat longer.
   - Running the same import again changes nothing.
 
 Heart-rate series (FIT files) (v1.7.6):

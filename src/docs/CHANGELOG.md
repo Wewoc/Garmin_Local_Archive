@@ -1,5 +1,68 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.8 — Source Comparison in the Import Summary
+
+When a Garmin export is imported (or previewed), the log now compares every day of the
+export with the same day of the API archive in `raw/` and says, per field, how many days
+agree. Nothing is overwritten and nothing is stored: the numbers are lines of the import
+summary, not an entry of the quality log and not a file.
+
+**What changed:**
+- **Comparison** (`garmin_bulk_json_import`): the table `COMPARE_FIELDS` names the seven
+  fields both sources deliver: steps, resting heart rate, minimum and maximum heart rate,
+  stress average, sleep duration (sum of deep, light and REM seconds) and floors, each with
+  its path in the export day, its path in the API day and a tolerance (sleep 60 s, floors 1,
+  the others 0). The pure function `compare_day()` gives per field `equal`, `added` (the API
+  day has no value, the export has one) or `differ`; a field the export has no value for
+  does not count. 0 is a value, a boolean is no number, a list of numbers counts with its
+  maximum. The paths differ between the sources (the stress average is `averageStressLevel`
+  in the export and `avgStressLevel` in the API day; the heart-rate extremes of an API day
+  are in `user_summary`) and were measured on an archive, not taken from memory.
+- **Where it is counted**: in the day loop of `_work`, for every day of the export, also for
+  a day the import rejects, after the stop check and before `store_day()` (the rebuild
+  shares `store_day()` and has no API day to compare with). Preview and import give the same
+  numbers, a rerun gives the same numbers. Days with no API file (or one that cannot be
+  read) are counted apart and not compared. Without a read function the import runs as
+  before (`summary["comparison"]` is `None`).
+- **Output** (`format_summary`, `comparison_lines`): one header line and one line per field
+  with the counts and the first three differing days in date order (`, …` if there are more).
+  Counts and dates only.
+- **Reading `raw/`** (`garmin_collector._raw_for_comparison`): the read function is handed to
+  `run_aggregates_import(…, read_raw=…)` from outside, so the module gets no new import and
+  does not read `raw/` itself. The wrapper looks for the file first, because
+  `garmin_writer.read_raw()` warns on every missing file and an export reaches further back
+  than the API archive.
+
+**Changed modules:**
+- `garmin/garmin_bulk_json_import.py` — `COMPARE_FIELDS`, `compare_day`, `empty_comparison`,
+  `_compare_into`, `comparison_lines`, `run_aggregates_import(…, read_raw=None)`, `_work`,
+  `empty_summary` (key `comparison`), `format_summary`
+- `garmin/garmin_collector.py` — `_raw_for_comparison`, the call of the json phase
+- `compiler/build_manifest.py` — three signatures
+- `tests/` — `test_bulk_json_import.py`, `test_collector.py`, `test_build_output.py`
+- `docs/` — `REFERENCE_GARMIN.md`, `REFERENCE_GARMIN_EXPORT.md`, `REFERENCE_INVARIANTS.md`,
+  `REFERENCE_GLOBAL.md`, `MAINTENANCE_GARMIN.md`, `MAINTENANCE_GLOBAL.md`,
+  `GLA_GUIDELINES.md`, `USER_GUIDE.txt`, `README_APP.md`, `ROADMAP.md`,
+  `VERSION_HISTORY.md`, `METRICS.md`
+- `version.py` — 1.7.6.8
+
+**Test result:** all suites green, 6685 checks in 48 files; all 257 source files compile on
+Python 3.11. 29 deliberate faults in the new code were caught by the tests (the mutations
+ran on a copy).
+
+**Verified:** on the maintainer's export (one ZIP, read only) against a copy of the real
+`raw/` days (nothing written to the real archive): 2,842 days compared, none without an API
+file. Per field at most two days differ (steps 1, maximum heart rate 1, stress average 1,
+floors 2; the day the export was made is among them), sleep: 2,047 equal, 3 added by the
+export, 0 differing. The preview took 26 s in all, most of it reading the 2,842 files of
+`raw/` (264 MB).
+
+**Not covered:** no run on the real archive and in the app (dialog and log not looked at);
+the built programs (T2/T3) were not tried; the field table and the tolerances come from one
+account (the expected sleep differences of 60 s and `OFF_WRIST` did not occur in it); a field
+the export has empty and the API has filled is not counted (it is no case of "equal, added,
+differing"); the comparison does not run in the rebuild, the sync or the timer.
+
 ## v1.7.6.7 — More Export File Types and Import Inventory
 
 The import of a Garmin export reads two more kinds of JSON file, keeps four further

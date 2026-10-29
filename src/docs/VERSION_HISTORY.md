@@ -2,6 +2,12 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.8 — Source Comparison in the Import Summary
+
+- When you import a Garmin export (and in the preview), the log now compares the export with the days the app already holds from the Garmin API. For seven fields (steps, resting, minimum and maximum heart rate, stress average, sleep duration, floors) it says how many days are equal, how many the export adds (the API day has no value) and how many differ, with the first three dates that differ.
+- Nothing is overwritten and nothing is stored: the numbers only appear in the log, not in the quality log and not in any data file. Days of the export for which the app holds no API day are counted separately and not compared.
+- The comparison runs only when you import an export, not during Sync or the daily update. It reads the daily files of the API archive once; for an archive of several thousand days this adds a few tens of seconds to the import or the preview.
+
 ## v1.7.6.7 — More Export File Types and Import Inventory
 
 - The import of a Garmin export now also reads the health status of the day (a daily check of HRV, heart rate, SpO2, skin temperature and respiration against your baseline) and the single pulse alerts. They are stored with the daily values; for now no screen or AI query shows them.

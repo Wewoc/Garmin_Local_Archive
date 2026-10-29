@@ -138,10 +138,28 @@ with _isolated_log_env("main_import") as _b:
           _code == 0 and not _fetch.called)
     check("main import mode (v1.7.6.1): the path and the stop check go to the daily-values phase; the old run_import (raw/) is not called",
           _ji.call_args.args == ("C:/export.zip",)
-          and _ji.call_args.kwargs == {"dry_run": False, "should_stop": _col5._is_stopped} and not _ri.called)
+          and _ji.call_args.kwargs == {"dry_run": False, "should_stop": _col5._is_stopped,
+                                       "read_raw": _col5._raw_for_comparison} and not _ri.called)
     with patch.object(_jimp, "run_aggregates_import", return_value={"ok": False}):
         _code, _exc, _fetch, _ = _run_main(env={"GARMIN_IMPORT_PATH": "C:/export.zip"})
     check("main import mode: a daily-values phase that is not ok -> exit code 1", _code == 1)
+
+# -- _raw_for_comparison (v1.7.6.8): the API day for the comparison of the sources, quiet when there is none -------
+with _isolated_log_env("raw_for_comparison") as _b:
+    _rfc_day = {"date": "2024-05-01", "user_summary": {"totalSteps": 7}}
+    cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    (cfg.RAW_DIR / "garmin_raw_2024-05-01.json").write_text(json.dumps(_rfc_day), encoding="utf-8")
+    (cfg.RAW_DIR / "garmin_raw_2024-05-03.json").write_text("{broken", encoding="utf-8")
+    with patch.object(_col5.writer, "read_raw", wraps=_col5.writer.read_raw) as _rr, \
+         patch.object(_col5.log, "warning") as _cw, patch("garmin_writer.log") as _wlog:
+        _rfc_have = _col5._raw_for_comparison("2024-05-01")
+        _rfc_none = _col5._raw_for_comparison("2024-05-02")
+        _rfc_broken = _col5._raw_for_comparison("2024-05-03")
+    check("_raw_for_comparison: an existing raw file is read with writer.read_raw", _rfc_have == _rfc_day and _rr.call_args_list[0].args == ("2024-05-01",))
+    check("_raw_for_comparison: a day without a raw file gives {} and does not call writer.read_raw (which warns on a missing file)",
+          _rfc_none == {} and [c.args for c in _rr.call_args_list] == [("2024-05-01",), ("2024-05-03",)]
+          and not _cw.called and not _wlog.warning.called)
+    check("_raw_for_comparison: a damaged raw file gives {} (writer.read_raw reports it)", _rfc_broken == {} and _wlog.error.called)
 
 # -- bulk import phases (v1.7.6, 6b; the json phase writes to bulk/aggregates since v1.7.6.1) ---------------
 import garmin_bulk_import as _bimp

@@ -87,7 +87,7 @@ of scope.
 | `garmin_migration_snapshot.py` (removable) | `garmin_data/backup/migration/` (v1.7.6.3); puts files back only through `garmin_writer.restore_day_files()` and `garmin_quality` |
 | `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` (v1.7.6.1) and `garmin_data/bulk/source/` (v1.7.6) |
 | `garmin_bulk_import.py` | none — orchestrates the four other bulk modules; writes only through `garmin_bulk_writer` (v1.7.6) |
-| `garmin_bulk_json_import.py` | none — daily-values phase of the import; writes only through `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.1); its result carries the inventory of the export (v1.7.6.7) |
+| `garmin_bulk_json_import.py` | none — daily-values phase of the import; writes only through `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.1); its result carries the inventory of the export (v1.7.6.7); with a read function handed in by the caller it compares the export with the API days of `raw/` and reads nothing itself (v1.7.6.8) |
 | `garmin_bulk_rebuild.py` (removable) | none — owns no files; reads the originals in `bulk/source`, writes only through `garmin_bulk_json_import.store_day()` → `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.5) |
 
 ### Invariants
@@ -770,6 +770,19 @@ itself was run as a preview and then for real on the real archive (see `CHANGELO
   `test_bulk_rebuild.py` — the new sections come back from the originals, kept originals are counted not warned about.
   A comparison of the old and the new `garmin_import` on 400 generated exports (all four old kinds, damaged entries,
   conflicts) found no difference; that script was not kept in the repository.
+- v1.7.6.8 (P4): `test_bulk_json_import.py` — `compare_day()` for each field of `COMPARE_FIELDS` (equal, differ, added, export
+  empty; 0 is a value; a boolean is no number; floors tolerance 1; sleep as the sum of deep, light and REM with
+  tolerance 60 s, `sleepTimeSeconds` and awake ignored; the stress name differs between export and API; the pulse extremes
+  of the API day are read in `user_summary`; a list counts with its maximum), the counters (`_compare_into`: the first
+  three differing days in date order, an API day that is empty, not a dict or unreadable counts as without an API file,
+  a raising read function does not stop the import), `comparison_lines()`, the import with a read function (every day of
+  the export is asked for once, also the days the import rejects; preview, run and rerun show the same numbers; nothing
+  of the comparison is stored; a stopped run compares only what it went through; without a read function the result
+  and the stored days are as before); `test_collector.py` — `_raw_for_comparison()` (reads an existing file, does not
+  call `writer.read_raw` for a missing one because that warns, a damaged file gives `{}`) and the call of the phase with
+  `read_raw`; `test_build_output.py` — the three new signatures. The tests were checked with 29 deliberate faults in a
+  copy of the code (tolerances, the 0 rule, the maximum of a list, the paths, the sort and the cut of the dates, the
+  order against the stop check, the quiet reading), all caught.
 - `test_collector.py` section 4u "main bulk rebuild" — only `"1"` and `"preview"` act, the variable
   is removed when read, the stop check is handed over, the summary is finished on the run's own
   quality log (an end-to-end run inside the sync keeps the entries on that log), a preview
