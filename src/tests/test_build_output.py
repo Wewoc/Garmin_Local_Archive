@@ -189,6 +189,9 @@ check("signature: garmin_import lists detect_kind and days_from_originals, garmi
 check("signature: garmin_import lists build_inventory, garmin_bulk_json_import inventory_lines (v1.7.6.7)",
       "def build_inventory" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_import.py"]
       and "def inventory_lines" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_json_import.py"])
+check("signature: garmin_bulk_json_import lists compare_day and comparison_lines, garmin_collector _raw_for_comparison (v1.7.6.8)",
+      {"def compare_day", "def comparison_lines"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_json_import.py"])
+      and "def _raw_for_comparison" in manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_collector.py"])
 check("signature: garmin_bulk_rebuild is listed with its entry point and is a shared script (v1.7.6.5)",
       {"def run_aggregates_rebuild", "def format_summary"} <= set(manifest.SCRIPT_SIGNATURES_BASE["garmin/garmin_bulk_rebuild.py"])
       and "garmin/garmin_bulk_rebuild.py" in manifest.SHARED_SCRIPTS)

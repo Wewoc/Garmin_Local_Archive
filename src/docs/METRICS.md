@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-10-28 16:14 UTC · Version: 1.7.6.7
+Generated: 2026-10-29 15:14 UTC · Version: 1.7.6.8
 
 ## Test Counts
 
@@ -24,14 +24,14 @@ Generated: 2026-10-28 16:14 UTC · Version: 1.7.6.7
 | test_source_writer.py | 88 | 88 | 0 |
 | test_container_mirror.py | 150 | 150 | 0 |
 | test_import_mirror.py | 175 | 175 | 0 |
-| test_collector.py | 613 | 613 | 0 |
+| test_collector.py | 616 | 616 | 0 |
 | test_garmin_import.py | 158 | 158 | 0 |
 | test_bulk_fit_reader.py | 56 | 56 | 0 |
 | test_bulk_export_scanner.py | 40 | 40 | 0 |
 | test_bulk_normalizer.py | 106 | 106 | 0 |
 | test_bulk_writer.py | 199 | 199 | 0 |
 | test_bulk_import.py | 76 | 76 | 0 |
-| test_bulk_json_import.py | 87 | 87 | 0 |
+| test_bulk_json_import.py | 125 | 125 | 0 |
 | test_bulk_rebuild.py | 47 | 47 | 0 |
 | test_api.py | 75 | 75 | 0 |
 | test_live_fetch.py | 44 | 44 | 0 |
@@ -57,7 +57,7 @@ Generated: 2026-10-28 16:14 UTC · Version: 1.7.6.7
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **6644** | **6644** | **0** |
+| **Total** | **6685** | **6685** | **0** |
 
 ## Modules
 
@@ -65,7 +65,7 @@ Total: 172 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-10-28 16:08 UTC · Findings: 0 · Whitelisted: 100
+Scanned: 2026-10-29 15:11 UTC · Findings: 0 · Whitelisted: 100
 
-⚠ vulture.json target_version (v1.7.6.7) does not match the current APP_VERSION (1.7.6.7) — scope may have changed since the scan. Re-run tests/check_vulture.py.
+⚠ vulture.json target_version (v1.7.6.8) does not match the current APP_VERSION (1.7.6.8) — scope may have changed since the scan. Re-run tests/check_vulture.py.
 

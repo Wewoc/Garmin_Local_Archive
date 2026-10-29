@@ -20,7 +20,7 @@ only). Orchestrates; the work is done by
 store_day() is the step per day (checks, aggregates, proof of origin, write or preview); the import of an
 export and the rebuild from the kept originals (v1.7.6.5) both call it, so a day is built one way only.
 
-Entry point: run_aggregates_import(path, dry_run=False, should_stop=None). It is started by
+Entry point: run_aggregates_import(path, dry_run=False, should_stop=None, read_raw=None). It is started by
 garmin_collector.main() as the "json" phase, before the intraday phase. This module touches
 neither the quality log, nor raw/, summary/ or the backup: it reports the days it wrote
 (summary["written_days"]) and the days with too little data (summary["insufficient_days"]);
@@ -48,6 +48,13 @@ What a run does
   A rerun with the same export changes nothing.
 
 Preview (dry_run=True): the same work, nothing is created or written — not even the folders.
+
+Comparison of the sources (v1.7.6.8): when the caller hands in read_raw (a function date -> the API day
+of raw/, {} if there is none), every day of the export is compared field by field with that day, in the
+preview and in the run alike: equal (within a tolerance), added (the API day has no value, the export has
+one) or differing. Days without an API day are only counted. Nothing is overwritten and nothing is stored;
+the numbers are lines of the summary (comparison_lines), not an entry of the quality log. Without read_raw
+nothing is compared and the import runs as before. The table is COMPARE_FIELDS.
 
 Stop: should_stop is asked before every day. The originals read so far are stored, the days
 written stay, a rerun carries on.
@@ -92,6 +99,7 @@ def empty_summary(dry_run):
         "rejected": {"invalid": 0, "insufficient": 0},
         "days_with_window": 0,
         "written_days": [], "insufficient_days": [],
+        "comparison": None,                    # filled when the caller hands in read_raw (v1.7.6.8)
     }
 
 
@@ -126,7 +134,117 @@ def day_window(entries):
     return window if all(isinstance(v, str) and v for v in window.values()) else None
 
 
-def run_aggregates_import(path, dry_run=False, should_stop=None) -> dict:
+# ── Comparison of the sources (v1.7.6.8) ─────────────────────────────────────────────────────────
+EQUAL, ADDED, DIFFER = "equal", "added", "differ"
+MAX_DIFFER_DAYS_SHOWN = 3
+
+
+def _get(obj, *keys):
+    """Walks nested dicts; None as soon as a step is missing or not a dict."""
+    for key in keys:
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(key)
+    return obj
+
+
+def _number(value):
+    """A number as it is (0 is a value); a list of numbers -> its maximum (several rows for one day); anything else None."""
+    if isinstance(value, list):
+        values = [v for v in value if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        return max(values) if values else None
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _at(*keys):
+    """Getter of a number at a path of a day."""
+    return lambda day: _number(_get(day, *keys))
+
+
+def _sleep_seconds(day):
+    """Sleep duration as the sum of deep, light and REM seconds (the parts that are numbers); None if none is."""
+    dto = _get(day, "sleep", "dailySleepDTO")
+    parts = [_number(_get(dto, key)) for key in ("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds")]
+    return None if all(p is None for p in parts) else sum(p for p in parts if p is not None)
+
+
+# The fields both sources deliver: (key, text for the log, value in the export day, value in the API day, tolerance).
+# The export day is the day as parse_day builds it (the shape of bulk/aggregates), the API day is a file of raw/.
+# Paths measured on the archive (v1.7.6.8): the stress average is "averageStressLevel" in the export and
+# "avgStressLevel" in the API day; the heart-rate extremes of the API day are in user_summary
+# (heart_rates holds them on few days only). Tolerances: sleep 60 s (the phases are rounded), floors 1.
+COMPARE_FIELDS = (
+    ("steps",      "steps",              _at("user_summary", "totalSteps"),         _at("user_summary", "totalSteps"),         0),
+    ("resting_hr", "resting heart rate", _at("user_summary", "restingHeartRate"),   _at("user_summary", "restingHeartRate"),   0),
+    ("min_hr",     "minimum heart rate", _at("user_summary", "minHeartRate"),       _at("user_summary", "minHeartRate"),       0),
+    ("max_hr",     "maximum heart rate", _at("user_summary", "maxHeartRate"),       _at("user_summary", "maxHeartRate"),       0),
+    ("stress_avg", "stress average",     _at("stress", "averageStressLevel"),       _at("stress", "avgStressLevel"),           0),
+    ("sleep",      "sleep duration",     _sleep_seconds,                            _sleep_seconds,                            60),
+    ("floors",     "floors",             _at("user_summary", "floorsAscended"),     _at("user_summary", "floorsAscended"),     1),
+)
+
+
+def compare_day(export_day, api_day):
+    """
+    One day of the export against the same day of the API (raw/), field by field. Pure function.
+
+    Returns {key: "equal" | "added" | "differ"} for the fields of COMPARE_FIELDS that count: "equal" within
+    the tolerance, "added" the API day has no value and the export has one, "differ" both have a value
+    and they are further apart than the tolerance. A field the export has no value for (both empty, or
+    only the API has one) does not count.
+    """
+    result = {}
+    for key, _label, from_export, from_api, tolerance in COMPARE_FIELDS:
+        exported = from_export(export_day)
+        if exported is None:
+            continue
+        api = from_api(api_day)
+        if api is None:
+            result[key] = ADDED
+        else:
+            result[key] = EQUAL if abs(exported - api) <= tolerance else DIFFER
+    return result
+
+
+def empty_comparison():
+    """The counters of the comparison: days compared, days without an API day, per field the three counts and the first differing days."""
+    return {"days_compared": 0, "days_without_api": 0,
+            "fields": {key: {EQUAL: 0, ADDED: 0, DIFFER: 0, "differ_days": []} for key, *_ in COMPARE_FIELDS}}
+
+
+def _compare_into(comparison, date_str, export_day, read_raw):
+    """Counts one day of the export into `comparison`. A day without an API file (or one that cannot be read) is only counted as such."""
+    try:
+        api_day = read_raw(date_str)
+    except Exception:                          # noqa: BLE001 - the comparison never stops the import
+        log.debug("  bulk daily values: the API day could not be read for a comparison", exc_info=True)
+        api_day = None
+    if not isinstance(api_day, dict) or not api_day:
+        comparison["days_without_api"] += 1
+        return
+    comparison["days_compared"] += 1
+    for key, state in compare_day(export_day, api_day).items():
+        field = comparison["fields"][key]
+        field[state] += 1
+        if state == DIFFER:
+            field["differ_days"] = sorted(field["differ_days"] + [date_str])[:MAX_DIFFER_DAYS_SHOWN]
+
+
+def comparison_lines(comparison):
+    """The comparison as text lines for the log: one header line, one line per field. Counts and dates only."""
+    lines = [f"  compare:   export against the API files in raw/ — {comparison['days_compared']} day(s) compared, "
+             f"{comparison['days_without_api']} without an API file (not compared); nothing is changed or stored"]
+    for key, label, *_ in COMPARE_FIELDS:
+        field = comparison["fields"][key]
+        text = f"{field[EQUAL]} equal, {field[ADDED]} added by the export, {field[DIFFER]} differing"
+        if field["differ_days"]:
+            more = ", …" if field[DIFFER] > len(field["differ_days"]) else ""
+            text += f" ({', '.join(field['differ_days'])}{more})"
+        lines.append(f"    {label}: {text}")
+    return lines
+
+
+def run_aggregates_import(path, dry_run=False, should_stop=None, read_raw=None) -> dict:
     """
     Imports (or previews) the daily values of a GDPR export. See the module docstring.
 
@@ -135,6 +253,8 @@ def run_aggregates_import(path, dry_run=False, should_stop=None) -> dict:
     path        : str | Path — the export: the ZIP or the unpacked folder
     dry_run     : bool — only compare and count, create and write nothing
     should_stop : callable() -> bool | None — asked before every day
+    read_raw    : callable(date_str) -> dict | None — the API day of raw/ ({} if there is none); with it every day of
+                  the export is compared with its API day (summary["comparison"], lines in the summary); None = no comparison
 
     Returns
     -------
@@ -142,7 +262,7 @@ def run_aggregates_import(path, dry_run=False, should_stop=None) -> dict:
     """
     summary = empty_summary(dry_run)
     try:
-        _work(path, dry_run, should_stop, summary)
+        _work(path, dry_run, should_stop, summary, read_raw)
     except FileNotFoundError:
         summary["error"] = "export path does not exist"
     except Exception as e:                     # noqa: BLE001 - reported, never raised (the caller owns the run)
@@ -154,7 +274,7 @@ def run_aggregates_import(path, dry_run=False, should_stop=None) -> dict:
     return summary
 
 
-def _work(path, dry_run, should_stop, summary):
+def _work(path, dry_run, should_stop, summary, read_raw=None):
     if not Path(path).exists():
         raise FileNotFoundError(str(path))
     originals = summary["originals"]
@@ -180,12 +300,15 @@ def _work(path, dry_run, should_stop, summary):
 
     imported_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     summary["inventory"] = {}                  # filled by the importer once it knows the file list
+    comparison = summary["comparison"] = empty_comparison() if read_raw is not None else None
     for day, entries in importer.load_bulk_with_entries(path, _on_file, inventory=summary["inventory"]):
         summary["days_found"] += 1
         if should_stop is not None and should_stop():
             summary["stopped"] = True
         if summary["stopped"]:
             break
+        if comparison is not None:             # every day of the export, also one that store_day rejects
+            _compare_into(comparison, day.get("date"), day, read_raw)
         store_day(day, entries, imported_at, dry_run, summary)
 
 
@@ -277,4 +400,6 @@ def format_summary(summary, dry_run=False):
         lines.append(f"  rejected:  {rej['invalid']} invalid, {rej['insufficient']} with too little data "
                      f"(not stored; the API may still deliver them)")
     lines.append(f"  window:    {summary['days_with_window']} day(s) carry the export's day window")
+    if summary.get("comparison") is not None:
+        lines.extend(comparison_lines(summary["comparison"]))
     return lines

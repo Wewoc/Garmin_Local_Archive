@@ -364,7 +364,7 @@ it fits directly into one WCM credential entry.
     │   ├── garmin_bulk_normalizer.py      ← Leaf-Node. Day boundaries, 16-bit timestamps, samples per day. plan_days(), SampleCollector (v1.7.6)
     │   ├── garmin_bulk_writer.py          ← Sole Owner bulk/ (v1.7.6). write_day(), day_status(), write_aggregates(), load_aggregates(), store_original(), store_original_json(), import_day_file(), describe_container_path(), list_originals() (v1.7.6.2)
     │   ├── garmin_bulk_import.py          ← Intraday phase of the import, orchestrates the four above. run_intraday_import() (v1.7.6)
-    │   ├── garmin_bulk_json_import.py     ← Daily-values phase of the import → bulk/aggregates, orchestrates garmin_import/validator/quality/bulk_writer. run_aggregates_import(), store_day() (v1.7.6.1), inventory_lines() (v1.7.6.7)
+    │   ├── garmin_bulk_json_import.py     ← Daily-values phase of the import → bulk/aggregates, orchestrates garmin_import/validator/quality/bulk_writer. run_aggregates_import(), store_day() (v1.7.6.1), inventory_lines() (v1.7.6.7), compare_day(), comparison_lines() (v1.7.6.8)
     │   ├── garmin_bulk_rebuild.py         ← Removable (v1.7.6.5). Builds the daily values again from the kept originals in bulk/source, without the export. run_aggregates_rebuild()
     │   ├── garmin_normalizer.py
     │   ├── garmin_quality.py       ← Facade — delegates to quality/

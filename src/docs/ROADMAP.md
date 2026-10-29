@@ -6,14 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.7**
+**Currently stable — v1.7.6.8**
 
 ---
-
-### v1.7.6.8 — Source comparison in the import summary
-
-- For the fields both sources deliver, the import reports per field how many
-  days are equal, added or contradicting. Nothing is overwritten or stored.
 
 ### v1.7.6.9 — Device repair
 

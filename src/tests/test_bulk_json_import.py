@@ -523,6 +523,211 @@ check("P3 format_summary: of many unknown folders the first 20 are named, then a
       and _many_line.endswith(", …"))
 check("P3 empty_summary: a new key 'inventory', empty until the importer fills it", jimp.empty_summary(True)["inventory"] is None)
 
+# ── v1.7.6.8 (P4): current state, pinned before the source comparison was built ───────────────────
+# Without a function that reads raw/ the import runs as before: no comparison lines, the same numbers
+# in a preview and in the run, the same numbers on a rerun.
+with _isolated_log_env("bulk_json_p4_state") as base_p4:
+    _p4_exp = _write_zip(base_p4 / "export.zip", _export())
+    with _Log() as _p4_log:
+        _p4_pre = jimp.run_aggregates_import(_p4_exp, dry_run=True)
+        _p4_run = jimp.run_aggregates_import(_p4_exp)
+        _p4_again = jimp.run_aggregates_import(_p4_exp)
+    check("P4 current state: without a read function the log has no line about a comparison of sources",
+          not any("compar" in x.lower() for x in _p4_log.lines)
+          and not any("compar" in x.lower() for x in jimp.format_summary(_p4_run, False)))
+    check("P4 current state: preview, run and rerun count the days of the export alike (4 days stored or to be stored, 2 rejected)",
+          _p4_pre["days_found"] == _p4_run["days_found"] == _p4_again["days_found"] == 6
+          and _p4_pre["rejected"] == _p4_run["rejected"] == _p4_again["rejected"] == {"invalid": 0, "insufficient": 2})
+
+# ── v1.7.6.8 (P4): comparison of the sources — compare_day, one field after the other ─────────────
+def _ud(**kw):
+    return {"user_summary": kw}
+
+
+def _slp(deep=None, light=None, rem=None, **kw):
+    return {"sleep": {"dailySleepDTO": {"deepSleepSeconds": deep, "lightSleepSeconds": light, "remSleepSeconds": rem, **kw}}}
+
+
+cd = jimp.compare_day
+check("P4 compare_day: equal values -> equal; the fields are named by the keys of the table",
+      cd(_ud(totalSteps=900), _ud(totalSteps=900)) == {"steps": "equal"}
+      and [f[0] for f in jimp.COMPARE_FIELDS] == ["steps", "resting_hr", "min_hr", "max_hr", "stress_avg", "sleep", "floors"])
+check("P4 compare_day: another value -> differ (no tolerance for steps and the pulse values)",
+      cd(_ud(totalSteps=900), _ud(totalSteps=901)) == {"steps": "differ"}
+      and cd(_ud(restingHeartRate=50), _ud(restingHeartRate=51)) == {"resting_hr": "differ"}
+      and cd(_ud(minHeartRate=40), _ud(minHeartRate=41)) == {"min_hr": "differ"}
+      and cd(_ud(maxHeartRate=150), _ud(maxHeartRate=149)) == {"max_hr": "differ"})
+check("P4 compare_day: the API day has no value, the export has one -> added (a missing section, a missing key, None)",
+      cd(_ud(totalSteps=900), {}) == {"steps": "added"} and cd(_ud(totalSteps=900), _ud(dailyStepGoal=5)) == {"steps": "added"}
+      and cd(_ud(totalSteps=900), _ud(totalSteps=None)) == {"steps": "added"} and cd(_ud(totalSteps=900), "no dict") == {"steps": "added"})
+check("P4 compare_day: the export has no value -> the field does not count (both empty, or only the API has one)",
+      cd({}, {}) == {} and cd(_ud(totalSteps=None), _ud(totalSteps=None)) == {} and cd({}, _ud(totalSteps=900)) == {}
+      and cd(_ud(totalSteps="900"), _ud(totalSteps=900)) == {})
+check("P4 compare_day: 0 is a value, not a gap (0 against nothing: added; 0 against 0: equal; 5 against 0: differ)",
+      cd(_ud(totalSteps=0), {}) == {"steps": "added"} and cd(_ud(totalSteps=0), _ud(totalSteps=0)) == {"steps": "equal"}
+      and cd(_ud(totalSteps=5), _ud(totalSteps=0)) == {"steps": "differ"})
+check("P4 compare_day: a boolean is no number",
+      cd(_ud(totalSteps=True), _ud(totalSteps=1)) == {} and cd(_ud(totalSteps=1), _ud(totalSteps=True)) == {"steps": "added"})
+check("P4 compare_day: floors, tolerance 1 (a difference of 1 is equal, of 2 differs, in both directions)",
+      cd(_ud(floorsAscended=5), _ud(floorsAscended=6.0)) == {"floors": "equal"} and cd(_ud(floorsAscended=5), _ud(floorsAscended=4)) == {"floors": "equal"}
+      and cd(_ud(floorsAscended=5), _ud(floorsAscended=7.0)) == {"floors": "differ"} and cd(_ud(floorsAscended=5), _ud(floorsAscended=3)) == {"floors": "differ"})
+check("P4 compare_day: stress average — the export calls it averageStressLevel, the API day avgStressLevel",
+      cd({"stress": {"averageStressLevel": 31}}, {"stress": {"avgStressLevel": 31}}) == {"stress_avg": "equal"}
+      and cd({"stress": {"averageStressLevel": 31}}, {"stress": {"avgStressLevel": 33}}) == {"stress_avg": "differ"}
+      and cd({"stress": {"averageStressLevel": 31}}, {"stress": {"averageStressLevel": 31}}) == {"stress_avg": "added"})
+check("P4 compare_day: the heart-rate extremes of the API day are read in user_summary, not in heart_rates",
+      cd(_ud(minHeartRate=50, maxHeartRate=140), {**_ud(minHeartRate=50, maxHeartRate=140), "heart_rates": {"minHeartRate": 99, "maxHeartRate": 99}})
+      == {"min_hr": "equal", "max_hr": "equal"}
+      and cd(_ud(minHeartRate=50), {"heart_rates": {"minHeartRate": 50}}) == {"min_hr": "added"})
+check("P4 compare_day: sleep is the sum of deep, light and REM seconds, tolerance 60 s (60 equal, 61 differs)",
+      cd(_slp(1000, 2000, 3000), _slp(1000, 2000, 3000)) == {"sleep": "equal"}
+      and cd(_slp(1000, 2000, 3000), _slp(1030, 2000, 3030)) == {"sleep": "equal"}
+      and cd(_slp(1000, 2000, 3000), _slp(1000, 2000, 2940)) == {"sleep": "equal"}
+      and cd(_slp(1000, 2000, 3000), _slp(1000, 2000, 2939)) == {"sleep": "differ"}
+      and cd(_slp(1000, 2000, 3000), _slp(1000, 2000, 3061)) == {"sleep": "differ"})
+check("P4 compare_day: sleep ignores sleepTimeSeconds and the awake seconds, takes the parts that are numbers, none -> no value",
+      cd(_slp(1000, 2000, 3000, sleepTimeSeconds=1, awakeSleepSeconds=7), _slp(1000, 2000, 3000, sleepTimeSeconds=999999, awakeSleepSeconds=0)) == {"sleep": "equal"}
+      and cd(_slp(1000, None, 3000), _slp(1000, 9999, 3000)) == {"sleep": "differ"}
+      and cd(_slp(), _slp(1, 1, 1)) == {} and cd(_slp(1000, 2000, 3000), _slp()) == {"sleep": "added"})
+check("P4 compare_day: off-wrist night — 0 seconds in the export, no value in the API day -> added",
+      cd(_slp(0, 0, 0), _slp()) == {"sleep": "added"} and cd(_slp(0, 0, 0), {}) == {"sleep": "added"})
+check("P4 compare_day: several rows for one day (a list) count with their maximum, not the first or the last",
+      cd(_ud(totalSteps=[5, 9, 7]), _ud(totalSteps=9)) == {"steps": "equal"} and cd(_ud(totalSteps=[5, 9, 7]), _ud(totalSteps=5)) == {"steps": "differ"}
+      and cd(_ud(totalSteps=900), _ud(totalSteps=[3, 900, 4])) == {"steps": "equal"} and cd(_ud(totalSteps=[]), _ud(totalSteps=1)) == {}
+      and cd(_ud(totalSteps=["x", None]), _ud(totalSteps=1)) == {} and cd(_ud(totalSteps=[True]), _ud(totalSteps=1)) == {})
+check("P4 compare_day: all fields at once, each by its own rule",
+      cd({**_ud(totalSteps=1, restingHeartRate=2, minHeartRate=3, maxHeartRate=4, floorsAscended=5), "stress": {"averageStressLevel": 6}, **_slp(7, 8, 9)},
+         {**_ud(totalSteps=1, restingHeartRate=22, maxHeartRate=4, floorsAscended=3), "stress": {"avgStressLevel": 6}, **_slp(7, 8, 9)})
+      == {"steps": "equal", "resting_hr": "differ", "min_hr": "added", "max_hr": "equal", "stress_avg": "equal", "sleep": "equal", "floors": "differ"})
+
+# ── the counters: _compare_into, empty_comparison, comparison_lines ───────────────────────────────
+_cmp = jimp.empty_comparison()
+check("P4 empty_comparison: no day, a counter set per field of the table",
+      _cmp["days_compared"] == 0 and _cmp["days_without_api"] == 0 and list(_cmp["fields"]) == [f[0] for f in jimp.COMPARE_FIELDS]
+      and all(v == {"equal": 0, "added": 0, "differ": 0, "differ_days": []} for v in _cmp["fields"].values()))
+for _d in ("2024-03-05", "2024-03-01", "2024-03-09", "2024-03-03", "2024-03-07"):
+    jimp._compare_into(_cmp, _d, _ud(totalSteps=1), lambda _x: _ud(totalSteps=2))
+check("P4 _compare_into: the first three differing days, in date order, whatever order the days came in; the count is the full one",
+      _cmp["fields"]["steps"]["differ_days"] == ["2024-03-01", "2024-03-03", "2024-03-05"] and _cmp["fields"]["steps"]["differ"] == 5
+      and _cmp["days_compared"] == 5)
+for _reader in (lambda _x: {}, lambda _x: None, lambda _x: "text", lambda _x: [1]):
+    _c2 = jimp.empty_comparison()
+    jimp._compare_into(_c2, "2024-03-01", _ud(totalSteps=1), _reader)
+    check("P4 _compare_into: an API day that is empty, None or no dict counts as a day without an API file", _c2["days_without_api"] == 1 and _c2["days_compared"] == 0
+          and all(v["equal"] + v["added"] + v["differ"] == 0 for v in _c2["fields"].values()))
+
+
+def _boom(_x):
+    raise OSError(f"cannot read near {SECRET}")
+
+
+_c3 = jimp.empty_comparison()
+with _Log() as _l3:
+    jimp._compare_into(_c3, "2024-03-01", _ud(totalSteps=1), _boom)
+check("P4 _compare_into: a read function that raises counts as a day without an API file; nothing is raised, no name is logged",
+      _c3["days_without_api"] == 1 and SECRET not in "\n".join(_l3.lines))
+_lines3 = jimp.comparison_lines(_cmp)
+check("P4 comparison_lines: a header and one line per field; more than three differing days end with an ellipsis, counts and dates only",
+      len(_lines3) == 1 + len(jimp.COMPARE_FIELDS) and "5 day(s) compared, 0 without an API file" in _lines3[0] and "nothing is changed or stored" in _lines3[0]
+      and _lines3[1] == "    steps: 0 equal, 0 added by the export, 5 differing (2024-03-01, 2024-03-03, 2024-03-05, …)")
+_c4 = jimp.empty_comparison()
+for _d in ("2024-03-02", "2024-03-01"):
+    jimp._compare_into(_c4, _d, _ud(totalSteps=1), lambda _x: _ud(totalSteps=2))
+jimp._compare_into(_c4, "2024-03-03", _ud(totalSteps=1), lambda _x: _ud(totalSteps=1))
+check("P4 comparison_lines: up to three differing days are all named, without an ellipsis; the other fields show zeros",
+      jimp.comparison_lines(_c4)[1] == "    steps: 1 equal, 0 added by the export, 2 differing (2024-03-01, 2024-03-02)"
+      and jimp.comparison_lines(_c4)[2] == "    resting heart rate: 0 equal, 0 added by the export, 0 differing")
+
+# ── v1.7.6.8 (P4): the comparison inside the import (preview and run alike) ────────────────────────
+# Export days: 05-01 (steps 8000, resting 54, stress 30, sleep 21000 s), 05-02 (steps 100, resting 54), 05-06 (steps 50, no API day),
+# 06-01 (steps 7, resting 54), 05-03 (sleep only, rejected), 05-04 (readiness only, rejected, no API day).
+_API = {
+    "2024-05-01": {**_ud(totalSteps=8000, restingHeartRate=54), "stress": {"avgStressLevel": 30}, **_slp(5000, 10000, 6000)},
+    "2024-05-02": _ud(totalSteps=105),
+    "2024-06-01": _ud(totalSteps=7),
+    "2024-05-03": _slp(1, 1, 100),
+}
+
+
+class _Reader:
+    def __init__(self, days):
+        self.days, self.asked = days, []
+
+    def __call__(self, date_str):
+        self.asked.append(date_str)
+        return self.days.get(date_str, {})
+
+
+with _isolated_log_env("bulk_json_p4") as base_p4b:
+    _p4_exp2 = _write_zip(base_p4b / "export.zip", _export())
+    _rd_pre, _rd_run, _rd_again = _Reader(_API), _Reader(_API), _Reader(_API)
+    with _Log() as _p4b_log:
+        _pre4 = jimp.run_aggregates_import(_p4_exp2, dry_run=True, read_raw=_rd_pre)
+        _store_after_pre = cfg.BULK_DIR.exists()
+        _run4 = jimp.run_aggregates_import(_p4_exp2, read_raw=_rd_run)
+        _again4 = jimp.run_aggregates_import(_p4_exp2, read_raw=_rd_again)
+    _cmp4 = _run4["comparison"]
+    _f = _cmp4["fields"]
+    check("P4 import: every day of the export is asked for once, also the two the import rejects; the days without an API file are counted apart",
+          sorted(_rd_run.asked) == ["2024-05-01", "2024-05-02", "2024-05-03", "2024-05-04", "2024-05-06", "2024-06-01"]
+          and _cmp4["days_compared"] == 4 and _cmp4["days_without_api"] == 2)
+    check("P4 import: steps — equal on 05-01 and 06-01, differing on 05-02; resting heart rate — equal once, added twice (the API day has none on 05-02 and 06-01)",
+          (_f["steps"]["equal"], _f["steps"]["added"], _f["steps"]["differ"], _f["steps"]["differ_days"]) == (2, 0, 1, ["2024-05-02"])
+          and (_f["resting_hr"]["equal"], _f["resting_hr"]["added"], _f["resting_hr"]["differ"]) == (1, 2, 0))
+    check("P4 import: stress equal once; sleep equal on 05-01 and differing on the rejected day 05-03; the fields no day had in the export stay at zero",
+          (_f["stress_avg"]["equal"], _f["stress_avg"]["added"], _f["stress_avg"]["differ"]) == (1, 0, 0)
+          and (_f["sleep"]["equal"], _f["sleep"]["added"], _f["sleep"]["differ"], _f["sleep"]["differ_days"]) == (1, 0, 1, ["2024-05-03"])
+          and all(_f[k]["equal"] + _f[k]["added"] + _f[k]["differ"] == 0 for k in ("min_hr", "max_hr", "floors")))
+    check("P4 import: the preview shows the same numbers as the run, and so does a rerun of the same export",
+          _pre4["comparison"] == _cmp4 == _again4["comparison"] and sorted(_rd_pre.asked) == sorted(_rd_run.asked) == sorted(_rd_again.asked))
+    check("P4 import: nothing is stored for the comparison — the preview created no folder, the run stores the same days and no comparison number",
+          _store_after_pre is False and _run4["days"] == {"new": 4, "changed": 0, "unchanged": 0, "kept": 0, "failed": 0}
+          and _again4["days"]["unchanged"] == 4 and _again4["written_days"] == []
+          and not any(b"compar" in p.read_bytes() for p in cfg.BULK_DIR.rglob("*.json")))
+    _txt4 = "\n".join(_p4b_log.lines)
+    check("P4 import: the log carries the comparison lines in the preview and in the run, with counts and dates only (no name, no address)",
+          _txt4.count("compare:   export against the API files in raw/") == 3 and "    steps: 2 equal, 0 added by the export, 1 differing (2024-05-02)" in _txt4
+          and "4 day(s) compared, 2 without an API file (not compared)" in _txt4 and SECRET not in _txt4 and "@" not in _txt4 and "DI_CONNECT" not in _txt4)
+    check("P4 import: the summary lines of a preview and of a run name the comparison", any("compare:" in x for x in jimp.format_summary(_pre4, True))
+          and any("compare:" in x for x in jimp.format_summary(_run4, False)))
+
+with _isolated_log_env("bulk_json_p4_plain") as base_p4c:
+    _plain = jimp.run_aggregates_import(_write_zip(base_p4c / "export.zip", _export()))
+    _plain_days = {d: bw.read_aggregates(d) for d in bw.list_aggregate_days()}
+with _isolated_log_env("bulk_json_p4_with") as base_p4d:
+    _with = jimp.run_aggregates_import(_write_zip(base_p4d / "export.zip", _export()), read_raw=_Reader(_API))
+    _with_days = {d: bw.read_aggregates(d) for d in bw.list_aggregate_days()}
+check("P4 import: without a read function the comparison is None, with one the stored days are the same, byte for byte apart from the import time",
+      _plain["comparison"] is None and _with["comparison"] is not None and _plain["days"] == _with["days"]
+      and {d: {k: v for k, v in e.items() if k != "imported_at"} for d, e in _plain_days.items()}
+      == {d: {k: v for k, v in e.items() if k != "imported_at"} for d, e in _with_days.items()})
+check("P4 empty_summary: a new key 'comparison', None until the import fills it", jimp.empty_summary(False)["comparison"] is None)
+
+with _isolated_log_env("bulk_json_p4_edge") as base_p4e:
+    _p4_exp3 = _write_zip(base_p4e / "export.zip", _export())
+    _never = lambda _x: (_ for _ in ()).throw(RuntimeError("raw/ is not readable"))      # noqa: E731
+    _boom_run = jimp.run_aggregates_import(_p4_exp3, read_raw=_never)
+    check("P4 import: a read function that raises on every day does not stop the import: all six days count as without an API file, the days are stored",
+          _boom_run["ok"] and _boom_run["comparison"]["days_without_api"] == 6 and _boom_run["comparison"]["days_compared"] == 0
+          and _boom_run["days"]["new"] == 4)
+with _isolated_log_env("bulk_json_p4_invalid") as base_p4f:
+    _real_validate = jimp.validator.validate
+    with patch.object(jimp.validator, "validate",
+                      side_effect=lambda day: {"status": "critical", "issues": []} if day.get("date") == "2024-05-02" else _real_validate(day)):
+        _inv4 = jimp.run_aggregates_import(_write_zip(base_p4f / "export.zip", _export()), read_raw=_Reader(_API))
+    check("P4 import: a day the validator rejects is still compared (the comparison is about the sources, not about what is stored)",
+          _inv4["rejected"]["invalid"] == 1 and _inv4["comparison"]["fields"]["steps"]["differ_days"] == ["2024-05-02"] and _inv4["comparison"]["days_compared"] == 4)
+with _isolated_log_env("bulk_json_p4_stop") as base_p4g:
+    _rd_stop = _Reader(_API)
+    _first_day_done = lambda: any(cfg.BULK_AGG_DIR.glob("*.json")) if cfg.BULK_AGG_DIR.exists() else False      # noqa: E731
+    _stop4 = jimp.run_aggregates_import(_write_zip(base_p4g / "export.zip", _export()), should_stop=_first_day_done, read_raw=_rd_stop)
+    check("P4 import: a stopped run compares only the days it went through (no raw/ file is read after the stop)",
+          _stop4["stopped"] and len(_stop4["written_days"]) == 1 and len(_rd_stop.asked) == 1
+          and _stop4["comparison"]["days_compared"] + _stop4["comparison"]["days_without_api"] == 1)
+check("P4 format_summary: an error summary names the error only, a summary without a comparison has no line about it",
+      jimp.format_summary({**_pre4, "error": "x", "comparison": _cmp4}, True) == ["Bulk daily values import — error: x"]
+      and not any("compare" in x for x in jimp.format_summary({**_pre4, "comparison": None}, True)))
+
 # ── Imports: standard library and the named project modules only ─────────────────────────────
 _tree_ast = ast.parse(Path(jimp.__file__).read_text(encoding="utf-8"))
 _top = set()

@@ -1693,13 +1693,26 @@ def _finish_aggregates(summary, quality_data=None) -> bool:
     return failed_days == 0
 
 
+def _raw_for_comparison(date_str) -> dict:
+    """
+    The API day of raw/ for the comparison of the sources in the export import (v1.7.6.8), or {} when
+    there is none. A day without a raw file is the normal case here (an export reaches further back than
+    the API archive), so the file is looked for first: writer.read_raw warns on every missing file.
+    """
+    if not (cfg.RAW_DIR / f"garmin_raw_{date_str}.json").exists():
+        return {}
+    return writer.read_raw(date_str)
+
+
 def _run_bulk_import(path) -> dict:
     """
     Runs the phases of the Garmin export import chosen in the GUI and returns
     {"failed": n} for the exit code (0 = all phases ok).
 
       json      the daily values into garmin_data/bulk/aggregates (garmin_bulk_json_import,
-                v1.7.6.1; before, they went into raw/ — run_import, kept but no longer used here)
+                v1.7.6.1; before, they went into raw/ — run_import, kept but no longer used here);
+                since v1.7.6.8 it compares every day of the export with its API day in raw/
+                (_raw_for_comparison; lines in the summary, nothing stored)
       intraday  the heart-rate series into garmin_data/bulk/ (garmin_bulk_import)
 
     GARMIN_BULK_DRYRUN=1 makes a preview of both phases. The json phase runs first (it also
@@ -1723,7 +1736,8 @@ def _run_bulk_import(path) -> dict:
     failed = 0
     if "json" in phases:
         import garmin_bulk_json_import as _json_import
-        summary = _json_import.run_aggregates_import(path, dry_run=dry, should_stop=_is_stopped)
+        summary = _json_import.run_aggregates_import(path, dry_run=dry, should_stop=_is_stopped,
+                                                     read_raw=_raw_for_comparison)
         if not summary.get("ok"):
             failed += 1
         if not dry and not _finish_aggregates(summary):
