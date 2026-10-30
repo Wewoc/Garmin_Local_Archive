@@ -267,7 +267,7 @@ with _isolated_log_env("m2b_restore") as _b:
         _put(cfg.RAW_DIR / f"garmin_raw_{_D9}.json", _raw_bytes(_D9, "new"))
         _put(cfg.SUMMARY_DIR / f"garmin_{_D9}.json", _sum_bytes(_D9, "new"))
         _put_log({"first_day": "2018-12-19", "devices": [{"id": "1"}, {"id": "2"}],
-                  "days": [_entry(_D1, tag="migrated", last_checked="2026-10-30"), _entry(_D2, tag="converted", write=False, source="bulk"),
+                  "days": [_entry(_D1, tag="migrated", last_checked="2025-12-31"), _entry(_D2, tag="converted", write=False, source="bulk"),
                            _entry(_D3, tag="mixed", last_checked="2025-05-05"), _entry(_D9, tag="new"), {"x": "an entry without a date"}]})
         _cur = _tree(_b, skip=("migration",))
 
@@ -290,7 +290,7 @@ with _isolated_log_env("m2b_restore") as _b:
         _logf = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
         check("M2b restore: the log entries of the restored days come back from the snapshot (day 1 tag mixed, day 2 write true, source api); last_checked is new",
               _q[_D1]["tag"] == "mixed" and _q[_D2]["write"] is True and _q[_D2]["source"] == "api"
-              and _q[_D1]["last_checked"] != "2026-10-30" and _q[_D1]["last_checked"] == _q[_D2]["last_checked"] != "2024-01-01")
+              and _q[_D1]["last_checked"] != "2025-12-31" and _q[_D1]["last_checked"] == _q[_D2]["last_checked"] != "2024-01-01")
         check("M2b restore: the entry of the unchanged day and of the later day stay, devices and first_day stay, an entry without a date stays",
               _q[_D3]["last_checked"] == "2025-05-05" and _q[_D9]["tag"] == "new" and _logf["devices"] == [{"id": "1"}, {"id": "2"}]
               and _logf["first_day"] == "2018-12-19" and any(e.get("x") == "an entry without a date" for e in _logf["days"]))

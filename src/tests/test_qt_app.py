@@ -3869,6 +3869,7 @@ class TestRestingHrRepairHooks:
         app._panel_archive._check_failed_days_popup.return_value = False
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
+        app._panel_archive._check_device_repair.return_value = False          # v1.7.6.9: not asked / declined
         app._panel_archive._check_track_migration.return_value = None      # v1.7.6.3: not asked / declined
         app._panel_archive._check_bulk_rebuild.return_value = None         # v1.7.6.5: not asked / declined
         _sync.run_collector(panel)
@@ -4011,6 +4012,7 @@ class TestTrackMigrationHooks:
         app._panel_archive._check_failed_days_popup.return_value = False
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
+        app._panel_archive._check_device_repair.return_value = False          # v1.7.6.9: not asked / declined
         app._panel_archive._check_track_migration.return_value = track
         app._panel_archive._check_bulk_rebuild.return_value = None         # v1.7.6.5: not asked / declined
         _sync.run_collector(panel)
@@ -4187,6 +4189,7 @@ class TestBulkRebuildHooks:
         app._panel_archive._check_failed_days_popup.return_value = False
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
+        app._panel_archive._check_device_repair.return_value = False          # v1.7.6.9: not asked / declined
         app._panel_archive._check_track_migration.return_value = track
         app._panel_archive._check_bulk_rebuild.return_value = rebuild
         _sync.run_collector(panel)
@@ -4739,3 +4742,220 @@ class TestDocViewerDialog:
         assert d_guide._view.toPlainText() == guide and d_guide._view.document().blockCount() > 1000
         assert d_readme._view.toHtml().count("<table") >= 6
         assert "pip install garminconnect" in d_readme._view.toPlainText()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DEVICE-REPAIR v1.7.6.9 — removable
+#  Popup of the device repair (panel_archive), its trigger in sync.py, naming by id
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDeviceRepairHooks:
+
+    @staticmethod
+    def _archive(base, serials=(3966586101,), extra_unknown=0):
+        """A synthetic archive: one entry per serial without a device_id, each with a bulk day file and a FIT
+        original; extra_unknown entries have no bulk day file."""
+        import hashlib
+        import json
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import fit_builder as fb
+        g = base / "garmin_data"
+        (g / "log").mkdir(parents=True)
+        entries = []
+        for i, serial in enumerate(serials, 1):
+            d = f"2025-06-{i:02d}"
+            hashes = []
+            for j, one in enumerate(serial if isinstance(serial, tuple) else (serial,)):     # a tuple = several devices on the day
+                data = fb.simple_fit(32, 1_700_000_000 + 10 * i + j, serial=one)
+                h = hashlib.sha256(data).hexdigest()
+                (g / "bulk" / "source" / h[:2]).mkdir(parents=True, exist_ok=True)
+                (g / "bulk" / "source" / h[:2] / f"{h}.fit").write_bytes(data)
+                hashes.append(h)
+            (g / "bulk" / "raw").mkdir(parents=True, exist_ok=True)
+            (g / "bulk" / "raw" / f"garmin_bulk_{d}.json").write_text(
+                json.dumps({"date": d, "schema_version": 1, "source_files": hashes}), encoding="utf-8")
+            entries.append({"date": d, "device_id": None, "device_name": ""})
+        for n in range(extra_unknown):
+            entries.append({"date": f"2025-07-{n + 1:02d}", "device_id": None, "device_name": ""})
+        (g / "log" / "quality_log.json").write_text(json.dumps({"days": entries}), encoding="utf-8")
+
+    @staticmethod
+    def _check(base):
+        from unittest.mock import MagicMock
+        from app.panel_archive import PanelArchive
+        return PanelArchive._check_device_repair(MagicMock(), str(base))
+
+    def test_no_log_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_no_assignable_day_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, serials=(), extra_unknown=2)       # only days without a bulk day file
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_a_day_with_two_devices_alone_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, serials=((3966586101, 3961663084),))
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_a_day_with_two_devices_is_named_as_staying_unknown(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, serials=(3966586101, (3966586101, 3961663084)))
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as q:
+            self._check(tmp_path)
+        text = q.call_args.args[2]
+        assert text.startswith("1 day(s) have no device") and "1 more day(s)" in text and "3966586101: 1 day(s)" in text
+
+    def test_confirmed_returns_true_and_names_count_devices_and_backup(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, serials=(3966586101, 3966586101, 3961663084))
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as q:
+            assert self._check(tmp_path) is True
+        text = q.call_args.args[2]
+        assert "3 day(s)" in text and "3966586101: 2 day(s)" in text and "3961663084: 1 day(s)" in text
+        assert "backup" in text.lower() and "quality_log_" in text
+        assert "stay unknown" not in text
+
+    def test_declined_returns_false(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+            assert self._check(tmp_path) is False
+
+    def test_days_that_stay_unknown_are_named(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, extra_unknown=2)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as q:
+            self._check(tmp_path)
+        assert "2 more day(s)" in q.call_args.args[2] and "stay unknown" in q.call_args.args[2]
+
+    def test_the_check_writes_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path)
+        before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            self._check(tmp_path)
+        assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
+
+    def test_error_in_the_scan_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path)
+        with patch("garmin_repair_devices.find_candidates", side_effect=RuntimeError("boom")), \
+                patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    @pytest.mark.parametrize("repair, expected", [(True, {"GARMIN_DEVICE_REPAIR": "1"}), (False, {})])
+    def test_sync_passes_the_trigger_only_after_a_yes(self, tmp_path, repair, expected):
+        from unittest.mock import MagicMock
+        from app.outputs import sync as _sync
+        panel = MagicMock()
+        app = panel._app
+        app._timer_active = False
+        app._connection_verified = True
+        app.settings = {"backup_raw_backfill_asked": True}
+        app._panel_settings._collect_settings.return_value = {
+            "email": "a@b.c", "password": "x", "base_dir": str(tmp_path),
+            "sync_mode": "recent", "sync_days": "90", "sync_from": "", "sync_to": ""}
+        app._panel_archive._check_failed_days_popup.return_value = False
+        app._panel_archive._check_schema_migration.return_value = False
+        app._panel_archive._check_resting_hr_repair.return_value = False
+        app._panel_archive._check_device_repair.return_value = repair
+        app._panel_archive._check_track_migration.return_value = None
+        app._panel_archive._check_bulk_rebuild.return_value = None
+        _sync.run_collector(panel)
+        app._panel_archive._check_device_repair.assert_called_once_with(base_dir=str(tmp_path))
+        assert app._run.call_args.kwargs["env_overrides"] == expected
+
+
+class TestNamingById:
+    """Doubleclick on a device row of the archive table (v1.7.6.9, DEVICE-REPAIR)."""
+
+    @staticmethod
+    def _click(device_id, text):
+        from unittest.mock import MagicMock, patch
+        from app.panel_archive import PanelArchive
+        item = MagicMock()
+        item.data.return_value = device_id
+        item.text.return_value = text
+        panel = MagicMock()
+        panel._app._panel_home._info_device_table.item.return_value = item
+        panel._app._panel_settings._collect_settings.return_value = {"base_dir": "x"}
+        with patch("app.panel_archive.QInputDialog.getText", return_value=("Old", True)) as dlg, \
+                patch("app.panel_archive._controller.rename_unknown_device", return_value={"updated": 5}) as ru, \
+                patch("pathlib.Path.exists", return_value=True):
+            PanelArchive._archive_on_device_name_click(panel, 0, 2)
+        return dlg, ru, panel
+
+    def test_numeric_id_goes_to_naming_by_id_not_to_the_unknown_group(self):
+        dlg, ru, panel = self._click("3966586101", "3966586101")
+        panel._archive_rename_device_by_id.assert_called_once_with("3966586101", "3966586101")
+        assert not ru.called and not dlg.called
+
+    def test_unknown_group_keeps_its_dialog_and_function(self):
+        for device_id in (None, "__unknown__"):
+            dlg, ru, panel = self._click(device_id, "unknown")
+            assert dlg.called and ru.called and not panel._archive_rename_device_by_id.called
+
+    def test_total_row_does_nothing(self):
+        dlg, ru, panel = self._click("__total__", "Total")
+        assert not dlg.called and not ru.called and not panel._archive_rename_device_by_id.called
+
+    def test_rename_by_id_calls_the_controller_with_id_and_stripped_name(self):
+        from unittest.mock import MagicMock, patch
+        from app.panel_archive import PanelArchive
+        panel = MagicMock()
+        panel._app._panel_settings._collect_settings.return_value = {"base_dir": "x"}
+        with patch("app.panel_archive.QInputDialog.getText", return_value=(" vivoactive 3 ", True)) as dlg, \
+                patch("app.panel_archive._controller.rename_device", return_value={"updated": 3}) as rd, \
+                patch("pathlib.Path.exists", return_value=True):
+            PanelArchive._archive_rename_device_by_id(panel, "3966586101", "3966586101")
+        assert rd.call_args.args[1:] == ("3966586101", "vivoactive 3")
+        assert "3966586101" in dlg.call_args.args[2] and dlg.call_args.kwargs["text"] == ""
+        panel._refresh_archive_info.assert_called_once()
+
+    def test_the_dialog_starts_with_an_existing_name(self):
+        from unittest.mock import MagicMock, patch
+        from app.panel_archive import PanelArchive
+        panel = MagicMock()
+        with patch("app.panel_archive.QInputDialog.getText", return_value=("x", False)) as dlg:
+            PanelArchive._archive_rename_device_by_id(panel, "1", "fenix 5x")
+        assert dlg.call_args.kwargs["text"] == "fenix 5x"
+
+    def test_cancel_or_empty_name_changes_nothing(self):
+        from unittest.mock import MagicMock, patch
+        from app.panel_archive import PanelArchive
+        for answer in (("x", False), ("  ", True)):
+            panel = MagicMock()
+            with patch("app.panel_archive.QInputDialog.getText", return_value=answer), \
+                    patch("app.panel_archive._controller.rename_device") as rd:
+                PanelArchive._archive_rename_device_by_id(panel, "1", "1")
+            assert not rd.called and not panel._refresh_archive_info.called
+
+    def test_an_error_is_logged_and_the_table_is_not_refreshed(self):
+        from unittest.mock import MagicMock, patch
+        from app.panel_archive import PanelArchive
+        panel = MagicMock()
+        panel._app._panel_settings._collect_settings.return_value = {"base_dir": "x"}
+        with patch("app.panel_archive.QInputDialog.getText", return_value=("N", True)), \
+                patch("app.panel_archive._controller.rename_device", return_value={"updated": 0, "error": "boom"}), \
+                patch("pathlib.Path.exists", return_value=True):
+            PanelArchive._archive_rename_device_by_id(panel, "1", "x")
+        assert "boom" in panel._app._log.call_args.args[0] and not panel._refresh_archive_info.called

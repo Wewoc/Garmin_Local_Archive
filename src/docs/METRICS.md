@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-10-29 15:14 UTC · Version: 1.7.6.8
+Generated: 2026-10-30 15:18 UTC · Version: 1.7.6.9
 
 ## Test Counts
 
@@ -24,7 +24,7 @@ Generated: 2026-10-29 15:14 UTC · Version: 1.7.6.8
 | test_source_writer.py | 88 | 88 | 0 |
 | test_container_mirror.py | 150 | 150 | 0 |
 | test_import_mirror.py | 175 | 175 | 0 |
-| test_collector.py | 616 | 616 | 0 |
+| test_collector.py | 626 | 626 | 0 |
 | test_garmin_import.py | 158 | 158 | 0 |
 | test_bulk_fit_reader.py | 56 | 56 | 0 |
 | test_bulk_export_scanner.py | 40 | 40 | 0 |
@@ -38,6 +38,7 @@ Generated: 2026-10-29 15:14 UTC · Version: 1.7.6.8
 | test_silo_check.py | 101 | 101 | 0 |
 | test_silo_repair.py | 126 | 126 | 0 |
 | test_repair_resting_hr.py | 49 | 49 | 0 |
+| test_repair_devices.py | 66 | 66 | 0 |
 | test_track_migration.py | 97 | 97 | 0 |
 | test_migration_snapshot.py | 50 | 50 | 0 |
 | test_daily_update.py | 52 | 52 | 0 |
@@ -49,7 +50,7 @@ Generated: 2026-10-29 15:14 UTC · Version: 1.7.6.8
 | test_export.py | 45 | 45 | 0 |
 | test_app_logic.py | 190 | 190 | 0 |
 | test_updater.py | 93 | 93 | 0 |
-| test_qt_app.py | 325 | 325 | 0 |
+| test_qt_app.py | 343 | 343 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -57,15 +58,15 @@ Generated: 2026-10-29 15:14 UTC · Version: 1.7.6.8
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **6685** | **6685** | **0** |
+| **Total** | **6779** | **6779** | **0** |
 
 ## Modules
 
-Total: 172 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 173 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-10-29 15:11 UTC · Findings: 0 · Whitelisted: 100
+Scanned: 2026-10-30 15:15 UTC · Findings: 0 · Whitelisted: 100
 
-⚠ vulture.json target_version (v1.7.6.8) does not match the current APP_VERSION (1.7.6.8) — scope may have changed since the scan. Re-run tests/check_vulture.py.
+⚠ vulture.json target_version (v1.7.6.9) does not match the current APP_VERSION (1.7.6.9) — scope may have changed since the scan. Re-run tests/check_vulture.py.
 

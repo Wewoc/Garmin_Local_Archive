@@ -255,12 +255,13 @@ class PanelArchive(QWidget):
         name_item = tbl.item(row, 2)
         if name_item is None:
             return
-        # Editable rows: device_id is None or a non-numeric sentinel like "__unknown__".
-        # Rows with numeric Garmin device IDs or "__total__" are read-only.
+        # None or a non-numeric sentinel like "__unknown__": names the whole unknown group.
+        # A numeric Garmin device id (v1.7.6.9): names that device only. "__total__": nothing.
         device_id = name_item.data(Qt.ItemDataRole.UserRole)
-        if device_id is not None and (
-            str(device_id).isdigit() or device_id == "__total__"
-        ):
+        if device_id == "__total__":
+            return
+        if device_id is not None and str(device_id).isdigit():
+            self._archive_rename_device_by_id(str(device_id), name_item.text())
             return
 
         current = name_item.text()
@@ -291,6 +292,37 @@ class PanelArchive(QWidget):
             f"✓ Device name set: '{new_name.strip()}' ({updated} entries updated)"
         )
 
+        self._refresh_archive_info()
+
+    def _archive_rename_device_by_id(self, device_id: str, current: str):
+        """Naming by id (v1.7.6.9): names the device with this numeric id; nothing is assigned to
+        another device. Main Thread only."""
+        new_name, ok = QInputDialog.getText(
+            self._app,
+            "Device Name",
+            f"Name for device {device_id}:",
+            text="" if current == device_id else current,
+        )
+        if not ok or not new_name.strip():
+            return
+
+        s        = self._app._panel_settings._collect_settings()
+        base_dir = Path(s.get("base_dir", "")).expanduser()
+        log_path = base_dir / "garmin_data" / "log" / "quality_log.json"
+        if not log_path.exists():
+            return
+
+        result = _controller.rename_device(s, device_id, new_name.strip())
+        error  = result.get("error")
+        if error:
+            self._app._log(f"✗ Device name update failed: {error}")
+            return
+        updated = result.get("updated", 0)
+        if updated == 0:
+            return
+        self._app._log(
+            f"✓ Device name set: '{new_name.strip()}' for {device_id} ({updated} entries updated)"
+        )
         self._refresh_archive_info()
 
     # ── Integrity check ────────────────────────────────────────────────────────
@@ -448,6 +480,50 @@ class PanelArchive(QWidget):
             f"the backups follow.\n{extra}\n"
             f"Please make a backup of your data directory before continuing.\n\n"
             f"I have a backup — correct these days?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    # ── Device repair check — DEVICE-REPAIR v1.7.6.9 — removable ───────────────
+
+    def _check_device_repair(self, base_dir: str) -> bool:
+        """Returns True if the repair was confirmed. Main Thread only."""
+        # INTENTIONAL DIRECT READ — read-only pre-flight check in GUI context, same category as
+        # _check_resting_hr_repair() above. Reads quality_log.json, the day files in bulk/raw and
+        # the FIT originals in bulk/source; nothing is written. The folders come from the settings
+        # (base_dir), so the check does not depend on what garmin_config was imported with. The
+        # first run over an archive with ~1,300 such days takes a few seconds; afterwards only the
+        # days that stayed unknown are looked at (and they are not offered: only "one" counts).
+        garmin_dir = Path(base_dir) / "garmin_data"
+        log_file   = garmin_dir / "log" / "quality_log.json"
+        if not log_file.exists():
+            return False
+        try:
+            import garmin_repair_devices as _rd
+            found = _rd.find_candidates(quality_log_file=log_file,
+                                        bulk_raw_dir=garmin_dir / "bulk" / "raw",
+                                        bulk_source_dir=garmin_dir / "bulk" / "source")
+        except Exception:
+            return False
+        count = len(found["one"])
+        if count == 0:
+            return False
+        per_device = _rd.days_per_device(found["one"])
+        lines = "\n".join(f"   {dev}: {n} day(s)" for dev, n in list(per_device.items())[:8])
+        more = "\n   …" if len(per_device) > 8 else ""
+        unknown = len(found["two"]) + len(found["no_file"]) + len(found["incomplete"])
+        extra = (f"\n{unknown} more day(s) have two devices or no usable original and stay unknown.\n"
+                 if unknown else "")
+        answer = QMessageBox.question(
+            self._app, "Device Assignment — Backup Required",
+            f"{count} day(s) have no device in the quality log. The device that recorded the day "
+            f"can be read from the archived Garmin export files (bulk/source):\n\n"
+            f"{lines}{more}\n{extra}\n"
+            f"Only days without a device are changed; existing devices stay. Only the quality log "
+            f"is written (a safety copy is made first: backup/migration/quality_log_*.zip). "
+            f"The devices can be named in the Archive tab afterwards.\n\n"
+            f"Please make a backup of your data directory before continuing.\n\n"
+            f"I have a backup — assign these devices?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         return answer == QMessageBox.StandardButton.Yes

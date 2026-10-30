@@ -17,6 +17,9 @@ ZIP of everything the migration may touch: raw/, summary/ and log/quality_log.js
                       CRC against what was read from the archive, testzip, the manifest) and only
                       then put in place. A file that cannot be read, a stop request or too little
                       free space leaves no ZIP. Nothing in raw/, summary/ or the log is changed.
+                      v1.7.6.9 (backup by change list): `stores=` limits the copy to the stores a
+                      repair changes; ("quality_log",) writes quality_log_*.zip with the log only
+                      (DEVICE-REPAIR). The way back of such a copy puts the entries of its days back.
   verify_snapshot()   checks a ZIP the same way (and that it holds nothing but the known names).
   list_snapshots()    the ZIPs in the folder, oldest first (the oldest is the original state).
   restore_snapshot()  the way back: puts the files of the ZIP back, byte for byte, where they differ
@@ -53,8 +56,11 @@ MANIFEST = "MANIFEST.json"
 LOG_ENTRY = "log/quality_log.json"
 _RAW_RE     = re.compile(r"raw/garmin_raw_(\d{4}-\d{2}-\d{2})\.json")
 _SUMMARY_RE = re.compile(r"summary/garmin_(\d{4}-\d{2}-\d{2})\.json")
-_NAME_RE    = re.compile(r"migration_\d{4}-\d{2}-\d{2}_\d{6}(_\d+)?\.zip")
+_NAME_RE    = re.compile(r"(migration|quality_log)_\d{4}-\d{2}-\d{2}_\d{6}(_\d+)?\.zip")
 _RAW_PREFIX, _SUMMARY_PREFIX = "garmin_raw_", "garmin_"
+# Backup by change list (v1.7.6.9): the stores a repair is going to change. All three is the
+# migration snapshot; only the quality log is the copy that DEVICE-REPAIR makes (quality_log_*.zip).
+ALL_STORES = ("raw", "summary", "quality_log")
 _FREE_SPACE_RESERVE = 10 * 1024 * 1024
 
 
@@ -110,23 +116,36 @@ def _cleanup(path) -> None:
 #  Create
 # ══════════════════════════════════════════════════════════════════════════════
 
-def create_snapshot(should_stop=None) -> dict:
+def create_snapshot(should_stop=None, stores=None) -> dict:
     """
     Writes a ZIP of raw/, summary/ and log/quality_log.json to backup/migration/ (see the module
     docstring). Returns {"ok": bool, "path": Path | None, "raw": n, "summary": n, "log": bool,
     "bytes": size of the ZIP, "reason": text when not ok}. An archive with none of these files:
     ok, path None (nothing to back up).
+
+    stores (v1.7.6.9, backup by change list): the stores to copy, a subset of ALL_STORES; None = all
+    three (the migration snapshot, migration_*.zip). A repair that only changes the quality log asks
+    for ("quality_log",): the ZIP is then named quality_log_*.zip and holds only the log. An unknown
+    store name is refused (ok False, nothing written).
     """
-    sources = [(f"raw/{p.name}", p) for _, p in _day_files(cfg.RAW_DIR, _RAW_PREFIX)]
+    wanted = set(ALL_STORES if stores is None else stores)
+    if not wanted or not wanted <= set(ALL_STORES):
+        return {"ok": False, "path": None, "raw": 0, "summary": 0, "log": False, "bytes": 0,
+                "reason": f"unknown store in {sorted(map(str, wanted))}"}
+    sources = []
+    if "raw" in wanted:
+        sources += [(f"raw/{p.name}", p) for _, p in _day_files(cfg.RAW_DIR, _RAW_PREFIX)]
     n_raw = len(sources)
-    sources += [(f"summary/{p.name}", p) for _, p in _day_files(cfg.SUMMARY_DIR, _SUMMARY_PREFIX)]
+    if "summary" in wanted:
+        sources += [(f"summary/{p.name}", p) for _, p in _day_files(cfg.SUMMARY_DIR, _SUMMARY_PREFIX)]
     n_summary = len(sources) - n_raw
-    has_log = cfg.QUALITY_LOG_FILE.exists()
+    has_log = "quality_log" in wanted and cfg.QUALITY_LOG_FILE.exists()
     if has_log:
         sources.append((LOG_ENTRY, cfg.QUALITY_LOG_FILE))
     result = {"ok": False, "path": None, "raw": n_raw, "summary": n_summary, "log": has_log, "bytes": 0}
     if not sources:
         return {**result, "ok": True, "reason": "nothing to back up"}
+    kind = "quality_log" if wanted == {"quality_log"} else "migration"
 
     folder = cfg.MIGRATION_BACKUP_DIR
     tmp = None
@@ -139,10 +158,10 @@ def create_snapshot(should_stop=None) -> dict:
                                         f"{total // 1048576} MB of files to back up)"}
 
         stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        final, n = folder / f"migration_{stamp}.zip", 1
+        final, n = folder / f"{kind}_{stamp}.zip", 1
         while final.exists():
             n += 1
-            final = folder / f"migration_{stamp}_{n}.zip"
+            final = folder / f"{kind}_{stamp}_{n}.zip"
         tmp = folder / f".{final.name}.tmp"
 
         expected = {}
@@ -156,7 +175,8 @@ def create_snapshot(should_stop=None) -> dict:
                 expected[arc] = (len(data), zlib.crc32(data))
                 zf.writestr(arc, data)
             manifest = {"created": datetime.now().isoformat(timespec="seconds"), "app_version": _app_version(),
-                        "raw": n_raw, "summary": n_summary, "quality_log": has_log}
+                        "raw": n_raw, "summary": n_summary, "quality_log": has_log,
+                        "stores": sorted(wanted)}
             zf.writestr(MANIFEST, json.dumps(manifest, indent=2))
 
         problems = _check_zip(tmp, expected)
@@ -237,7 +257,7 @@ def list_snapshots() -> list:
     if not folder.exists():
         return []
     return [{"name": p.name, "path": p, "bytes": p.stat().st_size}
-            for p in sorted(folder.glob("migration_*.zip")) if _NAME_RE.fullmatch(p.name)]
+            for p in sorted(folder.glob("*.zip")) if _NAME_RE.fullmatch(p.name)]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -291,7 +311,9 @@ def restore_snapshot(path, dry_run: bool = False, should_stop=None) -> dict:
                 else:
                     res["failed"].append((d, "the files could not be written"))
             snap_log = None
-            if LOG_ENTRY in zf.namelist() and not dry_run:
+            # a copy that holds only the log (create_snapshot(stores=("quality_log",))): no day files
+            log_only = not by_day and LOG_ENTRY in zf.namelist()
+            if LOG_ENTRY in zf.namelist() and (not dry_run or log_only):
                 try:
                     snap_log = json.loads(zf.read(LOG_ENTRY))
                 except ValueError:
@@ -299,7 +321,13 @@ def restore_snapshot(path, dry_run: bool = False, should_stop=None) -> dict:
     except (OSError, zipfile.BadZipFile) as e:
         return {**res, "reason": f"{type(e).__name__}: {e}"}
 
-    if not dry_run and restored_days:
+    if log_only:
+        if isinstance(snap_log, dict):
+            res["log_entries"], res["log_saved"] = _restore_log_entries(snap_log, dry_run)
+            res["restored"] = res["log_entries"]
+            if res["log_saved"] is False:
+                res["failed"].append(("quality_log", "the quality log could not be saved"))
+    elif not dry_run and restored_days:
         res["log_entries"], res["log_saved"] = _merge_log(snap_log, restored_days)
         if res["log_saved"] is False:
             res["failed"].append(("quality_log", "the quality log could not be saved"))
@@ -308,6 +336,35 @@ def restore_snapshot(path, dry_run: bool = False, should_stop=None) -> dict:
              f"{res['unchanged']} unchanged, {len(res['failed'])} failed, {res['log_entries']} log entr"
              f"{'y' if res['log_entries'] == 1 else 'ies'} restored")
     return res
+
+
+def _restore_log_entries(snap_log, dry_run) -> tuple:
+    """The way back of a log-only copy: the entry of every day in the copy replaces the current entry
+    of that day where the two differ (so also later changes to such an entry are undone); entries of
+    other days stay. Returns (entries that differ, saved: bool | None when nothing was to be done or on
+    a dry run). One load-modify-save under QUALITY_LOCK."""
+    with quality.QUALITY_LOCK:
+        data = quality._load_quality_log()
+        current = {e["date"]: i for i, e in enumerate(data.get("days", []))
+                   if isinstance(e, dict) and isinstance(e.get("date"), str)}
+        changed = 0
+        for e in snap_log.get("days", []):
+            if not isinstance(e, dict) or not isinstance(e.get("date"), str):
+                continue
+            i = current.get(e["date"])
+            if i is not None and data["days"][i] == e:
+                continue
+            changed += 1
+            if dry_run:
+                continue
+            if i is None:
+                data["days"].append(e)
+            else:
+                data["days"][i] = e
+        saved = None
+        if changed and not dry_run:
+            saved = quality._save_quality_log(data) is not False
+    return changed, saved
 
 
 def _merge_log(snap_log, restored_days) -> tuple:

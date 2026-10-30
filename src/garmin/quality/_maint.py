@@ -48,7 +48,8 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
                     device_id: str | None = None,
                     device_name: str | None = None,
                     prev_high: bool = False,
-                    backfilled_fields: dict = None) -> None:
+                    backfilled_fields: dict = None,
+                    device_source: str | None = None) -> None:
     """
     Adds or updates a day entry in the quality log.
       - 'failed':   increments attempts, sets recheck=True
@@ -70,6 +71,13 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
 
     device_name : str | None
       Human-readable device name — stored alongside device_id.
+
+    device_source : str | None
+      Origin of device_id when it did not come from the account's own
+      data (v1.7.6.9, e.g. "export_fit"). `entry["device_source"]` always
+      describes the `device_id` of the same entry: whoever writes a
+      device_id here replaces the key with this value or, with None,
+      removes it. A call without a device_id leaves both untouched.
 
     prev_high : bool
       True if the previous calendar day has quality == "high".
@@ -115,6 +123,10 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
             if device_id is not None:
                 entry["device_id"]   = device_id
                 entry["device_name"] = device_name or ""
+                if device_source is not None:
+                    entry["device_source"] = device_source
+                else:
+                    entry.pop("device_source", None)
             if fields is not None:
                 _downgrades = fields.pop("_downgrade_reasons", None)
                 entry["fields"]   = fields
@@ -163,6 +175,8 @@ def _upsert_quality(data: dict, day: date, quality: str, reason: str,
         "device_id":    device_id,
         "device_name":  device_name or "",
     }
+    if device_id is not None and device_source is not None:
+        entry["device_source"] = device_source
     if fields is not None:
         _downgrades = fields.pop("_downgrade_reasons", None)
         entry["fields"] = fields
@@ -195,6 +209,71 @@ def set_unknown_device_name(data: dict, name: str) -> int:
             count += 1
     log.info(f"  set_unknown_device_name: {count} entries updated → '{name}'")
     return count
+
+
+def set_device_name(data: dict, device_id: str, name: str) -> int:
+    """
+    Sets device_name on all entries whose device_id is `device_id` (v1.7.6.9,
+    naming by ID). Only the name changes — never a device_id, device_source
+    or any other key; entries of other devices and entries without a
+    device_id are not touched. An empty id or an empty name changes nothing.
+    Returns the number of entries updated.
+    Caller is responsible for saving quality_log.json and device_table.json
+    (same contract as set_unknown_device_name).
+    """
+    device_id = str(device_id or "").strip()
+    name = (name or "").strip()
+    if not device_id or not name:
+        return 0
+    count = 0
+    for entry in data.get("days", []):
+        if str(entry.get("device_id") or "") == device_id:
+            entry["device_name"] = name
+            count += 1
+    log.info(f"  set_device_name: {count} entries of device {device_id} updated → '{name}'")
+    return count
+
+
+def record_device_from_files(data: dict, assignments: dict, source: str) -> dict:
+    """
+    Gives days that have no device_id the id found in the kept files of the day
+    (v1.7.6.9, DEVICE-REPAIR). `assignments` is {ISO date: device id}; the id is
+    stored as text. Per entry only `device_id`, `device_name` ("") and
+    `device_source` (= `source`) change; a name the entry carried for the
+    unknown group belongs to that group, not to this id, and is dropped.
+
+    Never overwrites: an entry that already has a device_id (any non-empty
+    value) is skipped, a day without an entry is skipped and never created, an
+    empty id is skipped. `last_checked`, `quality`, `source`, `write` and the
+    log checksum stay as they are (the id is not part of a day's content).
+
+    Returns {"assigned": n, "skipped_has_id": n, "skipped_empty_id": n,
+    "skipped_no_entry": n, "names_dropped": n}. Does NOT save — the caller holds QUALITY_LOCK from load
+    to save and saves once (same contract as touch_last_checked).
+    """
+    by_date = {e.get("date"): e for e in data.get("days", []) if isinstance(e, dict)}
+    res = {"assigned": 0, "skipped_has_id": 0, "skipped_empty_id": 0, "skipped_no_entry": 0,
+           "names_dropped": 0}
+    for day, dev in assignments.items():
+        key = day.isoformat() if hasattr(day, "isoformat") else str(day)
+        dev_id = str(dev if dev is not None else "").strip()
+        entry = by_date.get(key)
+        if entry is None:
+            res["skipped_no_entry"] += 1
+            continue
+        if not dev_id:
+            res["skipped_empty_id"] += 1
+            continue
+        if entry.get("device_id"):
+            res["skipped_has_id"] += 1
+            continue
+        if entry.get("device_name"):
+            res["names_dropped"] += 1
+        entry["device_id"]     = dev_id
+        entry["device_name"]   = ""
+        entry["device_source"] = source
+        res["assigned"] += 1
+    return res
 
 
 def touch_last_checked(data: dict, days) -> int:
@@ -402,7 +481,8 @@ def record_attempt(data: dict, day, label: str, reason: str,
                    device_id: str | None = None,
                    device_name: str | None = None,
                    prev_high: bool = False,
-                   backfilled_fields: dict = None) -> None:
+                   backfilled_fields: dict = None,
+                   device_source: str | None = None) -> None:
     """
     Public API — atomically upserts a quality entry and persists the log.
     Caller must already hold QUALITY_LOCK.
@@ -420,7 +500,8 @@ def record_attempt(data: dict, day, label: str, reason: str,
                     written=written, source=source,
                     fields=fields, validator_result=validator_result,
                     device_id=device_id, device_name=device_name,
-                    prev_high=prev_high, backfilled_fields=backfilled_fields)
+                    prev_high=prev_high, backfilled_fields=backfilled_fields,
+                    device_source=device_source)
     _save_quality_log(data)
 
 

@@ -118,6 +118,9 @@ def run_collector(panel, *, on_done=None):
     # RESTING-HR-REPAIR v1.7.5.7 — removable
     if app._panel_archive._check_resting_hr_repair(base_dir=s["base_dir"]):
         env_extra["GARMIN_RESTING_HR_REPAIR"] = "1"
+    # DEVICE-REPAIR v1.7.6.9 — removable
+    if app._panel_archive._check_device_repair(base_dir=s["base_dir"]):
+        env_extra["GARMIN_DEVICE_REPAIR"] = "1"
     # TRACK-MIGRATION v1.7.6.3 — removable
     track_mode = app._panel_archive._check_track_migration(base_dir=s["base_dir"])
     if track_mode:

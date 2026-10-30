@@ -220,6 +220,36 @@ def rename_unknown_device(s: dict, new_name: str) -> dict:
         return {"updated": 0, "error": str(e)}
 
 
+def rename_device(s: dict, device_id: str, new_name: str) -> dict:
+    """
+    Names one device by its id (v1.7.6.9): sets device_name on all quality_log
+    entries whose device_id is `device_id` and persists quality_log.json +
+    device_table.json. Only the name changes, no entry is assigned to another
+    device. Same lock and write delegation as rename_unknown_device().
+
+    Returns {"updated": int} on success (0 if quality_log.json is missing or no
+    entry matched), or {"updated": 0, "error": str} on failure.
+    Never raises — caller (View) decides what to do with the result.
+    """
+    try:
+        import garmin_quality as quality
+        base_dir = Path(s.get("base_dir", "")).expanduser()
+        log_path = base_dir / "garmin_data" / "log" / "quality_log.json"
+        if not log_path.exists():
+            return {"updated": 0}
+
+        with quality.QUALITY_LOCK:
+            data    = quality._load_quality_log()
+            updated = quality.set_device_name(data, device_id, new_name)
+            if updated:
+                quality._save_quality_log(data)
+                quality.save_device_table(data)
+
+        return {"updated": updated}
+    except Exception as e:
+        return {"updated": 0, "error": str(e)}
+
+
 # ── Connection test ────────────────────────────────────────────────────────────
 
 def check_connection(s: dict, callbacks: dict) -> None:
