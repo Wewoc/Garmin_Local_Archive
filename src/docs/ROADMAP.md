@@ -6,14 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.8**
+**Currently stable — v1.7.6.9**
 
 ---
-
-### v1.7.6.9 — Device repair
-
-- Days without a device are completed from the device recorded in the kept
-  files (preview and backup first). Devices can be named in the app.
 
 ### v1.7.6.10 — Race predictions on their own day
 

@@ -1457,6 +1457,37 @@ def _run_resting_hr_repair(quality_data: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Device repair — DEVICE-REPAIR v1.7.6.9 — removable
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_device_repair(quality_data: dict) -> None:
+    """
+    Gives quality-log entries without a device_id the device that recorded the day, read from the FIT
+    originals the export import kept (bulk/source). The work is done by garmin_repair_devices; this
+    wrapper only starts it and logs a summary.
+
+    quality_data is the run's own quality log, handed through like the repairs get it: the assignment is
+    made on this object and saved. A log of its own would be overwritten by the next save of this run.
+    The caller must not hold QUALITY_LOCK. A safety copy of the quality log is made first; without it
+    nothing is written.
+
+    Runs after the user confirmed the popup in the GUI (GARMIN_DEVICE_REPAIR=1). No API call, no login.
+
+    Non-fatal: any error is a warning and the sync goes on. Days that stay unknown are offered again at
+    the next start only while they can still get a device.
+    """
+    try:
+        import garmin_repair_devices as _rd
+        result = _rd.repair_devices(should_stop=_is_stopped, quality_data=quality_data)
+    except Exception as e:
+        log.warning(f"  Device repair skipped: {e}")
+        return
+    if result.get("failed"):
+        log.warning(f"  Device repair: nothing was written ({result.get('reason') or 'failed'}) — "
+                    f"offered again at the next start")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Track migration — TRACK-MIGRATION v1.7.6.3 — removable
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2011,6 +2042,14 @@ def main(stop_event=None):
     # lacks (the first start after an import, an import whose backup was stopped or failed) and
     # refreshes the day files that changed; before the login, like 3d and 3f. Non-fatal.
     _run_bulk_backup("sync start")
+
+    # ── 3h. Device repair — DEVICE-REPAIR v1.7.6.9 — removable ─────────────────
+    # Runs before the login and before 5b (the entries that 5b fills from the account's own training
+    # status are not touched: the repair only takes entries without a device_id, and 5b only those
+    # without one either). Variable removed as soon as it is read, like 3e; the run's quality_data is
+    # passed on.
+    if os.environ.pop("GARMIN_DEVICE_REPAIR", None) == "1":
+        _run_device_repair(quality_data)
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:

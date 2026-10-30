@@ -881,6 +881,7 @@ def _import_export_days(
                 written=False, source=entry.get("source", "bulk"),
                 fields=dict(fields) if isinstance(fields, dict) else None,
                 device_id=entry.get("device_id"), device_name=entry.get("device_name"),
+                device_source=entry.get("device_source"),
             )
             made += 1
         except Exception as e:

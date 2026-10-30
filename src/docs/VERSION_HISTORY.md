@@ -2,6 +2,13 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.9 — Device Repair
+
+- Days that come from a Garmin export have no device in the archive and show up as "unknown" in the device table. The export files the app keeps name the watch that recorded each day; the app now reads it from there. Sync Garmin asks first (a popup shows how many days each device would get) and makes a safety copy of the quality log before it writes anything.
+- Only days without a device are changed. A day with two watches, a day without a usable file and every day that already has a device stay as they are. Each assigned day carries a new key `device_source` (`export_fit`) in the quality log, so you can see where the device came from.
+- Devices can be named: double-click the row of a device in the Archive table to give it a name; the name is set for all days of that device. The names of the new devices are not guessed.
+- The daily update only mentions that days can be assigned; it changes nothing by itself.
+
 ## v1.7.6.8 — Source Comparison in the Import Summary
 
 - When you import a Garmin export (and in the preview), the log now compares the export with the days the app already holds from the Garmin API. For seven fields (steps, resting, minimum and maximum heart rate, stress average, sleep duration, floors) it says how many days are equal, how many the export adds (the API day has no value) and how many differ, with the first three dates that differ.

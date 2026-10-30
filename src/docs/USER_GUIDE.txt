@@ -86,6 +86,20 @@ sync range, a popup will appear before the sync starts: "Incomplete
 records found: X days in the selected range — Refresh now?" Click
 "Yes" to re-fetch those days, or "No" to skip them and sync normally.
 
+Devices of old days (v1.7.6.9)
+Days that come from a Garmin export have no device in the archive: the device table
+shows them as "unknown". The export files the app keeps (garmin_data/bulk/source)
+name the watch that recorded the day. When Sync Garmin finds days that can get a
+device, it asks first ("Device Assignment - Backup Required"): it shows how many
+days each device would get and how many days stay unknown (a day with two watches,
+or without a usable file). After "Yes" only the quality log is changed: days
+without a device get one, days that already have one stay as they are. A safety
+copy of the quality log is made first (backup/migration/quality_log_*.zip); without
+it nothing is written. The daily update only mentions that days can be assigned.
+Names: the new devices only show their number. Double-click the row of a device in
+the Archive table (Info panel) and type a name; the name is set for all days of that
+device. A double-click on the "unknown" row still names the days without a device.
+
 Correction of the resting heart rate (v1.7.5.7): earlier versions of the
 Bulk Import stored the 7-day average of the resting heart rate instead of
 the value of the day. If your archive holds such imported days, a popup

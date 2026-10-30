@@ -307,6 +307,28 @@ def _check_track_migration(base_dir: Path) -> int:
     return count
 
 
+def _check_device_repair(base_dir: Path) -> int:
+    """DEVICE-REPAIR v1.7.6.9 — removable.
+
+    Counts days without a device in the quality log whose device can be read from the kept export
+    files and warns once. Like the resting-HR hint this never stops the run; the assignment is started
+    from the app (Sync Garmin asks). Days with two devices or without a usable original are not
+    counted. Returns the number of days; 0 on any error."""
+    try:
+        import garmin_repair_devices as _rd
+        garmin_dir = base_dir / "garmin_data"
+        found = _rd.find_candidates(quality_log_file=garmin_dir / "log" / "quality_log.json",
+                                    bulk_raw_dir=garmin_dir / "bulk" / "raw",
+                                    bulk_source_dir=garmin_dir / "bulk" / "source")
+    except Exception:
+        return 0
+    count = len(found["one"])
+    if count:
+        log.warning(f"  {count} day(s) have no device in the quality log, but the kept export files name one.")
+        log.warning("  Open the app and run Sync Garmin once to assign them (a safety copy is made first).")
+    return count
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Version check
 # ══════════════════════════════════════════════════════════════════════════════
@@ -807,6 +829,10 @@ def main() -> int:
     # ── 4c. Track migration hint — TRACK-MIGRATION v1.7.6.3 — removable ───────
     # Warning only, the run goes on.
     _check_track_migration(base_dir)
+
+    # ── 4d. Device repair hint — DEVICE-REPAIR v1.7.6.9 — removable ────────────
+    # Warning only, the run goes on.
+    _check_device_repair(base_dir)
 
     # ── 5. Version check (non-blocking)───────────────────────────────────────
     update_available, release_json = _check_version()

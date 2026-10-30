@@ -82,6 +82,7 @@ of scope.
 | `garmin_import_mirror.py` | mirror import operation — orchestrates only; bulk files go through `garmin_bulk_writer` (`import_day_file`, `store_original`, v1.7.6.2) |
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
+| `garmin_repair_devices.py` (removable) | none — owns no files; writes only through `garmin_quality` (`record_device_from_files()`, `_save_quality_log()`, `save_device_table()`) and `garmin_migration_snapshot.create_snapshot(stores=("quality_log",))`; reads `bulk/` (v1.7.6.9) |
 | `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
 | `garmin_track_migration.py` (removable) | none — owns no files; writes only through `garmin_writer` (`write_day()`, `rebuild_summary()`) and `garmin_quality` (`touch_last_checked()`) (v1.7.6.3) |
 | `garmin_migration_snapshot.py` (removable) | `garmin_data/backup/migration/` (v1.7.6.3); puts files back only through `garmin_writer.restore_day_files()` and `garmin_quality` |
@@ -817,6 +818,25 @@ choice of the readiness entry, and `store_day()` shared with the import. Days th
 version 2 stay as they are. Without the rebuild, days with version 1 get the `score` the next time the
 export is imported again.
 
+- v1.7.6.9 (P5a): `test_repair_devices.py` — the pinned Ist-Stand (an id from the account replaces id and name, the log passes
+  `device_source` and unknown keys through load and save, `set_unknown_device_name` touches only entries without an id), the
+  `device_source` rule in `_upsert_quality`/`record_attempt` (kept without an id, removed with a new id, stored with it, new
+  entries), `record_device_from_files` (text id, never overwrites, name of the unknown group dropped and counted, empty id,
+  day without entry, checksum and `last_checked` unchanged) and `set_device_name`, `find_candidates` (one, two also with a
+  missing original, no day file, missing original, no serial, damaged FIT, damaged or empty day file, a name that is no
+  SHA-256 even where a file of that name exists, an entry with an id not looked at, nothing written, each original parsed
+  once, explicit folders), `repair_devices` (dry run writes nothing, the real run, existing id stays, device table, one
+  checked safety copy before the write with the old state, second run changes nothing, way back of the log-only copy,
+  shared quality log, refused copy, `ok` without a ZIP, stop, log that cannot be saved), `create_snapshot(stores=...)`
+  (names, manifest, unknown store, same-second name, no log), the mirror import passing `device_source` on, the scheduler
+  hint and `rename_device`; `test_collector.py` section 4u "main device repair" (only `"1"`, the variable removed
+  when read, the run's log and the stop check handed over, before the login, after backup refresh and bulk backup, a
+  missing module or an error is a warning, import mode returns before it, and an end-to-end run in which a later save of
+  the run's own log keeps the id); `test_daily_update.py` — step 4d in the order; `test_qt_app.py::TestDeviceRepairHooks`
+  (popup, days that stay unknown, writes nothing, trigger in `run_collector()`) and `TestNamingById` (numeric id → naming by
+  id, unknown group unchanged, total row nothing). The tests were checked with deliberate faults in a copy of the code
+  (see `CHANGELOG.md`).
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
@@ -905,6 +925,36 @@ Add the endpoint key to `assess_quality_fields()` in `garmin_quality.py`.
   stay; the quality-log entries of the restored days come from the ZIP, the others stay. A migrated archive that is restored is offered the migration again.
 - **After a restore of the whole copy** the next migration run makes the same days again; it makes a new copy first.
 - Not covered: the tool is a command line (no button in the app); a damaged ZIP is refused before anything is written.
+
+### The device repair and its safety copy (v1.7.6.9, removable)
+
+Days of the Garmin export that the API never delivered a training status for have no `device_id` in the quality log;
+`garmin_repair_devices.py` reads the device from the kept FIT originals (`bulk/source`, listed per day in the day file of
+`bulk/raw`). Before it writes, `garmin_migration_snapshot.create_snapshot(stores=("quality_log",))` copies the quality log to
+`backup/migration/quality_log_YYYY-MM-DD_HHMMSS.zip`; without a checked copy nothing is written. Way back: close the app, then
+`python support-tools/archive-maintenance/restore_migration_snapshot.py <name>` (the entries of the copy replace the current
+ones where they differ; `--dry-run` counts them). The tool lists both kinds of ZIP.
+
+**Removal list** — everything that belongs to the repair carries the marker `DEVICE-REPAIR v1.7.6.9` (grep for it; the
+same list is in the docstring of the module):
+1. `garmin/garmin_repair_devices.py` and `tests/test_repair_devices.py`.
+2. `compiler/build_manifest.py` — the `SHARED_SCRIPTS` entry, the `SCRIPT_SIGNATURES_BASE` entry of the module and
+   `"def _run_device_repair"` in the collector's signatures.
+3. `run_tests.ps1` and `tests/conftest.py` — the test file entry.
+4. `garmin/garmin_collector.py` — the section "Device repair" (`_run_device_repair()`) and step 3h in `main()`; in
+   `tests/test_collector.py` the blocks "main device repair" (section 4u and the end-to-end block).
+5. `app/panel_archive.py::_check_device_repair()` and the three lines in `app/outputs/sync.py::run_collector()`;
+   `tests/test_qt_app.py::TestDeviceRepairHooks`; in `tests/test_qt_app.py` the line `_check_device_repair.return_value = False`
+   of the sync tests.
+6. `scheduler/daily_update.py` — `_check_device_repair()` and step 4d; in `tests/test_daily_update.py` the `device` hint.
+7. Docs — the module section, the exception row, the `_run_device_repair` row and the invariant bullets in
+   `REFERENCE_GARMIN.md`, the bullet in `REFERENCE_INVARIANTS.md`, the variable row and the tree line in
+   `REFERENCE_GLOBAL.md`, the test row in `MAINTENANCE_GLOBAL.md`, the owner row in `GLA_GUIDELINES.md`, the paragraph in
+   `USER_GUIDE.txt`. `CHANGELOG.md` stays as history.
+
+What stays when it is removed: `garmin_quality.record_device_from_files()` and `set_device_name()`, the `device_source` rule in
+`_upsert_quality()`, the `stores=` parameter of `create_snapshot()` with the log-only way back, and naming by id in the app
+(`controller.rename_device()`, `PanelArchive._archive_rename_device_by_id()`).
 
 ## Quality tracking
 

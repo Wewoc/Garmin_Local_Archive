@@ -17,6 +17,10 @@ Responsibilities:
   - Clean archive before first_day (dry run + delete)
   - Manage device names on quality_log entries (set_unknown_device_name)
     and the derived device_table.json (save_device_table)
+  - Give days without a device_id the id found in their kept files
+    (record_device_from_files, v1.7.6.9: device_id + device_source, never
+    overwrites, caller saves) and name a device by its id (set_device_name,
+    caller saves)
   - Mark days whose content was corrected in place so the MCP cache re-reads
     them (touch_last_checked — sets last_checked only, caller saves)
   - Mark days whose heart-rate series are in the bulk store
@@ -84,6 +88,8 @@ from quality._maint import (
     catch_up_bulk_aggregates,
     record_field_backfill_failure,
     record_field_backfill_failures,
+    record_device_from_files,
+    set_device_name,
     set_unknown_device_name,
     touch_last_checked,
     unmarked_bulk_days,

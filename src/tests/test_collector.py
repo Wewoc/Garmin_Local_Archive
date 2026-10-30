@@ -4470,6 +4470,120 @@ with _isolated_log_env("main15rhr2") as _b:      # no log, no raw file: the day 
               _code is None and _exc is None and _f.called
               and "  Resting HR repair skipped: boom" in _rec.msgs("warning"))
 
+# -- device repair (v1.7.6.9) — DEVICE-REPAIR v1.7.6.9 — removable ----------------------------------------------------
+_DR_OK15 = {"ok": 2, "failed": 0, "per_device": {"1": 2}, "two": {}, "no_file": [], "incomplete": [],
+            "safety_copy": "quality_log_x.zip", "stopped": False}
+_DR_ON15 = {"GARMIN_DEVICE_REPAIR": "1"}
+
+
+def _dr15(result=None, dr_err=None, **kw):
+    """main() once with garmin_repair_devices.repair_devices mocked. Returns (main result, log recorder, mock)."""
+    with patch("garmin_repair_devices.repair_devices",
+               return_value=_DR_OK15 if result is None else result, side_effect=dr_err) as _m:
+        out, rec = _m15(**kw)
+    return out, rec, _m
+
+
+with _isolated_log_env("main15dr") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _res = {}
+        for _val in ("1", "0", "2", "", None):
+            _, _rec, _m = _dr15(env={"GARMIN_DEVICE_REPAIR": _val} if _val is not None else {})
+            _res[_val] = _m.call_count
+        check("4u main device repair: GARMIN_DEVICE_REPAIR=1 (and only that value) starts the repair",
+              _res == {"1": 1, "0": 0, "2": 0, "": 0, None: 0})
+        _, _rec, _m = _dr15(env=_DR_ON15)
+        check("4u main device repair: the stop check and the quality log of the run are handed over",
+              set(_m.call_args.kwargs) == {"should_stop", "quality_data"}
+              and _m.call_args.kwargs["should_stop"] is _col5._is_stopped
+              and isinstance(_m.call_args.kwargs["quality_data"], dict) and "days" in _m.call_args.kwargs["quality_data"])
+
+        (_code, _exc, _f, _), _rec, _m = _dr15(env=_DR_ON15, login=None)
+        (_code2, _exc2, _f2, _), _rec2, _m2 = _dr15(env=_DR_ON15, login_error=_col5.api.GarminLoginError("nope"))
+        check("4u main device repair: runs before the login — a cancelled login does not stop it, a login error "
+              "does not stop it and the run still exits with 1",
+              _code is None and _exc is None and _m.call_count == 1 and _code2 == 1 and _m2.call_count == 1)
+
+        _order = []
+        with patch.object(_col5, "_run_backup_refresh", side_effect=lambda: _order.append("backup")), \
+             patch.object(_col5, "_run_bulk_backup", side_effect=lambda *a, **k: _order.append("bulk_backup")), \
+             patch("garmin_repair_devices.repair_devices",
+                   side_effect=lambda **kw: (_order.append("repair"), _DR_OK15)[1]):
+            _m15(env=_DR_ON15)
+        check("4u main device repair: runs after the backup refresh and the bulk backup (step 3h)",
+              _order == ["backup", "bulk_backup", "repair"])
+
+        with patch.dict(sys.modules, {"garmin_repair_devices": None}):
+            (_code, _exc, _f, _), _rec = _m15(env=_DR_ON15)
+        check("4u main device repair: a missing module (the repair was removed) is a warning, the run goes on",
+              _code is None and _exc is None
+              and any(m.startswith("  Device repair skipped:") for m in _rec.msgs("warning")))
+
+        _, _rec, _m = _dr15(result={**_DR_OK15, "ok": 0, "failed": 1, "reason": "disk full"}, env=_DR_ON15)
+        _, _rec0, _m0 = _dr15(env=_DR_ON15)
+        check("4u main device repair: a refused write is warned about with its reason, a clean run adds no warning",
+              any(m.startswith("  Device repair: nothing was written (disk full)") for m in _rec.msgs("warning"))
+              and not any("Device repair" in m for m in _rec0.msgs("warning")))
+
+        with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}):
+            (_code, _exc, _f, _), _rec, _m = _dr15(env={"GARMIN_IMPORT_PATH": "ignored", **_DR_ON15})
+        check("4u main device repair: the import mode returns before it — no repair",
+              _code == 0 and not _m.called)
+
+        (_code, _exc, _f, _), _rec, _m = _dr15(dr_err=OSError("boom"), env=_DR_ON15)
+        check("4u main device repair: an error in the repair is a warning, the run goes on",
+              _code is None and _exc is None and _m.call_count == 1 and "  Device repair skipped: boom" in _rec.msgs("warning"))
+
+with _isolated_log_env("main15dr2") as _b:      # no log, no raw file: the day is new and is fetched
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _seen_in, _seen_after, _env_after = [], {}, []
+
+        def _device_env(**kw):
+            _seen_in.append(os.environ.get("GARMIN_DEVICE_REPAIR"))
+            return _DR_OK15
+
+        def _fetch_dev_env(client, date_str, extra_endpoints=None):
+            _env_after.append(os.environ.get("GARMIN_DEVICE_REPAIR"))
+            return _day_raw(date_str, "high"), []
+
+        for _val in ("1", "0"):
+            with _isolated_log_env(f"main15dr2_{_val}") as _b2:
+                cfg.SUMMARY_DIR = _b2 / "summary"
+                _env_after.clear()
+                with patch("garmin_repair_devices.repair_devices", side_effect=_device_env):
+                    _m15(env={"GARMIN_DEVICE_REPAIR": _val}, fetch=_fetch_dev_env)
+                _seen_after[_val] = list(_env_after)
+        check("4u main device repair: the variable is removed as soon as it is read — before the repair runs "
+              "and for every value, so a later run in the same process (T3) is not triggered again",
+              _seen_in == [None] and _seen_after == {"1": [None], "0": [None]})
+
+# device repair end to end: the real repair on the run's own quality log, then a later save of that log
+with _isolated_log_env("main15dr3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    import fit_builder as _fb15
+    import hashlib as _hl15
+    _fit15 = _fb15.simple_fit(32, 1_700_000_000, serial=3966586101)
+    _h15 = _hl15.sha256(_fit15).hexdigest()
+    (cfg.BULK_SOURCE_DIR / _h15[:2]).mkdir(parents=True, exist_ok=True)
+    (cfg.BULK_SOURCE_DIR / _h15[:2] / f"{_h15}.fit").write_bytes(_fit15)
+    cfg.BULK_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    (cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}2024-05-01.json").write_text(
+        json.dumps({"date": "2024-05-01", "schema_version": 1, "source_files": [_h15]}), encoding="utf-8")
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15, "device_id": None, "device_name": ""}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0,
+                     MIGRATION_BACKUP_DIR=_b / "backup" / "migration"):
+        _m15(env=_DR_ON15)
+        _e = _qdays()["2024-05-01"]
+    check("4u main device repair end to end: the real repair gives the day its device, device_source export_fit — and the "
+          "run's own later save of the log does not take it back",
+          (_e["device_id"], _e["device_source"]) == ("3966586101", "export_fit")
+          and len(list((_b / "backup" / "migration").glob("quality_log_*.zip"))) == 1)
+
 # -- resting-HR repair end to end (Baustein 2f) — RESTING-HR-REPAIR v1.7.5.7 — removable --------------------------------
 # The real repair, then a later save of the run's own quality log (the day that is fetched afterwards). Before 2f the
 # repair loaded and saved its own copy of the log; the save after the fetch wrote main()'s older copy back and the

@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.6.8
+# Garmin Local Archive — Desktop App v1.7.6.9
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -183,7 +183,7 @@ The top section shows two things at once:
 
 - **Days** — total days tracked in the quality log
 - **high / std / fail** — breakdown by quality level (colour-coded). `high` = intraday data present, `std` = full daily data without intraday (typical for older devices or older days), `fail` = nothing usable
-- **Device table** — one row per device showing date range, days high, days standard, total. Double-click the `unknown` row to assign a name to legacy entries (vívoactive era and similar)
+- **Device table** — one row per device showing date range, days high, days standard, total. Double-click the `unknown` row to assign a name to legacy entries (vívoactive era and similar); double-click the row of a device that is shown with its number to name that device (since v1.7.6.9 the days of a Garmin export can be assigned to the watch that recorded them: Sync Garmin asks first, see the USER_GUIDE)
 - **Recheck** — days flagged for re-download by the background timer
 - **Range** — earliest and latest date in your archive
 - **Coverage** — percentage of days present vs. possible days in the date range

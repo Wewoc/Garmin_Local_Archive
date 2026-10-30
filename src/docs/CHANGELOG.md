@@ -1,5 +1,66 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.9 — Device Repair
+
+Days that come from a Garmin export have no device in the quality log and show up as "unknown" in the device table.
+The FIT files of the export that the app keeps name the watch that recorded each day; a removable repair now reads the
+device from there. It asks first, makes a safety copy of the quality log, and changes nothing but the devices of days
+that have none. Devices can also be named by their number in the app.
+
+**What changed:**
+- **Repair** (`garmin_repair_devices`, marker `DEVICE-REPAIR v1.7.6.9`, removal list in the module and in
+  `MAINTENANCE_GARMIN.md`): a day file in `bulk/raw` lists in `source_files` the SHA-256 of every FIT file of the day;
+  the serial number in the first `file_id` message of each original (`parse_fit(data, wanted={0})`, field 3) is the
+  recording device. `find_candidates()` (read-only) sorts the entries without a `device_id` into `one` (every original
+  readable, exactly one serial), `two`, `no_file` and `incomplete`; only `one` is repaired. An existing id is never
+  overwritten; a name that is not a SHA-256 is never followed. `repair_devices()` makes a checked safety copy first (none,
+  no write), then sets `device_id` (text), `device_name` `""` and `device_source` `export_fit` on the run's own quality log
+  under one `QUALITY_LOCK` hold, saves once and rewrites `device_table.json`. A second run finds nothing.
+- **Trigger**: the popup "Device Assignment — Backup Required" (`PanelArchive._check_device_repair`) shows the days per
+  device and the days that stay unknown; after a Yes `sync.run_collector()` sets `GARMIN_DEVICE_REPAIR=1`, which `main()`
+  removes with `os.environ.pop()` and reads in step 3h, before the login. `daily_update.py` step 4d only warns.
+- **`device_source` belongs to its `device_id`** (`garmin_quality`): `_upsert_quality()` / `record_attempt()` replace or
+  remove the key whenever they write a `device_id` (an id from the account's own data has no source); the mirror import
+  passes the key on. New owner functions `record_device_from_files()` (never overwrites, drops the name of the
+  unknown group, leaves `last_checked` and the checksum alone) and `set_device_name()`.
+- **Backup by change list** (`garmin_migration_snapshot`): `create_snapshot(stores=…)`; `("quality_log",)` writes
+  `quality_log_YYYY-MM-DD_HHMMSS.zip` with the log only. The way back of such a ZIP puts the entries of its days back.
+- **Naming by id** (P5a.4): a double-click on a device row that shows a number opens the name dialog
+  (`PanelArchive._archive_rename_device_by_id`, `controller.rename_device`); only the name is set, for all days of that
+  device. The "unknown" row keeps its dialog.
+
+**New modules:**
+- `garmin/garmin_repair_devices.py`, `tests/test_repair_devices.py`
+
+**Changed modules:**
+- `garmin/quality/_maint.py`, `garmin/garmin_quality.py` — `device_source` rule, `record_device_from_files`, `set_device_name`
+- `garmin/garmin_import_mirror.py` — passes `device_source` on
+- `garmin/garmin_migration_snapshot.py` — `stores=`, `quality_log_*.zip`, way back of a log-only copy
+- `garmin/garmin_collector.py` — `_run_device_repair`, step 3h
+- `app/panel_archive.py`, `app/outputs/sync.py`, `app/garmin_app_controller.py`, `scheduler/daily_update.py`
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py`
+- `tests/` — `test_collector.py`, `test_daily_update.py`, `test_qt_app.py`, `test_migration_snapshot.py` (a fixed date that was
+  today's date on 2026-10-30 replaced by a past one)
+- `docs/` — `REFERENCE_GARMIN.md`, `REFERENCE_GLOBAL.md`, `REFERENCE_INVARIANTS.md`, `MAINTENANCE_GARMIN.md`,
+  `MAINTENANCE_GLOBAL.md`, `GLA_GUIDELINES.md`, `USER_GUIDE.txt`, `README_APP.md`, `ROADMAP.md`, `VERSION_HISTORY.md`,
+  `METRICS.md`
+- `version.py` — 1.7.6.9
+
+**Test result:** all suites green, 6779 checks in 49 files; `test_build_output.py` 846 passed (12 skipped); all 259 source
+files compile on Python 3.11. 30 deliberate faults in the new code were caught by the tests (the mutations ran on a copy;
+three survived the first round and got sharper test data).
+
+**Verified:** on a copy of the maintainer's real archive (quality log, `bulk/raw`, `bulk/source`; nothing written to the real
+archive): 1,293 entries without a device; preview and run give 1,271 days with one device (547, 515, 191, 11 and 7 days for the
+five serials found), 3 days with two devices and 19 days without a bulk day file stay unknown; only `device_id` and
+`device_source` of exactly those 1,271 entries changed, the safety copy holds the state before byte for byte, a second run
+changes nothing, the way back restores every entry. The first scan reads about 7,500 FIT files (8 s without load, 60 s while
+the whole test suite ran in parallel); a scan of the days that stayed unknown takes 0.1 s.
+
+**Not covered:** no run on the real archive and in the app (popup, dialog and log not looked at); the built programs (T2/T3)
+were not tried; the result (serial number = account device id) comes from one account; no name is known for two of the five
+devices; `device_source` is not read by dashboards, export or the MCP.
+
 ## v1.7.6.8 — Source Comparison in the Import Summary
 
 When a Garmin export is imported (or previewed), the log now compares every day of the
