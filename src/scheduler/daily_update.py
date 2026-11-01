@@ -329,6 +329,25 @@ def _check_device_repair(base_dir: Path) -> int:
     return count
 
 
+def _check_prediction_repair(base_dir: Path) -> int:
+    """PREDICTION-REPAIR v1.7.6.10 — removable.
+
+    Counts days whose race prediction is filed under the wrong day and can be corrected (a prediction of
+    their own date is placed on them, or a copy of another day's is removed) and warns once. Like the
+    resting-HR hint this never stops the run; the correction is started from the app (Sync Garmin asks).
+    Days that cannot be settled yet are not counted. Returns the number of days; 0 on any error."""
+    try:
+        import garmin_repair_predictions as _rp
+        found = _rp.find_candidates(raw_dir=base_dir / "garmin_data" / "raw")
+    except Exception:
+        return 0
+    count = len(found["set"]) + len(found["remove"])
+    if count:
+        log.warning(f"  {count} day(s) carry a race prediction that belongs to another day.")
+        log.warning("  Open the app and run Sync Garmin once to correct them (a safety copy is made first).")
+    return count
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Version check
 # ══════════════════════════════════════════════════════════════════════════════
@@ -833,6 +852,10 @@ def main() -> int:
     # ── 4d. Device repair hint — DEVICE-REPAIR v1.7.6.9 — removable ────────────
     # Warning only, the run goes on.
     _check_device_repair(base_dir)
+
+    # ── 4e. Prediction repair hint — PREDICTION-REPAIR v1.7.6.10 — removable ───
+    # Warning only, the run goes on.
+    _check_prediction_repair(base_dir)
 
     # ── 5. Version check (non-blocking)───────────────────────────────────────
     update_available, release_json = _check_version()

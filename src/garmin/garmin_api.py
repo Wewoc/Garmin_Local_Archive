@@ -323,7 +323,9 @@ def fetch_raw(client, date_str: str, extra_endpoints: list | None = None) -> tup
         ("get_training_status",      (date_str,), "training_status"),
         ("get_training_readiness",   (date_str,), "training_readiness"),
         ("get_hrv_data",             (date_str,), "hrv"),
-        ("get_race_predictions",     (),          "race_predictions"),
+        # v1.7.6.10: with the day (start, end, "daily") — without arguments the API answers with the CURRENT
+        # prediction, dated with the day of the call. The answer is a list; see _prediction_of_day().
+        ("get_race_predictions",     (date_str, date_str, "daily"), "race_predictions"),
         ("get_max_metrics",          (date_str,), "max_metrics"),
     ]
 
@@ -339,10 +341,38 @@ def fetch_raw(client, date_str: str, extra_endpoints: list | None = None) -> tup
         elif not success:
             failed_endpoints.append(key)
 
+    # v1.7.6.10: the race predictions of a day come as a list (one entry per day of the range): the entry of the
+    # day becomes the field, as the archive has always held it (a dict); no entry (a day before the API's history)
+    # means no field. Not a failed endpoint: the call itself worked.
+    if "race_predictions" in raw:
+        entry = _prediction_of_day(raw["race_predictions"], date_str)
+        if entry is None:
+            del raw["race_predictions"]
+        else:
+            raw["race_predictions"] = entry
+
     if not _is_stopped():
         time.sleep(random.uniform(10, 20))
 
     return raw, failed_endpoints
+
+
+def _prediction_of_day(answer, date_str: str):
+    """
+    The prediction of one day out of the answer of get_race_predictions(day, day, "daily") (v1.7.6.10).
+
+    The answer is a list with one entry per day of the range: the dict whose `calendarDate` is exactly
+    `date_str`, else None (an empty list — the API holds no prediction for that day — or entries of other
+    days only). A dict (the shape of the call without a date, and of days stored before v1.7.6.10) is
+    returned as it is; garmin_normalizer.own_day_prediction() judges it. Anything else is None. Pure, nothing is guessed.
+    """
+    if isinstance(answer, dict):
+        return answer
+    if isinstance(answer, list):
+        for item in answer:
+            if isinstance(item, dict) and item.get("calendarDate") == date_str:
+                return item
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════

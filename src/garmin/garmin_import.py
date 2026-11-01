@@ -25,6 +25,8 @@ Unterstützte Dateien im Export:
     DI-Connect-Fitness/*_summarizedActivities.json — Aktivitäten
     DI-Connect-Wellness/*_healthStatusData.json — Gesundheitsstatus, ein Eintrag je Tag (v1.7.6.7)
     DI-Connect-Wellness/*_AbnormalHrEvents.json — Pulsalarm-Ereignisse, mehrere je Tag (v1.7.6.7)
+    DI-Connect-Metrics/RunRacePredictions_*.json — Rennprognosen, mehrere Einträge je Tag, der mit dem
+                                  spätesten timestamp gilt; Datum = calendarDate der Prognose (v1.7.6.10)
 
 Dazu gesicherte Familien (_SAVED_FAMILIES, v1.7.6.7): gear, personalRecord, courses, Zonen. Sie werden nicht
 ausgewertet, aber gelesen, damit der read_hook ihre Bytes bekommt (der Bulk-Speicher hebt sie auf).
@@ -175,6 +177,7 @@ def parse_day(entries: dict, date_str: str) -> dict:
     activities = entries.get("activities") or []
     health_status = entries.get("health_status") or {}
     alert_events = entries.get("alert_events") or []
+    race_prediction = entries.get("race_predictions") or {}
 
     # ── user_summary (aus UDS) ──
     if uds:
@@ -258,14 +261,43 @@ def parse_day(entries: dict, date_str: str) -> dict:
     if alert_events:
         raw["alert_events"] = sorted(alert_events, key=_alert_sort_key)
 
+    # ── race_predictions (aus RunRacePredictions, v1.7.6.10) — in der Form der API-Antwort ──
+    # Die Prognose trägt ihr eigenes Datum (calendarDate = der Tag, unter dem der Export sie führt): anders
+    # als der API-Abruf ohne Datum gehört sie damit zu genau diesem Tag.
+    prediction = _race_prediction(race_prediction, date_str)
+    if prediction:
+        raw["race_predictions"] = prediction
+
     return raw
+
+
+# Feldnamen des Exports (RunRacePredictions) -> Feldnamen der API-Antwort (get_race_predictions), damit beide
+# Quellen gleich aussehen (Quellenvergleich, Zusammenführung, Reparatur der Prognosen).
+_RACE_PREDICTION_FIELDS = (
+    ("raceTime5K", "time5K"), ("raceTime10K", "time10K"),
+    ("raceTimeHalf", "timeHalfMarathon"), ("raceTimeMarathon", "timeMarathon"),
+)
+
+
+def _race_prediction(entry, date_str: str) -> dict | None:
+    """
+    Der Export-Eintrag einer Rennprognose in der Form der API-Antwort, oder None (kein Eintrag, keine
+    einzige Zeit als Zahl). Nur das Datum des Tages und die vier Zeiten; Konto- und Geräte-Kennungen des
+    Eintrags werden nicht übernommen.
+    """
+    if not isinstance(entry, dict):
+        return None
+    times = {api: entry.get(export) for export, api in _RACE_PREDICTION_FIELDS}
+    if not any(isinstance(v, (int, float)) and not isinstance(v, bool) for v in times.values()):
+        return None
+    return {"calendarDate": date_str, **times}
 
 
 def detect_kind(data) -> str | None:
     """
     Art einer geparsten Export-JSON-Datei am Inhalt (v1.7.6.5, P2.2) — für Originale ohne Pfad.
 
-    Returns "uds" | "sleep" | "readiness" | "activities" | "health_status" | "alert_events" (die Schlüssel
+    Returns "uds" | "sleep" | "readiness" | "activities" | "health_status" | "alert_events" | "race_predictions" (die Schlüssel
     des entries-Dicts von parse_day) oder None = nicht erkannt. Die gesicherten Familien (_SAVED_FAMILIES)
     haben keine Regel: ihr Aufbau ist nicht belegt, sie bleiben None (v1.7.6.7). Eine Art gilt, wenn ihre Schlüsselregel bei mindestens
     einem Eintrag trifft; keine oder mehrere Arten ergeben None, es wird nie geraten.
@@ -290,6 +322,8 @@ def detect_kind(data) -> str | None:
             kinds.add("health_status")
         if "abnormalHrEventGMT" in entry:
             kinds.add("alert_events")
+        if "raceTimeMarathon" in entry or "raceTime5K" in entry:
+            kinds.add("race_predictions")
     return next(iter(kinds)) if len(kinds) == 1 else None
 
 
@@ -378,6 +412,7 @@ _KINDS = (
     ("activities",    _ACTIVITIES_FILE,  "summarizedActivities", "wrapped"),
     ("health_status", _SLEEP_PREFIX,     "healthStatusData",     "single"),
     ("alert_events",  _SLEEP_PREFIX,     "AbnormalHrEvents",     "list"),
+    ("race_predictions", _READINESS_PREFIX, "RunRacePredictions", "latest"),
 )
 _KIND_MODE = {kind: mode for kind, _prefix, _keyword, mode in _KINDS}
 

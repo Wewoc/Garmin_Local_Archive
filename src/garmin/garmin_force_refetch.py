@@ -19,7 +19,7 @@ overrides it.
 
 Scope: source/ only, not raw/. For the "api" origin, raw/summary are
 derived from source/ (garmin_normalizer._normalize_api() is a pass-through
-— raw is structurally identical to source), so a source/ snapshot alone is
+apart from a race prediction dated another day, v1.7.6.10 — raw is structurally identical to source), so a source/ snapshot alone is
 sufficient to reconstruct the day if a restore is ever needed.
 
 Strategy: flat directory, one file per day — no monthly consolidation

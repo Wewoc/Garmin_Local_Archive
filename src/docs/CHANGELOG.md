@@ -1,5 +1,78 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.10 — Race Predictions on Their Own Day
+
+Garmin answers the request for the race predictions with the current prediction, dated with the day of the request — not the
+day the app asked about. Until now the app filed that answer under the day it was fetching, so almost every day of the archive
+carried a prediction that belongs to another day (on the maintainer's archive: 2,874 days carried copies of 128 predictions, none
+of them dated as the day itself). From this version the app asks for the prediction of each day with the day itself, a prediction is kept only under its own date,
+a removable repair puts the stored ones on the right day, and the export becomes the source for the days it covers.
+
+**What changed:**
+- **Fetch** (`garmin_api.fetch_raw()`): `get_race_predictions(day, day, "daily")` instead of the call without arguments (which answers
+  with the current prediction, dated with the day of the call). The answer is a list; the entry whose `calendarDate` is the day becomes
+  the field (`_prediction_of_day()`, a dict as before), no entry means no field and no failed endpoint. Tried on the maintainer's account:
+  one day and a range of 11 days give one entry per day, equal to the export's latest entry of that date and to the archive's copy dated
+  that day; a day in 2024 gives an empty list. `own_day_prediction()` now lives in `garmin_normalizer` and is applied by `normalize(..., source="api")`
+  (after `source/` was written): the net under the fetch for a dict answer of another day or without a `calendarDate`, and the rule for
+  every day that is rebuilt from an API-shaped dict — the silo repair (#3) and the track migration rebuild days from old `source/` files
+  that may hold a misdated prediction. A dict without a usable `date` is left alone, the import side is not touched. Garmin's own date
+  is taken as it is (on the measured account it is the local date of the computation, checked against the UTC time stamps of the
+  export), no time-zone arithmetic.
+- **Rating** (`quality/_assess.py`): `fields["race_predictions"]` is `medium` only for a prediction of the day's own date, `failed`
+  otherwise (before: `medium` for any filled dict).
+- **Repair** (`garmin_repair_predictions`, marker `PREDICTION-REPAIR v1.7.6.10`, removal list in the module and in
+  `MAINTENANCE_GARMIN.md`): `find_candidates()` (read-only) reads the field of every raw day; a prediction dated D' on another day goes to
+  the raw day D' (unchanged) when that day exists and has no prediction of its own date, the misdated copies are removed. Untouched and
+  reported: copies of one date that differ, a prediction of a day without a raw file, a field without a usable date; an untouched
+  carrier that is itself the target of another prediction is listed as replaced. `repair_predictions()` makes a checked safety copy of
+  `raw/` and the quality log first (none, no write), writes each day through `write_day()` (re-checking that it still needs it), sets
+  the field label and `last_checked` of the changed days and saves the log once. A second run finds nothing.
+- **Trigger**: the popup "Race Predictions — Backup Required" (`PanelArchive._check_prediction_repair`); after a Yes
+  `sync.run_collector()` sets `GARMIN_PREDICTION_REPAIR=1`, which `main()` removes with `os.environ.pop()` and reads in step 3i, before
+  the login. `daily_update.py` step 4e only warns.
+- **Export as source** (`garmin_import`, `garmin_bulk_json_import`): `RunRacePredictions` is read; of several entries of one date the
+  latest `timestamp` wins; the day carries the four times under the field names of the API's answer with the date of the day, no
+  account or device identifier. The entry is part of the proof of origin, so days that gain a prediction count as changed at the next
+  import; the original is kept in `bulk/source`. `detect_kind()` knows the file by content (the rebuild from the kept originals
+  reads it).
+- **Owner function** `garmin_quality.record_field_labels()` — sets the label of one field on given days, nothing else.
+
+**New modules:**
+- `garmin/garmin_repair_predictions.py`, `tests/test_repair_predictions.py`
+
+**Changed modules:**
+- `garmin/garmin_api.py` — the call with the day, `_prediction_of_day`; `garmin/garmin_normalizer.py` — `own_day_prediction`, applied by
+  `_normalize_api`; `garmin/garmin_collector.py` — `_run_prediction_repair`, step 3i
+- `garmin/quality/_assess.py`, `garmin/quality/_maint.py`, `garmin/garmin_quality.py` — label rule, `record_field_labels`
+- `garmin/garmin_import.py`, `garmin/garmin_bulk_json_import.py` — the export's race predictions
+- `app/panel_archive.py`, `app/outputs/sync.py`, `scheduler/daily_update.py`
+- `compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py`
+- `tests/` — `test_collector.py`, `test_quality.py`, `test_garmin_import.py`, `test_bulk_json_import.py`, `test_daily_update.py`,
+  `test_qt_app.py`, `test_silo_repair.py`, `test_track_migration.py` (the field label cases, the new kind, the new hooks; a `with` of 21 managers in `test_daily_update.py` refused by
+  Python 3.11 replaced by `patch.multiple`)
+- `docs/` — `REFERENCE_GARMIN.md`, `REFERENCE_GARMIN_EXPORT.md`, `REFERENCE_GLOBAL.md`, `REFERENCE_INVARIANTS.md`,
+  `MAINTENANCE_GARMIN.md`, `MAINTENANCE_GLOBAL.md`, `GLA_GUIDELINES.md`, `USER_GUIDE.txt`, `README_APP.md`, `ROADMAP.md`,
+  `VERSION_HISTORY.md`, `METRICS.md`
+- `version.py` — 1.7.6.10
+
+**Test result:** all suites green, 6922 checks in 50 files; `test_build_output.py` 853 passed (12 skipped); all 261 `.py` files of `src/` compile
+on Python 3.11; `ruff` clean, Vulture 0. 56 deliberate faults in the new code were caught by the tests (the mutations ran on a copy;
+one survived the first round and got a sharper test).
+
+**Verified:** the call with the day on the maintainer's account (6 read-only requests: one day in the export's time, one in 2024, the last
+archive day, a range of 11 days daily and monthly; the answers were compared with the export and the archive); on a copy of the maintainer's real archive (`raw/`, `summary/`, `bulk/aggregates`, the quality log; nothing written to
+the real archive): 2,874 raw days carried a prediction, 128 different ones; preview and run give 127 days that get the prediction of
+their own date and 2,747 days that lose a copy, one prediction for a day without a raw file stays only in `source/` and the safety
+copy (reported as replaced); all other content of every day, all summaries and every other key of the quality log are unchanged
+(only the label of `race_predictions` and `last_checked`), a second run changes nothing, the way back restores every raw day byte for
+byte. Netz 2: the scenarios of the changed core modules (`garmin_quality`, `garmin_collector`, `garmin_import`) report as before.
+
+**Not covered:** no run on the real archive and in the app (popup and log not looked at); the built programs (T2/T3); the days that lose a
+copy in the repair stay without a prediction until they are fetched again with their day (one range call of the library, up to 366 days,
+could fill them; not built, and the API's first day of history is not measured: a day in 2024 is empty); the export import of the new
+file was not run on the real archive.
+
 ## v1.7.6.9 — Device Repair
 
 Days that come from a Garmin export have no device in the quality log and show up as "unknown" in the device table.

@@ -3870,6 +3870,7 @@ class TestRestingHrRepairHooks:
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
         app._panel_archive._check_device_repair.return_value = False          # v1.7.6.9: not asked / declined
+        app._panel_archive._check_prediction_repair.return_value = False      # v1.7.6.10: not asked / declined
         app._panel_archive._check_track_migration.return_value = None      # v1.7.6.3: not asked / declined
         app._panel_archive._check_bulk_rebuild.return_value = None         # v1.7.6.5: not asked / declined
         _sync.run_collector(panel)
@@ -4013,6 +4014,7 @@ class TestTrackMigrationHooks:
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
         app._panel_archive._check_device_repair.return_value = False          # v1.7.6.9: not asked / declined
+        app._panel_archive._check_prediction_repair.return_value = False      # v1.7.6.10: not asked / declined
         app._panel_archive._check_track_migration.return_value = track
         app._panel_archive._check_bulk_rebuild.return_value = None         # v1.7.6.5: not asked / declined
         _sync.run_collector(panel)
@@ -4190,6 +4192,7 @@ class TestBulkRebuildHooks:
         app._panel_archive._check_schema_migration.return_value = migrate
         app._panel_archive._check_resting_hr_repair.return_value = repair
         app._panel_archive._check_device_repair.return_value = False          # v1.7.6.9: not asked / declined
+        app._panel_archive._check_prediction_repair.return_value = False      # v1.7.6.10: not asked / declined
         app._panel_archive._check_track_migration.return_value = track
         app._panel_archive._check_bulk_rebuild.return_value = rebuild
         _sync.run_collector(panel)
@@ -4878,10 +4881,123 @@ class TestDeviceRepairHooks:
         app._panel_archive._check_schema_migration.return_value = False
         app._panel_archive._check_resting_hr_repair.return_value = False
         app._panel_archive._check_device_repair.return_value = repair
+        app._panel_archive._check_prediction_repair.return_value = False
         app._panel_archive._check_track_migration.return_value = None
         app._panel_archive._check_bulk_rebuild.return_value = None
         _sync.run_collector(panel)
         app._panel_archive._check_device_repair.assert_called_once_with(base_dir=str(tmp_path))
+        assert app._run.call_args.kwargs["env_overrides"] == expected
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PREDICTION-REPAIR v1.7.6.10 — removable
+#  Popup of the prediction repair (panel_archive) and its trigger in sync.py
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPredictionRepairHooks:
+
+    @staticmethod
+    def _archive(base, days):
+        """days: {date: race_predictions dict or None}; written as raw days of a synthetic archive."""
+        import json
+        raw = base / "garmin_data" / "raw"
+        raw.mkdir(parents=True)
+        for d, field in days.items():
+            day = {"date": d, **({"race_predictions": field} if field is not None else {})}
+            (raw / f"garmin_raw_{d}.json").write_text(json.dumps(day), encoding="utf-8")
+
+    @staticmethod
+    def _check(base):
+        from unittest.mock import MagicMock
+        from app.panel_archive import PanelArchive
+        return PanelArchive._check_prediction_repair(MagicMock(), str(base))
+
+    @staticmethod
+    def _pred(cd, t=1500):
+        return {"calendarDate": cd, "time5K": t, "time10K": 2 * t + 5, "timeHalfMarathon": 4 * t + 9, "timeMarathon": 9 * t + 1}
+
+    def test_no_raw_folder_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_nothing_to_correct_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, {"2025-06-01": self._pred("2025-06-01"), "2025-06-02": None})
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_days_that_cannot_be_settled_alone_ask_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        # a copy of a day that has no raw file yet, and a field without a date
+        self._archive(tmp_path, {"2025-06-01": self._pred("2025-06-09"), "2025-06-02": {"time5K": 1500}})
+        with patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    def test_confirmed_returns_true_and_names_both_numbers_and_the_safety_copy(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, {"2025-06-01": self._pred("2025-06-03"), "2025-06-02": self._pred("2025-06-03"),
+                                 "2025-06-03": None, "2025-06-04": self._pred("2025-06-08", 1700)})
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as q:
+            assert self._check(tmp_path) is True
+        text = q.call_args.args[2]
+        assert "1 day(s) get the prediction that carries their own date" in text
+        assert "2 day(s) lose a copy" in text
+        assert "backup" in text.lower() and "source/" in text and "more day(s)" in text      # 06-04 waits
+
+    def test_declined_returns_false(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, {"2025-06-01": self._pred("2025-06-02"), "2025-06-02": None})
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+            assert self._check(tmp_path) is False
+
+    def test_the_check_writes_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, {"2025-06-01": self._pred("2025-06-02"), "2025-06-02": None})
+        before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            self._check(tmp_path)
+        assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
+
+    def test_error_in_the_scan_asks_nothing(self, tmp_path):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        self._archive(tmp_path, {"2025-06-01": self._pred("2025-06-02"), "2025-06-02": None})
+        with patch("garmin_repair_predictions.find_candidates", side_effect=RuntimeError("boom")), \
+                patch.object(QMessageBox, "question") as q:
+            assert self._check(tmp_path) is False
+        q.assert_not_called()
+
+    @pytest.mark.parametrize("repair, expected", [(True, {"GARMIN_PREDICTION_REPAIR": "1"}), (False, {})])
+    def test_sync_passes_the_trigger_only_after_a_yes(self, tmp_path, repair, expected):
+        from unittest.mock import MagicMock
+        from app.outputs import sync as _sync
+        panel = MagicMock()
+        app = panel._app
+        app._timer_active = False
+        app._connection_verified = True
+        app.settings = {"backup_raw_backfill_asked": True}
+        app._panel_settings._collect_settings.return_value = {
+            "email": "a@b.c", "password": "x", "base_dir": str(tmp_path),
+            "sync_mode": "recent", "sync_days": "90", "sync_from": "", "sync_to": ""}
+        app._panel_archive._check_failed_days_popup.return_value = False
+        app._panel_archive._check_schema_migration.return_value = False
+        app._panel_archive._check_resting_hr_repair.return_value = False
+        app._panel_archive._check_device_repair.return_value = False
+        app._panel_archive._check_prediction_repair.return_value = repair
+        app._panel_archive._check_track_migration.return_value = None
+        app._panel_archive._check_bulk_rebuild.return_value = None
+        _sync.run_collector(panel)
+        app._panel_archive._check_prediction_repair.assert_called_once_with(base_dir=str(tmp_path))
         assert app._run.call_args.kwargs["env_overrides"] == expected
 
 

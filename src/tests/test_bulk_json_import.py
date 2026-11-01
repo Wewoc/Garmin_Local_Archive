@@ -478,8 +478,8 @@ with _isolated_log_env("bulk_json_p3") as base:
 
     # -- inventory: the same lines in the preview and in the import, counts only ------------------------------
     inv_pre, inv_imp = _inv_lines(jimp.format_summary(pre, True)), _inv_lines(jimp.format_summary(imp, False))
-    check("P3 inventory: preview and import show the same lines (six kinds, four kept families, one line for what is not known)",
-          inv_pre == inv_imp and len(inv_pre) == 11)
+    check("P3 inventory: preview and import show the same lines (seven kinds, four kept families, one line for what is not known)",
+          inv_pre == inv_imp and len(inv_pre) == 12)
     joined = "\n".join(inv_imp)
     check("P3 inventory: every known kind has a line with its state and count, the kept families say 'kept only, not read'",
           "health status — read, 1 file(s)" in joined and "pulse alert events — read, 1 file(s)" in joined
@@ -727,6 +727,47 @@ with _isolated_log_env("bulk_json_p4_stop") as base_p4g:
 check("P4 format_summary: an error summary names the error only, a summary without a comparison has no line about it",
       jimp.format_summary({**_pre4, "error": "x", "comparison": _cmp4}, True) == ["Bulk daily values import — error: x"]
       and not any("compare" in x for x in jimp.format_summary({**_pre4, "comparison": None}, True)))
+
+# -- v1.7.6.10 (P5b.4): race predictions of the export ------------------------------------------------------------------
+RACE = "DI_CONNECT/DI-Connect-Metrics/RunRacePredictions_20240501_20240531_12345.json"
+
+
+def _rr(day, ts, t5, **extra):
+    return {"userProfilePK": 4711, "calendarDate": day, "deviceId": 3966586101, "timestamp": ts,
+            "raceTime5K": t5, "raceTime10K": t5 * 2 + 7, "raceTimeHalf": t5 * 4 + 3, "raceTimeMarathon": t5 * 9 + 1, **extra}
+
+
+RR0501a, RR0501b = _rr("2024-05-01", "2024-05-01T20:00:00.0", 1500), _rr("2024-05-01", "2024-05-01T22:30:00.0", 1480)
+RR0502 = _rr("2024-05-02", "2024-05-02T20:00:00.0", 1600)
+RR0520 = _rr("2024-05-20", "2024-05-20T20:00:00.0", 1700)                  # a day with a prediction and nothing else
+
+with _isolated_log_env("bulk_json_p5") as base_p5:
+    _before_p5 = jimp.run_aggregates_import(_write_zip(base_p5 / "e0.zip", _export()))
+    _agg_before = {d: bw.read_aggregates(d) for d in ("2024-05-01", "2024-05-02")}
+    _files_p5 = _export()
+    _files_p5[RACE] = [RR0501a, RR0501b, RR0502, RR0520]
+    _zip_p5 = _write_zip(base_p5 / "e1.zip", _files_p5)
+    _imp_p5 = jimp.run_aggregates_import(_zip_p5)
+    _a1, _a2 = bw.read_aggregates("2024-05-01"), bw.read_aggregates("2024-05-02")
+    check("P5 import: the aggregates of a day carry the prediction in the form of the API answer, the latest entry of the date",
+          _a1["aggregates"]["race_predictions"] == {"calendarDate": "2024-05-01", "time5K": 1480, "time10K": 1480 * 2 + 7,
+                                                    "timeHalfMarathon": 1480 * 4 + 3, "timeMarathon": 1480 * 9 + 1}
+          and _a2["aggregates"]["race_predictions"]["time5K"] == 1600)
+    check("P5 import: the other sections of those days are as they were (only the prediction is new)",
+          {k: v for k, v in _a1["aggregates"].items() if k != "race_predictions"} == _agg_before["2024-05-01"]["aggregates"])
+    check("P5 import: the proof of origin changed (the entry is part of it), so the days count as changed, not new or unchanged",
+          _a1["source_files"] != _agg_before["2024-05-01"]["source_files"] and len(_a1["source_files"]) == len(_agg_before["2024-05-01"]["source_files"]) + 1
+          and _imp_p5["days"]["changed"] >= 2)
+    check("P5 import: a day that has only a prediction is rejected for too little data and not stored",
+          not bw.read_aggregates("2024-05-20") and "2024-05-20" in _imp_p5["insufficient_days"])
+    _race_bytes = _text(_files_p5[RACE]).encode("utf-8")
+    check("P5 import: the original of the file is kept in bulk/source (the rebuild can read it later)",
+          bw.original_json_present(_sha(_race_bytes), len(_race_bytes)))
+    _again_p5 = jimp.run_aggregates_import(_zip_p5)
+    check("P5 rerun of the same export: every day unchanged, nothing written",
+          _again_p5["days"]["changed"] == 0 and _again_p5["days"]["new"] == 0 and _again_p5["written_days"] == [])
+    check("P5 inventory: the file is counted as read",
+          any("race predictions — read, 1 file(s)" in x for x in _inv_lines(jimp.format_summary(_imp_p5, False))))
 
 # ── Imports: standard library and the named project modules only ─────────────────────────────
 _tree_ast = ast.parse(Path(jimp.__file__).read_text(encoding="utf-8"))

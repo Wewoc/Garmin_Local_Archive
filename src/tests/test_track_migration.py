@@ -808,4 +808,24 @@ with _isolated_log_env("m6a_order") as _b:
     check("M6a: afterwards the cheap scan offers only the two blocked days (the popup does not come for the migrated ones)",
           tm.pending(tm.scan_archive())["ready"] == [_DO3, _DO4])
 
+# ── M3b2 (v1.7.6.10): a race prediction dated another day in the old source/ file does not come back into raw/ ──
+with _isolated_log_env("m3b_rp") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _archive3()
+        _rp = lambda cd: {"calendarDate": cd, "time5K": 1500, "time10K": 3100, "timeHalfMarathon": 6900, "timeMarathon": 14500}
+        _put(cfg.SOURCE_DIR / f"garmin_source_{_M2}.json", {**_api_source(_M2), "race_predictions": _rp("2022-06-09")})
+        _put(cfg.SOURCE_DIR / f"garmin_source_{_M3}.json", {**_api_source(_M3), "race_predictions": _rp(_M3)})
+        _res = tm.run_migration()
+        _nr = {d: json.loads((cfg.RAW_DIR / f"garmin_raw_{d}.json").read_text(encoding="utf-8")) for d in (_M1, _M2, _M3)}
+        check("M3b2 run: the three days are rebuilt as before (nothing blocked or failed because of the prediction)",
+              _res["ok"] is True and _res["migrated"] == 3 and _res["failed"] == [])
+        check("M3b2 run: the prediction dated another day is not written into the rebuilt raw/ day, the one dated with its day is; "
+              "the rest of the day is exactly the API data of source/",
+              "race_predictions" not in _nr[_M2] and _nr[_M2] == _api_source(_M2)
+              and _nr[_M3]["race_predictions"] == _rp(_M3) and {k: v for k, v in _nr[_M3].items() if k != "race_predictions"} == _api_source(_M3)
+              and _nr[_M1] == _api_source(_M1))
+        check("M3b2 run: source/ is untouched",
+              json.loads((cfg.SOURCE_DIR / f"garmin_source_{_M2}.json").read_text(encoding="utf-8"))["race_predictions"]["calendarDate"] == "2022-06-09")
+
 summary()

@@ -121,6 +121,9 @@ def run_collector(panel, *, on_done=None):
     # DEVICE-REPAIR v1.7.6.9 — removable
     if app._panel_archive._check_device_repair(base_dir=s["base_dir"]):
         env_extra["GARMIN_DEVICE_REPAIR"] = "1"
+    # PREDICTION-REPAIR v1.7.6.10 — removable
+    if app._panel_archive._check_prediction_repair(base_dir=s["base_dir"]):
+        env_extra["GARMIN_PREDICTION_REPAIR"] = "1"
     # TRACK-MIGRATION v1.7.6.3 — removable
     track_mode = app._panel_archive._check_track_migration(base_dir=s["base_dir"])
     if track_mode:

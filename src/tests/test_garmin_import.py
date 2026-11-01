@@ -823,9 +823,10 @@ check("4k5 _index_file (list): every event of a date is kept, an identical one (
 _l_log = _g_logged(lambda: _gi._index_file({}, "alert_events", "my-label", ["x"]))[1]
 check("4k5 _index_file (list): an entry that is no object is warned about with the label",
       any(lv == "warning" and "my-label" in m for lv, m in _l_log))
-check("4k5 the mode of each kind is in the table: readiness latest, activities wrapped, alert events list, the rest single",
+check("4k5 the mode of each kind is in the table: readiness and race predictions latest, activities wrapped, alert events list, the rest single",
       {k: m for k, _p, _w, m in _gi._KINDS} == {"uds": "single", "sleep": "single", "readiness": "latest",
-                                                  "activities": "wrapped", "health_status": "single", "alert_events": "list"})
+                                                  "activities": "wrapped", "health_status": "single", "alert_events": "list",
+                                                  "race_predictions": "latest"})
 
 # -- reading by name: the two new kinds, and no other file is taken for them ----------------------------------------------
 _n_data = {_G_UDS: _uds("2024-05-02"), _G_SLEEP: _sleep("2024-05-02"),
@@ -884,7 +885,8 @@ _inv = _gi.build_inventory(list(_k_files) + [_G_SLEEP, _G_HEALTH, _G_HEALTH.repl
                                               "DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_1_Part1.zip",
                                               f"DI_CONNECT/DI-Connect-User/{_MAIL}/profile.json"])
 check("4k5 inventory: one count for every known kind (0 where the export has none), one for every kept family",
-      _inv["read"] == {"uds": 1, "sleep": 1, "readiness": 0, "activities": 0, "health_status": 2, "alert_events": 1}
+      _inv["read"] == {"uds": 1, "sleep": 1, "readiness": 0, "activities": 0, "health_status": 2, "alert_events": 1,
+                        "race_predictions": 0}
       and _inv["kept"] == {"gear": 1, "personalRecord": 1, "courses": 1, "zones": 1})
 check("4k5 inventory: what is neither known nor kept is counted with the folders it lies in; a ZIP or another type is not counted",
       _inv["unknown"]["files"] == 6 and _inv["unknown"]["folders"] == [
@@ -941,5 +943,73 @@ for _limit, _expect in ((_edge_size, (0, 1)), (_edge_size - 1, (1, 0))):
         _e_days = list(_gi.load_bulk_with_entries(_edge_zip, inventory=_e_inv))
     check(f"4k5 size limit: a file of {_edge_size} bytes with the limit at {_limit} is {'read' if _expect[1] else 'skipped'} (only larger is skipped)",
           (_e_inv["too_large"], len(_e_days)) == _expect)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  4k6. v1.7.6.10 (P5b.4) — race predictions from the export (RunRacePredictions)
+# ══════════════════════════════════════════════════════════════════════════════
+section("4k6. garmin_import — race predictions of the export (v1.7.6.10)")
+
+_G_RACE = "DI_CONNECT/DI-Connect-Metrics/RunRacePredictions_20240501_20240531_12345.json"
+
+
+def _rr(d, ts, t5=1500, **extra):
+    """An entry as the export holds it (field names of RunRacePredictions)."""
+    return {"userProfilePK": 4711, "calendarDate": d, "deviceId": 3966586101, "timestamp": ts,
+            "raceTime5K": t5, "raceTime10K": t5 * 2 + 7, "raceTimeHalf": t5 * 4 + 3, "raceTimeMarathon": t5 * 9 + 1, **extra}
+
+
+_RR_EARLY, _RR_LATE = _rr("2024-05-02", "2024-05-02T08:00:00.0", 1500), _rr("2024-05-02", "2024-05-02T22:30:00.0", 1480)
+_RR_OTHER = _rr("2024-05-03", "2024-05-03T08:00:00.0", 1600)
+
+check("4k6 the kind is in the table: folder DI-Connect-Metrics, name RunRacePredictions, one entry per date by the latest timestamp",
+      [(p, w, m) for k, p, w, m in _gi._KINDS if k == "race_predictions"]
+      == [("DI_CONNECT/DI-Connect-Metrics/", "RunRacePredictions", "latest")])
+_p_exp = {"calendarDate": "2024-05-02", "time5K": 1480, "time10K": 1480 * 2 + 7,
+          "timeHalfMarathon": 1480 * 4 + 3, "timeMarathon": 1480 * 9 + 1}
+_p_day = _gi.parse_day({"uds": {"totalSteps": 1}, "race_predictions": _RR_LATE}, "2024-05-02")
+check("4k6 parse_day: the prediction in the form of the API answer (field names of get_race_predictions), the date of the day, "
+      "the four times — no account, device or time-stamp field of the export",
+      _p_day["race_predictions"] == _p_exp and set(_p_day) == {"date", "user_summary", "race_predictions"})
+check("4k6 parse_day: no entry, an entry without any time, an entry with texts or booleans as times add no section",
+      all("race_predictions" not in _gi.parse_day({"uds": {"totalSteps": 1}, **e}, "2024-05-02") for e in
+          ({}, {"race_predictions": {}}, {"race_predictions": {"calendarDate": "2024-05-02"}},
+           {"race_predictions": {"raceTime5K": "1500", "raceTimeMarathon": True}}, {"race_predictions": "abc"},
+           {"race_predictions": [1]})))
+check("4k6 parse_day: one time is enough (the others are None), the day carries what the export has",
+      _gi.parse_day({"uds": {"totalSteps": 1}, "race_predictions": {"raceTime5K": 1400}}, "2024-05-02")["race_predictions"]
+      == {"calendarDate": "2024-05-02", "time5K": 1400, "time10K": None, "timeHalfMarathon": None, "timeMarathon": None})
+check("4k6 parse_day: the date comes from the day it is built for, not from the entry (the entry is indexed by that date)",
+      _gi.parse_day({"race_predictions": _rr("2024-05-09", "2024-05-09T08:00:00.0")}, "2024-05-02")["race_predictions"]["calendarDate"]
+      == "2024-05-02")
+
+_rr_files = {_G_UDS: [_uds("2024-05-02"), _uds("2024-05-03")], _G_RACE: [_RR_EARLY, _RR_LATE, _RR_OTHER]}
+_rr_by = _gi._collect_entries(list(_rr_files), reader=lambda n: _rr_files.get(n))
+check("4k6 reading by name: of several entries of one date the one with the latest timestamp wins",
+      _rr_by["2024-05-02"]["race_predictions"] == _RR_LATE and _rr_by["2024-05-03"]["race_predictions"] == _RR_OTHER)
+_rr_rev = {_G_UDS: _rr_files[_G_UDS], _G_RACE: [_RR_OTHER, _RR_LATE, _RR_EARLY]}
+check("4k6 reading by name: the choice does not depend on the order of the entries in the file",
+      _gi._collect_entries(list(_rr_rev), reader=lambda n: _rr_rev.get(n))["2024-05-02"]["race_predictions"] == _RR_LATE)
+check("4k6 reading by name: the file is not taken for another kind and no other file for it (a training history in the same folder)",
+      "race_predictions" not in _gi._collect_entries([_G_TRAINING], reader=lambda n: [_RR_LATE]).get("2024-05-02", {})
+      and set(_gi._collect_entries([_G_RACE], reader=lambda n: [_RR_LATE])["2024-05-02"]) == {"race_predictions"})
+_rr_days = {d["date"]: d for d in _gi._process_entries(list(_rr_files), reader=lambda n: _rr_files.get(n))}
+check("4k6 the day carries the section; a day that has only a prediction is built too (the import rejects it later for too little data)",
+      _rr_days["2024-05-02"]["race_predictions"] == _p_exp
+      and set(_gi.parse_day({"race_predictions": _RR_LATE}, "2024-05-02")) == {"date", "race_predictions"})
+
+check("4k6 detect_kind: a list of prediction entries is recognised; another kind's entries and a mix are not taken for it",
+      _gi.detect_kind([_RR_LATE, _RR_OTHER]) == "race_predictions"
+      and _gi.detect_kind([{"calendarDate": "2024-05-02", "raceTimeMarathon": 1}]) == "race_predictions"
+      and _gi.detect_kind([{"calendarDate": "2024-05-02", "raceTime5K": 1}]) == "race_predictions"
+      and _gi.detect_kind([_r_uds("2024-06-01")]) == "uds"
+      and _gi.detect_kind([_RR_LATE, _h("2024-05-02")]) is None
+      and _gi.detect_kind([{"calendarDate": "2024-05-02", "time5K": 1500}]) is None)
+_o6 = [("p1", [_RR_EARLY]), ("p2", [_RR_LATE])]
+_o6_fwd, _o6_rev = list(_gi.days_from_originals(_o6)), list(_gi.days_from_originals(list(reversed(_o6))))
+check("4k6 days_from_originals: the day is built from the kept originals, the latest timestamp wins in any order of the files",
+      len(_o6_fwd) == 1 and _o6_fwd[0][0] == _o6_rev[0][0] and _o6_fwd[0][0]["race_predictions"] == _p_exp)
+_rr_inv = _gi.build_inventory([_G_RACE, _G_RACE.replace("05-01", "06-01"), _G_TRAINING])
+check("4k6 inventory: the new kind has its count (it is read, not unknown); the training history in the same folder stays unknown",
+      _rr_inv["read"]["race_predictions"] == 2 and _rr_inv["unknown"]["files"] == 1)
 
 summary()

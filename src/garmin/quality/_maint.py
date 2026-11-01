@@ -276,6 +276,42 @@ def record_device_from_files(data: dict, assignments: dict, source: str) -> dict
     return res
 
 
+def record_field_labels(data: dict, labels: dict, field: str) -> dict:
+    """
+    Sets the quality label of ONE field on the entries of the given days (v1.7.6.10, PREDICTION-REPAIR):
+    `labels` is {ISO date or date: "high" | "medium" | "low" | "failed"}, `field` the name of the field
+    (e.g. "race_predictions"). For a day whose content of that field was corrected in place, the label
+    of the log has to follow (it is otherwise only written when a day is fetched or assessed anew).
+
+    Only entry["fields"][field] changes: `quality`, `source`, `write`, `last_checked`, `recheck`,
+    `attempts` and every other field label stay as they are, so the log checksum does not change.
+    Never creates anything: a day without an entry, an entry without a `fields` dict, a label that is
+    not one of the four known ones and an empty field name are skipped (counted).
+
+    Returns {"set": n, "skipped_no_entry": n, "skipped_no_fields": n, "skipped_bad_label": n}. Does NOT
+    save — the caller holds QUALITY_LOCK from load to save and saves once (same contract as
+    touch_last_checked).
+    """
+    res = {"set": 0, "skipped_no_entry": 0, "skipped_no_fields": 0, "skipped_bad_label": 0}
+    if not isinstance(field, str) or not field:
+        res["skipped_bad_label"] = len(labels)
+        return res
+    by_date = {e.get("date"): e for e in data.get("days", []) if isinstance(e, dict)}
+    for day, label in labels.items():
+        key = day.isoformat() if hasattr(day, "isoformat") else str(day)
+        entry = by_date.get(key)
+        if entry is None:
+            res["skipped_no_entry"] += 1
+        elif label not in ("high", "medium", "low", "failed"):
+            res["skipped_bad_label"] += 1
+        elif not isinstance(entry.get("fields"), dict):
+            res["skipped_no_fields"] += 1
+        else:
+            entry["fields"][field] = label
+            res["set"] += 1
+    return res
+
+
 def touch_last_checked(data: dict, days) -> int:
     """
     Sets `last_checked` to today on the entries of the given days — nothing

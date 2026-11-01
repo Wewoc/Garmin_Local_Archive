@@ -207,6 +207,22 @@ _i2_3a_entry = next((e for e in _i2_3a_qdata["days"] if e["date"] == _i2_3a_date
 check("silo_repair: #3 gutfall → quality_log Eintrag vorhanden, Label high",
       _i2_3a_entry is not None and _i2_3a_entry.get("quality") == "high")
 
+# ── #3d (v1.7.6.10): a race prediction dated another day in an old source/ file does not come back into raw/ ──
+_i2_3d_pred = lambda cd: {"calendarDate": cd, "time5K": 1500, "time10K": 3100, "timeHalfMarathon": 6900, "timeMarathon": 14500}
+_i2_3d_days = {"2025-04-10": "2025-04-11", "2025-04-12": "2025-04-12"}     # day -> the date the stored prediction carries
+for _d, _cd in _i2_3d_days.items():
+    fx.write_source_file(cfg.SOURCE_DIR, _d, {**fx.source_raw_good(_d), "race_predictions": _i2_3d_pred(_cd)})
+_i2_3d_result = silo_repair.repair_silos({**_i2_empty_fresh, "source_without_raw": [date.fromisoformat(_d) for _d in _i2_3d_days]})
+_i2_3d_raw = {_d: json.loads((cfg.RAW_DIR / f"garmin_raw_{_d}.json").read_text()) for _d in _i2_3d_days}
+check("silo_repair: #3 (v1.7.6.10) both days are rebuilt from source/ (ok=2)", _i2_3d_result["ok"] == 2)
+check("silo_repair: #3 (v1.7.6.10) the prediction dated the next day is not written into raw/, the one dated with its day is",
+      "race_predictions" not in _i2_3d_raw["2025-04-10"] and _i2_3d_raw["2025-04-12"]["race_predictions"] == _i2_3d_pred("2025-04-12"))
+check("silo_repair: #3 (v1.7.6.10) source/ is untouched (it still holds the answer as it was)",
+      json.loads((cfg.SOURCE_DIR / "garmin_source_2025-04-10.json").read_text())["race_predictions"]["calendarDate"] == "2025-04-11")
+_i2_3d_log = {e["date"]: e for e in quality._load_quality_log()["days"]}
+check("silo_repair: #3 (v1.7.6.10) the field label follows what was written: failed without a prediction, medium with its own",
+      _i2_3d_log["2025-04-10"]["fields"]["race_predictions"] == "failed" and _i2_3d_log["2025-04-12"]["fields"]["race_predictions"] == "medium")
+
 # ── #3c (v1.7.5.6): the repaired raw file replaces an older version in the monthly backup ZIP ────
 _i2_3c_date = "2025-06-01"
 _i2_3c_name = f"garmin_raw_{_i2_3c_date}.json"

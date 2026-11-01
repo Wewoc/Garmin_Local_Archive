@@ -307,8 +307,12 @@ def assess_quality_fields(raw: dict) -> dict:
         fields["training_readiness"] = "failed"
 
     # ── race_predictions ──
+    # v1.7.6.10: a snapshot endpoint — the answer belongs to the day only when its own calendarDate is
+    # that day. A filled dict dated another day (or without a date) is no value of this day: failed,
+    # like an empty one (it used to count as medium on every day that carried a copy of today's value).
     rp = raw.get("race_predictions") or {}
-    if isinstance(rp, dict) and rp:
+    rp_date = rp.get("calendarDate") if isinstance(rp, dict) else None
+    if isinstance(rp_date, str) and rp_date == raw.get("date"):
         fields["race_predictions"] = "medium"
     else:
         fields["race_predictions"] = "failed"

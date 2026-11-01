@@ -169,6 +169,9 @@ def _fetch_and_assess(
     except Exception as _e:
         log.warning(f"    source_writer.update_log failed for {date_str}: {_e}")
 
+    # Race predictions (v1.7.6.10): fetch_raw() asks with the day and keeps only that day's entry; normalize() is the
+    # net under it (a prediction dated another day is left out, also for days rebuilt from old source/ files).
+    # source/ above holds the answer as fetch_raw() returned it.
     normalized = normalizer.normalize(raw_data, source="api")
     summary    = normalizer.summarize(normalized)
     label      = quality.assess_quality(normalized)
@@ -1488,6 +1491,38 @@ def _run_device_repair(quality_data: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Prediction repair — PREDICTION-REPAIR v1.7.6.10 — removable
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_prediction_repair(quality_data: dict) -> None:
+    """
+    Puts the race predictions of the archive on the day they belong to and removes the copies filed
+    under another day (the API answered the call without a date with the current prediction, and the
+    answer was stored under the day that was asked for). The work is done by garmin_repair_predictions;
+    this wrapper only starts it.
+
+    quality_data is the run's own quality log, handed through like the repairs get it: the field labels
+    of the changed days are set on this object and saved. A log of its own would be overwritten by the
+    next save of this run. The caller must not hold QUALITY_LOCK. A safety copy of raw/ and the quality
+    log is made first; without it nothing is written.
+
+    Runs after the user confirmed the popup in the GUI (GARMIN_PREDICTION_REPAIR=1). No API call, no login.
+
+    Non-fatal: any error is a warning and the sync goes on. Days that failed are offered again at the
+    next start.
+    """
+    try:
+        import garmin_repair_predictions as _rp
+        result = _rp.repair_predictions(should_stop=_is_stopped, quality_data=quality_data)
+    except Exception as e:
+        log.warning(f"  Prediction repair skipped: {e}")
+        return
+    if result.get("failed"):
+        log.warning(f"  Prediction repair: {result['failed']} problem(s) ({result.get('reason') or 'see above'}) — "
+                    f"days that failed are offered again at the next start")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Track migration — TRACK-MIGRATION v1.7.6.3 — removable
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2050,6 +2085,14 @@ def main(stop_event=None):
     # passed on.
     if os.environ.pop("GARMIN_DEVICE_REPAIR", None) == "1":
         _run_device_repair(quality_data)
+
+    # ── 3i. Prediction repair — PREDICTION-REPAIR v1.7.6.10 — removable ────────
+    # Before the login, after 3h. Rewrites raw/ and summary/ days through write_day (the raw backup
+    # follows); the days of the fetch loop below are written with the fetch's own guard
+    # (garmin_normalizer.own_day_prediction), so nothing the repair removes comes back. Variable removed as soon as
+    # it is read, like 3e and 3h; the run's quality_data is passed on.
+    if os.environ.pop("GARMIN_PREDICTION_REPAIR", None) == "1":
+        _run_prediction_repair(quality_data)
 
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:

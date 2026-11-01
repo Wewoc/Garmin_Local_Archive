@@ -4584,6 +4584,129 @@ with _isolated_log_env("main15dr3") as _b:
           (_e["device_id"], _e["device_source"]) == ("3966586101", "export_fit")
           and len(list((_b / "backup" / "migration").glob("quality_log_*.zip"))) == 1)
 
+# -- prediction repair (v1.7.6.10) — PREDICTION-REPAIR v1.7.6.10 — removable -------------------------------------------
+_PR_OK15 = {"set": 1, "removed": 2, "failed": 0, "kept": 0, "conflict": [], "waiting": [], "undated": [],
+            "safety_copy": "migration_x.zip", "stopped": False}
+_PR_ON15 = {"GARMIN_PREDICTION_REPAIR": "1"}
+
+
+def _pr15(result=None, pr_err=None, **kw):
+    """main() once with garmin_repair_predictions.repair_predictions mocked. Returns (main result, log recorder, mock)."""
+    with patch("garmin_repair_predictions.repair_predictions",
+               return_value=_PR_OK15 if result is None else result, side_effect=pr_err) as _m:
+        out, rec = _m15(**kw)
+    return out, rec, _m
+
+
+with _isolated_log_env("main15pr") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _res = {}
+        for _val in ("1", "0", "2", "", "true", None):
+            _, _rec, _m = _pr15(env={"GARMIN_PREDICTION_REPAIR": _val} if _val is not None else {})
+            _res[_val] = _m.call_count
+        check("4u main prediction repair: GARMIN_PREDICTION_REPAIR=1 (and only that value) starts the repair",
+              _res == {"1": 1, "0": 0, "2": 0, "": 0, "true": 0, None: 0})
+        _, _rec, _m = _pr15(env=_PR_ON15)
+        check("4u main prediction repair: the stop check and the quality log of the run are handed over",
+              set(_m.call_args.kwargs) == {"should_stop", "quality_data"}
+              and _m.call_args.kwargs["should_stop"] is _col5._is_stopped
+              and isinstance(_m.call_args.kwargs["quality_data"], dict) and "days" in _m.call_args.kwargs["quality_data"])
+
+        (_code, _exc, _f, _), _rec, _m = _pr15(env=_PR_ON15, login=None)
+        (_code2, _exc2, _f2, _), _rec2, _m2 = _pr15(env=_PR_ON15, login_error=_col5.api.GarminLoginError("nope"))
+        check("4u main prediction repair: runs before the login — a cancelled login does not stop it, a login error "
+              "does not stop it and the run still exits with 1",
+              _code is None and _exc is None and _m.call_count == 1 and _code2 == 1 and _m2.call_count == 1)
+
+        _order = []
+        with patch.object(_col5, "_run_backup_refresh", side_effect=lambda: _order.append("backup")), \
+             patch.object(_col5, "_run_bulk_backup", side_effect=lambda *a, **k: _order.append("bulk_backup")), \
+             patch("garmin_repair_devices.repair_devices",
+                   side_effect=lambda **kw: (_order.append("devices"), _DR_OK15)[1]), \
+             patch("garmin_repair_predictions.repair_predictions",
+                   side_effect=lambda **kw: (_order.append("predictions"), _PR_OK15)[1]):
+            _m15(env={**_DR_ON15, **_PR_ON15})
+        check("4u main prediction repair: runs after the backup refresh, the bulk backup and the device repair (step 3i)",
+              _order == ["backup", "bulk_backup", "devices", "predictions"])
+
+        with patch.dict(sys.modules, {"garmin_repair_predictions": None}):
+            (_code, _exc, _f, _), _rec = _m15(env=_PR_ON15)
+        check("4u main prediction repair: a missing module (the repair was removed) is a warning, the run goes on",
+              _code is None and _exc is None
+              and any(m.startswith("  Prediction repair skipped:") for m in _rec.msgs("warning")))
+
+        _, _rec, _m = _pr15(result={**_PR_OK15, "set": 0, "removed": 0, "failed": 1, "reason": "disk full"}, env=_PR_ON15)
+        _, _rec0, _m0 = _pr15(env=_PR_ON15)
+        check("4u main prediction repair: a refused write is warned about with its reason, a clean run adds no warning",
+              any("Prediction repair: 1 problem(s) (disk full)" in m for m in _rec.msgs("warning"))
+              and not any("Prediction repair" in m for m in _rec0.msgs("warning")))
+
+        with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}):
+            (_code, _exc, _f, _), _rec, _m = _pr15(env={"GARMIN_IMPORT_PATH": "ignored", **_PR_ON15})
+        check("4u main prediction repair: the import mode returns before it — no repair",
+              _code == 0 and not _m.called)
+
+        (_code, _exc, _f, _), _rec, _m = _pr15(pr_err=OSError("boom"), env=_PR_ON15)
+        check("4u main prediction repair: an error in the repair is a warning, the run goes on",
+              _code is None and _exc is None and _m.call_count == 1 and "  Prediction repair skipped: boom" in _rec.msgs("warning"))
+
+with _isolated_log_env("main15pr2") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _seen_in, _seen_after = [], {}
+        _env_after = []
+
+        def _pred_env(**kw):
+            _seen_in.append(os.environ.get("GARMIN_PREDICTION_REPAIR"))
+            return _PR_OK15
+
+        def _fetch_pred_env(client, date_str, extra_endpoints=None):
+            _env_after.append(os.environ.get("GARMIN_PREDICTION_REPAIR"))
+            return _day_raw(date_str, "high"), []
+
+        for _val in ("1", "0"):
+            with _isolated_log_env(f"main15pr2_{_val}") as _b2:
+                cfg.SUMMARY_DIR = _b2 / "summary"
+                _env_after.clear()
+                with patch("garmin_repair_predictions.repair_predictions", side_effect=_pred_env):
+                    _m15(env={"GARMIN_PREDICTION_REPAIR": _val}, fetch=_fetch_pred_env)
+                _seen_after[_val] = list(_env_after)
+        check("4u main prediction repair: the variable is removed as soon as it is read — before the repair runs "
+              "and for every value, so a later run in the same process (T3) is not triggered again",
+              _seen_in == [None] and _seen_after == {"1": [None], "0": [None]})
+
+# prediction repair end to end: the real repair on the run's own quality log, then a later save of that log
+with _isolated_log_env("main15pr3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _pr_day = "2024-04-02"
+    for _d_, _f_ in ((_pr_day, {"calendarDate": "2024-04-03", "time5K": 1500}), ("2024-04-03", None)):
+        cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+        (cfg.RAW_DIR / f"garmin_raw_{_d_}.json").write_text(
+            json.dumps({"date": _d_, "user_summary": {"totalSteps": 8000}, **({"race_predictions": _f_} if _f_ else {})}),
+            encoding="utf-8")
+    _log15([{"date": _pr_day, **_API15, "last_checked": "2024-01-01",
+             "fields": {"race_predictions": "medium"}},
+            {"date": "2024-04-03", **_API15, "last_checked": "2024-01-01", "fields": {"race_predictions": "failed"}}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0,
+                     MIGRATION_BACKUP_DIR=_b / "backup" / "migration"):
+        (_code, _exc, _f, _), _rec = _m15(env=_PR_ON15)
+        _q = _qdays()
+    _r3 = json.loads((cfg.RAW_DIR / "garmin_raw_2024-04-03.json").read_text(encoding="utf-8"))
+    _r2 = json.loads((cfg.RAW_DIR / f"garmin_raw_{_pr_day}.json").read_text(encoding="utf-8"))
+    check("4u main prediction repair end to end: the run went on and fetched its day (the log was saved after the repair)",
+          _code is None and _exc is None and _f.called and "2024-05-01" in _q)
+    check("4u main prediction repair end to end: the real repair puts the prediction on its own day and removes the copy",
+          _r3.get("race_predictions", {}).get("time5K") == 1500 and "race_predictions" not in _r2)
+    check("4u main prediction repair end to end: the labels follow in the log, and the run's own later save does not take "
+          "them or last_checked back (the log of the run was handed to the repair)",
+          _q["2024-04-03"]["fields"]["race_predictions"] == "medium" and _q[_pr_day]["fields"]["race_predictions"] == "failed"
+          and _q[_pr_day]["last_checked"] == date.today().isoformat())
+    check("4u main prediction repair end to end: one safety copy of raw/ and the log was made first",
+          len(list((_b / "backup" / "migration").glob("migration_*.zip"))) == 1)
+
 # -- resting-HR repair end to end (Baustein 2f) — RESTING-HR-REPAIR v1.7.5.7 — removable --------------------------------
 # The real repair, then a later save of the run's own quality log (the day that is fetched afterwards). Before 2f the
 # repair loaded and saved its own copy of the log; the save after the fetch wrote main()'s older copy back and the

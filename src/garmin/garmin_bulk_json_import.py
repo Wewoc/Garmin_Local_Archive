@@ -112,7 +112,7 @@ def _entry_hash(kind, entry):
 def entry_hashes(entries):
     """The sorted SHA-256 of every source entry of a day (see the module docstring)."""
     hashes = set()
-    for kind in ("uds", "sleep", "readiness", "health_status"):
+    for kind in ("uds", "sleep", "readiness", "health_status", "race_predictions"):
         entry = entries.get(kind)
         if isinstance(entry, dict) and entry:
             hashes.add(_entry_hash(kind, entry))
@@ -352,6 +352,7 @@ def store_day(day, entries, imported_at, dry_run, summary):
 _INVENTORY_LABELS = {
     "uds": "daily values", "sleep": "sleep", "readiness": "training readiness",
     "activities": "activities", "health_status": "health status", "alert_events": "pulse alert events",
+    "race_predictions": "race predictions",
     "gear": "gear", "personalRecord": "personal records", "courses": "courses", "zones": "zones",
 }
 _MAX_FOLDERS_SHOWN = 20
