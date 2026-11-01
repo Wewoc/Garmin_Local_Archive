@@ -23,6 +23,9 @@ Responsibilities:
     caller saves)
   - Mark days whose content was corrected in place so the MCP cache re-reads
     them (touch_last_checked — sets last_checked only, caller saves)
+  - Set the label of one field on given days after its content was corrected
+    in place (record_field_labels, v1.7.6.10 — only entry["fields"][field],
+    caller saves)
   - Mark days whose heart-rate series are in the bulk store
     (record_bulk_intraday — sets entry["bulk"]["intraday"] and last_checked,
     caller saves); make good a missing mark (unmarked_bulk_days looks,
@@ -89,6 +92,7 @@ from quality._maint import (
     record_field_backfill_failure,
     record_field_backfill_failures,
     record_device_from_files,
+    record_field_labels,
     set_device_name,
     set_unknown_device_name,
     touch_last_checked,

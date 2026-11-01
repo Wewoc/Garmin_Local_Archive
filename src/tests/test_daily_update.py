@@ -137,6 +137,7 @@ def _run_main(arch, outdated, settings_extra=None, gap=(None, None, 0), snapshot
         "rhr":     MagicMock(side_effect=lambda *_: order.append("hint_rhr") or 0),
         "track":   MagicMock(side_effect=lambda *_: order.append("hint_track") or 0),
         "device":  MagicMock(side_effect=lambda *_: order.append("hint_device") or 0),
+        "prediction": MagicMock(side_effect=lambda *_: order.append("hint_prediction") or 0),
         "version": MagicMock(side_effect=lambda: order.append("version") or (None, None)),
         "schema":  MagicMock(side_effect=lambda *_: order.append("schema_check") or outdated),
         "folder":  MagicMock(side_effect=lambda *_: order.append("folder_check") or False),
@@ -160,6 +161,7 @@ def _run_main(arch, outdated, settings_extra=None, gap=(None, None, 0), snapshot
         patch.object(_du, "_check_resting_hr_repair", m["rhr"]),
         patch.object(_du, "_check_track_migration", m["track"]),
         patch.object(_du, "_check_device_repair", m["device"]),
+        patch.object(_du, "_check_prediction_repair", m["prediction"]),
         patch.object(_du, "_check_version", m["version"]),
         patch.object(_du, "_detect_gap", m["gap"]),
         patch.object(_du, "_run_garmin_sync", m["sync"]),
@@ -180,7 +182,7 @@ with _isolated_log_env("du_main_ok") as _b:
     _code, _m, _rec, _env, _order = _run_main(_b / "archive", outdated=False)
     check("D2 summaries current: the run goes on and ends with exit code 0", _code == 0 and _m["sync"].call_count == 1)
     check("D2 order: folder check, schema check, the two hints, version check, gap, sync, context, dashboards",
-          _order == ["folder_check", "schema_check", "hint_rhr", "hint_track", "hint_device", "version", "gap", "sync", "context", "dash"])
+          _order == ["folder_check", "schema_check", "hint_rhr", "hint_track", "hint_device", "hint_prediction", "version", "gap", "sync", "context", "dash"])
     check("D2 summaries current: nothing sets GARMIN_SCHEMA_MIGRATE for the collector", _ENV_KEY not in _env)
 
 with _isolated_log_env("du_main_stop") as _b:
@@ -190,7 +192,7 @@ with _isolated_log_env("du_main_stop") as _b:
           _rec.m["error"] == ["  Schema migration required.", "  Please open the app to run the migration first."])
     check("D2 order: only the folder check and the schema check ran", _order == ["folder_check", "schema_check"])
     check("D2 no hint, no version check, no gap detection, no sync, no context sync, no dashboards",
-          all(_m[k].call_count == 0 for k in ("rhr", "track", "device", "version", "gap", "sync", "context", "dash")))
+          all(_m[k].call_count == 0 for k in ("rhr", "track", "device", "prediction", "version", "gap", "sync", "context", "dash")))
     check("D2 GARMIN_SCHEMA_MIGRATE is not set", _ENV_KEY not in _env)
 
 with _isolated_log_env("du_main_setting_off") as _b:
@@ -232,7 +234,7 @@ with _isolated_log_env("du_main_real") as _b:
 section("D3. daily_update.main(): unattended schema migration (opt-in)")
 
 _ON = {"daily_update_auto_migrate": True}
-_FULL_ORDER = ["folder_check", "schema_check", "hint_rhr", "hint_track", "hint_device", "version", "gap",
+_FULL_ORDER = ["folder_check", "schema_check", "hint_rhr", "hint_track", "hint_device", "hint_prediction", "version", "gap",
                "snapshot", "sync", "recheck", "context", "dash"]
 
 with _isolated_log_env("du_on") as _b:
@@ -255,7 +257,7 @@ with _isolated_log_env("du_on_left") as _b:
 with _isolated_log_env("du_on_fail") as _b:
     _code, _m, _rec, _env, _order = _run_main(_b / "archive", outdated=True, settings_extra=_ON, snapshot=False)
     check("D3 no safety copy: exit 1, nothing else runs (no sync, no re-check, no context, no dashboards)",
-          _code == 1 and _order == ["folder_check", "schema_check", "hint_rhr", "hint_track", "hint_device", "version", "gap", "snapshot"])
+          _code == 1 and _order == ["folder_check", "schema_check", "hint_rhr", "hint_track", "hint_device", "hint_prediction", "version", "gap", "snapshot"])
     check("D3 no safety copy: GARMIN_SCHEMA_MIGRATE was never set", _m["sync_env"] == [] and _ENV_KEY not in _env)
     check("D3 no safety copy: the daily log is closed before the run returns", _m["close"].call_count == 1)
     check("D3 no safety copy: the error lines say that nothing was changed",
@@ -386,8 +388,8 @@ with _isolated_log_env("du_e2e") as _b:
                 patch.object(_du, "_setup_paths"), patch.object(_du, "_load_settings", return_value=_s6), \
                 patch.object(_du, "_load_password", return_value="pw"), patch.object(_du, "_start_daily_log"), \
                 patch.object(_du, "_close_daily_log"), patch.object(_du, "_attach_redact_filter"), \
-                patch.object(_du, "_check_resting_hr_repair"), patch.object(_du, "_check_track_migration"), \
-                patch.object(_du, "_check_device_repair"), \
+                patch.multiple(_du, _check_resting_hr_repair=MagicMock(), _check_track_migration=MagicMock(),
+                               _check_device_repair=MagicMock(), _check_prediction_repair=MagicMock()), \
                 patch.object(_du, "_check_version", return_value=(None, None)), \
                 patch.object(_du, "_detect_gap", return_value=(None, None, 0)), \
                 patch.object(_du, "_run_garmin_sync", _sync_like_collector), \

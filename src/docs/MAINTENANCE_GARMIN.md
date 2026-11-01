@@ -83,6 +83,7 @@ of scope.
 | `garmin_api_capability.py` | `garmin_api_capability_config.json` (v1.6.8) |
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
 | `garmin_repair_devices.py` (removable) | none — owns no files; writes only through `garmin_quality` (`record_device_from_files()`, `_save_quality_log()`, `save_device_table()`) and `garmin_migration_snapshot.create_snapshot(stores=("quality_log",))`; reads `bulk/` (v1.7.6.9) |
+| `garmin_repair_predictions.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()`, `garmin_quality` (`touch_last_checked()`, `record_field_labels()`, `_save_quality_log()`) and `garmin_migration_snapshot.create_snapshot(stores=("raw", "quality_log"))` (v1.7.6.10) |
 | `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
 | `garmin_track_migration.py` (removable) | none — owns no files; writes only through `garmin_writer` (`write_day()`, `rebuild_summary()`) and `garmin_quality` (`touch_last_checked()`) (v1.7.6.3) |
 | `garmin_migration_snapshot.py` (removable) | `garmin_data/backup/migration/` (v1.7.6.3); puts files back only through `garmin_writer.restore_day_files()` and `garmin_quality` |
@@ -100,6 +101,7 @@ of scope.
 - **`quality_log.json` is protected by a SHA-256 checksum** over stable core fields (`date` + `write`) stored in `_checksum`. Computed on every save, verified on every load. Mismatch triggers auto-restore from `backup/log/` and a yellow warning label in the GUI. Checksum covers only fields that never change through migration — adding new fields to entries does not invalidate it. Handle backups carefully — the schema migration creates a timestamped backup before any destructive operation, but ongoing integrity is the user's responsibility.
 - `fetch_raw()` always returns `(raw, failed_endpoints)` — never raises
 - `_fetch_and_assess()` always returns `(label, normalized, summary, fields, val_result)` — never raises
+- A race prediction is filed only under its own date (v1.7.6.10): `fetch_raw()` asks `get_race_predictions(day, day, "daily")` and keeps only the entry of the day (`_prediction_of_day()`; an empty list means no field, not a failed endpoint); `garmin_normalizer.normalize(..., source="api")` additionally leaves out a prediction dated another day (`own_day_prediction()`; also for days the silo repair #3 and the track migration rebuild from old `source/` files; `source/` is written before and keeps the answer as `fetch_raw()` returned it)
 - `_write_assessed()` is only called after downgrade check passes — file never written if API result is inferior
 - Downgrade protection is in `garmin_collector.main()` — not in `_upsert_quality()`
 - `_save_quality_log()` is called after every successfully processed day in the fetch loop
@@ -837,6 +839,27 @@ export is imported again.
   id, unknown group unchanged, total row nothing). The tests were checked with deliberate faults in a copy of the code
   (see `CHANGELOG.md`).
 
+- v1.7.6.10 (P5b): `test_repair_predictions.py` — the call with the day (the Ist-Stand until v1.7.6.9 was no arguments) and the reduction of
+  its list answer (the entry of the day, an empty list, entries of other days, entries without a date, a dict answer, garbage, a failing
+  call), `garmin_normalizer.own_day_prediction` and `normalize(source="api")` (own date kept as the same object, next day / earlier day / no date / other date format
+  dropped, non-filled fields and non-dict raw untouched, argument not changed, no usable `date` of the day or the import side: nothing judged; the same
+  rule for days rebuilt from old `source/` files in `test_silo_repair.py` #3d and `test_track_migration.py` M3b2), `_fetch_and_assess` (`source/` written with the foreign
+  answer, the day without it and rated `failed`, an own-date answer kept and `medium`), the label rule in `assess_quality_fields`
+  (also `None == None` on a raw without a date), `record_field_labels`, `find_candidates` (placed on the own day, removed copies, own
+  prediction not replaced, differing copies, a date without a raw day, no date, a carrier that is itself a target and is listed as
+  replaced, identical copies, broken file and bad file name, explicit folder), `repair_predictions` (dry run writes nothing, the real
+  run field by field, only that field changed, untouched days byte-identical, summaries only for changed days, one `QUALITY_LOCK` hold,
+  labels and `last_checked`, one safety copy with the days as they were, second run changes nothing, a waiting day placed once its raw
+  day exists, way back, shared quality log, refused copy, stop before and during the loop, a day that cannot be written, a log that
+  cannot be saved, a day that changed after the scan) and the scheduler hint; `test_quality.py` — the field label cases;
+  `test_garmin_import.py` section 4k6 and `test_bulk_json_import.py` — the export's race predictions (kind, mapping to the API's field
+  names, latest timestamp wins in any order, no account or device field, `detect_kind`, `days_from_originals`, inventory, proof of
+  origin, original kept, a day with only a prediction rejected); `test_collector.py` section 4u "main prediction repair" (only
+  `"1"`, the variable removed when read, before the login, after the device repair, a missing module or an error is a warning,
+  import mode returns before it, an end-to-end run); `test_daily_update.py` — step 4e in the order; `test_qt_app.py::
+  TestPredictionRepairHooks` (popup, days that stay, writes nothing, trigger in `run_collector()`). The tests were checked with 56
+  deliberate faults in a copy of the code (see `CHANGELOG.md`).
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
@@ -955,6 +978,36 @@ same list is in the docstring of the module):
 What stays when it is removed: `garmin_quality.record_device_from_files()` and `set_device_name()`, the `device_source` rule in
 `_upsert_quality()`, the `stores=` parameter of `create_snapshot()` with the log-only way back, and naming by id in the app
 (`controller.rename_device()`, `PanelArchive._archive_rename_device_by_id()`).
+
+### The prediction repair and its safety copy (v1.7.6.10, removable)
+
+`get_race_predictions()` is called without a date and answers with the current prediction, so until v1.7.6.9 every raw day carried a copy
+of a prediction that belongs to another day. `garmin_repair_predictions.py` places each prediction on the raw day of its own
+`calendarDate` and removes the misdated copies. Before it writes, `garmin_migration_snapshot.create_snapshot(stores=("raw", "quality_log"))`
+copies `raw/` and the quality log to `backup/migration/migration_YYYY-MM-DD_HHMMSS.zip`; without a checked copy nothing is written.
+Way back: close the app, then `python support-tools/archive-maintenance/restore_migration_snapshot.py <name>`. The answers as the API
+delivered them stay in `source/`; the repair never touches that folder.
+
+**Removal list** — everything that belongs to the repair carries the marker `PREDICTION-REPAIR v1.7.6.10` (grep for it; the same list
+is in the docstring of the module):
+1. `garmin/garmin_repair_predictions.py` and `tests/test_repair_predictions.py` — but only sections P5 to P7 (find/repair, the scheduler hint) go with
+   the repair; P0 to P4 test what stays (the fetch, the rule in `normalize()`, the rating, `record_field_labels`) and have to be kept (move them to
+   `test_api.py`, `test_normalizer.py`, `test_quality.py`) — the same for the `record_field_labels` and `fetch_raw` parts of the sections of `test_collector.py`.
+2. `compiler/build_manifest.py` — the `SHARED_SCRIPTS` entry, the `SCRIPT_SIGNATURES_BASE` entry of the module and
+   `"def _run_prediction_repair"` in the collector's signatures.
+3. `run_tests.ps1` and `tests/conftest.py` — the test file entry.
+4. `garmin/garmin_collector.py` — the section "Prediction repair" (`_run_prediction_repair()`) and step 3i in `main()`; in
+   `tests/test_collector.py` the blocks "main prediction repair" (section 4u and the end-to-end block).
+5. `app/panel_archive.py::_check_prediction_repair()` and the three lines in `app/outputs/sync.py::run_collector()`;
+   `tests/test_qt_app.py::TestPredictionRepairHooks` and the lines `_check_prediction_repair.return_value = False` of the sync tests.
+6. `scheduler/daily_update.py` — `_check_prediction_repair()` and step 4e; in `tests/test_daily_update.py` the `prediction` hint.
+7. Docs — the module section, the exception row, the `_run_prediction_repair` row and the invariant bullets in `REFERENCE_GARMIN.md`,
+   the bullets in `REFERENCE_INVARIANTS.md`, the variable row and the tree line in `REFERENCE_GLOBAL.md`, the test row in
+   `MAINTENANCE_GLOBAL.md`, the owner row in `GLA_GUIDELINES.md`, the paragraph in `USER_GUIDE.txt`. `CHANGELOG.md` stays as history.
+
+What stays when it is removed: the call with the day and `_prediction_of_day()` in `garmin_api.fetch_raw()`, `garmin_normalizer.own_day_prediction()` and
+its use in `normalize()` (a prediction of another day is not filed under the day), the label rule in `assess_quality_fields()`, `garmin_quality.record_field_labels()`, and the export's race
+predictions in `garmin_import` / `garmin_bulk_json_import`.
 
 ## Quality tracking
 

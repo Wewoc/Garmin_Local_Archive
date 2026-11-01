@@ -1147,7 +1147,18 @@ _case4m("training_readiness: other keys only -> low", {"training_readiness": {"x
 _case4m("training_readiness: empty dict -> failed", {"training_readiness": {}}, {})
 _case4m("training_readiness: text -> failed", {"training_readiness": "abc"}, {})
 _case4m("training_readiness: list -> failed", {"training_readiness": [1]}, {})
-_case4m("race_predictions: filled -> medium", {"race_predictions": {"x": 1}}, {"race_predictions": "medium"})
+# v1.7.6.10: a snapshot endpoint — medium only when the answer carries the day's own calendarDate (it used to be
+# medium for any filled dict, on every day that held a copy of the prediction of the day of the call)
+_case4m("race_predictions: filled, dated like the day -> medium",
+        {"date": "2025-06-10", "race_predictions": {"calendarDate": "2025-06-10", "time5K": 1500}},
+        {"race_predictions": "medium"})
+_case4m("race_predictions: filled, dated the next day -> failed",
+        {"date": "2025-06-10", "race_predictions": {"calendarDate": "2025-06-11", "time5K": 1500}}, {})
+_case4m("race_predictions: filled, dated an earlier day -> failed",
+        {"date": "2025-06-10", "race_predictions": {"calendarDate": "2025-06-09", "time5K": 1500}}, {})
+_case4m("race_predictions: filled, no calendarDate -> failed", {"date": "2025-06-10", "race_predictions": {"x": 1}}, {})
+_case4m("race_predictions: calendarDate None on a day without date -> failed",
+        {"race_predictions": {"calendarDate": None, "x": 1}}, {})
 _case4m("race_predictions: empty dict -> failed", {"race_predictions": {}}, {})
 _case4m("race_predictions: text -> failed", {"race_predictions": "abc"}, {})
 _case4m("race_predictions: list -> failed", {"race_predictions": [1]}, {})

@@ -528,6 +528,47 @@ class PanelArchive(QWidget):
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    # ── Prediction repair check — PREDICTION-REPAIR v1.7.6.10 — removable ──────
+
+    def _check_prediction_repair(self, base_dir: str) -> bool:
+        """Returns True if the repair was confirmed. Main Thread only."""
+        # INTENTIONAL DIRECT READ — read-only pre-flight check in GUI context, same category as
+        # _check_resting_hr_repair() above. Reads the race_predictions field of every raw day (the
+        # same scan of raw/ as the resting-HR check); nothing is written, no quality_log access. The
+        # folder comes from the settings (base_dir), so the check does not depend on what
+        # garmin_config was imported with. A day that stays untouched (differing copies, a prediction
+        # of a day that has no raw file yet, no usable date) is not offered.
+        garmin_dir = Path(base_dir) / "garmin_data"
+        raw_dir    = garmin_dir / "raw"
+        if not raw_dir.exists():
+            return False
+        try:
+            import garmin_repair_predictions as _rp
+            found = _rp.find_candidates(raw_dir=raw_dir)
+        except Exception:
+            return False
+        n_set, n_remove = len(found["set"]), len(found["remove"])
+        if n_set + n_remove == 0:
+            return False
+        untouched = len(found["conflict"]) + len(found["waiting"]) + len(found["undated"])
+        extra = (f"\n{untouched} more day(s)/date(s) cannot be settled yet and stay as they are.\n"
+                 if untouched else "")
+        answer = QMessageBox.question(
+            self._app, "Race Predictions — Backup Required",
+            f"The race predictions of your archive are filed under the wrong day: Garmin answers with "
+            f"the current prediction, and it was stored under the day that was asked for.\n\n"
+            f"   {n_set} day(s) get the prediction that carries their own date\n"
+            f"   {n_remove} day(s) lose a copy of another day's prediction (no prediction of their "
+            f"own date is known)\n{extra}\n"
+            f"Only the field race_predictions of these days is changed; the unmodified Garmin answers "
+            f"stay in source/. A safety copy of raw/ and the quality log is made first "
+            f"(backup/migration) and can be restored.\n\n"
+            f"Please make a backup of your data directory before continuing.\n\n"
+            f"I have a backup — correct these days?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     # ── Track migration check — TRACK-MIGRATION v1.7.6.3 — removable ───────────
 
     def _check_track_migration(self, base_dir: str):

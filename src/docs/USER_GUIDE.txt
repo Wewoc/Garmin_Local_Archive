@@ -100,6 +100,28 @@ Names: the new devices only show their number. Double-click the row of a device 
 the Archive table (Info panel) and type a name; the name is set for all days of that
 device. A double-click on the "unknown" row still names the days without a device.
 
+Race predictions on their own day (v1.7.6.10): Garmin answers the request for the
+race predictions with the CURRENT prediction, not the one of the day that was
+asked for. Earlier versions stored that answer under the day they were fetching,
+so almost every day of the archive carried a prediction of another day. If your
+archive holds such days, a popup "Race Predictions - Backup Required" appears
+before the sync starts. It names how many days get the prediction that carries
+their own date and how many days lose a copy of another day's prediction. What it
+does:
+  - A prediction is placed on the day it is dated with (when that day exists in the
+    archive); the copies stored under other days are removed. Nothing else of a
+    day is changed. The unmodified Garmin answers stay in garmin_data/source/.
+  - A safety copy of raw/ and the quality log is made first
+    (backup/migration/migration_*.zip); without it nothing is written.
+  - Days that cannot be settled yet (copies that differ, a prediction of a day that
+    is not in the archive, a prediction without a date) stay as they are.
+New days: the app now asks Garmin for the race prediction of each day with the
+day itself, so a new day gets its own prediction (a day before Garmin's history
+starts gets none). Days that lose a copy stay without a prediction until they are
+fetched again; the days of a Garmin export import that carry predictions (the file
+RunRacePredictions) get them from there.
+The daily update only mentions that days can be corrected; it changes nothing.
+
 Correction of the resting heart rate (v1.7.5.7): earlier versions of the
 Bulk Import stored the 7-day average of the resting heart rate instead of
 the value of the day. If your archive holds such imported days, a popup

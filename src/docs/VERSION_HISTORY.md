@@ -2,6 +2,13 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.10 — Race Predictions on Their Own Day
+
+- Garmin answers the request for your race predictions with the current prediction, not the one of the day that was asked for. Earlier versions stored that answer under the day they were fetching, so almost every day of the archive carried a prediction that belongs to another day. Now a prediction is kept only under the day it is dated with.
+- Days that already carry such copies are corrected by a removable repair. Sync Garmin asks first (a popup shows how many days get the prediction of their own date and how many lose a copy); it makes a safety copy of the daily files and the quality log, changes nothing but the race prediction field, and leaves days it cannot settle as they are. The unmodified Garmin answers stay in the archive of originals (`garmin_data/source`).
+- Days of a Garmin export import now also get the race predictions of the export (the file `RunRacePredictions`); they appear after the next import of that export.
+- New days get their own race prediction: the app now asks Garmin for the prediction of each day with the day itself (before, the answer always carried the next day's date). Days that lose a copy stay without a prediction until they are fetched again; a day before Garmin's history starts has none. The daily update only mentions days that can be corrected; it changes nothing by itself.
+
 ## v1.7.6.9 — Device Repair
 
 - Days that come from a Garmin export have no device in the archive and show up as "unknown" in the device table. The export files the app keeps name the watch that recorded each day; the app now reads it from there. Sync Garmin asks first (a popup shows how many days each device would get) and makes a safety copy of the quality log before it writes anything.

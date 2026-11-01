@@ -86,7 +86,9 @@ def _normalize_api(raw: dict) -> dict:
 
     In v1.2.0 the Garmin API already delivers the expected format —
     this function passes the dict through unchanged and guarantees
-    the "date" key is present.
+    the "date" key is present. One exception (v1.7.6.10): a race
+    prediction dated another day than the dict's own "date" is left
+    out (own_day_prediction()); the dict is then a shallow copy.
 
     Source tracking ("source", "source_metadata") is planned for a later version.
     """
@@ -96,7 +98,57 @@ def _normalize_api(raw: dict) -> dict:
 
     # Structural type checks removed in v1.3.4 — now handled by garmin_validator.py
     # before this function is called. Minimal guard above remains as bypass protection.
+
+    # v1.7.6.10: a race prediction dated another day is not a value of this day. Every way that builds a raw
+    # day from an API-shaped dict passes here — the fetch, the silo repair and the track migration rebuild a
+    # day from an old source/ file — so the rule sits here and nowhere else. A dict without a usable "date"
+    # is left alone (the day is not known).
+    day = raw.get("date")
+    if isinstance(day, str) and _is_iso_date(day):
+        raw, dropped = own_day_prediction(raw, day)
+        if dropped is not None:
+            log.debug(f"  normalize: race_predictions dated {dropped.get('calendarDate')!r} not kept for {day}")
     return raw
+
+
+def _is_iso_date(text: str) -> bool:
+    """True for a real date written YYYY-MM-DD."""
+    if len(text) != 10:
+        return False
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
+def own_day_prediction(raw: dict, date_str: str) -> tuple:
+    """
+    Keeps the race predictions of an API day only when they belong to that day (v1.7.6.10).
+
+    Until v1.7.6.9 get_race_predictions() was called without a date (a snapshot endpoint): the API
+    answers with the current prediction, which carries the date of the call, not the date of the day
+    that was asked for (a nightly fetch of day D brought a prediction dated D+1, a catch-up fetch of an
+    old day one dated today), and that answer was filed under the day that was asked for — so old
+    source/ files and raw/ days still hold such copies. Since v1.7.6.10 garmin_api.fetch_raw() asks
+    with the day and keeps only the entry of that day; this function is the net under it and the rule
+    for everything that rebuilds a day from an older answer.
+
+    Returns (raw, dropped): `raw` itself when nothing changes, else a shallow copy without the key;
+    `dropped` is the dropped dict or None. A prediction is kept only when its `calendarDate` is exactly
+    `date_str` (Garmin's own date, taken unchanged — no time-zone arithmetic); one without a
+    `calendarDate` is not kept either (nothing is guessed). A missing key, an empty dict and a value that
+    is no dict are not judged here (the validator does that). Pure: neither argument is changed.
+    """
+    if not isinstance(raw, dict):
+        return raw, None
+    prediction = raw.get("race_predictions")
+    if not isinstance(prediction, dict) or not prediction:
+        return raw, None
+    if prediction.get("calendarDate") == date_str:
+        return raw, None
+    kept = {k: v for k, v in raw.items() if k != "race_predictions"}
+    return kept, prediction
 
 
 def _normalize_import(raw: dict) -> dict:
