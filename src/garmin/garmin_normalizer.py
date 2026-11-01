@@ -107,7 +107,8 @@ def _normalize_api(raw: dict) -> dict:
     if isinstance(day, str) and _is_iso_date(day):
         raw, dropped = own_day_prediction(raw, day)
         if dropped is not None:
-            log.debug(f"  normalize: race_predictions dated {dropped.get('calendarDate')!r} not kept for {day}")
+            # No value of the prediction goes into the log (it is health data; CodeQL alert #18).
+            log.debug("  normalize: a race prediction dated another day was left out of the day")
     return raw
 
 
