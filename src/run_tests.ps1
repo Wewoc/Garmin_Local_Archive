@@ -104,6 +104,11 @@ Run-And-Tee "python" @("tests/test_bulk_writer.py")          "test_bulk_writer.p
 Run-And-Tee "python" @("tests/test_bulk_import.py")          "test_bulk_import.py"
 Run-And-Tee "python" @("tests/test_bulk_json_import.py")          "test_bulk_json_import.py"
 Run-And-Tee "python" @("tests/test_bulk_rebuild.py")          "test_bulk_rebuild.py"
+Run-And-Tee "python" @("tests/test_prop_bulk_store.py")       "test_prop_bulk_store.py"       # v1.7.6.11 — property tests (hypothesis)
+Run-And-Tee "python" @("tests/test_prop_bulk_normalizer.py")  "test_prop_bulk_normalizer.py"  # v1.7.6.11
+Run-And-Tee "python" @("tests/test_prop_rules.py")            "test_prop_rules.py"            # v1.7.6.11
+Run-And-Tee "python" @("tests/test_prop_backup.py")           "test_prop_backup.py"           # v1.7.6.11
+Run-And-Tee "python" @("tests/test_fuzz_parsers.py")          "test_fuzz_parsers.py"          # v1.7.6.11 — FIT reader, export scanner
 Run-And-Tee "python" @("tests/test_api.py")          "test_api.py"
 Run-And-Tee "python" @("tests/test_live_fetch.py")          "test_live_fetch.py"
 Run-And-Tee "python" @("tests/test_silo_check.py")          "test_silo_check.py"

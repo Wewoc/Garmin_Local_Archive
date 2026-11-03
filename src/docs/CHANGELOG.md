@@ -1,5 +1,59 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.11 — Property Tests and Fuzzing of the New Modules
+
+Tests only, no change in what the program does. The decision rules of the modules added during v1.7.6.x (bulk store, export
+import, backups, the prediction repair) are now also tested with generated inputs instead of hand-picked examples, and the two parsers
+that read foreign bytes (the FIT reader and the export scanner) are fuzzed with changed copies of valid files. The generated
+inputs found eight things; each is pinned by a fixed test as it behaves today, none was changed (the decision per finding is the maintainer's).
+
+**What changed:**
+- **Property tests** (`hypothesis`, a new development dependency; `tests/prop_support.py` holds the shared setup): the examples are derived
+  from the test (`derandomize`), there is no random seed, no database of examples and no `.hypothesis` folder in the source tree (the caches of the library go to a temp folder
+  that is removed at exit), 50 examples per property (to look further:
+  `GLA_PROP_EXAMPLES=2000 GLA_PROP_RANDOM=1 python tests/test_prop_rules.py`, not part of the suite).
+  - `test_prop_bulk_store.py` — a day and an aggregates file are replaced only by a fuller one (over any sequence of writes the stored set of
+    source files never shrinks, a refused write leaves not one byte), the comparison rule against an oracle written as set algebra, the
+    writers never raise and leave only valid files, files of another archive are taken over by the same rules or refused, container names
+    (round trip, nothing outside the store), originals under the hash of their bytes only.
+  - `test_prop_bulk_normalizer.py` — the day boundaries tile exactly, a day with proof on both boundaries is exact, `day_for` is the inverse of
+    the plan, 16-bit timestamps are completed to the nearest value, the result of a run does not depend on the order of the files, the sample
+    of the smaller rank wins a duplicate second, the counters add up.
+  - `test_prop_rules.py` — the resolved summary (API first, the export fills only what is empty, `0` and `False` are values, no input changed),
+    `merge_field`, a worse quality label never over a better one (upsert and mirror delta), the markers of repairs and imports touch only their
+    own keys and keep the log checksum, a race prediction stays only on its own day, `detect_kind` and `parse_day`, the path guard of the mirror
+    import, the plan of the prediction repair (nothing placeable is lost, a day with its own prediction is never touched, a second run finds nothing).
+  - `test_prop_backup.py` — month folder into monthly ZIP: the folder copy wins, other entries stay, the current month is not touched, a damaged
+    ZIP is left alone, `force_filenames` changes no result, the copy of a day after `backup_file` is the bytes of the source.
+- **Fuzzing** (`test_fuzz_parsers.py`, seeds built by `tests/fit_builder.py` with its own CRC): the FIT reader ends in a file or in one of its four
+  declared errors for every changed, cut, extended or sealed-again file; the scanner never raises, counts what it skips, and its counters add up.
+- **Findings, pinned as they are:** (1) `plan_days()` raises `ValueError` for an empty string as first or last day when no window exists (production passes no
+  days); (2) the neighbour rule gives a run of boundaries without proof the offset both neighbours agree on, also when the offset differed in between
+  (the days are marked `neighbours`); (3) the path guard of the mirror import accepts Windows device names (`NUL`, `CON`, ...); (4) `parse_day()` raises for
+  sleep seconds or `allDayStress` of the wrong type, which ends the import at that day; (5) `normalize(source="bulk")` changes the dict it is given;
+  (6) `REFERENCE_INVARIANTS.md` named a local `_QUALITY_RANK` copy in the mirror import that does not exist (the text is corrected);
+  (7) the consolidation of a month folder also deletes files that do not match the backup pattern; (8) an inner ZIP of the export is copied to a temporary
+  file whatever its size.
+
+**New modules:**
+- `tests/prop_support.py`, `tests/test_prop_bulk_store.py`, `tests/test_prop_bulk_normalizer.py`, `tests/test_prop_rules.py`,
+  `tests/test_prop_backup.py`, `tests/test_fuzz_parsers.py`
+
+**Changed modules:**
+- `run_tests.ps1`, `tests/conftest.py`, `requirements.txt` (`hypothesis>=6,<7`)
+- `docs/` — `REFERENCE_INVARIANTS.md` (the mirror import reads `garmin_quality.QUALITY_RANK`), `MAINTENANCE_GLOBAL.md`, `GLA_GUIDELINES.md`, `README.md`,
+  `README_APP.md`, `ROADMAP.md`, `VERSION_HISTORY.md`, `METRICS.md`
+- `version.py` — 1.7.6.11
+
+**Test result:** all suites green, 7017 checks in 55 files (the five new suites: 95 checks, about 35 s of the 3 min 19 s of the whole run); all 267
+`.py` files of `src/` compile on Python 3.11 and the five suites run on 3.11 and 3.13; `ruff` clean, Vulture 0. 74 deliberate faults in the tested
+modules were caught by the tests but one (mutations on a copy): the first round caught 54 of 67, the 13 that survived led to sharper tests (the data
+did not reach the code, empty folders were never built, a rule was not stated); the one left is the extra exception types around opening a ZIP, which a changed byte cannot
+provoke.
+
+**Not covered:** no new rule is tested for the other repairs (devices, resting heart rate, track migration), the bulk rebuild, the migration safety copy
+and the parser of the mirror container; no real export file was used as a seed (the seeds are synthetic); the built programs (T2/T3).
+
 ## v1.7.6.10 — Race Predictions on Their Own Day
 
 Garmin answers the request for the race predictions with the current prediction, dated with the day of the request — not the

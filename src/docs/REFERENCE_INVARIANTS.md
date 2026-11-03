@@ -54,7 +54,7 @@ a given rule, see `CHANGELOG.md`.
 
 ## Mirror / Container
 
-- `garmin_import_mirror.py` — sole owner of the mirror-import operation; orchestrates only, never writes directly (raw via `garmin_writer`, context via `context_writer.write_file()`, quality via `_upsert_quality()`); its local `_QUALITY_RANK` copy is deliberate (not imported from `quality/_maint`; must be kept in sync manually if labels change)
+- `garmin_import_mirror.py` — sole owner of the mirror-import operation; orchestrates only, never writes directly (raw via `garmin_writer`, context via `context_writer.write_file()`, quality via `_upsert_quality()`); the rank comparison of its raw delta reads `garmin_quality.QUALITY_RANK` — there is no local copy (pinned by `tests/test_prop_rules.py`)
 - `garmin_container.py` — sole owner of `mirror.gla`
 - The container sections are `quality_log`, `raw`, `summary`, `context`, `source`, `bulk`, `bulk_source` (the last two since v1.7.6.2); the order of the older sections in a container is unchanged
 - `normalize()` is never called during mirror import — raw data inside the mirror is already normalized
