@@ -6,11 +6,21 @@
 
 ---
 
-**Currently stable — v1.7.6.10**
+**Currently stable — v1.7.6.11**
 
 ---
 
-### v1.7.6.10.1 — Catch-up of race predictions
+### v1.7.6.11.1 — Foreign input: path check and import robustness
+
+- The path check of the mirror import also refuses names that Windows treats
+  as devices (such as `NUL` or `CON`); a refused path still stops the whole
+  import, as before.
+- A field of the wrong type in a file of a Garmin export (for example the sleep
+  seconds or the stress block) no longer ends the import at that day.
+- Each change replaces a test that pins today's behaviour with a test of the
+  new rule.
+
+### v1.7.6.11.2 — Catch-up of race predictions
 
 - Days of the archive that hold no race prediction of their own date (the days
   that v1.7.6.10 cleaned of a copy of another day's prediction, and days that
@@ -18,20 +28,6 @@
   calls of up to one year each, for the days from the first day Garmin holds a
   prediction on. A prediction that is already stored with the right date is
   never overwritten. Preview and backup first.
-
-### v1.7.6.11 — Property tests and fuzzing of the new modules
-
-- The decision rules of the modules added during v1.7.6.x (bulk store, export
-  import, backups) are tested with generated inputs instead of hand-picked
-  examples: rules from `REFERENCE_INVARIANTS.md` become properties (a day is
-  replaced only by a fuller one, API data first in the resolved summary, a
-  worse quality label never over a better one).
-- The parsers that read foreign bytes (FIT reader, export scanner) are fuzzed
-  with mutated valid files; they must end in their declared errors only.
-- Each finding gets a fixed regression test; whether the code is changed, the
-  behaviour is pinned or the finding is dropped is decided per finding.
-  Otherwise tests only, no change in behaviour. New development dependency:
-  `hypothesis`.
 
 ### v1.7.6.12 — Mutation test of the new modules
 

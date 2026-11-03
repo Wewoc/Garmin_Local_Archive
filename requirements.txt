@@ -55,6 +55,9 @@ PyQt6-WebEngine>=6.11,<6.12
 pytest
 pytest-qt
 pytest-cov
+# hypothesis (v1.7.6.11): property tests and fuzzing (tests/test_prop_*.py, tests/test_fuzz_parsers.py). Range-pinned to
+# the major version in use (6.170 installed 2026-11-03); the suites derive their examples (no random seed, no .hypothesis folder).
+hypothesis>=6,<7
 pip-audit
 ruff
 bandit

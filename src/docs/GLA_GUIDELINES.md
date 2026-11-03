@@ -683,6 +683,7 @@ network or GUI required except where noted:
 |---|---|
 | `test_local.py` | Garmin pipeline, cross-module checks (determinism, invariants, robustness, end-to-end) |
 | `test_<module>.py` | Garmin pipeline, one file per module of `garmin/` (`test_normalizer`, `test_validator`, `test_writer`, `test_quality`, `test_backup`, `test_container_mirror`, `test_collector`, `test_api`, ...); shared setup in `tests/gla_testenv.py` |
+| `test_prop_*.py`, `test_fuzz_parsers.py` | Property tests and parser fuzzing with generated inputs (`hypothesis`, derived examples, v1.7.6.11) |
 | `test_local_context.py` | Context pipeline (external APIs mocked) |
 | `test_dashboard.py` | Dashboard pipeline (maps, specialists, plotters) |
 | `test_broker.py` | Broker layer (`health_map`/`gateway_map` routing, `metadata_map`) |

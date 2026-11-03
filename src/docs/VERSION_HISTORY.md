@@ -2,6 +2,12 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.6.11 — Property Tests and Fuzzing of the New Modules
+
+- No change in what the app does. The rules the archive relies on (a stored day is only replaced by a fuller one, the Garmin values come first and the export fills only what is missing, a worse quality label never replaces a better one, a prediction stays on its own day) are now also tested with thousands of generated cases instead of a few hand-picked ones.
+- The readers of foreign files (the FIT reader and the export scanner) are tested with damaged, cut and extended copies of valid files: they must reject a bad file with their known errors and never crash.
+- Eight small weaknesses found this way are recorded and pinned by tests as they behave today; none of them touches your archive or changes a result today.
+
 ## v1.7.6.10 — Race Predictions on Their Own Day
 
 - Garmin answers the request for your race predictions with the current prediction, not the one of the day that was asked for. Earlier versions stored that answer under the day they were fetching, so almost every day of the archive carried a prediction that belongs to another day. Now a prediction is kept only under the day it is dated with.

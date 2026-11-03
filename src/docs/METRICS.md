@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-11-01 08:16 UTC · Version: 1.7.6.10
+Generated: 2026-11-03 08:04 UTC · Version: 1.7.6.11
 
 ## Test Counts
 
@@ -33,6 +33,11 @@ Generated: 2026-11-01 08:16 UTC · Version: 1.7.6.10
 | test_bulk_import.py | 76 | 76 | 0 |
 | test_bulk_json_import.py | 132 | 132 | 0 |
 | test_bulk_rebuild.py | 47 | 47 | 0 |
+| test_prop_bulk_store.py | 18 | 18 | 0 |
+| test_prop_bulk_normalizer.py | 19 | 19 | 0 |
+| test_prop_rules.py | 34 | 34 | 0 |
+| test_prop_backup.py | 7 | 7 | 0 |
+| test_fuzz_parsers.py | 17 | 17 | 0 |
 | test_api.py | 75 | 75 | 0 |
 | test_live_fetch.py | 44 | 44 | 0 |
 | test_silo_check.py | 101 | 101 | 0 |
@@ -59,7 +64,7 @@ Generated: 2026-11-01 08:16 UTC · Version: 1.7.6.10
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **6922** | **6922** | **0** |
+| **Total** | **7017** | **7017** | **0** |
 
 ## Modules
 
@@ -67,7 +72,7 @@ Total: 174 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-11-01 08:12 UTC · Findings: 0 · Whitelisted: 100
+Scanned: 2026-11-03 07:50 UTC · Findings: 0 · Whitelisted: 100
 
-⚠ vulture.json target_version (v1.7.6.10) does not match the current APP_VERSION (1.7.6.10) — scope may have changed since the scan. Re-run tests/check_vulture.py.
+⚠ vulture.json target_version (v1.7.6.11) does not match the current APP_VERSION (1.7.6.11) — scope may have changed since the scan. Re-run tests/check_vulture.py.
 

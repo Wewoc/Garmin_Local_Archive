@@ -52,6 +52,11 @@ collect_ignore = [
     "test_bulk_import.py",
     "test_bulk_json_import.py",
     "test_bulk_rebuild.py",
+    "test_prop_bulk_store.py",      # v1.7.6.11 — property tests (hypothesis)
+    "test_prop_bulk_normalizer.py", # v1.7.6.11
+    "test_prop_rules.py",           # v1.7.6.11
+    "test_prop_backup.py",          # v1.7.6.11
+    "test_fuzz_parsers.py",         # v1.7.6.11
     "test_api.py",
     "test_live_fetch.py",
     "test_silo_check.py",
