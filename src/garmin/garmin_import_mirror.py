@@ -87,6 +87,7 @@ Dry-run mode returns:
 
 import json
 import logging
+import re
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -218,7 +219,7 @@ def _run_import_container(
         except _PathTraversalError as e:
             # Fall 1 (ROADMAP v1.7.4.3): abort the whole import, nothing is
             # written — caught here, before fulfill_order()/any write.
-            error_msg = f"rejected container path (escapes base_dir): {e.rel_path}"
+            error_msg = f"rejected container path (escapes base_dir or names a device): {e.rel_path}"
             log.error(f"  import_mirror: {error_msg}")
             if dry_run:
                 return {"raw_to_copy": 0, "context_to_copy": 0,
@@ -364,15 +365,35 @@ class _PathTraversalError(Exception):
     """A container-supplied relative path resolves outside base_dir."""
     def __init__(self, rel_path: str):
         self.rel_path = rel_path
-        super().__init__(f"container path escapes base_dir: {rel_path}")
+        super().__init__(f"container path escapes base_dir or names a device: {rel_path}")
+
+
+# Names Windows treats as devices, whatever the extension and the case ("NUL", "nul.txt", "COM1.json"):
+# a file written under such a name goes to the device and would be counted as copied (F-23, v1.7.6.11.1).
+# Checked on every platform: the container is an archive that may be restored on Windows, and the
+# answer should not depend on the system that happens to run the import.
+_RESERVED_DEVICE_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    | {f"COM{i}" for i in "123456789¹²³"}
+    | {f"LPT{i}" for i in "123456789¹²³"}
+)
+
+
+def _is_reserved_name(segment: str) -> bool:
+    """True if a path segment names a Windows device: the part before the first dot, trailing blanks removed."""
+    return segment.split(".", 1)[0].rstrip(" ").upper() in _RESERVED_DEVICE_NAMES
 
 
 def _safe_container_path(base_dir: Path, rel_path: str) -> Path | None:
     """
     Resolves base_dir / rel_path and returns it only if the result stays
-    inside base_dir. Returns None (reject) for any path that climbs out,
-    e.g. via '../' segments (ROADMAP v1.7.4.3, Fall 1).
+    inside base_dir and no segment names a Windows device (NUL, CON, COM1, ...).
+    Returns None (reject) for any path that climbs out, e.g. via '../'
+    segments (ROADMAP v1.7.4.3, Fall 1), and for a reserved device name
+    (F-23, v1.7.6.11.1) — the caller aborts the whole import in both cases.
     """
+    if any(_is_reserved_name(s) for s in re.split(r"[\\/]", rel_path)):
+        return None
     try:
         base_resolved = base_dir.resolve()
         candidate = (base_dir / rel_path).resolve()

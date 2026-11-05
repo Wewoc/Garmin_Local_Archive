@@ -178,6 +178,9 @@ def parse_day(entries: dict, date_str: str) -> dict:
     health_status = entries.get("health_status") or {}
     alert_events = entries.get("alert_events") or []
     race_prediction = entries.get("race_predictions") or {}
+    # v1.7.6.11.1 (F-24): names of the fields whose value had the wrong type; such a value counts as empty
+    # (None), the day is kept. Only the names are collected — never a value.
+    wrong_type: list[str] = []
 
     # ── user_summary (aus UDS) ──
     if uds:
@@ -200,29 +203,43 @@ def parse_day(entries: dict, date_str: str) -> dict:
         }
 
         # ── stress (Aggregat aus UDS — kein Intraday) ──
-        all_day_stress = uds.get("allDayStress") or {}
-        agg_list = all_day_stress.get("aggregatorList") or []
-        if agg_list and isinstance(agg_list, list):
+        # A block or an aggregate that is no object (or a list that is no list) counts as empty (v1.7.6.11.1, F-24).
+        all_day_stress = uds.get("allDayStress")
+        if not isinstance(all_day_stress, dict):
+            if all_day_stress is not None:
+                wrong_type.append("allDayStress")
+            all_day_stress = {}
+        agg_list = all_day_stress.get("aggregatorList")
+        if not isinstance(agg_list, list):
+            if agg_list is not None:
+                wrong_type.append("allDayStress.aggregatorList")
+            agg_list = []
+        if agg_list:
             agg = agg_list[0]
-            raw["stress"] = {
-                "averageStressLevel": agg.get("averageStressLevel"),
-                "maxStressLevel":     agg.get("maxStressLevel"),
-                "stressDuration":     agg.get("stressDuration"),
-                "restDuration":       agg.get("restDuration"),
-                "lowDuration":        agg.get("lowDuration"),
-                "mediumDuration":     agg.get("mediumDuration"),
-                "highDuration":       agg.get("highDuration"),
-            }
+            if isinstance(agg, dict):
+                raw["stress"] = {
+                    "averageStressLevel": agg.get("averageStressLevel"),
+                    "maxStressLevel":     agg.get("maxStressLevel"),
+                    "stressDuration":     agg.get("stressDuration"),
+                    "restDuration":       agg.get("restDuration"),
+                    "lowDuration":        agg.get("lowDuration"),
+                    "mediumDuration":     agg.get("mediumDuration"),
+                    "highDuration":       agg.get("highDuration"),
+                }
+            else:
+                wrong_type.append("allDayStress.aggregatorList[0]")
 
     # ── sleep (aus sleepData) ──
     if sleep:
+        # The sleep seconds are numbers; any other type (text, bool, list, object) counts as empty (v1.7.6.11.1, F-24).
+        secs = {k: _seconds(sleep.get(k), "sleep." + k, wrong_type) for k in _SLEEP_SECONDS}
         raw["sleep"] = {
             "dailySleepDTO": {
-                "sleepTimeSeconds":  _total_sleep(sleep),
-                "deepSleepSeconds":  sleep.get("deepSleepSeconds"),
-                "lightSleepSeconds": sleep.get("lightSleepSeconds"),
-                "remSleepSeconds":   sleep.get("remSleepSeconds"),
-                "awakeSleepSeconds": sleep.get("awakeSleepSeconds"),
+                "sleepTimeSeconds":  _total_sleep(secs),
+                "deepSleepSeconds":  secs["deepSleepSeconds"],
+                "lightSleepSeconds": secs["lightSleepSeconds"],
+                "remSleepSeconds":   secs["remSleepSeconds"],
+                "awakeSleepSeconds": secs["awakeSleepSeconds"],
             }
         }
 
@@ -267,6 +284,10 @@ def parse_day(entries: dict, date_str: str) -> dict:
     prediction = _race_prediction(race_prediction, date_str)
     if prediction:
         raw["race_predictions"] = prediction
+
+    if wrong_type:
+        # One line per day, field names only (never a value); no counter in the summary (decision 2026-11-03).
+        log.warning(f"  parse_day: {date_str}: wrong type counted as empty: {', '.join(wrong_type)}")
 
     return raw
 
@@ -702,10 +723,29 @@ def _meters_to_floors(meters) -> int | None:
         return None
 
 
+_SLEEP_SECONDS = ("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds", "awakeSleepSeconds")
+
+
+def _is_number(value) -> bool:
+    """True for an int or a float; a bool is no number (v1.7.6.11.1)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _seconds(value, name: str, wrong_type: list):
+    """
+    The value if it is a number, None if it is empty. Any other type counts as empty (None) and the
+    field name — never the value — goes to wrong_type (v1.7.6.11.1, F-24; precedent _meters_to_floors).
+    """
+    if value is None or _is_number(value):
+        return value
+    wrong_type.append(name)
+    return None
+
+
 def _total_sleep(sleep: dict) -> int | None:
-    """Calculates total sleep seconds from sleep stage components."""
+    """Calculates total sleep seconds from the sleep stage components; a value that is no number is left out."""
     keys = ("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds")
-    values = [sleep.get(k) for k in keys]
-    if all(v is None for v in values):
+    values = [v for v in (sleep.get(k) for k in keys) if _is_number(v)]
+    if not values:
         return None
-    return sum(v or 0 for v in values)
+    return sum(values)

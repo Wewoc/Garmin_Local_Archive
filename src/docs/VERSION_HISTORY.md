@@ -2,119 +2,19 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
-## v1.7.6.11 — Property Tests and Fuzzing of the New Modules
+## v1.7.6 – v1.7.6.11.1 — Garmin Export as a Second Source
 
-- No change in what the app does. The rules the archive relies on (a stored day is only replaced by a fuller one, the Garmin values come first and the export fills only what is missing, a worse quality label never replaces a better one, a prediction stays on its own day) are now also tested with thousands of generated cases instead of a few hand-picked ones.
-- The readers of foreign files (the FIT reader and the export scanner) are tested with damaged, cut and extended copies of valid files: they must reject a bad file with their known errors and never crash.
-- Eight small weaknesses found this way are recorded and pinned by tests as they behave today; none of them touches your archive or changes a result today.
-
-## v1.7.6.10 — Race Predictions on Their Own Day
-
-- Garmin answers the request for your race predictions with the current prediction, not the one of the day that was asked for. Earlier versions stored that answer under the day they were fetching, so almost every day of the archive carried a prediction that belongs to another day. Now a prediction is kept only under the day it is dated with.
-- Days that already carry such copies are corrected by a removable repair. Sync Garmin asks first (a popup shows how many days get the prediction of their own date and how many lose a copy); it makes a safety copy of the daily files and the quality log, changes nothing but the race prediction field, and leaves days it cannot settle as they are. The unmodified Garmin answers stay in the archive of originals (`garmin_data/source`).
-- Days of a Garmin export import now also get the race predictions of the export (the file `RunRacePredictions`); they appear after the next import of that export.
-- New days get their own race prediction: the app now asks Garmin for the prediction of each day with the day itself (before, the answer always carried the next day's date). Days that lose a copy stay without a prediction until they are fetched again; a day before Garmin's history starts has none. The daily update only mentions days that can be corrected; it changes nothing by itself.
-
-## v1.7.6.9 — Device Repair
-
-- Days that come from a Garmin export have no device in the archive and show up as "unknown" in the device table. The export files the app keeps name the watch that recorded each day; the app now reads it from there. Sync Garmin asks first (a popup shows how many days each device would get) and makes a safety copy of the quality log before it writes anything.
-- Only days without a device are changed. A day with two watches, a day without a usable file and every day that already has a device stay as they are. Each assigned day carries a new key `device_source` (`export_fit`) in the quality log, so you can see where the device came from.
-- Devices can be named: double-click the row of a device in the Archive table to give it a name; the name is set for all days of that device. The names of the new devices are not guessed.
-- The daily update only mentions that days can be assigned; it changes nothing by itself.
-
-## v1.7.6.8 — Source Comparison in the Import Summary
-
-- When you import a Garmin export (and in the preview), the log now compares the export with the days the app already holds from the Garmin API. For seven fields (steps, resting, minimum and maximum heart rate, stress average, sleep duration, floors) it says how many days are equal, how many the export adds (the API day has no value) and how many differ, with the first three dates that differ.
-- Nothing is overwritten and nothing is stored: the numbers only appear in the log, not in the quality log and not in any data file. Days of the export for which the app holds no API day are counted separately and not compared.
-- The comparison runs only when you import an export, not during Sync or the daily update. It reads the daily files of the API archive once; for an archive of several thousand days this adds a few tens of seconds to the import or the preview.
-
-## v1.7.6.7 — More Export File Types and Import Inventory
-
-- The import of a Garmin export now also reads the health status of the day (a daily check of HRV, heart rate, SpO2, skin temperature and respiration against your baseline) and the single pulse alerts. They are stored with the daily values; for now no screen or AI query shows them.
-- Gear, personal records, saved courses and the heart-rate and power zones of the export are kept unchanged in `garmin_data/bulk/source`, so they are not lost with the ZIP. They are part of the backup and the mirror. Nothing is read from them yet.
-- At the end of the import (and of the preview) the log lists what the export held: how many files of each known kind, and how many JSON files the app did not know, with the folders they lie in. File names are never logged.
-- A JSON file over 64 MB is skipped and counted.
-- Nothing is changed in existing data by the update itself. When you run the import again with the same export, the days that gain a health status or a pulse alert are updated; all other days stay as they are. Run the preview first.
-
-## v1.7.6.6 — Alerts and Training in the Daily Summary
-
-- The daily summary file of each day has a new section `alerts` with warnings and ratings that Garmin already delivered but the summary did not show: pulse alerts of the day, breathing disruption of the night, the load ratio, two body battery levels (evening and near bedtime) and the stress rating of the day.
-- The section `training` was empty before and is now filled: training readiness (score, level, feedback), the training status as text and as number, VO2max and fitness age. If Garmin's answer for a day holds several readiness entries or several devices, the latest one is used.
-- `training_load_7d` stays empty for now. The `alerts` values come only from Garmin's own answer for the day; the Garmin export has none of them, so days that exist only in the export stay empty there.
-- Existing days get the new values once through the data update (schema update): in the app when you start Sync Garmin (it asks for a backup first), or in the next daily sync if "Migrate data in Daily Sync" is on. Raw files are not changed and no login is needed.
-- The six `alerts` values can be asked for in AI queries (MCP). The first start of the MCP server after the update reads all days again, once, and takes longer; the cache notices by itself when the summary files change their schema, nothing to do.
-- The new text values are not offered in the dropdowns of the Explorer and the Custom Dashboard.
-
-## v1.7.6.5 — Rebuild of the Daily Values from the Kept Originals
-
-- The app keeps the JSON files of your Garmin export in `garmin_data/bulk/source`. From these files it can now make the daily values in `bulk/aggregates` again, without the export (the ZIP) and without a login. A popup "Rebuild / Preview only / Not now" appears before Sync Garmin starts when days were made by an older version. "Preview only" reports what would change and writes nothing.
-- The import now also reads the training readiness score from the export (it was left out before). Days that were imported earlier get it with the rebuild. For now the score is stored in the bulk folder only; the daily files do not show it yet.
-- If a day has several readiness entries, the latest of the day is used, whatever order the files are read in.
-- No safety copy is made for the rebuild: the original files are not changed and the days can be rebuilt again at any time. The bulk backup follows at the end of the same sync start.
-- Please note: an older version of the app does not read the rebuilt daily-values files. The scheduled Daily Sync does not show the popup and does not rebuild.
-
-## v1.7.6.4 — Migration in the Daily Update and Documentation Viewer
-
-- New setting "Migrate data in Daily Sync" (Settings tab, section "Daily Sync"), off by default. When a data update (schema update) is waiting, the daily update then makes a checked safety copy of your archive and migrates by itself, instead of stopping and asking you to open the app. With the setting off nothing changes: the daily update stops with a hint.
-- If the safety copy cannot be made, nothing is changed and the daily update stops with a hint. The log names the safety copy and how to put it back (`restore_migration_snapshot.py`, Python needed). Old copies are not deleted by the app.
-- If some files are still waiting afterwards, the log says how many; the daily update still counts as done.
-- The Documentation button now shows the quick start, the user guide and the app README in a window inside the app. Links to web pages open in your browser. If a file cannot be shown there, it opens in your default program as before.
-- Please note: the window shows no pictures and not the project README on GitHub.
-
-## v1.7.6.3 — Migration of the Mixed Archive
-
-- Days that the older import left in a mixed form (export data stored in the folder of the Garmin API data) are now made again from the archived Garmin originals, and the export data stays in the bulk folder. A step in the app asks once before the sync, offers a preview, and makes a safety copy of the daily files, the Garmin answers and the quality log first.
-- The daily files in `summary` are now put together field by field: where Garmin's answer for an old day holds a field but leaves it empty, the export fills it (heart rate minimum and maximum, stress average). Before, such an old day showed no value at all.
-- A few shown values change for migrated days: the climbed floors follow Garmin's own value, six sleep durations differ by 0.01 hours, and the activity list of days that came from the earlier import is empty instead of wrong (it showed minutes and kilometres a thousand and a hundred times too large).
-- The safety copy is a ZIP in `backup/migration`, checked right after it is written. A command line tool puts it back (`restore_migration_snapshot.py`, Python needed). Old copies are not deleted by the app.
-- The daily update only points to days that wait for the migration; it never changes your archive.
-- Please note: days of the earlier import without an archived Garmin original, and days where the export differs from the stored data, are reported and left unchanged.
-
-## v1.7.6.2.1 — Sturdier Backups
-
-- The backups of the daily files and of the raw Garmin answers now run on the same code as the backup of the bulk folder.
-- If a monthly backup file is damaged, nothing is written into it any more: it is left as it is, the new files wait in their month folder, and the log names the damaged file. Before, such a file could silently lose its old content.
-- Backup messages now say what kind of error happened, and a file the backup cannot read is counted as an error.
-- The archive check also notices a lost original JSON file of the export, and its repair restores it from the backup. If a bulk day file and its original file are lost together, one repair now brings back both.
-
-## v1.7.6.2 — Protection for the Bulk Folder
-
-- The bulk folder (heart-rate series, daily values and the kept files of the Garmin export) is now part of the backup and of the mirror. The first backup happens by itself at the next start of a sync; it can take a while with a large export.
-- A mirror container carries the bulk folder along, and the import of a mirror brings it back. Older mirror containers stay readable. The log shows progress while a mirror is made or imported.
-- A day that exists only in the export no longer counts as an error when a mirror is imported.
-- The archive check finds bulk files that went missing and original export files that are gone; its repair restores them from the backup. A daily file that belongs to a lost bulk file is no longer removed as an orphan.
-- Please note: the raw and source backups are unchanged; the next version moves them onto the same code.
-
-## v1.7.6.1 — Daily Values from the Garmin Export in the Bulk Folder
-
-- The daily values of the Garmin export are now stored in the bulk folder as well (`bulk/aggregates`), no longer mixed into the archive of data that came from the Garmin API. The daily files in `summary` are put together from both: what Garmin delivered through the API wins, the export fills the gaps.
-- New for AI queries and dashboards: the time per day in the four stress zones (rest, low, medium, high) from the export. The sleep percentages also work for days that exist only in the export.
-- The import dialog offers a preview for both parts, the daily values and the heart-rate series.
-- Days that exist only in the export are no longer reported as orphaned by the archive check, and the repair can rebuild their summary.
-- A day that could not be written is now reported as an error by the sync and by the mirror import instead of being counted as done.
-- Please note: the bulk folder is still not part of the backup and the mirror; that follows in the next version.
-
-## v1.7.6 — Heart-Rate Series from the Garmin Export
-
-- The import of the Garmin export can now also read the heart-rate series over the day, not only the daily values. A new dialog lets you choose "Daily values" and/or "Heart-rate series" and shows a preview first.
-- The series are stored in their own folder (`bulk`) next to the archive; your existing daily data is not changed. AI queries (MCP) and the dashboards that show the heart-rate curve use the series automatically for days that have none from the sync.
-- Please note: this folder is not yet part of the backup and the mirror; the import asks you before it starts.
-
-## v1.7.5.7 — Resting Heart Rate of Imported Days Corrected
-
-- The Garmin export import used to store the 7-day average of the resting heart rate as the value of the day. New imports take the real value of the day.
-- Days imported earlier are corrected from your saved Garmin originals: before Sync Garmin starts, a popup names the number of days and asks you to make a backup first. It comes back at every sync until the days are corrected; the scheduled Daily Sync only writes a note to its log.
-- AI queries (MCP) show the corrected values after the next sync.
-
-## v1.7.5.6 — Backups Follow Rewritten Days
-
-- When a day is rewritten after its first backup (by a backfill, a mirror import or a repair), its entry in the monthly backup ZIP is now updated too, so "Restore Data" no longer brings back an older version of that day.
-- Existing archives are checked at every sync start; outdated backup entries are replaced automatically, once, with nothing to do.
+- The import of the Garmin export now reads heart-rate series, daily values, health status, pulse alerts, training readiness and race predictions (v1.7.6 – v1.7.6.7, v1.7.6.10).
+- Garmin API data wins, the export fills the gaps; new stress-zone times for AI queries and dashboards (v1.7.6.1).
+- Export data is part of backup and mirror; safety-copied migration, rebuild and repair steps bring older archives onto the new layout. Older app versions cannot read the rebuilt daily files (v1.7.6.2 – v1.7.6.5, v1.7.6.9).
+- The import log compares export and Garmin API days; damaged foreign files no longer stop the import (v1.7.6.8, v1.7.6.11 – v1.7.6.11.1).
+- New: "Migrate data in Daily Sync" setting and an in-app documentation window (v1.7.6.4).
 
 ## v1.7.5.x — Statistics and Clearer Tools for AI Queries
 
 - New statistics for AI queries: rolling baselines and normal ranges per health value, anomaly and streak detection, gap detection (now for health data too), and correlations between any two values with an optional day offset, for example "does pollen affect my HRV?".
 - AI clients are guided better: short, clear tool descriptions; asking for a raw value that has a processed counterpart (floors, weight, intensity minutes) now points to the right tool; raw queries can be limited to one field; "stress_index" resolves to average stress.
+- Backup entries follow rewritten days; the resting heart rate of imported days was corrected (v1.7.5.6 – v1.7.5.7).
 
 ## v1.7.4.x — Export Layer and Reliability
 

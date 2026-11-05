@@ -22,6 +22,7 @@ a given rule, see `CHANGELOG.md`.
 - `garmin_normalizer.summarize()` — sections `training` and `alerts` (v1.7.6.6): of competing entries (readiness entries, device entries of the training status, `max_metrics` elements) the one with the latest `timestamp` wins whatever the order of the list; the status number gets a text only from `_TRAINING_STATUS_TEXT` (observed numbers, nothing guessed); `training_status_code` stays a summary field and is not a broker field; alert texts are passed on as delivered, a value of another type is `None`; the export carries no alert value
 - `mcp_update._reconcile_summary_schema()` (v1.7.6.6) — the SQLite cache sets the health days to be read again only when all readable summaries carry one and the same schema number and it differs from the number noted in `mcp_snapshots` (kind `summary_schema`); different numbers or no summary: nothing. It reads the numbers through the internal metadata kind `summary_schema_state`, never the archive directly; the migration itself still leaves `last_checked` alone
 - `garmin_import.py::parse_day()` — `user_summary.restingHeartRate` is the export's value of the day (`currentDayRestingHeartRate`), an absent day value stays empty and never falls back to the 7-day average; the average is kept as `user_summary.lastSevenDaysAvgRestingHeartRate`, never inside `heart_rates` (v1.7.5.7)
+- `garmin_import.py::parse_day()` — a field of the wrong type never raises (v1.7.6.11.1, F-24): sleep seconds that are no number (`int`/`float`, no `bool`) and an `allDayStress` that is no object (or an aggregator list / first aggregate of the wrong type) count as empty, the day is kept; one log line per day with field names only, never a value
 
 ## Dashboards / Layouts
 
@@ -55,6 +56,7 @@ a given rule, see `CHANGELOG.md`.
 ## Mirror / Container
 
 - `garmin_import_mirror.py` — sole owner of the mirror-import operation; orchestrates only, never writes directly (raw via `garmin_writer`, context via `context_writer.write_file()`, quality via `_upsert_quality()`); the rank comparison of its raw delta reads `garmin_quality.QUALITY_RANK` — there is no local copy (pinned by `tests/test_prop_rules.py`)
+- `garmin_import_mirror._safe_container_path()` refuses a container path that leaves `base_dir` **or names a Windows device** (`NUL`, `CON`, `COM1`, ..., any case and extension; every platform, v1.7.6.11.1); a refused path stops the whole import before anything is written (Fall 1)
 - `garmin_container.py` — sole owner of `mirror.gla`
 - The container sections are `quality_log`, `raw`, `summary`, `context`, `source`, `bulk`, `bulk_source` (the last two since v1.7.6.2); the order of the older sections in a container is unchanged
 - `normalize()` is never called during mirror import — raw data inside the mirror is already normalized

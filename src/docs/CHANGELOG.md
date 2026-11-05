@@ -1,5 +1,47 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.11.1 — Foreign Input: Path Check and Import Robustness
+
+Two of the things the property tests of v1.7.6.11 found are changed (F-23 and F-24); the tests that pinned today's behaviour became tests of the new rule.
+Nothing else changes: no schema, no file format, no new module.
+
+**What changed:**
+- **The path check of the mirror import also refuses Windows device names** (`garmin_import_mirror._safe_container_path`, F-23). A path of the container
+  is refused when one of its segments names a device — `CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1` to `COM9` and `LPT1` to `LPT9` (also with the
+  superscript digits `¹ ² ³`) — in any case, with any extension and with trailing blanks or dots (`nul.txt`, `COM1.json`, `NUL.`). Before, such a path was
+  accepted, and where the path is a write destination (the context section) the data would have gone to the device and the import would have counted the file as copied.
+  The check applies on every platform, not only on Windows, so the answer does not depend on the system that runs the import. A refused path acts like a way
+  up (Fall 1, v1.7.4.3): the whole import stops before anything is written, in the run and in the preview; the error text is now
+  `rejected container path (escapes base_dir or names a device): <path>`. A name that only resembles a device (`NULL`, `COM10`, `console.json`) is accepted.
+- **A field of the wrong type in an export file no longer ends the import at that day** (`garmin_import.parse_day`, F-24). The four sleep seconds (deep, light, REM,
+  awake) that are no number, an `allDayStress` that is no object, an aggregator list that is no list and a first aggregate that is no object count as empty
+  (`None`, no stress block), as `_meters_to_floors` already treated its input. The day is kept with its other values and the import goes on with the next
+  day. Only `int` and `float` are numbers: `"3600"` as text and `true` are not. The total sleep is the sum of the numbers that are there (none: empty).
+  One warning line per day names the fields (`parse_day: <day>: wrong type counted as empty: sleep.deepSleepSeconds, allDayStress`) — never a value; there is no
+  counter in the import summary.
+
+**Tests:**
+- `tests/test_prop_rules.py` (34 → 46): the two pins of the findings 3 and 4 are replaced by a section of rule tests — device names refused, look-alikes accepted, way up
+  and absolute path still refused, both container analyses stop with the path error; wrong types as empty (text, list, bool, object), the total, the stress cases, the
+  log line (one per day, field names, no value, none for a clean day) and the walk over three days with a bad one in the middle (all three are yielded). The properties
+  of `parse_day` (sleep seconds of any JSON shape, `allDayStress` of any shape) and of the path guard (now with device names) and the import of whole files of any shape
+  (no longer kept away from the two fields) were widened.
+- `tests/test_import_mirror.py` (175 → 184): a device name in the context or in the source section stops the whole import, in the run and in the preview, and the valid
+  day of the same container is not imported.
+
+**Changed modules:**
+- `garmin/garmin_import_mirror.py` — `_RESERVED_DEVICE_NAMES`, `_is_reserved_name()`, `_safe_container_path()`, the two error texts
+- `garmin/garmin_import.py` — `parse_day()`, `_seconds()`, `_is_number()`, `_total_sleep()`, `_SLEEP_SECONDS`
+- `tests/test_prop_rules.py`, `tests/test_import_mirror.py`; `version.py` — 1.7.6.11.1; `docs/` — `ROADMAP.md`, `REFERENCE_GARMIN.md`, `REFERENCE_INVARIANTS.md`,
+  `MAINTENANCE_GLOBAL.md`, `MAINTENANCE_GARMIN.md`, `README_APP.md`, `VERSION_HISTORY.md`, `METRICS.md`
+
+**Test result:** all suites green, 7038 checks in 55 files; all 267 `.py` files of `src/` compile on Python 3.11; `ruff` clean, Vulture 0, `build_dep_map` 0 new / 0 gone / 0 regression.
+Netz 2: `garmin_import.py` and `garmin_import_mirror.py` changed (the scenario `run_netz2_bulk_import.py` was run, the report differs from the last one only in dates).
+**Deliberate faults:** 33 changes to the new code in a copy of it: the first round caught 26; the survivors led to sharper tests (the helper `_total_sleep` had no test of its own, the log line did not check the names of the aggregator list and of the first aggregate) and two anchors that missed in the copy (the digit sets of the device names) were corrected and run; 31 are caught, two are equivalent (the total of the raw sleep entry gives the same result because `_total_sleep` leaves out what is no number itself; a blank in front of a device name is refused as well, which is only more cautious).
+
+**Not covered:** the real archive and the app were not run (the change reads only export files and container paths); a wrong type in the entries that are not objects
+themselves (the loader already skips those) and in the other fields of `parse_day` (they are passed on as delivered, as before) is not judged here; the built programs (T2/T3).
+
 ## v1.7.6.11 — Property Tests and Fuzzing of the New Modules
 
 Tests only, no change in what the program does. The decision rules of the modules added during v1.7.6.x (bulk store, export

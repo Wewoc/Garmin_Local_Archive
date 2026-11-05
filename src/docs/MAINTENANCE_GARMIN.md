@@ -860,6 +860,12 @@ export is imported again.
   TestPredictionRepairHooks` (popup, days that stay, writes nothing, trigger in `run_collector()`). The tests were checked with 56
   deliberate faults in a copy of the code (see `CHANGELOG.md`).
 
+- v1.7.6.11.1 (F-23, F-24): `test_prop_rules.py` section "Rules of v1.7.6.11.1" — `_safe_container_path` (device names of every kind refused, look-alikes accepted,
+  way up and absolute path still refused, both container analyses raise the path error) and `parse_day` (sleep seconds of the wrong type as empty and the total of the
+  numbers, the stress cases, the single log line with field names and no value, the walk over three days with a bad one in the middle) with properties for
+  sleep seconds and `allDayStress` of any JSON shape; `test_import_mirror.py` — a device name in the context or source section stops the whole import in the run and
+  in the preview. The tests were checked with 33 deliberate faults in a copy of the code (see `CHANGELOG.md`).
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release

@@ -450,6 +450,27 @@ with _isolated_log_env("imp_escape_dry") as _b:
     check("new: ... nothing is written in dry_run (no file outside base_dir)",
           not (_b / "escaped_probe.json").exists())
 
+# -- F-23 (v1.7.6.11.1): a path that names a Windows device (NUL, CON, COM1, ...) is refused like a way up:
+# the whole import stops, in the context and in the source section, in the run and in the preview ----------
+for _kind, _sections, _name in (
+    ("context", dict(context={"context_data/NUL": _jb({"x": 1})}), "dev_ctx"),
+    ("context (extension, other case)", dict(context={"context_data/Com1.json": _jb({"x": 1})}), "dev_ctx2"),
+    ("source", dict(source={"garmin_data/source/aux.json": _jb({"x": 1})}), "dev_src"),
+):
+    _dev = _M4H / f"{_name}.gla"
+    _craft_container(_dev, _mirror_sections(days=[(_D1, "high", "bulk")], raws={_D1: _day_raw(_D1, "high")}, **_sections))
+    with _isolated_log_env(f"imp_{_name}") as _b:
+        cfg.SUMMARY_DIR = _b / "summary"
+        _archive = _b / "archive"
+        _archive.mkdir()
+        _r = _im.run_import_mirror(_dev, _archive, "pw")
+        check(f"F-23: a device name in the {_kind} section aborts the whole import (ok False, error names the path)",
+              _r["ok"] == False and "device" in (_r.get("error") or "") and _r.get("raw_copied", 0) == 0)
+        check("F-23: ... the valid raw day of the same run is not imported",
+              not (_archive / "garmin_data" / "raw" / f"garmin_raw_{_D1}.json").exists())
+        _r = _im.run_import_mirror(_dev, _archive, "pw", dry_run=True)
+        check("F-23: ... the preview aborts as well", _r["ok"] == False and bool(_r.get("error")))
+
 # -- legacy folder import ----------------------------------------------------------------
 def _mirror_folder(root, days, raw_for=(), context=(), meta=True, qlog=True):
     root.mkdir(parents=True)

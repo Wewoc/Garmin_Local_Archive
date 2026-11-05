@@ -23,6 +23,7 @@ tests of the modules:
 import copy
 import os
 import posixpath
+import re
 from datetime import date, timedelta
 
 from gla_testenv import _TMPDIR  # sets up the environment; must precede garmin_* imports
@@ -345,10 +346,10 @@ def _(items, rnd):
 def _kind_entries(kind, day):
     """One export entry of a kind with JSON of any shape in the fields the importer reads."""
     j = JSON_VALUES
-    # allDayStress and the sleep seconds are kept to their types: a wrong type there ends the import (finding 4, pinned below)
-    stress = st.none() | st.fixed_dictionaries({"aggregatorList": st.lists(
-        st.dictionaries(st.sampled_from(["averageStressLevel", "maxStressLevel", "stressDuration"]), j, max_size=3), max_size=2)})
-    seconds = st.none() | st.integers(0, 40000) | st.floats(0, 40000, allow_nan=False, allow_infinity=False)
+    # allDayStress and the sleep seconds are of any shape too: a value of the wrong type counts as empty (F-24, v1.7.6.11.1)
+    stress = j | st.fixed_dictionaries({"aggregatorList": st.lists(
+        st.dictionaries(st.sampled_from(["averageStressLevel", "maxStressLevel", "stressDuration"]), j, max_size=3) | j, max_size=2)})
+    seconds = j | st.integers(0, 40000) | st.floats(0, 40000, allow_nan=False, allow_infinity=False)
     if kind == "uds":
         return st.fixed_dictionaries({"calendarDate": st.just(day), "uuid": st.just("u"), "totalSteps": j, "allDayStress": stress,
                                       "floorsAscendedInMeters": j, "restingHeartRate": j, "currentDayRestingHeartRate": j})
@@ -375,12 +376,37 @@ def export_files(draw):
     return [(f"f{i}", draw(st.lists(_kind_entries(k, day), min_size=1, max_size=2))) for i, k in enumerate(kinds)]
 
 
-@prop("days_from_originals: JSON of any shape in the fields (but allDayStress and the sleep seconds, finding 4) does not end the import", examples=100)
+@prop("days_from_originals: JSON of any shape in the fields (allDayStress and the sleep seconds included, F-24) does not end the import", examples=100)
 @given(export_files())
 def _(files):
     days = list(imp.days_from_originals(files))
     for raw, entries in days:
         assert isinstance(raw, dict) and isinstance(entries, dict) and raw["date"]
+
+
+def _is_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+@prop("parse_day: a sleep second of the wrong type counts as empty, the total is the sum of the numbers, nothing raises (F-24)", examples=200)
+@given(st.fixed_dictionaries({k: JSON_VALUES for k in ("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds", "awakeSleepSeconds")}), DATES)
+def _(sleep, day):
+    dto = imp.parse_day({"sleep": sleep}, day)["sleep"]["dailySleepDTO"]
+    for k, v in sleep.items():
+        assert dto[k] == v if _is_num(v) else dto[k] is None, k
+        assert type(dto[k]) is type(v) if _is_num(v) else True
+    nums = [sleep[k] for k in ("deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds") if _is_num(sleep[k])]
+    assert dto["sleepTimeSeconds"] == (sum(nums) if nums else None)
+
+
+@prop("parse_day: allDayStress of any shape does not raise; a stress block comes only from an object holding an aggregate object (F-24)", examples=200)
+@given(JSON_VALUES | st.fixed_dictionaries({"aggregatorList": st.lists(JSON_VALUES, max_size=3)}), DATES)
+def _(stress, day):
+    out = imp.parse_day({"uds": {"totalSteps": 5, "allDayStress": stress}}, day)
+    assert out["user_summary"]["totalSteps"] == 5
+    agg = stress.get("aggregatorList") if isinstance(stress, dict) else None
+    has = isinstance(agg, list) and bool(agg) and isinstance(agg[0], dict)
+    assert ("stress" in out) == has
 
 
 _NUM = st.one_of(st.none(), st.integers(0, 5000), st.floats(0, 5000, allow_nan=False, allow_infinity=False))
@@ -432,11 +458,15 @@ def _(events, rnd, day):
 section("R6. the path guard of the mirror import")
 # ══════════════════════════════════════════════════════════════════════════════
 
-_SEGMENTS = ["a", "b.json", "..", ".", "", "C:", "c:\\x", "\\", "../a", "garmin_data", "NUL", "x:y", "%2e%2e", " ", "a ", "..."]
+_SEGMENTS = ["a", "b.json", "..", ".", "", "C:", "c:\\x", "\\", "../a", "garmin_data", "NUL", "x:y", "%2e%2e", " ", "a ", "...",
+             "con.txt", "Com5", "lpt9.json", "aux.tar.gz", "NULL", "COM10", "COM0", "console", "nul_x", "x.nul"]
 _REL = st.lists(st.sampled_from(_SEGMENTS), max_size=6).map("/".join) | st.text(alphabet="ab./\\:", max_size=12)
+# the rule of F-24's neighbour F-23, written down again here without the module's helper: the part of a segment before
+# the first dot, without trailing blanks, is CON, PRN, AUX, NUL, COM1-9 or LPT1-9 in any case
+_DEVICE = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.IGNORECASE)
 
 
-@prop("_safe_container_path: what it returns lies inside the base folder; a way up, an absolute path or a drive is refused", examples=250)
+@prop("_safe_container_path: what it returns lies inside the base folder; a way up, an absolute path, a drive or a device name is refused", examples=250)
 @given(_REL)
 def _(rel):
     base = _TMPDIR / "prop_guard"
@@ -450,13 +480,15 @@ def _(rel):
     # is its own affair, not judged here (a refusal is fail-closed anyway)
     segments = [s for s in probe.replace("\\", "/").split("/") if s not in ("", ".", "..")]
     colon = ":" in probe or any(s != s.strip() or s.endswith(".") for s in segments)
+    device = any(_DEVICE.fullmatch(s.split(".", 1)[0].rstrip(" ")) for s in re.split(r"[\\/]", rel))
     if got is not None:
         assert got == base / rel
         assert not way_out, f"a way out was accepted: {rel!r}"
+        assert not device, f"a device name was accepted: {rel!r}"
         # a name-wise check that does not ask the system (normpath, not abspath: a device name such as NUL would be mapped)
         assert os.path.commonpath([os.path.normpath(str(got)), os.path.normpath(str(base))]) == os.path.normpath(str(base))
     else:
-        assert way_out or colon, f"a path inside the folder was refused: {rel!r}"
+        assert way_out or colon or device, f"a path inside the folder was refused: {rel!r}"
 
 
 @prop("_safe_container_path: a plain relative path inside the folder is always accepted", examples=100)
@@ -573,42 +605,118 @@ def _(field):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-section("Findings of v1.7.6.11 (pinned as they are — the decision per finding is the maintainer's)")
+section("Rules of v1.7.6.11.1 (F-23 and F-24: the former findings 3 and 4, pinned in v1.7.6.11, now rules)")
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Finding 3 (found by the path guard property): _safe_container_path() checks that the resolved path stays inside the
-# base folder, and a Windows device name (NUL, CON, COM1, ...) resolves "inside" it, so it is accepted. Where the
-# returned path is a write destination (the context section: context_writer.write_file(dst_path, ...)) the data would go
-# to the device and the import would count the file as copied. Python 3.11 and 3.13 agree. The container is encrypted
-# with the user's own password, so a hostile entry needs that password; the other sections write under names built
-# from the date, not from the container path.
-_guard_base = _TMPDIR / "prop_guard_findings"
+# F-23 (finding 3 of v1.7.6.11): _safe_container_path() used to accept a Windows device name (NUL, CON, COM1, ...): it
+# resolves "inside" the base folder, and where the returned path is a write destination (the context section:
+# context_writer.write_file(dst_path, ...)) the data would go to the device and the import would count the file as copied.
+# Now such a segment is refused on every platform; the caller stops the whole import (Fall 1, v1.7.4.3).
+_guard_base = _TMPDIR / "prop_guard_rules"
 _guard_base.mkdir(exist_ok=True)
+check("F-23: a device name (NUL, CON, COM1, LPT1, AUX, PRN, any case, with an extension, trailing dot or blank) is refused",
+      all(mirror._safe_container_path(_guard_base, rel) is None
+          for rel in ("NUL", "context_data/NUL", "context_data/CON", "COM1", "nul", "Com1.txt", "context_data\\aux.json",
+                      "lpt9", "PRN.tar.gz", "CONIN$", "CONOUT$", "NUL.", "NUL ", "a/nul /b", "COM\u00b9", "COM\u00b2", "COM\u00b3",
+                      "x/LPT\u00b9.json", "LPT\u00b2", "x/LPT\u00b3.json", "com9", "COM5.x", "lpt5")))
+check("F-23: ... a name that only contains or resembles one is accepted (NULL, COM10, COM0, console, nul_x, x.nul, ambient)",
+      all(mirror._safe_container_path(_guard_base, rel) == _guard_base / rel
+          for rel in ("NULL", "COM10", "COM0", "console.json", "nul_x", "x.nul", "context_data/ambient.json", "a/auxiliary", "LPT")))
+check("F-23: ... a way up and an absolute path are still refused",
+      all(mirror._safe_container_path(_guard_base, rel) is None for rel in ("../x", "a/../../x", "/x")))
 if os.name == "nt":
-    check("finding 3: a device name (NUL, CON, COM1) as a container path is accepted by the guard (pinned, Windows)",
-          all(mirror._safe_container_path(_guard_base, rel) is not None
-              for rel in ("NUL", "context_data/NUL", "context_data/CON", "COM1")))
-    check("finding 3: ... while a drive or a stream (x:y) and a way up are refused as intended",
-          all(mirror._safe_container_path(_guard_base, rel) is None for rel in ("context_data/x:y", "../x", "a/../../x", "C:\\x")))
+    check("F-23: ... and so are a drive and a stream (x:y)",
+          all(mirror._safe_container_path(_guard_base, rel) is None for rel in ("context_data/x:y", "C:\\x")))
 else:
     from support import skip
-    skip("finding 3: device names as container paths", "Windows only")
+    skip("F-23: a drive and a stream as container paths", "Windows only")
+_ctx = mirror._analyse_context_delta_container
+_src = mirror._analyse_source_delta_container
+check("F-23: both container analyses stop with the path error on a device name, and still pass a plain list on",
+      _raises(_ctx, ["context_data/NUL"], _guard_base) == "_PathTraversalError"
+      and _raises(_src, ["garmin_data/source/COM3.json"], _guard_base) == "_PathTraversalError"
+      and _ctx(["context_data/a.json"], _guard_base) == ["context_data/a.json"]
+      and _src(["garmin_data/source/a.json"], _guard_base) == ["garmin_data/source/a.json"])
 
-# Finding 4 (found by "a wrong type in a field does not end the import"): parse_day() raises when the sleep seconds are
-# not numbers (_total_sleep: sum of a list / string -> TypeError) or when allDayStress is no object / its first aggregate is
-# no object (.get on a bool, str or list -> AttributeError). The loader skips an entry that is no object (Fix 2, v1.7.4.6)
-# but not a field of the wrong type; the exception ends the iteration of load_bulk() (documented: "like any unexpected error",
-# logged), so the days after the bad one are not imported. The days before it are yielded first (dates in order).
-# A real export holds numbers there; nothing in the maintainer's archive hit it.
+# F-24 (finding 4 of v1.7.6.11): parse_day() used to raise when the sleep seconds were not numbers (_total_sleep: sum of a
+# list / string -> TypeError) or when allDayStress was no object / its first aggregate no object (.get on a bool, str or
+# list -> AttributeError); the exception ended the iteration of load_bulk() and the days after the bad one were not
+# imported. Now a value of the wrong type counts as empty (None, precedent _meters_to_floors) and the day is kept; only
+# int and float are numbers ("3600" as text and True are not). One log line per day names the fields, never a value.
 _good_uds = {"calendarDate": "2024-03-01", "uuid": "u", "totalSteps": 5}
-check("finding 4: parse_day raises TypeError for sleep seconds that are not numbers (pinned)",
-      _raises(imp.parse_day, {"sleep": {"remSleepSeconds": [1]}}, "2024-03-01") == "TypeError"
-      and _raises(imp.parse_day, {"sleep": {"deepSleepSeconds": "3600"}}, "2024-03-01") == "TypeError")
-check("finding 4: parse_day raises AttributeError for allDayStress that is no object, or an aggregate that is no object (pinned)",
-      _raises(imp.parse_day, {"uds": {"totalSteps": 5, "allDayStress": True}}, "2024-03-01") == "AttributeError"
-      and _raises(imp.parse_day, {"uds": {"totalSteps": 5, "allDayStress": {"aggregatorList": [7]}}}, "2024-03-01") == "AttributeError")
-check("finding 4: ... numbers, None and an absent field are fine",
-      _raises(imp.parse_day, {"sleep": {"deepSleepSeconds": 1, "lightSleepSeconds": None}, "uds": {"totalSteps": 5, "allDayStress": {}}}, "2024-03-01") is None)
+
+
+def _sleep_dto(sleep):
+    return imp.parse_day({"sleep": sleep}, "2024-03-01")["sleep"]["dailySleepDTO"]
+
+
+_dto = _sleep_dto({"deepSleepSeconds": "3600", "lightSleepSeconds": 1800, "remSleepSeconds": [1], "awakeSleepSeconds": True})
+check("F-24: sleep seconds of the wrong type (text, list, bool) count as empty; the total is made of the numbers",
+      _dto == {"sleepTimeSeconds": 1800, "deepSleepSeconds": None, "lightSleepSeconds": 1800,
+               "remSleepSeconds": None, "awakeSleepSeconds": None})
+check("F-24: ... no number at all gives an empty total; 0 and a float are numbers",
+      _sleep_dto({"deepSleepSeconds": {"a": 1}, "remSleepSeconds": False})["sleepTimeSeconds"] is None
+      and _sleep_dto({"deepSleepSeconds": 0, "lightSleepSeconds": 90.5})["sleepTimeSeconds"] == 90.5
+      and _sleep_dto({"deepSleepSeconds": 0})["sleepTimeSeconds"] == 0)
+check("F-24: ... numbers, None and an absent field are as before",
+      _sleep_dto({"deepSleepSeconds": 1, "lightSleepSeconds": None}) ==
+      {"sleepTimeSeconds": 1, "deepSleepSeconds": 1, "lightSleepSeconds": None, "remSleepSeconds": None, "awakeSleepSeconds": None})
+check("F-24: _total_sleep itself leaves out what is no number (text, bool, list) and sums the rest",
+      imp._total_sleep({"deepSleepSeconds": "3600", "lightSleepSeconds": 5, "remSleepSeconds": [1]}) == 5
+      and imp._total_sleep({"deepSleepSeconds": True, "remSleepSeconds": "x"}) is None
+      and imp._total_sleep({"deepSleepSeconds": 2, "lightSleepSeconds": 3.5, "remSleepSeconds": None}) == 5.5)
+_stress_ok = {"aggregatorList": [{"averageStressLevel": 30, "maxStressLevel": 80}]}
+check("F-24: allDayStress that is no object, an aggregator list that is no list, an aggregate that is no object: no stress block, the day stays",
+      all("stress" not in imp.parse_day({"uds": {"totalSteps": 5, "allDayStress": v}}, "2024-03-01")
+          and imp.parse_day({"uds": {"totalSteps": 5, "allDayStress": v}}, "2024-03-01")["user_summary"]["totalSteps"] == 5
+          for v in (True, "x", [], 7, {"aggregatorList": 3}, {"aggregatorList": "x"}, {"aggregatorList": [7]},
+                    {"aggregatorList": [[1]]}, {"aggregatorList": [None]}, {})))
+check("F-24: ... a valid stress block is read as before",
+      imp.parse_day({"uds": {"totalSteps": 5, "allDayStress": _stress_ok}}, "2024-03-01")["stress"]["averageStressLevel"] == 30)
+
+
+class _Lines:
+    """The log lines of garmin_import while the block runs (no value of the data is allowed in them)."""
+    def __enter__(self):
+        import logging
+        self.records = []
+        outer = self
+
+        class _H(logging.Handler):
+            def emit(self, record):
+                outer.records.append((record.levelno, record.getMessage()))
+        self.h, self.log = _H(), logging.getLogger("garmin_import")
+        self._level, self._disable = self.log.level, logging.root.manager.disable
+        logging.disable(logging.NOTSET)             # the suite switches logging off globally (gla_testenv)
+        self.log.addHandler(self.h)
+        self.log.setLevel(logging.DEBUG)
+        return self
+
+    def __exit__(self, *exc):
+        import logging
+        self.log.removeHandler(self.h)
+        self.log.setLevel(self._level)
+        logging.disable(self._disable)
+
+
+with _Lines() as _l:
+    imp.parse_day({"sleep": {"deepSleepSeconds": "SECRET-3600", "remSleepSeconds": ["SECRET-1"]},
+                   "uds": {"totalSteps": 5, "allDayStress": "SECRET-STRESS"}}, "2024-03-01")
+_msgs = [m for _lvl, m in _l.records if "parse_day" in m]
+check("F-24: one log line for the day, at warning level, with the date and the names of the fields — never a value",
+      len(_msgs) == 1 and all(lvl == 30 for lvl, m in _l.records if "parse_day" in m)
+      and "2024-03-01" in _msgs[0] and "sleep.deepSleepSeconds" in _msgs[0] and "sleep.remSleepSeconds" in _msgs[0]
+      and "allDayStress" in _msgs[0] and "SECRET" not in _msgs[0])
+with _Lines() as _l:
+    imp.parse_day({"sleep": {"deepSleepSeconds": 5, "lightSleepSeconds": None}, "uds": {"totalSteps": 5, "allDayStress": _stress_ok}}, "2024-03-01")
+check("F-24: ... a day without a wrong type writes no such line", not [m for _lvl, m in _l.records if "parse_day" in m])
+with _Lines() as _l:
+    imp.parse_day({"uds": {"totalSteps": 5, "allDayStress": {"aggregatorList": "SECRET-LIST"}}}, "2024-03-02")
+    imp.parse_day({"uds": {"totalSteps": 5, "allDayStress": {"aggregatorList": [7]}}}, "2024-03-03")
+_msgs = [m for _lvl, m in _l.records if "parse_day" in m]
+check("F-24: ... the aggregator list and the first aggregate are named as their own fields",
+      len(_msgs) == 2 and "2024-03-02" in _msgs[0] and _msgs[0].endswith("allDayStress.aggregatorList")
+      and "2024-03-03" in _msgs[1] and _msgs[1].endswith("allDayStress.aggregatorList[0]") and "SECRET" not in _msgs[0])
 
 
 def _walk(files):
@@ -625,8 +733,17 @@ def _walk(files):
 _early = {**_good_uds, "calendarDate": "2024-03-01"}
 _bad = {**_good_uds, "calendarDate": "2024-03-02", "allDayStress": True}
 _late = {**_good_uds, "calendarDate": "2024-03-03"}
-check("finding 4: the days before a bad day are yielded, the bad day raises, the days after it are not reached (pinned)",
-      _walk([("f", [_early, _bad, _late])]) == (["2024-03-01"], "AttributeError"))
+check("F-24: a bad day no longer ends the import: the days before, the bad day itself and the days after it are all yielded",
+      _walk([("f", [_early, _bad, _late])]) == (["2024-03-01", "2024-03-02", "2024-03-03"], None))
+_days = {raw["date"]: raw for raw, _e in imp.days_from_originals([("f", [_early, _bad, _late])])}
+check("F-24: ... and the bad day keeps its other values",
+      _days["2024-03-02"]["user_summary"]["totalSteps"] == 5 and "stress" not in _days["2024-03-02"])
+
+# ══════════════════════════════════════════════════════════════════════════════
+section("Findings of v1.7.6.11 (pinned as they are — the decision per finding is the maintainer's)")
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Findings 3 and 4 (F-23, F-24) became rules in v1.7.6.11.1 — see the section above.
 
 # Finding 5 (found by "normalize does not change its argument"): normalize(raw, source="bulk") fills heart_rates from
 # user_summary IN the dict it was given and returns that same dict. normalize(source="api") never changes its argument.

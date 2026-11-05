@@ -6,19 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.11**
+**Currently stable — v1.7.6.11.1**
 
 ---
-
-### v1.7.6.11.1 — Foreign input: path check and import robustness
-
-- The path check of the mirror import also refuses names that Windows treats
-  as devices (such as `NUL` or `CON`); a refused path still stops the whole
-  import, as before.
-- A field of the wrong type in a file of a Garmin export (for example the sleep
-  seconds or the stress block) no longer ends the import at that day.
-- Each change replaces a test that pins today's behaviour with a test of the
-  new rule.
 
 ### v1.7.6.11.2 — Catch-up of race predictions
 
