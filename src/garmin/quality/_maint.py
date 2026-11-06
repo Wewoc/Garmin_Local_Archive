@@ -312,6 +312,37 @@ def record_field_labels(data: dict, labels: dict, field: str) -> dict:
     return res
 
 
+def record_field_given_up(data: dict, days, field: str, limit: int) -> int:
+    """
+    Marks days as asked for ONE field and answered empty (v1.7.6.11.2, PREDICTION-CATCHUP): raises
+    `entry["field_backfill_attempts"][field]` to `limit` (never lowers it), the give-up threshold the
+    field-backfill filters already read (FIELD_BACKFILL_ATTEMPT_LIMIT). A day at the limit is not asked
+    again for that field.
+
+    Only that one counter changes; `quality`, `source`, `write`, `last_checked`, `attempts` and every
+    field label stay as they are, so the log checksum does not change. Never creates anything: a day
+    without an entry, an empty field name and a limit that is not a positive int are skipped. `days` is an
+    iterable of date objects or ISO strings.
+
+    Returns the number of entries raised. Does NOT save — the caller holds QUALITY_LOCK from load to save
+    and saves once (same contract as record_field_labels).
+    """
+    if not isinstance(field, str) or not field or not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        return 0
+    wanted = {d.isoformat() if hasattr(d, "isoformat") else str(d) for d in days}
+    count = 0
+    for entry in data.get("days", []):
+        if not isinstance(entry, dict) or entry.get("date") not in wanted:
+            continue
+        attempts = entry.get("field_backfill_attempts")
+        attempts = dict(attempts) if isinstance(attempts, dict) else {}
+        if attempts.get(field, 0) < limit:
+            attempts[field] = limit
+            entry["field_backfill_attempts"] = attempts
+            count += 1
+    return count
+
+
 def touch_last_checked(data: dict, days) -> int:
     """
     Sets `last_checked` to today on the entries of the given days — nothing

@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-11-05 08:22 UTC · Version: 1.7.6.11.1
+Generated: 2026-11-06 08:21 UTC · Version: 1.7.6.11.2
 
 ## Test Counts
 
@@ -17,14 +17,14 @@ Generated: 2026-11-05 08:22 UTC · Version: 1.7.6.11.1
 | test_normalizer.py | 247 | 247 | 0 |
 | test_validator.py | 82 | 82 | 0 |
 | test_writer.py | 109 | 109 | 0 |
-| test_quality.py | 486 | 486 | 0 |
+| test_quality.py | 492 | 492 | 0 |
 | test_backup.py | 270 | 270 | 0 |
 | test_backup_common.py | 307 | 307 | 0 |
 | test_backup_bulk.py | 70 | 70 | 0 |
 | test_source_writer.py | 88 | 88 | 0 |
 | test_container_mirror.py | 150 | 150 | 0 |
 | test_import_mirror.py | 184 | 184 | 0 |
-| test_collector.py | 639 | 639 | 0 |
+| test_collector.py | 654 | 654 | 0 |
 | test_garmin_import.py | 170 | 170 | 0 |
 | test_bulk_fit_reader.py | 56 | 56 | 0 |
 | test_bulk_export_scanner.py | 40 | 40 | 0 |
@@ -45,6 +45,7 @@ Generated: 2026-11-05 08:22 UTC · Version: 1.7.6.11.1
 | test_repair_resting_hr.py | 49 | 49 | 0 |
 | test_repair_devices.py | 66 | 66 | 0 |
 | test_repair_predictions.py | 91 | 91 | 0 |
+| test_catchup_predictions.py | 70 | 70 | 0 |
 | test_track_migration.py | 100 | 100 | 0 |
 | test_migration_snapshot.py | 50 | 50 | 0 |
 | test_daily_update.py | 52 | 52 | 0 |
@@ -56,7 +57,7 @@ Generated: 2026-11-05 08:22 UTC · Version: 1.7.6.11.1
 | test_export.py | 45 | 45 | 0 |
 | test_app_logic.py | 190 | 190 | 0 |
 | test_updater.py | 93 | 93 | 0 |
-| test_qt_app.py | 352 | 352 | 0 |
+| test_qt_app.py | 362 | 362 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -64,15 +65,15 @@ Generated: 2026-11-05 08:22 UTC · Version: 1.7.6.11.1
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **7038** | **7038** | **0** |
+| **Total** | **7139** | **7139** | **0** |
 
 ## Modules
 
-Total: 174 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 175 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-11-05 07:49 UTC · Findings: 0 · Whitelisted: 100
+Scanned: 2026-11-06 08:12 UTC · Findings: 2 · Whitelisted: 100
 
-⚠ vulture.json target_version (v1.7.6.11.1) does not match the current APP_VERSION (1.7.6.11.1) — scope may have changed since the scan. Re-run tests/check_vulture.py.
+⚠ vulture.json target_version (v1.7.6.11.2) does not match the current APP_VERSION (1.7.6.11.2) — scope may have changed since the scan. Re-run tests/check_vulture.py.
 

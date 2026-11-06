@@ -713,6 +713,51 @@ with patch.object(sys.modules["quality._io"], "_save_quality_log") as _tl_sv:
           _tl_n0 == 0 and _tl_n1 == 0 and len(_tl["days"]) == 3)
     check("touch_last_checked: never saves the log (the caller saves once)", _tl_sv.call_count == 0)
 
+# record_field_given_up (v1.7.6.11.2) — raises the give-up counter of ONE field on the given days and nothing else
+_gu = json.loads(json.dumps(_tl_orig))
+_gu["days"][1]["field_backfill_attempts"] = {"race_predictions": 1, "steps": 1}
+_gu["days"][2]["field_backfill_attempts"] = {"race_predictions": 5}
+_gu["days"].append({"date": "2019-01-04", "quality": "standard", "source": "api", "write": True, "recheck": False,
+                    "attempts": 0, "last_checked": "2024-01-04", "last_attempt": None, "fields": {},
+                    "field_backfill_attempts": "garbage"})
+_gu["days"].append({"date": "2019-01-05", "quality": "standard", "source": "api", "write": True, "recheck": False,
+                    "attempts": 0, "last_checked": "2024-01-05", "last_attempt": None, "fields": {},
+                    "field_backfill_attempts": {"race_predictions": 2}})
+_gu_orig = json.loads(json.dumps(_gu))
+_gu_sum_before = quality._compute_checksum(_gu)
+with patch.object(sys.modules["quality._io"], "_save_quality_log") as _gu_sv:
+    _gu_n = quality.record_field_given_up(_gu, [date(2019, 1, 1), "2019-01-02", "2019-01-03", "2019-01-04", "2030-01-01"],
+                                          "race_predictions", 2)
+    _gb = {e["date"]: e.get("field_backfill_attempts") for e in _gu["days"]}
+    check("record_field_given_up: the counter of the field is raised to the limit on every named day that has an entry (a missing "
+          "counter, a lower one, a bad container); the number of raised entries is returned",
+          _gb["2019-01-01"] == {"race_predictions": 2} and _gb["2019-01-02"] == {"race_predictions": 2, "steps": 1}
+          and _gb["2019-01-04"] == {"race_predictions": 2} and _gu_n == 3)
+    check("record_field_given_up: a counter that is already at the limit (01-05, not named here but at 2) or above (01-03) is never lowered "
+          "and is not counted",
+          _gb["2019-01-03"] == {"race_predictions": 5}
+          and quality.record_field_given_up(_gu, ["2019-01-05", "2019-01-03"], "race_predictions", 2) == 0
+          and _gu["days"][4]["field_backfill_attempts"] == {"race_predictions": 2})
+    check("record_field_given_up: nothing but that counter changes — quality, source, write, last_checked, the labels and the other "
+          "counters — and the log checksum stays the same; a day without an entry is not created",
+          all({k: v for k, v in a.items() if k != "field_backfill_attempts"} == {k: v for k, v in b.items() if k != "field_backfill_attempts"}
+              for a, b in zip(_gu["days"], _gu_orig["days"]))
+          and quality._compute_checksum(_gu) == _gu_sum_before and len(_gu["days"]) == 5)
+    _gu["days"].append({"date": "2019-01-06", "quality": "standard", "source": "api", "write": True, "recheck": False,
+                        "attempts": 0, "last_checked": "2024-01-06", "last_attempt": None, "fields": {}})     # no counter yet
+    check("record_field_given_up: an empty field name, a limit that is not a positive int (0, -1, True, 2.5, None) and an empty list do nothing "
+          "(tried on a day without a counter, so a limit that slipped through would show)",
+          all(quality.record_field_given_up(_gu, ["2019-01-06"], f, lim) == 0
+              for f, lim in (("", 3), ("race_predictions", 0), ("race_predictions", -1), ("race_predictions", True),
+                             ("race_predictions", 2.5), ("race_predictions", None), (None, 3)))
+          and quality.record_field_given_up(_gu, [], "race_predictions", 9) == 0
+          and "field_backfill_attempts" not in _gu["days"][5] and _gu["days"][0]["field_backfill_attempts"] == {"race_predictions": 2})
+    _gu["days"].pop()
+    check("record_field_given_up: a higher limit raises a lower counter (the limit is the value, not a floor of 2)",
+          quality.record_field_given_up(_gu, ["2019-01-01"], "race_predictions", 4) == 1
+          and _gu["days"][0]["field_backfill_attempts"] == {"race_predictions": 4})
+    check("record_field_given_up: never saves the log (the caller saves once)", _gu_sv.call_count == 0)
+
 # record_bulk_intraday (v1.7.6) — marks days whose heart-rate series are in the bulk store
 _bi = json.loads(json.dumps(_tl_orig))
 _bi["days"][1]["bulk"] = {"aggregates": "2026-01-01", "intraday": "2026-01-02"}      # a later import adds "aggregates"

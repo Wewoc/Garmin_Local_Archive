@@ -348,6 +348,26 @@ def _check_prediction_repair(base_dir: Path) -> int:
     return count
 
 
+def _check_prediction_catchup(base_dir: Path) -> int:
+    """PREDICTION-CATCHUP v1.7.6.11.2 — removable.
+
+    Counts days that hold no race prediction of their own date and that Garmin can still be asked for (not asked
+    before) and warns once. Like the prediction repair hint this never stops the run; the catch-up needs the login
+    and is started from the app (Sync Garmin asks). Returns the number of days; 0 on any error."""
+    try:
+        import garmin_catchup_predictions as _cp
+        garmin_dir = base_dir / "garmin_data"
+        found = _cp.find_candidates(raw_dir=garmin_dir / "raw",
+                                    quality_log_file=garmin_dir / "log" / "quality_log.json")
+    except Exception:
+        return 0
+    count = len(found["missing"])
+    if count:
+        log.warning(f"  Up to {count} day(s) hold no race prediction of their own date; Garmin can be asked for them.")
+        log.warning("  Open the app and run Sync Garmin once to do so (a safety copy is made first).")
+    return count
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Version check
 # ══════════════════════════════════════════════════════════════════════════════
@@ -856,6 +876,10 @@ def main() -> int:
     # ── 4e. Prediction repair hint — PREDICTION-REPAIR v1.7.6.10 — removable ───
     # Warning only, the run goes on.
     _check_prediction_repair(base_dir)
+
+    # ── 4f. Prediction catch-up hint — PREDICTION-CATCHUP v1.7.6.11.2 — removable ──
+    # Warning only, the run goes on.
+    _check_prediction_catchup(base_dir)
 
     # ── 5. Version check (non-blocking)───────────────────────────────────────
     update_available, release_json = _check_version()
