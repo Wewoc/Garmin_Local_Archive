@@ -26,6 +26,8 @@ Responsibilities:
   - Set the label of one field on given days after its content was corrected
     in place (record_field_labels, v1.7.6.10 — only entry["fields"][field],
     caller saves)
+  - Mark days as asked for one field and answered empty (record_field_given_up,
+    v1.7.6.11.2 — only entry["field_backfill_attempts"][field], caller saves)
   - Mark days whose heart-rate series are in the bulk store
     (record_bulk_intraday — sets entry["bulk"]["intraday"] and last_checked,
     caller saves); make good a missing mark (unmarked_bulk_days looks,
@@ -93,6 +95,7 @@ from quality._maint import (
     record_field_backfill_failures,
     record_device_from_files,
     record_field_labels,
+    record_field_given_up,
     set_device_name,
     set_unknown_device_name,
     touch_last_checked,

@@ -64,6 +64,7 @@ collect_ignore = [
     "test_repair_resting_hr.py",  # RESTING-HR-REPAIR v1.7.5.7 — removable
     "test_repair_devices.py",     # DEVICE-REPAIR v1.7.6.9 — removable
     "test_repair_predictions.py", # PREDICTION-REPAIR v1.7.6.10 — removable
+    "test_catchup_predictions.py", # PREDICTION-CATCHUP v1.7.6.11.2 — removable
     "test_track_migration.py",    # TRACK-MIGRATION v1.7.6.3
     "test_migration_snapshot.py", # TRACK-MIGRATION v1.7.6.3
     "test_daily_update.py",       # v1.7.6.4

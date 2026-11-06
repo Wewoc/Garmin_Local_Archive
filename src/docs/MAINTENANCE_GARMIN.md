@@ -84,6 +84,7 @@ of scope.
 | `garmin_force_refetch.py` | `garmin_data/backup/force_refetch/` (v1.7.1.7) |
 | `garmin_repair_devices.py` (removable) | none — owns no files; writes only through `garmin_quality` (`record_device_from_files()`, `_save_quality_log()`, `save_device_table()`) and `garmin_migration_snapshot.create_snapshot(stores=("quality_log",))`; reads `bulk/` (v1.7.6.9) |
 | `garmin_repair_predictions.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()`, `garmin_quality` (`touch_last_checked()`, `record_field_labels()`, `_save_quality_log()`) and `garmin_migration_snapshot.create_snapshot(stores=("raw", "quality_log"))` (v1.7.6.10) |
+| `garmin_catchup_predictions.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()`, `garmin_source_writer.patch_source_field()`, `garmin_quality` (`touch_last_checked()`, `record_field_labels()`, `record_field_given_up()`, `_save_quality_log()`) and `garmin_migration_snapshot.create_snapshot()` (v1.7.6.11.2) |
 | `garmin_repair_resting_hr.py` (removable) | none — owns no files; writes only through `garmin_writer.write_day()` and `garmin_quality` (v1.7.5.7) |
 | `garmin_track_migration.py` (removable) | none — owns no files; writes only through `garmin_writer` (`write_day()`, `rebuild_summary()`) and `garmin_quality` (`touch_last_checked()`) (v1.7.6.3) |
 | `garmin_migration_snapshot.py` (removable) | `garmin_data/backup/migration/` (v1.7.6.3); puts files back only through `garmin_writer.restore_day_files()` and `garmin_quality` |
@@ -860,6 +861,23 @@ export is imported again.
   TestPredictionRepairHooks` (popup, days that stay, writes nothing, trigger in `run_collector()`). The tests were checked with 56
   deliberate faults in a copy of the code (see `CHANGELOG.md`).
 
+- v1.7.6.11.2: `test_catchup_predictions.py` — the constants (the give-up count equals `FIELD_BACKFILL_ATTEMPT_LIMIT`, a range is 365 days), the
+  planning of the ranges (365 / 366 days, a leap year, gaps cost nothing), `find_candidates` (what a candidate is, the attempt counters including bad
+  values, the basis rule, foreign copies, broken file and bad file name, an empty or non-dict field, the run's own log, explicit folder),
+  `catch_up` against a stand-in client that answers like the real API (one entry per day, the bounds of the range in `fromCalendarDate` /
+  `toCalendarDate`): dry run, the real run field by field (bounds replaced by the day, only that field changed, untouched days byte-identical,
+  summaries, one `QUALITY_LOCK` hold, label, `last_checked`, marks, `source/` patched or not, an own prediction that differs from Garmin's — in all
+  values or in one — is kept and reported), second run, safety copy and way back, the start of Garmin's history found from the answers (valid
+  entries outside the range and junk entries prove nothing), an archive that believes in predictions while Garmin answers nothing, a failing call,
+  an answer that is no list, stop before the call / before the write / during the loop, a day that cannot be written, a log that cannot be saved, a
+  refused copy, a day that changed during the calls, a failing `source/` patch, the shared quality log, and the scheduler hint; `test_quality.py` —
+  `record_field_given_up`; `test_collector.py` section 4u "main prediction catch-up" (only `"1"`, the variable removed when read and already gone at
+  a failed login, needs the login, after the repair and the bulk field backfill, a missing module or an error is a warning, import mode returns
+  before it, an end-to-end run with the run's own log); `test_daily_update.py` — step 4f in the order; `test_qt_app.py::TestPredictionCatchupHooks`
+  (popup, nothing to ask, an archive without any prediction, days given up, writes nothing and asks Garmin nothing, trigger in `run_collector()`).
+  The tests were checked with 67 deliberate faults in a copy of the code: 66 caught, one equivalent (`limit < 1` against `limit < 0` in
+  `record_field_given_up`: no counter is negative, so both refuse the same limits) (see `CHANGELOG.md`).
+
 - v1.7.6.11.1 (F-23, F-24): `test_prop_rules.py` section "Rules of v1.7.6.11.1" — `_safe_container_path` (device names of every kind refused, look-alikes accepted,
   way up and absolute path still refused, both container analyses raise the path error) and `parse_day` (sleep seconds of the wrong type as empty and the total of the
   numbers, the stress cases, the single log line with field names and no value, the walk over three days with a bad one in the middle) with properties for
@@ -1014,6 +1032,33 @@ is in the docstring of the module):
 What stays when it is removed: the call with the day and `_prediction_of_day()` in `garmin_api.fetch_raw()`, `garmin_normalizer.own_day_prediction()` and
 its use in `normalize()` (a prediction of another day is not filed under the day), the label rule in `assess_quality_fields()`, `garmin_quality.record_field_labels()`, and the export's race
 predictions in `garmin_import` / `garmin_bulk_json_import`.
+
+### The prediction catch-up and its safety copy (v1.7.6.11.2, removable)
+
+`garmin_catchup_predictions.py` asks Garmin for the race predictions of days that hold none (the days the prediction repair cleaned, and days never
+fetched with their date) in range calls of at most 365 days. After the calls and before it writes, `garmin_migration_snapshot.create_snapshot()`
+copies `raw/` and the quality log (only the log when nothing but marks is written) to `backup/migration/`; without a checked copy nothing is
+written. Way back: close the app, then `python support-tools/archive-maintenance/restore_migration_snapshot.py <name>`; it restores the days whose raw
+file changed, the marks "asked, answered empty" of days that did not change stay. The marks are `field_backfill_attempts["race_predictions"]`
+raised to the give-up count 2 (the field-backfill filters read the same counter).
+
+**Removal list** — everything that belongs to the catch-up carries the marker `PREDICTION-CATCHUP v1.7.6.11.2` (grep for it; the same list is in
+the docstring of the module):
+1. `garmin/garmin_catchup_predictions.py` and `tests/test_catchup_predictions.py`.
+2. `compiler/build_manifest.py` — the `SHARED_SCRIPTS` entry, the `SCRIPT_SIGNATURES_BASE` entry of the module and
+   `"def _run_prediction_catchup"` in the collector's signatures.
+3. `run_tests.ps1` and `tests/conftest.py` — the test file entry.
+4. `garmin/garmin_collector.py` — the section "Prediction catch-up" (`_run_prediction_catchup()`) and the steps 3j and 5f in `main()`; in
+   `tests/test_collector.py` the blocks "main prediction catch-up" (section 4u and the end-to-end block).
+5. `app/panel_archive.py::_check_prediction_catchup()` and the three lines in `app/outputs/sync.py::run_collector()`;
+   `tests/test_qt_app.py::TestPredictionCatchupHooks` and the lines `_check_prediction_catchup.return_value = False` of the sync tests.
+6. `scheduler/daily_update.py` — `_check_prediction_catchup()` and step 4f; in `tests/test_daily_update.py` the `catchup` hint.
+7. Docs — the module section, the direct-read row, the `_run_prediction_catchup` row and the invariant bullet in `REFERENCE_GARMIN.md`, the bullet
+   in `REFERENCE_INVARIANTS.md`, the variable row and the tree line in `REFERENCE_GLOBAL.md`, the module and test rows in `MAINTENANCE_GLOBAL.md`,
+   the owner row in `GLA_GUIDELINES.md`, the paragraph in `USER_GUIDE.txt`. `CHANGELOG.md` stays as history.
+
+What stays when it is removed: `garmin_quality.record_field_given_up()` (generic, its tests in `tests/test_quality.py`) and the marks already written
+(`field_backfill_attempts["race_predictions"]`, read only by the field-backfill filters).
 
 ## Quality tracking
 

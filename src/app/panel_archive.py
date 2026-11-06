@@ -569,6 +569,46 @@ class PanelArchive(QWidget):
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    # ── Prediction catch-up check — PREDICTION-CATCHUP v1.7.6.11.2 — removable ─
+
+    def _check_prediction_catchup(self, base_dir: str) -> bool:
+        """Returns True if the catch-up was confirmed. Main Thread only."""
+        # INTENTIONAL DIRECT READ — read-only pre-flight check in GUI context, same category as
+        # _check_prediction_repair() above. Reads the race_predictions field of every raw day and the
+        # field_backfill_attempts counters of quality_log.json (the same two reads as the repair check and
+        # the device check); nothing is written, nothing is asked from Garmin. The folders come from the
+        # settings (base_dir), so the check does not depend on what garmin_config was imported with. The
+        # number is an upper bound: Garmin holds predictions only from a certain date on, older days stay
+        # empty and are marked once the run has asked.
+        garmin_dir = Path(base_dir) / "garmin_data"
+        raw_dir    = garmin_dir / "raw"
+        if not raw_dir.exists():
+            return False
+        try:
+            import garmin_catchup_predictions as _cp
+            found = _cp.find_candidates(raw_dir=raw_dir, quality_log_file=garmin_dir / "log" / "quality_log.json")
+        except Exception:
+            return False
+        count = len(found["missing"])
+        if count == 0:
+            return False
+        calls = found["calls"]
+        answer = QMessageBox.question(
+            self._app, "Race Predictions — Ask Garmin",
+            f"Up to {count} day(s) of your archive hold no race prediction of their own date.\n\n"
+            f"Garmin can answer for a whole range at once: at most {calls} request(s) of up to one year each, "
+            f"newest first (older years are only asked until Garmin holds none). Days Garmin has no prediction "
+            f"for stay empty and are marked, so they are not asked again. A prediction a day already holds "
+            f"is never overwritten.\n\n"
+            f"Only the field race_predictions of the days that get one is changed (raw and summary files, "
+            f"the backups follow); a safety copy of raw/ and the quality log is made first "
+            f"(backup/migration) and can be restored. This needs the login of this sync.\n\n"
+            f"Please make a backup of your data directory before continuing.\n\n"
+            f"I have a backup — ask Garmin for these days?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     # ── Track migration check — TRACK-MIGRATION v1.7.6.3 — removable ───────────
 
     def _check_track_migration(self, base_dir: str):

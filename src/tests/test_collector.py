@@ -4707,6 +4707,149 @@ with _isolated_log_env("main15pr3") as _b:
     check("4u main prediction repair end to end: one safety copy of raw/ and the log was made first",
           len(list((_b / "backup" / "migration").glob("migration_*.zip"))) == 1)
 
+# -- prediction catch-up (v1.7.6.11.2) — PREDICTION-CATCHUP v1.7.6.11.2 — removable -------------------------------------
+_PC_OK15 = {"filled": 3, "given_up": 2, "calls": 1, "failed": 0, "missing": 5, "kept": 1, "foreign": [], "given_up_before": 0,
+            "differs": [], "safety_copy": "migration_x.zip", "stopped": False}
+_PC_ON15 = {"GARMIN_PREDICTION_CATCHUP": "1"}
+
+
+def _pc15(result=None, pc_err=None, **kw):
+    """main() once with garmin_catchup_predictions.catch_up mocked. Returns (main result, log recorder, mock)."""
+    with patch("garmin_catchup_predictions.catch_up",
+               return_value=_PC_OK15 if result is None else result, side_effect=pc_err) as _m:
+        out, rec = _m15(**kw)
+    return out, rec, _m
+
+
+with _isolated_log_env("main15pc") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _res = {}
+        for _val in ("1", "0", "2", "", "true", None):
+            _, _rec, _m = _pc15(env={"GARMIN_PREDICTION_CATCHUP": _val} if _val is not None else {})
+            _res[_val] = _m.call_count
+        check("4u main prediction catch-up: GARMIN_PREDICTION_CATCHUP=1 (and only that value) starts the catch-up",
+              _res == {"1": 1, "0": 0, "2": 0, "": 0, "true": 0, None: 0})
+        _cl = MagicMock()
+        _, _rec, _m = _pc15(env=_PC_ON15, login=_cl)
+        check("4u main prediction catch-up: the logged-in client is the first argument; the stop check and the quality log of the run "
+              "are handed over",
+              _m.call_args.args == (_cl,) and set(_m.call_args.kwargs) == {"should_stop", "quality_data"}
+              and _m.call_args.kwargs["should_stop"] is _col5._is_stopped
+              and isinstance(_m.call_args.kwargs["quality_data"], dict) and "days" in _m.call_args.kwargs["quality_data"])
+
+        (_code, _exc, _f, _), _rec, _m = _pc15(env=_PC_ON15, login=None)
+        (_code2, _exc2, _f2, _), _rec2, _m2 = _pc15(env=_PC_ON15, login_error=_col5.api.GarminLoginError("nope"))
+        check("4u main prediction catch-up: needs the login — a cancelled login and a login error never start it",
+              _code is None and _exc is None and _m.call_count == 0 and _code2 == 1 and _m2.call_count == 0)
+
+        _order = []
+        with patch("garmin_repair_predictions.repair_predictions",
+                   side_effect=lambda **kw: (_order.append("repair"), _PR_OK15)[1]), \
+             patch.object(_col5, "_run_bulk_field_backfill", side_effect=lambda *a, **kw: _order.append("5e")),              patch("garmin_catchup_predictions.catch_up",
+                   side_effect=lambda *a, **kw: (_order.append("catchup"), _PC_OK15)[1]):
+            _m15(env={**_PR_ON15, **_PC_ON15, "GARMIN_BULK_FIELD_BACKFILL": "1"})
+        check("4u main prediction catch-up: runs after the prediction repair (step 3i, before the login) and after the bulk field "
+              "backfill (step 5e): step 5f",
+              _order == ["repair", "5e", "catchup"])
+
+        with patch.dict(sys.modules, {"garmin_catchup_predictions": None}):
+            (_code, _exc, _f, _), _rec = _m15(env=_PC_ON15)
+        check("4u main prediction catch-up: a missing module (the catch-up was removed) is a warning, the run goes on",
+              _code is None and _exc is None
+              and any(m.startswith("  Prediction catch-up skipped:") for m in _rec.msgs("warning")))
+
+        _, _rec, _m = _pc15(result={**_PC_OK15, "filled": 0, "failed": 1, "reason": "a call to Garmin failed"}, env=_PC_ON15)
+        _, _rec0, _m0 = _pc15(env=_PC_ON15)
+        check("4u main prediction catch-up: a failed call or write is warned about with its reason, a clean run adds no warning",
+              any("Prediction catch-up: 1 problem(s) (a call to Garmin failed)" in m for m in _rec.msgs("warning"))
+              and not any("Prediction catch-up" in m for m in _rec0.msgs("warning")))
+
+        with patch.object(_jimp, "run_aggregates_import", return_value={"ok": True}):
+            (_code, _exc, _f, _), _rec, _m = _pc15(env={"GARMIN_IMPORT_PATH": "ignored", **_PC_ON15})
+        check("4u main prediction catch-up: the import mode returns before it — no catch-up", _code == 0 and not _m.called)
+
+        (_code, _exc, _f, _), _rec, _m = _pc15(pc_err=OSError("boom"), env=_PC_ON15)
+        check("4u main prediction catch-up: an error in the catch-up is a warning, the run goes on",
+              _code is None and _exc is None and _m.call_count == 1 and "  Prediction catch-up skipped: boom" in _rec.msgs("warning"))
+
+with _isolated_log_env("main15pc2") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _seen_in, _seen_after, _seen_login = [], {}, {}
+        _env_after = []
+
+        def _pc_env(*a, **kw):
+            _seen_in.append(os.environ.get("GARMIN_PREDICTION_CATCHUP"))
+            return _PC_OK15
+
+        def _fetch_pc_env(client, date_str, extra_endpoints=None):
+            _env_after.append(os.environ.get("GARMIN_PREDICTION_CATCHUP"))
+            return _day_raw(date_str, "high"), []
+
+        for _val in ("1", "0"):
+            with _isolated_log_env(f"main15pc2_{_val}") as _b2:
+                cfg.SUMMARY_DIR = _b2 / "summary"
+                _env_after.clear()
+                with patch("garmin_catchup_predictions.catch_up", side_effect=_pc_env):
+                    _m15(env={"GARMIN_PREDICTION_CATCHUP": _val}, fetch=_fetch_pc_env)
+                _seen_after[_val] = list(_env_after)
+        check("4u main prediction catch-up: the variable is removed as soon as it is read — before the login and for every value, so "
+              "a later run in the same process (T3) is not triggered again",
+              _seen_in == [None] and _seen_after == {"1": [None], "0": [None]})
+
+        _at_login = []
+
+        def _login_fails(*a, **kw):
+            _at_login.append(os.environ.get("GARMIN_PREDICTION_CATCHUP"))
+            raise _col5.api.GarminLoginError("nope")
+
+        with _isolated_log_env("main15pc2_l") as _b2:
+            cfg.SUMMARY_DIR = _b2 / "summary"
+            with patch("garmin_catchup_predictions.catch_up") as _pcm:
+                (_code, _exc, _f, _), _rec = _m15(env=_PC_ON15, login_error=_login_fails)
+        check("4u main prediction catch-up: even when the login fails the variable is already gone at the login (it must not wait "
+              "for a later run), the run exits with 1 and the catch-up did not run",
+              _at_login == [None] and _code == 1 and not _pcm.called)
+
+# prediction catch-up end to end: the real catch-up with a stand-in client, then a later save of the run's own log
+with _isolated_log_env("main15pc3") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    _own = {"calendarDate": "2024-04-02", "time5K": 1500, "time10K": 3011, "timeHalfMarathon": 6007, "timeMarathon": 13503}
+    for _d_, _f_ in (("2024-04-02", _own), ("2024-04-03", None), ("2024-04-04", None)):
+        (cfg.RAW_DIR / f"garmin_raw_{_d_}.json").write_text(
+            json.dumps({"date": _d_, "user_summary": {"totalSteps": 8000}, **({"race_predictions": _f_} if _f_ else {})}),
+            encoding="utf-8")
+    _log15([{"date": d_, **_API15, "last_checked": "2024-01-01", "fields": {"race_predictions": "medium" if d_ == "2024-04-02" else "failed"}}
+            for d_ in ("2024-04-02", "2024-04-03", "2024-04-04")])
+    _cl_pc = MagicMock()
+    _cl_pc.get_race_predictions.return_value = [
+        {"userId": 1, "calendarDate": "2024-04-03", "fromCalendarDate": "2024-04-03", "toCalendarDate": "2024-04-04",
+         "time5K": 1490, "time10K": 2991, "timeHalfMarathon": 5967, "timeMarathon": 13413}]
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0,
+                     MIGRATION_BACKUP_DIR=_b / "backup" / "migration"), patch("garmin_api.time.sleep"):
+        (_code, _exc, _f, _), _rec = _m15(env=_PC_ON15, login=_cl_pc)
+        _q = _qdays()
+    _r3 = json.loads((cfg.RAW_DIR / "garmin_raw_2024-04-03.json").read_text(encoding="utf-8"))
+    check("4u main prediction catch-up end to end: the run went on and fetched its day (the log was saved after the catch-up)",
+          _code is None and _exc is None and _f.called and "2024-05-01" in _q)
+    check("4u main prediction catch-up end to end: Garmin was asked once, for the range of the two candidate days, 'daily'",
+          _cl_pc.get_race_predictions.call_args_list == [(("2024-04-03", "2024-04-04", "daily"), {})])
+    check("4u main prediction catch-up end to end: the day gets the entry with the bounds replaced by the day; the day Garmin has none for stays empty",
+          _r3.get("race_predictions") == {"userId": 1, "calendarDate": "2024-04-03", "fromCalendarDate": "2024-04-03",
+                                          "toCalendarDate": "2024-04-03", "time5K": 1490, "time10K": 2991,
+                                          "timeHalfMarathon": 5967, "timeMarathon": 13413}
+          and "race_predictions" not in json.loads((cfg.RAW_DIR / "garmin_raw_2024-04-04.json").read_text(encoding="utf-8")))
+    check("4u main prediction catch-up end to end: label, last_checked and the mark follow in the log, and the run's own later save does not "
+          "take them back (the log of the run was handed to the catch-up)",
+          _q["2024-04-03"]["fields"]["race_predictions"] == "medium" and _q["2024-04-03"]["last_checked"] == date.today().isoformat()
+          and _q["2024-04-04"]["field_backfill_attempts"] == {"race_predictions": 2} and _q["2024-04-02"]["last_checked"] == "2024-01-01")
+    check("4u main prediction catch-up end to end: one safety copy of raw/ and the log was made first",
+          len(list((_b / "backup" / "migration").glob("migration_*.zip"))) == 1)
+
 # -- resting-HR repair end to end (Baustein 2f) — RESTING-HR-REPAIR v1.7.5.7 — removable --------------------------------
 # The real repair, then a later save of the run's own quality log (the day that is fetched afterwards). Before 2f the
 # repair loaded and saved its own copy of the log; the save after the fetch wrote main()'s older copy back and the

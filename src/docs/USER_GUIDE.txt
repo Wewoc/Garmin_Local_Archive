@@ -120,6 +120,16 @@ day itself, so a new day gets its own prediction (a day before Garmin's history
 starts gets none). Days that lose a copy stay without a prediction until they are
 fetched again; the days of a Garmin export import that carry predictions (the file
 RunRacePredictions) get them from there.
+
+Race predictions of older days (v1.7.6.11.2): days that hold no prediction of their own
+date can be asked from Garmin. If your archive has such days, a popup "Race Predictions -
+Ask Garmin" appears before the sync starts. It names the most days that can be filled and
+the number of requests (one request covers up to one year, newest first). After a Yes:
+  - the app asks Garmin for those days once the login is done; a prediction that a day
+    already holds is never replaced;
+  - days for which Garmin holds no prediction stay empty and are not asked again;
+  - a safety copy of raw/ and the quality log is made first (backup/migration).
+The daily sync only warns with the number; the request itself needs the app.
 The daily update only mentions that days can be corrected; it changes nothing.
 
 Correction of the resting heart rate (v1.7.5.7): earlier versions of the

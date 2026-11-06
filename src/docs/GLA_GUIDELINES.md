@@ -904,6 +904,7 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_silo_repair.py` | Headless-callable repair core for the four silo-drift categories — delegates to owner modules, never writes directly | No |
 | `garmin_repair_devices.py` | Removable repair of the device of days without one, read from the kept FIT originals (v1.7.6.9) — delegates to `garmin_quality` and `garmin_migration_snapshot`, never writes directly | No |
 | `garmin_repair_predictions.py` | Removable repair of the race predictions of the archive (v1.7.6.10) — delegates to `garmin_writer`, `garmin_quality` and `garmin_migration_snapshot`, never writes directly | No |
+| `garmin_catchup_predictions.py` | Removable catch-up of the race predictions of days that hold none, asked from Garmin in range calls (v1.7.6.11.2) — delegates to `garmin_writer`, `garmin_source_writer`, `garmin_quality` and `garmin_migration_snapshot`, never writes directly | No |
 | `garmin_repair_resting_hr.py` | Removable one-time repair of the resting heart rate of imported days (v1.7.5.7) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_track_migration.py` | Removable migration of the mixed archive (v1.7.6.3) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_bulk_rebuild.py` | Removable rebuild of the daily values from the kept originals (v1.7.6.5) — writes only through `garmin_bulk_json_import.store_day()` → `garmin_bulk_writer`, never directly | No |

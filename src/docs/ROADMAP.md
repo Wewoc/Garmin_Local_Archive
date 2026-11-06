@@ -6,18 +6,9 @@
 
 ---
 
-**Currently stable — v1.7.6.11.1**
+**Currently stable — v1.7.6.11.2**
 
 ---
-
-### v1.7.6.11.2 — Catch-up of race predictions
-
-- Days of the archive that hold no race prediction of their own date (the days
-  that v1.7.6.10 cleaned of a copy of another day's prediction, and days that
-  were never fetched with their date) are filled from Garmin with a few range
-  calls of up to one year each, for the days from the first day Garmin holds a
-  prediction on. A prediction that is already stored with the right date is
-  never overwritten. Preview and backup first.
 
 ### v1.7.6.12 — Mutation test of the new modules
 
@@ -26,7 +17,7 @@
   documented as equivalent. Tests only, no change in behaviour.
 
 **Release:** Each step gets its own documented release round; the first build
-of the download packages was made after v1.7.6.4; the second one is due after v1.7.6.10.
+of the download packages was made after v1.7.6.4; the second one is due after v1.7.6.12, the end of the v1.7.6.x line.
 
 **Not part of it:** FIT activities (v1.8); stress as a replacement for the API
 value.

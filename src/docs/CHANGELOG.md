@@ -1,5 +1,47 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.11.2 — Catch-up of Race Predictions
+
+Days of the archive that hold no race prediction of their own date (the days the prediction repair of v1.7.6.10 cleaned of a copy of another day's
+prediction, and days that were never fetched with their date) can now be filled from Garmin with a few range calls. A prediction a day already holds
+is never overwritten. Everything that belongs to it is removable (marker `PREDICTION-CATCHUP v1.7.6.11.2`). No schema change, no new file format.
+
+**What changed:**
+- **New module `garmin/garmin_catchup_predictions.py`** (removable): `find_candidates()` (read-only, no API call) and `catch_up(client, dry_run, should_stop,
+  quality_data)`. A candidate is a raw day with an entry in the quality log, no `race_predictions` field and not yet given up for that field; the archive must
+  hold at least one day with a prediction of its own date as basis (an archive without one is not offered anything). Candidates are asked newest first in
+  ranges of at most 365 days (`get_race_predictions(start, end, "daily")`, one call per range, from the oldest to the newest candidate of the range, so a gap
+  costs nothing). The start of Garmin's history is found from the answers: an answer without any entry after a range that had entries ends the walk and marks the
+  older days. A day with an entry of exactly its own date in the answer gets it: `fromCalendarDate` / `toCalendarDate` are set to the day (a range answer carries
+  the bounds of the range there), label `medium`, `last_checked` today; it is written through `write_day()` and patched into the day's `source/` file when one
+  exists. A candidate in an answered range without an entry is marked "asked, answered empty" (`field_backfill_attempts["race_predictions"]` raised to the give-up
+  count 2) and not offered or asked again. A prediction a day already holds is never overwritten; when Garmin's value for a day with a prediction of its own date
+  differs, the stored value stays and the day is only counted and logged by date. A failing call, an answer that is not a list, a stop or the rate limit mark nothing.
+  The safety copy (`create_snapshot`: raw + quality log, only the log when nothing but marks is written) is made after the calls and before the first write;
+  no checked copy, no write.
+- **`garmin_quality.record_field_given_up(data, days, field, limit)`** (new, generic, `quality/_maint.py` + facade): raises the give-up counter of one field to `limit`,
+  never lowers it, never creates an entry; the caller saves once.
+- **Trigger:** popup "Race Predictions — Ask Garmin" (`PanelArchive._check_prediction_catchup`: the most days that can be filled and the number of requests; reads
+  `raw/` and `quality_log.json`, asks Garmin nothing) → `sync.run_collector()` sets `GARMIN_PREDICTION_CATCHUP=1` after a Yes → `main()` reads and removes it in step 3j
+  (before the login, so a failed or cancelled login cannot leave it behind for a later run in the same process) and runs the catch-up in step 5f (after the login and
+  the bulk field backfill); `scheduler/daily_update.py` step 4f only warns with the number.
+- **Tests:** new `tests/test_catchup_predictions.py` (70 checks) against a stand-in client that answers like the real API did in the probes of v1.7.6.10; additions in
+  `test_quality.py` (`record_field_given_up`), `test_collector.py` (section 4u, "main prediction catch-up"), `test_qt_app.py` (`TestPredictionCatchupHooks`),
+  `test_daily_update.py` (step 4f in the order).
+- **Build of the download packages:** the second one is now due after v1.7.6.12 (the end of the v1.7.6.x line).
+
+**New modules:** `garmin/garmin_catchup_predictions.py`, `tests/test_catchup_predictions.py`
+**Changed modules:** `garmin/quality/_maint.py` and `garmin/garmin_quality.py` (`record_field_given_up`); `garmin/garmin_collector.py` (`_run_prediction_catchup`, steps 3j and 5f);
+`app/panel_archive.py` (`_check_prediction_catchup`); `app/outputs/sync.py` (trigger); `scheduler/daily_update.py` (`_check_prediction_catchup`, step 4f);
+`compiler/build_manifest.py`, `run_tests.ps1`, `tests/conftest.py` (registration); `version.py`; documentation (CHANGELOG, VERSION_HISTORY, ROADMAP, README_APP, USER_GUIDE, REFERENCE_GARMIN,
+REFERENCE_GLOBAL, REFERENCE_INVARIANTS, MAINTENANCE_GARMIN, MAINTENANCE_GLOBAL, GLA_GUIDELINES, METRICS)
+**Test result:** 7139 checks in 56 suites, all green (`docs/METRICS.md`; before 7038 in 55); `test_build_output.py` 859 passed (12 skipped: no built programs); all 269 `.py`
+files of `src/` compile under Python 3.11; `ruff` clean; Vulture 0 (100 through the whitelist as before); `build_dep_map` 15 new (6 exception handlers, 9 file reads),
+0 gone, 0 regressions; Netz 2 run `v176112_01` (`garmin_quality.py` and `garmin_collector.py` changed; all five scenario reports are identical to a run of the previous
+code, the git clone at v1.7.6.11.1, on the same archive state apart from the path lines). Checked with 67 deliberate faults in a copy of the code: 66 caught, one equivalent
+(`limit < 1` against `limit < 0` in `record_field_given_up`). Not run: the catch-up against Garmin and on the real archive (needs a login), the new suite under Python 3.11 (that
+interpreter has no `garminconnect`; syntax only), the built programs.
+
 ## v1.7.6.11.1 — Foreign Input: Path Check and Import Robustness
 
 Two of the things the property tests of v1.7.6.11 found are changed (F-23 and F-24); the tests that pinned today's behaviour became tests of the new rule.

@@ -2,9 +2,9 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
-## v1.7.6 – v1.7.6.11.1 — Garmin Export as a Second Source
+## v1.7.6 – v1.7.6.11.2 — Garmin Export as a Second Source
 
-- The import of the Garmin export now reads heart-rate series, daily values, health status, pulse alerts, training readiness and race predictions (v1.7.6 – v1.7.6.7, v1.7.6.10).
+- The import of the Garmin export now reads heart-rate series, daily values, health status, pulse alerts, training readiness and race predictions (v1.7.6 – v1.7.6.7, v1.7.6.10); race predictions that older days lack can be asked from Garmin in a few requests (v1.7.6.11.2).
 - Garmin API data wins, the export fills the gaps; new stress-zone times for AI queries and dashboards (v1.7.6.1).
 - Export data is part of backup and mirror; safety-copied migration, rebuild and repair steps bring older archives onto the new layout. Older app versions cannot read the rebuilt daily files (v1.7.6.2 – v1.7.6.5, v1.7.6.9).
 - The import log compares export and Garmin API days; damaged foreign files no longer stop the import (v1.7.6.8, v1.7.6.11 – v1.7.6.11.1).

@@ -1523,6 +1523,38 @@ def _run_prediction_repair(quality_data: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Prediction catch-up — PREDICTION-CATCHUP v1.7.6.11.2 — removable
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_prediction_catchup(client, quality_data: dict) -> None:
+    """
+    Fills the race prediction of the days that hold none of their own date from Garmin, with a few range
+    calls (at most one year each). The work is done by garmin_catchup_predictions; this wrapper only
+    starts it.
+
+    quality_data is the run's own quality log, handed through like the repairs get it: labels and marks
+    are set on this object and saved. A log of its own would be overwritten by the next save of this run.
+    The caller must not hold QUALITY_LOCK. A safety copy is made after the calls and before the first
+    write; without it nothing is written.
+
+    Runs after the user confirmed the popup in the GUI (GARMIN_PREDICTION_CATCHUP=1, read in step 3j
+    before the login) and after the login (step 5f). Needs the logged-in client.
+
+    Non-fatal: any error is a warning and the sync goes on. Days that were not answered are asked again
+    at the next start.
+    """
+    try:
+        import garmin_catchup_predictions as _cp
+        result = _cp.catch_up(client, should_stop=_is_stopped, quality_data=quality_data)
+    except Exception as e:
+        log.warning(f"  Prediction catch-up skipped: {e}")
+        return
+    if result.get("failed"):
+        log.warning(f"  Prediction catch-up: {result['failed']} problem(s) ({result.get('reason') or 'see above'}) — "
+                    f"days that were not answered are asked again at the next start")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Track migration — TRACK-MIGRATION v1.7.6.3 — removable
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2094,6 +2126,12 @@ def main(stop_event=None):
     if os.environ.pop("GARMIN_PREDICTION_REPAIR", None) == "1":
         _run_prediction_repair(quality_data)
 
+    # ── 3j. Prediction catch-up trigger — PREDICTION-CATCHUP v1.7.6.11.2 — removable ──
+    # Only READ here, before the login, and removed from the environment at once: the catch-up itself runs in
+    # step 5f (it needs the client), and a login that fails or is cancelled must not leave the variable behind
+    # for a later run in the same process (T3).
+    _prediction_catchup = os.environ.pop("GARMIN_PREDICTION_CATCHUP", None) == "1"
+
     # ── 4. Login ──────────────────────────────────────────────────────────────
     try:
         client = api.login()
@@ -2175,6 +2213,13 @@ def main(stop_event=None):
     # ── 5e. Bulk field backfill — re-fetch bulk days missing structural fields ─
     if os.environ.get("GARMIN_BULK_FIELD_BACKFILL") == "1":
         _run_bulk_field_backfill(client, quality_data)
+
+    # ── 5f. Prediction catch-up — PREDICTION-CATCHUP v1.7.6.11.2 — removable ──────
+    # After the repair (3i: the copies of other days are gone, so their days count as empty) and the login. The
+    # run's quality_data is passed on. Only days that already have a raw file are looked at; the fetch loop below
+    # gives every day it fetches its own prediction itself.
+    if _prediction_catchup:
+        _run_prediction_catchup(client, quality_data)
 
     # ── 6. Set first_day ──────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:
