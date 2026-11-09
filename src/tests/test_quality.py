@@ -1936,4 +1936,106 @@ check("4p stats: an empty log -> zeros and None",
 _s = _stats4p([{"date": "2024-03-01", "quality": "high"}])
 check("4p stats: one day -> 100 %, 0 missing", (_s["coverage_pct"], _s["missing"]) == (100, 0))
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4z. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run (changed lines of quality/_maint)
+# ══════════════════════════════════════════════════════════════════════════════
+section("4z. garmin_quality — mutation round v1.7.6.12")
+
+
+def _e9(d, **kw):
+    return {"date": d, **kw}
+
+
+# -- _upsert_quality: the device_source belongs to the device_id of the same entry -------------------------------------------------
+_dq = {"first_day": None, "devices": [], "days": [_e9("2025-01-01", quality="standard", device_id="1", device_source="export_fit")]}
+quality._upsert_quality(_dq, date(2025, 1, 1), "standard", "r", written=True, source="api", device_id="9", device_name="N", device_source=None)
+check("4z _upsert_quality (existing entry): a device_id without a device_source removes the old device_source",
+      _dq["days"][0]["device_id"] == "9" and "device_source" not in _dq["days"][0])
+quality._upsert_quality(_dq, date(2025, 1, 1), "standard", "r", written=True, source="api", device_id="9", device_name="N", device_source="export_fit")
+check("4z _upsert_quality (existing entry): a device_id with a device_source sets it", _dq["days"][0]["device_source"] == "export_fit")
+_dq2 = {"first_day": None, "devices": [], "days": []}
+quality._upsert_quality(_dq2, date(2025, 1, 2), "standard", "r", written=True, source="api", device_id="9", device_source="export_fit")
+quality._upsert_quality(_dq2, date(2025, 1, 3), "standard", "r", written=True, source="api", device_id="9")
+quality._upsert_quality(_dq2, date(2025, 1, 4), "standard", "r", written=True, source="api", device_id=None, device_source="export_fit")
+_by9 = {e["date"]: e for e in _dq2["days"]}
+check("4z _upsert_quality (new entry): the device_source is stored only together with a device_id",
+      _by9["2025-01-02"].get("device_source") == "export_fit" and "device_source" not in _by9["2025-01-03"]
+      and "device_source" not in _by9["2025-01-04"])
+
+# -- set_device_name -----------------------------------------------------------------------------------------------------------------
+_sd = {"days": [_e9("2025-01-01", device_id="111", device_name="old"), _e9("2025-01-02", device_id=111, device_name="old"),
+                _e9("2025-01-03", device_id="110", device_name="old"), _e9("2025-01-04", device_id="112", device_name="old"),
+                _e9("2025-01-05", device_id="1110", device_name="old"), _e9("2025-01-06", device_id=None, device_name="old"),
+                _e9("2025-01-07", device_name="old")]}
+check("4z set_device_name: id and name are stripped; two entries of the id (also one with the id as a number) are renamed, "
+      "ids that sort just below or above it and entries without an id are not; the count is 2",
+      quality.set_device_name(_sd, " 111 ", "  Fenix 7 ") == 2
+      and [e["device_name"] for e in _sd["days"]] == ["Fenix 7", "Fenix 7", "old", "old", "old", "old", "old"])
+_sd2 = {"days": [_e9("2025-01-01", device_id="111", device_name="old")]}
+check("4z set_device_name: an empty or missing id, an empty or missing name change nothing and return 0",
+      all(quality.set_device_name(_sd2, i, n) == 0 for i, n in (("", "X"), (None, "X"), ("111", ""), ("111", None), ("111", "  "), ("  ", "X")))
+      and _sd2["days"][0]["device_name"] == "old")
+
+# -- record_device_from_files --------------------------------------------------------------------------------------------------------
+_rd = {"days": [_e9("2025-01-01", device_id=None, device_name=""), _e9("2025-01-05", device_id=None, device_name="Group"),
+                _e9("2025-01-07", device_id="5", device_name="Own"), _e9("2025-01-08", device_id=None, device_name="")]}
+_r_all = quality.record_device_from_files(
+    _rd, {"2025-01-09": "x", "2025-01-08": "  ", "2025-01-07": "6", "2025-01-01": 111, "2025-01-05": "222"}, "export_fit")
+check("4z record_device_from_files: one day of each kind (no entry, empty id, has an id, assigned, assigned with a name dropped) "
+      "— every counter is 1 or 2, the skipped kinds in front do not end the loop",
+      _r_all == {"assigned": 2, "skipped_has_id": 1, "skipped_empty_id": 1, "skipped_no_entry": 1, "names_dropped": 1}
+      and {e["date"]: (e["device_id"], e["device_name"], e.get("device_source")) for e in _rd["days"]}
+      == {"2025-01-01": ("111", "", "export_fit"), "2025-01-05": ("222", "", "export_fit"),
+          "2025-01-07": ("5", "Own", None), "2025-01-08": (None, "", None)})
+_rd2 = {"days": [_e9("2025-01-01", device_id=None, device_name="")]}
+check("4z record_device_from_files: nothing to do -> every counter 0; one assignment without a name -> only 'assigned' is 1",
+      quality.record_device_from_files(_rd2, {}, "export_fit") == {"assigned": 0, "skipped_has_id": 0, "skipped_empty_id": 0,
+                                                                   "skipped_no_entry": 0, "names_dropped": 0}
+      and quality.record_device_from_files(_rd2, {"2025-01-01": "1"}, "export_fit") == {"assigned": 1, "skipped_has_id": 0,
+                                                                                        "skipped_empty_id": 0, "skipped_no_entry": 0,
+                                                                                        "names_dropped": 0})
+
+# -- record_field_labels -----------------------------------------------------------------------------------------------------------
+_rl = {"days": [_e9("2025-01-01", fields={}), _e9("2025-01-02", fields={"race_predictions": "failed"}), _e9("2025-01-06"),
+                _e9("2025-01-07"), _e9("2025-01-08", fields={})]}
+_zero = {"set": 0, "skipped_no_entry": 0, "skipped_no_fields": 0, "skipped_bad_label": 0}
+check("4z record_field_labels: nothing to label -> every counter 0",
+      quality.record_field_labels(_rl, {}, "race_predictions") == _zero)
+_r_lab = quality.record_field_labels(
+    _rl, {"2025-01-09": "high", "2025-01-08": "bogus", "2025-01-07": "high", "2025-01-06": "bogus", "2025-01-01": "medium",
+          "2025-01-02": "high"}, "race_predictions")
+check("4z record_field_labels: one day without an entry, two with a label that is not known (one of them also without a fields dict: "
+      "the label is judged first), one without a fields dict, two labelled — the skipped kinds in front do not end the loop",
+      _r_lab == {"set": 2, "skipped_no_entry": 1, "skipped_no_fields": 1, "skipped_bad_label": 2}
+      and _rl["days"][0]["fields"] == {"race_predictions": "medium"} and _rl["days"][1]["fields"] == {"race_predictions": "high"})
+check("4z record_field_labels: an empty or no field name skips every label as a bad label",
+      all(quality.record_field_labels(_rl, {"2025-01-01": "high", "2025-01-02": "low"}, f) == {**_zero, "skipped_bad_label": 2}
+          for f in ("", None, 5)))
+
+# -- record_field_given_up -----------------------------------------------------------------------------------------------------------
+_gu = {"days": [_e9("2025-01-01"), _e9("2025-01-02", field_backfill_attempts={"race_predictions": 1}),
+                _e9("2025-01-03", field_backfill_attempts={"race_predictions": 5})]}
+check("4z record_field_given_up: a limit of 1 is a limit (a day without a counter is raised to 1, one at 1 is not, one above stays); "
+      "0, negative, a bool, a float and a text are refused",
+      quality.record_field_given_up(_gu, ["2025-01-01", "2025-01-02", "2025-01-03"], "race_predictions", 1) == 1
+      and _gu["days"][0]["field_backfill_attempts"] == {"race_predictions": 1}
+      and _gu["days"][2]["field_backfill_attempts"] == {"race_predictions": 5}
+      and all(quality.record_field_given_up({"days": [_e9("2025-01-01")]}, ["2025-01-01"], "race_predictions", lim) == 0
+              for lim in (0, -1, True, 1.5, "2")))
+_gu2 = {"days": [_e9("2025-01-01", field_backfill_attempts={"race_predictions": 1})]}
+check("4z record_field_given_up: a counter below the limit (1 of 2) is raised to the limit",
+      quality.record_field_given_up(_gu2, ["2025-01-01"], "race_predictions", 2) == 1
+      and _gu2["days"][0]["field_backfill_attempts"] == {"race_predictions": 2})
+# entries that are not named (or no dict) do not end the walk; a limit of 0 does nothing even next to a negative counter
+_gu3 = {"days": [_e9("2025-01-09"), "x", None, _e9("2025-01-01"), _e9("2025-01-02")]}
+check("4z record_field_given_up: an entry that is not named, or no dict, in front does not stop the walk (both later named days are raised)",
+      quality.record_field_given_up(_gu3, ["2025-01-01", "2025-01-02"], "race_predictions", 2) == 2
+      and _gu3["days"][3]["field_backfill_attempts"] == {"race_predictions": 2}
+      and _gu3["days"][4]["field_backfill_attempts"] == {"race_predictions": 2}
+      and "field_backfill_attempts" not in _gu3["days"][0])
+_gu4 = {"days": [_e9("2025-01-01", field_backfill_attempts={"race_predictions": -1})]}
+check("4z record_field_given_up: a limit of 0 is refused even where a counter is below it (negative counter stays)",
+      quality.record_field_given_up(_gu4, ["2025-01-01"], "race_predictions", 0) == 0
+      and _gu4["days"][0]["field_backfill_attempts"] == {"race_predictions": -1})
+
 summary()

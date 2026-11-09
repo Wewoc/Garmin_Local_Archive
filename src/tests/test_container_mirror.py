@@ -862,6 +862,83 @@ check("4g2 is_reachable: parent folder exists -> True, parent missing -> False",
 check("4g2 is_reachable: empty / None -> False",
       _mir4.is_reachable("") is False and _mir4.is_reachable(None) is False)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4g3. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("4g3. garmin_container — mutation round v1.7.6.12")
+import itertools as _it9
+
+_cf = _gc4._classify_file
+check("_classify_file: a file that is itself named like a section folder (garmin_data/raw, .../bulk/raw ...) is classified",
+      _cf(("garmin_data", "raw")) == "raw" and _cf(("garmin_data", "summary")) == "summary"
+      and _cf(("garmin_data", "source")) == "source" and _cf(("garmin_data", "bulk", "raw")) == "bulk"
+      and _cf(("garmin_data", "bulk", "aggregates")) == "bulk" and _cf(("garmin_data", "bulk", "source")) == "bulk_source")
+check("_classify_file: a first folder that sorts before or after 'garmin_data' is not garmin_data",
+      all(_cf((top, *rest)) is None for top in ("abc", "zzz")
+          for rest in (("raw", "f.json"), ("summary", "f.json"), ("source", "f.json"), ("bulk", "raw", "f.json"), ("bulk", "source", "f.json"))))
+check("_classify_file: a second folder that sorts before or after 'bulk', a third that sorts before or after the bulk sections, is none",
+      _cf(("garmin_data", "zzz", "source", "f")) is None and _cf(("garmin_data", "aaa", "raw", "f")) is None
+      and _cf(("garmin_data", "bulk", "zzz", "f")) is None and _cf(("garmin_data", "bulk", "aaa", "f")) is None)
+
+# the progress of lock(): the numbers of the files, of the sections, the seconds and the share of the data
+_P9 = _M4 / "prog9_src"
+shutil.rmtree(_P9, ignore_errors=True)
+(_P9 / "garmin_data" / "raw").mkdir(parents=True)
+(_P9 / "garmin_data" / "summary").mkdir(parents=True)
+(_P9 / "garmin_data" / "raw" / "a.json").write_bytes(b"r" * 99)
+(_P9 / "garmin_data" / "summary" / "b.json").write_bytes(b"s" * 901)
+_lines9 = []
+with patch("garmin_container.time.perf_counter", side_effect=_it9.cycle([1, 4])):
+    _lk9 = _gc4.lock(_P9, _M4 / "prog9.gla", "pw", progress=_lines9.append)
+check("lock with a progress callback: the files, the sections with their size, the seconds (3), the share of the data (9 % after 99 of 1000 bytes), the writing",
+      _lk9["ok"] and _lines9 == [
+          "  Mirror: reading the files …", "  Mirror: 2 files to read",
+          "  Mirror: reading files … 50 % (1 of 2)", "  Mirror: reading files … 100 % (2 of 2)",
+          "  Mirror: packing raw (1 files, 0 MB) …", "  Mirror: raw packed in 3 s — 9 % of the data",
+          "  Mirror: packing summary (1 files, 0 MB) …", "  Mirror: summary packed in 3 s — 100 % of the data",
+          "  Mirror: writing the container (0 MB) …"])
+
+# the sizes in whole megabytes: 2.5 MB and 3.5 MB (round half to even: 2 and 4), the container of about 6 MB
+_P9b = _M4 / "prog9b_src"
+shutil.rmtree(_P9b, ignore_errors=True)
+(_P9b / "garmin_data" / "raw").mkdir(parents=True)
+(_P9b / "garmin_data" / "summary").mkdir(parents=True)
+(_P9b / "garmin_data" / "raw" / "a.json").write_bytes(b"\x00" * 2621440)
+(_P9b / "garmin_data" / "summary" / "b.json").write_bytes(b"\x00" * 3670016)
+_lines9b = []
+# the encryption is replaced by blobs of the same length as the data: the sizes in the log lines are what is looked at here
+with patch.object(_gc4, "_encrypt_section", side_effect=lambda files, key: b"\x00" * sum(len(b) for b in files.values())):
+    _lk9b = _gc4.lock(_P9b, _M4 / "prog9b.gla", "pw", progress=_lines9b.append)
+check("lock with a progress callback: the sizes of the sections (2.5 and 3.5 MB: 2 and 4) and of the container (6 MB) are in whole megabytes",
+      _lk9b["ok"] and "  Mirror: packing raw (1 files, 2 MB) …" in _lines9b and "  Mirror: packing summary (1 files, 4 MB) …" in _lines9b
+      and "  Mirror: writing the container (6 MB) …" in _lines9b)
+for _raw_sz, _sum_sz, _want in ((2621440, 3145728, "6 MB"), (1572864, 3145728, "4 MB")):          # 5.5 MB -> 6, 4.5 MB -> 4 (round half to even)
+    (_P9b / "garmin_data" / "raw" / "a.json").write_bytes(b"\x00" * _raw_sz)
+    (_P9b / "garmin_data" / "summary" / "b.json").write_bytes(b"\x00" * _sum_sz)
+    _lines9e = []
+    with patch.object(_gc4, "_encrypt_section", side_effect=lambda files, key: b"\x00" * sum(len(b) for b in files.values())):
+        _gc4.lock(_P9b, _M4 / "prog9e.gla", "pw", progress=_lines9e.append)
+    check(f"lock: a container of {(_raw_sz + _sum_sz) / 1048576} MB says '({_want})' (the divisor is exactly 1,048,576)",
+          f"  Mirror: writing the container ({_want}) …" in _lines9e)
+_lines9c = []
+with patch("garmin_container.time.perf_counter", side_effect=_it9.cycle([1, 4])):
+    _got9 = _gc4.fulfill_order(_M4 / "prog9.gla", "pw", {"raw": ["garmin_data/raw/a.json"]}, progress=_lines9c.append)
+check("fulfill_order with a progress callback: the section, the number of files wanted and the seconds (3)",
+      _got9 == {"garmin_data/raw/a.json": b"r" * 99}
+      and _lines9c == ["  Mirror: decrypting raw (1 files wanted) …", "  Mirror: raw decrypted in 3 s"])
+
+# the progress of the file collection: 25 files give a line at the 3rd, 5th, 8th ... 25th
+_P9c = _M4 / "prog9c_src"
+shutil.rmtree(_P9c, ignore_errors=True)
+(_P9c / "garmin_data" / "raw").mkdir(parents=True)
+for _i in range(25):
+    (_P9c / "garmin_data" / "raw" / f"f{_i:02d}.json").write_bytes(b"x")
+_lines9d = []
+_gc4._collect_sections(_P9c, progress=_lines9d.append)
+check("_collect_sections with a progress callback: 25 files, a line whenever the tenth step grows (12 % at 3 ... 100 % at 25)",
+      _lines9d == ["  Mirror: 25 files to read"] + [f"  Mirror: reading files … {p} % ({d} of 25)" for d, p in
+                                                    [(3, 12), (5, 20), (8, 32), (10, 40), (13, 52), (15, 60), (18, 72), (20, 80), (23, 92), (25, 100)]])
+
 if _ver4b_added:
     sys.modules.pop("version", None)
 

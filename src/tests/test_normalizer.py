@@ -776,4 +776,67 @@ check("P1.1 counter-check: old dict forms still fill training",
       [_p11_old["readiness_score"], _p11_old["readiness_level"], _p11_old["readiness_feedback"],
        _p11_old["training_status"], _p11_old["vo2max"]] == [74, "HIGH", "GOOD_TO_GO", 4, 51.3])
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  3z. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run (changed lines of garmin_normalizer)
+# ══════════════════════════════════════════════════════════════════════════════
+section("3z. garmin_normalizer — mutation round v1.7.6.12")
+from datetime import datetime as _dt9, timezone as _tz9
+from unittest.mock import patch as _patch9
+
+check("3z _is_iso_date: a real date YYYY-MM-DD is one; the short and basic forms, a longer text, non-dates are not",
+      normalizer._is_iso_date("2025-01-01") is True
+      and all(normalizer._is_iso_date(t) is False for t in ("20250101", "2025-1-01", "2025-1-1", "2025-01-011", "abcdefghij", "2025-13-45", "")))
+
+# a prediction of another day is left out, and the debug line says so only then
+_other = {"date": "2025-01-01", "race_predictions": {"calendarDate": "2025-01-02", "time5K": 1500}}
+_own = {"date": "2025-01-01", "race_predictions": {"calendarDate": "2025-01-01", "time5K": 1500}}
+with _patch9.object(normalizer, "log") as _lg:
+    _n_other = normalizer.normalize(_other, "api")
+    _d_other = [str(c.args[0]) for c in _lg.debug.call_args_list]
+with _patch9.object(normalizer, "log") as _lg:
+    _n_own = normalizer.normalize(_own, "api")
+    _d_own = [str(c.args[0]) for c in _lg.debug.call_args_list]
+check("3z normalize(api): a prediction of another day is left out and one debug line says so; the own prediction stays, no line",
+      "race_predictions" not in _n_other and _d_other == ["  normalize: a race prediction dated another day was left out of the day"]
+      and _n_own["race_predictions"]["time5K"] == 1500 and _d_own == [])
+
+# own_day_prediction on its own
+_raw_ok = {"date": "2025-01-01", "a": 1, "z": 2, "race_predictions": {"calendarDate": "2025-01-0" + str(1), "time5K": 1}}
+_day9 = "2025-01-0" + str(1)
+_r, _dr = normalizer.own_day_prediction(_raw_ok, _day9)
+check("3z own_day_prediction: a prediction dated with the day (strings made at run time) is kept, raw itself comes back", _r is _raw_ok and _dr is None)
+_bef = {"date": "2025-01-05", "a": 1, "z": 2, "race_predictions": {"calendarDate": "2025-01-04", "time5K": 1}}
+_aft = {"date": "2025-01-05", "a": 1, "z": 2, "race_predictions": {"calendarDate": "2025-01-06", "time5K": 1}}
+_nod = {"date": "2025-01-05", "a": 1, "z": 2, "race_predictions": {"time5K": 1}}
+_res = [normalizer.own_day_prediction(x, "2025-01-05") for x in (_bef, _aft, _nod)]
+check("3z own_day_prediction: a prediction dated before, after, or without a date is dropped; the rest of the day is kept as it is "
+      "(keys that sort before and after 'race_predictions'); the argument is not changed",
+      all(kept == {"date": "2025-01-05", "a": 1, "z": 2} and dropped == src["race_predictions"]
+          for (kept, dropped), src in zip(_res, (_bef, _aft, _nod))) and "race_predictions" in _bef)
+check("3z own_day_prediction: a raw that is no dict, no prediction, an empty one or one that is no dict are not judged",
+      normalizer.own_day_prediction(None, "2025-01-05") == (None, None)
+      and all(normalizer.own_day_prediction(x, "2025-01-05")[1] is None and normalizer.own_day_prediction(x, "2025-01-05")[0] is x
+              for x in ({"date": "d"}, {"race_predictions": {}}, {"race_predictions": "x"}, {"race_predictions": [1]}, {"race_predictions": None})))
+
+# the time of an entry
+_t10 = _dt9(2025, 1, 1, 10, 0, 0, tzinfo=_tz9.utc).timestamp()
+check("3z _entry_time: milliseconds become seconds (5000 -> 5.0, 2500.0 -> 2.5); ISO text with a space, a fraction or a zone is read to the second; "
+      "a bool, a list, text that is no time give None",
+      normalizer._entry_time({"timestamp": 5000}) == 5.0 and normalizer._entry_time({"timestamp": 2500.0}) == 2.5
+      and normalizer._entry_time({"timestamp": "2025-01-01T10:00:00"}) == _t10 and normalizer._entry_time({"timestamp": "2025-01-01 10:00:00"}) == _t10
+      and normalizer._entry_time({"timestamp": "2025-01-01T10:00:00.123Z"}) == _t10
+      and all(normalizer._entry_time({"timestamp": v}) is None for v in (True, [1], "not a time", None)) and normalizer._entry_time({}) is None)
+
+# the latest entry
+_e1, _e2 = {"timestamp": 1000, "v": 1}, {"timestamp": 1000, "v": 1}
+check("3z _latest_entry: entries that are no dict, in front, do not end the choice; the later entry wins; equal entries keep the first one",
+      normalizer._latest_entry(["x", None, {"timestamp": 1000, "v": 1}, {"timestamp": 2000, "v": 2}]) == {"timestamp": 2000, "v": 2}
+      and normalizer._latest_entry([_e1, _e2]) is _e1 and normalizer._latest_entry(["x"]) == {})
+_t10s = _dt9(2025, 1, 1, 10, 0, 7, tzinfo=_tz9.utc).timestamp()
+_t10m = _dt9(2025, 1, 1, 10, 59, 58, tzinfo=_tz9.utc).timestamp()
+check("3z _entry_time: the seconds are read in full (07, 58), not cut after the first digit of the seconds",
+      normalizer._entry_time({"timestamp": "2025-01-01T10:00:07"}) == _t10s
+      and normalizer._entry_time({"timestamp": "2025-01-01 10:59:58.9"}) == _t10m)
+check("3z _canon: keys sorted, non-ASCII text as written, no spaces", normalizer._canon({"b": 1, "a": "ä"}) == '{"a":"ä","b":1}')
+
 summary()

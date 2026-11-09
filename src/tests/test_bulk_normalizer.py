@@ -458,4 +458,68 @@ check("has_window: agrees with plan_days (a usable window plans the day it ends 
                     "2024-03-03": _good}).days != {}
       and nz.plan_days({"2024-03-02": {"wellnessStartTimeGmt": "x"}}).days == {})
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("B3b. garmin_bulk_normalizer — mutation round v1.7.6.12")
+check("the tolerance for 'local midnight' is one second and the plausible offset is at most 14 hours",
+      nz._FULL_DAY_TOLERANCE_S == 1 and nz._MAX_OFFSET_S == 14 * 3600 and nz._OFFSET_STEP_S == 15 * 60)
+
+_same_time = {k: "2024-03-01T00:00:00.0" for k in nz._KEYS}
+_one_second = {**_same_time, "wellnessEndTimeLocal": "2024-03-01T00:00:01.0", "wellnessEndTimeGmt": "2024-03-01T00:00:01.0"}
+check("a window whose end is not after its start is not a window; one second later is",
+      nz._window(_same_time) is None and nz.has_window(_same_time) is False
+      and nz._window(_one_second) is not None and nz.has_window(_one_second) is True)
+
+_w = _plain("2024-03-01", 3)
+check("a key that is no date does not end the reading of the windows (it comes first here)",
+      sorted(nz.plan_days({"not-a-date": _day("2024-03-01", 1, 1), **_w}).days) == ["2024-03-02", "2024-03-03"])
+
+# the end of the range: its last boundary comes from the window of the day AFTER the range (rule 2)
+_edge = {"2024-03-01": _day("2024-03-01", 1, 1), "2024-03-02": _day("2024-03-02", 1, 1), "2024-03-04": _day("2024-03-04", 1, 1)}
+_pe = nz.plan_days(_edge, "2024-03-01", "2024-03-03")
+check("the last day of the range is planned from the window of the day after it (the neighbours agree)",
+      sorted(_pe.days) == ["2024-03-02", "2024-03-03"] and _pe.unknown == ["2024-03-01"]
+      and _pe.days["2024-03-03"].offset_source == "neighbours")
+# two neighbours that disagree (7200 before, 3600 after) leave the boundary open, whichever offset is larger
+_dis = {"2024-03-01": _day("2024-03-01", 2, 2), "2024-03-03": _day("2024-03-03", 1, 1)}
+_pd = nz.plan_days(_dis, "2024-03-01", "2024-03-02")
+check("neighbours with different offsets (larger before, smaller after) do not give a boundary: both days unknown",
+      _pd.days == {} and _pd.unknown == ["2024-03-01", "2024-03-02"])
+
+# a collector that has read nothing and one that has read only good records: the counters of problems stay at zero
+_c0 = nz.SampleCollector(pl)
+_c0.add_file("h", 1, _rf((_ts(2024, 2, 3, 12), 70)))
+check("counters of problem records start at zero (before the first full timestamp, without timestamp)",
+      (_c0.stats().before_first_full, _c0.stats().no_timestamp, _c0.stats().no_heart_rate, _c0.stats().zero_heart_rate) == (0, 0, 0, 0)
+      and (nz.SampleCollector(pl).stats().before_first_full, nz.SampleCollector(pl).stats().no_timestamp) == (0, 0))
+
+# -- runs of unknown boundaries: a long run, a run that starts at the second boundary, one that starts at the fourth ----------------------------
+_run1 = nz.plan_days({"2024-03-01": _day("2024-03-01", 1, 1), "2024-03-06": _day("2024-03-06", 1, 1)}, "2024-03-01", "2024-03-05")
+check("a run of four unknown boundaries between two days that agree is filled up to the window after the range: four days planned",
+      sorted(_run1.days) == ["2024-03-02", "2024-03-03", "2024-03-04", "2024-03-05"] and _run1.unknown == ["2024-03-01"]
+      and _run1.days["2024-03-05"].offset_source == "neighbours")
+_run2 = nz.plan_days({"2024-02-29": _day("2024-02-29", 1, 1), "2024-03-04": _day("2024-03-04", 1, 1)}, "2024-03-01", "2024-03-03")
+check("a run that starts at the second boundary takes its left neighbour from the first (all three days planned)",
+      sorted(_run2.days) == ["2024-03-01", "2024-03-02", "2024-03-03"] and _run2.unknown == [])
+_run3 = nz.plan_days({"2024-03-01": _day("2024-03-01", 1, 1), "2024-03-02": _day("2024-03-02", 1, 2), "2024-03-06": _day("2024-03-06", 2, 2)},
+                     "2024-03-01", "2024-03-05")
+check("a run that starts at the fourth boundary takes its left neighbour from the third (offset 2 h), not from the second (1 h)",
+      sorted(_run3.days) == ["2024-03-02", "2024-03-03", "2024-03-04", "2024-03-05"] and _run3.unknown == ["2024-03-01"])
+
+# -- the range itself: a date that is no date, a range of one day ---------------------------------------------------------------------------
+_empty_plan = (nz.plan_days(_edge, "bad", "2024-03-01"), nz.plan_days(_edge, "2024-03-01", "bad"))
+check("a first or last date that is no date gives an empty plan, no exception",
+      all(p.days == {} and p.unknown == [] and p.disagreements == [] for p in _empty_plan))
+_one = nz.plan_days({"2024-03-01": _day("2024-03-01", 1, 1), "2024-03-02": _day("2024-03-02", 1, 1)}, "2024-03-02", "2024-03-02")
+check("a range of one day (first date = last date) is planned", sorted(_one.days) == ["2024-03-02"])
+
+# -- duplicate seconds are compared with the value kept just before, not with the first value of the day -----------------------------------------
+_cdup = nz.SampleCollector(pl)
+_cdup.add_file("a", 10, _rf((T, 60), (T + 1, 70)))
+_cdup.add_file("b", 20, _rf((T + 1, 70)))
+_rdup = _cdup.finish()
+check("a duplicate second with the same value as the one kept just before is counted as the same value, not as a conflict",
+      (_rdup.stats.duplicates_same, _rdup.stats.duplicates_conflict) == (1, 0) and len(_rdup.days["2024-02-03"].values) == 2)
+
 summary()

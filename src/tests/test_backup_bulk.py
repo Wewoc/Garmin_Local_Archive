@@ -546,4 +546,220 @@ with _env("read"), _logged() as _calls:
           and [lv for lv, _ in _calls] == ["warning"] and "BadZipFile" in _calls[0][1])
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+section("E. garmin_backup_bulk — mutation round v1.7.6.12 (survivors of the Cosmic Ray run)")
+# ══════════════════════════════════════════════════════════════════════════════
+
+# -- E1 progress with a folder count that is not 10 (with 10 folders `10 * done // 10` is `done`, so changed
+#       factors passed by chance); 25 folders give a line at 3, 5, 8, 10 ... 25 folders ---------------------------
+with _env("e_progress"), _logged() as _calls:
+    for _i in range(25):
+        _original_with_prefix(f"{0x10 + _i:02x}", f"e1-{_i}")
+    bb.backup_originals()
+    _pl = _progress_lines(_calls)
+    _got = [(int(m.split("originals ")[1].split(" %")[0]), int(m.rsplit("(", 1)[1].split(" of")[0])) for m in _pl]
+    check("E1 25 folders: a line whenever the tenth step grows (12 % at 3 folders ... 100 % at 25)",
+          _got == [(12, 3), (20, 5), (32, 8), (40, 10), (52, 13), (60, 15), (72, 18), (80, 20), (92, 23), (100, 25)])
+
+# -- E2 _zip_intact on its own: a ZIP that is garbage, missing, with a bad entry, and a good one ----------------------
+_ew = _TMPDIR / "bb_e_zipintact"
+shutil.rmtree(_ew, ignore_errors=True)
+_ew.mkdir(parents=True)
+with zipfile.ZipFile(_ew / "good.zip", "w", zipfile.ZIP_DEFLATED) as _z:
+    _z.writestr("a.fit", b"hello" * 50)
+with zipfile.ZipFile(_ew / "crc.zip", "w", zipfile.ZIP_STORED) as _z:
+    _z.writestr("a.fit", b"hello" * 50)
+_raw = bytearray((_ew / "crc.zip").read_bytes())
+_raw[_raw.find(b"hello")] ^= 0xFF
+(_ew / "crc.zip").write_bytes(bytes(_raw))
+(_ew / "garbage.zip").write_bytes(b"not a zip " * 20)
+check("E2 _zip_intact: a good ZIP -> (True, None)", bb._zip_intact(_ew / "good.zip") == (True, None))
+_g = bb._zip_intact(_ew / "garbage.zip")
+check("E2 _zip_intact: a file that is not a ZIP -> (False, 'BadZipFile: ...')",
+      _g[0] is False and _g[1].startswith("BadZipFile: "))
+_m = bb._zip_intact(_ew / "missing.zip")
+check("E2 _zip_intact: a ZIP that is not there -> (False, 'FileNotFoundError: ...')",
+      _m[0] is False and _m[1].startswith("FileNotFoundError: "))
+check("E2 _zip_intact: an entry that fails its check -> (False, 'entry a.fit fails its check')",
+      bb._zip_intact(_ew / "crc.zip") == (False, "entry a.fit fails its check"))
+
+# -- E3 a file that cannot be added: the others of the prefix still go in (the failing one is the FIRST) -------------
+with _env("e_addone"), _logged() as _calls:
+    _a, _ = _original_with_prefix("ab", "e3a")
+    _b, _ = _original_with_prefix("ab", "e3b")
+    _first, _second = sorted([_a, _b])
+    _orig_write = zipfile.ZipFile.write
+
+    def _write_fail_first(self, filename, arcname=None, *args, **kwargs):
+        if arcname == f"{_first}.fit":
+            raise OSError("cannot read")
+        return _orig_write(self, filename, arcname, *args, **kwargs)
+
+    with patch.object(zipfile.ZipFile, "write", _write_fail_first):
+        _r = bb.backup_originals()
+    check("E3 the first of two files cannot be added: the second is in the ZIP, one copied, one failed",
+          (_r["copied"], _r["failed"]) == (1, 1)
+          and _zip_names(cfg.BULK_SOURCE_BACKUP_DIR / "ab.zip") == [f"{_second}.fit"])
+    check("E3 the log says which file could not be added to which ZIP",
+          any(lv == "error" and f"{_first}.fit could not be added to ab.zip: OSError: cannot read" in m for lv, m in _calls))
+    check("E3 no .tmp is left", _tmp_files(cfg.BULK_BACKUP_DIR) == [])
+
+# -- E4 the swap fails and the temp ZIP cannot be removed either: the original error is reported, the cleanup only logged
+with _env("e_cleanup"), _logged() as _calls:
+    _original_with_prefix("ab", "e4")
+    with patch("os.replace", side_effect=OSError("locked")), \
+         patch.object(Path, "unlink", side_effect=OSError("cannot delete")):
+        _r = bb.backup_originals()
+    check("E4 swap and cleanup both fail: counted failed, nothing raised", _r["failed"] == 1 and _r["copied"] == 0)
+    check("E4 the error names the swap error, not the cleanup error",
+          any(lv == "error" and "ab/ could not be backed up: OSError: locked" in m for lv, m in _calls)
+          and not any(lv == "error" and "cannot delete" in m for lv, m in _calls))
+    check("E4 the failed cleanup is logged at debug level",
+          any(lv == "debug" and "tmp zip cleanup failed for ab.zip: cannot delete" in m for lv, m in _calls))
+
+# -- E5 what _original_groups() looks at: strays that sort before the prefix folders, a file named like a prefix,
+#       a file of another prefix inside a folder -----------------------------------------------------------------
+with _env("e_groups"):
+    _h1, _ = _original_with_prefix("ab", "e5a")
+    _hac, _ = _original_with_prefix("ac", "e5b")
+    shutil.move(str(cfg.BULK_SOURCE_DIR / "ac" / f"{_hac}.fit"), str(cfg.BULK_SOURCE_DIR / "ab" / f"{_hac}.fit"))
+    (cfg.BULK_SOURCE_DIR / "00").write_text("a file named like a prefix", encoding="utf-8")
+    (cfg.BULK_SOURCE_DIR / "0stray").mkdir()
+    _groups = {k: [p.name for p in v] for k, v in bb._original_groups().items()}
+    check("E5 only the folder ab with its own file: strays before it do not end the listing, a file named '00' is no folder, "
+          "a file whose name starts with another prefix is left out",
+          _groups == {"ab": [f"{_h1}.fit"]})
+
+# -- E6 originals that cannot be listed: exactly one failure, the rest zero ---------------------------------------
+with _env("e_listfail"), _logged():
+    with patch.object(bb, "_original_groups", side_effect=RuntimeError("cannot list")):
+        _r = bb.backup_originals()
+    check("E6 the listing raises: {copied 0, present 0, failed 1, damaged_zips 0, stopped False}",
+          _r == {"copied": 0, "present": 0, "failed": 1, "damaged_zips": 0, "stopped": False})
+
+# -- E7 present = files - missing with numbers whose XOR/difference differ (5 files, 2 new) -----------------------
+with _env("e_present"):
+    for _i in range(3):
+        _original_with_prefix("ab", f"e7-old-{_i}")
+    bb.backup_originals()
+    for _i in range(2):
+        _original_with_prefix("ab", f"e7-new-{_i}")
+    _r = bb.backup_originals()
+    check("E7 5 files in the prefix, 3 already in the ZIP: present 3, copied 2, failed 0",
+          (_r["present"], _r["copied"], _r["failed"]) == (3, 2, 0))
+
+# -- E8 failed = missing - added with 5 missing, 3 of them not addable (5 ^ 2, 5 % 2 and 5 >> 2 are not 3) -------
+with _env("e_failcount"), _logged():
+    _hs = [_original_with_prefix("ab", f"e8-{_i}")[0] for _i in range(5)]
+    _bad = {f"{h}.fit" for h in sorted(_hs)[:3]}
+    _orig_write8 = zipfile.ZipFile.write
+
+    def _write_fail_three(self, filename, arcname=None, *args, **kwargs):
+        if arcname in _bad:
+            raise OSError("cannot read")
+        return _orig_write8(self, filename, arcname, *args, **kwargs)
+
+    with patch.object(zipfile.ZipFile, "write", _write_fail_three):
+        _r = bb.backup_originals()
+    check("E8 5 missing, 2 added: copied 2, failed 3", (_r["copied"], _r["failed"]) == (2, 3))
+
+# -- E9 a ZIP entry named <hash>.txt is never handed out ------------------------------------------------------------
+with _env("e_suffix"):
+    _h, _ = _original_with_prefix("ab", "e9")
+    bb.backup_originals()
+    with zipfile.ZipFile(cfg.BULK_SOURCE_BACKUP_DIR / "ab.zip", "a") as _z:
+        _z.writestr(f"{_h}.txt", b"secret")
+    check("E9 read_original_copy: a valid hash with an entry of the wrong suffix in the ZIP -> None",
+          bb.read_original_copy(_h, ".txt") is None and bb.read_original_copy(_h) is not None)
+
+# -- E10 backup_all: paths that cannot be read -> the exact failure shape, not stopped --------------------------
+with _env("e_cfgshape"), _logged():
+    with patch.object(bb, "_cfg", side_effect=RuntimeError("no config")):
+        _r = bb.backup_all()
+    check("E10 paths that cannot be read: the three parts carry the error, ok False, stopped False",
+          _r == {"raw": {"error": "no config"}, "aggregates": {"error": "no config"},
+                 "source": {"error": "no config"}, "ok": False, "stopped": False})
+
+# -- E11 backup_all: a part of its own that only refreshes has the exact counters ---------------------------------
+with _env("e_refreshshape"), _logged():
+    _put_day("2024-08-01")
+    bb.backup_all()
+    _put_day("2024-08-01", "changed")
+    _r = bb.backup_all()
+    check("E11 refresh only: {copied 0, skipped 0, failed 0, refreshed 1, unreadable 0, errors 0}",
+          _r["raw"] == {"copied": 0, "skipped": 0, "failed": 0, "refreshed": 1, "unreadable": 0, "errors": 0})
+
+# -- E12 backup_all: the stop check before a part that only has something to refresh -------------------------------
+with _env("e_stoprefresh"):
+    _put_day("2024-08-01")
+    bb.backup_all()
+    _put_day("2024-08-01", "changed")
+    _r = bb.backup_all(should_stop=lambda: True)
+    check("E12 only a changed day file (nothing missing): the stop is honoured, nothing refreshed, originals not started",
+          _r["stopped"] is True and "source" not in _r and _day_work()["raw"] == 1)
+
+# -- E13 backup_all: a stop before the first part ends the run there; day files only, no originals -------------
+with _env("e_stopfirst"):
+    _put_day("2024-08-01")
+    _put_day("2024-08-01", agg=True)
+    _asks = []
+
+    def _stop_counting():
+        _asks.append(1)
+        return True
+
+    _r = bb.backup_all(should_stop=_stop_counting)
+    check("E13 stop answered at the first part: stopped True (also with no originals to ask about), asked once, "
+          "the aggregates part is not looked at",
+          _r["stopped"] is True and len(_asks) == 1 and "aggregates" not in _r and not cfg.BULK_BACKUP_DIR.exists())
+
+
+# -- E14 backup_all: the info line and ok for every single counter of a part ----------------------------------------
+def _part_run(missing, outdated, unreadable, backfill_ret, refresh_ret):
+    with _env("e_partline"), _logged() as calls, \
+         patch.object(common, "check_backfill_needed", return_value=missing), \
+         patch.object(common, "find_outdated", return_value=(outdated, unreadable)), \
+         patch.object(common, "backfill", return_value=backfill_ret), \
+         patch.object(common, "refresh", return_value=refresh_ret):
+        r = bb.backup_all()
+    return r, [m for lv, m in calls if lv == "info" and "raw —" in m]
+
+
+_bf0 = {"copied": 0, "skipped": 0, "failed": 0}
+_rf0 = {"refreshed": 0, "unreadable": 0, "errors": 0}
+_cases = [
+    ("copied", 1, [], [], {"copied": 1, "skipped": 0, "failed": 0}, _rf0, "1 copied, 0 refreshed, 0 unreadable, 0 failed", True),
+    ("refreshed", 0, [1], [], _bf0, {"refreshed": 1, "unreadable": 0, "errors": 0}, "0 copied, 1 refreshed, 0 unreadable, 0 failed", True),
+    ("failed", 1, [], [], {"copied": 0, "skipped": 0, "failed": 1}, _rf0, "0 copied, 0 refreshed, 0 unreadable, 1 failed", False),
+    ("errors", 0, [1], [], _bf0, {"refreshed": 0, "unreadable": 0, "errors": 1}, "0 copied, 0 refreshed, 0 unreadable, 1 failed", False),
+    ("unreadable", 0, [], [1], _bf0, {"refreshed": 0, "unreadable": 1, "errors": 0}, "0 copied, 0 refreshed, 1 unreadable, 0 failed", True),
+    ("failed 3 + errors 1", 1, [1], [], {"copied": 0, "skipped": 0, "failed": 3}, {"refreshed": 0, "unreadable": 0, "errors": 1},
+     "0 copied, 0 refreshed, 0 unreadable, 4 failed", False),
+]
+for _name, _mi, _ou, _un, _bf, _rf, _text, _ok in _cases:
+    _r, _lines = _part_run(_mi, _ou, _un, _bf, _rf)
+    check(f"E14 only '{_name}' set: one info line '{_text}', ok {_ok}",
+          len(_lines) == 1 and _lines[0].endswith(_text) and _r["ok"] is _ok)
+_r, _lines = _part_run(0, [], [], _bf0, _rf0)
+check("E14 nothing to do: no info line, ok True", _lines == [] and _r["ok"] is True)
+
+
+# -- E15 backup_all: ok and the info line of the originals for each single counter -----------------------------------
+def _src_run(src):
+    with _env("e_srcline"), _logged() as calls, patch.object(bb, "backup_originals", return_value=src):
+        r = bb.backup_all()
+    return r, [m for lv, m in calls if lv == "info" and "originals —" in m]
+
+
+_s0 = {"copied": 0, "present": 0, "failed": 0, "damaged_zips": 0, "stopped": False}
+_r, _lines = _src_run(dict(_s0, failed=1))
+check("E15 only 'failed' set: ok False and a line about the originals",
+      _r["ok"] is False and len(_lines) == 1 and "0 copied, 0 present, 1 failed, 0 damaged ZIP(s)" in _lines[0])
+_r, _lines = _src_run(dict(_s0, damaged_zips=1))
+check("E15 only 'damaged_zips' set: ok False, no line (nothing copied, nothing failed)", _r["ok"] is False and _lines == [])
+_r, _lines = _src_run(dict(_s0, copied=2, present=1))
+check("E15 only 'copied' set: ok True and a line about the originals",
+      _r["ok"] is True and len(_lines) == 1 and "2 copied, 1 present, 0 failed, 0 damaged ZIP(s)" in _lines[0])
+
+
 summary()

@@ -511,4 +511,84 @@ with _isolated_log_env("rd_name") as _b:
     check("D8 an error is returned as 'error', never raised, and the lock is free again",
           _res.get("updated") == 0 and "boom" in _res.get("error", "") and quality.QUALITY_LOCK.acquire(False) and not quality.QUALITY_LOCK.release())
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  9. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("D9. mutation round v1.7.6.12")
+import struct
+
+# -- _valid_date: only a string of ten characters that is a date ------------------------------------------------------
+check("D9 _valid_date: a date -> True", rd._valid_date("2025-06-01") is True)
+check("D9 _valid_date: not a string -> False",
+      all(rd._valid_date(v) is False for v in (None, 20250601, ["2025-06-01"], b"2025-06-01")))
+check("D9 _valid_date: the basic ISO form 20250601 (valid for date.fromisoformat, 8 characters) is no archive date",
+      rd._valid_date("20250601") is False)
+check("D9 _valid_date: wrong length -> False", all(rd._valid_date(v) is False for v in ("2025-6-1", "2025-06-011", "")))
+check("D9 _valid_date: ten characters that are no date -> False",
+      all(rd._valid_date(v) is False for v in ("2025-13-45", "2025-02-30", "abcdefghij")))
+
+# -- _serial_of: the first file_id, a serial of 1 is a serial ----------------------------------------------------------
+with _isolated_log_env("rd_serial") as _b:
+    _src = _b / "bulk" / "source"
+    _one = _fit_original(_b, 1, 1)
+    check("D9 _serial_of: a serial of 1 is a serial (only 0 and below are none)", rd._serial_of(_one, _src) == "1")
+    _two_ids = fb.build_fit(fb.file_id(32, 1000, serial=111)
+                            + [fb.row(0, bytes([32]) + struct.pack("<II", 222, 1001))])
+    _h2 = hashlib.sha256(_two_ids).hexdigest()
+    (_src / _h2[:2]).mkdir(parents=True, exist_ok=True)
+    (_src / _h2[:2] / f"{_h2}.fit").write_bytes(_two_ids)
+    check("D9 _serial_of: a file with two file_id messages gives the serial of the FIRST", rd._serial_of(_h2, _src) == "111")
+
+    # -- find_candidates: source_files must be a list ------------------------------------------------------------------
+    _hX = _fit_original(_b, 3966586101, 2)
+    _p = _b / "bulk" / "raw" / "garmin_bulk_2025-06-01.json"
+    _p.parent.mkdir(parents=True, exist_ok=True)
+    _p.write_text(json.dumps({"date": "2025-06-01", "schema_version": 1, "source_files": {_hX: 1}}), encoding="utf-8")
+    _put_log(_log(_qe("2025-06-01")))
+    _f = rd.find_candidates()
+    check("D9 find_candidates: source_files as a dict keyed by a valid hash is not a list of originals -> 'incomplete'",
+          _f["one"] == {} and _f["incomplete"] == ["2025-06-01"])
+
+# -- days_per_device: most days first, equal counts by id --------------------------------------------------------------
+check("D9 days_per_device: most days first (also when that id sorts last), equal counts ordered by id",
+      list(rd.days_per_device({"d1": "B", "d2": "B", "d3": "A", "d4": "C", "d5": "A", "d6": "D",
+                               "d7": "E", "d8": "E", "d9": "E"}).items())
+      == [("E", 3), ("A", 2), ("B", 2), ("C", 1), ("D", 1)])
+check("D9 days_per_device: nothing -> {}", rd.days_per_device({}) == {})
+
+# -- repair_devices: what is said about the days that stay unknown, the stop flag, a save that does not answer False ----
+with _isolated_log_env("rd_logs") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _h1 = _fit_original(_b, 3966586101, 1)
+        _day_file(_b, "2025-06-01", [_h1])                       # repairable
+        _day_file(_b, "2025-06-02", ["ab" * 32])                 # original missing -> incomplete
+        _put_log(_log(_qe("2025-06-01"), _qe("2025-06-02"), _qe("2025-06-03")))   # 06-03 has no day file
+        _rec = _Rec()
+        with patch.object(rd, "log", _rec):
+            _r = rd.repair_devices(dry_run=True)
+        check("D9 an incomplete day is warned about by date",
+              "  Device repair: 2025-06-02 — originals of the day incomplete, left unknown" in _rec.m["warning"])
+        check("D9 days without a bulk day file are counted in one info line",
+              "  Device repair: 1 day(s) without a bulk day file, left unknown" in _rec.m["info"])
+        check("D9 a result that was not stopped says stopped False", _r["stopped"] is False)
+
+with _isolated_log_env("rd_nologs") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _h1 = _fit_original(_b, 3966586101, 1)
+        _day_file(_b, "2025-06-01", [_h1])
+        _put_log(_log(_qe("2025-06-01")))
+        _rec = _Rec()
+        with patch.object(rd, "log", _rec):
+            rd.repair_devices(dry_run=True)
+        check("D9 with every day file present there is no line about days without a bulk day file",
+              not any("without a bulk day file" in m for m in _rec.m["info"]) and _rec.m["warning"] == [])
+
+with _isolated_log_env("rd_save0") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _archive(_b)
+        with patch.object(quality, "_save_quality_log", return_value=0):
+            _r = rd.repair_devices()
+        check("D9 only an answer of False from the save counts as 'could not be saved' (0 does not)",
+              _r["failed"] == 0 and _r["ok"] == 2)
+
 summary()

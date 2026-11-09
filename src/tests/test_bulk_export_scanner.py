@@ -20,6 +20,7 @@ import io
 import shutil
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from gla_testenv import _TMPDIR  # sets up the environment; must precede garmin_* imports
 from support import check, section, summary
@@ -255,5 +256,28 @@ check("leaf node: imports standard library only (no project module, no garmin_co
 check("no logging and no print: a name cannot reach a log or the console from here",
       "logging" not in _imports and not any(
           isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print" for n in ast.walk(_tree)))
+
+# ── Mutation round v1.7.6.12 — survivors of the Cosmic Ray run ─────────────────
+section("B2b. garmin_bulk_export_scanner — mutation round v1.7.6.12")
+_b9 = BASE / "mutation_round"
+shutil.rmtree(_b9, ignore_errors=True)
+_one = _put(_b9 / "one" / "a.fit", P1)
+_real_rb = Path.read_bytes
+
+
+def _unreadable_fit(self):
+    if self.name == "a.fit":
+        raise PermissionError("locked by another process")
+    return _real_rb(self)
+
+
+with patch.object(Path, "read_bytes", _unreadable_fit):
+    _items9, _st9 = _scan(_one)
+check("a .fit file that cannot be read: counted once as seen and once as an unreadable entry, nothing is yielded, nothing raised",
+      _items9 == [] and (_st9.fit_seen, _st9.unreadable_entries, _st9.fit_yielded) == (1, 1, 0))
+_put(_b9 / "dir" / "bad.zip", b"this is not a zip file")
+_items9, _st9 = _scan(_b9 / "dir")
+check("a folder with one damaged ZIP: exactly one unreadable ZIP is counted, none opened",
+      _items9 == [] and (_st9.zips_unreadable, _st9.zips_opened) == (1, 0))
 
 summary()

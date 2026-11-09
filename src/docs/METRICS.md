@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-11-06 08:21 UTC · Version: 1.7.6.11.2
+Generated: 2026-11-09 14:55 UTC · Version: 1.7.6.12
 
 ## Test Counts
 
@@ -14,40 +14,40 @@ Generated: 2026-11-06 08:21 UTC · Version: 1.7.6.11.2
 | test_security.py | 60 | 60 | 0 |
 | test_redact.py | 22 | 22 | 0 |
 | test_api_capability.py | 49 | 49 | 0 |
-| test_normalizer.py | 247 | 247 | 0 |
+| test_normalizer.py | 256 | 256 | 0 |
 | test_validator.py | 82 | 82 | 0 |
-| test_writer.py | 109 | 109 | 0 |
-| test_quality.py | 492 | 492 | 0 |
-| test_backup.py | 270 | 270 | 0 |
-| test_backup_common.py | 307 | 307 | 0 |
-| test_backup_bulk.py | 70 | 70 | 0 |
+| test_writer.py | 116 | 116 | 0 |
+| test_quality.py | 506 | 506 | 0 |
+| test_backup.py | 272 | 272 | 0 |
+| test_backup_common.py | 328 | 328 | 0 |
+| test_backup_bulk.py | 100 | 100 | 0 |
 | test_source_writer.py | 88 | 88 | 0 |
-| test_container_mirror.py | 150 | 150 | 0 |
-| test_import_mirror.py | 184 | 184 | 0 |
-| test_collector.py | 654 | 654 | 0 |
-| test_garmin_import.py | 170 | 170 | 0 |
-| test_bulk_fit_reader.py | 56 | 56 | 0 |
-| test_bulk_export_scanner.py | 40 | 40 | 0 |
-| test_bulk_normalizer.py | 106 | 106 | 0 |
-| test_bulk_writer.py | 199 | 199 | 0 |
-| test_bulk_import.py | 76 | 76 | 0 |
-| test_bulk_json_import.py | 132 | 132 | 0 |
-| test_bulk_rebuild.py | 47 | 47 | 0 |
+| test_container_mirror.py | 159 | 159 | 0 |
+| test_import_mirror.py | 205 | 205 | 0 |
+| test_collector.py | 671 | 671 | 0 |
+| test_garmin_import.py | 182 | 182 | 0 |
+| test_bulk_fit_reader.py | 95 | 95 | 0 |
+| test_bulk_export_scanner.py | 42 | 42 | 0 |
+| test_bulk_normalizer.py | 118 | 118 | 0 |
+| test_bulk_writer.py | 219 | 219 | 0 |
+| test_bulk_import.py | 93 | 93 | 0 |
+| test_bulk_json_import.py | 148 | 148 | 0 |
+| test_bulk_rebuild.py | 58 | 58 | 0 |
 | test_prop_bulk_store.py | 18 | 18 | 0 |
 | test_prop_bulk_normalizer.py | 19 | 19 | 0 |
 | test_prop_rules.py | 46 | 46 | 0 |
 | test_prop_backup.py | 7 | 7 | 0 |
 | test_fuzz_parsers.py | 17 | 17 | 0 |
-| test_api.py | 75 | 75 | 0 |
+| test_api.py | 86 | 86 | 0 |
 | test_live_fetch.py | 44 | 44 | 0 |
-| test_silo_check.py | 101 | 101 | 0 |
-| test_silo_repair.py | 130 | 130 | 0 |
-| test_repair_resting_hr.py | 49 | 49 | 0 |
-| test_repair_devices.py | 66 | 66 | 0 |
-| test_repair_predictions.py | 91 | 91 | 0 |
-| test_catchup_predictions.py | 70 | 70 | 0 |
-| test_track_migration.py | 100 | 100 | 0 |
-| test_migration_snapshot.py | 50 | 50 | 0 |
+| test_silo_check.py | 105 | 105 | 0 |
+| test_silo_repair.py | 134 | 134 | 0 |
+| test_repair_resting_hr.py | 60 | 60 | 0 |
+| test_repair_devices.py | 81 | 81 | 0 |
+| test_repair_predictions.py | 107 | 107 | 0 |
+| test_catchup_predictions.py | 84 | 84 | 0 |
+| test_track_migration.py | 135 | 135 | 0 |
+| test_migration_snapshot.py | 115 | 115 | 0 |
 | test_daily_update.py | 52 | 52 | 0 |
 | test_force_refetch.py | 72 | 72 | 0 |
 | test_local_context.py | 349 | 349 | 0 |
@@ -65,7 +65,7 @@ Generated: 2026-11-06 08:21 UTC · Version: 1.7.6.11.2
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **7139** | **7139** | **0** |
+| **Total** | **7573** | **7573** | **0** |
 
 ## Modules
 
@@ -73,7 +73,7 @@ Total: 175 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-11-06 08:12 UTC · Findings: 2 · Whitelisted: 100
+Scanned: 2026-11-09 13:42 UTC · Findings: 0 · Whitelisted: 100
 
-⚠ vulture.json target_version (v1.7.6.11.2) does not match the current APP_VERSION (1.7.6.11.2) — scope may have changed since the scan. Re-run tests/check_vulture.py.
+⚠ vulture.json target_version (v1.7.6.12) does not match the current APP_VERSION (1.7.6.12) — scope may have changed since the scan. Re-run tests/check_vulture.py.
 

@@ -704,6 +704,10 @@ network or GUI required except where noted:
 `build_all.py`'s post-build validation pass against the actual built
 output (both targets), not the pre-build gate.
 
+The tests of the modules added in v1.7.6.x were also checked by mutation testing (small deliberate changes in the
+code that the tests have to notice). The tools live outside the repository; the rounds, the way tests are written for
+it and the list of changes known to be harmless are in `docs/MAINTENANCE_MUTATION.md`. A round changes tests only.
+
 Expected coverage varies by layer — the pipeline core (`garmin/`) is
 tested densely since it's the critical data path; the GUI layer is
 structurally harder to test and carries deliberately lighter coverage.

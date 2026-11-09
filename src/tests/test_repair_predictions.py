@@ -647,4 +647,130 @@ with _isolated_log_env("rp_sched") as _b:
         _n_err = _du._check_prediction_repair(_arch)
     check("P7 an error in the scan never stops the run: 0, no warning, no error", _n_err == 0 and not _rec.m["warning"] and not _rec.m["error"])
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  9. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("P9. mutation round v1.7.6.12")
+
+check("P9 _valid_date: a date -> True", rp._valid_date("2025-06-01") is True)
+check("P9 _valid_date: not a string -> False",
+      all(rp._valid_date(v) is False for v in (None, 20250601, ["2025-06-01"], b"2025-06-01")))
+check("P9 _valid_date: the basic ISO form 20250601 (valid for date.fromisoformat, 8 characters) is no archive date",
+      rp._valid_date("20250601") is False)
+check("P9 _valid_date: wrong length -> False", all(rp._valid_date(v) is False for v in ("2025-6-1", "2025-06-011", "")))
+check("P9 _valid_date: ten characters that are no date -> False",
+      all(rp._valid_date(v) is False for v in ("2025-13-45", "2025-02-30", "abcdefghij")))
+check("P9 _canon: keys sorted, no ASCII escaping, no spaces", rp._canon({"b": 1, "a": "ä"}) == '{"a":"ä","b":1}')
+
+# -- find_candidates: a name that is no date, a carrier that waits, and which copy is used ----------------------------------
+with _isolated_log_env("rp_scan9") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put_raw("0000", _PA)                                       # sorts first, its name is no date
+    _put_raw("2025-06-02")
+    _put_raw("2025-06-01", _pred("2025-06-02", 1500))
+    _f = rp.find_candidates()
+    check("P9 a file whose name is no date does not end the scan",
+          _f["set"] == {"2025-06-02": _pred("2025-06-02", 1500)} and _f["remove"] == ["2025-06-01"])
+
+with _isolated_log_env("rp_wait9") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put_raw("2025-06-10", _pred("2025-06-03", 1500))           # 06-03 has no raw day: waits, and it is the first target
+    _put_raw("2025-06-11", _pred("2025-06-04", 1600))           # 06-04 has one
+    _put_raw("2025-06-04")
+    _f = rp.find_candidates()
+    check("P9 a prediction that waits (no raw day for its date) does not stop the placing of the later dates",
+          _f["waiting"] == ["2025-06-10"] and _f["set"] == {"2025-06-04": _pred("2025-06-04", 1600)}
+          and _f["remove"] == ["2025-06-11"])
+
+with _isolated_log_env("rp_first9") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _a1 = {"userId": 4711, "calendarDate": "2025-06-04", "time5K": 1500}
+    _a2 = {"time5K": 1500, "calendarDate": "2025-06-04", "userId": 4711}      # the same answer, written in another key order
+    _put_raw("2025-06-01", _a1)
+    _put_raw("2025-06-02", _a2)
+    _put_raw("2025-06-04")
+    _f = rp.find_candidates()
+    check("P9 identical copies are no conflict and the FIRST copy (earliest day) is the one that is placed",
+          _f["conflict"] == [] and list(_f["set"]["2025-06-04"]) == list(_a1))
+
+# -- repair_predictions: the numbering and the labels of the log lines, the stop message -------------------------------
+with _isolated_log_env("rp_lines9") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _scenario(_b)
+        _rec = _Rec()
+        with patch.object(rp, "log", _rec):
+            _r = rp.repair_predictions()
+        check("P9 seven days in the loop, numbered from 1: a removed copy and a placed prediction each have their own wording",
+              "  [1/7] 2025-06-01 — copy removed ok" in _rec.m["info"]
+              and "  [5/7] 2025-06-05 — own prediction set ok" in _rec.m["info"]
+              and "  [7/7] 2025-06-15 — copy removed ok" in _rec.m["info"] and _r["failed"] == 0)
+
+with _isolated_log_env("rp_stop9") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _scenario(_b)
+        _flag, _real_wd = [], writer.write_day
+
+        def _wd_count(n, s, d):
+            ok = _real_wd(n, s, d)
+            _flag.append(1)
+            return ok
+
+        _rec = _Rec()
+        with patch.object(writer, "write_day", side_effect=_wd_count), patch.object(rp, "log", _rec):
+            _r = rp.repair_predictions(should_stop=lambda: len(_flag) >= 3)
+        check("P9 stopped at the fourth of seven days: three written, 'stopped after 3 of 7 day(s).' once",
+              _r["stopped"] is True and (_r["set"], _r["removed"]) == (0, 3)
+              and [m for m in _rec.m["info"] if "stopped after" in m] == ["  Prediction repair: stopped after 3 of 7 day(s)."])
+
+# -- repair_predictions: days that changed after the scan are skipped and do not end the loop -----------------------------
+with _isolated_log_env("rp_changed9") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        cfg.SUMMARY_DIR = _b / "summary"
+        _put_raw("2025-06-05", _pred("2025-06-05", 1500))       # planned to get a prediction, has its own already
+        _put_raw("2025-06-06")                                  # planned to get one, has none
+        _put_raw("2025-06-07", _pred("2025-06-07", 1600))       # planned to lose a copy, holds its own prediction now
+        _put_raw("2025-06-08", _pred("2025-06-01", 1700))       # planned to lose a copy, does
+        _put_raw("2025-06-09")                                  # planned to lose a copy, holds nothing any more
+        _put_log(_log(*[f"2025-06-{n:02d}" for n in range(5, 10)]))
+        _plan9 = {"set": {"2025-06-05": _pred("2025-06-05", 9000), "2025-06-06": _pred("2025-06-06", 1800)},
+                  "remove": ["2025-06-07", "2025-06-08", "2025-06-09"], "kept": 0,
+                  "conflict": [], "waiting": [], "undated": [], "replaced": []}
+        _own7 = _raw_path("2025-06-07").read_bytes()
+        _rec = _Rec()
+        with patch.object(rp, "find_candidates", return_value=_plan9), patch.object(rp, "log", _rec):
+            _r = rp.repair_predictions()
+        check("P9 skipped days do not end the loop: the one after each skip is done (1 set, 1 removed, nothing failed)",
+              (_r["set"], _r["removed"], _r["failed"]) == (1, 1, 0)
+              and _load_raw("2025-06-06")["race_predictions"] == _pred("2025-06-06", 1800)
+              and "race_predictions" not in _load_raw("2025-06-08"))
+        check("P9 a day that holds its own prediction now is not touched although a removal was planned for it",
+              _raw_path("2025-06-07").read_bytes() == _own7
+              and "  [3/5] 2025-06-07 — no misdated copy any more, skipped" in _rec.m["info"])
+        check("P9 the skip lines are numbered with the position in the loop",
+              "  [1/5] 2025-06-05 — already has its own prediction, skipped" in _rec.m["info"]
+              and "  [5/5] 2025-06-09 — no misdated copy any more, skipped" in _rec.m["info"])
+
+# -- the answer of the log save: only False is a failure, and it counts once ----------------------------------------------
+def _save_scenario9(base):
+    cfg.SUMMARY_DIR = base / "summary"
+    _put_raw("2025-06-01", _pred("2025-06-02", 1500))
+    _put_raw("2025-06-02")
+    _put_log(_log("2025-06-01", "2025-06-02"))
+
+
+with _isolated_log_env("rp_save9a") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _save_scenario9(_b)
+        with patch.object(quality, "_save_quality_log", return_value=False), patch.object(rp, "log", _Rec()):
+            _r = rp.repair_predictions()
+        check("P9 a log that cannot be saved counts exactly one failure, with its reason",
+              _r["failed"] == 1 and _r["reason"] == "the quality log could not be saved")
+with _isolated_log_env("rp_save9b") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _save_scenario9(_b)
+        with patch.object(quality, "_save_quality_log", return_value=0), patch.object(rp, "log", _Rec()):
+            _r = rp.repair_predictions()
+        check("P9 a save that answers 0 (not False) is a save: no failure, no reason",
+              _r["failed"] == 0 and "reason" not in _r and (_r["set"], _r["removed"]) == (1, 1))
+
 summary()

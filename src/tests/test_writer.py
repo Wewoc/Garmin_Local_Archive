@@ -355,6 +355,15 @@ with _iso5e("w5e_resolve") as _b:
           writer.rebuild_summary(_D5) is True and json.loads(os_summary.read_text(encoding="utf-8")) == normalizer.summarize(_API | {"date": _D5}))
     check("5e rebuild_summary: nothing to derive from (no raw, no aggregates) -> False, no file",
           writer.rebuild_summary("2024-05-15") is False and not _paths("2024-05-15")[1].exists())
+    # mutation round v1.7.6.12: without aggregates the summary comes from summarize() of the raw alone
+    # (a raw without a "date" key gives date None there; going through the export merge would give "unknown")
+    _D6 = "2024-05-16"
+    _paths(_D6)[0].parent.mkdir(parents=True, exist_ok=True)
+    _paths(_D6)[0].write_text(json.dumps({"stats": {"totalSteps": 5}}), encoding="utf-8")
+    check("5e rebuild_summary: a raw without aggregates is summarized by summarize() of the raw alone (no export merge)",
+          writer.rebuild_summary(_D6) is True
+          and json.loads(_paths(_D6)[1].read_text(encoding="utf-8")) == normalizer.summarize({"stats": {"totalSteps": 5}})
+          and json.loads(_paths(_D6)[1].read_text(encoding="utf-8"))["date"] is None)
     check("5e rebuild_summary: a date that is no date -> False, nothing created",
           all(writer.rebuild_summary(d) is False for d in ("../../x", "2024-13-40", "", None, "20240515")))
 
@@ -613,5 +622,56 @@ with _iso5e("w5h_preview") as _b:
           _pu == {"state": "unreadable", "export": None, "summary": None})
     _agg_file_p.write_text("{ not json", encoding="utf-8")
     check("5h damaged aggregates: state 'none' (as write_day() treats them)", writer.resolve_preview(_apiP, _DP)["state"] == "none")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  5z. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run (changed lines of garmin_writer)
+# ══════════════════════════════════════════════════════════════════════════════
+section("5z. garmin_writer — mutation round v1.7.6.12")
+import hashlib as _hl9
+import garmin_bulk_writer as _bw9
+from gla_testenv import _isolated_log_env as _iso9, _cfg_values as _cv9
+
+with _iso9("writer_5z") as _b9:
+    _D9 = "2024-06-01"
+    _H9 = _hl9.sha256(b"x").hexdigest()
+    _bw9._agg_path(_D9).parent.mkdir(parents=True, exist_ok=True)
+    _bw9._agg_path(_D9).write_text(json.dumps({"date": _D9, "origin": "gdpr_export", "schema_version": 1, "source_files": [_H9],
+                                               "aggregates": {"user_summary": {"totalSteps": 5}}}), encoding="utf-8")
+    _st9, _ag9 = writer._usable_aggregates(_D9)
+    check("5z _usable_aggregates: an aggregates file of an OLDER schema version (1 of 2) is usable",
+          _st9 == "ok" and _ag9 == {"user_summary": {"totalSteps": 5}})
+
+    # an error while the summary is derived: False, logged, nothing raised
+    with patch.object(writer, "_usable_aggregates", side_effect=RuntimeError("boom")), patch.object(writer, "log") as _lg:
+        _r_so = writer.write_summary_only({"date": _D9}, _D9)
+        _r_rb = writer.rebuild_summary(_D9)
+    check("5z write_summary_only and rebuild_summary: an unexpected error is False and one error line each, not an exception",
+          _r_so is False and _r_rb is False and len(_lg.error.call_args_list) == 2)
+
+    # restore_day_files: a folder whose parents do not exist is made
+    _deep = _b9 / "no" / "such" / "summary"
+    with _cv9(SUMMARY_DIR=_deep):
+        _r_deep = writer.restore_day_files(_D9, summary_bytes=b"{}")
+    check("5z restore_day_files: a folder with missing parents is made", _r_deep is True and (_deep / f"garmin_{_D9}.json").read_bytes() == b"{}")
+
+    # restore_day_files: a failing swap whose temp file cannot be removed either: False, no exception
+    with patch("garmin_writer.os.replace", side_effect=OSError("locked")), patch.object(Path, "unlink", side_effect=OSError("cannot delete")), \
+            patch.object(writer, "log") as _lg:
+        _r_fail = writer.restore_day_files(_D9, summary_bytes=b"{}")
+    check("5z restore_day_files: a swap that fails and a temp file that cannot be removed -> False, the failure is logged, the cleanup only at debug",
+          _r_fail is False and any("failed to restore" in str(c.args[0]) for c in _lg.error.call_args_list)
+          and any("not removed" in str(c.args[0]) for c in _lg.debug.call_args_list))
+
+    # restore_day_files: a write that fails before the temp file exists: the cleanup must not complain about a missing file
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")), patch.object(writer, "log") as _lg:
+        _r_wf = writer.restore_day_files("2024-06-30", summary_bytes=b"{}")   # a day with no temp file left over from the test above
+    check("5z restore_day_files: a failed write leaves no temp file and the cleanup logs nothing (a missing temp file is no error)",
+          _r_wf is False and len(_lg.error.call_args_list) == 1 and _lg.debug.call_args_list == [])
+
+    # restore_day_files: a raw backup that fails does not undo the restore
+    with patch("garmin_backup.backup_raw", side_effect=RuntimeError("backup down")), patch.object(writer, "log") as _lg:
+        _r_bk = writer.restore_day_files(_D9, raw_bytes=b"{}")
+    check("5z restore_day_files: a failing raw backup trigger is logged and the restore is still True",
+          _r_bk is True and any("raw backup trigger failed" in str(c.args[0]) for c in _lg.error.call_args_list))
 
 summary()

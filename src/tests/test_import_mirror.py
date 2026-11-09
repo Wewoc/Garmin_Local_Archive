@@ -1318,4 +1318,145 @@ shutil.rmtree(_c4_src,       ignore_errors=True)
 shutil.rmtree(_c4_parent,    ignore_errors=True)
 shutil.rmtree(_c4_plain_dir, ignore_errors=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Mutation round v1.7.6.12 — survivors of the Cosmic Ray run (changed lines of the mirror import)
+# ══════════════════════════════════════════════════════════════════════════════
+section("4h3. garmin_import_mirror — mutation round v1.7.6.12")
+import garmin_bulk_writer as _bw9
+import garmin_quality as _q9
+
+_T25 = [(3, 12), (5, 20), (8, 32), (10, 40), (13, 52), (15, 60), (18, 72), (20, 80), (23, 92)]
+
+
+def _lines25(what):
+    return [f"  Import: {what} … {pct} % ({done} of 25)" for done, pct in _T25]
+
+
+_ln = []
+for _d in range(1, 26):
+    _im._report_tenth(_ln.append, "x", _d, 25)
+check("_report_tenth: for 25 items a line at the 3rd, 5th, 8th, 10th ... 23rd (the first to reach a new tenth), none at the 25th",
+      _ln == _lines25("x"))
+_ln = []
+_im._report_tenth(_ln.append, "x", 30, 25)
+_im._report_tenth(_ln.append, "x", int("300"), int("300"))
+check("_report_tenth: an item beyond the total or the last of a long list gives no line", _ln == [])
+
+_ln = []
+_im._import_bulk_from_bytes({}, [], [(f"o{i}", "a" * 64, ".fit") for i in range(25)], progress=_ln.append)
+check("_import_bulk_from_bytes: the originals are numbered from 1 (25 originals: lines at 3, 5, 8 ... 23)", _ln == _lines25("originals"))
+_ln = []
+_im._import_bulk_from_bytes({}, [(f"d{i}", "aggregates", "2024-01-01") for i in range(25)], [], progress=_ln.append)
+check("_import_bulk_from_bytes: the day files are numbered from 1", _ln == _lines25("bulk day files"))
+_ln = []
+_im._import_raw_from_bytes({}, [{} for _ in range(25)], 0, {}, _q9, False, progress=_ln.append)
+check("_import_raw_from_bytes: the raw days are numbered from 1", _ln == _lines25("raw days"))
+
+with patch.object(_bw9, "store_original", return_value="zzz"):
+    _res = _im._import_bulk_from_bytes({"o": b"x"}, [], [("o", "a" * 64, ".fit")])
+check("an original that the writer answers with anything but 'written' or 'present' is one error", _res[3] == 1 and _res[2] == 0)
+with patch.object(_bw9, "import_day_file", return_value="written"):
+    _res = _im._import_bulk_from_bytes({"d1": b"x", "d2": b"y"}, [("d1", "intraday", "2024-01-01"), ("d2", "aggregates", "2024-01-02")], [])
+check("only a written aggregates file is reported as an aggregates day (an intraday file is not)",
+      _res == (2, 0, 0, 0, ["2024-01-02"]))
+with patch.object(_bw9, "store_original", return_value="written"):
+    _r_none, _c_none = _im_logged(_im._import_bulk_from_bytes, {}, [], [])
+    _r_one, _c_one = _im_logged(_im._import_bulk_from_bytes, {"o": b"x"}, [], [("o", "a" * 64, ".fit")])
+check("the 'bulk import done' line is only written when there was something to import",
+      not any("bulk import done" in m for _, m in _c_none) and any("bulk import done" in m for _, m in _c_one))
+
+# -- the raw days that exist only as export data ----------------------------------------------------------------------------
+_ro = [{"date": "2024-01-01", "write": 0}, {"date": "2024-01-02", "write": False}, {"date": "2024-01-03"}]
+(_rd9, _ex9), _c_ex = _im_logged(_im._split_export_only, _ro, [])
+check("only an entry with write False (not 0, not missing) and no raw file in the container is an export-only day",
+      [e["date"] for e in _rd9] == ["2024-01-01", "2024-01-03"] and [e["date"] for e in _ex9] == ["2024-01-02"]
+      and any("1 day(s) exist only as export data" in m for _, m in _c_ex))
+_, _c_ex0 = _im_logged(_im._split_export_only, [{"date": "2024-01-03"}], [])
+check("no export-only day: no line about them", not any("export data" in m for _, m in _c_ex0))
+
+# -- _import_export_days: a bad entry does not end the loop ---------------------------------------------------------------------
+_qd9 = {"first_day": "2024-01-01", "devices": [], "days": []}
+_ents = [{"date": "2024-01-01", "quality": "bogus"}, {"date": "2024-01-02", "quality": "high"}, {"date": "2024-01-03", "quality": "high"}]
+with patch.object(_bw9, "list_aggregate_days", return_value=["2024-01-03", "2024-13-45"]):
+    _made9, _errs9 = _im._import_export_days(_ents, [], _qd9, _q9)
+check("export days: an unknown label (an error) and a day without daily values (no error) do not stop the day after them",
+      (_made9, _errs9) == (1, 1) and [e["date"] for e in _qd9["days"]] == ["2024-01-03"])
+_qd9b = {"first_day": "2024-01-01", "devices": [], "days": []}
+with patch.object(_bw9, "list_aggregate_days", return_value=["2024-13-45"]):
+    _res9b = _im._import_export_days([{"date": "2024-13-45", "quality": "high"}], [], _qd9b, _q9)
+check("export days: an entry whose date is no date is one error, nothing is made", _res9b == (0, 1) and _qd9b["days"] == [])
+
+# -- the marks of the bulk store are caught up when files or export days came in ---------------------------------------------------
+with _isolated_log_env("imp_h3_mark") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with patch.object(_q9, "catch_up_bulk_intraday", wraps=_q9.catch_up_bulk_intraday) as _ci, \
+         patch.object(_q9, "catch_up_bulk_aggregates", wraps=_q9.catch_up_bulk_aggregates) as _ca:
+        _r1 = _im.run_import_mirror(_bulk_gla, _b, "pw")
+        _n1 = (_ci.call_count, _ca.call_count)
+        _r2 = _im.run_import_mirror(_bulk_gla, _b, "pw")
+        _n2 = (_ci.call_count, _ca.call_count)
+        with quality.QUALITY_LOCK:                           # the archive forgets the entry of the export-only day
+            _ql9 = quality._load_quality_log()
+            _ql9["days"] = [e for e in _ql9["days"] if e["date"] != _XD]
+            quality._save_quality_log(_ql9, skip_backup=True)
+        _r3 = _im.run_import_mirror(_bulk_gla, _b, "pw")
+        _n3 = (_ci.call_count, _ca.call_count)
+    check("the marks are caught up once after the import that brought the bulk files", _r1["bulk_copied"] == 3 and _n1 == (1, 1))
+    check("a second import with nothing new does not catch up again", _r2["bulk_copied"] == 0 and _r2["export_days"] == 0 and _n2 == (1, 1))
+    check("an import that copies no bulk file but makes an export-only entry catches up the marks too",
+          _r3["bulk_copied"] == 0 and _r3["export_days"] == 1 and _n3 == (2, 2))
+
+
+# -- the tenths with a total that does not divide 100, the numbering of the loops, the device names ---------------------------------------
+# 25 items (above) divide 100, so a factor of 101 or a shifted start gave the same lines. 29 items do not; the lines are interleaved
+# with one marker per item handled, so the number a loop hands over (1 for the first item, not 2) shows in where the line stands.
+def _ref29(what, n=29):
+    out = []
+    for _i in range(1, n + 1):
+        if _i < n and 100 * (_i - 1) // n // 10 < 100 * _i // n // 10:
+            out.append(f"  Import: {what} … {100 * _i // n} % ({_i} of {n})")
+        out.append("item")
+    return out
+
+
+_ln = []
+for _d in range(1, 30):
+    _im._report_tenth(_ln.append, "x", _d, 29)
+check("_report_tenth: 29 items (a total that does not divide 100) give the lines of the formula, 100 * done // total, none at the last item",
+      _ln == [m for m in _ref29("x") if m != "item"] and len(_ln) == 9 and _ln[0].endswith("% (3 of 29)"))
+
+_ln = []
+
+
+def _mark9(*_a, **_k):
+    _ln.append("item")
+    return "written"
+
+
+with patch.object(_bw9, "store_original", side_effect=_mark9):
+    _im._import_bulk_from_bytes({f"o{i}": b"x" for i in range(29)}, [], [(f"o{i}", "a" * 64, ".fit") for i in range(29)], progress=_ln.append)
+check("_import_bulk_from_bytes: the originals hand over 1 for the first item (the line stands before the item it counts)", _ln == _ref29("originals"))
+_ln = []
+with patch.object(_bw9, "import_day_file", side_effect=_mark9):
+    _im._import_bulk_from_bytes({f"d{i}": b"x" for i in range(29)}, [(f"d{i}", "aggregates", "2024-01-01") for i in range(29)], [], progress=_ln.append)
+check("_import_bulk_from_bytes: the day files hand over 1 for the first item", _ln == _ref29("bulk day files"))
+
+
+class _Entry9(dict):
+    def get(self, key, default=None):
+        _ln.append("item")
+        return None
+
+
+_ln = []
+_im._import_raw_from_bytes({}, [_Entry9() for _ in range(29)], 0, {}, _q9, False, progress=_ln.append)
+check("_import_raw_from_bytes: the raw days hand over 1 for the first item", _ln == _ref29("raw days"))
+
+_names9 = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"] + [f"{p}{d}" for p in ("COM", "LPT") for d in "123456789¹²³"]
+check("_is_reserved_name: every device name (CON, PRN, AUX, NUL, CONIN$, CONOUT$, COM1-9, LPT1-9, with the superscript digits) is refused, "
+      "in any case, with an extension or trailing blanks",
+      all(_im._is_reserved_name(n) and _im._is_reserved_name(n.lower() + ".txt") and _im._is_reserved_name(n + " ") for n in _names9))
+check("_is_reserved_name: names that only resemble a device (COM0, LPT0, COM10, NULL, console) and a device name behind a dot are accepted",
+      not any(_im._is_reserved_name(n) for n in ("COM0", "LPT0", "COM10", "LPT10", "NULL", "console", "xnul", ".nul", "a.nul")))
+
 summary()
