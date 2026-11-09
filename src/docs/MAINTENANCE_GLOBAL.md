@@ -1230,6 +1230,10 @@ python compiler/build_all.py
 
 `test_app_logic.py` runs automatically as the final post-build step in `build_all.py`, after `test_build_output.py`. Can also be run standalone after changes to the entry point files.
 
+### Mutation testing (v1.7.6.12)
+
+How the tests are checked for blind spots (small deliberate changes in the code that the tests have to notice), the rounds that were run, and the list of changes known to be harmless (equivalent mutants) are in `MAINTENANCE_MUTATION.md`. The tools live outside the repository; a round changes tests only, never behaviour.
+
 ---
 
 ## Package structure

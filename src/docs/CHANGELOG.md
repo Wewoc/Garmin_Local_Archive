@@ -1,5 +1,34 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.6.12 — Mutation Test of the New Modules
+
+Tests only, no change in what the program does: no code of `garmin/`, `app/` or the other packages was changed. All modules added during v1.7.6.x (bulk store and bulk import,
+export import and mirror, backups, container, silo check and repair, track migration and its snapshot, the repairs, the race-prediction catch-up) and the changed lines of the
+core modules they touched went through a mutation test: small deliberate changes in the code (`<` to `<=`, `==` to `is`, a number, a `continue` to a `break`) that the tests have to notice.
+What the tests did not notice got a new test; what no test can notice is recorded as an equivalent change with its reason. No new module, no schema change, no new file format.
+
+**What changed:**
+- **Mutation round with Cosmic Ray 8.7.0** over 32 modules: 9905 changes in stage 1 (each against the tests of its own module), 8343 caught (84.2 %), 1553 survived. Every survivor
+  was then run against all other suites (stage 2) and judged one by one; the tests written for the gaps were run again on the changed lines until only equivalent changes were left.
+  The tool and its start lists live outside the repository (maintainer tooling).
+- **434 new checks in 26 existing test files** (`test_api`, `test_backup*`, `test_bulk_*`, `test_catchup_predictions`, `test_collector`, `test_container_mirror`, `test_garmin_import`, `test_import_mirror`,
+  `test_migration_snapshot`, `test_normalizer`, `test_quality`, `test_repair_*`, `test_silo_*`, `test_track_migration`, `test_writer`), each in a section "mutation round v1.7.6.12".
+  They pin what was only checked loosely before: progress and result lines and their numbers, the reasons a run stops, the boundaries of limits and counters, error and cleanup paths,
+  the order in which entries are walked (a `break` against a `continue`), the exact text of the ZIP and file checks, counters of the device and field marks, and comparisons whose value comes
+  from the environment at run time (a string that is not the program's own literal).
+- **New `docs/MAINTENANCE_MUTATION.md`**: the tools, how a round runs, how to write a test that a change cannot pass by chance, the rounds, and the list of equivalent changes (EQ-01 to EQ-46;
+  EQ-01 to EQ-15 from the earlier hand lists, EQ-16 to EQ-47 from this round), each named by module, function and change; and the section "Known findings that stay as they are" (F-21, F-22, F-25, F-27, F-28, F-29: pinned and left as they are by decision of 2026-11-09, so a later round does not
+  report them a second time). Pointers in `MAINTENANCE_GLOBAL.md` and `GLA_GUIDELINES.md`.
+- **Finding F-29** (register `AUDIT_FINDINGS_v1_7_6.md`, not fixed): the date check `_valid_date` exists in nine near-identical copies and, on Python 3.11 and later, lets the ISO week form (`2025-W35-3`) pass in seven of them,
+  while two others refuse it. Not reachable in operation (day keys are made by the program); recommendation: leave it, and if it is ever touched, one shared strict helper.
+
+**New files:** `docs/MAINTENANCE_MUTATION.md`
+**Changed modules:** the 26 test files named above; `version.py`; documentation (CHANGELOG, VERSION_HISTORY, ROADMAP, README_APP, MAINTENANCE_GLOBAL, GLA_GUIDELINES, METRICS)
+**Test result:** 7573 checks in 56 suites, all green (`docs/METRICS.md`; before 7139 in 56); all 269 `.py` files of `src/` compile under Python 3.11 (syntax; the new checks were run on 3.13);
+`ruff` clean; Vulture 0 (100 through the whitelist as before); `doc_guard` A 310/310, B 161/162 (only the easter egg), C nothing claimed. Not run, because no code changed: `build_dep_map`, Netz 2, `test_build_output.py`.
+**Mutation results:** every survivor is either caught by a test or listed as equivalent (EQ-16 to EQ-47). The last re-run, the mirror import (264 mutants on its changed lines), left 29 survivors: 7 were caught by new tests (a progress total that does not divide 100, the start of the numbering in three loops, the LPT device names), 22 are equivalent. Not covered: the mutants that only an input the program never produces can tell apart (listed as equivalent with the reason), the mirror import outside its changed lines,
+and `garmin_extended_anaysis.py` (easter egg, no tests).
+
 ## v1.7.6.11.2 — Catch-up of Race Predictions
 
 Days of the archive that hold no race prediction of their own date (the days the prediction repair of v1.7.6.10 cleaned of a copy of another day's

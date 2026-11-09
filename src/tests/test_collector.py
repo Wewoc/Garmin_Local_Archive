@@ -5616,4 +5616,141 @@ check("4w main source backup backfill: not during a source backfill run (GARMIN_
 _c, _r, _i = _bk17(3, env={"GARMIN_SOURCE_BACKFILL": "0"})
 check("4w main source backup backfill: GARMIN_SOURCE_BACKFILL=0 does not block it", (_c, _r) == (1, 1))
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4z. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run (changed lines of garmin_collector)
+# ══════════════════════════════════════════════════════════════════════════════
+section("4z. garmin_collector — mutation round v1.7.6.12")
+import sys as _sys9
+
+# 'preview' read from the environment of a real process is a string made at run time, not the program's own literal (an `is`
+# comparison would pass in the tests, because the test's literal is the very same object, and fail in production)
+with _isolated_log_env("main15modes9") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _day_file15(_SYNC1)
+    _log15([{"date": "2024-05-01", **_API15}])
+    with _cfg_values(SYNC_DATES=[_SYNC1], REFRESH_FAILED=False, MAX_DAYS_PER_SESSION=0):
+        _pv = b"preview".decode()
+        (_c1, _e1, _f1, _), _rec, _run, _plan = _tm15(env={"GARMIN_TRACK_MIGRATION": _pv})
+        (_c2, _e2, _f2, _), _rec2, _run2, _fin2 = _br15(env={"GARMIN_BULK_REBUILD": _pv})
+        _end = "  Preview only - the sync was not run."
+        check("4z main: GARMIN_TRACK_MIGRATION and GARMIN_BULK_REBUILD with a value made at run time ('preview') are previews "
+              "(compared by value, not by identity): the report is made and the run ends there with the 'Preview only' line "
+              "(the day is up to date, so a run that went on would not fetch anything either — the line is the sign)",
+              (_run.call_count, _plan.call_count) == (0, 1) and _run2.call_count == 1
+              and _run2.call_args.kwargs.get("dry_run") is True and not _fin2.called
+              and not _f1.called and not _f2.called
+              and _rec.msgs("info").count(_end) == 1 and _rec2.msgs("info").count(_end) == 1)
+
+# -- the marks of the bulk store ---------------------------------------------------------------------------------------------
+with _isolated_log_env("coll9_marks") as _b:
+    with patch.object(quality, "record_bulk_intraday", return_value=1), patch.object(quality, "catch_up_bulk_intraday", return_value=0), \
+            patch.object(quality, "_save_quality_log", return_value=0):
+        _res = _col5._apply_bulk_marks({"days": []}, ["2024-05-01"], [])
+    check("4z _apply_bulk_marks: a save that answers 0 (not False) is a save", _res == (True, 1, 0))
+
+    def _mark9(days, ret):
+        with patch("garmin_bulk_writer.list_days", return_value=["2024-05-01"]), patch.object(_col5, "_apply_bulk_marks", return_value=ret), \
+                patch.object(_col5, "log") as _lg:
+            out = _col5._mark_bulk_days(days)
+        return out, [str(c.args[0]) for c in _lg.info.call_args_list]
+
+    _o1, _l1 = _mark9(["d1", "d2", "d3", "d4"], (True, 1, 0))
+    _o2, _l2 = _mark9(["d1"], (True, 1, 0))
+    _o3, _l3 = _mark9(["d1"], (True, 0, 0))
+    _o4, _l4 = _mark9(["d1", "d2"], (True, 2, 3))
+    check("4z _mark_bulk_days: the line says how many of the written days are marked, how many have no entry yet (4 - 1 = 3), "
+          "and how many earlier days were caught up — each part only when there is something to say",
+          _l1 == ["  Bulk import: 1 of 4 written day(s) marked in the quality log (3 without an entry yet)"]
+          and _l2 == ["  Bulk import: 1 of 1 written day(s) marked in the quality log"]
+          and _l3 == ["  Bulk import: 0 of 1 written day(s) marked in the quality log (1 without an entry yet)"]
+          and _l4 == ["  Bulk import: 2 of 2 written day(s) marked in the quality log, 3 earlier day(s) caught up"]
+          and (_o1, _o2, _o3, _o4) == (True, True, True, True))
+    # equal numbers above 256 are not the same object: "nothing without an entry" must be decided by value
+    _big = ["d%d" % _i for _i in range(300)]
+    _o5, _l5 = _mark9(_big, (True, 300, 0))
+    _o6, _l6 = _mark9(_big, (True, 299, 0))
+    check("4z _mark_bulk_days: 300 written days that are all marked say no 'without an entry' (equal counts above 256 are compared by value); "
+          "299 of 300 say one",
+          _l5 == ["  Bulk import: 300 of 300 written day(s) marked in the quality log"]
+          and _l6 == ["  Bulk import: 299 of 300 written day(s) marked in the quality log (1 without an entry yet)"])
+
+    _sd = cfg.SUMMARY_DIR = _b / "summary9"
+    _sd.mkdir(parents=True)
+    for _n in ("garmin_0000.json", "garmin_2024-05-01.json", "garmin_2024-05-02.json", "garmin_notes.json"):
+        (_sd / _n).write_text("{}", encoding="utf-8")
+    check("4z _summary_days: names that are no date (also the one that sorts first) are left out, the others are all found",
+          _col5._summary_days() == {"2024-05-01", "2024-05-02"})
+
+# -- _apply_aggregates: counts, a day that cannot be completed does not end the loop, the flag 'changed' ---------------------------
+_agg_docs = {"2024-05-01": {"aggregates": {"user_summary": {"totalSteps": 5000}}}, "2024-05-02": None,
+             "2024-05-03": {"aggregates": {"user_summary": {"totalSteps": 6000}}}, "2024-05-04": {"aggregates": {"user_summary": {"totalSteps": 7000}}}}
+
+
+def _agg9(written, insufficient, agg_days, qdata=None):
+    qd = {"days": []} if qdata is None else qdata
+    with patch.object(_col5, "_summary_days", return_value=set()), \
+            patch("garmin_bulk_writer.read_aggregates", side_effect=lambda d: _agg_docs.get(d)), \
+            patch.object(_col5.writer, "rebuild_summary", side_effect=lambda d: d != "2024-05-03"), \
+            patch.object(quality, "record_bulk_aggregates", return_value=0), patch.object(quality, "catch_up_bulk_aggregates", return_value=0), \
+            patch.object(_col5, "log"):
+        return _col5._apply_aggregates(qd, written, insufficient, agg_days), qd
+
+
+with _isolated_log_env("coll9_agg") as _b:
+    _empty9, _ = _agg9([], [], [])
+    check("4z _apply_aggregates: nothing to do -> not changed, nothing failed, every counter zero",
+          _empty9 == (False, 0, {"summaries": 0, "entries": 0, "failed_days": 0, "marked": 0, "caught_up": 0, "rejected_entries": 0}))
+    (_chg9, _fail9, _cnt9), _qd9 = _agg9(["2024-05-01", "2024-05-02", "2024-05-03", "2024-05-04"], ["2024-05-09", "2024-05-01"], [])
+    check("4z _apply_aggregates: two days made (the one before and the one after two that could not be completed), two entries, "
+          "two days failed (no usable daily values; the summary could not be made), one entry for a day with too little data, changed",
+          (_chg9, _fail9) == (True, 2)
+          and (_cnt9["summaries"], _cnt9["entries"], _cnt9["failed_days"], _cnt9["rejected_entries"]) == (2, 2, 2, 1)
+          and sorted(e["date"] for e in _qd9["days"]) == ["2024-05-01", "2024-05-04", "2024-05-09"])
+    _only_entries, _ = _agg9(["2024-05-01"], [], [])
+    _only_reject, _ = _agg9([], ["2024-05-09"], [])
+    check("4z _apply_aggregates: a new entry alone is a change; so is an entry for a day with too little data alone",
+          _only_entries[0] is True and _only_reject[0] is True)
+
+# -- _finish_aggregates ----------------------------------------------------------------------------------------------------------
+_CNT9 = {"summaries": 3, "entries": 1, "failed_days": 0, "marked": 3, "caught_up": 1, "rejected_entries": 1}
+with _isolated_log_env("coll9_finish") as _b:
+    with patch("garmin_bulk_writer.list_aggregate_days", return_value=[]), patch.object(_col5, "_apply_aggregates", return_value=(False, 0, _CNT9)) as _ap:
+        _col5._finish_aggregates({"written_days": ["2024-05-01"]})
+    check("4z _finish_aggregates: a written day with an empty store is still worked on (the early return needs all three to be empty)",
+          _ap.call_count == 1)
+    with patch("garmin_bulk_writer.list_aggregate_days", return_value=["2024-05-01"]), \
+            patch.object(_col5, "_apply_aggregates", return_value=(True, 0, _CNT9)), patch.object(quality, "_save_quality_log", return_value=0):
+        _fin_ok = _col5._finish_aggregates({"written_days": ["2024-05-01"]})
+    check("4z _finish_aggregates: a save that answers 0 (not False) is a save", _fin_ok is True)
+    with patch("garmin_bulk_writer.list_aggregate_days", side_effect=RuntimeError("boom")), patch.object(_col5, "log") as _lg:
+        _fin_err = _col5._finish_aggregates({"written_days": ["2024-05-01"]})
+    check("4z _finish_aggregates: an error inside is a warning and False, not an exception",
+          _fin_err is False and any("could not finish" in str(c.args[0]) for c in _lg.warning.call_args_list))
+    for _cnt, _want in ((_CNT9, "3 summary file(s) made, 1 new quality-log entry, 1 entry for days with too little data, 4 day(s) marked"),
+                        ({**_CNT9, "entries": 2, "rejected_entries": 0}, "3 summary file(s) made, 2 new quality-log entries, 0 entries for days with too little data, 4 day(s) marked"),
+                        ({**_CNT9, "entries": 0, "rejected_entries": 2}, "3 summary file(s) made, 0 new quality-log entries, 2 entries for days with too little data, 4 day(s) marked")):
+        with patch("garmin_bulk_writer.list_aggregate_days", return_value=["2024-05-01"]), \
+                patch.object(_col5, "_apply_aggregates", return_value=(False, 0, _cnt)), patch.object(_col5, "log") as _lg:
+            _col5._finish_aggregates({"written_days": ["2024-05-01"]})
+        check(f"4z _finish_aggregates: the result line ({_want})",
+              [str(c.args[0]) for c in _lg.info.call_args_list] == [f"  Bulk import: daily values — {_want}"])
+
+# -- _run_bulk_import: every failed part counts one ----------------------------------------------------------------------------------
+with patch.dict(os.environ, {"GARMIN_BULK_PHASES": "bogus"}), patch.object(_col5, "log"):
+    _bad_ph = _col5._run_bulk_import("x")
+check("4z _run_bulk_import: an unknown phase selection is exactly one failure and nothing is started", _bad_ph == {"failed": 1})
+with patch.dict(os.environ, {"GARMIN_BULK_PHASES": "json,intraday"}), \
+        patch("garmin_bulk_json_import.run_aggregates_import", return_value={"ok": False}), \
+        patch("garmin_bulk_import.run_intraday_import", return_value={"ok": False}), \
+        patch.object(_col5, "_finish_aggregates", return_value=False), patch.object(_col5, "_mark_bulk_days", return_value=False), \
+        patch.object(_col5, "_run_bulk_backup"), patch.object(_col5, "_is_stopped", return_value=False), patch.object(_col5, "log"):
+    _all_bad = _col5._run_bulk_import("x")
+check("4z _run_bulk_import: a phase that is not ok and a finish that failed count one each, for both phases: 4", _all_bad == {"failed": 4})
+
+# -- the backup refresh that cannot even start ------------------------------------------------------------------------------------------
+with patch.dict(_sys9.modules, {"garmin_backup": None}), patch.object(_col5, "log") as _lg:
+    _col5._run_backup_refresh()
+check("4z _run_backup_refresh: an import that fails is a warning, the sync goes on",
+      any("Backup refresh skipped" in str(c.args[0]) for c in _lg.warning.call_args_list))
+
 summary()

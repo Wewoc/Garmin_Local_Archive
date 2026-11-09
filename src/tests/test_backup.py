@@ -656,6 +656,33 @@ with _isolated_log_env("bk2_qlog_shrink_ok"):
           len(json.loads(_zip_read(_snap)["quality_log.json"])["days"]) == 6)
 
 
+# -- 6c. the data-loss guard at its edges (mutation round v1.7.6.12) ------------------------------------------------
+def _qlog_n(n):
+    return {"days": [{"date": f"2024-01-{i:02d}", "quality": "high"} for i in range(1, n + 1)]}
+
+
+def _guard_case(name, old_n, new_n, garbage_snapshot=False):
+    with _isolated_log_env(name):
+        _put_log(_qlog_n(old_n))
+        _q_backup_mod.backup_quality_log()
+        _snap9 = cfg.LOG_BACKUP_DIR / f"quality_log_{date.today().strftime('%Y-%m')}.zip"
+        if garbage_snapshot:
+            _snap9.write_bytes(b"this is not a zip")
+        _put_log(_qlog_n(new_n))
+        _q_backup_mod.backup_quality_log()
+        try:
+            return len(json.loads(_zip_read(_snap9)["quality_log.json"])["days"])
+        except Exception:
+            return None
+
+
+check("4f2 backup_quality_log guard: exactly half the days (10 -> 5) is allowed; 4 of 10 is refused; 0 of 1 is refused",
+      _guard_case("bk3_guard_half", 10, 5) == 5 and _guard_case("bk3_guard_four", 10, 4) == 10
+      and _guard_case("bk3_guard_one", 1, 0) == 1)
+check("4f2 backup_quality_log guard: a snapshot that cannot be read does not block the backup (the guard fails open and the new log is written)",
+      _guard_case("bk3_guard_garbage", 10, 3, garbage_snapshot=True) == 3)
+
+
 def _glob_in_order(reverse):
     real = Path.glob
 

@@ -1012,4 +1012,118 @@ _rr_inv = _gi.build_inventory([_G_RACE, _G_RACE.replace("05-01", "06-01"), _G_TR
 check("4k6 inventory: the new kind has its count (it is read, not unknown); the training history in the same folder stays unknown",
       _rr_inv["read"]["race_predictions"] == 2 and _rr_inv["unknown"]["files"] == 1)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4k7. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("4k7. garmin_import — mutation round v1.7.6.12")
+import io as _io9
+import zipfile as _zf9
+
+
+class _GLog9:
+    def __init__(self):
+        self.calls = []
+
+    def _add(self, level, msg):
+        self.calls.append((level, msg))
+
+    def warning(self, msg, *a, **k):
+        self._add("warning", msg)
+
+    def info(self, msg, *a, **k):
+        self._add("info", msg)
+
+    def debug(self, msg, *a, **k):
+        self._add("debug", msg)
+
+    def error(self, msg, *a, **k):
+        self._add("error", msg)
+
+
+def _gl9(fn, *args, **kwargs):
+    real, rec = _gi.log, _GLog9()
+    _gi.log = rec
+    try:
+        return fn(*args, **kwargs), rec.calls
+    finally:
+        _gi.log = real
+
+
+# -- parse_day: wrong types are named, a clean day says nothing --------------------------------------------------------
+_d9 = "2024-05-01"
+_, _c = _gl9(_gi.parse_day, {"uds": {"calendarDate": _d9, "totalSteps": 1, "allDayStress": 5}}, _d9)
+check("parse_day: an allDayStress that is no object is named in one warning", any("wrong type counted as empty: allDayStress" in m for _, m in _c))
+_, _c = _gl9(_gi.parse_day, {"uds": {"calendarDate": _d9, "totalSteps": 1, "allDayStress": {"aggregatorList": "bad"}}}, _d9)
+check("parse_day: an aggregatorList that is no list is named", any("allDayStress.aggregatorList" in m for _, m in _c))
+_, _c = _gl9(_gi.parse_day, {"uds": {"calendarDate": _d9, "totalSteps": 1}}, _d9)
+check("parse_day: a day without allDayStress and one with a missing aggregatorList give no warning at all",
+      not any("wrong type" in m for _, m in _c)
+      and not any("wrong type" in m for _, m in _gl9(_gi.parse_day, {"uds": {"calendarDate": _d9, "allDayStress": {}}}, _d9)[1]))
+
+# -- the loaders without the flag give days, not pairs ---------------------------------------------------------------------
+_zp9 = _TMPDIR / "gi9.zip"
+with _zf9.ZipFile(_zp9, "w") as _z:
+    _z.writestr(_G_UDS, json.dumps([{"calendarDate": "2024-05-01", "totalSteps": 5}]))
+_dir9 = _TMPDIR / "gi9_dir"
+shutil.rmtree(_dir9, ignore_errors=True)
+(_dir9 / "DI_CONNECT" / "DI-Connect-Aggregator").mkdir(parents=True)
+(_dir9 / _G_UDS).write_text(json.dumps([{"calendarDate": "2024-05-01", "totalSteps": 5}]), encoding="utf-8")
+_z9, _d9l = list(_gi._load_from_zip(_zp9)), list(_gi._load_from_dir(_dir9))
+check("_load_from_zip and _load_from_dir without with_entries yield the day dicts themselves (not (day, entries) pairs)",
+      len(_z9) == 1 and isinstance(_z9[0], dict) and _z9[0]["date"] == "2024-05-01"
+      and len(_d9l) == 1 and isinstance(_d9l[0], dict) and _d9l[0]["date"] == "2024-05-01")
+
+# -- the choice between two entries of one date and the order of alert events ----------------------------------------------------
+check("_later_entry_wins: an identical entry does not replace itself; with the same time the smaller canonical text wins; "
+      "key order does not matter; non-ASCII text is compared as written",
+      _gi._later_entry_wins({"b": 2}, {"b": 2}) is False
+      and _gi._later_entry_wins({"a": 1, "b": 2}, {"b": 2, "a": 1}) is False
+      and _gi._later_entry_wins({"b": "z"}, {"b": "ä"}) is True and _gi._later_entry_wins({"b": "ä"}, {"b": "z"}) is False)
+check("_alert_sort_key: the time of the event first, then the canonical text (sorted keys, non-ASCII as written)",
+      _gi._alert_sort_key({"b": 2, "a": 1}) == ("", '{"a":1,"b":2}')
+      and _gi._alert_sort_key({"abnormalHrEventGMT": "2024-05-01T03:00:00.0", "x": "ä"})
+      == ("2024-05-01T03:00:00.0", '{"abnormalHrEventGMT":"2024-05-01T03:00:00.0","x":"ä"}'))
+
+# -- kept families only in their own folder; broken wrappers and activities do not end the reading -------------------------------------
+check("_saved_family: the file name alone is not enough, the folder must be the family's (a folder that sorts before or after is no match)",
+      _gi._saved_family("DI_CONNECT/DI-Connect-Fitness/x_gear.json") == "gear"
+      and _gi._saved_family("zzz/x_gear.json") is None and _gi._saved_family("AAA/x_gear.json") is None)
+_by9 = {}
+_gl9(_gi._index_file, _by9, "activities", "lbl", ["junk", {"summarizedActivitiesExport": ["junk2", {"startTimeLocal": 1714564800000, "name": "Run"}]}])
+check("_index_file: a wrapper that is no object and an activity that is no object do not end the reading of the rest",
+      list(_by9) == ["2024-05-01"] and [a["name"] for a in _by9["2024-05-01"]["activities"]] == ["Run"])
+
+# -- the counters and warnings of the readers ----------------------------------------------------------------------------------------
+_inv9 = {}
+_gi._count(_inv9, "unreadable")
+check("_count: the first problem counts 1", _inv9 == {"unreadable": 1})
+_inv9b = {}
+_, _c = _gl9(_gi._too_large, 70_500_001, _inv9b)
+_, _c2 = _gl9(_gi._too_large, 70_499_999, {})
+check("_too_large: the warning names the size in whole MB (70,500,001 -> 71, 70,499,999 -> 70) and the limit of 64 MB, counts it",
+      _inv9b == {"too_large": 1}
+      and ("warning", "  load_bulk: a JSON file of 71 MB is over the limit of 64 MB, skipped") in _c
+      and ("warning", "  load_bulk: a JSON file of 70 MB is over the limit of 64 MB, skipped") in _c2)
+with _zf9.ZipFile(_io9.BytesIO(), "w") as _zw:
+    pass
+_buf9 = _io9.BytesIO()
+with _zf9.ZipFile(_buf9, "w") as _zw:
+    _zw.writestr("ok.json", "{}")
+with _zf9.ZipFile(_io9.BytesIO(_buf9.getvalue())) as _zr:
+    _inv_a = {}
+    _ra, _ca = _gl9(_gi._read_zip_json, _zr, "missing.json", None, _inv_a)
+    _inv_b = {}
+    _rb, _cb = _gl9(_gi._read_zip_json, _zr, "missing.json", lambda n, b: None, _inv_b)
+check("_read_zip_json: a name that is not in the ZIP is None and counted unreadable, without and with a hook, nothing raised",
+      _ra is None and _rb is None and _inv_a == {"unreadable": 1} and _inv_b == {"unreadable": 1}
+      and any("could not read missing.json" in m for _, m in _ca) and any("could not read missing.json" in m for _, m in _cb))
+
+# -- a file that is not in the folder: counted unreadable, with and without a hook, nothing raised ------------------------------------------
+_inv_c, _inv_d = {}, {}
+_rc, _cc = _gl9(_gi._read_dir_json, _dir9, "nothing_here.json", None, _inv_c)
+_rd, _cd = _gl9(_gi._read_dir_json, _dir9, "nothing_here.json", lambda n, b: None, _inv_d)
+check("_read_dir_json: a file that is not there is None and counted unreadable, without and with a hook, nothing raised",
+      _rc is None and _rd is None and _inv_c == {"unreadable": 1} and _inv_d == {"unreadable": 1}
+      and any("could not read nothing_here.json" in m for _, m in _cc) and any("could not read nothing_here.json" in m for _, m in _cd))
+
 summary()

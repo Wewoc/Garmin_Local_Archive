@@ -6,18 +6,14 @@
 
 ---
 
-**Currently stable — v1.7.6.11.2**
+**Currently stable — v1.7.6.12**
 
 ---
 
-### v1.7.6.12 — Mutation test of the new modules
+### Second build of the download packages
 
-- The modules added during v1.7.6.x (bulk store, export import, backups) go
-  through the mutation test; changes the tests miss get new tests or are
-  documented as equivalent. Tests only, no change in behaviour.
-
-**Release:** Each step gets its own documented release round; the first build
-of the download packages was made after v1.7.6.4; the second one is due after v1.7.6.12, the end of the v1.7.6.x line.
+- The v1.7.6.x line is complete: both download packages (standard and standalone) are built again
+  from v1.7.6.12. The first build was made after v1.7.6.4. No new function, no change in behaviour.
 
 **Not part of it:** FIT activities (v1.8); stress as a replacement for the API
 value.

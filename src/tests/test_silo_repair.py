@@ -955,4 +955,34 @@ importlib.reload(cfg)
 importlib.reload(silo_repair)
 shutil.rmtree(_i2_dir, ignore_errors=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  I9. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("I9. garmin_silo_repair — mutation round v1.7.6.12")
+importlib.reload(cfg)
+importlib.reload(silo_repair)
+_E9 = {"raw_without_quality": [], "source_without_raw": [], "summary_without_raw": [], "raw_without_summary": []}
+_bw9 = silo_repair.bulk_writer
+
+with patch.object(silo_repair.backup_bulk, "read_day_copy", return_value=b"x"), \
+        patch.object(_bw9, "import_day_file", side_effect=[_bw9.UNCHANGED, _bw9.WRITTEN]):
+    _r8 = silo_repair.repair_silos({**_E9, "bulk_lost_intraday": [date(2025, 9, 1), date(2025, 9, 2)]})
+check("I9 #8: a day whose file is back by now ('present') does not end the repair of the days after it",
+      [i["status"] for i in _r8["items"]] == ["present", "repaired"] and (_r8["ok"], _r8["failed"]) == (1, 0))
+with patch.object(silo_repair.backup_bulk, "read_day_copy", return_value=b"x"), patch.object(_bw9, "import_day_file", return_value="zzz"):
+    _r8b = silo_repair.repair_silos({**_E9, "bulk_lost_intraday": [date(2025, 9, 1)]})
+check("I9 #8: any answer of the writer that is not written, unchanged or kept is a refusal (an error, counted as failed)",
+      [i["status"] for i in _r8b["items"]] == ["error"] and _r8b["failed"] == 1 and "refused" in _r8b["items"][0]["reason"])
+
+_H1, _H2 = "a1" * 32, "b2" * 32
+with patch.object(silo_repair.backup_bulk, "read_original_copy", return_value=b"x"), \
+        patch.object(_bw9, "store_original", side_effect=[_bw9.PRESENT, _bw9.WRITTEN]):
+    _r9 = silo_repair.repair_silos({**_E9, "bulk_originals_missing": [_H1, _H2]})
+check("I9 #9: an original that is back by now ('present') does not end the repair of the originals after it",
+      [i["status"] for i in _r9["items"]] == ["present", "repaired"] and (_r9["ok"], _r9["failed"]) == (1, 0))
+with patch.object(silo_repair.backup_bulk, "read_original_copy", return_value=b"x"), patch.object(_bw9, "store_original", return_value="zzz"):
+    _r9b = silo_repair.repair_silos({**_E9, "bulk_originals_missing": [_H1]})
+check("I9 #9: any answer of the writer that is not written or present is a refusal (an error, counted as failed)",
+      [i["status"] for i in _r9b["items"]] == ["error"] and _r9b["failed"] == 1 and "refused" in _r9b["items"][0]["reason"])
+
 summary()

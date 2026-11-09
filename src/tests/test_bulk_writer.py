@@ -882,4 +882,138 @@ check("garmin_config is the only project module used at all",
       (_all - {"hashlib", "json", "logging", "os", "re", "time", "datetime", "__future__"}) <= {"garmin_config"})
 check("no print", not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print" for n in ast.walk(_tree_ast)))
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("B4b. garmin_bulk_writer — mutation round v1.7.6.12")
+import shutil as _shutil9
+
+check("the retry of a locked file: 5 attempts, a pause of 0.1 s that grows with every attempt",
+      bw.REPLACE_ATTEMPTS == 5 and bw.REPLACE_PAUSE_S == 0.1)
+with _isolated_log_env("bulk_writer_b4b") as base:
+    # _cleanup never raises
+    _victim = base / "v.tmp"
+    _victim.write_text("x", encoding="utf-8")
+    with patch.object(Path, "unlink", side_effect=PermissionError("locked")):
+        bw._cleanup(_victim)
+    check("_cleanup: an OS error while removing is ignored", _victim.exists())
+
+    # _replace: waits 0.1, 0.2 ... between the attempts and gives up after the fifth
+    with patch("garmin_bulk_writer.os.replace", side_effect=[PermissionError("busy"), PermissionError("busy"), None]) as _rp, \
+            patch("garmin_bulk_writer.time.sleep") as _sl:
+        bw._replace("a", "b")
+    check("_replace: two refusals then success -> three tries, pauses of 0.1 and 0.2 s",
+          _rp.call_count == 3 and [c.args[0] for c in _sl.call_args_list] == [0.1, 0.2])
+    with patch("garmin_bulk_writer.os.replace", side_effect=PermissionError("busy")) as _rp, patch("garmin_bulk_writer.time.sleep") as _sl:
+        try:
+            bw._replace("a", "b")
+            _raised = False
+        except PermissionError:
+            _raised = True
+    check("_replace: five refusals -> the error is raised after the fifth try; four pauses (0.1, 0.2, 0.3, 0.4 s)",
+          _raised and _rp.call_count == 5 and [round(c.args[0], 6) for c in _sl.call_args_list] == [0.1, 0.2, 0.3, 0.4])
+
+    # _write_atomic: a file system without fsync is fine
+    _wa = base / "wa" / "file.json"
+    with patch("garmin_bulk_writer.os.fsync", side_effect=OSError("not supported")):
+        bw._write_atomic(_wa, b"data")
+    check("_write_atomic: fsync that is not supported does not stop the write", _wa.read_bytes() == b"data")
+
+    # _problem: the date of the plan against the date of the samples (equal strings made at run time are equal)
+    _p1, _s1 = _day(date="2024-02-0" + str(3))
+    _p1 = nz.DayPlan("2024-02-0" + str(3), 1706914800, 1707001200, 1.0, 1.0, False, "prev_day_end")
+    check("_problem: plan and samples of the same date (strings made at run time) are fine", bw._problem(_p1, _s1) is None)
+    check("_problem: a plan of an earlier or a later date than the samples is a problem",
+          all(bw._problem(nz.DayPlan(d, 1, 2, 1.0, 1.0, False, "x"), _s1) == "date of the plan and of the samples differ"
+              for d in ("2024-02-02", "2024-02-04")))
+
+    # _values_problem: the boundaries
+    check("_values_problem: time 0 is out of range, time 1 is not; bpm 0 and 255 are out of range, 1 and 254 are not",
+          bw._values_problem([[0, 60]]) == "a value is out of range" and bw._values_problem([[1, 60]]) is None
+          and bw._values_problem([[1000, 0]]) == "a value is out of range" and bw._values_problem([[1000, 1]]) is None
+          and bw._values_problem([[1000, 254]]) is None and bw._values_problem([[1000, 255]]) == "a value is out of range"
+          and bw._values_problem([[-5, 60]]) == "a value is out of range")
+
+    # aggregates: a stored file with a source_files that is no list / a version that is no integer is as good as new
+    _apath = bw._agg_path("2024-02-04")
+    _apath.parent.mkdir(parents=True, exist_ok=True)
+    _apath.write_text(json.dumps({"source_files": "not a list", "schema_version": 2}), encoding="utf-8")
+    _st1 = bw.aggregates_status("2024-02-04", [H1])
+    _apath.write_text(json.dumps({"source_files": [H1], "schema_version": "x"}), encoding="utf-8")
+    _st2 = bw.aggregates_status("2024-02-04", [H1])
+    check("aggregates_status: a stored file whose source_files is no list, or whose version is no integer, counts as new",
+          (_st1, _st2) == ("new", "new"))
+
+    # write_aggregates: the date inside, non-ASCII text as written
+    _agg = {"user_summary": {"totalSteps": 1, "name": "Läufer"}}
+    check("write_aggregates: an aggregates dict of another date (one day later, one day earlier) is refused",
+          bw.write_aggregates("2024-02-05", {**_agg, "date": "2024-02-06"}, [H1]) == bw.FAILED
+          and bw.write_aggregates("2024-02-05", {**_agg, "date": "2024-02-04"}, [H1]) == bw.FAILED)
+    check("write_aggregates: non-ASCII text is stored as written, not as an escape",
+          bw.write_aggregates("2024-02-05", _agg, [H1]) == bw.WRITTEN
+          and "Läufer" in bw._agg_path("2024-02-05").read_text(encoding="utf-8"))
+
+    # import_day_file: an invalid file is refused by its own line; an older schema version is not 'kept'
+    with patch.object(bw, "log") as _lg:
+        _bad = bw.import_day_file("intraday", "2024-02-03", b"{not json")
+    check("import_day_file: bytes that are no JSON are refused with the 'not JSON' line",
+          _bad == bw.FAILED and any("refused (not JSON)" in str(c.args[0]) for c in _lg.warning.call_args_list))
+    _old_agg = {"date": "2024-02-07", "origin": bw.ORIGIN, "schema_version": 1, "source_files": [H1], "aggregates": _agg}
+    check("import_day_file: an aggregates file of an OLDER schema version (1 of 2) is written, not kept",
+          bw.import_day_file("aggregates", "2024-02-07", json.dumps(_old_agg).encode("utf-8")) == bw.WRITTEN)
+
+    # describe_container_path
+    _d = "garmin_data/bulk"
+    _hh = _h("describe")
+    _nm = f"{cfg.BULK_FILE_PREFIX}2024-02-03.json"
+    check("describe_container_path: the real shapes",
+          bw.describe_container_path(f"{_d}/raw/{_nm}") == ("intraday", "2024-02-03")
+          and bw.describe_container_path(f"{_d}/source/{_hh[:2]}/{_hh}.fit") == ("original", _hh, ".fit"))
+    check("describe_container_path: a first or second folder that sorts before or after 'garmin_data' / 'bulk' is no bulk path",
+          all(bw.describe_container_path(p) is None for p in (
+              f"zzz/bulk/raw/{_nm}", f"aaa/bulk/raw/{_nm}", f"garmin_data/zzz/raw/{_nm}", f"garmin_data/aaa/raw/{_nm}",
+              f"zzz/bulk/source/{_hh[:2]}/{_hh}.fit", f"garmin_data/zzz/source/{_hh[:2]}/{_hh}.fit")))
+    check("describe_container_path: an area that sorts before or after 'source' with a valid original name is none; "
+          "so are six parts, and a folder that sorts before the hash's first two characters",
+          all(bw.describe_container_path(p) is None for p in (
+              f"{_d}/zzz/{_hh[:2]}/{_hh}.fit", f"{_d}/aaa/{_hh[:2]}/{_hh}.fit", f"{_d}/source/{_hh[:2]}/x/{_hh}.fit",
+              f"{_d}/source/00/{_hh}.fit" if _hh[:2] != "00" else f"{_d}/source/zz/{_hh}.fit")))
+
+    # list_originals: a stray file in front, a name in a folder of another name
+    _src = cfg.BULK_SOURCE_DIR
+    _shutil9.rmtree(_src, ignore_errors=True)
+    _src.mkdir(parents=True)
+    (_src / "00stray").write_bytes(b"x")
+    (_src / _hh[:2]).mkdir()
+    (_src / _hh[:2] / f"{_hh}.fit").write_bytes(b"x")
+    _other = "ff" + "0" * 62
+    (_src / "00").mkdir()
+    (_src / "00" / f"{_other}.fit").write_bytes(b"x")                      # 'ff' sorts after the folder name '00'
+    check("list_originals: a stray file in front does not end the listing; a name in a folder that does not start it is not listed",
+          bw.list_originals() == {f"{_hh}.fit"})
+
+    # original_present: the exact size (also above 256 bytes), nothing outside bulk/source
+    _big = b"y" * 300
+    _hb = hashlib.sha256(_big).hexdigest()
+    check("store_original of 300 bytes: written; present with exactly 300, not with 299 or 301",
+          bw.store_original(_hb, _big) == bw.WRITTEN and bw.original_present(_hb, 300) is True
+          and bw.original_present(_hb, 299) is False and bw.original_present(_hb, 301) is False)
+    _evil = cfg.BULK_SOURCE_DIR.parent.parent / "evil.fit"
+    _evil.write_bytes(b"123")
+    check("original_present: a name that is no SHA-256 never looks outside bulk/source (a path made of '..' to an existing file)",
+          bw.original_present("../evil", 3) is False)
+
+    # store_original: the refusals, each with its own line
+    with patch.object(bw, "log") as _lg:
+        _r1 = bw.store_original("xyz", b"data")
+        _r2 = bw.store_original("f" * 64, b"data")
+        _r3 = bw.store_original("0" * 64, b"data")
+    _w = [str(c.args[0]) for c in _lg.warning.call_args_list]
+    check("store_original: a name that is no SHA-256 is refused as such; bytes that do not match a name that sorts after or before "
+          "their hash are refused with the first twelve characters of the name",
+          (_r1, _r2, _r3) == (bw.FAILED, bw.FAILED, bw.FAILED)
+          and _w == ["  bulk_writer.store_original: refused (name is not a SHA-256)",
+                     "  bulk_writer.store_original: refused (bytes do not match " + "f" * 12 + ")",
+                     "  bulk_writer.store_original: refused (bytes do not match " + "0" * 12 + ")"])
+
 summary()

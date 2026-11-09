@@ -828,4 +828,227 @@ with _isolated_log_env("m3b_rp") as _b:
         check("M3b2 run: source/ is untouched",
               json.loads((cfg.SOURCE_DIR / f"garmin_source_{_M2}.json").read_text(encoding="utf-8"))["race_predictions"]["calendarDate"] == "2022-06-09")
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  M9. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("M9. mutation round v1.7.6.12")
+
+# -- helpers: dates, covering, class of a day, summary changes ---------------------------------------------------
+check("M9 _valid_date: a date -> True", tm._valid_date("2022-03-04") is True)
+check("M9 _valid_date: the basic ISO form 20220304 (valid for date.fromisoformat, 8 characters) is no archive date",
+      tm._valid_date("20220304") is False)
+check("M9 _valid_date: wrong length -> False", all(tm._valid_date(v) is False for v in ("2022-3-4", "2022-03-044", "")))
+check("M9 _valid_date: ten characters that are no date -> False",
+      all(tm._valid_date(v) is False for v in ("2022-13-45", "2022-02-30", "abcdefghij")))
+check("M9 _covers: a list is only compared with a list; equal values built at run time are equal (no identity check)",
+      tm._covers(None, [1]) is False and tm._covers({"a": 1}, [1]) is False and tm._covers(int("1000"), int("1000")) is True
+      and tm._covers([1, 2], [2, 1]) is True and tm._covers([1, 2, 2], [1, 2]) is False)
+_hr9 = {"restingHeartRate": 55, "minHeartRate": 44, "maxHeartRate": 150}
+check("M9 classify_day: an API section that sorts AFTER 'date' (spo2) makes the day unresolved, one that sorts before (body_battery) too",
+      tm.classify_day({"date": "2022-03-04", "heart_rates": _hr9, "spo2": {"x": 1}}, False) == "unresolved"
+      and tm.classify_day({"date": "2022-03-04", "heart_rates": _hr9, "body_battery": [{"v": 1}]}, False) == "unresolved"
+      and tm.classify_day({"date": "2022-03-04", "heart_rates": _hr9}, False) == "convert")
+check("M9 _summary_changes: fields that exist on one side only count; schema_version/generated_by only as top-level keys",
+      tm._summary_changes({"a": 1, "x": {"schema_version": 1}}, {"b": 2, "x": {"schema_version": 2}}) == ["a", "b", "x.schema_version"]
+      and tm._summary_changes({"schema_version": 1, "generated_by": "a"}, {"schema_version": 2, "generated_by": "b"}) == [])
+
+# -- scan_archive: a bad name and an unusable file do not end the scan -------------------------------------------------
+with _isolated_log_env("m9_scan") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _put(cfg.RAW_DIR / "garmin_raw_0000.json", "{}")                    # sorts first, the name is no date
+    _put(cfg.RAW_DIR / "garmin_raw_2022-01-01.json", "[]")              # valid JSON, no dict: unreadable
+    _agg("2022-01-02")
+    _put_day("2022-01-02", _old_raw("2022-01-02", body_battery=[{"value": 40}]), source=_api_source("2022-01-02"))
+    _s9 = tm.scan_archive()
+    check("M9 scan_archive: a file named like no day and a raw file that is no dict do not end the scan; the day after them is found",
+          _s9["unreadable"] == ["2022-01-01"] and _s9["migrate"] == ["2022-01-02"] and _s9["no_aggregates"] == [])
+
+# -- _plan_import_day: every way raw/ and source/ can be unusable ---------------------------------------------------------
+with _isolated_log_env("m9_blocked") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _X = "2022-01-03"
+    _blk = lambda reason: {"date": _X, "kind": "migrate", "status": "blocked", "reason": reason}
+    check("M9 _plan_import_day: no raw file (an OS error) -> blocked 'raw_unreadable'", tm._plan_import_day(_X, "migrate") == _blk("raw_unreadable"))
+    _put(cfg.RAW_DIR / f"garmin_raw_{_X}.json", "{ not json")
+    check("M9 _plan_import_day: a raw file that is no JSON (a value error) -> blocked 'raw_unreadable'",
+          tm._plan_import_day(_X, "migrate") == _blk("raw_unreadable"))
+    _put(cfg.RAW_DIR / f"garmin_raw_{_X}.json", [1, 2])
+    check("M9 _plan_import_day: a raw file that is JSON but no dict -> blocked 'raw_unreadable'",
+          tm._plan_import_day(_X, "migrate") == _blk("raw_unreadable"))
+    _put(cfg.RAW_DIR / f"garmin_raw_{_X}.json", _old_raw(_X, body_battery=[{"value": 40}]))
+    check("M9 _plan_import_day: no source file (an OS error) -> blocked 'source_unreadable'",
+          tm._plan_import_day(_X, "migrate") == _blk("source_unreadable"))
+    for _txt, _what in (("{ not json", "no JSON"), ("{}", "an empty dict"), ("[1]", "a list")):
+        _put(cfg.SOURCE_DIR / f"garmin_source_{_X}.json", _txt)
+        check(f"M9 _plan_import_day: a source file that is {_what} -> blocked 'source_unreadable'",
+              tm._plan_import_day(_X, "migrate") == _blk("source_unreadable"))
+
+# -- _plan_refresh: an aggregates file that cannot be read is no refresh day -------------------------------------------------
+with _isolated_log_env("m9_refresh") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _RX = "2024-05-01"
+    _agg(_RX)
+    _put_day(_RX, {"date": _RX, "heart_rates": {"calendarDate": _RX, "restingHeartRate": 55, "minHeartRate": None,
+                                                  "maxHeartRate": None, "heartRateValues": None}})
+    _item = tm._plan_refresh(_RX)
+    _lockfile = cfg.BULK_AGG_DIR / f"garmin_bulk_agg_{_RX}.json"
+    _real_rt9 = Path.read_text
+
+    def _locked9(self, *a, **k):
+        if self == _lockfile:
+            raise PermissionError("locked by another process")
+        return _real_rt9(self, *a, **k)
+
+    with patch.object(Path, "read_text", _locked9):
+        _locked_item = tm._plan_refresh(_RX)
+    check("M9 _plan_refresh: the day is a refresh day, and not when its aggregates file cannot be read",
+          _item is not None and _item["status"] == "ready" and _locked_item is None)
+
+# -- plan_migration: blocked refresh days are counted, a stop that is asked once ends the preview for good -------------------
+with _isolated_log_env("m9_plan") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _RA, _RBL = "2024-06-01", "2024-06-02"
+    _agg(_RA)
+    _agg(_RBL)
+    _ready_item = {"date": _RA, "kind": "refresh", "status": "ready", "changes": ["heartrate.min_bpm"]}
+    _blocked_item = {"date": _RBL, "kind": "refresh", "status": "blocked", "reason": "raw_unreadable"}
+    with patch.object(tm, "_plan_refresh", side_effect=lambda d: _ready_item if d == _RA else _blocked_item):
+        _pl9 = tm.plan_migration()
+    check("M9 plan_migration: a blocked refresh day is counted as blocked, a ready one as refresh, nothing else",
+          (_pl9["counts"]["refresh"], _pl9["counts"]["refresh_blocked"]) == (1, 1)
+          and _pl9["years"] == {"2024": {"migrate": 0, "convert": 0, "refresh": 1, "blocked": 1}}
+          and _pl9["field_changes"]["refresh"] == {"heartrate.min_bpm": 1})
+    check("M9 plan_migration: the refresh days are not counted as migrate or convert days (ready or blocked)",
+          (_pl9["counts"]["migrate_ready"], _pl9["counts"]["migrate_blocked"], _pl9["counts"]["convert_ready"],
+           _pl9["counts"]["convert_blocked"]) == (0, 0, 0, 0))
+
+with _isolated_log_env("m9_oneshot") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _archive3()
+    _full = tm.plan_migration()
+    _asked = []
+
+    def _stop_once():
+        _asked.append(1)
+        return len(_asked) == 3                      # True at the third question only, False before and after
+
+    _once = tm.plan_migration(should_stop=_stop_once)
+    _left = [i for i in _full["items"] if i["status"] == "left"]
+    check("M9 plan_migration: a stop at the third day ends the preview there, although later questions would answer False: "
+          "two days planned, the refresh step is not started, 'stopped' is set",
+          _once["stopped"] is True and len(_once["items"]) == len(_left) + 2 and _once["counts"]["refresh"] == 0)
+
+# -- run_migration: results that are made before anything runs, the counts of what is pending -----------------------------
+with _isolated_log_env("m9_run0") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _archive3()
+        _ps9 = tm.run_migration(should_stop=lambda: True)
+        check("M9 run_migration: a stop during the preview is reported (stopped, reason) and every count is still zero",
+              _ps9["stopped"] is True and _ps9["reason"] == "preview_stopped" and _ps9["ok"] is False
+              and (_ps9["migrated"], _ps9["refreshed"], _ps9["convert_pending"], _ps9["unresolved"]) == (0, 0, 0, 0)
+              and _ps9["failed"] == [] and _ps9["snapshot"] is None and _ps9["log_saved"] is None)
+        _fake = {"counts": {"migrate_ready": 0, "migrate_blocked": 0, "convert_ready": 3, "convert_blocked": 1, "unresolved": 2,
+                            "unreadable": 0, "refresh": 0, "refresh_blocked": 0, "api_only": 0},
+                 "years": {}, "items": [], "field_changes": {}, "stopped": False}
+        with patch.object(tm, "plan_migration", return_value=_fake):
+            _cp9 = tm.run_migration(dry_run=True)
+        check("M9 run_migration: convert_pending is the sum of ready and blocked convert days (3 + 1), unresolved is taken over",
+              _cp9["convert_pending"] == 4 and _cp9["unresolved"] == 2 and _cp9["ok"] is True)
+        with patch.object(_snap3, "create_snapshot", return_value={"ok": False, "reason": "stopped", "path": None}):
+            _sn1 = tm.run_migration()
+        with patch.object(_snap3, "create_snapshot", return_value={"ok": False, "reason": "disk full", "path": None}):
+            _sn2 = tm.run_migration()
+        with patch.object(_snap3, "create_snapshot", return_value={"ok": False, "reason": "the ZIP failed its check: x", "path": None}):
+            _sn3 = tm.run_migration()
+        check("M9 run_migration: no safety copy because the copy was stopped: stopped True; because of anything else "
+              "(also a reason that sorts after 'stopped'): stopped False",
+              (_sn1["stopped"], _sn1["reason"], _sn1["snapshot_reason"]) == (True, "snapshot_failed", "stopped")
+              and (_sn2["stopped"], _sn2["reason"], _sn2["snapshot_reason"]) == (False, "snapshot_failed", "disk full")
+              and _sn3["stopped"] is False)
+
+# -- run_migration: numbering of the days, the stop message, one line for a stop ------------------------------------------
+with _isolated_log_env("m9_run_stop") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _archive3()
+        for _d in ("2022-06-09", "2022-06-10"):                      # two more migrate days: six days of work in all
+            _agg(_d)
+            _put_day(_d, _old_raw(_d, body_battery=[{"value": 40}]), source=_api_source(_d))
+        _n9 = {"n": 0}
+        _real_wd9 = _gw.write_day
+
+        def _count_wd(*a, **k):
+            _n9["n"] += 1
+            return _real_wd9(*a, **k)
+
+        with patch.object(_gw, "write_day", _count_wd), patch.object(tm, "log") as _lg9:
+            _r9 = tm.run_migration(should_stop=lambda: _n9["n"] >= 3)
+        _info9 = [str(c.args[0]) for c in _lg9.info.call_args_list]
+        check("M9 run_migration: stopped at the fourth of six days: three rebuilt, 'stopped after 3 of 6 day(s).' once, not ok",
+              _r9["stopped"] is True and _r9["migrated"] == 3 and _r9["ok"] is False
+              and [m for m in _info9 if "stopped after" in m] == ["  Track migration: stopped after 3 of 6 day(s)."])
+        check("M9 run_migration: the days of the loop are numbered from 1",
+              "  [1/6] 2022-06-01 - rebuilt from source/" in _info9 and "  [3/6] 2022-06-09 - rebuilt from source/" in _info9)
+
+# -- run_migration: a label that differs only by sorting AFTER the recalculated one; a save that answers 0 ---------------------
+with _isolated_log_env("m9_label") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _archive3()
+        _qd9 = quality._load_quality_log()
+        for _e in _qd9["days"]:
+            if _e["date"] == _M1:
+                _e["quality"] = "zzz-after-any-label"
+            if _e["date"] == _M2:
+                _e["fields"] = quality.assess_quality_fields(_api_source(_M2))        # the recalculated fields: no difference
+        with patch.object(quality, "_save_quality_log", return_value=0):
+            _r9 = tm.run_migration(quality_data=_qd9)
+        check("M9 run_migration: an entry whose label sorts after the recalculated one is reported as differing",
+              _M1 in _r9["label_differs"] and _M2 not in _r9["label_differs"])
+        check("M9 run_migration: a save that answers 0 (not False) is a save: log_saved True, no failure entry",
+              _r9["log_saved"] is True and _r9["failed"] == [] and _r9["ok"] is True)
+
+with _isolated_log_env("m9_save_none") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _archive3()
+        with patch.object(quality, "_save_quality_log", return_value=None):
+            _r9n = tm.run_migration()
+        check("M9 run_migration: a save that answers None (not False) is a save too", _r9n["log_saved"] is True and _r9n["ok"] is True)
+
+# -- format_plan and format_result on plans made by hand --------------------------------------------------------------------
+_c9 = {"migrate_ready": 1, "migrate_blocked": 11, "convert_ready": 0, "convert_blocked": 0, "unresolved": 0, "unreadable": 0,
+       "refresh": 2, "refresh_blocked": 0, "api_only": 0}
+_items9 = ([{"date": f"2022-01-{n:02d}", "kind": "migrate", "status": "blocked", "reason": "no_aggregates"} for n in range(1, 7)]
+           + [{"date": f"2022-02-{n:02d}", "kind": "migrate", "status": "blocked", "reason": "not_covered"} for n in range(1, 6)])
+_plan9 = {"counts": _c9, "years": {"2022": {"migrate": 1, "convert": 0, "refresh": 2, "blocked": 11}}, "items": _items9,
+          "field_changes": {"migrate": {}, "convert": {}, "refresh": {f"f{n:02d}": 20 - n for n in range(12)}}, "stopped": False}
+_l9 = tm.format_plan(_plan9)
+_t9 = "\n".join(_l9)
+check("M9 format_plan: the line for the years is there", "  2022: migrate 1, convert 0, refresh 2, blocked 11" in _l9)
+check("M9 format_plan: a reason with six days shows five dates and ' ...', one with exactly five shows five and no dots (default 5)",
+      "  6 day(s): no usable aggregates file - import the Garmin export first (2022-01-01, 2022-01-02, 2022-01-03, 2022-01-04, 2022-01-05 ...)" in _l9
+      and "  5 day(s): raw/ holds data that the bulk store / source/ does not reproduce (2022-02-01, 2022-02-02, 2022-02-03, 2022-02-04, 2022-02-05)" in _l9)
+check("M9 format_plan: at most ten fields per kind, in the order of their count",
+      "  summary fields that change (refresh): " + ", ".join(f"f{n:02d} {20 - n}" for n in range(10)) in _l9 and "f10" not in _t9)
+_few = {**_plan9, "items": _items9 + [{"date": "2022-03-01", "kind": "migrate", "status": "blocked", "reason": "aggregates_unreadable"},
+                                      {"date": "2022-03-02", "kind": "migrate", "status": "blocked", "reason": "aggregates_unreadable"}]}
+check("M9 format_plan: a reason with fewer days than the limit (2 of 5) shows them all and no ' ...'",
+      "  2 day(s): aggregates file cannot be read (2022-03-01, 2022-03-02)" in tm.format_plan(_few))
+check("M9 format_plan: no blocked-refresh suffix when none is blocked, the suffix with the count when some are",
+      "  summaries to refresh (summary/ only, raw/ stays): 2" in _l9
+      and "  summaries to refresh (summary/ only, raw/ stays): 2, 3 blocked" in tm.format_plan({**_plan9, "counts": {**_c9, "refresh_blocked": 3}}))
+_r_fmt = {"migrated": 0, "refreshed": 0, "failed": [(f"2022-01-{n:02d}", "boom") for n in range(1, 8)], "snapshot": None, "years": {},
+          "blocked": [], "unresolved": 0, "convert_pending": 0, "label_differs": [], "stopped": True}
+_lr = tm.format_result(_r_fmt)
+check("M9 format_result: at most five failed days are listed, and a stopped run says so",
+      len([x for x in _lr if x.startswith("  FAILED ")]) == 5 and "  FAILED 2022-01-05: boom" in _lr and "  FAILED 2022-01-06: boom" not in _lr
+      and _lr[-1] == "  Stopped - run it again to go on.")
+check("M9 format_result: a run that was not stopped does not say so",
+      "  Stopped - run it again to go on." not in tm.format_result({**_r_fmt, "stopped": False}))
+check("M9 format_result: both early ends have their own text",
+      tm.format_result({"reason": "preview_stopped"}) == ["Track migration stopped before it started. Nothing was written."]
+      and tm.format_result({"reason": "snapshot_failed", "snapshot_reason": "x"})[0].startswith("Track migration NOT started"))
+
 summary()

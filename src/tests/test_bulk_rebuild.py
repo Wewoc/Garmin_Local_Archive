@@ -368,4 +368,58 @@ check("module level: standard library (hashlib, json, logging, datetime) and the
 check("garmin_config is imported only inside a function (like the writer), not at module level", "garmin_config" not in _top)
 check("no print", not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print" for n in ast.walk(_tree_ast)))
 
+# ── Mutation round v1.7.6.12 — survivors of the Cosmic Ray run ───────────────────────────────────
+section("B7b. garmin_bulk_rebuild — mutation round v1.7.6.12")
+check("the short hash in log and result is 12 characters", rb.SHORT_HASH == 12)
+_es = rb._empty_summary(False)
+check("_empty_summary: the originals start at zero in every counter, no conflicts, no named files",
+      _es["originals"] == {"fit": 0, "damaged": 0, "unrecognised": 0, "bytes": 0} and _es["conflicts"] == 0
+      and _es["damaged_files"] == [] and _es["unrecognised_files"] == [])
+
+with _isolated_log_env("bulk_rebuild_names") as base:
+    # a wrong name that sorts BEFORE and one that sorts AFTER the SHA-256 of its bytes: both are caught
+    _put_raw_file("0" * 64 + ".json", b'[{"totalSteps": 1, "uuid": "x", "calendarDate": "2024-07-01"}]')
+    _put_raw_file("f" * 64 + ".json", b'[{"totalSteps": 2, "uuid": "y", "calendarDate": "2024-07-02"}]')
+    with patch.object(rb, "log"):
+        res = rb.run_aggregates_rebuild()
+    check("two originals whose bytes do not match the name, one named below and one above their hash: both damaged, nothing stored",
+          res["originals"]["damaged"] == 2 and sorted(res["damaged_files"]) == ["0" * rb.SHORT_HASH, "f" * rb.SHORT_HASH]
+          and bw.list_aggregate_days() == [] and res["ok"] is False)
+
+with _isolated_log_env("bulk_rebuild_stopcount") as base:
+    jimp.run_aggregates_import(_write_zip(base / "export.zip", EXPORT))
+    shutil.rmtree(cfg.BULK_AGG_DIR)
+    _calls9 = []
+
+    def _stop_second_day():
+        _calls9.append(1)
+        return len(_calls9) > len(EXPORT) + 1
+
+    _mid = rb.run_aggregates_rebuild(should_stop=_stop_second_day)
+    check("a stop at the second day ends the loop there: two days found, one written (the later days are not even counted)",
+          _mid["stopped"] is True and _mid["days_found"] == 2 and _mid["written_days"] == DAYS[:1])
+
+with _isolated_log_env("bulk_rebuild_excinfo") as base:
+    with patch.object(rb.bw, "list_originals", side_effect=RuntimeError("boom")), patch.object(rb, "log") as lg:
+        rb.run_aggregates_rebuild()
+    check("an unexpected error writes its traceback to the debug log (exc_info=True)",
+          any(c.kwargs.get("exc_info") is True for c in lg.debug.call_args_list))
+
+_base9 = rb._empty_summary(False)
+check("format_summary without the flag is not a preview", rb.format_summary(_base9)[0] == "Bulk daily values rebuild")
+_o9 = {"fit": 0, "damaged": 0, "unrecognised": 0}
+_l1 = rb.format_summary({**_base9, "files": 4, "days_found": 3, "originals": {**_o9, "bytes": 2_449_999}})
+_l2 = rb.format_summary({**_base9, "files": 4, "days_found": 3, "originals": {**_o9, "bytes": 2_450_000}})
+check("format_summary: the size in MB is bytes / 1,000,000 with one decimal (2,449,999 -> 2.4, 2,450,000 -> 2.5)",
+      _l1[1] == "  originals: 4 JSON file(s) read (2.4 MB), 0 FIT file(s) not used, 3 day(s) found"
+      and _l2[1] == "  originals: 4 JSON file(s) read (2.5 MB), 0 FIT file(s) not used, 3 day(s) found")
+for _name9, _rej9, _shown9 in (("invalid only", {"invalid": 2, "insufficient": 0}, True),
+                               ("insufficient only", {"invalid": 0, "insufficient": 3}, True),
+                               ("none", {"invalid": 0, "insufficient": 0}, False)):
+    _ln = rb.format_summary({**_base9, "rejected": _rej9})
+    check(f"format_summary: rejected days, {_name9}: the line is {'there' if _shown9 else 'not there'}",
+          any(x.startswith("  rejected:") for x in _ln) is _shown9)
+check("format_summary: the rejected line names both counts",
+      "  rejected:  2 invalid, 3 with too little data (not stored)" in rb.format_summary({**_base9, "rejected": {"invalid": 2, "insufficient": 3}}))
+
 summary()

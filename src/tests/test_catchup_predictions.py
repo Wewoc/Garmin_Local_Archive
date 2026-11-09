@@ -629,4 +629,106 @@ with _isolated_log_env("cp_sched") as _b:
         _n_err = _du._check_prediction_catchup(_arch)
     check("C6 an error in the scan never stops the run: 0, no warning, no error", _n_err == 0 and not _rec.m["warning"] and not _rec.m["error"])
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  9. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("C9. mutation round v1.7.6.12")
+
+# -- helpers --------------------------------------------------------------------------------------------------------
+check("C9 _valid_date: a date -> True", cp._valid_date("2025-03-01") is True)
+check("C9 _valid_date: not a string -> False",
+      all(cp._valid_date(v) is False for v in (None, 20250301, ["2025-03-01"], b"2025-03-01")))
+check("C9 _valid_date: the basic ISO form 20250301 (valid for date.fromisoformat, 8 characters) is no archive date",
+      cp._valid_date("20250301") is False)
+check("C9 _valid_date: wrong length -> False", all(cp._valid_date(v) is False for v in ("2025-3-1", "2025-03-011", "")))
+check("C9 _valid_date: ten characters that are no date -> False",
+      all(cp._valid_date(v) is False for v in ("2025-13-45", "2025-02-30", "abcdefghij")))
+
+with _isolated_log_env("cp_scan9") as _b:
+    _put_raw("2025-03-20")
+    _put_raw("0000")                                      # sorts before the day, its name is no date
+    check("C9 _scan: a file whose name is no date is left out and does not end the scan",
+          cp._scan(cfg.RAW_DIR) == {"2025-03-20": None})
+
+_att = cp._attempts({"days": [
+    "junk", None, {"date": "bad"}, {"date": "2025-03-01"},
+    {"date": "2025-03-02", "field_backfill_attempts": {"steps": 1}},
+    {"date": "2025-03-03", "field_backfill_attempts": {"race_predictions": 2}},
+    {"date": "2025-03-04", "field_backfill_attempts": {"race_predictions": True}},
+    {"date": "2025-03-05", "field_backfill_attempts": {"race_predictions": "2"}},
+    {"date": "2025-03-06", "field_backfill_attempts": {"race_predictions": 1.5}},
+    {"date": "2025-03-07", "field_backfill_attempts": "x"}]}, None)
+check("C9 _attempts: only dict entries with a valid date; a missing or unusable counter is 0 (not a number, a bool, text, a float)",
+      _att == {"2025-03-01": 0, "2025-03-02": 0, "2025-03-03": 2, "2025-03-04": 0, "2025-03-05": 0, "2025-03-06": 0, "2025-03-07": 0})
+
+_pl = cp._plan({"2025-03-19": {"calendarDate": "2025-03-18"}, "2025-03-20": None}, {"2025-03-20": 0})
+check("C9 _plan: a day that holds the prediction of an EARLIER day is foreign (no basis, nothing missing)",
+      _pl == {"missing": [], "calls": 0, "kept": 0, "foreign": ["2025-03-19"], "given_up": 0, "basis": False})
+_pl = cp._plan({"2025-03-19": {"calendarDate": "2025-03-19"}, "2025-03-20": None, "2025-03-21": None,
+                "2025-03-22": None, "2025-03-23": None},
+               {"2025-03-20": 2, "2025-03-21": 5, "2025-03-22": 1, "2025-03-23": 0})
+check("C9 _plan: a counter at the limit or above it (2 and 5) is given up, below it (1, 0) is missing",
+      _pl == {"missing": ["2025-03-22", "2025-03-23"], "calls": 1, "kept": 1, "foreign": [], "given_up": 2, "basis": True})
+
+# -- a prediction of its own date is compared with Garmin's value by value -------------------------------------------
+with _isolated_log_env("cp_differs") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _put_raw("2025-03-09")                                        # candidate
+        _put_raw("2025-03-10", _pred("2025-03-10", 1500))             # own, identical to Garmin's
+        _put_raw("2025-03-11", _pred("2025-03-11", 1800))             # own, every value LARGER than Garmin's
+        _put_raw("2025-03-12", _pred("2025-03-11", 1900))             # a copy of an EARLIER day, values differ
+        _put_raw("2025-03-13", _pred("2025-03-13", 1200))             # own, every value SMALLER than Garmin's
+        _put_raw("2025-03-14")                                        # candidate
+        _put_log({"first_day": "2025-03-09", "devices": [],
+                  "days": [_qe(f"2025-03-{n:02d}") for n in range(9, 15)]})
+        _rec = _Rec()
+        with patch.object(cp, "log", _rec):
+            _r = _run(_Garmin({f"2025-03-{n:02d}": 1500 for n in range(9, 15)}))
+        check("C9 differs: only own predictions with other values, larger or smaller; identical ones and a copy of an earlier day are not",
+              _r["differs"] == ["2025-03-11", "2025-03-13"] and _r["foreign"] == ["2025-03-12"] and _r["filled"] == 2)
+        check("C9 the days of the write loop are numbered from 1: [1/2] and [2/2]",
+              "  [1/2] 2025-03-09 — prediction set ok" in _rec.m["info"] and "  [2/2] 2025-03-14 — prediction set ok" in _rec.m["info"])
+
+# -- a stop in the loop after three of five days: the count in the message, one line, the loop ends ------------------------
+with _isolated_log_env("cp_stop9") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _held = _scenario1(_b)
+        _flag, _real_wd = [], writer.write_day
+
+        def _wd_count(n, s, d):
+            ok = _real_wd(n, s, d)
+            _flag.append(1)
+            return ok
+
+        _rec = _Rec()
+        with patch.object(writer, "write_day", side_effect=_wd_count), patch.object(cp, "log", _rec):
+            _r = _run(_Garmin(_held), should_stop=lambda: len(_flag) >= 3)
+        check("C9 stopped at the fourth day: three written, 'stopped after 3 of 5 day(s).' once, the fourth and fifth untouched",
+              _r["stopped"] is True and _r["filled"] == 3
+              and [m for m in _rec.m["info"] if "stopped after" in m] == ["  Prediction catch-up: stopped after 3 of 5 day(s)."])
+
+# -- the answer of the log save: only False is a failure, and it counts once --------------------------------------------
+def _save_scenario(base):
+    _put_raw("2025-03-25")                                    # candidate, Garmin holds nothing -> marked
+    _put_raw("2025-03-26", _pred("2025-03-26", 1500))         # own: the basis
+    _put_raw("2025-03-27")                                    # candidate, Garmin holds it -> filled
+    _put_log({"first_day": "2025-03-25", "devices": [],
+              "days": [_qe("2025-03-25"), _qe("2025-03-26"), _qe("2025-03-27")]})
+
+
+with _isolated_log_env("cp_save9a") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _save_scenario(_b)
+        with patch.object(quality, "_save_quality_log", return_value=False), patch.object(cp, "log", _Rec()):
+            _r = _run(_Garmin({"2025-03-27": 1500}))
+        check("C9 a log that cannot be saved counts exactly one failure and no marked day",
+              _r["failed"] == 1 and _r["given_up"] == 0 and _r["reason"] == "the quality log could not be saved")
+with _isolated_log_env("cp_save9b") as _b:
+    with _cfg_values(MIGRATION_BACKUP_DIR=_snap_dir(_b)):
+        _save_scenario(_b)
+        with patch.object(quality, "_save_quality_log", return_value=0), patch.object(cp, "log", _Rec()):
+            _r = _run(_Garmin({"2025-03-27": 1500}))
+        check("C9 a save that answers 0 (not False) is a save: no failure, the marked day is counted",
+              _r["failed"] == 0 and _r["given_up"] == 1 and _r["filled"] == 1)
+
 summary()

@@ -377,4 +377,347 @@ with _isolated_log_env("m2b_cli") as _b:
         _code, _out = _run_cli("migration_2026-01-01_000000.zip")
         check("M2b CLI: a damaged copy is refused with the problems and exit 1", _code == 1 and "refused" in _out)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  M2c. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("M2c. garmin_migration_snapshot - mutation round v1.7.6.12")
+import datetime as _dt
+import os as _os
+import zlib as _zlib
+
+_R = snap._FREE_SPACE_RESERVE
+check("M2c the free-space reserve is 10 MB", _R == 10 * 1024 * 1024)
+check("M2c _valid_date: a date -> True; the basic ISO form 20220304 (8 characters), text and None -> False",
+      snap._valid_date("2022-03-01") is True and snap._valid_date("20220304") is False
+      and snap._valid_date("abc") is False and snap._valid_date(None) is False)
+
+
+def _zip_of(path, entries):
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as _z:
+        for _n, _c in entries.items():
+            _z.writestr(_n, _c)
+    return path
+
+
+_DR1, _DR2, _DS1 = "raw/garmin_raw_2022-03-01.json", "raw/garmin_raw_2022-03-02.json", "summary/garmin_2022-03-01.json"
+
+# -- _cleanup never raises ------------------------------------------------------------------------------------------
+with _isolated_log_env("m2c_cleanup") as _b:
+    _p = _b / "x.tmp"
+    _p.write_text("x", encoding="utf-8")
+    snap._cleanup(_p)
+    snap._cleanup(_b / "missing.tmp")
+    _p2 = _b / "y.tmp"
+    _p2.write_text("y", encoding="utf-8")
+    with patch.object(Path, "unlink", side_effect=PermissionError("locked")):
+        snap._cleanup(_p2)
+    check("M2c _cleanup: removes a file, ignores a missing one and an OS error", not _p.exists() and _p2.exists())
+
+# -- create_snapshot: refused store names, nothing to back up, free space, names, manifest, log line --------------------------
+with _isolated_log_env("m2c_create") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        for _st in (("bogus",), ()):
+            _r = snap.create_snapshot(stores=_st)
+            check(f"M2c create_snapshot(stores={_st!r}): refused, every number zero, nothing written",
+                  _r == {"ok": False, "path": None, "raw": 0, "summary": 0, "log": False, "bytes": 0,
+                         "reason": f"unknown store in {sorted(map(str, set(_st)))}"} and not (_b / "migration").exists())
+        check("M2c an archive with nothing to back up: ok, path None, every number zero",
+              snap.create_snapshot() == {"ok": True, "path": None, "raw": 0, "summary": 0, "log": False, "bytes": 0,
+                                         "reason": "nothing to back up"})
+
+        for _size, _free, _txt in ((3 * 1048576, 5 * 1048576, "5 MB free, 3 MB of files to back up"),
+                                   (3 * 1048575, 5 * 1048575, "4 MB free, 2 MB of files to back up")):
+            _put(cfg.RAW_DIR / "garmin_raw_2022-03-01.json", b"x" * _size)
+            with patch("shutil.disk_usage", return_value=SimpleNamespace(total=_free * 2, used=0, free=_free)):
+                _r = snap.create_snapshot()
+            check(f"M2c not enough free space: refused with the sizes in whole megabytes ({_txt})",
+                  _r["ok"] is False and _r["path"] is None and _r["reason"] == f"not enough free space ({_txt})"
+                  and (_r["raw"], _r["summary"], _r["log"], _r["bytes"]) == (1, 0, False, 0))
+        _tot = 3 * 1048576 + 456
+        _put(cfg.RAW_DIR / "garmin_raw_2022-03-01.json", b"x" * _tot)
+        with patch("shutil.disk_usage", return_value=SimpleNamespace(total=0, used=0, free=_tot + _R - 1)):
+            _just_short = snap.create_snapshot()
+        with patch("shutil.disk_usage", return_value=SimpleNamespace(total=0, used=0, free=_tot + _R)):
+            _just_enough = snap.create_snapshot()
+        check("M2c free space exactly the size of the files plus the 10 MB reserve is enough, one byte less is not",
+              _just_short["ok"] is False and "not enough free space" in _just_short["reason"]
+              and _just_enough["ok"] is True and _just_enough["path"].exists())
+
+with _isolated_log_env("m2c_names") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _mk_archive()
+        with patch.object(snap, "datetime") as _dtm:
+            _dtm.now.return_value = _dt.datetime(2025, 1, 2, 3, 4, 5)
+            _names9 = [snap.create_snapshot()["path"].name for _ in range(3)]
+        check("M2c three snapshots in the same second are named _, _2 and _3",
+              _names9 == ["migration_2025-01-02_030405.zip", "migration_2025-01-02_030405_2.zip", "migration_2025-01-02_030405_3.zip"])
+        with zipfile.ZipFile(snap.list_snapshots()[0]["path"]) as _zf:
+            _mtext = _zf.read("MANIFEST.json").decode("utf-8")
+        check("M2c the manifest is written with an indent of two", _mtext.startswith('{\n  "created"'))
+        with patch.object(snap, "_check_zip", return_value=["p1", "p2", "p3", "p4", "p5"]):
+            _fz = snap.create_snapshot()
+        check("M2c a ZIP that fails its check: the first three problems are named, no file is kept",
+              _fz["ok"] is False and _fz["reason"] == "the ZIP failed its check: p1; p2; p3"
+              and len(snap.list_snapshots()) == 3 and not list((_b / "migration").glob(".*")))
+
+with _isolated_log_env("m2c_logline") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _mk_archive()
+        _put(cfg.RAW_DIR / "garmin_raw_2022-03-09.json", _os.urandom(2_621_440))          # incompressible: the ZIP is about 2.5 MB
+        with patch.object(snap, "log") as _lg:
+            _w = snap.create_snapshot()
+            _wo = snap.create_snapshot(stores=("raw", "summary"))
+        _msgs = [str(c.args[0]) for c in _lg.info.call_args_list]
+        check("M2c the log line names the ZIP, the counts, the quality log when it is in, and the size in MB",
+              _msgs[0] == f"  Migration snapshot: {_w['path'].name} — 4 raw, 3 summary file(s), quality log, {_w['bytes'] // 1048576} MB"
+              and _w["bytes"] // 1048576 == 2)
+        check("M2c without the quality log the line does not mention it",
+              _msgs[1] == f"  Migration snapshot: {_wo['path'].name} — 4 raw, 3 summary file(s), {_wo['bytes'] // 1048576} MB")
+
+# -- _check_zip and verify_snapshot -----------------------------------------------------------------------------------
+with _isolated_log_env("m2c_check") as _b:
+    _data = b'{"date": "2022-03-01"}'
+    _crc = _zlib.crc32(_data)
+    _zp = _zip_of(_b / "e.zip", {"MANIFEST.json": "{}", _DR1: _data})
+    check("M2c _check_zip with the entries that were read: no problem",
+          snap._check_zip(_zp, {_DR1: (len(_data), _crc)}) == [])
+    check("M2c _check_zip: an expected entry that is not in the ZIP -> 'the entries differ'",
+          snap._check_zip(_zp, {_DR1: (len(_data), _crc), _DR2: (1, 1)}) == ["the entries differ from the files that were read"])
+    check("M2c _check_zip: an entry in the ZIP that was not expected -> 'the entries differ'",
+          snap._check_zip(_zp, {}) == ["the entries differ from the files that were read"])
+    for _what, _exp in (("size larger", (len(_data) + 1, _crc)), ("size smaller", (len(_data) - 1, _crc)),
+                        ("crc larger", (len(_data), _crc + 1)), ("crc smaller", (len(_data), _crc - 1))):
+        check(f"M2c _check_zip: the expected {_what} than the entry -> the entry differs",
+              snap._check_zip(_zp, {_DR1: _exp}) == [f"{_DR1} differs from the file that was read"])
+
+    def _man9(raw, summ, log, extra=None):
+        return json.dumps({"raw": raw, "summary": summ, "quality_log": log, **(extra or {})})
+
+    _ents = {_DR1: "{}", _DR2: "{}", _DS1: "{}", "log/quality_log.json": "{}"}
+    check("M2c _check_zip without expected entries: a manifest that matches (2 raw, 1 summary, a log) is fine",
+          snap._check_zip(_zip_of(_b / "m_ok.zip", {"MANIFEST.json": _man9(2, 1, True), **_ents})) == [])
+    for _what, _m in (("raw too high", _man9(3, 1, True)), ("raw too low", _man9(1, 1, True)),
+                      ("summary too high", _man9(2, 2, True)), ("summary too low", _man9(2, 0, True)),
+                      ("a log claimed that is not there", _man9(2, 1, True)), ("a log not claimed that is there", _man9(2, 1, False))):
+        _e2 = dict(_ents)
+        if _what.startswith("a log claimed"):
+            del _e2["log/quality_log.json"]
+        _p9 = snap._check_zip(_zip_of(_b / "m_bad.zip", {"MANIFEST.json": _m, **_e2}))
+        check(f"M2c _check_zip: manifest {_what} -> 'the manifest does not match the entries'",
+              _p9 == ["the manifest does not match the entries"])
+    for _txt, _what in (("{ not json", "no JSON"), ("[]", "a list"), ("null", "null")):
+        check(f"M2c _check_zip: a manifest that is {_what} -> 'manifest unreadable'",
+              snap._check_zip(_zip_of(_b / "m_un.zip", {"MANIFEST.json": _txt, _DR1: "{}"})) == ["manifest unreadable"])
+
+    _v = snap.verify_snapshot(_zip_of(_b / "v.zip", {
+        "MANIFEST.json": _man9(3, 2, False, {"created": "2025-01-01T00:00:00"}),
+        **{f"raw/garmin_raw_2022-03-0{n}.json": "{}" for n in (1, 2, 3)},
+        **{f"summary/garmin_2022-03-0{n}.json": "{}" for n in (1, 2)}}))
+    check("M2c verify_snapshot counts raw and summary entries apart (3 and 2), reads the creation time, log False",
+          _v == {"ok": True, "problems": [], "raw": 3, "summary": 2, "log": False, "created": "2025-01-01T00:00:00"})
+    (_b / "garbage.zip").write_bytes(b"not a zip at all")
+    _vg = snap.verify_snapshot(_b / "garbage.zip")
+    check("M2c verify_snapshot of a file that is no ZIP: not ok, one problem, every number zero, no creation time",
+          _vg["ok"] is False and len(_vg["problems"]) == 1 and (_vg["raw"], _vg["summary"], _vg["log"], _vg["created"]) == (0, 0, False, None))
+    for _txt in ("{ not json", "[]"):
+        _vm = snap.verify_snapshot(_zip_of(_b / "v_bad.zip", {"MANIFEST.json": _txt, _DR1: "{}"}))
+        check(f"M2c verify_snapshot with a manifest that is {_txt!r}: not ok, nothing raised, the entries are counted, no creation time",
+              _vm["ok"] is False and _vm["raw"] == 1 and _vm["created"] is None)
+    _real_zf = zipfile.ZipFile
+    for _exc in (OSError("gone"), zipfile.BadZipFile("gone")):
+        _n9 = [0]
+
+        def _second_fails(*a, **k):
+            _n9[0] += 1
+            if _n9[0] == 2:
+                raise _exc
+            return _real_zf(*a, **k)
+
+        with patch.object(zipfile, "ZipFile", _second_fails):
+            _vs = snap.verify_snapshot(_b / "v.zip")
+        check(f"M2c verify_snapshot: the ZIP cannot be opened the second time ({type(_exc).__name__}): not raised, counts stay zero",
+              _vs["ok"] is True and (_vs["raw"], _vs["summary"], _vs["created"]) == (0, 0, None))
+
+# -- restore_snapshot -------------------------------------------------------------------------------------------------------
+with _isolated_log_env("m2c_restore") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _ds = ["2022-03-01", "2022-03-02", "2022-03-03", "2022-03-04"]
+        _mk_archive(_ds)
+        _sp = snap.create_snapshot()["path"]
+        _rj = snap.restore_snapshot(_b / "garbage.zip")
+        check("M2c restore_snapshot of a refused ZIP: every counter zero, nothing failed, log_saved None, not stopped",
+              _rj["reason"] == "snapshot_invalid" and (_rj["restored"], _rj["unchanged"], _rj["log_entries"]) == (0, 0, 0)
+              and _rj["failed"] == [] and _rj["log_saved"] is None and _rj["stopped"] is False and _rj["ok"] is False)
+
+        # everything is as it was in the snapshot: nothing is put back and the log is not touched
+        _log_before = cfg.QUALITY_LOG_FILE.read_bytes()
+        with patch.object(backup, "backup_raw"):
+            _same = snap.restore_snapshot(_sp)
+        check("M2c restore of an unchanged archive: 4 unchanged, 0 restored, the log is not saved (log_saved None) and not changed",
+              (_same["restored"], _same["unchanged"], _same["log_entries"], _same["log_saved"], _same["ok"]) == (0, 4, 0, None, True)
+              and cfg.QUALITY_LOG_FILE.read_bytes() == _log_before)
+
+        for _d in _ds:
+            writer.restore_day_files(_d, _raw_bytes(_d, "migrated"), _sum_bytes(_d, "migrated"))
+        _asked = []
+        with patch.object(backup, "backup_raw"):
+            _once = snap.restore_snapshot(_sp, should_stop=lambda: (_asked.append(1) or len(_asked) == 2))
+        check("M2c a stop at the second day ends the restore there: one day put back, the others (also those after it) are not",
+              _once["stopped"] is True and _once["restored"] == 1 and len(_asked) == 2
+              and (cfg.RAW_DIR / "garmin_raw_2022-03-01.json").read_bytes() == _raw_bytes("2022-03-01")
+              and all((cfg.RAW_DIR / f"garmin_raw_{d}.json").read_bytes() == _raw_bytes(d, "migrated") for d in _ds[1:]))
+
+        _real_zf = zipfile.ZipFile
+        for _exc in (OSError("gone"), zipfile.BadZipFile("gone")):
+            _n9 = [0]
+
+            def _third_fails(*a, **k):
+                _n9[0] += 1
+                if _n9[0] == 3:
+                    raise _exc
+                return _real_zf(*a, **k)
+
+            with patch.object(zipfile, "ZipFile", _third_fails):
+                _un = snap.restore_snapshot(_sp)
+            check(f"M2c a ZIP that cannot be opened for the restore ({type(_exc).__name__}): the reason carries the error, not ok",
+                  _un["ok"] is False and _un["reason"] == f"{type(_exc).__name__}: gone")
+
+with _isolated_log_env("m2c_nolog") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _mk_archive()
+        cfg.QUALITY_LOG_FILE.unlink()
+        _sp = snap.create_snapshot()["path"]
+        writer.restore_day_files(_DAYS[0], _raw_bytes(_DAYS[0], "migrated"), _sum_bytes(_DAYS[0], "migrated"))
+        with patch.object(backup, "backup_raw"):
+            _nl = snap.restore_snapshot(_sp)
+        check("M2c a snapshot without a log entry: the day is put back, nothing is read from a log that is not there "
+              "(no entry comes back, the marks are still saved)",
+              _nl["ok"] is True and _nl["restored"] == 1 and _nl["log_entries"] == 0 and _nl["log_saved"] is True)
+
+with _isolated_log_env("m2c_badlog") as _b:
+    _bad_log = _zip_of(_b / "badlog.zip", {"MANIFEST.json": json.dumps({"raw": 0, "summary": 0, "quality_log": True}),
+                                           "log/quality_log.json": "{ not json"})
+    _bl = snap.restore_snapshot(_bad_log)
+    check("M2c a copy whose log is not JSON: not ok, the failure names the log, nothing raised",
+          _bl["ok"] is False and _bl["failed"] == [("quality_log", "the log in the snapshot is unreadable")])
+
+with _isolated_log_env("m2c_logonly") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "migration"):
+        _mk_archive()
+        with quality.QUALITY_LOCK:                              # the log as the program itself writes it (entries normalised)
+            quality._save_quality_log(quality._load_quality_log(), skip_backup=True)
+        _lp = snap.create_snapshot(stores=("quality_log",))["path"]
+        _base_log = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
+        with patch.object(snap, "log") as _lg:
+            _r0 = snap.restore_snapshot(_lp)
+            _msg0 = str(_lg.info.call_args_list[-1].args[0])
+        check("M2c log-only copy, nothing changed since: 0 entries, the line says 'entries'",
+              _r0["log_entries"] == 0 and _msg0.endswith("0 log entries restored") and "(dry run)" not in _msg0)
+        _chg = json.loads(json.dumps(_base_log))
+        _chg["days"][0]["tag"] = "later"
+        _put_log(_chg)
+        with patch.object(snap, "log") as _lg:
+            _rd = snap.restore_snapshot(_lp, dry_run=True)
+            _msgd = str(_lg.info.call_args_list[-1].args[0])
+        check("M2c log-only copy, dry run: counts the entry that would come back, writes nothing, the line says '(dry run)' and 'entry'",
+              _rd["log_entries"] == 1 and "(dry run)" in _msgd and _msgd.endswith("1 log entry restored")
+              and json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))["days"][0]["tag"] == "later")
+        with patch.object(snap, "log") as _lg:
+            _r1 = snap.restore_snapshot(_lp)
+            _msg1 = str(_lg.info.call_args_list[-1].args[0])
+        check("M2c log-only copy, one entry back: the line says '1 log entry restored'", _r1["log_entries"] == 1 and _msg1.endswith("1 log entry restored"))
+        _chg["days"][0]["tag"] = "later"
+        _chg["days"][1]["tag"] = "later"
+        _put_log(_chg)
+        with patch.object(snap, "log") as _lg:
+            _r2 = snap.restore_snapshot(_lp)
+            _msg2 = str(_lg.info.call_args_list[-1].args[0])
+        check("M2c log-only copy, two entries back: the line says '2 log entries restored'", _r2["log_entries"] == 2 and _msg2.endswith("2 log entries restored"))
+
+# -- _restore_log_entries and _merge_log on their own ---------------------------------------------------------------------
+with _isolated_log_env("m2c_entries") as _b:
+    _put_log({"first_day": "2018-12-19", "devices": [], "days": [_entry("2022-03-01", tag="current"), _entry("2022-03-02", tag="same")]})
+    _cur = quality._load_quality_log()["days"]
+    _same_e = copy.deepcopy(_cur[1])
+    _old_e, _new_e = copy.deepcopy(_cur[0]), _entry("2022-03-05", tag="new")
+    _old_e["tag"] = "old"
+    _snap_log = {"days": ["junk", {"no": "date"}, {"date": 20220301}, _same_e, _old_e, _new_e]}
+    _file_before = cfg.QUALITY_LOG_FILE.read_bytes()
+    check("M2c _restore_log_entries, dry run: counts the entry that differs and the one that is new, saves nothing (None), the file is as before",
+          snap._restore_log_entries(_snap_log, True) == (2, None) and cfg.QUALITY_LOG_FILE.read_bytes() == _file_before)
+    check("M2c _restore_log_entries: nothing differs -> (0, None) and the file is not rewritten",
+          snap._restore_log_entries({"days": [_same_e]}, False) == (0, None) and cfg.QUALITY_LOG_FILE.read_bytes() == _file_before)
+    check("M2c _restore_log_entries: junk entries in front do not end the loop; the differing day is replaced, the new day appended, the same day stays",
+          snap._restore_log_entries(_snap_log, False) == (2, True)
+          and {d: e["tag"] for d, e in _qdays().items()} == {"2022-03-01": "old", "2022-03-02": "same", "2022-03-05": "new"})
+    for _ret, _want in ((0, True), (None, True), (False, False)):
+        _put_log({"first_day": "2018-12-19", "devices": [], "days": [_entry("2022-03-01", tag="current")]})
+        with patch.object(quality, "_save_quality_log", return_value=_ret):
+            _got = snap._restore_log_entries({"days": [_old_e]}, False)
+        check(f"M2c _restore_log_entries: a save that answers {_ret!r} counts as saved={_want}", _got == (1, _want))
+
+    _put_log({"first_day": "2018-12-19", "devices": [], "days": [_entry("2022-03-01", tag="a"), _entry("2022-03-02", tag="b"),
+                                                                  {"x": "no date"}]})
+    check("M2c _merge_log: no log in the snapshot -> nothing taken (0), saved True",
+          snap._merge_log(None, {"2022-03-01"}) == (0, True))
+    _slog = {"days": [_entry("2022-03-01", tag="from-snap"), _entry("2022-03-02", tag="from-snap"), _entry("2022-03-09", tag="not restored")]}
+    check("M2c _merge_log: two restored days are taken from the snapshot's log (2), a day that was not restored is not",
+          snap._merge_log(_slog, {"2022-03-01", "2022-03-02"}) == (2, True)
+          and {d: e["tag"] for d, e in _qdays().items()} == {"2022-03-01": "from-snap", "2022-03-02": "from-snap"})
+    for _ret, _want in ((0, True), (None, True), (False, False)):
+        with patch.object(quality, "_save_quality_log", return_value=_ret):
+            _got = snap._merge_log(_slog, {"2022-03-01"})
+        check(f"M2c _merge_log: a save that answers {_ret!r} counts as saved={_want}", _got == (1, _want))
+
+# -- the name of a log-only copy, a backup folder whose parents do not exist, restore failures through restore_snapshot ------------
+with _isolated_log_env("m2c_more") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    with _cfg_values(MIGRATION_BACKUP_DIR=_b / "no" / "such" / "folders" / "migration"):
+        _mk_archive()
+        with quality.QUALITY_LOCK:
+            quality._save_quality_log(quality._load_quality_log(), skip_backup=True)
+        _lo = snap.create_snapshot(stores=("quality_log",))
+        _full = snap.create_snapshot()
+        check("M2c a copy of the quality log only is named quality_log_..., the full one migration_...; the backup folder is made with its parents",
+              _lo["ok"] is True and _lo["path"].name.startswith("quality_log_") and _full["ok"] is True
+              and _full["path"].name.startswith("migration_") and _full["path"].parent == _b / "no" / "such" / "folders" / "migration")
+        _lp = _lo["path"]
+        _base_log = json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
+        _chg = json.loads(json.dumps(_base_log))
+        _chg["days"][0]["tag"] = "later"
+        _put_log(_chg)
+        with patch.object(quality, "_save_quality_log", return_value=False):
+            _lf = snap.restore_snapshot(_lp)
+        check("M2c a log-only restore whose save fails: the failure names the quality log, not ok, log_saved False",
+              _lf["log_saved"] is False and _lf["ok"] is False and _lf["failed"] == [("quality_log", "the quality log could not be saved")])
+        _put_log(_chg)
+        _ls = snap.restore_snapshot(_lp)
+        check("M2c a log-only restore whose save works: no failure, ok, log_saved True",
+              _ls["log_saved"] is True and _ls["ok"] is True and _ls["failed"] == [])
+        _sp = _full["path"]
+        writer.restore_day_files(_DAYS[0], _raw_bytes(_DAYS[0], "migrated"), _sum_bytes(_DAYS[0], "migrated"))
+        with patch.object(backup, "backup_raw"), patch.object(quality, "_save_quality_log", return_value=False):
+            _mf = snap.restore_snapshot(_sp)
+        check("M2c a restore of days whose log save fails: the failure names the quality log, not ok",
+              _mf["log_saved"] is False and _mf["ok"] is False and ("quality_log", "the quality log could not be saved") in _mf["failed"])
+        writer.restore_day_files(_DAYS[0], _raw_bytes(_DAYS[0], "migrated"), _sum_bytes(_DAYS[0], "migrated"))
+        with patch.object(backup, "backup_raw"):
+            _mo = snap.restore_snapshot(_sp)
+        check("M2c a restore of days whose log save works: no failure", _mo["log_saved"] is True and _mo["ok"] is True and _mo["failed"] == [])
+
+# -- the entries of the CURRENT log that are no entries (a string, a dict with a date that is no string) are left alone ------------------
+with _isolated_log_env("m2c_junk") as _b:
+    _cur_data = {"first_day": "2018-12-19", "devices": [], "days": ["junk", {"date": 5}, _entry("2022-03-01", tag="current")]}
+    with patch.object(quality, "_load_quality_log", return_value=_cur_data), patch.object(quality, "_save_quality_log", return_value=True):
+        _res = snap._restore_log_entries({"days": [_entry("2022-03-01", tag="old")]}, False)
+    check("M2c _restore_log_entries: junk entries in the current log do not stop it; the day is replaced, the junk stays",
+          _res == (1, True) and _cur_data["days"][0] == "junk" and _cur_data["days"][1] == {"date": 5}
+          and _cur_data["days"][2]["tag"] == "old" and len(_cur_data["days"]) == 3)
+
 summary()

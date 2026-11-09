@@ -451,4 +451,121 @@ with _isolated_log_env("bulk_import_fresh"):
           [v[1] for v in bw._load_day("2024-03-02")[1]["sections"]["intraday"]["heart_rate"]["values"]] == [60, 62, 64, 80]
           and bw._load_day("2024-03-04")[1]["sections"]["intraday"]["heart_rate"]["count"] == 1)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("B5b. garmin_bulk_import — mutation round v1.7.6.12")
+import dataclasses
+import struct
+
+import garmin_bulk_export_scanner as _scanner9
+
+check("the progress line comes after 2000 files", imp.PROGRESS_EVERY == 2000)
+check("_empty_summary: every counter starts at zero, nothing is ok, stopped or written",
+      imp._empty_summary(True) == {
+          "ok": False, "error": None, "dry_run": True, "stopped": False,
+          "scan": dataclasses.asdict(_scanner9.ScanStats()), "rejected": {}, "by_type": {}, "other_types": 0,
+          "originals": {"new": 0, "present": 0, "failed": 0, "bytes": 0},
+          "days": {"new": 0, "changed": 0, "unchanged": 0, "kept": 0, "failed": 0},
+          "samples": {"kept": 0, "unassigned": 0, "unassigned_by_date": {}, "duplicates_same": 0,
+                      "duplicates_conflict": 0, "days_with_samples": 0},
+          "planned_days": 0, "unknown_days": [], "planned_days_without_samples": [], "written_days": []})
+
+
+def _fit_hr(ftype, unix_created, samples, serial=1):
+    """A FIT file of the given type that carries heart-rate messages (55), like a monitoring file."""
+    e = fb.FIT_EPOCH_OFFSET
+    rec = fb.file_id(ftype, unix_created - e, serial)
+    rec.append(fb.define(1, 55, [(253, 4, fb.U32), (27, 1, fb.U8)]))
+    for unix, bpm in samples:
+        rec.append(fb.row(1, struct.pack("<IB", unix - e, bpm)))
+    return fb.build_fit(rec)
+
+
+with _isolated_log_env("bulk_import_b5b") as base:
+    _archive()
+    # progress: 8 files read, a line every 3rd (3 and 6) — an even step would hide a start at 1 (2, 4, 6, 8 either way)
+    exp9 = base / "export.zip"
+    exp9.write_bytes(export)
+    with patch.object(imp, "PROGRESS_EVERY", 3), _Log() as plog:
+        imp.run_intraday_import(exp9, dry_run=True)
+    check("progress lines every 3rd file: after the 3rd and the 6th file read",
+          [line.strip() for line in plog.lines if "files read" in line] == ["bulk intraday: 3 files read ...", "bulk intraday: 6 files read ..."])
+
+    # only the files of type 32 (monitoring) give heart-rate samples, whatever else carries message 55
+    _t = _ts(2024, 3, 2, 12)
+    only = _zip_bytes({
+        f"{SECRET}_m.fit": fb.monitoring_fit(_t, [(_t, 60), (_t + 60, 62), (_t + 120, 64)], serial=1),
+        f"{SECRET}_a.fit": _fit_hr(4, _t, [(_t + 300, 90), (_t + 360, 91)], serial=2),         # an activity file below 32
+        f"{SECRET}_s.fit": _fit_hr(49, _t, [(_t + 420, 92), (_t + 480, 93)], serial=3)})       # a sleep file above 32
+    ex2 = base / "types.zip"
+    ex2.write_bytes(only)
+    r2 = imp.run_intraday_import(ex2, dry_run=True)
+    check("only a monitoring file (type 32) gives samples: 3 samples kept, the activity and the sleep file add none",
+          r2["samples"]["kept"] == 3 and r2["by_type"] == {32: 1, 4: 1, 49: 1})
+
+    # the same reason of rejection three times: counted three times
+    bad = _zip_bytes({f"{SECRET}_g{i}.fit": garbage + bytes([i]) for i in range(3)})
+    ex3 = base / "bad.zip"
+    ex3.write_bytes(bad)
+    r3 = imp.run_intraday_import(ex3, dry_run=True)
+    check("three unreadable FIT files with one reason: that reason is counted three times",
+          list(r3["rejected"].values()) == [3])
+
+    # a stop that is asked for once, at the second day: the loop ends there, the later days are not written
+    exp4 = base / "stop_once.zip"
+    exp4.write_bytes(export)
+    calls = {"n": 0}
+
+    def _stop_at_second_day():
+        calls["n"] += 1
+        return calls["n"] == 10                 # eight files, the first day, then the second day says yes — once
+
+    s5 = imp.run_intraday_import(exp4, should_stop=_stop_at_second_day)
+    check("a stop at the second day ends the loop for good: one day written, not the third although the stop is not asked again",
+          s5["stopped"] and s5["days"]["new"] == 1 and len(s5["written_days"]) == 1)
+
+    # an unexpected error writes its traceback to the debug log
+    with patch.object(imp.normalizer, "plan_days", side_effect=RuntimeError("boom")), patch.object(imp, "log") as _lg9:
+        imp.run_intraday_import(exp9, dry_run=True)
+    check("an unexpected error writes its traceback to the debug log (exc_info=True)",
+          any(c.kwargs.get("exc_info") is True for c in _lg9.debug.call_args_list))
+
+# -- _dates and format_summary on summaries made by hand ------------------------------------------------------------------
+check("_dates: five dates are all shown, six show five and the total (default limit 5)",
+      imp._dates(["d1", "d2", "d3", "d4", "d5"]) == "d1, d2, d3, d4, d5"
+      and imp._dates(["d1", "d2", "d3", "d4", "d5", "d6"]) == "d1, d2, d3, d4, d5, ... (6 in all)")
+_s = imp._empty_summary(False)
+_s["scan"] = {}
+_l = imp.format_summary(_s)
+check("format_summary without the flag is not a preview; an empty scan counts zero (0 FIT files, 0 duplicates); no 'skipped' line",
+      _l[0] == "Bulk intraday import"
+      and _l[1] == "  files:     0 FIT files found, 0 duplicate content, 0 unreadable, 0 of other types (not stored)"
+      and not any(x.startswith("  skipped:") for x in _l))
+_s = imp._empty_summary(False)
+_s["rejected"] = {"bad crc": 2, "too short": 1}
+check("format_summary: the reasons of unreadable files follow the count, sorted",
+      "3 unreadable (bad crc: 2, too short: 1)," in imp.format_summary(_s)[1])
+for _key in ("zips_unreadable", "oversize", "unreadable_entries", "too_deep"):
+    _s = imp._empty_summary(False)
+    _s["scan"] = {_key: 2}
+    _sk = [x for x in imp.format_summary(_s) if x.startswith("  skipped:")]
+    _vals = {k: (2 if k == _key else 0) for k in ("zips_unreadable", "unreadable_entries", "oversize", "too_deep")}
+    check(f"format_summary: only '{_key}' set: the skipped line is there with the other counts at zero",
+          _sk == [f"  skipped:   {_vals['zips_unreadable']} unreadable ZIP(s), {_vals['unreadable_entries']} damaged entries, "
+                  f"{_vals['oversize']} too large, {_vals['too_deep']} nested too deep"])
+_s = imp._empty_summary(False)
+_s["originals"]["bytes"] = 2_449_999
+_s2 = imp._empty_summary(False)
+_s2["originals"]["bytes"] = 2_450_000
+check("format_summary: the size in MB is bytes / 1,000,000 with one decimal (2,449,999 -> 2.4, 2,450,000 -> 2.5)",
+      "(2.4 MB kept in all)" in imp.format_summary(_s)[2] and "(2.5 MB kept in all)" in imp.format_summary(_s2)[3 - 1])
+_s = imp._empty_summary(False)
+check("format_summary: no note about samples without a day when there are none",
+      not any("samples without a day" in x for x in imp.format_summary(_s)))
+_s["samples"]["unassigned"] = 4
+_s["samples"]["unassigned_by_date"] = {"2024-03-02": 3, "2024-03-01": 1}
+check("format_summary: the note names the days of samples without a day, sorted",
+      "  note:      samples without a day on: 2024-03-01, 2024-03-02" in imp.format_summary(_s))
+
 summary()

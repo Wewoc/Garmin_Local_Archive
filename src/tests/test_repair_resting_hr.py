@@ -495,4 +495,75 @@ with _isolated_log_env("rr_agg_unreadable") as _b:
           (_r_next["ok"], _r_next["failed"]) == (1, 0) and _load_raw(_U[0])["user_summary"][_SEVEN] == 60
           and _load_sum(_U[0])["stress"]["stress_avg"] == 25)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("R9. mutation round v1.7.6.12")
+
+# -- helpers: a date is exactly ten characters and a date; the import form is a dict ---------------------------------
+check("R9 _valid_date: a date -> True", rr._valid_date("2025-06-01") is True)
+check("R9 _valid_date: the basic ISO form 20250601 (valid for date.fromisoformat, 8 characters) is no archive date",
+      rr._valid_date("20250601") is False)
+check("R9 _valid_date: wrong length -> False", all(rr._valid_date(v) is False for v in ("2025-6-1", "2025-06-011", "")))
+check("R9 _valid_date: ten characters that are no date -> False",
+      all(rr._valid_date(v) is False for v in ("2025-13-45", "2025-02-30", "abcdefghij")))
+check("R9 _is_import_shaped: not a dict -> False", all(rr._is_import_shaped(v) is False for v in (None, [], "x", 5)))
+
+# -- find_candidates: a file that cannot be used does not end the scan -------------------------------------------------
+with _isolated_log_env("rr_scan") as _b:
+    _setup(_b, {"2025-06-02": _imp_raw("2025-06-02", 61)}, {"2025-06-02": _src("2025-06-02", 57, 61)})
+    _put(cfg.RAW_DIR / "garmin_raw_0000.json", _imp_raw("2025-06-01", 60))          # sorts before the day, name is no date
+    _put(_raw_path("2025-06-01"), "{broken")                                        # unreadable, sorts before the day
+    check("R9 find_candidates: a name that is no date and an unreadable file in front of a repairable day do not end the scan",
+          rr.find_candidates() == {"repairable": ["2025-06-02"], "no_source": []})
+
+# -- repair: nothing to do says so; a dry run reports an unusable source per day ------------------------------------
+with _isolated_log_env("rr_none") as _b:
+    _setup(_b, {"2025-06-03": _api_raw("2025-06-03")})
+    _rec = _Rec()
+    with patch.object(rr, "log", _rec):
+        _r = rr.repair_resting_hr()
+    check("R9 nothing in the import form: the result is empty and the log says no day needs correction (and nothing else)",
+          _r == {"ok": 0, "failed": 0, "no_source": [], "items": []}
+          and _rec.m["info"] == ["  Resting HR repair: no day needs correction."])
+
+with _isolated_log_env("rr_dry_err") as _b:
+    _setup(_b, {"2025-06-01": _imp_raw("2025-06-01", 60), "2025-06-02": _imp_raw("2025-06-02", 61),
+                "2025-06-03": _imp_raw("2025-06-03", 62)},
+           {"2025-06-01": "{broken", "2025-06-02": _src("2025-06-02", 57, 61), "2025-06-03": "{also broken"})
+    _r = rr.repair_resting_hr(dry_run=True)
+    check("R9 dry run: two days with an unusable source are errors, counted one by one, the third is fine",
+          (_r["ok"], _r["failed"]) == (1, 2)
+          and [(i["date"], i["status"]) for i in _r["items"]]
+          == [("2025-06-01", "error"), ("2025-06-02", "would_repair"), ("2025-06-03", "error")]
+          and all(i.get("reason") for i in _r["items"] if i["status"] == "error"))
+
+# -- repair: stop after two of four days (the message counts the days done), asked once ----------------------------
+with _isolated_log_env("rr_stop") as _b:
+    _ds = [f"2025-06-0{n}" for n in range(1, 5)]
+    _setup(_b, {d: _imp_raw(d, 60 + n) for n, d in enumerate(_ds)}, {d: _src(d, 57, 60) for d in _ds})
+    _asks = []
+
+    def _stop_third():
+        _asks.append(1)
+        return len(_asks) >= 3
+
+    _rec = _Rec()
+    with patch.object(rr, "log", _rec):
+        _r = rr.repair_resting_hr(should_stop=_stop_third)
+    check("R9 stopped at the third day: two corrected, the log says 'stopped after 2 of 4 day(s).'",
+          _r["ok"] == 2 and "  Resting HR repair: stopped after 2 of 4 day(s)." in _rec.m["info"])
+    check("R9 the stop request ends the loop: asked three times, one line about it",
+          len(_asks) == 3 and len([m for m in _rec.m["info"] if "stopped after" in m]) == 1)
+
+# -- repair: a day that is no longer in the import form is skipped, the days after it are still done ----------------------
+with _isolated_log_env("rr_skip") as _b:
+    _setup(_b, {"2025-06-01": _api_raw("2025-06-01"), "2025-06-02": _imp_raw("2025-06-02", 61)},
+           {"2025-06-01": _src("2025-06-01", 57, 61), "2025-06-02": _src("2025-06-02", 57, 61)})
+    with patch.object(rr, "find_candidates", return_value={"repairable": ["2025-06-01", "2025-06-02"], "no_source": []}):
+        _r = rr.repair_resting_hr()
+    check("R9 a day that is no longer in the import form is skipped; the next day is corrected",
+          [(i["date"], i["status"]) for i in _r["items"]] == [("2025-06-01", "skipped"), ("2025-06-02", "repaired")]
+          and (_r["ok"], _r["failed"]) == (1, 0))
+
 summary()

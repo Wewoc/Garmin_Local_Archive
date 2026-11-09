@@ -428,6 +428,53 @@ with patch("garmin_api.api_call", side_effect=_fr_fail_side_effect), \
 check("fetch_raw: failed extra endpoint tracked in failed_endpoints",
       "get_hydration_data" in _fr_failed_list)
 
+# ── _prediction_of_day() and its use in fetch_raw() (v1.7.6.10, mutation round v1.7.6.12) ─────────────────
+# The date strings are built at run time on purpose: an `is` instead of `==` must not pass by chance
+# through string interning, and the order of the entries must expose `<`/`<=` as well as `>`/`>=`.
+_pd_day = "2024-05-0" + str(1)
+_pd_same = "2024-05-0" + str(1)
+_pd_entry = {"calendarDate": _pd_same, "time5K": 1500}
+_pd_before = {"calendarDate": "2024-04-30", "time5K": 1600}
+_pd_after = {"calendarDate": "2024-05-02", "time5K": 1400}
+
+check("_prediction_of_day: dict is returned as it is (even with another date)",
+      api._prediction_of_day(_pd_before, _pd_day) is _pd_before)
+check("_prediction_of_day: list, own day in the middle (earlier day first) -> the entry of the day",
+      api._prediction_of_day([_pd_before, _pd_entry, _pd_after], _pd_day) is _pd_entry)
+check("_prediction_of_day: list, own day in the middle (later day first) -> the entry of the day",
+      api._prediction_of_day([_pd_after, _pd_entry, _pd_before], _pd_day) is _pd_entry)
+check("_prediction_of_day: list, own day only after junk entries -> junk is skipped",
+      api._prediction_of_day(["junk", None, 5, [], _pd_entry], _pd_day) is _pd_entry)
+check("_prediction_of_day: list with other days only -> None",
+      api._prediction_of_day([_pd_before, _pd_after], _pd_day) is None)
+check("_prediction_of_day: empty list -> None", api._prediction_of_day([], _pd_day) is None)
+check("_prediction_of_day: None / number / string -> None",
+      api._prediction_of_day(None, _pd_day) is None and api._prediction_of_day(5, _pd_day) is None
+      and api._prediction_of_day("2024-05-01", _pd_day) is None)
+
+
+def _pd_run(answer):
+    def _side(client_arg, method, *args, label=""):
+        if method == "get_race_predictions":
+            return (answer, True)
+        return (None, True)
+    with patch("garmin_api.api_call", side_effect=_side), patch("garmin_api.time.sleep"):
+        return api.fetch_raw(MagicMock(), _pd_day)
+
+
+_pd_raw, _pd_failed = _pd_run([_pd_before, _pd_entry, _pd_after])
+check("fetch_raw: race predictions list -> the entry of the day becomes the field",
+      _pd_raw.get("race_predictions") is _pd_entry and "race_predictions" not in _pd_failed)
+_pd_raw, _pd_failed = _pd_run([_pd_before, _pd_after])
+check("fetch_raw: race predictions list without the day -> no field, no failed endpoint",
+      "race_predictions" not in _pd_raw and "race_predictions" not in _pd_failed)
+_pd_raw, _pd_failed = _pd_run([])
+check("fetch_raw: empty race predictions list -> no field, no failed endpoint",
+      "race_predictions" not in _pd_raw and "race_predictions" not in _pd_failed)
+_pd_raw, _pd_failed = _pd_run(_pd_before)
+check("fetch_raw: race predictions dict -> kept as it is",
+      _pd_raw.get("race_predictions") is _pd_before)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  4l2. garmin_api — truncated log/event details, key and token paths, log
 #       lines, fetch_raw pause and stop, device list log (v1.7.4.0.3).

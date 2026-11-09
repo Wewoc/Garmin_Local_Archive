@@ -897,4 +897,185 @@ check("C2 the truncated ZIPs of the scenario are not recognised as ZIP files (is
       len(_truncated_is_zip) == 4 and not any(_truncated_is_zip))
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Part D. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("D. garmin_backup_common — mutation round v1.7.6.12")
+
+
+class _DbgLog(_BLog):
+    """Records the keyword arguments of the debug calls too (the traceback line is written with exc_info=True)."""
+    def __init__(self):
+        super().__init__()
+        self.debug_kwargs = []
+
+    def debug(self, msg, *a, **k):
+        self.debug_kwargs.append((msg, k))
+        super().debug(msg, *a, **k)
+
+
+def _tb(lg):
+    return ("  traceback:", {"exc_info": True}) in lg.debug_kwargs
+
+
+def _msgs(lg, level):
+    return [m for lv, m in lg.calls if lv == level]
+
+
+_F27 = "garmin_raw_2024-08-27.json"
+
+# -- D1. read_copy: a ZIP that cannot be read, and a kind that fails before any file is looked at ---------------
+_s, _b = _fresh("d1")
+(_b / "raw_backup_2024-08.zip").write_bytes(b"not a zip")
+_lg = _DbgLog()
+check("D1 read_copy: unreadable monthly ZIP -> None", common.read_copy(_mkind(_s, _b, log=_lg), _F27) is None)
+check("D1 ... one warning names the file, the ZIP and the exception type",
+      len(_msgs(_lg, "warning")) == 1
+      and f"could not read {_F27} from raw_backup_2024-08.zip: BadZipFile" in _msgs(_lg, "warning")[0])
+check("D1 ... and the traceback goes to the debug log with exc_info=True", _tb(_lg))
+
+_lg = _DbgLog()
+with patch.object(common.BackupKind, "date_of", side_effect=ValueError("boom")):
+    _v = common.read_copy(_mkind(_s, _b, log=_lg), _F27)
+check("D1 read_copy: a failure before any copy is looked at -> None, one warning with the type, a traceback at debug",
+      _v is None and _msgs(_lg, "warning") == [f"  backup read: could not read the backup copy of {_F27}: ValueError: boom"]
+      and _tb(_lg))
+
+# -- D2. consolidate_months: failures keep the folder, log a traceback, and the cleanup never hides the cause ---------
+_old25 = "garmin_raw_2024-08-25.json"
+_s, _b = _fresh("d2a")
+_zip_write(_b / "raw_backup_2024-08.zip", {_F27: "old"})
+_month(_b, "garmin_raw_", "2024-08", ["27"], content="new")
+_lg = _DbgLog()
+with patch("os.replace", side_effect=OSError("locked")):
+    common.consolidate_months(_mkind(_s, _b, log=_lg), current_month="2024-09")
+check("D2 a failing swap while replacing an entry: one error line, the month folder is kept, no .zip.tmp is left",
+      len(_msgs(_lg, "error")) == 1 and "force-replace failed for 2024-08" in _msgs(_lg, "error")[0]
+      and "OSError: locked" in _msgs(_lg, "error")[0]
+      and (_b / "2024-08" / _F27).exists() and not list(_b.glob("*.tmp")))
+check("D2 ... its traceback goes to the debug log with exc_info=True", _tb(_lg))
+
+_s, _b = _fresh("d2b")
+_month(_b, "garmin_raw_", "2024-08", ["27"], content="new")
+_lg = _DbgLog()
+
+
+with patch.object(zipfile, "ZipFile", side_effect=RuntimeError("zip fail")):
+    common.consolidate_months(_mkind(_s, _b, log=_lg), current_month="2024-09")
+check("D2 the new ZIP cannot even be opened (nothing to clean up): the cleanup is silent, the folder stays",
+      not [m for m in _msgs(_lg, "debug") if "cleanup failed" in m] and (_b / "2024-08" / _F27).exists()
+      and len(_msgs(_lg, "error")) == 1
+      and "failed to consolidate raw/2024-08/ (raw_backup_2024-08.zip): RuntimeError: zip fail" in _msgs(_lg, "error")[0])
+check("D2 ... the general failure line also writes its traceback at debug", _tb(_lg))
+
+_s, _b = _fresh("d2c")
+_month(_b, "garmin_raw_", "2024-08", ["27"], content="new")
+_lg = _DbgLog()
+_real_unlink = Path.unlink
+
+
+def _unlink_fails_for_zip(self, *a, **k):
+    if self.suffix == ".zip":
+        raise OSError("cannot unlink")
+    return _real_unlink(self, *a, **k)
+
+
+with patch.object(zipfile.ZipFile, "write", side_effect=RuntimeError("zip fail")), \
+     patch.object(Path, "unlink", _unlink_fails_for_zip):
+    common.consolidate_months(_mkind(_s, _b, log=_lg), current_month="2024-09")
+check("D2 the unfinished ZIP cannot be removed either: the error names the first failure, not the cleanup",
+      len(_msgs(_lg, "error")) == 1 and "RuntimeError: zip fail" in _msgs(_lg, "error")[0]
+      and "cannot unlink" not in _msgs(_lg, "error")[0])
+check("D2 ... the failed cleanup is logged at debug with the month and the exception type",
+      any("unfinished ZIP cleanup failed for 2024-08: OSError: cannot unlink" in m for m in _msgs(_lg, "debug")))
+
+# -- D3. a failure in the counting/copying/checking loops: the file is named, the type is named, a traceback follows ---
+_s, _b = _fresh("d3")
+_put(_s, "garmin_raw_", "2024-08-27", _dj("2024-08-27", "x"))
+_lg = _DbgLog()
+with patch.object(common.BackupKind, "date_of", side_effect=ValueError("boom")):
+    _n = common.check_backfill_needed(_mkind(_s, _b, log=_lg))
+check("D3 check_backfill_needed: a file that cannot be checked is not counted, one warning with the type, a traceback",
+      _n == 0 and _msgs(_lg, "warning") == [f"  check_raw_backfill_needed: failed for {_F27}: ValueError: boom"] and _tb(_lg))
+_lg = _DbgLog()
+with patch.object(common.BackupKind, "date_of", side_effect=ValueError("boom")):
+    _r = common.backfill(_mkind(_s, _b, log=_lg))
+check("D3 backfill: a file that cannot be copied counts failed, one error with the type, a traceback",
+      _r == {"copied": 0, "skipped": 0, "failed": 1}
+      and _msgs(_lg, "error") == [f"  backfill_raw: failed for {_F27}: ValueError: boom"] and _tb(_lg))
+
+_s, _b = _fresh("d3b")
+_put(_s, "garmin_raw_", "2024-08-27", _dj("2024-08-27", "x"))
+_month(_b, "garmin_raw_", "2024-08", ["27"], content=_dj("2024-08-27", "old"))
+_real_read = Path.read_bytes
+
+
+def _read_fails_in_src(self):
+    if self.parent == _s:
+        raise PermissionError(13, "denied")
+    return _real_read(self)
+
+
+_lg = _DbgLog()
+with patch.object(Path, "read_bytes", _read_fails_in_src):
+    _o, _u, _f = common._scan(_mkind(_s, _b, log=_lg))
+check("D3 _scan: a source file that cannot be read is in `failed`, one warning with the type, a traceback",
+      (_o, _u, _f) == ([], [], [_s / _F27])
+      and _msgs(_lg, "warning") == [f"  backup refresh: could not check {_F27}: PermissionError: [Errno 13] denied"] and _tb(_lg))
+
+_lg = _DbgLog()
+_real_write = Path.write_bytes
+
+
+def _write_fails_in_bk(self, data):
+    if self.parent.parent == _b:
+        raise OSError("disk full")
+    return _real_write(self, data)
+
+
+with patch.object(Path, "write_bytes", _write_fails_in_bk):
+    _r = common.refresh(_mkind(_s, _b, log=_lg), consolidate=lambda **kw: None)
+check("D3 refresh: a copy that cannot be written counts as an error, one error line with the type, a traceback",
+      _r == {"refreshed": 0, "unreadable": 0, "errors": 1}
+      and _msgs(_lg, "error") == [f"  backup refresh: failed for {_F27}: OSError: disk full"] and _tb(_lg))
+
+# -- D4. _scan: the copy in the month folder is compared byte by byte (a SMALLER copy is as outdated as a bigger one) ---
+_s, _b = _fresh("d4")
+_put(_s, "garmin_raw_", "2024-08-27", _dj("2024-08-27", "b"))
+_month(_b, "garmin_raw_", "2024-08", ["27"], content=_dj("2024-08-27", "a"))
+_k = _mkind(_s, _b)
+check("D4 a month folder copy that sorts BEFORE the file's bytes is outdated", common.find_outdated(_k) == ([_s / _F27], []))
+_month(_b, "garmin_raw_", "2024-08", ["27"], content=_dj("2024-08-27", "c"))
+check("D4 a month folder copy that sorts AFTER the file's bytes is outdated", common.find_outdated(_k) == ([_s / _F27], []))
+
+# -- D5. _scan: a file without any copy does not end the scan of the files after it ---------------------------------
+_s, _b = _fresh("d5")
+_put(_s, "garmin_raw_", "2024-08-01", _dj("2024-08-01", "new"))
+_put(_s, "garmin_raw_", "2024-08-02", _dj("2024-08-02", "new"))
+_month(_b, "garmin_raw_", "2024-08", ["02"], content=_dj("2024-08-02", "old"))
+check("D5 day 1 has no copy at all, day 2 has an outdated one: day 2 is found",
+      common.find_outdated(_mkind(_s, _b)) == ([_s / "garmin_raw_2024-08-02.json"], []))
+
+# -- D6. a copy that exists only in the monthly ZIP and is identical to the file is NOT outdated -----------------------
+import zlib
+_s, _b = _fresh("d6")
+_days6 = [f"2024-08-{n:02d}" for n in range(1, 9)]
+_entries6 = {}
+for _d in _days6:
+    _put(_s, "garmin_raw_", _d, _dj(_d, f"v{_d[-2:]}"))
+    _entries6[f"garmin_raw_{_d}.json"] = _dj(_d, f"v{_d[-2:]}")
+_zip_write(_b / "raw_backup_2024-08.zip", _entries6)
+check("D6 the days of the scenario include a file whose CRC is odd and one whose CRC is even",
+      {zlib.crc32(t.encode("utf-8")) & 1 for t in _entries6.values()} == {0, 1})
+_k6 = _mkind(_s, _b)
+check("D6 identical files, copies only in the ZIP: nothing is outdated, nothing unreadable, nothing stale",
+      common.find_outdated(_k6) == ([], []) and common.check_stale(_k6) == 0)
+_r6 = common.refresh(_k6, consolidate=lambda **kw: None)
+check("D6 refresh: 0 refreshed, 0 unreadable, 0 errors, and no month folder is created for files that need none",
+      _r6 == {"refreshed": 0, "unreadable": 0, "errors": 0} and not (_b / "2024-08").exists())
+_put(_s, "garmin_raw_", "2024-08-03", _dj("2024-08-03", "changed"))
+check("D6 one file changed after the copy was made: exactly that file is outdated",
+      common.find_outdated(_k6) == ([_s / "garmin_raw_2024-08-03.json"], []))
+
+
 summary()

@@ -652,5 +652,43 @@ with _iso_env("sc6_layout") as _b:
     check("G6 layout: a FIT and a JSON original removed from the store after the real backup are both found",
           _r["bulk_originals_missing"] == [_HB] and _r["bulk_json_originals_missing"] == [_HJ1])
 
+# -- mutation round v1.7.6.12: entries and files that are skipped must not end the reading ----------------------------------------
+section("G7. garmin_silo_check — mutation round v1.7.6.12")
+import zipfile as _zf9
+
+with _iso_env("sc7_marks") as _b:
+    _g4_log([
+        "not an entry", {"date": "2025-09-06"}, {"date": "2025-09-05", "bulk": "yes"},                  # no bulk dict: skipped
+        {"date": "not-a-date", "bulk": {"intraday": "2025-10-01"}}, {"bulk": {"intraday": "2025-10-01"}},   # no usable date: skipped
+        {"date": "2025-09-01", "bulk": {"intraday": "2025-10-01"}},
+        {"date": "2025-09-02", "bulk": {"aggregates": "2025-10-01"}},
+    ])
+    check("G7 _collect_bulk_marks: entries without a bulk dict or without a usable date, all in front, do not end the reading",
+          silo_check._collect_bulk_marks() == ({_date(2025, 9, 1)}, {_date(2025, 9, 2)}))
+
+with _iso_env("sc7_refs") as _b:
+    for _n in range(5):
+        _g5_day(f"{_DAYP}2025-08-0{_n}.json", "{broken")                                   # damaged files, they sort first
+    _g5_day(f"{_DAYP}2025-08-09.json", {"source_files": [_HA]})
+    check("G7 _collect_original_refs: damaged day files in front do not end the reading", silo_check._collect_original_refs() == {_HA})
+
+with _iso_env("sc7_hashes") as _b:
+    cfg.BULK_SOURCE_DIR.mkdir(parents=True)
+    (cfg.BULK_SOURCE_DIR / "0stray").write_bytes(b"x")                                     # a file in the folder, sorts first
+    _g5_fit(_HB)
+    _g5_fit(_HA, folder="a2")                                                                # 'a1' sorts before the folder name 'a2'
+    check("G7 _collect_original_hashes: a stray file in front does not end the reading; a hash in a folder of another name does not count "
+          "(also when its first two characters sort before the folder name)",
+          silo_check._collect_original_fit_hashes() == {_HB})
+
+with _iso_env("sc7_backup") as _b:
+    cfg.BULK_SOURCE_BACKUP_DIR.mkdir(parents=True)
+    with _zf9.ZipFile(cfg.BULK_SOURCE_BACKUP_DIR / "ac.zip", "w") as _z:
+        _z.writestr(f"{_HA}.fit", b"x")                                                      # 'a1' sorts before the ZIP's 'ac'
+        _z.writestr(f"{'ac' + 'f' * 62}.fit", b"y")
+    check("G7 _collect_backup_original_hashes: an entry whose first two characters differ from the ZIP's name does not count, "
+          "also when they sort before it",
+          silo_check._collect_backup_original_hashes() == ({"ac" + "f" * 62}, set()))
+
 
 summary()

@@ -786,4 +786,105 @@ check("garmin_config is not imported at all (the writer reads the paths)",
       and "garmin_config" not in {n.module.split(".")[0] for n in ast.walk(_tree_ast) if isinstance(n, ast.ImportFrom) and n.module})
 check("no print", not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print" for n in ast.walk(_tree_ast)))
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Mutation round v1.7.6.12 — survivors of the Cosmic Ray run
+# ══════════════════════════════════════════════════════════════════════════════
+section("B6b. garmin_bulk_json_import — mutation round v1.7.6.12")
+check("empty_summary: nothing is ok, stopped or written, every counter starts at zero, no comparison",
+      jimp.empty_summary(True) == {
+          "ok": False, "error": None, "dry_run": True, "stopped": False, "files": 0, "days_found": 0, "inventory": None,
+          "originals": {"new": 0, "present": 0, "failed": 0, "bytes": 0},
+          "days": {"new": 0, "changed": 0, "unchanged": 0, "kept": 0, "failed": 0},
+          "rejected": {"invalid": 0, "insufficient": 0}, "days_with_window": 0,
+          "written_days": [], "insufficient_days": [], "comparison": None})
+check("_entry_hash: the canonical JSON keeps non-ASCII characters as they are (the proof of origin does not change)",
+      jimp._entry_hash("uds", {"a": "ä"}) == hashlib.sha256('uds\0{"a":"ä"}'.encode("utf-8")).hexdigest())
+check("compare_day: the stress average has no tolerance (30 against 31 differs)",
+      jimp.compare_day({"stress": {"averageStressLevel": 30}}, {"stress": {"avgStressLevel": 31}}) == {"stress_avg": jimp.DIFFER})
+
+_cmp = jimp.empty_comparison()
+jimp._compare_into(_cmp, "2024-05-01", {"user_summary": {"totalSteps": 5}}, lambda d: {"date": d, "other": 1})
+check("_compare_into: a field the API day lacks is 'added' and is not listed as a differing day",
+      _cmp["fields"]["steps"][jimp.ADDED] == 1 and _cmp["fields"]["steps"]["differ_days"] == [] and _cmp["days_compared"] == 1)
+
+
+def _raise_read(_d):
+    raise RuntimeError("cannot read")
+
+
+with patch.object(jimp, "log") as _lg:
+    _cmp2 = jimp.empty_comparison()
+    jimp._compare_into(_cmp2, "2024-05-01", {"user_summary": {"totalSteps": 5}}, _raise_read)
+check("_compare_into: an API day that cannot be read is counted as 'without API' and the traceback goes to the debug log",
+      _cmp2["days_without_api"] == 1 and any(c.kwargs.get("exc_info") is True for c in _lg.debug.call_args_list))
+
+with _isolated_log_env("bulk_json_b6b_err") as base:
+    zp = _write_zip(base / "export.zip", _export())
+    with patch.object(jimp, "_work", side_effect=RuntimeError("boom")), patch.object(jimp, "log") as _lg:
+        _er = jimp.run_aggregates_import(zp)
+    check("an unexpected error is in the summary, not ok, and its traceback goes to the debug log (exc_info=True)",
+          _er["error"] == "unexpected error (RuntimeError)" and not _er["ok"]
+          and any(c.kwargs.get("exc_info") is True for c in _lg.debug.call_args_list))
+
+# -- a stop that is asked for once: it must hold -------------------------------------------------------------------------
+with _isolated_log_env("bulk_json_b6b_stop_file") as base:
+    zp = _write_zip(base / "export.zip", _export())
+    _n = {"n": 0}
+
+    def _stop_second_call():
+        _n["n"] += 1
+        return _n["n"] == 2                      # yes once (while the second file is read), no again
+
+    _r = jimp.run_aggregates_import(zp, should_stop=_stop_second_call)
+    check("a stop asked once while the files are read: stopped, no day written, although the stop is not asked for again",
+          _r["stopped"] is True and sum(_r["days"].values()) == 0 and _r["written_days"] == [])
+
+with _isolated_log_env("bulk_json_b6b_stop_day") as base:
+    zp = _write_zip(base / "export.zip", _export())
+    _wr, _fired = {"n": 0}, []
+    _real_wa = jimp.bw.write_aggregates
+
+    def _count_wa(*a, **k):
+        _wr["n"] += 1
+        return _real_wa(*a, **k)
+
+    def _stop_after_first_write():
+        if _wr["n"] >= 1 and not _fired:
+            _fired.append(1)
+            return True                          # yes once, at the day after the first written one, no again
+        return False
+
+    with patch.object(jimp.bw, "write_aggregates", _count_wa):
+        _r = jimp.run_aggregates_import(zp, should_stop=_stop_after_first_write)
+    check("a stop asked once at a day: the loop ends there, one day written and not the days after it",
+          _r["stopped"] is True and _wr["n"] == 1 and len(_r["written_days"]) == 1)
+    check("a stop at a day ends the reading too: the days after it are not even counted as found",
+          _r["days_found"] == 2 and _r["days_found"] < 6)
+
+# -- inventory_lines, format_summary --------------------------------------------------------------------------------------
+def _inv(**kw):
+    return {"read": {}, "kept": {}, "unknown": {"files": 0, "folders": []}, **kw}
+
+
+_f20 = [f"f{i:02d}" for i in range(20)]
+check("inventory_lines: 20 unknown folders are all named, 21 are cut after 20 and marked",
+      jimp.inventory_lines(_inv(unknown={"files": 20, "folders": _f20}))[-1].endswith(": " + ", ".join(_f20))
+      and jimp.inventory_lines(_inv(unknown={"files": 21, "folders": _f20 + ["f20"]}))[-1].endswith(": " + ", ".join(_f20) + ", …"))
+check("inventory_lines: three unknown folders are all named and not marked as cut",
+      jimp.inventory_lines(_inv(unknown={"files": 3, "folders": ["a", "b", "c"]}))[-1]
+      == "  inventory: not recognised — 3 JSON file(s) in 3 folder(s): a, b, c")
+check("inventory_lines: only 'unreadable' set: the line is there, with 0 over the limit and the limit in MB",
+      jimp.inventory_lines(_inv(unreadable=2))[-1] == "  inventory: 2 file(s) not readable, 0 over the size limit (64 MB), not used")
+check("inventory_lines: only 'too_large' set: the line is there, with 0 not readable",
+      jimp.inventory_lines(_inv(too_large=3))[-1] == "  inventory: 0 file(s) not readable, 3 over the size limit (64 MB), not used")
+check("inventory_lines: neither set: no such line",
+      not any("not readable" in x for x in jimp.inventory_lines(_inv())))
+_s = jimp.empty_summary(False)
+check("format_summary without the flag is not a preview", jimp.format_summary(_s)[0] == "Bulk daily values import")
+_s["originals"]["bytes"] = 2_449_999
+_s2 = jimp.empty_summary(False)
+_s2["originals"]["bytes"] = 2_450_000
+check("format_summary: the size in MB is bytes / 1,000,000 with one decimal (2,449,999 -> 2.4, 2,450,000 -> 2.5)",
+      any("(2.4 MB kept in all)" in x for x in jimp.format_summary(_s)) and any("(2.5 MB kept in all)" in x for x in jimp.format_summary(_s2)))
+
 summary()
