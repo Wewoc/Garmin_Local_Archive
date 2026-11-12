@@ -486,7 +486,10 @@ the full diagnosis/fix history.
 - `garmin_app_controller.timer_run_steps_backfill()` — filter changed from
   key-presence (`"steps" not in fields`) to value comparison
   (`fields.get("steps") == "high"`); 140-day window removed (the
-  underlying degradation assumption was disproven live — see
+  underlying "Garmin degrades intraday data after ~135 days" assumption
+  was refuted on 2026-09-26. Reason: a live re-fetch of a 2.7-year-old
+  bulk day returned its steps intraday array fully intact, so Garmin does
+  not delete or thin out older data; see
   `changelog/anchor_delivery_bulk-api-backfill-diagnose.md`), replaced by
   the new `FIELD_BACKFILL_ATTEMPT_LIMIT = 2` give-up threshold.
 - `garmin_collector._run_steps_backfill()` success path — found via an

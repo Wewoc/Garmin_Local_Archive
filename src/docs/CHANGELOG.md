@@ -2092,8 +2092,10 @@ archive data exclusively through the Broker Layer (via a new shared
 cache layer, see below) and writes it to external formats — JSON, CSV,
 and InfluxDB Line Protocol adapters shipped. GLA now works as local
 data infrastructure other tools can consume (e.g. `garmin-grafana` via
-the InfluxDB adapter) instead of re-fetching from the Garmin API and
-losing intraday data after ~120 days. GUI gained a new "Export Data"
+the InfluxDB adapter) instead of re-fetching from the Garmin API, where
+intraday data of older days may not be reachable via the API any more
+(Garmin does not delete it; the assumed "~120 days" limit was refuted on
+2026-09-26, see v1.7.3). GUI gained a new "Export Data"
 panel (per-adapter grid: Health/Context/Metadata toggles) plus
 optional inclusion in the daily sync run ("Update on Sync").
 
@@ -2540,7 +2542,8 @@ Bulk already populated (in its own, API-incompatible shape) are never
 downgraded. Found and fixed along the way: `timer_run_steps_backfill()`'s
 candidate filter couldn't distinguish `"medium"` from `"high"` (key
 presence vs. value), and had no give-up mechanism once its 140-day
-window was removed. Live-verified against the real archive throughout
+window was removed (the "Garmin degrades data after ~135 days" assumption
+behind it was refuted on 2026-09-26, see below). Live-verified against the real archive throughout
 — including a full `mirror.gla` restore specifically to re-run the four
 bulk days first touched by an intermediate (already-superseded) version
 of this mode's write path.
@@ -2609,8 +2612,10 @@ of this mode's write path.
   — candidates are `source="bulk"` days with at least one
   `BULK_GAP_FIELDS` entry still below its attempt limit; no age cutoff,
   no dependency on the day's `recheck` flag (a separate, independent
-  concern from `timer_run_bulk_recheck()`'s own 180-day intraday-
-  degradation window, which is unchanged).
+  concern from `timer_run_bulk_recheck()`'s own 180-day retry window,
+  which is unchanged. This is the timer's own retry window, not a limit
+  of Garmin: Garmin does not delete data, see the refutation of
+  2026-09-26 above).
 - `app/panel_timer.py` — new `bulk_field_backfill` mode: `_mode_cycle`
   entry (lowest priority, after Steps Backfill), `_mode_runners` /
   `days_pick` / label-dict entries, `GARMIN_BULK_FIELD_BACKFILL`
@@ -7205,7 +7210,7 @@ dict-key shadow, consumer-empty-assumption — also caught bug #2).
 
 ## v1.6.3 — Steps Intraday Foundation + Backfill
 
-Adds Steps Intraday data (15-minute bins via `get_steps_data`) as the 15th archive endpoint, plus a sixth background timer mode that incrementally backfills this field into already archived high-quality days from the last 140 days. The backfill updates both `raw/` and `source/` without downgrade risk and without re-fetching the other 13 endpoints. Originally planned as part of the Heatmap Dashboard, the feature was resequenced during development into a Foundation + Backfill implementation, while the Heatmap itself was deferred to v1.6.3.1 (Archive-First priority: the backfill window is time-limited, the dashboard is not).
+Adds Steps Intraday data (15-minute bins via `get_steps_data`) as the 15th archive endpoint, plus a sixth background timer mode that incrementally backfills this field into already archived high-quality days from the last 140 days (assumed limit at the time: older days no longer fully reachable via the API; this assumption was refuted on 2026-09-26, see v1.7.3 — Garmin does not delete data). The backfill updates both `raw/` and `source/` without downgrade risk and without re-fetching the other 13 endpoints. Originally planned as part of the Heatmap Dashboard, the feature was resequenced during development into a Foundation + Backfill implementation, while the Heatmap itself was deferred to v1.6.3.1 (Archive-First priority: at the time the backfill window was assumed to be time-limited, the dashboard not — refuted on 2026-09-26, see v1.7.3).
 
 New module:
 
@@ -7219,7 +7224,7 @@ Changed modules:
 - `garmin/quality/_assess.py` — `assess_quality_fields()` gains a new `steps` block (high/medium/low/failed), reusing `has_steps` from the statistics block. Intentionally excluded from the top-level `assess_quality()` label to preserve the existing precedence of SpO₂, Body Battery, and Respiration.
 - `garmin/garmin_source_writer.py` — adds `patch_source_field()` for additive updates within `source/`. Deliberately bypasses `compare_source()` because full-file replacement semantics are unsuitable for additive patches. Writes `backfilled_fields` directly into `source_api_log.json` without using `update_log()`.
 - `garmin/quality/_maint.py` — `_upsert_quality()` and `record_attempt()` gain an optional `backfilled_fields` parameter, merged additively using the existing `fields` pattern.
-- `app/garmin_app_controller.py` — adds `timer_run_steps_backfill()`, selecting candidates where `quality == "high"`, `source == "api"`, `"steps"` is absent from `fields`, and the date is within the last 140 days. Self-terminating by design: candidates disappear automatically once the `steps` field has been backfilled.
+- `app/garmin_app_controller.py` — adds `timer_run_steps_backfill()`, selecting candidates where `quality == "high"`, `source == "api"`, `"steps"` is absent from `fields`, and the date is within the last 140 days (window removed in v1.7.3: the assumption behind it was refuted on 2026-09-26). Self-terminating by design: candidates disappear automatically once the `steps` field has been backfilled.
 - `app/panel_timer.py` — introduces a sixth timer mode (`steps_backfill`) with the lowest priority after Source Backfill. Updates `_mode_cycle`, label dictionary, batch selection, delegate dispatch, and adds the `GARMIN_STEPS_BACKFILL` environment override. Replaces `% 4` with `% len(_mode_cycle)` at both dispatch points as an additional robustness improvement.
 - `garmin/garmin_collector.py` — adds `_run_steps_backfill()`, a narrow worker performing one API call per day via `api.api_call()` (instead of the 14 calls used by Source Backfill). Workflow: `read_raw()` → `merge_field()` → `normalize()` + `summarize()` → `write_day()` → `record_attempt()` → `patch_source_field()`. Adds `GARMIN_STEPS_BACKFILL` handling in `main()` (step 5d).
 - `compiler/build_manifest.py` — registers `garmin_merge.py` in `SHARED_SCRIPTS` and `SCRIPT_SIGNATURES_BASE`, and updates signatures for `garmin_app_controller.py` and `garmin_collector.py`.
