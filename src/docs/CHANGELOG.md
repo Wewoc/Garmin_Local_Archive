@@ -2599,9 +2599,10 @@ of this mode's write path.
   changed from `"steps" not in fields` (key presence) to
   `fields.get("steps") == "high"` (value comparison); the 140-day
   `STEPS_BACKFILL_WINDOW_DAYS` cutoff removed entirely (the underlying
-  "~135-day empirically measured degradation" assumption was disproven
-  live — a 2.7-year-old bulk day's steps intraday array came back fully
-  intact on re-fetch) and replaced by the new generic
+  assumption of a "~135-day degradation" of Garmin's intraday data was
+  **refuted on 2026-09-26**. Reason: a live re-fetch of a 2.7-year-old
+  bulk day returned its steps intraday array fully intact, so Garmin does
+  not delete or thin out older data) and replaced by the new generic
   `FIELD_BACKFILL_ATTEMPT_LIMIT = 2` give-up threshold (mirrors
   `bulk_recheck`'s existing day-level "2 attempts, then final"
   pattern). New `BULK_GAP_FIELDS` constant + `timer_run_bulk_field_backfill()`
