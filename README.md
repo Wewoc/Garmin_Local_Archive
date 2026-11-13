@@ -137,6 +137,8 @@ The **Bulk Import** feature fills in the rest: request your full data export fro
 
 The import dialog offers two parts: **Daily values (JSON)** and, since v1.7.6, **Heart-rate series (FIT files)** — the heart-rate curve over the day from the FIT files of the export. Both are stored in their own folder, `garmin_data/bulk/`, next to the archive, not in `raw/`: `raw/` holds only what came from the Garmin API. A **Preview** shows what would be imported without writing anything, for both parts. AI queries (MCP) and the dashboards use the stored series for days that have no heart-rate series from the live sync, and since v1.7.6.1 the time per day in the four stress zones (rest, low, medium, high) from the export is available as well. Existing API data is never overwritten (the quality log gets a marker per imported day); since v1.7.6.2 the folder is part of the backup (`backup/bulk/`) and of the mirror.
 
+**Export Scan** (v1.7.7): before or after an import, the window "📂 Export Scan" (Settings → Data Collection) shows what your own export holds and how complete it is — by topic, as a table or a graph, down to one field (by month or year, its numbers over time or as a distribution) and the heart rate of any single day. It reads only and shows no file name; values stay in memory and are not written to any report or log. A short guide opens from its Help button (`src/docs/README_EXPORT_SCAN.md`).
+
 ---
 
 ### Dashboards

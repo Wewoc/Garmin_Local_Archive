@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.6.12
+# Garmin Local Archive — Desktop App v1.7.7
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -107,6 +107,8 @@ The app window is divided into two areas:
 - **MCP Server** — local LLM access to your archive via the Model Context Protocol (v1.7)
 
 -> For how to use each tab day-to-day, see USER_GUIDE.txt.
+
+-> Export Scan (v1.7.7): the button "📂 Export Scan" under Settings -> Data Collection, next to "API Scan", opens a window that shows what your own Garmin export holds (the guide is its Help button: README_EXPORT_SCAN.md).
 
 -> Don't have your own archive yet? A synthetic 180-day demo archive
 (ZIP + its own README) is available from the project's GitHub repo

@@ -33,7 +33,7 @@ import frozen_paths
 import theme
 from .popups import (
     capability_scan, dashboard_create, custom_dashboard, encrypted_dashboards,
-    export_data,
+    export_data, export_scan,   # export_scan: EXPORT-SCAN v1.7.7 — removable
 )
 from .outputs import (
     output_helpers, bulk_import, force_refetch, context_check, dashboards,
@@ -144,8 +144,14 @@ class PanelOutputs(QWidget):
         scan_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
                                QSizePolicy.Policy.Fixed)
         scan_row.addWidget(scan_btn)
+        # EXPORT-SCAN v1.7.7 — removable
+        export_scan_btn = self._action_btn("📂  Export Scan", self._app.BG3,
+                                           self._app.TEXT2, self._open_export_scan_window)
+        export_scan_btn.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                      QSizePolicy.Policy.Fixed)
+        scan_row.addWidget(export_scan_btn)
         scan_row.addWidget(
-            self._tip("Discover optional Garmin API endpoints for your account"))
+            self._tip("API endpoints of your account / what your export holds"))
         lay.addLayout(scan_row)
 
         # ── Data Management ─────────────────────────────────────────────────────
@@ -562,6 +568,12 @@ class PanelOutputs(QWidget):
 
     def _open_capability_scan_popup(self):
         capability_scan.open_popup(self)
+
+    # ── Export Scan window (EXPORT-SCAN v1.7.7 — removable) ────────────────────
+    # app/popups/export_scan.py — non-modal window; the button sits next to API Scan.
+
+    def _open_export_scan_window(self):
+        export_scan.open_window(self)
 
     # ── Dashboard popup ────────────────────────────────────────────────────────
     # Codereview v1.7.0.1, Baustein 1.2: moved to app/popups/dashboard_create.py

@@ -6,29 +6,7 @@
 
 ---
 
-**Currently stable — v1.7.6.12**
-
----
-
-### Second build of the download packages
-
-- The v1.7.6.x line is complete: both download packages (standard and standalone) are built again
-  from v1.7.6.12. The first build was made after v1.7.6.4. No new function, no change in behaviour.
-
-**Not part of it:** FIT activities (v1.8); stress as a replacement for the API
-value.
-
----
-
-## Planned — v1.7.7
-
-### v1.7.7 — Export scanner (Idea)
-
-> **Status: Idea, unverified — no build order, no architecture decision.**
-
-Checks the user's own export: which file types it contains, which fields are
-filled or only empty per year. The report holds names and numbers, no values.
-Possibly its own tab in the app.
+**Currently stable — v1.7.7**
 
 ---
 

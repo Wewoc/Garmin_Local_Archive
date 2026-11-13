@@ -117,6 +117,9 @@ Run-And-Tee "python" @("tests/test_repair_resting_hr.py")    "test_repair_restin
 Run-And-Tee "python" @("tests/test_repair_devices.py")       "test_repair_devices.py"      # DEVICE-REPAIR v1.7.6.9 — removable
 Run-And-Tee "python" @("tests/test_repair_predictions.py")   "test_repair_predictions.py"  # PREDICTION-REPAIR v1.7.6.10 — removable
 Run-And-Tee "python" @("tests/test_catchup_predictions.py")  "test_catchup_predictions.py" # PREDICTION-CATCHUP v1.7.6.11.2 — removable
+Run-And-Tee "python" @("tests/test_export_scan.py")          "test_export_scan.py"         # EXPORT-SCAN v1.7.7 — removable
+Run-And-Tee "python" @("tests/test_export_scan_fit.py")      "test_export_scan_fit.py"     # EXPORT-SCAN v1.7.7 — removable
+Run-And-Tee "python" @("tests/test_export_scan_day.py")      "test_export_scan_day.py"     # EXPORT-SCAN v1.7.7 — removable
 Run-And-Tee "python" @("tests/test_track_migration.py")      "test_track_migration.py"     # TRACK-MIGRATION v1.7.6.3
 Run-And-Tee "python" @("tests/test_migration_snapshot.py")    "test_migration_snapshot.py"  # TRACK-MIGRATION v1.7.6.3
 Run-And-Tee "python" @("tests/test_daily_update.py")          "test_daily_update.py"        # v1.7.6.4

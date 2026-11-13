@@ -92,6 +92,9 @@ of scope.
 | `garmin_bulk_import.py` | none — orchestrates the four other bulk modules; writes only through `garmin_bulk_writer` (v1.7.6) |
 | `garmin_bulk_json_import.py` | none — daily-values phase of the import; writes only through `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.1); its result carries the inventory of the export (v1.7.6.7); with a read function handed in by the caller it compares the export with the API days of `raw/` and reads nothing itself (v1.7.6.8) |
 | `garmin_bulk_rebuild.py` (removable) | none — owns no files; reads the originals in `bulk/source`, writes only through `garmin_bulk_json_import.store_day()` → `garmin_bulk_writer`; touches no quality log, `raw/`, `summary/` or backup (v1.7.6.5) |
+| `garmin_export_scan.py` (removable) | `export_scan_report.json` and `.txt` in the folder its caller names (v1.7.7); reads the export, nothing else |
+| `garmin_export_scan_fit.py` (removable) | none — reads the export with the bulk modules, writes nothing (v1.7.7) |
+| `garmin_export_scan_day.py` (removable) | none — reads the export with the bulk modules, writes nothing (v1.7.7) |
 
 ### Invariants
 
@@ -887,6 +890,12 @@ export is imported again.
   sleep seconds and `allDayStress` of any JSON shape; `test_import_mirror.py` — a device name in the context or source section stops the whole import in the run and
   in the preview. The tests were checked with 33 deliberate faults in a copy of the code (see `CHANGELOG.md`).
 
+T. **Export Scan (v1.7.7, removable).** The window that shows what the user's export holds. All tests run on exports built from scratch (ZIP, folder, inner ZIP; `tests/fit_builder.py` for the FIT files), none needs a real export.
+- `test_export_scan.py` (JSON side), `test_export_scan_fit.py` (FIT counts, the index), `test_export_scan_day.py` (the heart rate of a day, including the same result as a full run of `SampleCollector`); each has a section "mutation round v1.7.7".
+- `test_qt_app.py::TestExportScanModel` (tree, tables, Plotly pages, values, units, day table) and `::TestExportScanWindow` (the window with a stand-in web view: scan, detail, values, day, Help, no value outside the view). QtWebEngine does not start in the tool environment, so the real pages are looked at by hand.
+- Privacy is tested with values found nowhere else ("sentinels"): they must not be in a result, a report, the log, the status line or a temporary file; the marker of the account's e-mail address must not be in any output.
+- The guide `docs/README_EXPORT_SCAN.md` is compared with the window and the modules (buttons, report files, groups, limits, `INFO_INCLUDE`).
+
 ### What is NOT tested
 
 - GUI (tkinter) — verified manually before release
@@ -1062,6 +1071,20 @@ the docstring of the module):
 
 What stays when it is removed: `garmin_quality.record_field_given_up()` (generic, its tests in `tests/test_quality.py`) and the marks already written
 (`field_backfill_attempts["race_predictions"]`, read only by the field-backfill filters).
+
+### The Export Scan and its removal (v1.7.7, removable)
+
+The Export Scan reads a Garmin export and shows what it holds; it never writes to the archive. Everything that belongs to it carries the marker `EXPORT-SCAN v1.7.7` (grep for it; the same list is in the docstring of `garmin/garmin_export_scan.py`).
+
+**Removal list:**
+1. `garmin/garmin_export_scan.py`, `garmin/garmin_export_scan_fit.py`, `garmin/garmin_export_scan_day.py` and `tests/test_export_scan.py`, `tests/test_export_scan_fit.py`, `tests/test_export_scan_day.py`.
+2. `compiler/build_manifest.py` — the `SHARED_SCRIPTS` and `SCRIPT_SIGNATURES_BASE` entries of the three modules and of the three popup modules, and `README_EXPORT_SCAN.md` in `INFO_INCLUDE`.
+3. `run_tests.ps1` and `tests/conftest.py` — the three test file entries.
+4. `app/popups/export_scan.py`, `app/popups/_export_scan_model.py`, `app/popups/_export_scan_units.py`.
+5. `app/panel_outputs.py` — the import of `export_scan`, the "Export Scan" button next to "API Scan" and `_open_export_scan_window()`; `tests/test_qt_app.py` — the classes `TestExportScanModel` and `TestExportScanWindow`.
+6. `docs/README_EXPORT_SCAN.md`. Docs: the module sections in `REFERENCE_GARMIN.md`, the invariant bullets in `REFERENCE_GARMIN.md` and `REFERENCE_INVARIANTS.md`, the tree lines and the popup row in `REFERENCE_GLOBAL.md`, the rows in `MAINTENANCE_GLOBAL.md`, the owner rows and the test paragraph T here, the rows in `GLA_GUIDELINES.md`, the paragraph in `USER_GUIDE.txt`, the sentence in `README_APP.md`, the bullets in `README.md` and `REFERENCE_GARMIN_EXPORT.md`. `CHANGELOG.md` stays as history.
+
+What stays when it is removed: nothing of it is used elsewhere (`garmin_bulk_export_scanner`, `garmin_bulk_fit_reader` and `garmin_bulk_normalizer` stay as they are). `garmin_bulk_export_scanner`'s import of `bisect` and `array` is listed for the build as before.
 
 ## Quality tracking
 

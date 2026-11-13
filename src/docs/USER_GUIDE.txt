@@ -327,6 +327,37 @@ Heart-rate series (FIT files) (v1.7.6):
     (a copy goes to log/fail/ if it failed).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXPORT SCAN (v1.7.7)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Shows what your own Garmin export holds and how complete it is, before
+or after you import it. Reads only: nothing is written to your archive.
+
+Settings -> Data Collection -> "Export Scan" (next to "API Scan") opens a window.
+  - ZIP file ... / Folder ...   choose the export (as Garmin sent it, or
+                                unpacked). The files are read in the
+                                background; "Stop" ends the scan.
+  - The tree on the right groups the export by topic. The dot in front
+    of a family: green = the import reads it, yellow = kept only, grey =
+    known, not read.
+  - Table / Graph (left): the chosen item. A family shows every field by
+    year: the share of rows that have a value; hover a cell for filled /
+    zero / empty / absent.
+  - Double-click a cell of a family table: that field by month or year;
+    "Values" shows its numbers (table, over time, distribution) with a
+    unit where there is evidence for one.
+  - The FIT files item: the files by type and year, and the heart rate
+    of any single day (date field, previous / next day, "Heart rate of
+    the day").
+  - Save report: a text and a JSON file in garmin_data/log (names and
+    counts only), replaced at every run.
+  - Help: the guide of this window.
+
+No file name and no value goes into a report or the log. Values are
+shown only in the values views and kept in memory; a screenshot of such
+a view contains them.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 API CAPABILITY SCAN (optional)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1048,6 +1079,11 @@ README_APP.md, "Connecting Open WebUI to the MCP Server".
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Quick reference for buttons not already covered in Sections 1-11.
+
+Export Scan (v1.7.7)
+  Settings -> Data Collection, next to "API Scan". Opens the window that shows what
+  your own Garmin export holds. See Section 3, "Export Scan", and the
+  Help button of the window.
 
 Connection & Archive Status
   See Section 2, "First Sync", and the Archive info panel description

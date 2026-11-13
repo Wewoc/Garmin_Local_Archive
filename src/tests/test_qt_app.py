@@ -5205,3 +5205,1598 @@ class TestNamingById:
                 patch("pathlib.Path.exists", return_value=True):
             PanelArchive._archive_rename_device_by_id(panel, "1", "x")
         assert "boom" in panel._app._log.call_args.args[0] and not panel._refresh_archive_info.called
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Export Scan window — EXPORT-SCAN v1.7.7 — removable
+#  app/popups/_export_scan_model.py (what it shows, pure) and app/popups/export_scan.py (the window)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SCAN_SECRET = "secret.name@example.invalid"
+
+
+def _scan_export_zip(tmp_path):
+    """A small export: UDSFile (3 years), sleepData, a known family, an unknown JSON, a folder named after
+    the account. Returns the path of the ZIP."""
+    import json
+    import zipfile
+    uds = []
+    for year in (2021, 2022, 2023):
+        for day in range(1, 5):
+            row = {"calendarDate": f"{year}-03-{day:02d}", "totalSteps": 0 if day == 4 else 1000 + day,
+                   "stress": {} if day % 2 else {"avg": 20}}
+            if year > 2021:
+                row["restingHeartRate"] = 55
+            uds.append(row)
+    sleep = [{"calendarDate": f"2022-05-{d:02d}", "deepSleepSeconds": 3600 if d % 2 else None} for d in range(1, 7)]
+    entries = {
+        "DI_CONNECT/DI-Connect-Aggregator/UDSFile_a.json": json.dumps(uds),
+        f"DI_CONNECT/DI-Connect-Wellness/{_SCAN_SECRET}_sleepData.json": json.dumps(sleep),
+        "DI_CONNECT/DI-Connect-Metrics/MetricsMaxMetData_1.json": json.dumps([{"calendarDate": "2023-01-01", "vo2MaxValue": 50}]),
+        "DI_CONNECT/DI-Connect-User/profile.json": json.dumps({"a": 1}),
+        f"{_SCAN_SECRET}/notes.txt": "x",
+    }
+    path = tmp_path / "export_of_secret.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        for name, data in entries.items():
+            z.writestr(name, data)
+    return path
+
+
+class TestExportScanModel:
+    """Pure functions: the tree, the tables and the chart page are built without a window."""
+
+    @pytest.fixture
+    def result(self, tmp_path):
+        import garmin_export_scan as es
+        return es.scan(_scan_export_zip(tmp_path))
+
+    @pytest.fixture
+    def model(self):
+        from app.popups import _export_scan_model as m
+        return m
+
+    THEME = {"bg": "#101010", "bg2": "#181818", "bg3": "#202020", "text": "#f0f0f0", "text2": "#9a9ea3",
+             "accent": "#c76a3f", "accent2": "#9c5330", "green": "#4ecca3", "yellow": "#f5c542", "red": "#e94560"}
+    PLOTLY = "<script>/*plotly*/</script>"
+
+    def test_status_wording_equals_the_scan_module(self, model):
+        import garmin_export_scan as es
+        assert model.STATUS_TEXT == es._STATUS_TEXT
+
+    def test_tree_has_overview_groups_with_families_unknown_and_folders(self, model, result):
+        nodes = model.build_tree(result)
+        ids = [n["id"] for n in nodes]
+        assert ids[0] == ("summary", "") and ids[-2:] == [("unknown", ""), ("folders", "")]
+        assert ("group", "daily") in ids and ("group", "sleep_body") in ids and ("group", "training") in ids
+        assert ("group", "activities") not in ids and ("group", "account") not in ids      # nothing of them in this export
+        daily = next(n for n in nodes if n["id"] == ("group", "daily"))
+        assert [c["id"] for c in daily["children"]] == [("family", "uds")]
+        assert daily["children"][0]["status"] == "read" and "12 rows" in daily["children"][0]["text"]
+        training = next(n for n in nodes if n["id"] == ("group", "training"))
+        assert [c["status"] for c in training["children"]] == ["known"]
+        assert "1 files" in nodes[-2]["text"]
+
+    def test_family_table_shares_tooltips_and_zero_is_a_value(self, model, result):
+        table = model.build_table(result, ("family", "uds"))
+        assert table["headers"] == ["Field", "2021", "2022", "2023", "All years"]
+        assert [c["text"] for c in table["rows"][0]] == ["Rows", "4", "4", "4", "12"]
+        rows = {r[0]["text"]: r for r in table["rows"][1:]}
+        steps = rows["totalSteps"]                     # 3 filled + 1 zero per year: a zero is a value
+        assert [c["value"] for c in steps[1:]] == [100, 100, 100, 100]
+        assert "filled 3, zero 1, empty 0, absent 0 of 4 rows" in steps[1]["tip"]
+        hr = rows["restingHeartRate"]                  # only in 2022 and 2023
+        assert [c["value"] for c in hr[1:]] == [0, 100, 100, 67]
+        assert "absent 4 of 4 rows" in hr[1]["tip"] and hr[1]["text"] == "0 %"
+        stress = rows["stress"]                        # {} in half of the rows: empty
+        assert stress[1]["value"] == 0 and "empty 2" in stress[1]["tip"]
+        assert table["rows"][0][1]["value"] is None    # the row counts are not coloured
+
+    def test_group_table_lists_every_family_with_status_and_rows_per_year(self, model, result):
+        table = model.build_table(result, ("group", "sleep_body"))
+        assert table["headers"][:4] == ["Family", "Status", "Files", "Rows"] and table["headers"][4:] == ["2022"]
+        by_label = {r[0]["text"]: [c["text"] for c in r] for r in table["rows"]}
+        assert by_label["sleepData"] == ["sleepData", "read by GLA", "1", "6", "6"]
+        zones = by_label["heartRateZones / powerZones"]  # a family of the group that this export does not hold
+        assert zones[1:4] == ["kept by GLA, not read", "0", "0"]
+
+    def test_unknown_folders_and_overview_tables(self, model, result):
+        unknown = model.build_table(result, ("unknown", ""))
+        assert [r[0]["text"] for r in unknown["rows"]] == ["DI_CONNECT/DI-Connect-User"]
+        folders = model.build_table(result, ("folders", ""))
+        assert "<hidden>" in [r[0]["text"] for r in folders["rows"]]
+        overview = model.build_table(result, ("summary", ""))
+        assert dict((r[0]["text"], r[1]["text"]) for r in overview["rows"])["JSON files"] == "4"
+        assert model.build_table(result, ("nothing", "")) == overview            # any other node: the overview
+        assert "stopped" in model.build_table({**result, "stopped": True}, ("summary", ""))["note"]
+
+    def test_which_nodes_have_a_chart(self, model, result):
+        assert model.has_chart(result, ("family", "uds")) and model.has_chart(result, ("group", "daily"))
+        assert not any(model.has_chart(result, n) for n in
+                       (("summary", ""), ("unknown", ""), ("folders", ""), ("family", "gear"), ("family", "nope"),
+                        ("group", "account"), ("group", "nope")))
+        assert model.build_chart_html(result, ("folders", ""), self.PLOTLY, self.THEME) is None
+
+    @staticmethod
+    def _plot_args(html):
+        import json
+        import re
+        m = re.search(r'Plotly\.newPlot\("chart", (.*), (\{"title".*\}), (\{"responsive".*\})\);</script>', html)
+        assert m, "the Plotly call is not in the page"
+        return json.loads(m.group(1)), json.loads(m.group(2)), json.loads(m.group(3))
+
+    def test_family_chart_is_a_heat_map_of_the_same_shares(self, model, result):
+        html = model.build_chart_html(result, ("family", "uds"), self.PLOTLY, self.THEME)
+        data, layout, config = self._plot_args(html)
+        assert html.count(self.PLOTLY) == 1 and "Content-Security-Policy" in html and "default-src 'none'" in html
+        heat = data[0]
+        assert heat["type"] == "heatmap" and heat["x"] == ["2021", "2022", "2023"]
+        assert heat["z"][heat["y"].index("totalSteps")] == [100, 100, 100]
+        assert heat["z"][heat["y"].index("restingHeartRate")] == [0, 100, 100]
+        assert heat["colorscale"] == [[0, "#202020"], [1, "#c76a3f"]]            # the colours handed in
+        assert layout["paper_bgcolor"] == "#101010" and layout["font"]["color"] == "#f0f0f0"
+        assert config["scrollZoom"] is True and config["displaylogo"] is False
+
+    def test_group_chart_is_bars_of_the_rows_per_year(self, model, result):
+        data, layout, _config = self._plot_args(model.build_chart_html(result, ("group", "sleep_body"), self.PLOTLY, self.THEME))
+        assert [t["type"] for t in data] == ["bar"] and data[0]["name"] == "sleepData"
+        assert data[0]["x"] == ["2022"] and data[0]["y"] == [6] and layout["barmode"] == "group"
+
+    def test_a_colour_that_is_no_hex_colour_is_replaced_by_neutral_grey_not_a_theme(self, model, result):
+        html = model.build_chart_html(result, ("family", "uds"), self.PLOTLY,
+                                      {"bg": "red; background:url(x)", "bg3": None, "text": "#12", "accent": "#zzzzzz"})
+        assert "url(x)" not in html and "red;" not in html
+        data, layout, _c = self._plot_args(html)
+        assert data[0]["colorscale"] == [[0, "#3a3a3a"], [1, "#a0a0a0"]] and layout["paper_bgcolor"] == "#202020"
+        assert model.build_chart_html(result, ("family", "uds"), self.PLOTLY, None) is not None
+
+    def test_texts_of_the_export_cannot_break_out_of_the_page_or_become_markup(self, model, result):
+        import copy
+        evil = "</script><script>alert(1)</script>"
+        link = '<a href="https://evil.example">x</a>'
+        hacked = copy.deepcopy(result)
+        fam = hacked["families"]["uds"]
+        fam["fields"][evil] = fam["fields"].pop("totalSteps")
+        fam["fields"][link] = fam["fields"].pop("restingHeartRate")
+        fam["label"] = "UDS & <b>label</b>"
+        html = model.build_chart_html(hacked, ("family", "uds"), self.PLOTLY, self.THEME)
+        assert html.count("</script>") == 2                       # Plotly's and ours, nothing from the data
+        call = html[html.index("Plotly.newPlot("):html.index(");</script>")]
+        assert "<" not in call and ">" not in call and "&" not in call       # the embedded data is script-safe
+        assert "alert(1)</script>" not in html and "<a href" not in html and "<b>" not in html
+        data, layout, _c = self._plot_args(html)
+        assert "&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;" in data[0]["y"]
+        assert "&lt;a href=\"https://evil.example\"&gt;x&lt;/a&gt;" in data[0]["y"]
+        assert "UDS &amp; &lt;b&gt;label&lt;/b&gt;" in layout["title"]["text"]
+        # the table of the window shows plain text, so the texts stay as they are there
+        assert evil in [r[0]["text"] for r in model.build_table(hacked, ("family", "uds"))["rows"]]
+
+    FIT = {"schema": 1, "stopped": False,
+           "files": {"seen": 10, "read": 7, "duplicates": 1, "oversize": 0, "unreadable_entries": 0, "zips_opened": 3,
+                     "zips_unreadable": 0, "too_deep": 0, "damaged": {"crc": 1, "not_fit": 1}},
+           "types": {"4": {"files": 1, "years": {"2019": 1}},
+                     "32": {"files": 4, "years": {"2019": 2, "2020": 1, "2026": 1}},
+                     "41": {"files": 1, "years": {"unknown": 1}},
+                     "none": {"files": 1, "years": {"2022": 1}}},
+           "years": {"2019": 3, "2020": 1, "2022": 1, "2026": 1, "unknown": 1}}
+
+    def test_fit_node_in_the_tree_with_its_types_before_the_unknown_files(self, model, result):
+        import copy
+        plain_ids = [n["id"] for n in model.build_tree(result)]
+        assert ("fit", "") not in plain_ids                                         # no FIT scan: no node
+        nodes = model.build_tree({**copy.deepcopy(result), "fit": self.FIT})
+        ids = [n["id"] for n in nodes]
+        assert ids[-3:] == [("fit", ""), ("unknown", ""), ("folders", "")]
+        fit = nodes[-3]
+        assert fit["text"] == "FIT files (7 files)" and fit["status"] is None
+        assert [c["id"] for c in fit["children"]] == [("fit_type", k) for k in ("4", "32", "41", "none")]
+        assert [c["text"] for c in fit["children"]] == [
+            "Type 4 · activity  (1 files)", "Type 32 · all-day monitoring  (4 files)", "Type 41  (1 files)",
+            "No type  (1 files)"]
+        empty = {**result, "fit": {**self.FIT, "types": {}}}
+        assert ("fit", "") not in [n["id"] for n in model.build_tree(empty)]          # nothing read: no node
+
+    def test_fit_table_type_by_year_with_a_total_row_and_the_note(self, model, result):
+        table = model.build_table({**result, "fit": self.FIT}, ("fit", ""))
+        assert table["title"] == "FIT files"
+        assert table["headers"] == ["Type", "Files", "2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026",
+                                    "unknown"]                                   # no gaps: 2021, 2023 to 2025 are columns too
+        rows = [[c["text"] for c in r] for r in table["rows"]]
+        assert rows[1] == ["Type 32 · all-day monitoring", "4", "2", "1", "", "", "", "", "", "1", ""]
+        assert rows[2] == ["Type 41", "1"] + [""] * 8 + ["1"]
+        assert rows[-1] == ["All types", "7", "3", "1", "", "1", "", "", "", "1", "1"]
+        assert "7 different files read (10 seen, 1 again with the same content, 2 damaged)" in table["note"]
+        assert "working names" in table["note"] and "not Garmin terms" in table["note"]
+        stopped = model.build_table({**result, "fit": {**self.FIT, "stopped": True}}, ("fit", ""))
+        assert "stopped" in stopped["note"]
+        assert model.build_table(result, ("fit", "")) == model.build_table(result, ("summary", ""))   # no FIT scan
+
+    def test_fit_type_table_years_and_unknown_type(self, model, result):
+        table = model.build_table({**result, "fit": self.FIT}, ("fit_type", "32"))
+        assert table["title"] == "Type 32 · all-day monitoring" and table["headers"] == ["Year", "Files"]
+        assert [[c["text"] for c in r] for r in table["rows"]] == [
+            ["2019", "2"], ["2020", "1"], ["2021", "0"], ["2022", "0"], ["2023", "0"], ["2024", "0"], ["2025", "0"],
+            ["2026", "1"]]
+        assert model.build_table({**result, "fit": self.FIT}, ("fit_type", "999"))["rows"] == []
+        assert model.build_table(result, ("fit_type", "32"))["rows"] == []
+
+    def test_overview_shows_what_the_fit_scan_read_or_what_the_json_scan_only_counted(self, model, result):
+        plain = dict((r[0]["text"], r[1]["text"]) for r in model.build_table(result, ("summary", ""))["rows"])
+        assert "FIT files in the outer level (not read)" in plain and "Nested ZIPs (not opened)" in plain
+        with_fit = dict((r[0]["text"], r[1]["text"]) for r in
+                        model.build_table({**result, "fit": self.FIT}, ("summary", ""))["rows"])
+        assert with_fit["FIT files seen"] == "10" and with_fit["  different files read"] == "7"
+        assert with_fit["  again with the same content"] == "1" and with_fit["  damaged"] == "2"
+        assert "FIT files in the outer level (not read)" not in with_fit
+
+    def test_fit_charts_stacked_by_type_and_one_type(self, model, result):
+        withfit = {**result, "fit": self.FIT}
+        assert model.has_chart(withfit, ("fit", "")) and model.has_chart(withfit, ("fit_type", "4"))
+        assert not model.has_chart(result, ("fit", "")) and not model.has_chart(withfit, ("fit_type", "999"))
+        assert not model.has_chart({**result, "fit": {**self.FIT, "types": {}}}, ("fit", ""))
+        data, layout, _c = self._plot_args(model.build_chart_html(withfit, ("fit", ""), self.PLOTLY, self.THEME))
+        assert layout["barmode"] == "stack" and [t["name"] for t in data][:2] == ["Type 4 · activity", "Type 32 · all-day monitoring"]
+        t32 = next(t for t in data if t["name"].startswith("Type 32"))
+        assert t32["x"] == ["2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026", "unknown"]
+        assert t32["y"] == [2, 1, 0, 0, 0, 0, 0, 1, 0]
+        one, layout1, _c = self._plot_args(model.build_chart_html(withfit, ("fit_type", "32"), self.PLOTLY, self.THEME))
+        assert one[0]["x"] == ["2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026"]
+        assert one[0]["y"] == [2, 1, 0, 0, 0, 0, 0, 1] and layout1["barmode"] == "group"
+        assert "files per year" in layout1["title"]["text"]
+
+    @staticmethod
+    def _gap_result():
+        """A family with rows in 2022 and 2024 only (the year 2023 has none), as the screenshot of the activities."""
+        def counts(filled=0, zero=0, empty=0, absent=0):
+            return {"filled": filled, "zero": zero, "empty": empty, "absent": absent}
+        fam = {"label": "Gap", "group": "daily", "status": "read", "files": 1, "unreadable": 0, "too_large": 0,
+               "rows": 3, "skipped_rows": 0, "truncated": False, "years": {"2022": 1, "2024": 2},
+               "fields": {"a": {"2022": counts(filled=1), "2024": counts(filled=1, empty=1)}}}
+        return {"families": {"gap": fam}, "groups": [{"key": "daily", "label": "Daily values", "families": ["gap"]}]}
+
+    def test_year_range_fills_gaps_and_keeps_unknown_last(self, model):
+        assert model._year_range([]) == [] and model._year_range(["unknown"]) == ["unknown"]
+        assert model._year_range(["2024", "2020"]) == ["2020", "2021", "2022", "2023", "2024"]
+        assert model._year_range(["unknown", "2019", "2021"]) == ["2019", "2020", "2021", "unknown"]
+        assert model._year_range(iter(["2022"])) == ["2022"]
+
+    def test_a_year_without_rows_is_a_column_with_a_dash_not_a_zero_percent(self, model):
+        res = self._gap_result()
+        table = model.build_table(res, ("family", "gap"))
+        assert table["headers"] == ["Field", "2022", "2023", "2024", "All years"]
+        assert [c["text"] for c in table["rows"][0]] == ["Rows", "1", "0", "2", "3"]
+        cells = table["rows"][1]
+        assert [c["text"] for c in cells] == ["a", "100 %", "–", "50 %", "67 %"]
+        assert cells[2]["value"] is None and "no rows in this year" in cells[2]["tip"]
+        group = model.build_table(res, ("group", "daily"))
+        assert group["headers"][4:] == ["2022", "2023", "2024"] and [c["text"] for c in group["rows"][0]][4:] == ["1", "", "2"]
+
+    def test_charts_show_the_year_without_rows_as_a_gap_or_a_zero_bar(self, model):
+        res = self._gap_result()
+        heat = self._plot_args(model.build_chart_html(res, ("family", "gap"), self.PLOTLY, self.THEME))[0][0]
+        assert heat["x"] == ["2022", "2023", "2024"] and heat["z"] == [[100, None, 50]]
+        assert "no rows in this year" in heat["text"][0][1]
+        bars = self._plot_args(model.build_chart_html(res, ("group", "daily"), self.PLOTLY, self.THEME))[0][0]
+        assert bars["x"] == ["2022", "2023", "2024"] and bars["y"] == [1, 0, 2]
+
+    def test_series_colours_come_from_the_theme_first_then_from_the_hue_of_the_accent(self, model):
+        import re
+        t = self.THEME
+        base = [t["accent"], t["green"], t["yellow"], t["red"], t["accent2"], t["text2"]]
+        colours = model.series_colors(t, 20)
+        assert colours[:6] == base and model.series_colors(t, 3) == base[:3] and model.series_colors(t, 0) == []
+        assert len(colours) == 20 and len(set(colours)) == 20
+        assert all(re.fullmatch(r"#[0-9a-f]{6}", c) for c in colours) and not set(colours[6:]) & set(base)
+        assert colours == model.series_colors(t, 20)                                  # the same every time
+        other = dict(t, accent="#3f6ac7", green="#cc4e4e")
+        assert model.series_colors(other, 8)[:2] == ["#3f6ac7", "#cc4e4e"] and model.series_colors(other, 8) != colours[:8]
+        grey = model.series_colors({"accent": "nonsense"}, 8)
+        assert grey[0] == "#a0a0a0" and len(set(grey)) == 8                           # a bad theme: neutral greys, still distinct
+
+    def test_every_colour_of_the_page_comes_from_the_theme(self, model, result):
+        import copy
+        import re
+        t = self.THEME
+        withfit = {**copy.deepcopy(result), "fit": self.FIT}
+        allowed = {v.lower() for v in t.values()} | {c.lower() for c in model.series_colors(t, 20)}
+        for node in (("family", "uds"), ("group", "daily"), ("fit", ""), ("fit_type", "32")):
+            html = model.build_chart_html(withfit, node, self.PLOTLY, t)
+            found = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", html)}
+            assert found and found <= allowed, (node, found - allowed)
+        data, layout, _c = self._plot_args(model.build_chart_html(withfit, ("fit", ""), self.PLOTLY, t))
+        assert [tr["marker"]["color"] for tr in data] == model.series_colors(t, len(data))
+        assert layout["xaxis"]["gridcolor"] == t["bg3"] and layout["yaxis"]["tickfont"]["color"] == t["text"]
+        assert layout["hoverlabel"] == {"bgcolor": t["bg2"], "bordercolor": t["accent"], "font": {"color": t["text"]}}
+        assert layout["modebar"]["color"] == t["text2"] and layout["modebar"]["activecolor"] == t["accent"]
+        assert layout["legend"]["font"]["color"] == t["text"] and layout["yaxis"]["title"]["font"]["color"] == t["text"]
+        heat, hl, _c = self._plot_args(model.build_chart_html(result, ("family", "uds"), self.PLOTLY, t))
+        assert heat[0]["colorbar"]["outlinecolor"] == t["bg3"] and heat[0]["colorbar"]["tickfont"]["color"] == t["text2"]
+
+    @staticmethod
+    def _detail(**kw):
+        """A field detail as garmin_export_scan.scan_field returns it: Jan, Apr 2023 and Feb 2024 and rows without a date."""
+        def m(rows, filled=0, zero=0, empty=0, absent=0):
+            return {"rows": rows, "filled": filled, "zero": zero, "empty": empty, "absent": absent}
+        detail = {"schema": 1, "source": "zip", "family": "uds", "label": "UDSFile", "field": "totalSteps", "stopped": False,
+                  "files": 3, "unreadable": 0, "too_large": 0, "rows": 14,
+                  "months": {"2023-01": m(4, filled=3, zero=1), "2023-04": m(6, filled=2, empty=3, absent=1),
+                             "2024-02": m(2, absent=2), "unknown": m(2, filled=1, zero=1)},
+                  "first": "2023-01", "last": "2023-04"}
+        detail.update(kw)
+        return detail
+
+    def test_month_range_has_no_gaps_across_years_and_keeps_unknown_last(self, model):
+        assert model._month_range([]) == [] and model._month_range(["unknown"]) == ["unknown"]
+        assert model._month_range(["2023-11", "2024-02"]) == ["2023-11", "2023-12", "2024-01", "2024-02"]
+        assert model._month_range(["2023-05"]) == ["2023-05"]
+        assert model._month_range(["unknown", "2022-12", "2023-01"]) == ["2022-12", "2023-01", "unknown"]
+
+    def test_field_table_by_month_with_empty_months_totals_and_the_note(self, model):
+        table = model.build_field_table(self._detail(), "month")
+        assert table["title"] == "UDSFile › totalSteps"
+        assert table["headers"] == ["Month", "Rows", "Filled", "Zero", "Empty", "Absent", "With a value"]
+        rows = [[c["text"] for c in r] for r in table["rows"]]
+        assert [r[0] for r in rows][:5] == ["2023-01", "2023-02", "2023-03", "2023-04", "2023-05"]
+        assert rows[0] == ["2023-01", "4", "3", "1", "0", "0", "100 %"]
+        assert rows[1] == ["2023-02", "0", "0", "0", "0", "0", "–"]                      # a month without a row
+        assert rows[3] == ["2023-04", "6", "2", "0", "3", "1", "33 %"]
+        assert rows[-2][0] == "unknown" and rows[-1] == ["All", "14", "6", "2", "3", "3", "57 %"]
+        assert table["rows"][1][6]["value"] is None and table["rows"][0][6]["value"] == 100
+        assert "filled 3, zero 1, empty 0, absent 0 of 4 rows" in table["rows"][0][6]["tip"]
+        assert "14 rows in 3 files, by state per month" in table["note"]
+        assert "First month with a value: 2023-01, last: 2023-04." in table["note"]
+
+    def test_field_table_by_year_adds_the_months_up(self, model):
+        table = model.build_field_table(self._detail(), "year")
+        assert table["headers"][0] == "Year" and "by state per year" in table["note"]
+        rows = [[c["text"] for c in r] for r in table["rows"]]
+        assert rows == [["2023", "10", "5", "1", "3", "1", "60 %"], ["2024", "2", "0", "0", "0", "2", "0 %"],
+                        ["unknown", "2", "1", "1", "0", "0", "100 %"], ["All", "14", "6", "2", "3", "3", "57 %"]]
+
+    def test_field_table_notes_for_a_stopped_read_damaged_files_and_no_value_at_all(self, model):
+        table = model.build_field_table(self._detail(stopped=True, unreadable=2, too_large=1, first=None, last=None), "month")
+        assert "stopped before the end" in table["note"] and "Unreadable files: 2, too large: 1." in table["note"]
+        assert "No row has a value." in table["note"] and "First month" not in table["note"]
+        plain = model.build_field_table(self._detail(), "month")["note"]
+        assert "stopped" not in plain and "Unreadable" not in plain
+
+    def test_field_chart_stacks_the_four_states_in_theme_colours_by_month_or_year(self, model):
+        t = self.THEME
+        data, layout, _c = self._plot_args(model.build_field_chart_html(self._detail(), "month", self.PLOTLY, t))
+        assert [tr["name"] for tr in data] == ["filled", "zero", "empty", "absent"] and layout["barmode"] == "stack"
+        assert [tr["marker"]["color"] for tr in data] == [t["green"], t["accent"], t["yellow"], t["text2"]]
+        assert data[0]["x"][:5] == ["2023-01", "2023-02", "2023-03", "2023-04", "2023-05"] and data[0]["x"][-1] == "unknown"
+        assert data[0]["y"][:4] == [3, 0, 0, 2] and data[2]["y"][3] == 3 and data[3]["y"][3] == 1
+        assert "rows by state per month" in layout["title"]["text"]
+        yd, ylayout, _c = self._plot_args(model.build_field_chart_html(self._detail(), "year", self.PLOTLY, t))
+        assert yd[0]["x"] == ["2023", "2024", "unknown"] and yd[0]["y"] == [5, 0, 1] and "per year" in ylayout["title"]["text"]
+        assert layout["xaxis"]["gridcolor"] == t["bg3"] and layout["hoverlabel"]["bgcolor"] == t["bg2"]
+
+    def test_field_chart_only_with_rows_and_texts_stay_markup_free(self, model):
+        assert not model.has_field_chart(None) and not model.has_field_chart(self._detail(rows=0))
+        assert model.build_field_chart_html(self._detail(rows=0), "month", self.PLOTLY, self.THEME) is None
+        evil = self._detail(field='</script><a href="https://evil.example">x</a>', label="L & <b>")
+        html = model.build_field_chart_html(evil, "month", self.PLOTLY, self.THEME)
+        assert html.count("</script>") == 2 and "<a href" not in html and "<b>" not in html
+        call = html[html.index("Plotly.newPlot("):html.index(");</script>")]
+        assert "<" not in call and ">" not in call and "&" not in call
+        assert "L &amp; &lt;b&gt;" in self._plot_args(html)[1]["title"]["text"]
+        assert evil["field"] in model.build_field_table(evil)["title"]                   # the table shows plain text
+
+    def test_every_colour_of_the_field_page_comes_from_the_theme(self, model):
+        import re
+        t = self.THEME
+        html = model.build_field_chart_html(self._detail(), "month", self.PLOTLY, t)
+        found = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", html)}
+        assert found and found <= {v.lower() for v in t.values()}
+
+    @staticmethod
+    def _values(**kw):
+        """The values of a field as garmin_export_scan.read_values returns them (five dated numbers)."""
+        values = {"schema": 1, "source": "zip", "family": "uds", "label": "UDSFile", "field": "totalSteps",
+                  "supported": True, "stopped": False, "files": 2, "unreadable": 0, "too_large": 0, "rows": 9,
+                  "numeric": 6, "other": 1, "missing": 2, "undated": 1, "thinned": False,
+                  "stats": {"count": 5, "min": 0, "max": 1500.5, "mean": 840.15, "median": 1000, "zeros": 1},
+                  "histogram": {"edges": [0, 750.25, 1500.5], "counts": [2, 3]},
+                  "points": [["2023-01-05", 0], ["2023-01-06", 1000], ["2023-01-06", 1000], ["2023-02-01", 1500.5],
+                             ["2023-03-01", 700.25]]}
+        values.update(kw)
+        return values
+
+    @staticmethod
+    def _glarender(js):
+        import json
+        import re
+        m = re.fullmatch(r'glaRender\((\[.*\}\]), (\{"title".*\})\);', js, re.S)
+        assert m, "not a glaRender call"
+        return json.loads(m.group(1)), json.loads(m.group(2))
+
+    def test_values_table_points_statistics_and_the_notes(self, model):
+        table = model.build_values_table(self._values())
+        assert table["title"] == "UDSFile › totalSteps  (values)" and table["headers"] == ["Date", "Value (steps)"]
+        assert [[c["text"] for c in r] for r in table["rows"]] == [
+            ["2023-01-05", "0"], ["2023-01-06", "1000"], ["2023-01-06", "1000"], ["2023-02-01", "1500.5"], ["2023-03-01", "700.25"]]
+        note = table["note"]
+        assert "5 values, min 0, max 1500.5, mean 840.15, median 1000, 1 zeros, 2023-01-05 to 2023-03-01." in note
+        assert "6 of 9 rows hold a number; not a number: 1, empty or absent: 2." in note
+        assert "Unit: steps (garmin_normalizer.py: totalSteps -> steps (the day's step count)). Raw values, not converted." in note
+        assert "1 numbers without a readable date are not shown." in note
+        plain = model.build_values_table(self._values(undated=0))["note"]
+        assert "without a readable date" not in plain and "Thinned" not in plain and "stopped" not in plain and "Unreadable" not in plain
+        more = model.build_values_table(self._values(thinned=True, stopped=True, unreadable=2, too_large=1))["note"]
+        assert "Thinned to 5 points for the view; the statistics use all values." in more
+        assert "stopped before the end" in more and "Unreadable files: 2, too large: 1." in more
+
+    def test_the_unit_of_a_field_only_with_evidence_and_always_with_its_origin(self):
+        from app.popups import _export_scan_units as units
+        names = {"deepSleepSeconds": "s", "durationInMilliseconds": "ms", "vigorousIntensityMinutes": "min",
+                 "totalDistanceMeters": "m", "floorsAscendedInMeters": "m", "totalKilocalories": "kcal",
+                 "acwrPercent": "%", "heatAcclimationPercentage": "%"}
+        for field, unit in names.items():
+            found = units.unit_of("uds", field)
+            assert found == {"unit": unit, "origin": "name", "source": found["source"]} and "the field name ends with" in found["source"], field
+        assert units.unit_of("uds", "allDayStress.x.durationInMilliseconds")["unit"] == "ms"        # the last word of the path counts
+        for field in ("userIntensityMinutesGoal", "secondsToSleep", "metersPerStep", "avgSpeed", "totalSteps2", "version",
+                      "userProfilePK", "averageSpo2Value", "", None, 5,
+                      "durationMillisecondsMax", "sleepSecondsGoal", "totalMetersGoal", "totalKilocaloriesGoal", "acwrPercentGoal",
+                      "acwrPercentageGoal"):
+            assert units.unit_of("uds", field) is None, field                # a word in the middle, nothing known: no unit
+        assert units.unit_of("uds", "restingHeartRate") == {"unit": "bpm", "origin": "GLA code", "source": units.EXPLICIT[("uds", "restingHeartRate")][1]}
+        assert {k: v[0] for k, v in units.EXPLICIT.items()} == {("uds", "restingHeartRate"): "bpm", ("uds", "currentDayRestingHeartRate"): "bpm",
+                                                                 ("uds", "minHeartRate"): "bpm", ("uds", "maxHeartRate"): "bpm", ("uds", "totalSteps"): "steps",
+                                                                 ("fit_monitoring", "heartRate"): "bpm"}
+        assert units.unit_of("fit_monitoring", "heartRate")["origin"] == "GLA code" and units.unit_of("uds", "heartRate") is None
+        assert units.unit_of("sleep", "restingHeartRate") is None and units.unit_of("uds", "totalSteps")["unit"] == "steps"
+        assert all(len(v[1]) > 20 for v in units.EXPLICIT.values())                          # every entry names its evidence
+        assert units.with_unit("Value", units.unit_of("uds", "totalSteps")) == "Value (steps)" and units.with_unit("Value", None) == "Value"
+        assert units.NOT_DOCUMENTED == "unit not documented, raw value as Garmin writes it"
+
+    def test_the_gla_code_evidence_of_the_unit_table_is_still_in_the_code(self, app_root):
+        """EXPLICIT says which code treats a field as that unit. If the mapping goes, the entry is no longer evidence."""
+        import re
+        normalizer = (app_root / "garmin" / "garmin_normalizer.py").read_text(encoding="utf-8")
+        importer = (app_root / "garmin" / "garmin_import.py").read_text(encoding="utf-8")
+        assert re.search(r'"resting_bpm":\s+safe_get\(hr_raw, "restingHeartRate"\)', normalizer)
+        assert re.search(r'"max_bpm":\s+safe_get\(hr_raw, "maxHeartRate"\)', normalizer)
+        assert re.search(r'"min_bpm":\s+safe_get\(hr_raw, "minHeartRate"\)', normalizer)
+        assert re.search(r'"steps":\s+safe_get\(us, "totalSteps"\)', normalizer)
+        bulk = (app_root / "garmin" / "garmin_bulk_normalizer.py").read_text(encoding="utf-8")
+        assert "_FIELD_HEART_RATE = 253, 26, 27" in bulk and "values [[ms UTC, bpm], ...] ascending" in bulk
+        assert re.search(r'"restingHeartRate":\s+uds\.get\("currentDayRestingHeartRate"\)', importer)
+
+    def test_a_field_without_a_unit_says_so_and_a_name_unit_shows_where_it_comes_from(self, model):
+        none = model.build_values_table(self._values(field="avgSpeed"))
+        assert none["headers"] == ["Date", "Value"] and "Unit: unit not documented, raw value as Garmin writes it." in none["note"]
+        named = model.build_values_table(self._values(field="deepSleepSeconds"))
+        assert named["headers"] == ["Date", "Value (s)"]
+        assert "Unit: s (the field name ends with the word for seconds). Raw values, not converted." in named["note"]
+        series = self._glarender(model.build_values_js(self._values(field="deepSleepSeconds"), "series", self.THEME))[1]
+        dist = self._glarender(model.build_values_js(self._values(field="deepSleepSeconds"), "histogram", self.THEME))[1]
+        assert series["yaxis"]["title"]["text"] == "deepSleepSeconds (s)" and dist["xaxis"]["title"]["text"] == "deepSleepSeconds (s)"
+        plain = self._glarender(model.build_values_js(self._values(field="avgSpeed"), "series", self.THEME))[1]
+        assert plain["yaxis"]["title"]["text"] == "avgSpeed"
+        assert [c["text"] for c in named["rows"][1]] == ["2023-01-06", "1000"]               # the values themselves are not converted
+        millis = model.build_values_table(self._values(field="durationInMilliseconds"))
+        assert millis["headers"] == ["Date", "Value (ms)"] and [c["text"] for c in millis["rows"][1]] == ["2023-01-06", "1000"]
+
+    def test_values_table_for_a_field_that_cannot_be_shown_or_has_no_numbers(self, model):
+        bad = model.build_values_table(self._values(supported=False, stats=None, points=[]))
+        assert bad["rows"] == [] and bad["headers"] == [] and "cannot be shown as values" in bad["note"]
+        empty = model.build_values_table(self._values(stats=None, histogram=None, points=[]))
+        assert empty["rows"] == [] and empty["note"].startswith("No number with a date in this field. 6 of 9 rows")
+        assert [model._num(v) for v in (0, 12, 0.5, 0.1 + 0.2, 1234567.891, -3)] == ["0", "12", "0.5", "0.3", "1.23457e+06", "-3"]
+
+    def test_the_values_page_holds_no_value_the_call_brings_them_in(self, model):
+        import inspect
+        page = model.build_values_page(self.PLOTLY, self.THEME)
+        assert page.count(self.PLOTLY) == 1 and "default-src 'none'" in page and "function glaRender(data, layout)" in page
+        assert 'Plotly.newPlot("chart", [],' in page and "Plotly.react" in page
+        assert list(inspect.signature(model.build_values_page).parameters) == ["plotly_script", "theme"]   # it cannot get a value
+        assert page == model.build_values_page(self.PLOTLY, self.THEME) and page.count("glaRender") == 1
+        import re
+        assert {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", page)} <= {v.lower() for v in self.THEME.values()}
+
+    def test_the_values_call_over_time_and_as_a_distribution(self, model):
+        t = self.THEME
+        data, layout = self._glarender(model.build_values_js(self._values(), "series", t))
+        assert data[0]["type"] == "scatter" and data[0]["mode"] == "lines+markers"
+        assert data[0]["x"] == ["2023-01-05", "2023-01-06", "2023-01-06", "2023-02-01", "2023-03-01"]
+        assert data[0]["y"] == [0, 1000, 1000, 1500.5, 700.25] and data[0]["marker"]["color"] == t["accent"]
+        assert layout["title"]["text"] == "UDSFile › totalSteps: values over time" and layout["xaxis"]["type"] == "date"
+        assert layout["yaxis"]["title"]["text"] == "totalSteps (steps)" and layout["paper_bgcolor"] == t["bg"]
+        hdata, hlayout = self._glarender(model.build_values_js(self._values(), "histogram", t))
+        assert hdata[0]["type"] == "bar" and hdata[0]["x"] == [375.125, 1125.375] and hdata[0]["y"] == [2, 3]
+        assert hdata[0]["width"] == [750.25, 750.25] and "distribution of the values" in hlayout["title"]["text"]
+        assert hlayout["yaxis"]["title"]["text"] == "Number of values"
+        one = self._glarender(model.build_values_js(self._values(histogram={"edges": [7, 7], "counts": [3]}), "histogram", t))[0]
+        assert one[0]["x"] == [7] and one[0]["y"] == [3] and one[0]["width"] == [1]
+        assert self._glarender(model.build_values_js(self._values(), "nonsense", t))[0][0]["type"] == "scatter"
+
+    def test_no_call_without_numbers_and_the_call_is_markup_free(self, model):
+        assert not model.has_values(None) and model.has_values(self._values())
+        for values in (self._values(supported=False), self._values(stats=None, points=[])):
+            assert not model.has_values(values) and model.build_values_js(values, "series", self.THEME) is None
+        evil = self._values(field='</script><a href="https://evil.example">x</a>', label="L & <b>")
+        js = model.build_values_js(evil, "series", self.THEME)
+        assert "<" not in js and ">" not in js and "&" not in js
+        layout = self._glarender(js)[1]
+        assert "L &amp; &lt;b&gt;" in layout["title"]["text"] and "&lt;/script&gt;" in layout["title"]["text"]
+        assert evil["field"] in model.build_values_table(evil)["title"]                  # the table shows plain text
+        import re
+        colours = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", model.build_values_js(self._values(), "series", self.THEME))}
+        assert colours and colours <= {v.lower() for v in self.THEME.values()}
+
+    @staticmethod
+    def _day(**kw):
+        """The heart rate of a day as garmin_export_scan_day.read_day returns it (four samples)."""
+        day = {"schema": 1, "day": "2023-01-05", "state": "ok", "family": "fit_monitoring", "label": "FIT monitoring",
+               "field": "heartRate", "supported": True, "stopped": False, "files": 2, "read": 2, "damaged": 0, "sources": 2,
+               "offset_hours": 1.0, "dst_transition": False, "duplicates_same": 0, "duplicates_conflict": 0,
+               "stats": {"count": 4, "min": 55, "max": 91, "mean": 70.5, "median": 68, "zeros": 0},
+               "histogram": {"edges": [55, 73, 91], "counts": [3, 1]},
+               "points": [["2023-01-05 00:00:00", 55], ["2023-01-05 00:01:00", 60], ["2023-01-05 23:59:00", 76],
+                          ["2023-01-06 00:00:00", 91]], "thinned": False}
+        day.update(kw)
+        return day
+
+    def test_the_day_table_shows_local_times_the_statistics_and_the_notes(self, model):
+        assert model.is_day(self._day()) and not model.is_day(self._values())
+        table = model.build_values_table(self._day())
+        assert table["title"] == "Heart rate of 2023-01-05  (values)" and table["headers"] == ["Time (local)", "Heart rate (bpm)"]
+        assert [[c["text"] for c in r] for r in table["rows"]] == [
+            ["00:00:00", "55"], ["00:01:00", "60"], ["23:59:00", "76"], ["2023-01-06 00:00:00", "91"]]      # a date only off the day
+        note = table["note"]
+        assert "4 samples, min 55, max 91, mean 70.5, median 68, from 00:00:00 to 2023-01-06 00:00:00." in note
+        assert "The samples come from 2 FIT files." in note
+        assert "Unit: bpm (garmin_bulk_normalizer.py: FIT message 55 field 27 is kept as bpm" in note
+        assert "The time of day is local: UTC+1 h, the offset at the start of the day." in note
+        assert "clock change" not in note and "Seconds that more than one file holds" not in note and "Damaged" not in note
+        more = model.build_values_table(self._day(dst_transition=True, duplicates_same=2, duplicates_conflict=10, damaged=1,
+                                                  offset_hours=-3.5))["note"]
+        assert "UTC-3.5 h" in more and "This day crosses a clock change; its times use the offset of the start of the day." in more
+        assert "Seconds that more than one file holds: 12 (10 with a different value); the file created first wins." in more
+        assert "Damaged files skipped: 1." in more
+
+    def test_a_day_without_samples_says_why(self, model):
+        texts = {}
+        for state in ("unplanned", "no_files", "no_samples", "stopped"):
+            table = model.build_values_table(self._day(state=state, stats=None, histogram=None, points=[]))
+            assert table["rows"] == [] and table["headers"] == [] and table["title"] == "Heart rate of 2023-01-05  (values)"
+            texts[state] = table["note"]
+        assert len(set(texts.values())) == 4 and all(texts.values())
+        assert "boundaries of this day are not known" in texts["unplanned"] and "Nothing is guessed" in texts["unplanned"]
+        assert texts["no_files"] == "No monitoring file was created near this day."
+        assert texts["no_samples"] == "The monitoring files near this day hold no heart-rate sample for it."
+        assert "stopped before the end" in texts["stopped"]
+        assert not model.has_values(self._day(state="no_files", stats=None, points=[]))
+        assert model.build_values_js(self._day(state="no_files", stats=None, points=[]), "series", self.THEME) is None
+
+    def test_the_day_chart_over_the_time_of_day_and_as_a_distribution(self, model):
+        t = self.THEME
+        data, layout = self._glarender(model.build_values_js(self._day(), "series", t))
+        assert data[0]["x"] == ["2023-01-05 00:00:00", "2023-01-05 00:01:00", "2023-01-05 23:59:00", "2023-01-06 00:00:00"]
+        assert data[0]["y"] == [55, 60, 76, 91] and layout["xaxis"]["type"] == "date"
+        assert layout["title"]["text"] == "FIT monitoring 2023-01-05 › heartRate: values over time"
+        assert layout["yaxis"]["title"]["text"] == "heartRate (bpm)"
+        hdata, hlayout = self._glarender(model.build_values_js(self._day(), "histogram", t))
+        assert hdata[0]["y"] == [3, 1] and hlayout["title"]["text"] == "FIT monitoring 2023-01-05 › heartRate: distribution of the values"
+        assert hlayout["xaxis"]["title"]["text"] == "heartRate (bpm)"
+        field = self._glarender(model.build_values_js(self._values(), "series", t))[1]
+        assert field["title"]["text"] == "UDSFile › totalSteps: values over time"            # a field has no date in its title
+
+    def test_no_colour_is_fixed_in_the_window_and_only_neutral_greys_in_the_model(self, app_root):
+        """The colours are those of theme.py (the active theme), handed in by the app window."""
+        import re
+        import theme
+        window = (app_root / "app" / "popups" / "export_scan.py").read_text(encoding="utf-8")
+        model_src = (app_root / "app" / "popups" / "_export_scan_model.py").read_text(encoding="utf-8")
+        hexes = re.compile(r"#[0-9a-fA-F]{6}\b")
+        assert hexes.findall(window) == []
+        greys = ["#202020", "#2a2a2a", "#3a3a3a", "#808080", "#888888", "#909090", "#989898", "#a0a0a0", "#b0b0b0", "#e0e0e0"]
+        assert sorted(set(hexes.findall(model_src))) == greys
+        palette = {v.lower() for t in theme._THEMES.values() for v in t.values() if isinstance(v, str)}
+        assert not palette & set(greys)                                          # they belong to no theme
+
+
+class TestExportScanWindow:
+
+    @pytest.fixture
+    def env(self, qtbot, tmp_path, monkeypatch):
+        import types
+        from unittest.mock import MagicMock
+        from PyQt6.QtWidgets import QWidget
+        import theme
+        import app.popups.export_scan as win_mod
+
+        from PyQt6.QtCore import pyqtSignal
+
+        class _Page:
+            def __init__(self):
+                self.js = []                                  # what the window ran in the page (glaRender calls)
+
+            def runJavaScript(self, code):
+                self.js.append(code)
+
+        class StubView(QWidget):
+            """QtWebEngine is not started in the tests: the view remembers the URLs and the JavaScript it got,
+            and a page is 'loaded' at once."""
+            loadFinished = pyqtSignal(bool)
+
+            def __init__(self):
+                super().__init__()
+                self.url = None
+                self.urls = []
+                self._page = _Page()
+
+            def settings(self):
+                return MagicMock()
+
+            def page(self):
+                return self._page
+
+            def setUrl(self, url):
+                self.url = url
+                self.urls.append(url.toString())
+                self.loadFinished.emit(True)
+
+        monkeypatch.setattr(win_mod, "QWebEngineView", StubView)
+        monkeypatch.setattr(win_mod, "_window", None)
+        parent = QWidget()
+        for name in ("BG", "BG2", "BG3", "ACCENT", "ACCENT2", "TEXT", "TEXT2", "GREEN", "YELLOW", "RED"):
+            setattr(parent, name, getattr(theme, name))                  # the real theme, not a copy
+        parent._dispatch = lambda fn, *args: fn(*args)
+        parent._log = MagicMock()
+        parent._panel_settings = MagicMock()
+        parent._panel_settings._collect_settings.return_value = {"base_dir": str(tmp_path / "base")}
+        qtbot.addWidget(parent)
+
+        def make(**kw):
+            kw.setdefault("run_in_thread", lambda fn: fn())
+            kw.setdefault("plotly_script", lambda: "<script>/*plotly*/</script>")
+            kw.setdefault("fit_scan", lambda path, should_stop=None, progress=None, index=None: None)     # no FIT part
+            win = win_mod.ExportScanWindow(parent, **kw)
+            qtbot.addWidget(win)
+            return win
+
+        return types.SimpleNamespace(parent=parent, make=make, mod=win_mod, zip=_scan_export_zip(tmp_path),
+                                     theme=theme, tmp=tmp_path)
+
+    @staticmethod
+    def _item(win, text):
+        from PyQt6.QtWidgets import QTreeWidgetItemIterator
+        it = QTreeWidgetItemIterator(win._tree)
+        while it.value():
+            if text in it.value().text(0):
+                return it.value()
+            it += 1
+        raise AssertionError(f"no tree item with {text!r}")
+
+    @staticmethod
+    def _row(win, label):
+        for r in range(win._table.rowCount()):
+            if win._table.item(r, 0).text() == label:
+                return r
+        raise AssertionError(f"no table row {label!r}")
+
+    def test_window_is_titled_not_modal_deleted_on_close_and_starts_empty(self, env):
+        from PyQt6.QtCore import Qt
+        win = env.make()
+        assert win.windowTitle() == "Export Scan" and win.isModal() is False
+        assert win.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        assert not win._save_btn.isEnabled() and not win._graph_btn.isEnabled() and not win._stop_btn.isEnabled()
+        assert win._zip_btn.isEnabled() and "Choose the ZIP" in win._message.text()
+        assert win._stack.currentWidget() is win._message and win._tree.topLevelItemCount() == 0
+
+    def test_a_scan_fills_the_tree_and_shows_counts_only(self, env):
+        win = env.make()
+        win.start_scan(str(env.zip))
+        names = [win._tree.topLevelItem(i).text(0) for i in range(win._tree.topLevelItemCount())]
+        assert names[0] == "Overview" and "Daily values" in names and names[-1] == "Folders"
+        assert win._save_btn.isEnabled() and win._zip_btn.isEnabled() and not win._stop_btn.isEnabled()
+        assert win._status.text() == "3 of 4 JSON files read"
+        env.parent._log.assert_called_once_with("🔍  Export scan: 3 of 4 JSON files read, 1 of no known family.")
+        shown = " ".join([win._status.text(), win._title.text(), win._note.text(), env.parent._log.call_args.args[0]])
+        assert "export_of_secret" not in shown and _SCAN_SECRET not in shown and "secret" not in shown
+        assert win._title.text() == "Overview" and win._stack.currentWidget() is win._table
+
+    def test_selecting_a_family_shows_its_table_with_tinted_cells_and_tooltips(self, env):
+        from PyQt6.QtCore import Qt
+        win = env.make()
+        win.start_scan(str(env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        assert win._title.text() == "UDSFile  (read by GLA)"
+        assert [win._table.horizontalHeaderItem(c).text() for c in range(win._table.columnCount())] == \
+            ["Field", "2021", "2022", "2023", "All years"]
+        r = self._row(win, "restingHeartRate")
+        assert win._table.item(r, 1).text() == "0 %" and win._table.item(r, 2).text() == "100 %"
+        assert "absent 4 of 4 rows" in win._table.item(r, 1).toolTip()
+        assert win._table.item(r, 2).background().style() == Qt.BrushStyle.SolidPattern
+        assert win._table.item(self._row(win, "Rows"), 1).background().style() == Qt.BrushStyle.NoBrush
+        full, empty = win._table.item(r, 2).background().color(), win._table.item(r, 1).background().color()
+        assert full != empty                                      # more share, more accent colour
+
+    def test_status_dots_and_tints_follow_the_theme(self, env):
+        from PyQt6.QtGui import QColor
+        theme = env.theme
+        win = env.make()
+        win.start_scan(str(env.zip))
+        assert self._item(win, "UDSFile").foreground(0).color().name() == QColor(theme.GREEN).name()
+        assert self._item(win, "MetricsMaxMetData").foreground(0).color().name() == QColor(theme.TEXT2).name()
+        assert self._item(win, "UDSFile").text(0).startswith("● ") and win._tree.header().isHidden()
+        assert theme.BG in win.styleSheet() and theme.ACCENT2 in win._tree.styleSheet()
+        assert win._tint(100).name() != QColor(theme.BG3).name() and win._tint(0).name() == QColor(theme.BG3).name()
+
+    def test_graph_writes_the_chart_page_and_shows_the_web_view(self, env):
+        from pathlib import Path
+        win = env.make()
+        win.start_scan(str(env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        assert win._graph_btn.isEnabled()
+        win._graph_btn.click()
+        assert win._mode == "graph" and win._stack.currentWidget() is win._web
+        page = Path(win._tmpdir) / "chart.html"
+        html = page.read_text(encoding="utf-8")
+        assert "/*plotly*/" in html and env.theme.ACCENT in html and "Plotly.newPlot" in html
+        assert env.theme.BG2 in html and env.theme.TEXT2 in html            # the whole theme reaches the page, not four colours
+        assert win._web.url.toString().endswith("chart.html?1") and win._web.url.isLocalFile()
+        win._tree.setCurrentItem(self._item(win, "Daily values"))                # a group has a chart as well
+        assert win._mode == "graph" and win._web.url.toString().endswith("chart.html?2")
+        win._tree.setCurrentItem(win._tree.topLevelItem(0))                      # the overview has none
+        assert win._mode == "table" and not win._graph_btn.isEnabled() and win._stack.currentWidget() is win._table
+        tmpdir = win._tmpdir
+        win.close()
+        assert not Path(tmpdir).exists() and win._tmpdir is None
+
+    def test_a_missing_plotly_file_is_told_not_crashed_on(self, env):
+        win = env.make(plotly_script=lambda: None)
+        win.start_scan(str(env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        win._graph_btn.click()
+        assert win._stack.currentWidget() is win._message and "plotly.min.js" in win._message.text()
+        assert win._web is None and win._tmpdir is None
+
+    def test_rejecting_the_window_also_cleans_up(self, env):
+        """Esc / reject() hide a dialog without a close event: the chart folder must go anyway."""
+        from pathlib import Path
+        win = env.make()
+        win.start_scan(str(env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        win._graph_btn.click()
+        tmpdir = Path(win._tmpdir)
+        assert tmpdir.exists()
+        win.reject()
+        assert not tmpdir.exists() and win._tmpdir is None and win._alive is False
+
+    def test_errors_show_a_fixed_sentence_never_the_text_of_the_exception(self, env):
+        import types
+
+        def failing(exc):
+            def scan(path, should_stop=None, progress=None):
+                raise exc
+            return types.SimpleNamespace(scan=scan, write_report=None)
+
+        win = env.make(scanner=failing(FileNotFoundError("C:/Users/secret.name@example.invalid/export.zip")))
+        win.start_scan("x")
+        assert win._status.text() == "The path does not exist." and win._zip_btn.isEnabled() and not win._stop_btn.isEnabled()
+        win2 = env.make(scanner=failing(PermissionError(13, "denied", "C:/Users/secret.name@example.invalid/export.zip")))
+        win2.start_scan("x")
+        assert win2._status.text() == "The export could not be scanned." and "secret" not in win2._status.text()
+        assert win2._zip_btn.isEnabled() and not win2._save_btn.isEnabled() and win2._tree.topLevelItemCount() == 0
+
+    def test_progress_stop_and_a_second_start_while_running(self, env):
+        import types
+        seen = {}
+
+        def scan(path, should_stop=None, progress=None):
+            progress(3, 7)
+            seen["label"] = win._progress.text()
+            seen["buttons"] = (win._zip_btn.isEnabled(), win._dir_btn.isEnabled(), win._stop_btn.isEnabled())
+            win.start_scan("again")                                     # ignored: a scan is running
+            seen["calls"] = seen.get("calls", 0) + 1
+            win._stop_btn.click()
+            seen["stopped"] = should_stop()
+            seen["stop_label"] = win._progress.text()
+            return {"files": {"json_total": 0, "json_read": 0, "unreadable": 0, "too_large": 0, "unknown_json": 0,
+                              "nested_zips": 0, "fit": 0, "other": 0}, "stopped": True,
+                    "groups": [], "families": {}, "unknown": {"files": 0, "folders": [], "folders_truncated": False},
+                    "folders": [], "source": "zip"}
+
+        win = env.make(scanner=types.SimpleNamespace(scan=scan, write_report=None))
+        win.start_scan("x")
+        assert seen["label"] == "Scanning ... 3 / 7 files" and seen["buttons"] == (False, False, True)
+        assert seen["calls"] == 1 and seen["stopped"] is True and seen["stop_label"] == "Stopping ..."
+        assert "stopped" in win._status.text() and win._progress.text() == "" and win._zip_btn.isEnabled()
+
+    def test_save_report_writes_both_files_and_replaces_them(self, env):
+        win = env.make()
+        win.start_scan(str(env.zip))
+        folder = env.tmp / "base" / "garmin_data" / "log"
+        win._save_btn.click()
+        assert sorted(p.name for p in folder.iterdir()) == ["export_scan_report.json", "export_scan_report.txt"]
+        assert "Report saved" in win._status.text() and "export_of_secret" not in win._status.text()
+        before = (folder / "export_scan_report.txt").read_text(encoding="utf-8")
+        win._save_btn.click()
+        assert (folder / "export_scan_report.txt").read_text(encoding="utf-8") == before
+        assert _SCAN_SECRET not in before and "secret" not in before
+
+    def test_save_report_without_a_data_folder_or_with_a_write_error(self, env):
+        import types
+        win = env.make()
+        win.start_scan(str(env.zip))
+        env.parent._panel_settings._collect_settings.return_value = {"base_dir": ""}
+        win._save_btn.click()
+        assert "Set the data folder" in win._status.text()
+        win2 = env.make(scanner=types.SimpleNamespace(scan=win._scanner.scan,
+                                                       write_report=lambda r, f: (_ for _ in ()).throw(OSError("C:/secret"))),
+                        report_dir=lambda: env.tmp / "x")
+        win2.start_scan(str(env.zip))
+        win2._save_btn.click()
+        assert win2._status.text() == "The report could not be saved."
+
+    def test_an_answer_after_the_window_was_closed_is_ignored(self, env):
+        win = env.make()
+        result = win._scanner.scan(str(env.zip))
+        win.close()
+        win._on_done(result, None)
+        win._on_progress(1, 2)
+        assert win._tree.topLevelItemCount() == 0 and win._result is None
+
+    def test_choosing_a_zip_or_a_folder_starts_the_scan(self, env):
+        from unittest.mock import patch
+        win = env.make()
+        with patch.object(env.mod.QFileDialog, "getOpenFileName", return_value=("", "")), \
+                patch.object(env.mod.QFileDialog, "getExistingDirectory", return_value=""):
+            win._choose_zip()
+            win._choose_folder()
+        assert win._result is None
+        with patch.object(env.mod.QFileDialog, "getOpenFileName", return_value=(str(env.zip), "")):
+            win._choose_zip()
+        assert win._result is not None and win._result["source"] == "zip"
+        with patch.object(env.mod.QFileDialog, "getExistingDirectory", return_value=str(env.tmp)):
+            win._choose_folder()
+        assert win._result["source"] == "folder"
+
+    def test_open_window_opens_one_window_and_raises_it_again(self, env, qtbot):
+        from unittest.mock import MagicMock
+        panel = MagicMock()
+        panel._app = env.parent
+        env.mod.open_window(panel)
+        win = env.mod._window
+        try:
+            assert win is not None and win.isVisible()
+            env.mod.open_window(panel)
+            assert env.mod._window is win
+        finally:
+            win.close()
+        qtbot.waitUntil(lambda: env.mod._window is None, timeout=3000)
+        env.mod.open_window(panel)
+        second = env.mod._window
+        assert second is not None and second is not win
+        second.close()
+        qtbot.waitUntil(lambda: env.mod._window is None, timeout=3000)
+
+    @staticmethod
+    def _min_result(stopped=False, source="zip"):
+        return {"files": {"json_total": 0, "json_read": 0, "unreadable": 0, "too_large": 0, "unknown_json": 0,
+                          "nested_zips": 0, "fit": 0, "other": 0}, "stopped": stopped, "groups": [], "families": {},
+                "unknown": {"files": 0, "folders": [], "folders_truncated": False}, "folders": [], "source": source}
+
+    def test_the_fit_scan_follows_the_json_scan_and_adds_its_node(self, env):
+        import copy
+        seen = {}
+
+        def fit_scan(path, should_stop=None, progress=None, index=None):
+            seen["path"] = path
+            seen["stop_is_callable"] = callable(should_stop)
+            progress(500)
+            seen["label"] = win._progress.text()
+            return copy.deepcopy(TestExportScanModel.FIT)
+
+        win = env.make(fit_scan=fit_scan)
+        win.start_scan(str(env.zip))
+        assert seen["path"] == str(env.zip) and seen["stop_is_callable"] and seen["label"] == "Reading FIT files ... 500"
+        assert win._status.text() == "3 of 4 JSON files read, 7 FIT files read"
+        env.parent._log.assert_called_once_with(
+            "🔍  Export scan: 3 of 4 JSON files read, 1 of no known family, 7 FIT files read.")
+        assert win._result["fit"]["files"]["read"] == 7 and win._progress.text() == ""
+        win._tree.setCurrentItem(self._item(win, "FIT files"))
+        assert win._title.text() == "FIT files" and win._graph_btn.isEnabled()
+        assert [win._table.horizontalHeaderItem(c).text() for c in range(3)] == ["Type", "Files", "2019"]
+        win._graph_btn.click()
+        assert win._stack.currentWidget() is win._web and "Plotly.newPlot" in (
+            __import__("pathlib").Path(win._tmpdir) / "chart.html").read_text(encoding="utf-8")
+        win._tree.setCurrentItem(self._item(win, "Type 32"))
+        assert win._title.text() == "Type 32 · all-day monitoring" and win._mode == "graph"
+        assert win._table.rowCount() == 8 and win._web.url.toString().endswith("chart.html?2")      # 2019 to 2026
+
+    def test_a_failing_fit_scan_keeps_the_json_view_and_shows_no_exception_text(self, env):
+        def broken(path, should_stop=None, progress=None, index=None):
+            raise RuntimeError("C:/Users/secret.name@example.invalid/export.zip")
+
+        win = env.make(fit_scan=broken)
+        win.start_scan(str(env.zip))
+        assert win._status.text() == "3 of 4 JSON files read, the FIT files could not be read"
+        assert "fit" not in win._result and win._tree.topLevelItemCount() > 3 and win._zip_btn.isEnabled()
+        assert "secret" not in win._status.text() + " ".join(str(c) for c in env.parent._log.call_args_list)
+
+    def test_a_stopped_fit_scan_marks_the_result_incomplete(self, env):
+        import copy
+        win = env.make(fit_scan=lambda path, should_stop=None, progress=None, index=None: {**copy.deepcopy(TestExportScanModel.FIT), "stopped": True})
+        win.start_scan(str(env.zip))
+        assert "scan stopped (numbers incomplete)" in win._status.text() and win._result["stopped"] is True
+        assert win._result["fit"]["stopped"] is True
+
+    def test_no_fit_scan_after_a_stopped_json_scan_or_an_unreadable_source(self, env):
+        import types
+        calls = []
+
+        def fit_scan(path, should_stop=None, progress=None, index=None):
+            calls.append(path)
+            return None
+
+        for stopped, source in ((True, "zip"), (False, "unreadable")):
+            result = self._min_result(stopped=stopped, source=source)
+            win = env.make(scanner=types.SimpleNamespace(scan=lambda p, should_stop=None, progress=None, r=result: r,
+                                                          write_report=None), fit_scan=fit_scan)
+            win.start_scan("x")
+            assert win._result is result
+        assert calls == []
+
+    def test_the_real_fit_scan_counts_fit_files_of_an_export(self, env):
+        import io
+        import zipfile
+        from datetime import datetime, timezone
+        import fit_builder as fb
+
+        def fit(ftype, year):
+            return fb.simple_fit(ftype, int(datetime(year, 6, 1, tzinfo=timezone.utc).timestamp()))
+
+        inner = io.BytesIO()
+        with zipfile.ZipFile(inner, "w") as z:
+            z.writestr("a.fit", fit(32, 2019))
+            z.writestr("b.fit", fit(32, 2020))
+            z.writestr("c.fit", fit(49, 2020))
+            z.writestr("bad.fit", b"not a fit file")
+        outer = env.tmp / "with_fit.zip"
+        with zipfile.ZipFile(outer, "w") as z:
+            z.writestr("DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_x_Part1.zip", inner.getvalue())
+        win = env.make(fit_scan=env.mod._load_fit_scan())
+        win.start_scan(str(outer))
+        assert win._status.text() == "0 of 0 JSON files read, 3 FIT files read"
+        win._tree.setCurrentItem(self._item(win, "FIT files"))
+        rows = [[win._table.item(r, c).text() for c in range(win._table.columnCount())] for r in range(win._table.rowCount())]
+        assert rows[0] == ["Type 32 · all-day monitoring", "2", "1", "1"] and rows[1] == ["Type 49 · sleep", "1", "", "1"]
+        assert rows[-1] == ["All types", "3", "1", "2"]
+        assert "1 damaged" in win._note.text()
+
+    def _detail_env(self, env, zip_path=None, **fake):
+        """A window whose scanner is the real one, with scan_field (and read_values) replaced by spies that
+        record the call; `field=` / `values=` give a function that answers instead of the real one."""
+        import types
+        real = env.mod._load_scanner()
+        calls, value_calls = [], []
+        scan_field, read_values = fake.get("field"), fake.get("values")
+
+        def spy(path, family, field, should_stop=None):
+            calls.append((path, family, field, callable(should_stop)))
+            return scan_field(path, family, field, should_stop) if scan_field else real.scan_field(path, family, field, should_stop)
+
+        def spy_values(path, family, field, should_stop=None):
+            value_calls.append((path, family, field, callable(should_stop)))
+            return read_values(path, family, field, should_stop) if read_values else real.read_values(path, family, field, should_stop)
+
+        win = env.make(scanner=types.SimpleNamespace(scan=real.scan, write_report=real.write_report, scan_field=spy,
+                                                      read_values=spy_values))
+        win._value_calls = value_calls
+        win.start_scan(str(zip_path or env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        return win, calls
+
+    @staticmethod
+    def _sentinel_zip(tmp):
+        """An export whose UDSFile rows hold a numeric field with values found nowhere else (the sentinels)."""
+        import json
+        import zipfile
+        rows = [{"calendarDate": "2023-01-05", "totalSteps": 1000, "secretMetric": 987654.321},
+                {"calendarDate": "2023-01-06", "totalSteps": 2000, "secretMetric": 987655.5},
+                {"calendarDate": "2023-02-01", "totalSteps": 3000, "secretMetric": 987656}]
+        path = tmp / "sentinel_export.zip"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("DI_CONNECT/DI-Connect-Aggregator/UDSFile_s.json", json.dumps(rows))
+        return path
+
+    def test_the_values_view_reads_the_field_and_shows_its_points_and_the_hint(self, env):
+        win, _calls = self._detail_env(env)
+        self._dbl(win, "totalSteps")
+        assert win._values is None and not win._values_btn.isHidden() and not win._counts_btn.isHidden()
+        assert win._series_btn.isHidden() and win._hint.isHidden()
+        win._values_btn.click()
+        assert win._value_calls == [(str(env.zip), "uds", "totalSteps", True)]
+        assert win._values is not None and win._title.text() == "UDSFile › totalSteps  (values)"
+        assert [win._table.horizontalHeaderItem(c).text() for c in range(2)] == ["Date", "Value (steps)"]
+        assert win._table.rowCount() == 12 and win._table.item(0, 0).text() == "2021-03-01"
+        assert "12 values, min 0, max 1003" in win._note.text() and "Unit: steps (garmin_normalizer.py" in win._note.text()
+        assert win._status.text() == "totalSteps: 12 values read"                      # numbers only, no value
+        assert not win._hint.isHidden() and win._hint.text() == "Values from your export are shown here. A screenshot of this view contains them."
+        assert not win._series_btn.isHidden() and not win._dist_btn.isHidden() and win._series_btn.isChecked()
+        assert win._month_btn.isHidden() and win._year_btn.isHidden() and win._values_btn.isChecked() and not win._counts_btn.isChecked()
+        assert win._progress.text() == "" and win._zip_btn.isEnabled() and win._graph_btn.isEnabled()
+
+    def test_the_values_page_has_no_values_they_reach_it_by_javascript_and_switch_without_a_reload(self, env):
+        from pathlib import Path
+        win, _calls = self._detail_env(env, zip_path=self._sentinel_zip(env.tmp))
+        self._dbl(win, "secretMetric")
+        win._values_btn.click()
+        win._graph_btn.click()
+        assert win._stack.currentWidget() is win._web and win._web_kind == "values" and win._web_ready is True
+        assert win._web.url.toString().endswith("values.html?1")
+        page = (Path(win._tmpdir) / "values.html").read_text(encoding="utf-8")
+        assert "/*plotly*/" in page and "function glaRender" in page and 'Plotly.newPlot("chart", [],' in page
+        assert "987654" not in page and "987655" not in page                          # no value in the file
+        js = win._web.page().js
+        assert len(js) == 1 and js[0].startswith("glaRender(") and "987654.321" in js[0] and '"type": "scatter"' in js[0]
+        assert win._pending_js is None
+        win._dist_btn.click()
+        assert len(js) == 2 and '"type": "bar"' in js[1] and win._dist_btn.isChecked() and not win._series_btn.isChecked()
+        win._series_btn.click()
+        assert len(js) == 3 and '"type": "scatter"' in js[2] and win._web.urls == [win._web.urls[0]]   # one load, no reload
+        for p in Path(win._tmpdir).iterdir():                                         # nothing else on disk holds a value
+            assert "987654" not in p.read_text(encoding="utf-8")
+
+    def test_back_to_the_counts_forgets_the_values_and_blanks_the_page(self, env):
+        win, _calls = self._detail_env(env, zip_path=self._sentinel_zip(env.tmp))
+        self._dbl(win, "secretMetric")
+        win._values_btn.click()
+        win._graph_btn.click()
+        win._dist_btn.click()
+        assert win._vmode == "histogram"
+        win._counts_btn.click()
+        assert win._values is None and win._pending_js is None
+        assert "about:blank" in win._web.urls                                         # the page with the values was blanked
+        assert win._web_kind == "counts" and win._web.urls[-1].endswith("chart.html?2")   # the graph mode shows the counts chart
+        assert win._title.text() == "UDSFile › secretMetric"
+        assert win._hint.isHidden() and not win._month_btn.isHidden() and win._counts_btn.isChecked()
+        win._values_btn.click()                                                       # and again: read once more
+        assert len(win._value_calls) == 2 and win._values is not None
+        assert win._vmode == "series" and win._series_btn.isChecked() and not win._dist_btn.isChecked()   # new values: over time first
+
+    def test_leaving_the_detail_the_item_or_a_new_scan_forgets_the_values(self, env):
+        for how in ("back", "item", "scan", "close"):
+            win, _calls = self._detail_env(env)
+            self._dbl(win, "totalSteps")
+            win._values_btn.click()
+            win._graph_btn.click()
+            assert win._values is not None
+            if how == "back":
+                win._back_btn.click()
+            elif how == "item":
+                win._tree.setCurrentItem(self._item(win, "MetricsMaxMetData"))
+            elif how == "scan":
+                win.start_scan(str(env.zip))
+            else:
+                win.close()
+            assert win._values is None and win._pending_js is None, how
+            if how != "close":
+                assert win._web_kind != "values" and "about:blank" in win._web.urls, how      # the values page was blanked
+
+    def test_no_value_gets_out_of_the_values_view_report_log_status_or_files(self, env):
+        """The sentinels (numbers found nowhere else) may be in the table and in the chart call, nowhere else."""
+        import json
+        from pathlib import Path
+        win, _calls = self._detail_env(env, zip_path=self._sentinel_zip(env.tmp))
+        self._dbl(win, "secretMetric")
+        win._values_btn.click()
+        win._graph_btn.click()
+        win._save_btn.click()
+        base = Path(env.parent._panel_settings._collect_settings.return_value["base_dir"])
+        reports = [p for p in base.rglob("*") if p.is_file()]
+        assert {p.name for p in reports} == {"export_scan_report.json", "export_scan_report.txt"}
+        assert all("987654" not in p.read_text(encoding="utf-8") and "987655" not in p.read_text(encoding="utf-8") for p in reports)
+        logged = " ".join(str(c) for c in env.parent._log.call_args_list)
+        assert "987654" not in logged and "987655" not in logged and "987656" not in logged
+        assert all(s not in text for s in ("987654", "987655", "987656") for text in
+                   (win._status.text(), win._progress.text(), json.dumps(win._result), json.dumps(win._detail)))
+        for p in Path(win._tmpdir).iterdir():
+            assert "987654" not in p.read_text(encoding="utf-8")
+        assert "987654" in win._table.item(0, 1).text() and "987654.321" in win._web.page().js[0]   # in the view only
+
+    def test_a_field_that_cannot_be_read_as_values_or_has_no_numbers_says_so(self, env):
+        win, _calls = self._detail_env(env)
+        win.start_detail("sleep", "napList[].a")
+        win._values_btn.click()
+        assert win._status.text() == "napList[].a: no numbers to show" and "cannot be shown as values" in win._note.text()
+        assert win._table.rowCount() == 0 and not win._graph_btn.isEnabled() and not win._hint.isHidden()
+        win2, _c = self._detail_env(env)
+        win2.start_detail("uds", "stress")                                           # objects, no numbers with a date
+        win2._values_btn.click()
+        assert win2._status.text() == "stress: no numbers to show" and "No number with a date" in win2._note.text()
+
+    def test_a_failing_values_read_shows_a_fixed_sentence_and_keeps_the_counts(self, env):
+        def boom(path, family, field, should_stop):
+            raise PermissionError(13, "denied", "C:/Users/secret.name@example.invalid/export.zip")
+
+        win, _calls = self._detail_env(env, values=boom)
+        self._dbl(win, "totalSteps")
+        win._values_btn.click()
+        assert win._status.text() == "The values could not be read." and win._values is None
+        assert win._title.text() == "UDSFile › totalSteps" and win._zip_btn.isEnabled() and "secret" not in win._status.text()
+
+        def missing(path, family, field, should_stop):
+            raise FileNotFoundError("C:/secret")
+
+        win2, _c = self._detail_env(env, values=missing)
+        self._dbl(win2, "totalSteps")
+        win2._values_btn.click()
+        assert win2._status.text() == "The path does not exist."
+
+    def test_stop_during_the_values_read_and_the_ignored_cases(self, env):
+        real = env.mod._load_scanner()
+        seen = {}
+
+        def values(path, family, field_path, should_stop):
+            win._stop_btn.click()
+            seen["stopped"] = should_stop()
+            seen["label"] = win._progress.text()
+            return {**real.read_values(path, family, field_path, should_stop=lambda: False), "stopped": True}
+
+        win, _calls = self._detail_env(env, values=values)
+        self._dbl(win, "totalSteps")
+        win._values_btn.click()
+        assert seen == {"stopped": True, "label": "Stopping ..."} and "stopped before the end" in win._note.text()
+        win._counts_btn.click()
+        win._running = True
+        win._values_btn.click()                                                      # a scan runs: ignored
+        win._running = False
+        assert len(win._value_calls) == 1
+        win._back_btn.click()
+        win.start_values()                                                           # no detail: ignored
+        assert len(win._value_calls) == 1 and win._values is None
+        win2, _c = self._detail_env(env)
+        self._dbl(win2, "totalSteps")
+        detail = win2._detail
+        win2.close()
+        win2._on_values_done(real.read_values(str(env.zip), "uds", "totalSteps"), None)   # after the close: ignored
+        assert win2._values is None and detail is not None
+
+    # ── Help: the guide of the window ──────────────────────────────────────────
+
+    def test_the_help_button_shows_the_guide_in_the_viewer_of_the_app(self, env, monkeypatch):
+        shown, asked = [], []
+
+        class Viewer:
+            def __init__(self, parent, title, text, markdown=False):
+                shown.append((parent, title, text, markdown))
+
+            def show(self):
+                shown.append("show")
+
+        guide = env.tmp / "guide.md"
+        guide.write_bytes("# Guide\nçé".encode("utf-8"))
+        monkeypatch.setattr(env.mod, "DocViewerDialog", Viewer)
+        monkeypatch.setattr(env.mod.frozen_paths, "doc_path", lambda name: asked.append(name) or guide)
+        win = env.make()
+        assert win._help_btn.text() == "Help" and win._help_btn.isEnabled() and win._help_btn.parentWidget() is win   # in the bottom bar
+        win._help_btn.click()
+        assert asked == ["README_EXPORT_SCAN.md"] and env.mod.HELP_FILE == "README_EXPORT_SCAN.md"
+        assert shown == [(env.parent, "Export Scan — Help", "# Guide\nçé", True), "show"]       # rendered as Markdown
+        assert win._status.text() == ""
+
+    def test_help_says_so_when_the_guide_is_missing_or_cannot_be_shown(self, env, monkeypatch):
+        win = env.make()
+        monkeypatch.setattr(env.mod.frozen_paths, "doc_path", lambda name: None)
+        win._help_btn.click()
+        assert win._status.text() == "The help file was not found."
+        guide = env.tmp / "guide.md"
+        guide.write_text("x", encoding="utf-8")
+
+        class Broken:
+            def __init__(self, *a, **k):
+                raise RuntimeError("C:/Users/secret.name@example.invalid/guide.md")
+
+        monkeypatch.setattr(env.mod.frozen_paths, "doc_path", lambda name: guide)
+        monkeypatch.setattr(env.mod, "DocViewerDialog", Broken)
+        win._help_btn.click()
+        assert win._status.text() == "The help file could not be opened." and "secret" not in win._status.text()
+        monkeypatch.setattr(env.mod.frozen_paths, "doc_path", lambda name: env.tmp / "gone" / "guide.md")      # found but unreadable
+        monkeypatch.setattr(env.mod, "DocViewerDialog", lambda *a, **k: None)
+        win._help_btn.click()
+        assert win._status.text() == "The help file could not be opened."
+        odd = env.tmp / "odd.md"
+        odd.write_bytes(b"# Guide\xff\xfe end")                                 # not valid UTF-8: shown with replacement characters
+        seen = []
+        monkeypatch.setattr(env.mod.frozen_paths, "doc_path", lambda name: odd)
+        monkeypatch.setattr(env.mod, "DocViewerDialog", lambda parent, title, text, markdown=False: seen.append(text) or env.parent)
+        win._status.setText("")
+        win._help_btn.click()
+        assert seen == ["# Guide\ufffd\ufffd end"] and win._status.text() == ""
+
+    def test_the_real_guide_is_found_and_opens_in_the_real_viewer(self, env, qtbot):
+        from app.dialog_docs import DocViewerDialog
+        win = env.make()
+        win._help_btn.click()
+        viewers = env.parent.findChildren(DocViewerDialog)
+        assert len(viewers) == 1 and viewers[0].windowTitle() == "Export Scan — Help"
+        qtbot.addWidget(viewers[0])
+        text = viewers[0]._view.toPlainText()
+        assert text.startswith("Export Scan — Guide") and "Privacy" in text and "Heart rate of the day" in text
+        assert win._status.text() == ""
+
+    def test_the_guide_matches_the_window_and_the_scan_modules(self, app_root):
+        """The guide names what the window and the scan really have: buttons, report files, groups, limits, the build list."""
+        import re
+        import garmin_export_scan as scan
+        import app.popups.export_scan as win_mod
+        import compiler.build_manifest as manifest
+        guide = (app_root / "docs" / win_mod.HELP_FILE).read_text(encoding="utf-8")
+        window = (app_root / "app" / "popups" / "export_scan.py").read_text(encoding="utf-8")
+        for label in ("ZIP file ...", "Folder ...", "Stop", "Table", "Graph", "Counts", "Values", "Month", "Year", "Over time",
+                      "Distribution", "Save report", "Heart rate of the day", "← Back"):
+            assert f'"{label}"' in window, label                                  # the button exists in the window
+            assert label.replace("← ", "") in guide or label.replace(" ...", " ...") in guide, label
+        assert scan.REPORT_TEXT in guide and scan.REPORT_JSON in guide
+        assert all(label in guide for _key, label in scan.GROUPS)
+        assert f"{scan.MAX_VALUE_POINTS:,}" in guide and f"{scan.MAX_PATHS_PER_FAMILY}" in guide
+        assert f"{scan.MAX_JSON_BYTES // (1024 * 1024)} MB" in guide
+        assert re.search(r"Data Collection.*Export Scan", guide, re.S) and "Export Scan" in (app_root / "app" / "panel_outputs.py").read_text(encoding="utf-8")
+        assert win_mod.HELP_FILE in manifest.INFO_INCLUDE and (app_root / "docs" / win_mod.HELP_FILE).is_file()
+        assert "@" not in re.sub(r"`<hidden>`|an `@`", "", guide)                  # no e-mail address in the guide
+
+    # ── The heart rate of one day ──────────────────────────────────────────────
+
+    SECRET_BPM = 98765.5                      # a "value" found nowhere else: it may be in the day view only
+
+    def _day_env(self, env, days=("2023-01-05", "2023-01-06", "2023-01-09"), prepare=None, read_day=None, scanned=True):
+        """A window with a fake FIT scan (it fills the index), a fake day reader that records its calls, and the scan done."""
+        import copy
+        import types
+        calls = {"prepare": [], "read": []}
+        prepared = {"days": list(days), "plan": object()}
+
+        def fit_scan(path, should_stop=None, progress=None, index=None):
+            index["a" * 64] = 1_000_000_000                       # the monitoring files the real scan puts in the index
+            return copy.deepcopy(TestExportScanModel.FIT)
+
+        def fake_prepare(path, index, should_stop=None):
+            calls["prepare"].append((path, dict(index), callable(should_stop)))
+            return prepare() if prepare else prepared
+
+        def fake_read(path, prep, day, should_stop=None):
+            calls["read"].append((path, prep, day, callable(should_stop)))
+            if read_day:
+                return read_day(path, prep, day, should_stop)
+            points = [[f"{day} 00:00:00", self.SECRET_BPM], [f"{day} 00:01:00", 60], [f"{day} 00:02:00", 61]]
+            return TestExportScanModel._day(day=day, points=points, stats={"count": 3, "min": 60, "max": self.SECRET_BPM,
+                                                                            "mean": 1.0, "median": 61, "zeros": 0},
+                                            histogram={"edges": [60, 49412.75, self.SECRET_BPM], "counts": [2, 1]})
+
+        win = env.make(fit_scan=fit_scan, day_reader=types.SimpleNamespace(prepare=fake_prepare, read_day=fake_read))
+        win._calls = calls
+        win._prepared = prepared
+        if scanned:
+            win.start_scan(str(env.zip))
+        return win
+
+    def _fit_node(self, win):
+        win._tree.setCurrentItem(self._item(win, "FIT files"))
+
+    def test_the_day_view_comes_after_the_fit_scan_and_only_at_the_fit_node(self, env):
+        win = self._day_env(env)
+        assert win._calls["prepare"] == [(str(env.zip), {"a" * 64: 1_000_000_000}, True)]      # the index of the FIT scan, a stop function
+        assert win._days is win._prepared and "index" not in win._result and "a" * 64 not in str(win._result)
+        assert all(w.isHidden() for w in win._day_widgets)                         # the overview is shown first
+        self._fit_node(win)
+        assert not any(w.isHidden() for w in win._day_widgets) and win._day_btn.text() == "Heart rate of the day"
+        assert win._day_edit.minimumDate().toString("yyyy-MM-dd") == "2023-01-05"
+        assert win._day_edit.maximumDate().toString("yyyy-MM-dd") == "2023-01-09"
+        assert win._day_edit.date().toString("yyyy-MM-dd") == "2023-01-09"          # the last day with files first
+        win._tree.setCurrentItem(self._item(win, "Type 32"))
+        assert all(w.isHidden() for w in win._day_widgets)
+        assert win._calls["read"] == []                                             # nothing is read before the button
+
+    def test_no_day_view_without_a_prepared_day_a_failed_prepare_or_an_incomplete_scan(self, env):
+        for how in ("none", "boom"):
+            def prepare(how=how):
+                if how == "boom":
+                    raise RuntimeError("C:/Users/secret.name@example.invalid/export.zip")
+                return None
+            win = self._day_env(env, prepare=prepare)
+            assert win._days is None, how
+            self._fit_node(win)
+            assert all(w.isHidden() for w in win._day_widgets) and "secret" not in win._status.text(), how
+            assert win._status.text() == "3 of 4 JSON files read, 7 FIT files read", how
+        import copy
+        import types
+        calls = []
+        stopped = types.SimpleNamespace(prepare=lambda *a, **k: calls.append(a),
+                                        read_day=lambda *a, **k: None)
+        win = env.make(fit_scan=lambda path, should_stop=None, progress=None, index=None: {**copy.deepcopy(TestExportScanModel.FIT), "stopped": True},
+                       day_reader=stopped)
+        win.start_scan(str(env.zip))
+        none = env.make(day_reader=stopped)                                          # no FIT part at all
+        none.start_scan(str(env.zip))
+        assert calls == [] and win._days is None and none._days is None
+
+    def test_the_day_button_reads_the_day_and_shows_it_as_values(self, env):
+        win = self._day_env(env)
+        self._fit_node(win)
+        win._day_btn.click()
+        assert win._calls["read"] == [(str(env.zip), win._prepared, "2023-01-09", True)]
+        assert win._values is not None and win._title.text() == "Heart rate of 2023-01-09  (values)"
+        assert [win._table.horizontalHeaderItem(c).text() for c in range(2)] == ["Time (local)", "Heart rate (bpm)"]
+        assert win._table.rowCount() == 3 and win._table.item(1, 0).text() == "00:01:00" and win._table.item(1, 1).text() == "60"
+        assert "3 samples" in win._note.text() and "Unit: bpm" in win._note.text()
+        assert win._status.text() == "heartRate: 3 values read"                       # numbers only, no value
+        assert not win._hint.isHidden() and not win._series_btn.isHidden() and not win._dist_btn.isHidden() and win._series_btn.isChecked()
+        assert not win._back_btn.isHidden() and win._counts_btn.isHidden() and win._values_btn.isHidden()
+        assert win._month_btn.isHidden() and win._year_btn.isHidden()
+        assert not win._day_edit.isHidden() and win._day_btn.isEnabled() and win._progress.text() == ""
+        assert win._graph_btn.isEnabled()
+        win._graph_btn.click()
+        js = win._web.page().js
+        assert win._web_kind == "values" and len(js) == 1 and "glaRender(" in js[0] and "2023-01-09 00:01:00" in js[0]
+        assert "FIT monitoring 2023-01-09" in js[0] and "heartRate (bpm)" in js[0]
+        win._dist_btn.click()
+        assert len(js) == 2 and '"type": "bar"' in js[1] and win._web.urls == [win._web.urls[0]]       # no reload
+
+    def test_the_arrows_step_to_the_neighbouring_day_that_has_files(self, env):
+        win = self._day_env(env)
+        self._fit_node(win)
+        read = win._calls["read"]
+        win._day_prev.click()
+        assert [c[2] for c in read] == ["2023-01-06"] and win._day_edit.date().toString("yyyy-MM-dd") == "2023-01-06"
+        win._day_prev.click()
+        win._day_prev.click()                                                       # no day before the first one: nothing happens
+        assert [c[2] for c in read] == ["2023-01-06", "2023-01-05"] and win._day_edit.date().toString("yyyy-MM-dd") == "2023-01-05"
+        win._day_next.click()
+        win._day_next.click()
+        win._day_next.click()                                                       # no day after the last one
+        assert [c[2] for c in read] == ["2023-01-06", "2023-01-05", "2023-01-06", "2023-01-09"]
+        from PyQt6.QtCore import QDate
+        win._day_edit.setDate(QDate(2023, 1, 7))                                    # a day between two days with files
+        win._day_prev.click()
+        win._day_edit.setDate(QDate(2023, 1, 7))
+        win._day_next.click()
+        assert [c[2] for c in read][-2:] == ["2023-01-06", "2023-01-09"]
+        assert win._title.text() == "Heart rate of 2023-01-09  (values)"
+
+    def test_a_day_without_samples_shows_the_reason_and_no_graph(self, env):
+        win = self._day_env(env, read_day=lambda path, prep, day, stop: TestExportScanModel._day(
+            day=day, state="unplanned", stats=None, histogram=None, points=[]))
+        self._fit_node(win)
+        win._day_btn.click()
+        assert win._status.text() == "heartRate: no numbers to show" and "boundaries of this day are not known" in win._note.text()
+        assert win._table.rowCount() == 0 and not win._graph_btn.isEnabled() and not win._back_btn.isHidden()
+
+    def test_back_the_item_a_new_scan_and_the_close_forget_the_day(self, env):
+        for how in ("back", "item", "scan", "close"):
+            win = self._day_env(env)
+            self._fit_node(win)
+            win._day_btn.click()
+            win._graph_btn.click()
+            assert win._values is not None, how
+            if how == "back":
+                win._back_btn.click()
+                assert win._title.text() == "FIT files" and not win._day_edit.isHidden()      # the FIT table, the picker stays
+            elif how == "item":
+                win._tree.setCurrentItem(self._item(win, "Type 32"))
+            elif how == "scan":
+                win.start_scan(str(env.zip))
+                assert len(win._calls["prepare"]) == 2
+            else:
+                win.close()
+                assert win._days is None
+            assert win._values is None and win._pending_js is None, how
+            if how != "close":
+                assert win._web_kind != "values" and "about:blank" in win._web.urls, how
+
+    def test_a_new_scan_takes_the_day_view_away_until_it_is_done(self, env):
+        win = self._day_env(env)
+        self._fit_node(win)
+        win._run = lambda fn: None                                                  # the scan starts but does not finish
+        win.start_scan(str(env.zip))
+        assert win._days is None and all(w.isHidden() for w in win._day_widgets)
+
+    def test_a_failing_day_read_shows_a_fixed_sentence(self, env):
+        def boom(path, prep, day, stop):
+            raise PermissionError(13, "denied", "C:/Users/secret.name@example.invalid/export.zip")
+
+        win = self._day_env(env, read_day=boom)
+        self._fit_node(win)
+        win._day_btn.click()
+        assert win._status.text() == "The heart rate of the day could not be read." and win._values is None
+        assert "secret" not in win._status.text() and win._zip_btn.isEnabled() and win._day_btn.isEnabled()
+
+        def missing(path, prep, day, stop):
+            raise FileNotFoundError("C:/secret")
+
+        win2 = self._day_env(env, read_day=missing)
+        self._fit_node(win2)
+        win2._day_btn.click()
+        assert win2._status.text() == "The path does not exist."
+
+    def test_the_day_buttons_are_off_while_something_runs_and_the_late_answers_fall_away(self, env):
+        win = self._day_env(env)
+        self._fit_node(win)
+        win._set_running(True)
+        assert not any(w.isEnabled() for w in win._day_widgets)
+        win.start_day()
+        win._step_day(-1)
+        assert win._calls["read"] == []
+        win._set_running(False)
+        assert all(w.isEnabled() for w in win._day_widgets)
+        day = TestExportScanModel._day()
+        win._tree.setCurrentItem(self._item(win, "Type 32"))                        # the view was left while the day was read
+        win._on_values_done(day, None)
+        assert win._values is None and win._series_btn.isHidden()
+        self._fit_node(win)
+        win._on_values_done(TestExportScanModel._values(), None)                    # a field's answer, but no field detail is open
+        assert win._values is None
+        win._on_values_done(day, None)                                              # the day's answer at the FIT node: shown
+        assert win._values is day
+        win._detail = {"family": "uds", "field": "x"}                                # a field detail is open: a day's answer is not for it
+        win._values = None
+        win._on_values_done(day, None)
+        assert win._values is None
+        win2 = self._day_env(env)
+        self._fit_node(win2)
+        win2.close()
+        win2._on_values_done(day, None)
+        win2.start_day()
+        assert win2._values is None and win2._calls["read"] == []
+
+    def test_no_sample_gets_out_of_the_day_view_report_log_status_or_files(self, env):
+        import json
+        from pathlib import Path
+        win = self._day_env(env)
+        self._fit_node(win)
+        win._day_btn.click()
+        win._graph_btn.click()
+        win._save_btn.click()
+        base = Path(env.parent._panel_settings._collect_settings.return_value["base_dir"])
+        reports = [p for p in base.rglob("*") if p.is_file()]
+        assert {p.name for p in reports} == {"export_scan_report.json", "export_scan_report.txt"}
+        assert all("98765" not in p.read_text(encoding="utf-8") for p in reports)
+        logged = " ".join(str(c) for c in env.parent._log.call_args_list)
+        assert "98765" not in logged and "2023-01-09" not in logged
+        assert all("98765" not in text for text in (win._status.text(), win._progress.text(), json.dumps(win._result)))
+        for p in Path(win._tmpdir).iterdir():
+            assert "98765" not in p.read_text(encoding="utf-8")
+        assert "98765.5" in win._table.item(0, 1).text() and "98765.5" in win._web.page().js[0]       # in the view only
+        assert "index" not in json.dumps(win._result) and "plan" not in json.dumps(win._result)
+
+    def _dbl(self, win, label, column=2):
+        win._table.cellDoubleClicked.emit(self._row(win, label), column)
+
+    def test_double_click_on_a_field_opens_its_detail_by_month(self, env):
+        win, calls = self._detail_env(env)
+        self._dbl(win, "totalSteps")
+        assert calls == [(str(env.zip), "uds", "totalSteps", True)]
+        assert win._title.text() == "UDSFile › totalSteps" and win._status.text() == "totalSteps: 12 rows read"
+        assert [win._table.horizontalHeaderItem(c).text() for c in range(win._table.columnCount())] == \
+            ["Month", "Rows", "Filled", "Zero", "Empty", "Absent", "With a value"]
+        # the export has 4 rows in March of 2021, 2022 and 2023: every month in between is a row of its own
+        labels = [win._table.item(r, 0).text() for r in range(win._table.rowCount())]
+        assert labels[0] == "2021-03" and labels[-2] == "2023-03" and labels[-1] == "All" and len(labels) == 26
+        assert win._table.item(0, 1).text() == "4" and win._table.item(1, 1).text() == "0"
+        assert win._table.item(win._table.rowCount() - 1, 1).text() == "12"
+        assert not win._back_btn.isHidden() and not win._month_btn.isHidden() and not win._year_btn.isHidden()
+        assert win._month_btn.isChecked() and not win._year_btn.isChecked() and win._graph_btn.isEnabled()
+        assert win._zip_btn.isEnabled() and not win._stop_btn.isEnabled() and win._progress.text() == ""
+
+    def test_the_detail_by_year_and_back_to_the_family_table(self, env):
+        win, _calls = self._detail_env(env)
+        self._dbl(win, "totalSteps")
+        win._year_btn.click()
+        assert win._gran == "year" and win._year_btn.isChecked() and not win._month_btn.isChecked()
+        assert win._table.horizontalHeaderItem(0).text() == "Year" and win._table.item(0, 0).text() == "2021"
+        assert win._table.item(0, 1).text() == "4" and win._table.rowCount() == 4              # 2021, 2022, 2023 and All
+        win._month_btn.click()
+        assert win._gran == "month" and win._table.horizontalHeaderItem(0).text() == "Month"
+        win._year_btn.click()
+        win._back_btn.click()
+        assert win._detail is None and win._title.text() == "UDSFile  (read by GLA)"
+        assert win._table.horizontalHeaderItem(0).text() == "Field"
+        self._dbl(win, "totalSteps")                                      # the next detail starts by month again
+        assert win._gran == "month" and win._month_btn.isChecked() and win._table.horizontalHeaderItem(0).text() == "Month"
+        win._back_btn.click()
+        assert win._back_btn.isHidden() and win._month_btn.isHidden() and win._year_btn.isHidden()
+
+    def test_the_detail_graph_stacks_the_states_in_theme_colours(self, env):
+        from pathlib import Path
+        win, _calls = self._detail_env(env)
+        self._dbl(win, "totalSteps")
+        win._graph_btn.click()
+        assert win._stack.currentWidget() is win._web
+        html = (Path(win._tmpdir) / "chart.html").read_text(encoding="utf-8")
+        assert '"name": "filled"' in html and env.theme.GREEN in html and env.theme.YELLOW in html and "rows by state per month" in html
+        win._year_btn.click()
+        assert "rows by state per year" in (Path(win._tmpdir) / "chart.html").read_text(encoding="utf-8")
+        win._back_btn.click()
+        assert win._mode == "graph" and "share of rows with a value" in (Path(win._tmpdir) / "chart.html").read_text(encoding="utf-8")
+
+    def test_another_item_of_the_tree_leaves_the_detail(self, env):
+        win, _calls = self._detail_env(env)
+        self._dbl(win, "totalSteps")
+        win._tree.setCurrentItem(self._item(win, "MetricsMaxMetData"))
+        assert win._detail is None and win._back_btn.isHidden() and win._title.text().startswith("MetricsMaxMetData")
+
+    def test_a_new_scan_ends_the_detail(self, env):
+        win, _calls = self._detail_env(env)
+        self._dbl(win, "totalSteps")
+        win.start_scan(str(env.zip))
+        assert win._detail is None and win._back_btn.isHidden() and win._title.text() == "Overview"
+
+    def test_double_click_is_ignored_on_the_rows_line_other_items_while_running_and_before_a_scan(self, env):
+        win, calls = self._detail_env(env)
+        self._dbl(win, "Rows")
+        win._tree.setCurrentItem(self._item(win, "Daily values"))
+        win._table.cellDoubleClicked.emit(0, 1)
+        win._table.cellDoubleClicked.emit(1, 1)                           # a row of the group table: not a field
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        win._running = True
+        self._dbl(win, "totalSteps")
+        win._running = False
+        assert calls == [] and win._detail is None
+        fresh = env.make()
+        fresh._table.cellDoubleClicked.emit(0, 0)
+        fresh.start_detail("uds", "totalSteps")                          # no scan yet: nothing to read
+        assert fresh._detail is None
+        self._dbl(win, "totalSteps")
+        win._table.cellDoubleClicked.emit(1, 1)                           # in the detail: ignored
+        assert len(calls) == 1
+
+    def test_a_failing_field_read_shows_a_fixed_sentence_and_keeps_the_view(self, env):
+        def boom(path, family, field, should_stop):
+            raise PermissionError(13, "denied", "C:/Users/secret.name@example.invalid/export.zip")
+
+        win, _calls = self._detail_env(env, field=boom)
+        self._dbl(win, "totalSteps")
+        assert win._status.text() == "The field could not be read." and win._detail is None
+        assert win._title.text() == "UDSFile  (read by GLA)" and win._zip_btn.isEnabled() and "secret" not in win._status.text()
+
+        def missing(path, family, field, should_stop):
+            raise FileNotFoundError("C:/secret")
+
+        win2, _c = self._detail_env(env, field=missing)
+        self._dbl(win2, "totalSteps")
+        assert win2._status.text() == "The path does not exist."
+
+    def test_stop_during_the_field_read_and_an_answer_after_closing(self, env):
+        real = env.mod._load_scanner()
+        seen = {}
+
+        def field(path, family, field_path, should_stop):
+            win._stop_btn.click()
+            seen["stopped"] = should_stop()
+            seen["label"] = win._progress.text()
+            result = real.scan_field(path, family, field_path, should_stop=lambda: False)
+            return {**result, "stopped": True}
+
+        win, _calls = self._detail_env(env, field=field)
+        self._dbl(win, "totalSteps")
+        assert seen == {"stopped": True, "label": "Stopping ..."}
+        assert "read stopped (numbers incomplete)" in win._status.text() and "stopped before the end" in win._note.text()
+        win2, _c = self._detail_env(env)
+        detail = real.scan_field(str(env.zip), "uds", "totalSteps")
+        win2.close()
+        win2._on_detail_done(detail, None)
+        assert win2._detail is None
+
+    def test_the_outputs_panel_has_the_button_next_to_api_scan(self, qtbot):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtWidgets import QPushButton
+        from app.panel_outputs import PanelOutputs
+        import theme
+        app = MagicMock()
+        for name in ("BG", "BG2", "BG3", "ACCENT", "ACCENT2", "TEXT", "TEXT2", "GREEN", "YELLOW"):
+            setattr(app, name, getattr(theme, name))
+        app.settings = {}
+        app._panel_settings._collect_settings.return_value = {}
+        panel = PanelOutputs(app)
+        qtbot.addWidget(panel)
+        texts = [b.text() for b in panel.findChildren(QPushButton)]
+        assert any("API Scan" in t for t in texts) and any("Export Scan" in t for t in texts)
+        button = next(b for b in panel.findChildren(QPushButton) if "Export Scan" in b.text())
+        with patch("app.panel_outputs.export_scan.open_window") as opened:
+            button.click()
+        opened.assert_called_once_with(panel)

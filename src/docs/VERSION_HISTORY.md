@@ -2,6 +2,13 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.7 — Export Scan
+
+- New "Export Scan" window: shows which data your own Garmin export holds and how complete it is, by topic, as a table or a graph.
+- Look into one field (by month or year, its numbers over time or as a distribution, with units where there is evidence) and into the heart rate of any single day.
+- Reads only: nothing is written to your archive, and no file name or value goes into a report or the log.
+- A short guide opens from the Help button of the window.
+
 ## v1.7.6 – v1.7.6.12 — Garmin Export as a Second Source
 
 - The import of the Garmin export now reads heart-rate series, daily values, health status, pulse alerts, training readiness and race predictions (v1.7.6 – v1.7.6.7, v1.7.6.10); race predictions that older days lack can be asked from Garmin in a few requests (v1.7.6.11.2).

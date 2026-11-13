@@ -163,6 +163,7 @@ This section describes the GLA software, not the export format. Valid for GLA 1.
 
 - **Race predictions** (`RunRacePredictions`, since v1.7.6.10) are read: of the entries of one date the one with the latest `timestamp` is kept, and the day carries the four times under the field names of the API's answer (`time5K`, `time10K`, `timeHalfMarathon`, `timeMarathon`) with the date of the day. Account and device identifiers of the entry are not taken over. On the examined account the API's values equal the latest entry of the same date on 111 of 112 shared dates.
 - **Two sources — and their one exception.** The export fills what the API does not have and never overwrites it (API first). An endpoint that is called without a date (a snapshot endpoint such as the race predictions) is the exception by nature: its answer is dated with the day of the call, not the day that was asked for, so it is accepted only under its own date and the export's entry of that date is the source for the days it covers.
+- **Export Scan** (v1.7.7, Settings → Data Collection, "📂 Export Scan"): a window that looks into the export (ZIP or folder) and shows, per file family and field, how many rows are filled, 0, empty or absent, by year or month, the FIT files by type and year, the numbers of one field and the heart rate of one day. It reads only. The report (`Save report`) holds family and field names, folder names (a name with `@` as `<hidden>`) and counts, no value and no file name. The families it names are the ones of section 4 that the import reads, keeps or does not read; the guide is `README_EXPORT_SCAN.md`.
 
 ## 9. Open points
 
@@ -176,7 +177,7 @@ This section describes the GLA software, not the export format. Valid for GLA 1.
 
 ## 10. Reporting differences
 
-If your export looks different (other folders, other file patterns, other keys, other FIT types), open an issue and describe the **structure only**: file-name patterns with the dates, numbers and e-mail part replaced (`D`, `N`, `<mail>`), top-level folder names, key names with their JSON type and a rough fill rate, FIT file types with rough counts, and the month you obtained the export. Never attach files, values, names, ids or coordinates. A script that produces such a structure listing is not part of GLA yet.
+If your export looks different (other folders, other file patterns, other keys, other FIT types), open an issue and describe the **structure only**: file-name patterns with the dates, numbers and e-mail part replaced (`D`, `N`, `<mail>`), top-level folder names, key names with their JSON type and a rough fill rate, FIT file types with rough counts, and the month you obtained the export. Never attach files, values, names, ids or coordinates. The text report of the Export Scan of GLA (section 8; `Save report`) is such a structure listing: family and field names, folder names and counts, no value and no file name. Attach it instead of describing the structure by hand.
 
 ## 11. Method and sources
 

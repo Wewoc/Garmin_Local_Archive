@@ -62,6 +62,7 @@ Every one of these cost a surviving mutant at least once:
 | v1.7.6.11.1 | hand list | import path check and robustness | 33 mutants, 31 caught, 2 equivalent (EQ-12, EQ-13) |
 | v1.7.6.11.2 | hand list | prediction catch-up and its wiring | 67 mutants, 66 caught, 1 equivalent (EQ-14) |
 | v1.7.6.12 | Cosmic Ray, stage 1 + 2 (2026-11-09) | all modules built in v1.7.6.x; changed lines of the core modules and of the mirror import | 9905 mutants in stage 1, 8343 caught; every survivor judged, 434 new checks, the rest equivalent (EQ-16 to EQ-46), see below |
+| v1.7.7 | Cosmic Ray, stage 1, then the survivor lines again (2026-11-13) | the three modules of the Export Scan: `garmin_export_scan`, `garmin_export_scan_fit`, `garmin_export_scan_day` | 1884 mutants, 1626 caught in stage 1; every survivor judged, 64 new checks, the rest equivalent (EQ-48 to EQ-55), see below |
 
 ### v1.7.6.12
 
@@ -91,6 +92,30 @@ One finding concerns the code, not the tests (F-29, register `AUDIT_FINDINGS_v1_
 (`2025-W35-3`) in seven of them.
 
 Not tested: the mutants that only an input the program never produces can tell apart (EQ-20); the first-stage survivors of `garmin_import_mirror` outside the changed lines.
+
+### v1.7.7
+
+Scope: the three modules of the Export Scan that live in `src/garmin/` in full (`garmin_export_scan`, `garmin_export_scan_fit`, `garmin_export_scan_day`); the window, the model, the units table and the Help
+button live in `src/app/popups/`, which the tool does not reach: they were checked with hand lists during the build steps (not counted here). No stage 2: these modules are reached by their own test files and by the
+Export Scan tests of `test_qt_app.py`, which stage 2 leaves out on purpose.
+
+Stage 1 (every mutant against the tests of its own module):
+
+| Module | Test file | Mutants | Caught | Survived |
+|---|---|---:|---:|---:|
+| `garmin_export_scan` | `test_export_scan.py` | 1440 | 1230 | 210 |
+| `garmin_export_scan_fit` | `test_export_scan_fit.py` | 215 | 186 | 29 |
+| `garmin_export_scan_day` | `test_export_scan_day.py` | 229 | 210 | 19 |
+| **Total** | | **1884** | **1626** | **258** |
+
+All 258 survivors were judged one by one. 64 new checks in the three test files (sections "mutation round v1.7.7": 48 in `test_export_scan.py`, 10 in `test_export_scan_fit.py`, 6 in `test_export_scan_day.py`); no new test file;
+no production code changed. The survivor lines were run again twice: 87 mutants were left after the first re-run, 84 after the second (the three that were left because of a test gap were closed), and those 84 are the equivalent
+changes of EQ-48 to EQ-55.
+
+What the round found in the tests (none of it in the code): the limits without a value exactly on the border (500 fields per family, 16 levels of depth, 200 folders, the 25 hours of the day finder, the year range); a bad file, a file that is
+too large or a row that is no object that no test followed by a good one (a `continue` against a `break`); a stop that was asked again for every file that was left; a progress number that was right but reported one file too early; the
+defaults of a result; the lines of the text report (each of the "or" conditions needs a case where only that one holds); a median, a mean and a histogram checked with numbers that every wrong operator also gets right; two floats that are one
+object because the compiler folded them.
 
 ## Equivalent mutants
 
@@ -147,6 +172,14 @@ must not be assumed.
 | EQ-45 | v1.7.6.12 | `garmin_container.py` (`list_files`, `is_container`, `_open_and_verify`, `_collect_sections`, `_classify_file`) | `unpack(">I", ...)[0]` / `f.read(1)[0]` → `[-1]`; `fmt_ver != _FORMAT_VER` → `is not`; `not p.exists() or not p.is_file()` → `and`; the progress step (`10 * i // total > last_step` → `!=` / `is not`, `last_step = 10 * i // total` → `/`); `len(parts) > 1` → `!= 1` | The first element and the last element of a one-value tuple or one byte are the same; the format number is a small int (the same object); for a folder instead of a file `open()` raises an error that is caught and answers `False` too; the progress step only grows (EQ-17, EQ-18); `parts` has at least one element there. |
 | EQ-46 | v1.7.6.12 | `garmin_collector.py` (`_mark_bulk_days`, `main`) | `len(days) > marked` → `!=` (`is not` is caught with 300 days: equal numbers above 256 are not one object); `_track_mode == "preview"` / `_rebuild_mode == "preview"` → `>=` | `marked` never exceeds the number of days; only `"1"` and `"preview"` reach the comparison, and `"1"` sorts before `"preview"`. (`is` is **not** equivalent: the value comes from the environment at run time, a string made then, not the program's literal; a test uses `b"preview".decode()`.) |
 | EQ-47 | v1.7.6.12 | `garmin_import_mirror.py` (`_run_import_container`, `_RESERVED_DEVICE_NAMES`, `_is_reserved_name`, `_analyse_bulk_delta`, `_report_tenth`, `_import_bulk_from_bytes`) | `errors == 0` → `<= 0`; `\| {COM…}` and `\| {LPT…}` → `^` (`-` on the LPT set is caught); `split(".", 1)[0]` → `split(".", 2)[0]`; `info[0] == "original"` → `>=` / `is`; `result == "written"` → `>=` / `is`; `result != "present"` → `is not`; `kind == "aggregates"` → `<=` / `is`; `_report_tenth`: `total <= 0` → `== 0` / `< 0` / `<= 1` / `<= -1`, `progress is None or …` → `and`, and the tenth test written with `/` for one `//` or with `!=` / `is not` instead of `<` | A count is never negative; the COM and LPT names are not in the first set, so `^` joins like `\|`; the first piece of `split` ends at the first dot either way; the kinds and answers are the literals of the bulk writer and sort as in EQ-31 (`original` after `aggregates` and `intraday`, `written` last); for `done >= total` the function returns before, so `total <= 1`, `<= -1`, `== 0`, `< 0` change nothing (`total` is the length of a list that is walked from 1); `report_progress` does nothing without a callback, so `and` changes nothing; `x // 10 < y // 10` with `x <= y` decides like `x / 10 < y // 10`, like `x // 10 < y / 10` and like `!=`. (`101` in place of `100` and a loop that starts at 2 are **not** equivalent: a test with 29 items, which do not divide 100, and a marker per item catches them.) |
+| EQ-48 | v1.7.7 | `garmin_export_scan.py` (`_year_of`, `_month_of`, `_date_of`) | the border `abs(value) >= 1e11` → `!=` / `>` / `>= 100000000001.0` / `>= 99999999999.0`; `value / 1000` → `value // 1000` | Values around 1e11 milliseconds are the year 1973, outside the accepted range 1990 to 2100, so the border cannot be seen; cutting the part of a second never changes the day, month or year. |
+| EQ-49 | v1.7.7 | `garmin_export_scan.py`, `garmin_export_scan_fit.py` (`_year_order`, `_type_order`) | `year == UNKNOWN_YEAR` → `<=` / `>` / `>=` / `is`; `key == NO_TYPE` → `>=` / `is`; `else 0` → `1` / `-1` | "unknown" and "none" sort after every year and every number as text anyway, and there is one such key at most per result, so the first element of the sort key repeats what the order of the strings gives and the second is never compared. |
+| EQ-50 | v1.7.7 | `garmin_export_scan_fit.py` (`FIRST_YEAR`, `_year_of`) | `FIRST_YEAR` → 1989 / 1991; `FIRST_YEAR <= year` → `!=` / `<` / `is not` | A creation time under 0x10000000 is no date (the year 1998 is the first possible), so no year under 1998 reaches the check and the lower border cannot be seen. The JSON side (`garmin_export_scan.py`) can reach it and is tested at 1989 / 1990. |
+| EQ-51 | v1.7.7 | `garmin_export_scan_fit.py` (`scan_fit`) | `reported != total` → `<`; `done % PROGRESS_STEP == 0` → `<= 0`; `fit.file_type == MONITORING_TYPE` → `is` | The last number reported never exceeds the total; a remainder is never negative; a small number is one object. |
+| EQ-52 | v1.7.7 | `garmin_export_scan.py` (`_scan_names`, `read_values`, `read_windows`, `scan_field`, `_leaf_state`, `_segment`, `values_supported`, `_empty_result`, `format_report`) | the state words: `state == "ok"` → `<=` / `is`, `state == "too_large"` → `<=` / `is`, `state != "ok"` → `>` / `is not`, `state == "unreadable"` → `>=` / `is`; `value == ""` / `key == ""` → `<=` / `is`; `_segment(part) == part` → `is`; `fam.group == key` → `is`; `classify(name) is not fam` → `!=`; `m != UNKNOWN_YEAR` → `<` / `is not`; `fam["files"] == 0` → `<= 0` | The three state words ("ok", "too_large", "unreadable") order the same way against each of them in every place where the comparison is used; the strings are literals of one module and so the same objects, or a function returns its argument unchanged; "" is the smallest string; two families never compare equal; a count is never negative. |
+| EQ-53 | v1.7.7 | `garmin_export_scan.py` (`_put`, `_flatten`, `_add_row`) | `state > out.get(path, -1)` → `>=`, default `-1` → `-2` / `~1`; `depth >= MAX_DEPTH` → `==` / `is`; `len(fields) >= MAX_PATHS_PER_FAMILY` → `==` | A state that equals the stored one replaces it by itself, and the default only has to be below 0; depth and the number of fields grow by one, so they reach the limit exactly and never pass it. |
+| EQ-54 | v1.7.7 | `garmin_export_scan.py` (`scan_field`, `_histogram`) | `filled + zero > 0` → `\|` / `!= 0`; `low == high` → `>=` / `is`; `int((v - low) / width)` → `//` | The two counts are never negative, so the sum and the bitwise or are 0 together; `low` is never above `high`; `min` and `max` of equal values return the same object; `v - low` is not negative, so the whole part of a quotient equals its floor. |
+| EQ-55 | v1.7.7 | `garmin_export_scan_day.py` (`prepare`, `read_day`) | `first < len(ordered)` → `!=` / `is not`; `met == len(wanted)` → `>=` / `is`; `ms // 1000` → `ms / 1000` | `first` and `met` never pass their limit (the sweep stops at the end, each file of the walk is met once), and a small number is one object; the milliseconds are whole seconds, so the division gives the same time. |
 
 Equivalent mutants found in v1.7.6.12 are added below, with the run and the module.
 

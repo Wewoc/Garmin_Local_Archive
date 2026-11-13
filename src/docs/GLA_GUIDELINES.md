@@ -161,6 +161,7 @@ Modules with no project dependencies (standard library only) are called
 Leaf Nodes:
 - `garmin_utils.py`, `garmin_validator.py`, `garmin_source_quality.py`
 - `garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py`, `garmin_bulk_normalizer.py` (v1.7.6)
+- `garmin_export_scan.py` (v1.7.7, removable) — the JSON side of the Export Scan, standard library only
 - `garmin_backup_common.py` (v1.7.6.2) — the shared backup flow, standard library only
 - A Leaf Node never imports another project module
 - Guarantees no circular dependencies and fully isolated testing
@@ -698,6 +699,7 @@ network or GUI required except where noted:
 | `test_chat_session_store.py` | Chat session store |
 | `test_cloud_credential_store.py` | Cloud credential store |
 | `test_mcp_process.py` | MCP server process control |
+| `test_export_scan.py`, `test_export_scan_fit.py`, `test_export_scan_day.py` | Export Scan modules (removable, v1.7.7) |
 | `test_static.py` | Lint + security scan + AST-based regression guards |
 
 `test_build_output.py` is not part of `run_tests.ps1` — it runs as
@@ -912,6 +914,9 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_repair_resting_hr.py` | Removable one-time repair of the resting heart rate of imported days (v1.7.5.7) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_track_migration.py` | Removable migration of the mixed archive (v1.7.6.3) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_bulk_rebuild.py` | Removable rebuild of the daily values from the kept originals (v1.7.6.5) — writes only through `garmin_bulk_json_import.store_day()` → `garmin_bulk_writer`, never directly | No |
+| `garmin_export_scan.py` | Removable (v1.7.7) — reads the user's export and reports names and counts; writes only its two report files into the folder its caller names | **Yes** |
+| `garmin_export_scan_fit.py` | Removable (v1.7.7) — counts the FIT files of an export by type and year with the bulk modules; writes nothing | No |
+| `garmin_export_scan_day.py` | Removable (v1.7.7) — the heart rate of one day of an export with the modules of the import; writes nothing | No |
 | `garmin_migration_snapshot.py` | Removable (v1.7.6.3) — sole owner of `backup/migration/`, the safety copy made before the migration writes | No |
 | `garmin_backup.py` | Sole owner of `backup/raw/` + `backup/log/` | No |
 | `garmin_backup_source.py` | Sole owner of `backup/source/` | No |

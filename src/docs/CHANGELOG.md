@@ -1,5 +1,50 @@
 # Garmin Local Archive — Changelog
 
+## v1.7.7 — Export Scan
+
+A new window, **Export Scan**, looks into your own Garmin account export (the ZIP or the unpacked folder) and shows which data it holds and how complete it is, as a table or a graph, down to one
+field and one day of heart rate. It reads only: nothing is written to the archive, nothing is stored between runs, and the report files are written only when asked for. Everything that belongs to
+it is removable (marker `EXPORT-SCAN v1.7.7`, removal list in the docstring of `garmin/garmin_export_scan.py` and in `MAINTENANCE_GARMIN.md`). No schema change, no new file format.
+
+**What changed:**
+- **Window "📂 Export Scan"** (Settings tab, Data Collection, next to "API Scan"; `app/panel_outputs.py` and `app/popups/export_scan.py`, not modal). Right: the tree of the export by topic (daily values, sleep & body, training & metrics, activities, account
+  data, FIT files, not recognised, folders); the dot in front of a family says what the import does with it (read / kept only / not read). Left: the table or the graph of the chosen item (the heat map of a family
+  by field and year, bars per year, the FIT files by type and year). Colours come from the active theme. The export is read in a thread; **Stop** ends a scan, what was counted is shown as incomplete.
+- **`garmin/garmin_export_scan.py`** (leaf node, stdlib only): `scan()` counts the JSON files, the rows per year and, per field and year, how many rows are filled, 0, empty or absent; the 26 families
+  are the ones the import reads (7) or only keeps (4) — its own tables, a test compares both — plus 15 of the export reference that it does not read. `scan_field()` gives one field by month (the detail), `read_values()` the numbers of one field by
+  date (the values view), `read_windows()` the four wellness times of each day (the day view), `format_report()` / `write_report()` the text and JSON report (`export_scan_report.txt` / `.json` in `garmin_data/log`,
+  replaced at every run). **Privacy:** the scan, the detail and the reports hold names and counts only; no file name and no value (the entries of a real export carry the account's e-mail address);
+  `read_values()`, `read_windows()` and the day view are the only functions that return values or times, and the window keeps them in memory only, drops them on every way out and never writes them to the report,
+  the log, the status line or a file. A test uses values found nowhere else and looks for them in every place a value could get to.
+- **`garmin/garmin_export_scan_fit.py`**: counts the FIT files by type and year with the import's own walk and reader (`garmin_bulk_export_scanner`, `garmin_bulk_fit_reader`, one file of the same content counts once);
+  `scan_fit(..., index=)` also hands the creation time of every monitoring file to the caller (memory only, not part of the result or the report).
+- **`garmin/garmin_export_scan_day.py`**: the heart rate of one local day. A monitoring file starts at its creation time and holds at most 24 hours, so the files of a day are those created in
+  `[start − 25 h, end)` (on the author's export: no file that touches a day was missed on any of 2,855 days); the samples go through `plan_days` and `SampleCollector` of the import, so duplicate seconds
+  are resolved as the import resolves them (the file created first wins). Times are local, with the offset at the start of the day; a day whose boundaries are not known is not read (nothing is guessed).
+  On the author's export one day took 0.3 to 2.8 s and equalled a full run of the import modules.
+- **Field detail and values view** (`app/popups/_export_scan_model.py`, the window): a double-click on a cell of a family table opens the field by month or year (four states), the **Values** tab shows its
+  numbers (table, statistics, over time, distribution; more than 20,000 points are thinned for the view, the statistics use all). The pages with Plotly run without a network (Content-Security-Policy), the text of
+  the export in them is made safe twice, and the page of the values view holds no value (the values reach it by `glaRender` after it has loaded).
+- **Units with their origin** (`app/popups/_export_scan_units.py`): a unit is shown only where there is evidence and says where it comes from — the last word of the field name (`...Seconds`, `...Meters`) or
+  a module of GLA that treats the field as that unit (resting heart rate as bpm, steps, the FIT heart rate); everything else says "unit not documented". Nothing is converted.
+- **Heart rate of one day** at the FIT node: date field, previous and next day with files, **Heart rate of the day**.
+- **Guide and Help button:** `docs/README_EXPORT_SCAN.md` (new, in `info/` of the packages: `INFO_INCLUDE`) opens from the **Help** button of the window in the documentation viewer; a test compares the guide with
+  the window (buttons, report files, groups, limits).
+- **Tests and mutation:** three new suites and the Qt tests of the window (`TestExportScanModel`, `TestExportScanWindow`, 89 tests; the viewer is replaced by a stand-in view, because QtWebEngine does not start in the
+  tool environment, so the real graph pages were looked at by the maintainer only in part). Mutation round with Cosmic Ray 8.7.0 over the three modules in `src/garmin/` (1884 mutants, 1626 caught, every survivor
+  judged, 64 new checks, the rest equivalent: EQ-48 to EQ-55 in `MAINTENANCE_MUTATION.md`), and hand lists during the build for the window, the model, the units and the Help button.
+
+**New files:** `garmin/garmin_export_scan.py`, `garmin/garmin_export_scan_fit.py`, `garmin/garmin_export_scan_day.py`, `app/popups/export_scan.py`, `app/popups/_export_scan_model.py`,
+`app/popups/_export_scan_units.py`, `docs/README_EXPORT_SCAN.md`, `tests/test_export_scan.py`, `tests/test_export_scan_fit.py`, `tests/test_export_scan_day.py`
+**Changed modules:** `app/panel_outputs.py` (the button, `_open_export_scan_window`); `compiler/build_manifest.py` (modules, signatures, `INFO_INCLUDE`), `run_tests.ps1`, `tests/conftest.py`, `tests/test_qt_app.py`
+(the two classes); `version.py`; documentation (CHANGELOG, VERSION_HISTORY, ROADMAP, README, README_APP, USER_GUIDE, REFERENCE_GARMIN, REFERENCE_GARMIN_EXPORT, REFERENCE_INVARIANTS, REFERENCE_GLOBAL,
+MAINTENANCE_GARMIN, MAINTENANCE_GLOBAL, MAINTENANCE_MUTATION, GLA_GUIDELINES, METRICS)
+**Test result:** 7977 checks in 59 suites, all green (`docs/METRICS.md`; before 7573 in 56); `test_build_output.py` 897 passed (12 skipped: no built programs); all 278 `.py` files of `src/` compile under
+Python 3.11; `ruff` clean; Vulture 0 (80 through the whitelist); `build_dep_map` 44 new (23 exception handlers, 21 file operations), 0 gone, 0 regressions — every new handler looked at: the workers of the window
+answer with a fixed sentence and never with the text of an exception, an unreadable file or source is counted, a date outside the calendar is no date. Not run, because no module of the import, the archive or
+the core was changed: Netz 2. Not run: the built programs; the Help button, the values view, the units and the day view in the real program (looked at by the maintainer: the window, the FIT table and graph,
+the detail of a field with its graph). Measured on the author's export (one account, one machine): the JSON scan 0.7 s, the FIT scan 27 to 31 s for 34,869 files, reading the values of a field 0.01 to 0.4 s.
+
 ## v1.7.6.12 — Mutation Test of the New Modules
 
 Tests only, no change in what the program does: no code of `garmin/`, `app/` or the other packages was changed. All modules added during v1.7.6.x (bulk store and bulk import,

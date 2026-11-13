@@ -36,6 +36,9 @@ SHARED_SCRIPTS = [
     "app/popups/encrypted_dashboards.py",
     "app/popups/export_data.py",       # v1.7.4 Export Layer
     "app/popups/_export_build.py",     # v1.7.4 Export Layer
+    "app/popups/export_scan.py",       # EXPORT-SCAN v1.7.7 — removable
+    "app/popups/_export_scan_model.py", # EXPORT-SCAN v1.7.7 — removable
+    "app/popups/_export_scan_units.py", # EXPORT-SCAN v1.7.7 — removable
     # app/outputs/ — extracted panel_outputs.py feature blocks (v1.7.3.1).
     # Same dst.parent.mkdir(exist_ok=True) ordering concern as app/popups/
     # above — listed after app/__init__.py so scripts/app/ already exists.
@@ -116,6 +119,9 @@ SHARED_SCRIPTS = [
     "garmin/garmin_repair_devices.py",     # DEVICE-REPAIR v1.7.6.9 — removable
     "garmin/garmin_repair_predictions.py", # PREDICTION-REPAIR v1.7.6.10 — removable
     "garmin/garmin_catchup_predictions.py", # PREDICTION-CATCHUP v1.7.6.11.2 — removable
+    "garmin/garmin_export_scan.py",        # EXPORT-SCAN v1.7.7 — removable
+    "garmin/garmin_export_scan_fit.py",    # EXPORT-SCAN v1.7.7 — removable
+    "garmin/garmin_export_scan_day.py",    # EXPORT-SCAN v1.7.7 — removable
     "garmin/garmin_track_migration.py",    # TRACK-MIGRATION v1.7.6.3
     "garmin/garmin_migration_snapshot.py", # TRACK-MIGRATION v1.7.6.3
     "garmin/garmin_live_fetch.py",
@@ -248,6 +254,9 @@ SCRIPT_SIGNATURES_BASE = {
     "app/popups/_dashboard_build.py": ["def run_dashboards", "def run_encrypted"],
     "app/popups/export_data.py": ["def open_popup"],
     "app/popups/_export_build.py": ["def run_export"],
+    "app/popups/export_scan.py": ["def open_window", "class ExportScanWindow"],  # EXPORT-SCAN v1.7.7 — removable
+    "app/popups/_export_scan_model.py": ["def build_tree", "def build_table", "def build_chart_html"],  # EXPORT-SCAN v1.7.7 — removable
+    "app/popups/_export_scan_units.py": ["def unit_of", "NAME_RULES", "EXPLICIT"],  # EXPORT-SCAN v1.7.7 — removable
     "exports/export_common.py": ["def collect"],
     "exports/export_runner.py": ["def scan", "def build"],
     "exports/export_adapters/json_adapter.py": ["def build"],
@@ -322,6 +331,9 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_repair_devices.py": ["def find_candidates", "def repair_devices"],  # DEVICE-REPAIR v1.7.6.9 — removable
     "garmin/garmin_repair_predictions.py": ["def find_candidates", "def repair_predictions"],  # PREDICTION-REPAIR v1.7.6.10 — removable
     "garmin/garmin_catchup_predictions.py": ["def find_candidates", "def catch_up"],  # PREDICTION-CATCHUP v1.7.6.11.2 — removable
+    "garmin/garmin_export_scan.py": ["def scan", "def scan_field", "def read_values", "def values_supported", "def read_windows", "def format_report", "def write_report", "def classify"],  # EXPORT-SCAN v1.7.7 — removable
+    "garmin/garmin_export_scan_fit.py": ["def scan_fit"],  # EXPORT-SCAN v1.7.7 — removable
+    "garmin/garmin_export_scan_day.py": ["def prepare", "def read_day", "def candidates"],  # EXPORT-SCAN v1.7.7 — removable
     "garmin/garmin_track_migration.py": ["def import_sections", "def classify_day", "def scan_archive", "def pending", "def plan_migration", "def format_plan", "def run_migration", "def format_result"],  # TRACK-MIGRATION v1.7.6.3
     "garmin/garmin_migration_snapshot.py": ["def create_snapshot", "def verify_snapshot", "def list_snapshots", "def restore_snapshot"],  # TRACK-MIGRATION v1.7.6.3
     "context/context_silo_check.py":  ["def check_context_archive"],
@@ -369,7 +381,8 @@ SCRIPT_SIGNATURES_BASE = {
 DOCS = ["README.md", "README_APP.md", "MAINTENANCE.md", "SETUP.md"]
 
 INFO_INCLUDE = {"README.md", "README_APP.md", "daily_update_task.xml",
-                "QUICKSTART.txt", "USER_GUIDE.txt"}
+                "QUICKSTART.txt", "USER_GUIDE.txt",
+                "README_EXPORT_SCAN.md"}        # EXPORT-SCAN v1.7.7 — removable (the Help button of the Export Scan window)
 
 # ── Required non-Python files (must be present alongside scripts) ─────────────
 # Paths relative to garmin/ — build scripts prepend the folder.
