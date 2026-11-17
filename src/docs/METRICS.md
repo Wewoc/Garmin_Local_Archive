@@ -3,7 +3,7 @@
 
 # METRICS
 
-Generated: 2026-11-13 11:08 UTC · Version: 1.7.7
+Generated: 2026-11-17 15:57 UTC · Version: 1.7.7.1
 
 ## Test Counts
 
@@ -46,7 +46,7 @@ Generated: 2026-11-13 11:08 UTC · Version: 1.7.7
 | test_repair_devices.py | 81 | 81 | 0 |
 | test_repair_predictions.py | 107 | 107 | 0 |
 | test_catchup_predictions.py | 84 | 84 | 0 |
-| test_export_scan.py | 206 | 206 | 0 |
+| test_export_scan.py | 240 | 240 | 0 |
 | test_export_scan_fit.py | 54 | 54 | 0 |
 | test_export_scan_day.py | 55 | 55 | 0 |
 | test_track_migration.py | 135 | 135 | 0 |
@@ -60,7 +60,7 @@ Generated: 2026-11-13 11:08 UTC · Version: 1.7.7
 | test_export.py | 45 | 45 | 0 |
 | test_app_logic.py | 190 | 190 | 0 |
 | test_updater.py | 93 | 93 | 0 |
-| test_qt_app.py | 451 | 451 | 0 |
+| test_qt_app.py | 484 | 484 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -68,7 +68,7 @@ Generated: 2026-11-13 11:08 UTC · Version: 1.7.7
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **7977** | **7977** | **0** |
+| **Total** | **8044** | **8044** | **0** |
 
 ## Modules
 
@@ -76,7 +76,5 @@ Total: 181 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-11-13 10:56 UTC · Findings: 0 · Whitelisted: 80
-
-⚠ vulture.json target_version (v1.7.7) does not match the current APP_VERSION (1.7.7) — scope may have changed since the scan. Re-run tests/check_vulture.py.
+Scanned: 2026-11-17 15:50 UTC · Findings: 0 · Whitelisted: 80
 

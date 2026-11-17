@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.7
+# Garmin Local Archive — Desktop App v1.7.7.1
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -108,7 +108,7 @@ The app window is divided into two areas:
 
 -> For how to use each tab day-to-day, see USER_GUIDE.txt.
 
--> Export Scan (v1.7.7): the button "📂 Export Scan" under Settings -> Data Collection, next to "API Scan", opens a window that shows what your own Garmin export holds (the guide is its Help button: README_EXPORT_SCAN.md).
+-> Export Scan (v1.7.7): the button "📂 Export Scan" under Settings -> Data Collection, next to "API Scan", opens a window that shows what your own Garmin export holds (the guide is its Help button: README_EXPORT_SCAN.md). Since v1.7.7.1 the button "Rows ..." at a family shows up to 12 of its fields side by side by date.
 
 -> Don't have your own archive yet? A synthetic 180-day demo archive
 (ZIP + its own README) is available from the project's GitHub repo

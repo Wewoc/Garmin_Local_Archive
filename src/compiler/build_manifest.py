@@ -331,7 +331,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_repair_devices.py": ["def find_candidates", "def repair_devices"],  # DEVICE-REPAIR v1.7.6.9 — removable
     "garmin/garmin_repair_predictions.py": ["def find_candidates", "def repair_predictions"],  # PREDICTION-REPAIR v1.7.6.10 — removable
     "garmin/garmin_catchup_predictions.py": ["def find_candidates", "def catch_up"],  # PREDICTION-CATCHUP v1.7.6.11.2 — removable
-    "garmin/garmin_export_scan.py": ["def scan", "def scan_field", "def read_values", "def values_supported", "def read_windows", "def format_report", "def write_report", "def classify"],  # EXPORT-SCAN v1.7.7 — removable
+    "garmin/garmin_export_scan.py": ["def scan", "def scan_field", "def read_values", "def read_rows", "def values_supported", "def read_windows", "def format_report", "def write_report", "def classify"],  # EXPORT-SCAN v1.7.7 — removable
     "garmin/garmin_export_scan_fit.py": ["def scan_fit"],  # EXPORT-SCAN v1.7.7 — removable
     "garmin/garmin_export_scan_day.py": ["def prepare", "def read_day", "def candidates"],  # EXPORT-SCAN v1.7.7 — removable
     "garmin/garmin_track_migration.py": ["def import_sections", "def classify_day", "def scan_archive", "def pending", "def plan_migration", "def format_plan", "def run_migration", "def format_result"],  # TRACK-MIGRATION v1.7.6.3

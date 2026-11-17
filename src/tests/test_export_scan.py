@@ -824,6 +824,212 @@ before_w = _snapshot(BASE / "windows_dir")
 es.read_windows(win_dir)
 check("read_windows only reads: the export is unchanged", _snapshot(BASE / "windows_dir") == before_w)
 
+# ── 10b. read_rows — several fields by date (the rows view) ─────────────────────────────────────
+
+section("10b. read_rows — rows of several fields by date, kept apart from the scan")
+
+ROWS_SENTINEL = 424242.125               # a value that must never appear in a scan result or a report
+rows_entries = {
+    AGG + "UDSFile_r1.json": _j([
+        {"calendarDate": "2023-01-05", "a": 10, "b": True, "s": ROWS_SENTINEL},
+        {"calendarDate": "2023-01-05", "a": 30, "b": False},                    # the same day again: a second row
+        {"calendarDate": "2022-12-31", "a": 20},
+        {"a": 99, "b": True},                                                   # no date: counted, not shown
+        {"calendarDate": "2023-02-01", "a": "x"},                               # text: no cell
+        {"calendarDate": "2023-02-02"},                                         # nothing
+        {"calendarDate": "2023-02-03", "a": None, "b": None},
+        "not an object"]),
+    AGG + "UDSFile_r2.json": b'[{"calendarDate": "2023-03-01", "a": NaN, "b": 1}]',
+    AGG + "UDSFile_r3.json": b"{ not json",
+    WELL + "2023_sleepData.json": _j([{"calendarDate": "2023-01-05", "a": 5, "b": True}]),
+}
+rows_zip = _make_zip("rows.zip", rows_entries)
+rr = es.read_rows(rows_zip, "uds", ["a", "b"])
+check("a table row per row of the export, by date; several per day in file order; numbers and yes/no values as they are",
+      rr["table"] == [["2022-12-31", 20, None], ["2023-01-05", 10, True], ["2023-01-05", 30, False], ["2023-03-01", None, 1]]
+      and isinstance(rr["table"][1][1], int) and rr["table"][1][2] is True and rr["table"][2][2] is False
+      and not isinstance(rr["table"][3][2], bool) and rr["supported"] is True and rr["dated"] is True and rr["source"] == "zip")
+check("the counts: rows, rows without a date, rows without any cell, rows used, rows cut, files, damaged files",
+      (rr["rows"], rr["undated"], rr["empty_rows"], rr["used"], rr["cut"]) == (8, 1, 3, 4, 0)
+      and rr["files"] == 3 and rr["unreadable"] == 1 and rr["too_large"] == 0 and rr["stopped"] is False)
+ca, cb = rr["columns"]
+check("a column counts numbers, yes/no values, true ones, other things (text, NaN) and absent or empty, over the rows with a date",
+      (ca["field"], ca["numeric"], ca["bools"], ca["trues"], ca["other"], ca["missing"]) == ("a", 3, 0, 0, 2, 2)
+      and (cb["field"], cb["numeric"], cb["bools"], cb["trues"], cb["other"], cb["missing"]) == ("b", 1, 2, 1, 0, 4)
+      and all(c["numeric"] + c["bools"] + c["other"] + c["missing"] == rr["rows"] - rr["undated"] for c in rr["columns"]))
+check("the statistics are those of the numbers of a column (a yes/no value is no number); none without numbers",
+      ca["stats"] == {"count": 3, "min": 10, "max": 30, "mean": 20.0, "median": 20, "zeros": 0}
+      and cb["stats"]["count"] == 1 and es.read_rows(rows_zip, "uds", ["nothing"])["columns"][0]["stats"] is None)
+check("only the files of the family are read (the sleepData file with the same field names is not)",
+      all(row[1] != 5 for row in rr["table"]))
+check("a field that is nowhere: no table row, every row with a date counted as empty",
+      es.read_rows(rows_zip, "uds", ["nothing"])["table"] == [] and es.read_rows(rows_zip, "uds", ["nothing"])["empty_rows"] == 7)
+check("the columns keep the order of the fields, a field named twice is one column",
+      [c["field"] for c in es.read_rows(rows_zip, "uds", ["b", "a", "b"])["columns"]] == ["b", "a"]
+      and es.read_rows(rows_zip, "uds", ["b", "a"])["table"][1][1:] == [True, 10])
+check("cell: a yes/no value stays one (a bool is no number), numbers stay as they are, text, nan, inf and null are no cell",
+      es._cell(True) is True and es._cell(False) is False and es._cell(5) == 5 and not isinstance(es._cell(1), bool)
+      and es._cell(2.5) == 2.5 and all(es._cell(v) is None for v in ("5", None, float("nan"), float("inf"), [1], {})))
+probe = {"source": "not read", "stopped": False, "files": 0, "unreadable": 0, "too_large": 0}
+rows_seen = list(es._family_rows(es.Path(rows_zip), es.FAMILIES["uds"], probe, None))
+check("_family_rows yields only the rows that are objects, of the files of the family, and counts the files",
+      len(rows_seen) == 8 and all(isinstance(r, dict) for r in rows_seen)
+      and (probe["source"], probe["files"], probe["unreadable"], probe["too_large"], probe["stopped"]) == ("zip", 3, 1, 0, False))
+
+unsupported = [es.read_rows(rows_zip, "uds", ["a[].b"]), es.read_rows(rows_zip, "uds", ["a", "devices.<id>.x"]),
+               es.read_rows(rows_zip, "zones", ["zone1"])]
+check("fields that cannot be read as values, or a family without a date key: supported False, nothing read, nothing returned",
+      all(r["supported"] is False and r["files"] == 0 and r["table"] == [] and r["source"] == "not read" for r in unsupported)
+      and [r["dated"] for r in unsupported] == [True, True, False])
+
+cut = es.read_rows(many_rows, "uds", ["v"], max_rows=10)
+check("more rows than max_rows: the newest stay, the older ones are counted, the statistics use all the numbers",
+      len(cut["table"]) == 10 and cut["cut"] == 90 and cut["used"] == 100 and cut["table"][0][1] == 90
+      and cut["table"][-1][1] == 99 and cut["columns"][0]["stats"]["count"] == 100)
+check("up to max_rows nothing is cut; at least one row stays; the limits are what the documentation says",
+      es.read_rows(many_rows, "uds", ["v"], max_rows=100)["cut"] == 0
+      and len(es.read_rows(many_rows, "uds", ["v"], max_rows=100)["table"]) == 100
+      and len(es.read_rows(many_rows, "uds", ["v"], max_rows=0)["table"]) == 1
+      and es.read_rows(many_rows, "uds", ["v"], max_rows=0)["cut"] == 99 and (es.MAX_ROWS, es.MAX_ROW_FIELDS) == (5000, 12))
+
+rr_bad = []
+for args in (("nope", ["a"]), ("uds", []), ("uds", None), ("uds", "a"), ("uds", [""]), ("uds", [5]),
+             ("uds", [f"f{i}" for i in range(13)])):
+    try:
+        es.read_rows(rows_zip, *args)
+        rr_bad.append(args)
+    except ValueError as exc:
+        if "uds" in str(exc) or str(BASE) in str(exc) or "f12" in str(exc):
+            rr_bad.append(args)
+check("an unknown family, no or wrong fields, more than MAX_ROW_FIELDS fields: ValueError, the message names nothing", rr_bad == [])
+check("exactly MAX_ROW_FIELDS fields are accepted", len(es.read_rows(rows_zip, "uds", [f"f{i}" for i in range(12)])["columns"]) == 12)
+try:
+    es.read_rows(BASE / "does_not_exist.zip", "uds", ["a"])
+    rr_missing = False
+except FileNotFoundError as exc:
+    rr_missing = "does_not_exist" not in str(exc) and str(BASE) not in str(exc)
+check("missing path: FileNotFoundError without the path", rr_missing)
+check("a file that is no ZIP / a damaged ZIP: source unreadable, nothing counted",
+      es.read_rows(BASE / "plain.txt", "uds", ["a"])["source"] == "unreadable"
+      and es.read_rows(BASE / "broken.zip", "uds", ["a"])["rows"] == 0)
+check("should_stop: the read ends at once and says so",
+      es.read_rows(rows_zip, "uds", ["a"], should_stop=lambda: True)["stopped"] is True
+      and es.read_rows(rows_zip, "uds", ["a"], should_stop=lambda: True)["table"] == [])
+with patch.object(es, "MAX_JSON_BYTES", 50):
+    check("a file over the size limit is counted as too large", es.read_rows(rows_zip, "uds", ["a"])["too_large"] >= 1)
+rows_dir = _make_dir("rows_dir", rows_entries)
+check("a ZIP and the same export as a folder give the same rows (the source apart)",
+      {**es.read_rows(rows_dir, "uds", ["a", "b"]), "source": "zip"} == rr
+      and es.read_rows(rows_dir, "uds", ["a", "b"])["source"] == "folder")
+rows_before = _snapshot(rows_dir)
+es.read_rows(rows_dir, "uds", ["a", "b"])
+check("read_rows only reads: the export is unchanged", _snapshot(rows_dir) == rows_before)
+
+# the rows of one day stay in file order (not in the order of their cells); an empty text is "empty", other text is not;
+# a limit one below the number of rows cuts exactly one row
+order_zip = _make_zip("rows_order.zip", {AGG + "UDSFile_o.json": _j([
+    {"calendarDate": "2023-01-05", "a": "", "b": 9},
+    {"calendarDate": "2023-01-05", "b": 3},
+    {"calendarDate": "2023-01-06", "a": "x", "b": 2}])})
+ro = es.read_rows(order_zip, "uds", ["a", "b"])
+check("several rows of one day keep the order of the file, not the order of their cells",
+      ro["table"] == [["2023-01-05", None, 9], ["2023-01-05", None, 3], ["2023-01-06", None, 2]])
+check("an empty text and an absent field are 'missing', any other text is 'other'",
+      (ro["columns"][0]["missing"], ro["columns"][0]["other"], ro["columns"][0]["numeric"]) == (2, 1, 0)
+      and ro["columns"][1]["numeric"] == 3 and ro["empty_rows"] == 0)
+cut_one = es.read_rows(many_rows, "uds", ["v"], max_rows=99)
+check("a limit one below the number of rows cuts exactly the oldest row",
+      len(cut_one["table"]) == 99 and cut_one["cut"] == 1 and cut_one["used"] == 100 and cut_one["table"][0][1] == 1)
+
+scan_std = es.scan(zip_path)
+steps = es.read_rows(zip_path, "uds", ["totalSteps"])
+steps_years = {}
+for steps_row in steps["table"]:
+    steps_years[steps_row[0][:4]] = steps_years.get(steps_row[0][:4], 0) + 1
+
+
+def _with_value(year):
+    counts = _field(scan_std, "uds", "totalSteps", year)
+    return counts["filled"] + counts["zero"]
+
+
+check("the rows of a field per year are the rows the scan counts as filled or zero for it (two code paths, one result)",
+      steps_years == {"2023": _with_value("2023"), "2024": _with_value("2024")} and steps["undated"] == _with_value("unknown") == 1
+      and sum(steps_years.values()) == 3)
+
+# the rule of the views: read_values and read_rows return values; the scan, the detail and the reports never do
+rows_scan = es.scan(rows_zip)
+rows_field = es.scan_field(rows_zip, "uds", "s")
+rows_text = es.format_report(rows_scan)
+rows_files = es.write_report(rows_scan, BASE / "log_rows")
+check("the sentinel is in the rows (the test is meaningful) and the column has it",
+      [row[1] for row in es.read_rows(rows_zip, "uds", ["s"])["table"]] == [ROWS_SENTINEL])
+check("the sentinel (and no part of it) is in none of: the scan result, the field detail, the text report, the report files",
+      all("424242" not in text for text in (json.dumps(rows_scan), json.dumps(rows_field), rows_text,
+                                            rows_files["json"].read_text(encoding="utf-8"),
+                                            rows_files["text"].read_text(encoding="utf-8"))))
+
+stream_r = io.StringIO()
+handler_r = logging.StreamHandler(stream_r)
+root_logger.addHandler(handler_r)
+root_logger.setLevel(logging.DEBUG)
+out_r, err_r = io.StringIO(), io.StringIO()
+try:
+    with contextlib.redirect_stdout(out_r), contextlib.redirect_stderr(err_r):
+        priv_r = es.read_rows(zip_path, "activities", ["distance", "hrTimeInZone_1"])
+        priv_s = es.read_rows(dir_path, "uds", ["totalSteps", "restingHeartRate"])
+finally:
+    root_logger.removeHandler(handler_r)
+    root_logger.setLevel(old_level)
+check("the rows result holds no file name and no e-mail marker (activities, names with the marker)",
+      all(SECRET not in json.dumps(r) and "secret.name" not in json.dumps(r) and "example.invalid" not in json.dumps(r)
+          for r in (priv_r, priv_s)) and priv_r["table"] and priv_s["table"])
+check("nothing is logged, printed or written to stderr while the rows are read",
+      stream_r.getvalue() == "" and out_r.getvalue() == "" and err_r.getvalue() == "")
+check("the result holds only the documented keys",
+      set(priv_r) == {"schema", "source", "family", "label", "fields", "supported", "dated", "stopped", "files", "unreadable",
+                      "too_large", "rows", "undated", "empty_rows", "used", "cut", "columns", "table"}
+      and all(set(c) == {"field", "numeric", "bools", "trues", "other", "missing", "stats"} for c in priv_r["columns"]))
+
+# ── 10c. mutation round v1.7.7.1 — what Cosmic Ray found in read_rows and _family_rows ───────────
+
+section("10c. mutation round v1.7.7.1 — stop, damaged files in the middle, counts of an unsupported read, true / false")
+
+stop_zip = _make_zip("rows_stop.zip", {AGG + f"UDSFile_s{i}.json": _j([{"calendarDate": f"2023-01-0{i + 1}", "a": i}]) for i in range(3)})
+stop_asked = []
+
+
+def _stop_at_the_first_file():
+    stop_asked.append(1)
+    return len(stop_asked) == 1                      # True once, then False: a walk that goes on after the stop would read the rest
+
+
+stop_rows = es.read_rows(stop_zip, "uds", ["a"], should_stop=_stop_at_the_first_file)
+check("read_rows: a stop ends the walk at once, no further file is asked or read (not skipped one by one)",
+      stop_rows["stopped"] is True and len(stop_asked) == 1 and stop_rows["files"] == 0 and stop_rows["table"] == [])
+
+mid_entries = {AGG + "UDSFile_m0.json": b"{ not json",
+               AGG + "UDSFile_m1.json": _j([{"calendarDate": "2023-01-05", "a": 1}]),
+               AGG + "UDSFile_m2.json": _j([{"calendarDate": "2023-01-06", "a": 2}])}
+mid = es.read_rows(_make_zip("rows_mid.zip", mid_entries), "uds", ["a"])
+check("read_rows: a damaged file in the middle is counted and the files after it are still read",
+      (mid["files"], mid["unreadable"], mid["too_large"]) == (3, 1, 0) and mid["table"] == [["2023-01-05", 1], ["2023-01-06", 2]])
+big_zip = _make_zip("rows_big.zip", {**mid_entries, AGG + "UDSFile_m0.json": _j([{"calendarDate": "2023-01-04", "a": 0, "pad": "x" * 200}])})
+with patch.object(es, "MAX_JSON_BYTES", 60):
+    big = es.read_rows(big_zip, "uds", ["a"])
+check("read_rows: a file that is too large is counted and the files after it are still read",
+      (big["files"], big["unreadable"], big["too_large"]) == (3, 0, 1) and big["table"] == [["2023-01-05", 1], ["2023-01-06", 2]])
+
+check("an unsupported read leaves every count at 0: nothing was read, nothing is counted",
+      all((r["rows"], r["undated"], r["empty_rows"], r["used"], r["cut"], r["unreadable"], r["too_large"]) == (0, 0, 0, 0, 0, 0, 0)
+          for r in unsupported))
+
+flags_zip = _make_zip("rows_flags.zip", {AGG + "UDSFile_f.json": _j(
+    [{"calendarDate": f"2023-01-0{i + 1}", "b": value} for i, value in enumerate([True, True, False, True])])})
+flags = es.read_rows(flags_zip, "uds", ["b"])["columns"][0]
+check("true / false: the count of true values is the number of True, not of False (3 of 4, not 1 of 4)",
+      (flags["bools"], flags["trues"], flags["numeric"]) == (4, 3, 0))
+
 # ── 11. mutation round v1.7.7 — what Cosmic Ray found in this module ─────────────────────────────
 
 section("11. mutation round v1.7.7 — limits, boundaries, order of files and rows, lines of the report")

@@ -346,6 +346,11 @@ Settings -> Data Collection -> "Export Scan" (next to "API Scan") opens a window
   - Double-click a cell of a family table: that field by month or year;
     "Values" shows its numbers (table, over time, distribution) with a
     unit where there is evidence for one.
+  - "Rows ..." (top right, at a family whose rows have a date): choose
+    up to 12 fields in a small window; they are shown side by side by
+    date, one table row per row of the export, as a table or (Graph) as
+    one chart per number column. Text fields show only a dash. Back
+    leaves the view.
   - The FIT files item: the files by type and year, and the heart rate
     of any single day (date field, previous / next day, "Heart rate of
     the day").

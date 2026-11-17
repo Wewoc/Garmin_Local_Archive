@@ -57,6 +57,12 @@ Public API:
                                               "state"): the only part that shows values; the page has none
   build_values_page(plotly_script, theme) -> str   (Plotly and an empty chart), the values reach it by
   build_values_js(values, mode, theme) -> str | None   glaRender(...), run in the web view; modes VALUES_MODES
+  is_rows(values) -> bool                   a third kind of values: the rows of several fields
+                                            (garmin_export_scan.read_rows, a dict with a "table"), shown by
+                                            the same three entry points; at most ROWS_CHART_FIELDS numeric
+                                            columns are drawn, one chart each on a shared date axis
+  rows_fields(result, key, is_supported)    the fields the rows view can offer for a family (none if the scan found
+                                            no row with a date); is_supported: garmin_export_scan.values_supported
   VALUES_HINT                               the hint of the view: a screenshot contains the values
   STATUS_TEXT, FIT_TYPE_NAMES, NODE_SUMMARY, NODE_UNKNOWN, NODE_FOLDERS, NODE_FIT
 """
@@ -528,6 +534,8 @@ VALUES_MODES = ("series", "histogram")
 
 
 def has_values(values) -> bool:
+    if values and is_rows(values):
+        return has_rows_chart(values)
     return bool(values and values["supported"] and values["stats"])
 
 
@@ -590,6 +598,8 @@ def build_values_table(values: dict) -> dict:
     The heart rate of one day (garmin_export_scan_day.read_day) has its own table."""
     if is_day(values):
         return _day_table(values)
+    if is_rows(values):
+        return _rows_table(values)
     title = f"{values['label']} › {values['field']}  (values)"
     if not values["supported"]:
         return {"title": title, "headers": [], "rows": [],
@@ -652,13 +662,138 @@ def _values_histogram(values: dict, colors: dict):
 
 def build_values_js(values: dict, mode: str, theme=None):
     """The call that hands the values to the loaded values page: glaRender(data, layout); None if there are
-    no values to draw. mode: "series" (over time) or "histogram" (distribution). Everything of the export in
+    no values to draw. mode: "series" (over time) or "histogram" (distribution), ignored for the rows of
+    several fields (stacked charts). Everything of the export in
     it (the field name, the numbers) is made safe like on the other chart pages."""
     if not has_values(values):
         return None
+    if is_rows(values):
+        return _rows_js(values, _colors(theme), theme)
     colors = _colors(theme)
     mode = mode if mode in VALUES_MODES else VALUES_MODES[0]            # an unknown mode shows the series
     data, layout = _values_histogram(values, colors) if mode == "histogram" else _values_series(values, colors)
+    return f"glaRender({_safe_json(data)}, {_safe_json(layout)});"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  The rows of several fields (garmin_export_scan.read_rows): a table and stacked charts
+#
+#  A third kind of values next to the values of one field and the heart rate of one day, shown by the same
+#  three entry points (has_values, build_values_table, build_values_js). Only the table and the glaRender call
+#  hold values; the page is build_values_page, which holds none.
+# ══════════════════════════════════════════════════════════════════════════════
+
+ROWS_CHART_FIELDS = 4          # at most this many numeric columns are drawn, one chart each
+_CHART_GAP = 0.06              # the space between two stacked charts, as a share of the height
+
+
+def is_rows(values: dict) -> bool:
+    """True for the rows of several fields (garmin_export_scan.read_rows: a dict with a "table")."""
+    return "table" in values
+
+
+def rows_fields(result: dict, key: str, is_supported) -> list:
+    """
+    The fields of a family that the rows view can offer, in the order of the scan: [] if the family is not in
+    the result or the scan found no row with a date in it (the rows are placed by date; a family without a date
+    key has only the year "unknown"). is_supported(path) -> bool tells which paths can be read as values
+    (garmin_export_scan.values_supported, handed in: the model imports nothing of the scan).
+    """
+    fam = result["families"].get(key)
+    if not fam or not any(year != UNKNOWN_YEAR for year in fam["years"]):
+        return []
+    return [path for path in fam["fields"] if is_supported(path)]
+
+
+def _chart_columns(values: dict) -> list:
+    """[(index, column)] of the columns that are drawn: the first ROWS_CHART_FIELDS that hold numbers
+    (a column of true/false values only is shown in the table, not drawn)."""
+    return [(index, column) for index, column in enumerate(values["columns"]) if column["stats"]][:ROWS_CHART_FIELDS]
+
+
+def has_rows_chart(values: dict) -> bool:
+    return bool(values["supported"] and values["table"] and _chart_columns(values))
+
+
+def _rows_cell_text(cell) -> str:
+    """A cell of the rows table: a number as _num, true / false, and a dash where the row has none."""
+    if cell is None:
+        return "–"
+    if isinstance(cell, bool):
+        return "true" if cell else "false"
+    return _num(cell)
+
+
+def _column_text(column: dict) -> str:
+    """What one column holds, for the note: numbers with minimum, maximum and mean, true/false values."""
+    parts = []
+    if column["numeric"]:
+        s = column["stats"]
+        parts.append(f"{column['numeric']} numbers, min {_num(s['min'])}, max {_num(s['max'])}, mean {_num(s['mean'])}")
+    if column["bools"]:
+        parts.append(f"{column['bools']} true/false ({column['trues']} true)")
+    return f"{column['field']}: " + (", ".join(parts) if parts else "no value")
+
+
+def _rows_table(values: dict) -> dict:
+    """The table of the rows of several fields: one row per row of the export (date, one cell per field), the
+    counts of the columns in the note."""
+    title = f"{values['label']} › rows by date  (values)"
+    if not values["supported"]:
+        text = ("This family has no date key: its rows cannot be placed by date." if not values["dated"] else
+                "These fields cannot be shown as values: a path has a list or a key that is masked (an id).")
+        return {"title": title, "headers": [], "rows": [], "note": text}
+    counts = (f"{values['used']} of {values['rows']} rows hold a number or a true/false value in these fields and a "
+              f"readable date. Not shown: {values['undated']} rows without a readable date, {values['empty_rows']} "
+              "rows with none of these fields.")
+    if not values["table"]:
+        return {"title": title, "headers": [], "rows": [], "note": f"Nothing to show. {counts}"}
+    parts = [counts]
+    if values["cut"]:
+        parts.append(f"Only the newest {len(values['table'])} rows are shown; {values['cut']} older rows are not "
+                     "(the counts below use all).")
+    parts.append("Columns: " + "; ".join(_column_text(column) for column in values["columns"]) + ".")
+    parts.append("Raw values, not converted; a unit in a column head is documented (field name or GLA code), a head "
+                 "without one has no documented unit.")
+    numeric = sum(1 for column in values["columns"] if column["stats"])
+    if not numeric:
+        parts.append("The graph needs a numeric column; true/false values are shown in the table only.")
+    elif numeric > ROWS_CHART_FIELDS:
+        parts.append(f"The graph shows the first {ROWS_CHART_FIELDS} numeric columns.")
+    if values["stopped"]:
+        parts.append("The read was stopped before the end: the rows are incomplete.")
+    if values["unreadable"] or values["too_large"]:
+        parts.append(f"Unreadable files: {values['unreadable']}, too large: {values['too_large']}.")
+    headers = ["Date"] + [units.with_unit(column["field"], units.unit_of(values["family"], column["field"]))
+                          for column in values["columns"]]
+    return {"title": title, "note": " ".join(parts), "headers": headers,
+            "rows": [[_cell(row[0])] + [_cell(_rows_cell_text(cell)) for cell in row[1:]] for row in values["table"]]}
+
+
+def _rows_js(values: dict, colors: dict, theme) -> str:
+    """The glaRender call of the rows: one chart per drawn column, stacked from the top, one date axis at the
+    bottom for all (a zoom on the dates counts for every chart). Several rows of one day are several points on
+    that date. The colours are the series colours of the theme."""
+    chosen = _chart_columns(values)
+    count = len(chosen)
+    palette = series_colors(theme, count)
+    span = (1 - _CHART_GAP * (count - 1)) / count
+    layout = _layout(colors, f"{values['label']} › values by date", max(420, 160 + 130 * count))
+    layout["showlegend"] = False
+    layout["xaxis"] = _axis(colors, type="date", anchor="y" if count == 1 else f"y{count}")
+    data = []
+    for position, (index, column) in enumerate(chosen):
+        suffix = "" if position == 0 else str(position + 1)
+        top = 1 - position * (span + _CHART_GAP)
+        points = [(row[0], row[1 + index]) for row in values["table"]
+                  if row[1 + index] is not None and not isinstance(row[1 + index], bool)]
+        data.append({"type": "scatter", "mode": "lines+markers", "name": _plot_text(column["field"]),
+                     "x": [day for day, _number in points], "y": [number for _day, number in points],
+                     "xaxis": "x", "yaxis": "y" + suffix, "line": {"color": palette[position], "width": 1},
+                     "marker": {"size": 4, "color": palette[position]}, "hovertemplate": "%{x}: %{y}<extra></extra>"})
+        found = units.unit_of(values["family"], column["field"])
+        layout["yaxis" + suffix] = _axis(colors, title=units.with_unit(column["field"], found),
+                                         domain=[max(0.0, round(top - span, 4)), round(top, 4)], anchor="x")
     return f"glaRender({_safe_json(data)}, {_safe_json(layout)});"
 
 

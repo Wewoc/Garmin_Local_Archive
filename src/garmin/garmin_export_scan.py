@@ -51,8 +51,11 @@ Public API:
         if the path does not exist. A ZIP that cannot be opened gives source "unreadable", no error.
   scan_field(path, family, field, should_stop=None) -> dict — one field by month (the detail window, on demand)
   read_values(path, family, field, should_stop=None, max_points=MAX_VALUE_POINTS) -> dict
-        — the VALUES of one numeric field by date, for the values view: the only function that returns
-        values of the export; the window keeps them in memory only (see its docstring)
+        — the VALUES of one numeric field by date, for the values view: with read_rows the only
+        functions that return values of the export; the window keeps them in memory only (see its docstring)
+  read_rows(path, family, fields, should_stop=None, max_rows=MAX_ROWS) -> dict
+        — the numbers and yes/no values of up to MAX_ROW_FIELDS fields of one family, one table row per row
+        of the export, by date (the rows view); the window keeps them in memory only, like the values
   values_supported(field) -> bool                       — can the values of this field be read
   read_windows(path, should_stop=None) -> dict          — the four wellness times of each day (UDS files),
         for the heart-rate day view (garmin_export_scan_day.py); times only, kept in memory by the window
@@ -575,6 +578,8 @@ def _scan_names(source: str, names: list, reader, should_stop, progress) -> dict
 
 MAX_VALUE_POINTS = 20000       # points of one values view; more are thinned evenly (statistics use all)
 HISTOGRAM_BINS = 30
+MAX_ROWS = 5000                # rows of one rows view (read_rows); with more, the newest stay
+MAX_ROW_FIELDS = 12            # fields of one rows view
 
 
 def values_supported(field) -> bool:
@@ -613,9 +618,9 @@ def _histogram(numbers: list, bins: int = HISTOGRAM_BINS) -> dict:
 
 def read_values(path, family, field, should_stop=None, max_points=MAX_VALUE_POINTS) -> dict:
     """
-    The VALUES of ONE numeric field of a family, by date: for the values view of the window. This is the
-    only function of this module that returns values of the export (scan(), scan_field() and the reports
-    never do); the window keeps them in memory only, never in the scan result, the report, the log or a
+    The VALUES of ONE numeric field of a family, by date: for the values view of the window. This and
+    read_rows are the only functions of this module that return values of the export (scan(), scan_field()
+    and the reports never do); the window keeps them in memory only, never in the scan result, the report, the log or a
     file. Nothing is written or logged here either.
 
     family, field : as for scan_field(); the field must be readable as values (values_supported()), else
@@ -686,6 +691,121 @@ def read_values(path, family, field, should_stop=None, max_points=MAX_VALUE_POIN
         thinned[-1] = points[-1]                         # the first point and the last one stay
         points, result["thinned"] = thinned, True
     result["points"] = [[day, number] for day, number in points]
+    return result
+
+
+def _family_rows(root: Path, fam: Family, result: dict, should_stop):
+    """
+    The rows (objects only) of every file of one family, file after file. The counters of result are
+    kept here: "source", "files", "unreadable", "too_large" and "stopped" (the caller creates the keys).
+    should_stop() is asked before each file; a ZIP stays open until the generator is finished.
+    """
+    with _opened(root) as (source, names, reader):
+        result["source"] = source
+        for name in names:
+            if classify(name) is not fam:
+                continue
+            if should_stop is not None and should_stop():
+                result["stopped"] = True
+                break
+            result["files"] += 1
+            state, data = _read_file(reader, name)
+            if state != "ok":
+                result["unreadable" if state == "unreadable" else "too_large"] += 1
+                continue
+            for row in _rows(data, fam):
+                if isinstance(row, dict):
+                    yield row
+
+
+def _cell(value):
+    """A cell of the rows view: a number or a yes/no value as it is, None for anything else."""
+    return value if isinstance(value, bool) else _number(value)
+
+
+def read_rows(path, family, fields, should_stop=None, max_rows=MAX_ROWS) -> dict:
+    """
+    The VALUES of several fields of a family, one table row per row of the export, by date: for the rows
+    view of the window. Like read_values this returns values of the export; the window keeps them in
+    memory only, never in the scan result, the report, the log or a file. Nothing is written or logged
+    here either.
+
+    family, field : a key of FAMILIES and 1 to MAX_ROW_FIELDS field paths as scan() names them (a field
+                    named twice is one column, the order is kept). Every field must be readable as values
+                    (values_supported()) and the family must have a date key, else the result says
+                    supported False and nothing is read.
+    Result: {"schema", "source", "family", "label", "fields", "supported", "dated", "stopped", "files",
+             "unreadable", "too_large", "rows", "undated", "empty_rows", "used", "cut", "columns", "table"}
+      rows        rows (objects) of the files of the family
+      undated     rows without a readable date (not shown, not counted in the columns)
+      empty_rows  rows with a date in which no field holds a number or a yes/no value (not shown)
+      used        rows with a date and at least one cell; cut  how many of the OLDEST of them are not in the
+                  table because there were more than max_rows (the columns count all of them)
+      columns     per field: {"field", "numeric", "bools", "trues", "other", "missing", "stats"} over the rows
+                  with a date: numbers / yes-no values / of them true / present but neither (text, a list,
+                  NaN) / absent, null or "" ; numeric + bools + other + missing is the number of rows with a
+                  date. stats {count, min, max, mean, median, zeros} of the numbers (None if there are none)
+      table       [[YYYY-MM-DD, cell, ...], ...] by date, the cells in the order of "fields": a number, True
+                  or False, or None where the row has none. Several rows of one day stay several rows, in the
+                  order of the files. At most max_rows rows (at least 1): the newest.
+    Raises FileNotFoundError (without the path) if the path does not exist, ValueError (naming nothing) if the
+    family is not in FAMILIES, the fields are no non-empty list of non-empty text, or more than MAX_ROW_FIELDS.
+    """
+    fam = FAMILIES.get(family)
+    if (fam is None or not isinstance(fields, (list, tuple)) or not fields
+            or not all(isinstance(f, str) and f for f in fields)):
+        raise ValueError("unknown family or fields")
+    fields = list(dict.fromkeys(fields))
+    if len(fields) > MAX_ROW_FIELDS:
+        raise ValueError("too many fields")
+    root = Path(path)
+    if not root.exists():
+        raise FileNotFoundError("export path does not exist")
+    dated = fam.date_path is not None
+    supported = dated and all(values_supported(f) for f in fields)
+    columns = [{"field": f, "numeric": 0, "bools": 0, "trues": 0, "other": 0, "missing": 0, "stats": None}
+               for f in fields]
+    result = {"schema": SCHEMA_VERSION, "source": "not read", "family": family, "label": fam.label,
+              "fields": fields, "supported": supported, "dated": dated, "stopped": False, "files": 0,
+              "unreadable": 0, "too_large": 0, "rows": 0, "undated": 0, "empty_rows": 0, "used": 0, "cut": 0,
+              "columns": columns, "table": []}
+    if not supported:
+        return result
+    kept: list = []
+    numbers: list = [[] for _ in fields]
+    for row in _family_rows(root, fam, result, should_stop):
+        result["rows"] += 1
+        day = _date_of(_dig(row, fam.date_path))
+        if day is None:
+            result["undated"] += 1
+            continue
+        cells = []
+        for index, field in enumerate(fields):
+            value = _dig(row, field)
+            cell = _cell(value)
+            cells.append(cell)
+            column = columns[index]
+            if cell is None:
+                column["missing" if value is None or value == "" else "other"] += 1
+            elif isinstance(cell, bool):
+                column["bools"] += 1
+                column["trues"] += 1 if cell else 0
+            else:
+                column["numeric"] += 1
+                numbers[index].append(cell)
+        if all(cell is None for cell in cells):
+            result["empty_rows"] += 1
+            continue
+        kept.append((day, cells))
+    kept.sort(key=lambda item: item[0])                  # stable: the rows of one day stay in file order
+    result["used"] = len(kept)
+    limit = max(1, int(max_rows))
+    if len(kept) > limit:
+        result["cut"] = len(kept) - limit
+        kept = kept[-limit:]
+    for column, column_numbers in zip(columns, numbers):
+        column["stats"] = _stats(column_numbers) if column_numbers else None
+    result["table"] = [[day, *cells] for day, cells in kept]
     return result
 
 

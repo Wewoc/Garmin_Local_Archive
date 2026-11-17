@@ -63,6 +63,7 @@ Every one of these cost a surviving mutant at least once:
 | v1.7.6.11.2 | hand list | prediction catch-up and its wiring | 67 mutants, 66 caught, 1 equivalent (EQ-14) |
 | v1.7.6.12 | Cosmic Ray, stage 1 + 2 (2026-11-09) | all modules built in v1.7.6.x; changed lines of the core modules and of the mirror import | 9905 mutants in stage 1, 8343 caught; every survivor judged, 434 new checks, the rest equivalent (EQ-16 to EQ-46), see below |
 | v1.7.7 | Cosmic Ray, stage 1, then the survivor lines again (2026-11-13) | the three modules of the Export Scan: `garmin_export_scan`, `garmin_export_scan_fit`, `garmin_export_scan_day` | 1884 mutants, 1626 caught in stage 1; every survivor judged, 64 new checks, the rest equivalent (EQ-48 to EQ-55), see below |
+| v1.7.7.1 | Cosmic Ray, stage 1, then the survivor lines again (2026-11-17), and hand lists for the model and the window | the new lines of `garmin_export_scan` (`read_rows`, `_family_rows`, `_cell`, the two constants); the model and the window by hand lists | 159 mutants, 147 caught in stage 1; every survivor judged, 5 new checks, the rest equivalent (EQ-56, EQ-57), see below |
 
 ### v1.7.6.12
 
@@ -116,6 +117,14 @@ What the round found in the tests (none of it in the code): the limits without a
 too large or a row that is no object that no test followed by a good one (a `continue` against a `break`); a stop that was asked again for every file that was left; a progress number that was right but reported one file too early; the
 defaults of a result; the lines of the text report (each of the "or" conditions needs a case where only that one holds); a median, a mean and a histogram checked with numbers that every wrong operator also gets right; two floats that are one
 object because the compiler folded them.
+
+### v1.7.7.1
+
+Scope: the new lines of `garmin_export_scan` (`read_rows`, `_family_rows`, `_cell` and the two constants: lines 581-582 and 697-811, run with `--only garmin_export_scan --lines`). The model and the window live in `src/app/popups/`, which the tool does not reach: they were checked with hand lists during the build steps and are not counted in the table (58 mutants for `read_rows` and `_family_rows` with 57 caught and one equivalent, 60 for the rows part of the model all caught, 75 for the window, the field dialog and `rows_fields` with 69 caught and six equivalent or redundant, 7 changes of the guide test all caught). No stage 2.
+
+Stage 1: `garmin_export_scan` against `test_export_scan.py`: 159 mutants, 147 caught, 12 survived. All 12 were judged one by one: 5 gaps in the tests and 7 equivalent changes (EQ-56, EQ-57). 5 new checks (section "10c. mutation round v1.7.7.1" of `test_export_scan.py`); no new test file; no production code changed. The survivor lines were run again: 74 mutants, 67 caught; the 7 that are left are the equivalent changes of EQ-56 and EQ-57.
+
+What the round found in the tests (none of it in the code): a stop that does not end the walk (a `break` against a `continue`: a stop function that says yes only once went unnoticed, because the tests used one that always says yes); a damaged or too large file in the middle of the files (only one at the end was tested: a `continue` against a `break`); the counts of an unsupported read, which have to stay at 0 (the starting values were not looked at); the count of true values, tested with as many true as false values, so that counting the false ones gave the same number. The hand lists found gaps of the same kinds before the round: a column without a value, a count that equals the number of rows by chance, the border of exactly four columns, a text for only one of two counts, the check of an unknown export.
 
 ## Equivalent mutants
 
@@ -180,6 +189,8 @@ must not be assumed.
 | EQ-53 | v1.7.7 | `garmin_export_scan.py` (`_put`, `_flatten`, `_add_row`) | `state > out.get(path, -1)` → `>=`, default `-1` → `-2` / `~1`; `depth >= MAX_DEPTH` → `==` / `is`; `len(fields) >= MAX_PATHS_PER_FAMILY` → `==` | A state that equals the stored one replaces it by itself, and the default only has to be below 0; depth and the number of fields grow by one, so they reach the limit exactly and never pass it. |
 | EQ-54 | v1.7.7 | `garmin_export_scan.py` (`scan_field`, `_histogram`) | `filled + zero > 0` → `\|` / `!= 0`; `low == high` → `>=` / `is`; `int((v - low) / width)` → `//` | The two counts are never negative, so the sum and the bitwise or are 0 together; `low` is never above `high`; `min` and `max` of equal values return the same object; `v - low` is not negative, so the whole part of a quotient equals its floor. |
 | EQ-55 | v1.7.7 | `garmin_export_scan_day.py` (`prepare`, `read_day`) | `first < len(ordered)` → `!=` / `is not`; `met == len(wanted)` → `>=` / `is`; `ms // 1000` → `ms / 1000` | `first` and `met` never pass their limit (the sweep stops at the end, each file of the walk is met once), and a small number is one object; the milliseconds are whole seconds, so the division gives the same time. |
+| EQ-56 | v1.7.7.1 | `garmin_export_scan.py` (`_family_rows`) | `classify(name) is not fam` → `!=`; `state != "ok"` → `>` / `is not`; `state == "unreadable"` → `>=` / `is` | `classify` returns the family itself or `None`, and two families are never equal; the three state words order the same against each of them ("ok" < "too_large" < "unreadable", as in EQ-52) and a literal is one object. |
+| EQ-57 | v1.7.7.1 | `garmin_export_scan.py` (`read_rows`) | `value == ""` → `is`; `len(kept) > limit` → `>=` | The empty text of a parsed file is the one empty-string object (as in EQ-52); with exactly `limit` rows nothing is cut (`cut` is 0 and `kept[-limit:]` keeps all of them). |
 
 Equivalent mutants found in v1.7.6.12 are added below, with the run and the module.
 

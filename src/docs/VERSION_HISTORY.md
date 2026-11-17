@@ -2,11 +2,12 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
-## v1.7.7 — Export Scan
+## v1.7.7 – v1.7.7.1 — Export Scan
 
 - New "Export Scan" window: shows which data your own Garmin export holds and how complete it is, by topic, as a table or a graph.
 - Look into one field (by month or year, its numbers over time or as a distribution, with units where there is evidence) and into the heart rate of any single day.
 - Reads only: nothing is written to your archive, and no file name or value goes into a report or the log.
+- Choose up to 12 fields of a family and see them side by side by date, as a table or as one chart per number column (v1.7.7.1).
 - A short guide opens from the Help button of the window.
 
 ## v1.7.6 – v1.7.6.12 — Garmin Export as a Second Source

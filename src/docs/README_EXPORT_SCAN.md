@@ -25,7 +25,8 @@ can deliver, the Export Scan shows what your export holds). The window stays ope
   - A group: rows per year and family.
   - A family: every **field** by year. A cell shows the share of rows that have a value (filled, or a 0 — a 0 is a
     value). Hover a cell for the four states: **filled**, **zero**, **empty** (null, `""`, `[]`, `{}`) and **absent**
-    (the key is not in the row). The graph is a heat map of the same shares.
+    (the key is not in the row). The graph is a heat map of the same shares. **Rows ...** (top right) shows the
+    values of several fields by date, see *The rows of several fields* below.
   - *FIT files*: type by year (the graph shows stacked bars). Type names are working names, not Garmin terms.
   - *Not recognised* and *Folders*: only folder names and counts, never a file name.
 - The colours are those of the active theme of the app.
@@ -46,6 +47,33 @@ leaves it. Only the table is clickable, the graph is not.
   the field as that unit, for example the resting heart rate as bpm). Everything else says *unit not documented*.
   Nothing is converted: the values are shown as the export holds them, which can differ from the archive (the archive
   keeps distances in km, the export has metres).
+
+## The rows of several fields
+
+At a family (for example *UDSFile*) the button **Rows ...** (top right, next to **Table** and **Graph**) shows several
+fields side by side, one table row per row of the export. The button is there for a family whose rows have a date; a
+family without one (a few small ones) has no such button. While a scan or a read runs, it is off.
+
+1. Click **Rows ...**. A small window lists the fields of the family. Type in the filter line to find a field (the case
+   does not matter) and tick up to **12** fields; the count shows "n of 12 selected" and **OK** works with 1 to 12. A
+   field with a documented unit shows it (see *Units* above). A field inside a list (a path with `[]`) is not offered.
+2. **OK** reads the rows from the export (on the author's export a fraction of a second). The table has the column
+   **Date** and one column per field, sorted by date.
+
+- **One table row per row of the export.** Many families write more than one row a day; they stay separate rows with the
+  same date, in the order of the files. Nothing is added up or merged.
+- **A cell** holds a number, **true** or **false**, or **–** where the row has nothing of that kind. A field that holds
+  text (a name, an id, a place) shows **–** only: text is never shown. Look at the name of a field before you choose it.
+- **The note** above the table says how many rows hold a value in the chosen fields, how many rows are not shown because
+  they have no readable date or none of the chosen fields holds a number or a true / false value, and for each column
+  how many numbers it holds with their minimum, maximum and mean.
+- **At most 5,000 rows** are shown. With more, the newest 5,000 stay and the note says how many older rows are left out;
+  the figures of the columns use all rows.
+- **Graph** draws one chart per numeric column (the first **4** if you chose more), one above the other, with one date
+  axis for all. Zooming or moving on the dates (mouse wheel, or draw a frame) counts for every chart. Several rows of one
+  day are several points on that date. A column that holds only true / false values is in the table, not in the graph.
+- **Back**, another item of the tree, a new scan or closing the window leaves the view and forgets the rows (see
+  *Privacy*).
 
 ## The heart rate of one day
 
@@ -72,7 +100,7 @@ only: family and field names, folder names, counts. It is meant for a bug report
 
 - The files of a real export are named after the e-mail address of the account. **No file name** is shown, saved or
   logged; a folder name that contains an `@` is shown as `<hidden>`.
-- **Values** appear only in the values views (a field, or the heart rate of a day). They are kept in memory only and are
+- **Values** appear only in the values views (a field, the rows of several fields, or the heart rate of a day). They are kept in memory only and are
   forgotten when you go back, choose another item, start a new scan or close the window. They are never written to the
   report, the log, the status line or any file.
 - **A screenshot of a values view contains the values.** The window says so above the values.
@@ -86,6 +114,7 @@ only: family and field names, folder names, counts. It is meant for a bug report
   field paths are kept per family (the table says when the list was cut).
 - The status of a family (green, yellow, grey) is what GLA does **today**; a grey family can still be worth a look.
 - The scan shows what the export holds, not whether the values are right.
-- Values are numbers only; names, ids and other text fields are not shown.
+- Values are numbers and true / false values only; names, ids and other text fields are not shown (a text field of
+  the rows view shows **–**). The rows view takes at most 12 fields and shows at most 5,000 rows.
 
 See also: `REFERENCE_GARMIN_EXPORT.md` (how the export is built), `README_APP.md` and `USER_GUIDE.txt`.

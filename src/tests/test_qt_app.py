@@ -5784,6 +5784,173 @@ class TestExportScanModel:
         field = self._glarender(model.build_values_js(self._values(), "series", t))[1]
         assert field["title"]["text"] == "UDSFile › totalSteps: values over time"            # a field has no date in its title
 
+    @staticmethod
+    def _rows(**kw):
+        """The rows of three fields as garmin_export_scan.read_rows returns them: numbers, true/false, numbers."""
+        rows = {"schema": 1, "source": "zip", "family": "uds", "label": "UDSFile",
+                "fields": ["totalSteps", "wellnessActive", "restingHeartRate"],
+                "supported": True, "dated": True, "stopped": False, "files": 2, "unreadable": 0, "too_large": 0,
+                "rows": 9, "undated": 1, "empty_rows": 2, "used": 5, "cut": 0,
+                "columns": [
+                    {"field": "totalSteps", "numeric": 4, "bools": 0, "trues": 0, "other": 0, "missing": 4,
+                     "stats": {"count": 4, "min": 0, "max": 1500.5, "mean": 800.1875, "median": 850.125, "zeros": 1}},
+                    {"field": "wellnessActive", "numeric": 0, "bools": 3, "trues": 2, "other": 0, "missing": 5, "stats": None},
+                    {"field": "restingHeartRate", "numeric": 3, "bools": 0, "trues": 0, "other": 1, "missing": 4,
+                     "stats": {"count": 3, "min": 55, "max": 58, "mean": 56.0, "median": 55, "zeros": 0}}],
+                "table": [["2023-01-05", 0, True, 55], ["2023-01-06", 1000, False, None], ["2023-01-06", 1500.5, None, 58],
+                          ["2023-02-01", None, True, None], ["2023-03-01", 700.25, None, 55]]}
+        rows.update(kw)
+        return rows
+
+    @staticmethod
+    def _num_columns(count):
+        """`count` numeric columns f0, f1, ... (one number each) and a table with one row for them."""
+        columns = [{"field": f"f{i}", "numeric": 1, "bools": 0, "trues": 0, "other": 0, "missing": 0,
+                    "stats": {"count": 1, "min": i, "max": i, "mean": i, "median": i, "zeros": 0}} for i in range(count)]
+        return {"fields": [c["field"] for c in columns], "columns": columns, "table": [["2023-01-05", *range(count)]]}
+
+    def test_the_rows_are_a_third_kind_of_values_next_to_a_field_and_a_day(self, model):
+        assert model.is_rows(self._rows()) and not model.is_rows(self._values()) and not model.is_rows(self._day())
+        assert not model.is_day(self._rows())
+
+    def test_rows_table_head_cells_and_notes(self, model):
+        table = model.build_values_table(self._rows())
+        assert table["title"] == "UDSFile › rows by date  (values)"
+        assert table["headers"] == ["Date", "totalSteps (steps)", "wellnessActive", "restingHeartRate (bpm)"]
+        assert [[c["text"] for c in r] for r in table["rows"]] == [
+            ["2023-01-05", "0", "true", "55"], ["2023-01-06", "1000", "false", "–"], ["2023-01-06", "1500.5", "–", "58"],
+            ["2023-02-01", "–", "true", "–"], ["2023-03-01", "700.25", "–", "55"]]
+        note = table["note"]
+        assert "5 of 9 rows hold a number or a true/false value in these fields and a readable date." in note
+        assert "Not shown: 1 rows without a readable date, 2 rows with none of these fields." in note
+        assert ("Columns: totalSteps: 4 numbers, min 0, max 1500.5, mean 800.188; wellnessActive: 3 true/false (2 true); "
+                "restingHeartRate: 3 numbers, min 55, max 58, mean 56.") in note
+        assert "Raw values, not converted" in note
+        for absent in ("Only the newest", "stopped", "Unreadable", "The graph"):
+            assert absent not in note
+
+    def test_rows_table_says_what_was_cut_stopped_or_not_drawn(self, model):
+        more = model.build_values_table(self._rows(cut=40, used=45, stopped=True, unreadable=2, too_large=1))["note"]
+        assert "Only the newest 5 rows are shown; 40 older rows are not (the counts below use all)." in more
+        assert "The read was stopped before the end: the rows are incomplete." in more and "Unreadable files: 2, too large: 1." in more
+        many = self._rows(**self._num_columns(5))
+        assert "The graph shows the first 4 numeric columns." in model.build_values_table(many)["note"]
+        assert "The graph shows" not in model.build_values_table(self._rows(**self._num_columns(4)))["note"]     # 4 are all drawn
+        assert "Unreadable files: 2, too large: 0." in model.build_values_table(self._rows(unreadable=2))["note"]
+        assert "Unreadable files: 0, too large: 1." in model.build_values_table(self._rows(too_large=1))["note"]
+        flags = self._rows(fields=["b"], columns=[{"field": "b", "numeric": 0, "bools": 1, "trues": 1, "other": 0,
+                                                   "missing": 0, "stats": None}], table=[["2023-01-05", True]])
+        assert "The graph needs a numeric column; true/false values are shown in the table only." in model.build_values_table(flags)["note"]
+
+    def test_rows_table_for_what_cannot_be_shown(self, model):
+        nodate = model.build_values_table(self._rows(supported=False, dated=False, table=[]))
+        assert nodate["rows"] == [] and nodate["headers"] == [] and "no date key" in nodate["note"]
+        bad = model.build_values_table(self._rows(supported=False, dated=True, table=[]))
+        assert bad["rows"] == [] and "cannot be shown as values" in bad["note"] and "no date key" not in bad["note"]
+        none = model.build_values_table(self._rows(used=0, empty_rows=8, table=[]))
+        assert none["rows"] == [] and none["headers"] == [] and none["note"].startswith("Nothing to show. 0 of 9 rows")
+        assert none["title"] == "UDSFile › rows by date  (values)"
+
+    def test_the_rows_chart_stacks_one_chart_per_numeric_column_on_a_shared_date_axis(self, model):
+        t = self.THEME
+        data, layout = self._glarender(model.build_values_js(self._rows(), "series", t))
+        assert [tr["name"] for tr in data] == ["totalSteps", "restingHeartRate"]             # the true/false column is not drawn
+        assert data[0]["x"] == ["2023-01-05", "2023-01-06", "2023-01-06", "2023-03-01"] and data[0]["y"] == [0, 1000, 1500.5, 700.25]
+        assert data[1]["x"] == ["2023-01-05", "2023-01-06", "2023-03-01"] and data[1]["y"] == [55, 58, 55]
+        assert [tr["xaxis"] for tr in data] == ["x", "x"] and [tr["yaxis"] for tr in data] == ["y", "y2"]
+        assert layout["yaxis"]["domain"] == [0.53, 1.0] and layout["yaxis2"]["domain"] == [0.0, 0.47]
+        assert layout["xaxis"]["type"] == "date" and layout["xaxis"]["anchor"] == "y2"
+        assert layout["yaxis"]["anchor"] == "x" and layout["yaxis2"]["anchor"] == "x"
+        assert layout["yaxis"]["title"]["text"] == "totalSteps (steps)" and layout["yaxis2"]["title"]["text"] == "restingHeartRate (bpm)"
+        assert layout["title"]["text"] == "UDSFile › values by date" and layout["showlegend"] is False and layout["height"] == 420
+        colours = model.series_colors(t, 2)
+        assert [tr["line"]["color"] for tr in data] == colours and [tr["marker"]["color"] for tr in data] == colours
+        assert layout["xaxis"]["gridcolor"] == t["bg3"] and layout["paper_bgcolor"] == t["bg"]
+
+    def test_the_rows_chart_for_one_two_three_four_and_more_columns(self, model):
+        t = self.THEME
+        for count, drawn, height in ((1, 1, 420), (2, 2, 420), (3, 3, 550), (4, 4, 680), (5, 4, 680)):
+            rows = self._rows(**self._num_columns(count))
+            data, layout = self._glarender(model.build_values_js(rows, "series", t))
+            assert [tr["name"] for tr in data] == [f"f{i}" for i in range(drawn)] and layout["height"] == height
+            keys = ["yaxis"] + [f"yaxis{k}" for k in range(2, drawn + 1)]
+            assert all(key in layout for key in keys) and f"yaxis{drawn + 1}" not in layout
+            domains = [layout[key]["domain"] for key in keys]
+            assert domains[0][1] == 1.0 and domains[-1][0] == 0.0 and all(lo < hi for lo, hi in domains)
+            assert all(domains[k][0] > domains[k + 1][1] for k in range(drawn - 1))             # stacked, no overlap
+            assert layout["xaxis"]["anchor"] == ("y" if drawn == 1 else f"y{drawn}")
+            assert [tr["yaxis"] for tr in data] == ["y"] + [f"y{k}" for k in range(2, drawn + 1)]
+
+    def test_the_rows_chart_draws_the_numbers_of_a_mixed_column_not_its_true_false_values(self, model):
+        column = {"field": "m", "numeric": 2, "bools": 1, "trues": 1, "other": 0, "missing": 0,
+                  "stats": {"count": 2, "min": 1, "max": 2, "mean": 1.5, "median": 1.5, "zeros": 0}}
+        rows = self._rows(fields=["m"], columns=[column],
+                          table=[["2023-01-05", 1], ["2023-01-06", True], ["2023-01-07", 2], ["2023-01-08", None]])
+        data, _layout = self._glarender(model.build_values_js(rows, "series", self.THEME))
+        assert data[0]["x"] == ["2023-01-05", "2023-01-07"] and data[0]["y"] == [1, 2]
+        assert [r[1]["text"] for r in model.build_values_table(rows)["rows"]] == ["1", "true", "2", "–"]
+
+    def test_the_rows_chart_domains_of_three_charts_are_exact(self, model):
+        layout = self._glarender(model.build_values_js(self._rows(**self._num_columns(3)), "series", self.THEME))[1]
+        assert [layout[key]["domain"] for key in ("yaxis", "yaxis2", "yaxis3")] == [
+            [0.7067, 1.0], [0.3533, 0.6467], [0.0, 0.2933]]
+
+    def test_a_rows_column_without_any_value_says_so_and_an_unsupported_result_has_no_chart(self, model):
+        empty = {"field": "gone", "numeric": 0, "bools": 0, "trues": 0, "other": 0, "missing": 5, "stats": None}
+        rows = self._rows(fields=["totalSteps", "gone"], columns=[self._rows()["columns"][0], empty],
+                          table=[["2023-01-05", 1, None]])
+        assert "gone: no value." in model.build_values_table(rows)["note"]
+        assert not model.has_values(self._rows(supported=False))                  # a table alone is not enough
+
+    def test_the_rows_call_needs_a_numeric_column_and_ignores_the_mode(self, model):
+        t = self.THEME
+        flags = self._rows(fields=["b"], columns=[{"field": "b", "numeric": 0, "bools": 1, "trues": 1, "other": 0,
+                                                   "missing": 0, "stats": None}], table=[["2023-01-05", True]])
+        assert model.has_values(self._rows()) and not model.has_values(flags)
+        assert not model.has_values(self._rows(table=[])) and not model.has_values(self._rows(supported=False, table=[]))
+        assert model.build_values_js(flags, "series", t) is None and model.build_values_js(self._rows(table=[]), "series", t) is None
+        same = model.build_values_js(self._rows(), "series", t)
+        assert same == model.build_values_js(self._rows(), "histogram", t) == model.build_values_js(self._rows(), "nonsense", t)
+
+    def test_rows_texts_of_the_export_stay_markup_free_and_the_colours_come_from_the_theme(self, model):
+        import re
+        t = self.THEME
+        evil_field = '</script><a href="https://evil.example">x</a>'
+        column = {"field": evil_field, "numeric": 1, "bools": 0, "trues": 0, "other": 0, "missing": 0,
+                  "stats": {"count": 1, "min": 5, "max": 5, "mean": 5, "median": 5, "zeros": 0}}
+        evil = self._rows(label="L & <b>", fields=[evil_field], columns=[column], table=[["2023-01-05", 5]])
+        js = model.build_values_js(evil, "series", t)
+        assert "<" not in js and ">" not in js and "&" not in js
+        data, layout = self._glarender(js)
+        assert layout["title"]["text"] == "L &amp; &lt;b&gt; › values by date"
+        assert "<a href" not in layout["yaxis"]["title"]["text"] and "&lt;/script&gt;" in layout["yaxis"]["title"]["text"]
+        assert "<a href" not in data[0]["name"]
+        assert model.build_values_table(evil)["headers"][1] == evil_field                      # the table shows plain text
+        found = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", model.build_values_js(self._rows(), "series", t))}
+        assert found and found <= {v.lower() for v in t.values()}
+
+    def test_the_rows_of_the_scanner_go_through_the_model(self, model, tmp_path):
+        import garmin_export_scan as es
+        rr = es.read_rows(_scan_export_zip(tmp_path), "uds", ["totalSteps", "restingHeartRate"])
+        table = model.build_values_table(rr)
+        assert rr["table"] and len(table["rows"]) == rr["used"] - rr["cut"]
+        assert table["headers"] == ["Date", "totalSteps (steps)", "restingHeartRate (bpm)"]
+        data, _layout = self._glarender(model.build_values_js(rr, "series", self.THEME))
+        assert [len(tr["y"]) for tr in data] == [c["numeric"] for c in rr["columns"]]
+
+    def test_rows_fields_are_the_readable_fields_of_a_family_with_dated_rows(self, model, result):
+        import garmin_export_scan as es
+        fields = model.rows_fields(result, "uds", es.values_supported)
+        assert set(fields) == {"calendarDate", "totalSteps", "stress", "stress.avg", "restingHeartRate"}
+        assert fields == [p for p in result["families"]["uds"]["fields"] if es.values_supported(p)]          # the order of the scan
+        assert model.rows_fields(result, "uds", lambda path: path == "totalSteps") == ["totalSteps"]
+        assert model.rows_fields(result, "uds", lambda path: False) == []
+        assert model.rows_fields(result, "nothing", es.values_supported) == []
+        undated = {"families": {"x": {"years": {"unknown": 3}, "fields": {"a": {}}}, "y": {"years": {}, "fields": {"a": {}}}}}
+        assert model.rows_fields(undated, "x", es.values_supported) == [] and model.rows_fields(undated, "y", es.values_supported) == []
+        mixed = {"families": {"z": {"years": {"unknown": 1, "2023": 2}, "fields": {"a": {}, "b[].c": {}}}}}
+        assert model.rows_fields(mixed, "z", es.values_supported) == ["a"]                                    # a list path is left out
+
     def test_no_colour_is_fixed_in_the_window_and_only_neutral_greys_in_the_model(self, app_root):
         """The colours are those of theme.py (the active theme), handed in by the app window."""
         import re
@@ -6358,6 +6525,348 @@ class TestExportScanWindow:
         win2._on_values_done(real.read_values(str(env.zip), "uds", "totalSteps"), None)   # after the close: ignored
         assert win2._values is None and detail is not None
 
+    # ── The rows of several fields ─────────────────────────────────────────────
+
+    def _rows_env(self, env, zip_path=None, picker=None, read_rows=None):
+        """A window with the real scanner whose read_rows is a spy, and a field picker that answers
+        `win._answer["value"]` (a list of fields, None: cancelled). win._row_calls and win._asked record the calls."""
+        import types
+        real = env.mod._load_scanner()
+        calls, asked, answer = [], [], {"value": picker}
+
+        def spy(path, family, fields, should_stop=None):
+            calls.append((path, family, list(fields), callable(should_stop)))
+            return read_rows(path, family, fields, should_stop) if read_rows else real.read_rows(path, family, fields, should_stop=should_stop)
+
+        def pick(family, label, fields):
+            asked.append((family, label, list(fields)))
+            return answer["value"]
+
+        scanner = types.SimpleNamespace(scan=real.scan, write_report=real.write_report, scan_field=real.scan_field,
+                                        read_rows=spy, values_supported=real.values_supported, MAX_ROW_FIELDS=real.MAX_ROW_FIELDS)
+        win = env.make(scanner=scanner, field_picker=pick)
+        win._row_calls, win._asked, win._answer = calls, asked, answer
+        win.start_scan(str(zip_path or env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        return win
+
+    @staticmethod
+    def _cells(win):
+        return [[win._table.item(r, c).text() for c in range(win._table.columnCount())] for r in range(win._table.rowCount())]
+
+    def test_the_top_label_says_where_values_are_shown(self, env):
+        from PyQt6.QtWidgets import QLabel
+        text = " ".join(label.text() for label in env.make().findChildren(QLabel))
+        assert "show numbers of your export and keep them in memory only" in text and "no values" not in text
+
+    def test_the_rows_button_is_there_only_at_a_family_with_dated_rows_and_not_while_something_runs(self, env):
+        import json
+        import zipfile
+        both = env.tmp / "with_gear.zip"
+        with zipfile.ZipFile(both, "w") as z:
+            z.writestr("DI_CONNECT/DI-Connect-Aggregator/UDSFile_a.json", json.dumps([{"calendarDate": "2023-01-05", "totalSteps": 1}]))
+            z.writestr("DI_CONNECT/DI-Connect-Fitness/x_gear.json", json.dumps([{"count": 5}]))      # a family without a date key
+        win = env.make()
+        assert win._rows_btn.text() == "Rows ..." and win._rows_btn.isHidden()                    # no scan yet
+        win.start_scan(str(both))
+        assert win._rows_btn.isHidden()                                                           # the overview
+        win._tree.setCurrentItem(self._item(win, "Daily values"))
+        assert win._rows_btn.isHidden()                                                           # a group
+        win._tree.setCurrentItem(self._item(win, "gear"))
+        assert win._rows_btn.isHidden()                                                           # rows of a family have no date
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        assert not win._rows_btn.isHidden() and win._rows_btn.isEnabled()
+        win._set_running(True)
+        assert not win._rows_btn.isEnabled()
+        win._set_running(False)
+        assert win._rows_btn.isEnabled()
+
+    def test_without_values_supported_the_rows_button_stays_away(self, env):
+        import types
+        real = env.mod._load_scanner()
+        win = env.make(scanner=types.SimpleNamespace(scan=real.scan, write_report=real.write_report))
+        win.start_scan(str(env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        assert win._rows_btn.isHidden() and win._rows_candidates() == []
+
+    def test_choosing_fields_reads_the_rows_and_shows_the_table_the_hint_and_the_graph(self, env):
+        win = self._rows_env(env, picker=["totalSteps", "restingHeartRate"])
+        win._rows_btn.click()
+        assert len(win._asked) == 1 and win._asked[0][:2] == ("uds", "UDSFile")
+        assert set(win._asked[0][2]) == {"calendarDate", "totalSteps", "stress", "stress.avg", "restingHeartRate"}
+        assert win._row_calls == [(str(env.zip), "uds", ["totalSteps", "restingHeartRate"], True)]
+        assert win._values is not None and win._title.text() == "UDSFile › rows by date  (values)"
+        assert [win._table.horizontalHeaderItem(c).text() for c in range(3)] == ["Date", "totalSteps (steps)", "restingHeartRate (bpm)"]
+        cells = self._cells(win)
+        assert len(cells) == 12 and cells[0] == ["2021-03-01", "1001", "–"] and cells[4] == ["2022-03-01", "1001", "55"]
+        assert "12 of 12 rows hold a number or a true/false value" in win._note.text()
+        assert win._status.text() == "UDSFile: 12 rows shown" and win._progress.text() == ""
+        assert not win._hint.isHidden() and not win._back_btn.isHidden()
+        assert win._series_btn.isHidden() and win._dist_btn.isHidden() and win._month_btn.isHidden() and win._year_btn.isHidden()
+        assert win._rows_btn.isHidden() and win._zip_btn.isEnabled() and win._graph_btn.isEnabled()
+
+    def test_the_rows_graph_reaches_the_page_by_javascript_one_chart_per_numeric_column(self, env):
+        win = self._rows_env(env, picker=["totalSteps", "restingHeartRate"])
+        win._rows_btn.click()
+        win._graph_btn.click()
+        assert win._stack.currentWidget() is win._web and win._web_kind == "values" and win._web_ready is True
+        js = win._web.page().js
+        assert len(js) == 1 and js[0].startswith("glaRender(") and '"yaxis2"' in js[0] and '"type": "scatter"' in js[0]
+        win._table_btn.click()
+        assert win._stack.currentWidget() is win._table and win._values is not None
+
+    def test_the_rows_page_has_no_values_and_none_gets_out_report_log_status_or_files(self, env):
+        import json
+        from pathlib import Path
+        win = self._rows_env(env, zip_path=self._sentinel_zip(env.tmp), picker=["secretMetric", "totalSteps"])
+        win._rows_btn.click()
+        win._graph_btn.click()
+        win._save_btn.click()
+        page = (Path(win._tmpdir) / "values.html").read_text(encoding="utf-8")
+        assert "/*plotly*/" in page and "function glaRender" in page and "987654" not in page and "987655" not in page
+        js = win._web.page().js
+        assert len(js) == 1 and "987654.321" in js[0]
+        base = Path(env.parent._panel_settings._collect_settings.return_value["base_dir"])
+        reports = [p for p in base.rglob("*") if p.is_file()]
+        assert {p.name for p in reports} == {"export_scan_report.json", "export_scan_report.txt"}
+        assert all(s not in p.read_text(encoding="utf-8") for p in reports for s in ("987654", "987655", "987656"))
+        logged = " ".join(str(c) for c in env.parent._log.call_args_list)
+        assert all(s not in logged for s in ("987654", "987655", "987656"))
+        assert all(s not in text for s in ("987654", "987655", "987656") for text in
+                   (win._status.text(), win._progress.text(), json.dumps(win._result)))
+        for p in Path(win._tmpdir).iterdir():
+            assert "987654" not in p.read_text(encoding="utf-8")
+        assert self._cells(win)[0] == ["2023-01-05", "987654", "1000"]                              # in the view only
+
+    def test_back_the_item_a_new_scan_and_the_close_forget_the_rows(self, env):
+        for how in ("back", "item", "scan", "close"):
+            win = self._rows_env(env)
+            win._answer["value"] = ["totalSteps", "restingHeartRate"]
+            win._rows_btn.click()
+            win._graph_btn.click()
+            assert win._values is not None and win._web_kind == "values", how
+            if how == "back":
+                win._back_btn.click()
+            elif how == "item":
+                win._tree.setCurrentItem(self._item(win, "MetricsMaxMetData"))
+            elif how == "scan":
+                win.start_scan(str(env.zip))
+            else:
+                win.close()
+            assert win._values is None and win._pending_js is None, how
+            if how != "close":
+                assert win._web_kind != "values" and "about:blank" in win._web.urls, how             # the page was blanked
+            if how == "back":
+                assert win._title.text() == "UDSFile  (read by GLA)" and not win._rows_btn.isHidden() and win._back_btn.isHidden()
+
+    def test_a_cancelled_or_empty_choice_reads_nothing(self, env):
+        win = self._rows_env(env, picker=None)
+        win._rows_btn.click()
+        win._answer["value"] = []
+        win._rows_btn.click()
+        assert len(win._asked) == 2 and win._row_calls == [] and win._values is None
+        assert win._status.text() == "3 of 4 JSON files read" and win._rows_btn.isEnabled()
+
+    def test_a_double_click_in_the_rows_table_opens_no_field_detail(self, env):
+        win = self._rows_env(env, picker=["totalSteps"])
+        win._rows_btn.click()
+        title = win._title.text()
+        win._on_cell_double_click(1, 0)
+        assert win._detail is None and win._values is not None and win._title.text() == title
+
+    def test_a_late_or_stale_answer_of_the_rows_read_falls_away(self, env):
+        real = env.mod._load_scanner()
+        win = self._rows_env(env)
+        answer = real.read_rows(str(env.zip), "uds", ["totalSteps"])
+        win._tree.setCurrentItem(self._item(win, "MetricsMaxMetData"))
+        win._on_values_done(answer, None)                                                      # the item was left
+        assert win._values is None
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        win.start_detail("uds", "totalSteps")
+        assert win._detail is not None
+        win._on_values_done(answer, None)                                                      # a detail is open
+        assert win._values is None
+        win._leave_detail()
+        win.close()
+        win._on_values_done(answer, None)                                                      # after the close
+        assert win._values is None
+
+    def test_a_failing_rows_read_shows_a_fixed_sentence_and_keeps_the_table_of_counts(self, env):
+        def boom(path, family, fields, should_stop):
+            raise PermissionError(13, "denied", "C:/Users/secret.name@example.invalid/export.zip")
+
+        win = self._rows_env(env, picker=["totalSteps"], read_rows=boom)
+        win._rows_btn.click()
+        assert win._status.text() == "The rows could not be read." and win._values is None
+        assert win._title.text() == "UDSFile  (read by GLA)" and win._zip_btn.isEnabled() and "secret" not in win._status.text()
+        assert not win._rows_btn.isHidden() and win._rows_btn.isEnabled() and win._progress.text() == ""
+
+        def missing(path, family, fields, should_stop):
+            raise FileNotFoundError("C:/secret")
+
+        win2 = self._rows_env(env, picker=["totalSteps"], read_rows=missing)
+        win2._rows_btn.click()
+        assert win2._status.text() == "The path does not exist."
+
+    def test_stop_during_the_rows_read_and_the_ignored_cases(self, env):
+        real = env.mod._load_scanner()
+        seen, holder = {}, {}
+
+        def rows(path, family, fields, should_stop):
+            holder["win"]._stop_btn.click()
+            seen["stopped"] = should_stop()
+            seen["label"] = holder["win"]._progress.text()
+            return {**real.read_rows(path, family, fields, should_stop=lambda: False), "stopped": True}
+
+        win = self._rows_env(env, picker=["totalSteps"], read_rows=rows)
+        holder["win"] = win
+        win._rows_btn.click()
+        assert seen == {"stopped": True, "label": "Stopping ..."} and "stopped before the end" in win._note.text()
+        win._back_btn.click()
+        win._running = True
+        win._rows_btn.click()                                                                  # something runs: ignored
+        win.start_rows("uds", ["totalSteps"])
+        win._running = False
+        assert len(win._row_calls) == 1 and len(win._asked) == 1
+        win._tree.setCurrentItem(self._item(win, "MetricsMaxMetData"))
+        win.start_rows("uds", ["totalSteps"])                                                  # not the item of that family
+        assert len(win._row_calls) == 1 and win._values is None
+
+    def test_fields_without_a_number_say_so_and_have_no_graph(self, env):
+        win = self._rows_env(env, picker=["calendarDate"])
+        win._rows_btn.click()
+        assert win._table.rowCount() == 0 and "Nothing to show." in win._note.text()
+        assert win._status.text() == "UDSFile: no rows to show" and not win._graph_btn.isEnabled() and not win._hint.isHidden()
+
+    def test_the_default_picker_asks_the_dialog_with_the_limit_and_answers_the_chosen_fields(self, env, monkeypatch):
+        win = env.make()
+        win.start_scan(str(env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        seen = {}
+        from PyQt6.QtCore import Qt
+
+        def fake_exec(self):
+            seen["limit"], seen["title"] = self._limit, self.windowTitle()
+            for i in range(self._list.count()):
+                if self._list.item(i).data(Qt.ItemDataRole.UserRole) == "totalSteps":
+                    self._list.item(i).setCheckState(Qt.CheckState.Checked)
+            return 1
+
+        monkeypatch.setattr(env.mod.FieldPickerDialog, "exec", fake_exec)
+        win._rows_btn.click()
+        assert seen == {"limit": 12, "title": "Rows of UDSFile"} and win._values is not None
+        assert win._status.text() == "UDSFile: 12 rows shown"
+        monkeypatch.setattr(env.mod.FieldPickerDialog, "exec", lambda self: 0)                 # cancelled
+        win._back_btn.click()
+        win._rows_btn.click()
+        assert win._values is None
+
+    def test_the_field_picker_filters_counts_limits_and_answers_in_the_order_of_the_list(self, env, qtbot):
+        from PyQt6.QtCore import Qt
+        fields = ["totalSteps", "restingHeartRate", "stress.avg", "a.b"]
+        dlg = env.mod.FieldPickerDialog(env.parent, env.parent, "uds", "UDSFile", fields, 2)
+        qtbot.addWidget(dlg)
+        assert dlg.windowTitle() == "Rows of UDSFile" and dlg.isModal() and dlg._list.count() == 4
+        assert [dlg._list.item(i).text() for i in range(4)] == ["totalSteps (steps)", "restingHeartRate (bpm)", "stress.avg", "a.b"]
+        assert dlg.chosen_fields() == [] and not dlg._ok_btn.isEnabled() and dlg._count.text() == "0 of 2 selected"
+        dlg._list.item(1).setCheckState(Qt.CheckState.Checked)
+        dlg._list.item(0).setCheckState(Qt.CheckState.Checked)
+        assert dlg.chosen_fields() == ["totalSteps", "restingHeartRate"] and dlg._ok_btn.isEnabled()      # the order of the list
+        assert dlg._count.text() == "2 of 2 selected"
+        dlg._list.item(2).setCheckState(Qt.CheckState.Checked)
+        assert dlg._count.text() == "3 of 2 selected" and not dlg._ok_btn.isEnabled()                     # over the limit
+        assert env.theme.YELLOW in dlg._count.styleSheet()
+        dlg._list.item(2).setCheckState(Qt.CheckState.Unchecked)
+        assert dlg._ok_btn.isEnabled() and env.theme.TEXT2 in dlg._count.styleSheet()
+        dlg._filter.setText("STRESS")
+        assert [dlg._list.item(i).isHidden() for i in range(4)] == [True, True, False, True]            # not case sensitive
+        assert dlg.chosen_fields() == ["totalSteps", "restingHeartRate"]                                 # hidden ones stay chosen
+        dlg._filter.setText("")
+        assert not any(dlg._list.item(i).isHidden() for i in range(4))
+        dlg._ok_btn.click()
+        assert dlg.result() == 1
+        other = env.mod.FieldPickerDialog(env.parent, env.parent, "uds", "UDSFile", fields, 2)
+        qtbot.addWidget(other)
+        other.reject()
+        assert other.result() == 0
+        assert env.theme.BG in dlg.styleSheet() and env.theme.ACCENT in dlg._ok_btn.styleSheet()
+
+    def test_the_rows_button_press_is_ignored_where_it_makes_no_sense(self, env):
+        import json
+        import zipfile
+        both = env.tmp / "with_gear_press.zip"
+        with zipfile.ZipFile(both, "w") as z:
+            z.writestr("DI_CONNECT/DI-Connect-Aggregator/UDSFile_a.json", json.dumps([{"calendarDate": "2023-01-05", "totalSteps": 1}]))
+            z.writestr("DI_CONNECT/DI-Connect-Fitness/x_gear.json", json.dumps([{"count": 5}]))
+        asked = []
+        win = env.make(field_picker=lambda family, label, fields: asked.append(family) or ["totalSteps"])
+        win.start_scan(str(both))
+        win._tree.setCurrentItem(self._item(win, "gear"))
+        win._choose_rows()                                                       # a family whose rows have no date
+        assert asked == []
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        win.start_detail("uds", "totalSteps")                                    # a field detail is open
+        assert win._rows_btn.isHidden()
+        win._choose_rows()
+        assert asked == []
+        win._leave_detail()
+        win._choose_rows()                                                       # now it asks and reads
+        assert asked == ["uds"] and win._values is not None
+        win._choose_rows()                                                       # the rows are shown: ignored
+        assert asked == ["uds"]
+        win._source_path = None
+        win._back_btn.click()
+        win.start_rows("uds", ["totalSteps"])                                    # no export is known
+        assert win._values is None
+
+    def test_the_rows_read_without_a_known_export_reads_nothing(self, env):
+        win = self._rows_env(env)
+        win._source_path = None
+        win.start_rows("uds", ["totalSteps"])
+        assert win._row_calls == [] and win._values is None and not win._running
+
+    def test_the_rows_read_starts_clean_shows_its_progress_and_counts_the_cut_rows(self, env):
+        real = env.mod._load_scanner()
+        seen, holder = {}, {}
+
+        def rows(path, family, fields, should_stop):
+            seen["label"] = holder["win"]._progress.text()
+            seen["stop"] = should_stop()
+            return real.read_rows(path, family, fields, should_stop=should_stop, max_rows=5)
+
+        win = self._rows_env(env, picker=["totalSteps"], read_rows=rows)
+        holder["win"] = win
+        win._stop.set()                                                          # a stop of an earlier run
+        win._rows_btn.click()
+        assert seen == {"label": "Reading the rows ...", "stop": False}
+        assert win._status.text() == "UDSFile: 5 rows shown" and len(self._cells(win)) == 5
+        assert "Only the newest 5 rows are shown; 7 older rows are not" in win._note.text()
+
+    def test_without_a_limit_of_the_scanner_the_picker_gets_twelve(self, env, monkeypatch):
+        import types
+        real = env.mod._load_scanner()
+        scanner = types.SimpleNamespace(scan=real.scan, write_report=real.write_report, read_rows=real.read_rows,
+                                        values_supported=real.values_supported)
+        win = env.make(scanner=scanner)
+        win.start_scan(str(env.zip))
+        win._tree.setCurrentItem(self._item(win, "UDSFile"))
+        seen = {}
+        monkeypatch.setattr(env.mod.FieldPickerDialog, "exec", lambda self: seen.setdefault("limit", self._limit) and 0)
+        win._rows_btn.click()
+        assert seen == {"limit": 12}
+
+    def test_the_field_picker_filter_ignores_case_and_spaces_items_are_checkable_and_cancel_rejects(self, env, qtbot):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QPushButton
+        dlg = env.mod.FieldPickerDialog(env.parent, env.parent, "uds", "UDSFile", ["totalSteps", "restingHeartRate"], 2)
+        qtbot.addWidget(dlg)
+        assert all(dlg._list.item(i).flags() & Qt.ItemFlag.ItemIsUserCheckable for i in range(2))
+        dlg._filter.setText("  HEARTRATE ")
+        assert [dlg._list.item(i).isHidden() for i in range(2)] == [True, False]
+        cancel = next(b for b in dlg.findChildren(QPushButton) if b.text() == "Cancel")
+        cancel.click()
+        assert dlg.result() == 0
+
     # ── Help: the guide of the window ──────────────────────────────────────────
 
     def test_the_help_button_shows_the_guide_in_the_viewer_of_the_app(self, env, monkeypatch):
@@ -6430,12 +6939,14 @@ class TestExportScanWindow:
         guide = (app_root / "docs" / win_mod.HELP_FILE).read_text(encoding="utf-8")
         window = (app_root / "app" / "popups" / "export_scan.py").read_text(encoding="utf-8")
         for label in ("ZIP file ...", "Folder ...", "Stop", "Table", "Graph", "Counts", "Values", "Month", "Year", "Over time",
-                      "Distribution", "Save report", "Heart rate of the day", "← Back"):
+                      "Distribution", "Save report", "Heart rate of the day", "← Back", "Rows ..."):
             assert f'"{label}"' in window, label                                  # the button exists in the window
             assert label.replace("← ", "") in guide or label.replace(" ...", " ...") in guide, label
         assert scan.REPORT_TEXT in guide and scan.REPORT_JSON in guide
         assert all(label in guide for _key, label in scan.GROUPS)
         assert f"{scan.MAX_VALUE_POINTS:,}" in guide and f"{scan.MAX_PATHS_PER_FAMILY}" in guide
+        assert f"{scan.MAX_ROWS:,} rows" in guide and f"{scan.MAX_ROW_FIELDS} fields" in guide    # the limits of the rows view
+        assert "## The rows of several fields" in guide and "the rows of several fields, or the heart rate of a day" in guide
         assert f"{scan.MAX_JSON_BYTES // (1024 * 1024)} MB" in guide
         assert re.search(r"Data Collection.*Export Scan", guide, re.S) and "Export Scan" in (app_root / "app" / "panel_outputs.py").read_text(encoding="utf-8")
         assert win_mod.HELP_FILE in manifest.INFO_INCLUDE and (app_root / "docs" / win_mod.HELP_FILE).is_file()

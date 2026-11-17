@@ -891,10 +891,10 @@ export is imported again.
   in the preview. The tests were checked with 33 deliberate faults in a copy of the code (see `CHANGELOG.md`).
 
 T. **Export Scan (v1.7.7, removable).** The window that shows what the user's export holds. All tests run on exports built from scratch (ZIP, folder, inner ZIP; `tests/fit_builder.py` for the FIT files), none needs a real export.
-- `test_export_scan.py` (JSON side), `test_export_scan_fit.py` (FIT counts, the index), `test_export_scan_day.py` (the heart rate of a day, including the same result as a full run of `SampleCollector`); each has a section "mutation round v1.7.7".
-- `test_qt_app.py::TestExportScanModel` (tree, tables, Plotly pages, values, units, day table) and `::TestExportScanWindow` (the window with a stand-in web view: scan, detail, values, day, Help, no value outside the view). QtWebEngine does not start in the tool environment, so the real pages are looked at by hand.
-- Privacy is tested with values found nowhere else ("sentinels"): they must not be in a result, a report, the log, the status line or a temporary file; the marker of the account's e-mail address must not be in any output.
-- The guide `docs/README_EXPORT_SCAN.md` is compared with the window and the modules (buttons, report files, groups, limits, `INFO_INCLUDE`).
+- `test_export_scan.py` (JSON side), `test_export_scan_fit.py` (FIT counts, the index), `test_export_scan_day.py` (the heart rate of a day, including the same result as a full run of `SampleCollector`); each has a section "mutation round v1.7.7". `test_export_scan.py` also has the sections 10b for `read_rows` and 10c for the mutation round of v1.7.7.1.
+- `test_qt_app.py::TestExportScanModel` (tree, tables, Plotly pages, values, the rows of several fields, units, day table) and `::TestExportScanWindow` (the window with a stand-in web view: scan, detail, values, the rows of several fields and their field dialog, day, Help, no value outside the view). QtWebEngine does not start in the tool environment, so the real pages are looked at by hand.
+- Privacy is tested with values found nowhere else ("sentinels"): they must not be in a result, a report, the log, the status line or a temporary file; the marker of the account's e-mail address must not be in any output. The rows view has its own sentinels (`test_export_scan.py` 10b and `TestExportScanWindow`).
+- The guide `docs/README_EXPORT_SCAN.md` is compared with the window and the modules (buttons including "Rows ...", report files, groups, limits including the 5,000 rows and the 12 fields of the rows view, `INFO_INCLUDE`).
 
 ### What is NOT tested
 
@@ -1074,7 +1074,7 @@ What stays when it is removed: `garmin_quality.record_field_given_up()` (generic
 
 ### The Export Scan and its removal (v1.7.7, removable)
 
-The Export Scan reads a Garmin export and shows what it holds; it never writes to the archive. Everything that belongs to it carries the marker `EXPORT-SCAN v1.7.7` (grep for it; the same list is in the docstring of `garmin/garmin_export_scan.py`).
+The Export Scan reads a Garmin export and shows what it holds; it never writes to the archive. Everything that belongs to it carries the marker `EXPORT-SCAN v1.7.7` (grep for it; the same list is in the docstring of `garmin/garmin_export_scan.py`). The rows view of v1.7.7.1 is in the same files and carries the same marker; it adds no file.
 
 **Removal list:**
 1. `garmin/garmin_export_scan.py`, `garmin/garmin_export_scan_fit.py`, `garmin/garmin_export_scan_day.py` and `tests/test_export_scan.py`, `tests/test_export_scan_fit.py`, `tests/test_export_scan_day.py`.

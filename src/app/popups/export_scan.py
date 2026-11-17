@@ -15,6 +15,10 @@ A non-modal window (like the documentation viewer) that shows what the user's ow
             empty / absent) by month or by year (switch "Month" / "Year"), read on demand with
             garmin_export_scan.scan_field; "Back" or another item of the tree leaves it. Only the table
             is clickable: the chart is a web page and has no way back to Python.
+            "Rows ..." at a family: a small dialog chooses up to 12 of its fields, and the rows of the
+            export are shown by date (garmin_export_scan.read_rows), one table row per row of the export, as a
+            table or as one chart per numeric column. They are values like those of a field: kept in
+            self._values, in memory only.
   - right:  the tree of the export, grouped by topic; the dot in front of a family is its status
             (app.GREEN: read by GLA, app.YELLOW: kept only, app.TEXT2: known but not read)
   - bottom: save the report (text and JSON, into garmin_data/log, replacing the last one), and "Help": the
@@ -24,9 +28,11 @@ The scan (garmin_export_scan.scan) reads the export and writes nothing; after it
 counted by type and year (garmin_export_scan_fit.scan_fit, about 30 s for 35,000 files on the
 maintainer's export). Both run in a thread, the window is only touched through app._dispatch. What the window shows is built by _export_scan_model.py.
 All colours are those of the app window (app.BG, app.ACCENT ... = theme.py, the active theme); the chart
-gets them handed in, nothing is fixed here. Names and counts only: no value of the export and no file
-name is shown, saved or logged; an error
-shows a fixed sentence, never the text of an exception (it could hold a path).
+gets them handed in, nothing is fixed here. The overview, the tables and the charts of counts hold names and
+counts only. Values of the export (a field, the rows of several fields, the heart rate of a day) appear only in
+the values views, kept in memory only (self._values) and forgotten when the view is left; they are never in
+the result of the scan, the report, the log, the status line or a file. No file name is shown, saved or logged; an
+error shows a fixed sentence, never the text of an exception (it could hold a path).
 
 The chart page can be larger than the 2 MB that QWebEngineView.setHtml takes (Plotly is inline), so
 it is written to a temporary folder and loaded like the dashboards are; the folder is removed when
@@ -46,9 +52,9 @@ from PyQt6.QtCore import QDate, Qt, QUrl
 from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QDateEdit, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSplitter,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-    QWidget,
+    QAbstractItemView, QDateEdit, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 import frozen_paths
@@ -108,6 +114,92 @@ def _start_thread(fn):
     threading.Thread(target=fn, daemon=True).start()
 
 
+class FieldPickerDialog(QDialog):
+    """
+    The choice of the fields of the rows view: a filter line, a list with check marks (a field shows its unit
+    where there is evidence, see _export_scan_units.py) and the count of the chosen ones. OK only with 1 to
+    `limit` fields. chosen_fields() gives the field paths in the order of the list, also those the filter hides.
+    The colours are those of the app window (theme.py, the active theme).
+    """
+
+    def __init__(self, parent, app, family, label, fields, limit):
+        super().__init__(parent)
+        self._app = app
+        self._limit = limit
+        self.setWindowTitle(f"Rows of {label}")
+        self.setModal(True)
+        self.resize(460, 540)
+        self.setStyleSheet(f"background: {app.BG}; color: {app.TEXT};")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 10)
+        lay.setSpacing(8)
+        intro = QLabel(f"Choose up to {limit} fields of {label}. Their numbers and true / false values are shown by "
+                       "date, one table row per row of the export.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {app.TEXT2}; background: transparent;")
+        lay.addWidget(intro)
+        self._filter = QLineEdit()
+        self._filter.setPlaceholderText("Filter fields ...")
+        self._filter.setStyleSheet(
+            f"QLineEdit {{ background: {app.BG3}; color: {app.TEXT}; border: none; padding: 6px 8px; }}")
+        self._filter.textChanged.connect(self._apply_filter)
+        lay.addWidget(self._filter)
+        self._list = QListWidget()
+        self._list.setStyleSheet(
+            f"QListWidget {{ background: {app.BG}; color: {app.TEXT}; border: none; }}"
+            f"QListWidget::item {{ padding: 3px 2px; }}")
+        for field in fields:
+            item = QListWidgetItem(model.units.with_unit(field, model.units.unit_of(family, field)))
+            item.setData(Qt.ItemDataRole.UserRole, field)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            self._list.addItem(item)
+        self._list.itemChanged.connect(self._update)
+        lay.addWidget(self._list, 1)
+        self._count = QLabel()
+        lay.addWidget(self._count)
+        bar = QHBoxLayout()
+        bar.addStretch(1)
+        self._ok_btn = self._make_button("OK", True)
+        self._ok_btn.clicked.connect(self.accept)
+        cancel_btn = self._make_button("Cancel", False)
+        cancel_btn.clicked.connect(self.reject)
+        bar.addWidget(self._ok_btn)
+        bar.addWidget(cancel_btn)
+        lay.addLayout(bar)
+        self._update()
+
+    def _make_button(self, text, primary):
+        app = self._app
+        btn = QPushButton(text)
+        btn.setFont(QFont("Segoe UI", 9))
+        bg, fg = (app.ACCENT, app.TEXT) if primary else (app.BG3, app.TEXT2)
+        btn.setStyleSheet(
+            f"QPushButton {{ background: {bg}; color: {fg}; border: none; padding: 7px 14px; }}"
+            f"QPushButton:hover {{ background: {app.ACCENT2}; }}"
+            f"QPushButton:disabled {{ color: {app.TEXT2}; background: {app.BG3}; }}")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        return btn
+
+    def chosen_fields(self):
+        """The field paths with a check mark, in the order of the list (the hidden ones too)."""
+        return [self._list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self._list.count())
+                if self._list.item(i).checkState() == Qt.CheckState.Checked]
+
+    def _apply_filter(self, text):
+        needle = text.strip().lower()
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            item.setHidden(bool(needle) and needle not in item.data(Qt.ItemDataRole.UserRole).lower())
+
+    def _update(self, *_args):
+        chosen = len(self.chosen_fields())
+        self._count.setText(f"{chosen} of {self._limit} selected")
+        self._count.setStyleSheet(
+            f"color: {self._app.YELLOW if chosen > self._limit else self._app.TEXT2}; background: transparent;")
+        self._ok_btn.setEnabled(1 <= chosen <= self._limit)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  The window
 # ══════════════════════════════════════════════════════════════════════════════
@@ -127,15 +219,18 @@ class ExportScanWindow(QDialog):
                     index is a dict it may fill with the monitoring files (digest -> creation time)
     day_reader    : module with prepare(path, index, should_stop=) and read_day(path, prepared, day,
                     should_stop=) (default garmin_export_scan_day; tests hand in a fake)
+    field_picker  : callable(family, label, fields) -> [field] | None, the choice of the fields of the rows view
+                    (default: FieldPickerDialog; None as an answer: cancelled; tests hand in a fake)
     """
 
     def __init__(self, app, scanner=None, plotly_script=None, run_in_thread=None, report_dir=None, fit_scan=None,
-                 day_reader=None):
+                 day_reader=None, field_picker=None):
         super().__init__(app)
         self._app = app
         self._scanner = scanner or _load_scanner()
         self._fit_scan = fit_scan or _load_fit_scan()
         self._day_reader = day_reader or _load_day_reader()
+        self._pick_fields = field_picker or self._default_picker
         self._plotly_fn = plotly_script or _plotly_script
         self._run = run_in_thread or _start_thread
         self._report_dir_fn = report_dir or self._default_report_dir
@@ -203,7 +298,8 @@ class ExportScanWindow(QDialog):
         lay.addWidget(self._label("EXPORT SCAN", bold=True, color=app.ACCENT))
         lay.addWidget(self._label(
             "Looks into your own Garmin export and shows which data it holds and how complete it is. "
-            "Reads only: nothing is written to the archive. Names and numbers only, no values.",
+            "Reads only: nothing is written to the archive. The overview shows names and counts; the views of values "
+            "(a field, the rows, the heart rate of a day) show numbers of your export and keep them in memory only.",
             color=app.TEXT2, size=8))
 
         bar = QHBoxLayout()
@@ -272,6 +368,11 @@ class ExportScanWindow(QDialog):
         for widget in self._day_widgets:
             widget.setVisible(False)
             head.addWidget(widget)
+        # the rows of several fields (a family): the choice of the fields, then the rows by date
+        self._rows_btn = self._button("Rows ...")
+        self._rows_btn.setVisible(False)
+        self._rows_btn.clicked.connect(self._choose_rows)
+        head.addWidget(self._rows_btn)
         self._table_btn = self._button("Table")
         self._table_btn.setCheckable(True)
         self._table_btn.setChecked(True)
@@ -405,6 +506,7 @@ class ExportScanWindow(QDialog):
         self._stop_btn.setEnabled(running)
         for widget in self._day_widgets:
             widget.setEnabled(not running)
+        self._rows_btn.setEnabled(not running)
 
     def _on_progress(self, done, total):
         if self._alive and self._running:
@@ -511,7 +613,8 @@ class ExportScanWindow(QDialog):
 
     def _on_cell_double_click(self, row, _column):
         """Double-click on a cell of a family table: the detail of that field (row 0 is the 'Rows' line)."""
-        if self._detail is not None or self._running or self._result is None or self._source_path is None:
+        if (self._detail is not None or self._values is not None or self._running or self._result is None
+                or self._source_path is None):
             return
         kind, key = self._node
         item = self._table.item(row, 0)
@@ -581,8 +684,11 @@ class ExportScanWindow(QDialog):
         self._back_btn.setVisible(in_detail or in_values)
         for widget in (self._month_btn, self._year_btn):                 # the counts by month or year
             widget.setVisible(in_detail and not in_values)
-        for widget in (self._series_btn, self._dist_btn, self._hint):    # the values over time or as a distribution
-            widget.setVisible(in_values)
+        in_rows = in_values and model.is_rows(self._values)
+        for widget in (self._series_btn, self._dist_btn):    # the values over time or as a distribution (not the rows)
+            widget.setVisible(in_values and not in_rows)
+        self._hint.setVisible(in_values)
+        self._rows_btn.setVisible(not in_detail and not in_values and bool(self._rows_candidates()))
         for widget in self._day_widgets:                     # the heart rate of a day: at the FIT node, once it is ready
             widget.setVisible(self._days is not None and self._result is not None and self._node == model.NODE_FIT)
         self._month_btn.setChecked(self._gran == "month")
@@ -635,16 +741,25 @@ class ExportScanWindow(QDialog):
             self._status.setText(error)
             self._update_detail_controls()
             return
-        day = model.is_day(values)
-        if day != (self._detail is None) or (day and self._node != model.NODE_FIT):
+        if model.is_rows(values):
+            stale = self._detail is not None or self._node != ("family", values["family"])
+        else:
+            day = model.is_day(values)
+            stale = day != (self._detail is None) or (day and self._node != model.NODE_FIT)
+        if stale:
             self._update_detail_controls()       # the view was left while it was read: the answer belongs nowhere
             return
         self._values = values
         self._vmode = "series"
-        count = values["stats"]["count"] if values["stats"] else 0
         # numbers only: the status line never shows a value
-        self._status.setText(f"{values['field']}: {count} values read" if count else
-                             f"{values['field']}: no numbers to show")
+        if model.is_rows(values):
+            shown = len(values["table"])
+            self._status.setText(f"{values['label']}: {shown} rows shown" if shown else
+                                 f"{values['label']}: no rows to show")
+        else:
+            count = values["stats"]["count"] if values["stats"] else 0
+            self._status.setText(f"{values['field']}: {count} values read" if count else
+                                 f"{values['field']}: no numbers to show")
         table = model.build_values_table(values)
         self._title.setText(table["title"])
         self._note.setText(table["note"])
@@ -684,6 +799,56 @@ class ExportScanWindow(QDialog):
                 error = "The path does not exist."
             except Exception:                    # never show the text of an exception: it may hold a path
                 error = "The heart rate of the day could not be read."
+            app._dispatch(self._on_values_done, values, error)
+
+        self._run(worker)
+
+    # ── The rows of several fields (memory only, shown as values) ──────────────
+
+    def _rows_candidates(self):
+        """The fields the rows view offers at the chosen item: [] unless it is a family with rows that have a date."""
+        is_supported = getattr(self._scanner, "values_supported", None)
+        if self._result is None or is_supported is None or self._node[0] != "family":
+            return []
+        return model.rows_fields(self._result, self._node[1], is_supported)
+
+    def _default_picker(self, family, label, fields):
+        """Asks in a small dialog which fields to show; the chosen paths, None if it was cancelled."""
+        limit = getattr(self._scanner, "MAX_ROW_FIELDS", 12)
+        dialog = FieldPickerDialog(self, self._app, family, label, fields, limit)
+        return dialog.chosen_fields() if dialog.exec() else None
+
+    def _choose_rows(self):
+        """The button "Rows ...": the fields are chosen, then the rows are read."""
+        if (self._running or self._result is None or self._node[0] != "family" or self._detail is not None
+                or self._values is not None):
+            return
+        key = self._node[1]
+        fields = self._rows_candidates()
+        if not fields:
+            return
+        chosen = self._pick_fields(key, self._result["families"][key]["label"], fields)
+        if chosen:
+            self.start_rows(key, chosen)
+
+    def start_rows(self, family, fields):
+        """Reads the rows of several fields of a family (read_rows) in the background. Ignored while something runs
+        and when the item of the tree is not that family."""
+        if self._running or self._source_path is None or self._result is None or self._node != ("family", family):
+            return
+        self._stop.clear()
+        self._set_running(True)
+        self._progress.setText("Reading the rows ...")
+        scanner, stop, app, path, fields = self._scanner, self._stop, self._app, self._source_path, list(fields)
+
+        def worker():
+            values, error = None, None
+            try:
+                values = scanner.read_rows(path, family, fields, should_stop=stop.is_set)
+            except FileNotFoundError:
+                error = "The path does not exist."
+            except Exception:                    # never show the text of an exception: it may hold a path
+                error = "The rows could not be read."
             app._dispatch(self._on_values_done, values, error)
 
         self._run(worker)

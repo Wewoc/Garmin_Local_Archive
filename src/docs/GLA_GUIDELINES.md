@@ -914,7 +914,7 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_repair_resting_hr.py` | Removable one-time repair of the resting heart rate of imported days (v1.7.5.7) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_track_migration.py` | Removable migration of the mixed archive (v1.7.6.3) — delegates to `garmin_writer` and `garmin_quality`, never writes directly | No |
 | `garmin_bulk_rebuild.py` | Removable rebuild of the daily values from the kept originals (v1.7.6.5) — writes only through `garmin_bulk_json_import.store_day()` → `garmin_bulk_writer`, never directly | No |
-| `garmin_export_scan.py` | Removable (v1.7.7) — reads the user's export and reports names and counts; writes only its two report files into the folder its caller names | **Yes** |
+| `garmin_export_scan.py` | Removable (v1.7.7) — reads the user's export and reports names and counts (`read_values` and `read_rows` hand numbers to the values views of the window, which keep them in memory only); writes only its two report files into the folder its caller names | **Yes** |
 | `garmin_export_scan_fit.py` | Removable (v1.7.7) — counts the FIT files of an export by type and year with the bulk modules; writes nothing | No |
 | `garmin_export_scan_day.py` | Removable (v1.7.7) — the heart rate of one day of an export with the modules of the import; writes nothing | No |
 | `garmin_migration_snapshot.py` | Removable (v1.7.6.3) — sole owner of `backup/migration/`, the safety copy made before the migration writes | No |
