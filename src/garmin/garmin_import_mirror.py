@@ -41,12 +41,20 @@ Conflict resolution:
               (quality log: write False, no raw file in the container) gets its
               summary made again (writer.rebuild_summary) and its quality-log entry
               — it is not an error that it has no raw file.
+  diary/   — (v1.7.8) nothing readable is ever replaced: the diary is typed by hand and has no quality
+              hierarchy. A day that is missing or damaged here is restored from the container
+              (diary_writer.restore_day) when its field keys fit the field list of this archive (same
+              definition, the name may differ; no list here: the one of the container is the reference);
+              a day that does not fit is counted as a conflict and left out, a readable day is kept. The
+              field list is restored (diary_writer.restore_master) only when there is none here or it is
+              damaged. Two archives that made fields on their own cannot be merged: that is told, not guessed.
 
 Sole-owner invariant:
   garmin_writer   — sole write authority for raw/ and summary/
   garmin_bulk_writer — sole write authority for the bulk store
   garmin_quality  — sole write authority for quality_log.json
   context_writer  — sole write authority for context_data/
+  diary_writer    — sole write authority for diary_data/
   This module orchestrates — it never writes files directly.
 
 Called by:
@@ -60,6 +68,10 @@ Returns (run_import_mirror):
       "bulk_copied":    int,   # bulk day files written (container only, v1.7.6.2)
       "bulk_skipped":   int,   # bulk day files already there or fuller locally
       "originals_copied": int, # originals taken over from the container
+      "diary_days_copied": int, # (only when the container has a diary) days restored from the diary section
+      "diary_days_skipped": int, # (diary) days that are readable here, or of a newer version, and were kept
+      "diary_conflicts": int,  # (diary) days whose field keys do not fit the field list here, left out
+      "diary_master":   str,   # (diary) "restored", "kept" or "refused:<reason>" for the field list
       "export_days":    int,   # days that exist only as export data, entry made
       "errors":         int,   # errors encountered
       "ok":             bool,  # True if errors == 0
@@ -79,6 +91,8 @@ Dry-run mode returns:
       "context_to_copy":  int,
       "bulk_to_copy":     int,   # bulk day files missing locally (container only)
       "originals_to_copy": int,  # originals missing locally (container only)
+      "diary_to_copy":    int,   # (only when the container has a diary) days missing or damaged here, plus the
+                                 # field list when there is none here: an upper bound, the fit is checked at import
       "version_warning":  str,   # empty string if versions match
       "ok":               bool,
       "error":            str,   # present only on early hard-stop failures — see above
@@ -201,6 +215,7 @@ def _run_import_container(
     raw_files_in_container = _container.list_files(container_path, "raw")
     bulk_files_in_container = _container.list_files(container_path, "bulk")
     bulk_src_files_in_container = _container.list_files(container_path, "bulk_source")
+    diary_files_in_container = _container.list_files(container_path, "diary")
 
     # ── 3. Delta analysis ─────────────────────────────────────────────────────
     with quality.QUALITY_LOCK:
@@ -216,6 +231,9 @@ def _run_import_container(
             src_order = _analyse_source_delta_container(
                 src_files_in_container, base_dir
             )
+            diary_order, diary_kept = _analyse_diary_delta_container(
+                diary_files_in_container, base_dir
+            )
         except _PathTraversalError as e:
             # Fall 1 (ROADMAP v1.7.4.3): abort the whole import, nothing is
             # written — caught here, before fulfill_order()/any write.
@@ -229,7 +247,7 @@ def _run_import_container(
                     "errors": 1, "ok": False, "error": error_msg}
 
         if dry_run:
-            return {
+            dry = {
                 "raw_to_copy":       len(raw_order),
                 "context_to_copy":   len(ctx_order),
                 "source_to_copy":    len(src_order),
@@ -238,6 +256,9 @@ def _run_import_container(
                 "version_warning":   version_warning,
                 "ok":                True,
             }
+            if diary_files_in_container:
+                dry["diary_to_copy"] = len(diary_order)
+            return dry
 
         # ── 4. Build order and fulfill ────────────────────────────────────────
         src_schema = container_meta.get("schema_version")
@@ -271,6 +292,8 @@ def _run_import_container(
             order["bulk"] = [rel for rel, _kind, _day in day_order]
         if orig_order:
             order["bulk_source"] = [rel for rel, _hash, _suffix in orig_order]
+        if diary_order:
+            order["diary"] = diary_order
         order["quality_log"] = ["garmin_data/log/device_table.json"]
 
         if progress is None:
@@ -316,6 +339,11 @@ def _run_import_container(
         )
         errors += src_errors
 
+        # ── 6c. Import the diary (v1.7.8) ─────────────────────────────────────
+        diary_result = _import_diary_from_bytes(fulfilled, diary_order, base_dir)
+        diary_result["days_skipped"] += diary_kept
+        errors += diary_result["errors"]
+
         # ── 7. Save quality log ───────────────────────────────────────────────
         quality._save_quality_log(quality_dst)
 
@@ -328,7 +356,7 @@ def _run_import_container(
         f"{src_copied} source copied, {bulk_copied} bulk day files, "
         f"{originals_copied} originals, {export_days} export-only days, {errors} errors"
     )
-    return {
+    result = {
         "raw_copied":       raw_copied,
         "raw_skipped":      raw_skipped,
         "context_copied":   ctx_copied,
@@ -340,6 +368,17 @@ def _run_import_container(
         "errors":           errors,
         "ok":               errors == 0,
     }
+    if diary_files_in_container:
+        result["diary_days_copied"] = diary_result["days_copied"]
+        result["diary_days_skipped"] = diary_result["days_skipped"]
+        result["diary_conflicts"] = diary_result["conflicts"]
+        result["diary_master"] = diary_result["master"]
+        log.info(
+            f"  import_mirror diary: {diary_result['days_copied']} day(s) restored, "
+            f"{diary_result['days_skipped']} kept, {diary_result['conflicts']} conflict(s), "
+            f"field list {diary_result['master']}"
+        )
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -620,6 +659,176 @@ def _import_source_from_bytes(
             f"  import_mirror: source import done — {copied} written, {errors} errors"
         )
     return copied, errors
+
+
+_DIARY_FIELDS_REL = "diary_data/fields.json"
+_DIARY_DAYS_PREFIX = "diary_data/days/"
+
+
+def _analyse_diary_delta_container(
+    diary_files_in_container: list[str],
+    base_dir: Path,
+) -> tuple[list[str], int]:
+    """
+    (order, kept): the files of the diary section to request from fulfill_order(), and the number of days
+    that are readable here (or of a newer version) and are therefore left as they are. Nothing readable is
+    ever replaced. A day is ordered when it is missing or damaged here; the field list when there is none here
+    or it is damaged. A field list here that is of a newer version stops the whole section (nothing can be
+    compared with it). Whether the field keys of a day fit is only known once the bytes are there: see
+    _import_diary_from_bytes().
+
+    Raises _PathTraversalError on the same rule as the other sections (ROADMAP v1.7.4.3, Fall 1). A name of
+    the section that is not the field list and not a day file of the diary is left out with a warning.
+    """
+    if not diary_files_in_container:
+        return [], 0
+    for rel_path in diary_files_in_container:
+        if _safe_container_path(base_dir, rel_path) is None:
+            raise _PathTraversalError(rel_path)
+    try:
+        from diary import diary_model as _dm
+        from diary import diary_reader as _rd
+    except Exception as e:
+        log.warning(
+            f"  import_mirror: the diary package is not available ({type(e).__name__}): "
+            f"the diary section of the container is not imported"
+        )
+        return [], 0
+
+    order = []
+    kept = 0
+    master_state, _master = _rd.read_master(base_dir)
+    if master_state == _rd.UNSUPPORTED:
+        log.warning("  import_mirror: the field list here is of a newer version: the diary section is not imported")
+        return [], 0
+    for rel_path in diary_files_in_container:
+        if rel_path == _DIARY_FIELDS_REL:
+            if master_state in (_rd.MISSING, _rd.DAMAGED):
+                order.append(rel_path)
+            continue
+        date_str = None
+        if rel_path.startswith(_DIARY_DAYS_PREFIX):
+            date_str = _dm.date_of_day_file_name(rel_path[len(_DIARY_DAYS_PREFIX):])
+        if date_str is None:
+            log.warning(f"  import_mirror: diary section: name not recognised, left out: {rel_path}")
+            continue
+        day_state, _day = _rd.read_day(base_dir, date_str)
+        if day_state in (_rd.MISSING, _rd.DAMAGED):
+            order.append(rel_path)
+        else:
+            kept += 1
+    log.info(f"  import_mirror: diary delta — {len(order)} file(s) to import, {kept} day(s) kept")
+    return order, kept
+
+
+def _diary_keys_fit(day: dict, reference: dict | None) -> bool:
+    """
+    True when every field key of a day (its snapshot) is in the reference field list with the same definition
+    (the display name may differ). With no reference list there is nothing to contradict.
+    """
+    if reference is None:
+        return True
+    from diary import diary_model as _dm
+    for key, defn in day["key_snapshot"].items():
+        field = reference["fields"].get(key)
+        if field is None:
+            return False
+        a = {k: v for k, v in _dm.definition_of(field).items() if k != "name"}
+        b = {k: v for k, v in defn.items() if k != "name"}
+        if a != b:
+            return False
+    return True
+
+
+def _import_diary_from_bytes(
+    fulfilled: dict,
+    diary_order: list[str],
+    base_dir: Path,
+) -> dict:
+    """
+    Restores the days and, when asked, the field list of the diary from fulfilled bytes, through
+    diary_writer (sole write authority for diary_data/): restore_day() and restore_master() check every file
+    again and never replace a readable one.
+
+    The days come first and are compared with a reference: the field list of this archive when it is readable,
+    otherwise the one of the container. A day whose keys do not fit is a conflict (counted, left out). The field
+    list follows, so that it finds all the days readable.
+
+    Returns {"days_copied", "days_skipped", "conflicts", "master": "restored" | "kept" | "refused:<reason>",
+    "errors"}. A file that is not in the bytes, or a copy that fails its checks, is an error; a conflict is not.
+    """
+    out = {"days_copied": 0, "days_skipped": 0, "conflicts": 0, "master": "kept", "errors": 0}
+    if not diary_order:
+        return out
+    try:
+        from diary import diary_model as _dm
+        from diary import diary_reader as _rd
+        from diary import diary_writer as _dw
+    except Exception as e:
+        log.error(f"  import_mirror: the diary package is not available ({type(e).__name__})")
+        out["errors"] += 1
+        return out
+
+    master_bytes = fulfilled.get(_DIARY_FIELDS_REL) if _DIARY_FIELDS_REL in diary_order else None
+    state, local_master = _rd.read_master(base_dir)
+    reference = local_master if state == _rd.OK else None
+    if reference is None and master_bytes is not None:
+        try:
+            candidate = json.loads(master_bytes.decode("utf-8"))
+            if not _dm.check_master(candidate):
+                reference = candidate
+        except Exception:
+            reference = None
+
+    for rel_path in diary_order:
+        if rel_path == _DIARY_FIELDS_REL:
+            continue
+        data_bytes = fulfilled.get(rel_path)
+        date_str = _dm.date_of_day_file_name(rel_path[len(_DIARY_DAYS_PREFIX):])
+        if data_bytes is None or date_str is None:
+            log.warning(f"  import_mirror: diary bytes not found: {rel_path}")
+            out["errors"] += 1
+            continue
+        try:
+            day = json.loads(data_bytes.decode("utf-8"))
+        except Exception as e:
+            log.error(f"  import_mirror: diary JSON decode error {rel_path}: {type(e).__name__}")
+            out["errors"] += 1
+            continue
+        if not isinstance(day, dict) or _dm.check_day(day, date_str):
+            log.error(f"  import_mirror: diary day {date_str} fails its checks")
+            out["errors"] += 1
+            continue
+        if not _diary_keys_fit(day, reference):
+            log.warning(f"  import_mirror: diary day {date_str}: its field keys do not fit the field list here, left out")
+            out["conflicts"] += 1
+            continue
+        res = _dw.restore_day(base_dir, date_str, data_bytes)
+        if res["status"] == _dw.WRITTEN:
+            out["days_copied"] += 1
+        elif res["status"] == _dw.REJECTED and res.get("reason") in ("day_exists", "day_unsupported"):
+            out["days_skipped"] += 1
+        else:
+            log.error(f"  import_mirror: diary day {date_str} could not be restored ({res.get('reason', res['status'])})")
+            out["errors"] += 1
+
+    if _DIARY_FIELDS_REL in diary_order:
+        if master_bytes is None:
+            log.warning(f"  import_mirror: diary bytes not found: {_DIARY_FIELDS_REL}")
+            out["errors"] += 1
+        else:
+            res = _dw.restore_master(base_dir, master_bytes)
+            if res["status"] == _dw.WRITTEN:
+                out["master"] = "restored"
+            elif res["status"] == _dw.REJECTED:
+                out["master"] = f"refused:{res.get('reason')}"
+                log.warning(f"  import_mirror: diary field list not restored ({res.get('reason')})")
+                if res.get("reason") == "copy_invalid":
+                    out["errors"] += 1          # the container holds a field list that fails its checks
+            else:
+                out["master"] = f"refused:{res.get('reason', res['status'])}"
+                out["errors"] += 1
+    return out
 
 
 def _extract_device(raw: dict) -> tuple[str | None, str]:

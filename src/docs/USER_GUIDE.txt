@@ -24,6 +24,7 @@ CONTENTS
   10. Chat
   11. MCP Server
   12. Buttons Reference
+  13. Diary
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -681,6 +682,13 @@ Bulk folder (v1.7.6.2):
   first backup of a large export can take a while; a failure is only a
   warning and is tried again at the next start.
 
+Diary (v1.7.8):
+  The mirror container carries the diary as a part of its own (the
+  notes, your fields and your values). "Import from Mirror" brings back
+  days that are missing or damaged in this archive and never replaces a
+  day that can be read; see Section 13. An older app version ignores
+  that part of a container.
+
 Damaged backup file (v1.7.6.2.1):
   The backups of your daily files (backup/raw, backup/source and
   backup/bulk) are kept as one ZIP per month. If such a ZIP cannot be
@@ -1247,6 +1255,93 @@ Copy Last Error Log
   chat. Standalone: since there is no terminal, this is the primary
   way to retrieve diagnostic information when something goes wrong.
   If no error logs exist, a message appears in the log area instead.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. DIARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Diary tab (v1.7.8) keeps what you type by hand: a note for every day
+and your own values (blood pressure, hydration, weight, medication,
+cycle, anything you want to track). Your values sit next to the Garmin
+values and never replace them. Nothing of the diary is sent anywhere:
+the MCP server and the cloud models cannot see it.
+
+The tab needs your data folder (Settings tab -> Data folder). Without it
+everything in the tab is greyed out and a hint says so.
+
+The day and the note
+  The calendar on the right picks the day. A dot marks a day that has
+  content; days in the future cannot be picked. The big box on the left
+  is the note of the day. "Save" stores the note and everything typed in
+  the field rows; "Delete all" removes the note and all entries of the
+  day after a question.
+  If something is typed and not saved, the diary asks before you leave:
+  when you pick another day, switch to another tab or close the window
+  ("Save", "Discard" or "Cancel").
+
+Fields
+  A field is something you keep track of: a name and one or more
+  values. Favorites (the star) are always shown, one row per field.
+  - "Add field" (dropdown): shows another field for the day. It lists
+    your own fields, the start templates (Cycle, Pregnancy, Calorie
+    intake, Alcohol, Caffeine, Walk) and the Garmin fields (blood
+    pressure, hydration, weight; a Garmin field that Garmin already
+    delivers for your account is hidden unless you tick "Also show the
+    Garmin fields that Garmin already delivers"). Choosing a template
+    makes a normal field of your own from it.
+  - "Create field": a name, whether an entry has a time (then you can
+    enter it several times a day), and one or more values. A value is a
+    Number (with a unit), Yes/No or Text (one line). "Alt." on a number
+    makes it an alternative to the number above it (steps or distance:
+    per entry you enter one of them, the other is hidden). A field
+    cannot be changed afterwards, except its name.
+  - "Manage fields": rename a field, archive it (it is hidden from the
+    lists; its entries stay on the days) or bring it back.
+
+Entering values
+  A number may use a decimal comma ("7,5"). An empty box means "not
+  entered", which is not 0. A value that is not a number is marked in
+  red and nothing is saved until you correct it. A field with a time
+  starts with the time of now; "+ Add entry" adds another line, the
+  cross takes a line out. Yes/No has the choices (empty), Yes, No.
+
+Earlier days
+  You can change any day in the past. A day that was first saved on an
+  earlier day asks once: "Save and keep history". The state it had
+  before is then kept in its history. "History (n)" lists the earlier
+  states, shows one in full and puts it back ("Restore this state"); the
+  state you replace is kept too, so a restore can be undone. A day that
+  has no file yet can be written for any date.
+
+Search
+  The search box looks in the notes of all days: every word you type
+  has to be in the note (upper and lower case do not matter), newest day
+  first, with a short piece of the note. A click on a hit opens the day.
+  Days that cannot be read are counted and named in the line under the
+  box, they are not left out silently. The entries and the history are
+  not searched.
+
+Backup and restore
+  After every save and every change of the field list the diary makes
+  a backup copy (in garmin_data/backup/diary/, one folder per month, a
+  completed month as a ZIP). The first time you open the tab after the
+  start the app also copies what is missing. If a copy could not be
+  made, the status line under the note says so.
+  If the diary says a day (or the list of fields) cannot be read, the
+  button "Restore from backup" puts it back from its copy; the damaged
+  file is kept next to it with the ending .damaged. It is only offered
+  when a valid copy exists.
+  Deleting a day does not delete its backup copy: the copy of a deleted
+  day stays in the backup (and in an older mirror container).
+
+Mirror
+  The mirror container (Section 6) carries the diary as well. "Import
+  from Mirror" restores days that are missing or damaged in this archive
+  and never replaces a day that can be read. A day is only taken over
+  when its fields match the fields of this archive (same values and
+  units; the name may differ). Days whose fields do not match are
+  counted in the log line ("left out") and stay in the container. An
+  older app version ignores the diary part of a container.
 
 ═══════════════════════════════════════════════════════════
   Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive

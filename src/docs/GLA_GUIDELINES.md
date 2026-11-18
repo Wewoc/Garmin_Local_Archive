@@ -129,6 +129,15 @@ never read directly" — `metadata_map` itself is the broker, not a
 specialist bypassing one. It's wired in via
 `gateway_map.get_metadata(kind)`, kept separate from `gateway_map.get()`.
 
+**Diary (v1.7.8):** the `diary/` package and the "Diary" tab are not a layer and not part of the
+pipelines: the data is typed by hand and has no source to rebuild it from. `diary_data/` is its own root folder
+beside `garmin_data/` and `context_data/`. Its parts: `diary_reader` (read only), `diary_writer` (sole writer of
+`diary_data/`), `diary_backup` (sole writer of its backup), the tab and its dialogs in `app/`. It imports only the
+standard library and its own modules (`diary_backup` also `garmin_backup_common`), and it is **not** connected to the
+Broker Layer: no `gateway_map`, no `mcp_map`, no MCP tool, no cloud model reads it (a later decision, not part of
+v1.7.8). Everything is removable (marker `DIARY v1.7.8 — REMOVABLE`). Details: `REFERENCE_DIARY.md`,
+`MAINTENANCE_DIARY.md`.
+
 ---
 
 ## 2. Core design principles
@@ -152,6 +161,8 @@ directory.
 | `garmin_bulk_writer.py` | `garmin_data/bulk/raw/`, `garmin_data/bulk/aggregates/` and `garmin_data/bulk/source/` |
 | `garmin_mirror.py` → `garmin_container.py` | `mirror.gla` |
 | `context_writer.py` | `context_data/` |
+| `diary_writer.py` (removable, v1.7.8) | `diary_data/` (`fields.json`, `days/`) |
+| `diary_backup.py` (removable, v1.7.8) | `garmin_data/backup/diary/` |
 
 Violations of this invariant are regressions, not technical debt.
 
@@ -329,7 +340,7 @@ garmin_silo_check.check_silos()        — #8 bulk file lost (marks in quality_l
 garmin_silo_repair.repair_silos()      — read_day_copy() / read_original_copy() → garmin_bulk_writer.import_day_file()
                                          / store_original(); an aggregates day gets its summary made again
 
-garmin_mirror → garmin_container       — sections bulk, bulk_source
+garmin_mirror → garmin_container       — sections bulk, bulk_source, diary (v1.7.8)
 garmin_import_mirror                   — the bulk part before the raw days: import_day_file() / store_original()
 ```
 
@@ -423,6 +434,11 @@ before it by a real transformation — not a copy:
 | `source/` | Unmodified raw API response, written before any pipeline processing | Nothing — this is the ground truth |
 | `raw/` | Canonical, normalized form (`garmin_normalizer.normalize()`) — guarantees a consistent shape (e.g. a `date` field) regardless of which path (API or bulk import) produced it | `source/`, via `normalize()` |
 | `summary/` | Compact, derived daily values (`summarize()`) | `raw/`, via `summarize()`; since v1.7.6.1 for a day with export data resolved from `raw/` and the day's aggregates in the bulk store (API data first, the export fills what is missing) |
+
+**Diary (v1.7.8):** `diary_data/` is not part of this chain and cannot be rebuilt from anything: it holds what the
+user typed by hand. Its protection is a second copy — `garmin_data/backup/diary/` (written by `diary_backup`,
+only valid files, a copy is never deleted) and the section `diary` of the mirror container. A restore goes only
+through `diary_writer` (`restore_day`, `restore_master`) and never replaces a readable file.
 
 Reconstruction only ever flows forward through this chain: a lost
 `summary/` file is rebuilt from `raw/` (and, for a day with export data, the bulk store's aggregates); a lost `raw/` file can be rebuilt
@@ -575,7 +591,7 @@ never appear in log files.
 
 ### Plaintext archive (a deliberate choice)
 
-`raw/`, `summary/`, and `context_data/` are plaintext JSON — **no
+`raw/`, `summary/`, `context_data/` and `diary_data/` are plaintext JSON — **no
 at-rest encryption**. This is an explicit trade-off: openness and
 readability with any tool are core goals of the project. Users who need
 encryption at rest use the AES-256-GCM-encrypted Mirror export instead.
@@ -700,6 +716,7 @@ network or GUI required except where noted:
 | `test_cloud_credential_store.py` | Cloud credential store |
 | `test_mcp_process.py` | MCP server process control |
 | `test_export_scan.py`, `test_export_scan_fit.py`, `test_export_scan_day.py` | Export Scan modules (removable, v1.7.7) |
+| `test_diary.py`, `test_diary_panel.py` | Diary package (script, no Qt) and the Diary tab with its dialogs (pytest-qt); the diary section of the mirror container is covered by `test_container_mirror.py` and `test_import_mirror.py` (removable, v1.7.8) |
 | `test_static.py` | Lint + security scan + AST-based regression guards |
 
 `test_build_output.py` is not part of `run_tests.ps1` — it runs as

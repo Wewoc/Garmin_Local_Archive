@@ -24,6 +24,10 @@ SHARED_SCRIPTS = [
     "app/dialog_chat_history.py",
     "app/dialog_context_check.py",
     "app/dialog_docs.py",              # v1.7.6.4 documentation viewer
+    "app/dialog_diary_field.py",       # DIARY v1.7.8 — REMOVABLE ("Create field" dialog)
+    "app/dialog_diary_manage.py",      # DIARY v1.7.8 — REMOVABLE ("Manage fields" dialog)
+    "app/dialog_diary_history.py",     # DIARY v1.7.8 — REMOVABLE ("History" dialog)
+    "app/diary_entry_editor.py",       # DIARY v1.7.8 — REMOVABLE (entry boxes of a field)
     # app/popups/ — extracted panel_outputs.py popups (Codereview v1.7.0.1).
     # Listed after app/__init__.py above, so prepare_scripts_dir()'s
     # per-entry dst.parent.mkdir(exist_ok=True) (no parents=True) always
@@ -62,6 +66,7 @@ SHARED_SCRIPTS = [
     "app/panel_home.py",
     "app/panel_chat.py",
     "app/panel_mcp.py",
+    "app/panel_diary.py",              # DIARY v1.7.8 — REMOVABLE (Tab "Diary")
     # app base
     "version.py",
     "garmin_app_base.py",
@@ -176,6 +181,13 @@ SHARED_SCRIPTS = [
     "context/airquality_plugin.py",
     "context/context_silo_check.py",   # v1.7.2.3 — Context Archive Integrity Check
     "context/context_silo_repair.py",  # v1.7.2.3 — Context Archive Integrity Check
+    # diary (Tagebuch)
+    "diary/__init__.py",               # DIARY v1.7.8 — REMOVABLE (package skeleton, Baustein 0)
+    "diary/diary_catalog.py",          # DIARY v1.7.8 — REMOVABLE (Set 1 catalogue)
+    "diary/diary_model.py",            # DIARY v1.7.8 — REMOVABLE (pure checks)
+    "diary/diary_reader.py",           # DIARY v1.7.8 — REMOVABLE (read only)
+    "diary/diary_writer.py",           # DIARY v1.7.8 — REMOVABLE (sole writer of diary_data/)
+    "diary/diary_backup.py",           # DIARY v1.7.8 — REMOVABLE (backup of diary_data/, sole writer of garmin_data/backup/diary/)
     # dashboards (specialists + runner)
     "dashboards/__init__.py",
     "dashboards/dash_runner.py",
@@ -246,6 +258,10 @@ SCRIPT_SIGNATURES_BASE = {
     "app/dialog_chat_history.py": ["class ChatHistoryDialog"],
     "app/dialog_context_check.py": ["class ContextCheckResultDialog", "class ContextCoordinateFixDialog"],
     "app/dialog_docs.py":       ["class DocViewerDialog"],   # v1.7.6.4
+    "app/dialog_diary_field.py": ["class DiaryFieldDialog", "def describe_failure"],   # DIARY v1.7.8 — REMOVABLE
+    "app/dialog_diary_manage.py": ["class DiaryManageDialog"],   # DIARY v1.7.8 — REMOVABLE
+    "app/dialog_diary_history.py": ["class DiaryHistoryDialog", "def describe_state"],   # DIARY v1.7.8 — REMOVABLE
+    "app/diary_entry_editor.py": ["class EntryEditor", "def parse_number"],   # DIARY v1.7.8 — REMOVABLE
     "app/panel_outputs.py":     ["class PanelOutputs"],
     "app/popups/capability_scan.py": ["def open_popup"],
     "app/popups/dashboard_create.py": ["def open_popup"],
@@ -338,6 +354,11 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_migration_snapshot.py": ["def create_snapshot", "def verify_snapshot", "def list_snapshots", "def restore_snapshot"],  # TRACK-MIGRATION v1.7.6.3
     "context/context_silo_check.py":  ["def check_context_archive"],
     "context/context_silo_repair.py": ["def fix_coordinates"],
+    "diary/diary_catalog.py": ["CATALOG", "def definition"],                                          # DIARY v1.7.8 — REMOVABLE
+    "diary/diary_model.py":   ["def check_definition", "def check_entries", "def valid_date"],        # DIARY v1.7.8 — REMOVABLE
+    "diary/diary_reader.py":  ["def read_master", "def read_day", "def list_days"],                   # DIARY v1.7.8 — REMOVABLE
+    "diary/diary_writer.py":  ["def save_day", "def create_user_field", "def recover_master"],        # DIARY v1.7.8 — REMOVABLE
+    "diary/diary_backup.py":  ["def backup_day", "def backup_all", "def check"],                      # DIARY v1.7.8 — REMOVABLE
     "garmin/garmin_live_fetch.py":    ["def fetch_live"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
     "layouts/render/recovery_context.py": ["def render", "def _render_recovery_context"],
@@ -354,6 +375,7 @@ SCRIPT_SIGNATURES_BASE = {
     "garmin/garmin_redact.py": ["def redact"],
     "app/panel_chat.py": ["class PanelChat"],
     "app/panel_mcp.py": ["class PanelMcp"],
+    "app/panel_diary.py": ["class PanelDiary", "class DiaryCalendar", "class DiaryFieldRow"],   # DIARY v1.7.8 — REMOVABLE
     "clients/ollama_client.py": ["def chat", "def list_models", "def is_reachable"],
     "clients/mcp_server.py": ["def main"],
     "clients/mcp_field_registry.py": ["FIELD_UNITS", "HEALTH_FIELD_ALIASES"],

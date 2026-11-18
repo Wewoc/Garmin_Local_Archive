@@ -20,14 +20,14 @@ from pathlib import Path
 
 if getattr(sys, "frozen", False):
     _scripts = Path(sys.executable).parent / "scripts"
-    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context", "diary"):  # diary: DIARY v1.7.8
         sys.path.insert(0, str(_scripts / _sub))
     sys.path.insert(0, str(_scripts / "app"))
     sys.path.insert(0, str(_scripts / "clients"))
     sys.path.insert(0, str(_scripts))
 else:
     _root = Path(__file__).parent
-    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context", "diary"):  # diary: DIARY v1.7.8
         sys.path.insert(0, str(_root / _sub))
     sys.path.insert(0, str(_root / "app"))
     sys.path.insert(0, str(_root / "clients"))

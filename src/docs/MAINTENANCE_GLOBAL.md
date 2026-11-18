@@ -200,6 +200,17 @@ Building your own tool on top of the archive? `gateway_map.py` is the recommende
 
 ---
 
+**Diary** — `diary/` and the Diary tab (v1.7.8, removable; maintenance in `MAINTENANCE_DIARY.md`, reference in `REFERENCE_DIARY.md`)
+
+| Script | What it does |
+|---|---|
+| `diary/diary_catalog.py` | Data only — the Set 1 fields (Garmin-compatible, entered by hand) and the start templates for own fields |
+| `diary/diary_model.py` | Pure checks — dates, keys, definitions, entries, whole files, the history of a day |
+| `diary/diary_reader.py` | Read only — field list, days, search in the notes |
+| `diary/diary_writer.py` | Sole write authority over `diary_data/` — fields, days, history, restore from a copy |
+| `diary/diary_backup.py` | Sole writer of `garmin_data/backup/diary/` — thin shell over `garmin_backup_common` |
+| `app/panel_diary.py`, `app/diary_entry_editor.py`, `app/dialog_diary_field.py`, `app/dialog_diary_manage.py`, `app/dialog_diary_history.py` | The tab "Diary" and its dialogs |
+
 ## Three build targets
 
 | Target | GUI entry point | Daily Sync entry point | Build script | Python on target |
@@ -513,6 +524,7 @@ Shared setup and helpers live in `tests/gla_testenv.py`; `test_local.py` stays a
 | `test_repair_resting_hr.py` | `garmin_repair_resting_hr` (removable, v1.7.5.7) — detection, repair, dry run, errors, shared quality log, scheduler hint |
 | `test_repair_predictions.py` | `garmin_repair_predictions` (removable, v1.7.6.10) and what it stands on — the call with the day and `garmin_normalizer.own_day_prediction` with its use in `normalize()` and `_fetch_and_assess`, the `race_predictions` label rule, `record_field_labels`, find/repair, safety copy and way back, scheduler hint |
 | `test_catchup_predictions.py` | `garmin_catchup_predictions` (removable, v1.7.6.11.2) — the planning of the ranges, `find_candidates`, `catch_up` against a stand-in client that answers like the real API (dry run, real run, second run, safety copy and way back, the start of Garmin's history, an archive that believes in predictions while Garmin answers nothing, failures, stop, a changed day), scheduler hint |
+| `test_diary.py` | The diary package `diary/` (removable, v1.7.8) — script test without Qt; its pytest counterpart `test_diary_panel.py` covers the tab and its dialogs; the diary section of the mirror container is covered in `test_container_mirror.py` and `test_import_mirror.py`; see `MAINTENANCE_DIARY.md` |
 | `test_export_scan.py`, `test_export_scan_fit.py`, `test_export_scan_day.py` | The Export Scan modules (removable, v1.7.7), on exports built from scratch (`fit_builder.py` for the FIT files): families against the import's tables, states, dates, limits, stop, the values, the rows of several fields and the windows, the report, privacy (the marker of the e-mail address and values found nowhere else must not show up), the files of a day against a full run of the import modules. Each has a section "mutation round v1.7.7". The window and the model are tested in `test_qt_app.py` (`TestExportScanModel`, `TestExportScanWindow`) with a stand-in for the web view |
 | `test_repair_devices.py` | `garmin_repair_devices` (removable, v1.7.6.9) and what it stands on — `record_device_from_files`/`set_device_name`, the `device_source` rule, `create_snapshot(stores=...)` with the log-only way back, mirror pass-through, scheduler hint, `rename_device` |
 | `test_daily_update.py` | `scheduler/daily_update.py` — the schema check and step 4, the unattended migration with its safety copy (steps 7b and 8b, v1.7.6.4), end to end with a real archive, copy, migration and restore |
@@ -1249,6 +1261,7 @@ How the tests are checked for blind spots (small deliberate changes in the code 
 All source folders are Python packages with `__init__.py`:
 - `garmin/` — Garmin pipeline
 - `context/` — external API collect pipeline
+- `diary/` — the diary (v1.7.8, removable): typed by hand, own data folder `diary_data/`; relative imports inside the package, not connected to `maps/`
 - `maps/` — data brokers
 - `dashboards/` — dashboard specialists (v1.4+)
 - `layouts/` — format renderers (v1.4+)

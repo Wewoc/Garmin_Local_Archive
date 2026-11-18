@@ -646,7 +646,7 @@ round trip test by a small helper (`_layout_env`) that re-points the `garmin_con
   replaced `check_needed()`).
 - `test_bulk_writer.py` — `import_day_file` (every refusal, the fuller-wins rule, unreadable, newer
   schema, atomic write), `describe_container_path`, `list_originals`.
-- `test_container_mirror.py` — the sections `bulk` / `bulk_source` (older containers stay readable),
+- `test_container_mirror.py` — the sections `bulk` / `bulk_source` (older containers stay readable) and `diary` (v1.7.8: classification with all counter cases, packing, a program that does not know the section reads the same container); the diary import is `test_import_mirror.py` section 4h4,
   progress lines of `lock()` and `fulfill_order()`, a callback that raises. `test_import_mirror.py` —
   section 12: the bulk part of the import (bytes equal, export-only day without a raw error — F-8 —,
   fuller day kept or replaced, invalid file, wrong hash, unknown names, order bulk before raw,

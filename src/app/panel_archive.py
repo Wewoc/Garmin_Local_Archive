@@ -42,6 +42,9 @@ def _import_preview_text(dry: dict) -> str:
     if bulk_n or orig_n:
         msg += (f"\nAlso {bulk_n} export day file(s) of the bulk store and "
                 f"{orig_n} original export file(s) that are missing here.")
+    if dry.get("diary_to_copy"):
+        msg += (f"\nAlso up to {dry['diary_to_copy']} file(s) of the diary that are missing or damaged here "
+                f"(a day is only taken over when its fields fit the ones here).")
     return msg
 
 
@@ -55,9 +58,16 @@ def _import_result_text(result: dict) -> str:
     )
     for key, text in (("bulk_copied", "{} export day file(s)"),
                       ("originals_copied", "{} original export file(s)"),
-                      ("export_days", "{} export-only day(s)")):
+                      ("export_days", "{} export-only day(s)"),
+                      ("diary_days_copied", "{} diary day(s) restored"),
+                      ("diary_conflicts", "{} diary day(s) left out (their fields do not fit)")):
         if result.get(key):
             msg += ", " + text.format(result[key])
+    diary_master = result.get("diary_master", "")
+    if diary_master == "restored":
+        msg += ", diary field list restored"
+    elif diary_master.startswith("refused:"):
+        msg += f", diary field list not restored ({diary_master[len('refused:'):]})"
     if result["errors"]:
         msg += f", {result['errors']} error(s)"
     return msg

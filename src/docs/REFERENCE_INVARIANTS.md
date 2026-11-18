@@ -55,10 +55,12 @@ a given rule, see `CHANGELOG.md`.
 
 ## Mirror / Container
 
-- `garmin_import_mirror.py` — sole owner of the mirror-import operation; orchestrates only, never writes directly (raw via `garmin_writer`, context via `context_writer.write_file()`, quality via `_upsert_quality()`); the rank comparison of its raw delta reads `garmin_quality.QUALITY_RANK` — there is no local copy (pinned by `tests/test_prop_rules.py`)
+- `garmin_import_mirror.py` — sole owner of the mirror-import operation; orchestrates only, never writes directly (raw via `garmin_writer`, context via `context_writer.write_file()`, quality via `_upsert_quality()`, the diary (v1.7.8) via `diary_writer.restore_day()`/`restore_master()`); the rank comparison of its raw delta reads `garmin_quality.QUALITY_RANK` — there is no local copy (pinned by `tests/test_prop_rules.py`)
+- `diary_writer.py` (v1.7.8, removable) — sole owner of `diary_data/` (`fields.json`, `days/`); nothing else creates or removes a file there. A definition never changes after the field was made (only the display name), keys are never reused, a readable file is never replaced by a restore, a file of a newer `schema_version` is never interpreted or replaced; a day first saved on an earlier day is refused (`history_required`) unless the caller says `keep_history=True`, then the state before is appended to its history. The log carries no note, value or field name
+- `diary_backup.py` (v1.7.8, removable) — sole owner of `garmin_data/backup/diary/`; only a file that passes its checks is copied, a copy is never deleted; imports `garmin_backup_common` (the one project dependency of the package `diary/`), which it does not change
 - `garmin_import_mirror._safe_container_path()` refuses a container path that leaves `base_dir` **or names a Windows device** (`NUL`, `CON`, `COM1`, ..., any case and extension; every platform, v1.7.6.11.1); a refused path stops the whole import before anything is written (Fall 1)
 - `garmin_container.py` — sole owner of `mirror.gla`
-- The container sections are `quality_log`, `raw`, `summary`, `context`, `source`, `bulk`, `bulk_source` (the last two since v1.7.6.2); the order of the older sections in a container is unchanged
+- The container sections are `quality_log`, `raw`, `summary`, `context`, `source`, `bulk`, `bulk_source` (the last two since v1.7.6.2) and `diary` (v1.7.8, last); the order of the older sections in a container is unchanged
 - `normalize()` is never called during mirror import — raw data inside the mirror is already normalized
 - Import pauses the background timer (same as Bulk Import)
 - Container keys use POSIX forward slashes (`rel.as_posix()`)

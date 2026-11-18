@@ -1051,6 +1051,9 @@ for removal.
 | `_split_export_only(raw_order, raw_files_in_container)` (v1.7.6.2, F-8) | A day of the raw delta whose quality-log entry says `write` false and whose raw file is not in the container is an export-only day, no raw error; `write` true (or missing) without raw bytes stays an error; `write` false with a raw file is imported as a raw day |
 | `_analyse_bulk_delta(bulk_files, bulk_source_files)` (v1.7.6.2) | Sorts the container's bulk files with `garmin_bulk_writer.describe_container_path()`: every day file is ordered (the writer decides), an original only when its name is missing here; unknown names are skipped with a warning, never an error |
 | `_import_bulk_from_bytes(...)` (v1.7.6.2) | Originals through `store_original` (checks the hash), day files through `import_day_file`; run before the raw days so that `write_day()` resolves the summary with the daily values; each file is taken out of the fulfilled dict after use |
+| `_analyse_diary_delta_container(diary_files, base_dir)` (v1.7.8) | `(order, kept)`: the diary files to request (a day missing or damaged here; the field list when there is no readable one here) and the number of readable days that are kept; the path check is the one of the other sections (`_PathTraversalError`); a name that is not the field list or a day file is left out with a warning; a field list here of a newer version stops the section; without the `diary` package the section is skipped with a warning |
+| `_diary_keys_fit(day, reference)` (v1.7.8) | True when every key of the day's snapshot is in the reference field list with the same definition (the name may differ); no reference, nothing to contradict |
+| `_import_diary_from_bytes(fulfilled, diary_order, base_dir)` (v1.7.8) | Restores the days first (reference: the readable field list here, else the one of the container), then the field list, only through `diary_writer.restore_day()` / `restore_master()` (they check every file again and never replace a readable one). A day that does not fit is a conflict (counted, not an error); a day or a list that fails its checks, a file that was ordered and not delivered, or a failed write is an error. Returns `{"days_copied", "days_skipped", "conflicts", "master": "restored" \| "kept" \| "refused:<reason>", "errors"}` |
 | `_import_export_days(...)` (v1.7.6.2) | `writer.rebuild_summary()` for every aggregates day written that was not imported as a raw day (`False` = error), then the quality-log entry of each export-only day that has daily values here (`written=False`, label / fields / source of the other archive; an unknown label is an error); then `catch_up_bulk_intraday` / `catch_up_bulk_aggregates` set the marks |
 
 **Return contract — `run_import_mirror()`:**
@@ -1075,6 +1078,8 @@ for removal.
                                # their count.
 }
 ```
+
+When the container has a diary section (v1.7.8), four more keys: `diary_days_copied`, `diary_days_skipped`, `diary_conflicts` (days left out, their field keys do not fit) and `diary_master` (`"restored"`, `"kept"` or `"refused:<reason>"`); the dry run adds `diary_to_copy` (an upper bound: the fit is only known with the bytes). A container without a diary adds none of them.
 The dry run returns `raw_to_copy`, `context_to_copy`, `source_to_copy`, `bulk_to_copy` (day files missing here by name), `originals_to_copy`, `version_warning`, `ok` (and `error`). The backup of the imported bulk files is not made by the import: the next sync start (step 3g) backs them up.
 
 ---
@@ -1158,7 +1163,7 @@ All paths from caller — no `garmin_config` import.
 
 | Function | Purpose |
 |---|---|
-| `lock(source_dir, container_path, password, progress=None)` | Creates/overwrites `mirror.gla` atomically. Packs the sections quality_log (quality_log.json + device_table.json), raw, summary, context, source and, since v1.7.6.2, bulk and bulk_source. `progress` (v1.7.6.2) gets a line for the reading ("N files to read", then every 10 % with the real percentage), each section packed and the write; a callback that raises never fails the mirror. Returns `{"files_packed", "errors", "ok"}` |
+| `lock(source_dir, container_path, password, progress=None)` | Creates/overwrites `mirror.gla` atomically. Packs the sections quality_log (quality_log.json + device_table.json), raw, summary, context, source and, since v1.7.6.2, bulk and bulk_source and, since v1.7.8, diary. `progress` (v1.7.6.2) gets a line for the reading ("N files to read", then every 10 % with the real percentage), each section packed and the write; a callback that raises never fails the mirror. Returns `{"files_packed", "errors", "ok"}` |
 | `unlock_meta(container_path, password)` | Verifies header HMAC, decrypts quality_log section, extracts quality_log.json by explicit key. Returns `{"ok", "container_meta", "quality_log", "error"}` |
 | `fulfill_order(container_path, password, order, progress=None)` | Verifies HMAC, decrypts only ordered sections. Returns `{rel_path: bytes}`. `progress` (v1.7.6.2) gets a line before and after each section it decrypts (a section takes up to a quarter of a minute) |
 | `report_progress(progress, text)` | Public since v1.7.6.2 (the import uses it): passes one line to the callback; no callback is a no-op, a callback that raises is logged at debug level |
@@ -1177,7 +1182,7 @@ header_json      N bytes   UTF-8 JSON: container_meta + section_index
 [section data]             AES-256-GCM, one blob per section: nonce (12 bytes) + ciphertext
 ```
 
-Key derivation: PBKDF2-HMAC-SHA256 (600 000 iterations) → master key; HKDF-Expand(master, `gla-{section}`) → section key. Sections: `quality_log`, `raw`, `summary`, `context`, `source`, `bulk`, `bulk_source`. `bulk` holds `garmin_data/bulk/raw/**` and `garmin_data/bulk/aggregates/**`, `bulk_source` holds `garmin_data/bulk/source/**` (v1.7.6.2); `_classify_file()` is a fixed mapping — a folder it does not name is silently not mirrored. A container made before v1.7.6.2 has neither section and stays readable (`list_files()` answers `[]`). A section is encrypted whole, so `fulfill_order()` decrypts a whole section per request. Measured on a copy of a real archive (2026-10-23): `lock()` 50 s → 116 s with the bulk store, container 58 → 233 MB, peak memory 3.85 → 4.11 GB (every byte is held as a JSON number while packing).
+Key derivation: PBKDF2-HMAC-SHA256 (600 000 iterations) → master key; HKDF-Expand(master, `gla-{section}`) → section key. Sections: `quality_log`, `raw`, `summary`, `context`, `source`, `bulk`, `bulk_source`, `diary` (v1.7.8: `diary_data/fields.json` and `diary_data/days/diary_YYYY-MM-DD.json` only — no `.tmp`, no `.damaged`, no backup file; the format version stays `0x01`, an older program never asks for the section). `bulk` holds `garmin_data/bulk/raw/**` and `garmin_data/bulk/aggregates/**`, `bulk_source` holds `garmin_data/bulk/source/**` (v1.7.6.2); `_classify_file()` is a fixed mapping — a folder it does not name is silently not mirrored. A container made before v1.7.6.2 has neither section and stays readable (`list_files()` answers `[]`). A section is encrypted whole, so `fulfill_order()` decrypts a whole section per request. Measured on a copy of a real archive (2026-10-23): `lock()` 50 s → 116 s with the bulk store, container 58 → 233 MB, peak memory 3.85 → 4.11 GB (every byte is held as a JSON number while packing).
 
 ---
 

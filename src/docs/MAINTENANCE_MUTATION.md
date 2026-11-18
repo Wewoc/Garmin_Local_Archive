@@ -64,6 +64,7 @@ Every one of these cost a surviving mutant at least once:
 | v1.7.6.12 | Cosmic Ray, stage 1 + 2 (2026-11-09) | all modules built in v1.7.6.x; changed lines of the core modules and of the mirror import | 9905 mutants in stage 1, 8343 caught; every survivor judged, 434 new checks, the rest equivalent (EQ-16 to EQ-46), see below |
 | v1.7.7 | Cosmic Ray, stage 1, then the survivor lines again (2026-11-13) | the three modules of the Export Scan: `garmin_export_scan`, `garmin_export_scan_fit`, `garmin_export_scan_day` | 1884 mutants, 1626 caught in stage 1; every survivor judged, 64 new checks, the rest equivalent (EQ-48 to EQ-55), see below |
 | v1.7.7.1 | Cosmic Ray, stage 1, then the survivor lines again (2026-11-17), and hand lists for the model and the window | the new lines of `garmin_export_scan` (`read_rows`, `_family_rows`, `_cell`, the two constants); the model and the window by hand lists | 159 mutants, 147 caught in stage 1; every survivor judged, 5 new checks, the rest equivalent (EQ-56, EQ-57), see below |
+| v1.7.8 | Cosmic Ray, stage 1, then the survivor lines again (2026-11-18) | the five modules of the package `diary/` (catalogue, model, reader, writer, backup); the tab, the dialogs and the entry editor by hand tests only (decision of the maintainer) | 1697 mutants, 1491 caught in stage 1; every survivor judged, 77 new checks, the rest equivalent (EQ-58 to EQ-61), see below |
 
 ### v1.7.6.12
 
@@ -125,6 +126,37 @@ Scope: the new lines of `garmin_export_scan` (`read_rows`, `_family_rows`, `_cel
 Stage 1: `garmin_export_scan` against `test_export_scan.py`: 159 mutants, 147 caught, 12 survived. All 12 were judged one by one: 5 gaps in the tests and 7 equivalent changes (EQ-56, EQ-57). 5 new checks (section "10c. mutation round v1.7.7.1" of `test_export_scan.py`); no new test file; no production code changed. The survivor lines were run again: 74 mutants, 67 caught; the 7 that are left are the equivalent changes of EQ-56 and EQ-57.
 
 What the round found in the tests (none of it in the code): a stop that does not end the walk (a `break` against a `continue`: a stop function that says yes only once went unnoticed, because the tests used one that always says yes); a damaged or too large file in the middle of the files (only one at the end was tested: a `continue` against a `break`); the counts of an unsupported read, which have to stay at 0 (the starting values were not looked at); the count of true values, tested with as many true as false values, so that counting the false ones gave the same number. The hand lists found gaps of the same kinds before the round: a column without a value, a count that equals the number of rows by chance, the border of exactly four columns, a text for only one of two counts, the check of an unknown export.
+
+### v1.7.8
+
+Scope: the package `diary/` in full (`diary_catalog`, `diary_model`, `diary_reader`, `diary_writer`, `diary_backup`, run with `--only diary`; the tool takes modules outside `src/garmin/` and test files that run with pytest since this round).
+The tab, the dialogs and the entry editor live in `src/app/` and were not run through the tool (decision of the maintainer: the hand tests of the build steps are enough there). No stage 2: the package is reached by its own test file,
+`test_diary.py`, and the mirror import of the diary by `test_import_mirror.py`, which is not part of this run.
+
+Stage 1 (every mutant against `test_diary.py`):
+
+| Module | Mutants | Caught | Survived |
+|---|---:|---:|---:|
+| `diary_catalog` | 11 | 11 | 0 |
+| `diary_model` | 577 | 526 | 51 |
+| `diary_reader` | 196 | 179 | 17 |
+| `diary_writer` | 611 | 522 | 89 |
+| `diary_backup` | 302 | 253 | 49 |
+| **Total** | **1697** | **1491** | **206** |
+
+All 206 survivors were judged one by one. 77 new checks in `test_diary.py` (section "11. Gaps found by the mutation round (v1.7.8)", 611 to 688); no new test file; no production code changed. The survivor lines were run again
+(the lines around them, 1,282 mutants, and the three constants and two lines of the writer once more): 68 mutants are left, and they are the equivalent changes of EQ-58 to EQ-61.
+
+What the round found in the tests (none of it in the code): the retry on a locked file was tested for the number of tries but not for the pauses (0.1, 0.2, 0.3, 0.4 s) and not for the error that is raised after the last try; a `.tmp` that cannot be removed
+while the write already failed; `fsync` that the file system does not support; the limits of the note, the unit, the label and the number of values only with the constant of the module itself (a changed constant moved the test with it: the tests now
+carry the literal values); an empty list of one field that ends the loop (`continue` against `break`) in `save_day`, and the loops over entries, definitions, fields and history items that stop at the first problem (each loop needs a case with a problem
+before and after); `recover_master` for a newer or damaged list with and without days, with a day of a newer version in between, with catalogue keys only (`next_id` 1) and with a catalogue definition that differs from the one in the day; `restore_history`
+for a note that sorts higher than the present one and for a state that differs only in its entries; `restore_master` with a day of a newer version; the flags taken off again (`True` to `False`); a catalogue field renamed to its own name in other capitals
+(the key is not the same object as the catalogue key); a snippet that starts exactly 40 characters in, and one that ends with the match in a long note; the whole answer of a refused search; the count of days read when a search stops at its limit;
+`next_id` 1 as the smallest valid value and 0 as the first invalid one with no field to catch it by another rule; a schema version below 1; a snapshot definition that no entry uses; a copy that is longer than the file and sorts higher (`old >= data`);
+a valid backup copy given back (the first condition of `read_valid_*_copy`); the sum of failed copies and failed refreshes with both different from zero (`|` and `^` look like `+` with one zero); a backup copy inside a monthly ZIP behind a stray file in the folder.
+
+Not tested: the mutants that no input can tell apart (EQ-58 to EQ-61), the retry on a locked file at the exact fifth try (a sixth try never happens, the fifth raises), and the app modules of the diary (hand tests only).
 
 ## Equivalent mutants
 
@@ -191,6 +223,10 @@ must not be assumed.
 | EQ-55 | v1.7.7 | `garmin_export_scan_day.py` (`prepare`, `read_day`) | `first < len(ordered)` → `!=` / `is not`; `met == len(wanted)` → `>=` / `is`; `ms // 1000` → `ms / 1000` | `first` and `met` never pass their limit (the sweep stops at the end, each file of the walk is met once), and a small number is one object; the milliseconds are whole seconds, so the division gives the same time. |
 | EQ-56 | v1.7.7.1 | `garmin_export_scan.py` (`_family_rows`) | `classify(name) is not fam` → `!=`; `state != "ok"` → `>` / `is not`; `state == "unreadable"` → `>=` / `is` | `classify` returns the family itself or `None`, and two families are never equal; the three state words order the same against each of them ("ok" < "too_large" < "unreadable", as in EQ-52) and a literal is one object. |
 | EQ-57 | v1.7.7.1 | `garmin_export_scan.py` (`read_rows`) | `value == ""` → `is`; `len(kept) > limit` → `>=` | The empty text of a parsed file is the one empty-string object (as in EQ-52); with exactly `limit` rows nothing is cut (`cut` is 0 and `kept[-limit:]` keeps all of them). |
+| EQ-58 | v1.7.8 | `diary_model.py` (`_check_groups`, `_check_value_definition`, `check_entries`, `check_master`, `check_day`) | `positions[-1] - positions[0] + 1 != len(positions)` → `>` / `is not`; `len(used_groups) != len(set(used_groups))` → `>` / `is not`; `value_type == TYPE_NUMBER` → `<=`; `types[label] == TYPE_NUMBER` / `== TYPE_TEXT` → `<=`; `schema_version != SCHEMA_VERSION` → `is not` (master and day) | The positions are distinct and sorted, so the span is never smaller than their number; a set is never larger than its list; the value types order as "number" < "text" < "yesno", so `<=` "number" is only "number", and `<=` "text" is only reached by "text" and "yesno" (the "number" case is handled before); the schema version is a small whole number and so one object. |
+| EQ-59 | v1.7.8 | `diary_reader.py` (`read_master`, `read_day`, `search_notes`, `_snippet`) | `state != OK` → `<` / `is not`; `start > 0` → `!= 0`; `end < len(text)` → `!=`; `len(hits) >= limit` → `==` / `is` | `_load_json` returns only "ok", "missing" or "damaged" (a newer version is told after it), and the first two sort before "ok"; the state words are the module's literals and so one object each; `start` is never negative; `end` never passes the length of the text; the hits never pass the limit, and the limit of 200 is a small number. |
+| EQ-60 | v1.7.8 | `diary_writer.py` (`_cleanup`, `_replace`, `_remove`, `_master_for_write`, `set_flags`, `restore_history`, `recover_master`, `restore_day`, `restore_master`) | `unlink(missing_ok=True)` → `False`; `attempt == REPLACE_ATTEMPTS - 1` → `^ 1` / `>=` / `is`; the state words `== rd.OK` / `== rd.MISSING` / `== rd.UNSUPPORTED` / `== rd.DAMAGED` → `is` / `>=` / `<=`; `!= rd.OK` → `is not` / `<`; `field[flag_name] != flag` → `is not`; `day["entries"] == existing["entries"]` is covered | A missing file is an `OSError` and is caught either way; `5 - 1` is `5 ^ 1` and `attempt` never passes 4; the four state words are the literals of the reader and so one object each, "unsupported" is the highest of them and "damaged" the lowest, and the check of a day (`!= OK`) is reached with "unsupported" only through a list that holds a day of a newer version (tested, and that case is what `<` would miss); two booleans are two singletons. |
+| EQ-61 | v1.7.8 | `diary_backup.py` (`_write_atomic`, `backup_day`, `backup_master`, `backup_all`, `_is_valid_day`, `_is_valid_master`, `_backup_dates`, `check`) | `range(5)` → `range(6)`; `attempt == 4` → `>=`; the state words with `is` / `is not` / `<=` / `>=`; `check_day(...) == []` and `check_master(...) == []` → `<= []`; `failed == 0` / `errors == 0` → `<= 0`; the numbers in the log line of `backup_all` (`+` → other operators); `entry.suffix == ".zip"` → `<=` / `>=` / `is not` | The sixth try never happens (the fifth raises, and the number of tries is tested); a non-empty list is never `<= []`; a count is never negative; the numbers in the log text are not part of the result (the result carries the sum and is tested with both counts above zero); a stray file that is handed to the ZIP reader is told as unreadable and gives no name, the same as when it is skipped; the state words are one object each and sort as in EQ-60. |
 
 Equivalent mutants found in v1.7.6.12 are added below, with the run and the module.
 

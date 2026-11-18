@@ -25,17 +25,22 @@ tooling — lives outside this repo):
     manual close).
 
 No credentials, no file I/O (except the JPEGs written under
---auto-shot), no subprocesses.
-Safe to run on any machine.
+--auto-shot and a small demo diary in a temporary folder that the
+Diary tab reads and that is removed when the program ends), no
+subprocesses. Safe to run on any machine.
 """
 
 import argparse
+import atexit
+import shutil
 import sys
+import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # sys.path setup — identical to garmin_app.py
 _root = Path(__file__).parent
-for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+for _sub in ("garmin", "maps", "dashboards", "layouts", "context", "diary"):  # diary: DIARY v1.7.8
     sys.path.insert(0, str(_root / _sub))
 sys.path.insert(0, str(_root / "app"))
 
@@ -542,6 +547,22 @@ DEMO_MCP_LOG = (
     "\"POST /mcp HTTP/1.1\" 200 OK\n"
 )
 
+# Demo diary (Diary tab, v1.7.8) — written into a temporary folder when the window starts and removed at exit;
+# nothing of it touches a real archive. Harmless everyday fields only (no cycle, no pregnancy).
+DEMO_DIARY_TODAY_NOTE = (
+    "Slept well, easy morning run before work. Felt rested all day. "
+    "Planning a longer walk on Saturday."
+)
+DEMO_DIARY_EARLIER = [
+    # (days ago, note, which fields have entries)
+    (1, "Busy day at the office, skipped lunch.", ("hydration",)),
+    (2, "", ("walk", "caffeine")),
+    (3, "Light headache in the evening, drank more water.", ()),
+    (5, "Day off. Long walk by the river.", ("walk",)),
+    (8, "Check-up at the doctor, all fine.", ("pressure",)),
+    (9, "", ("caffeine",)),
+]
+
 
 class ScreenshotApp(GarminApp):
     """
@@ -555,6 +576,7 @@ class ScreenshotApp(GarminApp):
       _refresh_archive_info — static demo values.
       _scan_dashboards      — loads embedded DEMO_SLEEP_HTML into Tab 2, no file I/O.
       _scan_xlsx_files      — loads embedded DEMO_XLSX_HTML into Tab 3, no file I/O.
+      _load_demo_diary      — Diary tab: a demo diary in a temporary folder (removed at exit).
 
     Everything else (layout, colours, fonts, sections, widgets) is inherited
     directly from GarminApp and stays in sync automatically.
@@ -569,6 +591,7 @@ class ScreenshotApp(GarminApp):
         self._set_connection_indicators_green()
         self._write_demo_log()
         self._load_demo_chat()
+        self._load_demo_diary()
         self._disable_all_buttons()
         self.setWindowTitle("Garmin Local Archive  [SCREENSHOT MODE]")
         if self._auto_shot_dir:
@@ -760,6 +783,56 @@ class ScreenshotApp(GarminApp):
             "average of 64 bpm, with a brief spike to 88 bpm around 14:15 "
             "(a 30-minute walk), then settled back into the high 50s by "
             "22:00.")
+
+    def _load_demo_diary(self):
+        """Fill the Diary tab (panel_diary.py) with demo content: a temporary archive folder with a small diary
+        (made with the diary's own writer, so the files are the real format), pointed at by the panel only —
+        the Settings tab keeps showing the demo path. The folder is removed when the program ends. The backup that
+        the panel starts at its first show is switched off for the demo. A failure is printed, not hidden; the tab
+        then shows what it shows without an archive folder."""
+        try:
+            from diary import diary_catalog as cat
+            from diary import diary_writer as wr
+
+            base = Path(tempfile.mkdtemp(prefix="gla_demo_diary_"))
+            atexit.register(shutil.rmtree, str(base), ignore_errors=True)
+
+            def need(res, what):
+                if res["status"] != "written":
+                    raise RuntimeError(f"{what}: {res}")
+                return res
+
+            keys = {}
+            by_name = {t["name"]: t for t in cat.templates()}
+            for name, slug in (("Caffeine", "caffeine"), ("Walk", "walk")):
+                tpl = by_name[name]
+                keys[slug] = need(wr.create_user_field(base, tpl["name"], tpl["values"], tpl["with_time"]), name)["key"]
+            for key, slug in (("G001", "pressure"), ("G002", "hydration")):
+                need(wr.activate_catalog_field(base, key), key)
+                keys[slug] = key
+            for key in keys.values():
+                need(wr.set_flags(base, key, favorite=True), key)
+
+            entries = {
+                "pressure": [{"time": "07:15", "values": {"systolic": 121, "diastolic": 79, "Pulse": 58}}],
+                "hydration": [{"time": "08:30", "values": {"Amount": 500}}],
+                "walk": [{"values": {"Done": True, "Steps": 8420}}],
+                "caffeine": [{"time": "07:40", "values": {"Cups": 1}}],
+            }
+            today = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+            need(wr.save_day(base, today.strftime("%Y-%m-%d"), DEMO_DIARY_TODAY_NOTE,
+                             {keys[slug]: value for slug, value in entries.items()}, now=today), "today")
+            for days_ago, note, slugs in DEMO_DIARY_EARLIER:
+                day = today - timedelta(days=days_ago)
+                need(wr.save_day(base, day.strftime("%Y-%m-%d"), note,
+                                 {keys[slug]: entries[slug] for slug in slugs}, now=day), "earlier day")
+
+            pd = self._panel_diary
+            pd._diary_resolve_base = lambda: base
+            pd._diary_start_backup = lambda _base: None
+        except Exception as exc:  # noqa: BLE001 — the screenshot tool says what failed and goes on
+            print(f"WARNING: demo diary could not be made ({type(exc).__name__}: {exc}); "
+                  "the Diary tab will be empty.", file=sys.stderr)
 
     def _disable_all_buttons(self):
         """Walk every QPushButton and replace command with no-op."""

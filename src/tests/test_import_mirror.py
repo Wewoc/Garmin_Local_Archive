@@ -1459,4 +1459,338 @@ check("_is_reserved_name: every device name (CON, PRN, AUX, NUL, CONIN$, CONOUT$
 check("_is_reserved_name: names that only resemble a device (COM0, LPT0, COM10, NULL, console) and a device name behind a dot are accepted",
       not any(_im._is_reserved_name(n) for n in ("COM0", "LPT0", "COM10", "LPT10", "NULL", "console", "xnul", ".nul", "a.nul")))
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  4h4. garmin_import_mirror — the diary section of the container (v1.7.8)
+# ══════════════════════════════════════════════════════════════════════════════
+section("4h4. garmin_import_mirror — diary section (v1.7.8)")
+# the importer imports the 'diary' package lazily; its folder (src/) is on the path in the app, here for this block only
+_dy_path_added = _SRC_ROOT_4H not in sys.path
+if _dy_path_added:
+    sys.path.insert(0, _SRC_ROOT_4H)
+from datetime import datetime as _dyt
+from diary import diary_reader as _dyr
+from diary import diary_writer as _dyw
+
+_DY_PILL = [{"label": "Anzahl", "type": "number", "unit": "Stück"}]
+_DY_WALK = [{"label": "Done", "type": "yesno"}]
+_DY_F = "diary_data/fields.json"
+_DY_D1, _DY_D2, _DY_D3 = "2026-03-01", "2026-03-02", "2026-03-03"
+_DY_REL = {d: f"diary_data/days/diary_{d}.json" for d in (_DY_D1, _DY_D2, _DY_D3)}
+
+
+def _dy_source(name):
+    """A source archive: fields U0001 (number) and U0002 (yes/no); day 1 uses U0001, day 2 a note only, day 3 U0002.
+    Returns {relative path: bytes} of its diary files."""
+    src = _TMPDIR / f"dy_src_{name}"
+    shutil.rmtree(src, ignore_errors=True)
+    src.mkdir(parents=True)
+    _dyw.create_user_field(src, "Pill", _DY_PILL, True)
+    _dyw.create_user_field(src, "Walk", _DY_WALK, False)
+    _dyw.save_day(src, _DY_D1, "first", {"U0001": [{"time": "08:00", "values": {"Anzahl": 1}}]}, now=_dyt(2026, 3, 1, 9))
+    _dyw.save_day(src, _DY_D2, "second", {}, now=_dyt(2026, 3, 2, 9))
+    _dyw.save_day(src, _DY_D3, "third", {"U0002": [{"values": {"Done": True}}]}, now=_dyt(2026, 3, 3, 9))
+    return {p.relative_to(src).as_posix(): p.read_bytes() for p in sorted((src / "diary_data").rglob("*.json"))}
+
+
+def _dy_container(name, files):
+    path = _M4H / f"dy_{name}.gla"
+    sec = _mirror_sections(days=[])
+    sec["diary"] = dict(files)
+    _craft_container(path, sec)
+    return path
+
+
+_DY_FILES = _dy_source("main")
+_DY_NO_MASTER = {k: v for k, v in _DY_FILES.items() if k != _DY_F}
+_DY_C = _dy_container("main", _DY_FILES)
+_DY_BASE_RESULT = {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0, "source_copied": 0, "bulk_copied": 0,
+                   "bulk_skipped": 0, "originals_copied": 0, "export_days": 0}
+
+
+def _dy_import(name, container=None, prepare=None, dry=False):
+    """Imports a container into a fresh archive (after prepare(base) set up its diary); returns (result, base)."""
+    with _isolated_log_env(name) as _b:
+        cfg.SUMMARY_DIR = _b / "summary"
+        if prepare:
+            prepare(_b)
+        return _im.run_import_mirror(container or _DY_C, _b, "pw", dry_run=dry), _b
+
+
+def _dy_local_master(base, with_days=False):
+    """The diary of the source archive in `base`, written through the writer (the same keys and definitions)."""
+    _dyw.create_user_field(base, "Pill", _DY_PILL, True)
+    _dyw.create_user_field(base, "Walk", _DY_WALK, False)
+    if with_days:
+        _dyw.save_day(base, _DY_D1, "local", {"U0001": [{"time": "09:00", "values": {"Anzahl": 5}}]}, now=_dyt(2026, 3, 1, 9))
+
+
+def _dy_day(base, d):
+    return json.loads((base / "diary_data" / "days" / f"diary_{d}.json").read_text(encoding="utf-8"))
+
+
+_r, _b = _dy_import("dy_empty")
+check("diary import: into an empty archive the three days and the field list are restored",
+      _r == {**_DY_BASE_RESULT, "errors": 0, "ok": True, "diary_days_copied": 3, "diary_days_skipped": 0,
+             "diary_conflicts": 0, "diary_master": "restored"})
+check("diary import: the restored days are the days of the container",
+      all(_dy_day(_b, d) == json.loads(_DY_FILES[_DY_REL[d]]) for d in (_DY_D1, _DY_D2, _DY_D3)))
+check("diary import: the restored field list is the one of the container and is read back ok",
+      json.loads((_b / "diary_data" / "fields.json").read_text(encoding="utf-8")) == json.loads(_DY_FILES[_DY_F])
+      and _dyr.read_master(_b)[0] == "ok" and all(_dyr.read_day(_b, d)[0] == "ok" for d in (_DY_D1, _DY_D2, _DY_D3)))
+check("diary import: no .tmp is left", not list((_b / "diary_data").rglob("*.tmp")))
+_r2 = _im.run_import_mirror(_DY_C, _b, "pw")
+check("diary import: a second import keeps everything (three days kept, field list kept)",
+      _r2["ok"] is True and _r2["diary_days_copied"] == 0 and _r2["diary_days_skipped"] == 3
+      and _r2["diary_conflicts"] == 0 and _r2["diary_master"] == "kept")
+
+_r, _b = _dy_import("dy_dry", dry=True)
+check("diary import dry run: the three days and the field list are counted, nothing is written",
+      _r["ok"] is True and _r["diary_to_copy"] == 4 and not (_b / "diary_data").exists())
+_r, _b = _dy_import("dy_dry2", prepare=lambda b: _dy_local_master(b, with_days=True), dry=True)
+check("diary import dry run: a readable day and a readable field list here are not counted", _r["diary_to_copy"] == 2)
+_none = _dy_container("none", {})
+_r, _b = _dy_import("dy_dry_none", container=_none, dry=True)
+check("diary import: a container without a diary adds no diary keys to the dry run", "diary_to_copy" not in _r and _r["ok"] is True)
+_r, _b = _dy_import("dy_none", container=_none)
+check("diary import: a container without a diary adds no diary keys to the result",
+      _r == {**_DY_BASE_RESULT, "errors": 0, "ok": True} and not (_b / "diary_data").exists())
+
+# a readable day is never replaced
+_r, _b = _dy_import("dy_keep", prepare=lambda b: _dy_local_master(b, with_days=True))
+check("diary import: a readable day here is kept, the other two come from the container, the list is kept",
+      _r["ok"] is True and _r["diary_days_copied"] == 2 and _r["diary_days_skipped"] == 1 and _r["diary_master"] == "kept"
+      and _dy_day(_b, _DY_D1)["note"] == "local" and _dy_day(_b, _DY_D2)["note"] == "second")
+check("diary import: the day that was kept is byte for byte as it was",
+      _dy_day(_b, _DY_D1)["entries"]["U0001"][0]["values"] == {"Anzahl": 5})
+
+# a damaged day is restored and kept next to it
+def _dy_prepare_damaged(b):
+    _dy_local_master(b, with_days=True)
+    (b / "diary_data" / "days" / f"diary_{_DY_D1}.json").write_text("{ broken", encoding="utf-8")
+
+
+_r, _b = _dy_import("dy_damaged", prepare=_dy_prepare_damaged)
+check("diary import: a damaged day here is restored from the container (and the missing ones come with it)",
+      _r["ok"] is True and _r["diary_days_copied"] == 3 and _dy_day(_b, _DY_D1)["note"] == "first")
+check("diary import: the damaged file is kept next to it as .damaged",
+      (_b / "diary_data" / "days" / f"diary_{_DY_D1}.json.damaged").read_text(encoding="utf-8") == "{ broken")
+
+# partial loss: the list is there, the days are not
+def _dy_prepare_list_only(b):
+    _dy_local_master(b)
+    _dyw.rename_field(b, "U0001", "Tablet")
+
+
+_r, _b = _dy_import("dy_listonly", prepare=_dy_prepare_list_only)
+check("diary import: with the field list here and no days, the days come back and the list is kept; a renamed field still fits",
+      _r["ok"] is True and _r["diary_days_copied"] == 3 and _r["diary_conflicts"] == 0 and _r["diary_master"] == "kept"
+      and _dyr.read_master(_b)[1]["fields"]["U0001"]["name"] == "Tablet")
+
+# keys that do not fit
+def _dy_prepare_other_keys(b):
+    _dyw.create_user_field(b, "Other", [{"label": "X", "type": "yesno"}], False)    # U0001, another definition
+
+
+_r, _b = _dy_import("dy_conflict", prepare=_dy_prepare_other_keys)
+check("diary import: days whose keys do not fit the field list here are counted as conflicts and not imported",
+      _r["ok"] is True and _r["errors"] == 0 and _r["diary_conflicts"] == 2 and _r["diary_days_copied"] == 1
+      and _r["diary_master"] == "kept")
+check("diary import: only the day without a key was imported, the two others are not there",
+      sorted(_dyr.list_days(_b)) == [_DY_D2] and _dyr.read_master(_b)[1]["fields"]["U0001"]["name"] == "Other")
+for _what, _mut in (("another unit", lambda d: d["values"][0].update(unit="ml")),
+                    ("another type", lambda d: d["values"][0].update(type="yesno") or d["values"][0].pop("unit")),
+                    ("another time setting", lambda d: d.update(with_time=False)),
+                    ("another label", lambda d: d["values"][0].update(label="Zahl"))):
+    def _prep(b, _mut=_mut):
+        _dy_local_master(b)
+        _m = _dyr.read_master(b)[1]
+        _mut(_m["fields"]["U0001"])
+        (b / "diary_data" / "fields.json").write_text(json.dumps(_m), encoding="utf-8")
+    _r, _b = _dy_import("dy_conf_" + _what.replace(" ", "_"), prepare=_prep)
+    check(f"diary import: a definition with {_what} is a conflict for the days that use it",
+          _r["diary_conflicts"] == 1 and _DY_D1 not in _dyr.list_days(_b) and _r["diary_days_copied"] == 2)
+def _dy_prepare_one_key(b):
+    _dyw.create_user_field(b, "Pill", _DY_PILL, True)                  # only U0001 here
+
+
+_r, _b = _dy_import("dy_onekey", prepare=_dy_prepare_one_key)
+check("diary import: a key that is not in the field list here is a conflict", _r["diary_conflicts"] == 1
+      and _r["diary_days_copied"] == 2 and _DY_D3 not in _dyr.list_days(_b))
+
+# the field list
+def _dy_prepare_damaged_list(b):
+    (b / "diary_data").mkdir(parents=True)
+    (b / "diary_data" / "fields.json").write_text("{ broken", encoding="utf-8")
+
+
+_r, _b = _dy_import("dy_dlist", prepare=_dy_prepare_damaged_list)
+check("diary import: a damaged field list here is restored from the container, the days follow",
+      _r["ok"] is True and _r["diary_master"] == "restored" and _r["diary_days_copied"] == 3 and _dyr.read_master(_b)[0] == "ok")
+check("diary import: the damaged field list is kept as fields.json.damaged",
+      (_b / "diary_data" / "fields.json.damaged").read_text(encoding="utf-8") == "{ broken")
+
+def _dy_prepare_both(b):
+    _dy_import_into = _im.run_import_mirror(_DY_C, b, "pw")
+    assert _dy_import_into["ok"] is True
+    (b / "diary_data" / "fields.json").write_text("{ broken", encoding="utf-8")
+    (b / "diary_data" / "days" / f"diary_{_DY_D2}.json").write_text("{ broken", encoding="utf-8")
+
+
+_r, _b = _dy_import("dy_both", prepare=_dy_prepare_both)
+check("diary import: a damaged day and a damaged list are both restored in one run (the days first)",
+      _r["ok"] is True and _r["diary_master"] == "restored" and _r["diary_days_copied"] == 1 and _r["diary_days_skipped"] == 2
+      and _dyr.read_master(_b)[0] == "ok" and _dyr.read_day(_b, _DY_D2)[0] == "ok")
+
+def _dy_prepare_newer_day(b):
+    _src2 = _TMPDIR / "dy_src_two"
+    shutil.rmtree(_src2, ignore_errors=True)
+    _src2.mkdir(parents=True)
+    for i, n in enumerate(("A", "B", "C"), 1):
+        _dyw.create_user_field(_src2, n, _DY_PILL, False)
+    _dyw.save_day(_src2, _DY_D1, "uses U0003", {"U0003": [{"values": {"Anzahl": 1}}]}, now=_dyt(2026, 3, 1, 9))
+    (b / "diary_data" / "days").mkdir(parents=True)
+    (b / "diary_data" / "days" / f"diary_{_DY_D1}.json").write_bytes((_src2 / "diary_data" / "days" / f"diary_{_DY_D1}.json").read_bytes())
+
+
+_r, _b = _dy_import("dy_behind", prepare=_dy_prepare_newer_day)
+check("diary import: a field list of the container that lacks a key of a day here is refused, told and not an error",
+      _r["ok"] is True and _r["errors"] == 0 and _r["diary_master"] == "refused:copy_behind" and not (_b / "diary_data" / "fields.json").exists())
+check("diary import: the days of the container are still restored (the container's list is the reference)",
+      _r["diary_days_copied"] == 2 and _r["diary_days_skipped"] == 1)
+
+_r, _b = _dy_import("dy_nomaster", container=_dy_container("nomaster", _DY_NO_MASTER))
+check("diary import: without a field list in the container the days are restored and no list is made",
+      _r["ok"] is True and _r["diary_days_copied"] == 3 and _r["diary_master"] == "kept" and not (_b / "diary_data" / "fields.json").exists())
+_bad_master = dict(_DY_FILES)
+_bad_master[_DY_F] = b"{ nope"
+_r, _b = _dy_import("dy_badmaster", container=_dy_container("badmaster", _bad_master))
+check("diary import: a field list in the container that fails its checks is an error, told, not written; the days still come",
+      _r["ok"] is False and _r["errors"] == 1 and _r["diary_master"] == "refused:copy_invalid" and _r["diary_days_copied"] == 3
+      and not (_b / "diary_data" / "fields.json").exists())
+
+def _dy_prepare_newer_list(b):
+    (b / "diary_data").mkdir(parents=True)
+    (b / "diary_data" / "fields.json").write_text(json.dumps({"schema_version": 2}), encoding="utf-8")
+
+
+_r, _b = _dy_import("dy_newer", prepare=_dy_prepare_newer_list)
+check("diary import: a field list here of a newer version stops the diary section, nothing is written, no error",
+      _r["ok"] is True and _r["diary_days_copied"] == 0 and _r["diary_conflicts"] == 0 and _r["diary_master"] == "kept"
+      and _dyr.list_days(_b) == [] and json.loads((_b / "diary_data" / "fields.json").read_text(encoding="utf-8")) == {"schema_version": 2})
+_r, _b = _dy_import("dy_newer_dry", prepare=_dy_prepare_newer_list, dry=True)
+check("diary import dry run: a field list of a newer version counts nothing", _r["diary_to_copy"] == 0)
+
+# names and bytes the container brings
+_odd = dict(_DY_FILES)
+_odd["diary_data/days/notes.txt"] = b"x"
+_odd["diary_data/other.json"] = b"{}"
+_odd["diary_data/days/diary_2026-13-01.json"] = b"{}"
+_r, _b = _dy_import("dy_odd", container=_dy_container("odd", _odd))
+check("diary import: names that are not the field list or a day file are left out with no error",
+      _r["ok"] is True and _r["diary_days_copied"] == 3 and not (_b / "diary_data" / "other.json").exists()
+      and not (_b / "diary_data" / "days" / "notes.txt").exists() and len(_dyr.list_days(_b)) == 3)
+_corrupt = dict(_DY_FILES)
+_corrupt[_DY_REL[_DY_D2]] = b"{ not json"
+_r, _b = _dy_import("dy_corrupt", container=_dy_container("corrupt", _corrupt))
+check("diary import: a day of the container that is no JSON is an error, the other days still come",
+      _r["ok"] is False and _r["errors"] == 1 and _r["diary_days_copied"] == 2 and _DY_D2 not in _dyr.list_days(_b))
+_mismatch = dict(_DY_FILES)
+_mismatch[_DY_REL[_DY_D2]] = _DY_FILES[_DY_REL[_DY_D1]]          # the content of day 1 under the name of day 2
+_r, _b = _dy_import("dy_mismatch", container=_dy_container("mismatch", _mismatch))
+check("diary import: a day whose date is not the one of its name fails its checks: an error, not written",
+      _r["ok"] is False and _r["errors"] == 1 and _r["diary_days_copied"] == 2 and _DY_D2 not in _dyr.list_days(_b))
+_notdict = dict(_DY_FILES)
+_notdict[_DY_REL[_DY_D2]] = b"[1, 2]"
+_r, _b = _dy_import("dy_notdict", container=_dy_container("notdict", _notdict))
+check("diary import: a day that is JSON but no object is an error", _r["errors"] == 1 and _r["diary_days_copied"] == 2)
+
+import garmin_container as _dy_container_mod
+_real_fulfill = _dy_container_mod.fulfill_order
+
+
+def _fulfill_without(order_rel):
+    def _f(*args, **kwargs):
+        got = _real_fulfill(*args, **kwargs)
+        got.pop(order_rel, None)
+        return got
+    return _f
+
+
+with patch.object(_dy_container_mod, "fulfill_order", _fulfill_without(_DY_REL[_DY_D3])):
+    _r, _b = _dy_import("dy_nobytes")
+check("diary import: a file that was ordered and not delivered is an error, the others come",
+      _r["ok"] is False and _r["errors"] == 1 and _r["diary_days_copied"] == 2)
+with patch.object(_dy_container_mod, "fulfill_order", _fulfill_without(_DY_F)):
+    _r, _b = _dy_import("dy_nomasterbytes")
+check("diary import: a field list that was ordered and not delivered is an error", _r["errors"] == 1 and _r["diary_days_copied"] == 3)
+
+# safety of the paths
+for _label, _evil_path in (("a path that climbs out of the archive", "../outside/diary_data/fields.json"),
+                           ("a Windows device name", "diary_data/days/NUL.json"),
+                           ("a device name behind a dot", "diary_data/COM1.json")):
+    _evil = dict(_DY_FILES)
+    _evil[_evil_path] = b"{}"
+    _r, _b = _dy_import("dy_evil", container=_dy_container("evil", _evil))
+    check(f"diary import: {_label} stops the whole import, nothing is written",
+          _r["ok"] is False and "rejected container path" in _r["error"] and not (_b / "diary_data").exists()
+          and not (_b.parent / "outside").exists())
+    _r, _b = _dy_import("dy_evil_dry", container=_dy_container("evil", _evil), dry=True)
+    check(f"diary import dry run: {_label} is rejected too", _r["ok"] is False and "rejected container path" in _r["error"])
+
+# without the diary package
+with patch.dict(sys.modules, {"diary": None}):
+    _r, _b = _dy_import("dy_nopkg")
+    _rd_dry, _bd = _dy_import("dy_nopkg_dry", dry=True)
+check("diary import: without the diary package the section is not imported (told in the log), no error, nothing written",
+      _r["ok"] is True and _r["diary_days_copied"] == 0 and _r["diary_days_skipped"] == 0 and _r["diary_master"] == "kept"
+      and not (_b / "diary_data").exists() and _rd_dry["diary_to_copy"] == 0)
+
+# the pieces
+_o, _k = _im._analyse_diary_delta_container([], Path("x"))
+check("_analyse_diary_delta_container: no files, nothing ordered", (_o, _k) == ([], 0))
+check("_diary_keys_fit: no reference list contradicts nothing", _im._diary_keys_fit({"key_snapshot": {"U0001": {"name": "a"}}}, None) is True)
+_ref = {"fields": {"U0001": {"name": "Pill", "set": "user", "with_time": True, "values": _DY_PILL, "favorite": True, "archived": False}}}
+_same = {"key_snapshot": {"U0001": {"name": "Other name", "set": "user", "with_time": True, "values": _DY_PILL}}}
+check("_diary_keys_fit: the same definition under another name fits; flags do not matter", _im._diary_keys_fit(_same, _ref) is True)
+check("_diary_keys_fit: a day without keys fits", _im._diary_keys_fit({"key_snapshot": {}}, _ref) is True)
+check("_diary_keys_fit: an unknown key does not fit", _im._diary_keys_fit({"key_snapshot": {"U0002": _same["key_snapshot"]["U0001"]}}, _ref) is False)
+check("_diary_keys_fit: another set does not fit",
+      _im._diary_keys_fit({"key_snapshot": {"U0001": {**_same["key_snapshot"]["U0001"], "set": "garmin"}}}, _ref) is False)
+# more edges (found while designing the mutants)
+_r, _b = _dy_import("dy_odd2", container=_dy_container("odd2", _odd))
+check("diary import: names that are not recognised are not counted as kept days", _r["diary_days_skipped"] == 0 and _r["diary_conflicts"] == 0)
+_ref_mut = json.loads(_DY_FILES[_DY_F])
+_ref_mut["fields"]["U0001"]["values"][0]["unit"] = "ml"
+_inconsistent = dict(_DY_FILES)
+_inconsistent[_DY_F] = json.dumps(_ref_mut).encode("utf-8")
+_r, _b = _dy_import("dy_refmaster", container=_dy_container("refmaster", _inconsistent))
+check("diary import: with no field list here the one of the container is the reference: a day that contradicts it is a conflict",
+      _r["ok"] is True and _r["diary_conflicts"] == 1 and _r["diary_days_copied"] == 2 and _DY_D1 not in _dyr.list_days(_b)
+      and _r["diary_master"] == "restored")
+_hollow = dict(_DY_FILES)
+_hollow[_DY_F] = b'{"schema_version": 1}'
+_r, _b = _dy_import("dy_hollow", container=_dy_container("hollow", _hollow))
+check("diary import: a field list that is JSON but fails its checks is no reference and is refused as an error; the days still come",
+      _r["ok"] is False and _r["errors"] == 1 and _r["diary_master"] == "refused:copy_invalid" and _r["diary_days_copied"] == 3)
+with patch.object(_dyw, "restore_day", return_value={"status": "rejected", "reason": "day_exists"}):
+    _r, _b = _dy_import("dy_race1")
+check("diary import: a day that turns out to be there (another writer) is kept, not an error", _r["ok"] is True and _r["diary_days_skipped"] == 3
+      and _r["diary_days_copied"] == 0)
+with patch.object(_dyw, "restore_day", return_value={"status": "rejected", "reason": "day_unsupported"}):
+    _r, _b = _dy_import("dy_race2")
+check("diary import: a day of a newer version that turns up is kept, not an error", _r["ok"] is True and _r["diary_days_skipped"] == 3)
+with patch.object(_dyw, "restore_day", return_value={"status": "failed", "reason": "write_failed"}):
+    _r, _b = _dy_import("dy_failed")
+check("diary import: a day that cannot be written is an error", _r["ok"] is False and _r["errors"] == 3 and _r["diary_days_copied"] == 0)
+with patch.object(_dyw, "restore_day", return_value={"status": "rejected", "reason": "copy_invalid"}):
+    _r, _b = _dy_import("dy_invalid")
+check("diary import: a day the writer finds invalid is an error", _r["ok"] is False and _r["errors"] == 3)
+with patch.object(_dyw, "restore_master", return_value={"status": "failed", "reason": "write_failed"}):
+    _r, _b = _dy_import("dy_mfailed")
+check("diary import: a field list that cannot be written is an error and told", _r["ok"] is False and _r["errors"] == 1
+      and _r["diary_master"] == "refused:write_failed" and _r["diary_days_copied"] == 3)
+
+if _dy_path_added:
+    sys.path.remove(_SRC_ROOT_4H)
+
 summary()

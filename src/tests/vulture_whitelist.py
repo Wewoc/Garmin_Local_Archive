@@ -121,4 +121,15 @@ VULTURE_WHITELIST: dict[tuple[str, str], str] = {
     # The Close button of DocViewerDialog is kept on the dialog so that the tests can click it
     # (TestDocViewerDialog.test_close_button_closes_the_window); production only connects it.
     ("app\\dialog_docs.py", "_close_btn"): "button kept as an attribute for the tests (clicked in test_close_button_closes_the_window); production only connects its signal",
+
+    # ── v1.7.8 diary ─────────────────────────────────────────────────────
+    # Accessors that only the tests of the tab and of its dialogs read (the production code reads the widgets directly).
+    ("app\\dialog_diary_history.py", "error_text"): "accessor of the error line of the dialog, read by the tests (tests/test_diary_panel.py)",
+    ("app\\dialog_diary_manage.py", "error_text"): "accessor of the error line of the dialog, read by the tests (tests/test_diary_panel.py)",
+    ("app\\panel_diary.py", "is_marked"): "accessor of the calendar dots, read by the tests (tests/test_diary_panel.py)",
+    ("app\\panel_diary.py", "selected_date"): "accessor of the day shown, read by the tests (tests/test_diary_panel.py)",
+    # Public recovery function of the sole writer of diary_data/: it rebuilds a lost field list from the key
+    # snapshots of the days. No button of the tab calls it yet (the restore from the backup comes first, and the
+    # refusal texts name recover_master as the way when a copy does not fit); a person can call it from a console.
+    ("diary\\diary_writer.py", "recover_master"): "public recovery function, tested in tests/test_diary.py, named in the refusal texts; no button of the tab calls it yet",
 }

@@ -57,6 +57,7 @@ from app.panel_timer      import PanelTimer
 from app.panel_outputs    import PanelOutputs
 from app.panel_home       import PanelHome
 from app.panel_chat       import PanelChat
+from app.panel_diary      import PanelDiary   # DIARY v1.7.8 — REMOVABLE
 
 # ── Settings — re-exported for garmin_app.py / garmin_app_standalone.py ───────
 SETTINGS_FILE    = _settings.SETTINGS_FILE
@@ -251,6 +252,7 @@ class GarminApp(QMainWindow):
         self._panel_home       = PanelHome(self)
         self._panel_chat       = PanelChat(self)
         self._panel_mcp        = PanelMcp(self)
+        self._panel_diary      = PanelDiary(self)   # DIARY v1.7.8 — REMOVABLE
 
         # ── Fixed top (Connection & Archive Status + Daily Actions) ───────────
         root_lay.addWidget(self._panel_home)
@@ -410,6 +412,19 @@ class GarminApp(QMainWindow):
         mcp_scroll.setStyleSheet(f"background: {self.BG};")
         mcp_scroll.setWidget(self._panel_mcp)
         right_tabs.addTab(mcp_scroll, "MCP Server")
+
+        # ── Tab 5: Diary (DIARY v1.7.8 — REMOVABLE) ───────────────────────────
+        # Same wrapper as the MCP tab: the panel keeps its natural height, a
+        # scrollbar appears only when the window is lower than that. Added last,
+        # so no index of the tabs above (and of _on_tab_changed) moves.
+        diary_scroll = QScrollArea()
+        diary_scroll.setWidgetResizable(True)
+        diary_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        diary_scroll.setStyleSheet(f"background: {self.BG};")
+        diary_scroll.setWidget(self._panel_diary)
+        right_tabs.addTab(diary_scroll, "Diary")
+        # The panel asks before the tab is left with an unsaved note.
+        self._panel_diary.attach_to_tabs(right_tabs, right_tabs.indexOf(diary_scroll))
 
         right_tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -988,6 +1003,11 @@ class GarminApp(QMainWindow):
 
     def closeEvent(self, event):
         """D-9: set all stop events, join threads with shared timeout budget, save settings."""
+        # DIARY v1.7.8 — REMOVABLE: an unsaved diary note keeps the window open until the user
+        # decides. First, before any timer is stopped or the lock is cleared.
+        if not self._panel_diary.confirm_close():
+            event.ignore()
+            return
         process_status.clear_lock("gui")
         self._timer_generation += 1
         self._timer_stop.set()

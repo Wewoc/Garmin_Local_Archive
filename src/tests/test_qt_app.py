@@ -399,6 +399,23 @@ class TestPanelArchive:
         assert full == ("⚠ Mirror import complete: 2 raw day(s) imported, 1 skipped, 0 context file(s) imported, "
                         "4 export day file(s), 2 original export file(s), 1 export-only day(s), 3 error(s)")
 
+    def test_import_texts_name_the_diary_only_when_the_container_has_one(self):
+        """v1.7.8: the diary section of the container is named in the question and in the closing line."""
+        from app.panel_archive import _import_preview_text, _import_result_text
+        assert _import_preview_text({"raw_to_copy": 0, "context_to_copy": 0, "diary_to_copy": 0}) == \
+            "0 raw day(s) and 0 context file(s) will be imported."
+        text = _import_preview_text({"raw_to_copy": 1, "context_to_copy": 0, "diary_to_copy": 4})
+        assert text.endswith("Also up to 4 file(s) of the diary that are missing or damaged here "
+                             "(a day is only taken over when its fields fit the ones here).")
+        base = {"raw_copied": 0, "raw_skipped": 0, "context_copied": 0, "errors": 0, "ok": True}
+        assert _import_result_text({**base, "diary_days_copied": 0, "diary_conflicts": 0, "diary_master": "kept"}) == \
+            "✓ Mirror import complete: 0 raw day(s) imported, 0 skipped, 0 context file(s) imported"
+        assert _import_result_text({**base, "diary_days_copied": 3, "diary_conflicts": 2, "diary_master": "restored"}) == (
+            "✓ Mirror import complete: 0 raw day(s) imported, 0 skipped, 0 context file(s) imported, "
+            "3 diary day(s) restored, 2 diary day(s) left out (their fields do not fit), diary field list restored")
+        refused = _import_result_text({**base, "diary_master": "refused:copy_behind"})
+        assert refused.endswith(", diary field list not restored (copy_behind)")
+
     def test_on_import_mirror_forwards_progress_lines_to_the_log(self, qtbot, app_mock, tmp_path, monkeypatch):
         """v1.7.6.2: the progress lines of the import reach the log (indented) before the closing line;
         the dry run before the question gets no callback."""

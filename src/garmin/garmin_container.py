@@ -23,12 +23,15 @@ Key derivation:
   PBKDF2-HMAC-SHA256 (600 000 iterations) → master key
   HKDF-Expand(master, info="gla-{section}") → section key
 
-Sections: quality_log, raw, summary, context, source, bulk, bulk_source
+Sections: quality_log, raw, summary, context, source, bulk, bulk_source, diary
   Each section: nonce (12 bytes) + ciphertext (AES-256-GCM)
   bulk and bulk_source (v1.7.6.2) hold the bulk store: bulk the day files and daily values
   (garmin_data/bulk/raw and /aggregates), bulk_source the kept export files
   (garmin_data/bulk/source). A container made before has neither; list_files() then answers [].
   The format version stays 0x01: a program that does not know the two sections never asks for them.
+  diary (v1.7.8) holds the diary (diary_data/fields.json and diary_data/days/diary_YYYY-MM-DD.json). A container
+  made before has no such section: list_files() then answers []. The format version stays 0x01 here too: an older
+  program never asks for a section it does not know, and a container with the section opens as before.
 
 Sole-owner invariant:
   This module is the only module that reads or writes .gla files.
@@ -42,6 +45,7 @@ Called by:
 
 import json
 import os
+import re
 import secrets
 import struct
 import time
@@ -62,8 +66,12 @@ _HEADER_LEN_SZ = 4   # bytes for header_json length field
 _NONCE_LEN     = 12  # AES-GCM nonce
 
 # Section names — order defines section index
-# The two bulk sections (v1.7.6.2) come last: the order of the older sections in a container is unchanged.
-_SECTIONS = ["quality_log", "raw", "summary", "context", "source", "bulk", "bulk_source"]
+# The two bulk sections (v1.7.6.2) come last: the order of the older sections in a container is unchanged;
+# the diary (v1.7.8) comes after them for the same reason.
+_SECTIONS = ["quality_log", "raw", "summary", "context", "source", "bulk", "bulk_source", "diary"]
+
+# The name of a day file of the diary (the date is checked by whoever reads the file, not here)
+_DIARY_DAY_RE = re.compile(r"diary_[0-9]{4}-[0-9]{2}-[0-9]{2}\.json", re.ASCII)
 
 # Directories/files excluded from raw and summary sections
 _EXCLUDE_DIRS = {"__pycache__", "garmin_token"}
@@ -549,7 +557,7 @@ def report_progress(progress, text: str) -> None:
 def _collect_sections(source_dir: Path, progress=None) -> dict:
     """
     Walks source_dir and collects files into section buckets.
-    Returns dict with keys: quality_log, raw, summary, context, source, bulk, bulk_source, _errors.
+    Returns dict with keys: quality_log, raw, summary, context, source, bulk, bulk_source, diary, _errors.
     File values are bytes.
 
     The names are listed first and the files read afterwards, so the number of files is known:
@@ -640,6 +648,15 @@ def _classify_file(parts: tuple) -> str | None:
     # bulk_source (v1.7.6.2): the kept export files — garmin_data/bulk/source/**
     if parts[0] == "garmin_data" and len(parts) > 2 and parts[1] == "bulk" and parts[2] == "source":
         return "bulk_source"
+
+    # diary (v1.7.8): the field list and the day files of the diary, nothing else of diary_data/
+    # (a .damaged remnant of a restore, a .tmp or any other file is not packed)
+    if parts[0] == "diary_data":
+        if parts == ("diary_data", "fields.json"):
+            return "diary"
+        if len(parts) == 3 and parts[1] == "days" and _DIARY_DAY_RE.fullmatch(parts[2]):
+            return "diary"
+        return None
 
     return None
 

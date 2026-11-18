@@ -20,6 +20,7 @@ sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "app"))
 sys.path.insert(0, str(_ROOT / "garmin"))
 sys.path.insert(0, str(_ROOT / "context"))
+sys.path.insert(0, str(_ROOT / "diary"))   # DIARY v1.7.8
 sys.path.insert(0, str(_ROOT / "maps"))
 sys.path.insert(0, str(_ROOT / "dashboards"))
 sys.path.insert(0, str(_ROOT / "layouts"))
@@ -72,6 +73,7 @@ collect_ignore = [
     "test_migration_snapshot.py", # TRACK-MIGRATION v1.7.6.3
     "test_daily_update.py",       # v1.7.6.4
     "test_force_refetch.py",
+    "test_diary.py",              # DIARY v1.7.8 — removable
     "test_local_context.py",
     "test_dashboard.py",
     "test_broker.py",

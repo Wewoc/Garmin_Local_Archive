@@ -39,7 +39,7 @@ if getattr(sys, "frozen", False):
 else:
     # Dev: Unterordner liegen im Root neben garmin_app_standalone.py
     _root = Path(__file__).parent
-    for _sub in ("garmin", "maps", "dashboards", "layouts", "context"):
+    for _sub in ("garmin", "maps", "dashboards", "layouts", "context", "diary"):  # diary: DIARY v1.7.8
         sys.path.insert(0, str(_root / _sub))
     sys.path.insert(0, str(_root / "app"))
     sys.path.insert(0, str(_root / "clients"))
@@ -75,7 +75,7 @@ def _register_embedded_packages():
     clients_dir = scripts / "clients"
     if clients_dir.exists():
         sys.path.insert(0, str(clients_dir))
-    for pkg in ("context", "maps", "dashboards", "layouts"):
+    for pkg in ("context", "maps", "dashboards", "layouts", "diary"):  # diary: DIARY v1.7.8
         pkg_dir = scripts / pkg
         if pkg_dir.exists() and pkg not in sys.modules:
             mod = types.ModuleType(pkg)
@@ -199,8 +199,8 @@ def _run_self_test() -> int:
 
     def _import_family_submodule(rel_path: str):
         """
-        Imports a real submodule of app/, context/, maps/, dashboards/, or
-        layouts/ the way production code actually reaches it. Two import
+        Imports a real submodule of app/, context/, diary/, maps/, dashboards/,
+        or layouts/ the way production code actually reaches it. Two import
         conventions coexist for files in these folders: most are imported
         flat by garmin_app_base.py (e.g. 'import garmin_app_settings'),
         but the six panel_*.py modules and dialogs.py are imported
@@ -237,9 +237,9 @@ def _run_self_test() -> int:
         is_init = parts[-1] == "__init__"
         top     = parts[0]
         try:
-            if not is_init and top in ("app", "context", "maps", "dashboards", "layouts"):
+            if not is_init and top in ("app", "context", "maps", "dashboards", "layouts", "diary"):
                 # __init__.py stays on the file-path path deliberately —
-                # the four virtual packages already have near-empty
+                # the virtual packages already have near-empty
                 # stand-ins in sys.modules via _register_embedded_packages()
                 # above; importing them by name would only hit that cache
                 # and never execute their real file content.

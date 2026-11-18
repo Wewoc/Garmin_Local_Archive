@@ -2,6 +2,13 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
+## v1.7.8 — Diary
+
+- New "Diary" tab: a note per day and your own values (blood pressure, hydration, weight, medication, cycle, anything you define), typed in by hand; they sit next to the Garmin values and never replace them.
+- Your own fields with numbers, yes/no or text, an optional time, alternatives such as steps or distance, and start templates for common cases; earlier days can be changed, and the state before is kept in a history you can put back.
+- Search in your notes; a click on a hit opens the day.
+- A backup copy of the diary is kept and can be restored when a file is damaged; the mirror container carries the diary too (an older app version ignores that part).
+
 ## v1.7.7 – v1.7.7.1 — Export Scan
 
 - New "Export Scan" window: shows which data your own Garmin export holds and how complete it is, by topic, as a table or a graph.

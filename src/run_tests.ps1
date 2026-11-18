@@ -124,6 +124,7 @@ Run-And-Tee "python" @("tests/test_track_migration.py")      "test_track_migrati
 Run-And-Tee "python" @("tests/test_migration_snapshot.py")    "test_migration_snapshot.py"  # TRACK-MIGRATION v1.7.6.3
 Run-And-Tee "python" @("tests/test_daily_update.py")          "test_daily_update.py"        # v1.7.6.4
 Run-And-Tee "python" @("tests/test_force_refetch.py")          "test_force_refetch.py"
+Run-And-Tee "python" @("tests/test_diary.py")                  "test_diary.py"               # DIARY v1.7.8 — removable
 Run-And-Tee "python" @("tests/test_local_context.py")  "test_local_context.py"
 Run-And-Tee "python" @("tests/test_dashboard.py")       "test_dashboard.py"
 Run-And-Tee "python" @("tests/test_broker.py")          "test_broker.py"
@@ -132,6 +133,7 @@ Run-And-Tee "python" @("tests/test_export.py")          "test_export.py"
 Run-And-Tee "python" @("tests/test_app_logic.py")       "test_app_logic.py"
 Run-And-Tee "python" @("tests/test_updater.py")         "test_updater.py"
 Run-And-Tee "pytest"  @("tests/test_qt_app.py", "-v")   "test_qt_app.py"
+Run-And-Tee "pytest"  @("tests/test_diary_panel.py", "-v") "test_diary_panel.py"   # DIARY v1.7.8 — removable
 Run-And-Tee "pytest"  @("tests/test_cloud_llm.py", "-v")            "test_cloud_llm.py"
 Run-And-Tee "pytest"  @("tests/test_mcp_tool_chat.py", "-v")        "test_mcp_tool_chat.py"
 Run-And-Tee "pytest"  @("tests/test_cloud_tool_chat.py", "-v")      "test_cloud_tool_chat.py"

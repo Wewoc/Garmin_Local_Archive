@@ -1,0 +1,58 @@
+build_all.py — 17.11.2026 17:06:58
+
+=======================================================
+  [17:06:58] Pre-build: verifying Plotly bundle ...
+=======================================================
+  ✓ Plotly 2.27.0 present and verified.
+
+=======================================================
+  [17:06:58] Pre-build: running test suite (run_tests.ps1) ...
+=======================================================
+running tests
+17.11.2026 17:06:58
+
+
+───────────────────────────────────────────────────────
+  11. DETERMINISM
+───────────────────────────────────────────────────────
+  ✓  determinism: summarize stable
+  ✓  determinism: fetch_and_assess stable
+
+───────────────────────────────────────────────────────
+  12. INVARIANTS
+───────────────────────────────────────────────────────
+  ✓  invariant: high not downgraded to low
+  ✓  invariant: standard not downgraded to failed
+  ✓  invariant: high stays high on repeat
+  ✓  invariant: failed never writes
+
+───────────────────────────────────────────────────────
+  12. ROBUSTNESS
+───────────────────────────────────────────────────────
+  ✓  robustness: missing date → critical
+  ✓  robustness: wrong types → warning/critical
+  ✓  robustness: None input → critical, no crash
+  ✓  robustness: empty dict → critical, no crash
+  ✓  robustness: empty shell no crash
+  ✓  robustness: empty shell date correct
+  ✓  robustness: raw not mutated by summarize
+  ✓  robustness: garbage values no crash
+
+───────────────────────────────────────────────────────
+  13. PIPELINE_E2E
+───────────────────────────────────────────────────────
+  ✓  e2e: validator ok
+  ✓  e2e: normalize returns dict
+  ✓  e2e: date preserved
+  ✓  e2e: quality = high
+  ✓  e2e: write_day ok
+  ✓  e2e: read_raw returns dict
+  ✓  e2e: read_raw date correct
+  ✓  e2e: read_raw content intact
+
+═══════════════════════════════════════════════════════
+  22 checks — 22 passed, 0 failed
+═══════════════════════════════════════════════════════
+
+
+  ✗ Tests failed — build aborted (see FEHLGESCHLAGEN in the log above).

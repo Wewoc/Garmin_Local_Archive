@@ -274,9 +274,9 @@ _BAGG = "garmin_data/bulk/aggregates/garmin_bulk_agg_2024-08-01.json"
 _BHASH = "ab" + "0" * 62
 _BORIG = f"garmin_data/bulk/source/ab/{_BHASH}.fit"
 _BORIG_BYTES = bytes(range(256)) * 3
-check("_SECTIONS: the five older sections keep their order, the two bulk sections come last",
+check("_SECTIONS: the five older sections keep their order, the two bulk sections follow them (the diary comes after, v1.7.8)",
       _gc4._SECTIONS[:5] == ["quality_log", "raw", "summary", "context", "source"]
-      and _gc4._SECTIONS[5:] == ["bulk", "bulk_source"])
+      and _gc4._SECTIONS[5:7] == ["bulk", "bulk_source"])
 check("_classify_file: bulk/raw and bulk/aggregates go to bulk, bulk/source goes to bulk_source",
       _gc4._classify_file(tuple(_BDAY.split("/"))) == "bulk"
       and _gc4._classify_file(tuple(_BAGG.split("/"))) == "bulk"
@@ -348,6 +348,86 @@ check("old container: an order that names the new sections skips them and still 
       _got == {_RAW_A: b'{"a": 1}'})
 check("old container: unlock_meta and the older sections work as before",
       _gc4.unlock_meta(_good4, "pw")["ok"] is True)
+
+# -- diary section (v1.7.8): the diary goes into a section of its own -------------------------------------
+_DDAY = "diary_data/days/diary_2026-03-01.json"
+_DFIELDS = "diary_data/fields.json"
+check("_SECTIONS: the older sections keep their order, the diary comes last (eight sections, the format version stays 0x01)",
+      _gc4._SECTIONS[:5] == ["quality_log", "raw", "summary", "context", "source"]
+      and _gc4._SECTIONS[5:7] == ["bulk", "bulk_source"] and _gc4._SECTIONS[7:] == ["diary"]
+      and len(_gc4._SECTIONS) == 8 and _gc4._FORMAT_VER == 0x01)
+check("_classify_file: the field list and a day file go to diary",
+      _gc4._classify_file(tuple(_DFIELDS.split("/"))) == "diary" and _gc4._classify_file(tuple(_DDAY.split("/"))) == "diary")
+check("_classify_file: only those two names of diary_data/ are packed (a leftover, a .tmp, a backup file, a note are not)",
+      all(_gc4._classify_file(tuple(p.split("/"))) is None for p in (
+          "diary_data/fields.json.damaged", "diary_data/fields.json.tmp", "diary_data/fields.previous.json",
+          "diary_data/notes.txt", "diary_data/days/diary_2026-03-01.json.damaged", "diary_data/days/diary_2026-03-01.json.damaged2",
+          "diary_data/days/diary_2026-03-01.json.tmp", "diary_data/days/notes.txt", "diary_data/days/fields.json", "diary_data/sub/fields.json", "diary_data/days/diary_2026-03-01.json/extra", "diary_data/days/diary_2026-3-1.json",
+          "diary_data/days/DIARY_2026-03-01.json", "diary_data/days/diary_2026-03-01.JSON", "diary_data/diary_2026-03-01.json",
+          "diary_data/days/sub/diary_2026-03-01.json", "diary_data/other/diary_2026-03-01.json", "diary_data/days/diary_٢026-03-01.json")))
+check("_classify_file: the folder itself and the days folder are not files of the section",
+      _gc4._classify_file(("diary_data",)) is None and _gc4._classify_file(("diary_data", "days")) is None)
+check("_classify_file: a folder called diary_data elsewhere is not the diary",
+      _gc4._classify_file(("garmin_data", "diary_data", "fields.json")) is None
+      and _gc4._classify_file(("context_data", "diary_data", "fields.json")) != "diary"
+      and _gc4._classify_file(("other", "diary_data", "fields.json")) is None)
+check("_classify_file: the backup of the diary is never packed (the diary itself is)",
+      _gc4._classify_file(("garmin_data", "backup", "diary", "master", "fields.json")) is None
+      and _gc4._classify_file(("garmin_data", "backup", "diary", "days", "diary_backup_2026-03.zip")) is None)
+check("_classify_file: the other sections are not taken for the diary",
+      _gc4._classify_file(("garmin_data", "raw", "a.json")) == "raw" and _gc4._classify_file(("context_data", "x.json")) == "context")
+
+_tree5 = _M4 / "tree_diary"
+for _rel, _data in {
+    "garmin_data/log/quality_log.json": b"{}",
+    "garmin_data/raw/garmin_raw_2026-03-01.json": b'{"date": "2026-03-01"}',
+    _DFIELDS: b'{"schema_version": 1}',
+    _DDAY: b'{"date": "2026-03-01", "note": "x"}',
+    "diary_data/days/diary_2026-03-01.json.tmp": b"half written",
+    "diary_data/days/diary_2026-03-02.json.damaged": b"broken once",
+    "diary_data/fields.json.damaged": b"broken once",
+    "garmin_data/backup/diary/master/fields.json": b"a backup copy",
+}.items():
+    _p = _tree5 / _rel
+    _p.parent.mkdir(parents=True, exist_ok=True)
+    _p.write_bytes(_data)
+_sec5 = _gc4._collect_sections(_tree5)
+check("_collect_sections: the diary files land in diary with forward-slash keys, leftovers and the backup are left out",
+      set(_sec5["diary"]) == {_DFIELDS, _DDAY} and _sec5["_errors"] == 0
+      and set(_sec5["raw"]) == {"garmin_data/raw/garmin_raw_2026-03-01.json"})
+_cd = _M4 / "diary.gla"
+_r = _gc4.lock(_tree5, _cd, "pw")
+check("lock: a store with a diary -> ok, quality log, raw and the two diary files are packed", _r["ok"] is True and _r["files_packed"] == 4)
+check("list_files: the header names the files of the diary section (no password needed)",
+      sorted(_gc4.list_files(_cd, "diary")) == sorted([_DFIELDS, _DDAY]))
+_got = _gc4.fulfill_order(_cd, "pw", {"diary": [_DFIELDS, _DDAY]})
+check("fulfill_order: the diary files come back byte for byte",
+      _got == {_DFIELDS: b'{"schema_version": 1}', _DDAY: b'{"date": "2026-03-01", "note": "x"}'})
+_got = _gc4.fulfill_order(_cd, "pw", {"diary": [_DDAY], "raw": ["garmin_data/raw/garmin_raw_2026-03-01.json"]})
+check("fulfill_order: only the requested files of the sections named are delivered",
+      set(_got) == {_DDAY, "garmin_data/raw/garmin_raw_2026-03-01.json"})
+check("fulfill_order: a request for a file that is not in the section is not answered", _gc4.fulfill_order(_cd, "pw", {"diary": ["diary_data/days/diary_2030-01-01.json"]}) == {})
+check("fulfill_order: with the wrong password the diary is not delivered", _gc4.fulfill_order(_cd, "wrong", {"diary": [_DDAY]}) == {})
+check("unlock_meta: a container with a diary section opens as before", _gc4.unlock_meta(_cd, "pw")["ok"] is True)
+check("lock: a store without a diary folder gives a container without the section",
+      _gc4.lock(_tree, _M4 / "nodiary.gla", "pw")["ok"] is True and _gc4.list_files(_M4 / "nodiary.gla", "diary") == [])
+
+# a program that does not know the diary section reads the same container (the sections are found by the header)
+_all_sections = list(_gc4._SECTIONS)
+_gc4._SECTIONS[:] = _all_sections[:7]
+try:
+    _old_view = (_gc4.unlock_meta(_cd, "pw")["ok"], _gc4.list_files(_cd, "raw"),
+                 _gc4.fulfill_order(_cd, "pw", {"raw": ["garmin_data/raw/garmin_raw_2026-03-01.json"]}))
+finally:
+    _gc4._SECTIONS[:] = _all_sections
+check("older program: a container with the diary section opens and its older sections are read as before",
+      _old_view[0] is True and _old_view[1] == ["garmin_data/raw/garmin_raw_2026-03-01.json"]
+      and list(_old_view[2]) == ["garmin_data/raw/garmin_raw_2026-03-01.json"])
+
+# a container made before the diary section
+check("old container: list_files answers [] for the diary section", _gc4.list_files(_good4, "diary") == [])
+_got = _gc4.fulfill_order(_good4, "pw", {"diary": [_DDAY], "raw": [_RAW_A]})
+check("old container: an order that names the diary skips it and still delivers the older sections", _got == {_RAW_A: b'{"a": 1}'})
 
 # -- progress lines (v1.7.6.2): a line at every 10 % of the files read, each section packed, the write ----------
 _tree4 = _M4 / "tree_progress"
