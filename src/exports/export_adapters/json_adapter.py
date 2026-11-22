@@ -29,6 +29,9 @@ META = {
     "name":        "JSON",
     "description": "Raw archive passthrough — domain fields + optional metadata",
     "extension":   ".json",
+    # v1.7.8.1 — DIARY, REMOVABLE: this adapter writes the "diary" domain too (the CSV and InfluxDB adapters read
+    # only health and context and would drop it silently, so the dialog and the runner keep it away from them).
+    "diary":       True,
 }
 
 

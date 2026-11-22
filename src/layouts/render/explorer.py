@@ -7,6 +7,8 @@ layouts/render/explorer.py
 
 Render function for the Explorer layout.
 Free metric dropdowns, 4 user-selectable traces, sleep phase panel.
+Since v1.7.8.1 also: the intraday day view (shared block, render/intraday_block.py), a diary presence strip
+above the chart and a click on a day of the chart that selects the day in the day view.
 
 Rules:
 - No knowledge of Garmin internals, field names, or data sources.
@@ -25,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import dash_layout      as layout
 import dash_layout_html as layout_html
+from render import intraday_block
 
 _JS_ESCAPE_HTML_FN = """
 function _escapeHtml(s) {
@@ -42,13 +45,119 @@ function _escapeHtml(s) {
 #  Explorer layout — Tab 1 (daily, 4 free dropdowns + sleep block)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
+_STRIP_COLORS = ["#5B8DB8", "#E85D24", "#1D9E75", "#BA7517", "#9b7fc7", "#c0507f"]
+
+# JS of the diary presence strip and of the click on a day (v1.7.8.1). Plain string, tokens are replaced
+# (no f-string: the JS is full of braces). Defined inside the IIFE of Tab 1.
+_STRIP_JS = """
+
+  // ── Diary presence strip + click on a day (v1.7.8.1) ───────────────────────
+  var _strip = __STRIP_JSON__;
+
+  function _jumpToDay(x) {
+    var d = String(x).slice(0, 10);
+    var sel = document.getElementById('explorer-intraday-select');
+    if (!sel || typeof window.explorerJumpToDay !== 'function') return;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === d) { window.explorerJumpToDay(d); return; }
+    }
+  }
+
+  function _stripLabel(name) {
+    var s = String(name);
+    return _escapeHtml(s.length > 11 ? s.slice(0, 10) + '\u2026' : s);
+  }
+
+  function _drawStrip() {
+    var el = document.getElementById('explorer-diary-strip');
+    if (!el || !_strip.length) return;
+    var xs = [], ys = [], cs = [], tx = [];
+    var labels = [];
+    _strip.forEach(function(row, r) {
+      var label = _stripLabel(row.name);
+      labels.push(label);
+      row.dates.forEach(function(d) {
+        xs.push(d); ys.push(label); cs.push(row.color);
+        tx.push(_escapeHtml(row.name));
+      });
+    });
+    var trace = {
+      x: xs, y: ys, text: tx, type: 'scatter', mode: 'markers',
+      marker: {symbol: 'square', size: 9, color: cs},
+      hovertemplate: '%{x}<br>%{text}<extra></extra>', showlegend: false
+    };
+    var lay = {
+      height: __STRIP_HEIGHT__,
+      margin: {t: 4, r: 100, b: 4, l: 80},
+      paper_bgcolor: '#fff', plot_bgcolor: '#fafafa',
+      xaxis: {type: 'date', showticklabels: false, fixedrange: true, showgrid: true, gridcolor: '#eee'},
+      yaxis: {type: 'category', categoryorder: 'array', categoryarray: labels, autorange: 'reversed',
+              fixedrange: true, tickfont: {size: 10}}
+    };
+    Plotly.newPlot(el, [trace], lay, {responsive: true, displayModeBar: false});
+    if (el.on) {
+      el.on('plotly_click', function(ev) {
+        if (ev && ev.points && ev.points.length) _jumpToDay(ev.points[0].x);
+      });
+    }
+  }
+
+  function _syncStripRange() {
+    var strip = document.getElementById('explorer-diary-strip');
+    var gd = document.getElementById('explorer-page1-chart');
+    if (!strip || !strip._fullLayout || !gd || !gd._fullLayout || !gd._fullLayout.xaxis) return;
+    Plotly.relayout(strip, {'xaxis.range': gd._fullLayout.xaxis.range.slice()});
+  }
+
+  function _afterRender() {
+    var gd = document.getElementById('explorer-page1-chart');
+    if (gd && gd.on && !gd._glaBound) {
+      gd._glaBound = true;
+      gd.on('plotly_click', function(ev) {
+        if (ev && ev.points && ev.points.length) _jumpToDay(ev.points[0].x);
+      });
+      gd.on('plotly_relayout', _syncStripRange);
+    }
+    _syncStripRange();
+  }
+
+  _drawStrip();"""
+
+
+def _strip_rows(diary):
+    """The presence rows of the neutral diary dict with a colour each: [{"name", "dates", "color"}, ...]."""
+    rows = []
+    for i, row in enumerate((diary or {}).get("rows") or []):
+        color = "#6b7a8c" if row.get("name") == "Note" and i == 0 else _STRIP_COLORS[i % len(_STRIP_COLORS)]
+        rows.append({"name": row["name"], "dates": list(row["dates"]), "color": color})
+    return rows
+
+
+def _build_explorer_tab1(daily: dict, diary: dict = None, intraday: dict = None) -> tuple[str, str]:
     """
     Build Explorer Tab 1:
     - 4 metric dropdowns → line traces on shared X-axis, each with own Y-axis
     - Fixed lower panel: stacked sleep phase bars + sleep score text trace
+    - v1.7.8.1: diary presence strip above the chart (only with diary rows) and a click on a day of the
+      chart that selects the day in the day view (only with a day view)
     Returns (div_html, js_code).
     """
+    strip_rows  = _strip_rows(diary)
+    has_day_view = bool(intraday) or bool((diary or {}).get("days"))
+    strip_div  = ""
+    strip_js   = ""
+    react_stmt = "Plotly.react('explorer-page1-chart', traces, layouts, {responsive: true});"
+    if strip_rows or has_day_view:
+        strip_js = (_STRIP_JS
+                    .replace("__STRIP_JSON__", intraday_block.json_for_script(strip_rows))
+                    .replace("__STRIP_HEIGHT__", str(26 + 22 * max(len(strip_rows), 1))))
+        react_stmt = ("var _plot = Plotly.react('explorer-page1-chart', traces, layouts, {responsive: true});\n"
+                      "    if (_plot && _plot.then) _plot.then(_afterRender);")
+    if strip_rows:
+        strip_div = (
+            '  <div style="font-size:12px;color:#666;margin:6px 0 2px;">Diary \u2014 days with a note or an entry</div>\n'
+            '  <div id="explorer-diary-strip" style="width:100%;"></div>\n'
+        )
     dates         = daily.get("dates", [])
     field_options = daily.get("field_options", [])
     series_data   = daily.get("series", {})
@@ -301,7 +410,7 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
 <div id="chart-explorer-tab1" class="chart-container">
   <div style="padding:8px 0 4px;">{dropdowns_html}
   </div>
-  <div id="explorer-page1-chart"></div>
+{strip_div}  <div id="explorer-page1-chart"></div>
 
   <details style="margin-top:12px;border:1px solid #e0e0e0;border-radius:4px;padding:8px 12px;">
     <summary style="cursor:pointer;font-size:13px;font-weight:500;color:#444;user-select:none;">
@@ -345,7 +454,7 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
   var _light   = {light_json};
   var _rem     = {rem_json};
   var _awake   = {awake_json};
-  var _scores  = {scores_json};
+  var _scores  = {scores_json};{strip_js}
 
   var _YAXIS_SIDES = ['left', 'right', 'left', 'right'];
   var _YAXIS_POS   = [null, null, 0.06, 0.94];
@@ -440,7 +549,7 @@ def _build_explorer_tab1(daily: dict) -> tuple[str, str]:
         hovertemplate: '%{{x}}<br>Awake: %{{y:.1f}}%<extra></extra>'}}
     );
 
-    Plotly.react('explorer-page1-chart', traces, layouts, {{responsive: true}});
+    {react_stmt}
   }};
 
   explorerUpdatePage1();
@@ -483,7 +592,10 @@ def _render_explorer(data: dict, output_path: Path) -> None:
     if daily is None:
         raise ValueError("_render_explorer: data dict must contain 'daily' key")
 
-    tab1_div, tab1_js = _build_explorer_tab1(daily)
+    intraday = data.get("intraday") or {}
+    diary    = data.get("diary")
+    tab1_div, tab1_js = _build_explorer_tab1(daily, diary, intraday)
+    day_block = intraday_block.build_block(intraday, prefix="explorer", diary=diary, include_diary_days=True)
 
     header_html     = layout_html.build_header(title, subtitle)
     disclaimer_html = layout_html.build_disclaimer(layout.get_disclaimer())
@@ -501,7 +613,7 @@ def _render_explorer(data: dict, output_path: Path) -> None:
 <style>{css}</style>
 </head>
 <body>
-{header_html}{disclaimer_html}{tab1_div}{footer_html}<script>
+{header_html}{disclaimer_html}{tab1_div}{day_block}{footer_html}<script>
 {_JS_ESCAPE_HTML_FN}
 {tab1_js}
 </script>

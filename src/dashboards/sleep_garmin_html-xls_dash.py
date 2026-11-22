@@ -16,11 +16,13 @@ Sources:
   - Garmin summary/ via health_map (all fields daily)
   - Garmin raw/     via health_map (sleep phase % from raw seconds)
   - Garmin raw/     via health_map (intraday HR, Stress, Body Battery, Respiration)
+  - Diary           via diary_map (v1.7.8.1; only when the settings carry a base_dir; note and entries of
+                    the days that have an intraday view, shown below the chart)
 
 Rules:
 - No direct file access.
 - No source-internal field names outside this module.
-- Calls health_map.get() only.
+- Calls health_map.get() and diary_map (read-only) only.
 - Returns neutral dict for plotters — no rendering logic.
 """
 
@@ -32,15 +34,9 @@ from maps.health_map import get as health_get
 from layouts.reference_ranges import fitness_level as _fitness_level
 from layouts.reference_ranges import reference_ranges as _reference_ranges
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
-
-# ── Intraday fields (raw/) ────────────────────────────────────────────────────
-
-_INTRADAY_FIELDS = [
-    {"field": "heart_rate_series",   "key": "heart_rate"},
-    {"field": "stress_series",       "key": "stress"},
-    {"field": "body_battery_series", "key": "body_battery"},
-    {"field": "respiration_series",  "key": "respiration"},
-]
+from layouts.dash_intraday import INTRADAY_FIELDS, intraday_by_date, build_intraday
+from layouts.dash_diary import build_payload as diary_payload
+from maps import diary_map   # DIARY v1.7.8.1 — REMOVABLE: read-only broker of the diary
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -86,15 +82,6 @@ def _values_by_date(result: dict) -> dict:
     garmin = result.get("garmin", {})
     return {
         entry["date"]: entry["value"]
-        for entry in garmin.get("values", [])
-    }
-
-
-def _intraday_by_date(result: dict) -> dict:
-    """Extract {date: series} from a health_map intraday result."""
-    garmin = result.get("garmin", {})
-    return {
-        entry["date"]: entry.get("series")
         for entry in garmin.get("values", [])
     }
 
@@ -225,27 +212,18 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
 
     # ── Fetch intraday fields ─────────────────────────────────────────────────
     intraday_raw = {}
-    for f in _INTRADAY_FIELDS:
+    for f in INTRADAY_FIELDS:
         result = health_get(f["field"], date_from, date_to, resolution="intraday")
-        intraday_raw[f["key"]] = _intraday_by_date(result)
+        intraday_raw[f["key"]] = intraday_by_date(result)
 
     # ── Build intraday output — only dates with at least one series ───────────
-    intraday_out = {}
-    for d in all_dates:
-        day = {
-            "heart_rate":   intraday_raw["heart_rate"].get(d),
-            "stress":       intraday_raw["stress"].get(d),
-            "body_battery": intraday_raw["body_battery"].get(d),
-            "respiration":  intraday_raw["respiration"].get(d),
-        }
-        has_data = any(
-            day[k] is not None and len(day[k]) > 0
-            for k in ("heart_rate", "stress", "body_battery", "respiration")
-        )
-        if has_data:
-            intraday_out[d] = day
+    intraday_out = build_intraday(intraday_raw, all_dates)
 
-    return {
+    # ── Diary of the range (v1.7.8.1) — only with an archive folder in the settings ──
+    diary = diary_payload(diary_map, settings.get("base_dir"), date_from, date_to)
+    has_diary = bool(diary["days"] or diary["damaged"] or diary["unsupported"])
+
+    out = {
         "layout":    "sleep",
         "title":     "Sleep Dashboard",
         "subtitle":  subtitle,
@@ -259,3 +237,6 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
         "rows":     rows,
         "intraday": intraday_out,
     }
+    if has_diary:
+        out["diary"] = {k: diary[k] for k in ("days", "damaged", "unsupported")}
+    return out

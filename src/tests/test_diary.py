@@ -11,7 +11,7 @@ the definition and entry checks (type, finiteness, time rules), the master file 
 names, keys never reused, flags, rename, damaged/unsupported/missing), save_day (snapshot, the free-edit
 window, nothing written on a refusal, atomic write, the retry on a locked file), recover_master,
 the reader (states, file names), the privacy rule of the log, and guards: the package imports only the
-standard library, every module is in the build manifest, no module of clients/ or maps/ mentions the diary.
+standard library, every module is in the build manifest, no module of clients/ and no map but diary_map.py mentions the diary.
 
 Run from the project folder:
     python tests/test_diary.py
@@ -1624,12 +1624,19 @@ check("every module with logic has a signature entry in the manifest", set(sigs)
 check("every signature text stands in its file",
       all(text in (_SRC / key).read_text(encoding="utf-8") for key, texts in sigs.items() for text in texts))
 
-mentions = []
-for folder_name in ("clients", "maps"):
+# v1.7.8.1: the diary reaches the MCP side only through the opt-in. These are the modules that may mention it
+# (the broker itself, the opt-in switches of the standalone window, the cache and its sync); any other module of
+# clients/ or maps/ that starts to mention the diary has to be added here on purpose. Each step of layer 3 adds its module.
+_MAY_MENTION = {"clients": {"mcp_server.py", "mcp_server_gui.py", "mcp_sql.py", "mcp_update.py", "mcp_diary.py",
+                            "mcp_query_common.py", "mcp_health.py", "mcp_context.py"},
+                "maps": {"diary_map.py", "gateway_map.py"}}
+mentions = {"clients": set(), "maps": set()}
+for folder_name in mentions:
     for p in (_SRC / folder_name).glob("*.py"):
         if "diary" in p.read_text(encoding="utf-8", errors="replace").lower():
-            mentions.append(p.name)
-check("no module of clients/ or maps/ mentions the diary (no way to the MCP in v1.7.8)", mentions == [])
+            mentions[folder_name].add(p.name)
+check("only the modules of the opt-in mention the diary in clients/ and maps/ (any other module is a way to the MCP nobody decided)",
+      mentions == _MAY_MENTION)
 
 # ══════════════════════════════════════════════════════════════════════════════
 section("11. Gaps found by the mutation round (v1.7.8)")
@@ -2033,5 +2040,57 @@ check("check: the day that is gone is found in the monthly ZIP, a stray file in 
 wr.save_day(base_ck, "2026-02-03", "ohne Kopie", E1, now=datetime(2026, 2, 3, 9, 0))
 rep = bk.check(base_ck)
 check("check: a day that has a file and no copy is not listed as 'missing in data'", rep["missing_in_data"] == [OLD_DAY])
+
+# ══════════════════════════════════════════════════════════════════════════════
+section("12. read_day_hashed (v1.7.8.1, MCP cache)")
+# ══════════════════════════════════════════════════════════════════════════════
+
+import hashlib  # noqa: E402
+
+base_h = prepared_base()
+wr.save_day(base_h, "2026-11-18", "Hash-Tag", E1, now=T0)
+path_h = day_file(base_h, "2026-11-18")
+state_h, day_h, digest_h = rd.read_day_hashed(base_h, "2026-11-18")
+check("read_day_hashed: an ok day gives state, the day and the SHA-256 of the bytes of the file",
+      state_h == "ok" and day_h["note"] == "Hash-Tag" and digest_h == hashlib.sha256(read_bytes(path_h)).hexdigest())
+check("read_day_hashed: the day is the one read_day gives", (state_h, day_h) == rd.read_day(base_h, "2026-11-18"))
+check("read_day_hashed: the same bytes give the same hash", rd.read_day_hashed(base_h, "2026-11-18")[2] == digest_h)
+wr.save_day(base_h, "2026-11-18", "Hash-Tag geaendert", E1, now=T0_LATER)
+check("read_day_hashed: changed content gives another hash", rd.read_day_hashed(base_h, "2026-11-18")[2] != digest_h)
+check("read_day_hashed: no file gives missing and no hash", rd.read_day_hashed(base_h, "2026-11-01") == ("missing", None, None))
+check("read_day_hashed: a date that is not a date gives invalid_date and no hash", rd.read_day_hashed(base_h, "2026-02-30") == ("invalid_date", None, None))
+write_raw(day_file(base_h, "2026-11-02"), "{not json")
+check("read_day_hashed: a damaged file gives damaged, no day, and the hash of its bytes",
+      rd.read_day_hashed(base_h, "2026-11-02") == ("damaged", None, hashlib.sha256(b"{not json").hexdigest()))
+day_file(base_h, "2026-11-03").write_bytes(b"\xff\xfe not utf-8")
+check("read_day_hashed: bytes that are not UTF-8 are damaged too, with their hash",
+      rd.read_day_hashed(base_h, "2026-11-03")[0] == "damaged" and rd.read_day_hashed(base_h, "2026-11-03")[2] is not None)
+write_raw(day_file(base_h, "2026-11-04"), json.dumps({"schema_version": 99}))
+check("read_day_hashed: a day of a newer version gives unsupported, no day, a hash",
+      rd.read_day_hashed(base_h, "2026-11-04")[0] == "unsupported" and rd.read_day_hashed(base_h, "2026-11-04")[1] is None
+      and rd.read_day_hashed(base_h, "2026-11-04")[2] is not None)
+write_raw(day_file(base_h, "2026-11-05"), json.dumps({"schema_version": 1, "date": "2026-11-06", "note": "x"}))
+check("read_day_hashed: a file that fails its checks is damaged, with a hash", rd.read_day_hashed(base_h, "2026-11-05")[0] == "damaged")
+
+# ══════════════════════════════════════════════════════════════════════════════
+section("13. The search rules of diary_model (shared by the reader and the MCP tool, v1.7.8.1)")
+# ══════════════════════════════════════════════════════════════════════════════
+
+check("parse_query: the words become case-insensitive literal patterns",
+      [p.pattern for p in dm.parse_query("Kopf  weh.")[0]] == ["Kopf", r"weh\."] and dm.parse_query("Kopf weh")[1] is None
+      and dm.parse_query("KOPF")[0][0].search("kopfweh") is not None)
+check("parse_query: too short, too long, and not a text", dm.parse_query("a") == (None, "query_too_short")
+      and dm.parse_query("x" * (dm.MAX_QUERY_LEN + 1)) == (None, "query_too_long") and dm.parse_query(None) == (None, "query_too_short")
+      and dm.parse_query("  ") == (None, "query_too_short"))
+check("parse_query: the limits are the reader's", rd.MIN_QUERY_LEN == dm.MIN_QUERY_LEN and rd.MAX_QUERY_LEN == dm.MAX_QUERY_LEN)
+pats = dm.parse_query("kopf weh")[0]
+check("note_snippet: None unless every word is in the note", dm.note_snippet("nur Kopf", pats) is None
+      and dm.note_snippet("Kopf und Weh", pats) is not None)
+check("note_snippet: spaces and line breaks are tidied", dm.note_snippet("Kopf\n\n  weh", pats) == "Kopf weh")
+long_note = "a " * 100 + "Kopfweh" + " b" * 100
+snip = dm.note_snippet(long_note, dm.parse_query("kopfweh")[0])
+check("note_snippet: a piece around the first word, with … where the note goes on",
+      snip.startswith("…") and snip.endswith("…") and "Kopfweh" in snip and len(snip) <= dm.SNIPPET_BEFORE + dm.SNIPPET_AFTER + len("Kopfweh") + 2)
+check("note_snippet: a short note comes whole, without …", dm.note_snippet("Kopfweh", dm.parse_query("kopfweh")[0]) == "Kopfweh")
 
 summary()

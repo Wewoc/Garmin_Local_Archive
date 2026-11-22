@@ -133,10 +133,12 @@ specialist bypassing one. It's wired in via
 pipelines: the data is typed by hand and has no source to rebuild it from. `diary_data/` is its own root folder
 beside `garmin_data/` and `context_data/`. Its parts: `diary_reader` (read only), `diary_writer` (sole writer of
 `diary_data/`), `diary_backup` (sole writer of its backup), the tab and its dialogs in `app/`. It imports only the
-standard library and its own modules (`diary_backup` also `garmin_backup_common`), and it is **not** connected to the
-Broker Layer: no `gateway_map`, no `mcp_map`, no MCP tool, no cloud model reads it (a later decision, not part of
-v1.7.8). Everything is removable (marker `DIARY v1.7.8 — REMOVABLE`). Details: `REFERENCE_DIARY.md`,
-`MAINTENANCE_DIARY.md`.
+standard library and its own modules (`diary_backup` also `garmin_backup_common`). The Broker Layer reaches it only
+through the read-only broker `maps/diary_map.py` (v1.7.8.1: no writing, no `history` of a day in any answer, called
+directly with `base_dir`): it is **not** registered in `gateway_map`, not known to `mcp_map`, no MCP tool and no cloud
+model reads it, except through the opt-in cache of v1.7.8.1 ("Diary in MCP": the internal metadata kind
+`diary_cache_feed`, the table `mcp_diary_days`, the three tools of `clients/mcp_diary.py`, registered only while that switch is on). Everything is removable (marker
+`DIARY v1.7.8 — REMOVABLE`). Details: `REFERENCE_DIARY.md`, `MAINTENANCE_DIARY.md`.
 
 ---
 

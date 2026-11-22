@@ -28,7 +28,9 @@ Mirror container (garmin_container.py, garmin_import_mirror.py)
 
 **Key principle:** the package `diary/` imports only the standard library and its own modules;
 the one exception is `diary_backup.py`, a thin shell over `garmin_backup_common`.
-`diary/` is not known to `clients/`, `maps/` or the MCP server: no tool reads `diary_data/`.
+`diary/` is not known to the MCP tools: no tool reads `diary_data/`. The cache sync reaches it only through the broker `maps/diary_map.py` and the internal kind `diary_cache_feed` of `gateway_map`, and only while "Diary in MCP" is on (`mcp_server`, `mcp_server_gui`, `mcp_sql`, `mcp_update`, `gateway_map` are the modules that may mention it; a test lists them).
+The one module outside the package that reads it is the read-only broker `maps/diary_map.py` (v1.7.8.1, see below);
+it is not registered in `gateway_map`.
 
 ---
 
@@ -117,7 +119,7 @@ never raises: `valid_date`, `valid_time`, `valid_timestamp`, `check_definition`,
 `format_user_key`, `user_key_number`), `clean_name`, `normalized_name`, `snapshot_of`,
 `definition_of`, path helpers (`diary_dir`, `fields_path`, `days_dir`, `day_path`,
 `date_of_day_file_name`) and the limits (`MAX_NAME_LEN`, `MAX_LABEL_LEN`, `MAX_UNIT_LEN`,
-`MAX_TEXT_LEN`, `MAX_VALUES`, `MAX_NOTE_LEN`, `MAX_ENTRIES_PER_FIELD`).
+`MAX_TEXT_LEN`, `MAX_VALUES`, `MAX_NOTE_LEN`, `MAX_ENTRIES_PER_FIELD`). The search rules shared with the MCP tool (v1.7.8.1): `parse_query(query)` → (patterns, reason), `note_snippet(note, patterns)`, with `MIN_QUERY_LEN`, `MAX_QUERY_LEN`, `SNIPPET_BEFORE`, `SNIPPET_AFTER`; `diary_reader.search_notes` uses them.
 
 ## `diary/diary_reader.py`
 
@@ -129,8 +131,26 @@ fails its checks), `unsupported` (written by a newer version: never interpreted,
 |---|---|
 | `read_master(base_dir)` | `(state, master)` |
 | `read_day(base_dir, date_str)` | `(state, day)` |
+| `read_day_hashed(base_dir, date_str)` | `(state, day, digest)`; `digest` is the SHA-256 (hex) of the bytes of the day file, set whenever the bytes could be read (`ok`, `damaged` by its content, `unsupported`), `None` for `missing`, `invalid_date` and a file that could not be read at all; the one read the MCP cache sync uses, so the hash and the content are of the same bytes (v1.7.8.1) |
 | `list_days(base_dir)` | sorted dates that have a day file (names only) |
 | `search_notes(base_dir, query, limit=200)` | `{"ok", "hits": [{"date", "snippet"}], "searched", "unreadable", "truncated"}`; all words of the query in the note, case-insensitive, characters taken literally, newest day first; a query shorter than 2 or longer than 200 characters is refused (`reason`); notes only (not entries, not history); days that cannot be read are counted, not hidden |
+
+## `maps/diary_map.py`
+
+Read-only broker (v1.7.8.1), the one place where the diary is offered to the rest of the program (the dashboards, and,
+only with the opt-in "Diary in MCP", the MCP cache). It reads through `diary_reader` only and takes `base_dir` (the archive
+folder that holds `diary_data/`) as a parameter. Not a domain of `gateway_map` and not known to `mcp_map`; the cache sync
+reaches `get_cache_feed` through the internal metadata kind `diary_cache_feed` of `gateway_map`, which answers only while
+the switch is on. Nothing raises; every answer but `list_days` carries a `state` (the reader's states plus `invalid_range`).
+It logs nothing.
+
+| Function | Returns |
+|---|---|
+| `list_fields(base_dir)` | `{"state": <master state>, "fields": [...]}`; a field is the definition of the master plus `key`, `favorite`, `archived`; sorted by key; archived fields are listed; copies |
+| `list_days(base_dir)` | sorted dates that have a day file (names only) |
+| `get_day(base_dir, date)` | `{"state", "date", "note", "entries", "definitions"}`; `definitions` is the `key_snapshot` of the day; copies; **no `history`** (it holds earlier states, including deleted text, and never leaves the diary) |
+| `get_presence(base_dir, date_from, date_to)` | `{"state", "date_from", "date_to", "days": {date: {"note": bool, "fields": [key]}}, "fields": {key: name}, "damaged": [date], "unsupported": [date], "master": state}`; both ends inclusive; a note of spaces is no note; names from the master (current), else from the newest day that holds the key; a day that cannot be read is named in `damaged` or `unsupported`, never left out silently; a bad range gives `{"state": "invalid_date" \| "invalid_range"}` |
+| `get_cache_feed(base_dir)` | `{"fields": <the answer of list_fields>, "days": {date: {"state", "hash", "payload"}}}` for the MCP cache sync; every day file is listed; `hash` is the SHA-256 of the bytes of the file (from `read_day_hashed`); `payload` is `{"note", "entries", "definitions"}` (copies, no `history`) for a day that is `ok`, `None` for a damaged day or a day of a newer version, which still come with their state and hash so the cache can count them; no base folder gives `{"fields": {"state": "missing", "fields": []}, "days": {}}` |
 
 ## `diary/diary_writer.py`
 
@@ -173,7 +193,7 @@ backup). Answers `{"ok", "status", "reason"}`.
 
 | File | Content |
 |---|---|
-| `panel_diary.py` | `PanelDiary` (tab "Diary", behind "MCP Server"), `DiaryCalendar` (dots on days with content, future days cannot be picked), `DiaryFieldRow` |
+| `panel_diary.py` | `PanelDiary` (tab "Diary", behind "MCP Server"), `DiaryCalendar` (dots on days with content, future days cannot be picked; English day names, week from Monday, base class `EnglishCalendar` of `dialog_force_refetch.py`), `DiaryFieldRow` |
 | `diary_entry_editor.py` | `EntryEditor` / `EntryLine`: the boxes of one field on one day (number text box with decimal comma, Yes/No, text, time, "+ Add entry", selector for a group of alternatives); `parse_number`, `clean_text` |
 | `dialog_diary_field.py` | "Create field" (`DiaryFieldDialog`), `describe_failure()` |
 | `dialog_diary_manage.py` | "Manage fields" (rename, archive, restore) |
@@ -212,7 +232,13 @@ damaged; days first, then the list. Result keys (only when the container has a d
 
 ## Privacy
 
-Nothing of the diary reaches a log line, the MCP server or a cloud model. `diary_data/`, its backup and the
+Nothing of the diary reaches a log line. It reaches the MCP cache, the tools of the MCP server and a cloud model **only by opt-in** (v1.7.8.1: the switches "Diary in MCP" and "Diary in data export", both off by default, see `REFERENCE_MCP.md`); the three diary tools (`list_diary_fields`, `query_diary`, `search_diary_notes`, see `REFERENCE_MCP.md`) read the cache copy and exist only while the switch was on at the start of the server. A chat of the Chat panel that uses them is saved with its tool results as plain text under `<archive>/chats/`. `diary_data/`, its backup and the
 mirror container section hold health data (cycle, pregnancy, medication, notes): the container is encrypted
 with the user's password. Deleting a day does not delete its backup copy and does not remove it from an
 earlier mirror.
+
+The dashboards are different from the MCP: the Explorer and the Sleep dashboard (v1.7.8.1) show the note, the entries
+and the field names of the days in their range in the HTML file (read through `maps/diary_map`; no opt-in, the files
+are private and local). The `history` of a day is never in them, and specialists with the `json` format never get
+diary fields. The encrypted dashboard export encrypts the finished HTML as a whole. See `REFERENCE_DASHBOARD.md`
+("Diary in the dashboards").

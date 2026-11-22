@@ -66,6 +66,8 @@ from PyQt6.QtWidgets import (
     QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+import garmin_config as _gcfg   # v1.7.8.1: only to read the switch "Diary in MCP" (the hint, see _diary_mcp_on)
+
 from diary import diary_backup as bk
 from diary import diary_catalog as cat
 from diary import diary_model as dm
@@ -75,6 +77,7 @@ from diary import diary_writer as wr
 from .dialog_diary_field import DiaryFieldDialog, describe_failure
 from .dialog_diary_history import DiaryHistoryDialog
 from .dialog_diary_manage import DiaryManageDialog
+from .dialog_force_refetch import EnglishCalendar
 from .diary_entry_editor import EntryEditor
 
 _NO_BASE = "nobase"
@@ -85,12 +88,16 @@ _TEXT_DAMAGED = "The file of this day cannot be read. It is left untouched."
 _TEXT_UNSUPPORTED = "The file of this day was written by a newer version. It is left untouched."
 _TEXT_NOT_SAVED = "Not saved. Your changes are still in the boxes."
 _TEXT_BACKUP_FAILED = "The backup copy could not be made (see the log)."
+# v1.7.8.1: shown only while "Diary in MCP" is on (the MCP cache is a copy that is brought up to date by the next
+# server start, "refresh_cache" or export — nothing in this tab pushes a change to it)
+_TEXT_MCP_HINT = ("Diary in MCP is on: a change reaches the MCP cache at the next server start, refresh or export.")
+_TEXT_MCP_DELETED = " The MCP cache still shows the day until its next update (server start, refresh or export)."
 _SEARCH_DELAY_MS = 300
 
 
-class DiaryCalendar(QCalendarWidget):
+class DiaryCalendar(EnglishCalendar):
     """
-    Calendar to pick one day. day_selected(str) carries 'YYYY-MM-DD' after every change of the
+    Calendar to pick one day (English day and month names, week from Monday: the base class EnglishCalendar). day_selected(str) carries 'YYYY-MM-DD' after every change of the
     selected day (a click or the keys). Days handed to set_marked_days() carry a small dot, drawn in
     paintCell (setDateTextFormat does not keep earlier cell formats reliably, see the note in
     app/dialog_force_refetch.py). A third small calendar class next to the two of that module on
@@ -309,6 +316,12 @@ class PanelDiary(QWidget):
         self._diary_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         action_row.addWidget(self._diary_status, stretch=1)
         lay.addLayout(action_row)
+        self._diary_mcp_hint = QLabel(_TEXT_MCP_HINT)
+        self._diary_mcp_hint.setFont(QFont("Segoe UI", 8))
+        self._diary_mcp_hint.setStyleSheet(f"color: {a.TEXT2};")
+        self._diary_mcp_hint.setWordWrap(True)
+        self._diary_mcp_hint.setVisible(False)      # shown by _diary_refresh() when the switch is on
+        lay.addWidget(self._diary_mcp_hint)
         lay.addSpacing(6)
 
         lay.addWidget(self._diary_caption("Favorites"))
@@ -529,6 +542,15 @@ class PanelDiary(QWidget):
             self._diary_reload_master()
             self._diary_render()
         self._diary_refresh_marks()
+        self._diary_mcp_hint.setVisible(self._diary_mcp_on())
+
+    def _diary_mcp_on(self) -> bool:
+        """True while "Diary in MCP" is on — read fresh from the server-config file at every call, so a change
+        made in the MCP tab counts when this tab is shown again."""
+        try:
+            return bool(_gcfg.read_diary_optin()[0])
+        except Exception:
+            return False
 
     def _diary_refresh_marks(self):
         days = rd.list_days(self._diary_base) if self._diary_base is not None else []
@@ -777,8 +799,9 @@ class PanelDiary(QWidget):
         res = self._diary_write_day("", {}, self._diary_now())
         if res["status"] in (wr.WRITTEN, wr.DELETED):
             self._diary_load_day()
-            self._diary_set_status("Deleted." if res["status"] == wr.DELETED
-                                   else "Deleted. The day keeps its history.")
+            self._diary_set_status(("Deleted." if res["status"] == wr.DELETED
+                                    else "Deleted. The day keeps its history.")
+                                   + (_TEXT_MCP_DELETED if self._diary_mcp_on() else ""))
             self._diary_refresh_marks()
             if res["status"] == wr.WRITTEN:
                 self._diary_note_backup(bk.backup_day(self._diary_base, self._diary_day))
@@ -1191,7 +1214,8 @@ class PanelDiary(QWidget):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("Delete all")
         box.setText(f"Delete the note and all entries of {day}?")
-        box.setInformativeText("This cannot be undone. A copy of the day in the backup is kept.")
+        box.setInformativeText("This cannot be undone. A copy of the day in the backup is kept."
+                               + (_TEXT_MCP_DELETED if self._diary_mcp_on() else ""))
         delete_btn = box.addButton("Delete", QMessageBox.ButtonRole.DestructiveRole)
         cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(cancel_btn)

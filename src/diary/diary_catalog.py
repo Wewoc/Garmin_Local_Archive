@@ -23,8 +23,7 @@ has been observed and documented. A new entry gets a new key; an existing entry 
 TEMPLATES are start templates for Set 2 (user fields without a Garmin counterpart): when the user picks one,
 the panel makes a normal user field from it (new key U..., own copy of the definition). They have no
 "maps_to": no Garmin response has been observed for them. A template that was used is no longer offered
-(its name is taken by the field). Cycle and pregnancy are the most sensitive data of the archive: they stay
-local, and the later MCP connection must not pass them on without a separate decision.
+(its name is taken by the field).
 
 "maps_to" names the Garmin endpoint. It is stored and not read by anything in v1.7.8.
 The weight is kept in kg; the conversion to Garmin's grams belongs to the later connection to

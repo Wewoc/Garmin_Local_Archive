@@ -203,6 +203,15 @@ def _register_embedded_packages() -> None:
         mod.__path__    = [str(maps_dir)]
         mod.__package__ = "maps"
         sys.modules["maps"] = mod
+    # DIARY v1.7.8.1 — REMOVABLE: maps/diary_map.py (reached through gateway_map only while "Diary in MCP" is on,
+    # and imported lazily then) does "from diary import ...". Same treatment as maps above; with the switch off
+    # nothing imports it, so the server starts exactly as before.
+    diary_dir = scripts / "diary"
+    if diary_dir.exists() and "diary" not in sys.modules:
+        mod = types.ModuleType("diary")
+        mod.__path__    = [str(diary_dir)]
+        mod.__package__ = "diary"
+        sys.modules["diary"] = mod
 
 
 _register_embedded_packages()
@@ -509,6 +518,19 @@ anomalies = mcp.tool()(anomalies)
 gaps = mcp.tool()(gaps)
 correlate = mcp.tool()(correlate)
 
+# DIARY v1.7.8.1 — REMOVABLE: the three diary tools exist ONLY when "Diary in MCP" was on when this server started
+# (cfg.MCP_DIARY_ENABLED is the state at import). With the switch off clients/mcp_diary.py is not even imported, the
+# tool list has the eleven tools it always had, and the diary package is not touched. A switch turned off while the
+# server runs makes the tools answer "switched off" at once (they look at the switch on every call); turned on while
+# it runs, the tools appear after the next start.
+_DIARY_TOOLS_REGISTERED = False
+if cfg.MCP_DIARY_ENABLED:
+    from mcp_diary import list_diary_fields, query_diary, search_diary_notes  # noqa: E402 — after mcp = FastMCP(...)
+    list_diary_fields = mcp.tool()(list_diary_fields)
+    query_diary = mcp.tool()(query_diary)
+    search_diary_notes = mcp.tool()(search_diary_notes)
+    _DIARY_TOOLS_REGISTERED = True
+
 
 
 @mcp.tool()
@@ -745,6 +767,13 @@ def list_available_fields(domain: str | None = None) -> dict:
         elif isinstance(_domain_fields, list):
             all_field_names.update(_domain_fields)
     result["units"] = {name: _get_field_unit(name) for name in sorted(all_field_names)}
+    if _DIARY_TOOLS_REGISTERED and cfg.read_diary_optin()[0]:
+        # v1.7.8.1: the diary is not a domain (its fields are typed by hand and named by the user); a model that
+        # looks here for a field finds the diary tools and the names of the diary's fields. Added after "units" on
+        # purpose: these names have no unit entry.
+        import mcp_diary
+        result.setdefault("fields", {})["diary"] = mcp_diary.diary_field_names()
+        result["diary_tools"] = list(mcp_diary.TOOL_NAMES)
     return result
 
 

@@ -74,6 +74,9 @@ collect_ignore = [
     "test_daily_update.py",       # v1.7.6.4
     "test_force_refetch.py",
     "test_diary.py",              # DIARY v1.7.8 — removable
+    "test_diary_map.py",          # DIARY v1.7.8 — removable
+    "test_dash_diary.py",         # DIARY v1.7.8.1 — removable
+    "test_mcp_diary.py",          # DIARY v1.7.8.1 — removable
     "test_local_context.py",
     "test_dashboard.py",
     "test_broker.py",

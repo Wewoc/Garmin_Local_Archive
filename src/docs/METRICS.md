@@ -3,14 +3,14 @@
 
 # METRICS
 
-Generated: 2026-11-18 18:07 UTC · Version: 1.7.8
+Generated: 2026-11-21 13:38 UTC · Version: 1.7.8.1
 
 ## Test Counts
 
 | Suite | Checks | Passed | Failed |
 |---|---|---|---|
 | test_local.py | 22 | 22 | 0 |
-| test_basics.py | 113 | 113 | 0 |
+| test_basics.py | 129 | 129 | 0 |
 | test_security.py | 60 | 60 | 0 |
 | test_redact.py | 22 | 22 | 0 |
 | test_api_capability.py | 49 | 49 | 0 |
@@ -53,16 +53,19 @@ Generated: 2026-11-18 18:07 UTC · Version: 1.7.8
 | test_migration_snapshot.py | 115 | 115 | 0 |
 | test_daily_update.py | 52 | 52 | 0 |
 | test_force_refetch.py | 72 | 72 | 0 |
-| test_diary.py | 688 | 688 | 0 |
+| test_diary.py | 705 | 705 | 0 |
+| test_diary_map.py | 81 | 81 | 0 |
+| test_dash_diary.py | 73 | 73 | 0 |
+| test_mcp_diary.py | 159 | 159 | 0 |
 | test_local_context.py | 349 | 349 | 0 |
-| test_dashboard.py | 483 | 483 | 0 |
+| test_dashboard.py | 507 | 507 | 0 |
 | test_broker.py | 249 | 249 | 0 |
 | test_mcp.py | 460 | 460 | 0 |
 | test_export.py | 45 | 45 | 0 |
 | test_app_logic.py | 190 | 190 | 0 |
 | test_updater.py | 93 | 93 | 0 |
-| test_qt_app.py | 485 | 485 | 0 |
-| test_diary_panel.py | 475 | 475 | 0 |
+| test_qt_app.py | 522 | 522 | 0 |
+| test_diary_panel.py | 481 | 481 | 0 |
 | test_cloud_llm.py | 53 | 53 | 0 |
 | test_mcp_tool_chat.py | 12 | 12 | 0 |
 | test_cloud_tool_chat.py | 18 | 18 | 0 |
@@ -70,13 +73,13 @@ Generated: 2026-11-18 18:07 UTC · Version: 1.7.8
 | test_cloud_credential_store.py | 11 | 11 | 0 |
 | test_mcp_process.py | 13 | 13 | 0 |
 | test_static.py | 20 | 20 | 0 |
-| **Total** | **9284** | **9284** | **0** |
+| **Total** | **9697** | **9697** | **0** |
 
 ## Modules
 
-Total: 192 (from `SHARED_SCRIPTS` in `build_manifest.py`)
+Total: 197 (from `SHARED_SCRIPTS` in `build_manifest.py`)
 
 ## Dead Code (Vulture)
 
-Scanned: 2026-11-18 18:02 UTC · Findings: 0 · Whitelisted: 84
+Scanned: 2026-11-20 14:58 UTC · Findings: 0 · Whitelisted: 87
 

@@ -54,6 +54,13 @@ _SETTINGS = {
 TABLET = [{"label": "Anzahl", "type": "number", "unit": "Stück"}]
 
 
+@pytest.fixture(autouse=True)
+def _no_diary_switch(monkeypatch):
+    """Hermetic (v1.7.8.1): the switch "Diary in MCP" never comes from the real ~/.garmin_mcp_server_config.json,
+    and does not leak into other test files of the same pytest session (monkeypatch undoes it)."""
+    monkeypatch.setenv("GARMIN_MCP_DIARY_ENABLED", "0")
+
+
 def _iso(delta_days=0):
     return QDate.currentDate().addDays(delta_days).toString(Qt.DateFormat.ISODate)
 
@@ -207,6 +214,26 @@ class TestPanelLayout:
     def test_a_leap_day_is_kept_as_iso(self, panel):
         panel._diary_calendar.setSelectedDate(QDate(2024, 2, 29))
         assert panel.selected_date() == "2024-02-29"
+
+    def test_the_calendar_shows_english_day_names_from_monday_whatever_the_system_language(self, qtbot):
+        # v1.7.8.1: the calendar derives from EnglishCalendar; the default locale is German here on purpose
+        from PyQt6.QtCore import QLocale
+        from PyQt6.QtWidgets import QCalendarWidget, QTableView
+        from app.dialog_force_refetch import EnglishCalendar
+        from app.panel_diary import DiaryCalendar
+        before = QLocale()
+        QLocale.setDefault(QLocale(QLocale.Language.German, QLocale.Country.Germany))
+        try:
+            cal = DiaryCalendar()
+            qtbot.addWidget(cal)
+            cal.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+            model = cal.findChild(QTableView).model()
+            header = [str(model.index(0, c).data()) for c in range(model.columnCount())]
+        finally:
+            QLocale.setDefault(before)
+        assert issubclass(DiaryCalendar, EnglishCalendar)
+        assert header == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        assert cal.firstDayOfWeek() == Qt.DayOfWeek.Monday
 
     def test_future_days_cannot_be_picked(self, panel):
         assert panel._diary_calendar.maximumDate() == QDate.currentDate()
@@ -467,6 +494,69 @@ class TestMarks:
 # ══════════════════════════════════════════════════════════════════════════════
 #  Delete all
 # ══════════════════════════════════════════════════════════════════════════════
+
+class TestMcpHint:
+    """v1.7.8.1: the hint that a change reaches the MCP cache only at its next update — shown only while the
+    switch "Diary in MCP" is on (the switch is read fresh from the server-config file or the ENV)."""
+
+    def test_the_hint_is_hidden_while_the_switch_is_off(self, panel):
+        panel._diary_refresh()
+        assert not panel._diary_mcp_hint.isVisibleTo(panel)
+
+    def test_the_hint_shows_when_the_switch_is_on_and_goes_when_it_is_off_again(self, panel, monkeypatch):
+        monkeypatch.setenv("GARMIN_MCP_DIARY_ENABLED", "1")
+        panel._diary_refresh()
+        assert panel._diary_mcp_hint.isVisibleTo(panel)
+        assert "next server start, refresh or export" in panel._diary_mcp_hint.text()
+        monkeypatch.setenv("GARMIN_MCP_DIARY_ENABLED", "0")
+        panel._diary_refresh()
+        assert not panel._diary_mcp_hint.isVisibleTo(panel)
+
+    def test_deleting_with_the_switch_on_says_the_cache_still_has_the_day(self, qtbot, panel, base, monkeypatch):
+        _write(base, _iso(-1), "Notiz")
+        monkeypatch.setenv("GARMIN_MCP_DIARY_ENABLED", "1")
+        panel._diary_refresh()
+        _pick(panel, _iso(-1))
+        panel._diary_ask_delete = lambda day: True
+        qtbot.mouseClick(panel._diary_delete_btn, Qt.MouseButton.LeftButton)
+        assert panel._diary_status.text().startswith("Deleted.")
+        assert "MCP cache still shows the day until its next update" in panel._diary_status.text()
+
+    def test_deleting_with_the_switch_off_says_nothing_about_the_cache(self, qtbot, panel, base):
+        _write(base, _iso(-1), "Notiz")
+        panel._diary_refresh()
+        _pick(panel, _iso(-1))
+        panel._diary_ask_delete = lambda day: True
+        qtbot.mouseClick(panel._diary_delete_btn, Qt.MouseButton.LeftButton)
+        assert panel._diary_status.text() == "Deleted."
+
+    def test_the_delete_question_names_the_cache_only_with_the_switch_on(self, panel, monkeypatch):
+        seen = []
+
+        class _Box:
+            Icon = QMessageBox.Icon
+            ButtonRole = QMessageBox.ButtonRole
+
+            def __init__(self, parent=None):
+                self.buttons = []
+
+            def setIcon(self, icon): pass
+            def setWindowTitle(self, text): pass
+            def setText(self, text): pass
+            def setInformativeText(self, text): seen.append(text)
+            def addButton(self, text, role):
+                self.buttons.append(text)
+                return text
+            def setDefaultButton(self, button): pass
+            def exec(self): pass
+            def clickedButton(self): return "Cancel"
+
+        with patch("app.panel_diary.QMessageBox", _Box):
+            panel._diary_ask_delete("2026-11-01")
+            monkeypatch.setenv("GARMIN_MCP_DIARY_ENABLED", "1")
+            panel._diary_ask_delete("2026-11-01")
+        assert "MCP cache" not in seen[0] and "MCP cache still shows the day" in seen[1]
+
 
 class TestDeleteAll:
 

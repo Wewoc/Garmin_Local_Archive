@@ -41,6 +41,16 @@ from . import _export_build as export_build
 # the FIT Pipeline (v1.8.0) registers a domain broker on gateway_map.
 _CATEGORIES = [("health", "Health"), ("context", "Context"), ("metadata", "Metadata")]
 
+# v1.7.8.1 — DIARY, REMOVABLE: a fourth column, only while "Diary in data export" is on, and a checkbox only on the
+# rows of adapters that can write it (META["diary"], the JSON adapter): the CSV and InfluxDB adapters would drop it
+# silently, so they get no checkbox. Off by default (an unchecked box).
+_DIARY_CATEGORY = ("diary", "Diary")
+
+
+def _categories(diary_export_on: bool) -> list:
+    """The columns of the grid: the three fixed ones, plus Diary when the export switch is on."""
+    return _CATEGORIES + ([_DIARY_CATEGORY] if diary_export_on else [])
+
 
 def open_popup(panel):
     """Scan export adapters, show selection dialog, run selected export."""
@@ -79,6 +89,12 @@ def open_popup(panel):
         for entry in saved_cfg.get("selections", [])
     }
 
+    # v1.7.8.1: the diary column exists only while "Diary in data export" is on (read fresh from the
+    # server-config file, so a change made in the MCP tab counts without a restart).
+    import garmin_config as _gcfg
+    diary_export_on = bool(_gcfg.read_diary_optin()[1])
+    categories = _categories(diary_export_on)
+
     # ── Dialog ────────────────────────────────────────────────────────────
     dlg = QDialog(panel._app)
     dlg.setWindowTitle("Export Data")
@@ -97,7 +113,7 @@ def open_popup(panel):
     sep.setStyleSheet(f"color: {panel._app.ACCENT};")
     lay.addWidget(sep)
 
-    # ── Grid: rows = adapters, columns = health/context/metadata ──────────
+    # ── Grid: rows = adapters, columns = health/context/metadata (+ diary) ─
     grid_widget = QWidget()
     # Bug fix note from dashboard_create.py applies here too — do NOT set
     # background: transparent, breaks checkbox hit-testing on Qt6/Windows.
@@ -108,7 +124,7 @@ def open_popup(panel):
     hdr.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
     hdr.setStyleSheet(f"color: {panel._app.TEXT};")
     grid.addWidget(hdr, 0, 0)
-    for col_idx, (_, label) in enumerate(_CATEGORIES, start=1):
+    for col_idx, (_, label) in enumerate(categories, start=1):
         lbl = QLabel(label.upper())
         lbl.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
         lbl.setStyleSheet(f"color: {panel._app.TEXT};")
@@ -140,7 +156,9 @@ def open_popup(panel):
         name_lbl.setStyleSheet(f"color: {panel._app.TEXT};")
         grid.addWidget(name_lbl, row_idx, 0)
         saved_entry = saved_by_id.get(adapter["id"])
-        for col_idx, (category_key, _) in enumerate(_CATEGORIES, start=1):
+        for col_idx, (category_key, _) in enumerate(categories, start=1):
+            if category_key == "diary" and not adapter.get("diary"):
+                continue     # this format cannot write the diary: no checkbox
             cb = QCheckBox()
             cb.setStyleSheet(checkbox_style)
             if saved_entry:
@@ -365,6 +383,14 @@ def open_popup(panel):
                 dlg, "Export Data",
                 "Please select at least one format and one category.")
             return
+
+        if not diary_export_on:
+            # The diary column is hidden while the switch is off: a "diary" the saved selection already
+            # carries is kept (the run leaves it out until the switch is on again), not dropped by this save.
+            for row_idx, entry in by_adapter.items():
+                saved_domains = (saved_by_id.get(adapters[row_idx]["id"]) or {}).get("domains", [])
+                if adapters[row_idx].get("diary") and "diary" in saved_domains and "diary" not in entry["domains"]:
+                    entry["domains"].append("diary")
 
         selections_cfg = [
             {

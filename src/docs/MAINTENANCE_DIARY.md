@@ -33,7 +33,13 @@ Mirror container: garmin_container (section "diary")  ←→  garmin_import_mirr
   one that writes below `garmin_data/backup/diary/`. A second writer is a regression.
 - The package `diary/` imports only the standard library and its own modules, except `diary_backup.py`
   (`garmin_backup_common`, which is not changed by the diary). A test reads the imports with `ast`.
-- No module of `clients/` or `maps/` mentions the diary (no way to the MCP server, no broker). A test checks it.
+- The diary reaches the MCP side only through the opt-in (v1.7.8.1). Only these modules of `clients/` and `maps/` may
+  mention it: `mcp_server.py`, `mcp_server_gui.py`, `mcp_sql.py`, `mcp_update.py`, `mcp_diary.py`, `mcp_query_common.py`,
+  `mcp_health.py`, `mcp_context.py`, `diary_map.py`, `gateway_map.py` (a test
+  lists them: any other module is a way to the MCP nobody decided). `diary_map.py` is the read-only broker: it imports only
+  `diary_model` and `diary_reader` and never returns the `history` of a day. No module of `garmin/`, `diary/`, `context/`
+  imports `mcp_sql` or `mcp_update` (nothing flows back from the cache). Tests: `test_diary.py`, `test_diary_map.py`,
+  `test_mcp_diary.py`.
 - No log line carries a note, a value, a field name or a search word (the log has the date, the key, the kind of
   an error). Tests capture the log and look for strings that occur nowhere else.
 - A definition never changes after the field was made, except its display name. Keys are never reused. A day file
@@ -168,3 +174,15 @@ Every file carries the marker `DIARY v1.7.8 — REMOVABLE`. To remove the diary:
 the `PanelDiary` lines in `garmin_app_base.py`, the entries of `run_tests.ps1` and `tests/conftest.py`, the two
 test files, and (to leave the mirror as before) the `diary` section in `garmin_container.py`, the diary import in
 `garmin_import_mirror.py` and the diary lines in `app/panel_archive.py`.
+
+The connection of the diary (v1.7.8.1) can be taken out on its own, so that the diary stays in the program without the
+dashboard boxes, the MCP tools and the export: `maps/diary_map.py`, `clients/mcp_diary.py`, `layouts/dash_diary.py`; the diary
+parts of the Sleep and Explorer specialists and renderers; in `clients/` the diary parts of `mcp_server.py`, `mcp_sql.py` (the
+table `mcp_diary_days`, `clear_all`), `mcp_update.py` (`_diary_begin`, `_diary_apply`) and `mcp_query_common.py`
+(`diary_hint`); the kind `diary_cache_feed` in `maps/gateway_map.py`; the domain `diary` in `exports/` (`export_common.py`,
+`export_runner.py`, the JSON adapter) and its column in `app/popups/export_data.py`; the two switches in `garmin/garmin_config.py`,
+`app/panel_mcp.py` and `clients/mcp_server_gui.py`; the three test files `test_diary_map.py`, `test_mcp_diary.py`,
+`test_dash_diary.py`. `layouts/dash_intraday.py` and `layouts/render/intraday_block.py` stay: they are the shared day view of
+the Sleep and Explorer pages and know the diary only as an optional box. Most of these places carry a marker with `REMOVABLE`
+and `v1.7.8.1` (search for both). `EnglishCalendar` (`app/dialog_force_refetch.py`) is not part of this: it is the base of
+every calendar of the app.

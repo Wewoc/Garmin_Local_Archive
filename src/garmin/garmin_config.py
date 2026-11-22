@@ -246,11 +246,12 @@ MAX_DAYS_PER_SESSION = int(os.environ.get("GARMIN_MAX_DAYS_PER_SESSION", "30"))
 # exist for this file by design, not by oversight: app/panel_mcp.py (GLA
 # context — mirrors the live GUI values on every MCP settings save) and
 # clients/mcp_server_gui.py (standalone context — direct user input, no
-# GLA instance to mirror from). The two never run against the same file
-# at the same time in practice (a machine either runs GLA or runs the
-# server standalone against a config written elsewhere), so this is not
-# treated as a Sole-Write-Authority violation — but it is a deliberate,
-# documented exception to that pattern, not an oversight.
+# GLA instance to mirror from). Both windows can be open on one machine,
+# so since v1.7.8.1 neither overwrites the file from stale boxes: both
+# read it fresh and write only a key the user changed in that window (or
+# a key the file lacks) — see mcp_server_values()/mcp_config_changes()
+# below. Still a deliberate, documented exception to Sole-Write-
+# Authority, not an oversight.
 MCP_SERVER_CONFIG_FILE = Path.home() / ".garmin_mcp_server_config.json"
 
 
@@ -379,6 +380,109 @@ else:
     MCP_EXTRA_ALLOWED_HOSTS_RAW = _mcp_server_config.get("mcp_extra_hosts") or "host.docker.internal"
 
 MCP_EXTRA_ALLOWED_HOSTS = _parse_extra_hosts(MCP_EXTRA_ALLOWED_HOSTS_RAW)
+
+
+def _diary_optin(config: dict) -> tuple[bool, bool]:
+    """(diary in MCP, diary in data export) from a server-config dict and the ENV — pure, no I/O.
+    DIARY v1.7.8.1 — REMOVABLE. Deliberate, narrow exception to this module's "no business logic" rule, same
+    reasoning as _read_mcp_server_config() above: the two switches need one rule, and both the import below and
+    the two settings UIs (app/panel_mcp.py, clients/mcp_server_gui.py) must apply exactly the same one.
+    ENV (GARMIN_MCP_DIARY_ENABLED, GARMIN_MCP_DIARY_EXPORT_ENABLED: 1/true/yes) > file ("mcp_diary_enabled",
+    "mcp_diary_export_enabled") > False. A file value counts only when it is the JSON value true (a text
+    like "yes" in a hand-edited file stays off: the safe side for a privacy switch). The export switch is
+    only effective while the MCP switch is on."""
+    def _flag(env_name: str, key: str) -> bool:
+        if env_name in os.environ:
+            return os.environ[env_name].strip().lower() in ("1", "true", "yes")
+        return config.get(key) is True
+    enabled = _flag("GARMIN_MCP_DIARY_ENABLED", "mcp_diary_enabled")
+    export = _flag("GARMIN_MCP_DIARY_EXPORT_ENABLED", "mcp_diary_export_enabled")
+    return enabled, enabled and export
+
+
+def read_diary_optin() -> tuple[bool, bool]:
+    """The two diary switches read fresh from the server-config file (and the ENV), not from the values this
+    module took at import: for the settings UIs, which may run after the other writer changed the file."""
+    return _diary_optin(_read_mcp_server_config())
+
+
+def diary_optin_changes(loaded: tuple[bool, bool], shown: tuple[bool, bool]) -> dict:
+    """The diary keys a settings UI writes into the server-config file: only a switch that the user changed
+    in that window since it was loaded or last saved (loaded -> shown, each (MCP, export)). An unchanged
+    switch is left out, so the file keeps what it says now: the other writer may have changed it
+    meanwhile, and a stale checkbox must never switch a privacy switch on again. Pure, shared by both UIs."""
+    changes = {}
+    if shown[0] != loaded[0]:
+        changes["mcp_diary_enabled"] = bool(shown[0])
+    if shown[1] != loaded[1]:
+        changes["mcp_diary_export_enabled"] = bool(shown[1])
+    return changes
+
+
+# The five values both MCP settings UIs show (app/panel_mcp.py, clients/mcp_server_gui.py) and write into the
+# server-config file (v1.7.8.1). The file leads; the app settings are only the fallback of a user who has no
+# file (or a file without the key) yet. Same shape as the diary helpers above: pure, shared by both UIs.
+MCP_SHARED_KEYS = ("mcp_llm_backend", "mcp_http_port", "mcp_headless", "mcp_extra_hosts_enabled", "mcp_extra_hosts")
+_MCP_BOOL_KEYS = ("mcp_headless", "mcp_extra_hosts_enabled")
+
+
+def _mcp_usable(key: str, value) -> bool:
+    """A file or settings value that counts as present: a JSON bool for the two switches, otherwise anything
+    but None, a bool or blank text (empty text and None count as missing, as MCP_HTTP_PORT and the extra
+    hosts always treated them)."""
+    if key in _MCP_BOOL_KEYS:
+        return isinstance(value, bool)
+    if value is None or isinstance(value, bool):
+        return False
+    return str(value).strip() != ""
+
+
+def _mcp_norm(key: str, value):
+    """The form in which a shown value and a loaded value are compared: bool for the switches, trimmed text
+    otherwise (so the int 8756 of the standalone window and the text "8756" of the app box are equal)."""
+    return bool(value) if key in _MCP_BOOL_KEYS else str(value if value is not None else "").strip()
+
+
+def mcp_server_values(config: dict, fallback: dict) -> dict:
+    """The five shared values, key by key: usable value in the server-config file > usable value in the
+    fallback (the app settings) > default. The port comes back as text. Pure, no I/O."""
+    defaults = {"mcp_llm_backend": "ollama", "mcp_http_port": str(MCP_HTTP_PORT), "mcp_headless": False,
+                "mcp_extra_hosts_enabled": False, "mcp_extra_hosts": MCP_EXTRA_ALLOWED_HOSTS_RAW}
+    values = {}
+    for key in MCP_SHARED_KEYS:
+        values[key] = defaults[key]
+        for source in (config, fallback):
+            candidate = source.get(key)
+            if _mcp_usable(key, candidate):
+                values[key] = candidate if key in _MCP_BOOL_KEYS else str(candidate).strip()
+                break
+    return values
+
+
+def mcp_config_changes(file_config: dict, loaded: dict, shown: dict) -> dict:
+    """The shared keys a settings UI writes into the server-config file (loaded -> shown, each a dict of the
+    five keys): a key the user changed in that window since it was loaded or last saved, and a key the file
+    lacks or holds unusable (the file is what the server reads, so the first save must put it there). A key
+    that is present in the file and untouched here stays as the file has it now: the other window may have
+    changed it meanwhile, and a stale box must never write it back. Compared as text/bool, written as shown."""
+    changes = {}
+    for key in MCP_SHARED_KEYS:
+        if key not in shown:
+            continue
+        if (not _mcp_usable(key, file_config.get(key))
+                or _mcp_norm(key, shown[key]) != _mcp_norm(key, loaded.get(key))):
+            changes[key] = shown[key]
+    return changes
+
+
+# Opt-in switches of the diary for the MCP and for the data export (v1.7.8.1) — both off by default: the diary
+# reaches the MCP cache, the MCP tools and the export only when the user turned the switch on. ONE field
+# per switch for every reader (server, app, standalone GUI, scheduler): the keys of MCP_SERVER_CONFIG_FILE.
+# Settable from app/panel_mcp.py and clients/mcp_server_gui.py (dual-writer exception documented above
+# MCP_SERVER_CONFIG_FILE). These two constants are the state at import: what the MCP server uses when it starts
+# (registering the diary tools, a later step). The cache sync, the data export and the export dialog read the
+# switches fresh with read_diary_optin() on every pass, so a change reaches them without a restart.
+MCP_DIARY_ENABLED, MCP_DIARY_EXPORT_ENABLED = _diary_optin(_mcp_server_config)
 
 # Server-owned archive path (v1.7 Teilbauauftrag f) — deliberately NOT the
 # same constant as BASE_DIR above. BASE_DIR remains the pipeline's sole

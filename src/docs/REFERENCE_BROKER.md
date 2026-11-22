@@ -36,6 +36,7 @@ underlying rule ("Spezialisten lesen nie direkt aus dem Dateisystem").
 | `metadata_map.py` *(v1.6.9.1)* | Archive-state introspection (not time-series) | — reads archive files directly, catch-all for data outside health/fit/context | routed via `gateway_map.get_metadata()`, not `_DOMAIN_BROKERS` — see below |
 | `fit_map.py` *(planned, v1.8)* | Activity data (Garmin FIT, later Strava) | `garmin_fit_map`, future `strava_fit_map` | see `ROADMAP.md` → v1.8 FIT Pipeline |
 | `mcp_map.py` *(v1.7)* | MCP protocol translation | `gateway_map` | pure delegation, no `_SOURCES`/`_DOMAIN_BROKERS` registry of its own — see `REFERENCE_MCP.md` for the full contract |
+| `diary_map.py` *(v1.7.8.1, removable)* | The diary (typed by hand: note, entries, field list) | `diary/diary_reader` — reads `diary_data/` through it | **not registered** in `gateway_map` or any `_SOURCES`; called directly with `base_dir`, read-only (`list_fields`, `list_days`, `get_day`, `get_presence`, `get_cache_feed`, see `REFERENCE_DIARY.md`); the MCP cache gets it through the internal metadata kind `diary_cache_feed` of `gateway_map` (opt-in, v1.7.8.1) — see `REFERENCE_MCP.md`, "Diary in the MCP cache" |
 
 Both `health_map.py` and `context_map.py` are structurally identical — same
 broker principle, different domain and source registry. Both register their

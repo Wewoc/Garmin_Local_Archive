@@ -1,4 +1,4 @@
-# Garmin Local Archive — Desktop App v1.7.8
+# Garmin Local Archive — Desktop App v1.7.8.1
 
 Drei Dokumente:
   QUICKSTART.txt   → first-time setup in a few minutes
@@ -105,11 +105,11 @@ The app window is divided into two areas:
 - **Settings** — all configuration panels
 - **Chat** — native chat panel (v1.6.6, renamed from "Ollama-Chat" in v1.7.2). Backend: local Ollama or Cloud LLM (Anthropic/OpenAI, v1.7.2). Source: archived daily summary or live MCP tool-calling (v1.7.2). Streaming replies, session history with resume
 - **MCP Server** — local LLM access to your archive via the Model Context Protocol (v1.7)
-- **Diary** — a note per day and your own values typed by hand, next to the Garmin values (v1.7.8); not visible to the MCP server or a cloud model
+- **Diary** — a note per day and your own values typed by hand, next to the Garmin values (v1.7.8); the MCP server, a cloud model and the data export see it only if you switch it on (v1.7.8.1, off by default)
 
 -> For how to use each tab day-to-day, see USER_GUIDE.txt.
 
--> Diary (v1.7.8): the tab behind "MCP Server" keeps a note per day and your own fields; it needs the Data folder of the Settings tab. Earlier days can be changed (with a history), the notes can be searched, a backup copy is kept in `garmin_data/backup/diary/`, and the mirror container carries the diary. See USER_GUIDE.txt, Section 13.
+-> Diary (v1.7.8): the tab behind "MCP Server" keeps a note per day and your own fields; it needs the Data folder of the Settings tab. Earlier days can be changed (with a history), the notes can be searched, a backup copy is kept in `garmin_data/backup/diary/`, and the mirror container carries the diary. Since v1.7.8.1 the diary is also shown in the Sleep and Explorer dashboards, and two switches in the "MCP Server" tab ("Diary in MCP", "Diary in data export", both off by default) let the MCP server (three more tools) and the JSON data export use it. See USER_GUIDE.txt, Section 13.
 
 -> Export Scan (v1.7.7): the button "📂 Export Scan" under Settings -> Data Collection, next to "API Scan", opens a window that shows what your own Garmin export holds (the guide is its Help button: README_EXPORT_SCAN.md). Since v1.7.7.1 the button "Rows ..." at a family shows up to 12 of its fields side by side by date.
 

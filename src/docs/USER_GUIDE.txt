@@ -498,6 +498,13 @@ days from a GDPR bulk import — contain daily summary values only
 (`standard` quality). The quality badge in
 the archive panel shows the breakdown.
 
+How big a page gets: a dashboard page with the intraday day view (Sleep,
+Explorer) carries the intraday series of every day in its range. Roughly
+3 MB for 30 days and 37 MB for 365 days, measured on one archive with
+intraday data for every day. The range is the field "Export Dashboard
+Range" in the Settings tab (empty = the last 30 days); a very long range
+makes a large file and a longer build.
+
 Custom Dashboard (free field selection):
   Settings tab -> Outputs -> "Custom Dashboard"
   Pick any Garmin and Context fields, set a date range
@@ -1032,6 +1039,9 @@ Using it (from the main app):
   host.docker.internal, plus a line showing exactly what was
   recognized. Unchecking dims the field but keeps its content.
 
+  Diary (v1.7.8.1): two more boxes, "Diary in MCP" and "Diary in data
+  export", both off by default. Read Section 13 before you turn one on.
+
   If a server is already running, a dialog names the port it's
   already using instead of starting a second one.
 
@@ -1263,8 +1273,12 @@ Copy Last Error Log
 The Diary tab (v1.7.8) keeps what you type by hand: a note for every day
 and your own values (blood pressure, hydration, weight, medication,
 cycle, anything you want to track). Your values sit next to the Garmin
-values and never replace them. Nothing of the diary is sent anywhere:
-the MCP server and the cloud models cannot see it.
+values and never replace them. By default the diary stays on your
+computer: the MCP server and the cloud models cannot see it, and it
+leaves your data folder only inside the encrypted mirror container, if
+you use the mirror. Two switches in the "MCP Server" tab change that (see
+"The diary and the MCP server" below); both are off until you turn them
+on.
 
 The tab needs your data folder (Settings tab -> Data folder). Without it
 everything in the tab is greyed out and a hint says so.
@@ -1342,6 +1356,38 @@ Mirror
   units; the name may differ). Days whose fields do not match are
   counted in the log line ("left out") and stay in the container. An
   older app version ignores the diary part of a container.
+
+Dashboards (v1.7.8.1)
+  The Sleep and Explorer dashboards show the diary of the day you pick in
+  their day view: the note and the entries (field, time, values with
+  units). The Explorer also has a strip under the chart that shows on
+  which days which field has an entry; a click on a mark opens that day.
+  Days whose diary file cannot be read are counted in a line on the
+  page. The pages are local files, nothing is sent anywhere. A page for a
+  range without a diary day looks as it did before.
+
+The diary and the MCP server (v1.7.8.1)
+  Off by default. In the "MCP Server" tab the box "Diary in MCP" lets the
+  MCP server give the diary to a model, through three extra tools
+  (list_diary_fields, query_diary, search_diary_notes). Think before you
+  turn it on:
+  - Every client connected to the server can read your whole diary: all
+    notes and all fields, cycle and pregnancy included. There is no
+    choice per field. With the cloud chat on, a cloud model reads it too.
+  - A chat that used the diary is saved in plain text in the archive
+    folder "chats" (Chat tab, session history).
+  - Turning the box on or off makes the server build its cache from
+    scratch at the next start or refresh. With a large archive this takes
+    several minutes (about five for a full archive, measured on one).
+  - The tools exist only if the box was on when the server started. The
+    earlier states of a day (its history) are never given out.
+
+The diary in the data export (v1.7.8.1)
+  The box "Diary in data export" can only be ticked while "Diary in MCP"
+  is on; it is off by default. It adds a column "Diary" to the JSON format
+  of "Export Data" (Settings tab -> Dashboards -> "Export Data"). The CSV
+  and InfluxDB formats never carry the diary. A saved selection keeps the
+  choice but leaves the diary out while a switch is off.
 
 ═══════════════════════════════════════════════════════════
   Garmin Local Archive — github.com/Wewoc/Garmin_Local_Archive

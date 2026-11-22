@@ -104,6 +104,7 @@ Error behavior:
 from . import health_map
 from . import context_map
 from . import metadata_map
+from garmin import garmin_config as cfg
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Domain registry — health + fit + context
@@ -179,6 +180,12 @@ _METADATA_KINDS = {
     # cache to re-read the health days after a schema migration). No
     # date_from/date_to — see metadata_map.py's own docstring.
     "summary_schema_state":   metadata_map.get_summary_schema_state,
+    # v1.7.8.1 — DIARY, REMOVABLE: the diary for the MCP cache sync (clients/mcp_update.py). Internal-sync-only
+    # like the kinds above, and available ONLY while the opt-in "Diary in MCP" is on (_OPTIN_KINDS below):
+    # with the switch off the kind is unknown to get_metadata() and not listed. Deliberately a metadata kind and
+    # not a domain broker of _DOMAIN_BROKERS (health/context/fit): gateway_map.get() asks every domain broker
+    # for a field and diary_map has none, and the export and the MCP read the cache, not the broker.
+    # Added below, after _diary_cache_feed() is defined.
 }
 
 # Kinds whose metadata_map function accepts date_from/date_to (v1.7.0.4;
@@ -202,7 +209,36 @@ _DATE_FILTERABLE_KINDS = {
 _INTERNAL_ONLY_KINDS = {
     "daily_log_filenames", "fail_log_filenames", "recent_log_filenames",
     "raw_file_hashes", "context_resync_pending", "summary_schema_state",
+    "diary_cache_feed",
 }
+
+# Kinds that exist only while a diary switch is on: kind -> position in garmin_config.read_diary_optin()
+# (0 = "Diary in MCP", 1 = "Diary in data export"). The switch is read fresh from the server-config file (and
+# the ENV) on every call, not taken at import: the app and the standalone window change the file while this
+# module is loaded, and there are two copies of garmin_config in one process (flat and "garmin.garmin_config"),
+# of which a constant set at runtime would reach only one. With the switch off get_metadata() answers such a
+# kind like an unknown one and list_metadata_kinds() leaves it out.
+_OPTIN_KINDS = {"diary_cache_feed": 0}
+
+
+def _diary_cache_feed() -> dict:
+    """The diary for the cache sync: {"data": diary_map.get_cache_feed(BASE_DIR), "error": None}, or
+    {"data": None, "error": "..."} when it cannot be built — never raises, like every metadata function.
+    diary_map is imported here and not at the top: while the switch is off nothing of the diary package is
+    needed (and the built MCP server only has it registered for this case, see mcp_server)."""
+    try:
+        from . import diary_map
+        return {"data": diary_map.get_cache_feed(cfg.BASE_DIR), "error": None}
+    except Exception as exc:
+        return {"data": None, "error": f"diary feed failed: {type(exc).__name__}: {exc}"}
+
+
+_METADATA_KINDS["diary_cache_feed"] = _diary_cache_feed
+
+
+def _kind_switched_off(kind: str) -> bool:
+    position = _OPTIN_KINDS.get(kind)
+    return position is not None and not cfg.read_diary_optin()[position]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -358,10 +394,10 @@ def get_metadata(kind: str, date_from: str | None = None,
                     caller error, same principle as get()'s domain
                     validation.
     """
-    if kind not in _METADATA_KINDS:
+    if kind not in _METADATA_KINDS or _kind_switched_off(kind):
         raise ValueError(
             f"Unknown metadata kind {kind!r} — expected one of "
-            f"{sorted(_METADATA_KINDS)}"
+            f"{list_metadata_kinds()}"
         )
     if kind == "raw_file_hashes":
         # Mandatory date_from/date_to (metadata_map.get_raw_file_hashes()
@@ -383,9 +419,10 @@ def list_metadata_kinds(include_internal: bool = True) -> list[str]:
     The default stays True so every existing caller sees the unchanged,
     full registry.
     """
+    kinds = [k for k in _METADATA_KINDS if not _kind_switched_off(k)]
     if include_internal:
-        return list(_METADATA_KINDS.keys())
-    return [k for k in _METADATA_KINDS if k not in _INTERNAL_ONLY_KINDS]
+        return kinds
+    return [k for k in kinds if k not in _INTERNAL_ONLY_KINDS]
 
 
 def get_raw(field: str, date_from: str, date_to: str,

@@ -154,6 +154,18 @@ def _is_server_reachable(port: int, timeout: float = 0.3) -> bool:
         return False
 
 
+# ── Diary opt-in texts (v1.7.8.1) — the same words as app/panel_mcp.py ──────
+DIARY_CONFIRM_TEXT = (
+    "Every client connected to the MCP server can read your diary (notes and entries), "
+    "including a cloud model when the cloud chat is on.\n\n"
+    "Chats that use the diary are saved in plain text in the archive folder 'chats'.\n\n"
+    "The cache is rebuilt at the next server start; this can take several minutes.\n\n"
+    "Turn on \"Diary in MCP\"?")
+DIARY_HINT_TEXT = (
+    "Off by default. The MCP server picks up a change at its next start. The first cache update "
+    "after switching \"Diary in MCP\" on or off (server start, refresh or export) rebuilds the "
+    "whole cache and can take several minutes.")
+
 # ── Server config persistence — direct read/write, standalone case ──────
 
 
@@ -183,6 +195,20 @@ def _save_server_config(data: dict, logger: logging.Logger) -> None:
         logger.info("Server config saved to %s", cfg.MCP_SERVER_CONFIG_FILE)
     except OSError as exc:
         logger.warning("Server config save failed: %s", exc)
+
+
+def build_config_update(base_dir: str, loaded: dict, shown: dict, file_config: dict,
+                        diary_loaded: tuple, diary_shown: tuple) -> dict:
+    """The data _on_save hands to _save_server_config (v1.7.8.1): the archive path always, the five shared
+    values and the two diary switches only when the user changed them in this window since it was opened or
+    last saved (the five also when the file lacks the key). A box the other window changed meanwhile and
+    this one did not touch is left alone, so a stale window never writes it back. Pure; the window itself is
+    a closure and not testable, this is the part that decides what is written."""
+    return {
+        "base_dir": base_dir,
+        **cfg.mcp_config_changes(file_config, loaded, shown),
+        **cfg.diary_optin_changes(diary_loaded, diary_shown),
+    }
 
 
 # ── Cloud LLM credentials — same file/shape as
@@ -352,6 +378,7 @@ def run_gui(mcp_instance, logger: logging.Logger,
 
     saved = _load_server_config()
     saved_cloud = _load_cloud_config()
+    shared = cfg.mcp_server_values(saved, {})   # the five shared values as the file has them (or the defaults)
 
     # ── Config section ────────────────────────────────────────────────
     config_frame = ttk.Frame(root, padding=10)
@@ -359,7 +386,7 @@ def run_gui(mcp_instance, logger: logging.Logger,
 
     ttk.Label(config_frame, text="LLM backend:").grid(
         row=0, column=0, sticky="w")
-    backend_var = tk.StringVar(value=saved.get("mcp_llm_backend", "ollama"))
+    backend_var = tk.StringVar(value=shared["mcp_llm_backend"])
     backend_combo = ttk.Combobox(
         config_frame, textvariable=backend_var,
         values=["ollama", "cloud"], state="readonly", width=15,
@@ -384,8 +411,7 @@ def run_gui(mcp_instance, logger: logging.Logger,
 
     ttk.Label(config_frame, text="Port:").grid(
         row=2, column=0, sticky="w", pady=(6, 0))
-    port_var = tk.StringVar(
-        value=str(saved.get("mcp_http_port") or cfg.MCP_HTTP_PORT))
+    port_var = tk.StringVar(value=shared["mcp_http_port"])
     ttk.Entry(config_frame, textvariable=port_var, width=8).grid(
         row=2, column=1, sticky="w", pady=(6, 0))
     ttk.Label(
@@ -393,7 +419,7 @@ def run_gui(mcp_instance, logger: logging.Logger,
         text="127.0.0.1 only — not remotely reachable, by design.",
     ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-    headless_var = tk.BooleanVar(value=bool(saved.get("mcp_headless", False)))
+    headless_var = tk.BooleanVar(value=shared["mcp_headless"])
     ttk.Checkbutton(
         config_frame, text="Start headless (no window)",
         variable=headless_var,
@@ -406,10 +432,8 @@ def run_gui(mcp_instance, logger: logging.Logger,
     # ── Extra allowed hosts (v1.7.0.2 — MCP transport_security) ─────────────
     # Same checkbox-gates-field model as app/panel_mcp.py — off by default,
     # content preserved when disabled (session decision).
-    extra_hosts_enabled_var = tk.BooleanVar(
-        value=bool(saved.get("mcp_extra_hosts_enabled", False)))
-    extra_hosts_var = tk.StringVar(
-        value=str(saved.get("mcp_extra_hosts") or cfg.MCP_EXTRA_ALLOWED_HOSTS_RAW))
+    extra_hosts_enabled_var = tk.BooleanVar(value=shared["mcp_extra_hosts_enabled"])
+    extra_hosts_var = tk.StringVar(value=shared["mcp_extra_hosts"])
     extra_hosts_preview_var = tk.StringVar(value="")
 
     def _refresh_extra_hosts_preview(*_args):
@@ -446,6 +470,35 @@ def run_gui(mcp_instance, logger: logging.Logger,
 
     extra_hosts_var.trace_add("write", _refresh_extra_hosts_preview)
     _on_extra_hosts_toggle()  # initial enabled/disabled state + preview text
+
+    # ── Diary opt-in (v1.7.8.1) — the same two keys as app/panel_mcp.py ─────
+    # Two switches, both off by default; the second only while the first is on. Read fresh from the file
+    # (not from the values this process took at import) and written back only when changed here, so a
+    # stale box never switches one on again that the app window turned off meanwhile.
+    diary_loaded = cfg.read_diary_optin()          # (MCP, export) as the file has them now
+    diary_state = {"loaded": diary_loaded}
+    diary_enabled_var = tk.BooleanVar(value=diary_loaded[0])
+    diary_export_var = tk.BooleanVar(value=diary_loaded[1])
+
+    def _on_diary_toggle():
+        if diary_enabled_var.get() and not messagebox.askyesno(
+                "Garmin Local Archive — MCP Server", DIARY_CONFIRM_TEXT, default="no"):
+            diary_enabled_var.set(False)
+        if not diary_enabled_var.get():
+            diary_export_var.set(False)
+        diary_export_check.configure(state="normal" if diary_enabled_var.get() else "disabled")
+
+    ttk.Checkbutton(
+        config_frame, text="Diary in MCP",
+        variable=diary_enabled_var, command=_on_diary_toggle,
+    ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(10, 0))
+    diary_export_check = ttk.Checkbutton(
+        config_frame, text="Diary in data export", variable=diary_export_var)
+    diary_export_check.grid(row=10, column=0, columnspan=2, sticky="w", padx=(24, 0), pady=(2, 0))
+    ttk.Label(
+        config_frame, text=DIARY_HINT_TEXT, wraplength=520, justify="left",
+    ).grid(row=11, column=0, columnspan=2, sticky="w", pady=(2, 0))
+    diary_export_check.configure(state="normal" if diary_enabled_var.get() else "disabled")
 
     config_frame.columnconfigure(1, weight=1)
 
@@ -541,7 +594,19 @@ def run_gui(mcp_instance, logger: logging.Logger,
     backend_combo.bind("<<ComboboxSelected>>", _on_backend_changed)
     _on_backend_changed()
 
-    # ── Save (server config: backend, base_dir, port, headless) ────────
+    # ── Save (server config: backend, base_dir, port, headless, extra hosts, diary) ──
+    def _shared_now() -> dict:
+        """The five shared boxes as they show now (port as text, compared as text with the loaded state)."""
+        return {
+            "mcp_llm_backend": backend_var.get(),
+            "mcp_http_port": port_var.get().strip(),
+            "mcp_headless": headless_var.get(),
+            "mcp_extra_hosts_enabled": extra_hosts_enabled_var.get(),
+            "mcp_extra_hosts": extra_hosts_var.get().strip(),
+        }
+
+    shared_state = {"loaded": _shared_now()}   # what the boxes showed when opened or last saved
+
     def _on_save():
         port_text = port_var.get().strip()
         try:
@@ -554,15 +619,14 @@ def run_gui(mcp_instance, logger: logging.Logger,
                 f"'{port_text}' is not a valid port number (1-65535).")
             return
 
-        data = {
-            "mcp_llm_backend": backend_var.get(),
-            "base_dir":        base_dir_var.get().strip(),
-            "mcp_http_port":   port,
-            "mcp_headless":    headless_var.get(),
-            "mcp_extra_hosts_enabled": extra_hosts_enabled_var.get(),
-            "mcp_extra_hosts":         extra_hosts_var.get().strip(),
-        }
+        now = _shared_now()
+        data = build_config_update(
+            base_dir_var.get().strip(), shared_state["loaded"], {**now, "mcp_http_port": port},
+            _load_server_config(), diary_state["loaded"],
+            (diary_enabled_var.get(), diary_export_var.get()))
         _save_server_config(data, logger)
+        shared_state["loaded"] = now
+        diary_state["loaded"] = (diary_enabled_var.get(), diary_export_var.get())
         messagebox.showinfo(
             "Garmin Local Archive — MCP Server",
             "Config saved. Restart the server for a changed archive "

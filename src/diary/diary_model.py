@@ -476,3 +476,40 @@ def check_history(history, snapshot):
                 continue
             errors.extend(f"{tag}:{key}:{e}" for e in check_entries(snapshot[key], field_entries))
     return errors
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Search in notes (pure; shared by diary_reader.search_notes and the MCP tool search_diary_notes, v1.7.8.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+MIN_QUERY_LEN = 2           # characters of all words together
+MAX_QUERY_LEN = 200
+SNIPPET_BEFORE = 40
+SNIPPET_AFTER = 80
+
+
+def parse_query(query):
+    """
+    (patterns, reason): the words of the query as case-insensitive literal patterns and reason None, or
+    (None, "query_too_short" | "query_too_long") for a query that is not searched.
+    """
+    words = query.split() if isinstance(query, str) else []
+    if sum(len(w) for w in words) < MIN_QUERY_LEN:
+        return None, "query_too_short"
+    if len(query) > MAX_QUERY_LEN:
+        return None, "query_too_long"
+    return [re.compile(re.escape(w), re.IGNORECASE) for w in words], None
+
+
+def note_snippet(note, patterns):
+    """
+    None unless every word is in the note (spaces tidied); else a piece of the tidied note around the first
+    word, with "…" where the note goes on.
+    """
+    text = " ".join(note.split())
+    if not all(pattern.search(text) for pattern in patterns):
+        return None
+    match = patterns[0].search(text)
+    start = max(0, match.start() - SNIPPET_BEFORE)
+    end = min(len(text), match.end() + SNIPPET_AFTER)
+    return ("…" if start > 0 else "") + text[start:end] + ("…" if end < len(text) else "")

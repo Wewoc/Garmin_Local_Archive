@@ -29,6 +29,9 @@ garmin_app.py (GUI)
 | `dash_layout_html.py` | Passive: HTML CSS, Plotly CDN, template builders |
 | `reference_ranges.py` | Passive: age/sex/fitness reference range calculations |
 | `dash_autosize.py` | Passive: auto-size boundary calculation (v1.6.5.10) — used by all 8 specialists (v1.6.5.11) |
+| `dash_intraday.py` | Passive: the four intraday series of the day view and which days are kept (v1.7.8.1) — used by the Sleep, Explorer and Sleep & Recovery specialists |
+| `dash_diary.py` | Passive: the text of a diary day, the presence rows and the payload for a page (v1.7.8.1, removable); the broker is handed in by the specialist |
+| `render/intraday_block.py` | Passive: the day view of the intraday series with an optional diary box; ids and function names carry a prefix (`sleep`, `explorer`) (v1.7.8.1) |
 | `dash_encryptor.py` | Sole Owner: HTML encryption for Encrypted Dashboard Export (v1.6.1+) |
 
 ### Invariants
@@ -37,6 +40,8 @@ garmin_app.py (GUI)
 - Plotters import only from `dash_layout` and `dash_layout_html` — never from specialists or brokers
 - `reference_ranges.py` has no imports beyond stdlib — safe to import anywhere
 - `dash_autosize.py` has no imports beyond stdlib — safe to import anywhere (v1.6.5.10)
+- `dash_intraday.py` and `dash_diary.py` import nothing, `render/intraday_block.py` only `json` (v1.7.8.1); a specialist reaches the diary only through `maps/diary_map.py`, never through `diary_reader` or `diary_writer`
+- The Sleep page without a diary is byte for byte the page from before `intraday_block.py` was taken out of `render/sleep.py` (tested in `tests/test_dash_diary.py`); the Sleep & Recovery view (`render/recovery_context.py`, Tab 2) keeps its own rendering on purpose (two axes, temperature and pollen lines) and shares only the data side
 - `maps/` modules: no writes, no API calls, routing only
 
 ---
@@ -141,6 +146,8 @@ python tests/test_dashboard.py
 ```
 
 Check and section totals are tracked in `docs/METRICS.md` (`test_dashboard.py`) — not restated here to avoid drift (same convention as `MAINTENANCE_GARMIN.md`).
+
+The shared day view and the diary parts of the pages (shaping, text, presence rows, payload, escaping, the Sleep page unchanged, the Explorer strip) are covered by `tests/test_dash_diary.py` (script test, v1.7.8.1); `build()` of the Sleep and Explorer specialists with a diary is in `test_dashboard.py`.
 
 | Section | Coverage |
 |---|---|

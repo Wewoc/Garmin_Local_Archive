@@ -143,7 +143,8 @@ raises for data-availability reasons:
 ## `clients/mcp_server.py` — tool registration, routing, transport
 
 Standalone MCP server process (`mcp>=1.28,<2`), streamable-http
-transport. Registers **eleven MCP tools**:
+transport. Registers **eleven MCP tools** (and three more, the diary tools, only while "Diary in MCP" was on when the
+server started — see "Diary in the MCP cache" below):
 
 - Five defined directly here, as thin `@mcp.tool()` wrappers with no
   broker/delegation logic of their own: `query_fit_activities`,
@@ -268,6 +269,26 @@ runs once, synchronously, before either startup path starts serving
 requests.
 
 ---
+
+## Diary in the MCP cache (v1.7.8.1, opt-in, removable)
+
+The diary reaches the MCP side only through two switches in the MCP tab of the app and in the standalone window of the server (both off by default, see `REFERENCE_GLOBAL.md`, `MCP_DIARY_ENABLED`): **"Diary in MCP"** (the diary is copied into the cache) and, only while that is on, **"Diary in data export"** (the export may read it). Turning "Diary in MCP" on asks first (every connected client can read the diary, a cloud model too).
+
+- **Cache:** table `mcp_diary_days` (`date`, `hash`, `payload_json`): the SHA-256 of the day file's bytes and the payload (`note`, `entries`, `definitions`, never the `history`). The field list is the snapshot `diary_fields`, the switch state at the last sync the snapshot `diary_optin`. A derived copy: nothing flows back into the archive (a test checks that no module of `garmin/`, `diary/`, `context/` imports `mcp_sql` or `mcp_update`).
+- **Feed:** `maps/diary_map.get_cache_feed()` (all days with state, hash and payload) reaches `mcp_update` through the internal metadata kind `diary_cache_feed` of `gateway_map` (not a domain broker: `gateway_map.get()` asks every domain for a field and the diary has none). The kind exists only while "Diary in MCP" is on; with it off `get_metadata()` answers it like an unknown kind and `list_metadata_kinds()` does not list it. It is internal-sync-only (`_INTERNAL_ONLY_KINDS`), so `get_archive_metadata` rejects it on the SQLite path.
+- **Sync (`mcp_update.sync_all`):** two steps. `_diary_begin()` runs first (before every other sync) and decides on a **rebuild of the whole cache** (`mcp_sql.clear_all()`: every table emptied, freed pages overwritten, WAL truncated, then the other syncs fill it again): when "Diary in MCP" changed since the last sync (either direction) or when a day that is in the cache has no readable file any more (deleted, damaged, newer version). A changed day is no removal (its row is replaced), a new day is added, the export switch changes nothing in the cache. `_diary_apply()` then puts new and changed days in (hash compare), stores the field list, counts unreadable days. Neither step raises: an error is logged and reported, the cache is left as it is and the state is not noted (the next pass tries again).
+- **Result keys of `sync_all`:** `diary_enabled`, `diary_rebuild`, `diary_days_updated`, `diary_days_failed`, `diary_days_unreadable`, `diary_error`. A rebuild can take several minutes on a large archive (308 s measured on the real one; 22 s for a 90-day test archive); it happens at the first sync after the switch changed (server start, `refresh_cache`, export). Nothing in the diary tab pushes a change to the cache: the tab says so while the switch is on.
+- **Export:** reader `mcp_sql.get_diary_range` in `export_common._DOMAIN_RANGE_READERS["diary"]`, left out unless both switches are on, read for the export range widened to the first and last cached day. Only the **JSON adapter** declares `META["diary"]` and gets a Diary column in the Export Data dialog; the CSV and InfluxDB adapters read only health and context, so the dialog shows no checkbox for them and `export_runner.build()` drops a saved `diary` for them, or while the export switch is off, with a line in the log and without an error.
+- **Built server:** `clients/mcp_server._register_embedded_packages()` registers the package `diary` next to `maps` (the lazily imported `diary_map` does `from diary import ...`); with the switch off nothing imports it.
+- **Tools (`clients/mcp_diary.py`, registered by `mcp_server` only when "Diary in MCP" was on at its start; with it off the module is not imported and the tool list is the eleven tools of always):**
+  - `list_diary_fields()` — the fields (key, name, time flag, archived flag, values with label/type/unit, `maps_to` = the Garmin counterpart where there is one), the first and last day with content and their count.
+  - `query_diary(date_from, date_to, field=None, include_notes=False)` — the entries exactly as typed, each with date, time (null for a field without a time), field, key and values with units; sorted by date, time, field. At most 366 days per call (more is refused with an error, not cut); `include_notes` adds the note of each day; an empty range is no error (`_meta.empty`). No daily value, no merging with Garmin values, never the `history`.
+  - `search_diary_notes(query, limit=50)` — the same rules as the search in the Diary tab (`diary_model.parse_query` / `note_snippet`, shared with `diary_reader.search_notes`): every word has to be in the note, case-insensitive, literal; date and snippet, newest first; `limit` default 50, at most 200; only notes.
+  - **Finding a field** (fields are named by the user, so no alias table): exact key or name (case does not matter) → a part of a name that is in exactly one name → the shared `_match_field` near-match (one hit resolves and is marked in `_meta.field_resolved_from`; several give `did_you_mean`) → a Garmin field name gets a pointer to `query_health`/`query_context` → otherwise an error with `did_you_mean` and `available_fields` (up to 30 names). A part that is in several names is an error with the names.
+  - **From the other tools:** the unknown-field errors of `query_health` and `query_context` get " -- a diary field '…' exists (typed by hand) -- use query_diary" when the name is (or matches) a diary field; only after the near-match step failed, so nothing that resolved before changes. `mcp_query_common.diary_hint()` looks at `sys.modules` for `mcp_diary`: with the switch off nothing is imported and the error text is the one it always was.
+  - `list_available_fields` names `fields["diary"]` (the diary field names) and `diary_tools` only while the tools exist and the switch is on; "domains" is unchanged (the diary is not a domain).
+  - **Every call looks at the switch again** (`read_diary_optin()`): turned off while the server runs, the tools answer "Diary in MCP is switched off" at once; turned on while it runs, the tools appear after the next start.
+  - **Chat history:** the Chat panel saves its history unchanged, tool results included, as plain text under `<archive>/chats/`; a chat that uses the diary tools therefore holds diary text there (the confirmation dialog of the switch says so). The MCP server logs no tool call and no result; the call logger (a separate support tool) does, in its depth `full`.
 
 ## `clients/mcp_query_common.py` — shared query-serving helpers
 

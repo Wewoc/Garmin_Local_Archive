@@ -56,7 +56,7 @@ from PyQt6.QtWidgets import (
     QCalendarWidget, QListWidget, QListWidgetItem, QFrame,
     QPlainTextEdit, QScrollArea, QWidget, QCheckBox,
 )
-from PyQt6.QtCore import Qt, QDate, pyqtSignal
+from PyQt6.QtCore import Qt, QDate, QLocale, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCharFormat, QColor
 
 # Quality → background color. Matches the traffic-light convention used
@@ -72,10 +72,32 @@ _QUALITY_COLORS = {
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  EnglishCalendar — base of every calendar widget of the app (v1.7.8.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class EnglishCalendar(QCalendarWidget):
+    """
+    QCalendarWidget with a fixed locale: English day and month names, the week starts on Monday. Qt takes the
+    system language otherwise (a German system showed Mo, Di, Mi ... in an otherwise English window), and a
+    machine with another language would show yet another one.
+
+    Sole owner of the calendar locale: DateToggleCalendar and SelectionOnlyCalendar below and DiaryCalendar
+    (app/panel_diary.py) derive from this class instead of QCalendarWidget, so a new calendar gets it by the
+    base class and not by a call it could forget. Only the widget's own texts change; the ISO date strings
+    ('YYYY-MM-DD') the callers read and write do not depend on the locale.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom))
+        self.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  DateToggleCalendar — reusable, no Force-Refetch-specific business logic
 # ══════════════════════════════════════════════════════════════════════════════
 
-class DateToggleCalendar(QCalendarWidget):
+class DateToggleCalendar(EnglishCalendar):
     """
     QCalendarWidget with two independent, non-colliding color layers:
       - an optional quality-status background per day (green/yellow/red),
@@ -357,7 +379,7 @@ class ForceRefetchDialog(QDialog):
 #  SelectionOnlyCalendar — read-only progress display
 # ══════════════════════════════════════════════════════════════════════════════
 
-class SelectionOnlyCalendar(QCalendarWidget):
+class SelectionOnlyCalendar(EnglishCalendar):
     """
     Read-only calendar: highlights a fixed, pre-given set of dates and has
     no click interaction at all — no toggling, no signal.

@@ -265,8 +265,40 @@ Returns a neutral dict consumed by plotters. Structure varies by specialist — 
         },
         ...
     ],
+    "intraday": {date: {"heart_rate": [...]|None, "stress": [...]|None,
+                        "body_battery": [...]|None, "respiration": [...]|None}},   # days with at least one series
+    "diary":    {"days": {date: {"note": str, "entries": [{"time", "name", "text"}]}},
+                 "damaged": int, "unsupported": int},   # v1.7.8.1; key only present when there is a diary
 }
 ```
+
+The intraday series come from `layouts/dash_intraday.py` (`INTRADAY_FIELDS`, `intraday_by_date`, `build_intraday`),
+shared with the Explorer and with the Sleep & Recovery specialist. The `diary` key is built from `maps/diary_map` through `layouts/dash_diary.py`, only when
+`settings["base_dir"]` is set and the range holds a diary day (or an unreadable one); the HTML shows the diary of
+the selected day below the intraday chart (days with an intraday view only). No opt-in: the HTML files are private
+and local. See "Diary in the dashboards" below.
+
+### `explorer_garmin-context_html_dash` — Explorer (day view and diary, v1.7.8.1)
+
+Since v1.7.8.1 the Explorer fills `"intraday"` (same four series and same helper as the Sleep dashboard, no cap on
+the range: it comes from the Settings, "Export Dashboard Range", 30 days when empty) and, with a diary, `"diary"`:
+
+```python
+{
+    ...,                         # layout, title, subtitle, daily as before
+    "intraday": {date: {"heart_rate": [...]|None, "stress": ..., "body_battery": ..., "respiration": ...}},
+    "diary":    {"days": {date: {"note": str, "entries": [{"time", "name", "text"}]}},
+                 "rows": [{"name": "Note" | field name, "dates": [str, ...]}],   # presence strip
+                 "damaged": int, "unsupported": int},   # key only present when there is a diary
+}
+```
+
+The page shows: a **presence strip** above the chart (one row per field with an entry in the range, plus the row
+"Note"; follows the zoom and the range slider of the chart through `plotly_relayout`), the main chart (unchanged),
+and below it the **day view** (`layouts/render/intraday_block.py`, prefix `explorer`): a dropdown of the days that
+have intraday data or a diary entry, the four intraday curves and the diary of the day. A click on a day of the chart
+or of the strip selects the day (`plotly_click`). Without intraday and without a diary the page is the one of
+before. A day with a diary entry and no intraday data shows a note instead of the chart.
 
 ### `heatmap_garmin_html_dash` — Activity & Physiology Heatmaps
 
@@ -440,8 +472,8 @@ Raises `ValueError` if required data is missing or empty.
 Raises `OSError` if output file cannot be written.
 
 `dash_plotter_html_complex` is a facade — it routes to `layouts/render/` via `_REGISTRY`:
-- `"explorer"` → `layouts/render/explorer.py` (`_render_explorer`)
-- `"sleep"`    → `layouts/render/sleep.py` (`_render_sleep`) — HTML/CSS table + inline Plotly intraday explorer (v1.6.2+)
+- `"explorer"` → `layouts/render/explorer.py` (`_render_explorer`) — since v1.7.8.1 with the shared day view, the diary presence strip and the click on a day
+- `"sleep"`    → `layouts/render/sleep.py` (`_render_sleep`) — HTML/CSS table + inline Plotly intraday explorer (v1.6.2+; the day view is `layouts/render/intraday_block.py` since v1.7.8.1, output unchanged without a diary)
 - `"heatmap"`  → `layouts/render/heatmap.py` (`_render_heatmap`) — six Plotly heatmap panels, tab navigation (v1.6.3.1+)
 - `"live"`     → `layouts/render/live.py` (`render`) — today's progression + last night, dark theme matching the app's own palette (not the shared light-theme dashboard CSS), inline SVG sparklines instead of Plotly (v1.6.5+)
 - `None` / any other → `layouts/render/recovery_context.py` (`_render_recovery_context`)
@@ -552,6 +584,40 @@ the full requested range — `compute_autosize_bounds()` never returns an
 adjusted boundary for this specialist. Latent, harmless (no crash, no
 wrong data — just an auto-size that silently never triggers). Flagged
 during the v1.6.5.11 DEPS-Scan review, not in scope for that session.
+
+---
+
+### `layouts/dash_intraday.py`, `layouts/dash_diary.py`, `layouts/render/intraday_block.py` (v1.7.8.1)
+
+The day view and the diary of the dashboards. The two helpers are pure shaping (no file I/O, no broker call, no
+import); like `dash_autosize.py` they are called by specialists, never by plotters. The block is a renderer module.
+
+| Module | Content |
+|---|---|
+| `dash_intraday.py` | `INTRADAY_FIELDS` (health_map field → key for the four series), `INTRADAY_KEYS`, `intraday_by_date(result)` → `{date: series}`, `build_intraday(raw_by_key, dates)` → `{date: {key: series}}` for the days with at least one non-empty series |
+| `dash_diary.py` *(removable)* | `format_entry`, `format_day` (entries as `{"time", "name", "text"}`, text `label: value unit`, yes/no as `yes`/`no`, time order), `presence_rows` (row "Note" first, then fields by name), `build_payload(broker, base_dir, date_from, date_to)` → `{"days", "rows", "damaged", "unsupported"}`; the broker (`maps/diary_map`) is handed in by the specialist |
+| `render/intraday_block.py` | `build_block(intraday, prefix="sleep", diary=None, include_diary_days=False)` → HTML+JS of the day view (dropdown, chart with four traces, optional diary box); ids and function names carry the prefix (`sleep-explorer`, `sleepUpdateIntraday`, `sleepJumpToDay`, ... or `explorer-...`); `json_for_script(obj)` |
+
+### Diary in the dashboards (v1.7.8.1)
+
+- Specialists read the diary through `maps/diary_map` only (read-only, called directly with `settings["base_dir"]`;
+  not through `gateway_map`). Without a `base_dir` in the settings, or without a diary day in the range, there is no
+  `diary` key and the page is the one of before.
+- No opt-in for the dashboards (the HTML files are private and local); the opt-in of the MCP and the data export
+  (later layer) does not apply here.
+- The HTML carries the note, the entries and the field names of the days in the range, **never** the `history` of a
+  day (`diary_map` does not return it). Specialists with the `json` format (prompt templates for a language model)
+  never get diary fields.
+- The note is shown with `textContent` (never as HTML) and its data is embedded with `json_for_script()` (`<`, `>`,
+  `&` as `\uXXXX`), so a note with `</script>` cannot break or inject into the page.
+- Days that cannot be read (damaged, newer version) are counted and shown as a line in the diary box, not left out
+  silently.
+- The encrypted dashboard export (`dash_encryptor`) encrypts the finished HTML as a whole; the diary content is in
+  it like the rest.
+- The third intraday view (`recovery_context.py` `_build_tab2`, Tab 2 of Sleep & Recovery) is not part of this: it
+  keeps its own rendering (two Y axes, temperature and pollen lines, no diary box). Its specialist
+  `sleep_recovery_context_dash.py` takes the series list, `intraday_by_date` and the day filter from
+  `layouts/dash_intraday.py` like the other two, and adds `temperature` and `pollen` to each day afterwards.
 
 ---
 

@@ -423,6 +423,103 @@ def _reconcile_summary_schema() -> bool:
         return False
 
 
+# ── Diary (v1.7.8.1, DIARY — REMOVABLE) ──────────────────────────────────────────
+# Where this module notes whether "Diary in MCP" was on at the last sync (mcp_snapshots, one row of its own),
+# and the field list of the diary (a second row). The days themselves are in mcp_diary_days.
+_DIARY_OPTIN_SNAPSHOT = "diary_optin"
+_DIARY_FIELDS_SNAPSHOT = "diary_fields"
+
+
+def _diary_begin() -> tuple[dict | None, dict]:
+    """
+    The first of the two diary steps of sync_all(): decides, before anything else is synced, whether the whole
+    cache is rebuilt, and fetches the diary when "Diary in MCP" is on. A rebuild comes first because it empties
+    EVERY table (mcp_sql.clear_all()) and the other syncs of the pass then fill the cache again.
+
+    The cache is rebuilt when
+      - the switch "Diary in MCP" is not what it was at the last sync (mcp_snapshots "diary_optin"; nothing noted
+        counts as off) — in both directions: switching it off takes the diary out of the cache, switching it on
+        starts from a clean cache; or
+      - a day that is in the cache has no readable file any more (deleted, damaged, written by a newer version):
+        a removal, and what was removed must not stay in the cache. A day that was only changed is NOT a removal:
+        its row is replaced by _diary_apply(); a day that is new is added.
+    The export switch is not looked at: it changes what the export may read, not what the cache holds.
+    The switch is read fresh from the server-config file (and the ENV) at every pass, so a change made in the app
+    counts at the next pass without a restart.
+
+    Never raises. Returns (feed, info): feed is diary_map's feed when the switch is on and it could be read, else
+    None; info is {"enabled", "rebuild", "error"} for the result of sync_all(). An error (the feed cannot be read,
+    the cache cannot be emptied) is logged and reported, the cache is left as it is and the state is not noted, so
+    the next pass tries again. No log line carries a note, an entry or a field name.
+    """
+    info = {"enabled": False, "rebuild": False, "error": None}
+    try:
+        enabled = bool(cfg.read_diary_optin()[0])
+        info["enabled"] = enabled
+        stored = mcp_sql.get_snapshot(_DIARY_OPTIN_SNAPSHOT)
+        stored_enabled = bool(stored.get("enabled")) if isinstance(stored, dict) else False
+        rebuild = enabled != stored_enabled
+        feed = None
+        if enabled:
+            result = mcp_map.get_archive_metadata("diary_cache_feed")
+            if result.get("error") or not isinstance(result.get("data"), dict):
+                raise RuntimeError(result.get("error") or "no diary feed")
+            feed = result["data"]
+            if not rebuild:
+                gone = [day for day in mcp_sql.get_diary_hashes()
+                        if feed["days"].get(day, {}).get("state") != "ok"]
+                rebuild = bool(gone)
+        if rebuild:
+            mcp_sql.clear_all()
+            logger.info("Diary: the whole cache is rebuilt (switch %s, was %s%s)",
+                        "on" if enabled else "off", "on" if stored_enabled else "off",
+                        "; a cached day has no readable file" if enabled and stored_enabled else "")
+        if rebuild or stored is None:
+            mcp_sql.upsert_snapshot(_DIARY_OPTIN_SNAPSHOT, {"enabled": enabled},
+                                    datetime.datetime.now().isoformat())
+        info["rebuild"] = rebuild
+        return feed, info
+    except Exception as exc:
+        logger.warning("Diary check failed (%s) — cache left as it is", type(exc).__name__)
+        info["error"] = f"{type(exc).__name__}: {exc}"
+        return None, info
+
+
+def _diary_apply(feed: dict | None) -> tuple[int, int, int]:
+    """
+    The second diary step: puts the diary of `feed` (from _diary_begin()) into the cache. A day that is new or whose
+    content hash changed replaces its row (additive: nothing is rebuilt for it), the field list is stored when it
+    changed. A day that cannot be read (damaged, newer version) is not cached, only counted.
+
+    Returns (days_updated, days_failed, days_unreadable); (0, 0, 0) when feed is None (switch off or no feed).
+    Never raises: a failing row is counted in days_failed and logged by kind, the rest goes on.
+    """
+    if feed is None:
+        return 0, 0, 0
+    updated = failed = unreadable = 0
+    try:
+        if mcp_sql.get_snapshot(_DIARY_FIELDS_SNAPSHOT) != feed["fields"]:
+            mcp_sql.upsert_snapshot(_DIARY_FIELDS_SNAPSHOT, feed["fields"], datetime.datetime.now().isoformat())
+        cached = mcp_sql.get_diary_hashes()
+    except Exception as exc:
+        logger.warning("Diary: field list or hashes could not be stored (%s)", type(exc).__name__)
+        return 0, 1, 0
+    for day in sorted(feed["days"]):
+        entry = feed["days"][day]
+        if entry["state"] != "ok":
+            unreadable += 1
+            continue
+        if cached.get(day) == entry["hash"]:
+            continue
+        try:
+            mcp_sql.upsert_diary_day(day, entry["hash"], entry["payload"])
+            updated += 1
+        except Exception as exc:
+            failed += 1
+            logger.warning("Diary: a day could not be stored (%s)", type(exc).__name__)
+    return updated, failed, unreadable
+
+
 def _sync_health_days() -> tuple[int, int]:
     """
     Form A, health: get_stats() for the archive's real date_min/date_max
@@ -1036,6 +1133,14 @@ def sync_all(is_boot: bool = False) -> dict:
                                                # set to be read again because the summaries
                                                # changed their schema number, see
                                                # _reconcile_summary_schema()
+            "diary_enabled": bool,            # v1.7.8.1 — "Diary in MCP" was on at this pass
+            "diary_rebuild": bool,            # the whole cache was emptied first and filled again (the
+                                               # switch changed, or a cached diary day lost its file);
+                                               # may take several minutes — see _diary_begin()
+            "diary_days_updated": int,        # diary days put into the cache (new or changed)
+            "diary_days_failed": int,
+            "diary_days_unreadable": int,     # damaged or newer-version day files, counted not cached
+            "diary_error": str | None,        # why the diary step could not run, else None
             "duration_seconds": float,
             "marker": str,                    # shared sync marker, see module docstring
         }
@@ -1074,6 +1179,8 @@ def sync_all(is_boot: bool = False) -> dict:
 
         try:
             mcp_sql.init_db()
+            # Diary, step 1 (v1.7.8.1): a rebuild of the whole cache has to come before everything else.
+            diary_feed, diary_info = _diary_begin()
             context_resync_applied = _apply_pending_context_resync(cfg.BASE_DIR)
             field_registry_resets = _reconcile_field_registry()
             summary_schema_reset = _reconcile_summary_schema()
@@ -1082,6 +1189,7 @@ def sync_all(is_boot: bool = False) -> dict:
             baselines_updated, baselines_failed = _sync_health_baselines()
             context_days_updated, context_days_failed = _sync_context_days()
             raw_days_touched, raw_fields_failed = _sync_raw_fields()
+            diary_updated, diary_failed, diary_unreadable = _diary_apply(diary_feed)   # step 2
 
             structured_entries_updated = 0
             structured_entries_failed = 0
@@ -1125,6 +1233,12 @@ def sync_all(is_boot: bool = False) -> dict:
                 "field_registry_resets": sorted(k for k, v in field_registry_resets.items() if v),
                 "context_resync_applied": context_resync_applied,
                 "summary_schema_reset": summary_schema_reset,
+                "diary_enabled": diary_info["enabled"],
+                "diary_rebuild": diary_info["rebuild"],
+                "diary_days_updated": diary_updated,
+                "diary_days_failed": diary_failed,
+                "diary_days_unreadable": diary_unreadable,
+                "diary_error": diary_info["error"],
                 "duration_seconds": duration,
                 "marker": marker,
             }

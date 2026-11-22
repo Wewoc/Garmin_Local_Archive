@@ -145,6 +145,7 @@ SHARED_SCRIPTS = [
     "clients/mcp_sql.py",
     "clients/mcp_update.py",
     "clients/mcp_stats.py",
+    "clients/mcp_diary.py",            # DIARY v1.7.8.1 — REMOVABLE (the three diary tools; imported only with "Diary in MCP" on)
     "clients/chat_session_store.py",
     "clients/cloud_credential_store.py",
     # v1.7.2 — In-App Chat: MCP tool-calling, Cloud LLM connector
@@ -188,6 +189,7 @@ SHARED_SCRIPTS = [
     "diary/diary_reader.py",           # DIARY v1.7.8 — REMOVABLE (read only)
     "diary/diary_writer.py",           # DIARY v1.7.8 — REMOVABLE (sole writer of diary_data/)
     "diary/diary_backup.py",           # DIARY v1.7.8 — REMOVABLE (backup of diary_data/, sole writer of garmin_data/backup/diary/)
+    "maps/diary_map.py",               # DIARY v1.7.8 — REMOVABLE (read-only broker of the diary, not registered in gateway_map)
     # dashboards (specialists + runner)
     "dashboards/__init__.py",
     "dashboards/dash_runner.py",
@@ -221,6 +223,8 @@ SHARED_SCRIPTS = [
     "layouts/dash_prompt_templates.py",
     "layouts/reference_ranges.py",
     "layouts/dash_autosize.py",
+    "layouts/dash_intraday.py",        # DIARY v1.7.8.1 — shared intraday shaping (Sleep + Explorer)
+    "layouts/dash_diary.py",           # DIARY v1.7.8.1 — REMOVABLE (text of a diary day, presence rows)
     "layouts/garmin_mobile_landing.py",
     "layouts/dash_encryptor.py",
     # render sub-package (one module per layout type)
@@ -228,6 +232,7 @@ SHARED_SCRIPTS = [
     "layouts/render/recovery_context.py",
     "layouts/render/sleep.py",
     "layouts/render/explorer.py",
+    "layouts/render/intraday_block.py",   # v1.7.8.1 — day view shared by sleep.py and explorer.py
     "layouts/render/heatmap.py",
     "layouts/render/live.py",
 ]
@@ -293,6 +298,8 @@ SCRIPT_SIGNATURES_BASE = {
     "app/outputs/export_auto.py": ["def run_export_auto"],
     "layouts/dash_encryptor.py": ["def encrypt_html"],
     "layouts/dash_autosize.py": ["def compute_autosize_bounds", "def autosize_note"],
+    "layouts/dash_intraday.py": ["INTRADAY_FIELDS", "def intraday_by_date", "def build_intraday"],
+    "layouts/dash_diary.py":    ["def format_day", "def presence_rows", "def build_payload"],   # DIARY v1.7.8.1 — REMOVABLE
     "app/panel_home.py":        ["class PanelHome"],
     "context/brightsky_plugin.py": ["FETCH_ADAPTER", "AGGREGATION_MAP"],
     "maps/brightsky_map.py":       ["def get", "def list_fields"],
@@ -359,11 +366,13 @@ SCRIPT_SIGNATURES_BASE = {
     "diary/diary_reader.py":  ["def read_master", "def read_day", "def list_days"],                   # DIARY v1.7.8 — REMOVABLE
     "diary/diary_writer.py":  ["def save_day", "def create_user_field", "def recover_master"],        # DIARY v1.7.8 — REMOVABLE
     "diary/diary_backup.py":  ["def backup_day", "def backup_all", "def check"],                      # DIARY v1.7.8 — REMOVABLE
+    "maps/diary_map.py":      ["def list_fields", "def get_day", "def get_presence"],                 # DIARY v1.7.8 — REMOVABLE
     "garmin/garmin_live_fetch.py":    ["def fetch_live"],
     "layouts/garmin_mobile_landing.py": ["def write_index_html", "def ensure_index_html"],
     "layouts/render/recovery_context.py": ["def render", "def _render_recovery_context"],
     "layouts/render/sleep.py":            ["def render", "def _render_sleep"],
     "layouts/render/explorer.py":         ["def render", "def _render_explorer"],
+    "layouts/render/intraday_block.py":   ["def build_block", "def json_for_script"],
     "layouts/render/live.py":             ["def render"],
     "crash_handler.py": ["def install"],
     "qwebengine_hardening.py": ["def harden"],
@@ -386,6 +395,7 @@ SCRIPT_SIGNATURES_BASE = {
     "clients/mcp_sql.py": ["def init_db", "def get_connection"],
     "clients/mcp_update.py": ["def sync_all"],
     "clients/mcp_stats.py": ["def baselines", "def anomalies", "def gaps"],
+    "clients/mcp_diary.py": ["def list_diary_fields", "def query_diary", "def search_diary_notes"],   # DIARY v1.7.8.1 — REMOVABLE
     "clients/chat_session_store.py": ["def list_sessions", "def save_session", "def load_session"],
     "clients/cloud_credential_store.py": ["def get_api_key", "def store_api_key"],
     "clients/mcp_client.py": ["def is_reachable", "def list_tools", "def call_tool"],

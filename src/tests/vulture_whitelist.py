@@ -132,4 +132,8 @@ VULTURE_WHITELIST: dict[tuple[str, str], str] = {
     # snapshots of the days. No button of the tab calls it yet (the restore from the backup comes first, and the
     # refusal texts name recover_master as the way when a copy does not fit); a person can call it from a console.
     ("diary\\diary_writer.py", "recover_master"): "public recovery function, tested in tests/test_diary.py, named in the refusal texts; no button of the tab calls it yet",
+    # The state of the export switch at import (v1.7.8.1), tested in tests/test_basics.py; the MCP server registers the
+    # diary tools with MCP_DIARY_ENABLED (used), the export and the cache sync read both switches fresh with
+    # read_diary_optin(), so nothing reads this constant yet.
+    ("garmin\\garmin_config.py", "MCP_DIARY_EXPORT_ENABLED"): "state of the export switch at import, tested in tests/test_basics.py; the export reads the switch fresh",
 }

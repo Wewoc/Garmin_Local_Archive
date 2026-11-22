@@ -18,10 +18,13 @@ Sources:
   - Garmin summary/ via health_map  (all daily Garmin fields)
   - Garmin raw/     via health_map  (sleep phases)
   - context_data/   via context_map (weather, pollen, air quality)
+  - Garmin raw/     via health_map (intraday HR, Stress, Body Battery, Respiration; v1.7.8.1)
+  - Diary           via diary_map (v1.7.8.1; only when the settings carry a base_dir): presence strip
+                    and the diary of a selected day
 
 Rules:
 - No direct file access.
-- Calls health_map.get() and context_map.get() only.
+- Calls health_map.get(), context_map.get() and diary_map (read-only) only.
 - Returns neutral dict for dash_plotter_html_complex ("layout": "explorer").
 """
 
@@ -33,6 +36,9 @@ from maps.health_map    import get as health_get, list_fields as garmin_list_fie
 from maps.context_map  import get as context_get, list_fields as context_list_fields
 from layouts.dash_layout import get_metric_meta
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
+from layouts.dash_intraday import INTRADAY_FIELDS, intraday_by_date, build_intraday
+from layouts.dash_diary import build_payload as diary_payload
+from maps import diary_map   # DIARY v1.7.8.1 — REMOVABLE: read-only broker of the diary
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -131,7 +137,11 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
                 "sleep_scores":  [{"date": str, "feedback": str|None,
                                    "qualifier": str|None}, ...],
             },
-            "intraday": {},
+            "intraday": {date: {"heart_rate": [...], "stress": [...], "body_battery": [...],
+                                "respiration": [...]}},   # days with at least one series
+            "diary":    {"days": {date: {"note": str, "entries": [{"time", "name", "text"}]}},
+                         "rows": [{"name": str, "dates": [str, ...]}],
+                         "damaged": int, "unsupported": int},   # key only present when there is a diary
         }
     """
 
@@ -242,12 +252,27 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
             f"{len(context_fields)} context fields"
         )
 
-    return {
+    # ── 8. Intraday day view (v1.7.8.1) — the four series of the Sleep dashboard ─
+    # No cap on the range: it comes from the Settings (dashboard range, 30 days when empty).
+    intraday_raw = {}
+    for f in INTRADAY_FIELDS:
+        result = health_get(f["field"], date_from, date_to, resolution="intraday")
+        intraday_raw[f["key"]] = intraday_by_date(result)
+    intraday_out = build_intraday(intraday_raw, all_dates)
+
+    # ── 9. Diary of the range — only with an archive folder in the settings ──────
+    diary = diary_payload(diary_map, settings.get("base_dir"), date_from, date_to)
+    has_diary = bool(diary["days"] or diary["damaged"] or diary["unsupported"])
+
+    out = {
         "layout":    "explorer",
         "title":     "Explorer",
         "subtitle":  subtitle,
         "date_from": date_from,
         "date_to":   date_to,
         "daily":     daily_out,
-        "intraday":  {},
+        "intraday":  intraday_out,
     }
+    if has_diary:
+        out["diary"] = diary
+    return out

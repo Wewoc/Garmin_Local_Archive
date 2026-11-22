@@ -33,6 +33,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # assumption export_runner.py's own "import mcp_update" makes.
 import mcp_sql
 
+# DIARY v1.7.8.1 — REMOVABLE: the "Diary in data export" switch, read fresh on every collect() (the app and the
+# standalone window change the file while the process runs; see garmin_config.read_diary_optin()).
+from garmin import garmin_config as _gcfg
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Metadata kinds exposed to external export consumers
 #
@@ -53,7 +57,20 @@ _EXTERNAL_METADATA_KINDS = [
 _DOMAIN_RANGE_READERS = {
     "health":  mcp_sql.get_health_range,
     "context": mcp_sql.get_context_range,
+    # v1.7.8.1 — DIARY, REMOVABLE: read from the cache like the others, but only while "Diary in data export"
+    # is on (collect() leaves the domain out otherwise) and only by adapters that declare META["diary"].
+    "diary":   mcp_sql.get_diary_range,
 }
+
+
+def _diary_range(date_from: str, date_to: str) -> tuple[str, str]:
+    """The range the diary is read for: the export range, widened to the first and the last cached diary day.
+    The export range comes from the Garmin summaries, but a diary day can lie before the first or after the
+    last of them (a note for today, before today's sync) and belongs to the archive all the same."""
+    days = mcp_sql.get_diary_hashes()
+    if not days:
+        return date_from, date_to
+    return min(date_from, min(days)), max(date_to, max(days))
 
 
 def collect(date_from: str, date_to: str, domains: list[str],
@@ -102,12 +119,18 @@ def collect(date_from: str, date_to: str, domains: list[str],
         "domains":   {},
     }
 
+    diary_export_on = None
     for domain in domains:
+        if domain == "diary":
+            if diary_export_on is None:
+                diary_export_on = bool(_gcfg.read_diary_optin()[1])
+            if not diary_export_on:
+                continue     # "Diary in data export" is off: the domain is left out, no entry and no error
         reader = _DOMAIN_RANGE_READERS.get(domain)
         if reader is None:
             result["domains"][domain] = {"error": "domain not yet available"}
             continue
-        range_result = reader(date_from, date_to)
+        range_result = reader(*(_diary_range(date_from, date_to) if domain == "diary" else (date_from, date_to)))
         result["domains"][domain] = range_result[domain]
 
     if include_metadata:

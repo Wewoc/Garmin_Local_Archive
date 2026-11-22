@@ -35,6 +35,9 @@ import log_utils
 # section.
 import mcp_update
 
+# DIARY v1.7.8.1 — REMOVABLE: the "Diary in data export" switch, read fresh at every build().
+from garmin import garmin_config as _gcfg
+
 
 def _load_adapter(path: Path):
     """
@@ -95,6 +98,7 @@ def scan(log=None) -> list[dict]:
             "name":        meta.get("name", path.stem),
             "description": meta.get("description", ""),
             "extension":   meta.get("extension", ""),
+            "diary":       bool(meta.get("diary")),     # v1.7.8.1: the adapter can write the "diary" domain
         })
 
     if skipped:
@@ -153,8 +157,18 @@ def build(
         log(f"  ✗ Sync failed, reading from cache as-is: {exc}")
 
     results = []
+    diary_export_on = bool(_gcfg.read_diary_optin()[1])
     for mod, domains, include_metadata, options in selections:
         name = getattr(mod, "META", {}).get("name", mod.__name__)
+        if "diary" in domains:
+            # v1.7.8.1: a saved or planned selection may name "diary" while the switch is off, or for an adapter
+            # that cannot write it. The diary is then left out — said in the log, never an error of the export.
+            if not diary_export_on:
+                domains = [d for d in domains if d != "diary"]
+                log(f"  ℹ Diary left out of {name}: \"Diary in data export\" is off.")
+            elif not getattr(mod, "META", {}).get("diary"):
+                domains = [d for d in domains if d != "diary"]
+                log(f"  ℹ Diary left out of {name}: this format does not export the diary (JSON only).")
         log(f"Exporting: {name} ...")
         try:
             result = mod.build(date_from, date_to, domains, include_metadata,

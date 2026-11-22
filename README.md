@@ -203,7 +203,7 @@ after each sync.
 
 ### Diary
 
-The **Diary** tab (v1.7.8) keeps what you type by hand: a note per day and your own values — blood pressure, hydration, weight, medication, cycle, anything you define — with numbers, yes/no or text, an optional time and alternatives such as steps or distance. The values sit next to the Garmin values and never replace them. Earlier days can be changed (the state before is kept in a history you can put back), the notes can be searched, a backup copy of the diary is kept (and restored when a file is damaged), and the mirror container carries it too. Nothing of the diary is visible to the MCP server or a cloud model. Reference: [`src/docs/REFERENCE_DIARY.md`](src/docs/REFERENCE_DIARY.md).
+The **Diary** tab (v1.7.8) keeps what you type by hand: a note per day and your own values — blood pressure, hydration, weight, medication, cycle, anything you define — with numbers, yes/no or text, an optional time and alternatives such as steps or distance. The values sit next to the Garmin values and never replace them. Earlier days can be changed (the state before is kept in a history you can put back), the notes can be searched, a backup copy of the diary is kept (and restored when a file is damaged), and the mirror container carries it too. The diary is shown in the **Sleep** and **Explorer** dashboards (the note and the entries of the day you pick; the pages are local HTML files). **By default nothing of it leaves the program:** the MCP server, a cloud model and the data export cannot see it. Two switches in the MCP Server tab, both off by default, change that. **"Diary in MCP"** lets every client connected to the MCP server read your whole diary through three extra tools (`list_diary_fields`, `query_diary`, `search_diary_notes`), a cloud model included if you use the cloud chat; chats that used the diary are saved in plain text. **"Diary in data export"** (only available with the first switch on) adds the diary to the JSON export. Reference: [`src/docs/REFERENCE_DIARY.md`](src/docs/REFERENCE_DIARY.md).
 
 ---
 
@@ -283,6 +283,8 @@ hosts" above for Docker clients.
 | `anomalies` | Days (or multi-day streaks) where a health field broke from its own recent pattern |
 | `gaps` | Days with no usable data in a given domain and date range |
 | `correlate` | How closely two fields move together over time — any combination of health and context, with optional lag (e.g. "does X today predict Y a few days later") |
+
+With "Diary in MCP" switched on (off by default), three more tools read your own diary: `list_diary_fields`, `query_diary`, `search_diary_notes` — see [Diary](#diary).
 
 Example: *"How did my sleep and stress compare over the last two weeks?"*
 — the model calls the tools above itself and answers from your real

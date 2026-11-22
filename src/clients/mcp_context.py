@@ -39,7 +39,7 @@ from mcp_field_registry import (
     CONTEXT_FIELD_AMBIGUOUS,
     _CONTEXT_CATEGORY_BUNDLES,
 )
-from mcp_query_common import _route_query, _enrich_with_units
+from mcp_query_common import _route_query, _enrich_with_units, diary_hint
 
 
 def _resolve_context_bundle(bundle_name: str, date_from: str, date_to: str,
@@ -343,7 +343,7 @@ def resolve_context_field(field: str) -> dict:
             return {"resolved_field": resolved_field,
                     "field_resolved_from": original_field, "field_used": resolved_field}
 
-        result = {"error": f"unknown field {field!r}"}
+        result = {"error": f"unknown field {field!r}" + diary_hint(field)}   # v1.7.8.1: a diary field gets a pointer
         if close_matches:
             result["did_you_mean"] = close_matches
         return result

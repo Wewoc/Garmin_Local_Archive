@@ -31,8 +31,21 @@ identical copy of this block (migration is a separate ROADMAP item).
 """
 
 import difflib
+import sys
 
 from mcp_field_registry import FIELD_UNITS
+
+
+def diary_hint(field: str) -> str:
+    """
+    DIARY v1.7.8.1 — REMOVABLE. Text to append to an "unknown field" error of query_health/query_context: " -- <pointer
+    to query_diary>" when the name is (or matches) a field of the user's diary, else "". Looks at sys.modules
+    for clients/mcp_diary.py: mcp_server imports that module only when "Diary in MCP" was on at its start, so with the
+    switch off (or the module absent) nothing is imported, nothing is read and the error text is the one it always was.
+    """
+    module = sys.modules.get("mcp_diary")
+    pointer = module.diary_pointer(field) if module is not None else None
+    return f" -- {pointer}" if pointer else ""
 
 
 def _get_field_unit(field: str) -> str:

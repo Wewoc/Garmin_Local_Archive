@@ -1420,6 +1420,67 @@ class TestDialogContextCheck:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  6b. Calendar widgets — fixed English locale (v1.7.8.1, Block 6b)
+# ══════════════════════════════════════════════════════════════════════════════
+# The calendars of the app (EnglishCalendar and the two of dialog_force_refetch; DiaryCalendar is in
+# test_diary_panel.py) show English day names and start the week on Monday, whatever the system language is.
+# The tests set the DEFAULT locale to German first: that is what a German system gives, and what showed
+# "Mo., Di., Mi." in an otherwise English window.
+
+_ENGLISH_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _calendar_header(cal):
+    """The seven day names of the header row, as the calendar draws them (no week numbers)."""
+    from PyQt6.QtWidgets import QCalendarWidget, QTableView
+    cal.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+    model = cal.findChild(QTableView).model()
+    return [str(model.index(0, c).data()) for c in range(model.columnCount())]
+
+
+class TestCalendarLocale:
+
+    @pytest.fixture
+    def german_default(self):
+        from PyQt6.QtCore import QLocale
+        before = QLocale()
+        QLocale.setDefault(QLocale(QLocale.Language.German, QLocale.Country.Germany))
+        yield
+        QLocale.setDefault(before)
+
+    def test_a_plain_calendar_follows_the_system_language(self, qtbot, german_default):
+        # the premise: without the base class the German default would show German names
+        from PyQt6.QtWidgets import QCalendarWidget
+        cal = QCalendarWidget()
+        qtbot.addWidget(cal)
+        assert _calendar_header(cal) != _ENGLISH_DAYS
+
+    @pytest.mark.parametrize("name", ["EnglishCalendar", "DateToggleCalendar", "SelectionOnlyCalendar"])
+    def test_english_names_and_monday_first_whatever_the_system_language(self, qtbot, german_default, name):
+        from PyQt6.QtCore import Qt
+        import app.dialog_force_refetch as dfr
+        cal = getattr(dfr, name)()
+        qtbot.addWidget(cal)
+        assert _calendar_header(cal) == _ENGLISH_DAYS
+        assert cal.firstDayOfWeek() == Qt.DayOfWeek.Monday
+        assert cal.locale().monthName(5) == "May"
+
+    @pytest.mark.parametrize("name", ["DateToggleCalendar", "SelectionOnlyCalendar"])
+    def test_the_two_calendars_of_the_dialog_derive_from_the_one_base_class(self, name):
+        import app.dialog_force_refetch as dfr
+        assert issubclass(getattr(dfr, name), dfr.EnglishCalendar)
+
+    def test_the_selected_days_stay_iso_strings(self, qtbot, german_default):
+        from PyQt6.QtCore import QDate
+        from app.dialog_force_refetch import DateToggleCalendar
+        cal = DateToggleCalendar()
+        qtbot.addWidget(cal)
+        cal._on_date_clicked(QDate(2026, 5, 3))
+        cal._on_date_clicked(QDate(2026, 1, 9))
+        assert cal.get_selected_dates() == ["2026-01-09", "2026-05-03"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  7. PanelChat
 # ══════════════════════════════════════════════════════════════════════════════
 # Smoke-level only — no real threading.Thread runs (would hit the real
@@ -2707,7 +2768,34 @@ class TestPanelChat:
 # tmp_path + a patched garmin_config.MCP_LLM_CONFIG_FILE instead of the
 # real ~/.garmin_mcp_llm_config.json.
 
+class TestExportDataCategories:
+    """v1.7.8.1: the columns of the Export Data grid — Diary only while "Diary in data export" is on."""
+
+    def test_the_three_fixed_columns_without_the_switch(self):
+        from app.popups import export_data
+        assert [key for key, _ in export_data._categories(False)] == ["health", "context", "metadata"]
+
+    def test_diary_is_a_fourth_column_with_the_switch_on(self):
+        from app.popups import export_data
+        cols = export_data._categories(True)
+        assert [key for key, _ in cols] == ["health", "context", "metadata", "diary"]
+        assert cols[-1] == ("diary", "Diary")
+
+    def test_the_fixed_list_is_not_changed_by_the_switch(self):
+        from app.popups import export_data
+        export_data._categories(True)
+        assert len(export_data._CATEGORIES) == 3
+
+
 class TestPanelMcp:
+
+    @pytest.fixture(autouse=True)
+    def _server_config_file_isolated(self, tmp_path):
+        # v1.7.8.1: load_mcp_settings() reads the server-config file (file > app settings > default), so
+        # no test of this class may see the real file of the home folder. cfg_file below patches it again.
+        from unittest.mock import patch
+        with patch("garmin_config.MCP_SERVER_CONFIG_FILE", tmp_path / "isolated_no_file.json"):
+            yield
 
     @pytest.fixture
     def app_mock(self):
@@ -2865,6 +2953,348 @@ class TestPanelMcp:
         s = panel.get_mcp_settings()
         assert s["mcp_extra_hosts_enabled"] is True
         assert s["mcp_extra_hosts"] == "host.docker.internal"
+
+    # ── Diary opt-in (v1.7.8.1) ──────────────────────────────────────────────
+    # The two switches live in the server-config file of garmin_config (not in SETTINGS_FILE, so not in
+    # get_mcp_settings — see test_get_mcp_settings_reflects_checkbox_and_backend). The file is a tmp_path
+    # file here, patched into garmin_config; the runtime constants are put back afterwards.
+
+    @pytest.fixture
+    def cfg_file(self, tmp_path):
+        from unittest.mock import patch
+        import garmin_config as cfg
+        before = (cfg.MCP_DIARY_ENABLED, cfg.MCP_DIARY_EXPORT_ENABLED)
+        f = tmp_path / "server_config.json"
+        with patch("garmin_config.MCP_SERVER_CONFIG_FILE", f):
+            yield f
+        cfg.MCP_DIARY_ENABLED, cfg.MCP_DIARY_EXPORT_ENABLED = before
+
+    @staticmethod
+    def _panel(qtbot, app_mock, file_content=None, cfg_file=None):
+        import json
+        from app.panel_mcp import PanelMcp
+        if file_content is not None:
+            cfg_file.write_text(json.dumps(file_content), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        return panel
+
+    @staticmethod
+    def _saved(cfg_file):
+        import json
+        return json.loads(cfg_file.read_text(encoding="utf-8"))
+
+    _SIX = {"mcp_llm_backend": "ollama", "base_dir": "X", "mcp_http_port": "8756", "mcp_headless": False,
+            "mcp_extra_hosts_enabled": False, "mcp_extra_hosts": ""}
+
+    def test_diary_switches_default_off_and_export_greyed_out(self, qtbot, app_mock, cfg_file):
+        panel = self._panel(qtbot, app_mock, cfg_file=cfg_file)
+        assert panel._mcp_diary_enabled.isChecked() is False
+        assert panel._mcp_diary_export.isChecked() is False
+        assert panel._mcp_diary_export.isEnabled() is False
+
+    def test_diary_switches_are_loaded_from_the_file_every_time(self, qtbot, app_mock, cfg_file):
+        panel = self._panel(qtbot, app_mock, {"mcp_diary_enabled": True, "mcp_diary_export_enabled": True}, cfg_file)
+        assert panel._mcp_diary_enabled.isChecked() and panel._mcp_diary_export.isChecked()
+        assert panel._mcp_diary_export.isEnabled()
+        cfg_file.write_text('{"mcp_diary_enabled": true, "mcp_diary_export_enabled": false}', encoding="utf-8")
+        panel.load_mcp_settings({})
+        assert panel._mcp_diary_enabled.isChecked() and not panel._mcp_diary_export.isChecked()
+
+    def test_diary_export_only_with_mcp_switch(self, qtbot, app_mock, cfg_file):
+        panel = self._panel(qtbot, app_mock, cfg_file=cfg_file)
+        panel._mcp_diary_enabled.setChecked(True)
+        assert panel._mcp_diary_export.isEnabled()
+        panel._mcp_diary_export.setChecked(True)
+        panel._mcp_diary_enabled.setChecked(False)
+        assert panel._mcp_diary_export.isChecked() is False
+        assert panel._mcp_diary_export.isEnabled() is False
+
+    def test_diary_click_on_asks_and_no_keeps_it_off(self, qtbot, app_mock, cfg_file):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        panel = self._panel(qtbot, app_mock, cfg_file=cfg_file)
+        with patch("app.panel_mcp.QMessageBox.question", return_value=QMessageBox.StandardButton.No) as q:
+            panel._mcp_diary_enabled.click()
+        assert q.call_count == 1
+        assert "cloud model" in q.call_args[0][2] and "several minutes" in q.call_args[0][2]
+        assert panel._mcp_diary_enabled.isChecked() is False
+        assert panel._mcp_diary_export.isEnabled() is False
+
+    def test_diary_click_on_with_yes_turns_it_on(self, qtbot, app_mock, cfg_file):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        panel = self._panel(qtbot, app_mock, cfg_file=cfg_file)
+        with patch("app.panel_mcp.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+            panel._mcp_diary_enabled.click()
+        assert panel._mcp_diary_enabled.isChecked() is True
+        assert panel._mcp_diary_export.isEnabled() is True
+
+    def test_diary_click_off_and_set_checked_ask_nothing(self, qtbot, app_mock, cfg_file):
+        from unittest.mock import patch
+        panel = self._panel(qtbot, app_mock, {"mcp_diary_enabled": True}, cfg_file)
+        with patch("app.panel_mcp.QMessageBox.question", side_effect=AssertionError("must not ask")):
+            panel._mcp_diary_enabled.click()                 # turning it off
+            panel._mcp_diary_enabled.setChecked(True)        # a program setting it (load) never asks
+        assert panel._mcp_diary_enabled.isChecked() is True
+
+    def test_diary_save_merges_the_file_and_writes_only_a_changed_switch(self, qtbot, app_mock, cfg_file):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        import garmin_config as cfg
+        panel = self._panel(qtbot, app_mock, {"x_other_writer": 1, "mcp_diary_export_enabled": False}, cfg_file)
+        with patch("app.panel_mcp.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+            panel._mcp_diary_enabled.click()
+        panel._mcp_save_server_config(dict(self._SIX))
+        saved = self._saved(cfg_file)
+        assert saved["mcp_diary_enabled"] is True
+        assert saved["x_other_writer"] == 1                      # a key the panel does not own survives
+        assert saved["mcp_diary_export_enabled"] is False        # unchanged: kept as the file had it
+        assert saved["base_dir"] == "X" and saved["mcp_http_port"] == "8756"
+        assert cfg.read_diary_optin() == (True, False)           # the sync and the export read it fresh from the file
+
+    def test_diary_save_does_not_write_a_switch_nobody_touched(self, qtbot, app_mock, cfg_file):
+        panel = self._panel(qtbot, app_mock, cfg_file=cfg_file)
+        panel._mcp_save_server_config(dict(self._SIX))
+        saved = self._saved(cfg_file)
+        assert "mcp_diary_enabled" not in saved and "mcp_diary_export_enabled" not in saved
+
+    def test_diary_stale_box_never_switches_it_on_again(self, qtbot, app_mock, cfg_file):
+        import garmin_config as cfg
+        panel = self._panel(qtbot, app_mock, {"mcp_diary_enabled": True, "mcp_diary_export_enabled": True}, cfg_file)
+        # the standalone window turns both off while this panel still shows both on
+        cfg_file.write_text('{"mcp_diary_enabled": false, "mcp_diary_export_enabled": false}', encoding="utf-8")
+        panel._mcp_save_server_config(dict(self._SIX))            # the user saved something else
+        saved = self._saved(cfg_file)
+        assert saved["mcp_diary_enabled"] is False and saved["mcp_diary_export_enabled"] is False
+        assert cfg.read_diary_optin() == (False, False)
+
+    def test_diary_turning_the_mcp_switch_off_writes_both(self, qtbot, app_mock, cfg_file):
+        panel = self._panel(qtbot, app_mock, {"mcp_diary_enabled": True, "mcp_diary_export_enabled": True}, cfg_file)
+        panel._mcp_diary_enabled.click()                         # off: no question
+        panel._mcp_save_server_config(dict(self._SIX))
+        saved = self._saved(cfg_file)
+        assert saved["mcp_diary_enabled"] is False and saved["mcp_diary_export_enabled"] is False
+
+    def test_diary_second_save_after_a_save_changes_nothing_more(self, qtbot, app_mock, cfg_file):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        panel = self._panel(qtbot, app_mock, cfg_file=cfg_file)
+        with patch("app.panel_mcp.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+            panel._mcp_diary_enabled.click()
+        panel._mcp_save_server_config(dict(self._SIX))
+        cfg_file.write_text('{"mcp_diary_enabled": false}', encoding="utf-8")     # the other window turns it off
+        panel._mcp_save_server_config(dict(self._SIX))                             # this one saves again, box untouched
+        assert self._saved(cfg_file)["mcp_diary_enabled"] is False
+
+    def test_diary_failed_write_changes_neither_the_file_nor_the_baseline(self, qtbot, app_mock, cfg_file):
+        from pathlib import Path
+        from unittest.mock import patch
+        import garmin_config as cfg
+        panel = self._panel(qtbot, app_mock, {"mcp_diary_enabled": False}, cfg_file)
+        panel._mcp_diary_enabled.setChecked(True)
+        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+            panel._mcp_save_server_config(dict(self._SIX))
+        assert cfg.read_diary_optin() == (False, False)
+        assert panel._mcp_diary_loaded == (False, False)
+        assert "failed" in app_mock._log.call_args[0][0]
+
+    def test_diary_texts_of_the_app_and_the_standalone_window_are_the_same(self):
+        import mcp_server_gui
+        from app.panel_mcp import PanelMcp
+        assert PanelMcp._MCP_DIARY_CONFIRM_TEXT == mcp_server_gui.DIARY_CONFIRM_TEXT
+
+    # ── Shared panel values: the file leads, a save writes only what changed (v1.7.8.1) ─────────────────────
+    # Measured drift: server config extra hosts true, app settings false -> the two windows showed different
+    # things, and a save of the app window wrote its stale boxes over the standalone window's change.
+
+    _FILE_ALL = {"mcp_llm_backend": "cloud", "mcp_http_port": 9001, "mcp_headless": True,
+                 "mcp_extra_hosts_enabled": True, "mcp_extra_hosts": "host.docker.internal"}
+
+    @staticmethod
+    def _stale_app_settings():
+        return {"mcp_llm_backend": "ollama", "mcp_http_port": "8756", "mcp_headless": False,
+                "mcp_extra_hosts_enabled": False, "mcp_extra_hosts": "x.example"}
+
+    def test_shared_values_file_wins_over_stale_app_settings(self, qtbot, app_mock, cfg_file):
+        import json
+        from app.panel_mcp import PanelMcp
+        cfg_file.write_text(json.dumps(self._FILE_ALL), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings(self._stale_app_settings())
+        assert panel._mcp_extra_hosts_enabled.isChecked() is True
+        assert panel._mcp_extra_hosts_field.text() == "host.docker.internal"
+        assert panel._mcp_extra_hosts_field.isEnabled() is True
+        assert panel._mcp_backend.currentText() == "cloud" and panel._mcp_port.text() == "9001"
+        assert panel._mcp_headless.isChecked() is True
+        assert "Recognized: host.docker.internal:*" in panel._mcp_extra_hosts_preview.text()
+
+    def test_shared_values_fall_back_to_the_app_settings_without_a_file_key(self, qtbot, app_mock, cfg_file):
+        import json
+        from app.panel_mcp import PanelMcp
+        cfg_file.write_text(json.dumps({"mcp_http_port": 9001}), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({"mcp_llm_backend": "cloud", "mcp_http_port": "8756", "mcp_extra_hosts_enabled": True})
+        assert panel._mcp_port.text() == "9001"                      # the file key
+        assert panel._mcp_backend.currentText() == "cloud"           # not in the file: the app value
+        assert panel._mcp_extra_hosts_enabled.isChecked() is True
+
+    def test_save_does_not_undo_a_change_of_the_standalone_window(self, qtbot, app_mock, cfg_file):
+        # the panel loaded extra hosts off; the standalone window then switched it on and saved; the app saves
+        # something unrelated with its box untouched: the file must keep what the standalone window wrote
+        from app.panel_mcp import PanelMcp
+        import json
+        cfg_file.write_text(json.dumps({**self._FILE_ALL, "mcp_extra_hosts_enabled": False}), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        cfg_file.write_text(json.dumps(self._FILE_ALL), encoding="utf-8")           # the other window saved
+        panel._mcp_save_server_config({**self._SIX, **panel.get_mcp_settings()})
+        saved = self._saved(cfg_file)
+        assert saved["mcp_extra_hosts_enabled"] is True
+        assert saved["mcp_http_port"] == 9001 and saved["mcp_llm_backend"] == "cloud"   # untouched boxes: kept
+
+    def test_save_writes_a_box_the_user_changed_here(self, qtbot, app_mock, cfg_file):
+        from app.panel_mcp import PanelMcp
+        import json
+        cfg_file.write_text(json.dumps(self._FILE_ALL), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        panel._mcp_port.setText("9100")
+        panel._mcp_save_server_config({**self._SIX, **panel.get_mcp_settings()})
+        saved = self._saved(cfg_file)
+        assert saved["mcp_http_port"] == "9100"
+        assert saved["mcp_extra_hosts_enabled"] is True and saved["mcp_llm_backend"] == "cloud"
+        # a second save without another edit writes nothing more: a later change of the other window stays
+        cfg_file.write_text(json.dumps({**self._FILE_ALL, "mcp_http_port": 9200}), encoding="utf-8")
+        panel._mcp_save_server_config({**self._SIX, **panel.get_mcp_settings()})
+        assert self._saved(cfg_file)["mcp_http_port"] == 9200
+
+    def test_save_mirrors_a_value_the_file_lacks_even_when_the_box_is_untouched(self, qtbot, app_mock, cfg_file):
+        # a user of the app only: no server file yet, the boxes show the app settings; the server reads the
+        # file, so the first save must put what the boxes show into it
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({"mcp_llm_backend": "cloud", "mcp_http_port": "9000", "mcp_extra_hosts_enabled": True})
+        panel._mcp_save_server_config({**self._SIX, **panel.get_mcp_settings()})
+        saved = self._saved(cfg_file)
+        assert saved["mcp_llm_backend"] == "cloud" and saved["mcp_http_port"] == "9000"
+        assert saved["mcp_extra_hosts_enabled"] is True and saved["mcp_headless"] is False
+
+    def test_save_failed_write_keeps_the_baseline_of_the_five_boxes(self, qtbot, app_mock, cfg_file):
+        from pathlib import Path
+        from unittest.mock import patch
+        import json
+        from app.panel_mcp import PanelMcp
+        cfg_file.write_text(json.dumps(self._FILE_ALL), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        before = dict(panel._mcp_shared_loaded)
+        panel._mcp_port.setText("9100")
+        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+            panel._mcp_save_server_config({**self._SIX, **panel.get_mcp_settings()})
+        assert panel._mcp_shared_loaded == before
+        assert self._saved(cfg_file)["mcp_http_port"] == 9001
+
+    def test_refresh_when_the_tab_is_shown_picks_up_the_file_if_nothing_was_edited(self, qtbot, app_mock, cfg_file):
+        import json
+        from app.panel_mcp import PanelMcp
+        cfg_file.write_text(json.dumps({"mcp_diary_enabled": False}), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        cfg_file.write_text(json.dumps({**self._FILE_ALL, "mcp_diary_enabled": True,
+                                        "mcp_diary_export_enabled": True}), encoding="utf-8")
+        panel.show()
+        assert panel._mcp_extra_hosts_enabled.isChecked() is True
+        assert panel._mcp_port.text() == "9001" and panel._mcp_backend.currentText() == "cloud"
+        assert panel._mcp_diary_enabled.isChecked() and panel._mcp_diary_export.isChecked()
+
+    def test_refresh_keeps_an_unsaved_edit_of_one_of_the_five_boxes(self, qtbot, app_mock, cfg_file):
+        import json
+        from app.panel_mcp import PanelMcp
+        cfg_file.write_text(json.dumps({"mcp_http_port": 8756}), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        panel._mcp_port.setText("9100")                                   # unsaved edit
+        cfg_file.write_text(json.dumps(self._FILE_ALL), encoding="utf-8")
+        panel.show()
+        assert panel._mcp_port.text() == "9100"
+        assert panel._mcp_extra_hosts_enabled.isChecked() is False        # nothing was refreshed
+
+    def test_refresh_keeps_an_unsaved_diary_edit_and_the_cloud_fields(self, qtbot, app_mock, cfg_file):
+        import json
+        from app.panel_mcp import PanelMcp
+        cfg_file.write_text(json.dumps({}), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        port_before = panel._mcp_port.text()
+        panel._mcp_diary_enabled.setChecked(True)                         # unsaved edit (setChecked: no question)
+        panel._mcp_cloud_model.setText("typed but not saved")
+        cfg_file.write_text(json.dumps(self._FILE_ALL), encoding="utf-8")
+        panel.show()
+        assert panel._mcp_diary_enabled.isChecked() is True
+        assert panel._mcp_port.text() == port_before                      # nothing was refreshed
+        assert panel._mcp_cloud_model.text() == "typed but not saved"
+
+    def test_refresh_never_touches_the_cloud_fields(self, qtbot, app_mock, cfg_file):
+        import json
+        from app.panel_mcp import PanelMcp
+        cfg_file.write_text(json.dumps({}), encoding="utf-8")
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.load_mcp_settings({})
+        panel._mcp_cloud_model.setText("typed but not saved")
+        cfg_file.write_text(json.dumps(self._FILE_ALL), encoding="utf-8")   # nothing of the five edited: refresh runs
+        panel.show()
+        assert panel._mcp_port.text() == "9001"
+        assert panel._mcp_cloud_model.text() == "typed but not saved"
+
+    def test_show_before_any_load_does_nothing(self, qtbot, app_mock, cfg_file):
+        from app.panel_mcp import PanelMcp
+        panel = PanelMcp(app_mock)
+        qtbot.addWidget(panel)
+        panel.show()                                                       # must not raise
+        assert panel._mcp_port.text() == ""
+
+
+    # ── The data the standalone window writes on Save (clients/mcp_server_gui.py::build_config_update) ──────
+    # The same changed-only rule as the app window. The window itself is a closure of run_gui() and not
+    # testable; this is the pure part it calls.
+
+    _GUI_LD = {"mcp_llm_backend": "ollama", "mcp_http_port": "8756", "mcp_headless": False,
+               "mcp_extra_hosts_enabled": False, "mcp_extra_hosts": "host.docker.internal"}
+    _GUI_FILE = {"mcp_llm_backend": "ollama", "mcp_http_port": 8756, "mcp_headless": False,
+                 "mcp_extra_hosts_enabled": True, "mcp_extra_hosts": "host.docker.internal",
+                 "mcp_diary_enabled": True}
+
+    def test_gui_untouched_stale_boxes_write_only_the_base_dir(self):
+        import mcp_server_gui
+        out = mcp_server_gui.build_config_update(
+            "D:/A", self._GUI_LD, self._GUI_LD, self._GUI_FILE, (True, False), (True, False))
+        assert out == {"base_dir": "D:/A"}          # extra hosts stays true as the other window wrote it
+
+    def test_gui_a_changed_box_is_written_the_others_not(self):
+        import mcp_server_gui
+        shown = {**self._GUI_LD, "mcp_http_port": 9000}
+        out = mcp_server_gui.build_config_update(
+            "D:/A", self._GUI_LD, shown, self._GUI_FILE, (True, False), (True, False))
+        assert out == {"base_dir": "D:/A", "mcp_http_port": 9000}
+
+    def test_gui_missing_keys_are_mirrored_and_diary_follows_the_same_rule_as_before(self):
+        import mcp_server_gui
+        out = mcp_server_gui.build_config_update(
+            "D:/A", self._GUI_LD, self._GUI_LD, {}, (False, False), (True, True))
+        assert out == {"base_dir": "D:/A", **self._GUI_LD,
+                       "mcp_diary_enabled": True, "mcp_diary_export_enabled": True}
 
     def test_cloud_config_status_no_file(self, qtbot, app_mock, tmp_path):
         from unittest.mock import patch

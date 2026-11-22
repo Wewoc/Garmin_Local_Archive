@@ -47,6 +47,8 @@ from support import check, section, summary
 # ── Temp directory as BASE_DIR ─────────────────────────────────────────────────
 _TMPDIR = Path(tempfile.mkdtemp(prefix="garmin_broker_test_"))
 os.environ["GARMIN_OUTPUT_DIR"] = str(_TMPDIR)
+os.environ["GARMIN_MCP_DIARY_ENABLED"] = "0"          # hermetic (v1.7.8.1): the diary switches never come from the real
+os.environ["GARMIN_MCP_DIARY_EXPORT_ENABLED"] = "0"   # ~/.garmin_mcp_server_config.json of whoever runs the test
 
 import importlib
 import garmin_config as cfg

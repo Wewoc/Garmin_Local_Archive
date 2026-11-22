@@ -298,6 +298,41 @@ class PanelMcp(QWidget):
         self._mcp_refresh_extra_hosts_preview()
         outer.addSpacing(10)
 
+        # ── Diary opt-in (v1.7.8.1) ───────────────────────────────────────────
+        # Two switches, both off by default: the diary reaches the MCP cache (and with it the
+        # MCP tools) only with the first, and the data export only with the second, which can
+        # only be on while the first is. The values live in garmin_config's server-config file
+        # (the same two keys the standalone window writes), NOT in SETTINGS_FILE.
+        self._mcp_diary_enabled = QCheckBox("Diary in MCP")
+        self._mcp_diary_enabled.setFont(QFont("Segoe UI", 9))
+        self._mcp_diary_enabled.setStyleSheet(f"color: {self._app.TEXT2};")
+        self._mcp_diary_enabled.toggled.connect(self._mcp_on_diary_toggled)
+        self._mcp_diary_enabled.clicked.connect(self._mcp_on_diary_clicked)
+        outer.addWidget(self._mcp_diary_enabled)
+
+        diary_export_row = QHBoxLayout()
+        diary_export_row.setContentsMargins(24, 0, 0, 0)
+        self._mcp_diary_export = QCheckBox("Diary in data export")
+        self._mcp_diary_export.setFont(QFont("Segoe UI", 9))
+        self._mcp_diary_export.setStyleSheet(f"color: {self._app.TEXT2};")
+        diary_export_row.addWidget(self._mcp_diary_export)
+        diary_export_row.addStretch()
+        outer.addLayout(diary_export_row)
+
+        self._mcp_diary_hint = QLabel(
+            "Off by default. The MCP server picks up a change at its next start. The first cache update "
+            "after switching \"Diary in MCP\" on or off (server start, refresh or export) rebuilds the "
+            "whole cache and can take several minutes.")
+        self._mcp_diary_hint.setFont(QFont("Segoe UI", 8))
+        self._mcp_diary_hint.setStyleSheet(f"color: {self._app.TEXT2};")
+        self._mcp_diary_hint.setWordWrap(True)
+        outer.addWidget(self._mcp_diary_hint)
+        self._mcp_diary_loaded = (False, False)   # what the boxes showed when they were loaded or last saved
+        self._mcp_shared_loaded = None            # same for the five shared boxes (None: not loaded yet)
+        self._mcp_fallback = {}                   # the app settings given to load_mcp_settings (fallback values)
+        self._mcp_diary_export.setEnabled(False)
+        outer.addSpacing(10)
+
         # ── Cloud credentials block (visible when backend == "cloud") ────────
         self._mcp_cloud_box = QFrame()
         self._mcp_cloud_box.setStyleSheet(f"background: {self._app.BG2};")
@@ -506,16 +541,45 @@ class PanelMcp(QWidget):
     def load_mcp_settings(self, s: dict):
         """Populates MCP fields from settings dict. Called by GarminApp
         after construction."""
-        idx = self._mcp_backend.findText(s.get("mcp_llm_backend", "ollama"))
-        self._mcp_backend.setCurrentIndex(max(0, idx))
-        self._mcp_port.setText(str(s.get("mcp_http_port") or cfg.MCP_HTTP_PORT))
-        self._mcp_headless.setChecked(bool(s.get("mcp_headless", False)))
-        self._mcp_extra_hosts_enabled.setChecked(bool(s.get("mcp_extra_hosts_enabled", False)))
-        self._mcp_extra_hosts_field.setText(
-            str(s.get("mcp_extra_hosts") or cfg.MCP_EXTRA_ALLOWED_HOSTS_RAW))
-        self._mcp_on_extra_hosts_toggled(self._mcp_extra_hosts_enabled.isChecked())
+        self._mcp_fallback = dict(s)
+        self._mcp_apply_shared_values()
+        self._mcp_load_diary_optin()
         self._mcp_on_backend_changed()
         self._mcp_refresh_cloud_key_status()
+
+    def _mcp_apply_shared_values(self):
+        """Fills the five shared boxes as the server-config file has them NOW (key by key: file > the app
+        settings given at load > default, garmin_config.mcp_server_values) and remembers what was shown.
+        The file leads because the standalone window and the server use it; the app settings can be stale."""
+        v = cfg.mcp_server_values(cfg._read_mcp_server_config(), self._mcp_fallback)
+        idx = self._mcp_backend.findText(v["mcp_llm_backend"])
+        self._mcp_backend.setCurrentIndex(max(0, idx))
+        self._mcp_port.setText(v["mcp_http_port"])
+        self._mcp_headless.setChecked(v["mcp_headless"])
+        self._mcp_extra_hosts_enabled.setChecked(v["mcp_extra_hosts_enabled"])
+        self._mcp_extra_hosts_field.setText(v["mcp_extra_hosts"])
+        self._mcp_on_extra_hosts_toggled(self._mcp_extra_hosts_enabled.isChecked())
+        self._mcp_shared_loaded = self.get_mcp_settings()
+
+    def showEvent(self, event):
+        """When the MCP tab is shown, pick up what the other window saved meanwhile (see
+        _mcp_refresh_from_file). Fires on every show, also when the window is restored."""
+        super().showEvent(event)
+        self._mcp_refresh_from_file()
+
+    def _mcp_refresh_from_file(self):
+        """Re-reads the five shared boxes and the two diary switches from the server-config file — only when
+        nothing of them was edited in this window since it was loaded or last saved (an unsaved edit is never
+        overwritten). The cloud fields are not touched. Before the first load there is nothing to compare."""
+        if self._mcp_shared_loaded is None:
+            return
+        if self.get_mcp_settings() != self._mcp_shared_loaded:
+            return
+        if (self._mcp_diary_enabled.isChecked(), self._mcp_diary_export.isChecked()) != self._mcp_diary_loaded:
+            return
+        self._mcp_apply_shared_values()
+        self._mcp_load_diary_optin()
+        self._mcp_on_backend_changed()
 
     # ── Backend switch ───────────────────────────────────────────────────────
 
@@ -558,6 +622,51 @@ class PanelMcp(QWidget):
             self._mcp_extra_hosts_preview.setText("Recognized: — (no valid entries)")
         else:
             self._mcp_extra_hosts_preview.setText("Recognized: " + ", ".join(parsed))
+
+    # ── Diary opt-in (v1.7.8.1) ──────────────────────────────────────────────
+
+    _MCP_DIARY_CONFIRM_TEXT = (
+        "Every client connected to the MCP server can read your diary (notes and entries), "
+        "including a cloud model when the cloud chat is on.\n\n"
+        "Chats that use the diary are saved in plain text in the archive folder 'chats'.\n\n"
+        "The cache is rebuilt at the next server start; this can take several minutes.\n\n"
+        "Turn on \"Diary in MCP\"?")
+
+    def _mcp_on_diary_toggled(self, checked: bool):
+        """The export switch can only be on while the MCP switch is on: it is greyed out with the MCP
+        switch off, and turning the MCP switch off turns it off too."""
+        self._mcp_diary_export.setEnabled(checked)
+        if not checked:
+            self._mcp_diary_export.setChecked(False)
+
+    def _mcp_on_diary_clicked(self, checked: bool):
+        """A click of the user (not setChecked from load_mcp_settings) that turns the MCP switch on asks
+        first; "No" puts the box back. Turning it off asks nothing."""
+        if not checked:
+            return
+        answer = QMessageBox.question(
+            self, "Diary in MCP", self._MCP_DIARY_CONFIRM_TEXT,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            self._mcp_diary_enabled.setChecked(False)
+
+    def _mcp_load_diary_optin(self):
+        """Shows the two switches as the server-config file has them NOW (read fresh, not the values this
+        process took at import) and remembers what was shown."""
+        enabled, export = cfg.read_diary_optin()
+        self._mcp_diary_enabled.setChecked(enabled)
+        self._mcp_on_diary_toggled(enabled)
+        self._mcp_diary_export.setChecked(export)
+        self._mcp_diary_loaded = (enabled, export)
+
+    def _mcp_diary_config_update(self) -> dict:
+        """The diary keys to write into the server-config file: only a switch the user changed in this
+        window since it was loaded or last saved. An unchanged one keeps what the file says now — the
+        standalone window may have changed it meanwhile, and a stale box must never switch it on again."""
+        return cfg.diary_optin_changes(
+            self._mcp_diary_loaded,
+            (self._mcp_diary_enabled.isChecked(), self._mcp_diary_export.isChecked()))
 
     # ── Cloud config file (garmin_config.MCP_LLM_CONFIG_FILE) ───────────────
 
@@ -674,28 +783,50 @@ class PanelMcp(QWidget):
         """Mirrors mcp_enabled/mcp_llm_backend/base_dir into
         garmin_config.MCP_SERVER_CONFIG_FILE — lets clients/mcp_server.py
         and clients/mcp_server_gui.py resolve these without GLA present
-        (v1.7 Teilbauauftrag f). No merge logic needed (unlike
-        _mcp_save_cloud_config()'s API-key handling) — all three values
-        are always present in s. A write failure is logged only, not
+        (v1.7 Teilbauauftrag f). The six panel values are always present
+        in s; since v1.7.8.1 the file is read fresh and merged, so keys this
+        panel does not own survive (see below), and the two diary switches
+        and the five shared values are written only when changed here (or,
+        for the five, when the file lacks the key; see
+        _mcp_diary_config_update() and garmin_config.mcp_config_changes()). A write failure is logged only, not
         shown as a blocking dialog: SETTINGS_FILE above is already saved
         successfully at this point, and this mirror step is a convenience
         for the standalone case, not a required part of the GLA save."""
         import json
         import garmin_config as cfg
 
-        data = {
+        # v1.7.8.1: the file is read fresh and merged, not overwritten — the keys this panel does not
+        # own (the diary switches that only the standalone window changed, keys of a newer version)
+        # survive a save. The six keys below are still always taken from the panel.
+        existing = cfg._read_mcp_server_config()
+        # v1.7.8.1: the five shared values are written the same way as the diary switches: only a box the user
+        # changed in this window since it was loaded or last saved, plus a key the file lacks (the server
+        # reads the file). Which boxes changed is judged from the boxes; the value written is the one in s.
+        shown = {
             "mcp_llm_backend": s.get("mcp_llm_backend", "ollama"),
-            "base_dir":        s.get("base_dir", ""),
             "mcp_http_port":   s.get("mcp_http_port", ""),
             "mcp_headless":    s.get("mcp_headless", False),
             "mcp_extra_hosts_enabled": s.get("mcp_extra_hosts_enabled", False),
             "mcp_extra_hosts":         s.get("mcp_extra_hosts", ""),
+        }
+        changed = cfg.mcp_config_changes(existing, self._mcp_shared_loaded or {}, self.get_mcp_settings())
+        data = {
+            **existing,
+            "base_dir": s.get("base_dir", ""),
+            **{k: shown[k] for k in changed},
+            **self._mcp_diary_config_update(),
         }
         try:
             cfg.MCP_SERVER_CONFIG_FILE.write_text(
                 json.dumps(data, indent=2), encoding="utf-8")
         except OSError as exc:
             self._app._log(f"⚠ MCP server config mirror failed: {exc}")
+            return
+        # No constant is set here: the cache sync and the export read the switches fresh from this file at
+        # every pass (garmin_config.read_diary_optin), so the app's own exports follow the saved state at once;
+        # only the MCP tools (a later step) are registered when the server starts.
+        self._mcp_diary_loaded = (self._mcp_diary_enabled.isChecked(), self._mcp_diary_export.isChecked())
+        self._mcp_shared_loaded = self.get_mcp_settings()
 
     # ── Start (v1.7 Teilbauauftrag g) ────────────────────────────────────────
 

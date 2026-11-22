@@ -32,6 +32,7 @@ from maps.context_map import get as context_get
 from layouts.reference_ranges import fitness_level as _fitness_level
 from layouts.reference_ranges import reference_ranges as _reference_ranges
 from layouts.dash_autosize import compute_autosize_bounds, autosize_note
+from layouts.dash_intraday import INTRADAY_FIELDS, intraday_by_date, build_intraday
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Specialist declaration
@@ -63,15 +64,6 @@ _PHASE_FIELDS = [
     {"field": "sleep_awake_pct", "key": "awake"},
 ]
 
-# ── Intraday Garmin fields ────────────────────────────────────────────────────
-
-_INTRADAY_FIELDS = [
-    {"field": "heart_rate_series",   "key": "heart_rate"},
-    {"field": "stress_series",       "key": "stress"},
-    {"field": "body_battery_series", "key": "body_battery"},
-    {"field": "respiration_series",  "key": "respiration"},
-]
-
 # ── Context fields ────────────────────────────────────────────────────────────
 
 _CONTEXT_FIELDS = [
@@ -99,15 +91,6 @@ def _context_by_date(result: dict) -> dict:
     return {
         entry["date"]: entry["value"]
         for entry in source.get("values", [])
-    }
-
-
-def _intraday_by_date(result: dict) -> dict:
-    """Extract {date: series} from a health_map intraday result."""
-    garmin = result.get("garmin", {})
-    return {
-        entry["date"]: entry.get("series")
-        for entry in garmin.get("values", [])
     }
 
 
@@ -195,9 +178,9 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
 
     # ── Fetch intraday fields ─────────────────────────────────────────────────
     intraday_raw = {}
-    for f in _INTRADAY_FIELDS:
+    for f in INTRADAY_FIELDS:
         result = health_get(f["field"], date_from, date_to, resolution="intraday")
-        intraday_raw[f["key"]] = _intraday_by_date(result)
+        intraday_raw[f["key"]] = intraday_by_date(result)
 
     # ── Collect all dates from daily data ─────────────────────────────────────
     all_dates = sorted(set(
@@ -247,22 +230,12 @@ def build(date_from: str, date_to: str, settings: dict) -> dict:
     }
 
     # ── Build intraday output — only dates with at least one data series ──────
-    intraday_out = {}
-    for d in all_dates:
-        day = {
-            "heart_rate":   intraday_raw["heart_rate"].get(d),
-            "stress":       intraday_raw["stress"].get(d),
-            "body_battery": intraday_raw["body_battery"].get(d),
-            "respiration":  intraday_raw["respiration"].get(d),
-            "temperature":  context_raw["temperature"].get(d),
-            "pollen":       context_raw["pollen"].get(d),
-        }
-        has_data = any(
-            day[k] is not None and len(day[k]) > 0
-            for k in ("heart_rate", "stress", "body_battery", "respiration")
-        )
-        if has_data:
-            intraday_out[d] = day
+    # The four series and the day filter are layouts/dash_intraday.py (shared with Sleep and Explorer);
+    # the two context values are added after them, so the keys of a day keep their order.
+    intraday_out = build_intraday(intraday_raw, all_dates)
+    for d, day in intraday_out.items():
+        day["temperature"] = context_raw["temperature"].get(d)
+        day["pollen"]      = context_raw["pollen"].get(d)
     # Auto-size: determine actual data boundaries from Garmin fields only
     garmin_dates = set(
         d

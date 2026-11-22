@@ -437,6 +437,81 @@ check("1b config: extra hosts — default host.docker.internal, file value, empt
               ("env.example", ["env.example:*"]),
               ("", [])])
 
+# -- Diary opt-in (v1.7.8.1): two switches, ENV > file > off, export only with the MCP switch -----------------------
+_dy = []
+for _mcp, _env in ((None, None), ({}, None),
+                   ({"mcp_diary_enabled": True}, None),
+                   ({"mcp_diary_enabled": True, "mcp_diary_export_enabled": True}, None),
+                   ({"mcp_diary_enabled": False, "mcp_diary_export_enabled": True}, None),
+                   ({"mcp_diary_export_enabled": True}, None),
+                   ({"mcp_diary_enabled": "yes", "mcp_diary_export_enabled": "true"}, None),
+                   ({"mcp_diary_enabled": 1, "mcp_diary_export_enabled": 1}, None),
+                   ({"mcp_diary_enabled": True, "mcp_diary_export_enabled": True}, {"GARMIN_MCP_DIARY_ENABLED": "0"}),
+                   (None, {"GARMIN_MCP_DIARY_ENABLED": " Yes ", "GARMIN_MCP_DIARY_EXPORT_ENABLED": "true"}),
+                   (None, {"GARMIN_MCP_DIARY_EXPORT_ENABLED": "1"}),
+                   ({"mcp_diary_enabled": True}, {"GARMIN_MCP_DIARY_EXPORT_ENABLED": "1"}),
+                   ({"mcp_diary_enabled": True, "mcp_diary_export_enabled": True}, {"GARMIN_MCP_DIARY_EXPORT_ENABLED": "no"}),
+                   ("{broken", None)):
+    with _cfg_env1b(_env, _mcp):
+        _dy.append((cfg.MCP_DIARY_ENABLED, cfg.MCP_DIARY_EXPORT_ENABLED))
+check("1b config: diary switches — both off by default, only the JSON value true counts (text like 'yes' and the "
+      "number 1 stay off), the export switch needs the MCP switch, ENV wins in both directions (1/true/yes, trimmed), "
+      "a corrupt file leaves both off",
+      _dy == [(False, False), (False, False), (True, False), (True, True), (False, False), (False, False),
+              (False, False), (False, False), (False, False), (True, True), (False, False), (True, True),
+              (True, False), (False, False)])
+with _cfg_env1b(None, {"mcp_diary_enabled": True, "mcp_diary_export_enabled": True}) as _h:
+    check("1b config: read_diary_optin() reads the file fresh, not the values of the import",
+          cfg.read_diary_optin() == (True, True))
+    (_h / ".garmin_mcp_server_config.json").write_text('{"mcp_diary_enabled": false}', encoding="utf-8")
+    check("1b config: ... after the other writer switched it off the constants still say on, the fresh read says off",
+          cfg.MCP_DIARY_ENABLED is True and cfg.read_diary_optin() == (False, False))
+    (_h / ".garmin_mcp_server_config.json").write_text('{"mcp_diary_enabled": true, "mcp_diary_export_enabled": false}', encoding="utf-8")
+    check("1b config: ... and a fresh read can say MCP on, export off", cfg.read_diary_optin() == (True, False))
+
+# -- Shared MCP panel values (v1.7.8.1): file > app settings > default; changed-only write against the file ------------
+_DEF = {"mcp_llm_backend": "ollama", "mcp_http_port": str(cfg.MCP_HTTP_PORT), "mcp_headless": False,
+        "mcp_extra_hosts_enabled": False, "mcp_extra_hosts": cfg.MCP_EXTRA_ALLOWED_HOSTS_RAW}
+check("1b mcp values: the five keys are named once", cfg.MCP_SHARED_KEYS == (
+    "mcp_llm_backend", "mcp_http_port", "mcp_headless", "mcp_extra_hosts_enabled", "mcp_extra_hosts"))
+check("1b mcp values: neither file nor app settings -> the defaults", cfg.mcp_server_values({}, {}) == _DEF)
+check("1b mcp values: only the app settings -> they are used (a user without a server file)",
+      cfg.mcp_server_values({}, {"mcp_llm_backend": "cloud", "mcp_http_port": "9000", "mcp_headless": True,
+                                 "mcp_extra_hosts_enabled": True, "mcp_extra_hosts": "a.example"})
+      == {"mcp_llm_backend": "cloud", "mcp_http_port": "9000", "mcp_headless": True,
+          "mcp_extra_hosts_enabled": True, "mcp_extra_hosts": "a.example"})
+check("1b mcp values: the file wins over the app settings key by key (the measured drift: file true, app false)",
+      cfg.mcp_server_values({"mcp_extra_hosts_enabled": True, "mcp_http_port": 9001},
+                            {"mcp_extra_hosts_enabled": False, "mcp_http_port": "9000", "mcp_llm_backend": "cloud"})
+      == {**_DEF, "mcp_extra_hosts_enabled": True, "mcp_http_port": "9001", "mcp_llm_backend": "cloud"})
+check("1b mcp values: a file False beats an app True (present means present)",
+      cfg.mcp_server_values({"mcp_headless": False}, {"mcp_headless": True})["mcp_headless"] is False)
+check("1b mcp values: empty, None, wrong-typed or blank file values count as missing -> the app value or default",
+      cfg.mcp_server_values({"mcp_llm_backend": "", "mcp_http_port": None, "mcp_headless": "yes",
+                             "mcp_extra_hosts_enabled": 1, "mcp_extra_hosts": "   "},
+                            {"mcp_llm_backend": "cloud", "mcp_http_port": "9000"})
+      == {**_DEF, "mcp_llm_backend": "cloud", "mcp_http_port": "9000"})
+check("1b mcp values: the port is returned as text, int or text in the file alike",
+      cfg.mcp_server_values({"mcp_http_port": 9100}, {})["mcp_http_port"] == "9100"
+      and cfg.mcp_server_values({"mcp_http_port": " 9100 "}, {})["mcp_http_port"] == "9100")
+_ld = {"mcp_llm_backend": "ollama", "mcp_http_port": "8756", "mcp_headless": False,
+       "mcp_extra_hosts_enabled": False, "mcp_extra_hosts": "host.docker.internal"}
+_full = {"mcp_llm_backend": "ollama", "mcp_http_port": 8756, "mcp_headless": False,
+         "mcp_extra_hosts_enabled": True, "mcp_extra_hosts": "host.docker.internal"}
+check("1b mcp changes: a stale box (file differs, box untouched) writes nothing — it must not undo the other window",
+      cfg.mcp_config_changes(_full, _ld, _ld) == {})
+check("1b mcp changes: 8756 in the file against '8756' in the box is no change (compared as text)",
+      cfg.mcp_config_changes(_full, {**_ld, "mcp_http_port": "8756"}, {**_ld, "mcp_http_port": " 8756 "}) == {})
+check("1b mcp changes: a box the user changed is written, the others are left alone",
+      cfg.mcp_config_changes(_full, _ld, {**_ld, "mcp_http_port": "9000", "mcp_headless": True})
+      == {"mcp_http_port": "9000", "mcp_headless": True})
+check("1b mcp changes: a key the file lacks or holds unusable is written even when the box is untouched (mirror)",
+      cfg.mcp_config_changes({}, _ld, _ld) == _ld
+      and cfg.mcp_config_changes({**_full, "mcp_http_port": None, "mcp_extra_hosts": ""}, _ld, _ld)
+      == {"mcp_http_port": "8756", "mcp_extra_hosts": "host.docker.internal"})
+check("1b mcp changes: the value written is the shown one, a key missing from 'shown' is never written",
+      cfg.mcp_config_changes({}, _ld, {"mcp_llm_backend": "cloud"}) == {"mcp_llm_backend": "cloud"})
+
 # -- _parse_extra_hosts ---------------------------------------------------------------------------------------------
 check("1b _parse_extra_hosts: blanks and empty entries dropped, loop goes on after them, ':*' only without port",
       cfg._parse_extra_hosts(" , a ,, b:80 , c:* ,") == ["a:*", "b:80", "c:*"])

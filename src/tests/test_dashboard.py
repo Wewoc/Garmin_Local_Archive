@@ -1552,6 +1552,67 @@ check("contract explorer: the alert count (a number) is in the field options", "
 check("contract explorer: the exclusion set of the Explorer holds the five text fields",
       all(f in _ex_mod16._EXCLUDE_FROM_DAILY for f in _ALERT_TEXTS16))
 
+# ── v1.7.8.1: the intraday day view and the diary in the Explorer and the Sleep dashboard ──────────────
+from datetime import datetime as _dt16
+
+check("explorer diary: without a base_dir in the settings there is no diary key", "diary" not in _ev16)
+check("explorer day view: the intraday of the day is in the result", _TEST_DATE in _ev16["intraday"])
+check("explorer day view: the four series are there",
+      set(_ev16["intraday"][_TEST_DATE]) == {"heart_rate", "stress", "body_battery", "respiration"})
+check("sleep diary: without a base_dir in the settings there is no diary key", "diary" not in _slp)
+
+from diary import diary_writer as _dw16
+_PILL16 = [{"label": "Anzahl", "type": "number", "unit": "Stück"}]
+_NOTE16 = "Kopfschmerz am Morgen </script><b>x</b>"
+check("(setup) a diary field in the archive folder of the test", _dw16.create_user_field(_TMPDIR, "Schmerztablette", _PILL16, True)["status"] == "written")
+check("(setup) a diary day with a note and an entry",
+      _dw16.save_day(_TMPDIR, _TEST_DATE, _NOTE16, {"U0001": [{"time": "07:15", "values": {"Anzahl": 2}}]},
+                     now=_dt16.fromisoformat(_TEST_DATE + "T09:00:00"))["status"] == "written")
+_s16d = dict(_s16, base_dir=str(_TMPDIR))
+
+_evd16 = _ex_mod16.build(_TEST_DATE, _TEST_DATE, _s16d)
+check("explorer diary: with a base_dir the diary is in the result", "diary" in _evd16)
+check("explorer diary: the day has note and entry",
+      _evd16["diary"]["days"][_TEST_DATE]["note"] == _NOTE16
+      and _evd16["diary"]["days"][_TEST_DATE]["entries"] == [{"time": "07:15", "name": "Schmerztablette", "text": "Anzahl: 2 Stück"}])
+check("explorer diary: the presence rows are the note and the field",
+      [r["name"] for r in _evd16["diary"]["rows"]] == ["Note", "Schmerztablette"])
+check("explorer diary: nothing unreadable", _evd16["diary"]["damaged"] == 0 and _evd16["diary"]["unsupported"] == 0)
+check("explorer diary: the broker never hands the history on", "history" not in json.dumps(_evd16["diary"]))
+check("explorer diary: the daily part of the result is the same with and without the diary", _evd16["daily"] == _ev16["daily"])
+check("explorer diary: an empty base_dir gives no diary", "diary" not in _ex_mod16.build(_TEST_DATE, _TEST_DATE, dict(_s16, base_dir="")))
+check("explorer diary: a range without a diary day gives no diary key", "diary" not in _ex_mod16.build("2026-02-01", "2026-02-02", _s16d))
+
+_slpd = _sleep_mod.build(_TEST_DATE, _TEST_DATE, dict(_s16, base_dir=str(_TMPDIR)))
+check("sleep diary: with a base_dir the diary is in the result", "diary" in _slpd and _TEST_DATE in _slpd["diary"]["days"])
+check("sleep diary: the sleep part of the result is the same with and without the diary",
+      {k: v for k, v in _slpd.items() if k != "diary"} == _sleep_mod.build(_TEST_DATE, _TEST_DATE, _s16))
+
+_out_exd = _TMPDIR / "test_explorer_diary.html"
+plotter_complex_slp.render(_evd16, _out_exd, {})
+_exd_html = _out_exd.read_text(encoding="utf-8")
+check("explorer html: the day view is there (dropdown and chart of the explorer prefix)",
+      "explorer-intraday-select" in _exd_html and "explorer-intraday-chart" in _exd_html and "explorerUpdateIntraday" in _exd_html)
+check("explorer html: the diary box and the presence strip are there",
+      'id="explorer-diary"' in _exd_html and 'id="explorer-diary-strip"' in _exd_html)
+check("explorer html: the note stands in the page, but never as raw HTML or as a closing script tag",
+      "Kopfschmerz am Morgen" in _exd_html and "</script><b>x</b>" not in _exd_html and "\\u003c/script\\u003e" in _exd_html)
+check("explorer html: the entry text stands in the page", "Anzahl: 2 Stück" in _exd_html or "Anzahl: 2 St\\u00fcck" in _exd_html)
+
+_out_exn = _TMPDIR / "test_explorer_nodiary.html"
+plotter_complex_slp.render(_ev16, _out_exn, {})
+_exn_html = _out_exn.read_text(encoding="utf-8")
+check("explorer html without a diary: the day view is there, the diary box and the strip are not",
+      "explorer-intraday-select" in _exn_html and 'id="explorer-diary' not in _exn_html)
+
+_out_slpd = _TMPDIR / "test_sleep_diary.html"
+plotter_complex_slp.render(_slpd, _out_slpd, {})
+_slpd_html = _out_slpd.read_text(encoding="utf-8")
+check("sleep html with a diary: the diary box is there and the sleep ids are unchanged",
+      'id="sleep-diary"' in _slpd_html and "sleep-explorer" in _slpd_html and "sleepUpdateIntraday" in _slpd_html)
+check("sleep html with a diary: the note never ends the script", "</script><b>x</b>" not in _slpd_html)
+check("sleep html without a diary: no diary box", 'id="sleep-diary"' not in _slp_html)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  17. dash_encryptor — encrypt_html()
 # ══════════════════════════════════════════════════════════════════════════════

@@ -20,6 +20,7 @@ Every read answers with a state next to the data, nothing raises:
 Public API:
   read_master(base_dir)        -> (state, master dict | None)
   read_day(base_dir, date_str) -> (state, day dict | None)
+  read_day_hashed(base_dir, date_str) -> (state, day dict | None, SHA-256 hex of the file's bytes | None)
   list_days(base_dir)          -> sorted list of the dates that have a day file (file names only)
   search_notes(base_dir, query, limit=MAX_SEARCH_HITS) -> {"ok", "hits", "searched", "unreadable", "truncated"}
 
@@ -30,9 +31,9 @@ A day that cannot be read is skipped and counted (unreadable), never silently le
 no line of the log carries a word of the query or a note.
 """
 
+import hashlib
 import json
 import logging
-import re
 
 from . import diary_model as dm
 
@@ -45,10 +46,8 @@ UNSUPPORTED = "unsupported"
 INVALID_DATE = "invalid_date"
 
 MAX_SEARCH_HITS = 200
-MIN_QUERY_LEN = 2           # characters of all words together
-MAX_QUERY_LEN = 200
-_SNIPPET_BEFORE = 40
-_SNIPPET_AFTER = 80
+MIN_QUERY_LEN = dm.MIN_QUERY_LEN        # the search rules live in diary_model (shared with the MCP tool)
+MAX_QUERY_LEN = dm.MAX_QUERY_LEN
 
 
 def _load_json(path):
@@ -86,18 +85,43 @@ def read_master(base_dir):
 
 def read_day(base_dir, date_str):
     """The day file of one date: (state, day)."""
+    state, day, _digest = read_day_hashed(base_dir, date_str)
+    return state, day
+
+
+def read_day_hashed(base_dir, date_str):
+    """
+    The day file of one date and the content hash of its bytes: (state, day, hash).
+
+    hash is the SHA-256 (hex) of the bytes of the file as they are on disk — content, not file time, so a
+    restore or a mirror import that writes the same bytes again gives the same hash. It is there for every
+    state that found a readable file ("ok", "damaged", "unsupported"), None for "missing" and "invalid_date".
+    Reads the file once. (MCP cache v1.7.8.1: a day is read again only when its hash changed.)
+    """
     path = dm.day_path(base_dir, date_str)
     if path is None:
-        return INVALID_DATE, None
-    state, data = _load_json(path)
-    if state != OK:
-        return state, None
+        return INVALID_DATE, None, None
+    if not path.is_file():
+        return MISSING, None, None
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as exc:
+        # No content, no path of a day in the line: the file holds health data.
+        log.warning("diary: a file could not be read (%s)", type(exc).__name__)
+        return DAMAGED, None, None
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError as exc:                # UnicodeDecodeError and JSONDecodeError
+        log.warning("diary: a file could not be read (%s)", type(exc).__name__)
+        return DAMAGED, None, digest
     if _too_new(data):
-        return UNSUPPORTED, None
+        return UNSUPPORTED, None, digest
     if dm.check_day(data, date_str):
         log.warning("diary: day %s failed its checks", date_str)
-        return DAMAGED, None
-    return OK, data
+        return DAMAGED, None, digest
+    return OK, data, digest
 
 
 def list_days(base_dir):
@@ -117,13 +141,6 @@ def list_days(base_dir):
     return sorted(dates)
 
 
-def _snippet(text, match):
-    """A piece of the (already tidied) note around a match, with "…" where the note goes on."""
-    start = max(0, match.start() - _SNIPPET_BEFORE)
-    end = min(len(text), match.end() + _SNIPPET_AFTER)
-    return ("…" if start > 0 else "") + text[start:end] + ("…" if end < len(text) else "")
-
-
 def search_notes(base_dir, query, limit=MAX_SEARCH_HITS):
     """
     The days whose note holds every word of the query, newest first (see the top of this file).
@@ -133,12 +150,9 @@ def search_notes(base_dir, query, limit=MAX_SEARCH_HITS):
     {"ok": False, "reason": "query_too_short" | "query_too_long", "hits": []}  for a query that is not searched
     """
     refused = {"ok": False, "hits": [], "searched": 0, "unreadable": 0, "truncated": False}
-    words = query.split() if isinstance(query, str) else []
-    if sum(len(w) for w in words) < MIN_QUERY_LEN:
-        return {**refused, "reason": "query_too_short"}
-    if len(query) > MAX_QUERY_LEN:
-        return {**refused, "reason": "query_too_long"}
-    patterns = [re.compile(re.escape(w), re.IGNORECASE) for w in words]
+    patterns, reason = dm.parse_query(query)
+    if reason is not None:
+        return {**refused, "reason": reason}
     hits, searched, unreadable, truncated = [], 0, 0, False
     for date_str in sorted(list_days(base_dir), reverse=True):
         state, day = read_day(base_dir, date_str)
@@ -146,11 +160,11 @@ def search_notes(base_dir, query, limit=MAX_SEARCH_HITS):
             unreadable += 1
             continue
         searched += 1
-        note = " ".join(day["note"].split())
-        if not all(pattern.search(note) for pattern in patterns):
+        snippet = dm.note_snippet(day["note"], patterns)
+        if snippet is None:
             continue
         if len(hits) >= limit:
             truncated = True
             break
-        hits.append({"date": date_str, "snippet": _snippet(note, patterns[0].search(note))})
+        hits.append({"date": date_str, "snippet": snippet})
     return {"ok": True, "hits": hits, "searched": searched, "unreadable": unreadable, "truncated": truncated}

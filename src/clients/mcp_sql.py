@@ -229,12 +229,23 @@ _SCHEMA_STATEMENTS = [
         PRIMARY KEY (date, field)
     )
     """,
+    # v1.7.8.1 — DIARY, REMOVABLE. One row per diary day, only while "Diary in MCP" is on: the content
+    # hash of the day file (SHA-256 of its bytes, the delta gate like mcp_raw_day_hashes) and the payload
+    # (note, entries, definitions — never the "history" of a day). Derived data: the diary files stay the
+    # one truth, nothing flows back.
+    """
+    CREATE TABLE IF NOT EXISTS mcp_diary_days (
+        date TEXT PRIMARY KEY,
+        hash TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+    )
+    """,
 ]
 
 
 def init_db() -> None:
     """
-    Creates all eleven tables if they do not already exist. Idempotent —
+    Creates all twelve tables if they do not already exist. Idempotent —
     safe to call on every mcp_server.py boot, not just the first ever
     run. Does not populate any table; that is sync_all()'s job
     (clients/mcp_update.py).
@@ -1210,6 +1221,113 @@ def upsert_raw_day_hash(day: str, hash_value: str) -> None:
         (day, hash_value),
     )
     conn.commit()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Diary — mcp_diary_days (v1.7.8.1, DIARY — REMOVABLE) and the whole-cache reset
+# ══════════════════════════════════════════════════════════════════════════════
+
+def clear_all() -> None:
+    """
+    Empties EVERY table of the cache (rows only; the tables stay) — the rebuild of the whole cache that
+    clients/mcp_update.py asks for when the diary opt-in switch changes or a cached diary day has no
+    readable file any more. The next sync_all() pass fills it again from the archive.
+
+    Deleted pages are overwritten (PRAGMA secure_delete) and the write-ahead log is truncated, so text of
+    the diary that was in the cache is not left behind in the free pages of mcp_cache.db or in
+    mcp_cache.db-wal. Nothing outside the cache is touched; the connection stays open (the file is not
+    deleted: mcp_sql keeps one connection for the whole process).
+    """
+    conn = get_connection()
+    tables = [
+        row["name"] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'mcp\\_%' ESCAPE '\\'"
+        ).fetchall()
+    ]
+    conn.execute("PRAGMA secure_delete = ON")
+    try:
+        for table in tables:
+            conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA secure_delete = OFF")
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+
+def get_diary_hashes() -> dict[str, str]:
+    """{date: content hash} of every diary day in the cache — what clients/mcp_update.py compares the
+    hashes of the day files with."""
+    conn = get_connection()
+    return {row["date"]: row["hash"]
+            for row in conn.execute("SELECT date, hash FROM mcp_diary_days").fetchall()}
+
+
+def upsert_diary_day(day: str, hash_value: str, payload: dict) -> None:
+    """Inserts or replaces one diary day: its content hash and its payload ({"note", "entries",
+    "definitions"}). A changed day replaces its row, so text that was taken out of a day is gone from the
+    cache with it."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO mcp_diary_days (date, hash, payload_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(date) DO UPDATE SET
+            hash = excluded.hash,
+            payload_json = excluded.payload_json
+        """,
+        (day, hash_value, json.dumps(payload)),
+    )
+    conn.commit()
+
+
+def get_diary_range(date_from: str, date_to: str) -> dict:
+    """
+    The diary of [date_from, date_to] from the cache, in the shape the export reader and the later MCP
+    tools use: {"diary": {"fields": [...], "days": [{"date", "note", "entries", "definitions"}, ...]},
+    "_meta": ...}. "fields" is the field list the last sync stored (snapshot "diary_fields", [] before the
+    first one), "days" the cached days in date order; a day without a note and without entries does not
+    exist in the diary and so not here. Nothing is read from the archive.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT date, payload_json FROM mcp_diary_days WHERE date >= ? AND date <= ? ORDER BY date",
+        (date_from, date_to),
+    ).fetchall()
+    days = []
+    for row in rows:
+        payload = json.loads(row["payload_json"])
+        days.append({"date": row["date"], **payload})
+    stored = get_snapshot("diary_fields")
+    fields = stored.get("fields", []) if isinstance(stored, dict) else []
+    return {"diary": {"fields": fields, "days": days}, "_meta": _build_range_meta(date_from, date_to)}
+
+
+def get_diary_fields() -> dict:
+    """
+    The field list of the diary and the span of the cached days, for the MCP tools:
+    {"fields": [...], "first_day": str | None, "last_day": str | None, "days": int}.
+    "fields" is the list the last sync stored (snapshot "diary_fields": [] before the first one), as the diary
+    keeps it: definition (name, set, with_time, values, maps_to) plus key, favorite, archived. "days" counts the
+    cached days (days with a note or an entry).
+    """
+    conn = get_connection()
+    stored = get_snapshot("diary_fields")
+    fields = stored.get("fields", []) if isinstance(stored, dict) else []
+    row = conn.execute("SELECT MIN(date) AS first_day, MAX(date) AS last_day, COUNT(*) AS n FROM mcp_diary_days").fetchone()
+    return {"fields": fields, "first_day": row["first_day"], "last_day": row["last_day"], "days": row["n"]}
+
+
+def get_diary_notes() -> list[tuple[str, str]]:
+    """[(date, note), ...] of every cached day with a non-empty note, newest first — what the MCP tool
+    search_diary_notes searches."""
+    conn = get_connection()
+    rows = conn.execute("SELECT date, payload_json FROM mcp_diary_days ORDER BY date DESC").fetchall()
+    notes = []
+    for row in rows:
+        note = json.loads(row["payload_json"]).get("note", "")
+        if isinstance(note, str) and note.strip():
+            notes.append((row["date"], note))
+    return notes
 
 
 def get_pending_raw_fields(day: str) -> set[str]:
