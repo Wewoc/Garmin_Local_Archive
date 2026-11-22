@@ -307,6 +307,16 @@ check("json_for_script writes < > & as \\uXXXX and stays valid JSON",
 section("6. The renderers")
 # ══════════════════════════════════════════════════════════════════════════════
 
+# A fresh checkout (CI) has no layouts/plotly.min.js — it is not in the repo, build_all.py fetches it, and
+# get_plotly_script() raises instead of falling back to the CDN. Same stand-in as test_dashboard.py: only when the
+# real bundle is absent, so a local run still renders with the real file.
+import dash_layout_html as layout_html
+if not (Path(layout_html.__file__).parent / layout_html.get_plotly_local_filename()).exists():
+    def _plotly_stub(layouts_dir):
+        return "<script>/* plotly stub (tests, no bundle in this checkout) */</script>"
+    layout_html.get_plotly_script = _plotly_stub
+    print("  (plotly.min.js not present — the pages render with a test stub)")
+
 ex = load_renderer("explorer")
 sl = load_renderer("sleep")
 

@@ -207,9 +207,16 @@ class TestPanelLayout:
             _pick(panel, _iso(-5))
         assert blocker.args == [_iso(-5)]
 
-    def test_the_same_day_again_emits_nothing(self, qtbot, panel):
-        with qtbot.assertNotEmitted(panel._diary_calendar.day_selected):
-            panel._diary_calendar.setSelectedDate(panel._diary_calendar.selectedDate())
+    def test_the_same_day_again_changes_nothing(self, panel):
+        # The promise of the panel, not of Qt: whether QCalendarWidget sends selectionChanged for the day that is
+        # already selected depends on the Qt patch release (CI with Qt 6.11.2 did, 6.11.1 does not), so the signal
+        # is not asserted. What counts: no question about an unsaved note, no reload, the text stays.
+        panel._diary_note.setPlainText("noch nicht gespeichert")
+        panel._diary_ask_unsaved = _never
+        panel._diary_calendar.setSelectedDate(panel._diary_calendar.selectedDate())
+        assert panel.selected_date() == _iso() and panel._diary_day == _iso()
+        assert panel._diary_note.toPlainText() == "noch nicht gespeichert"
+        assert panel._diary_is_dirty()
 
     def test_a_leap_day_is_kept_as_iso(self, panel):
         panel._diary_calendar.setSelectedDate(QDate(2024, 2, 29))
