@@ -11,11 +11,15 @@ Run with:
 Scope: clients/chat_session_store.py — plain Python, no Qt, real
 filesystem via tmp_path (matches test_cloud_llm.py's own "separate
 lightweight file" reasoning for leaf-node modules with no project-
-internal imports besides frozen_paths — this module has none at all).
+internal imports besides frozen_paths — this module has one: atomic_io,
+the shared atomic-write helper in garmin/, itself a leaf).
 """
 
+import json
+import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -127,6 +131,14 @@ class TestSaveAndLoadSession:
         loaded = css.load_session(path)
         assert loaded["source_hash"] is None
 
+    def test_save_session_without_datasource_key_hash_is_none_and_name_says_unknown(self, tmp_path):
+        # Cosmic Ray round of Block 8 (a): data.get("datasource") == "json" must not raise for a session without the key
+        (tmp_path / "dashboards").mkdir()
+        (tmp_path / "dashboards" / "health_garmin.json").write_text('{"x": 1}', encoding="utf-8")
+        path = css.save_session(tmp_path, None, {"backend": "ollama", "messages": []})
+        assert path.name.endswith("_ollama_unknown.json")
+        assert css.load_session(path)["source_hash"] is None
+
     def test_save_json_datasource_no_source_file_hash_is_none(self, tmp_path):
         path = css.save_session(tmp_path, None, self._session(datasource="json"))
         loaded = css.load_session(path)
@@ -135,6 +147,122 @@ class TestSaveAndLoadSession:
     def test_save_is_atomic_no_tmp_file_left_behind(self, tmp_path):
         path = css.save_session(tmp_path, None, self._session())
         assert not path.with_suffix(path.suffix + ".tmp").exists()
+
+    # ── The file save_session writes (Block 8 (a), step 5). These tests hold for the module before and after it
+    #    writes through atomic_io: bytes, tmp name, what a failing swap does to the stored file.
+
+    def _long_session(self):
+        session = self._session(datasource="mcp")
+        session["messages"] = [{"role": "user", "content": "Größe µ € 😀   line\nbreak \"q\""},
+                               {"role": "assistant", "content": "ok"}]
+        return session
+
+    def test_the_bytes_are_those_of_the_former_write_text(self, tmp_path):
+        session = self._long_session()
+        path = css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", session)
+        expected = dict(session)
+        expected["source_hash"] = None
+        reference = tmp_path / "reference.json"
+        reference.write_text(json.dumps(expected, indent=2, ensure_ascii=False), encoding="utf-8")
+        assert path.read_bytes() == reference.read_bytes()
+
+    def test_the_file_goes_through_name_dot_tmp(self, tmp_path):
+        names = []
+        real_replace = os.replace
+
+        def spy(src, dst):
+            names.append((Path(src).name, Path(dst).name))
+            return real_replace(src, dst)
+
+        with patch("os.replace", spy):
+            css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", self._session())
+        assert names == [("chat_x.json.tmp", "chat_x.json")]
+
+    def test_a_failing_swap_raises_and_the_stored_session_stays(self, tmp_path):
+        path = css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", self._session())
+        before = path.read_bytes()
+        changed = self._session()
+        changed["messages"].append({"role": "user", "content": "second"})
+        with patch("os.replace", side_effect=OSError("locked")):
+            with pytest.raises(OSError):
+                css.save_session(tmp_path, path, changed)
+        assert path.read_bytes() == before
+
+    def test_a_locked_file_is_tried_once_per_save_when_nothing_is_retried(self, tmp_path):
+        # The number of tries of a locked file is pinned in TestWriteThroughAtomicIo (after the change); here only that a
+        # lasting lock ends in the error and leaves the stored session as it was.
+        path = css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", self._session())
+        before = path.read_bytes()
+        with patch("os.replace", side_effect=PermissionError("locked")), patch("time.sleep"):
+            with pytest.raises(PermissionError):
+                css.save_session(tmp_path, path, self._session(datasource="mcp"))
+        assert path.read_bytes() == before
+
+
+class TestWriteThroughAtomicIo:
+    """What atomic_io adds to save_session (Block 8 (a), step 5): fsync and the retry are counted, because a forgotten
+    parameter would lose them without any other test noticing; the .tmp is removed on a failure."""
+
+    def _session(self):
+        return {"created_at": "2026-09-15T14:32:05", "backend": "ollama", "datasource": "mcp", "model": "m",
+                "provider": "", "messages": [{"role": "user", "content": "hi"}]}
+
+    def test_the_session_is_fsynced_once(self, tmp_path):
+        calls = []
+        real_fsync = os.fsync
+
+        def spy(fd):
+            calls.append(fd)
+            return real_fsync(fd)
+
+        with patch("os.fsync", spy):
+            css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", self._session())
+        assert len(calls) == 1
+
+    def test_a_file_system_without_fsync_still_takes_the_session(self, tmp_path):
+        with patch("os.fsync", side_effect=OSError("not supported")):
+            path = css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", self._session())
+        assert json.loads(path.read_text(encoding="utf-8"))["messages"] == self._session()["messages"]
+        assert not list((tmp_path / "chats").glob("*.tmp"))
+
+    def test_a_file_locked_for_a_moment_is_tried_again(self, tmp_path):
+        path = tmp_path / "chats" / "chat_x.json"
+        real_replace = os.replace
+        tries = []
+
+        def flaky(src, dst):
+            tries.append(1)
+            if len(tries) <= 2:
+                raise PermissionError("locked for a moment")
+            return real_replace(src, dst)
+
+        with patch("os.replace", flaky), patch("time.sleep") as slept:
+            css.save_session(tmp_path, path, self._session())
+        assert len(tries) == 3 and [round(c.args[0], 3) for c in slept.call_args_list] == [0.1, 0.2]
+        assert path.is_file() and not list((tmp_path / "chats").glob("*.tmp"))
+
+    def test_a_lasting_lock_ends_in_the_error_after_five_tries_and_leaves_nothing(self, tmp_path):
+        path = css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", self._session())
+        before = path.read_bytes()
+        with patch("os.replace", side_effect=PermissionError("locked")) as replace, patch("time.sleep") as slept:
+            with pytest.raises(PermissionError):
+                css.save_session(tmp_path, path, self._session())
+        assert replace.call_count == 5 and slept.call_count == 4
+        assert path.read_bytes() == before and not list((tmp_path / "chats").glob("*.tmp"))
+
+    def test_a_failing_swap_leaves_no_tmp_file(self, tmp_path):
+        with patch("os.replace", side_effect=OSError("disk full")):
+            with pytest.raises(OSError):
+                css.save_session(tmp_path, tmp_path / "chats" / "chat_x.json", self._session())
+        assert not list((tmp_path / "chats").glob("*"))
+
+    def test_the_module_has_no_replace_of_its_own(self):
+        import ast
+        tree = ast.parse(Path(css.__file__).read_text(encoding="utf-8"))
+        own = [(n.func.value.id, n.func.attr) for n in ast.walk(tree)
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name)
+               and n.func.attr in ("replace", "fsync", "rename") and (n.func.value.id == "os" or "tmp" in n.func.value.id)]
+        assert own == []
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -188,6 +188,34 @@ in `diary_map` a field list of a newer version (state "unsupported") that sorts 
 
 Not tested: the mutants that no input can tell apart (EQ-62 to EQ-66), the HTML and JavaScript of the day view and the diary box (checked by tests on the page text and by the look of the maintainer), and the tab and the opt-in dialogs (hand tests).
 
+### v1.7.8.2
+
+Scope: `atomic_io` (the whole module) and the changed lines of the writers that moved to it (the blocks that write through `atomic_io`): one run per module with `--only <module> --lines <ranges>`, started in a row by a small batch file (a work folder per run, four seconds between two starts, home and archive of the tests in a scratch folder).
+The runner got entries for the new modules: `atomic_io` in `TEST_FOR`; `context/context_writer`, `clients/chat_session_store`, `clients/mcp_update` and `layouts/garmin_mobile_landing` in `EXTRA_PATH` and `TEST_FOR`; `test_chat_session_store` is a pytest file (`PYTEST_ARGS`). Not run through the tool: the ZIP writers (not converted) and `crash_handler`.
+
+Stage 1 (every mutant against the test file of its module; stage 2 was not run, the survivors are judged one by one below):
+
+| Module | Test file | Mutants | Caught | Survived |
+|---|---|---:|---:|---:|
+| `atomic_io` | `test_atomic_io.py` | 172 | 164 | 8 |
+| `garmin_writer` (write blocks) | `test_writer.py` | 91 | 90 | 1 |
+| `quality/_io` (write blocks) | `test_quality.py` | 23 | 22 | 1 |
+| `garmin_source_writer` (write blocks) | `test_source_writer.py` | 15 | 14 | 1 |
+| `garmin_bulk_writer` (write blocks) | `test_bulk_writer.py` | 38 | 38 | 0 |
+| `garmin_container` (write block) | `test_container_mirror.py` | 3 | 2 | 1 |
+| `garmin_api_capability` (`save_config`) | `test_api_capability.py` | 5 | 5 | 0 |
+| `garmin_export_scan` (`write_report`) | `test_export_scan.py` | 16 | 16 | 0 |
+| `diary/diary_writer` (write blocks) | `test_diary.py` | 81 | 78 | 3 |
+| `diary/diary_backup` (`_write_atomic`) | `test_diary.py` | 0 | 0 | 0 |
+| `context/context_writer` | `test_local_context.py` | 67 | 66 | 1 |
+| `clients/chat_session_store` (`save_session`) | `test_chat_session_store.py` | 33 | 31 | 2 |
+| `clients/mcp_update` (`_write_context_resync_ack`) | `test_mcp.py` | 3 | 3 | 0 |
+| `layouts/garmin_mobile_landing` (`write_index_html`) | `test_dashboard.py` | 13 | 13 | 0 |
+| **Total** | | **560** | **542** | **18** |
+
+All 18 survivors were judged one by one: 3 gaps in the tests and 15 equivalent changes (EQ-67 to EQ-73). The three gaps (none in the code): a failing source backup inside `patch_source_field` is only a warning and the patch still counts (`test_source_writer.py` 106 to 107); the raw file of `context_writer` was checked with ASCII text only, so `ensure_ascii` could change unseen (the example holds non-ASCII text now); a chat session without the key `datasource` must save with `source_hash` `None` (`test_chat_session_store.py` 39 to 40). The three lines were run again: caught (the one left on the line of the third is the equivalent `is`, EQ-73).
+`diary_backup._write_atomic` has no mutable operator in its changed lines, so that run had no mutant. The tests of the converted modules also pin what the old code did (written before the change and green on the old module), count `fsync` and the pauses of the retry, and the tests of the helper pin which `fsync` errors the soft mode raises.
+
 ## Equivalent mutants
 
 An entry is only made when a protocol names it. Where an older protocol only says "one
@@ -262,6 +290,15 @@ must not be assumed.
 | EQ-64 | v1.7.8.1 | `mcp_diary.py` (`_match_diary_field`, `_resolve_field`, `diary_pointer`) | `hits[0]` → `hits[-1]`; `len(hits) > 1` → `> 0` / `>= 1`; `rest[0]` → `rest[-1]` (the names of an ambiguous answer, `did_you_mean`, the test for near names, the pointer text) | A list with exactly one element: first and last are the same. After `len(hits) == 1` has returned, `len(hits)` can only be 0 or more than 1, so `> 0` and `> 1` agree. |
 | EQ-65 | v1.7.8.1 | `mcp_diary.py` (`_resolve_field`, `query_diary`) | the second value of the tuple in the five error returns of `_resolve_field`: `False` → `True`; `substituted = False` → `True` at the start of `query_diary` | `query_diary` reads the second value only after it has seen that there is no error, and `substituted` only when a field was given (then it is set from the answer of `_resolve_field`). |
 | EQ-66 | v1.7.8.1 | `dash_intraday.py` (`build_intraday`), `diary_model.py` (`note_snippet`), `mcp_diary.py` (`search_diary_notes`) | `len(day[key]) > 0` → `!= 0`; `start > 0` → `!= 0`; `end < len(text)` → `!= len(text)`; `len(hits) >= limit` → `== limit` / `is` | A length is never negative. `start` is `max(0, …)` and `end` is `min(len(text), …)`, so neither can pass its border (the same snippet as in EQ-59). The hits grow by one, so the count meets the limit exactly; numbers up to 256 are one object each and the largest limit is 200. |
+| EQ-67 | v1.7.8.2 | `atomic_io.py` (`remove_quietly`) | `unlink(missing_ok=True)` → `False` | The call sits in a `try` that swallows every `OSError`, and a missing file raises `FileNotFoundError`, an `OSError`: the result is the same. |
+| EQ-68 | v1.7.8.2 | `atomic_io.py` (`sync_file`) | `fsync == FSYNC_OFF` → `<=` / `is`; `fsync == FSYNC_STRICT` → `>=` / `is` | The three mode names are short strings of the module (`is` finds the same object) and `"off" < "soft" < "strict"`; the second comparison is only reached with `"soft"` or `"strict"`, `"soft"` is smaller than `"strict"`. |
+| EQ-69 | v1.7.8.2 | `atomic_io.py` (`replace_with_retry`), `diary_writer.py` (`_remove`) | `attempt == attempts - 1` → `>=` / `is`; `attempt == REPLACE_ATTEMPTS - 1` → `^ 1` / `>=` / `is` | The counter never gets larger than the last try; small whole numbers are the same object; with five attempts `5 ^ 1` is 4, the same as `5 - 1` (a coincidence of the value 5). |
+| EQ-70 | v1.7.8.2 | `atomic_io.py` (`write_tmp`) | `_check_options(fsync, 1)` → `(fsync, 2)` | The second value only has to be a valid number of attempts; `write_tmp` checks the mode. |
+| EQ-71 | v1.7.8.2 | `garmin_writer.py` (`restore_day_files`), `garmin_container.py` (the write of the mirror) | `mkdir=False` → `True` in the call of the helper | The folder is made earlier in the same call (or exists for the mirror), so a second `mkdir` changes nothing; it would show only if the folder vanished between the two steps. For `write_day` the same change is caught (a test removes the folder in between). |
+| EQ-72 | v1.7.8.2 | `quality/_io.py` (`_save_quality_log`) | the `except Exception` around the sort of the days → another exception type | Days that cannot be sorted raise again in `_compute_checksum`, which comes right after and is outside that `try`: the swallowed error cannot be told apart. |
+| EQ-73 | v1.7.8.2 | `chat_session_store.py` (`save_session`) | `data.get("datasource") == "json"` → `is` | The test and the callers pass the same constant string `"json"`; the other direction (`<=`, a missing key) is caught by the new check. |
+
+EQ-40, EQ-60 and EQ-61 name the functions `_cleanup`, `_replace`, `_write_atomic` and the constant `REPLACE_ATTEMPTS` of the bulk writer, the diary writer and the diary backup, which moved into `atomic_io.py` in v1.7.8.2: those mutants no longer exist in these modules, the cases that carried over are EQ-67 to EQ-70.
 
 Equivalent mutants found in v1.7.6.12 are added below, with the run and the module.
 

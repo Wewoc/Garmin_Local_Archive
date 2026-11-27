@@ -158,9 +158,9 @@ unaffected — they receive one value per calendar day directly from the API.
 
 | Function | Purpose |
 |---|---|
-| `write(plugin, data, lat, lon)` | Writes `{date: fields}` dict to `plugin.OUTPUT_DIR`. Returns `{"written": int, "failed": int}` |
+| `write(plugin, data, lat, lon)` | Writes `{date: fields}` dict to `plugin.OUTPUT_DIR`. Returns `{"written": int, "failed": int}`. Since v1.7.8.2 each day file (`<prefix><date>.json`, and the raw file of a plugin with `RAW_OUTPUT_DIR`) is written through `atomic_io` (`<prefix><date>.tmp`, soft `fsync`, five attempts on a locked file; the folders are made once before; a failed swap counts the day in `failed`, a failed raw file is only a warning and is not counted). The module inserts `src/garmin` into `sys.path` itself so that `atomic_io` is found from every caller |
 | `already_written(plugin, date_str)` | Returns `True` if file for this plugin + date already exists |
-| `write_file(dest_path, data)` | Writes a pre-built context dict atomically to `dest_path`. Used by `garmin_import_mirror`. Returns `bool` |
+| `write_file(dest_path, data)` | Writes a pre-built context dict atomically to `dest_path` (through `atomic_io`, `<stem>.tmp`, soft `fsync`, five attempts; the parent folders are made; a `dest_path` that itself ends in `.tmp` is refused with a `ValueError`). Used by `garmin_import_mirror` and for the pending marker. Returns `bool` |
 
 **Sole write authority for `context_data/`.** No other module writes there.
 `context_silo_repair.py` (below) does not write files itself — every

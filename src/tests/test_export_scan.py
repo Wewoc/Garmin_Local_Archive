@@ -33,6 +33,7 @@ from support import check, section, summary
 section("EXPORT-SCAN v1.7.7 — garmin_export_scan")
 import garmin_export_scan as es
 import garmin_import as gi
+import atomic_io as aio
 
 BASE = _TMPDIR / "export_scan_tests"
 shutil.rmtree(BASE, ignore_errors=True)
@@ -450,6 +451,61 @@ es.write_report(small, log_dir)
 check("write_report: a second run replaces the first, no temporary file is left",
       json.loads(paths["json"].read_text(encoding="utf-8")) == small
       and not list(log_dir.glob("*.tmp")) and len(list(log_dir.iterdir())) == 2)
+
+# write_report writes through atomic_io (Block 8 (a), step 2): the same bytes, the same names, no retry, no leftovers
+import ast as _ast_es
+import os as _os_es
+_real_replace_es = _os_es.replace
+_names_es = []
+
+
+def _spy_replace_es(src, dst):
+    _names_es.append((src.name if hasattr(src, "name") else _os_es.path.basename(src),
+                      dst.name if hasattr(dst, "name") else _os_es.path.basename(dst)))
+    return _real_replace_es(src, dst)
+
+
+with patch.object(aio.os, "replace", _spy_replace_es):
+    es.write_report(res, BASE / "log_names")
+check("write_report: each file goes through <name>.tmp (json first, then text), as before",
+      _names_es == [("export_scan_report.json.tmp", "export_scan_report.json"),
+                    ("export_scan_report.txt.tmp", "export_scan_report.txt")])
+
+fail_dir = BASE / "log_failed"
+es.write_report(res, fail_dir)
+_before_es = {p.name: p.read_bytes() for p in fail_dir.iterdir()}
+try:
+    with patch.object(aio.os, "replace", side_effect=OSError("locked")):
+        es.write_report(small, fail_dir)
+    _raised_es = None
+except OSError as exc:
+    _raised_es = type(exc)
+check("write_report: a failing swap raises the OSError (the window says 'could not be saved'), the reports of the last "
+      "run stay as they were, no .tmp", _raised_es is OSError
+      and {p.name: p.read_bytes() for p in fail_dir.iterdir()} == _before_es)
+
+_calls_es, _sleeps_es = [], []
+
+
+def _locked_es(src, dst):
+    _calls_es.append(1)
+    raise PermissionError("locked")
+
+
+try:
+    with patch.object(aio.os, "replace", _locked_es), patch.object(aio.time, "sleep", _sleeps_es.append):
+        es.write_report(small, fail_dir)
+    _raised_es = None
+except OSError as exc:
+    _raised_es = type(exc)
+check("write_report: a locked file is not tried again (a diagnostic file): one try, no pause, PermissionError, no .tmp",
+      _raised_es is PermissionError and len(_calls_es) == 1 and _sleeps_es == []
+      and {p.name: p.read_bytes() for p in fail_dir.iterdir()} == _before_es)
+
+_own_es = [(n.value.id, n.attr) for n in _ast_es.walk(_ast_es.parse(open(es.__file__, encoding="utf-8").read()))
+           if isinstance(n, _ast_es.Attribute) and isinstance(n.value, _ast_es.Name) and n.value.id == "os"
+           and n.attr in ("replace", "fsync", "rename")]
+check("garmin_export_scan has no os.replace / os.fsync / os.rename of its own (the write goes through atomic_io)", _own_es == [])
 
 # ── 7. privacy ──────────────────────────────────────────────────────────────
 

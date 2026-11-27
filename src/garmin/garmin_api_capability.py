@@ -7,7 +7,7 @@ garmin_api_capability.py
 
 Sole Owner of the API-Capability-Scan config (garmin_api_capability_config.json).
 
-Leaf-Node — imports only garmin_config (path constant) + stdlib. No
+Leaf-Node — imports only garmin_config (path constant), atomic_io (the shared write helper, itself a leaf) + stdlib. No
 project-pipeline imports (garmin_collector, garmin_api, garmin_quality, ...).
 Analogous to garmin_validator.py's leaf-node status: garmin_config counts as
 infrastructure, not a pipeline dependency (see REFERENCE_GARMIN.md).
@@ -29,8 +29,8 @@ module enforces itself.
 
 import json
 import logging
-import os
 
+import atomic_io as aio
 import garmin_config as cfg
 
 log = logging.getLogger(__name__)
@@ -123,22 +123,19 @@ def load_config() -> dict:
 
 def save_config(config: dict) -> bool:
     """
-    Atomically writes config to garmin_api_capability_config.json
-    (.tmp → fsync → os.replace — same pattern as
-    garmin_source_writer.write_source() / garmin_mirror.lock()).
-    Returns True on success, False on any failure. Non-fatal — caller
-    decides whether a failed save should be surfaced to the user.
+    Atomically writes config to garmin_api_capability_config.json, through
+    atomic_io.write_atomic (.tmp → fsync where the file system supports it →
+    os.replace; a file locked for a moment is tried again, 5 attempts in all;
+    the .tmp is removed on a failure). Returns True on success, False on any
+    OSError. Non-fatal — caller decides whether a failed save should be
+    surfaced to the user. Data that is not JSON raises a TypeError, as before.
     """
     path = cfg.CAPABILITY_CONFIG_FILE
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
 
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
+        payload = json.dumps(config, indent=2)
+        aio.write_atomic(path, payload, fsync=aio.FSYNC_SOFT,
+                         attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
         return True
     except OSError as e:
         log.warning(f"[CAPABILITY] Could not save {path.name} — {e}")

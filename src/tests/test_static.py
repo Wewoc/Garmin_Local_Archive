@@ -203,9 +203,11 @@ _SILENT_HANDLER_BASELINE = {
     "garmin/garmin_import_mirror.py": 5,
     "garmin/garmin_backup.py":        0,
     "garmin/garmin_security.py":      0,
-    "garmin/garmin_writer.py":        3,  # v1.7.4.5: write_summary_only() mirrors
-                                          # write_day()'s existing best-effort .tmp
-                                          # cleanup (except OSError: pass) 1:1
+    "garmin/garmin_writer.py":        2,  # v1.7.8.2 (Block 8 (a), Schritt 7): 3 -> 2. Verbleibend:
+                                          # ImportError beim Backup-Auslöser und das
+                                          # best-effort .tmp-Aufräumen in write_day();
+                                          # _write_summary_file() schreibt über atomic_io
+                                          # (das räumt selbst auf), dort entfiel der Handler
 }
 
 for _rel, _baseline in _SILENT_HANDLER_BASELINE.items():
@@ -230,8 +232,11 @@ _PROJECT_MODULE_NAMES = {
     if Path(p).stem != "__init__"
 }
 _LEAF_NODES = ["garmin/garmin_utils.py", "garmin/garmin_validator.py", "log_utils.py",
-               "date_utils.py", "garmin/garmin_bulk_fit_reader.py", "garmin/garmin_bulk_export_scanner.py",
-               "garmin/garmin_bulk_normalizer.py"]
+               "date_utils.py", "garmin/atomic_io.py", "garmin/garmin_bulk_fit_reader.py", "garmin/garmin_bulk_export_scanner.py",
+               "garmin/garmin_bulk_normalizer.py",
+               # v1.7.8.2 (Block 8 (a), Schritt 11): Leaf laut Regelwerk, importieren nur den Schreibhelfer atomic_io
+               # (siehe _LEAF_NODE_FILE_EXCEPTIONS)
+               "garmin/garmin_export_scan.py", "garmin/garmin_api_capability.py", "clients/chat_session_store.py"]
 
 # garmin_validator.py's own docstring documents this exception explicitly:
 # "No imports from other project modules except garmin_config (leaf-node
@@ -240,32 +245,53 @@ _LEAF_NODES = ["garmin/garmin_utils.py", "garmin/garmin_validator.py", "log_util
 # does not weaken the check for that file.
 _LEAF_NODE_ALLOWED_EXCEPTIONS = {"garmin_config"}
 
-def _project_imports(path: Path) -> list[str]:
+# v1.7.8.2 (Block 8 (a)): atomic_io ist der eine gemeinsame Schreibhelfer und selbst ein Leaf (nur Standardbibliothek,
+# siehe oben). Diese drei Leaf-Module importieren ihn, um nicht eine eigene Kopie von "Temp-Datei + os.replace" zu
+# tragen (Beschluss des Maintainers, 2026-11-26). Die Ausnahme gilt bewusst NUR für diese Dateien, nicht global:
+# garmin_utils.py, garmin_validator.py und die übrigen Leaf-Module dürfen ihn weiter nicht importieren.
+_LEAF_NODE_FILE_EXCEPTIONS = {
+    "garmin/garmin_export_scan.py": {"atomic_io"},
+    "garmin/garmin_api_capability.py": {"atomic_io"},
+    "clients/chat_session_store.py": {"atomic_io"},
+}
+
+def _project_imports(path: Path, extra_allowed=frozenset()) -> list[str]:
     """Returns import module names (top-level names only) that match a
     known project module — i.e. violations of the leaf-node invariant.
-    Excludes documented exceptions (see _LEAF_NODE_ALLOWED_EXCEPTIONS)."""
+    Excludes documented exceptions (see _LEAF_NODE_ALLOWED_EXCEPTIONS and,
+    per file, extra_allowed = _LEAF_NODE_FILE_EXCEPTIONS[file])."""
+    allowed = _LEAF_NODE_ALLOWED_EXCEPTIONS | set(extra_allowed)
     tree = ast.parse(path.read_text(encoding="utf-8"))
     found = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 top = alias.name.split(".")[0]
-                if top in _PROJECT_MODULE_NAMES and top not in _LEAF_NODE_ALLOWED_EXCEPTIONS:
+                if top in _PROJECT_MODULE_NAMES and top not in allowed:
                     found.append(top)
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 top = node.module.split(".")[0]
-                if top in _PROJECT_MODULE_NAMES and top not in _LEAF_NODE_ALLOWED_EXCEPTIONS:
+                if top in _PROJECT_MODULE_NAMES and top not in allowed:
                     found.append(top)
     return found
 
 for _leaf in _LEAF_NODES:
-    _violations = _project_imports(_ROOT / _leaf)
+    _violations = _project_imports(_ROOT / _leaf, _LEAF_NODE_FILE_EXCEPTIONS.get(_leaf, ()))
     check(f"{_leaf}: keine Projekt-Modul-Importe (Leaf-Node)", not _violations)
     if _violations:
         print(f"  Gefundene Projekt-Importe in {_leaf}:")
         for v in _violations:
             print(f"    - {v}")
+
+# Die Ausnahme für atomic_io ist nötig und gilt nur für die drei Dateien (Schritt 11):
+check("atomic_io-Ausnahme: ohne sie würde garmin_export_scan.py den Import melden",
+      _project_imports(_ROOT / "garmin/garmin_export_scan.py") == ["atomic_io"])
+check("atomic_io-Ausnahme: die Ausnahmeliste nennt genau diese drei Dateien, und alle stehen in _LEAF_NODES",
+      set(_LEAF_NODE_FILE_EXCEPTIONS) == {"garmin/garmin_export_scan.py", "garmin/garmin_api_capability.py", "clients/chat_session_store.py"}
+      and set(_LEAF_NODE_FILE_EXCEPTIONS) <= set(_LEAF_NODES))
+check("atomic_io-Ausnahme: für eine andere Leaf-Datei (garmin_utils.py) gilt sie nicht (ein atomic_io-Import würde dort gemeldet)",
+      "garmin/garmin_utils.py" not in _LEAF_NODE_FILE_EXCEPTIONS and "atomic_io" not in _LEAF_NODE_ALLOWED_EXCEPTIONS)
 
 # ── 5b. garmin_security.py — garmin_config muss lazy importiert werden ────────
 _security_path = _ROOT / "garmin/garmin_security.py"
@@ -340,9 +366,150 @@ if _spec_total > _SPEC_FROM_FILE_LOCATION_BASELINE:
           "_FULLY_COVERED_DIRS (Sektion 3b) enthalten ist.")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  7. (reserved) mypy — type checking
+#  7. Regression-Wächter — atomares Schreiben nur über atomic_io (Block 8 (a), Schritt 9)
 # ══════════════════════════════════════════════════════════════════════════════
-# section("7. mypy — type checking")
+section("7. Regression-Wächter — atomares Schreiben nur über atomic_io")
+
+# Seit v1.7.8.2 gibt es genau einen atomaren Schreibhelfer (garmin/atomic_io.py: Temp-Datei, fsync, os.replace mit
+# Wiederholung bei gesperrter Datei). Dieser Wächter meldet jede neue eigene Kopie des Musters im Produktivcode:
+# os.replace / os.rename / os.fsync (auch über einen Alias oder "from os import ..."), das Tauschen einer Datei mit
+# einem einstelligen .replace(x) / .rename(x) (Path) und einen eigenen "except PermissionError" (Wiederholung bei
+# Sperre). Nicht gemeldet werden shutil.move (verschiebt Ordner), einfache Schreibzugriffe ohne Tausch (write_text,
+# write_bytes auf die Zieldatei selbst) und Treffer in tests/, docs/, support-tools/ und compiler/.
+#
+# Grenze: eine Kopie, die ihre Aufrufe versteckt (eigene Hüllfunktion um os.replace in einem anderen Modul,
+# getattr, subprocess) wird nicht erkannt. Der Wächter fängt das Muster, nicht jede mögliche Umgehung.
+_ATOMIC_HELPER = "garmin/atomic_io.py"
+_ATOMIC_SKIP_TOP = {"tests", "docs", "support-tools", "compiler"}
+
+# Begründete Ausnahmen: Datei -> {Art: genaue Anzahl}. Eine Ausnahme, die nicht mehr zutrifft (Anzahl ungleich),
+# lässt den Test rot werden: weniger = veralteter Eintrag, mehr = neue Kopie in derselben Datei.
+_ATOMIC_EXCEPTIONS = {
+    # ZIP-Dateien: die neue ZIP wird vor dem Tausch geprüft (Lesen, CRC); der Tausch ist ein einzelner os.replace ohne
+    # Wiederholung und ohne fsync, die alte ZIP bleibt bis dahin. Kein Text-/JSON-Schreiben, das atomic_io leistet.
+    "garmin/garmin_backup_bulk.py": {"os.replace": 1},
+    "garmin/garmin_backup_common.py": {"os.replace": 1},
+    "garmin/garmin_migration_snapshot.py": {"os.replace": 1},
+    # fsync nach dem Schreiben des eigenen Absturzprotokolls, kein Tausch einer Datei.
+    "crash_handler.py": {"os.fsync": 1},
+    # Wiederholung beim LÖSCHEN einer gesperrten Datei (diary_writer._remove), kein Schreiben und kein Tausch.
+    "diary/diary_writer.py": {"except PermissionError": 1},
+}
+
+
+def _find_atomic_copies(source: str) -> list:
+    """
+    AST-basiert. Liefert [(Zeile, Art)] der Stellen, die wie eine eigene Kopie des atomaren Schreibens aussehen:
+    'os.replace' / 'os.rename' / 'os.fsync' (auch über 'import os as x' und 'from os import replace as y'),
+    '.replace(one argument)' / '.rename(one argument)' (Datei tauschen; str.replace hat zwei Argumente,
+    datetime.replace nur Schlüsselwörter) und 'except PermissionError'.
+    """
+    tree = ast.parse(source)
+    os_names = {"os"}
+    from_os = {}                                   # lokaler Name -> "os.<name>"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "os":
+                    os_names.add(alias.asname or "os")
+        elif isinstance(node, ast.ImportFrom) and node.module == "os":
+            for alias in node.names:
+                if alias.name in ("replace", "rename", "fsync"):
+                    from_os[alias.asname or alias.name] = f"os.{alias.name}"
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                recv = func.value.id if isinstance(func.value, ast.Name) else None
+                if recv in os_names and func.attr in ("replace", "rename", "fsync"):
+                    found.append((node.lineno, f"os.{func.attr}"))
+                elif func.attr in ("replace", "rename") and len(node.args) == 1 and not node.keywords:
+                    found.append((node.lineno, f".{func.attr}(one argument)"))
+            elif isinstance(func, ast.Name) and func.id in from_os:
+                found.append((node.lineno, from_os[func.id]))
+        elif isinstance(node, ast.ExceptHandler) and node.type is not None:
+            types = node.type.elts if isinstance(node.type, ast.Tuple) else [node.type]
+            if any(isinstance(t, ast.Name) and t.id == "PermissionError" for t in types):
+                found.append((node.lineno, "except PermissionError"))
+    return sorted(found)
+
+
+def _compare_atomic(found: dict, exceptions: dict):
+    """found: {Datei: {Art: Anzahl}}. Liefert (unerwartet, veraltet): Funde außerhalb der Ausnahmen bzw. Ausnahmen, deren Anzahl nicht (mehr) stimmt."""
+    unexpected, stale = [], []
+    for rel, kinds in sorted(found.items()):
+        allowed = exceptions.get(rel, {})
+        for kind, n in sorted(kinds.items()):
+            if allowed.get(kind, 0) != n and kind not in allowed:
+                unexpected.append(f"{rel}: {kind} x{n}")
+    for rel, allowed in sorted(exceptions.items()):
+        for kind, n in sorted(allowed.items()):
+            if found.get(rel, {}).get(kind, 0) != n:
+                stale.append(f"{rel}: {kind} erwartet x{n}, gefunden x{found.get(rel, {}).get(kind, 0)}")
+    return unexpected, stale
+
+
+# -- 7a. der Wächter selbst: Beispielquellen -------------------------------------------------------------------------
+def _kinds(src):
+    return [k for _, k in _find_atomic_copies(src)]
+
+
+check("7a os.replace wird gefunden", _kinds("import os\nos.replace(a, b)\n") == ["os.replace"])
+check("7a os.rename und os.fsync werden gefunden", _kinds("import os\nos.rename(a, b)\nos.fsync(1)\n") == ["os.rename", "os.fsync"])
+check("7a 'import os as x' (Alias) wird gefunden", _kinds("import os as _o\n_o.fsync(f.fileno())\n") == ["os.fsync"])
+check("7a 'from os import replace as r' wird gefunden", _kinds("from os import replace as r\nr(a, b)\n") == ["os.replace"])
+check("7a ein Pfad-Tausch tmp.replace(dst) und p.rename(q) wird gefunden",
+      _kinds("tmp.replace(dst)\np.rename(q)\n") == [".replace(one argument)", ".rename(one argument)"])
+check("7a 'except PermissionError' (auch im Tupel) wird gefunden",
+      _kinds("try:\n    pass\nexcept PermissionError:\n    pass\ntry:\n    pass\nexcept (OSError, PermissionError):\n    pass\n")
+      == ["except PermissionError", "except PermissionError"])
+check("7a str.replace, datetime.replace(tzinfo=...), shutil.move, os.remove, os.path.join, einfaches write_text und except OSError werden nicht gemeldet",
+      _kinds("import os, shutil\ns.replace('a', 'b')\nd.replace(tzinfo=None)\nshutil.move(a, b)\nos.remove(x)\n"
+             "os.path.join(a, b)\np.write_text('x')\ntry:\n    pass\nexcept OSError:\n    pass\n") == [])
+_f1, _s1 = _compare_atomic({"a.py": {"os.replace": 1}}, {})
+check("7a eine Kopie ohne Ausnahme ist unerwartet", _f1 == ["a.py: os.replace x1"] and _s1 == [])
+_f2, _s2 = _compare_atomic({"a.py": {"os.replace": 1}}, {"a.py": {"os.replace": 1}})
+check("7a eine begründete Ausnahme mit passender Anzahl ist weder unerwartet noch veraltet", _f2 == [] and _s2 == [])
+_f3, _s3 = _compare_atomic({"a.py": {"os.replace": 2}}, {"a.py": {"os.replace": 1}})
+check("7a eine zweite Kopie in einer Ausnahme-Datei lässt den Test rot werden (Anzahl 2 statt 1)", _s3 == ["a.py: os.replace erwartet x1, gefunden x2"])
+_f4, _s4 = _compare_atomic({}, {"a.py": {"os.replace": 1}})
+check("7a ein veralteter Ausnahme-Eintrag (nichts mehr gefunden) wird gemeldet", _s4 == ["a.py: os.replace erwartet x1, gefunden x0"])
+_f5, _s5 = _compare_atomic({"a.py": {"os.replace": 1, "os.fsync": 1}}, {"a.py": {"os.replace": 1}})
+check("7a eine andere Art in einer Ausnahme-Datei (os.fsync neben erlaubtem os.replace) ist unerwartet", _f5 == ["a.py: os.fsync x1"])
+
+# -- 7b. der Produktivcode ---------------------------------------------------------------------------------------------
+_atomic_found = {}
+for _p in sorted(_ROOT.rglob("*.py")):
+    _rel_parts = _p.relative_to(_ROOT).parts
+    if (_rel_parts[0] in _ATOMIC_SKIP_TOP or any(part == "__pycache__" or part.startswith(".") for part in _rel_parts)
+            or "/".join(_rel_parts) == _ATOMIC_HELPER):
+        continue
+    _hits = _find_atomic_copies(_p.read_text(encoding="utf-8"))
+    if _hits:
+        _counts = {}
+        for _line, _kind in _hits:
+            _counts[_kind] = _counts.get(_kind, 0) + 1
+        _atomic_found["/".join(_rel_parts)] = _counts
+
+_atomic_unexpected, _atomic_stale = _compare_atomic(_atomic_found, _ATOMIC_EXCEPTIONS)
+check("7b keine eigene Kopie des atomaren Schreibens im Produktivcode außerhalb von atomic_io.py und der begründeten Ausnahmen",
+      _atomic_unexpected == [])
+if _atomic_unexpected:
+    print("  Neue Stelle(n) — über garmin/atomic_io.py schreiben oder mit Begründung in _ATOMIC_EXCEPTIONS eintragen:")
+    for _entry in _atomic_unexpected:
+        print(f"    {_entry}")
+check("7b jeder Eintrag von _ATOMIC_EXCEPTIONS trifft noch zu (genaue Anzahl)", _atomic_stale == [])
+if _atomic_stale:
+    for _entry in _atomic_stale:
+        print(f"    veraltet: {_entry}")
+check("7b der Helfer garmin/atomic_io.py existiert und hat die Schreibwege selbst (os.replace, os.fsync)",
+      {"os.replace", "os.fsync"} <= set(_kinds((_ROOT / _ATOMIC_HELPER).read_text(encoding="utf-8"))))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  8. (reserved) mypy — type checking
+# ══════════════════════════════════════════════════════════════════════════════
+# section("8. mypy — type checking")
 # Uncomment and implement when mypy is added to the toolchain.
 
 # ── Summary ────────────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import logging
 import zipfile
 from datetime import date, datetime
 
+import atomic_io as aio
 import garmin_config as cfg
 import garmin_utils as utils
 
@@ -432,10 +433,10 @@ def save_device_table(quality_data: dict) -> None:
     })
 
     try:
-        cfg.DEVICE_TABLE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cfg.DEVICE_TABLE_FILE.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(cfg.DEVICE_TABLE_FILE)
+        # atomic_io: makes the folder, writes device_table.json.tmp (soft fsync), swaps it over the table (tried
+        # again for a moment when the file is locked); a failed write removes its own .tmp.
+        aio.write_atomic(cfg.DEVICE_TABLE_FILE, json.dumps(rows, ensure_ascii=False, indent=2),
+                         fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS)
         log.info(f"  device_table.json written ({len(rows) - 1} device(s))")
     except Exception as e:
         log.warning(f"  Could not write device_table.json: {e}")
@@ -443,7 +444,8 @@ def save_device_table(quality_data: dict) -> None:
 
 def _save_quality_log(data: dict, skip_backup: bool = False) -> bool:
     """
-    Writes quality_log.json atomically via temp file.
+    Writes quality_log.json atomically through atomic_io (quality_log.tmp, fsync where the file system supports
+    it, os.replace, tried up to five times when the file is locked for a moment; a failed write removes its .tmp).
 
     skip_backup=True: suppresses backup trigger (used for filename-migration
       where content is unchanged — no backup needed).
@@ -466,12 +468,12 @@ def _save_quality_log(data: dict, skip_backup: bool = False) -> bool:
 
     data["_checksum"] = _compute_checksum(data)
 
-    tmp = cfg.QUALITY_LOG_FILE.with_suffix(".tmp")
     try:
-        cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp.replace(cfg.QUALITY_LOG_FILE)
+        # atomic_io: makes the folder, writes quality_log.tmp (the suffix is replaced; soft fsync), swaps it over the
+        # log (tried again for a moment when the file is locked); a failed write removes its own .tmp.
+        aio.write_atomic(cfg.QUALITY_LOG_FILE, json.dumps(data, ensure_ascii=False, indent=2),
+                         fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS,
+                         tmp=cfg.QUALITY_LOG_FILE.with_suffix(".tmp"))
     except Exception as e:
         log.warning(f"  Could not write quality_log.json: {e}")
         return False

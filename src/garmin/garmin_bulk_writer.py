@@ -59,13 +59,13 @@ Rules for a day (day_status / write_day)
   by itself; a lock that goes away again is made good by running the import again, a file that
   stays unreadable has to be deleted by hand before the day can be imported again.
 
-Writing: every file is written to <name>.tmp and moved with os.replace (tried up to
-five times when the file is locked for a moment, see REPLACE_ATTEMPTS); the .tmp is
-removed on failure; nothing here raises. Day files are flushed to disk (fsync on the
-write handle); originals are not (they can be made again from the export, and fsync
-would double the time of the whole import). An original that is already there with the
-same size counts as present without reading it (a check of the content belongs to the
-silo check).
+Writing: every file is written to <name>.tmp and moved with os.replace, all through
+atomic_io.write_atomic (tried up to five times when the file is locked for a moment,
+see _write_atomic); the .tmp is removed on failure; nothing here raises. Day files are
+flushed to disk (fsync on the write handle); originals are not (they can be made again
+from the export, and fsync would double the time of the whole import). An original that
+is already there with the same size counts as present without reading it (a check of the
+content belongs to the silo check).
 
 A day or aggregates file of another archive (the mirror import, v1.7.6.2) is taken over by
 import_day_file(): the bytes are checked against what the broker needs of such a file (a file
@@ -75,8 +75,8 @@ one; a schema version newer than this program knows is not stored), and what is 
 bytes as they came, so the provenance of the other archive stays.
 
 Depends on: garmin_config (imported inside the functions, like garmin_source_writer),
-stdlib. No backup, no quality-log access: the backup of the bulk store is
-garmin_backup_bulk.py's (v1.7.6.2).
+atomic_io (the shared write helper), stdlib. No backup, no quality-log access: the backup
+of the bulk store is garmin_backup_bulk.py's (v1.7.6.2).
 
 Public API:
   write_day(plan_day, day_samples, imported_at=None) -> "written" | "unchanged" | "kept" | "failed"
@@ -102,21 +102,16 @@ Public API:
 import hashlib
 import json
 import logging
-import os
 import re
-import time
 from datetime import datetime
+
+import atomic_io as aio
 
 log = logging.getLogger(__name__)
 
 BULK_SCHEMA_VERSION = 1
 AGG_SCHEMA_VERSION = 2          # the aggregates day file (bulk/aggregates), counted on its own
 
-# On Windows a virus scanner or an indexer can hold a file that was just written for a moment;
-# os.replace then fails with a sharing violation (PermissionError). It happened once in 34,384
-# originals of the maintainer's export. Other errors (disk full, ...) are not retried.
-REPLACE_ATTEMPTS = 5
-REPLACE_PAUSE_S = 0.1
 GENERATED_BY = "garmin_bulk_writer"
 ORIGIN = "gdpr_export"
 
@@ -153,46 +148,19 @@ def _day_path(date_str):
     return cfg.BULK_RAW_DIR / f"{cfg.BULK_FILE_PREFIX}{date_str}.json"
 
 
-def _cleanup(path):
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
-def _replace(tmp, dst):
-    """os.replace that waits a moment and tries again when the file is locked (see REPLACE_ATTEMPTS)."""
-    for attempt in range(REPLACE_ATTEMPTS):
-        try:
-            os.replace(tmp, dst)
-            return
-        except PermissionError:
-            if attempt == REPLACE_ATTEMPTS - 1:
-                raise
-            time.sleep(REPLACE_PAUSE_S * (attempt + 1))
-
-
 def _write_atomic(dst, payload):
     """
-    Writes payload to dst through dst + ".tmp": written, flushed to disk (fsync, where the file
-    system supports it) and moved with os.replace (tried again while the file is locked for a
-    moment, see _replace). Creates the folder. Raises on any failure; the .tmp is removed then
-    and a stored dst is untouched. The one writing flow of the day files and aggregates files.
+    Writes payload to dst through atomic_io.write_atomic: dst + ".tmp", written, flushed to disk
+    (fsync, where the file system supports it) and moved with os.replace. Creates the folder.
+    Raises on any failure; the .tmp is removed then and a stored dst is untouched. The one writing
+    flow of the day files and aggregates files.
+
+    On Windows a virus scanner or an indexer can hold a file that was just written for a moment;
+    os.replace then fails with a sharing violation (PermissionError). It happened once in 34,384
+    originals of the maintainer's export. That is tried again, aio.REPLACE_ATTEMPTS times in all;
+    other errors (disk full, ...) are not retried.
     """
-    tmp = dst.with_name(dst.name + ".tmp")
-    try:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        with open(tmp, "wb") as f:
-            f.write(payload)
-            f.flush()
-            try:
-                os.fsync(f.fileno())
-            except OSError:
-                pass  # not supported on every file system
-        _replace(tmp, dst)
-    except Exception:
-        _cleanup(tmp)
-        raise
+    aio.write_atomic(dst, payload, fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
 
 
 def _is_int(value):
@@ -707,7 +675,6 @@ def store_original(file_hash, data, suffix=".fit"):
     -------
     "written", "present" or "failed" (non-fatal, logged)
     """
-    tmp = None
     try:
         import garmin_config as cfg
         if not isinstance(file_hash, str) or not _HASH_RE.fullmatch(file_hash):
@@ -726,14 +693,9 @@ def store_original(file_hash, data, suffix=".fit"):
         if original_present(file_hash, len(data), suffix):
             return PRESENT
         dst = cfg.BULK_SOURCE_DIR / file_hash[:2] / f"{file_hash}{suffix}"
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dst.with_name(dst.name + ".tmp")
-        tmp.write_bytes(data)
-        _replace(tmp, dst)
-        tmp = None
+        # No fsync on purpose (see the head of the file): an original can be made again from the export.
+        aio.write_atomic(dst, data, fsync=aio.FSYNC_OFF, attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
         return WRITTEN
     except Exception as e:
         log.warning(f"  bulk_writer.store_original failed: {e}")
-        if tmp is not None:
-            _cleanup(tmp)
         return FAILED

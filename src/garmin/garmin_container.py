@@ -44,7 +44,6 @@ Called by:
 """
 
 import json
-import os
 import re
 import secrets
 import struct
@@ -53,6 +52,8 @@ import zlib
 import logging
 from datetime import datetime
 from pathlib import Path
+
+import atomic_io as aio
 
 log = logging.getLogger(__name__)
 
@@ -85,8 +86,10 @@ def lock(source_dir: Path, container_path: Path, password: str, progress=None) -
     """
     Creates or overwrites container_path from source_dir.
 
-    Writes atomically: container_path.tmp → fsync → os.replace.
-    Only called on ok=True from run_mirror().
+    Writes atomically through atomic_io.write_atomic_stream: <name>.gla.tmp → fsync (strict: an error of
+    fsync fails the mirror, as before) → os.replace (a file locked for a moment, for example by a sync
+    client, is tried again, 5 attempts in all; the .tmp is removed on a failure and a stored container
+    stays as it was). Only called on ok=True from run_mirror().
 
     Parameters
     ----------
@@ -178,7 +181,7 @@ def lock(source_dir: Path, container_path: Path, password: str, progress=None) -
 
         # Write container atomically
         report_progress(progress, f"  Mirror: writing the container ({sum(len(b) for b in section_blobs.values()) / 1048576:.0f} MB) …")
-        with open(tmp_path, "wb") as f:
+        def _write_parts(f):
             f.write(_MAGIC)
             f.write(bytes([_FORMAT_VER]))
             f.write(salt)
@@ -188,10 +191,10 @@ def lock(source_dir: Path, container_path: Path, password: str, progress=None) -
             for sec_name in _SECTIONS:
                 if sec_name in section_blobs:
                     f.write(section_blobs[sec_name])
-            f.flush()
-            os.fsync(f.fileno())
 
-        os.replace(tmp_path, container_path)
+        aio.write_atomic_stream(container_path, _write_parts, fsync=aio.FSYNC_STRICT,
+                                attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S,
+                                tmp=tmp_path, mkdir=False)
         log.info(
             f"  container: locked {files_packed} files → {container_path.name} "
             f"({errors} errors)"

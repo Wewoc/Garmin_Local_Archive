@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QApplication, QDialog, QLabel, QLineEdit, QMessageBox, QScrollArea, QTabWidget, QWidget,
 )
 
+import atomic_io as aio
 from app.dialog_diary_field import DiaryFieldDialog, describe_failure
 from app.dialog_diary_history import DiaryHistoryDialog, describe_state, summarize_state
 from app.dialog_diary_manage import DiaryManageDialog
@@ -446,7 +447,7 @@ class TestNote:
 
     def test_a_failed_write_keeps_the_text_and_says_so(self, qtbot, panel, base):
         panel._diary_note.setPlainText("wichtig")
-        with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+        with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
             qtbot.mouseClick(panel._diary_save_btn, Qt.MouseButton.LeftButton)
         assert "Could not save" in panel._diary_status.text()
         assert panel._diary_note.toPlainText() == "wichtig"
@@ -1151,7 +1152,7 @@ class TestFields:
         wr.create_user_field(base, "Schmerztablette", TABLET, True)
         wr.set_flags(base, "U0001", favorite=True)
         panel._diary_refresh()
-        with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+        with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
             panel._diary_rows["U0001"].star.click()
         assert "Could not change" in panel._diary_status.text()
         assert rd.read_master(base)[1]["fields"]["U0001"]["favorite"] is True

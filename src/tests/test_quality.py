@@ -505,6 +505,7 @@ with _isolated_log_env("unreadable_migration_excluded"):
 
 # ── 4c. save paths ────────────────────────────────────────────────────────────
 section("4c. garmin_quality — save_device_table, _save_quality_log, defective log")
+import atomic_io as _aio4c   # garmin/ is on the path (gla_testenv)
 
 _dev_days = [
     {"date": "2024-01-01", "quality": "high",     "device_id": "A", "device_name": "Old Name"},
@@ -536,7 +537,7 @@ with _isolated_log_env("device_table"):
           and by_id["__total__"]["days_total"] == 5)
 
     _table_before = cfg.DEVICE_TABLE_FILE.read_bytes()
-    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+    with patch("os.replace", side_effect=OSError("disk full")):   # the table is swapped through atomic_io, which uses the same os module
         quality.save_device_table({"days": []})
     check("device_table: write failure -> no crash, existing table unchanged",
           cfg.DEVICE_TABLE_FILE.read_bytes() == _table_before)
@@ -564,17 +565,17 @@ with _isolated_log_env("save_log"):
     _changed = {"first_day": "2024-01-01", "devices": [],
                 "days": [{"date": "2024-01-01", "quality": "standard", "write": True}]}
     with patch.object(_q_backup_mod, "backup_quality_log") as _bk_mock, \
-         patch("json.dump", side_effect=OSError("disk full")):
+         patch.object(_aio4c, "sync_file", side_effect=OSError("disk full")):   # the write of the temp file fails
         quality._save_quality_log(_changed)
     check("save: write failure -> no crash, existing quality_log.json unchanged",
           cfg.QUALITY_LOG_FILE.read_bytes() == _file_before)
     check("save: write failure -> no backup is triggered",
           not _bk_mock.called)
-    check("save: write failure leaves its temp file behind (current behaviour)",
-          cfg.QUALITY_LOG_FILE.with_suffix(".tmp").exists())
+    check("save: write failure leaves no temp file behind (atomic_io removes it; before step 8 of block 8 it stayed)",
+          not cfg.QUALITY_LOG_FILE.with_suffix(".tmp").exists())
 
     quality._save_quality_log(_changed, skip_backup=True)
-    check("save: the next save succeeds and consumes the leftover temp file",
+    check("save: the next save succeeds",
           not cfg.QUALITY_LOG_FILE.with_suffix(".tmp").exists()
           and json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))
           ["days"][0]["quality"] == "standard")
@@ -1491,7 +1492,7 @@ with _isolated_log_env("q4n_save") as _b:
               quality._save_quality_log({"days": [{"date": "2024-07-03"}]}) is True
               and quality._save_quality_log({"days": [{"date": "2024-07-03"}]}, skip_backup=True) is True)
     _before_bytes = cfg.QUALITY_LOG_FILE.read_bytes()
-    with patch.object(Path, "replace", side_effect=PermissionError("locked by another process")):
+    with patch("os.replace", side_effect=PermissionError("locked by another process")), patch("time.sleep"):   # atomic_io tries again, the pauses are patched away
         _res_fail = quality._save_quality_log({"days": [{"date": "2024-07-04"}]}, skip_backup=True)
     check("4n save: returns False when the write fails (locked file), nothing is raised, the stored log is as it was",
           _res_fail is False and cfg.QUALITY_LOG_FILE.read_bytes() == _before_bytes)
@@ -1935,6 +1936,211 @@ check("4p stats: an empty log -> zeros and None",
       and _s["last_api"] is None and _s["last_bulk"] is None)
 _s = _stats4p([{"date": "2024-03-01", "quality": "high"}])
 check("4p stats: one day -> 100 %, 0 missing", (_s["coverage_pct"], _s["missing"]) == (100, 0))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  4y. quality/_io — the files it writes (Block 8 (a), step 8). This part holds for the module before and after it writes
+#      through atomic_io: bytes, tmp names, what a failing or locked swap does to a stored file, the results.
+# ══════════════════════════════════════════════════════════════════════════════
+section("4y. garmin_quality — the files _io writes")
+import os as _os4y
+
+_real_replace4y = _os4y.replace
+
+
+def _spy4y(names):
+    def spy(src, dst):
+        names.append((Path(dst).parent.name, Path(src).name, Path(dst).name))
+        return _real_replace4y(src, dst)
+    return spy
+
+
+with _isolated_log_env("q4y") as _b:
+    _log_name4y = cfg.LOG_DIR.name
+    _data4y = {"first_day": "2024-01-01", "devices": [{"id": "1", "name": "Forerunner ä€"}],
+               "days": [{"date": "2024-07-02", "quality": "high", "source": "Größe µ € 😀", "write": True},
+                        {"date": "2024-07-01", "quality": "low", "source": "api", "write": None}]}
+    _names4y = []
+    with patch.object(_gb4n, "backup_quality_log") as _bk4y, patch("os.replace", _spy4y(_names4y)):
+        _r4y = quality._save_quality_log(_data4y)
+    check("4y save: True, the backup is triggered once, the log goes through quality_log.tmp (the suffix is replaced) to quality_log.json",
+          _r4y is True and _bk4y.call_count == 1 and _names4y == [(_log_name4y, "quality_log.tmp", "quality_log.json")])
+    _ref4y = _b / "ref_quality_log.json"
+    _ref4y.write_text(json.dumps(_data4y, ensure_ascii=False, indent=2), encoding="utf-8")   # _data4y now holds days sorted and the checksum
+    check("4y save: the file has the bytes of the former write (umlauts, euro sign, emoji, the line ends of the system)",
+          cfg.QUALITY_LOG_FILE.read_bytes() == _ref4y.read_bytes()
+          and [e["date"] for e in _data4y["days"]] == ["2024-07-01", "2024-07-02"] and "_checksum" in _data4y)
+    check("4y save: no .tmp is left behind after a success", sorted(p.name for p in _b.rglob("*.tmp")) == [])
+
+    _stored4y = cfg.QUALITY_LOG_FILE.read_bytes()
+    _changed4y = {"first_day": "2024-01-01", "devices": [], "days": [{"date": "2024-07-03", "quality": "high", "source": "api", "write": True}]}
+    with patch.object(_gb4n, "backup_quality_log") as _bk4y, patch("os.replace", side_effect=OSError("disk full")):
+        _r4y = quality._save_quality_log(_changed4y)
+    check("4y save: a failing swap is False (nothing raised), the stored log stays byte for byte the same, no backup trigger",
+          _r4y is False and cfg.QUALITY_LOG_FILE.read_bytes() == _stored4y and not _bk4y.called)
+    with patch.object(_gb4n, "backup_quality_log") as _bk4y, patch("os.replace", side_effect=PermissionError("locked")), patch("time.sleep"):
+        _r4y = quality._save_quality_log(_changed4y)
+    check("4y save: a locked file is False as well (the pauses of a retry are patched away), the stored log untouched, no backup trigger",
+          _r4y is False and cfg.QUALITY_LOG_FILE.read_bytes() == _stored4y and not _bk4y.called)
+
+    for _left4y in _b.rglob("*.tmp"):        # what a failing write left behind is not the subject here (see 4y2 for the new behaviour)
+        _left4y.unlink()
+    _rows4y = [{"date": "2024-07-01", "quality": "high", "device_id": "A", "device_name": "Größe €"},
+               {"date": "2024-07-02", "quality": "standard", "device_id": "A", "device_name": ""},
+               {"date": "2024-07-03", "quality": "high", "device_id": None, "device_name": ""}]
+    _names4y = []
+    with patch("os.replace", _spy4y(_names4y)):
+        quality.save_device_table({"days": _rows4y})
+    _tbl4y = json.loads(cfg.DEVICE_TABLE_FILE.read_text(encoding="utf-8"))
+    _refd4y = _b / "ref_device_table.json"
+    _refd4y.write_text(json.dumps(_tbl4y, ensure_ascii=False, indent=2), encoding="utf-8")
+    check("4y device table: the file has the bytes of the former write (rows 2-space indented, umlauts and euro sign not escaped)",
+          cfg.DEVICE_TABLE_FILE.read_bytes() == _refd4y.read_bytes() and _tbl4y[0]["name"] == "Größe €"
+          and [r["device_id"] for r in _tbl4y] == ["A", "__unknown__", "__total__"])
+    check("4y device table: it goes through device_table.json.tmp to device_table.json, no .tmp is left behind",
+          _names4y == [(_log_name4y, "device_table.json.tmp", "device_table.json")] and sorted(p.name for p in _b.rglob("*.tmp")) == [])
+    _tbl_before4y = cfg.DEVICE_TABLE_FILE.read_bytes()
+    with patch("os.replace", side_effect=OSError("disk full")):
+        quality.save_device_table({"days": []})
+    with patch("os.replace", side_effect=PermissionError("locked")), patch("time.sleep"):
+        quality.save_device_table({"days": []})
+    check("4y device table: a failing and a locked swap raise nothing, the stored table stays byte for byte the same",
+          cfg.DEVICE_TABLE_FILE.read_bytes() == _tbl_before4y)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  4y2. quality/_io writes through atomic_io (Block 8 (a), step 8): fsync and retry are counted, because a forgotten
+#       parameter would lose them without any other check noticing
+# ══════════════════════════════════════════════════════════════════════════════
+section("4y2. garmin_quality — _io through atomic_io")
+import ast as _ast4y2
+import atomic_io as _aio4y2
+
+_real_fsync4y2 = _os4y.fsync
+
+
+def _fsync_spy4y2(calls, fail=False):
+    def spy(fd):
+        calls.append(fd)
+        if fail:
+            raise OSError("not supported")
+        return _real_fsync4y2(fd)
+    return spy
+
+
+def _lock4y2(target, free_after=None):
+    """os.replace that raises PermissionError for the target file name; free after N locked calls (None: stays locked)."""
+    state = {"locked": 0, "calls": 0}
+
+    def replace(src, dst):
+        if Path(dst).name == target:
+            state["calls"] += 1
+            if free_after is None or state["locked"] < free_after:
+                state["locked"] += 1
+                raise PermissionError("locked")
+        return _real_replace4y(src, dst)
+    return replace, state
+
+
+with _isolated_log_env("q4y2") as _b:
+    _d4y2 = {"first_day": "2024-01-01", "devices": [],
+             "days": [{"date": "2024-07-01", "quality": "high", "source": "api", "write": True}]}
+    _t4y2 = {"days": [{"date": "2024-07-01", "quality": "high", "device_id": "A", "device_name": "N"}]}
+
+    def _tmps4y2():
+        return sorted(p.name for p in _b.rglob("*.tmp"))
+
+    # fsync: counted
+    _fs = []
+    with patch.object(_gb4n, "backup_quality_log"), patch.object(_aio4y2.os, "fsync", _fsync_spy4y2(_fs)):
+        _r = quality._save_quality_log(_d4y2)
+    check("4y2 save: the quality log is fsynced once", _r is True and len(_fs) == 1)
+    _fs = []
+    with patch.object(_aio4y2.os, "fsync", _fsync_spy4y2(_fs)):
+        quality.save_device_table(_t4y2)
+    check("4y2 device table: fsynced once", len(_fs) == 1 and cfg.DEVICE_TABLE_FILE.is_file())
+
+    # a file system without fsync still takes both (soft)
+    _fs = []
+    with patch.object(_gb4n, "backup_quality_log"), patch.object(_aio4y2.os, "fsync", _fsync_spy4y2(_fs, fail=True)):
+        _r = quality._save_quality_log(_d4y2)
+        quality.save_device_table({"days": [{"date": "2024-07-01", "quality": "high", "device_id": "A", "device_name": "N2"}]})
+    check("4y2 a file system without fsync still takes the log and the table (soft)",
+          _r is True and len(_fs) == 2 and _tmps4y2() == []
+          and json.loads(cfg.QUALITY_LOG_FILE.read_text(encoding="utf-8"))["days"][0]["date"] == "2024-07-01"
+          and json.loads(cfg.DEVICE_TABLE_FILE.read_text(encoding="utf-8"))[0]["name"] == "N2")
+
+    # a file locked for a moment is tried again: two locked, then free (pauses 0.1 and 0.2)
+    for _label, _call, _target in (
+            ("quality log", lambda: quality._save_quality_log(_d4y2, skip_backup=True), "quality_log.json"),
+            ("device table", lambda: quality.save_device_table(_t4y2), "device_table.json")):
+        _rep, _st = _lock4y2(_target, free_after=2)
+        _sl = []
+        with patch("os.replace", _rep), patch.object(_aio4y2.time, "sleep", _sl.append):
+            _call()
+        check(f"4y2 {_label}: a file locked for a moment is tried again and then written (2 locked, 1 free, pauses 0.1 and 0.2)",
+              _st["calls"] == 3 and [round(p, 3) for p in _sl] == [0.1, 0.2] and _tmps4y2() == [])
+
+    # a file that stays locked: five tries with four pauses, nothing raised, the stored file untouched, no .tmp, no backup
+    _log_before = cfg.QUALITY_LOG_FILE.read_bytes()
+    _tbl_before = cfg.DEVICE_TABLE_FILE.read_bytes()
+    _rep, _st = _lock4y2("quality_log.json")
+    _sl = []
+    with patch.object(_gb4n, "backup_quality_log") as _bk, patch("os.replace", _rep), patch.object(_aio4y2.time, "sleep", _sl.append):
+        _r = quality._save_quality_log({"days": [{"date": "2024-07-09"}]})
+    check("4y2 save: a log that stays locked: False after five tries (pauses 0.1 .. 0.4), the stored log untouched, no .tmp, no backup trigger",
+          _r is False and _st["calls"] == 5 and [round(p, 3) for p in _sl] == [0.1, 0.2, 0.3, 0.4]
+          and cfg.QUALITY_LOG_FILE.read_bytes() == _log_before and _tmps4y2() == [] and not _bk.called)
+    _rep, _st = _lock4y2("device_table.json")
+    _sl = []
+    with patch("os.replace", _rep), patch.object(_aio4y2.time, "sleep", _sl.append):
+        quality.save_device_table({"days": [{"date": "2024-07-09", "quality": "high", "device_id": "Z", "device_name": "Z"}]})
+    check("4y2 device table: a table that stays locked: five tries, four pauses, nothing raised, the stored table untouched, no .tmp",
+          _st["calls"] == 5 and len(_sl) == 4 and cfg.DEVICE_TABLE_FILE.read_bytes() == _tbl_before and _tmps4y2() == [])
+
+    with patch("os.replace", side_effect=OSError("disk full")):
+        _r, _calls = _qlogged(quality.save_device_table, {"days": []})
+    check("4y2 device table: a failing write is logged as a warning (nothing raised)",
+          ("warning", "  Could not write device_table.json: disk full") in _calls
+          and not any("written" in m for lv, m in _calls))
+
+    # writing the temp file itself fails: False, stored files untouched, no .tmp
+    with patch.object(_gb4n, "backup_quality_log") as _bk, patch.object(_aio4y2, "sync_file", side_effect=OSError("disk full")):
+        _r = quality._save_quality_log({"days": [{"date": "2024-07-09"}]})
+        quality.save_device_table({"days": []})
+    check("4y2 a temp file that cannot be written: log False, log and table untouched, no .tmp, no backup trigger",
+          _r is False and cfg.QUALITY_LOG_FILE.read_bytes() == _log_before and cfg.DEVICE_TABLE_FILE.read_bytes() == _tbl_before
+          and _tmps4y2() == [] and not _bk.called)
+
+    # data that cannot be written as JSON: still False and nothing raised (the dumps sits inside the try), no .tmp
+    with patch.object(_gb4n, "backup_quality_log") as _bk:
+        _r = quality._save_quality_log({"days": [{"date": "2024-07-09", "x": object()}]})
+    check("4y2 save: data that is no JSON is False, not an exception; the stored log untouched, no .tmp, no backup trigger",
+          _r is False and cfg.QUALITY_LOG_FILE.read_bytes() == _log_before and _tmps4y2() == [] and not _bk.called)
+
+    # a table that cannot be written as JSON is only a warning as well (an error that is no OSError is caught too)
+    with patch("time.sleep"):
+        _r, _calls = _qlogged(quality.save_device_table, {"days": [{"date": "2024-07-01", "quality": "high", "device_id": "A", "device_name": object()}]})
+    check("4y2 device table: data that is no JSON is a warning, not an exception; the stored table untouched, no .tmp",
+          any(lv == "warning" and "Could not write device_table.json" in m for lv, m in _calls)
+          and cfg.DEVICE_TABLE_FILE.read_bytes() == _tbl_before and _tmps4y2() == [])
+
+    # a folder that is gone is made again by the write (as cfg.LOG_DIR.mkdir did before)
+    import shutil as _sh4y2
+    _sh4y2.rmtree(cfg.LOG_DIR)
+    with patch.object(_gb4n, "backup_quality_log"):
+        _r = quality._save_quality_log(_d4y2)
+    check("4y2 save: a log folder that is gone is made again and the log written", _r is True and cfg.QUALITY_LOG_FILE.is_file())
+    _sh4y2.rmtree(cfg.LOG_DIR)
+    quality.save_device_table(_t4y2)
+    check("4y2 device table: a log folder that is gone is made again and the table written", cfg.DEVICE_TABLE_FILE.is_file())
+
+_src4y2 = _ast4y2.parse(Path(_qio.__file__).read_text(encoding="utf-8"))
+_own4y2 = [(_n.value.id, _n.attr) for _n in _ast4y2.walk(_src4y2)
+           if isinstance(_n, _ast4y2.Attribute) and isinstance(_n.value, _ast4y2.Name)
+           and ((_n.value.id == "os" and _n.attr in ("replace", "fsync", "rename"))
+                or (_n.value.id == "json" and _n.attr == "dump") or _n.attr == "write_text"
+                or (_n.value.id == "tmp" and _n.attr == "replace"))]
+check("4y2 the module has no os.replace / os.fsync / os.rename / json.dump / write_text / tmp.replace of its own (the writes go through atomic_io)",
+      _own4y2 == [])
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  4z. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run (changed lines of quality/_maint)

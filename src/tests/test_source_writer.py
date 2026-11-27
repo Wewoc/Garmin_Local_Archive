@@ -504,6 +504,11 @@ with _env("sw2_patch_log") as _b:
           _ok is True and json.loads((cfg.SOURCE_DIR / f"garmin_source_{_D}.json")
                                      .read_text(encoding="utf-8"))["steps"] == [1]
           and any(lv == "warning" and "log annotation failed" in m for lv, m in _c))
+    with patch.object(sys.modules["garmin_backup_source"], "backup_source", side_effect=RuntimeError("bk")):
+        _ok, _c = _slogged(source_writer, source_writer.patch_source_field, _D, "hydration", [4])    # a field that is not there yet
+    check("D2 patch_source_field: a failing source backup is only a warning, the patch still counts (Cosmic Ray round, Block 8 (a))",
+          _ok is True and json.loads((cfg.SOURCE_DIR / f"garmin_source_{_D}.json").read_text(encoding="utf-8"))["hydration"] == [4]
+          and any(lv == "warning" and f"patch_source_field: backup_source failed for {_D}: bk" in m for lv, m in _c))
     cfg.SOURCE_API_LOG.unlink()                                  # start a fresh, readable log
     source_writer.update_log(_D, _VAL_OK, [], [], 1)
     source_writer.patch_source_field(_D, "steps", [2])
@@ -523,6 +528,179 @@ with _env("sw2_cleanup") as _b:
     with patch.object(Path, "unlink", side_effect=OSError("locked")):
         source_writer._cleanup_tmp(_t)
     check("D2 _cleanup_tmp: a failing delete does not raise", _t.exists())
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  D3. The four writes go through atomic_io (Block 8 (a), step 3). fsync, the retry and the bytes are pinned,
+#      because a forgotten parameter would lose them without any other check noticing.
+# ══════════════════════════════════════════════════════════════════════════════
+section("D3. garmin_source_writer through atomic_io")
+import ast as _ast3
+import os as _os3
+import atomic_io as _aio3
+
+_real_fsync3, _real_replace3 = _os3.fsync, _os3.replace
+_D3 = "2024-07-02"
+# the file of the unmodified API responses: umlauts, euro sign, emoji, U+2028, a line break and quotes inside strings
+_PAYLOAD3 = {"date": _D3, "sleep": {"note": "Größe µ € 😀   line\nbreak \"q\" \\ b"},
+             "heart_rates": {"heartRateValues": [[1, 60]]}, "user_summary": {"totalSteps": 7}}
+
+
+class _Fsync3:
+    """os.fsync that counts its calls, can fail, and records an error of the real fsync."""
+    def __init__(self, fail=False):
+        self.calls, self.errors, self.fail = 0, [], fail
+
+    def __call__(self, fd):
+        self.calls += 1
+        if self.fail:
+            raise OSError("not supported")
+        try:
+            return _real_fsync3(fd)
+        except OSError as exc:
+            self.errors.append(exc)
+            raise
+
+
+def _locked_for3(name, times, calls):
+    """os.replace that raises a PermissionError for the first `times` swaps onto a file called `name`."""
+    def replace(src, dst):
+        if Path(dst).name == name:
+            calls.append(1)
+            if len(calls) <= times:
+                raise PermissionError("locked for a moment")
+        return _real_replace3(src, dst)
+    return replace
+
+
+def _tmps3(base):
+    return sorted(p.name for p in Path(base).rglob("*.tmp"))
+
+
+# -- write_source -------------------------------------------------------------------------------------------------
+with _env("sw3_write") as _b:
+    _src3 = cfg.SOURCE_DIR / f"garmin_source_{_D3}.json"
+    _spy = _Fsync3()
+    with patch.object(_aio3.os, "fsync", _spy):
+        _ok = source_writer.write_source(_PAYLOAD3, _D3)
+    check("D3 write_source: fsynced once, on the handle that wrote it (the real fsync raised nothing; "
+          "on a read handle it raises Bad file descriptor under Windows)", _ok is True and _spy.calls == 1 and _spy.errors == [])
+    _ref = _b / "reference_source.json"
+    _ref.write_text(json.dumps(_PAYLOAD3, ensure_ascii=False, indent=None, separators=(",", ":")), encoding="utf-8")
+    check("D3 write_source: the bytes are those of the former write_text (umlauts, emoji, U+2028, a line break inside "
+          "a string stay escaped, no raw line break)", _src3.read_bytes() == _ref.read_bytes() and b"\n" not in _src3.read_bytes()
+          and json.loads(_src3.read_text(encoding="utf-8")) == _PAYLOAD3)
+
+    _spy = _Fsync3(fail=True)
+    with patch.object(_aio3.os, "fsync", _spy):
+        _ok = source_writer.write_source({**_PAYLOAD3, "date": "2024-07-03"}, "2024-07-03")
+    check("D3 write_source: a file system without fsync still takes the file (one try, soft)",
+          _ok is True and _spy.calls == 1 and (cfg.SOURCE_DIR / "garmin_source_2024-07-03.json").is_file())
+
+    _before = _src3.read_bytes()
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3(_src3.name, 2, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok = source_writer.write_source({**_PAYLOAD3, "user_summary": {"totalSteps": 8}}, _D3, force=True)
+    check("D3 write_source: a file locked for a moment is tried again and then written (2 locked, 1 free)",
+          _ok is True and len(_calls) == 3 and [round(p, 3) for p in _sleeps] == [0.1, 0.2]
+          and json.loads(_src3.read_text(encoding="utf-8"))["user_summary"]["totalSteps"] == 8 and _tmps3(_b) == [])
+
+    _before = _src3.read_bytes()
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3(_src3.name, 99, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok, _c = _slogged(source_writer, source_writer.write_source, _PAYLOAD3, _D3, True)
+    check("D3 write_source: a file that stays locked: False after five tries, the stored source file byte for byte the "
+          "same, no .tmp, a warning names the day",
+          _ok is False and len(_calls) == 5 and len(_sleeps) == 4 and _src3.read_bytes() == _before and _tmps3(_b) == []
+          and any(lv == "warning" and f"write_source failed for {_D3}" in m for lv, m in _c))
+
+    _before = _src3.read_bytes()
+    _ok = source_writer.write_source({**_PAYLOAD3, "sleep": {"note": "lone \ud800 surrogate"}}, _D3, force=True)
+    check("D3 write_source: a response that cannot be encoded stops in the middle of the writing: False, the stored "
+          "source file byte for byte the same, no .tmp", _ok is False and _src3.read_bytes() == _before and _tmps3(_b) == [])
+
+    _stale = cfg.SOURCE_DIR / f"garmin_source_{_D3}.json.tmp"
+    _stale.write_text("left over of a crashed run", encoding="utf-8")
+    _ok = source_writer.write_source({**_PAYLOAD3, "user_summary": {"totalSteps": 9}}, _D3, force=True)
+    check("D3 write_source: a .tmp of an earlier crashed run does not stay and is not taken for the file",
+          _ok is True and not _stale.exists() and json.loads(_src3.read_text(encoding="utf-8"))["user_summary"]["totalSteps"] == 9)
+
+# -- update_log ---------------------------------------------------------------------------------------------------
+with _env("sw3_log") as _b:
+    _spy = _Fsync3()
+    with patch.object(_aio3.os, "fsync", _spy):
+        _ok = source_writer.update_log(_D3, _VAL_OK, ["sleep"], [], 10)
+    check("D3 update_log: fsynced once, on the handle that wrote it", _ok is True and _spy.calls == 1 and _spy.errors == [])
+    _logbytes = cfg.SOURCE_API_LOG.read_bytes()
+    _ref = _b / "reference_log.json"
+    _ref.write_text(json.dumps(json.loads(_logbytes.decode("utf-8")), ensure_ascii=False, indent=2), encoding="utf-8")
+    check("D3 update_log: the bytes are those of the former write_text with indent 2 (line ends of the system)",
+          _logbytes == _ref.read_bytes())
+
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3("source_api_log.json", 2, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok = source_writer.update_log("2024-07-04", _VAL_OK, [], [], 1)
+    check("D3 update_log: a log locked for a moment is tried again and then written (2 locked, 1 free)",
+          _ok is True and len(_calls) == 3 and [round(p, 3) for p in _sleeps] == [0.1, 0.2]
+          and "2024-07-04" in json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8")) and _tmps3(_b) == [])
+
+    _before = cfg.SOURCE_API_LOG.read_bytes()
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3("source_api_log.json", 99, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok = source_writer.update_log("2024-07-05", _VAL_OK, [], [], 1)
+    check("D3 update_log: a log that stays locked: False after five tries, the history byte for byte the same, no .tmp",
+          _ok is False and len(_calls) == 5 and cfg.SOURCE_API_LOG.read_bytes() == _before and _tmps3(_b) == [])
+
+# -- patch_source_field: the source file and the annotation of the log ----------------------------------------------
+with _env("sw3_patch") as _b:
+    source_writer.write_source(_PAYLOAD3, _D3)
+    source_writer.update_log(_D3, _VAL_OK, ["sleep"], [], 10)
+    _src3 = cfg.SOURCE_DIR / f"garmin_source_{_D3}.json"
+    _spy = _Fsync3()
+    with patch.object(_aio3.os, "fsync", _spy):
+        _ok = source_writer.patch_source_field(_D3, "steps", [{"steps": "ü€", "n": 1}])
+    check("D3 patch_source_field: two writes, two fsyncs (the source file and the annotation of the log), none failed",
+          _ok is True and _spy.calls == 2 and _spy.errors == [])
+    _merged = {**_PAYLOAD3, "steps": [{"steps": "ü€", "n": 1}]}
+    check("D3 patch_source_field: the bytes of the source file are those of the former write_text (compact, no raw line break)",
+          _src3.read_bytes() == json.dumps(_merged, ensure_ascii=False, indent=None, separators=(",", ":")).encode("utf-8"))
+
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3(_src3.name, 2, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok = source_writer.patch_source_field(_D3, "weight", [5])
+    check("D3 patch_source_field: a source file locked for a moment is tried again and then patched (2 locked, 1 free)",
+          _ok is True and len(_calls) == 3 and [round(p, 3) for p in _sleeps] == [0.1, 0.2]
+          and json.loads(_src3.read_text(encoding="utf-8"))["weight"] == [5] and _tmps3(_b) == [])
+
+    _srcbefore = _src3.read_bytes()
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3(_src3.name, 99, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok, _c = _slogged(source_writer, source_writer.patch_source_field, _D3, "bmi", [6])
+    check("D3 patch_source_field: a source file that stays locked: False after five tries, the stored file byte for byte "
+          "the same, no .tmp, a warning names the day",
+          _ok is False and len(_calls) == 5 and len(_sleeps) == 4 and _src3.read_bytes() == _srcbefore and _tmps3(_b) == []
+          and any(lv == "warning" and f"patch_source_field failed for {_D3}" in m for lv, m in _c))
+
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3("source_api_log.json", 2, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok = source_writer.patch_source_field(_D3, "floors", [3])
+    check("D3 patch_source_field: the annotation of the log is tried again too (2 locked, 1 free); before it failed at once",
+          _ok is True and len(_calls) == 3 and [round(p, 3) for p in _sleeps] == [0.1, 0.2]
+          and set(json.loads(cfg.SOURCE_API_LOG.read_text(encoding="utf-8"))[_D3]["backfilled_fields"]) == {"steps", "weight", "floors"})
+
+    _logbefore = cfg.SOURCE_API_LOG.read_bytes()
+    _calls, _sleeps = [], []
+    with patch.object(_aio3.os, "replace", _locked_for3("source_api_log.json", 99, _calls)), patch.object(_aio3.time, "sleep", _sleeps.append):
+        _ok, _c = _slogged(source_writer, source_writer.patch_source_field, _D3, "hydration", [4])
+    check("D3 patch_source_field: the annotation stays locked: the patch itself still counts (True), the log is byte for byte "
+          "the same, no .tmp is left behind (it stayed before), a warning says so",
+          _ok is True and json.loads(_src3.read_text(encoding="utf-8"))["hydration"] == [4]
+          and cfg.SOURCE_API_LOG.read_bytes() == _logbefore and _tmps3(_b) == []
+          and any(lv == "warning" and "log annotation failed" in m for lv, m in _c))
+
+_own3 = [(n.value.id, n.attr) for n in _ast3.walk(_ast3.parse(Path(source_writer.__file__).read_text(encoding="utf-8")))
+         if isinstance(n, _ast3.Attribute) and isinstance(n.value, _ast3.Name) and n.value.id == "os"
+         and n.attr in ("replace", "fsync", "rename")]
+check("D3 the module has no os.replace / os.fsync / os.rename of its own (every write goes through atomic_io)", _own3 == [])
 
 # -- garmin_source_quality: unreadable file, defaults ---------------------------------------------------------------
 with _env("sw2_sq") as _b:

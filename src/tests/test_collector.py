@@ -394,7 +394,14 @@ with _isolated_log_env("main_bulk_catchup") as _b:
 
     # a real write error (the file is locked): the save reports it, the run fails
     _put_log({"first_day": "2024-03-01", "devices": [], "days": [{"date": "2024-03-02", **_QL_BASE}]})
-    with patch.object(Path, "replace", side_effect=PermissionError("locked by another process")):
+    _real_replace_q = os.replace
+
+    def _quality_log_locked(src, dst):          # only the quality log is locked (atomic_io swaps it with os.replace and tries again)
+        if Path(dst).name == "quality_log.json":
+            raise PermissionError("locked by another process")
+        return _real_replace_q(src, dst)
+
+    with patch("os.replace", _quality_log_locked), patch("time.sleep"):
         _c, *_ = _bulk({"GARMIN_BULK_PHASES": "intraday"}, intraday_result={"ok": True, "written_days": ["2024-03-02"]})
     check("catch-up: a quality log that is locked for writing (os-level) is a failure of the run: exit code 1, the stored log has no mark",
           _c == 1 and "bulk" not in _qdays()["2024-03-02"])

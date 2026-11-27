@@ -11,8 +11,9 @@ Modules (Baustein 1, the core; see KONZEPT_tagebuch_V2.md and TODO_v178_tagebuch
   diary_writer.py   sole writer of diary_data/ (next to garmin_data/ and context_data/)
   diary_backup.py   the backup copy of the diary, sole writer of garmin_data/backup/diary/ (Baustein 5)
 
-The modules import each other with "from . import ..." and nothing outside the standard library; the one
-exception is diary_backup.py, a thin shell over garmin_backup_common.
+The modules import each other with "from . import ..." and nothing outside the standard library, except
+atomic_io (the shared atomic-write helper in garmin/, used by diary_writer.py and diary_backup.py) and, in
+diary_backup.py, garmin_backup_common (a thin shell over it).
 Later: search (3), the mirror container section (6). The package is not known to clients/mcp_server.py or to
 any module of maps/ in v1.7.8.
 """

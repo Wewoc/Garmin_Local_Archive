@@ -244,6 +244,282 @@ check("write empty dict: failed=0",   result_empty["failed"]  == 0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  5b. context_writer — the files it writes (Block 8 (a), step 6).
+#      This part holds for the module before and after it writes through atomic_io: bytes, tmp names, what a failing
+#      swap does to a stored file, the counts, write_file's results.
+# ══════════════════════════════════════════════════════════════════════════════
+section("5b. context_writer — the files it writes")
+from datetime import datetime as _dt5b
+
+
+class _Fixed5b(_dt5b):
+    @classmethod
+    def now(cls, tz=None):
+        return _dt5b(2026, 11, 24, 12, 0, 0, tzinfo=tz)
+
+
+_B5B = _TMPDIR / "ctx5b"
+_pw5b = types.SimpleNamespace(NAME="weather", SOURCE_TAG="open-meteo-weather", FILE_PREFIX="weather_",
+                              OUTPUT_DIR=_B5B / "weather" / "summary", AGGREGATION=None)
+_pp5b = types.SimpleNamespace(NAME="pollen", SOURCE_TAG="open-meteo-pollen", FILE_PREFIX="pollen_",
+                              OUTPUT_DIR=_B5B / "pollen" / "summary", RAW_OUTPUT_DIR=_B5B / "pollen" / "raw",
+                              AGGREGATION="daily_max")
+_w_fields5b = {"temperature_2m_max": 5.2, "note": "Größe µ € 😀"}
+_p_fields5b = {"birch_pollen": 0.3, "alder_pollen": 5.2}
+_p_raw5b = {"birch_pollen": [{"ts": "2026-01-01T00:00", "value": 0.0}, {"ts": "2026-01-01T12:00", "value": 0.3},
+                             {"ts": "2026-01-01T18:00", "value": "Größe µ € 😀"}]}   # non-ASCII on purpose: the raw file is written with ensure_ascii=False
+_names5b = []
+_real_replace5b = os.replace
+
+
+def _spy5b(src, dst):
+    _names5b.append((Path(dst).parent.name, Path(src).name, Path(dst).name))
+    return _real_replace5b(src, dst)
+
+
+with patch.object(context_writer, "datetime", _Fixed5b), patch("os.replace", _spy5b):
+    _rw5b = context_writer.write(_pw5b, {"summary": {"2026-01-01": _w_fields5b}, "raw": {}}, 52.11, 8.67)
+    _rp5b = context_writer.write(_pp5b, {"summary": {"2026-01-01": _p_fields5b}, "raw": {"2026-01-01": _p_raw5b}}, 52.11, 8.67)
+
+
+def _ref5b(name, out):
+    ref = _B5B / name
+    ref.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    return ref.read_bytes()
+
+
+_head5b = {"source": None, "fetched_at": "2026-11-24T12:00:00", "latitude": 52.11, "longitude": 8.67}
+_wf5b = _pw5b.OUTPUT_DIR / "weather_2026-01-01.json"
+_pf5b = _pp5b.OUTPUT_DIR / "pollen_2026-01-01.json"
+_pr5b = _pp5b.RAW_OUTPUT_DIR / "pollen_2026-01-01.json"
+check("5b write: counts {written: 1, failed: 0} for the weather day and for the pollen day (the raw file is not counted)",
+      _rw5b == {"written": 1, "failed": 0} and _rp5b == {"written": 1, "failed": 0})
+check("5b write: the weather file has the bytes of the former write_text (umlauts, euro sign, emoji, line ends of the system)",
+      _wf5b.read_bytes() == _ref5b("ref_weather.json", {"date": "2026-01-01", "source": "open-meteo-weather", "fetched_at": "2026-11-24T12:00:00",
+                                                          "latitude": 52.11, "longitude": 8.67, "fields": _w_fields5b}))
+check("5b write: the pollen file has the bytes of the former write_text, with the aggregation after the fields",
+      _pf5b.read_bytes() == _ref5b("ref_pollen.json", {"date": "2026-01-01", "source": "open-meteo-pollen", "fetched_at": "2026-11-24T12:00:00",
+                                                         "latitude": 52.11, "longitude": 8.67, "fields": _p_fields5b, "aggregation": "daily_max"}))
+check("5b write: the raw file has the bytes of the former write_text (no aggregation)",
+      _pr5b.read_bytes() == _ref5b("ref_pollen_raw.json", {"date": "2026-01-01", "source": "open-meteo-pollen", "fetched_at": "2026-11-24T12:00:00",
+                                                             "latitude": 52.11, "longitude": 8.67, "fields": _p_raw5b}))
+check("5b write: every file goes through <prefix><date>.tmp (the .json is replaced), summary before raw, as before",
+      _names5b == [("summary", "weather_2026-01-01.tmp", "weather_2026-01-01.json"),
+                   ("summary", "pollen_2026-01-01.tmp", "pollen_2026-01-01.json"),
+                   ("raw", "pollen_2026-01-01.tmp", "pollen_2026-01-01.json")])
+check("5b write: no .tmp is left behind after a success", not list(_B5B.rglob("*.tmp")))
+
+_before5b = {p: p.read_bytes() for p in (_wf5b, _pf5b, _pr5b)}
+_new_w5b = {"temperature_2m_max": 9.9}
+with patch.object(context_writer, "datetime", _Fixed5b), patch("os.replace", side_effect=OSError("locked")):
+    _rf5b = context_writer.write(_pw5b, {"summary": {"2026-01-01": _new_w5b}, "raw": {}}, 52.11, 8.67)
+check("5b write: a failing swap counts the day as failed, the stored day stays byte for byte the same, no .tmp",
+      _rf5b == {"written": 0, "failed": 1} and _wf5b.read_bytes() == _before5b[_wf5b] and not list(_B5B.rglob("*.tmp")))
+
+
+def _raw_fails5b(src, dst):
+    if Path(dst).parent.name == "raw":
+        raise OSError("locked")
+    return _real_replace5b(src, dst)
+
+
+with patch.object(context_writer, "datetime", _Fixed5b), patch("os.replace", _raw_fails5b):
+    _rr5b = context_writer.write(_pp5b, {"summary": {"2026-01-01": {"birch_pollen": 1.5}}, "raw": {"2026-01-01": _p_raw5b}}, 52.11, 8.67)
+check("5b write: when only the raw file fails, the day still counts as written (raw is best effort), the summary is new, "
+      "the raw file stays as it was, no .tmp",
+      _rr5b == {"written": 1, "failed": 0} and json.loads(_pf5b.read_text(encoding="utf-8"))["fields"] == {"birch_pollen": 1.5}
+      and _pr5b.read_bytes() == _before5b[_pr5b] and not list(_B5B.rglob("*.tmp")))
+
+# write_file: the pending marker, the day files of the mirror import
+_wfile5b = _B5B / "deep" / "sub" / "marker_5b.json"
+_data5b = {"pending": [{"date": "2026-01-02", "source": "wëather €", "marked_at": "T1"}]}
+_names5b.clear()
+with patch("os.replace", _spy5b):
+    _ok5b = context_writer.write_file(_wfile5b, _data5b)
+_ref5bf = _B5B / "ref_marker.json"
+_ref5bf.write_text(json.dumps(_data5b, ensure_ascii=False, indent=2), encoding="utf-8")
+check("5b write_file: True, missing parent folders are created, the bytes are those of the former write_text",
+      _ok5b is True and _wfile5b.read_bytes() == _ref5bf.read_bytes())
+check("5b write_file: the file goes through <stem>.tmp (the suffix is replaced), as before",
+      _names5b == [("sub", "marker_5b.tmp", "marker_5b.json")])
+_wbefore5b = _wfile5b.read_bytes()
+with patch("os.replace", side_effect=OSError("locked")):
+    _ok5b = context_writer.write_file(_wfile5b, {"pending": []})
+check("5b write_file: a failing swap is False (nothing raised), the stored file stays byte for byte the same, no .tmp",
+      _ok5b is False and _wfile5b.read_bytes() == _wbefore5b and not list(_B5B.rglob("*.tmp")))
+try:
+    context_writer.write_file(_wfile5b, {"x": object()})
+    _raised5b = None
+except Exception as _exc5b:  # noqa: BLE001 — the type is what is looked at
+    _raised5b = type(_exc5b)
+check("5b write_file: data that is not JSON raises a TypeError (only an OSError is caught), the stored file stays",
+      _raised5b is TypeError and _wfile5b.read_bytes() == _wbefore5b and not list(_B5B.rglob("*.tmp")))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  5c. context_writer writes through atomic_io (Block 8 (a), step 6): fsync and retry are counted, because a forgotten
+#      parameter would lose them without any other check noticing
+# ══════════════════════════════════════════════════════════════════════════════
+section("5c. context_writer through atomic_io")
+import ast as _ast5c
+import atomic_io as _aio5c   # garmin/ is on the path (gla_testenv)
+
+_real_fsync5c = os.fsync
+
+
+def _fsync_spy5c(calls, fail=False):
+    def spy(fd):
+        calls.append(fd)
+        if fail:
+            raise OSError("not supported")
+        return _real_fsync5c(fd)
+    return spy
+
+
+def _tmps5c():
+    return sorted(p.name for p in _B5B.rglob("*.tmp"))
+
+
+_fs5c = []
+with patch.object(_aio5c.os, "fsync", _fsync_spy5c(_fs5c)):
+    context_writer.write(_pw5b, {"summary": {"2026-01-03": {"a": 1}}, "raw": {}}, 52.11, 8.67)
+check("5c write: a summary file is fsynced once (a plugin without raw)", len(_fs5c) == 1)
+_fs5c = []
+with patch.object(_aio5c.os, "fsync", _fsync_spy5c(_fs5c)):
+    context_writer.write(_pp5b, {"summary": {"2026-01-03": {"a": 1}}, "raw": {"2026-01-03": {"a": []}}}, 52.11, 8.67)
+check("5c write: a day with a raw file is fsynced twice (summary and raw)", len(_fs5c) == 2)
+_fs5c = []
+with patch.object(_aio5c.os, "fsync", _fsync_spy5c(_fs5c)):
+    context_writer.write_file(_wfile5b, {"pending": []})
+check("5c write_file: fsynced once", len(_fs5c) == 1)
+
+_fs5c = []
+with patch.object(_aio5c.os, "fsync", _fsync_spy5c(_fs5c, fail=True)):
+    _r5c = context_writer.write(_pp5b, {"summary": {"2026-01-04": {"a": 2}}, "raw": {"2026-01-04": {"a": []}}}, 52.11, 8.67)
+    _ok5c = context_writer.write_file(_wfile5b, {"pending": [1]})
+check("5c a file system without fsync still takes all three kinds of file (soft)",
+      _r5c == {"written": 1, "failed": 0} and _ok5c is True and len(_fs5c) == 3 and _tmps5c() == []
+      and (_pp5b.OUTPUT_DIR / "pollen_2026-01-04.json").is_file() and (_pp5b.RAW_OUTPUT_DIR / "pollen_2026-01-04.json").is_file()
+      and json.loads(_wfile5b.read_text(encoding="utf-8")) == {"pending": [1]})
+
+_calls5c = {"n": 0}
+
+
+def _flaky5c(src, dst):
+    _calls5c["n"] += 1
+    if _calls5c["n"] <= 2:
+        raise PermissionError("locked for a moment")
+    return _real_replace5b(src, dst)
+
+
+_sleeps5c = []
+with patch.object(_aio5c.os, "replace", _flaky5c), patch.object(_aio5c.time, "sleep", _sleeps5c.append):
+    _r5c = context_writer.write(_pw5b, {"summary": {"2026-01-05": {"a": 3}}, "raw": {}}, 52.11, 8.67)
+check("5c write: a summary file locked for a moment is tried again and then written (2 locked, 1 free)",
+      _r5c == {"written": 1, "failed": 0} and _calls5c["n"] == 3 and [round(p, 3) for p in _sleeps5c] == [0.1, 0.2]
+      and (_pw5b.OUTPUT_DIR / "weather_2026-01-05.json").is_file() and _tmps5c() == [])
+_calls5c["n"] = 0
+_sleeps5c.clear()
+with patch.object(_aio5c.os, "replace", _flaky5c), patch.object(_aio5c.time, "sleep", _sleeps5c.append):
+    _ok5c = context_writer.write_file(_wfile5b, {"pending": [2]})
+check("5c write_file: a file locked for a moment is tried again and then written",
+      _ok5c is True and _calls5c["n"] == 3 and len(_sleeps5c) == 2 and json.loads(_wfile5b.read_text(encoding="utf-8")) == {"pending": [2]}
+      and _tmps5c() == [])
+
+
+def _locked5c(only_raw=False):
+    calls = {"n": 0}
+
+    def locked(src, dst):
+        if only_raw and Path(dst).parent.name != "raw":
+            return _real_replace5b(src, dst)
+        calls["n"] += 1
+        raise PermissionError("stays locked")
+    return locked, calls
+
+
+_wbefore5c = _wf5b.read_bytes()
+_lk5c, _lc5c = _locked5c()
+_sleeps5c.clear()
+with patch.object(_aio5c.os, "replace", _lk5c), patch.object(_aio5c.time, "sleep", _sleeps5c.append):
+    _r5c = context_writer.write(_pw5b, {"summary": {"2026-01-01": {"a": 9}}, "raw": {}}, 52.11, 8.67)
+check("5c write: a summary file that stays locked: failed after five tries (four pauses 0.1 .. 0.4), the stored day untouched, no .tmp",
+      _r5c == {"written": 0, "failed": 1} and _lc5c["n"] == 5 and [round(p, 3) for p in _sleeps5c] == [0.1, 0.2, 0.3, 0.4]
+      and _wf5b.read_bytes() == _wbefore5c and _tmps5c() == [])
+_lk5c, _lc5c = _locked5c()
+_sleeps5c.clear()
+_wbefore5c = _wfile5b.read_bytes()
+with patch.object(_aio5c.os, "replace", _lk5c), patch.object(_aio5c.time, "sleep", _sleeps5c.append):
+    _ok5c = context_writer.write_file(_wfile5b, {"pending": [3]})
+check("5c write_file: a file that stays locked: False after five tries, the stored file untouched, no .tmp",
+      _ok5c is False and _lc5c["n"] == 5 and len(_sleeps5c) == 4 and _wfile5b.read_bytes() == _wbefore5c and _tmps5c() == [])
+
+_pbefore5c, _rbefore5c = _pf5b.read_bytes(), _pr5b.read_bytes()
+_lk5c, _lc5c = _locked5c(only_raw=True)
+_sleeps5c.clear()
+with patch.object(_aio5c.os, "replace", _lk5c), patch.object(_aio5c.time, "sleep", _sleeps5c.append):
+    _r5c = context_writer.write(_pp5b, {"summary": {"2026-01-01": {"birch_pollen": 2.5}}, "raw": {"2026-01-01": _p_raw5b}}, 52.11, 8.67)
+check("5c write: a raw file that stays locked is not counted (written 1, failed 0), the summary is new, the raw file untouched, no .tmp",
+      _r5c == {"written": 1, "failed": 0} and _lc5c["n"] == 5 and json.loads(_pf5b.read_text(encoding="utf-8"))["fields"] == {"birch_pollen": 2.5}
+      and _pf5b.read_bytes() != _pbefore5c and _pr5b.read_bytes() == _rbefore5c and _tmps5c() == [])
+
+# a folder that is gone while write() runs (removed right before the file is written) is not made again by the helper:
+# the day counts as failed, as with write_text before
+_pg5c = types.SimpleNamespace(NAME="gone", SOURCE_TAG="x", FILE_PREFIX="gone_", OUTPUT_DIR=_B5B / "gone" / "summary",
+                              RAW_OUTPUT_DIR=_B5B / "gone" / "raw", AGGREGATION=None)
+_real_dumps5c = json.dumps
+
+
+def _dumps_removing5c(target_name, which_call):
+    state = {"n": 0}
+
+    def dumps(*a, **k):
+        state["n"] += 1
+        if state["n"] == which_call:
+            shutil.rmtree(_B5B / "gone" / target_name)
+        return _real_dumps5c(*a, **k)
+    return dumps
+
+
+with patch.object(context_writer.json, "dumps", _dumps_removing5c("summary", 1)):
+    _r5c = context_writer.write(_pg5c, {"summary": {"2026-01-01": {"a": 1}}, "raw": {}}, 52.11, 8.67)
+check("5c write: a summary folder that is gone is not made by the file write (failed 1, folder still gone)",
+      _r5c == {"written": 0, "failed": 1} and not (_B5B / "gone" / "summary").exists())
+_pg5c.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+with patch.object(context_writer.json, "dumps", _dumps_removing5c("raw", 2)):
+    _r5c = context_writer.write(_pg5c, {"summary": {"2026-01-01": {"a": 1}}, "raw": {"2026-01-01": {"a": []}}}, 52.11, 8.67)
+check("5c write: a raw folder that is gone is not made by the file write (summary written, raw folder still gone)",
+      _r5c == {"written": 1, "failed": 0} and (_pg5c.OUTPUT_DIR / "gone_2026-01-01.json").is_file()
+      and not (_B5B / "gone" / "raw").exists())
+
+# write_file's target must not itself be a .tmp file: the helper refuses it (before, os.replace(x, x) "succeeded")
+try:
+    context_writer.write_file(_B5B / "odd.tmp", {"a": 1})
+    _raised5c = None
+except Exception as _exc5c:  # noqa: BLE001 — the type is what is looked at
+    _raised5c = type(_exc5c)
+check("5c write_file: a target that ends in .tmp is refused loudly (ValueError, nothing written)",
+      _raised5c is ValueError and not (_B5B / "odd.tmp").exists())
+
+# a value that cannot be encoded: the error is not an OSError, so it still leaves write(); the .tmp no longer stays behind
+try:
+    context_writer.write(_pw5b, {"summary": {"2026-01-06": {"a": "\ud800"}}, "raw": {}}, 52.11, 8.67)
+    _raised5c = None
+except Exception as _exc5c:  # noqa: BLE001 — the type is what is looked at
+    _raised5c = type(_exc5c)
+check("5c write: a text that cannot be encoded raises a UnicodeEncodeError out of write(), no .tmp, no file for that day",
+      _raised5c is UnicodeEncodeError and _tmps5c() == [] and not (_pw5b.OUTPUT_DIR / "weather_2026-01-06.json").exists())
+
+_src5c = _ast5c.parse(Path(context_writer.__file__).read_text(encoding="utf-8"))
+_own5c = [(_n.value.id, _n.attr) for _n in _ast5c.walk(_src5c)
+          if isinstance(_n, _ast5c.Attribute) and isinstance(_n.value, _ast5c.Name) and _n.value.id == "os"
+          and _n.attr in ("replace", "fsync", "rename")]
+_wt5c = [_n.attr for _n in _ast5c.walk(_src5c) if isinstance(_n, _ast5c.Attribute) and _n.attr in ("write_text", "write_bytes", "unlink")]
+check("5c the module has no os.replace / os.fsync / os.rename / write_text / unlink of its own (the writes go through atomic_io)",
+      _own5c == [] and _wt5c == [])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  6. context_api — parse helpers (no network)
 # ══════════════════════════════════════════════════════════════════════════════
 section("6. context_api — parse helpers")

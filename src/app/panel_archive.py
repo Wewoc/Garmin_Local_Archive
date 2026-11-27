@@ -147,8 +147,8 @@ class PanelArchive(QWidget):
             # same rationale as the quality_log.json direct reads elsewhere
             # in this file (see _check_failed_days_popup() above). No
             # mutation, no ownership transfer, no QUALITY_LOCK required —
-            # device_table.json is written atomically via tmp.replace() in
-            # garmin/quality/_io.py::save_device_table(), so a reader here
+            # device_table.json is written atomically (atomic_io: temp file +
+            # os.replace) in garmin/quality/_io.py::save_device_table(), so a reader here
             # always sees either the old or the new complete file, never a
             # partial write. Documented exception: see REFERENCE_GARMIN.md
             # § Documented Exceptions.

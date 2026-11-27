@@ -16,6 +16,11 @@ Responsibilities:
 No other module writes to raw/ or summary/ directly.
 No API logic, no quality log access, no date strategy logic.
 
+Every file is written through atomic_io (the shared atomic-write helper in garmin/): a .tmp file, fsync where
+the file system supports it, os.replace, tried up to five times when the file is locked for a moment. write_day()
+writes both .tmp files first and swaps them one after the other, raw first; a file swapped before an error stays
+swapped, the .tmp files are removed.
+
 Resolved summary (v1.7.6.1): summary/ is the one place that holds a single value per day for
 readers that do not ask the broker. When a day has an aggregates file in the bulk store, the
 summary is not taken as passed but derived from the API data plus the export's values: per top-level
@@ -46,9 +51,9 @@ Public functions:
 import copy
 import json
 import logging
-import os
 from datetime import date as _date
 
+import atomic_io as aio
 import garmin_config as cfg
 
 log = logging.getLogger(__name__)
@@ -178,18 +183,17 @@ def write_day(normalized: dict, summary: dict, date_str: str) -> bool:
         tmp_raw      = cfg.RAW_DIR     / f"garmin_raw_{date_str}.tmp"
         tmp_summary  = cfg.SUMMARY_DIR / f"garmin_{date_str}.tmp"
 
-        tmp_raw.write_text(
-            json.dumps(normalized, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-        tmp_summary.write_text(
-            json.dumps(summary, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
+        # atomic_io: both temp files are written first (soft fsync; the folders were made above), then
+        # swapped one after the other, raw first (tried again for a moment when a file is locked).
+        # The except block below removes whatever .tmp is left.
+        aio.write_tmp(tmp_raw, json.dumps(normalized, ensure_ascii=False, indent=2),
+                      fsync=aio.FSYNC_SOFT, mkdir=False)
+        aio.write_tmp(tmp_summary, json.dumps(summary, ensure_ascii=False, indent=2),
+                      fsync=aio.FSYNC_SOFT, mkdir=False)
 
-        os.replace(tmp_raw, raw_path)
+        aio.replace_with_retry(tmp_raw, raw_path, attempts=aio.REPLACE_ATTEMPTS)
         tmp_raw = None
-        os.replace(tmp_summary, summary_path)
+        aio.replace_with_retry(tmp_summary, summary_path, attempts=aio.REPLACE_ATTEMPTS)
         tmp_summary = None
 
         log.debug(f"  Writer: raw + summary written for {date_str}")
@@ -348,8 +352,8 @@ def restore_day_files(date_str: str, raw_bytes=None, summary_bytes=None) -> bool
         for folder, stem, data in todo:
             folder.mkdir(parents=True, exist_ok=True)
             tmp = folder / f"{stem}.tmp"
-            tmp.write_bytes(data)
-            os.replace(tmp, folder / f"{stem}.json")
+            aio.write_tmp(tmp, data, fsync=aio.FSYNC_SOFT, mkdir=False)
+            aio.replace_with_retry(tmp, folder / f"{stem}.json", attempts=aio.REPLACE_ATTEMPTS)
             tmp = None
     except Exception as e:
         log.error(f"  Writer: failed to restore {date_str}: {e}")
@@ -370,31 +374,20 @@ def restore_day_files(date_str: str, raw_bytes=None, summary_bytes=None) -> bool
 
 def _write_summary_file(summary: dict, date_str: str) -> bool:
     """Writes summary/garmin_<date>.json atomically (the file part of write_summary_only; no resolution)."""
-    tmp_summary = None
     try:
-        cfg.SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
-
         summary_path = cfg.SUMMARY_DIR / f"garmin_{date_str}.json"
         tmp_summary  = cfg.SUMMARY_DIR / f"garmin_{date_str}.tmp"
 
-        tmp_summary.write_text(
-            json.dumps(summary, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-
-        os.replace(tmp_summary, summary_path)
-        tmp_summary = None
+        # atomic_io: makes the folder, writes garmin_<date>.tmp (soft fsync), swaps it over the summary
+        # (tried again for a moment when the file is locked); a failed write removes its own .tmp.
+        aio.write_atomic(summary_path, json.dumps(summary, ensure_ascii=False, indent=2),
+                         fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS, tmp=tmp_summary)
 
         log.debug(f"  Writer: summary written for {date_str} (raw/ untouched)")
         return True
 
     except Exception as e:
         log.error(f"  Writer: failed to write summary for {date_str}: {e}")
-        if tmp_summary is not None:
-            try:
-                tmp_summary.unlink(missing_ok=True)
-            except OSError:
-                pass
         return False
 
 

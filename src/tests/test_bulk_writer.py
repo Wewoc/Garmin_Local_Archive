@@ -26,6 +26,7 @@ from support import check, section, summary
 section("B4. garmin_bulk_writer (v1.7.6)")
 import garmin_bulk_normalizer as nz
 import garmin_bulk_writer as bw
+import atomic_io as aio
 
 
 def _h(text):
@@ -130,17 +131,17 @@ with _isolated_log_env("bulk_writer") as base:
         synced.append(fd)
         return real_fsync(fd)
 
-    with patch.object(bw.os, "fsync", _spy):
+    with patch.object(aio.os, "fsync", _spy):
         check("a day file is flushed to disk (fsync on the write handle)", bw.write_day(plan_c, samples_c) == bw.WRITTEN and len(synced) == 1)
 
     good = bw._load_day("2024-02-03")[1]
     good_bytes = day_file.read_bytes()
     plan_d, samples_d = _day(hashes=(H1, H2, H3))
-    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full")):
         check("a failing replace returns failed", bw.write_day(plan_d, samples_d) == bw.FAILED)
     check("... the old day is untouched and no temporary file is left", day_file.read_bytes() == good_bytes and not list(cfg.BULK_RAW_DIR.glob("*.tmp")))
     plan_e, samples_e = _day(date="2024-02-06")
-    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full")):
         check("a failing replace for a new day returns failed", bw.write_day(plan_e, samples_e) == bw.FAILED)
     check("... and leaves neither a day nor a temporary file", not (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-06.json").exists()
           and not list(cfg.BULK_RAW_DIR.glob("*.tmp")))
@@ -187,13 +188,13 @@ with _isolated_log_env("bulk_writer") as base:
             raise PermissionError(13, "sharing violation")
         return real_replace(src, dst)
 
-    with patch.object(bw.os, "replace", _busy_twice), patch.object(bw.time, "sleep") as slept:
+    with patch.object(aio.os, "replace", _busy_twice), patch.object(aio.time, "sleep") as slept:
         check("a day: two sharing violations in a row are retried and the day is written",
               bw.write_day(plan_f, samples_f) == bw.WRITTEN and len(calls) == 3 and slept.call_count == 2
               and bw._load_day("2024-02-10")[1] is not None)
     calls.clear()
     blob = b"original that is busy for a moment"
-    with patch.object(bw.os, "replace", _busy_twice), patch.object(bw.time, "sleep"):
+    with patch.object(aio.os, "replace", _busy_twice), patch.object(aio.time, "sleep"):
         check("an original: two sharing violations in a row are retried and the original is written",
               bw.store_original(hashlib.sha256(blob).hexdigest(), blob) == bw.WRITTEN and len(calls) == 3)
     always = []
@@ -202,13 +203,13 @@ with _isolated_log_env("bulk_writer") as base:
         always.append(1)
         raise PermissionError(13, "sharing violation")
 
-    with patch.object(bw.os, "replace", _always_busy), patch.object(bw.time, "sleep") as slept:
+    with patch.object(aio.os, "replace", _always_busy), patch.object(aio.time, "sleep") as slept:
         check("a lock that does not go away: failed after five attempts, with pauses in between",
               bw.write_day(*_day(date="2024-02-11")) == bw.FAILED and len(always) == 5 and slept.call_count == 4)
     check("... and no temporary file or day is left", not list(cfg.BULK_RAW_DIR.glob("*.tmp"))
           and not (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-11.json").exists())
     always.clear()
-    with patch.object(bw.os, "replace", _always_busy), patch.object(bw.time, "sleep"):
+    with patch.object(aio.os, "replace", _always_busy), patch.object(aio.time, "sleep"):
         blob2 = b"original that stays busy"
         check("an original under a lasting lock: failed after five attempts, no temporary file left",
               bw.store_original(hashlib.sha256(blob2).hexdigest(), blob2) == bw.FAILED and len(always) == 5
@@ -219,7 +220,7 @@ with _isolated_log_env("bulk_writer") as base:
         other_errors.append(1)
         raise OSError(28, "no space left")
 
-    with patch.object(bw.os, "replace", _full), patch.object(bw.time, "sleep") as slept:
+    with patch.object(aio.os, "replace", _full), patch.object(aio.time, "sleep") as slept:
         check("other errors (disk full) are not retried", bw.write_day(*_day(date="2024-02-12")) == bw.FAILED
               and len(other_errors) == 1 and slept.call_count == 0)
 
@@ -228,7 +229,7 @@ with _isolated_log_env("bulk_writer") as base:
     digest = hashlib.sha256(data).hexdigest()
     target = cfg.BULK_SOURCE_DIR / digest[:2] / f"{digest}.fit"
     synced.clear()
-    with patch.object(bw.os, "fsync", _spy):
+    with patch.object(aio.os, "fsync", _spy):
         check("an original is stored in source/<first two characters>/<hash>.fit",
               bw.store_original(digest, data) == bw.WRITTEN and target.read_bytes() == data)
     check("originals are not fsynced one by one (they can be made again from the export)", synced == [])
@@ -261,7 +262,7 @@ with _isolated_log_env("bulk_writer") as base:
     for label, name, payload in bogus:
         check(f"refused, nothing written: {label}", bw.store_original(name, payload) == bw.FAILED)
     check("... the originals folder is unchanged by all refusals", _tree(cfg.BULK_SOURCE_DIR) == bad_state)
-    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full")):
         other = b"another original"
         check("a failing replace for an original returns failed and leaves no temporary file",
               bw.store_original(hashlib.sha256(other).hexdigest(), other) == bw.FAILED and not list(cfg.BULK_SOURCE_DIR.rglob("*.tmp")))
@@ -763,11 +764,11 @@ with _isolated_log_env("bulk_writer_imp_bad") as base, patch.object(bw.log, "war
 # -- failures while writing, retries, durability, one writing flow ----------------------------------------------
 with _isolated_log_env("bulk_writer_imp_write") as base:
     _dp = cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-03.json"
-    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full")):
         check("import: a failing replace is 'failed', nothing raised, no day and no temporary file",
               bw.import_day_file("intraday", "2024-02-03", DAY_SMALL) == bw.FAILED and not _dp.exists() and not list(base.rglob("*.tmp")))
     bw.import_day_file("intraday", "2024-02-03", DAY_SMALL)
-    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full")):
         check("import: ... a stored day stays as it was when the replace of a fuller one fails",
               bw.import_day_file("intraday", "2024-02-03", DAY_FULL) == bw.FAILED and _dp.read_bytes() == DAY_SMALL
               and not list(base.rglob("*.tmp")))
@@ -780,12 +781,12 @@ with _isolated_log_env("bulk_writer_imp_write") as base:
             raise PermissionError(13, "sharing violation")
         return _real_replace(src, dst)
 
-    with patch.object(bw.os, "replace", _busy_twice), patch.object(bw.time, "sleep"):
+    with patch.object(aio.os, "replace", _busy_twice), patch.object(aio.time, "sleep"):
         check("import: two sharing violations in a row are retried and the file is written (as for every other file)",
               bw.import_day_file("intraday", "2024-02-03", DAY_FULL) == bw.WRITTEN and len(_calls) == 3 and _dp.read_bytes() == DAY_FULL)
     _synced = []
     _real_fsync = os.fsync
-    with patch.object(bw.os, "fsync", lambda fd: (_synced.append(fd), _real_fsync(fd))[1]):
+    with patch.object(aio.os, "fsync", lambda fd: (_synced.append(fd), _real_fsync(fd))[1]):
         check("import: the file is flushed to disk (fsync on the write handle)",
               bw.import_day_file("aggregates", "2024-02-03", AGG_SMALL) == bw.WRITTEN and len(_synced) == 1)
     _spy_calls = []
@@ -802,7 +803,7 @@ with _isolated_log_env("bulk_writer_imp_write") as base:
           _written_names == ["garmin_bulk_2024-02-08.json", "garmin_bulk_agg_2024-02-08.json",
                              "garmin_bulk_2024-02-09.json", "garmin_bulk_agg_2024-02-09.json"] and _spy_calls == _written_names)
     _p, _s = _day(date="2024-02-20")
-    with patch.object(bw.os, "replace", side_effect=OSError("disk full")):
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full")):
         check("_write_atomic: a failure keeps neither a temporary file nor the new day (write_day), an exception never leaves the module",
               bw.write_day(_p, _s) == bw.FAILED and bw.write_aggregates("2024-02-20", {"date": "2024-02-20", "a": 1}, [K1]) == bw.FAILED
               and not list(base.rglob("*.tmp")) and not (cfg.BULK_RAW_DIR / "garmin_bulk_2024-02-20.json").exists())
@@ -876,10 +877,11 @@ for _n in ast.walk(_tree_ast):
         _all |= {a.name.split(".")[0] for a in _n.names}
     elif isinstance(_n, ast.ImportFrom) and _n.module:
         _all.add(_n.module.split(".")[0])
-check("module level: standard library only (garmin_config is imported inside the functions)",
-      _top <= {"hashlib", "json", "logging", "os", "re", "time", "datetime", "__future__"} and "garmin_config" not in _top)
-check("garmin_config is the only project module used at all",
-      (_all - {"hashlib", "json", "logging", "os", "re", "time", "datetime", "__future__"}) <= {"garmin_config"})
+check("module level: standard library and atomic_io only (garmin_config is imported inside the functions); no os, no time of its own",
+      _top <= {"hashlib", "json", "logging", "re", "datetime", "atomic_io", "__future__"} and "garmin_config" not in _top
+      and "atomic_io" in _top)
+check("atomic_io and garmin_config are the only project modules used at all",
+      (_all - {"hashlib", "json", "logging", "re", "datetime", "__future__"}) <= {"atomic_io", "garmin_config"})
 check("no print", not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print" for n in ast.walk(_tree_ast)))
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -888,36 +890,74 @@ check("no print", not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Nam
 section("B4b. garmin_bulk_writer — mutation round v1.7.6.12")
 import shutil as _shutil9
 
-check("the retry of a locked file: 5 attempts, a pause of 0.1 s that grows with every attempt",
-      bw.REPLACE_ATTEMPTS == 5 and bw.REPLACE_PAUSE_S == 0.1)
+check("the retry of a locked file is the one of atomic_io: 5 attempts, a pause of 0.1 s that grows with every attempt; "
+      "the module keeps no copy of the constants",
+      aio.REPLACE_ATTEMPTS == 5 and aio.REPLACE_PAUSE_S == 0.1
+      and not hasattr(bw, "REPLACE_ATTEMPTS") and not hasattr(bw, "REPLACE_PAUSE_S")
+      and not hasattr(bw, "_replace") and not hasattr(bw, "_cleanup"))
 with _isolated_log_env("bulk_writer_b4b") as base:
-    # _cleanup never raises
-    _victim = base / "v.tmp"
-    _victim.write_text("x", encoding="utf-8")
-    with patch.object(Path, "unlink", side_effect=PermissionError("locked")):
-        bw._cleanup(_victim)
-    check("_cleanup: an OS error while removing is ignored", _victim.exists())
+    # a failing removal of the .tmp never escapes: the failure is still 'failed', not an exception
+    _blob_c = b"original, swap and cleanup both fail"
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full")), \
+            patch.object(Path, "unlink", side_effect=PermissionError("locked")):
+        _r_c = bw.store_original(hashlib.sha256(_blob_c).hexdigest(), _blob_c)
+        _r_d = bw.write_day(*_day(date="2024-02-21"))
+    check("a failing removal of the .tmp after a failing swap is ignored: 'failed', nothing raised (original and day)",
+          _r_c == bw.FAILED and _r_d == bw.FAILED)
 
-    # _replace: waits 0.1, 0.2 ... between the attempts and gives up after the fifth
-    with patch("garmin_bulk_writer.os.replace", side_effect=[PermissionError("busy"), PermissionError("busy"), None]) as _rp, \
-            patch("garmin_bulk_writer.time.sleep") as _sl:
-        bw._replace("a", "b")
-    check("_replace: two refusals then success -> three tries, pauses of 0.1 and 0.2 s",
-          _rp.call_count == 3 and [c.args[0] for c in _sl.call_args_list] == [0.1, 0.2])
-    with patch("garmin_bulk_writer.os.replace", side_effect=PermissionError("busy")) as _rp, patch("garmin_bulk_writer.time.sleep") as _sl:
-        try:
-            bw._replace("a", "b")
-            _raised = False
-        except PermissionError:
-            _raised = True
-    check("_replace: five refusals -> the error is raised after the fifth try; four pauses (0.1, 0.2, 0.3, 0.4 s)",
-          _raised and _rp.call_count == 5 and [round(c.args[0], 6) for c in _sl.call_args_list] == [0.1, 0.2, 0.3, 0.4])
+    # the retry: waits 0.1, 0.2 ... between the attempts and gives up after the fifth
+    _real_rp = os.replace
+    _tries = []
+
+    def _two_refusals(src, dst):
+        _tries.append(1)
+        if len(_tries) <= 2:
+            raise PermissionError("busy")
+        return _real_rp(src, dst)
+
+    _blob_p = b"original that is busy twice"
+    with patch.object(aio.os, "replace", _two_refusals), patch.object(aio.time, "sleep") as _sl:
+        _r_p = bw.store_original(hashlib.sha256(_blob_p).hexdigest(), _blob_p)
+    check("a lock: two refusals then success -> three tries, pauses of 0.1 and 0.2 s",
+          _r_p == bw.WRITTEN and len(_tries) == 3 and [c.args[0] for c in _sl.call_args_list] == [0.1, 0.2])
+    _tries.clear()
+    with patch.object(aio.os, "replace", side_effect=PermissionError("busy")) as _rp, patch.object(aio.time, "sleep") as _sl:
+        _r_q = bw.write_day(*_day(date="2024-02-22"))
+    check("a lock that stays: 'failed' after the fifth try; four pauses (0.1, 0.2, 0.3, 0.4 s)",
+          _r_q == bw.FAILED and _rp.call_count == 5 and [round(c.args[0], 6) for c in _sl.call_args_list] == [0.1, 0.2, 0.3, 0.4])
 
     # _write_atomic: a file system without fsync is fine
     _wa = base / "wa" / "file.json"
-    with patch("garmin_bulk_writer.os.fsync", side_effect=OSError("not supported")):
+    with patch.object(aio.os, "fsync", side_effect=OSError("not supported")):
         bw._write_atomic(_wa, b"data")
     check("_write_atomic: fsync that is not supported does not stop the write", _wa.read_bytes() == b"data")
+
+    # step 4 of Block 8 (a): the writes go through atomic_io, with the parameters of the module
+    _spy_calls = []
+    _real_wa = aio.write_atomic
+
+    def _spy_write(dst, payload, **kwargs):
+        _spy_calls.append((Path(dst).name, kwargs))
+        return _real_wa(dst, payload, **kwargs)
+
+    _blob_s = b"original written through the helper"
+    with patch.object(aio, "write_atomic", _spy_write):
+        bw.write_day(*_day(date="2024-02-23"))
+        bw.store_original(hashlib.sha256(_blob_s).hexdigest(), _blob_s)
+    check("a day file is written with a soft fsync and five attempts; an original with no fsync and five attempts",
+          _spy_calls[0][0] == "garmin_bulk_2024-02-23.json"
+          and _spy_calls[0][1] == {"fsync": "soft", "attempts": 5, "pause_s": 0.1}
+          and _spy_calls[1][0] == hashlib.sha256(_blob_s).hexdigest() + ".fit"
+          and _spy_calls[1][1] == {"fsync": "off", "attempts": 5, "pause_s": 0.1})
+    _own_ast = [(n.value.id, n.attr) for n in ast.walk(ast.parse(Path(bw.__file__).read_text(encoding="utf-8")))
+                if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "os"
+                and n.attr in ("replace", "fsync", "rename")]
+    check("the module has no os.replace / os.fsync / os.rename of its own (every write goes through atomic_io)", _own_ast == [])
+    _blob_m = b"original into a folder that does not exist yet"
+    check("an original makes its folder itself (source/<first two characters>/)",
+          not (cfg.BULK_SOURCE_DIR / hashlib.sha256(_blob_m).hexdigest()[:2]).exists()
+          and bw.store_original(hashlib.sha256(_blob_m).hexdigest(), _blob_m) == bw.WRITTEN
+          and (cfg.BULK_SOURCE_DIR / hashlib.sha256(_blob_m).hexdigest()[:2] / (hashlib.sha256(_blob_m).hexdigest() + ".fit")).read_bytes() == _blob_m)
 
     # _problem: the date of the plan against the date of the samples (equal strings made at run time are equal)
     _p1, _s1 = _day(date="2024-02-0" + str(3))

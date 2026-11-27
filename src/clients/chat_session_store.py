@@ -6,11 +6,12 @@
 clients/chat_session_store.py
 Garmin Local Archive — Chat Session Persistence (Baustein 21, garmin_collector-3_experiment)
 
-Leaf-Node. Reads/writes/deletes saved chat sessions under
+Reads/writes/deletes saved chat sessions under
 <base_dir>/chats/ for app/panel_chat.py's Chat History button
 (app/dialog_chat_history.py shows the list; this module owns every
-file access). No Qt, no project-internal imports besides stdlib — same
-leaf-node contract as ollama_client.py/mcp_client.py.
+file access). No Qt; the one project import is atomic_io (the shared
+atomic-write helper in garmin/, itself a leaf: standard library only) —
+otherwise the leaf-node contract of ollama_client.py/mcp_client.py.
 
 Session file = one JSON file per conversation. "One conversation" is
 bounded by app/panel_chat.py's own New Chat boundary (KONZEPT_v1.7.2
@@ -47,6 +48,8 @@ cannot silently miss.
 import hashlib
 import json
 from pathlib import Path
+
+import atomic_io as aio
 
 
 class ChatSessionError(Exception):
@@ -92,8 +95,10 @@ def save_session(base_dir, path, session_data: dict) -> Path:
     it — the caller's own dict (app/panel_chat.py's in-memory session
     state) is never touched by this function.
 
-    Write is atomic (write to a .tmp file, then Path.replace()) — an
-    interrupted write (crash/power loss mid-save) must never leave a
+    Write is atomic (atomic_io.write_atomic: a .tmp file, fsync where the
+    file system supports it, then os.replace; a file locked for a moment
+    is tried again, 5 attempts in all; the .tmp is removed on a failure)
+    — an interrupted write (crash/power loss mid-save) must never leave a
     half-written, unparseable session file behind; the previous
     complete version stays intact until the new one is fully written."""
     chats_dir = _chats_dir(base_dir)
@@ -114,9 +119,8 @@ def save_session(base_dir, path, session_data: dict) -> Path:
     else:
         data["source_hash"] = None
 
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    aio.write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False), fsync=aio.FSYNC_SOFT,
+                     attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
     return path
 
 

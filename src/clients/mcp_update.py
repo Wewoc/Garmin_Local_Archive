@@ -93,6 +93,7 @@ import statistics
 import threading
 from pathlib import Path
 
+from garmin import atomic_io as aio
 from garmin import garmin_config as cfg
 from maps import mcp_map
 
@@ -247,12 +248,11 @@ def _read_context_resync_ack(base_dir: Path) -> set[tuple[str, str, str]]:
 
 def _write_context_resync_ack(base_dir: Path, acked: set[tuple[str, str, str]]) -> None:
     path = _context_resync_ack_path(base_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
     payload = {"acked": [{"date": d, "source": s, "marked_at": m}
                           for d, s, m in sorted(acked)]}
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    # atomic_io: context_resync_ack.tmp (the suffix is replaced, as before), then os.replace; creates the folder.
+    # The marker is read again at every boot: no fsync, no retry; the .tmp is removed on a failure.
+    aio.write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2), tmp=path.with_suffix(".tmp"))
 
 
 def _apply_pending_context_resync(base_dir: Path) -> list[dict]:

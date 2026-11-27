@@ -11,7 +11,9 @@ the definition and entry checks (type, finiteness, time rules), the master file 
 names, keys never reused, flags, rename, damaged/unsupported/missing), save_day (snapshot, the free-edit
 window, nothing written on a refusal, atomic write, the retry on a locked file), recover_master,
 the reader (states, file names), the privacy rule of the log, and guards: the package imports only the
-standard library, every module is in the build manifest, no module of clients/ and no map but diary_map.py mentions the diary.
+standard library and its own modules (plus atomic_io, and garmin_backup_common for the backup), writes through
+atomic_io only (the fsync and the retry are counted), every module is in the build manifest, no module of clients/
+and no map but diary_map.py mentions the diary.
 
 Run from the project folder:
     python tests/test_diary.py
@@ -37,8 +39,9 @@ from support import check, section, summary
 
 _SRC = Path(__file__).parent.parent
 sys.path.insert(0, str(_SRC))
-sys.path.insert(0, str(_SRC / "garmin"))      # diary_backup is the one module that uses garmin_backup_common
+sys.path.insert(0, str(_SRC / "garmin"))      # diary_writer and diary_backup use atomic_io (garmin/), diary_backup also garmin_backup_common
 
+import atomic_io as aio  # noqa: E402
 from diary import diary_catalog as cat  # noqa: E402
 from diary import diary_model as dm  # noqa: E402
 from diary import diary_reader as rd  # noqa: E402
@@ -577,16 +580,16 @@ check("a day file of a newer version is left alone", wr.save_day(base_k, "2026-1
 base_a = prepared_base()
 wr.save_day(base_a, "2026-11-18", "erste", {"U0002": [{"values": {"Ja/Nein": True}}]}, now=T0)
 stored = read_bytes(day_file(base_a, "2026-11-18"))
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.save_day(base_a, "2026-11-18", "zweite", {"U0002": [{"values": {"Ja/Nein": False}}]}, now=T0_LATER)
 check("a failed move is reported as failed", res["status"] == "failed" and res["reason"] == "write_failed")
 check("a stored day stays as it was when the write fails", read_bytes(day_file(base_a, "2026-11-18")) == stored)
 check("the .tmp is removed when the write fails", tmp_files(base_a) == [])
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.save_day(base_a, "2026-11-20", "neu", {}, now=T0)
 check("a new day whose write fails leaves no file and no .tmp",
       res["status"] == "failed" and not day_file(base_a, "2026-11-20").exists() and tmp_files(base_a) == [])
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.create_user_field(base_a, "Neues Feld", TABLET, True)
 check("a field whose write fails: failed, and the counter did not move",
       res["status"] == "failed" and rd.read_master(base_a)[1]["next_id"] == 3)
@@ -798,7 +801,7 @@ check("history: such a day is valid", rd.read_day(base_s, "2026-11-18")[0] == "o
 base_w = prepared_base()
 wr.save_day(base_w, "2026-11-18", "a", E1, now=T0)
 stored = read_bytes(day_file(base_w, "2026-11-18"))
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.save_day(base_w, "2026-11-18", "b", E2, now=T1, keep_history=True)
 check("history: a failed write is reported and the day is untouched", res["status"] == "failed"
       and read_bytes(day_file(base_w, "2026-11-18")) == stored and tmp_files(base_w) == [])
@@ -858,7 +861,7 @@ check("restore: a damaged day is refused", wr.restore_history(base_dm, "2026-11-
 write_raw(day_file(base_dm, "2026-11-20"), json.dumps({"schema_version": 2}))
 check("restore: a day of a newer version is refused", wr.restore_history(base_dm, "2026-11-20", 0, now=T3)["reason"] == "day_unsupported")
 stored = read_bytes(day_file(base_r2, "2026-11-18"))
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.restore_history(base_r2, "2026-11-18", 0, now=T3)
 check("restore: a failed write is reported and the day is untouched",
       res["status"] == "failed" and read_bytes(day_file(base_r2, "2026-11-18")) == stored and tmp_files(base_r2) == [])
@@ -1042,7 +1045,7 @@ try:
     wr.restore_history(base_p, "2026-11-18", 0, now=T1)
     wr.rename_field(base_p, key, SECRET_NAME + "2")
     wr.set_flags(base_p, key, favorite=True)
-    with patch.object(wr, "_replace", side_effect=OSError(SECRET_NOTE + " " + SECRET_NAME)):
+    with patch.object(aio, "replace_with_retry", side_effect=OSError(SECRET_NOTE + " " + SECRET_NAME)):
         wr.save_day(base_p, "2026-11-19", SECRET_NOTE, {}, now=T0)
     write_raw(day_file(base_p, "2026-11-20"), SECRET_NOTE + " not json")
     rd.read_day(base_p, "2026-11-20")
@@ -1357,12 +1360,12 @@ wr.save_day(base_fl, OLD_DAY, "x", E1, now=OLD_NOW)
 bk.backup_all(base_fl)
 cp = bk.read_day_copy(base_fl, OLD_DAY)
 day_file(base_fl, OLD_DAY).unlink()
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.restore_day(base_fl, OLD_DAY, cp)
 check("restore_day: a failed write is reported and leaves no file and no .tmp",
       res["status"] == "failed" and not day_file(base_fl, OLD_DAY).exists() and tmp_files(base_fl) == [])
 write_raw(day_file(base_fl, OLD_DAY), "{ broken")
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.restore_day(base_fl, OLD_DAY, cp)
 check("restore_day: when the damaged file cannot be set aside nothing is changed",
       res["reason"] == "set_aside_failed" and day_file(base_fl, OLD_DAY).read_text(encoding="utf-8") == "{ broken")
@@ -1404,12 +1407,12 @@ write_raw(day_file(base_m, "2026-05-05"), "{ broken")
 check("restore_master: with a day that cannot be read the keys are not known: refused",
       wr.restore_master(base_m, master_copy)["reason"] == "days_unreadable")
 day_file(base_m, "2026-05-05").unlink()
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.restore_master(base_m, master_copy)
 check("restore_master: a failed write is reported and leaves no file and no .tmp",
       res["status"] == "failed" and not dm.fields_path(base_m).exists() and tmp_files(base_m) == [])
 write_raw(dm.fields_path(base_m), "{ broken")
-with patch.object(wr, "_replace", side_effect=OSError("disk gone")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("disk gone")):
     res = wr.restore_master(base_m, master_copy)
 check("restore_master: when the damaged list cannot be set aside nothing is changed",
       res["reason"] == "set_aside_failed" and dm.fields_path(base_m).read_text(encoding="utf-8") == "{ broken")
@@ -1586,13 +1589,16 @@ module_names = {p.stem for p in diary_files}
 stdlib = set(sys.stdlib_module_names)
 bad_imports = []
 own_imports = {}
+# the modules of src/ and garmin/ that the package may import: the shared write helper (writer and backup) and,
+# for the backup, garmin_backup_common
+ALLOWED_OUTSIDE = {"diary_backup.py": {"garmin_backup_common", "atomic_io"}, "diary_writer.py": {"atomic_io"}}
 for p in diary_files:
     tree = ast.parse(p.read_text(encoding="utf-8"))
     own_imports[p.name] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.split(".")[0] not in stdlib and not (p.name == "diary_backup.py" and alias.name == "garmin_backup_common"):
+                if alias.name.split(".")[0] not in stdlib and alias.name not in ALLOWED_OUTSIDE.get(p.name, set()):
                     bad_imports.append((p.name, alias.name))
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
@@ -1605,13 +1611,28 @@ for p in diary_files:
                         bad_imports.append((p.name, "relative"))
                 else:
                     bad_imports.append((p.name, "relative with a module"))
-check("the package imports only the standard library and its own modules (the backup also garmin_backup_common)", bad_imports == [])
+check("the package imports only the standard library and its own modules (writer and backup also atomic_io, the backup also garmin_backup_common)",
+      bad_imports == [])
 check("the model and the catalogue import nothing of the package",
       own_imports["diary_model.py"] == set() and own_imports["diary_catalog.py"] == set())
 check("the reader imports only the model", own_imports["diary_reader.py"] == {"diary_model"})
 check("the backup imports the model and the reader", own_imports["diary_backup.py"] == {"diary_model", "diary_reader"})
 check("the writer imports the catalogue, the model and the reader",
       own_imports["diary_writer.py"] == {"diary_catalog", "diary_model", "diary_reader"})
+
+# every file goes through atomic_io: no os.replace / os.fsync / os.rename of its own in the package
+own_os_calls = []
+imports_atomic_io = set()
+for p in diary_files:
+    tree = ast.parse(p.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "os" \
+                and node.attr in ("replace", "fsync", "rename"):
+            own_os_calls.append((p.name, node.attr))
+        if isinstance(node, ast.Import) and any(a.name == "atomic_io" for a in node.names):
+            imports_atomic_io.add(p.name)
+check("the package has no os.replace / os.fsync / os.rename of its own (every write goes through atomic_io)", own_os_calls == [])
+check("the writer and the backup import atomic_io, nothing else of the package does", imports_atomic_io == {"diary_writer.py", "diary_backup.py"})
 
 spec = importlib.util.spec_from_file_location("build_manifest", _SRC / "compiler" / "build_manifest.py")
 manifest = importlib.util.module_from_spec(spec)
@@ -1819,7 +1840,7 @@ check("recover_master: a catalogue field is taken from the catalogue, not from t
 
 base_sa = new_base()
 write_raw(dm.fields_path(base_sa), "{ not json")
-with patch.object(wr, "_replace", side_effect=OSError("cannot move")):
+with patch.object(aio, "replace_with_retry", side_effect=OSError("cannot move")):
     res = wr.recover_master(base_sa, overwrite=True)
 check("recover_master: a damaged list that cannot be set aside: failed, nothing replaced",
       res["status"] == "failed" and res["reason"] == "set_aside_failed" and read_bytes(dm.fields_path(base_sa)) == b"{ not json")
@@ -1963,14 +1984,14 @@ def bk_locked_replace(src, dst):
 
 base_bw = new_base()
 target_bw = base_bw / "x" / "copy.json"
-with patch.object(bk.os, "replace", bk_locked_replace), patch.object(bk.time, "sleep", bk_pauses.append):
+with patch.object(aio.os, "replace", bk_locked_replace), patch.object(aio.time, "sleep", bk_pauses.append):
     try:
         bk._write_atomic(target_bw, b"{}")
         bk_raised = None
     except Exception as exc:  # noqa: BLE001 — the type is what is looked at
         bk_raised = type(exc)
-check("backup: a locked copy gets five tries, 0.1 s apart, then the error",
-      bk_raised is PermissionError and bk_tries["n"] == 5 and bk_pauses == [0.1, 0.1, 0.1, 0.1])
+check("backup: a locked copy gets five tries, the pauses grow like the writer's (0.1 0.2 0.3 0.4 s), then the error",
+      bk_raised is PermissionError and bk_tries["n"] == 5 and [round(p, 3) for p in bk_pauses] == [0.1, 0.2, 0.3, 0.4])
 check("backup: no .tmp is left after it", not list((base_bw / "x").glob("*.tmp")))
 bk_tries["n"] = 0
 _real_os_replace = os.replace
@@ -1983,10 +2004,10 @@ def bk_flaky_replace(src, dst):
     return _real_os_replace(src, dst)
 
 
-with patch.object(bk.os, "replace", bk_flaky_replace), patch.object(bk.time, "sleep", lambda s: None):
+with patch.object(aio.os, "replace", bk_flaky_replace), patch.object(aio.time, "sleep", lambda s: None):
     bk._write_atomic(target_bw, b"{}")
 check("backup: a copy that is free at the fifth try is written", target_bw.read_bytes() == b"{}" and bk_tries["n"] == 5)
-with patch.object(bk.os, "replace", bk_locked_replace), patch.object(bk.time, "sleep", lambda s: None), \
+with patch.object(aio.os, "replace", bk_locked_replace), patch.object(aio.time, "sleep", lambda s: None), \
         patch.object(Path, "unlink", side_effect=OSError("cleanup failed too")):
     try:
         bk._write_atomic(base_bw / "y" / "copy.json", b"{}")
@@ -1994,6 +2015,51 @@ with patch.object(bk.os, "replace", bk_locked_replace), patch.object(bk.time, "s
     except Exception as exc:  # noqa: BLE001
         bk_raised = type(exc)
 check("backup: a failed cleanup of the .tmp does not hide the original error", bk_raised is PermissionError)
+
+
+# ── fsync, counted: a forgotten or misspelled parameter would lose the durability and no other check would notice ──
+def counting_fsync(calls, fail=False):
+    real = os.fsync
+
+    def counting(fd):
+        calls.append(fd)
+        if fail:
+            raise OSError("not supported")
+        return real(fd)
+    return counting
+
+
+fs_calls = []
+base_f1 = new_base()
+with patch.object(aio.os, "fsync", counting_fsync(fs_calls)):
+    res = wr.save_day(base_f1, "2026-11-21", "fsync", {}, now=T0)
+check("writer: a saved day is fsynced once", res["status"] == "written" and len(fs_calls) == 1)
+fs_calls.clear()
+with patch.object(aio.os, "fsync", counting_fsync(fs_calls)):
+    res = wr.create_user_field(new_base(), "Feld", TABLET, True)
+check("writer: a new field list is fsynced once", res["status"] == "written" and len(fs_calls) == 1)
+fs_calls.clear()
+with patch.object(aio.os, "fsync", counting_fsync(fs_calls, fail=True)):
+    res = wr.save_day(new_base(), "2026-11-21", "ohne fsync", {}, now=T0)
+check("writer: a file system without fsync: one try, the day is written", res["status"] == "written" and len(fs_calls) == 1)
+
+fs_calls.clear()
+with patch.object(aio.os, "fsync", counting_fsync(fs_calls)):
+    bk._write_atomic(base_f1 / "x" / "copy.json", b"{}")
+check("backup: a copy is fsynced once", len(fs_calls) == 1 and (base_f1 / "x" / "copy.json").read_bytes() == b"{}")
+fs_calls.clear()
+base_f2 = prepared_base()
+with patch.object(aio.os, "fsync", counting_fsync(fs_calls)):
+    res = bk.backup_master(base_f2)
+check("backup_master: the first copy of the field list is fsynced once", res["status"] == "backed_up" and len(fs_calls) == 1)
+wr.set_flags(base_f2, "U0001", favorite=True)
+fs_calls.clear()
+with patch.object(aio.os, "fsync", counting_fsync(fs_calls, fail=True)):
+    res = bk.backup_master(base_f2)
+check("backup_master: a file system without fsync still takes the copy (the version before it and the new one, two tries)",
+      res["ok"] is True and res["status"] == "backed_up" and len(fs_calls) == 2
+      and bk.read_master_copy(base_f2) == dm.fields_path(base_f2).read_bytes() and bk.read_master_copy(base_f2, previous=True) is not None
+      and [p for p in bk.backup_dir(base_f2).rglob("*.tmp")] == [])
 
 base_bm = prepared_base()
 bk.backup_master(base_bm)

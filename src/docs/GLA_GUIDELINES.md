@@ -133,7 +133,7 @@ specialist bypassing one. It's wired in via
 pipelines: the data is typed by hand and has no source to rebuild it from. `diary_data/` is its own root folder
 beside `garmin_data/` and `context_data/`. Its parts: `diary_reader` (read only), `diary_writer` (sole writer of
 `diary_data/`), `diary_backup` (sole writer of its backup), the tab and its dialogs in `app/`. It imports only the
-standard library and its own modules (`diary_backup` also `garmin_backup_common`). The Broker Layer reaches it only
+standard library and its own modules (`diary_writer` also `atomic_io`, `diary_backup` also `garmin_backup_common` and `atomic_io`). The Broker Layer reaches it only
 through the read-only broker `maps/diary_map.py` (v1.7.8.1: no writing, no `history` of a day in any answer, called
 directly with `base_dir`): it is **not** registered in `gateway_map`, not known to `mcp_map`, no MCP tool and no cloud
 model reads it, except through the opt-in cache of v1.7.8.1 ("Diary in MCP": the internal metadata kind
@@ -168,15 +168,19 @@ directory.
 
 Violations of this invariant are regressions, not technical debt.
 
+**Atomic writes (v1.7.8.2):** an owner writes its files through the one shared helper `garmin/atomic_io.py` (temporary file, `fsync` by mode, swap with `os.replace`, a locked file tried again); the helper owns no directory. No other module carries its own copy of that pattern: `tests/test_static.py` section 7 reports a new `os.replace`, `os.rename`, `os.fsync`, one-argument `.replace` / `.rename` or `except PermissionError` outside it (reasoned exceptions with exact counts: the three ZIP writers, `crash_handler.py`, `diary_writer._remove`). Known exceptions to the table above that predate it and stay open: `garmin_import_mirror._restore_device_table` writes `device_table.json` with a plain `write_bytes`, and the support tool `backfill_source_intraday.py` has its own copy of the pattern for `source_api_log.json`.
+
 ### Leaf-Node Isolation
 
 Modules with no project dependencies (standard library only) are called
 Leaf Nodes:
 - `garmin_utils.py`, `garmin_validator.py`, `garmin_source_quality.py`
 - `garmin_bulk_fit_reader.py`, `garmin_bulk_export_scanner.py`, `garmin_bulk_normalizer.py` (v1.7.6)
-- `garmin_export_scan.py` (v1.7.7, removable) — the JSON side of the Export Scan, standard library only
+- `garmin_export_scan.py` (v1.7.7, removable) — the JSON side of the Export Scan, standard library only (and `atomic_io`, see below)
 - `garmin_backup_common.py` (v1.7.6.2) — the shared backup flow, standard library only
-- A Leaf Node never imports another project module
+- `atomic_io.py` (v1.7.8.2) — the one shared write helper, standard library only, no logging
+- `garmin_api_capability.py` and `clients/chat_session_store.py` — leaf nodes that also import `atomic_io` (`garmin_api_capability` besides `garmin_config`)
+- A Leaf Node never imports another project module — with one named exception (v1.7.8.2): `garmin_export_scan.py`, `garmin_api_capability.py` and `clients/chat_session_store.py` may import `atomic_io`, which is itself a leaf and replaces a private copy of the write pattern in each of them. The exception is per file, in `tests/test_static.py` (`_LEAF_NODE_FILE_EXCEPTIONS`); any other leaf node importing it is a violation. A module of `garmin/` may import at module level only what is found from `garmin/` alone (the collector runs as a script with only `src/garmin` on the module path)
 - Guarantees no circular dependencies and fully isolated testing
 
 ### Plugin Principle
@@ -219,7 +223,7 @@ exceptions without explicit documentation.
 ### Architecture
 
 - **No module writes to a directory owned by another** — sole-write-authority is absolute
-- **No Leaf Node imports another project module** — standard library only
+- **No Leaf Node imports another project module** — standard library only (one named exception since v1.7.8.2: `atomic_io`, for the three modules listed under Leaf-Node Isolation)
 - **No dashboard specialist reads the filesystem directly** — always through `health_map` / `context_map`
 - **No submodule of `garmin/quality/` acquires `QUALITY_LOCK` itself** — that's exclusively the orchestrator's job
 - **No background worker touches widgets** — file-only; UI updates only via `_dispatch()`
@@ -561,7 +565,7 @@ the final save, as required by the hard rule in §3.
 
 ### Lockless read
 
-`quality_log.json` is written atomically via `os.replace()` — a
+`quality_log.json` is written atomically through `atomic_io` (a temporary file, `fsync`, then `os.replace()`; a locked file is tried again, so a save can take up to a second longer) — a
 concurrent read always sees a complete file. Lockless reads are therefore
 safe.
 
@@ -715,11 +719,12 @@ network or GUI required except where noted:
 | `test_mcp_tool_chat.py` | MCP tool-calling turn loop |
 | `test_cloud_tool_chat.py` | Cloud LLM + MCP tool-calling turn loop |
 | `test_chat_session_store.py` | Chat session store |
+| `test_atomic_io.py` | The shared atomic-write helper (modes, retry, errors, the import the way the collector subprocess does it) |
 | `test_cloud_credential_store.py` | Cloud credential store |
 | `test_mcp_process.py` | MCP server process control |
 | `test_export_scan.py`, `test_export_scan_fit.py`, `test_export_scan_day.py` | Export Scan modules (removable, v1.7.7) |
 | `test_diary.py`, `test_diary_panel.py` | Diary package (script, no Qt) and the Diary tab with its dialogs (pytest-qt); the diary section of the mirror container is covered by `test_container_mirror.py` and `test_import_mirror.py` (removable, v1.7.8) |
-| `test_static.py` | Lint + security scan + AST-based regression guards |
+| `test_static.py` | Lint + security scan + AST-based regression guards (also: no own copy of the atomic-write pattern outside `atomic_io.py`, v1.7.8.2) |
 
 `test_build_output.py` is not part of `run_tests.ps1` — it runs as
 `build_all.py`'s post-build validation pass against the actual built
@@ -920,6 +925,7 @@ pattern. The v1.x work is deliberate groundwork for v2.0.
 | `garmin_bulk_fit_reader.py` | FIT bytes → messages (v1.7.6) | **Yes** |
 | `garmin_bulk_export_scanner.py` | Finds the FIT files in a Garmin export (v1.7.6) | **Yes** |
 | `garmin_bulk_normalizer.py` | Day boundaries and samples per day (v1.7.6) | **Yes** |
+| `atomic_io.py` | The one shared helper for atomic writes — temporary file, `fsync` by mode, swap, a locked file tried again (v1.7.8.2); lives in `garmin/` because the collector subprocess has only that folder on the module path | **Yes** |
 | `garmin_bulk_writer.py` | Sole owner of `garmin_data/bulk/` — series, daily values and originals (v1.7.6, aggregates v1.7.6.1) | No |
 | `garmin_bulk_import.py` | Intraday phase of the export import — orchestrates the four modules above, writes only through `garmin_bulk_writer` (v1.7.6) | No |
 | `garmin_bulk_json_import.py` | Daily-values phase of the export import — orchestrates `garmin_import`, `garmin_validator`, `garmin_quality` and `garmin_bulk_writer`, writes only through `garmin_bulk_writer` (v1.7.6.1) | No |

@@ -21,8 +21,8 @@ Invariants:
   - write_source() never overwrites a high-resolution source file with a
     degraded response (Conservative guard — freeze-when-present, v1.6.0.4.6).
 
-Depends on: garmin_source_quality (guard logic), garmin_config, stdlib.
-No longer a Leaf-Node — imports garmin_source_quality for the write guard.
+Depends on: garmin_source_quality (guard logic), garmin_config, atomic_io (the shared write helper), stdlib.
+No longer a Leaf-Node — imports garmin_source_quality for the write guard and atomic_io for the writes.
 
 Called by:
   garmin/garmin_collector.py  — _fetch_and_assess() (two call sites, lazy import)
@@ -31,9 +31,10 @@ Called by:
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+import atomic_io as aio
 
 # garmin_config is imported lazily inside each function (not at module level).
 # Reason: the test suite sets GARMIN_OUTPUT_DIR and calls importlib.reload(cfg)
@@ -59,7 +60,11 @@ def write_source(raw_data: dict, date_str: str, force: bool = False) -> bool:
     Writes raw API response to garmin_data/source/garmin_source_YYYY-MM-DD.json.
 
     Called before garmin_validator — secures raw data even if validator crashes.
-    Writes atomically: .tmp → fsync → os.replace.
+    Writes atomically through atomic_io.write_atomic: .tmp → fsync (soft: an OSError is ignored, except a disk
+    error such as EIO, ENOSPC or EBADF, which fails the write; see atomic_io) → os.replace;
+    a file locked for a moment is tried again (5 attempts in all) and the .tmp is removed on a failure.
+    (Until v1.7.8.1 the fsync here opened the .tmp a second time for reading, which fails on Windows with
+    "Bad file descriptor" and was ignored: nothing was synced there. Now the writing handle is synced.)
 
     Guard (v1.6.0.4.6 — Conservative, freeze-when-present):
       Reads existing file (if any), assesses intraday presence via
@@ -111,17 +116,11 @@ def write_source(raw_data: dict, date_str: str, force: bool = False) -> bool:
             return True
 
         # ── Write (decision == "write") ───────────────────────────────────────
-        tmp     = dst.with_suffix(".json.tmp")
         payload = json.dumps(raw_data, ensure_ascii=False, indent=None,
                              separators=(",", ":"))
 
-        tmp.write_text(payload, encoding="utf-8")
-        try:
-            with open(tmp, "rb") as f:
-                os.fsync(f.fileno())
-        except OSError:
-            pass  # fsync not supported on all platforms/filesystems (e.g. Windows)
-        os.replace(tmp, dst)
+        aio.write_atomic(dst, payload, fsync=aio.FSYNC_SOFT,
+                         attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
 
         log.debug(f"  source_writer: {date_str} → source/")
 
@@ -217,18 +216,9 @@ def update_log(
 
         existing[date_str] = entry
 
-        # Write atomically
-        tmp = log_path.with_suffix(".json.tmp")
-        tmp.write_text(
-            json.dumps(existing, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        try:
-            with open(tmp, "rb") as f:
-                os.fsync(f.fileno())
-        except OSError:
-            pass  # fsync not supported on all platforms/filesystems (e.g. Windows)
-        os.replace(tmp, log_path)
+        # Write atomically (atomic_io: .tmp, soft fsync, os.replace with retry)
+        aio.write_atomic(log_path, json.dumps(existing, ensure_ascii=False, indent=2),
+                         fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
 
         log.debug(f"  source_writer: log updated for {date_str}")
         return True
@@ -292,16 +282,10 @@ def patch_source_field(date_str: str, field: str, value) -> bool:
         existing_raw = json.loads(dst.read_text(encoding="utf-8"))
         merged_raw   = _merge.merge_field(existing_raw, field, value)
 
-        tmp     = dst.with_suffix(".json.tmp")
         payload = json.dumps(merged_raw, ensure_ascii=False, indent=None,
                              separators=(",", ":"))
-        tmp.write_text(payload, encoding="utf-8")
-        try:
-            with open(tmp, "rb") as f:
-                os.fsync(f.fileno())
-        except OSError:
-            pass  # fsync not supported on all platforms/filesystems (e.g. Windows)
-        os.replace(tmp, dst)
+        aio.write_atomic(dst, payload, fsync=aio.FSYNC_SOFT,
+                         attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
 
         log.debug(f"  source_writer: patched '{field}' into source/ for {date_str}")
 
@@ -328,12 +312,9 @@ def patch_source_field(date_str: str, field: str, value) -> bool:
                     backfilled[field] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     entry["backfilled_fields"] = backfilled
                     log_data[date_str] = entry
-                    log_tmp = log_path.with_suffix(".json.tmp")
-                    log_tmp.write_text(
-                        json.dumps(log_data, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                    os.replace(log_tmp, log_path)
+                    aio.write_atomic(log_path, json.dumps(log_data, ensure_ascii=False, indent=2),
+                                     fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS,
+                                     pause_s=aio.REPLACE_PAUSE_S)
         except Exception as _le:
             log.warning(
                 f"  source_writer.patch_source_field: log annotation failed "

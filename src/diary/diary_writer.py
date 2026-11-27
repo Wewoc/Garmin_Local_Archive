@@ -6,8 +6,9 @@
 diary/diary_writer.py
 
 DIARY v1.7.8 — REMOVABLE. Sole write authority over diary_data/ (the master file fields.json and the
-day files days/diary_YYYY-MM-DD.json). Nothing else writes there. Imports only the other modules of
-this package and the standard library; the base folder comes in as a parameter (no garmin_config).
+day files days/diary_YYYY-MM-DD.json). Nothing else writes there. Imports the other modules of this
+package, the standard library and atomic_io (the shared atomic-write helper in garmin/); the base folder
+comes in as a parameter (no garmin_config).
 
 Everything is non-fatal: no function raises for bad input or a failed write. Each returns a dict
 
@@ -18,9 +19,9 @@ itself failed (a .tmp is removed, a stored file is untouched); "deleted" = a day
 (no note, no entry) and has no history is removed (see save_day). A refusal is loud on purpose: a diary
 that quietly drops or overwrites what the user typed is the failure this module is built against.
 
-Writing: every file goes to <name>.tmp, is flushed to disk and moved with os.replace (tried again
-for a moment when the file is locked, as in garmin_bulk_writer.py: a virus scanner or an indexer can
-hold a file that was just written). One lock covers every read-modify-write here.
+Writing: every file goes to <name>.tmp, is flushed to disk and moved with os.replace, all through
+atomic_io.write_atomic (tried again for a moment when the file is locked: a virus scanner or an
+indexer can hold a file that was just written). One lock covers every read-modify-write here.
 
 No line of the log carries a note, a value or a field name: the files hold health data. The log has
 the date, the key and the kind of an error.
@@ -58,6 +59,8 @@ import threading
 import time
 from datetime import datetime
 
+import atomic_io as aio
+
 from . import diary_catalog as cat
 from . import diary_model as dm
 from . import diary_reader as rd
@@ -69,11 +72,6 @@ DELETED = "deleted"
 UNCHANGED = "unchanged"
 REJECTED = "rejected"
 FAILED = "failed"
-
-# On Windows a virus scanner or an indexer can hold a file that was just written for a moment;
-# os.replace then fails with a sharing violation (PermissionError). Other errors are not retried.
-REPLACE_ATTEMPTS = 5
-REPLACE_PAUSE_S = 0.1
 
 _LOCK = threading.RLock()
 
@@ -90,62 +88,32 @@ def _result(status, reason=None, **extra):
     return out
 
 
-def _cleanup(path):
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
-def _replace(tmp, dst):
-    """os.replace that waits a moment and tries again when the file is locked (see REPLACE_ATTEMPTS)."""
-    for attempt in range(REPLACE_ATTEMPTS):
-        try:
-            os.replace(tmp, dst)
-            return
-        except PermissionError:
-            if attempt == REPLACE_ATTEMPTS - 1:
-                raise
-            time.sleep(REPLACE_PAUSE_S * (attempt + 1))
-
-
 def _write_atomic(dst, payload):
     """
-    Writes payload (bytes) to dst through dst + '.tmp': written, flushed to disk (fsync, where the
-    file system supports it) and moved with os.replace. Creates the folder. Raises on any failure;
-    the .tmp is removed then and a stored dst is untouched.
+    Writes payload (bytes) to dst through atomic_io.write_atomic: dst + '.tmp', written, flushed to disk
+    (fsync, where the file system supports it) and moved with os.replace. On Windows a virus scanner or an
+    indexer can hold a file that was just written for a moment (os.replace then fails with a PermissionError):
+    that is tried again, aio.REPLACE_ATTEMPTS times in all; other errors are not retried. Creates the folder.
+    Raises on any failure; the .tmp is removed then and a stored dst is untouched.
     """
-    tmp = dst.with_name(dst.name + ".tmp")
-    try:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        with open(tmp, "wb") as f:
-            f.write(payload)
-            f.flush()
-            try:
-                os.fsync(f.fileno())
-            except OSError:
-                pass  # not supported on every file system
-        _replace(tmp, dst)
-    except Exception:
-        _cleanup(tmp)
-        raise
+    aio.write_atomic(dst, payload, fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
 
 
 def _remove(path):
     """
-    Removes a file; a lock for a moment is tried again like in _replace. A file that is not there
-    counts as removed. Raises on any other failure.
+    Removes a file; a lock for a moment is tried again like in atomic_io.replace_with_retry. A file that
+    is not there counts as removed. Raises on any other failure.
     """
-    for attempt in range(REPLACE_ATTEMPTS):
+    for attempt in range(aio.REPLACE_ATTEMPTS):
         try:
             os.unlink(path)
             return
         except FileNotFoundError:
             return
         except PermissionError:
-            if attempt == REPLACE_ATTEMPTS - 1:
+            if attempt == aio.REPLACE_ATTEMPTS - 1:
                 raise
-            time.sleep(REPLACE_PAUSE_S * (attempt + 1))
+            time.sleep(aio.REPLACE_PAUSE_S * (attempt + 1))
 
 
 def _json_bytes(obj):
@@ -505,7 +473,8 @@ def recover_master(base_dir, overwrite=False):
         path = dm.fields_path(base_dir)
         if state in (rd.DAMAGED, rd.UNSUPPORTED):
             try:
-                _replace(path, path.with_name(path.name + ".damaged"))
+                aio.replace_with_retry(path, path.with_name(path.name + ".damaged"),
+                                       attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
             except OSError as exc:
                 log.error("diary: the old field list could not be set aside (%s)", type(exc).__name__)
                 return _result(FAILED, "set_aside_failed")
@@ -540,7 +509,7 @@ def _set_aside(path):
         target = path.with_name(f"{path.name}.damaged{number}")
         number += 1
     try:
-        _replace(path, target)
+        aio.replace_with_retry(path, target, attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
     except OSError as exc:
         log.error("diary: a damaged file could not be set aside (%s)", type(exc).__name__)
         return False

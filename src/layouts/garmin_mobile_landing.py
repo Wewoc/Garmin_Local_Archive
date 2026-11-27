@@ -26,6 +26,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import atomic_io as aio
 import garmin_config as cfg
 import theme
 
@@ -69,7 +70,7 @@ def write_index_html(base_dir: Path | None = None) -> bool:
         # ── Read device_table ─────────────────────────────────────────────────
         # INTENTIONAL DIRECT READ — read-only, no QUALITY_LOCK required (see
         # module docstring above). device_table.json is written atomically
-        # via tmp.replace() in garmin/quality/_io.py::save_device_table(),
+        # (atomic_io: temp file + os.replace) in garmin/quality/_io.py::save_device_table(),
         # so this read always sees either the old or the new complete file,
         # never a partial write. Documented exception: see
         # REFERENCE_GARMIN.md § Documented Exceptions.
@@ -146,12 +147,11 @@ def write_index_html(base_dir: Path | None = None) -> bool:
         dash_sleep  = _read_dash("sleep_garmin_html-xls_dash.html")
 
         # ── Render and write index.html atomically ────────────────────────────
-        out_dir.mkdir(parents=True, exist_ok=True)
         html_content = _render_html(status, dash_mobile, dash_sleep)
         html_path    = out_dir / "index.html"
-        tmp_path     = out_dir / "index.html.tmp"
-        tmp_path.write_text(html_content, encoding="utf-8")
-        tmp_path.replace(html_path)
+        # atomic_io: index.html.tmp, then os.replace; creates dashboards/. A page that is made again at every start
+        # needs no fsync and no retry; the .tmp is removed on a failure.
+        aio.write_atomic(html_path, html_content)
         log.info("write_index_html: index.html written")
         return True
 

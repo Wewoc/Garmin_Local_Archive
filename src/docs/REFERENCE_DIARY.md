@@ -48,8 +48,8 @@ it is not registered in `gateway_map`.
     master/fields.previous.json          the copy before that one
 ```
 
-Files are written as `<name>.tmp` + `os.replace` (retried for a moment when a virus scanner holds
-the file). A leftover `.damaged` (numbered `.damaged2`, ...) is a file that could not be read and
+Files are written as `<name>.tmp` + `os.replace` through `atomic_io` (soft `fsync`; retried up to
+five times when a virus scanner holds the file; a full or failing disk fails the write). A leftover `.damaged` (numbered `.damaged2`, ...) is a file that could not be read and
 was set aside before a restore.
 
 ### Fields (definition)

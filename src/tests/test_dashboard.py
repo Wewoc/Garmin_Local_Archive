@@ -1884,6 +1884,95 @@ check("render: device name is HTML-escaped by the page script (esc(row.name))",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Section 22 — garmin_mobile_landing.write_index_html(): the file it writes (Block 8 (a), step 5).
+#  The first part holds for the module before and after it writes through atomic_io (bytes, names, results).
+# ══════════════════════════════════════════════════════════════════════════════
+section("22. garmin_mobile_landing — write_index_html() writes index.html")
+import os as _os22
+from datetime import datetime as _dt22
+from unittest.mock import patch as _patch22
+
+_B22 = _TMPDIR / "landing22"
+(_B22 / "garmin_data" / "log").mkdir(parents=True)
+(_B22 / "garmin_data" / "log" / "quality_log.json").write_text(json.dumps({"days": [
+    {"date": "2025-05-10", "quality": "high", "write": True, "source": "api", "recheck": False, "attempts": 0,
+     "last_checked": "2025-05-11", "device_id": "1", "device_name": "Forerunner ä€"}]}), encoding="utf-8")
+_idx22 = _B22 / "dashboards" / "index.html"
+
+
+class _Fixed22(_dt22):
+    @classmethod
+    def now(cls, tz=None):
+        return _dt22(2026, 11, 24, 12, 0)
+
+
+_seen22 = []
+_real_render22 = _landing._render_html
+
+
+def _spy_render22(*args, **kwargs):
+    out = _real_render22(*args, **kwargs)
+    _seen22.append(out)
+    return out
+
+
+_names22 = []
+_real_replace22 = _os22.replace
+
+
+def _spy_replace22(src, dst):
+    _names22.append((Path(src).name, Path(dst).name))
+    return _real_replace22(src, dst)
+
+
+with _patch22.object(_landing, "datetime", _Fixed22), _patch22.object(_landing, "_render_html", _spy_render22), \
+        _patch22("os.replace", _spy_replace22):
+    _ok22 = _landing.write_index_html(_B22)
+_ref22 = _B22 / "reference_index.html"
+_ref22.write_text(_seen22[0], encoding="utf-8")
+check("22 write_index_html: True, index.html in dashboards/; its bytes are those of the former write_text of the "
+      "rendered page (umlauts, euro sign, line ends of the system)",
+      _ok22 is True and _idx22.is_file() and _idx22.read_bytes() == _ref22.read_bytes())
+check("22 write_index_html: the page goes through index.html.tmp, as before", _names22 == [("index.html.tmp", "index.html")])
+check("22 write_index_html: no .tmp is left behind after a success", not list((_B22 / "dashboards").glob("*.tmp")))
+
+_before22 = _idx22.read_bytes()
+with _patch22.object(_landing, "datetime", _Fixed22), _patch22("os.replace", side_effect=OSError("locked")):
+    _ok22 = _landing.write_index_html(_B22)
+check("22 write_index_html: a failing swap is False (nothing raised) and the page that was there stays byte for byte the same",
+      _ok22 is False and _idx22.read_bytes() == _before22)
+
+_calls22 = []
+
+
+def _locked22(src, dst):
+    _calls22.append(1)
+    raise PermissionError("locked")
+
+
+with _patch22.object(_landing, "datetime", _Fixed22), _patch22("os.replace", _locked22):
+    _ok22 = _landing.write_index_html(_B22)
+check("22 write_index_html: a locked page is not tried again (it is made again at every start): one try, False, page unchanged",
+      _ok22 is False and len(_calls22) == 1 and _idx22.read_bytes() == _before22)
+
+# The second part is what atomic_io adds: the .tmp is removed on a failure (it stayed before), no fsync.
+check("22 write_index_html: no .tmp is left behind after the failing swaps (it stayed behind before)",
+      not list((_B22 / "dashboards").glob("*.tmp")))
+_fsyncs22 = []
+with _patch22.object(_landing, "datetime", _Fixed22), _patch22("os.fsync", lambda fd: _fsyncs22.append(fd)):
+    _ok22 = _landing.write_index_html(_B22)
+check("22 write_index_html: the page is not fsynced (a derived file, made again at every start)", _ok22 is True and _fsyncs22 == [])
+import ast as _ast22
+_tree22 = _ast22.parse(Path(_landing.__file__).read_text(encoding="utf-8"))
+_own22 = [(getattr(n.func.value, "id", "?"), n.func.attr) for n in _ast22.walk(_tree22)
+          if isinstance(n, _ast22.Call) and isinstance(n.func, _ast22.Attribute)
+          and ((n.func.attr in ("replace", "fsync", "rename") and isinstance(n.func.value, _ast22.Name)
+                and (n.func.value.id == "os" or "tmp" in n.func.value.id)))]
+check("22 the module has no os.replace / os.fsync / os.rename and no .replace() of a tmp file of its own (it writes through atomic_io)",
+      _own22 == [])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Cleanup + summary
 # ══════════════════════════════════════════════════════════════════════════════
 

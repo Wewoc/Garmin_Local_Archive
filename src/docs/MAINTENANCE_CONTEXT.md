@@ -40,7 +40,7 @@ Open-Meteo Weather delivers no intraday data.
 
 | Module | Sole write authority |
 |---|---|
-| `context_writer.py` | `context_data/` (all subfolders — `summary/` and `raw/`, v1.7.1.11) |
+| `context_writer.py` | `context_data/` (all subfolders — `summary/` and `raw/`, v1.7.1.11); writes through `atomic_io` since v1.7.8.2 (soft `fsync`, five attempts on a locked file), also the pending marker (`write_file`) |
 
 `context_silo_repair.py` (v1.7.2.3) does not own any write path itself —
 it repairs flagged days by calling `context_api.fetch()` +

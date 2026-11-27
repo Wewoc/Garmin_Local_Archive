@@ -16,8 +16,8 @@ is stored between runs (a report file is replaced at every run), and the export 
 Not to be mixed up with garmin_bulk_export_scanner.py: that module walks the export for FIT files and
 hands them to the bulk store. This one reads the JSON files and counts.
 
-Leaf node: standard library only, no project imports, no garmin_config, no logging. The folder for the
-report files is given by the caller.
+Leaf node: standard library and atomic_io (the shared write helper, itself a leaf: standard library only),
+no other project imports, no garmin_config, no logging. The folder for the report files is given by the caller.
 
 What is looked at (JSON files only; FIT files and nested ZIPs are only counted here. The FIT files are
 counted by type and year by garmin_export_scan_fit.py, whose result the caller puts under the key "fit" of
@@ -85,12 +85,13 @@ REMOVAL LIST (everything that belongs to this scan carries the marker "EXPORT-SC
 import contextlib
 import json
 import math
-import os
 import re
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple, Optional
+
+import atomic_io as aio
 
 SCHEMA_VERSION = 1
 
@@ -1054,7 +1055,9 @@ def format_report(result: dict) -> str:
 def write_report(result: dict, log_dir) -> dict:
     """
     Writes the JSON and the text report into log_dir (created if needed), each replacing the file of the
-    last run (written to a temporary file first, then renamed). Returns {"json": Path, "text": Path}.
+    last run (written to a temporary file first, then renamed, through atomic_io.write_atomic: UTF-8, LF only,
+    no fsync and one attempt, a diagnostic file; the .tmp is removed on a failure). Returns {"json": Path,
+    "text": Path}.
     """
     folder = Path(log_dir)
     folder.mkdir(parents=True, exist_ok=True)
@@ -1062,13 +1065,6 @@ def write_report(result: dict, log_dir) -> dict:
     for kind, name, text in (("json", REPORT_JSON, json.dumps(result, indent=1)),
                              ("text", REPORT_TEXT, format_report(result))):
         target = folder / name
-        tmp = folder / (name + ".tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(text)
-            os.replace(tmp, target)
-        finally:
-            if tmp.exists():
-                tmp.unlink()
+        aio.write_atomic(target, text, newline="\n")
         written[kind] = target
     return written

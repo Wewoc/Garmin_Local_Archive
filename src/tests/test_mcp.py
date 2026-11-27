@@ -2215,6 +2215,70 @@ check("_write_context_resync_ack / _read_context_resync_ack: round-trip preserve
 check("_read_context_resync_ack: missing file returns an empty set, no exception",
       mcp_update._read_context_resync_ack(_TMPDIR / "ack_missing") == set())
 
+# ── 11f2. The file the ack writer writes (Block 8 (a), step 5): bytes, names, failures. This part holds for the
+#          writer before and after it writes through atomic_io.
+import os as _os11
+from pathlib import Path as _P11
+_ack_pin_base = _TMPDIR / "ack_pin"
+_ack_pin_set = {("2026-01-02", "wëather €", "T2"), ("2026-01-01", "pollen", "T1")}
+_ack_pin_names = []
+_real_replace11 = _os11.replace
+
+
+def _spy_replace11(src, dst):
+    _ack_pin_names.append((_P11(src).name, _P11(dst).name))
+    return _real_replace11(src, dst)
+
+
+with patch("os.replace", _spy_replace11):
+    mcp_update._write_context_resync_ack(_ack_pin_base, _ack_pin_set)
+_ack_pin_ref = _TMPDIR / "ack_pin_reference.json"
+_ack_pin_ref.write_text(json.dumps({"acked": [{"date": d, "source": s, "marked_at": m} for d, s, m in sorted(_ack_pin_set)]},
+                                   ensure_ascii=False, indent=2), encoding="utf-8")
+check("11f2 _write_context_resync_ack: the bytes are those of the former write_text (sorted entries, indent 2, umlauts "
+      "and euro sign as they are, line ends of the system)", _ack_file(_ack_pin_base).read_bytes() == _ack_pin_ref.read_bytes())
+check("11f2 _write_context_resync_ack: the file goes through context_resync_ack.tmp (the suffix is replaced), as before",
+      _ack_pin_names == [("context_resync_ack.tmp", "context_resync_ack.json")])
+_ack_pin_before = _ack_file(_ack_pin_base).read_bytes()
+try:
+    with patch("os.replace", side_effect=OSError("locked")):
+        mcp_update._write_context_resync_ack(_ack_pin_base, {("2026-02-01", "weather", "T3")})
+    _ack_pin_raised = None
+except OSError as _exc11:
+    _ack_pin_raised = type(_exc11)
+check("11f2 _write_context_resync_ack: a failing swap raises the OSError (the caller decides) and the ack that was there "
+      "stays byte for byte the same", _ack_pin_raised is OSError and _ack_file(_ack_pin_base).read_bytes() == _ack_pin_before)
+_ack_pin_calls = []
+
+
+def _locked11(src, dst):
+    _ack_pin_calls.append(1)
+    raise PermissionError("locked")
+
+
+try:
+    with patch("os.replace", _locked11):
+        mcp_update._write_context_resync_ack(_ack_pin_base, {("2026-02-01", "weather", "T3")})
+    _ack_pin_raised = None
+except OSError as _exc11:
+    _ack_pin_raised = type(_exc11)
+check("11f2 _write_context_resync_ack: a locked file is not tried again (the marker is read again at every boot): one try",
+      _ack_pin_raised is PermissionError and len(_ack_pin_calls) == 1 and _ack_file(_ack_pin_base).read_bytes() == _ack_pin_before)
+# What atomic_io adds: the .tmp is removed on a failure (it stayed before), no fsync.
+check("11f2 _write_context_resync_ack: no .tmp is left behind after the failing swaps (it stayed behind before)",
+      not list(_ack_file(_ack_pin_base).parent.glob("*.tmp")))
+_ack_pin_fsyncs = []
+with patch("os.fsync", lambda fd: _ack_pin_fsyncs.append(fd)):
+    mcp_update._write_context_resync_ack(_ack_pin_base, {("2026-02-02", "weather", "T4")})
+check("11f2 _write_context_resync_ack: the marker is not fsynced (it is read again at every boot)",
+      _ack_pin_fsyncs == [] and mcp_update._read_context_resync_ack(_ack_pin_base) == {("2026-02-02", "weather", "T4")})
+import ast as _ast11
+_own11 = [(getattr(n.func.value, "id", "?"), n.func.attr) for n in _ast11.walk(_ast11.parse(_P11(mcp_update.__file__).read_text(encoding="utf-8")))
+          if isinstance(n, _ast11.Call) and isinstance(n.func, _ast11.Attribute) and isinstance(n.func.value, _ast11.Name)
+          and n.func.attr in ("replace", "fsync", "rename") and (n.func.value.id == "os" or "tmp" in n.func.value.id)]
+check("11f2 mcp_update has no os.replace / os.fsync / os.rename and no .replace() of a tmp file of its own (it writes through atomic_io)",
+      _own11 == [])
+
 _ack_file(_ack_rt_base).write_text("{ not valid json", encoding="utf-8")
 check("_read_context_resync_ack: corrupt JSON degrades to an empty set, no exception",
       mcp_update._read_context_resync_ack(_ack_rt_base) == set())

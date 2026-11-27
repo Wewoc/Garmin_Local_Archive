@@ -31,6 +31,7 @@ sys.path.insert(0, str(_ROOT / "layouts"))
 collect_ignore = [
     "test_local.py",
     "test_basics.py",
+    "test_atomic_io.py",          # v1.7.8.2 — the atomic-write helper (Block 8)
     "test_security.py",
     "test_redact.py",
     "test_api_capability.py",

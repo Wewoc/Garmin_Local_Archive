@@ -2,13 +2,14 @@
 
 Feature-driven log — for technical details, see [CHANGELOG.md](CHANGELOG.md).
 
-## v1.7.8 – v1.7.8.1 — Diary
+## v1.7.8 – v1.7.8.2 — Diary
 
 - New "Diary" tab: a note per day and your own values (blood pressure, hydration, weight, medication, cycle, anything you define), typed in by hand; they sit next to the Garmin values and never replace them.
 - Your own fields with numbers, yes/no or text, an optional time, alternatives such as steps or distance, and start templates for common cases; earlier days can be changed, and the state before is kept in a history you can put back.
 - Search in your notes; a click on a hit opens the day.
 - A backup copy of the diary is kept and can be restored when a file is damaged; the mirror container carries the diary too (an older app version ignores that part).
 - The diary shows in the Sleep and Explorer dashboards (v1.7.8.1); the MCP server (three new tools) and the JSON data export can use it only if you switch it on, both switches are off by default.
+- Saving is safer: every file is now written through one shared routine that waits briefly for a locked file and reports a full or failing disk instead of calling the save a success (v1.7.8.2).
 
 ## v1.7.7 – v1.7.7.1 — Export Scan
 

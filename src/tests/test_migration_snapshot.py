@@ -249,7 +249,7 @@ with _isolated_log_env("m2b_writer") as _b:
     check("M2b restore_day_files: a date that is no date writes nothing and answers False",
           all(writer.restore_day_files(x, b"{}", b"{}") is False for x in ("../x", "2022-13-45", "", None))
           and sorted(p.name for p in cfg.RAW_DIR.iterdir()) == [f"garmin_raw_{_D}.json"])
-    with patch.object(writer.os, "replace", side_effect=OSError("disk error")):
+    with patch("os.replace", side_effect=OSError("disk error")):   # garmin_writer swaps through atomic_io, which uses the same os module
         check("M2b restore_day_files: a write error answers False and leaves no temp file",
               writer.restore_day_files("2022-03-05", b"{}", b"{}") is False and not list(cfg.RAW_DIR.glob("*.tmp")) and not list(cfg.SUMMARY_DIR.glob("*.tmp")))
 

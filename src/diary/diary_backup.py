@@ -10,7 +10,9 @@ DIARY v1.7.8 — REMOVABLE. Sole writer of <archive folder>/garmin_data/backup/d
 The diary is the only data of GLA that cannot be built again: it is typed by hand and has no source. This
 module keeps a second copy of it. It is a thin shell over garmin_backup_common (the month-folder / monthly-ZIP
 flow that raw/, source/ and the bulk store use; that module is not changed here, it is part of the hash that
-other modules guard) and the one place where the diary package depends on a module of garmin/.
+other modules guard) and the one place where the diary package depends on a module of garmin/. Files that
+this module writes itself (the copy of the field list) go through atomic_io, the shared atomic-write helper in
+garmin/ that diary_writer uses as well.
 
   garmin_data/backup/diary/days/YYYY-MM/diary_YYYY-MM-DD.json   open month: the newest copy of a day
   garmin_data/backup/diary/days/diary_backup_YYYY-MM.zip        completed month
@@ -40,11 +42,10 @@ Public API (base_dir = the archive folder):
 
 import json
 import logging
-import os
 import threading
-import time
 from pathlib import Path
 
+import atomic_io as aio
 import garmin_backup_common as common
 
 from . import diary_model as dm
@@ -97,29 +98,12 @@ def days_kind(base_dir):
 
 
 def _write_atomic(dst, payload):
-    """tmp + os.replace, tried again for a moment when the file is locked (a copy of the writer's, see Block 8)."""
-    dst = Path(dst)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dst.with_name(dst.name + ".tmp")
-    try:
-        with open(tmp, "wb") as f:
-            f.write(payload)
-            f.flush()
-            os.fsync(f.fileno())
-        for attempt in range(5):
-            try:
-                os.replace(tmp, dst)
-                return
-            except PermissionError:
-                if attempt == 4:
-                    raise
-                time.sleep(0.1)
-    finally:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+    """
+    tmp + os.replace through atomic_io.write_atomic, the same call as diary_writer's: fsync where the file system
+    supports it, a file locked for a moment is tried again (aio.REPLACE_ATTEMPTS times in all). Raises on any
+    failure; the .tmp is removed then.
+    """
+    aio.write_atomic(dst, payload, fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS, pause_s=aio.REPLACE_PAUSE_S)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

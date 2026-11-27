@@ -15,6 +15,8 @@ Rules:
 - Sole write authority for context_data/ — no other module writes there.
 - Never knows what a dashboard looks like.
 - Only called by context_collector.py.
+- Every file is written through atomic_io.write_atomic (garmin/): .tmp, fsync where the file system supports it,
+  os.replace, tried up to five times when the file is locked for a moment.
 
 File structure per day:
 {
@@ -30,9 +32,15 @@ File structure per day:
 
 import json
 import logging
-import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Same self-contained sys.path insert the context/*_plugin.py modules do before their own "import garmin_config":
+# atomic_io lives in garmin/ and must be found whatever the caller imported first (context_collector, context_silo_repair,
+# garmin_import_mirror, the demo-archive tool).
+sys.path.insert(0, str(Path(__file__).parent.parent / "garmin"))
+import atomic_io as aio
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +84,6 @@ def write(plugin, data: dict,
         return {"written": 0, "failed": len(summary_data)}
 
     for ds, fields in summary_data.items():
-        tmp = None
         try:
             out = {
                 "date":       ds,
@@ -91,20 +98,13 @@ def write(plugin, data: dict,
 
             path = plugin.OUTPUT_DIR / f"{plugin.FILE_PREFIX}{ds}.json"
             tmp  = plugin.OUTPUT_DIR / f"{plugin.FILE_PREFIX}{ds}.tmp"
-            tmp.write_text(
-                json.dumps(out, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
-            os.replace(tmp, path)
-            tmp = None
+            # atomic_io: <prefix><date>.tmp, soft fsync, os.replace (tried again for a moment when the file is
+            # locked); the folder was made above, so it is not made again. A failed write removes its own .tmp.
+            aio.write_atomic(path, json.dumps(out, ensure_ascii=False, indent=2),
+                             fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS, tmp=tmp, mkdir=False)
             written += 1
         except OSError as exc:
             log.warning(f"  context_writer: write failed {ds} — {exc}")
-            if tmp is not None:
-                try:
-                    tmp.unlink(missing_ok=True)
-                except OSError:
-                    pass
             failed += 1
 
     # v1.7.1.11 — raw/ (hourly, timestamped) write, only for plugins that
@@ -113,7 +113,6 @@ def write(plugin, data: dict,
     # written/failed counts above, which stay scoped to summary/ as before.
     if raw_output_dir is not None:
         for ds, fields in raw_data.items():
-            tmp = None
             try:
                 out = {
                     "date":       ds,
@@ -125,19 +124,10 @@ def write(plugin, data: dict,
                 }
                 path = raw_output_dir / f"{plugin.FILE_PREFIX}{ds}.json"
                 tmp  = raw_output_dir / f"{plugin.FILE_PREFIX}{ds}.tmp"
-                tmp.write_text(
-                    json.dumps(out, ensure_ascii=False, indent=2),
-                    encoding="utf-8"
-                )
-                os.replace(tmp, path)
-                tmp = None
+                aio.write_atomic(path, json.dumps(out, ensure_ascii=False, indent=2),
+                                 fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS, tmp=tmp, mkdir=False)
             except OSError as exc:
                 log.warning(f"  context_writer: raw write failed {ds} — {exc}")
-                if tmp is not None:
-                    try:
-                        tmp.unlink(missing_ok=True)
-                    except OSError:
-                        pass
 
     log.info(f"  context_writer [{plugin.NAME}]: written={written} failed={failed}")
     return {"written": written, "failed": failed}
@@ -177,17 +167,13 @@ def write_file(dest_path: Path, data: dict) -> bool:
     -------
     bool — True on success, False on OSError
     """
-    tmp = dest_path.with_suffix(".tmp")
     try:
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                       encoding="utf-8")
-        os.replace(tmp, dest_path)
+        # atomic_io: <stem>.tmp (the suffix is replaced, as before), soft fsync, os.replace with retry; makes the
+        # parent folders; a failed write removes its own .tmp.
+        aio.write_atomic(dest_path, json.dumps(data, ensure_ascii=False, indent=2),
+                         fsync=aio.FSYNC_SOFT, attempts=aio.REPLACE_ATTEMPTS,
+                         tmp=dest_path.with_suffix(".tmp"))
         return True
     except OSError as exc:
         log.warning(f"  context_writer.write_file: failed {dest_path.name} — {exc}")
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
         return False

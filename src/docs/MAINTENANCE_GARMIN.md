@@ -48,6 +48,14 @@ loop — so the diagram above is accurate for the regular sync path, this note
 only covers the scan's own separate entry.
 ```
 
+### Atomic writes (v1.7.8.2)
+
+Every file the program writes "atomically" (temporary file, then swap) goes through `garmin/atomic_io.py`; the rules are in `REFERENCE_INVARIANTS.md` ("Atomic writes") and `REFERENCE_GARMIN.md` (`atomic_io.py`). To write a new file the same way: `import atomic_io as aio` (flat, in `garmin/`), then `aio.write_atomic(dst, payload, fsync=..., attempts=..., tmp=...)` inside the caller's own `try` (the helper raises, the caller logs and returns its usual failure value). Choose the mode by the kind of file: archive data `aio.FSYNC_SOFT` and `aio.REPLACE_ATTEMPTS`; a file that can be made again `fsync` off and one attempt; keep the old temporary name with `tmp=` when a test or a reader depends on it.
+Two files swapped one after the other (`garmin_writer.write_day`): `aio.write_tmp` for both, then `aio.replace_with_retry` for both, and the caller's own cleanup of the temporary files in its `except` block.
+Do not copy the pattern into another module: `tests/test_static.py` section 7 fails on a new `os.replace`, `os.rename`, `os.fsync`, one-argument `.replace` / `.rename` or `except PermissionError` outside `atomic_io.py` (its exception list names the three ZIP writers, `crash_handler.py` and `diary_writer._remove`, each with an exact count and a reason). A module of `garmin/` may import at module level only what is found from `garmin/` alone (the collector subprocess); a new leaf node that imports `atomic_io` needs an entry in `_LEAF_NODE_FILE_EXCEPTIONS` there.
+When a test has to make a write fail or a file look locked, patch `os.replace` or `os.fsync` (the helper uses the `os` module, so a patch on the module name works) and `time.sleep` (the retry pauses); a patch of `Path.write_text` or `json.dump` of the old code no longer reaches the write.
+Tools outside the repo: the Cosmic Ray runner has entries for `atomic_io` and the converted modules (`MAINTENANCE_MUTATION.md`, round v1.7.8.2) and the Netz-2 delta tool hashes `quality/_io.py` and `atomic_io.py` for `garmin_quality` and `atomic_io.py` for `garmin_bulk_writer`.
+
 ### garmin/quality/ — known design decisions
 
 `_safe_get()` is defined separately in both `_io.py` and `_assess.py` — intentional
@@ -204,7 +212,7 @@ of scope.
   and the two follow-up notes it left behind (`backfill_raw()`/
   `backfill_source()` name-check pattern unchecked; `garmin_writer.py`
   raw/summary atomicity gap now more relevant since Force-Refetch touches
-  deliberately-risky days).
+  deliberately-risky days). (v1.7.8.2: `write_day` now writes both temporary files first and swaps raw before summary through `atomic_io`; the gap between the two swaps stays, and it can be up to 1 s long when a swap has to wait for a locked file.)
 - **Resolved (v1.7.3):** `_run_bulk_field_backfill()` is a deliberate
   exception to the `_write_assessed()`-only-after-downgrade-check
   invariant above — it never calls `_write_assessed()`/`_check_downgrade()`
@@ -332,7 +340,7 @@ python tests/test_local.py
 16. `_run_self_healing` — schema version bump, status improvement
 A. `garmin_quality` v1.5.1 — checksum, backup trigger, integrity warnings
 B. `garmin_backup` — raw backup, consolidation, quality log snapshot, restore, integrity check, own downgrade guard in `restore_raw_days()` (Fix 2, v1.6.5.8 — `skipped_already_current` when an existing file is already at `"high"` quality). v1.7.5.6 (`test_backup.py` 4f3/4f4, both modules via `_BK_KINDS`): a rewritten day replaces its ZIP entry right away through `backup_raw()`/`write_day()` (and `patch_source_field()` for source), unchanged content leaves the ZIP byte-identical; `check_*_stale_backups()`/`refresh_*_backups()` — changed ZIP entry, same-size/other-content (CRC32), changed copy in the open month folder, no backup at all (not counted), identical (nothing), two months in one run, invalid file (broken JSON, list, for raw a wrong `date`) reported and not copied, copy failure counted, missing folders, unreadable ZIP; the collector step 3d in `test_collector.py` (runs once per store, also with a cancelled login or a login error, a failing check/refresh is a warning, the import mode returns before it). One check per write path pins that the monthly ZIP holds the rewritten day (each first moves the day into the ZIP, then runs the path): steps backfill (E2) and bulk field backfill (E5) in `test_collector.py`, mirror import in `test_import_mirror.py`, silo repair #3 and #7 in `test_silo_repair.py`; the collector helper reads the ZIP entry after the next consolidation, which is what exposes a stale backup. The old checks "file stays in the month folder" and "existing ZIP entry is kept" were turned around on purpose, in `test_backup.py`, `test_local_context.py` and `test_garmin_import.py`. v1.7.6.2.1: the module functions are thin shells over `garmin_backup_common`, so these checks also pin the wiring (names, return keys, the module's logger — `_blogged` swaps the module's `log`); the `testzip` patches count calls (check before the append, after it, of a rebuilt ZIP) and follow the order of the shared flow; the one `_zip_contains` probe patches `garmin_backup_common.zip_contains`
-C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). Tests für `_restore_device_table` ausstehend.
+C. `garmin_mirror` — `is_reachable`, `run_mirror` → container, `is_container`, `garmin_token` exclusion. `device_table.json` in `quality_log`-Section (pack + restore). T2 Hidden-Import-Fix (`cryptography.hazmat.primitives.kdf`). `garmin_import_mirror._restore_device_table` puts the table of a container back with a plain `write_bytes` (not atomic, not through `garmin_quality`: a documented exception to the sole write authority; tested in `test_import_mirror.py`).
 C2. `garmin_container` — `unlock_meta`: happy path + wrong password + missing file + non-container + tampered HMAC (10 checks). `fulfill_order`: roundtrip + wrong password + empty order (5 checks). (v1.6.0.4.9.3)
 
 **Steps Intraday Foundation + Backfill (v1.6.3):** `steps_series` in `garmin_map._FIELD_MAP`

@@ -31,8 +31,9 @@ Mirror container: garmin_container (section "diary")  ←→  garmin_import_mirr
 
 - `diary_writer` is the only module that creates or removes files in `diary_data/`; `diary_backup` is the only
   one that writes below `garmin_data/backup/diary/`. A second writer is a regression.
-- The package `diary/` imports only the standard library and its own modules, except `diary_backup.py`
-  (`garmin_backup_common`, which is not changed by the diary). A test reads the imports with `ast`.
+- The package `diary/` imports only the standard library and its own modules, except `diary_writer.py` (`atomic_io`, the
+  shared write helper of v1.7.8.2) and `diary_backup.py` (`garmin_backup_common`, which is not changed by the diary, and
+  `atomic_io`). A test reads the imports with `ast`.
 - The diary reaches the MCP side only through the opt-in (v1.7.8.1). Only these modules of `clients/` and `maps/` may
   mention it: `mcp_server.py`, `mcp_server_gui.py`, `mcp_sql.py`, `mcp_update.py`, `mcp_diary.py`, `mcp_query_common.py`,
   `mcp_health.py`, `mcp_context.py`, `diary_map.py`, `gateway_map.py` (a test
@@ -173,7 +174,8 @@ Every file carries the marker `DIARY v1.7.8 — REMOVABLE`. To remove the diary:
 `app/panel_diary.py`, `app/diary_entry_editor.py`, `app/dialog_diary_*.py`, the entries in `compiler/build_manifest.py`,
 the `PanelDiary` lines in `garmin_app_base.py`, the entries of `run_tests.ps1` and `tests/conftest.py`, the two
 test files, and (to leave the mirror as before) the `diary` section in `garmin_container.py`, the diary import in
-`garmin_import_mirror.py` and the diary lines in `app/panel_archive.py`.
+`garmin_import_mirror.py` and the diary lines in `app/panel_archive.py`. `garmin/atomic_io.py` stays: it is shared by many writers
+(v1.7.8.2) and not part of the diary.
 
 The connection of the diary (v1.7.8.1) can be taken out on its own, so that the diary stays in the program without the
 dashboard boxes, the MCP tools and the export: `maps/diary_map.py`, `clients/mcp_diary.py`, `layouts/dash_diary.py`; the diary

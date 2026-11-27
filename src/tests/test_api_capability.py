@@ -18,6 +18,8 @@ from unittest.mock import patch
 from gla_testenv import cfg  # sets up the environment; must precede garmin_* imports
 from support import check, section, summary
 
+import atomic_io as aio  # garmin/ is on the path (gla_testenv)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  K. garmin_api_capability (v1.6.8 — API-Capability-Scan config, Leaf-Node)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -90,7 +92,7 @@ check("save_config round-trip: 19 endpoints",
       len(_cap_roundtrip["endpoints"]) == 19)
 
 # simulated write failure (os.replace raises) → False, no crash
-with patch.object(capability.os, "replace", side_effect=OSError("disk full (simuliert)")):
+with patch.object(aio.os, "replace", side_effect=OSError("disk full (simuliert)")):
     try:
         _cap_save_fail = capability.save_config(capability._default_config())
         check("save_config: OSError on replace → False, no crash", _cap_save_fail is False)
@@ -262,5 +264,99 @@ check("K2 build_args: the real endpoints keep their documented shapes",
       capability.build_args("get_pregnancy_summary", _D9) == ()
       and capability.build_args("get_calories_daily", _D9) == (_D9, _D9)
       and capability.build_args("get_floors", _D9) == (_D9,))
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  K3. save_config writes through atomic_io (Block 8 (a), step 2): fsync and retry are counted, because a forgotten
+#      parameter would lose them without any other check noticing
+# ══════════════════════════════════════════════════════════════════════════════
+section("K3. save_config through atomic_io")
+import ast as _ast10
+import os as _os10
+import shutil as _sh10
+import tempfile as _tf10
+from pathlib import Path as _P10
+
+_d10 = _P10(_tf10.mkdtemp(prefix="gla_cap10_"))
+_t10 = _d10 / "sub" / "cap10.json"
+_c10 = capability.update_endpoint(capability._default_config(), "get_floors", "found", enabled_by_user=True)
+_real_fsync10, _real_replace10 = _os10.fsync, _os10.replace
+
+
+def _fsync_spy10(calls, fail=False):
+    def spy(fd):
+        calls.append(fd)
+        if fail:
+            raise OSError("not supported")
+        return _real_fsync10(fd)
+    return spy
+
+
+def _tmps10():
+    return sorted(p.name for p in _d10.rglob("*.tmp"))
+
+
+with patch.object(capability.cfg, "CAPABILITY_CONFIG_FILE", _t10):
+    _fs10 = []
+    with patch.object(aio.os, "fsync", _fsync_spy10(_fs10)):
+        _ok10 = capability.save_config(_c10)
+    check("K3 save_config: the file is fsynced once", _ok10 is True and len(_fs10) == 1 and _t10.is_file())
+
+    _ref10 = _d10 / "reference.json"
+    with open(_ref10, "w", encoding="utf-8") as _fh10:           # the way the module wrote it before
+        json.dump(_c10, _fh10, indent=2)
+    check("K3 save_config: the bytes are those of the former json.dump into open(..., 'w') (line ends included)",
+          _t10.read_bytes() == _ref10.read_bytes())
+
+    _t10.unlink()
+    _fs10 = []
+    with patch.object(aio.os, "fsync", _fsync_spy10(_fs10, fail=True)):
+        _ok10 = capability.save_config(_c10)
+    check("K3 save_config: a file system without fsync still takes the file (one try, soft)",
+          _ok10 is True and len(_fs10) == 1 and json.loads(_t10.read_text(encoding="utf-8")) == _c10 and _tmps10() == [])
+
+    _calls10 = {"n": 0}
+
+    def _flaky_replace10(src, dst):
+        _calls10["n"] += 1
+        if _calls10["n"] <= 2:
+            raise PermissionError("locked for a moment")
+        return _real_replace10(src, dst)
+
+    _c10b = capability.update_endpoint(_c10, "get_hydration_data", "found", enabled_by_user=True)
+    _sleeps10 = []
+    with patch.object(aio.os, "replace", _flaky_replace10), patch.object(aio.time, "sleep", _sleeps10.append):
+        _ok10 = capability.save_config(_c10b)
+    check("K3 save_config: a file locked for a moment is tried again and then written (2 locked, 1 free)",
+          _ok10 is True and _calls10["n"] == 3 and [round(p, 3) for p in _sleeps10] == [0.1, 0.2]
+          and json.loads(_t10.read_text(encoding="utf-8")) == _c10b and _tmps10() == [])
+
+    _before10 = _t10.read_bytes()
+    _calls10["n"] = -100
+    _sleeps10.clear()
+    with patch.object(aio.os, "replace", _flaky_replace10), patch.object(aio.time, "sleep", _sleeps10.append):
+        _ok10 = capability.save_config(_c10)
+    check("K3 save_config: a file that stays locked: False after five tries, the stored file untouched, no .tmp",
+          _ok10 is False and _calls10["n"] == -95 and len(_sleeps10) == 4 and _t10.read_bytes() == _before10 and _tmps10() == [])
+
+    with patch.object(aio.os, "replace", side_effect=OSError("disk full (simuliert)")):
+        _ok10 = capability.save_config(_c10)
+    check("K3 save_config: a failing swap: False and no .tmp left behind (it stayed before)",
+          _ok10 is False and _t10.read_bytes() == _before10 and _tmps10() == [])
+
+    _fs10 = []
+    with patch.object(aio.os, "fsync", _fsync_spy10(_fs10)):
+        try:
+            capability.save_config({"endpoints": {"x": object()}})
+            _raised10 = None
+        except Exception as _exc10:  # noqa: BLE001 — the type is what is looked at
+            _raised10 = type(_exc10)
+    check("K3 save_config: data that is not JSON raises a TypeError as before; nothing is written, the stored file stays",
+          _raised10 is TypeError and _fs10 == [] and _t10.read_bytes() == _before10 and _tmps10() == [])
+
+_own10 = [(_n.value.id, _n.attr) for _n in _ast10.walk(_ast10.parse(_P10(capability.__file__).read_text(encoding="utf-8")))
+          if isinstance(_n, _ast10.Attribute) and isinstance(_n.value, _ast10.Name) and _n.value.id == "os"
+          and _n.attr in ("replace", "fsync", "rename")]
+check("K3 the module has no os.replace / os.fsync / os.rename of its own (the write goes through atomic_io)", _own10 == [])
+_sh10.rmtree(_d10, ignore_errors=True)
 
 summary()

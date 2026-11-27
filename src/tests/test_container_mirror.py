@@ -107,6 +107,101 @@ check("lock: failing swap and failing cleanup -> no crash, ok False", _r["ok"] =
 for _t in _M4.glob("*.tmp"):
     _t.unlink()
 
+# -- lock: written through atomic_io (Block 8 (a), step 2) -------------------------------
+# fsync and the retry are counted: a forgotten parameter would lose them without any other check noticing.
+import ast as _ast4
+import os as _os4
+import atomic_io as _aio4
+
+_real_fsync4, _real_replace4 = _os4.fsync, _os4.replace
+
+
+def _fsync_spy4(calls, fail=False):
+    def spy(fd):
+        calls.append(fd)
+        if fail:
+            raise OSError("not supported")
+        return _real_fsync4(fd)
+    return spy
+
+
+def _tmps4():
+    return sorted(p.name for p in _M4.glob("*.tmp"))
+
+
+_fs4 = []
+with patch.object(_aio4.os, "fsync", _fsync_spy4(_fs4)):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "fsync1.gla", "pw")
+check("lock: the container is fsynced once", _r["ok"] is True and len(_fs4) == 1 and _gc4.is_container(_M4 / "fsync1.gla"))
+_fs4 = []
+with patch.object(_aio4.os, "fsync", _fsync_spy4(_fs4, fail=True)):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "fsync2.gla", "pw")
+check("lock: an error of fsync fails the mirror (strict, as before): exact failure result, no container, no .tmp",
+      _r == {"files_packed": 0, "errors": 1, "ok": False} and len(_fs4) == 1
+      and not (_M4 / "fsync2.gla").exists() and _tmps4() == [])
+
+_calls4 = {"n": 0}
+
+
+def _flaky_replace4(src, dst):
+    _calls4["n"] += 1
+    if _calls4["n"] <= 2:
+        raise PermissionError("locked for a moment")
+    return _real_replace4(src, dst)
+
+
+_sleeps4 = []
+with patch.object(_aio4.os, "replace", _flaky_replace4), patch.object(_aio4.time, "sleep", _sleeps4.append):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "retry1.gla", "pw")
+check("lock: a container locked for a moment is tried again and then written (2 locked, 1 free)",
+      _r["ok"] is True and _calls4["n"] == 3 and [round(p, 3) for p in _sleeps4] == [0.1, 0.2]
+      and _gc4.is_container(_M4 / "retry1.gla") and _tmps4() == [])
+_calls4["n"] = -100
+_sleeps4.clear()
+with patch.object(_aio4.os, "replace", _flaky_replace4), patch.object(_aio4.time, "sleep", _sleeps4.append):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _M4 / "retry2.gla", "pw")
+check("lock: a container that stays locked: exact failure result after five tries, no container, no .tmp",
+      _r == {"files_packed": 0, "errors": 1, "ok": False} and _calls4["n"] == -95 and len(_sleeps4) == 4
+      and not (_M4 / "retry2.gla").exists() and _tmps4() == [])
+
+_names4 = []
+
+
+def _spy_replace4(src, dst):
+    _names4.append((Path(src).name, Path(dst).name))
+    return _real_replace4(src, dst)
+
+
+with patch.object(_aio4.os, "replace", _spy_replace4):
+    _gc4.lock(_M4_EMPTY_SRC, _M4 / "tmpname.gla", "pw")
+check("lock: the temporary file is <name>.gla.tmp, as before", _names4 == [("tmpname.gla.tmp", "tmpname.gla")])
+_names4.clear()
+with patch.object(_aio4.os, "replace", _spy_replace4):
+    _gc4.lock(_M4_EMPTY_SRC, _M4 / "tmpname2.bin", "pw")
+check("lock: a target that does not end in .gla still gets <stem>.gla.tmp (with_suffix, not the target name plus .tmp)",
+      _names4 == [("tmpname2.gla.tmp", "tmpname2.bin")])
+
+# a container that is there stays exactly as it was when the new one cannot be written
+_keep4 = _M4 / "keep.gla"
+shutil.copyfile(_good4, _keep4)
+_kept_bytes4 = _keep4.read_bytes()
+_one4 = {"raw": {"garmin_data/raw/a.json": b"1"}}
+with patch.object(_gc4, "_collect_sections", lambda _s: dict(_one4)), \
+        patch.object(_gc4, "_encrypt_section", lambda files, key: "not bytes"):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _keep4, "pw")
+check("lock: the file stops in the middle of the writing: failure result, the container that was there is byte for byte "
+      "the same, no .tmp", _r == {"files_packed": 0, "errors": 1, "ok": False}
+      and _keep4.read_bytes() == _kept_bytes4 and _tmps4() == [])
+with patch.object(_aio4.os, "replace", side_effect=OSError("locked")):
+    _r = _gc4.lock(_M4_EMPTY_SRC, _keep4, "pw")
+check("lock: the swap fails: failure result, the container that was there is byte for byte the same and opens, no .tmp",
+      _r == {"files_packed": 0, "errors": 1, "ok": False} and _keep4.read_bytes() == _kept_bytes4
+      and _gc4.unlock_meta(_keep4, "pw")["ok"] is True and _tmps4() == [])
+_own4 = [(_n.value.id, _n.attr) for _n in _ast4.walk(_ast4.parse(Path(_gc4.__file__).read_text(encoding="utf-8")))
+         if isinstance(_n, _ast4.Attribute) and isinstance(_n.value, _ast4.Name) and _n.value.id == "os"
+         and _n.attr in ("replace", "fsync", "rename")]
+check("garmin_container has no os.replace / os.fsync / os.rename of its own (the write goes through atomic_io)", _own4 == [])
+
 # -- unlock_meta: hand-built broken containers ------------------------------------
 _c = _M4 / "no_ql.gla"
 _craft_container(_c, {"raw": {_RAW_A: b"{}"}})

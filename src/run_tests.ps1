@@ -82,6 +82,7 @@ Write-Log ""
 # Tests
 Run-And-Tee "python" @("tests/test_local.py")          "test_local.py"
 Run-And-Tee "python" @("tests/test_basics.py")          "test_basics.py"
+Run-And-Tee "python" @("tests/test_atomic_io.py")        "test_atomic_io.py"           # v1.7.8.2 — the atomic-write helper (Block 8)
 Run-And-Tee "python" @("tests/test_security.py")          "test_security.py"
 Run-And-Tee "python" @("tests/test_redact.py")          "test_redact.py"
 Run-And-Tee "python" @("tests/test_api_capability.py")          "test_api_capability.py"

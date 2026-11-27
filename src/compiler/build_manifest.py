@@ -82,6 +82,7 @@ SHARED_SCRIPTS = [
     "garmin/__init__.py",
     "garmin/garmin_config.py",
     "garmin/garmin_utils.py",
+    "garmin/atomic_io.py",             # v1.7.8.2 — the one atomic-write helper (Block 8), leaf node; in garmin/ so that a script in garmin/ finds it
     "garmin/garmin_api.py",
     "garmin/garmin_security.py",
     "garmin/garmin_validator.py",
@@ -379,6 +380,7 @@ SCRIPT_SIGNATURES_BASE = {
     "frozen_paths.py": ["def scripts_root", "def add_to_path", "def doc_path", "def is_t3_standalone", "def is_t2_standard"],
     "log_utils.py": ["def with_timestamp"],
     "date_utils.py": ["def date_range"],
+    "garmin/atomic_io.py": ["def write_atomic", "def write_atomic_stream", "def write_tmp", "def replace_with_retry", "def remove_quietly"],  # v1.7.8.2
     "process_status.py": ["def is_mcp_running", "def write_lock", "def clear_lock", "def is_running", "def get_pid"],
     "updater.py": ["def resolve_release_asset", "def prepare_update"],
     "garmin/garmin_redact.py": ["def redact"],

@@ -624,11 +624,292 @@ with _iso5e("w5h_preview") as _b:
     check("5h damaged aggregates: state 'none' (as write_day() treats them)", writer.resolve_preview(_apiP, _DP)["state"] == "none")
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  5y. garmin_writer — the files it writes (Block 8 (a), step 7). This part holds for the module before and after it
+#      writes through atomic_io: bytes, tmp names, the order of the swaps, what a failing swap leaves behind.
+# ══════════════════════════════════════════════════════════════════════════════
+section("5y. garmin_writer — the files it writes")
+import os as _os5y
+
+_real_replace5y = _os5y.replace
+_D5Y = "2024-07-01"
+_NORM5Y = {"date": _D5Y, "name": "Größe µ € 😀", "nested": {"a": [1, 2]}}
+_SUM5Y = {"date": _D5Y, "label": "Größe €"}
+_NORM5Y2 = {"date": _D5Y, "name": "neu", "nested": {"a": [3]}}
+_SUM5Y2 = {"date": _D5Y, "label": "neu Größe € 😀"}
+
+
+def _ref5y(base, name, obj):
+    ref = base / name
+    ref.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    return ref.read_bytes()
+
+
+def _spy5y(names):
+    def spy(src, dst):
+        names.append((Path(dst).parent.name, Path(src).name, Path(dst).name))
+        return _real_replace5y(src, dst)
+    return spy
+
+
+def _fail_swap5y(parents):
+    def fail(src, dst):
+        if Path(dst).parent.name in parents:
+            raise OSError("locked")
+        return _real_replace5y(src, dst)
+    return fail
+
+
+with _isolated_log_env("w5y") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _rn5y, _sn5y = cfg.RAW_DIR.name, cfg.SUMMARY_DIR.name
+    _raw_p5y = cfg.RAW_DIR / f"garmin_raw_{_D5Y}.json"
+    _sum_p5y = cfg.SUMMARY_DIR / f"garmin_{_D5Y}.json"
+
+    def _tmps5y():
+        return sorted(p.name for p in _b.rglob("*.tmp"))
+
+    _names = []
+    with patch.object(_gb5d, "backup_raw") as _br5y, patch("os.replace", _spy5y(_names)):
+        _ok5y = writer.write_day(_NORM5Y, _SUM5Y, _D5Y)
+    check("5y write_day: True, the raw backup is triggered once", _ok5y is True and _br5y.call_count == 1)
+    check("5y write_day: both files have the bytes of the former write_text (umlauts, euro sign, emoji, the line ends of the system)",
+          _raw_p5y.read_bytes() == _ref5y(_b, "ref_raw.json", _NORM5Y) and _sum_p5y.read_bytes() == _ref5y(_b, "ref_sum.json", _SUM5Y))
+    check("5y write_day: raw goes through garmin_raw_<d>.tmp and is swapped first, then summary through garmin_<d>.tmp",
+          _names == [(_rn5y, f"garmin_raw_{_D5Y}.tmp", f"garmin_raw_{_D5Y}.json"), (_sn5y, f"garmin_{_D5Y}.tmp", f"garmin_{_D5Y}.json")])
+    check("5y write_day: no .tmp is left behind after a success", _tmps5y() == [])
+
+    # the day is stored: a failing raw swap leaves both files as they were
+    _old5y = (_raw_p5y.read_bytes(), _sum_p5y.read_bytes())
+    with patch.object(_gb5d, "backup_raw") as _br5y, patch("os.replace", _fail_swap5y({_rn5y})):
+        _ok5y = writer.write_day(_NORM5Y2, _SUM5Y2, _D5Y)
+    check("5y write_day: a failing raw swap is False, both stored files stay byte for byte the same, no .tmp, no backup trigger",
+          _ok5y is False and (_raw_p5y.read_bytes(), _sum_p5y.read_bytes()) == _old5y and _tmps5y() == [] and not _br5y.called)
+
+    # a failing summary swap: raw was swapped before it and stays swapped (documented), the summary stays old
+    with patch.object(_gb5d, "backup_raw") as _br5y, patch("os.replace", _fail_swap5y({_sn5y})):
+        _ok5y = writer.write_day(_NORM5Y2, _SUM5Y2, _D5Y)
+    check("5y write_day: a failing summary swap is False, the raw file stays replaced, the summary stays as it was, no .tmp, no backup trigger",
+          _ok5y is False and _raw_p5y.read_bytes() == _ref5y(_b, "ref_raw2.json", _NORM5Y2) and _sum_p5y.read_bytes() == _old5y[1]
+          and _tmps5y() == [] and not _br5y.called)
+
+    # write_summary_only: only summary/, through garmin_<d>.tmp
+    _raw_before5y = _raw_p5y.read_bytes()
+    _names = []
+    with patch.object(_gb5d, "backup_raw") as _br5y, patch("os.replace", _spy5y(_names)):
+        _ok5y = writer.write_summary_only(_SUM5Y2, _D5Y)
+    check("5y write_summary_only: True, only the summary is swapped (garmin_<d>.tmp), the raw file is untouched, no backup trigger",
+          _ok5y is True and _names == [(_sn5y, f"garmin_{_D5Y}.tmp", f"garmin_{_D5Y}.json")]
+          and _raw_p5y.read_bytes() == _raw_before5y and not _br5y.called and _tmps5y() == [])
+    check("5y write_summary_only: the summary has the bytes of the former write_text",
+          _sum_p5y.read_bytes() == _ref5y(_b, "ref_sum2.json", _SUM5Y2))
+    _sum_before5y = _sum_p5y.read_bytes()
+    with patch("os.replace", _fail_swap5y({_sn5y})):
+        _ok5y = writer.write_summary_only(_SUM5Y, _D5Y)
+    check("5y write_summary_only: a failing swap is False, the stored summary and the raw file stay byte for byte the same, no .tmp",
+          _ok5y is False and _sum_p5y.read_bytes() == _sum_before5y and _raw_p5y.read_bytes() == _raw_before5y and _tmps5y() == [])
+
+    # restore_day_files: exact bytes, raw first, then summary
+    _names = []
+    with patch.object(_gb5d, "backup_raw") as _br5y, patch("os.replace", _spy5y(_names)):
+        _ok5y = writer.restore_day_files(_D5Y, b"\xff not json \x00", b"{ summary \xe2\x82\xac")
+    check("5y restore_day_files: True, the exact bytes of both files, raw swapped first (garmin_raw_<d>.tmp), then summary, the raw backup once",
+          _ok5y is True and _raw_p5y.read_bytes() == b"\xff not json \x00" and _sum_p5y.read_bytes() == b"{ summary \xe2\x82\xac"
+          and _names == [(_rn5y, f"garmin_raw_{_D5Y}.tmp", f"garmin_raw_{_D5Y}.json"), (_sn5y, f"garmin_{_D5Y}.tmp", f"garmin_{_D5Y}.json")]
+          and _br5y.call_count == 1 and _tmps5y() == [])
+    _old5y = (_raw_p5y.read_bytes(), _sum_p5y.read_bytes())
+    with patch.object(_gb5d, "backup_raw") as _br5y, patch("os.replace", _fail_swap5y({_sn5y})):
+        _ok5y = writer.restore_day_files(_D5Y, b"new raw", b"new summary")
+    check("5y restore_day_files: a failing summary swap is False, the raw file stays replaced (as documented), the summary as it was, no .tmp, no backup trigger",
+          _ok5y is False and _raw_p5y.read_bytes() == b"new raw" and _sum_p5y.read_bytes() == _old5y[1] and _tmps5y() == [] and not _br5y.called)
+    with patch.object(_gb5d, "backup_raw") as _br5y, patch("os.replace", _fail_swap5y({_rn5y})):
+        _ok5y = writer.restore_day_files(_D5Y, b"newer raw", b"newer summary")
+    check("5y restore_day_files: a failing raw swap is False and stops before the summary: both stay as they were, no .tmp",
+          _ok5y is False and _raw_p5y.read_bytes() == b"new raw" and _sum_p5y.read_bytes() == _old5y[1] and _tmps5y() == [])
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  5y2. garmin_writer writes through atomic_io (Block 8 (a), step 7): fsync and retry are counted, because a forgotten
+#       parameter would lose them without any other check noticing
+# ══════════════════════════════════════════════════════════════════════════════
+section("5y2. garmin_writer through atomic_io")
+import ast as _ast5y2
+import atomic_io as _aio5y2
+
+_real_fsync5y2 = _os5y.fsync
+
+
+def _fsync_spy5y2(calls, fail=False):
+    def spy(fd):
+        calls.append(fd)
+        if fail:
+            raise OSError("not supported")
+        return _real_fsync5y2(fd)
+    return spy
+
+
+def _lock5y2(parents, free_after=None):
+    """os.replace that raises PermissionError for a target in one of the folders; free after N locked calls (None: stays locked)."""
+    state = {"locked": 0, "calls": 0}
+
+    def replace(src, dst):
+        if Path(dst).parent.name in parents:
+            state["calls"] += 1
+            if free_after is None or state["locked"] < free_after:
+                state["locked"] += 1
+                raise PermissionError("locked")
+        return _real_replace5y(src, dst)
+    return replace, state
+
+
+with _isolated_log_env("w5y2") as _b:
+    cfg.SUMMARY_DIR = _b / "summary"
+    _rn, _sn = cfg.RAW_DIR.name, cfg.SUMMARY_DIR.name
+    _D = "2024-07-02"
+    _raw_p = cfg.RAW_DIR / f"garmin_raw_{_D}.json"
+    _sum_p = cfg.SUMMARY_DIR / f"garmin_{_D}.json"
+
+    def _tmps():
+        return sorted(p.name for p in _b.rglob("*.tmp"))
+
+    # fsync: counted per file; the order of the steps of write_day: both temp files are written (raw first), then swapped (raw first)
+    _fs = []
+    _events = []
+    _real_write_tmp = _aio5y2.write_tmp
+
+    def _write_tmp_spy(tmp, *a, **k):
+        _events.append(("write", Path(tmp).name))
+        return _real_write_tmp(tmp, *a, **k)
+
+    with patch.object(_gb5d, "backup_raw"), patch.object(_aio5y2.os, "fsync", _fsync_spy5y2(_fs)), \
+            patch.object(_aio5y2, "write_tmp", _write_tmp_spy), patch("os.replace", lambda s, d: (_events.append(("swap", Path(s).name)), _real_replace5y(s, d))[1]):
+        _ok = writer.write_day(_NORM5Y, _SUM5Y, _D)
+    check("5y2 write_day: both files are fsynced (twice)", _ok is True and len(_fs) == 2)
+    check("5y2 write_day: both temp files are written first (raw, then summary), then swapped (raw, then summary)",
+          _events == [("write", f"garmin_raw_{_D}.tmp"), ("write", f"garmin_{_D}.tmp"),
+                      ("swap", f"garmin_raw_{_D}.tmp"), ("swap", f"garmin_{_D}.tmp")])
+    _fs = []
+    with patch.object(_aio5y2.os, "fsync", _fsync_spy5y2(_fs)):
+        _ok = writer.write_summary_only(_SUM5Y2, _D)
+    check("5y2 write_summary_only: the summary is fsynced once", _ok is True and len(_fs) == 1)
+    _fs = []
+    with patch.object(_gb5d, "backup_raw"), patch.object(_aio5y2.os, "fsync", _fsync_spy5y2(_fs)):
+        _ok = writer.restore_day_files(_D, b"raw bytes", b"summary bytes")
+    check("5y2 restore_day_files: each file is fsynced (twice for two files)", _ok is True and len(_fs) == 2)
+    _fs = []
+    with patch.object(_aio5y2.os, "fsync", _fsync_spy5y2(_fs)):
+        _ok = writer.restore_day_files(_D, None, b"summary bytes 2")
+    check("5y2 restore_day_files: one file is fsynced once", _ok is True and len(_fs) == 1)
+
+    # a file system without fsync still takes everything (soft)
+    _fs = []
+    with patch.object(_gb5d, "backup_raw"), patch.object(_aio5y2.os, "fsync", _fsync_spy5y2(_fs, fail=True)):
+        _ok1 = writer.write_day(_NORM5Y2, _SUM5Y2, _D)
+        _ok2 = writer.write_summary_only(_SUM5Y, _D)
+        _ok3 = writer.restore_day_files(_D, b"r", b"s")
+    check("5y2 a file system without fsync still takes all three ways of writing (soft)",
+          _ok1 is True and _ok2 is True and _ok3 is True and len(_fs) == 5 and _tmps() == []
+          and _raw_p.read_bytes() == b"r" and _sum_p.read_bytes() == b"s")
+
+    # a file locked for a moment is tried again: two locked, then free
+    for _label, _call, _parents in (
+            ("write_day (raw swap)", lambda: writer.write_day(_NORM5Y, _SUM5Y, _D), {_rn}),
+            ("write_day (summary swap)", lambda: writer.write_day(_NORM5Y2, _SUM5Y2, _D), {_sn}),
+            ("write_summary_only", lambda: writer.write_summary_only(_SUM5Y, _D), {_sn}),
+            ("restore_day_files (raw swap)", lambda: writer.restore_day_files(_D, b"a", b"b"), {_rn}),
+            ("restore_day_files (summary swap)", lambda: writer.restore_day_files(_D, b"c", b"d"), {_sn})):
+        _rep, _st = _lock5y2(_parents, free_after=2)
+        _sl = []
+        with patch.object(_gb5d, "backup_raw"), patch("os.replace", _rep), patch.object(_aio5y2.time, "sleep", _sl.append):
+            _ok = _call()
+        check(f"5y2 {_label}: a file locked for a moment is tried again and then written (2 locked, 1 free, pauses 0.1 and 0.2)",
+              _ok is True and _st["calls"] == 3 and [round(p, 3) for p in _sl] == [0.1, 0.2] and _tmps() == [])
+
+    # a file that stays locked: five tries with four pauses, False, nothing half done, no .tmp
+    _write5y2 = {_rn: lambda: writer.write_day(_NORM5Y2, _SUM5Y2, _D),
+                 _sn: lambda: writer.write_summary_only(_SUM5Y2, _D)}
+    _old = (_raw_p.read_bytes(), _sum_p.read_bytes())
+    _rep, _st = _lock5y2({_rn})
+    _sl = []
+    with patch.object(_gb5d, "backup_raw") as _br, patch("os.replace", _rep), patch.object(_aio5y2.time, "sleep", _sl.append):
+        _ok = writer.write_day(_NORM5Y2, _SUM5Y2, _D)
+    check("5y2 write_day: a raw file that stays locked: False after five tries (pauses 0.1 .. 0.4), both stored files untouched, no .tmp, no backup trigger",
+          _ok is False and _st["calls"] == 5 and [round(p, 3) for p in _sl] == [0.1, 0.2, 0.3, 0.4]
+          and (_raw_p.read_bytes(), _sum_p.read_bytes()) == _old and _tmps() == [] and not _br.called)
+    _rep, _st = _lock5y2({_sn})
+    _sl = []
+    with patch.object(_gb5d, "backup_raw") as _br, patch("os.replace", _rep), patch.object(_aio5y2.time, "sleep", _sl.append):
+        _ok = writer.write_day(_NORM5Y2, _SUM5Y2, _D)
+    check("5y2 write_day: a summary file that stays locked: False after five tries, the raw file stays replaced, the summary as it was, no .tmp",
+          _ok is False and _st["calls"] == 5 and len(_sl) == 4 and _raw_p.read_bytes() == _ref5y(_b, "r2.json", _NORM5Y2)
+          and _sum_p.read_bytes() == _old[1] and _tmps() == [] and not _br.called)
+    _rep, _st = _lock5y2({_sn})
+    _sl = []
+    with patch("os.replace", _rep), patch.object(_aio5y2.time, "sleep", _sl.append):
+        _ok = writer.write_summary_only(_SUM5Y, _D)
+    check("5y2 write_summary_only: a summary file that stays locked: False after five tries, the stored file untouched, no .tmp",
+          _ok is False and _st["calls"] == 5 and len(_sl) == 4 and _sum_p.read_bytes() == _old[1] and _tmps() == [])
+    _rep, _st = _lock5y2({_rn})
+    _sl = []
+    with patch.object(_gb5d, "backup_raw") as _br, patch("os.replace", _rep), patch.object(_aio5y2.time, "sleep", _sl.append):
+        _ok = writer.restore_day_files(_D, b"x raw", b"x summary")
+    check("5y2 restore_day_files: a raw file that stays locked: False after five tries, nothing replaced, no .tmp, no backup trigger",
+          _ok is False and _st["calls"] == 5 and len(_sl) == 4 and _raw_p.read_bytes() == _ref5y(_b, "r2.json", _NORM5Y2)
+          and _sum_p.read_bytes() == _old[1] and _tmps() == [] and not _br.called)
+
+    # writing the temp file itself fails while the raw .tmp is written: the helper removes it, the summary .tmp never exists
+    _old = (_raw_p.read_bytes(), _sum_p.read_bytes())
+    with patch.object(_gb5d, "backup_raw") as _br, patch.object(_aio5y2, "sync_file", side_effect=OSError("disk full")):
+        _ok = writer.write_day(_NORM5Y, _SUM5Y, _D)
+    check("5y2 write_day: a temp file that cannot be written: False, both stored files untouched, no .tmp, no backup trigger",
+          _ok is False and (_raw_p.read_bytes(), _sum_p.read_bytes()) == _old and _tmps() == [] and not _br.called)
+
+    # a raw folder that is gone right before the raw file is written is not made again by the helper (the module made it earlier)
+    _real_dumps5y2 = json.dumps
+    _calls_d = {"n": 0}
+
+    def _dumps_removing(*a, **k):
+        _calls_d["n"] += 1
+        if _calls_d["n"] == 1:
+            for p in cfg.RAW_DIR.iterdir():
+                p.unlink()
+            cfg.RAW_DIR.rmdir()
+        return _real_dumps5y2(*a, **k)
+
+    with patch.object(_gb5d, "backup_raw"), patch.object(writer.json, "dumps", _dumps_removing):
+        _ok = writer.write_day(_NORM5Y, _SUM5Y, _D)
+    check("5y2 write_day: a raw folder that is gone is not made by the file write (False, folder still gone, no .tmp)",
+          _ok is False and not cfg.RAW_DIR.exists() and _tmps() == [])
+
+    # the same for the summary folder, which disappears after the raw .tmp was written (the second json.dumps of the day)
+    _calls_d["n"] = 0
+
+    def _dumps_removing_summary(*a, **k):
+        _calls_d["n"] += 1
+        if _calls_d["n"] == 2:
+            import shutil as _sh5y2
+            _sh5y2.rmtree(cfg.SUMMARY_DIR)
+        return _real_dumps5y2(*a, **k)
+
+    with patch.object(_gb5d, "backup_raw"), patch.object(writer.json, "dumps", _dumps_removing_summary):
+        _ok = writer.write_day(_NORM5Y, _SUM5Y, _D)
+    check("5y2 write_day: a summary folder that is gone is not made by the file write (False, folder still gone, the raw .tmp is removed)",
+          _ok is False and not cfg.SUMMARY_DIR.exists() and _tmps() == [])
+
+_src5y2 = _ast5y2.parse(Path(writer.__file__).read_text(encoding="utf-8"))
+_own5y2 = [(_n.value.id, _n.attr) for _n in _ast5y2.walk(_src5y2)
+           if isinstance(_n, _ast5y2.Attribute) and isinstance(_n.value, _ast5y2.Name) and _n.value.id == "os"
+           and _n.attr in ("replace", "fsync", "rename")]
+_wt5y2 = [_n.attr for _n in _ast5y2.walk(_src5y2) if isinstance(_n, _ast5y2.Attribute) and _n.attr in ("write_text", "write_bytes")]
+_imp5y2 = [a.name for _n in _ast5y2.walk(_src5y2) if isinstance(_n, _ast5y2.Import) for a in _n.names if a.name == "os"]
+check("5y2 the module has no os.replace / os.fsync / os.rename / write_text / write_bytes and no import os of its own (the writes go through atomic_io)",
+      _own5y2 == [] and _wt5y2 == [] and _imp5y2 == [])
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  5z. Mutation round v1.7.6.12 — survivors of the Cosmic Ray run (changed lines of garmin_writer)
 # ══════════════════════════════════════════════════════════════════════════════
 section("5z. garmin_writer — mutation round v1.7.6.12")
 import hashlib as _hl9
 import garmin_bulk_writer as _bw9
+import atomic_io as _aio5z
 from gla_testenv import _isolated_log_env as _iso9, _cfg_values as _cv9
 
 with _iso9("writer_5z") as _b9:
@@ -655,7 +936,7 @@ with _iso9("writer_5z") as _b9:
     check("5z restore_day_files: a folder with missing parents is made", _r_deep is True and (_deep / f"garmin_{_D9}.json").read_bytes() == b"{}")
 
     # restore_day_files: a failing swap whose temp file cannot be removed either: False, no exception
-    with patch("garmin_writer.os.replace", side_effect=OSError("locked")), patch.object(Path, "unlink", side_effect=OSError("cannot delete")), \
+    with patch("os.replace", side_effect=OSError("locked")), patch.object(Path, "unlink", side_effect=OSError("cannot delete")), \
             patch.object(writer, "log") as _lg:
         _r_fail = writer.restore_day_files(_D9, summary_bytes=b"{}")
     check("5z restore_day_files: a swap that fails and a temp file that cannot be removed -> False, the failure is logged, the cleanup only at debug",
@@ -663,7 +944,7 @@ with _iso9("writer_5z") as _b9:
           and any("not removed" in str(c.args[0]) for c in _lg.debug.call_args_list))
 
     # restore_day_files: a write that fails before the temp file exists: the cleanup must not complain about a missing file
-    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")), patch.object(writer, "log") as _lg:
+    with patch.object(_aio5z, "sync_file", side_effect=OSError("disk full")), patch.object(writer, "log") as _lg:   # the write of the temp file fails
         _r_wf = writer.restore_day_files("2024-06-30", summary_bytes=b"{}")   # a day with no temp file left over from the test above
     check("5z restore_day_files: a failed write leaves no temp file and the cleanup logs nothing (a missing temp file is no error)",
           _r_wf is False and len(_lg.error.call_args_list) == 1 and _lg.debug.call_args_list == [])
